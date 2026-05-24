@@ -173,7 +173,15 @@
                         :frame                  frame-id}))
         [db false])
       (try
-        (let [new-output (apply (:output flow) new-inputs)
+        ;; rf2-hhh92: wall-clock the flow's `:output` recompute (dev-only)
+        ;; so `:rf.flow/computed` carries `:elapsed-ms` — the per-op
+        ;; duration the Trace panel's DURATION column reads. The `now-ms`
+        ;; brackets ride `interop/debug-enabled?` (nil t0 in prod) so
+        ;; Closure DCEs them under :advanced + `goog.DEBUG=false`.
+        (let [t0         (when interop/debug-enabled? (interop/now-ms))
+              new-output (apply (:output flow) new-inputs)
+              flow-elapsed-ms (when interop/debug-enabled?
+                                (- (interop/now-ms) t0))
               ;; Per rf2-qlzh4: capture the pre-write value at the
               ;; flow's `:path` BEFORE we assoc-in the new output.
               ;; This becomes the `:before` slot on the
@@ -236,6 +244,7 @@
                                           new-output
                                           {:frame frame-id :path (:path flow)})
                           :path         (:path flow)
+                          :elapsed-ms   flow-elapsed-ms
                           :frame        frame-id})
             ;; Per rf2-ee38b.9 — dev-only output-schema validation. Runs
             ;; AFTER the `:rf.flow/computed` emit so the computed value is

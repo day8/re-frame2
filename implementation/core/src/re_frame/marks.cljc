@@ -638,6 +638,22 @@
                      cofx-map)]
         (assoc tags :rf.event/coeffects walked)))))
 
+(defn- project-cofx-run-tags
+  "Walk the `:rf.cofx/run` op shape (rf2-hhh92): `:rf.cofx/id` carries the
+  cofx keyword and `:rf.cofx/value` carries the per-call injected value.
+  Redact the value against the cofx's registered marks — mirrors
+  `project-fx-tags` for the standalone-value op (the cofx success emit
+  does not ride under `:rf.event/coeffects`)."
+  [tags]
+  (let [cofx-id (:rf.cofx/id tags)
+        marks   (cofx-marks cofx-id)]
+    (if (or (not marks) (not (contains? tags :rf.cofx/value)))
+      tags
+      (let [sens     (or (:sensitive marks) [])
+            large    (or (:large marks) [])
+            redacted (redact-with-paths (:rf.cofx/value tags) sens large)]
+        (assoc tags :rf.cofx/value redacted)))))
+
 (defn- project-sub-tags
   "Walk `:sub/run` tag shape: `:sub-id` carries the sub query keyword
   and `:value` carries the output. Per rf2-l1jz8 the reactive recompute
@@ -740,6 +756,9 @@
 
                       (and (map? tags) (contains? tags :rf.event/coeffects))
                       (project-cofx-tags)
+
+                      (and (map? tags) (= :rf.cofx/run operation))
+                      (project-cofx-run-tags)
 
                       (and (map? tags) (= :rf.sub/run operation))
                       (project-sub-tags frame-id)

@@ -354,6 +354,43 @@
                      :tags {:rf.event/coeffects coeffects-tag :frame :rf/default}})]
     (is (= :rf/redacted (get-in projected [:tags :rf.event/coeffects :auth/jwt])))))
 
+(deftest cofx-run-value-redacted-by-marks-chokepoint
+  ;; rf2-hhh92: the per-cofx success op `:rf.cofx/run` carries the
+  ;; per-call injected value under `:rf.cofx/value`; the marks chokepoint
+  ;; (`project-cofx-run-tags`, wired into `project-trace-event`) redacts
+  ;; it against the cofx's declared marks — mirroring `:rf.fx/handled`'s
+  ;; `:rf.fx/args` redaction for the standalone-value op.
+  (rf/reg-cofx :auth/jwt2
+    {:sensitive [[:token]]}
+    (fn [ctx v] (assoc-in ctx [:coeffects :auth/jwt2] v)))
+  (is (= [[:token]] (:sensitive (marks/marks-for :cofx :auth/jwt2))))
+  (let [projected (marks/project-trace-event
+                    {:operation :rf.cofx/run
+                     :op-type   :rf.cofx
+                     :tags      {:rf.cofx/id    :auth/jwt2
+                                 :rf.cofx/value {:token "secret" :public "ok"}
+                                 :rf.cofx/elapsed-ms 0.5
+                                 :frame         :rf/default}})]
+    (is (= :rf/redacted (get-in projected [:tags :rf.cofx/value :token]))
+        "the sensitive sub-path of the cofx value is redacted on :rf.cofx/run")
+    (is (= "ok" (get-in projected [:tags :rf.cofx/value :public]))
+        "non-sensitive sub-paths pass through")
+    (is (= 0.5 (get-in projected [:tags :rf.cofx/elapsed-ms]))
+        ":rf.cofx/elapsed-ms is not touched by the marks chokepoint")))
+
+(deftest cofx-run-value-untouched-without-marks
+  ;; A cofx with no declared marks: the value passes through unredacted.
+  (rf/reg-cofx :plain/cofx
+    (fn [ctx v] (assoc-in ctx [:coeffects :plain/cofx] v)))
+  (let [projected (marks/project-trace-event
+                    {:operation :rf.cofx/run
+                     :op-type   :rf.cofx
+                     :tags      {:rf.cofx/id    :plain/cofx
+                                 :rf.cofx/value {:any "data"}
+                                 :frame         :rf/default}})]
+    (is (= {:any "data"} (get-in projected [:tags :rf.cofx/value]))
+        "no marks → the cofx value is not redacted")))
+
 ;; ---- registrar interaction ---------------------------------------------
 
 (deftest re-registration-clears-prior-marks

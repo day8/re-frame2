@@ -253,10 +253,37 @@
                (trace/with-handler-scope
                  (cond-> (trace/handler-scope-from-meta :cofx cofx-id meta)
                    captured-cs (assoc :call-site captured-cs))
-                 (-> (if valued?
-                       ((:handler-fn meta) ctx value)
-                       ((:handler-fn meta) ctx))
-                     (maybe-validate-cofx! cofx-id meta)))
+                 ;; rf2-hhh92: wall-clock the cofx handler (dev-only) so the
+                 ;; success emit carries `:rf.cofx/elapsed-ms` — the per-op
+                 ;; duration the Trace panel's DURATION column reads. The
+                 ;; `now-ms` brackets ride `interop/debug-enabled?` (nil t0
+                 ;; in prod) so Closure DCEs them under :advanced — zero
+                 ;; prod cost.
+                 (let [t0     (when interop/debug-enabled? (interop/now-ms))
+                       result (-> (if valued?
+                                    ((:handler-fn meta) ctx value)
+                                    ((:handler-fn meta) ctx))
+                                  (maybe-validate-cofx! cofx-id meta))
+                       elapsed-ms (when interop/debug-enabled?
+                                    (- (interop/now-ms) t0))]
+                   ;; rf2-hhh92: per-cofx SUCCESS op. Emitted INSIDE the
+                   ;; scope binding so the cofx's source-coord /
+                   ;; trigger-handler / call-site ride the trace per Spec
+                   ;; 009 §:rf.trace/trigger-handler. Whole emit (tag-map
+                   ;; construction + emit!) rides `interop/debug-enabled?`
+                   ;; so production DCEs it. `:rf.cofx/value` is the
+                   ;; per-call injected value (redacted by
+                   ;; `re-frame.marks/project-cofx-run-tags` against the
+                   ;; cofx's marks at the trace chokepoint); omitted on the
+                   ;; no-value injection path.
+                   (when interop/debug-enabled?
+                     (trace/emit! :rf.cofx :rf.cofx/run
+                                  (cond-> {:rf.cofx/id cofx-id
+                                           :frame      frame-id}
+                                    valued?         (assoc :rf.cofx/value value)
+                                    (some? elapsed-ms)
+                                    (assoc :rf.cofx/elapsed-ms elapsed-ms))))
+                   result))
                (do
                  (trace/emit! :warning :rf.cofx/skipped-on-platform
                               (cond-> {:rf.cofx/id                   cofx-id

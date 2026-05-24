@@ -352,11 +352,20 @@
   (if any) stamps the event handler's coord instead, which is the
   right attribution for those — they don't have their own
   registration site."
-  [fx-id args frame-id]
-  (trace/emit! :rf.fx :rf.fx/handled
-               {:rf.fx/id   fx-id
-                :rf.fx/args args
-                :frame      frame-id}))
+  ([fx-id args frame-id]
+   (emit-handled! fx-id args frame-id nil))
+  ([fx-id args frame-id elapsed-ms]
+   ;; rf2-hhh92: `elapsed-ms` (the wall-clock duration of the fx-handler
+   ;; invoke, dev-only) rides onto `:rf.fx/handled` as `:rf.fx/elapsed-ms`
+   ;; so the Trace panel's DURATION column reads the per-op duration. The
+   ;; slot construction rides `(some? elapsed-ms)` — callers pass nil in
+   ;; production (the brackets ride `interop/debug-enabled?`), so the
+   ;; assoc collapses and the prod emit shape is unchanged.
+   (trace/emit! :rf.fx :rf.fx/handled
+                (cond-> {:rf.fx/id   fx-id
+                         :rf.fx/args args
+                         :frame      frame-id}
+                  (some? elapsed-ms) (assoc :rf.fx/elapsed-ms elapsed-ms)))))
 
 (defn handle-one-fx
   "Process one [fx-id args] pair. Falls into one of three buckets:
@@ -432,8 +441,13 @@
       ;; error keywords (e.g. flow-cycle) out of core/fx.cljc so they
       ;; DCE from consumer bundles that don't use the offending fx.
       (try
-        (reserved-body frame-id parent-envelope args)
-        (emit-handled! fx-id args frame-id)
+        ;; rf2-hhh92: wall-clock the reserved-fx body (dev-only) so
+        ;; `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The `now-ms`
+        ;; brackets ride `interop/debug-enabled?` (nil in prod → DCE).
+        (let [t0 (when interop/debug-enabled? (interop/now-ms))]
+          (reserved-body frame-id parent-envelope args)
+          (emit-handled! fx-id args frame-id
+                         (when interop/debug-enabled? (- (interop/now-ms) t0))))
         (catch #?(:clj Throwable :cljs :default) e
           (let [d        (ex-data e)
                 category (:rf.error/id d)]
@@ -533,7 +547,12 @@
           ;; `:dispatch-id` are inherited from the outer scope.
           (trace/with-handler-scope
             (trace/handler-scope-from-meta :fx fx-id meta)
-            (let [ok? (try
+            ;; rf2-hhh92: wall-clock the user fx-handler invoke (dev-only)
+            ;; so `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The
+            ;; `now-ms` brackets ride `interop/debug-enabled?` (nil in
+            ;; prod → DCE under :advanced).
+            (let [t0  (when interop/debug-enabled? (interop/now-ms))
+                  ok? (try
                         ;; Per Spec 002 §The binary fx-handler signature
                         ;; (line 603): the fx-handler ctx carries `:frame`
                         ;; (active frame id), `:event` (origin event
@@ -560,7 +579,8 @@
                                                 :recovery          :no-recovery}))
                           false))]
               (when ok?
-                (emit-handled! fx-id args frame-id))))))
+                (emit-handled! fx-id args frame-id
+                               (when interop/debug-enabled? (- (interop/now-ms) t0))))))))
         (trace/emit! :warning :rf.fx/skipped-on-platform
                      {:rf.fx/id                   fx-id
                       :frame                      frame-id

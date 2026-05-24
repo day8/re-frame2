@@ -165,6 +165,30 @@
         (is (>= (:rf.view/elapsed-ms t) 0) ":rf.view/elapsed-ms is non-negative"))
       (trace-tooling/unregister-listener! ::recorder))))
 
+(deftest rf-sub-run-carries-elapsed-ms
+  (testing ":rf.sub/run carries :rf.sub/elapsed-ms — the wall-clock duration
+   of the sub body recompute (rf2-hhh92). The reactive memo wrapper brackets
+   the body with interop/now-ms inside the debug-enabled? gate, so the dev
+   trace stream carries per-op timing for the Trace panel's DURATION column.
+   Driven through a real reactive recompute (the plain-atom JVM substrate
+   does not run the memo wrapper, so this lives in the adapter test)."
+    (let [observed (record-by-op! #{:rf.sub/run})]
+      (rf/reg-sub :rf2-hhh92/n (fn [_ _] 42))
+      ;; A fresh subscribe forces the body's first recompute → :rf.sub/run.
+      (rf/reg-event-fx :rf2-hhh92/touch-sub
+        (fn [_ _]
+          @(rf/subscribe [:rf2-hhh92/n])
+          {}))
+      (rf/dispatch-sync [:rf2-hhh92/touch-sub])
+      (let [sub-runs (:rf.sub/run @observed)]
+        (is (seq sub-runs) "at least one :rf.sub/run emitted")
+        (doseq [ev sub-runs]
+          (let [t (:tags ev)]
+            (is (contains? t :rf.sub/elapsed-ms) ":rf.sub/elapsed-ms is present")
+            (is (number? (:rf.sub/elapsed-ms t)) ":rf.sub/elapsed-ms is a number")
+            (is (>= (:rf.sub/elapsed-ms t) 0) ":rf.sub/elapsed-ms is non-negative"))))
+      (trace-tooling/unregister-listener! ::recorder))))
+
 (deftest rf-view-rendered-carries-triggered-by-when-own-sub-changed
   (testing ":rf.view/rendered carries :rf.view/triggered-by — the single
    sub-id in THIS view's read-set whose value changed in the cascade, the

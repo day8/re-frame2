@@ -524,6 +524,64 @@
           (is (vector? seen)
               (str "captured pairs: " (pr-str seen))))))))
 
+;; ---- per-op DURATION timing (rf2-hhh92) -----------------------------------
+;;
+;; The dev trace stream carries per-op wall-clock so the Trace panel's
+;; DURATION column reads it off the trace (previously only views carried
+;; `:rf.view/elapsed-ms`; subs/fx/flows/handler rendered `—`). Per Spec
+;; 009 §:tags the new tags are `:rf.sub/elapsed-ms`, `:rf.fx/elapsed-ms`,
+;; `:rf.flow/computed`'s bare `:elapsed-ms`, `:rf.cofx/elapsed-ms`, and the
+;; HANDLER-BODY-only `:rf.event/elapsed-ms` on `:rf.event/run-end`. All
+;; ride `interop/debug-enabled?` so production DCEs them (the elision probe
+;; pins the prod absence).
+
+;; NOTE on sub timing: `:rf.sub/run` is driven by the reactive memo
+;; wrapper, which only fires under a reactive adapter (Reagent / UIx /
+;; Helix) — the plain-atom JVM substrate does not recompute through the
+;; memo wrapper. So `:rf.sub/elapsed-ms` is asserted in the adapter CLJS
+;; test (`view_rendered_op_cljs_test.cljs`, alongside the existing
+;; `:rf.sub/run` + `:rf.view/elapsed-ms` coverage). fx / flows / handler-
+;; body timing DO fire in plain-atom JVM and are pinned here.
+
+(deftest per-op-timing-tags-on-the-trace-stream
+  (testing "fx / flows / handler-body carry elapsed-ms on the dev trace"
+    (let [recorded (atom [])]
+      (rf/register-listener! ::timing (fn [ev] (swap! recorded conj ev)))
+
+      ;; A flow whose :output recomputes when [:n] changes (outermost
+      ;; :after of the cascade).
+      (rf/reg-flow {:id     :timing/doubled
+                    :inputs [[:n]]
+                    :output (fn [n] (* 2 (or n 0)))
+                    :path   [:doubled]})
+      (rf/reg-fx :timing/side (fn [_ _] :ok))
+      (rf/reg-event-fx :timing/seed
+        (fn [_ _]
+          {:db {:n 1}
+           :fx [[:timing/side :go]]}))
+
+      (rf/dispatch-sync [:timing/seed])
+      (rf/unregister-listener! ::timing)
+
+      (let [events @recorded]
+        (testing ":rf.fx/handled carries :rf.fx/elapsed-ms"
+          (let [handled (filter #(= :rf.fx/handled (:operation %)) events)]
+            (is (seq handled) "at least one :rf.fx/handled emitted")
+            (is (every? #(number? (get-in % [:tags :rf.fx/elapsed-ms])) handled)
+                "every :rf.fx/handled carries a numeric :rf.fx/elapsed-ms")))
+
+        (testing ":rf.flow/computed carries :elapsed-ms"
+          (let [computed (filter #(= :rf.flow/computed (:operation %)) events)]
+            (is (seq computed) "the flow recomputed at least once")
+            (is (every? #(number? (get-in % [:tags :elapsed-ms])) computed)
+                "every :rf.flow/computed carries a numeric :elapsed-ms")))
+
+        (testing ":rf.event/run-end carries the HANDLER-BODY :rf.event/elapsed-ms"
+          (let [run-end (filter #(= :rf.event/run-end (:operation %)) events)]
+            (is (seq run-end) "at least one :rf.event/run-end emitted")
+            (is (every? #(number? (get-in % [:tags :rf.event/elapsed-ms])) run-end)
+                "every :rf.event/run-end carries a numeric :rf.event/elapsed-ms")))))))
+
 ;; ---- listener API: lifecycle and isolation --------------------------------
 
 (deftest trace-listener-lifecycle

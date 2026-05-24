@@ -921,13 +921,24 @@
 
   `outcome` is the keyword `commit-and-flow!` returns — `:ok`,
   `:error`, `:rolled-back`, or `:flow-error` — and rides straight onto
-  the event-emit record's `:outcome` slot (Spec 009 §Record shape)."
-  [event-id event emit-event frame outcome start-ms]
+  the event-emit record's `:outcome` slot (Spec 009 §Record shape).
+
+  `handler-elapsed-ms` (rf2-hhh92) is the HANDLER-BODY-only wall-clock
+  (the interceptor-chain duration, captured before `commit-and-flow!`),
+  surfaced onto the dev-only `:rf.event/run-end` trace as
+  `:rf.event/elapsed-ms` so the Trace panel's DURATION column reads the
+  per-op handler duration — NOT the whole run-end − run-start cascade
+  bracket (which also covers fx+subs+views). nil in production (the
+  caller's read rides `interop/debug-enabled?`); the `(some? ...)` slot
+  then collapses."
+  [event-id event emit-event frame outcome start-ms handler-elapsed-ms]
   (trace/emit! :rf.event :rf.event/run-end
-               {:rf.trace/event-id event-id
-                :rf.event/v        emit-event
-                :frame             frame
-                :rf.trace/phase    :run-end})
+               (cond-> {:rf.trace/event-id event-id
+                        :rf.event/v        emit-event
+                        :frame             frame
+                        :rf.trace/phase    :run-end}
+                 (some? handler-elapsed-ms)
+                 (assoc :rf.event/elapsed-ms handler-elapsed-ms)))
   ;; Sticky hook (rf2-f72pd) — always-on per-event observability fan-out
   ;; per rf2-rirbq; survives `:advanced` + `goog.DEBUG=false`.
   (when-let [emit-event! (late-bind/get-fn-cached :event-emit/dispatch-on-event)]
@@ -1000,13 +1011,24 @@
                                     :rf.trace/phase    :run-start})
             event-ok? (validate-event! event-id event handler-meta)
             final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
+            ;; rf2-hhh92: the HANDLER-BODY-only elapsed — the interceptor
+            ;; chain (`run-chain`) duration, captured BEFORE
+            ;; `commit-and-flow!` (db commit + flows + fx walk). This is
+            ;; distinct from the `:rf.event/run-end` whole-cascade bracket
+            ;; (run-end − run-start, which also covers fx+subs+views). The
+            ;; Trace panel's DURATION column reads THIS handler-body figure
+            ;; off the `:rf.event/run-end` tag. Dev-only: the read rides
+            ;; `interop/debug-enabled?` so production DCEs it.
+            handler-elapsed-ms (when interop/debug-enabled?
+                                 (- (interop/now-ms) start-ms))
             ;; `commit-and-flow!` returns the dispatch outcome keyword
             ;; (:ok / :error / :rolled-back / :flow-error) so the always-on
             ;; event-emit record reflects schema-rollback and flow-throw
             ;; failures, not just the chain exception.
             outcome   (commit-and-flow! final-ctx event-id event frame
                                         frame-record fx-overrides envelope start-ms)]
-        (emit-cascade-trailers! event-id event emit-event frame outcome start-ms)))))
+        (emit-cascade-trailers! event-id event emit-event frame outcome
+                                start-ms handler-elapsed-ms)))))
 
 (defn- process-event*
   "Per-event drain body. Resolve handler, then sequence the four cascade

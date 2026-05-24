@@ -170,7 +170,16 @@
           (is (contains? tags :before)
               ":before key present on every :rf.flow/computed trace")
           (is (nil? (:before tags))
-              "first compute — :path has never been written; :before is nil"))))))
+              "first compute — :path has never been written; :before is nil")
+          ;; rf2-hhh92: per-op DURATION — the flow :output recompute's
+          ;; wall-clock, dev-only, so the Trace panel's DURATION column
+          ;; reads it off :rf.flow/computed.
+          (is (contains? tags :elapsed-ms)
+              ":elapsed-ms present on every :rf.flow/computed trace")
+          (is (number? (:elapsed-ms tags))
+              ":elapsed-ms is a number")
+          (is (>= (:elapsed-ms tags) 0)
+              ":elapsed-ms is non-negative"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2b. :before slot tracks the pre-write value across drains (rf2-qlzh4)
