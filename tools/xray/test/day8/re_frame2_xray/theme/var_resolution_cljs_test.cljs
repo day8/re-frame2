@@ -144,14 +144,32 @@
         (is (re-find #"^var\(--rf-xray-" v)
             (str "severity-colour " severity " resolves to a CSS variable"))))))
 
-(deftest op-type-colour-returns-css-variable-string
-  (testing "rf2-on4cm — `trace-helpers/op-type-colour` returns the
-            per-row Trace dot colour as a CSS variable."
-    (doseq [op-type [:error :warning :info :rf.event :rf.fx :rf.view/render]]
-      (let [v (trace-h/op-type-colour op-type)]
+(deftest trace-band-colour-returns-css-variable-string
+  (testing "rf2-on4cm / rf2-l2f2g — `trace-helpers/op-family-colour`
+            returns the per-row Trace op-family 3px left-border band
+            colour as a CSS variable (spec/023 §8)."
+    (doseq [[op-type op] [[:rf.event :rf.event/dispatched]
+                          [:rf.event :rf.event/db-changed]
+                          [:rf.fx :rf.fx/handled]
+                          [:rf.sub :rf.sub/run]
+                          [:rf.machine :rf.machine/transition]
+                          [:error :rf.error/x]
+                          [:warning :rf.warning/x]]]
+      (let [v (trace-h/op-family-colour {:op-type op-type :operation op})]
         (is (string? v))
         (is (re-find #"^var\(--rf-xray-" v)
-            (str "op-type-colour " op-type " resolves to a CSS variable"))))))
+            (str "op-family-colour " op-type " resolves to a CSS variable"))))))
+
+(deftest trace-outcome-colour-returns-css-variable-string
+  (testing "rf2-l2f2g — `trace-helpers/outcome-colour` tints the
+            what-happened column by outcome tier and resolves to a CSS
+            variable (spec/023 §8)."
+    (doseq [op [:rf.sub/run :rf.sub/skip :rf.sub/disposed :rf.error/x]]
+      (let [v (trace-h/outcome-colour {:op-type (if (= op :rf.error/x) :error :rf.sub)
+                                       :operation op})]
+        (is (string? v))
+        (is (re-find #"^var\(--rf-xray-" v)
+            (str "outcome-colour " op " resolves to a CSS variable"))))))
 
 (deftest event-status-colour-returns-css-variable-string
   (testing "rf2-on4cm — the lifecycle-status helper consumed by the

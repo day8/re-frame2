@@ -1,101 +1,277 @@
 (ns day8.re-frame2-xray.panels.trace-helpers
-  "Pure-data helpers for Xray's Trace panel (Phase 5, rf2-argrj;
-  epoch-scoped rework rf2-td380 + rf2-gkczt).
+  "Pure-data helpers for Xray's Trace panel.
+
+  ## What this panel shows (spec/023-Trace-Panel.md)
+
+  The Trace panel renders the COMPLETE TRACE ARC of a single epoch —
+  every trace operation the substrate emits during the epoch, in fire
+  order, organised by the epoch's phase shape. Its contract is
+  COMPLETENESS: every op-family in the Spec-009 vocabulary surfaces
+  (spec/023 §1). The structural projection here turns the focused
+  epoch's `:trace-events` into:
+
+      ○ EPOCH OPEN  envelope row (epoch-lifecycle ops · :rf.epoch/*)
+      ▾ ① DISPATCH          (the event dispatched)
+      ▾ ② EVENT HANDLING    (coeffects → handler → flows → db-changed)
+      ▾ ③ EFFECTS / FX      (fx handlers · routing nav · machine timers)
+      ▾ ④ REACTIVE RENDERING (subscriptions → views)
+      ● EPOCH CLOSE outcome :ok/:blocked/:error
+
+  Each op renders as a row of five columns (spec/023 §3):
+
+      Δt · area badge · what-happened · target/detail · duration
+
+  Errors and warnings are cross-cutting — they render INLINE at their
+  chronological point in whatever band they occurred (spec/023 §7),
+  emphasised so failures stand out. Empty phase bands render dimmed
+  with `(none)` so the 4-phase shape is always legible (spec/023 §13).
 
   ## Why a separate `.cljc` ns
 
-  The panel view in `trace.cljs` paints a scrollable, timestamped
-  ribbon of the focused epoch's trace events and dispatches into the
-  Xray frame. The *logic* — projecting raw events into row shape and
-  classifying the empty state — is pure data → data. Splitting the
-  algebra into `.cljc` so it runs under the JVM unit-test target
-  (`clojure -M:test`) is required by the standing rule
-  `feedback_jvm_interop_must_work.md`.
+  The panel view in `trace.cljs` paints the arc and dispatches into the
+  Xray frame; the *logic* — projecting raw events into rows, classifying
+  each op's phase / area / verb / target, banding the rows into the arc
+  shape, and classifying the empty state — is pure data → data. The
+  algebra lives here as `.cljc` so it runs under the JVM unit-test
+  target (`clojure -M:test`) per the standing
+  `feedback_jvm_interop_must_work.md` rule.
 
-  ## Epoch-scoped feed (rf2-td380)
+  ## Epoch-scoped feed (spec/018 §6)
 
-  Per spec/018 §6 every L4 panel is a lens on the spine's focused
-  event, not a global ribbon. The Trace tab reads the FOCUSED EPOCH's
-  `:trace-events` (the per-frame settling epoch record's raw trace
-  slice — `re-frame.epoch/epoch-history` keeps oldest-first records,
-  each carrying the complete domino trail for one event: the
-  synchronous event-side dispatch-id-N events AND the async
-  nil-dispatch-id reactive events — `:rf.sub/run` / `:rf.view/render` —
-  that fire post-cascade for that settling). The prior shape scoped
-  the global trace bus by `:dispatch-id`, which DROPPED those async
-  reactive rows (they carry a nil dispatch-id), so the rendered trail
-  was incomplete (e.g. 4 rows shown vs the epoch's real 12). Reading
-  the epoch record's `:trace-events` folds both sides, so rendered
-  rows = the complete domino trail (event → db-changed → subs ran →
-  views rendered).
+  Every L4 panel is a lens on the spine's FOCUSED EPOCH, not a global
+  ribbon. The Trace tab reads the focused epoch record's `:trace-events`
+  — the per-frame settling epoch's raw trace slice — which folds the
+  complete domino trail for one event: both the synchronous event-side
+  rows (dispatch-id N) AND the async reactive rows (`:rf.sub/run` /
+  `:rf.view/render`, nil dispatch-id) that fire post-cascade. The record
+  is resolved via the shared `panels.shared.focus-resolver` against
+  `:rf.xray/focus` + `:rf.xray/epoch-history`, exactly as the Issues /
+  App-DB Diff panels resolve theirs.
 
-  ## No chip filtering (rf2-gkczt)
+  ## No chip filtering
 
-  Per Mike-direction 2026-05-22 the Trace panel surfaces the
-  epoch-scoped rows with NO filtering UI — the focused epoch IS the
-  scope, and the per-row payload-expand affordance is the drill-down.
-  The 13-axis filter vocabulary, per-axis chip enumeration, and the
-  buffer-snapshot incremental projection are gone."
+  The focused epoch IS the scope, so there is NO filtering UI — the
+  per-row payload-expand affordance is the drill-down. Show every op,
+  no default narrowing (spec/023 §2 completeness-first)."
   (:require [clojure.string :as str]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
-;; ---- op-family classification (rf2-ad7zx.8) -----------------------------
+;; ---- area-badge classification (spec/023 §3 · §5) -----------------------
 ;;
-;; The Figma Trace design (the `trace-panel` component in
-;; `design-reference/xray_devtools_reference.cljs`)
-;; bands each row with a 3px op-FAMILY-coloured left border — FIVE
-;; families, not the full op-type vocabulary:
+;; Per spec/023 §3 each row carries a NEUTRAL TEXT area badge (no
+;; per-family colour) naming the op-family. The full vocabulary
+;; (spec/023 §5 verb taxonomy + Appendix A):
 ;;
-;;     :dispatch  — the event side (`:rf.event/dispatched` / run-start /
-;;                  run-end). The single GitHub-blue accent.
-;;     :db        — `:rf.event/db-changed`. The "changed" tone.
-;;     :fx        — the effect side (`:rf.fx/*`). Warning tone.
-;;     :reactive  — the post-cascade reactive aftermath (`:rf.sub/*` /
-;;                  `:rf.view/*`). Dim tone — collapses under one group.
-;;     :machine   — `:rf.machine/*`. The machine/chart tone.
+;;     EVENT · COEFFECT · DB · FX · FLOW · SUB · VIEW · MACHINE ·
+;;     ROUTING · EPOCH · ERROR · WARNING
 ;;
-;; Plus the two severity tiers (`:error` / `:warning`) which keep their
-;; canonical semantic colours so a failure never hides under a family
-;; band. Unknown ops fall back to `:dispatch`-adjacent neutral.
+;; The badge is derived from `:op-type` + `:operation`. The two severity
+;; tiers (ERROR / WARNING) are cross-cutting — they keep their canonical
+;; semantic colour treatment in the view (spec/023 §7) so a failure
+;; never hides under a normal row.
+
+(defn area
+  "Classify a projected row (or raw event) into one of the spec/023 §3
+  AREA keywords — the neutral text badge family. Reads `:op-type` +
+  `:operation` (the operation discriminates db-changed from the rest of
+  the event family, and the epoch-lifecycle ops from anything else).
+  Pure data → keyword; JVM-testable.
+
+  Returns one of:
+    :event :coeffect :db :fx :flow :sub :view :machine :routing
+    :epoch :error :warning"
+  [{:keys [op-type operation] :as _row-or-ev}]
+  (let [op-ns (when (keyword? operation) (namespace operation))]
+    (cond
+      (= op-type :error)                 :error
+      (= op-type :warning)               :warning
+      (= operation :rf.event/db-changed) :db
+      (= op-ns "rf.epoch")               :epoch
+      (= op-ns "rf.cofx")                :coeffect
+      (= op-ns "rf.flow")                :flow
+      (= op-ns "rf.route")               :routing
+      (= op-type :rf.event)              :event
+      (= op-type :rf.fx)                 :fx
+      (= op-type :rf.sub)                :sub
+      (= op-type :rf.view)               :view
+      (= op-type :rf.machine)            :machine
+      ;; namespace fallbacks for op-types not stamped via :op-type
+      (= op-ns "rf.event")               :event
+      (= op-ns "rf.fx")                  :fx
+      (= op-ns "rf.sub")                 :sub
+      (= op-ns "rf.view")                :view
+      (#{"rf.machine" "rf.machine.microstep" "rf.machine.timer"
+         "rf.machine.spawn" "rf.machine.lifecycle"
+         "rf.machine.registrar"} op-ns)  :machine
+      :else                              :event)))
+
+(def area->badge
+  "Map an area keyword to its uppercase neutral text badge (spec/023
+  §3 / §5)."
+  {:event    "EVENT"
+   :coeffect "COEFFECT"
+   :db       "DB"
+   :fx       "FX"
+   :flow     "FLOW"
+   :sub      "SUB"
+   :view     "VIEW"
+   :machine  "MACHINE"
+   :routing  "ROUTING"
+   :epoch    "EPOCH"
+   :error    "ERROR"
+   :warning  "WARNING"})
+
+(defn area-badge
+  "The uppercase neutral text badge for a row (`EVENT`, `DB`, …) per
+  spec/023 §3. Pure data → string; JVM-testable."
+  [row-or-ev]
+  (get area->badge (area row-or-ev) "EVENT"))
+
+;; ---- phase / band placement (spec/023 §2 · §4) --------------------------
+;;
+;; Per spec/023 §4 every op-family places into the epoch envelope or one
+;; of the four phase bands, in arc order:
+;;
+;;   envelope        :rf.epoch/* (open / close / restore / replay / …)
+;;   ① DISPATCH      :rf.event/dispatched
+;;   ② EVENT HANDLING :rf.cofx/* · run-start/run-end · flows · db-changed
+;;                    · machine-as-handler transitions
+;;   ③ EFFECTS / FX  :rf.fx/* · machine timers/spawn · routing nav
+;;   ④ REACTIVE RENDERING :rf.sub/* · :rf.view/*
+;;
+;; Errors / warnings are cross-cutting (NOT a phase, spec/023 §7) — the
+;; band function leaves them out of the canonical placement and the
+;; feed projection threads them inline at their chronological point.
+
+(def band-order
+  "The canonical arc order of the four phase bands (spec/023 §2). The
+  epoch envelope brackets these and is rendered separately. Pure data."
+  [:dispatch :event-handling :effects :reactive])
+
+(def band->label
+  "Map a band keyword to its numbered uppercase header label
+  (spec/023 §2 · §9)."
+  {:dispatch       "① DISPATCH"
+   :event-handling "② EVENT HANDLING"
+   :effects        "③ EFFECTS / FX"
+   :reactive       "④ REACTIVE RENDERING"})
+
+(defn phase
+  "Classify a projected row (or raw event) into its arc phase per
+  spec/023 §4: `:envelope` · `:dispatch` · `:event-handling` ·
+  `:effects` · `:reactive`. Errors / warnings classify by the band they
+  occurred in is impossible without inline context, so they fall through
+  to `:event-handling` here — the feed projection threads them inline at
+  their chronological point regardless (spec/023 §7). Pure data →
+  keyword; JVM-testable."
+  [{:keys [operation] :as row-or-ev}]
+  (let [a (area row-or-ev)]
+    (case a
+      :epoch    :envelope
+      :coeffect :event-handling
+      :flow     :event-handling
+      :db       :event-handling
+      :sub      :reactive
+      :view     :reactive
+      :fx       :effects
+      :routing  :effects
+      :machine  :event-handling
+      :event    (if (= operation :rf.event/dispatched)
+                  :dispatch
+                  :event-handling)
+      ;; errors / warnings are cross-cutting; default placement is the
+      ;; handling band — the inline threading (spec/023 §7) does the
+      ;; real positioning.
+      :event-handling)))
+
+;; ---- outcome tier (spec/023 §8) -----------------------------------------
+;;
+;; Per spec/023 §8 the what-happened STATE must be legible at a glance
+;; with at least these tiers distinguished:
+;;
+;;   :active     created / changed / recalculated / mounted / ran
+;;   :inert      cache-hit / ran-unchanged / skipped
+;;   :gone       disposed / unmounted / cleared
+;;   :pending    queued / scheduled
+;;   :error      a failure tier (errors keep their semantic red)
+;;   :warning    a caution tier
+;;
+;; The view tints the what-happened column by tier so the arc reads its
+;; outcome shape while scanning.
+
+(defn outcome-tier
+  "Classify a row's outcome into a visual tier per spec/023 §8. Reads
+  the operation's terminal segment (`disposed`, `skip`, `cache-hit`, …).
+  Pure data → keyword; JVM-testable."
+  [{:keys [op-type operation] :as _row-or-ev}]
+  (let [op-name (when (keyword? operation) (name operation))]
+    (cond
+      (= op-type :error)   :error
+      (= op-type :warning) :warning
+      (nil? op-name)       :active
+      (re-find #"(?i)(disposed|unmounted|cleared|cancelled|stale|released|destroyed)" op-name)
+      :gone
+      (re-find #"(?i)(skip|skipped|cache-hit|unchanged|ran-unchanged)" op-name)
+      :inert
+      (re-find #"(?i)(queued|scheduled|pending|later)" op-name)
+      :pending
+      :else :active)))
+
+;; ---- op-family classification (left-border band — retained) -------------
+;;
+;; The op-FAMILY (a coarser 5-bucket grouping than the 12-area badge) is
+;; retained for the 3px op-family left-border band the view paints on
+;; each row and for the per-band rail colour. Five families plus the two
+;; severity tiers:
+;;
+;;     :dispatch  — the event side (dispatched / run-start / run-end)
+;;     :db        — :rf.event/db-changed
+;;     :fx        — the effect side (:rf.fx/* · :rf.route/*)
+;;     :reactive  — subs + views (:rf.sub/* · :rf.view/*)
+;;     :machine   — :rf.machine/*
+;;
+;; with :error / :warning preserved so a failure never hides under a
+;; family band. Unknown ops fall back to :dispatch-adjacent neutral.
 
 (defn op-family
-  "Classify a projected row (or raw event) into one of the Figma op
-  families: `:dispatch` · `:db` · `:fx` · `:reactive` · `:machine`,
-  with the `:error` / `:warning` severity tiers preserved. Reads
-  `:op-type` + `:operation` (the operation discriminates db-changed
-  from the rest of the event family). Pure data → keyword;
-  JVM-testable."
-  [{:keys [op-type operation] :as _row-or-ev}]
-  (cond
-    (= op-type :error)                 :error
-    (= op-type :warning)               :warning
-    (= operation :rf.event/db-changed) :db
-    (= op-type :rf.event)              :dispatch
-    (= op-type :rf.fx)                 :fx
-    (= op-type :rf.sub)                :reactive
-    (= op-type :rf.view)               :reactive
-    (= op-type :rf.machine)            :machine
-    :else                              :dispatch))
+  "Classify a projected row (or raw event) into one of the op families:
+  `:dispatch` · `:db` · `:fx` · `:reactive` · `:machine`, with the
+  `:error` / `:warning` severity tiers preserved. Drives the 3px
+  left-border band colour. Pure data → keyword; JVM-testable."
+  [{:keys [op-type] :as row-or-ev}]
+  (let [a (area row-or-ev)]
+    (case a
+      :error    :error
+      :warning  :warning
+      :db       :db
+      :event    :dispatch
+      :coeffect :dispatch
+      :epoch    :dispatch
+      :fx       :fx
+      :routing  :fx
+      :flow     :db
+      :sub      :reactive
+      :view     :reactive
+      :machine  :machine
+      ;; defensive fallback for an op whose area didn't resolve above.
+      (cond
+        (= op-type :rf.fx)              :fx
+        (#{:rf.sub :rf.view} op-type)   :reactive
+        (= op-type :rf.machine)         :machine
+        :else                           :dispatch))))
 
 (def op-family->token
   "Pure semantic map from op-family keyword to a `theme/tokens` token
-  keyword. The hex (CSS-var) resolution happens via
-  `op-family-colour`. Keeping the semantic mapping separate from the
-  var lookup keeps the map pure data + the palette consolidated
-  (rf2-5kfxe.4 discipline).
+  keyword. The hex (CSS-var) resolution happens via `op-family-colour`.
+  Keeping the semantic mapping separate from the var lookup keeps the
+  map pure data + the palette consolidated.
 
-  Family → token (spec/021 §5.2 · design-reference/xray_devtools_reference.cljs,
-  the `trace-panel` component):
-
-    :dispatch → :accent         (the single GitHub-blue accent)
-    :db       → :info           (the cool-blue 'changed/recompute' partner,
-                                 visually distinct from the primary
-                                 accent now that dispatch rides it)
-    :fx       → :warning        (the effect/warning tone)
-    :reactive → :dim            (dimmed / inert reactive aftermath)
-    :machine  → :green          (the machine-domain tone — Xray's
-                                 machine surfaces are green)
+    :dispatch → :accent   (the single GitHub-blue accent)
+    :db       → :info     (the cool-blue changed/recompute partner)
+    :fx       → :warning  (the effect / warning tone)
+    :reactive → :dim      (dimmed / inert reactive aftermath)
+    :machine  → :green    (the machine-domain tone)
     :error    → :red
     :warning  → :yellow"
   {:dispatch :accent
@@ -109,11 +285,63 @@
 (defn op-family-colour
   "Resolve the 3px left-border colour for a row's op family. Routes the
   family through `op-family` then `op-family->token` then
-  `theme/tokens`. Falls back to `:text-secondary` for an unknown
-  family. Pure data → CSS-var string; JVM-testable."
+  `theme/tokens`. Falls back to `:text-secondary` for an unknown family.
+  Pure data → CSS-var string; JVM-testable."
   [row-or-ev]
   (get tokens/tokens
        (get op-family->token (op-family row-or-ev) :text-secondary)))
+
+(def outcome-tier->token
+  "Map an outcome tier to its what-happened text colour token
+  (spec/023 §8). Active states read primary; inert / gone read dimmed;
+  pending rides the cool info blue; error / warning keep their semantic
+  colour."
+  {:active   :text-primary
+   :inert    :text-tertiary
+   :gone     :dim
+   :pending  :info
+   :error    :red
+   :warning  :yellow})
+
+(defn outcome-colour
+  "Resolve the what-happened text colour for a row's outcome tier
+  (spec/023 §8). Pure data → CSS-var string; JVM-testable."
+  [row-or-ev]
+  (get tokens/tokens
+       (get outcome-tier->token (outcome-tier row-or-ev) :text-primary)))
+
+;; ---- what-happened verb (spec/023 §5) -----------------------------------
+;;
+;; Per spec/023 §5 each area has a verb taxonomy — the per-row "what
+;; happened" state. We derive it from the operation's terminal segment
+;; with a small per-area override map for the readable forms (`handler
+;; ran`, `recalculated`, …).
+
+(def operation->verb
+  "Explicit verb overrides for the operations whose readable verb isn't
+  simply their terminal segment (spec/023 §5 / Appendix A). Falls
+  through to the name-based default for everything else."
+  {:rf.event/dispatched   "dispatched"
+   :rf.event/run-start    "handler ran"
+   :rf.event/run-end      "handler ran"
+   :rf.event/db-changed   "changed"
+   :rf.epoch/snapshotted  "snapshotted"
+   :rf.epoch/outcome      "outcome"
+   :rf.cofx/run           "run"
+   :rf.flow/computed      "computed"})
+
+(defn what-happened
+  "Build the per-row what-happened verb (spec/023 §5). Uses the explicit
+  override map first, then falls back to the operation's terminal name
+  segment with `/` and dots folded to spaces (`:rf.sub/run` → `run`,
+  `:rf.machine.timer/scheduled` → `scheduled`). Pure data → string;
+  JVM-testable."
+  [{:keys [operation] :as _row-or-ev}]
+  (or (get operation->verb operation)
+      (when (keyword? operation)
+        (-> (name operation)
+            (str/replace #"-" " ")))
+      "—"))
 
 ;; ---- short-description ---------------------------------------------------
 
@@ -147,20 +375,13 @@
       (str op-str " — " detail)
       op-str)))
 
-;; ---- readable plain-language description (rf2-ad7zx.8) -------------------
+;; ---- target / detail (spec/023 §3 · §5) ---------------------------------
 ;;
-;; Per spec/021 §5.1 (density note) + §5.2 (Figma readable rows) each op
-;; renders as a PLAIN-LANGUAGE line, not its raw op-type keyword:
-;;
-;;     dispatched [:counter-inc]
-;;     db changed [:counter] 1 → 2
-;;     fx :dispatch → [:title/flow [:rf/init]]
-;;     machine :title/flow idle → loading
-;;
-;; The raw `:operation` + tag-map remains the click-to-expand detail
-;; (rf2-7dyi8) — this is the single dense default line. `short-
-;; description` (above) stays the fallback for ops the readable builder
-;; doesn't recognise, so no op ever renders as a blank row.
+;; Per spec/023 §3 the target/detail column carries the op's SUBJECT:
+;; the event vector, `fx-id → arg`, `sub-id old→new`, `view-id ← cause-
+;; sub`, route id, path, etc. It is the flexible column that truncates
+;; first (spec/023 §14). We derive it per-area from the reliably-present
+;; tags; an op with no recognised subject renders an em-dash.
 
 (defn- pr-str-safe
   "pr-str that never throws (defends against un-printable trace
@@ -170,8 +391,8 @@
        (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 (def ^:private tags-absent
-  "Sentinel for 'tag key absent' so a literal `nil` db value (a valid
-  app-db value) is distinguished from a missing tag."
+  "Sentinel for 'tag key absent' so a literal `nil` value is
+  distinguished from a missing tag."
   ::tags-absent)
 
 (defn- name-or-str
@@ -180,78 +401,147 @@
   [x]
   (if (keyword? x) (name x) (str x)))
 
-(defn readable-description
-  "Build the Figma plain-language row body for one trace event. Maps
-  the op family + the reliably-present tags to a human line:
+(defn target-detail
+  "Build the target/detail string for one trace event — the op's
+  subject (spec/023 §3 / §5). Per-area:
 
-    :dispatch (dispatched) → `dispatched <event-vec>`
-    :db                    → `db changed <path>? <old> → <new>?`
-    :fx                    → `fx <fx-id> → <fx-arg>?`
-    :machine               → `machine <machine-id> <from> → <to>`
-    :reactive (sub)        → `sub ran <sub-id>`
-    :reactive (view)       → `rendered <render-key>`
+    :event    → the dispatched event vector
+    :db       → `[path] old → new`
+    :fx       → `fx-id → arg`
+    :flow     → `flow-id → [path]` (or the value delta)
+    :sub      → `sub-id old → new` / `sub-id`
+    :view     → `view-id ← cause-sub` / render-key
+    :machine  → `machine-id from → to`
+    :coeffect → `cofx-id → value`
+    :routing  → route-id / fragment
+    :epoch    → epoch id · event · frame / outcome
 
-  Falls back to `short-description` for ops outside this vocabulary
-  (run-start/run-end markers, errors, registry events, …) so the row
-  is never blank. Pure data → string; JVM-testable."
-  [{:keys [operation tags] :as ev}]
-  (let [family (op-family ev)
+  Falls back to nil for an op with no recognised subject so the view
+  renders an em-dash. Pure data → string-or-nil; JVM-testable."
+  [{:keys [tags] :as ev}]
+  (let [a      (area ev)
         ev-vec (when (vector? (:rf.event/v tags)) (:rf.event/v tags))]
-    (or
-      (case family
-        :db
-        (let [path (or (:rf.db/path tags) (:path tags))
-              old  (get tags :rf.db/old tags-absent)
-              new  (get tags :rf.db/new tags-absent)]
-          (cond
-            (and (not= old tags-absent) (not= new tags-absent))
-            (str "db changed"
-                 (when path (str " " (pr-str-safe path)))
-                 " " (pr-str-safe old) " → " (pr-str-safe new))
-            path (str "db changed " (pr-str-safe path))
-            :else "db changed"))
+    (case a
+      :event
+      (when ev-vec (pr-str-safe ev-vec))
 
-        :machine
-        (let [mid  (or (:machine-id tags) (:rf/machine-id tags))
-              from (get tags :from tags-absent)
-              to   (get tags :to tags-absent)]
-          (when mid
-            (str "machine " mid
-                 (when (and (not= from tags-absent) (not= to tags-absent))
-                   (str " " (name-or-str from) " → " (name-or-str to))))))
-
-        :fx
-        (let [fx-id (or (:rf.fx/id tags) (:rf.fx/effect-id tags))]
-          (when fx-id
-            (str "fx " fx-id
-                 (when-let [arg (or (:rf.fx/arg tags) (:rf.fx/value tags))]
-                   (str " → " (pr-str-safe arg))))))
-
-        :reactive
+      :db
+      (let [path (or (:rf.db/path tags) (:path tags))
+            old  (get tags :rf.db/old tags-absent)
+            new  (get tags :rf.db/new tags-absent)]
         (cond
-          (some? (:rf.sub/id tags))
-          (str "sub ran " (:rf.sub/id tags))
-          (some? (:rf.view/render-key tags))
-          (str "rendered " (pr-str-safe (:rf.view/render-key tags)))
-          (some? (:rf.view/id tags))
-          (str "rendered " (:rf.view/id tags))
-          :else nil)
+          (and path (not= old tags-absent) (not= new tags-absent))
+          (str (pr-str-safe path) "  " (pr-str-safe old) " → " (pr-str-safe new))
+          path (pr-str-safe path)
+          :else nil))
 
-        :dispatch
-        (when (and (= operation :rf.event/dispatched) ev-vec)
-          (str "dispatched " (pr-str-safe ev-vec)))
+      :fx
+      (when-let [fx-id (or (:rf.fx/id tags) (:rf.fx/effect-id tags))]
+        (str fx-id
+             (when-let [arg (or (:rf.fx/arg tags) (:rf.fx/value tags))]
+               (str " → " (pr-str-safe arg)))))
 
-        nil)
-      ;; Fallback — the existing terse `operation — detail` line.
+      :flow
+      (let [flow-id (or (:rf.flow/id tags) (:flow-id tags))
+            path    (or (:rf.flow/path tags) (:path tags))]
+        (when flow-id
+          (str flow-id (when path (str " → " (pr-str-safe path))))))
+
+      :sub
+      (let [sub-id (:rf.sub/id tags)
+            old    (get tags :rf.sub/old tags-absent)
+            new    (get tags :rf.sub/new tags-absent)]
+        (when sub-id
+          (str sub-id
+               (when (and (not= old tags-absent) (not= new tags-absent))
+                 (str "  " (pr-str-safe old) " → " (pr-str-safe new))))))
+
+      :view
+      (let [vid   (or (:rf.view/id tags)
+                      (when-let [rk (:rf.view/render-key tags)]
+                        (pr-str-safe rk)))
+            cause (:rf.view/cause-sub tags)]
+        (when vid
+          (str vid (when cause (str " ← " cause)))))
+
+      :machine
+      (let [mid  (or (:machine-id tags) (:rf/machine-id tags))
+            from (get tags :from tags-absent)
+            to   (get tags :to tags-absent)]
+        (when mid
+          (str mid
+               (when (and (not= from tags-absent) (not= to tags-absent))
+                 (str " " (name-or-str from) " → " (name-or-str to))))))
+
+      :coeffect
+      (when-let [cofx-id (or (:rf.cofx/id tags) (:cofx-id tags))]
+        (str cofx-id
+             (when-let [v (or (:rf.cofx/value tags) (:value tags))]
+               (str " → " (pr-str-safe v)))))
+
+      :routing
+      (or (some-> (or (:rf.route/id tags) (:route-id tags)) str)
+          (some-> (:rf.route/fragment tags) str))
+
+      :epoch
+      (or (some-> (or (:rf.epoch/outcome tags) (:outcome tags)) str)
+          (when-let [eid (:epoch-id tags)] (str "#" eid)))
+
+      (:error :warning)
+      (or (:reason tags) (:exception-message tags)
+          (some-> (:rf.error/operation tags) str))
+
+      nil)))
+
+;; ---- readable plain-language description (legacy fallback) ---------------
+;;
+;; The full 5-column row (Δt · badge · verb · target/detail · duration)
+;; supersedes the single readable line as the dense default. The
+;; readable line is retained as the row's `:description` slot — used by
+;; cross-panel consumers + as the row title/hover — built from the area
+;; verb + target/detail (or the terse fallback so no op is ever blank).
+
+(defn readable-description
+  "Build a one-line plain-language description for a trace event —
+  `<verb> <target/detail>` (e.g. `dispatched [:counter/inc]`,
+  `recalculated :app/counter`). Falls back to `short-description` for
+  ops outside the recognised vocabulary so the line is never blank.
+  Pure data → string; JVM-testable.
+
+  Retained for cross-panel consumers + the row title/hover; the panel
+  itself renders the 5-column row (badge · verb · target/detail), not
+  this single line."
+  [ev]
+  (let [verb   (what-happened ev)
+        detail (target-detail ev)
+        a      (area ev)]
+    (cond
+      ;; recognised area with a subject — `verb detail`
+      (and (some? detail) (not (str/blank? detail)))
+      (case a
+        :event (str "dispatched " detail)
+        :db    (str "db changed " detail)
+        :fx    (str "fx " detail)
+        :flow  (str "flow " detail)
+        :sub   (str "sub " verb " " detail)
+        :view  (str "view " verb " " detail)
+        :machine (str "machine " detail)
+        :coeffect (str "coeffect " detail)
+        :routing (str "routing " verb " " detail)
+        :epoch (str "epoch " verb " " detail)
+        (:error :warning) (str (name a) " " detail)
+        (str verb " " detail))
+      ;; no subject — terse fallback so the row is never blank
+      :else
       (short-description ev))))
 
 ;; ---- source-coord projection --------------------------------------------
 
 (defn source-coord
   "Extract a `file:line` string from `:rf.trace/trigger-handler`'s
-  `:source-coord` slot. Per Spec 009 §Source-coord every emit inside
-  a dispatch carries this slot when handler scope is bound (per
-  rf2-3nn8 / rf2-lf84g). Pure data → string-or-nil; JVM-testable."
+  `:source-coord` slot. Per Spec 009 §Source-coord every emit inside a
+  dispatch carries this slot when handler scope is bound. Pure data →
+  string-or-nil; JVM-testable."
   [ev]
   (when-let [trigger (:rf.trace/trigger-handler ev)]
     (let [{:keys [file line]} (:source-coord trigger)]
@@ -259,45 +549,42 @@
         (cond-> file
           line (str ":" line))))))
 
-;; ---- per-row projection -------------------------------------------------
+;; ---- relative timing + duration -----------------------------------------
+;;
+;; Per spec/023 §3 each row leads with Δt — the ms offset from EPOCH
+;; OPEN — and carries a duration column (a number in ms, or `—` when the
+;; substrate supplies no timing, §6).
 
 (defn frame-of
-  "Project the event's frame routing key. Per Spec 009 §Canonical
-  per-frame routing key (rf2-shaa1) every trace event that names a
-  frame uses `:frame` under `:tags`; consumers also fall back to a
-  top-level `:frame` for events emitted before the canonical move
-  landed (defensive — the framework no longer emits the alias)."
+  "Project the event's frame routing key. Per Spec 009 every trace event
+  that names a frame uses `:frame` under `:tags`; consumers also fall
+  back to a top-level `:frame` (defensive)."
   [ev]
   (or (get-in ev [:tags :frame])
       (:frame ev)))
 
 (defn origin-of
-  "Project the dispatch-origin slot per Spec 009 §Origin tagging
-  (`:tags :rf.event/origin`). Defensive against absence — returns nil."
+  "Project the dispatch-origin slot (`:tags :rf.event/origin`).
+  Defensive against absence — returns nil."
   [ev]
   (get-in ev [:tags :rf.event/origin]))
 
 (defn duration-ms
-  "Per-op elapsed time, in ms, when the trace event reports it.
-
-  Reads (in priority order) `[:tags :elapsed-ms]` — the wall-clock
-  duration the event-emit / view-render envelopes stamp (Spec 009
-  §Record shape; `re-frame.views` for `:rf.view/rendered`) — then a
-  top-level `:elapsed-ms` fallback. Returns nil otherwise: reactive
-  point-in-time emits (`:rf.sub/run`, bare `:rf.view/render`) carry no
-  elapsed, so the view renders a timestamp rather than a duration
-  (spec/021 §5.2). Pure data → number-or-nil; JVM-testable."
+  "Per-op elapsed time, in ms, when the trace event reports it. Reads
+  `[:tags :elapsed-ms]` then a top-level `:elapsed-ms` fallback. Returns
+  nil otherwise — point-in-time emits carry no elapsed, so the duration
+  column renders `—` (spec/023 §6). Pure data → number-or-nil;
+  JVM-testable."
   [ev]
   (let [e (or (get-in ev [:tags :elapsed-ms])
               (:elapsed-ms ev))]
     (when (number? e) e)))
 
 (defn- fmt-1
-  "Format a number to EXACTLY one decimal place — `0.4`, `12.0`,
-  `0.0` — so the duration / relative-time columns read with a stable
-  rhythm (the Figma `0.4 ms` / `t+0.0ms` form). Portable: CLJS `str`
-  of a whole-number double drops the `.0`, so we round to tenths then
-  build the `<int>.<tenth>` string by hand. Pure data → string."
+  "Format a number to EXACTLY one decimal place — `0.4`, `12.0`, `0.0`.
+  Portable: CLJS `str` of a whole-number double drops the `.0`, so we
+  round to tenths then build the `<int>.<tenth>` string by hand. Pure
+  data → string."
   [n]
   (let [tenths (#?(:clj Math/round :cljs js/Math.round) (* (double n) 10.0))
         neg?   (neg? tenths)
@@ -307,13 +594,42 @@
     (str (when neg? "-") whole "." frac)))
 
 (defn format-duration
-  "Render an elapsed-ms number as a compact `N.N ms` string (matching
-  the Figma `0.4 ms` form, one decimal place). Returns nil for nil /
-  non-number input so the duration column can render empty. Pure data
-  → string-or-nil; JVM-testable."
+  "Render an elapsed-ms number as a compact `N.N ms` string (one decimal
+  place). Returns nil for nil / non-number input so the duration column
+  can render `—`. Pure data → string-or-nil; JVM-testable."
   [ms]
   (when (number? ms)
     (str (fmt-1 ms) " ms")))
+
+(defn epoch-t0
+  "The earliest `:time` across `rows` (the epoch's domino-trail origin —
+  the EPOCH OPEN moment). Returns nil when no row carries a numeric
+  `:time`. Pure."
+  [rows]
+  (let [ts (keep :time rows)]
+    (when (seq ts) (apply min ts))))
+
+(defn format-rel-time
+  "Render `t` (absolute ms) relative to `t0` as the spec/023 §3 Δt form
+  `+N.N` — the ms offset from EPOCH OPEN. An error/warning row's Δt may
+  be rendered with a `!` lead by the view (spec/023 §9); the helper
+  produces the neutral `+N.N` and the view applies emphasis. Falls back
+  to nil when either is non-numeric so the view can render an em-dash.
+  Pure data → string-or-nil; JVM-testable."
+  [t t0]
+  (when (and (number? t) (number? t0))
+    (str "+" (fmt-1 (- t t0)))))
+
+(defn with-rel-times
+  "Stamp `:rel-time` (the `+N.N` Δt string, relative to the epoch's
+  first event) onto every row. Pure data → rows; JVM-testable."
+  [rows]
+  (let [t0 (epoch-t0 rows)]
+    (mapv (fn [row]
+            (assoc row :rel-time (format-rel-time (:time row) t0)))
+          rows)))
+
+;; ---- per-row projection -------------------------------------------------
 
 (defn project-row
   "Project one raw trace event into the panel's row shape:
@@ -322,7 +638,14 @@
        :time            <ms>
        :op-type         <kw>
        :operation       <kw>
+       :area            <:event/:coeffect/:db/:fx/:flow/:sub/:view/
+                          :machine/:routing/:epoch/:error/:warning>
+       :area-badge      <string>            ;; the uppercase neutral badge
+       :phase           <:envelope/:dispatch/:event-handling/:effects/:reactive>
        :op-family       <:dispatch/:db/:fx/:reactive/:machine/:error/:warning>
+       :outcome-tier    <:active/:inert/:gone/:pending/:error/:warning>
+       :verb            <string>            ;; the what-happened verb
+       :target          <string-or-nil>     ;; the target/detail subject
        :severity        <:error/:warning/:info-or-nil>
        :source          <kw-or-nil>
        :origin          <kw-or-nil>
@@ -330,30 +653,30 @@
        :event-id        <kw-or-nil>
        :handler-id      <kw-or-nil>
        :dispatch-id     <int-or-nil>
-       :parent-dispatch-id <int-or-nil>     ;; causal-nesting parent
+       :parent-dispatch-id <int-or-nil>
        :description     <string>            ;; readable plain-language line
        :source-coord    <string-or-nil>
        :duration-ms     <num-or-nil>        ;; per-op elapsed (when present)
        :tags            <map>               ;; full tags for the detail view
        :raw             <trace-event>}
 
-  Per rf2-ad7zx.8 the `:description` is now the Figma plain-language
-  line (`readable-description`); the prior terse `operation — detail`
-  form remains its fallback. `:op-family` drives the 3px left-border
-  band and the reactive-aftermath grouping. `:duration-ms` carries the
-  op's elapsed timing when the trace event reports it (event run-end,
-  view render); reactive point-in-time emits leave it nil so the view
-  shows a timestamp, not a duration (spec/021 §5.2).
-
-  Pure data → data; JVM-testable."
+  The 5-column row (spec/023 §3) reads `:rel-time` (stamped by
+  `with-rel-times`) · `:area-badge` · `:verb` · `:target` ·
+  `:duration-ms`. `:phase` drives band placement; `:op-family` drives
+  the 3px left-border band; `:outcome-tier` drives the verb's colour
+  tint (spec/023 §8). Pure data → data; JVM-testable."
   [{:keys [id time op-type operation source tags] :as ev}]
   {:id              id
    :time            time
    :op-type         op-type
    :operation       operation
+   :area            (area ev)
+   :area-badge      (area-badge ev)
+   :phase           (phase ev)
    :op-family       (op-family ev)
-   ;; :severity is the synonym axis Spec 009 documents — set when the
-   ;; op-type is one of the three severity tiers, nil otherwise.
+   :outcome-tier    (outcome-tier ev)
+   :verb            (what-happened ev)
+   :target          (target-detail ev)
    :severity        (case op-type
                       :error   :error
                       :warning :warning
@@ -378,221 +701,104 @@
   [events]
   (mapv project-row events))
 
-;; ---- relative timing (rf2-ad7zx.8) --------------------------------------
+;; ---- band projection (spec/023 §2 · §4) ---------------------------------
 ;;
-;; Per spec/021 §5.2 the Figma row leads with a RELATIVE timestamp
-;; (`t+0.0ms`) — elapsed since the epoch's first trace event — not the
-;; absolute wall clock. Relative time scans the epoch's shape (the gaps
-;; between dominoes) at a glance, where absolute HH:MM:SS.mmm does not.
+;; Per spec/023 §2 the arc is the epoch envelope (EPOCH OPEN / CLOSE
+;; rows carrying the :rf.epoch/* ops) bracketing four collapsible phase
+;; bands, in arc order. Per spec/023 §13 EMPTY bands render dimmed with
+;; `(none)` — never hidden — so the 4-phase shape is always legible.
+;; Errors / warnings are cross-cutting (spec/023 §7) — they stay inline
+;; in whatever band they chronologically occurred (the rows keep their
+;; fire-order position within a band).
 
-(defn epoch-t0
-  "The earliest `:time` across `rows` (the epoch's domino-trail
-  origin). Returns nil when no row carries a numeric `:time`. Pure."
+(defn epoch-outcome
+  "Extract the epoch's `:rf.epoch/outcome` from its envelope rows — the
+  `:ok` / `:blocked` / `:error` outcome the EPOCH CLOSE row shows
+  (spec/023 §13). Reads the `:rf.epoch/outcome` operation's
+  `[:tags :rf.epoch/outcome]` (or `:outcome`). Returns nil when no
+  outcome op is present (the epoch is still in-flight). Pure data →
+  keyword-or-nil; JVM-testable."
   [rows]
-  (let [ts (keep :time rows)]
-    (when (seq ts) (apply min ts))))
+  (some (fn [{:keys [operation tags]}]
+          (when (= operation :rf.epoch/outcome)
+            (or (:rf.epoch/outcome tags) (:outcome tags))))
+        rows))
 
-(defn format-rel-time
-  "Render `t` (absolute ms) relative to `t0` as the Figma `t+N.Nms`
-  form. Falls back to nil when either is non-numeric so the view can
-  render an em-dash. Pure data → string-or-nil; JVM-testable."
-  [t t0]
-  (when (and (number? t) (number? t0))
-    (str "t+" (fmt-1 (- t t0)) "ms")))
+(defn build-bands
+  "Project the epoch's oldest-first rows into the spec/023 §2 arc shape:
 
-(defn with-rel-times
-  "Stamp `:rel-time` (the `t+N.Nms` string, relative to the epoch's
-  first event) onto every row. Pure data → rows; JVM-testable."
+      {:envelope [<:rf.epoch/* row> ...]   ;; EPOCH OPEN / CLOSE ops
+       :outcome  <:ok/:blocked/:error-or-nil>
+       :bands    [{:id    :dispatch
+                   :label \"① DISPATCH\"
+                   :rows  [<row> ...]       ;; in fire order, oldest-first
+                   :count <int>
+                   :empty? <bool>}          ;; → dimmed `(none)` (spec §13)
+                  ... one per band-order ...]}
+
+  Every band in `band-order` is ALWAYS present (spec/023 §13 — empty
+  bands render dimmed `(none)`, never hidden). Rows keep their fire-order
+  position WITHIN a band, so a cross-cutting error/warning row stays at
+  its chronological point in whatever band it landed (spec/023 §7).
+  Pure data → data; JVM-testable."
   [rows]
-  (let [t0 (epoch-t0 rows)]
-    (mapv (fn [row]
-            (assoc row :rel-time (format-rel-time (:time row) t0)))
-          rows)))
-
-;; ---- reactive-aftermath collapse group (rf2-ad7zx.8) --------------------
-;;
-;; Per spec/021 §5.2 the many post-cascade reactive emits (`:rf.sub/run`
-;; / `:rf.view/render`) COLLAPSE under one expandable group row —
-;; `▸ reactive aftermath (N subs, M renders)` — so the core dominoes
-;; (dispatch · db · fx · machine) stand out. A contiguous run of
-;; `:reactive`-family rows folds into ONE group node carrying the run's
-;; children; the view renders the summary and toggles the children.
-
-(defn- reactive-row?
-  "True when a projected row belongs to the reactive aftermath family."
-  [row]
-  (= :reactive (:op-family row)))
-
-(defn reactive-summary
-  "Summarise a run of reactive rows as `{:subs N :renders M}` — subs ran
-  vs views rendered. Pure data → map; JVM-testable."
-  [rows]
-  {:subs    (count (filter #(= :rf.sub (:op-type %)) rows))
-   :renders (count (filter #(= :rf.view (:op-type %)) rows))})
-
-(defn group-reactive-aftermath
-  "Fold each CONTIGUOUS run of reactive-family rows (in the given
-  oldest-first order) into a single group node:
-
-      {:kind        :reactive-group
-       :id          \"react-grp:<first-row-id>\"   ;; stable React key
-       :op-family   :reactive
-       :rel-time    <first child's rel-time>
-       :summary     {:subs N :renders M}
-       :children    [<reactive row> ...]}
-
-  Non-reactive rows pass through unchanged (each carries an implicit
-  `:kind :op` when the view reads it). Causal structure is preserved —
-  the runs are folded in place, so a reactive tail between two event-
-  side rows stays between them. Pure data → nodes; JVM-testable."
-  [rows]
-  (->> rows
-       (partition-by reactive-row?)
-       (mapcat (fn [run]
-                 (if (reactive-row? (first run))
-                   [{:kind      :reactive-group
-                     :id        (str "react-grp:" (:id (first run)))
-                     :op-family :reactive
-                     :rel-time  (:rel-time (first run))
-                     :summary   (reactive-summary run)
-                     :children  (vec run)}]
-                   run)))
-       vec))
-
-;; ---- causal nesting (rf2-ad7zx.8) ---------------------------------------
-;;
-;; Per spec/021 §5.2 child dispatches INDENT under their parent (the
-;; cascade tree) so structure is visible even in the raw view. A row's
-;; `:parent-dispatch-id` (the `:rf.trace/parent-dispatch-id` tag) names
-;; the in-flight dispatch that spawned it. We compute a per-row indent
-;; DEPTH from the dispatch lineage so the view can offset each row —
-;; the spec's `└─ dispatched [:title/loaded]` indented child.
-
-(defn nesting-depths
-  "Map each row's `:dispatch-id` → its nesting depth, walking the
-  `:parent-dispatch-id` chain. A root dispatch (no parent, or a parent
-  not present in this epoch) is depth 0; each hop down the lineage adds
-  one. Rows with no `:dispatch-id` (the reactive tail) are not keyed —
-  callers default them to 0. Pure data → map; JVM-testable."
-  [rows]
-  (let [own-ids (into #{} (keep :dispatch-id rows))
-        ;; dispatch-id → parent-dispatch-id (first row that names each)
-        parent  (reduce (fn [m {:keys [dispatch-id parent-dispatch-id]}]
-                          (cond-> m
-                            (and dispatch-id
-                                 (not (contains? m dispatch-id)))
-                            (assoc dispatch-id parent-dispatch-id)))
-                        {}
-                        rows)
-        depth   (fn depth [did seen]
-                  (let [p (get parent did)]
-                    (if (and p (contains? own-ids p) (not (contains? seen p)))
-                      (inc (depth p (conj seen did)))
-                      0)))]
-    (into {} (map (fn [did] [did (depth did #{})]) own-ids))))
-
-(defn with-nesting-depth
-  "Stamp `:depth` onto every node — the causal-nesting indent level.
-  Reads the dispatch-lineage depth map; reactive groups inherit the
-  depth of their first child (so a nested cascade's reactive tail
-  indents with it). Pure data → nodes; JVM-testable."
-  [nodes]
-  (let [op-rows (mapcat (fn [n]
-                          (if (= :reactive-group (:kind n))
-                            (:children n)
-                            [n]))
-                        nodes)
-        depths  (nesting-depths op-rows)
-        depth-of (fn [row] (get depths (:dispatch-id row) 0))]
-    (mapv (fn [n]
-            (if (= :reactive-group (:kind n))
-              (assoc n :depth (depth-of (first (:children n))))
-              (assoc n :depth (depth-of n))))
-          nodes)))
-
-(defn build-display-nodes
-  "Top-level structural projection — turn the epoch's oldest-first
-  projected rows into the Figma display node list:
-
-    1. stamp relative `t+N.Nms` times,
-    2. fold contiguous reactive runs into collapse groups,
-    3. stamp causal-nesting depth onto every node.
-
-  Returns a vector of nodes, each either an `:op` row (the projected
-  trace row, with `:rel-time` + `:depth`) or a `:reactive-group` node
-  (with `:summary` + `:children` + `:rel-time` + `:depth`). The view
-  reads `:kind` to discriminate. Oldest-first so causal nesting reads
-  top-down (parent then indented child), matching the Figma. Pure data
-  → nodes; JVM-testable."
-  [rows]
-  (-> rows
-      with-rel-times
-      group-reactive-aftermath
-      with-nesting-depth))
+  (let [by-phase (group-by :phase rows)]
+    {:envelope (vec (get by-phase :envelope []))
+     :outcome  (epoch-outcome rows)
+     :bands    (mapv (fn [band-id]
+                       (let [band-rows (vec (get by-phase band-id []))]
+                         {:id     band-id
+                          :label  (get band->label band-id)
+                          :rows   band-rows
+                          :count  (count band-rows)
+                          :empty? (empty? band-rows)}))
+                     band-order)}))
 
 ;; ---- epoch-scoped feed projection (the panel reads this) ----------------
 
 (defn project-feed-from-epoch
   "Top-level projection — produces every slot the Trace view needs,
-  scoped to the FOCUSED EPOCH's `:trace-events` (rf2-td380). Pure
-  data → data; JVM-testable.
+  scoped to the FOCUSED EPOCH's `:trace-events` (spec/018 §6). Pure data
+  → data; JVM-testable.
 
   `epoch-record` is the `:rf/epoch-record` looked up from
   `:rf.xray/epoch-history` whose `:epoch-id` matches the focused
   `:epoch-id` from `:rf.xray/focus` (resolved via the shared
-  `panels.shared.focus-resolver`). Its `:trace-events` slot carries
-  the complete domino trail for one settling — both the synchronous
+  `panels.shared.focus-resolver`). Its `:trace-events` slot carries the
+  complete domino trail for one settling — both the synchronous
   event-side rows (dispatch-id N) and the async reactive rows
   (`:rf.sub/run` / `:rf.view/render`, nil dispatch-id) — oldest-first.
 
   `focus-status` is the discriminator from
   `focus-resolver/resolve-focus-status`:
 
-    :no-focus       — no focused epoch AND no history (cold start
-                      before any cascade has settled)
-    :epoch-evicted  — focus has an :epoch-id but the matching record
-                      is gone from history (capped per :epoch-history)
-    :focused        — focus resolved to a real epoch record (either
-                      explicit pin or head-fallback per rf2-h0120)
+    :no-focus       — no focused epoch AND no history (cold start)
+    :epoch-evicted  — focus has an :epoch-id but the record is gone
+    :focused        — focus resolved to a real epoch record
 
   Returns:
 
       {:rows        [<row> ...]   ;; the epoch's domino trail, OLDEST first
-       :nodes       [<node> ...]  ;; structural display tree (rf2-ad7zx.8):
-                                  ;; reactive-aftermath collapse groups +
-                                  ;; relative times + causal-nesting depth
+       :envelope    [<row> ...]   ;; the EPOCH OPEN / CLOSE :rf.epoch/* ops
+       :outcome     <:ok/:blocked/:error-or-nil>  ;; the epoch outcome
+       :bands       [{:id :label :rows :count :empty?} ...]  ;; the 4 phase
+                                  ;; bands in arc order (spec/023 §2 / §4)
        :total       <int>         ;; the epoch's trace-event count
-       :rendered    <int>         ;; same as :total (no filtering, rf2-gkczt)
+       :rendered    <int>         ;; same as :total (no filtering)
        :epoch-id    <int-or-nil>  ;; the focused epoch's id
        :empty-kind  <:no-events / :no-focus / :epoch-evicted / nil>}
 
-  Per rf2-ad7zx.8 the rows render OLDEST-first (chronological) so the
-  Figma causal nesting reads top-down — a parent dispatch then its
-  indented `└─` child — and the reactive aftermath collapses under one
-  group between the core dominoes. `:nodes` is the structural tree the
-  view paints; `:rows` is the flat oldest-first projection (kept for
-  cross-panel consumers + tests).
-
-  `:empty-kind` discriminates the empty-state branches:
-
-      :no-focus       — spine carries no focused epoch AND history is
-                        empty (cold start, no cascades have settled).
-      :epoch-evicted  — focused epoch's record has aged out of the
-                        history ring buffer.
-      :no-events      — focused epoch carries no trace events.
-      nil             — at least one row; render the ribbon.
-
-  No `:no-matches` branch — there is no user filter to hide rows
-  (rf2-gkczt)."
+  Rows render OLDEST-first (chronological) so the arc reads top-down —
+  EPOCH OPEN → ① DISPATCH → … → ④ REACTIVE → EPOCH CLOSE. `:bands` is
+  the structural arc the view paints (one band per phase, empty bands
+  dimmed per spec/023 §13); `:rows` is the flat oldest-first projection
+  (kept for cross-panel consumers + tests). Pure data → data."
   [epoch-record focus-status]
   (let [record-present? (= :focused focus-status)
         trace-events    (when record-present?
                           (:trace-events epoch-record))
-        ;; Oldest-first (chronological) — the Figma causal nesting reads
-        ;; top-down (parent → indented child) and the reactive aftermath
-        ;; collapses between the core dominoes (rf2-ad7zx.8).
         rows            (with-rel-times (project-rows (or trace-events [])))
-        nodes           (build-display-nodes (project-rows (or trace-events [])))
+        {:keys [envelope outcome bands]} (build-bands rows)
         n               (count rows)
         empty-kind      (cond
                           (= focus-status :no-focus)      :no-focus
@@ -600,7 +806,9 @@
                           (zero? n)                       :no-events
                           :else                           nil)]
     {:rows       rows
-     :nodes      nodes
+     :envelope   envelope
+     :outcome    outcome
+     :bands      bands
      :total      n
      :rendered   n
      :epoch-id   (:epoch-id epoch-record)
@@ -611,21 +819,12 @@
 (defn row-key
   "Stable React key for one projected trace row.
 
-  Per rf2-z4fza (sibling of rf2-kgn0c — same React-key discipline):
-  the trace ribbon's earlier shape keyed each `<li>` on a tuple that
-  included the row's positional index inside the visible viewport. A
-  new trace push shifts every visible row's index down by one, which
-  changes every key, which makes React's reconciler unmount the
-  entire viewport and remount it on EVERY push — the dominant frame
-  cost under burst event rate.
-
-  The framework's `re-frame.trace` allocates a monotonically-
-  increasing `:id` per emit (`next-id!`), and the same trace event
-  is never re-projected — so `:id` is a stable, unique identity for
-  the row across the panel's lifetime. We namespace it with `t:` to
-  mirror the rf2-kgn0c discipline (`v:<variant-id>` in the story
-  workspace) so future positional fallbacks can't silently collide
-  with these keys.
+  The framework's `re-frame.trace` allocates a monotonically-increasing
+  `:id` per emit, and the same trace event is never re-projected — so
+  `:id` is a stable, unique identity across the panel's lifetime. We
+  namespace it with `t:` so future positional fallbacks can't silently
+  collide. (Keying on a positional index would change every key on every
+  trace push, forcing React to remount the whole viewport.)
 
   Pure data → string; JVM-testable."
   [{:keys [id] :as _row}]
@@ -643,34 +842,5 @@
 
 ;; Re-export the shared `HH:MM:SS.mmm` formatter so the panel surface
 ;; keeps a stable `format-time` symbol while the body lives once in
-;; `common-helpers` (alongside issues-ribbon, routes, mcp-server).
+;; `common-helpers`.
 (def format-time common/format-time-hms)
-
-(def op-type->token
-  "Pure semantic map from op-type keyword to token keyword. The hex
-  resolution happens via `op-type-colour`, which looks up
-  `theme/tokens`. Splitting the semantic mapping from the hex lookup
-  keeps the map pure-data + tokens consolidated (rf2-5kfxe.4)."
-  {:error                :red
-   :warning              :yellow
-   ;; op-family colour bands (spec/007 §Colour system). Events ride the
-   ;; single `:accent` (the spine); the sub family + info keep a fixed
-   ;; cool blue (`:info`) so the two bands stay visually distinct from
-   ;; the GitHub-blue event accent (rf2-ad7zx.13).
-   :info                 :info
-   :rf.event             :accent
-   :rf.event/db-changed  :accent
-   :rf.fx                :green
-   :rf.sub/run           :info
-   :rf.sub/create        :info
-   :rf.view/render       :magenta
-   :rf.frame             :text-secondary})
-
-(defn op-type-colour
-  "Colour swatch for an op-type. Drives the per-row dot styling.
-  Resolves the semantic token keyword through `theme/tokens`
-  (rf2-5kfxe.4) so the palette has exactly one source of truth. Falls
-  back to `:text-secondary` for unknown op-types."
-  [op-type]
-  (get tokens/tokens
-       (get op-type->token op-type :text-secondary)))

@@ -71,7 +71,7 @@
   | **event-detail** | `:rf.xray/focus` · `:rf.xray/cascades` · `:rf.xray/target-frame-db` | `:rf.xray/focus-cascade` |
   | **app-db (current-state inspector)** | `:rf.xray/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area — rf2-okvit) | `:rf.xray/open-segment-inspector` |
   | **reactive-panel** | `:rf.xray/reactive-data` (composite over focused cascade's `:trace-events`) | `:rf.xray/reactive-toggle-unchanged` |
-  | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events`, rf2-td380) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/open-in-editor` |
+  | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into the whole-epoch arc: envelope + 4 phase bands, spec/023) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/toggle-trace-band-collapse` · `:rf.xray/open-in-editor` |
   | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-cascade` |
   | **routing** | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
   | **issues-ribbon** | `:rf.xray/issues-ribbon` (composite over focused epoch's `:trace-events` — pure rows, no filtering, per spec/021 §8) | `:rf.xray/select-tab` · `:rf.xray/open-in-editor` |

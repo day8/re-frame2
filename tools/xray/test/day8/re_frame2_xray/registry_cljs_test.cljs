@@ -327,15 +327,18 @@
    ;; rf2-7hwwe — `:after` countdown ring hover slot (rich tooltip lifecycle).
    :rf.xray/timer-hover
    :rf.xray/trace-buffer
-   ;; rf2-7dyi8 — per-row inline payload expansion state (spec/021 §5.4).
+   ;; rf2-l2f2g — per-row inline raw-EDN payload expansion state
+   ;; (spec/023-Trace-Panel.md §3 — row click → raw EDN).
    :rf.xray/trace-expanded-row-ids
-   ;; rf2-ad7zx.8 — per-group reactive-aftermath collapse state
-   ;; (spec/021 §5.2 — collapsible reactive aftermath group).
-   :rf.xray/trace-expanded-group-ids
+   ;; rf2-l2f2g — per-band collapse state (spec/023 §2 / §14 —
+   ;; collapsible phase bands; default all-expanded, this set tracks the
+   ;; COLLAPSED bands).
+   :rf.xray/trace-collapsed-band-ids
    ;; rf2-td380 — epoch-scoped feed (reads the focused epoch record's
    ;; `:trace-events` directly). The `:rf.xray/trace-feed-state`
    ;; buffer snapshot + `:rf.xray/trace-filters` chip-filter slot were
-   ;; removed with rf2-td380 + rf2-gkczt.
+   ;; removed with rf2-td380 + rf2-gkczt. The feed now projects the arc
+   ;; shape (envelope + 4 phase bands) per spec/023 (rf2-l2f2g).
    :rf.xray/trace-feed
    ;; Reactive panel (rf2-wyvf2 · spec/021 §3 · renamed from Views per
    ;; §11.5; tab key stays `:views`, display label rebases). Reads the
@@ -587,12 +590,12 @@
    :rf.xray/timer-hover
    :rf.xray/timer-tick
    :rf.xray/toggle-live-pause
-   ;; rf2-7dyi8 — toggle the inline payload expansion for one trace row
-   ;; (per spec/021 §5.4 — Row → expand payload · Inline in panel).
+   ;; rf2-l2f2g — toggle the inline raw-EDN payload expansion for one
+   ;; trace row (spec/023-Trace-Panel.md §3 — Row click → raw EDN).
    :rf.xray/toggle-trace-row-expand
-   ;; rf2-ad7zx.8 — toggle one reactive-aftermath collapse group open
-   ;; (per spec/021 §5.2 — ▸ reactive aftermath (N subs, M renders)).
-   :rf.xray/toggle-trace-group-expand
+   ;; rf2-l2f2g — toggle one phase band's collapse state (spec/023 §2 /
+   ;; §14 — the four phase bands are collapsible).
+   :rf.xray/toggle-trace-band-collapse
    ;; Reactive panel events (rf2-wyvf2 · spec/021 §3 · renamed from
    ;; Views per §11.5; tab key stays `:views`).
    :rf.xray/reactive-set-unchanged
