@@ -512,7 +512,20 @@
       (is (true? (get last-by-id :route/payment))
           ":route/payment is the last sibling at depth 1 under /checkout")
       (is (false? (get last-by-id :route/confirm))
-          ":route/confirm is not the last sibling at depth 1"))))
+          ":route/confirm is not the last sibling at depth 1")))
+
+  (testing "has-children? flags parent routes (the view's `▾` chevron)"
+    (let [topology (h/project-topology parented-routes)
+          kids-by-id (into {} (map (juxt #(-> % :row :route-id) :has-children?))
+                           topology)]
+      (is (true? (get kids-by-id :route/checkout))
+          ":route/checkout has nested children → has-children? true")
+      (is (false? (get kids-by-id :route/payment))
+          ":route/payment is a leaf → has-children? false")
+      (is (false? (get kids-by-id :route/admin))
+          ":route/admin is a leaf → has-children? false")
+      (is (every? #(contains? % :has-children?) topology)
+          "every topology entry carries a :has-children? flag"))))
 
 (deftest project-topology-orphan-parent-test
   (testing "rows whose :parent points to an unregistered route become roots"
@@ -631,7 +644,16 @@
         (is (= :here (get marker-by-id :route/cart))
             ":route/cart carries :here marker (current slice id)")
         (is (nil? (get marker-by-id :route/admin))
-            "non-current routes carry no marker")))))
+            "non-current routes carry no marker"))
+      ;; :has-children? survives the data composite (the view reads it
+      ;; off the topology entry to paint the `▾` chevron).
+      (let [kids-by-id (into {}
+                            (map (juxt #(-> % :row :route-id) :has-children?))
+                            (:topology data))]
+        (is (true? (get kids-by-id :route/checkout))
+            ":route/checkout keeps :has-children? through the composite")
+        (is (false? (get kids-by-id :route/cart))
+            "leaf route keeps :has-children? false through the composite")))))
 
 (deftest project-topology-data-overlay-test
   (testing "focused cascade caused navigation → :to overlay + :on-match phase"

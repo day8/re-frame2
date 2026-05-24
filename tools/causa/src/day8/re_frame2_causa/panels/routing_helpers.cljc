@@ -475,10 +475,17 @@
   vector — the data shape the Routing panel's tree-render consumes.
 
   Returns `[{:row <row-from-project-routes>
-             :depth <int>           ;; 0 for roots, +1 per :parent hop
+             :depth <int>           ;; 0 for roots, +1 per :parent hop;
+                                    ;; the view turns depth into a left
+                                    ;; indent (RoutesPanel.tsx
+                                    ;; `paddingLeft: level * 2 + 0.5rem`)
              :last-at-depth? <bool> ;; true when this row is the last
-                                    ;; sibling at its depth (used by
-                                    ;; the view to pick `└─` vs `├─`)
+                                    ;; sibling at its depth
+             :has-children? <bool>  ;; true when this route is a parent
+                                    ;; of nested routes — the view paints
+                                    ;; a `▾` disclosure chevron (Figma
+                                    ;; `ChevronRight`); leaves get an
+                                    ;; aligned spacer instead
              } ...]`
 
   Routes with `:parent` references that resolve to a registered
@@ -516,7 +523,8 @@
                               (reduce into []))]
                      (into [{:row            row
                              :depth          depth
-                             :last-at-depth? (boolean last-sibling?)}]
+                             :last-at-depth? (boolean last-sibling?)
+                             :has-children?  (boolean (seq children))}]
                            child-rows)))))
         last-root-idx (dec (count roots))]
     (->> roots
