@@ -181,24 +181,34 @@
       vc/chart-regular)))
 
 (defn- edge-stroke
-  [{:keys [active? focused?]}]
+  "rf2-qeemm (G3) — `fired?` (the edge traversed THIS epoch) wins over
+  `focused?` / `active?` so a fired arm reads as 'what just happened' in
+  the FIRED hue (`:accent`, distinct from the focused/active `:info`).
+  Palette delegated to Figma — `:accent` is the existing token, not a new
+  palette entry."
+  [{:keys [active? focused? fired?]}]
   (cond
-    focused? (:info tokens/tokens)
-    active?  (:info tokens/tokens)
-    :else    (:border-default tokens/tokens)))
+    fired?               (:accent tokens/tokens)
+    (or focused? active?) (:info tokens/tokens)
+    :else                (:border-default tokens/tokens)))
 
 (defn- edge-stroke-width
   "rf2-k647w — edge stroke widths read off the resolved density. The
   active stroke sits midway between default + emphasis; the focused
   stroke is the emphasis width (preserving the shipped regular
-  relationship 1.5 / 2.0 / 2.5)."
-  [{:keys [active? focused? chart]
+  relationship 1.5 / 2.0 / 2.5).
+
+  rf2-qeemm (G3) — `fired?` paints at the emphasis width (the heaviest
+  treatment), at least as prominent as `focused?`, so a traversed edge
+  stands out even when it isn't the focused FROM→TO lens (both the fired
+  arm and the focused lens share the emphasis width)."
+  [{:keys [active? focused? fired? chart]
     :or   {chart vc/chart-regular}}]
   (let [{:keys [stroke-width stroke-width-emphasis]} chart]
     (cond
-      focused? stroke-width-emphasis
-      active?  (/ (+ stroke-width stroke-width-emphasis) 2.0)
-      :else    stroke-width)))
+      (or fired? focused?) stroke-width-emphasis
+      active?              (/ (+ stroke-width stroke-width-emphasis) 2.0)
+      :else                stroke-width)))
 
 ;; ---- transition-edge ----------------------------------------------------
 
@@ -220,6 +230,10 @@
         label      (or (.-eventLabel d) "")
         active?    (boolean (.-active d))
         focused?   (boolean (.-focused d))
+        ;; rf2-qeemm (G3) — this edge traversed THIS epoch. Drives the
+        ;; FIRED treatment (emphasised + animated stroke, `data-fired`),
+        ;; winning over the focused/active styling per `edge-stroke`.
+        fired?     (boolean (.-fired d))
         after-ms   (.-afterMs d)
         ;; rf2-u422r — on-chart click wiring. `:onClick` is the host
         ;; callback (e.g. Xray's on-chart sim → sim-step); `:eventId`
@@ -251,8 +265,9 @@
                     :tgt-x tgt-x :tgt-y tgt-y
                     :src-pos src-pos :tgt-pos tgt-pos
                     :self-loop? self-loop? :points points})
-        stroke  (edge-stroke {:active? active? :focused? focused?})
-        stroke-w (edge-stroke-width {:active? active? :focused? focused? :chart vc})]
+        stroke  (edge-stroke {:active? active? :focused? focused? :fired? fired?})
+        stroke-w (edge-stroke-width {:active? active? :focused? focused?
+                                     :fired? fired? :chart vc})]
     (r/as-element
       [:<>
        [:> BaseEdge {:id (.-id props)
@@ -263,7 +278,11 @@
                      :style #js {:stroke stroke
                                  :strokeWidth stroke-w
                                  :strokeDasharray (when internal? "4 3")
-                                 :animation (when focused?
+                                 ;; rf2-qeemm (G3) — the fired-this-epoch edge
+                                 ;; animates the same glow as the focused lens
+                                 ;; (it traversed), so a fired arm that is NOT
+                                 ;; the focused FROM→TO still pulses.
+                                 :animation (when (or focused? fired?)
                                               "mv-chart-transition-glow 720ms ease-out infinite")}}]
        (when (seq label)
        [:> EdgeLabelRenderer
@@ -271,6 +290,9 @@
                :data-event (when label label)
                :data-active (str active?)
                :data-focused-edge (str focused?)
+               ;; rf2-qeemm (G3) — DOM pin for the fired-this-epoch edge
+               ;; treatment; tests + hosts read it to find the traversed arm.
+               :data-fired (str fired?)
                :data-after-ms (when after-ms (str after-ms))
                ;; rf2-ee38b.21 — surface internal / machine-level so the
                ;; DOM suite + a host can distinguish self-transition kind

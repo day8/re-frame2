@@ -1008,3 +1008,123 @@
           "the idle→loading edge still highlights (target is active)")
       (is (= route (:points (:data start-e)))
           "and still carries its elk route — highlight + routing coexist"))))
+
+;; ---- fired-this-epoch edge highlight (rf2-qeemm, G3) -------------------
+;;
+;; The Xray inspector resolves which edges fired THIS epoch
+;; (`extract-fired-edge-ids`, B7 — emits CANONICAL machines-viz edge-ids)
+;; and threads them as `:fired-edge-ids` (a SET) into the projector, which
+;; marks each matching edge `:fired`. The edge component then paints the
+;; FIRED treatment (emphasised + animated stroke + `data-fired`). These
+;; JVM pins guard the projection half; the DOM suite pins the rendered
+;; `data-fired` attr. The match is by EDGE-ID (not endpoint node-ids like
+;; `:focused`) so every traversed arm lights up.
+
+(deftest xyflow-graph-marks-fired-edge
+  (testing "rf2-qeemm (THE G3 CAPABILITY) — an edge whose id ∈
+            :fired-edge-ids gets `:fired true`; every other edge stays
+            `:fired false`"
+    (let [parsed   (layout/parse-definition idle-loading)
+          start    (->> (:edges parsed)
+                        (filter #(= (:source %) (layout/node-id [:idle])))
+                        first)
+          graph    (projection/xyflow-graph
+                     parsed {} {:fired-edge-ids #{(:id start)}})
+          start-e  (edge-by-id graph (:id start))
+          others   (remove #(= (:id %) (:id start)) (:edges graph))]
+      (is (some? start) "fixture has the idle→loading edge")
+      (is (true? (:fired (:data start-e)))
+          "the fired edge is marked :fired")
+      (is (every? #(false? (:fired (:data %))) others)
+          "no other edge is marked fired (including entry edges)"))))
+
+(deftest xyflow-graph-no-fired-edge-ids-leaves-all-unfired
+  (testing "rf2-qeemm — omitting :fired-edge-ids (the viewer / Story path,
+            or a non-fired epoch) leaves EVERY edge `:fired false`"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})]
+      (is (seq (:edges graph)))
+      (is (every? #(false? (:fired (:data %))) (:edges graph))
+          "no fired set → no fired edges"))))
+
+(deftest xyflow-graph-fired-collects-multiple-edges
+  (testing "rf2-qeemm — a set with N fired ids marks ALL N edges :fired
+            (an epoch with several microsteps lights every traversed arm)"
+    (let [parsed (layout/parse-definition idle-loading)
+          start  (->> (:edges parsed)
+                      (filter #(= (:source %) (layout/node-id [:idle])))
+                      first)
+          ;; the :always loading→ready edge
+          always (->> (:edges parsed)
+                      (filter #(= (:target %) (layout/node-id [:ready])))
+                      first)
+          ids    #{(:id start) (:id always)}
+          graph  (projection/xyflow-graph parsed {} {:fired-edge-ids ids})
+          fired  (set (map :id (filter #(:fired (:data %)) (:edges graph))))]
+      (is (some? start) "fixture has the :start edge")
+      (is (some? always) "fixture has the :always edge")
+      (is (= ids fired)
+          "exactly the two fired ids are marked, no more no fewer"))))
+
+(deftest xyflow-graph-fired-marker-colour-distinct
+  (testing "rf2-qeemm — a fired edge's arrowhead colour differs from a
+            non-fired edge's (the FIRED hue is distinct so a traversed
+            arm reads as 'what just happened')"
+    (let [parsed   (layout/parse-definition idle-loading)
+          start    (->> (:edges parsed)
+                        (filter #(= (:source %) (layout/node-id [:idle])))
+                        first)
+          graph    (projection/xyflow-graph
+                     parsed {} {:fired-edge-ids #{(:id start)}})
+          fired-e  (edge-by-id graph (:id start))
+          plain-e  (first (remove #(or (= (:id %) (:id start))
+                                       (:entry (:data %)))
+                                  (:edges graph)))]
+      (is (some? plain-e) "fixture has a non-fired transition edge")
+      (is (not= (:color (:markerEnd fired-e))
+                (:color (:markerEnd plain-e)))
+          "fired vs non-fired arrowheads are distinct colours"))))
+
+(deftest xyflow-graph-fired-coexists-with-active-and-routing
+  (testing "rf2-qeemm — :fired coexists with G1 :active + G2 routing on
+            the SAME edge: a fired edge that also touches an active node
+            AND carries an elk route keeps all three"
+    (let [parsed  (layout/parse-definition idle-loading)
+          hi      (layout/node-id [:loading])
+          start   (->> (:edges parsed)
+                       (filter #(= (:source %) (layout/node-id [:idle])))
+                       first)
+          route   [{:x 0 :y 0} {:x 0 :y 40} {:x 60 :y 40}]
+          graph   (projection/xyflow-graph
+                    parsed {} {:highlight-id   hi
+                               :edge-points    {(:id start) route}
+                               :fired-edge-ids #{(:id start)}})
+          start-e (edge-by-id graph (:id start))]
+      (is (true? (:fired  (:data start-e))) "edge is fired")
+      (is (true? (:active (:data start-e))) "edge is still active (G1)")
+      (is (= route (:points (:data start-e))) "edge still carries its route (G2)"))))
+
+(deftest xyflow-graph-fired-is-edge-id-not-endpoint-matched
+  (testing "rf2-qeemm — :fired matches the EDGE id directly, NOT endpoint
+            node-ids like :focused. Passing only :fired-edge-ids (no
+            from/to lens) lights the fired edge while NO edge is :focused"
+    (let [parsed  (layout/parse-definition idle-loading)
+          start   (->> (:edges parsed)
+                       (filter #(= (:source %) (layout/node-id [:idle])))
+                       first)
+          graph   (projection/xyflow-graph
+                    parsed {} {:fired-edge-ids #{(:id start)}})
+          start-e (edge-by-id graph (:id start))]
+      (is (true? (:fired (:data start-e))) "the fired edge lights")
+      (is (every? #(false? (:focused (:data %))) (:edges graph))
+          "no from/to lens → no edge is focused (fired is independent)"))))
+
+(deftest xyflow-graph-entry-edges-carry-fired-false
+  (testing "rf2-qeemm — initial entry edges keep the every-edge :data
+            shape whole: they carry `:fired false` (never fired)"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {:fired-edge-ids #{"anything"}})
+          entry  (first (filter #(:entry (:data %)) (:edges graph)))]
+      (is (some? entry) "fixture has an entry edge")
+      (is (false? (:fired (:data entry)))
+          "entry edges are never fired"))))

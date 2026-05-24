@@ -487,3 +487,73 @@
             (is (= loading-id (.getAttribute root "data-highlight-ids")))
             (is (= loading-id (.getAttribute root "data-highlight-id"))
                 "single-active convenience attr carries the lone id")))))))
+
+;; ---- fired-this-epoch edge highlight (rf2-qeemm, G3) --------------------
+;;
+;; The host (Xray) resolves the focused epoch's traversed edges via
+;; `extract-fired-edge-ids` (CANONICAL ids) and passes them as
+;; `:fired-edge-ids`. The matching edge label renders with
+;; `data-fired="true"` (the DOM pin for the FIRED treatment) and the chart
+;; root surfaces the sorted set on `data-fired-edge-ids`. Edge labels mount
+;; via EdgeLabelRenderer on first commit (see
+;; chart-edge-label-renders-bezier-fallback-before-layout above), so the
+;; attr is assertable without awaiting the elk layout pass.
+
+(defn- canonical-edge-id
+  "Resolve the canonical machines-viz edge id for the from→to via event
+  in `definition` (the SAME id the projector + the host's
+  extract-fired-edge-ids mint, via parse-definition)."
+  [definition from-path to-path event]
+  (->> (:edges (layout/parse-definition definition))
+       (some (fn [e]
+               (when (and (= from-path (:from-path e))
+                          (= to-path   (:to-path e))
+                          (= event     (:event e)))
+                 (:id e))))))
+
+(deftest chart-fired-edge-renders-data-fired-on-the-right-edge
+  (testing "rf2-qeemm (G3) — passing :fired-edge-ids #{<idle→loading id>}
+            renders data-fired=\"true\" on THAT edge's label and
+            data-fired=\"false\" on every other edge label"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (let [start-id (canonical-edge-id idle-loading-done [:idle] [:loading] :start)]
+        (with-mounted-chart
+          {:machine-id     :test/flow
+           :definition     idle-loading-done
+           :fired-edge-ids #{start-id}}
+          (fn [_root node]
+            (let [fired-el (.querySelector
+                             node (str "[data-testid=\"rf-mv-chart-edge-" start-id "\"]"))
+                  all      (array-seq
+                             (.querySelectorAll node "[data-testid^=\"rf-mv-chart-edge-\"]"))
+                  others   (remove #(= % fired-el) all)]
+              ;; edge labels mount on first commit (no layout dependency)
+              (when (some? fired-el)
+                (is (= "true" (.getAttribute fired-el "data-fired"))
+                    "the fired edge's label carries data-fired=true")
+                (is (every? #(= "false" (.getAttribute % "data-fired")) others)
+                    "no other edge label is marked fired"))
+              ;; structural invariant so the test is meaningful even if a
+              ;; label races the commit.
+              (is (number? (.-length (.querySelectorAll
+                                       node "[data-testid^=\"rf-mv-chart-edge-\"]")))))))))))
+
+(deftest chart-fired-edge-ids-surfaces-on-root
+  (testing "rf2-qeemm (G3) — the chart root surfaces the sorted fired set
+            on data-fired-edge-ids; absent the prop the attr is empty"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (let [start-id (canonical-edge-id idle-loading-done [:idle] [:loading] :start)]
+        (with-mounted-chart
+          {:machine-id     :test/flow
+           :definition     idle-loading-done
+           :fired-edge-ids #{start-id}}
+          (fn [root _node]
+            (is (= start-id (.getAttribute root "data-fired-edge-ids"))
+                "the fired edge-id surfaces on the root")))
+        (with-mounted-chart
+          {:machine-id :test/flow :definition idle-loading-done}
+          (fn [root _node]
+            (is (= "" (.getAttribute root "data-fired-edge-ids"))
+                "no fired set → empty data-fired-edge-ids")))))))

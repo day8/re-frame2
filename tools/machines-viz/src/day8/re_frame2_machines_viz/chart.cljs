@@ -318,6 +318,19 @@
                          no highlight.
     :from-highlight    — focused-event lens origin (`:state` value).
     :to-highlight      — focused-event lens landing (`:state` value).
+    :fired-edge-ids    — rf2-qeemm (closes parity gap G3). A SET of
+                         canonical edge-ids (the EXACT scheme
+                         `chart.layout` mints) that fired THIS epoch.
+                         Each matching edge gets the FIRED treatment
+                         (emphasised + animated stroke + `data-fired`)
+                         along its routed path. Distinct from the
+                         from/to lens (`:from-highlight` / `:to-highlight`,
+                         which match by ENDPOINT state): this matches the
+                         EDGE directly, lighting every traversed arm
+                         (microsteps, guard-fork candidates). The host
+                         (Xray) resolves it for the focused epoch via
+                         `extract-fired-edge-ids`; nil / `#{}` → no fired
+                         highlight (the standalone viewer / Story path).
     :sim?              — flips the highlight palette to amber for
                          the simulator path.
     :on-state-click    — `(fn [path] ...)` invoked on node click.
@@ -410,6 +423,7 @@
         layout-state  (r/atom {:positions {} :edge-points {}})
         layout-key    (r/atom nil)]
     (fn [{:keys [machine-id definition current-state from-highlight to-highlight
+                 fired-edge-ids
                  sim? on-state-click on-edge-click read-only?
                  direction layout-options density
                  height show-minimap? show-controls? show-background?
@@ -508,6 +522,10 @@
                                ;; points; the projector attaches each
                                ;; edge's route to its :data {:points}.
                                :edge-points       edge-points
+                               ;; rf2-qeemm (G3) — the fired-this-epoch
+                               ;; edge-id set; the projector marks each
+                               ;; matching edge :fired. nil → #{} default.
+                               :fired-edge-ids    (set fired-edge-ids)
                                :chart             chart-vc})
                 aria-label (str "State machine"
                                 (when machine-id
@@ -571,6 +589,11 @@
                                         "")
                    :data-from-highlight-id (or from-highlight-id "")
                    :data-to-highlight-id (or to-highlight-id "")
+                   ;; rf2-qeemm (G3) — the fired-this-epoch edge-id set
+                   ;; surfaces as a sorted, space-joined attr so hosts +
+                   ;; DOM tests can read every traversed arm at the chart
+                   ;; root (mirrors `data-highlight-ids`). "" when none.
+                   :data-fired-edge-ids (str/join " " (sort (set fired-edge-ids)))
                    :role "application"
                    :aria-label aria-label
                    :style {:position "relative"

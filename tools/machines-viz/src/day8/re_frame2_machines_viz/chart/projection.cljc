@@ -181,6 +181,25 @@
                            entry (or a self-loop, which keeps its
                            dedicated loop path) falls back to the bezier
                            between handles. Defaults to `{}`.
+    :fired-edge-ids      — rf2-qeemm (closes parity gap G3). A SET of
+                           canonical edge-ids (the EXACT `:id` scheme
+                           `chart.layout` mints) that fired THIS epoch.
+                           An edge is marked `:fired` when its id ∈ this
+                           set; `chart.edges/transition-edge` then paints
+                           the fired-this-epoch treatment (emphasised +
+                           animated stroke + `data-fired`) ALONG the
+                           existing routed path — coexisting with G2's
+                           bend-points and G1's active styling. The host
+                           (Xray) resolves the set via
+                           `panels.machines.trace-state/extract-fired-edge-ids`
+                           for the focused epoch; the ids agree with the
+                           chart by construction (G3 'single edge-id
+                           source of truth'). Distinct from the
+                           focused-lens `:from/:to-highlight-id` (which
+                           matches by ENDPOINT node-ids): `:fired-edge-ids`
+                           matches the EDGE directly, so it lights every
+                           traversed arm (microsteps, guard-fork
+                           candidates) the lens cannot. Defaults to `#{}`.
     :chart               — rf2-k647w. The resolved visual-constants
                            map for the active `:density`
                            (`visual-constants/chart-for-density`).
@@ -197,8 +216,8 @@
   [{:keys [nodes edges]}
    positions
    {:keys [highlight-id highlight-ids from-highlight-id to-highlight-id sim?
-           on-state-click on-edge-click edge-points chart]
-    :or   {chart vc/chart-regular edge-points {}}}]
+           on-state-click on-edge-click edge-points fired-edge-ids chart]
+    :or   {chart vc/chart-regular edge-points {} fired-edge-ids #{}}}]
   (let [;; rf2-g2svr (G1) — the active set unifies the single-active
         ;; (`:highlight-id`) and multi-active (`:highlight-ids`) cases.
         ;; A PARALLEL machine's snapshot has N simultaneously-active
@@ -303,13 +322,25 @@
                                         (some? to-highlight-id)
                                         (= (:source e) from-highlight-id)
                                         (= (:target e) to-highlight-id))
+                      ;; rf2-qeemm (G3) — the edge fired THIS epoch when its
+                      ;; canonical id ∈ `:fired-edge-ids` (matched directly,
+                      ;; not by endpoint node-ids like `focused?`). The set
+                      ;; is the host's `extract-fired-edge-ids` result, whose
+                      ;; ids agree with `(:id e)` by construction.
+                      fired?       (contains? fired-edge-ids (:id e))
                       ;; A self-transition (source == target) renders as a
                       ;; loop, not a degenerate near-zero bezier; the edge
                       ;; component reads the `:selfLoop` flag.
                       self-loop?   (= (:source e) (:target e))
-                      marker-color (if (or focused? from-active?)
-                                     (:info tokens/tokens)
-                                     (:border-default tokens/tokens))
+                      ;; rf2-qeemm (G3) — the fired-this-epoch arrowhead reads
+                      ;; in the FIRED hue (`:accent`, distinct from the
+                      ;; focused/active `:info`); fired wins over focused/active
+                      ;; so a traversed edge stands out as "what just happened".
+                      ;; Palette delegated to Figma (no new token).
+                      marker-color (cond
+                                     fired?                  (:accent tokens/tokens)
+                                     (or focused? from-active?) (:info tokens/tokens)
+                                     :else                   (:border-default tokens/tokens))
                       ;; A `:*` wildcard `:on` arm is a real transition
                       ;; but NOT a fireable event (Spec 005 §Wildcard —
                       ;; it matches "any otherwise-unhandled event").
@@ -338,6 +369,10 @@
                    :data   {:eventLabel (:event-label e)
                             :active     from-active?
                             :focused    focused?
+                            ;; rf2-qeemm (G3) — fired-this-epoch flag the
+                            ;; edge component reads to paint the FIRED
+                            ;; treatment + surface `data-fired`.
+                            :fired      fired?
                             :afterMs    (:after e)
                             :guard      (layout/name-of (:guard e))
                             :action     (layout/name-of (:action e))
@@ -401,7 +436,8 @@
                  ;; edge `:data` shape (flags + threaded callback/chart)
                  ;; so the "every edge has X" projection invariants hold.
                  :data        {:eventLabel "" :entry true
-                               :active false :focused false :afterMs nil
+                               :active false :focused false :fired false
+                               :afterMs nil
                                :guard nil :action nil :selfLoop false
                                ;; rf2-cz8v6 (G2) — entry edges keep the
                                ;; bezier (a short marker→state hop never

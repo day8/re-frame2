@@ -281,6 +281,25 @@
           fired       (trace-state/extract-fired-edge-ids def events :cart)]
       (is (= #{populate-id} fired)))))
 
+(deftest extract-fired-edge-ids-reads-runtime-tags-event-shape
+  (testing "rf2-qeemm — the LIVE runtime shape: `commit-or-finalize`
+            (lifecycle_fx/registration) emits the inner event under
+            `:tags :event` (a `[event-id & args]` vector), NOT top-level.
+            extract-fired-edge-ids must read it there or the live-chart
+            fired highlight never lights. The event head is matched."
+    (let [def         (toy-definition)
+          populate-id (canonical-edge-id def [:empty] [:populated] :populate)
+          ;; the exact shape the runtime trace/emit! produces + the
+          ;; sub-reactivity fixtures build (machine-transition-event).
+          events      [{:operation :rf.machine/transition
+                        :tags {:machine-id :cart
+                               :before {:state :empty}
+                               :after  {:state :populated}
+                               :event  [:populate :some-arg]}}]
+          fired       (trace-state/extract-fired-edge-ids def events :cart)]
+      (is (= #{populate-id} fired)
+          "the :tags :event vector's head (:populate) drives the match"))))
+
 ;; ---- extract-fired-edge-ids: AGREEMENT with the live chart (G3) ---------
 ;;
 ;; The Xray fired-edge ids MUST equal the ids the live MachineChart
