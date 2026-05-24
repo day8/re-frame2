@@ -808,6 +808,7 @@ Where Machines-Viz **defers** to peers:
 
 ## See also
 
+- [`001-Topology-Parity.md`](./001-Topology-Parity.md) — the machine-topology parity plan against xstate / Stately Studio: per-concern parity bar (cited), current state, gap analysis, Figma-ready visual design, and roadmap. Operationalises the §Quality bar + §Deliberate divergences above into a close-the-gaps plan.
 - [`Principles.md`](./Principles.md) — the load-bearing principles.
 - [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) — the locks; questions, options, picks (Lock #1 = component-not-product).
 - [`API.md`](./API.md) — the consolidated public surface (`MachineChart` contract, viewer page URL, share-URL encoding).

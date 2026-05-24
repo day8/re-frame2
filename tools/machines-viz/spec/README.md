@@ -3,6 +3,7 @@
 ## Files
 
 - **[000-Vision.md](000-Vision.md)** — What `MachineChart` is, what the read-only viewer guarantees, the share-URL encoding format; relationship to Stately Visualizer (visualizer-as-product is out of scope).
+- **[001-Topology-Parity.md](001-Topology-Parity.md)** — The machine-topology **parity plan** against xstate / Stately Studio: the per-concern parity bar (cited), `MachineChart`'s current state, the gaps to close, the Figma-ready visual design, and the prioritised roadmap. The numbered capability doc the §How-to-use note reserved (folds in the optional `001-Rendering.md` scope).
 - **[Principles.md](Principles.md)** — Bundle isolation, EDN-first wire, observation-only, embedding-host-agnostic, no session data in shares, read-only by default.
 - **[API.md](API.md)** — Consolidated public surface: `MachineChart` component contract, read-only viewer URL, share-URL encoding pipeline + payload schema, PNG / SVG exporters.
 - **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — The locks. Question, options, pick, why, locker. Several locks lift content from [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md); cross-references retained.
@@ -18,9 +19,11 @@ contract. [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) records the
 locks; it cites [Xray 003](../../xray/spec/003-Machine-Inspector.md)
 where decisions were originally specced on the embedding side.
 
-Numbered capability docs (`001-Rendering.md`, etc.) land as
-implementation work picks up; this scaffold is intentionally
-**API + locks first, capability detail later**. Until the
+Numbered capability docs land as implementation work picks up; this
+scaffold is intentionally **API + locks first, capability detail
+later**. The first numbered doc is
+[`001-Topology-Parity.md`](001-Topology-Parity.md) (the parity bar +
+gap analysis + roadmap against xstate / Stately Studio). Until further
 capability docs land, [Xray 003](../../xray/spec/003-Machine-Inspector.md)
 is the source of truth for unmigrated content (transition-history
 ribbon UX, source-coord wiring, `:spawn-all` row layout details).
