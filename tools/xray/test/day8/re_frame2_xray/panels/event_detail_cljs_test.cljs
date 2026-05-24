@@ -240,13 +240,13 @@
 ;; ---- (2) numbered-pipeline steps render in spec order ------------------
 
 (def ^:private ^:const section-root-testids
-  "The numbered-pipeline step ROOT testids (spec/021 §2.2 · Figma
-  reconcile rf2-ad7zx.5). Used by `section-testids-in-order` to filter
-  out the per-step `*-label` / `*-body` children testids `step-section`
+  "The numbered-pipeline step ROOT testids (spec/021 §2.2 · operational
+  order rf2-ynnre). Used by `section-testids-in-order` to filter out
+  the per-step `*-label` / `*-body` children testids `step-section`
   emits.
 
-  Section order (rf2-xawwb Figma-Make surface): DISPATCH → COEFFECTS? →
-  EVENT HANDLER → APP-DB CHANGES → FLOWS? → AFTER INTERCEPTORS? → FX
+  Section order (rf2-ynnre — operational): DISPATCH → COEFFECTS? →
+  EVENT HANDLER → FLOWS? → AFTER INTERCEPTORS? → APP-DB CHANGES → FX
   (optional steps shown when present)."
   #{"rf-xray-event-detail-section-dispatch"
     "rf-xray-event-detail-section-coeffects"
@@ -271,11 +271,11 @@
        (vec)))
 
 (deftest event-lens-renders-all-seven-steps-when-fully-populated
-  (testing "rf2-xawwb — a cascade with call-site + fx + after-
+  (testing "rf2-ynnre — a cascade with call-site + fx + after-
             interceptors + user coeffects + a flow yields the full
-            7-step numbered pipeline (Figma-Make surface order): DISPATCH,
-            COEFFECTS, EVENT HANDLER, APP-DB CHANGES, FLOWS,
-            AFTER INTERCEPTORS, FX"
+            7-step numbered pipeline (operational order): DISPATCH,
+            COEFFECTS, EVENT HANDLER, FLOWS, AFTER INTERCEPTORS,
+            APP-DB CHANGES, FX"
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke
         [(rf/->interceptor :id :auth/require-login)]
@@ -305,9 +305,9 @@
         (doseq [[id label] [["dispatch" "DISPATCH"]
                             ["coeffects" "COEFFECTS"]
                             ["handler" "EVENT HANDLER"]
-                            ["db-changes" "APP-DB CHANGES"]
                             ["flows" "FLOWS"]
                             ["after-interceptors" "AFTER INTERCEPTORS"]
+                            ["db-changes" "APP-DB CHANGES"]
                             ["fx" "FX"]]]
           (is (some? (find-by-testid tree (str "rf-xray-event-detail-section-" id)))
               (str "step " label " present"))
@@ -315,12 +315,12 @@
               (str "step " label " carries a numbered step circle")))))))
 
 (deftest event-lens-step-order-matches-spec-021-section-2-2
-  (testing "rf2-ad7zx.5 — steps render top-to-bottom in spec/021 §2.2
-            order: DISPATCH → COEFFECTS → EVENT HANDLER → FLOWS →
-            DB CHANGES → AFTER INTERCEPTORS → FX (optional steps shown
-            when present). This fixture seeds no flow, so FLOWS is
-            OMITTED — absence by omission, dynamic numbering closes the
-            gap."
+  (testing "rf2-ynnre — steps render top-to-bottom in spec/021 §2.2
+            operational order: DISPATCH → COEFFECTS → EVENT HANDLER →
+            FLOWS → AFTER INTERCEPTORS → APP-DB CHANGES → FX (optional
+            steps shown when present). This fixture seeds no flow, so
+            FLOWS is OMITTED — absence by omission, dynamic numbering
+            closes the gap."
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke
         [(rf/->interceptor :id :auth/require-login)]
@@ -338,11 +338,11 @@
         (is (= ["rf-xray-event-detail-section-dispatch"
                 "rf-xray-event-detail-section-coeffects"
                 "rf-xray-event-detail-section-handler"
-                "rf-xray-event-detail-section-db-changes"
                 "rf-xray-event-detail-section-after-interceptors"
+                "rf-xray-event-detail-section-db-changes"
                 "rf-xray-event-detail-section-fx"]
                order)
-            "step testids appear in spec/021 §2.2 order (FLOWS omitted)")))))
+            "step testids appear in spec/021 §2.2 operational order (FLOWS omitted)")))))
 
 (deftest event-lens-dynamic-step-numbering-renumbers-on-omission
   (testing "rf2-ad7zx.5 — step numbers are assigned DYNAMICALLY 1..N
@@ -946,14 +946,16 @@
                row-tids)
             "flow rows appear in cascade firing order")))))
 
-(deftest flows-step-sits-after-db-changes-before-fx
-  (testing "rf2-xawwb — Figma-Make surface step order: EVENT HANDLER →
-            APP-DB CHANGES (step 4) → FLOWS (step 5) → FX. The APP-DB
-            CHANGES diff leads and the FLOWS section then attributes the
-            flow-driven slots within it. (Supersedes rf2-9eca7 / #2070,
-            which placed FLOWS before DB CHANGES. The framework TIMING is
-            unchanged — flows still reshape the pending db before commit;
-            only the panel's visual ordering changes.)"
+(deftest flows-step-sits-between-event-handler-and-db-changes-when-fired
+  (testing "rf2-ynnre — operational step order: EVENT HANDLER → FLOWS
+            (when fired) → APP-DB CHANGES → FX. FLOWS sits BETWEEN the
+            handler and the committed diff because in operational time
+            flows reshape the pending `:db` BEFORE the atomic install.
+            The visual order teaches the atomicity contract for free.
+            (Supersedes rf2-xawwb's Figma-A order which placed FLOWS
+            AFTER APP-DB CHANGES — diff-leads-attribution-follows.
+            Framework timing is unchanged; only the panel's display
+            order changes per Mike's 2026-05-25 B+ decision rf2-5t9h0.)"
     (rf/with-frame :rf/default
       (rf/reg-flow {:id     :a-flow
                     :inputs [[:in]] :output identity :path [:a]}))
@@ -977,11 +979,114 @@
                         (distinct)
                         (vec))]
         (is (= ["rf-xray-event-detail-section-handler"
-                "rf-xray-event-detail-section-db-changes"
                 "rf-xray-event-detail-section-flows"
+                "rf-xray-event-detail-section-db-changes"
                 "rf-xray-event-detail-section-fx"]
                tids)
-            "APP-DB CHANGES precedes FLOWS, both after EVENT HANDLER and before FX (rf2-xawwb)")))))
+            "FLOWS sits between EVENT HANDLER and APP-DB CHANGES (rf2-ynnre operational order)")))))
+
+(deftest flows-step-hidden-when-no-flows-fired
+  (testing "rf2-ynnre — when zero flows fired this event, the FLOWS
+            section is OMITTED entirely (no empty placeholder text).
+            Mirrors the conditional-show rule that already applies to
+            COEFFECTS and AFTER INTERCEPTORS. The flow-less case is
+            the common case; the panel reads as the simpler B shape
+            (HANDLER → APP-DB CHANGES → FX) for those events."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :poll/tick (fn [db _] db)))
+    (seed-buffer! (cascade-evs 100 [:poll/tick] 0))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree "rf-xray-event-detail-section-flows"))
+            "FLOWS section omitted when no flows fired")))))
+
+(deftest handler-step-shows-returned-effects-block-with-pending-db-and-fx
+  (testing "rf2-ynnre — the EVENT HANDLER step's body carries a t1
+            'returned effects' sub-block showing the handler's pending
+            `:db` slot + `:fx` vector entries (pre-commit observable).
+            The pending `:db` value is not in trace today so the block
+            shows the slot's PRESENCE + a cross-ref pointer to APP-DB
+            CHANGES for the committed value (which equals the pending
+            value when no flows fired)."
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :widget/poke (fn [_ _] {})))
+    (seed-buffer!
+      (cascade-evs 100 [:widget/poke {:id 1}] 0
+                   {:fx [[:dispatch [:bar]] [:dispatch-later {:ms 50 :dispatch [:tick]}]]
+                    :db-present? true}))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree
+                                    "rf-xray-event-detail-handler-returned-effects"))
+            "returned-effects sub-block renders inside EVENT HANDLER")
+        (is (some? (find-by-testid tree
+                                    "rf-xray-event-detail-handler-returned-db"))
+            "pending `:db` slot row renders when handler returned `:db`")
+        (is (some? (find-by-testid tree
+                                    "rf-xray-event-detail-handler-returned-fx"))
+            "`:fx` vector summary renders when handler returned `:fx`")
+        ;; The block reads as a sub-block of HANDLER, not a separate step.
+        (is (nil? (find-by-testid tree
+                                   "rf-xray-event-detail-section-returned-effects"))
+            "returned-effects is a sub-block of HANDLER (NOT a separate step)")))))
+
+(deftest handler-step-returned-effects-block-absent-on-noop-handler
+  (testing "rf2-ynnre — when the handler returned NEITHER `:db` NOR `:fx`
+            (a noop event) the returned-effects sub-block is omitted
+            entirely (absence by omission)"
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :noop (fn [_ _] {})))
+    (seed-buffer!
+      (cascade-evs 100 [:noop] 0
+                   {:fx []
+                    :db-present? false}))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree
+                                   "rf-xray-event-detail-handler-returned-effects"))
+            "returned-effects sub-block omitted on noop handler")))))
+
+(deftest db-changes-step-carries-committed-diff-caption
+  (testing "rf2-ynnre — the APP-DB CHANGES section's body carries the
+            'committed diff (post-flow · atomic install boundary)'
+            caption so users don't read the section as 'what the handler
+            did' — it's the t4 committed observable. Cross-refs
+            spec/013-Flows.md §Failure semantics (atomic-install
+            contract)."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :counter/inc (fn [db _] db)))
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            cap  (find-by-testid tree
+                                  "rf-xray-event-detail-db-changes-committed-caption")
+            text (->> (hiccup-seq cap) (filter string?) (apply str))]
+        (is (some? cap) "committed-diff caption renders")
+        (is (re-find #"committed" text) "caption mentions `committed`")
+        (is (re-find #"post-flow" text) "caption mentions `post-flow`")))))
+
+(deftest fx-step-carries-post-commit-irreversible-caption
+  (testing "rf2-ynnre — the FX section's body carries the 'post-commit ·
+            irreversible' caption so the panel's section rhythm shows
+            the atomic commit boundary clearly: fx throws do NOT wind
+            app-db back. Cross-refs spec/013-Flows.md §Failure
+            semantics."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :counter/inc (fn [db _] db)))
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            cap  (find-by-testid tree
+                                  "rf-xray-event-detail-fx-post-commit-caption")
+            text (->> (hiccup-seq cap) (filter string?) (apply str))]
+        (is (some? cap) "post-commit caption renders")
+        (is (re-find #"post-commit" text) "caption mentions `post-commit`")
+        (is (re-find #"irreversible" text) "caption mentions `irreversible`")))))
 
 (deftest flows-section-absent-when-handler-threw
   (testing "rf2-lo37i — when the handler threw, the outermost :after

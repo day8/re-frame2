@@ -101,7 +101,7 @@ state-mutating vs state-observing.
 
 | Phase | Steps | What |
 |---|---|---|
-| **Handling** (state-mutating) | Dispatch → Coeffects → Handler → Flows recompute → Effects | The `Event` L4 panel renders the handling pipeline as a numbered vertical flow (the rendered section order — DISPATCH · COEFFECTS · EVENT HANDLER · FLOWS · DB CHANGES · AFTER INTERCEPTORS · FX — is in §2.2; optional sections are omitted when absent). Flows recompute at the outermost `:after`, reshaping the pending `:db` before it commits — so they precede DB CHANGES and FX. |
+| **Handling** (state-mutating) | Dispatch → Coeffects → Handler → Flows recompute → Effects | The `Event` L4 panel renders the handling pipeline as a numbered vertical flow (the rendered section order — DISPATCH · COEFFECTS · EVENT HANDLER · FLOWS · AFTER INTERCEPTORS · APP-DB CHANGES · FX — is in §2.2; optional sections are omitted when absent). Flows recompute at the outermost `:after`, reshaping the pending `:db` before it commits — so they precede APP-DB CHANGES and FX. |
 | **Pivot** (the keystone) | — | Handling → reactive transition. The architectural inflection. App-db panel sits on this boundary. |
 | **Reactive** (state-observing) | Subs recompute → Views re-render | The `View` L4 panel renders the cascade as a left → right graph (§3). |
 
@@ -198,11 +198,17 @@ default density on a 1080p screen (the dense case in §2.2 lands at ~40
 lines including the rail). Per-section collapse stays available via header
 click for the operator who wants to focus, but is opt-out, not default.
 
-### §2.2 Layout — numbered vertical-flow pipeline (Figma design — rf2-ad7zx)
+### §2.2 Layout — numbered vertical-flow pipeline (operational order · rf2-ynnre B+)
 
-> Reconciled to the Figma design (`tools/xray/design-reference/xray_devtools_reference.cljs`,
-> the `event-panel` component), the later iteration. The prior chevron/bare-label/`EFFECTS
-> RETURNED+APPLIED` shape and the brief's outcome-badge proposal are **superseded**.
+> **Operational order — supersedes Figma-A** (rf2-ynnre, Mike's 2026-05-25 decision on
+> rf2-5t9h0 = B+). The Figma-A order (HANDLER → APP-DB CHANGES → FLOWS → FX) was drawn
+> BEFORE the atomicity contract was pinned (Mike 2026-05-24, [`013-Flows.md §Failure
+> semantics`](../../../spec/013-Flows.md#failure-semantics)) and read
+> "result-then-attribution". B+ swaps to operational order — the panel's section rhythm
+> now teaches the contract for free: handler returns pending `:db` → flows reshape it
+> (pre-commit) → atomic install → fx (post-commit, irreversible). The prior
+> chevron/bare-label/`EFFECTS RETURNED+APPLIED` shape and the brief's outcome-badge
+> proposal remain **superseded**.
 
 The Event panel expresses its top-to-bottom one-way pipeline as a **thin vertical line down
 the panel's left edge** with a small **numbered step circle** (`1`, `2`, …) at each section.
@@ -213,9 +219,9 @@ muted (`var(--text-secondary)`); the numbered circles + the rail carry the order
 
 The **mode-accent stripe** (the single GitHub-blue accent, both modes) sits at the panel's edge.
 
-Optional sections (COEFFECTS, AFTER INTERCEPTORS, FLOWS) are **shown only when present** —
+Optional sections (COEFFECTS, FLOWS, AFTER INTERCEPTORS) are **shown only when present** —
 absence is conveyed by omission, not an empty-state line. A throwing handler therefore simply
-has no DB CHANGES / later sections; there is **no outcome badge** and **no "db committed"
+has no APP-DB CHANGES / later sections; there is **no outcome badge** and **no "db committed"
 footer**.
 
 Section order (numbered; optional sections shown only when present):
@@ -225,16 +231,32 @@ Section order (numbered; optional sections shown only when present):
   2. **COEFFECTS** *(optional)* — user-injected coeffects: each id (click-to-source) + the
      value it added to context (`+ [:now] #inst…`).
   3. **EVENT HANDLER** — the flavour (`reg-event-db` / `reg-event-fx`) as a click-to-source
-     link + the **syntax-highlighted handler source** in a code block.
-  4. **FLOWS** *(optional)* — flows that recomputed + the db path they wrote. Flows fire at
-     the outermost `:after` interceptor, right after the handler — they reshape the pending
-     `:db` BEFORE the single deferred install (the atomic commit), so they precede DB CHANGES
-     and run long before FX.
-  5. **DB CHANGES** — the app-db diff: `~ [path] old → new` · `+ [path] value` · `- [path]`.
-     Already reflects any FLOWS recomputes (flows ran before the db committed).
-  6. **AFTER INTERCEPTORS** *(optional)* — non-standard after-interceptors: each id
+     link + the **syntax-highlighted handler source** in a code block + a **returned
+     effects sub-block** (the t1 pre-commit observable: pending `:db` slot presence + each
+     entry of the returned `:fx` vector). The pending `:db` value itself is not yet on the
+     trace surface today — the row cross-refs APP-DB CHANGES below for the committed value
+     (which EQUALS the pending value when no flows fired). A CORE follow-on can later
+     capture the t1-pending-`:db` snapshot for the flow-having case so the full t1→t2
+     reshape renders inline under FLOWS.
+  4. **FLOWS** *(optional)* — flows that recomputed + the db path they wrote (the t1→t2
+     reshape · pre-commit). Flows fire at the outermost `:after` interceptor, right after
+     the handler and any user `:after` interceptors — they reshape the pending `:db` BEFORE
+     the single deferred install (the atomic commit), so they precede APP-DB CHANGES and run
+     long before FX. **Hidden entirely when no flows fired this event** (the common case);
+     the flow-less panel reads as the simpler HANDLER → APP-DB CHANGES → FX shape.
+  5. **AFTER INTERCEPTORS** *(optional)* — non-standard after-interceptors: each id
      (click-to-source) + the effect it contributed (`+ [:fx :local-storage] {…}`).
-  7. **FX** — the fx handlers that ran (`:dispatch → […]` · `:http-xhrio → {…}`).
+  6. **APP-DB CHANGES** — the **COMMITTED diff at t4** (the atomic install boundary). Carries
+     a `committed diff (post-flow · atomic install boundary)` caption to keep users from
+     reading the section as "what the handler returned" (the handler's pending effects map
+     lives one step up). The diff: `~ [path] old → new` · `+ [path] value` · `- [path]`.
+     When flows fired, includes the flow-driven slot mutations; when none fired, this
+     equals the handler's pending `:db` diff.
+  7. **FX** — the fx handlers that ran (`:dispatch → […]` · `:http-xhrio → {…}`). Carries
+     a `post-commit · irreversible (fx throws don't wind app-db back)` caption — the
+     atomic install boundary at t4 has crossed, side effects (http / nav / dispatch) may
+     already have fired, and an fx-throw surfaces an error but leaves app-db committed
+     (per [`013-Flows.md §Failure semantics`](../../../spec/013-Flows.md#failure-semantics)).
 
 The cascade-id stays internal (`data-dispatch-id` on the lens root for tests/agents); not
 shown. The sections form a one-way pipeline — **linear numbered flow, not a flat list.**
@@ -273,22 +295,28 @@ flows, and fx):
 │   │      [:rf/db]                                                         │
 │   │      (fn [db _]                                                       │
 │   │        (update db :counter inc)))                                     │
+│   │    ↳ returned effects (pre-commit)                                    │
+│   │       :db   pending — see APP-DB CHANGES below for committed diff     │
+│   │       :fx   1 entry — see FX below for what ran                       │
+│   │             [:dispatch [:title/flow [:rf/init]]]                      │
 │   │                                                                       │
 │  ④  FLOWS                                  (optional · shown when present) │
 │   │    :totals-flow ↗  →  [:totals] recomputed                           │
 │   │      + [:totals :sum]  42                                            │
 │   │                                                                       │
-│  ⑤  DB CHANGES                                                            │
-│   │    ~ [:counter]       1 → 2                                           │
-│   │    + [:last-updated]  #inst "2026-05-23T12:30:05"                     │
-│   │                                                                       │
-│  ⑥  AFTER INTERCEPTORS                     (optional · shown when present) │
+│  ⑤  AFTER INTERCEPTORS                     (optional · shown when present) │
 │   │    :persist-db ↗                                                      │
 │   │      + [:fx :local-storage]  {:key "app-state" :value {...}}          │
 │   │    :analytics ↗                                                       │
 │   │      + [:fx :track]          {:event "counter-inc"}                   │
 │   │                                                                       │
+│  ⑥  APP-DB CHANGES                                                        │
+│   │    committed diff (post-flow · atomic install boundary)               │
+│   │    ~ [:counter]       1 → 2                                           │
+│   │    + [:last-updated]  #inst "2026-05-23T12:30:05"                     │
+│   │                                                                       │
 │  ⑦  FX                                                                    │
+│        post-commit · irreversible (fx throws don't wind app-db back)      │
 │        :dispatch    → [:title/flow [:rf/init]]                            │
 │        :http-xhrio  → {:method :get, :uri "/api/data"}                    │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -308,11 +336,15 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 │   │                                                                       │
 │  ②  EVENT HANDLER ↗                                                       │
 │   │    (rf/reg-event-db :poll/tick …)        ← syntax-highlighted         │
+│   │    ↳ returned effects (pre-commit)                                    │
+│   │       :db   pending — see APP-DB CHANGES below for committed diff     │
 │   │                                                                       │
-│  ③  DB CHANGES                                                            │
+│  ③  APP-DB CHANGES                                                        │
+│   │    committed diff (post-flow · atomic install boundary)               │
 │   │    ~ [:poll :n]  41 → 42                                              │
 │   │                                                                       │
 │  ④  FX                                                                    │
+│        post-commit · irreversible (fx throws don't wind app-db back)      │
 │        (none)                                                             │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -321,9 +353,9 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 
 | From | Reads |
 |---|---|
-| Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.flow/computed` (step 4 — flows reshape the pending `:db` at the outermost `:after`, before commit), `:rf.fx/do-fx` (step 5 — the committed db diff, carries `:rf.event/fx`), `:rf.fx/handled` per fx-id (step 7 — effects applied) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
+| Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.fx/do-fx` (step 3 — also feeds the returned-effects sub-block under the handler, via `:rf.event/fx` + `:rf.event/db-present?`), `:rf.flow/computed` (step 4 — flows reshape the pending `:db` at the outermost `:after`, before commit), `:rf.event/db-changed` (step 6 — the committed diff), `:rf.fx/handled` per fx-id (step 7 — effects applied) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
 | Registries | Handler metadata (`reg-event-*` form file:line, optional source string when DEBUG-gated) |
-| App-db panel (bridge) | Inline diff renderer for the handler's `:db` effect — the DB CHANGES section (reuses the shared renderer §10) |
+| App-db panel (bridge) | Inline diff renderer for the committed `:db` — the APP-DB CHANGES section (reuses the shared renderer §10) |
 
 ### §2.4 Cross-panel navigation
 
