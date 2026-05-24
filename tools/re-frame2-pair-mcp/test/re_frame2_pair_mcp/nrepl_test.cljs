@@ -12,7 +12,8 @@
             [applied-science.js-interop :as j]
             ["bencode" :as bencode]
             ["fs" :as fs]
-            [re-frame2-pair-mcp.nrepl :as nrepl]))
+            [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.shadow-discovery :as shadow-discovery]))
 
 (defn- decode-all
   "Wrap `nrepl/decode-all-frames` returning `[clj-vec rest-buf]`.
@@ -82,7 +83,11 @@
   "Run `body` with `fs.readFileSync` replaced by `stub-fn` (path → string,
   or throw to simulate ENOENT) and `process.env.SHADOW_CLJS_NREPL_PORT`
   set to `env-val` (nil = unset). Restores both afterwards. Returns the
-  value of `body`."
+  value of `body`.
+
+  Sync-only: the `finally` block restores the stub immediately after
+  `body` returns. The new async cascade tests use [[with-async-fs-stub!]]
+  which keeps the stub alive across Promise microtasks."
   [env-val stub-fn body]
   (let [orig-read (.-readFileSync fs)
         orig-env  (j/get-in js/process [:env env-key])]
@@ -93,6 +98,29 @@
       (finally
         (set! (.-readFileSync fs) orig-read)
         (set-env! orig-env)))))
+
+(defn- install-fs-stub!
+  "Install `stub-fn` as `fs.readFileSync` and override
+  `process.env.SHADOW_CLJS_NREPL_PORT` to `env-val` (nil = unset).
+  Returns a 0-arity restoration thunk the caller invokes once the async
+  body has settled. Pairs with the test's own `(done)` so the stub
+  lifetime spans every microtask the promise chain spawns — which the
+  sync [[with-fs-stub!]] can't guarantee for async bodies (the
+  `finally` clause fires before the `.then` callbacks).
+
+  Always pair `install-fs-stub!` with its restoration call inside the
+  final `.then` (BEFORE `(done)`) so the next test in the queue starts
+  with a pristine fs.readFileSync (rf2-umoz2). The local convention
+  here: bind the thunk in a `let`, do assertions in `.then`, call the
+  thunk, then call done."
+  [env-val stub-fn]
+  (let [orig-read (.-readFileSync fs)
+        orig-env  (j/get-in js/process [:env env-key])]
+    (set! (.-readFileSync fs) stub-fn)
+    (set-env! env-val)
+    (fn restore! []
+      (set! (.-readFileSync fs) orig-read)
+      (set-env! orig-env))))
 
 (defn- throwing-read
   "A `readFileSync` stub that always throws — simulates every candidate
@@ -142,7 +170,7 @@
       (fn [^js path]
         (let [p (str path)]
           (cond
-            (re-find #"\.shadow-cljs[\\/]nrepl\.port" p) "6002"
+            (re-find #"\.shadow-cljs[\\\\/]nrepl\.port" p) "6002"
             (re-find #"\.nrepl-port" p)                  "6003"
             :else (throw (js/Error. "ENOENT")))))
       (fn []
@@ -405,3 +433,171 @@
             (is (= 1 (count (:pending @conn)))
                 "the op is registered as pending awaiting its :done frame")
             (done)))))))
+
+;; ===========================================================================
+;; `discover-port*` async cascade (rf2-umoz2).
+;;
+;; The four-step cascade — explicit > env > shadow HTTP probe > cwd scan —
+;; promotes the cwd-bound file scan from highest-priority-after-env to a
+;; last-resort fallback. The new step 3 uses an injected `shadow-probe-fn`
+;; (production threads `shadow-discovery/discover-project-home`) so tests
+;; pass stubs without standing up a real HTTP server. See `discover-port*`
+;; for the injection rationale.
+;; ===========================================================================
+
+(defn- shadow-returns
+  "Stub builder: a discover-project-home that resolves to `home-path`."
+  [home-path]
+  (fn [_host _port] (js/Promise.resolve home-path)))
+
+(def ^:private shadow-fails
+  "Stub: discover-project-home returns nil (shadow unreachable / parse failed)."
+  (fn [_host _port] (js/Promise.resolve nil)))
+
+(deftest discover-port-explicit-port-file-short-circuits-shadow-probe
+  (testing "step 1 wins — shadow HTTP probe MUST NOT fire when --port-file resolves"
+    (async done
+      (let [probed? (atom false)
+            probe-fn (fn [_h _p]
+                       (reset! probed? true)
+                       (js/Promise.resolve "/should-not-be-used"))
+            restore! (install-fs-stub!
+                       nil (read-returning "explicit/nrepl\\.port" "9001"))]
+        (-> (nrepl/discover-port* "explicit/nrepl.port" nil probe-fn)
+            (.then (fn [v]
+                     (is (= 9001 v))
+                     (is (false? @probed?)
+                         "the HTTP probe must not be hit when step 1 resolves")
+                     (restore!)
+                     (done))))))))
+
+(deftest discover-port-env-var-short-circuits-shadow-probe
+  (testing "step 2 wins — env-var override skips the HTTP probe"
+    (async done
+      (let [probed? (atom false)
+            probe-fn (fn [_h _p]
+                       (reset! probed? true)
+                       (js/Promise.resolve "/should-not-be-used"))
+            restore! (install-fs-stub! "7777" throwing-read)]
+        (-> (nrepl/discover-port* nil nil probe-fn)
+            (.then (fn [v]
+                     (is (= 7777 v))
+                     (is (false? @probed?)
+                         "env override is sync — no HTTP probe needed")
+                     (restore!)
+                     (done))))))))
+
+(deftest discover-port-shadow-probe-yields-absolute-base
+  (testing "step 3 (rf2-umoz2) — shadow HTTP gives :project-home; candidates resolve against it"
+    (async done
+      (let [stub-fn (fn [^js path]
+                      (let [p (str path)]
+                        (cond
+                          ;; The shadow-supplied root MUST appear in the resolved path.
+                          ;; The `target/shadow-cljs/nrepl.port` candidate hits first.
+                          (and (re-find #"abs[\\\\/]proj[\\\\/]root" p)
+                               (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port" p))
+                          "6789"
+                          :else (throw (js/Error. "ENOENT")))))
+            restore! (install-fs-stub! nil stub-fn)]
+        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root"))
+            (.then (fn [v]
+                     (is (= 6789 v)
+                         "candidate resolved against shadow's project-home wins")
+                     (restore!)
+                     (done))))))))
+
+(deftest discover-port-shadow-probe-prefers-target-then-dot-shadow
+  (testing "candidate ordering preserved against the shadow-supplied base"
+    (async done
+      (let [stub-fn (fn [^js path]
+                      (let [p (str path)]
+                        ;; All three candidates exist under the shadow root; the
+                        ;; earlier one (target/shadow-cljs/nrepl.port) must win.
+                        (cond
+                          (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port" p) "5550"
+                          (re-find #"\.shadow-cljs[\\\\/]nrepl\.port" p)          "5551"
+                          (re-find #"\.nrepl-port" p)                             "5552"
+                          :else (throw (js/Error. "ENOENT")))))
+            restore! (install-fs-stub! nil stub-fn)]
+        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root"))
+            (.then (fn [v]
+                     (is (= 5550 v)
+                         "first candidate (target/shadow-cljs/nrepl.port) wins")
+                     (restore!)
+                     (done))))))))
+
+(deftest discover-port-shadow-down-falls-through-to-cwd
+  (testing "step 4 — shadow probe fails / returns nil; cascade falls through to cwd scan"
+    (async done
+      (let [restore! (install-fs-stub!
+                       nil (read-returning "target/shadow-cljs/nrepl.port" "3030"))]
+        (-> (nrepl/discover-port* nil nil shadow-fails)
+            (.then (fn [v]
+                     (is (= 3030 v)
+                         "shadow down → cwd-relative scan resolves the port")
+                     (restore!)
+                     (done))))))))
+
+(deftest discover-port-shadow-down-and-no-files-yields-nil
+  (testing "every step misses — cascade returns nil (degraded boot fires)"
+    (async done
+      (let [restore! (install-fs-stub! nil throwing-read)]
+        (-> (nrepl/discover-port* nil nil shadow-fails)
+            (.then (fn [v]
+                     (is (nil? v)
+                         "all four steps missed — degraded boot triggers from this")
+                     (restore!)
+                     (done))))))))
+
+(deftest discover-port-shadow-returned-base-but-no-port-file-falls-through
+  (testing "shadow returned a root but no port-file lives under it → cwd scan picks up the slack"
+    (async done
+      (let [stub-fn (fn [^js path]
+                      (let [p (str path)]
+                        (cond
+                          ;; No port-file under the shadow root.
+                          (re-find #"abs[\\\\/]proj[\\\\/]root" p)
+                          (throw (js/Error. "ENOENT"))
+                          ;; But a cwd-relative one does exist (manual nREPL boot
+                          ;; outside shadow's purview, say). With no node-path/join
+                          ;; prefix the candidate is the bare relative string.
+                          (= "target/shadow-cljs/nrepl.port" p) "4040"
+                          :else (throw (js/Error. "ENOENT")))))
+            restore! (install-fs-stub! nil stub-fn)]
+        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root"))
+            (.then (fn [v]
+                     (is (= 4040 v)
+                         "shadow's base had no port-file → cwd scan wins")
+                     (restore!)
+                     (done))))))))
+
+(deftest discover-port-http-port-arg-threads-through
+  (testing "the --http-port override is passed to the shadow probe"
+    (async done
+      (let [seen-port (atom nil)
+            probe-fn  (fn [_host port]
+                        (reset! seen-port port)
+                        (js/Promise.resolve nil))
+            restore!  (install-fs-stub! nil throwing-read)]
+        (-> (nrepl/discover-port* nil 7777 probe-fn)
+            (.then (fn [_]
+                     (is (= 7777 @seen-port)
+                         "custom --http-port reaches the probe")
+                     (restore!)
+                     (done))))))))
+
+(deftest discover-port-http-port-defaults-to-9630
+  (testing "no --http-port → the shadow probe uses the documented 9630 default"
+    (async done
+      (let [seen-port (atom nil)
+            probe-fn  (fn [_host port]
+                        (reset! seen-port port)
+                        (js/Promise.resolve nil))
+            restore!  (install-fs-stub! nil throwing-read)]
+        (-> (nrepl/discover-port* nil nil probe-fn)
+            (.then (fn [_]
+                     (is (= shadow-discovery/default-http-port @seen-port)
+                         "absent override falls back to 9630")
+                     (restore!)
+                     (done))))))))

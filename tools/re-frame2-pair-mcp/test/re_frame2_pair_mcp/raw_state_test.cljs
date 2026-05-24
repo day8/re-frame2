@@ -161,6 +161,43 @@
         "later --port-file overrides earlier (argv override semantics)")))
 
 ;; ---------------------------------------------------------------------------
+;; --http-port (rf2-umoz2). Same parsing shape as --port-file (one shared
+;; `parse-string-value-flag` helper underneath); these tests pin the
+;; cross-cutting accept-shape (space + equals + missing-value + numeric
+;; coercion) for the new flag.
+;; ---------------------------------------------------------------------------
+
+(deftest parse-launch-flags-http-port-defaults-nil
+  (let [flags (server/parse-launch-flags [])]
+    (is (nil? (:http-port flags))
+        "absent --http-port ⇒ :http-port nil (cascade uses 9630 default downstream)")))
+
+(deftest parse-launch-flags-http-port-space-form
+  (testing "--http-port <n> coerces to int"
+    (let [flags (server/parse-launch-flags ["--http-port" "9700"])]
+      (is (= 9700 (:http-port flags))
+          "numeric string is parsed to int"))))
+
+(deftest parse-launch-flags-http-port-equals-form
+  (testing "--http-port=<n> reads the inline value"
+    (let [flags (server/parse-launch-flags ["--http-port=9701"])]
+      (is (= 9701 (:http-port flags))))))
+
+(deftest parse-launch-flags-http-port-non-numeric-is-nil
+  (testing "garbage at --http-port collapses to nil; cascade uses the 9630 default"
+    (let [flags (server/parse-launch-flags ["--http-port" "garbage"])]
+      (is (nil? (:http-port flags))
+          "isNaN guard — never surface a NaN port"))))
+
+(deftest parse-launch-flags-http-port-rides-with-other-flags
+  (let [flags (server/parse-launch-flags
+                ["--allow-eval" "--http-port" "9702"
+                 "--port-file" "/p/nrepl.port"])]
+    (is (= 9702 (:http-port flags)))
+    (is (= "/p/nrepl.port" (:port-file flags)))
+    (is (true? (:allow-eval? flags)))))
+
+;; ---------------------------------------------------------------------------
 ;; signal-runtime! cache — fires once per (build-id, server-lifetime).
 ;; ---------------------------------------------------------------------------
 

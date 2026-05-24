@@ -48,7 +48,11 @@ function run() {
     // Pass `--allow-eval` to opt in to the eval-cljs tool (rf2-cxx5s
     // launch-flag gate, default OFF). The roundtrip relies on
     // eval-cljs to surface the no-nREPL degraded envelope.
-    const child = spawn(process.execPath, [SERVER, '--allow-eval'], {
+    // Pin --http-port to a port that is always closed (port 1, IANA-
+    // reserved) so the rf2-umoz2 shadow HTTP probe gets a deterministic
+    // ECONNREFUSED rather than picking up shadow if it happens to be
+    // running on the test host at 9630.
+    const child = spawn(process.execPath, [SERVER, '--allow-eval', '--http-port', '1'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: require('node:os').tmpdir(),
       env,

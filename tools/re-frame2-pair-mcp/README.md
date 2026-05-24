@@ -78,19 +78,25 @@ The server auto-discovers the nREPL port from (highest precedence first):
 1. `--port-file <path>` launch flag — an explicit, **cwd-independent**
    path to the port file. See [Launch flags](#launch-flags).
 2. `$SHADOW_CLJS_NREPL_PORT` env var.
-3. `target/shadow-cljs/nrepl.port`
-4. `.shadow-cljs/nrepl.port`
-5. `.nrepl-port`
+3. **Shadow HTTP probe (rf2-umoz2)** — `GET http://127.0.0.1:9630/api/project-info`
+   returns the live build's absolute `:project-home`; the server then
+   reads the port-file candidates resolved against that root. This is
+   the cwd-robust auto-discovery step; the HTTP port is overridable via
+   `--http-port <n>` for the rare case shadow's `:http :port` is pinned.
+4. CWD-relative scan of `target/shadow-cljs/nrepl.port`,
+   `.shadow-cljs/nrepl.port`, `.nrepl-port` — legacy fallback for
+   setups without shadow's web server (older shadow, manual nREPL boot).
 
-> **cwd caveat (rf2-3dbwh).** Steps 3–5 are bare *relative* paths,
-> resolved against the server process's current working directory
-> (`process.cwd()`). The MCP server runs as a **subprocess of the agent
-> host** (Claude Code / Cursor / Copilot), whose cwd is frequently **not**
-> your project root. When it isn't, all three file fallbacks miss
-> silently and only the env var (step 2) or `--port-file` (step 1)
-> resolve a port. If discovery fails with no obvious cause, prefer the
-> explicit escape hatches: set `SHADOW_CLJS_NREPL_PORT`, or pass
-> `--port-file <absolute-path-to-nrepl.port>`.
+> **The cwd caveat step 3 solves (rf2-3dbwh + rf2-umoz2).** Step 4 is
+> bare *relative* paths resolved against `process.cwd()`. The MCP
+> server runs as a **subprocess of the agent host** (Claude Code /
+> Cursor / Copilot), whose cwd is frequently **not** your project
+> root. Pre-rf2-umoz2 only the env var or `--port-file` worked there;
+> step 3 now closes the gap by asking shadow itself for the project
+> root. The explicit escape hatches in steps 1–2 remain the
+> deterministic overrides — pass `--port-file <absolute-path>` or set
+> `SHADOW_CLJS_NREPL_PORT` if discovery still fails (shadow not running,
+> non-default `:http :port` not surfaced via `--http-port`, etc.).
 
 ### Path-drift probe
 
@@ -153,6 +159,7 @@ your editor is the source of truth.
 | `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
 | `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
+| `--http-port <n>`           | `9630`  | Shadow's web-server port for the auto-discovery probe (rf2-umoz2). Only consulted at port-discovery step 3; setting it has no effect when `--port-file` or `SHADOW_CLJS_NREPL_PORT` is present. |
 
 #### port-file flag (rf2-3dbwh)
 

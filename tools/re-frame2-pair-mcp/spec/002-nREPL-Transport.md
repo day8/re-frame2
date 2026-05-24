@@ -49,15 +49,39 @@ adds the preload entry to their shadow-cljs build per
 
 ## Port discovery
 
-In order:
+In precedence order (rf2-umoz2 introduced step 3):
 
-1. `$SHADOW_CLJS_NREPL_PORT` env var.
-2. `target/shadow-cljs/nrepl.port` (shadow-cljs's standard location).
-3. `.shadow-cljs/nrepl.port`.
-4. `.nrepl-port` (generic nREPL convention).
+1. `--port-file <path>` launch flag — explicit, cwd-independent override
+   (rf2-3dbwh).
+2. `$SHADOW_CLJS_NREPL_PORT` env var.
+3. **Shadow HTTP probe** — `GET http://127.0.0.1:9630/api/project-info`
+   returns the consumer build's absolute `:project-home`; the server
+   then reads `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`,
+   `.nrepl-port` (in that order) resolved against that root. The
+   shadow HTTP port is overridable via `--http-port <n>` (default
+   9630; rf2-umoz2).
+4. CWD-relative scan of the same three candidates — legacy fallback
+   for environments without shadow's web server.
 
 If none resolve, the server boots in degraded mode (see
 `001-Wire-Protocol.md` § Degraded boot).
+
+### Why the HTTP probe
+
+shadow-cljs's nREPL port is ephemeral (a fresh OS-assigned port on each
+`shadow-cljs watch` start) and the port file lives at a relative path
+inside the consumer project. Pre-rf2-umoz2 the server relied on
+`process.cwd()` being the project root to find that file — but agent
+hosts (Claude Code / Cursor / Copilot) spawn MCP subprocesses with a cwd
+they choose, frequently `$HOME` or the host's install dir. Shadow's own
+HTTP server (default port 9630, fixed across restarts) exposes the
+absolute project root via `/api/project-info`; that closes the loop
+without forcing every operator to hardcode `--port-file` in their MCP
+config.
+
+The probe is bounded (`probe-timeout-ms` = 500ms) and never blocks boot
+indefinitely. Probe failure (shadow not running, non-default `:http :port`,
+parse error) silently falls through to step 4.
 
 ## cljs-eval wrapper
 
