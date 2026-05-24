@@ -10,7 +10,18 @@
   Post-eval shrink pipeline lives in
   `re-frame2-pair-mcp.tools.wire-pipeline` (rf2-ae8ie). This tool body
   builds the eval form, awaits the runtime response, and routes the
-  epoch vector through `run-wire-pipeline` with `:kind :epoch-vector`."
+  epoch vector through `run-wire-pipeline` with `:kind :epoch-vector`.
+
+  ## Empty-result advisory (rf2-fb4hn)
+
+  When the response would carry `:count 0` but the frame's
+  per-frame epoch-history is non-empty, an `:advisory` rides on
+  the envelope distinguishing \"nothing happened\" from \"events exist
+  but fell outside the time window\". Pre-rf2-fb4hn the operator had no
+  way to tell these apart and routinely misread \"empty window\" as
+  \"the MCP isn't capturing my events\". The advisory names the
+  history count and points to `snapshot` as the historical-inspection
+  surface."
   (:require [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
@@ -77,6 +88,7 @@
                             " :requested-id after-id"
                             " :head-id (some-> hist peek :epoch-id)"
                             " :next-id next-id"
+                            " :history-count (count hist)"
                             " :remaining (max 0 (- (count filtered) (count page)))}"))))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
@@ -104,19 +116,43 @@
                                            :ms       window-ms
                                            :until-ms until-ms
                                            :frame    sticky-frame}))
-                          has-more?   (some? next-cursor)
-                          remaining   (or (:remaining v) 0)]
+                          has-more?     (some? next-cursor)
+                          remaining     (or (:remaining v) 0)
+                          history-count (or (:history-count v) 0)
+                          ;; Advisory fires only when the window
+                          ;; surfaced ZERO epochs but the per-frame
+                          ;; history holds events that just fell
+                          ;; outside the time slice. Two ratchets:
+                          ;;   - count = 0 (the slot operators read
+                          ;;     to decide \"nothing happened\")
+                          ;;   - history-count > 0 (the underlying
+                          ;;     ring isn't empty — events exist).
+                          advisory      (when (and (zero? count)
+                                                   (pos? history-count))
+                                          {:reason            :window-excludes-history
+                                           :frame             sticky-frame
+                                           :epochs-in-history history-count
+                                           :window-ms         window-ms
+                                           :hint              (str history-count
+                                                                   " epochs exist in the per-frame "
+                                                                   "history but none fell inside the "
+                                                                   "last " window-ms "ms window. "
+                                                                   "Widen :ms (e.g. 60000), or use "
+                                                                   "`snapshot :include [:epochs]` to "
+                                                                   "inspect the full history.")})
+                          envelope      (cond-> {:ok?                 true
+                                                 :window-ms           window-ms
+                                                 :until-ms            until-ms
+                                                 :count               count
+                                                 :limit               limit
+                                                 :epochs-mode         mode
+                                                 :dedup               dedup?
+                                                 :epochs              value
+                                                 :has-more?           has-more?
+                                                 :estimated-remaining remaining
+                                                 :next-cursor         next-cursor}
+                                          advisory (assoc :advisory advisory))]
                       (wire/ok-text (wire/with-indicators
-                                      {:ok?                 true
-                                       :window-ms           window-ms
-                                       :until-ms            until-ms
-                                       :count               count
-                                       :limit               limit
-                                       :epochs-mode         mode
-                                       :dedup               dedup?
-                                       :epochs              value
-                                       :has-more?           has-more?
-                                       :estimated-remaining remaining
-                                       :next-cursor         next-cursor}
+                                      envelope
                                       {:dropped dropped :elided elided})))))))
             (.catch (fn [err] (probe/err->result :trace-failed err))))))))
