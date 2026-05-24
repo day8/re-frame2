@@ -37,11 +37,11 @@
 
     1. Caller-supplied `:current-state-path` (explicit override).
     2. Caller-supplied `:trace-events` (the focused-epoch's
-       `:rf.machine/transition` slice) — `topology/current-state-
+       `:rf.machine/transition` slice) — `trace-state/current-state-
        from-traces` resolves the `:to` of the most recent matching
        trace.
     3. Caller-supplied `:epoch-history` (oldest-first vector of epoch
-       records) — `topology/current-state-from-epoch-history` walks
+       records) — `trace-state/current-state-from-epoch-history` walks
        backward through prior epochs for the most recent transition
        this machine took. This is the **case-B refinement** per
        spec/021 §6.2 / §17.4.1 (rf2-dbi87): when the focused epoch
@@ -60,6 +60,7 @@
   the view testable in isolation."
   (:require [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.machines.topology :as topology]
+            [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.theme.tokens :as t :refer [tokens]]))
 
 (defn- resolve-current-state-path
@@ -72,8 +73,8 @@
   state annotated as `:current`."
   [machine-id current-state-path trace-events epoch-history snapshot-state]
   (or current-state-path
-      (topology/current-state-from-traces trace-events machine-id)
-      (topology/current-state-from-epoch-history epoch-history machine-id)
+      (trace-state/current-state-from-traces trace-events machine-id)
+      (trace-state/current-state-from-epoch-history epoch-history machine-id)
       ;; Live-snapshot fallback. The snapshot's `:state` slot is a
       ;; bare keyword per Spec 005 §State; coerce to a path vector
       ;; via `normalise-path` (vector / keyword / nil are all handled).
@@ -128,7 +129,8 @@
                                               trace-events
                                               epoch-history
                                               snapshot-state)
-        fired-ids (topology/extract-fired-edge-ids trace-events machine-id)
+        fired-ids (trace-state/extract-fired-edge-ids definition trace-events
+                                                      machine-id)
         ;; Case-B detection (rf2-dbi87 / spec/021 §6.2): the focused
         ;; epoch fired no transitions for this machine. The view STILL
         ;; renders the topology — only the fired-this-epoch overlay is
@@ -167,9 +169,9 @@
              :data-no-transition-this-epoch (str no-transition-this-epoch?)
              :data-current-state-source (cond
                                           current-state-path "explicit"
-                                          (topology/current-state-from-traces
+                                          (trace-state/current-state-from-traces
                                             trace-events machine-id) "trace-events"
-                                          (topology/current-state-from-epoch-history
+                                          (trace-state/current-state-from-epoch-history
                                             epoch-history machine-id) "epoch-history"
                                           (some? snapshot-state) "snapshot"
                                           :else "none")

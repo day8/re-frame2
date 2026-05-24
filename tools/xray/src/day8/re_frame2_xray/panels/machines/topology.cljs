@@ -60,25 +60,25 @@
     1. The `:to` of the most recent `:rf.machine/transition` trace
        in the focused epoch.
     2. The `:state` field of the machine's live snapshot map.
-    3. nil — no current-state overlay rendered."
-  (:require [day8.re-frame2-machines-viz.chart.layout :as chart-layout]))
+    3. nil — no current-state overlay rendered.
+
+  ## Trace → state derivation
+
+  Deriving the current-state path / fired-edge ids FROM trace events
+  (the overlay's other half) is a distinct concern and lives in
+  `day8.re-frame2-xray.panels.machines.trace-state` (rf2-8jzm1) — the
+  single source of truth for that derivation. This ns only borrows
+  `trace-state/normalise-path` (the shared path coercion); callers that
+  want the trace→state helpers require `trace-state` directly."
+  (:require [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
+            [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]))
 
 ;; ---- state walking ------------------------------------------------------
 
-(defn- normalise-path
-  "Coerce a path-spec into a path vector. Path-specs may be:
-
-    - a vector of keywords `[:populated]` or `[:level-1 :level-2]`
-    - a single keyword `:populated` (becomes `[:populated]`)
-    - nil (returns nil)
-    - any other shape (returns nil)"
-  [path]
-  (cond
-    (nil? path)       nil
-    (keyword? path)   [path]
-    (vector? path)    (when (every? keyword? path) path)
-    (seq? path)       (when (every? keyword? path) (vec path))
-    :else             nil))
+(def ^:private normalise-path
+  "Coerce a path-spec into a path vector. Delegates to the canonical
+  `trace-state/normalise-path` (single source of truth)."
+  trace-state/normalise-path)
 
 (defn- node-id-for-path
   "Stable string id for a state path. DELEGATES to the canonical
@@ -404,129 +404,3 @@
                 :data     {:kind  kind
                            :event (:event e)}}))
            edges)}))
-
-;; ---- focused-epoch overlay helpers --------------------------------------
-
-(defn extract-fired-edge-ids
-  "Given a vector of `:rf.machine/transition` trace events for the
-  focused epoch + the machine-id of interest, return the set of
-  edge-ids whose `(from → to via event)` matches a transition. Pure
-  fn. The match is loose — transitions that don't carry an explicit
-  event-id are excluded (they can't be matched to a `:on` edge)."
-  [trace-events machine-id]
-  (->> (or trace-events [])
-       (filter (fn [ev]
-                 (and (= :rf.machine/transition (:operation ev))
-                      (or (nil? machine-id)
-                          (= machine-id (get-in ev [:tags :machine-id]))))))
-       (keep (fn [ev]
-               (let [from  (or (:from ev) (get-in ev [:payload :from]))
-                     to    (or (:to ev)   (get-in ev [:payload :to]))
-                     event (or (:event ev) (get-in ev [:payload :event]))
-                     from* (normalise-path from)
-                     to*   (normalise-path to)
-                     ev*   (cond
-                             (keyword? event) event
-                             (vector? event)  (first event)
-                             :else            nil)]
-                 (when (and from* to* ev*)
-                   (str (node-id-for-path from*)
-                        "__"
-                        (node-id-for-path to*)
-                        "__"
-                        (name ev*))))))
-       set))
-
-(defn- from-path-from-trace
-  "Pull the `:from` (source) state path off a `:rf.machine/transition`
-  trace event. Tolerant of the same three shapes as `to-path-from-trace`:
-
-    1. Modern runtime: `:tags {:before {:state ...}}`.
-    2. Legacy/test fixtures: top-level `:from` or `:tags :from`.
-    3. Pre-rf2-hwuki: `:payload :from`.
-
-  Returns the normalised path vector or nil."
-  [ev]
-  (let [before-state (get-in ev [:tags :before :state])
-        from         (or (get-in ev [:tags :from])
-                         (:from ev)
-                         (get-in ev [:payload :from]))]
-    (normalise-path (or before-state from))))
-
-(defn from-state-from-traces
-  "Resolve the FROM (source) state path for `machine-id` from the
-  `:rf.machine/transition` trace events vector. Returns the `:from`
-  path of the most recent matching trace, or nil. Pure.
-
-  Per spec/021 §6.2 Case C (Figma reconcile · rf2-ad7zx.10): the
-  focused fired transition's source state renders as the dashed/dim
-  `:from` circle. The view layer pairs this with
-  `current-state-from-traces` (the TO / `:current` double-circle).
-
-  Reads modern (`:tags :before :state`) + legacy (`:from`,
-  `:payload :from`) shapes — see `from-path-from-trace`."
-  [trace-events machine-id]
-  (let [matching (filter (fn [ev]
-                           (and (= :rf.machine/transition (:operation ev))
-                                (or (nil? machine-id)
-                                    (= machine-id (get-in ev [:tags :machine-id])))))
-                         (or trace-events []))]
-    (when-let [last-ev (last matching)]
-      (from-path-from-trace last-ev))))
-
-(defn- to-path-from-trace
-  "Pull the `:to` state path off a `:rf.machine/transition` trace
-  event. Tolerant of three shapes:
-
-    1. Modern runtime: `:tags {:after {:state ...}}` (per
-       `lifecycle_fx/registration` `trace/emit!` of
-       `:rf.machine/transition`).
-    2. Legacy/test fixtures: top-level `:to` or `:tags :to`.
-    3. Pre-rf2-hwuki: `:payload :to`.
-
-  Returns the normalised path vector or nil."
-  [ev]
-  (let [after-state (get-in ev [:tags :after :state])
-        to          (or (get-in ev [:tags :to])
-                        (:to ev)
-                        (get-in ev [:payload :to]))]
-    (normalise-path (or after-state to))))
-
-(defn current-state-from-traces
-  "Resolve the current-state path for `machine-id` from the
-  `:rf.machine/transition` trace events vector. Returns the `:to`
-  path of the most recent matching trace, or nil. Pure.
-
-  Reads modern (`:tags :after :state`) + legacy (`:to`,
-  `:payload :to`) shapes — see `to-path-from-trace`."
-  [trace-events machine-id]
-  (let [matching (filter (fn [ev]
-                           (and (= :rf.machine/transition (:operation ev))
-                                (or (nil? machine-id)
-                                    (= machine-id (get-in ev [:tags :machine-id])))))
-                         (or trace-events []))]
-    (when-let [last-ev (last matching)]
-      (to-path-from-trace last-ev))))
-
-(defn current-state-from-epoch-history
-  "Walk `epoch-history` (a vector of epoch records, oldest-first per
-  `:rf/epoch-record`) backwards looking for the most recent
-  `:rf.machine/transition` trace for `machine-id`. Returns the `:to`
-  path of that transition, or nil if no transition for `machine-id`
-  appears anywhere in history.
-
-  Per spec/021 §6.3 (Queries / Per-frame state · current-state ●
-  annotation for case B): when the focused epoch has no transition,
-  the panel still renders topology with the most-recent-known state
-  annotated. This helper is the historical fallback caller — the view
-  layer composes it with `current-state-from-traces` (focused epoch)
-  + live snapshot `:state`.
-
-  Pure fn — JVM-runnable."
-  [epoch-history machine-id]
-  (let [history (vec (or epoch-history []))]
-    (loop [i (dec (count history))]
-      (when (>= i 0)
-        (let [events (get-in history [i :trace-events])
-              found  (current-state-from-traces events machine-id)]
-          (or found (recur (dec i))))))))
