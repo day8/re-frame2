@@ -385,6 +385,63 @@
           (is (= "4" (.getAttribute root "data-node-count"))
               "data-node-count excludes the region containers"))))))
 
+;; ---- parallel-region ACTIVE chrome (rf2-80rm2, G4 visual-pin) -----------
+;;
+;; G1 lights the active region LEAF; G4 lights the region CONTAINER too, so
+;; an active region reads as active at the zone level. The container surfaces
+;; the active read on its `data-active` attr (the parallel-region-node
+;; contract); this pin guards that an active region's container is `true` and
+;; an inactive region's is `false` on first commit (no elk-layout dependency).
+
+(deftest chart-parallel-active-region-container-carries-active-chrome
+  (testing "rf2-80rm2 (G4) — with one region advanced past initial, that
+            region's CONTAINER carries data-active=true while the still-
+            initial region's container is false (the active-region chrome
+            reads at the zone level, not just the leaf)"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id    :test/parallel
+         :definition    parallel-machine
+         ;; :audio advances to :paused (active); :display stays at :on, its
+         ;; initial — but :on IS the active leaf of :display, so BOTH region
+         ;; containers are active. Use a region-map where only ONE region has
+         ;; a leaf in the active set to get a clean active/inactive split:
+         ;; highlight only :audio's leaf.
+         :current-state {:audio :paused}}
+        (fn [_root node]
+          ;; `clj->js` renders the keyword region-id as its bare name
+          ;; (`:audio` → "audio"), so the data-region-id attr carries the
+          ;; name without the leading colon.
+          (let [audio (.querySelector node
+                        "[data-testid^=\"rf-mv-chart-region-\"][data-region-id=\"audio\"]")
+                display (.querySelector node
+                          "[data-testid^=\"rf-mv-chart-region-\"][data-region-id=\"display\"]")]
+            (is (some? audio) ":audio region container mounted")
+            (is (some? display) ":display region container mounted")
+            (is (= "true" (.getAttribute audio "data-active"))
+                ":audio container is active (its :paused leaf is in the active set)")
+            (is (= "false" (.getAttribute display "data-active"))
+                ":display container stays inactive (no active leaf)")))))))
+
+(deftest chart-parallel-both-active-regions-light-their-containers
+  (testing "rf2-80rm2 (G4) — when BOTH regions have an active leaf, BOTH
+            region containers carry data-active=true simultaneously (the
+            N-active-at-once read at the container level)"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id    :test/parallel
+         :definition    parallel-machine
+         :current-state {:audio :paused :display :off}}
+        (fn [_root node]
+          (let [containers (.querySelectorAll node
+                             "[data-testid^=\"rf-mv-chart-region-\"]")]
+            (is (= 2 (.-length containers)) "two region containers")
+            (is (every? #(= "true" (.getAttribute % "data-active"))
+                        (array-seq containers))
+                "both region containers read active when both regions have an active leaf")))))))
+
 ;; ---- parallel multi-active highlight (rf2-g2svr, G1) --------------------
 ;;
 ;; The parity capability: a PARALLEL machine's `:current-state` is a

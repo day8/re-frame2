@@ -54,6 +54,16 @@
                      :states  {:hidden  {:on {:show :shown}}
                                :shown   {:on {:hide :hidden}}}}}})
 
+(def nested-compound-machine
+  "A two-level compound (`:outer` → `:mid` → `:leaf`) so the G4
+  active-container chain can be pinned across MORE than one level —
+  an active deep leaf must light EVERY enclosing container."
+  {:initial :outer
+   :states  {:outer {:initial :mid
+                     :states  {:mid {:initial :leaf
+                                     :states  {:leaf  {:on {:go :other}}
+                                               :other {}}}}}}})
+
 (def self-loop-machine
   "A machine with a self-transition (:idle --ping--> :idle) so the
   `:selfLoop` flag has a positive case."
@@ -306,8 +316,14 @@
           state    {:audio :playing :video :shown}
           ids      (layout/highlight-ids state)
           graph    (projection/xyflow-graph parsed {} {:highlight-ids ids})
-          actives  (set (map :id (filter #(:active (:data %)) (:nodes graph))))]
-      (is (= #{(layout/node-id [:playing]) (layout/node-id [:shown])} actives)
+          ;; Scope to leaf STATE nodes — rf2-80rm2 (G4) additionally marks
+          ;; the region CONTAINERS active (active-region chrome), which the
+          ;; dedicated G4 tests below pin; here we keep the G1 invariant that
+          ;; exactly the two active leaves light up among the state nodes.
+          active-states (set (map :id (filter #(and (= "state" (:type %))
+                                                    (:active (:data %)))
+                                              (:nodes graph))))]
+      (is (= #{(layout/node-id [:playing]) (layout/node-id [:shown])} active-states)
           "exactly the two active region leaves are marked active"))))
 
 (deftest xyflow-graph-scalar-highlight-id-still-works
@@ -332,6 +348,111 @@
                    parsed {} {:highlight-id a :highlight-ids #{b}})]
       (is (true? (:active (:data (node-by-id graph a)))))
       (is (true? (:active (:data (node-by-id graph b))))))))
+
+;; ---- xyflow-graph active-region CONTAINER chrome (rf2-80rm2, G4) ---------
+;;
+;; G1 lit the active LEAF; G4 lights the active region/compound CONTAINER
+;; so the zone itself reads as active (Stately parity §1.4). The projector
+;; folds a container into `:active` when ANY descendant leaf is in the
+;; active set — walked up the `:parent-id` chain every node already carries
+;; (no path-prefix reimplementation, no duplicate highlight logic). The
+;; container components (parallel-region-node / compound-node) then paint
+;; the active chrome; these JVM pins guard the projection half.
+
+(deftest xyflow-graph-active-leaf-lights-its-region-container
+  (testing "rf2-80rm2 (THE G4 CAPABILITY) — an active region LEAF marks its
+            parallel-region CONTAINER `:active`, so the zone (not just the
+            leaf inside it) reads as active"
+    (let [parsed     (layout/parse-definition parallel-machine)
+          playing-id (layout/node-id [:playing])
+          audio-id   (layout/region-node-id :audio)
+          graph      (projection/xyflow-graph
+                       parsed {} {:highlight-ids #{playing-id}})
+          audio      (node-by-id graph audio-id)]
+      (is (= "parallel-region" (:type audio)) "fixture sanity: audio is a region")
+      (is (true? (:active (:data audio)))
+          "the :audio region container lights because its :playing leaf is active"))))
+
+(deftest xyflow-graph-inactive-region-container-stays-inactive
+  (testing "rf2-80rm2 — a region whose leaf is NOT in the active set keeps
+            its container `:active false` (only the active region(s) get
+            chrome — orthogonality of the active read)"
+    (let [parsed     (layout/parse-definition parallel-machine)
+          playing-id (layout/node-id [:playing])     ; :audio leaf, active
+          audio-id   (layout/region-node-id :audio)
+          video-id   (layout/region-node-id :video)
+          graph      (projection/xyflow-graph
+                       parsed {} {:highlight-ids #{playing-id}})]
+      (is (true?  (:active (:data (node-by-id graph audio-id))))
+          "the active region container lights")
+      (is (false? (:active (:data (node-by-id graph video-id))))
+          "the region with no active leaf stays inactive"))))
+
+(deftest xyflow-graph-both-region-containers-active-when-both-have-active-leaf
+  (testing "rf2-80rm2 — a parallel snapshot with an active leaf in EVERY
+            region lights EVERY region container simultaneously (the
+            multi-active read at the container level)"
+    (let [parsed   (layout/parse-definition parallel-machine)
+          state    {:audio :playing :video :shown}
+          ids      (layout/highlight-ids state)
+          graph    (projection/xyflow-graph parsed {} {:highlight-ids ids})
+          audio    (node-by-id graph (layout/region-node-id :audio))
+          video    (node-by-id graph (layout/region-node-id :video))]
+      (is (true? (:active (:data audio))) ":audio container active")
+      (is (true? (:active (:data video))) ":video container active"))))
+
+(deftest xyflow-graph-compound-container-active-with-active-descendant
+  (testing "rf2-80rm2 — self-consistency: a compound (non-parallel)
+            container also gets active chrome when an active descendant
+            leaf lit it (the same `:parent-id`-chain mechanic)"
+    (let [parsed      (layout/parse-definition compound-machine)
+          browsing-id (layout/node-id [:authenticated :browsing])
+          authed-id   (layout/node-id [:authenticated])
+          graph       (projection/xyflow-graph
+                        parsed {} {:highlight-ids #{browsing-id}})
+          authed      (node-by-id graph authed-id)]
+      (is (= "compound" (:type authed)) "fixture sanity: authenticated is compound")
+      (is (true? (:active (:data authed)))
+          "the compound container lights because its :browsing leaf is active"))))
+
+(deftest xyflow-graph-active-chain-lights-every-enclosing-container
+  (testing "rf2-80rm2 — a deep active leaf lights EVERY enclosing
+            container up the `:parent-id` chain (more than one level)"
+    (let [parsed   (layout/parse-definition nested-compound-machine)
+          leaf-id  (layout/node-id [:outer :mid :leaf])
+          mid-id   (layout/node-id [:outer :mid])
+          outer-id (layout/node-id [:outer])
+          other-id (layout/node-id [:outer :mid :other])
+          graph    (projection/xyflow-graph
+                     parsed {} {:highlight-ids #{leaf-id}})]
+      (is (true? (:active (:data (node-by-id graph leaf-id))))
+          "the active leaf itself stays active (G1 unchanged)")
+      (is (true? (:active (:data (node-by-id graph mid-id))))
+          "the immediate compound parent lights")
+      (is (true? (:active (:data (node-by-id graph outer-id))))
+          "the grandparent compound lights too (chain walks all the way up)")
+      (is (false? (:active (:data (node-by-id graph other-id))))
+          "an inactive sibling leaf stays dark"))))
+
+(deftest xyflow-graph-flat-machine-unaffected-by-container-chrome
+  (testing "rf2-80rm2 — a flat machine has no containers, so the active
+            set is exactly the active leaf(s); no spurious node lights"
+    (let [parsed   (layout/parse-definition idle-loading)
+          hi       (layout/node-id [:loading])
+          graph    (projection/xyflow-graph parsed {} {:highlight-id hi})
+          flagged  (filter #(contains? (:data %) :active) (:nodes graph))
+          actives  (set (map :id (filter #(:active (:data %)) flagged)))]
+      (is (= #{hi} actives)
+          "exactly the highlighted leaf is active — no container chrome leaks"))))
+
+(deftest xyflow-graph-inactive-compound-container-stays-inactive
+  (testing "rf2-80rm2 — a compound with NO active descendant keeps its
+            container `:active false` (no highlight → no chrome)"
+    (let [parsed (layout/parse-definition compound-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          authed (node-by-id graph (layout/node-id [:authenticated]))]
+      (is (false? (:active (:data authed)))
+          "no highlight → the compound container is inactive"))))
 
 (deftest xyflow-graph-no-highlight-leaves-all-inactive
   (testing "rf2-g2svr — neither `:highlight-id` nor `:highlight-ids` →

@@ -76,24 +76,47 @@
   (let [d            (.-data props)
         label        (or (.-label d) "")
         region-index (.-regionIndex d)
+        ;; rf2-80rm2 (G4) — the region CONTAINER reads active when any of
+        ;; its descendant leaves is in the active set (the projector folds
+        ;; that into `:active` via the `:parent-id` chain). An active region
+        ;; gets ACTIVE CHROME: a solid (not dashed) boundary, an emphasised
+        ;; header, and the `:info` active-token glow ring — the same
+        ;; active-token convention the state nodes use (no new palette). The
+        ;; region keeps its own rotation colour for zone identity; only the
+        ;; emphasis is added so the active region(s) read as active at the
+        ;; container level, matching Stately's active-region treatment.
+        active?      (boolean (.-active d))
         color-key    (region-boundary-color-key region-index)
         border-color (get tokens/tokens color-key)
-        body-tint    (tokens/with-alpha color-key 0.05)
-        header-tint  (tokens/with-alpha color-key 0.12)]
+        body-tint    (tokens/with-alpha color-key (if active? 0.10 0.05))
+        header-tint  (tokens/with-alpha color-key (if active? 0.20 0.12))
+        ;; Active boundary firms up (solid + heavier) so the zone reads as
+        ;; live; inactive keeps the dashed orthogonal-zone delineation.
+        border-style (if active? "solid" "dashed")
+        border-width (if active? "2px" "1.5px")]
     (r/as-element
       [:div {:data-testid    (str "rf-mv-chart-region-" (.-id props))
              :data-node-id    (.-id props)
              :data-region-id  (when-let [rid (.-regionId d)] (str rid))
              :data-region-index (when (some? region-index) (str region-index))
+             :data-active     (str active?)
              :style {:position       "relative"
                      :width          "100%"
                      :height         "100%"
                      :padding-top    "26px"
                      :background     body-tint
-                     ;; Distinct DASHED boundary per region — the
-                     ;; Stately-parity orthogonal-zone delineation.
-                     :border         (str "1.5px dashed " border-color)
+                     ;; Distinct boundary per region — the Stately-parity
+                     ;; orthogonal-zone delineation. Solid + emphasised
+                     ;; when the region is active (rf2-80rm2).
+                     :border         (str border-width " " border-style " " border-color)
                      :border-radius  "12px"
+                     ;; rf2-80rm2 (G4) — the active-region glow ring uses the
+                     ;; `:info` active token, mirroring the state-node active
+                     ;; box-shadow (`0 0 0 2px info@0.18`) so an active region
+                     ;; reads with the SAME active affordance as an active state.
+                     :box-shadow     (when active?
+                                       (str "0 0 0 2px "
+                                            (tokens/with-alpha :info 0.18)))
                      :pointer-events "none"}}
        ;; Header strip — the region label, tinted to the region colour.
        [:div {:data-testid (str "rf-mv-chart-regionhdr-" (.-id props))
@@ -106,7 +129,7 @@
                       :align-items    "center"
                       :padding        "0 10px"
                       :background     header-tint
-                      :border-bottom  (str "1px dashed " border-color)
+                      :border-bottom  (str "1px " border-style " " border-color)
                       :border-top-left-radius  "11px"
                       :border-top-right-radius "11px"
                       :font-family    sans-stack
