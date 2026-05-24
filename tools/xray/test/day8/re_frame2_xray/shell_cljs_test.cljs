@@ -211,6 +211,63 @@
             "no bottom rail")))))
 
 ;; -------------------------------------------------------------------------
+;; (1b) rf2-uu3lp — every shell reg-view returns a DOM-rooted tree
+;; -------------------------------------------------------------------------
+;;
+;; Before rf2-uu3lp the four shell views had non-DOM roots and the
+;; substrate emitted `:rf.warning/non-dom-root` (warn-once per id) on
+;; every step-deck testbed load:
+;;
+;;   - `shell-view`         → root was `rf/frame-provider` (fn component)
+;;   - `surface-composer`   → root was a fn-component head (`[dynamic-chrome]`)
+;;   - `dynamic-chrome`     → root was a React Fragment (`:<>`)
+;;   - `ribbon-theme-toggle` → plain `defn-` rendered under `:rf/xray`
+;;                              (frame leak: subscribe routed to `:rf/default`)
+;;
+;; This regression test asserts the FIX shape — each view's hiccup root
+;; is a keyword (DOM tag), so the source-coord wrapper has a real DOM
+;; node to annotate. `ribbon-theme-toggle` is now `reg-view`-registered
+;; so its surrounding `:rf/xray` frame-provider reaches its subscribe
+;; through React-context (no more plain-fn frame leak).
+
+(deftest shell-views-have-dom-rooted-hiccup
+  (testing "rf2-uu3lp — every shell-level reg-view returns a keyword-
+            headed (DOM) hiccup tree so the source-coord annotation
+            walk has a DOM node to land on. Non-DOM roots (function
+            components, Fragments) emit a one-shot warning per Spec
+            006 §Documented exemption — the four shell views below
+            previously triggered it."
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [shell-tree (shell/shell-view)]
+        (is (vector? shell-tree) "shell-view returns a hiccup vector")
+        (is (keyword? (first shell-tree))
+            (str "shell-view root is a keyword DOM tag — was "
+                 (pr-str (first shell-tree)))))
+      (let [composer-tree (shell/surface-composer)]
+        (is (vector? composer-tree) "surface-composer returns a hiccup vector")
+        (is (keyword? (first composer-tree))
+            (str "surface-composer root is a keyword DOM tag — was "
+                 (pr-str (first composer-tree)))))
+      (let [chrome-tree (shell/dynamic-chrome)]
+        (is (vector? chrome-tree) "dynamic-chrome returns a hiccup vector")
+        (is (keyword? (first chrome-tree))
+            (str "dynamic-chrome root is a keyword DOM tag — was "
+                 (pr-str (first chrome-tree))))))))
+
+(deftest ribbon-theme-toggle-is-reg-view-registered
+  (testing "rf2-uu3lp — the theme toggle's `:theme` setting lives in
+            `:rf/xray`, so its subscribe + dispatch must route to that
+            frame. As a plain `defn` it was leaking subscribes into
+            `:rf/default`. `reg-view`-registration installs the
+            `:contextType frame-context` static so the surrounding
+            `:rf/xray` Provider reaches the component via React-context.
+            We assert the registration is present in the view registry."
+    (xray-setup!)
+    (is (some? (rf/view ::shell/ribbon-theme-toggle))
+        "ribbon-theme-toggle is registered under its namespaced id")))
+
+;; -------------------------------------------------------------------------
 ;; (2) L1 ribbon clusters
 ;; -------------------------------------------------------------------------
 
