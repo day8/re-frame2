@@ -209,6 +209,33 @@
         ;; union.
         active-ids (cond-> (set highlight-ids)
                      (some? highlight-id) (conj highlight-id))
+        ;; rf2-80rm2 (G4) — container ACTIVE chrome. The active set above
+        ;; holds active LEAF ids; a parallel-region (or compound) CONTAINER
+        ;; reads as active when ANY descendant leaf is active, so an active
+        ;; region's chrome (the dashed box + header) emphasises — not just
+        ;; the leaf inside it (Stately parity §1.4 of `001-Topology-Parity.md`).
+        ;;
+        ;; Reuses the G1 `active-ids` directly: walk each active leaf UP its
+        ;; `:parent-id` chain (the same id every node already carries — region
+        ;; states point at their `region-node-id`, compound substates at their
+        ;; parent's `node-id`) and collect every ancestor container id. No
+        ;; path-prefix reimplementation; no duplication of the highlight logic.
+        ;; A self-consistent compound container lights the same way a region
+        ;; does — both are containers with a `:parent-id` chain reaching them.
+        parent-of (into {} (keep (fn [n]
+                                   (when-let [p (:parent-id n)]
+                                     [(:id n) p]))
+                                 nodes))
+        active-container-ids
+        (loop [seeds  (filter active-ids (keys parent-of))
+               acc    #{}]
+          (if-let [s (first seeds)]
+            (let [p (get parent-of s)]
+              (recur (if (and p (not (contains? acc p)))
+                       (conj (rest seeds) p)
+                       (rest seeds))
+                     (cond-> acc p (conj p))))
+            acc))
         ;; rf2-lkwev — container nodes (parallel regions AND compound
         ;; parents) MUST precede their children in the xyflow nodes
         ;; array (xyflow requires a parentNode to appear before any node
@@ -218,7 +245,15 @@
         (mapv (fn [n]
                 (let [pos      (get positions (:id n) {:x 0 :y 0})
                       region?  (boolean (:region? n))
-                      active?  (contains? active-ids (:id n))
+                      ;; rf2-80rm2 (G4) — a node is active when it is an
+                      ;; active leaf (G1) OR a container reaching an active
+                      ;; leaf via the `:parent-id` chain (the active-region
+                      ;; chrome). The two sets are disjoint by construction
+                      ;; (`active-ids` is leaves, `active-container-ids` is
+                      ;; their ancestor containers), so the union is the
+                      ;; whole active surface.
+                      active?  (or (contains? active-ids (:id n))
+                                   (contains? active-container-ids (:id n)))
                       from-hi? (= (:id n) from-highlight-id)
                       to-hi?   (= (:id n) to-highlight-id)
                       base

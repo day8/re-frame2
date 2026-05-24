@@ -171,6 +171,7 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 | **Hierarchy** | ✅ Compound parents render as a dashed container with a header-strip title; children nest via xyflow `parentNode` + `extent:"parent"`; elk lays children inside the parent box (`INCLUDE_CHILDREN`). Nesting recurses (compound-in-compound, compound-in-region). | `nodes.cljs` `compound-node`; `projection.cljc` `->elk-children` (`:parent-id` grouping), `xyflow-graph` (`parentNode`/`extent`); `layout.cljc` `parse-flat` (`:parent-id` on nested nodes). |
 | **Parallel regions — structure** | ✅ **Every** region renders as a synthetic `:region?` compound node with a **distinct dashed boundary per region** (palette rotation) + `∥` glyph + region label; states carry `:region` + `:parent-id`; edges stay region-local. | `layout.cljc` `parse-parallel`/`region-node-id`; `projection.cljc` (`type "parallel-region"`); `nodes/parallel_region_node.cljs`. |
 | **Parallel regions — active highlight** | ✅ **Closed (rf2-yoe6e / rf2-g2svr).** `highlight-ids` resolves the whole snapshot `:state` — flat keyword, compound path, **or region-map** `{region path}` — to the **set** of active-leaf node-ids; `xyflow-graph` threads `:highlight-ids` and marks **every** active leaf, so a parallel snapshot's **N simultaneously-active leaves** all light up at once. A nested region value resolves to its deepest leaf. | `layout.cljc` `highlight-ids`; `projection.cljc` `xyflow-graph` (`:highlight-ids` set). |
+| **Parallel regions — active CONTAINER chrome** | ✅ **Closed (rf2-80rm2 / G4).** The region (and, for self-consistency, the compound) **container** reads as active when ANY descendant leaf is active — the projector folds the container into `:active` by walking each active leaf UP its `:parent-id` chain (reusing the G1 active set; no duplicate highlight logic). `parallel-region-node` / `compound-node` then paint active chrome (solid emphasised boundary + the `:info` active-token glow ring, the same affordance state nodes use), so an active region reads as active at the zone level, not just the leaf inside it. **Palette delegated to Figma.** | `projection.cljc` `xyflow-graph` (`active-container-ids` parent-id walk); `nodes/parallel_region_node.cljs`; `nodes.cljs` `compound-node`. |
 | **Transition scoping** | ✅ `:on`, `:after`, `:always`, machine-level (top-level `:on`) fallback, external + internal self-transitions, vector-of-candidates forks. Self-loops render as a small loop (not a degenerate bezier); internal self-transitions render dashed + no arrowhead. | `layout.cljc` `collect-state-edges`, `collect-machine-edges`, `resolve-target-path`; `edges.cljs` (self-loop path, internal dash). |
 | **Initial** | ✅ Filled-dot `initial-marker` node + unlabelled entry edge into the initial state, at **every** compound level (xstate/SCXML semantics). | `nodes.cljs` `initial-marker`; `projection.cljc` (marker-nodes + entry-edges); `layout.cljc` `collect-nodes` (per-level `:initial?`). |
 | **Final** | ✅ Doubled border (outer ring 1px proud) + `✓` glyph inline on `state-node`. | `nodes.cljs` `state-node` (final ring + glyph). |
@@ -186,10 +187,10 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 (layout), initial, final, transition scoping, event labels,
 guards/actions, layout, and ergonomics. The high-severity **parallel
 multi-active highlight** gap (G1) is now **closed** (rf2-yoe6e /
-rf2-g2svr) and the bend-point edge-routing gap (G2) is now **closed**
-(rf2-cz8v6); the residue is two **fired-edge consistency** items the
-live-chart wiring needs and the region-ACTIVE chrome polish (G4) that
-completes the parallel-parity read.
+rf2-g2svr), the bend-point edge-routing gap (G2) is now **closed**
+(rf2-cz8v6), and the region-ACTIVE chrome polish (G4) is now **closed**
+(rf2-80rm2) — the parallel-parity read is complete; the residue is the
+two **fired-edge consistency** items the live-chart wiring needs.
 
 ## §3 — Gap analysis + deliberate divergences
 
@@ -203,7 +204,7 @@ new), and the parity-bar row it serves.
 | **G1** | ✅ **CLOSED (rf2-yoe6e / rf2-g2svr).** Was: a parallel snapshot's `:state` is a region-map `{region path}` with **N active leaves**; `highlight-id` returned nil for a map, so the chart highlighted **none** (or only a degenerate single id). Now: `highlight-ids` resolves the whole `:state` (flat / compound / region-map, nested values → deepest leaf) to the **set** of active-leaf node-ids; `xyflow-graph` threads `:highlight-ids` and marks **every** active leaf, so all N regions light up at once — Stately's §1.2 read. | **High** | §1.2, §1.9 | **contract:** rf2-yoe6e ✅ · **impl:** rf2-g2svr ✅ |
 | **G2** | ✅ **CLOSED (rf2-cz8v6).** Was: edges were beziers between handles; elk's Layered bend-points were discarded (§1.7), so in deep nesting an edge could cut **across** a region/compound container instead of routing **around** it. Now: elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into the projection (`:edge-points` → `:data {:points}`), and `edges.cljs/edge-path` draws a smooth poly-path THROUGH them — routing around non-incident containers (the [`000-Vision.md`](000-Vision.md) §Quality-bar "no edge-crossing collapse" floor). Self-loops keep their loop path; no-route edges fall back to the bezier; G1's active-edge highlight survives the new path. | **Medium** | §1.7, §1.9 | **impl:** rf2-cz8v6 ✅ |
 | **G3** | **Fired-edge id consistency (live chart).** To highlight "the edge that fired this epoch" on the live chart, the host's trace→edge-id mapping MUST mint the **same** `edge-id` `chart.layout` mints. Today the helper chain needs consolidating so `extract-fired-edge-ids` emits machines-viz `edge-id`s. (The node-id scheme was already unified — rf2-m8kod.) | **Medium** | §1.3, §1.8 | **helpers:** rf2-8jzm1 (existing) · **wire:** rf2-qeemm (existing) |
-| **G4** | **Parallel-region chrome polish for the active read.** Once G1 lights up N regions, the **region container** should reflect "this region is active" (vs. structural-only chrome today) so a reader scanning N regions sees the active leaf in each at a glance — region-header active affordance + per-region active-leaf emphasis that reads as a set, not N independent highlights. | **Low–Medium** | §1.2 | **NEW — see §5 N1** |
+| **G4** | ✅ **CLOSED (rf2-80rm2).** Was: once G1 lit N region LEAVES, the **region CONTAINER** still read structural-only — an active region was indistinguishable from an inactive one at the zone level. Now: `xyflow-graph` folds a container (region OR compound) into `:active` when any descendant leaf is active — walked UP the `:parent-id` chain every node already carries (reuses the G1 active set; no path-prefix reimplementation). `parallel-region-node` / `compound-node` paint active chrome (solid emphasised boundary + the `:info` active-token glow ring, the same affordance state nodes use), so each active region reads as active at a glance and the N active regions read as a set. **Palette delegated to Figma.** | **Low–Medium** | §1.2 | **impl:** rf2-80rm2 ✅ |
 | **G5** | **Cross-hierarchy edge-routing option not asserted.** elk routes cross-hierarchy edges only when the option is activated on the top level (§1.7). The default elk options set `INCLUDE_CHILDREN` for nesting but do not pin the cross-hierarchy edge-routing option; an edge from a deeply-nested leaf to a top-level state may not route cleanly even after G2. | **Low** | §1.7 | **NEW — see §5 N2** (pairs with rf2-cz8v6/G2) |
 
 ### 3.2 Deliberate non-parity divergences (intentional, NOT gaps)
@@ -270,7 +271,7 @@ not **which colour**.
 | **Initial marker** | small **filled dot** + unlabelled arrow into the initial state, at every compound level | *`accent` dot* |
 | **Compound container** | translucent box, **dashed** border, header-strip title | *`accent` 6% fill, dashed `accent`* |
 | **Parallel region container** | **distinct dashed boundary per region** (rotation so adjacent regions differ) + `∥` glyph + uppercased region label | *`region-boundary-palette` rotation* |
-| **Parallel region (ACTIVE) — G1/G4** | region header carries an **active affordance**; **every** active leaf inside lights with the active dimension **simultaneously**; the set reads as "all active at once," not N independent picks | NEW — Figma to design the region-active treatment |
+| **Parallel region (ACTIVE) — G1/G4** | region header + boundary carry an **active affordance**; **every** active leaf inside lights with the active dimension **simultaneously**; the set reads as "all active at once," not N independent picks | ✅ shipped (rf2-80rm2): solid emphasised boundary + emphasised header tint + `info` glow ring (the state-node active token). Figma may re-key the region-active palette |
 | **Edge (resting transition)** | thin stroke + arrowhead + label backplate | *`border-default`* |
 | **Edge (active — touches active state)** | mid-weight stroke + arrow tinted to active hue | *`info`, midweight* |
 | **Edge (focused — the fired FROM→TO)** | **emphasised** stroke + **animated glow** | *`info` + `mv-chart-transition-glow`* |
@@ -335,7 +336,7 @@ project dispatch rules): `tools/xray/spec/003-Machine-Inspector.md`.
 |---|---|---|---|---|
 | A1 | **rf2-yoe6e** — spec the parallel multi-active-highlight contract | existing | **HOT** (touches 003 + machines-viz API) | Defines `highlight-ids` set semantics + region-map resolution. Serial vs any other 003 edit. |
 | A2 | **rf2-g2svr** — implement parallel multi-active highlight | existing | isolated (`chart.layout`/`chart.projection` + tests) | Set-returning resolver + projection threads the set; JVM-tested. Depends on A1. |
-| A3 | **N1 (NEW)** — `feat(machines-viz): parallel-region ACTIVE chrome (region-active affordance + simultaneous N-leaf read)` | **NEW** | isolated (`nodes/parallel_region_node.cljs` + projection flag + tests) | Closes **G4**. Region header active affordance + the "reads as a set" treatment (§4.2). **Figma owns the region-active palette.** Depends on A2. |
+| A3 | **rf2-80rm2** ✅ — `feat(machines-viz): parallel-region ACTIVE chrome (region-active affordance + simultaneous N-leaf read)` | existing | isolated (`projection.cljc` `active-container-ids` + `nodes/parallel_region_node.cljs` + `nodes.cljs` `compound-node` + JVM tests) | **Closed G4.** Container folds into `:active` via the `:parent-id` chain (reuses the G1 active set); region + compound containers paint the solid-boundary + `:info` glow active chrome (§4.2). **Figma owns the region-active palette.** |
 
 ### Phase B — edge-routing fidelity (the medium gap)
 
@@ -360,11 +361,12 @@ project dispatch rules): `tools/xray/spec/003-Machine-Inspector.md`.
 ### Proposed NEW beads (for the mayor to file)
 
 1. **N1 — `feat(machines-viz): parallel-region ACTIVE chrome`**
-   (closes **G4**). Region-header active affordance + simultaneous
-   N-active-leaf treatment that reads as one set. Isolated
-   (`nodes/parallel_region_node.cljs` + projection flag + DOM/JVM
-   tests). Depends on rf2-g2svr (A2). **Figma owns the region-active
-   palette.** P2 (it completes the parallel-parity story G1 opens).
+   ✅ **filed + closed as rf2-80rm2** (closes **G4**). Region-header +
+   boundary active affordance + simultaneous N-active-leaf treatment
+   that reads as one set. Isolated (`projection.cljc`
+   `active-container-ids` parent-id walk + `nodes/parallel_region_node.cljs`
+   + `nodes.cljs` `compound-node` + JVM tests). Depended on rf2-g2svr
+   (A2). **Figma owns the region-active palette.**
 2. **N2 — `feat(machines-viz): assert ELK cross-hierarchy edge-routing`**
    (closes **G5**). Add the top-level cross-hierarchy edge-routing
    option to `default-elk-options`; projection test pins it. Isolated

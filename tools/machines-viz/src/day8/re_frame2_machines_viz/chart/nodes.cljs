@@ -309,20 +309,33 @@
         vc    (chart-constants d)
         label (or (.-label d) "")
         path  (.-path d)
+        ;; rf2-80rm2 (G4) — for self-consistency with the active-region
+        ;; chrome, a compound CONTAINER whose active descendant leaf lit it
+        ;; (the projector folds that into `:active` via the `:parent-id`
+        ;; chain) also gets active chrome: a solid (not dashed) accent border
+        ;; + the `:info` active-token glow ring — the same active affordance
+        ;; state nodes and active regions use. Minimal: only the boundary
+        ;; firms up and the glow appears; inactive compounds are unchanged.
+        active? (boolean (.-active d))
         {:keys [compound-pad-y compound-radius compound-title-px]} vc]
     (r/as-element
       [:div {:data-testid (str "rf-mv-chart-compound-" (.-id props))
              :data-node-id (.-id props)
              :data-state-path (when path (pr-str (js->clj path)))
+             :data-active (str active?)
              :style {:position         "relative"
                      :width            "100%"
                      :height           "100%"
                      :min-width        (str projection/compound-node-min-width "px")
                      :min-height       (str projection/compound-node-min-height "px")
                      :padding-top      (str compound-pad-y "px")
-                     :background       (tokens/with-alpha :accent 0.06)
-                     :border           (str "1px dashed " (:accent tokens/tokens))
+                     :background       (tokens/with-alpha :accent (if active? 0.10 0.06))
+                     :border           (str (if active? "1.5px solid " "1px dashed ")
+                                            (:accent tokens/tokens))
                      :border-radius    (str compound-radius "px")
+                     :box-shadow       (when active?
+                                         (str "0 0 0 2px "
+                                              (tokens/with-alpha :info 0.18)))
                      :pointer-events   "none"}}
        [:div {:style {:position    "absolute"
                      :top         "4px"
