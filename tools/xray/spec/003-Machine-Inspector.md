@@ -51,16 +51,29 @@ contracts become legible. Bug-class motivation for each major feature in
 [§The bug catalogue](#the-bug-catalogue) below; see also
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.1.
 
-## Post-collapse Dynamic panel shape (rf2-y9xmf)
+## Post-collapse Dynamic panel shape (rf2-y9xmf, rf2-8og3k)
 
-The Dynamic Machines panel renders one of three states:
+The Dynamic Machines panel renders one of three states. The selection
+is **single-instance, event-driven** — the panel binds to exactly the
+machine instance the focused event targets, or to nothing. The rule is
+specified in full at
+[§Dynamic mode — single-instance, event-driven (rf2-8og3k)](#dynamic-mode--single-instance-event-driven-rf2-8og3k)
+below; the three render states are:
 
 1. **No machines registered** → empty-state message: "No machines
-   registered."
-2. **Machines registered, focused event has no transitions** → BLANK
-   state: "No machine activity in the focused event."
-3. **Focused event triggered ≥1 transitions** → one section per
-   transitioned machine, document order:
+   registered." (Verbatim text in [§Empty state](#empty-state).)
+2. **Focused event does not target a state machine** → the Machine tab
+   shows NOTHING ELSE — only the verbatim placeholder:
+
+   > **This event does not target a state machine**
+
+   That string is the entire empty-state content. No chart, no lens, no
+   transition history, no machine name — just that line, rendered as a
+   quiet centered empty-state per the design system. (See
+   [§Dynamic mode — single-instance, event-driven (rf2-8og3k)](#dynamic-mode--single-instance-event-driven-rf2-8og3k)
+   for the full rule.)
+3. **Focused event targets a machine instance** → one section for that
+   one instance (chosen per the rf2-8og3k selection rule below):
     - Header: `<from-state> → <to-state>` with the event vector right-
       aligned.
     - Topology chart (**xyflow + elkjs** primitive — rf2-gpzb4 xyflow
@@ -82,9 +95,10 @@ The header carries:
 - A **Share button** (right-aligned).
 - A **prev/next nav** (`◀ Prev` / `Next ▶`) that walks the spine's
   epoch history to the prior/next epoch whose cascade ALSO touched
-  the focused machine. The "focused machine" is the head section's
-  `machine-id` (the cascade may touch several; nav scope is the first).
-  Hidden when no machine is in scope (the blank or empty-state branches).
+  the focused machine instance. The "focused machine instance" is the
+  one selected per rf2-8og3k for the current event. Hidden in the
+  state-2 (no-machine-targeted) and state-1 (no-machines-registered)
+  branches.
 
 The above-the-chart framing region is described in
 [§Focused-transition lens — above the chart (rf2-99rhe)](#focused-transition-lens--above-the-chart-rf2-99rhe)
@@ -203,14 +217,30 @@ CORE-side change scoped to the `reg-machine` macro path and the
 registrar; bead filed separately so the lens impl bead can land
 once the data is available.
 
-### Operator decision pending (rf2-99rhe)
+### Operator decision — Dynamic resolved, other modes pending (rf2-99rhe + rf2-8og3k)
 
-> **Operator decision pending (rf2-99rhe):** Mike has not yet
-> ruled on whether this lens **is** the whole above-chart framing
-> region, or whether it is **one element among several** in that
-> region (alongside a machine-instance picker, a mode strip, sim
-> controls, or the transition-history ribbon migrated up from
-> below the chart).
+> **Dynamic mode — resolved by rf2-8og3k (Reading A–equivalent).**
+> The rf2-8og3k single-instance rule answers the original "whole vs
+> one-of-several" question for Dynamic: the panel binds to **exactly
+> one** machine instance per focused event (or to none, in which case
+> the panel renders only the verbatim
+> `**This event does not target a state machine**` placeholder per
+> [§Dynamic mode — single-instance, event-driven (rf2-8og3k)](#dynamic-mode--single-instance-event-driven-rf2-8og3k)).
+> There is no machine-instance picker in Dynamic mode — selection is
+> implicit from event focus — so the lens IS the whole above-chart
+> framing region for Dynamic mode (effectively Reading A from the
+> original framing below). The `Target Machine Instance:` header line
+> is a static label of the implicitly-selected instance, not a
+> dropdown.
+>
+> **Static / Mode-C / Sim modes — still pending.** These modes have
+> picker semantics (UC2 historical Mode A/B/C / Sim sub-strip; see
+> [§UC2 — Dynamic Mode A / B / C](#uc2--dynamic-mode-a--b--c) preserved
+> as Static-re-host reference, and [§Sim re-host reference](#sim-re-host-reference-rf2-r4nao--landed)).
+> Whether the lens is the whole above-chart framing or one element
+> among several in those modes remains under-determined; Mike to rule
+> when those modes are next touched. Below is the original framing,
+> preserved for that future decision:
 >
 > **Reading A — "Whole".** The lens IS the above-chart framing.
 > The `Target Machine Instance: :title/flow-instance-42` header
@@ -219,34 +249,14 @@ once the data is available.
 > controls live elsewhere or are deferred. The transition history
 > ribbon stays below the chart per its current spec.
 >
-> **Reading B — "One element among several" (proposed default).**
-> The lens is what appears when a transition is selected; other
-> above-chart UI (machine-instance picker, the transition-history
-> ribbon migrated above the chart, optional mode strip / sim
-> controls) lives in parallel rows in the same above-chart region.
-> When no transition is selected, the lens collapses to a thin
-> placeholder row ("Select a transition to inspect — click an
-> edge, a history entry, or an event") and the other rows still
-> render. When a transition IS selected, the lens expands inline
-> within the above-chart region.
->
-> **Recommended default — Reading B.** Two reasons. First, the
-> lens is a *forensic* surface tied to a *selected* transition;
-> coupling it to selection state (collapsing when no transition is
-> selected) is more honest than forcing it to be the only
-> above-chart content even when there is nothing to inspect.
-> Second, Reading B leaves the door open for the transition-history
-> ribbon to migrate from below the chart to above it (a natural
-> evolution since the ribbon is the primary selection-source for
-> the lens), and for an explicit instance picker row to coexist —
-> both of which Reading A would force us to bolt into the lens
-> header. Reading B is the lower-coupling shape.
->
-> Mike to rule on PR review. Until then, the lens is specified at
-> the **content** level (the rendered shape and field sources
-> above are normative under either reading) and left
-> under-determined at the **above-chart layout** level (which
-> reading wins).
+> **Reading B — "One element among several".** The lens is what
+> appears when a transition is selected; other above-chart UI
+> (machine-instance picker, the transition-history ribbon migrated
+> above the chart, optional mode strip / sim controls) lives in
+> parallel rows in the same above-chart region. When no transition
+> is selected, the lens collapses to a thin placeholder row and the
+> other rows still render. When a transition IS selected, the lens
+> expands inline within the above-chart region.
 
 ### Cross-references
 
@@ -292,6 +302,125 @@ The historical Mode A/B/C / Sim sub-strip / arc / scrubber / cluster
 descriptions in subsequent sections are preserved as design-reference
 for the rf2-r4nao Static re-host; they DO NOT describe the Dynamic
 panel.
+
+<!-- ============================================================ -->
+<!--  DYNAMIC MODE — SINGLE-INSTANCE, EVENT-DRIVEN  (rf2-8og3k)    -->
+<!-- ============================================================ -->
+
+## Dynamic mode — single-instance, event-driven (rf2-8og3k)
+
+In Dynamic mode, the Machine tab shows **EXACTLY ONE machine
+instance, OR NONE**. There is no machine picker, no instance list,
+no exploratory selection — the panel binds to whatever instance the
+**focused event** transitioned, and to nothing else. This rule
+amends rf2-99rhe (the focused-transition lens) by settling the
+instance-selection question for Dynamic mode: the lens has exactly
+one subject, sourced implicitly from event focus.
+
+### The rule
+
+For the currently-focused event in the L2 event list:
+
+1. **Enumerate the event's `:rf.machine/transition` traces.** These
+   are the transitions the event caused (Spec 005 trace contract;
+   one per outer transition, plus
+   `:rf.machine.microstep/transition` for `:always`-driven
+   microsteps). Each trace carries `:tags {:machine-id …}` naming
+   the instance that transitioned.
+2. **If the set is empty** → the panel renders only the verbatim
+   placeholder (see [§Empty state — focused event does not target
+   a state machine](#empty-state--focused-event-does-not-target-a-state-machine)
+   below). No chart, no lens, no history ribbon, nothing else.
+3. **If the set is non-empty** → select **one** instance per the
+   tiebreaker below; render the focused-transition lens above the
+   chart with that instance as `Target Machine Instance:`, the
+   chart bound to that instance, and the transition history ribbon
+   filtered to that instance's transition stream.
+
+### Instance-selection tiebreaker
+
+When the focused event's cascade transitioned **multiple machine
+instances** in one event, the panel picks **the first
+`:rf.machine/transition` trace in trace order** (the earliest
+`:rf.trace/at` timestamp; ties broken by trace-emission sequence
+within the same epoch).
+
+Rationale: trace order matches the order the developer's effect /
+action handlers fired the cascade, so "the first machine to
+transition" is the **proximate** transition — the one the event's
+primary effect aimed at. Subsequent machine activity in the same
+cascade is downstream `:dispatch` fallout, which is what the spine's
+prev/next cascade nav is for (per
+[§Post-collapse Dynamic panel shape](#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k)
+header nav).
+
+This is the v1 rule. Future iterations may surface a per-event hint
+in the event payload (e.g. a `:rf.machine/primary-target` tag
+written by the event handler) to override the first-by-trace-order
+default; until then the framework offers no such hook and trace
+order is authoritative.
+
+### Empty state — focused event does not target a state machine
+
+When the focused event's `:rf.machine/transition` set is empty, the
+Machine tab renders only the following placeholder, as a quiet
+centered empty-state per the design system — nothing else:
+
+> **This event does not target a state machine**
+
+That string is the entire empty-state content. No chart, no lens,
+no transition history, no machine name, no instance picker, no
+"select an event with machine activity" hint — just that line.
+Visual treatment: centered in the panel viewport, body weight,
+muted-foreground colour token per
+[`007-UX-IA.md`](007-UX-IA.md) (matching the existing quiet
+empty-state pattern used by other Xray panels). Worker proposes
+this treatment from the Figma authority; if Figma has no settled
+empty-state pattern yet, this section is the normative reference.
+
+This is the **state 2** branch in
+[§Post-collapse Dynamic panel shape](#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k);
+the rf2-y9xmf prior text "No machine activity in the focused event."
+is superseded by the verbatim string above.
+
+### Relationship to the focused-transition lens (rf2-99rhe)
+
+The rf2-99rhe focused-transition lens defines **what** renders
+above the chart when there is one transition to inspect: the
+forensic block of `Target Machine Instance:` · `TRANSITION` ·
+`GUARDS RUN` · `ACTIONS RUN` (per
+[§Focused-transition lens — above the chart (rf2-99rhe)](#focused-transition-lens--above-the-chart-rf2-99rhe)
+§Rendered shape). This bead (rf2-8og3k) defines **when** there is
+one to inspect and **which one** it inspects:
+
+- **Dynamic mode:** always at most one. The lens IS the whole
+  above-chart framing — there is no instance picker, no mode
+  strip, no parallel rows. (This resolves the rf2-99rhe
+  Operator-decision callout in favour of Reading A for Dynamic;
+  see the updated callout under that lens section.)
+- **Static / Mode-C / Sim modes:** retain picker semantics per
+  the historical [§UC2 — Dynamic Mode A / B / C](#uc2--dynamic-mode-a--b--c)
+  section (preserved as Static re-host reference). The
+  rf2-99rhe Reading-A vs Reading-B question is still open for
+  those modes.
+
+### Cross-references
+
+- [§Post-collapse Dynamic panel shape (rf2-y9xmf, rf2-8og3k)](#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k)
+  — the three render states; this section refines states 2 and 3.
+- [§Focused-transition lens — above the chart (rf2-99rhe)](#focused-transition-lens--above-the-chart-rf2-99rhe)
+  — the lens this rule sources its single instance for; the
+  Operator-decision callout there cross-references back to this
+  section for the Dynamic-mode resolution.
+- [§Transition history ribbon](#transition-history-ribbon) — the
+  ribbon is filtered to the single selected instance's transition
+  stream in Dynamic mode.
+- [§Selection and switching](#selection-and-switching) — the
+  panel-header machine picker described there is **Static** /
+  reference territory; Dynamic mode has no such picker.
+- [Spec 005 §Trace events](../../../spec/005-StateMachines.md#trace-events)
+  — the `:rf.machine/transition` trace contract this rule reads
+  from.
 
 ## Architectural posture
 
@@ -983,6 +1112,13 @@ When no machines are registered:
    • UC1 simulation (Sim toggle)
    → Read about machine integration
 ```
+
+For the **focused-event-targets-no-machine** empty state (Dynamic
+mode, machines registered but the current event did not transition
+any instance), see
+[§Empty state — focused event does not target a state machine](#empty-state--focused-event-does-not-target-a-state-machine)
+under the rf2-8og3k single-instance rule — that is a distinct
+condition with a distinct verbatim placeholder.
 
 ## Accessibility
 
