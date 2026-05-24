@@ -599,3 +599,128 @@
       (doseq [row (:rows feed)]
         (is (not (contains? row :row-index))
             (str "row " (:id row) " must not carry :row-index"))))))
+
+;; ---- (10) per-path db-changed diff — rf2-b3zw2 / rf2-8q8i4 = (b) --------
+;;
+;; The `:rf.event/db-changed` trace event carries no per-path diff (it
+;; only ships `:event` + `:frame`). The Trace panel derives the diff
+;; PANEL-SIDE from the focused epoch record's `:db-before` /
+;; `:db-after` slots — the rf2-8q8i4 Mike-decided shape — via
+;; `db-changed-diff-triples` (route through `app-db-diff-helpers/diff-paths`).
+;; `project-feed-from-epoch` attaches the resulting triples to every
+;; `:rf.event/db-changed` row's `:db-diff` slot so the view stays
+;; dumb-and-pure.
+
+(defn- diff-epoch
+  "A minimal epoch record carrying a non-trivial `:db-before` /
+  `:db-after` and a single `:rf.event/db-changed` row. The other rows
+  in the trail are noise the test ignores."
+  [db-before db-after]
+  {:epoch-id     71
+   :db-before    db-before
+   :db-after     db-after
+   :trace-events
+   [(ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+         :time 100 :dispatch-id 42 :tags {:rf.event/v [:counter/inc]}})
+    (ev {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+         :time 102 :dispatch-id 42})]})
+
+(deftest db-changed-diff-triples-routes-through-diff-paths
+  (testing "the helper returns the canonical diff-paths triples for the
+            epoch's :db-before / :db-after"
+    (let [triples (h/db-changed-diff-triples
+                    {:db-before {:counter 1}
+                     :db-after  {:counter 2}})]
+      (is (= [{:op :modified :path [:counter] :before 1 :after 2}]
+             triples)))))
+
+(deftest db-changed-diff-triples-empty-when-no-changes
+  (testing "db-before == db-after → empty diff (the no-changes case
+            per spec/023 §APP-DB CHANGES)"
+    (let [db      {:counter 1 :user {:name "Ada"}}
+          triples (h/db-changed-diff-triples
+                    {:db-before db :db-after db})]
+      (is (= [] triples)))))
+
+(deftest db-changed-diff-triples-nested-and-top-level-paths
+  (testing "the diff covers both top-level and nested-key changes"
+    (let [before  {:counter 1 :user {:name "Ada" :age 30}}
+          after   {:counter 2 :user {:name "Ada" :age 31}
+                   :last-seen :now}
+          triples (h/db-changed-diff-triples
+                    {:db-before before :db-after after})
+          by-path (into {} (map (juxt :path identity)) triples)]
+      (is (contains? by-path [:counter])
+          "top-level :counter shows")
+      (is (= :modified (:op (get by-path [:counter]))))
+      (is (contains? by-path [:user :age])
+          "nested [:user :age] shows")
+      (is (= :modified (:op (get by-path [:user :age]))))
+      (is (= 30 (:before (get by-path [:user :age]))))
+      (is (= 31 (:after  (get by-path [:user :age]))))
+      (is (contains? by-path [:last-seen]))
+      (is (= :added (:op (get by-path [:last-seen])))))))
+
+(deftest project-feed-attaches-db-diff-to-db-changed-rows
+  (testing "the db-changed row carries the derived diff under :db-diff;
+            other rows do NOT carry a :db-diff slot"
+    (let [feed   (h/project-feed-from-epoch
+                   (diff-epoch {:counter 1} {:counter 2 :flag true})
+                   :focused)
+          by-id  (into {} (map (juxt :id identity)) (:rows feed))
+          db-row (get by-id 2)
+          ev-row (get by-id 1)]
+      (is (contains? db-row :db-diff)
+          "the :rf.event/db-changed row carries :db-diff")
+      (let [paths (set (map :path (:db-diff db-row)))]
+        (is (= #{[:counter] [:flag]} paths)
+            "the diff covers both modified + added paths"))
+      (is (not (contains? ev-row :db-diff))
+          "the non-db-changed row carries NO :db-diff slot"))))
+
+(deftest project-feed-empty-diff-attached-as-empty-vec
+  (testing "when db-before == db-after the db-changed row still carries
+            :db-diff, but the vector is empty — the view renders no
+            per-path sub-list (spec/023 §APP-DB CHANGES — empty-diff)"
+    (let [feed  (h/project-feed-from-epoch
+                  (diff-epoch {:counter 1} {:counter 1})
+                  :focused)
+          by-id (into {} (map (juxt :id identity)) (:rows feed))]
+      (is (= [] (:db-diff (get by-id 2)))))))
+
+(deftest project-feed-no-db-changed-row-no-attachment
+  (testing "an epoch with NO :rf.event/db-changed row in :trace-events
+            (e.g. a no-op event) attaches no :db-diff to any row"
+    (let [epoch  {:epoch-id     91
+                  :db-before    {:counter 1}
+                  :db-after     {:counter 1}
+                  :trace-events
+                  [(ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                        :time 100 :dispatch-id 42})]}
+          feed   (h/project-feed-from-epoch epoch :focused)]
+      (doseq [row (:rows feed)]
+        (is (not (contains? row :db-diff))
+            (str "row " (:id row) " must not carry :db-diff"))))))
+
+(deftest project-feed-flow-having-and-flow-less-epoch-shapes
+  (testing "the diff projection works the same for a flow-less event
+            (handler writes :db only) and a flow-having event (flow
+            writes one path after the handler) — the diff is derived
+            from db-before/db-after which are net-of-flows on both"
+    (testing "flow-less event — handler writes [:counter] only"
+      (let [feed (h/project-feed-from-epoch
+                   (diff-epoch {:counter 1} {:counter 2})
+                   :focused)
+            db-row (some #(when (= 2 (:id %)) %) (:rows feed))]
+        (is (= [{:op :modified :path [:counter] :before 1 :after 2}]
+               (:db-diff db-row)))))
+    (testing "flow-having event — handler writes [:counter], flow
+              writes [:totals :sum]; net diff covers both"
+      (let [feed (h/project-feed-from-epoch
+                   (diff-epoch {:counter 1 :totals {:sum 1}}
+                               {:counter 2 :totals {:sum 2}})
+                   :focused)
+            db-row (some #(when (= 2 (:id %)) %) (:rows feed))
+            by-path (into {} (map (juxt :path identity)) (:db-diff db-row))]
+        (is (contains? by-path [:counter]))
+        (is (contains? by-path [:totals :sum]))))))

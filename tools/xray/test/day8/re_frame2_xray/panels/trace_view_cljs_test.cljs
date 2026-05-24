@@ -115,6 +115,15 @@
     :committed-at  (* 1000 epoch-id)
     :trace-events  (vec trace-events)}))
 
+(defn- mk-epoch-with-db
+  "Like `mk-epoch` but pins `:db-before` / `:db-after` so the trace
+  panel's per-path db-changed diff (rf2-b3zw2) has real snapshots to
+  derive from."
+  [epoch-id dispatch-id db-before db-after trace-events]
+  (-> (mk-epoch epoch-id dispatch-id trace-events)
+      (assoc :db-before db-before
+             :db-after  db-after)))
+
 (defn- seed-history!
   "Dispatch `:rf.xray/sync-epoch-history` to seed the per-frame ring
   buffer. Must be called inside `(rf/with-frame :rf/xray ...)`."
@@ -322,6 +331,135 @@
         (let [t (last (find-by-testid tree "rf-xray-trace-row-2-time"))]
           (is (and (string? t) (re-find #"^!" t))
               "the error row's Δt leads with ! for emphasis"))))))
+
+;; ---- (2b) per-path db-changed diff (rf2-b3zw2 / rf2-8q8i4 = (b)) -------
+;;
+;; The `:rf.event/db-changed` trace event carries only `:event` + `:frame`
+;; — no per-path diff. The Trace panel derives per-path before→after
+;; rows at render time from the focused epoch record's `:db-before` /
+;; `:db-after` (Mike-decided rf2-8q8i4 = (b), 2026-05-25 — PANEL-SIDE
+;; derive). The view renders one sub-row per changed path beneath the
+;; DB row:
+;;
+;;     + [:path] new           (added)
+;;     ~ [:path] old → new     (modified)
+;;     - [:path]               (removed — path alone)
+;;
+;; spec/023 §APP-DB CHANGES — empty diff (db-before == db-after) renders
+;; no sub-list.
+
+(defn- db-diff-row-by-suffix
+  "Walk the rendered tree for a per-path diff row under the
+  db-changed row with id `parent-row-id`; suffix is the
+  `path-suffix`-shaped string the renderer builds (e.g. `:counter` /
+  `:user_:age`)."
+  [tree parent-row-id suffix]
+  (find-by-testid tree (str "rf-xray-trace-row-" parent-row-id
+                            "-db-diff-row-" suffix)))
+
+(deftest db-changed-row-renders-per-path-diff-rows-flow-less
+  (testing "a flow-less event with a non-trivial db-changed renders one
+            per-path row beneath the DB row — modified path only"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch-with-db 1 1 {:counter 1} {:counter 2}
+            [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                        :time 100 :dispatch-id 1
+                        :tags {:rf.event/v [:counter/inc]}})
+             (mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+                        :time 102 :dispatch-id 1})])])
+      (focus! 1)
+      (let [tree (trace/Panel)]
+        (is (some? (find-by-testid tree "rf-xray-trace-row-2-db-diff"))
+            "the db-diff section renders beneath the db-changed row")
+        (let [row (db-diff-row-by-suffix tree 2 ":counter")]
+          (is (some? row)
+              "the [:counter] modified row renders")
+          (is (= "modified" (:data-op (second row))))
+          (is (= "~" (last (find-by-testid
+                             tree "rf-xray-trace-row-2-db-diff-row-:counter-glyph")))
+              "modified-row glyph reads ~"))))))
+
+(deftest db-changed-row-renders-added-and-removed-rows
+  (testing "added (`+`) and removed (`-`) per-path rows render with
+            their op tones"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch-with-db 1 1 {:stale :x} {:flag true}
+            [(mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+                        :time 102 :dispatch-id 1})])])
+      (focus! 1)
+      (let [tree    (trace/Panel)
+            added   (db-diff-row-by-suffix tree 2 ":flag")
+            removed (db-diff-row-by-suffix tree 2 ":stale")]
+        (is (some? added) "the [:flag] added row renders")
+        (is (= "added" (:data-op (second added))))
+        (is (= "+" (last (find-by-testid
+                           tree "rf-xray-trace-row-2-db-diff-row-:flag-glyph"))))
+        (is (some? removed) "the [:stale] removed row renders")
+        (is (= "removed" (:data-op (second removed))))
+        (is (= "-" (last (find-by-testid
+                           tree "rf-xray-trace-row-2-db-diff-row-:stale-glyph"))))))))
+
+(deftest db-changed-row-renders-nested-and-top-level-paths
+  (testing "top-level + nested-key diffs both surface as per-path rows"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch-with-db 1 1
+            {:counter 1 :user {:name "Ada" :age 30}}
+            {:counter 2 :user {:name "Ada" :age 31}}
+            [(mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+                        :time 102 :dispatch-id 1})])])
+      (focus! 1)
+      (let [tree (trace/Panel)]
+        (is (some? (db-diff-row-by-suffix tree 2 ":counter"))
+            "top-level [:counter] row renders")
+        (is (some? (db-diff-row-by-suffix tree 2 ":user_:age"))
+            "nested [:user :age] row renders")
+        ;; :user :name unchanged → no row
+        (is (nil? (db-diff-row-by-suffix tree 2 ":user_:name"))
+            "unchanged [:user :name] does NOT render")))))
+
+(deftest db-changed-row-empty-diff-renders-no-sub-list
+  (testing "db-before == db-after → empty diff → no sub-list rendered
+            (spec/023 §APP-DB CHANGES empty-diff case)"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch-with-db 1 1 {:counter 1} {:counter 1}
+            [(mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+                        :time 102 :dispatch-id 1})])])
+      (focus! 1)
+      (let [tree (trace/Panel)]
+        (is (some? (find-by-testid tree "rf-xray-trace-row-2"))
+            "the db-changed row itself still renders")
+        (is (nil? (find-by-testid tree "rf-xray-trace-row-2-db-diff"))
+            "no diff sub-list when db-before == db-after")))))
+
+(deftest non-db-changed-row-renders-no-diff-section
+  (testing "an event-row that is not :rf.event/db-changed never renders
+            a per-path diff section, regardless of db-before/db-after"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch-with-db 1 1 {:counter 1} {:counter 2}
+            [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                        :time 100 :dispatch-id 1})
+             (mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+                        :time 102 :dispatch-id 1})
+             (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled
+                        :time 105 :dispatch-id 1})])])
+      (focus! 1)
+      (let [tree (trace/Panel)]
+        (is (nil? (find-by-testid tree "rf-xray-trace-row-1-db-diff"))
+            "the dispatch row carries no diff section")
+        (is (nil? (find-by-testid tree "rf-xray-trace-row-3-db-diff"))
+            "the fx row carries no diff section")
+        (is (some? (find-by-testid tree "rf-xray-trace-row-2-db-diff"))
+            "only the db-changed row carries the diff section")))))
 
 ;; ---- (3) empty states ---------------------------------------------------
 
