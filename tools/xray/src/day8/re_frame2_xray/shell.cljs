@@ -374,7 +374,8 @@
 ;; Layout (left → right), matching the Figma EventList columns plus Xray's
 ;; leading focus gutter (a Xray affordance the mock didn't carry):
 ;;
-;;   [gutter 14px] gap [source 52px] gap [event id flex-1] gap [time →right]
+;;   [gutter 14px] gap [event id flex-1] gap [source 52px] gap [time →right]
+;;   (rf2-xawwb — event-id leads, source follows, per the Figma-Make surface)
 ;;
 ;; Both surfaces use the SAME flex container gap + horizontal padding, and
 ;; a matching `1px solid transparent` border so the row's focused/ungrouped
@@ -1701,6 +1702,29 @@
               gutter-click (assoc :on-click gutter-click))
       (or focus-marker
           [:span {:style {:color glyph-col}} glyph])]
+     ;; rf2-xawwb — column order is `event id` FIRST, then `source`
+     ;; (Figma-Make surface). The bare event-id keyword leads the row as
+     ;; the primary read; the source tag follows as secondary context.
+     ;; Round-3 rf2-cmtkw — minimal default row renders ONLY the bare
+     ;; event-id keyword (e.g. `:cart/add-item`). The full event vector
+     ;; with args moves to the row's hover tooltip + the L4 Handler tab
+     ;; detail. The event-id column is LEFT-aligned (Figma `text-left`) so
+     ;; the keyword sits flush under the header's `event id` label.
+     [:span {:data-testid "rf-xray-row-event-id"
+             :style {:flex "1 1 auto" :overflow "hidden"
+                     :text-overflow "ellipsis"
+                     :text-align "left"
+                     :min-width "0"}}
+      (if ungrouped?
+        ;; rf2-r9lyy — the :ungrouped pseudo-cascade has no event
+        ;; vector by construction. Render a clear muted label instead
+        ;; of the defence-in-depth `<no event>` fallback so the user
+        ;; understands they're looking at the bucket of events outside
+        ;; any dispatch.
+        [:span {:style {:color      (:text-tertiary tokens)
+                        :font-style "italic"}}
+         ":ungrouped (pseudo-cascade)"]
+        (render-event-id-only event-vec))]
      ;; rf2-ad7zx.12 + rf2-lnod7 — the `source` COLUMN, reconciled to the
      ;; Figma EventList. A fixed-width cell aligned under the header's
      ;; `source` label, carrying the dispatch-origin as a short text tag
@@ -1710,9 +1734,9 @@
      ;; (rf2-4297k) flagged the pre-rf2-lnod7 blank ui-origin column.
      ;; `:ungrouped` rows still render an empty spacer cell (no dispatch
      ;; envelope, no origin to surface) while occupying the column width
-     ;; so the `event id` column stays left-aligned across rows. The
-     ;; `:title` carries the closed-enum value as a hover affordance
-     ;; (rf2-gf58j origin glyphs preserved as the leading mark).
+     ;; so the columns stay aligned across rows. The `:title` carries the
+     ;; closed-enum value as a hover affordance (rf2-gf58j origin glyphs
+     ;; preserved as the leading mark).
      [:span {:data-testid (when (and source-tag (not ungrouped?))
                             (str "rf-xray-row-origin-" source-tag))
              :data-rf-xray-origin (when (and source-tag (not ungrouped?))
@@ -1733,30 +1757,6 @@
         (list
          (when origin-prefix ^{:key "g"} [:span {:aria-hidden "true"} origin-prefix])
          ^{:key "t"} [:span source-tag]))]
-     ;; Round-3 rf2-cmtkw — minimal default row renders ONLY the
-     ;; bare event-id keyword (e.g. `:cart/add-item`). The full event
-     ;; vector with args moves to the row's hover tooltip + the L4
-     ;; Event tab detail (the panel that owns the room for it).
-     ;; Earlier rf2-htik0 Bug 3 inline-rendered the truncated full
-     ;; vector here — superseded by the Round-3 minimal-row contract.
-     ;; rf2-cplj8 — the event-id column is explicitly LEFT-aligned (Figma
-     ;; EventList `text-left`) so the keyword sits flush at the column's
-     ;; left edge under the header's `event id` label.
-     [:span {:data-testid "rf-xray-row-event-id"
-             :style {:flex "1 1 auto" :overflow "hidden"
-                     :text-overflow "ellipsis"
-                     :text-align "left"
-                     :min-width "0"}}
-      (if ungrouped?
-        ;; rf2-r9lyy — the :ungrouped pseudo-cascade has no event
-        ;; vector by construction. Render a clear muted label instead
-        ;; of the defence-in-depth `<no event>` fallback so the user
-        ;; understands they're looking at the bucket of events outside
-        ;; any dispatch.
-        [:span {:style {:color      (:text-tertiary tokens)
-                        :font-style "italic"}}
-         ":ungrouped (pseudo-cascade)"]
-        (render-event-id-only event-vec))]
      (when (seq badges)
        ;; rf2-gf58j — activity-badge cluster sourced from
        ;; `panels.l2-timeline/activity-badges`. Render order matches
@@ -1927,26 +1927,21 @@
         (when any-active?
           [clear-filters-button])])]))
 
-;; rf2-ad7zx.12 + rf2-lnod7 — the L2 list's column-header row, reconciled
-;; to the Figma EventList (the `event-list` component in
-;; `design-reference/xray_devtools_reference.cljs`).
-;; The Figma mock renders a sticky header naming the FOUR columns the
-;; rows align to: `source` · `event id` · `timestamp` · `duration`. The
-;; header was MISSING pre-Figma (the list was a bare row stack), which
-;; is the gap Mike flagged ("does not match the Figma mock"); the gap
-;; audit (rf2-4297k) then found the `duration` column clipped off the
-;; right edge — only three columns rendered. The column widths mirror
-;; the row layout below: a fixed leading FOCUS gutter (14px, unlabeled —
-;; it is a Xray affordance the mock didn't have), a fixed `source` tag
-;; column, the flexible `event id` column, then the right-aligned
-;; `timestamp` chip and `duration` cells.
+;; rf2-ad7zx.12 + rf2-lnod7 + rf2-xawwb — the L2 list's column-header row,
+;; reconciled to the Figma-Make EventList. The header names the FOUR
+;; columns the rows align to, in Figma-Make order: `event id` · `source`
+;; · `timestamp` · `duration` (event-id leads; source follows). The
+;; column widths mirror the row layout below: a fixed leading FOCUS
+;; gutter (14px, unlabeled — a Xray affordance the mock didn't have),
+;; the flexible `event id` column, a fixed `source` tag column, then the
+;; right-aligned `timestamp` chip and `duration` cells.
 
 (defn- l2-column-header
   "Sticky column-header row for the L2 event list (rf2-ad7zx.12 + rf2-
-  lnod7, Figma EventList). Names the FOUR columns the rows align to —
-  `source` · `event id` · `timestamp` · `duration`. Caption-weight,
-  muted, on the chrome surface so it reads as chrome rather than data.
-  Pure hiccup."
+  lnod7 + rf2-xawwb, Figma-Make EventList). Names the FOUR columns the
+  rows align to, in Figma-Make order — `event id` · `source` ·
+  `timestamp` · `duration`. Caption-weight, muted, on the chrome surface
+  so it reads as chrome rather than data. Pure hiccup."
   []
   (let [cell {:color       (:text-tertiary tokens)
               :font-family sans-stack
@@ -1979,17 +1974,17 @@
      ;; (the gutter itself is a Xray affordance, unlabeled in the header).
      [:span {:aria-hidden "true"
              :style {:width l2-gutter-col-width :flex-shrink 0}}]
-     [:span {:data-testid "rf-xray-event-list-col-source"
-             :style (merge cell {:width l2-source-col-width :flex-shrink 0})}
-      "source"]
-     ;; rf2-cplj8 — the `event id` column is explicitly LEFT-aligned (Figma
-     ;; EventList renders every body cell `text-left`). The label sits flush
-     ;; at the column's left edge directly above the row's left-aligned
-     ;; event-id keyword, rather than drifting toward centre.
+     ;; rf2-xawwb — column order is `event id` FIRST, then `source`
+     ;; (Figma-Make surface). The event-id is the primary read; source is
+     ;; secondary context, so the id leads. The `event id` column is
+     ;; LEFT-aligned (the row's keyword sits flush under this label).
      [:span {:data-testid "rf-xray-event-list-col-event-id"
              :style (merge cell {:flex "1 1 auto" :min-width "0"
                                  :text-align "left"})}
       "event id"]
+     [:span {:data-testid "rf-xray-event-list-col-source"
+             :style (merge cell {:width l2-source-col-width :flex-shrink 0})}
+      "source"]
      [:span {:data-testid "rf-xray-event-list-col-timestamp"
              :style (merge cell {:flex-shrink 0 :text-align "right"
                                  :min-width l2-time-col-min-width})}
