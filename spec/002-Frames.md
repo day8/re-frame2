@@ -1016,6 +1016,12 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    (An `:fx` effect CAN still be present — a handler may produce
       ;;    `:fx` before a later interceptor `:after` throws — so unlike the
       ;;    `:db` install this guard cannot rely on effect-absence alone.)
+      ;;    PORTING NOTE: these two error markers live at the TOP LEVEL of the
+      ;;    interceptor-chain CONTEXT, NOT inside the `:effects` map. This
+      ;;    pseudocode threads only `effects` for brevity; in the reference
+      ;;    impl `run-chain` returns the full `final-ctx` and the router reads
+      ;;    `(:rf/interceptor-error final-ctx)` / `(:rf/flow-error final-ctx)`.
+      ;;    A literal port MUST read these off the chain context, not effects.
       (when-not (or (:rf/interceptor-error effects) (:rf/flow-error effects))
        (let [m (handler-context frame envelope)]      ;; same `m` the event handler saw
         (doseq [[fx-id args] (:fx effects)]

@@ -254,17 +254,22 @@ A single event's cascade emits a **canonical, ordered trace sequence**. The orde
                              ;; Fires after the rest of the :after chain (so it
                              ;; sees the fully-reshaped :db effect) and BEFORE
                              ;; :rf.event/db-changed (install).
-:rf.event/run-end            ;; the interceptor chain (handler + all :after) completed
-:rf.event/db-changed         ;; the FLOW-AUGMENTED :db installs into app-db
+:rf.event/db-changed         ;; the FLOW-AUGMENTED :db installs into app-db (the
+                             ;; single deferred commit — the atomic boundary)
 :rf.sub/run | :rf.sub/skip   ;; sub-cache recompute on the new (flow-augmented) db
-:rf.fx/do-fx                 ;; the :fx walk begins
 :rf.fx/handled               ;; per :fx entry (reads the flow-augmented app-db)
+:rf.fx/do-fx                 ;; terminating :fx-walk marker — fires AFTER the per-fx
+                             ;; :rf.fx/handled entries (carries the :fx-vector +
+                             ;; :db-present? shape for the Event lens)
 :rf.view/render | :rf.view/rendered   ;; reactive re-render on the new db
+:rf.event/run-end            ;; cascade-tail: fires LAST, after the deferred :db
+                             ;; install and the :fx walk (router emits it in
+                             ;; emit-cascade-trailers!, after commit-and-flow!)
 ```
 
 **The flow position is the load-bearing change (rf2-u0zz5).** `:rf.flow/computed` is emitted **after the handler's `:after` chain** (the flow transform is the outermost `:after`, so it fires after the rest of the chain reshapes the `:db` effect) and **before `:rf.event/db-changed`**. This is the inversion from the prior design, where `:rf.event/db-changed` fired *before* flows (flows then mutated the already-installed db). Now `:rf.event/db-changed` reflects the **flow-augmented db** — the value installed already carries every flow's output. A consumer placing flows on the cascade timeline reads `:rf.flow/computed` between `:rf.event/run-start` and `:rf.event/db-changed`; the flow's write is visible in the `:rf.event/db-changed` snapshot, not applied after it.
 
-`:rf.event/run-end` marks completion of the interceptor chain (handler + the full `:after` cascade, including the outermost flow transform); it therefore falls **after** the `:rf.flow/*` traces and **before** `:rf.event/db-changed`. The relative order that consumers depend on is **`:rf.flow/computed` → `:rf.event/db-changed` → `:rf.fx/handled`**.
+`:rf.event/run-end` is a **cascade-tail** trace: the router emits it in `emit-cascade-trailers!` *after* `commit-and-flow!` has run, so it falls **after** the deferred `:db` install (`:rf.event/db-changed`) and **after** the `:fx` walk — it is the **last** trace of a clean cascade. (It is not emitted at the close of the interceptor chain; the chain completes inside `run-chain`, the install and `:fx` walk follow in `commit-and-flow!`, and only then does the trailer fire.) The relative order that consumers depend on is **`:rf.flow/computed` → `:rf.event/db-changed` → `:rf.fx/handled`**.
 
 **Throw variant — the event aborts at the commit boundary.** A flow throw is a **pre-install throw**, so the event aborts before the `:db` install (the atomicity contract — per [013 §Failure semantics](013-Flows.md#failure-semantics) and [002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode)). The canonical sequence truncates: the `:rf.flow/*` phase ends at `:rf.flow/failed`, the router emits the cascade-level `:rf.error/flow-eval-exception`, and the cascade STOPS — **NO `:rf.event/db-changed`**, no `:rf.sub/run`, no `:rf.fx/*`:
 
@@ -274,12 +279,15 @@ A single event's cascade emits a **canonical, ordered trace sequence**. The orde
 :rf.flow/computed                       ;; per prior flow that ran (its WRITE is
                                         ;; discarded — the trace records the run only)
 :rf.flow/failed                         ;; the throwing flow
-:rf.event/run-end                       ;; chain completed (with the recorded throw)
 :rf.error/flow-eval-exception           ;; cascade-level error (always-on substrate)
-;; — sequence ends — NO :rf.event/db-changed, NO :rf.fx/handled —
+:rf.event/run-end                       ;; cascade-tail — fires LAST (the trailer is
+                                        ;; emitted unconditionally after the aborted
+                                        ;; commit, with :outcome :flow-error)
+;; — NO :rf.event/db-changed, NO :rf.sub/run, NO :rf.fx/* (the event
+;;   aborted before the deferred :db install) —
 ```
 
-`:rf.event/db-changed` does NOT fire because the pending `:db` effect was discarded (no install, app-db unchanged, no partial commit); `:rf.fx/handled` does NOT fire because `:fx` is the post-install stage and the event aborted before it. This is the **same** truncated signature every other pre-install throw produces — a handler throw or an interceptor-`:after` throw also ends at `:rf.event/run-end` → `:rf.error/handler-exception` with no `:rf.event/db-changed` and no `:rf.fx/handled`.
+`:rf.event/db-changed` does NOT fire because the pending `:db` effect was discarded (no install, app-db unchanged, no partial commit); `:rf.fx/handled` does NOT fire because `:fx` is the post-install stage and the event aborted before it. This is the **same** truncated signature every other pre-install throw produces — a handler throw or an interceptor-`:after` throw emits `:rf.error/handler-exception` and then the `:rf.event/run-end` cascade-tail trailer, with no `:rf.event/db-changed` and no `:rf.fx/handled`. (As on the clean path, `:rf.event/run-end` is the **last** trace — the error event precedes the trailer.)
 
 ### Flow trace events
 

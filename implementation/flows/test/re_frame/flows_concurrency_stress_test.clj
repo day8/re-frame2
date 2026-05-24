@@ -210,7 +210,7 @@
                           ;; Per-thread cycle: register flow → drive
                           ;; many dirty evaluations → clear flow.
                           ;; `dispatch-sync` settles the drain
-                          ;; (including the innermost-`:after` flow
+                          ;; (including the outermost-`:after` flow
                           ;; transform) before returning so the `:output` fn runs to
                           ;; completion before this thread observes
                           ;; the next iter.

@@ -61,6 +61,16 @@
   [op]
   (filterv #(= op (:operation %)) @*captured*))
 
+(defn- record-all-traces
+  "Capture every emitted trace event (not just `:op-type :flow`) for the
+  ordered-stream tests. The `*captured*` fixture recorder is flow-only."
+  [body-fn]
+  (let [seen (atom [])]
+    (trace/register-listener! ::all-trace-recorder (fn [ev] (swap! seen conj ev)))
+    (try (body-fn)
+         (finally (trace/unregister-listener! ::all-trace-recorder)))
+    @seen))
+
 ;; ---------------------------------------------------------------------------
 ;; 1. :rf.flow/registered fires after reg-flow successfully registers
 ;; ---------------------------------------------------------------------------
@@ -459,7 +469,7 @@
               ":where :flow-eval distinguishes from :handler-exception")
           (is (nil? (:handler-id tags))
               ":handler-id nil — no handler ran; the throw came from
-               the post-commit flow walk")
+               the outermost-`:after` flow walk (pre-install)")
           (is (= :init       (:event-id tags)))
           (is (= [:init]     (:event tags)))
           (is (= :rf/default (:frame tags)))
@@ -881,6 +891,100 @@
       (is (some #(= :rf.error/flow-eval-exception (:error %)) @seen)
           "at least one substrate record carries :error :rf.error/flow-eval-exception"))))
 
+;; ---------------------------------------------------------------------------
+;; 7e. An fx throw does NOT wind back app-db — the POST-commit boundary
+;;     (atomicity contract, Mike 2026-05-24; rf2-q1sbo).
+;;
+;; `:fx` is the ONLY post-install stage. By the time it walks, the
+;; deferred (flow-augmented) `:db` has ALREADY committed: an fx throw
+;; surfaces an error but MUST NOT roll back app-db — the fx side effects
+;; (HTTP, navigation, dispatch) may already have fired and are
+;; irreversible, so unwinding the db would desync state from the world.
+;; This is the mirror of `fx-does-not-run-after-flow-throws` (a PRE-commit
+;; throw aborts wholesale): a POST-commit throw leaves everything
+;; committed. Previously this was covered only by a machine-proxy test;
+;; this pins the flow-specific case directly.
+;; ---------------------------------------------------------------------------
+
+(deftest fx-throw-does-not-wind-back-handler-db-or-flow-output
+  (testing "when a sibling :fx throws AFTER commit, the handler's :db AND the
+            flow's output STAY committed (app-db reflects them) — :fx is the
+            post-commit stage and does not unwind the install"
+    (let [other-fired? (atom false)]
+      (rf/reg-fx :test/boom-fx (fn [& _] (throw (ex-info "fx boom" {:why :test}))))
+      (rf/reg-fx :test/ok-fx   (fn [& _] (reset! other-fired? true) nil))
+      ;; Handler writes :n; flow :double reads :n and writes :doubled. The
+      ;; :fx vector has a throwing fx alongside an ok fx — the throw must
+      ;; NOT discard the already-committed handler :db or flow output.
+      (rf/reg-event-fx :commit-then-fx-throw
+                       (fn [_ _]
+                         {:db {:n 5}
+                          :fx [[:test/ok-fx true]
+                               [:test/boom-fx true]]}))
+      (rf/reg-flow {:id     :double
+                    :inputs [[:n]]
+                    :output (fn [n] (* 2 n))
+                    :path   [:doubled]})
+      ;; An fx throw surfaces an error event but does not propagate out of
+      ;; the dispatch (each fx is isolated per Spec 002 §Cascade
+      ;; propagation); the drain continues. dispatch-sync returns normally.
+      (rf/dispatch-sync [:commit-then-fx-throw])
+      (let [db (rf/get-frame-db :rf/default)]
+        (is (= 5 (:n db))
+            ":n stayed committed — the handler's :db was installed before the
+             post-commit :fx walk; the fx throw does NOT wind it back")
+        (is (= 10 (:doubled db))
+            ":doubled stayed committed — the flow output rode the same
+             deferred install and survives the post-commit fx throw")))))
+
+;; ---------------------------------------------------------------------------
+;; 7f. No spurious `:rf.event/db-changed` on a no-write event — the
+;;     deferred-install contract (rf2-q1sbo).
+;;
+;; A `reg-event-fx` handler that returns NO `:db` (only `:fx`), whose
+;; flows' inputs are all unchanged (so every flow SKIPS), produces no
+;; `:db` effect at all → the deferred install is a no-op → ZERO
+;; `:rf.event/db-changed` must be emitted. A spurious db-changed on a
+;; no-op drain would mislead off-box monitors and trigger needless sub
+;; recompute.
+;; ---------------------------------------------------------------------------
+
+(deftest no-db-changed-on-no-write-event-with-stable-flows
+  (testing "a reg-event-fx returning only :fx [] (no :db), with flows whose
+            inputs are unchanged, emits ZERO :rf.event/db-changed"
+    (rf/reg-fx :test/noop (fn [& _] nil))
+    ;; Seed :n so the flow computes once on the seed drain.
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    ;; This handler writes NO :db — only an :fx that is a noop.
+    (rf/reg-event-fx :no-write
+                     (fn [_ _] {:fx [[:test/noop true]]}))
+    (rf/reg-flow {:id     :double
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 n))
+                  :path   [:doubled]})
+    ;; First drain seeds :n and computes the flow (outside the record
+    ;; window — we only care about the no-write drain's trace stream).
+    (rf/dispatch-sync [:seed])
+    (let [;; Dispatch the no-write event in its own record window so we
+          ;; isolate its trace stream from the seed drain.
+          evs (record-all-traces
+                (fn [] (rf/dispatch-sync [:no-write])))
+          ops (mapv :operation evs)]
+      ;; The handler returned no :db, and :n is unchanged → the flow skips,
+      ;; so the pending :db effect is empty → no install → no db-changed.
+      (is (not-any? #(= :rf.event/db-changed %) ops)
+          "ZERO :rf.event/db-changed — the no-write handler produced no :db
+           effect and the unchanged-input flow skipped (no install)")
+      ;; Sanity: the flow DID skip (proves the inputs were stable, so the
+      ;; absence of db-changed is the real no-op path, not a flow that
+      ;; never registered).
+      (is (some #(= :rf.flow/skip %) ops)
+          ":rf.flow/skip fired — the flow's inputs were value-equal, so it
+           contributed no write to the (empty) pending :db effect")
+      ;; And the cascade still completed cleanly (run-end fired).
+      (is (some #(= :rf.event/run-end %) ops)
+          ":rf.event/run-end still fires — the cascade completed normally"))))
+
 (deftest computed-trace-elision-no-op-when-no-declaration
   (testing "absent any declaration, :input-values and :result pass through unchanged"
     ;; Belt-and-braces against an over-eager rewrite — the walker must be
@@ -948,16 +1052,6 @@
 ;; strip the privacy marker — which would leak auth-handler-triggered flow
 ;; recompute traces past the default-drop forwarders (Sentry / Causa-MCP).
 ;; ---------------------------------------------------------------------------
-
-(defn- record-all-traces
-  "Capture every emitted trace event (not just `:op-type :flow`) for the
-  ordered-stream tests. The `*captured*` fixture recorder is flow-only."
-  [body-fn]
-  (let [seen (atom [])]
-    (trace/register-listener! ::all-trace-recorder (fn [ev] (swap! seen conj ev)))
-    (try (body-fn)
-         (finally (trace/unregister-listener! ::all-trace-recorder)))
-    @seen))
 
 (deftest flow-computed-trace-inherits-sensitive-from-schema-scope
   (testing "Spec 013:242 — `:rf.flow/computed` is stamped `:sensitive? true`
@@ -1157,3 +1251,80 @@
       (let [after-error (subvec ops (inc p-error))]
         (is (not-any? #(= :rf.fx/handled %) after-error)
             "no :rf.fx/handled trace fires after the flow-eval-exception — cascade halts")))))
+
+;; ---------------------------------------------------------------------------
+;; 8c. Strict trace-stream ordering on the CLEAN (success) path — pins the
+;;     Spec 009 §Canonical per-event trace sequence diagram against the impl
+;;     (rf2-q1sbo follow-up to rf2-u0zz5, Mike 2026-05-24).
+;;
+;; The load-bearing fact the 009 diagram encodes: `:rf.event/run-end` is a
+;; CASCADE-TAIL trace — the router emits it in `emit-cascade-trailers!`
+;; AFTER `commit-and-flow!` has installed the deferred (flow-augmented)
+;; `:db` and walked `:fx`. So a clean cascade orders:
+;;
+;;   :rf.flow/computed → :rf.event/db-changed → :rf.fx/handled
+;;     → :rf.fx/do-fx (terminating fx-walk marker) → :rf.event/run-end (LAST)
+;;
+;; Pre-rf2-u0zz5 the diagram had `:rf.event/run-end` BEFORE
+;; `:rf.event/db-changed`; this test conformance-checks the corrected
+;; ordering so the diagram can't silently drift back.
+;; ---------------------------------------------------------------------------
+
+(deftest clean-path-trace-stream-run-end-fires-last
+  (testing "rf2-q1sbo — on a clean cascade, :rf.event/run-end fires LAST:
+            after the deferred :db install (:rf.event/db-changed) and the
+            :fx walk (:rf.fx/handled → terminating :rf.fx/do-fx marker)"
+    (let [evs (record-all-traces
+                (fn []
+                  ;; Handler writes :db AND a flow recomputes AND a real
+                  ;; (user-registered) fx fires — so the cascade exercises
+                  ;; install + flow + fx all on the success path.
+                  (rf/reg-fx :test/noop (fn [& _] nil))
+                  (rf/reg-event-fx :go
+                                   (fn [_ _]
+                                     {:db {:n 3}
+                                      :fx [[:test/noop true]]}))
+                  (rf/reg-flow {:id     :double
+                                :inputs [[:n]]
+                                :output (fn [n] (* 2 n))
+                                :path   [:doubled]})
+                  (rf/dispatch-sync [:go])))
+          evs-v       (vec evs)
+          ;; Restrict to the :go cascade — from its :run-start trace on.
+          go-start    (->> (map-indexed vector evs-v)
+                           (filter (fn [[_ ev]]
+                                     (and (= :rf.event/run-start (:operation ev))
+                                          (= [:go] (get-in ev [:tags :rf.event/v])))))
+                           (map first)
+                           last)
+          tail        (subvec evs-v go-start)
+          ops         (mapv :operation tail)
+          pos         (fn [op] (.indexOf ^java.util.List ops op))
+          p-computed  (pos :rf.flow/computed)
+          p-db        (pos :rf.event/db-changed)
+          p-handled   (pos :rf.fx/handled)
+          p-do-fx     (pos :rf.fx/do-fx)
+          p-run-end   (pos :rf.event/run-end)]
+      ;; Sanity: every phase fired exactly once in this cascade.
+      (is (= 1 (count (filterv #(= :rf.event/run-end %) ops)))
+          "exactly one :rf.event/run-end in the cascade")
+      (is (= 1 (count (filterv #(= :rf.event/db-changed %) ops)))
+          "exactly one :rf.event/db-changed in the cascade")
+      ;; The flow recomputed and the db installed — flow BEFORE install.
+      (is (and (<= 0 p-computed) (< p-computed p-db))
+          (str ":rf.flow/computed (" p-computed ") < :rf.event/db-changed (" p-db ")"))
+      ;; The user fx ran AFTER the install (post-commit stage).
+      (is (and (<= 0 p-handled) (< p-db p-handled))
+          (str ":rf.event/db-changed (" p-db ") < :rf.fx/handled (" p-handled ")"))
+      ;; :rf.fx/do-fx is the TERMINATING fx-walk marker — after the per-fx
+      ;; :rf.fx/handled (per re-frame.fx/do-fx, which emits it last).
+      (is (and (<= 0 p-do-fx) (< p-handled p-do-fx))
+          (str ":rf.fx/handled (" p-handled ") < :rf.fx/do-fx terminating marker ("
+               p-do-fx ")"))
+      ;; THE load-bearing assertion: run-end is the LAST trace of the
+      ;; cascade — after db-changed AND after the whole :fx walk.
+      (is (< p-db p-run-end)
+          (str ":rf.event/db-changed (" p-db ") < :rf.event/run-end (" p-run-end
+               ") — run-end fires AFTER the deferred install, not before"))
+      (is (= (dec (count ops)) p-run-end)
+          ":rf.event/run-end is the FINAL trace of the clean cascade"))))

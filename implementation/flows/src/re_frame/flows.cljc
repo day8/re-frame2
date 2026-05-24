@@ -4,8 +4,9 @@
 
   A flow says: 'when these app-db paths change, run this pure function
   and write the result to that app-db path.' Flows evaluate on every
-  event — immediately after the handler, as the runtime's innermost
-  `:after` interceptor — transforming the handler's pending `:db`
+  event — as the runtime's OUTERMOST `:after` interceptor, so they fire
+  LAST (after the handler and the rest of the `:after` chain, which
+  reshapes the `:db` effect) — transforming the handler's pending `:db`
   effect, in topological order over their static dependency graph
   (per Spec 013 §Drain integration; rf2-u0zz5).
 
@@ -18,7 +19,7 @@
   `re-frame.late-bind` so the core artefact's `re-frame.core` re-exports
   reach them. Apps that don't register any flows don't pull the per-
   frame flow registry, the topological-sort engine, the dirty-check
-  `last-inputs` map, or the innermost-`:after` `run-flows-on-db` walker.
+  `last-inputs` map, or the outermost-`:after` `run-flows-on-db` walker.
 
   Public façade over `re-frame.flows.topo` (pure Kahn's + cycle-path
   extraction) and `re-frame.flows.registry` (per-frame `flows` +
@@ -51,9 +52,10 @@
 
 ;; ---- evaluation ---------------------------------------------------------
 ;;
-;; Called from the router's innermost `:after` interceptor, immediately
-;; after the event handler — transforming the pending `:db` effect
-;; before install and before :fx (per Spec 013 §Drain integration).
+;; Called from the router's OUTERMOST `:after` interceptor — fires LAST
+;; (after the handler and the rest of the `:after` chain) — transforming
+;; the pending `:db` effect before install and before :fx (per Spec 013
+;; §Drain integration).
 
 (defn- read-inputs [db flow]
   (mapv (fn [path] (get-in db path)) (:inputs flow)))
@@ -303,15 +305,16 @@
   dirty-check each one, recompute and assoc-in the result into a
   transformed db. Returns the flow-augmented db value.
 
-  This is the **innermost-`:after` flow transform**. The router installs
-  it as the innermost `:after` interceptor (re-frame.router/flows-after-
-  interceptor), so it runs immediately after the event handler, against
-  the handler's PENDING `:db` effect (or the current app-db value when
-  the handler returned no `:db`), and BEFORE the `:db` install — NOT
+  This is the **outermost-`:after` flow transform**. The router installs
+  it as the OUTERMOST `:after` interceptor (re-frame.router/flows-after-
+  interceptor), so it fires LAST — after the event handler AND the rest
+  of the `:after` chain (which reshapes the `:db` effect, e.g. the `path`
+  std-interceptor splicing the handler's slice back into the full db) —
+  against the chain's PENDING `:db` effect (or the current app-db value
+  when the handler returned no `:db`), and BEFORE the `:db` install — NOT
   against the already-installed app-db. The caller writes the returned
-  value back into the chain context's `:effects :db` slot so the rest of
-  the `:after` chain and the eventual `:db` install observe the
-  flow-augmented db.
+  value back into the chain context's `:effects :db` slot so the eventual
+  `:db` install observes the flow-augmented db.
 
   Flows are frame-scoped — only flows registered against frame-id run
   here, leaving sibling frames' flows untouched.

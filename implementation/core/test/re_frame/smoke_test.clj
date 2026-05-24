@@ -412,7 +412,7 @@
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:w! 3])
     (rf/dispatch-sync [:h! 4])
-    ;; The flow transform runs as the innermost :after (before :db
+    ;; The flow transform runs as the outermost :after (before :db
     ;; install) and its output lands in the installed app-db per Spec 013.
     (is (= 12 (:area (rf/get-frame-db :rf/default))))))
 

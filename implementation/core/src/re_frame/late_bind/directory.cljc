@@ -113,7 +113,7 @@
    {:key         :flows/run-flows-on-db
     :producer-ns 're-frame.flows
     :design-bead "rf2-u0zz5"
-    :description "Run the frame's flows over a given db value, returning the flow-augmented db. Invoked by the router's innermost flows-after-interceptor to transform the handler's pending `:db` effect (before install + before the rest of the `:after` chain)."}
+    :description "Run the frame's flows over a given db value, returning the flow-augmented db. Invoked by the router's outermost flows-after-interceptor to transform the handler's pending `:db` effect (after the rest of the `:after` chain, before the `:db` install)."}
    {:key         :flows/reset-last-inputs!
     :producer-ns 're-frame.flows
     :description "Reset memoised last-input snapshots (test isolation)."}
