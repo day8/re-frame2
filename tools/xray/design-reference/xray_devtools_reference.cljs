@@ -133,9 +133,7 @@
 .syntax-string { color: #0a3069; }
 .dark .syntax-string { color: #a5d6ff; }
 .syntax-number { color: #0550ae; }
-.dark .syntax-number { color: #79c0ff; }
-.syntax-comment { color: #6e7781; font-style: italic; }
-.dark .syntax-comment { color: #8b949e; }")
+.dark .syntax-number { color: #79c0ff; }")
 
 ;; ============================================================================
 ;; SVG Icons (simplified - replace with your icon library)
