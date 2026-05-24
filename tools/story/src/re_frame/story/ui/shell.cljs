@@ -4,7 +4,7 @@
   Three-pane layout:
 
       ┌──────────┬──────────────────────────┬────────────┐
-      │ sidebar  │ canvas / workspace       │ Causa      │
+      │ sidebar  │ canvas / workspace       │ Xray      │
       │          │                          │ ─────────  │
       │ stories  │ (selected variant or     │ controls   │
       │ tags     │  workspace renders here) │ ─────────  │
@@ -13,9 +13,9 @@
       │          │                          │ status     │
       └──────────┴──────────────────────────┴────────────┘
 
-  Per rf2-sgdd3 the RHS hosts Causa as the primary inspector. The
+  Per rf2-sgdd3 the RHS hosts Xray as the primary inspector. The
   Story-shipped scrubber / trace / actions panels were retired —
-  Causa's L1 ribbon (◀ ▶ ⏭ + L2 event list) replaces the scrubber;
+  Xray's L1 ribbon (◀ ▶ ⏭ + L2 event list) replaces the scrubber;
   the Trace tab replaces the trace panel; the Event-tab cascade view
   + filtered Trace replace the actions panel. The 3 surviving Story
   panels are kept because they're Story-unique:
@@ -52,7 +52,7 @@
   (:require [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.story.causa-preset :as causa-preset]
+            [re-frame.story.xray-preset :as xray-preset]
             [re-frame.story.config :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames :as frames]
@@ -64,7 +64,7 @@
             [re-frame.trace :as rf-trace]
             [re-frame.story.ui.backgrounds-switcher :as backgrounds-switcher]
             [re-frame.story.ui.canvas :as canvas]
-            [re-frame.story.ui.causa-embed :as causa-embed]
+            [re-frame.story.ui.xray-embed :as xray-embed]
             [re-frame.story.ui.command-palette.view :as command-palette]
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.dispatch-console :as dispatch-console]
@@ -304,7 +304,7 @@
 (defn- ensure-listeners-for-variant!
   "Wire the trace-buffer listener for `variant-id` if not already wired.
   Per rf2-sgdd3 the scrubber listener was retired alongside the
-  scrubber panel (Causa's L1 ribbon + L2 event list replace it); the
+  scrubber panel (Xray's L1 ribbon + L2 event list replace it); the
   trace-buffer listener stays because the schema-validation panel
   consumes the per-variant buffer."
   [variant-id]
@@ -408,22 +408,22 @@
                      ;; would otherwise deref subscriptions against a
                      ;; non-existent frame.
                      (ensure-variant-frame! now)
-                     ;; Re-orient Causa's target-frame to the freshly-
+                     ;; Re-orient Xray's target-frame to the freshly-
                      ;; selected variant's frame. Each Story variant is
                      ;; reg-frame'd under its variant-id (see
                      ;; `re-frame.story.frames`), so the variant-id IS
-                     ;; the frame-id from Causa's perspective. Without
-                     ;; this dispatch Causa stays anchored on whatever
+                     ;; the frame-id from Xray's perspective. Without
+                     ;; this dispatch Xray stays anchored on whatever
                      ;; the first-mount seed picked (commonly the boot
                      ;; `:rf/default` or the previously-focused variant)
                      ;; and the App-DB / Event panels render against a
                      ;; frame the user is no longer observing —
                      ;; producing the empty-state-with-stale-frame view
                      ;; the user sees on every variant switch. The
-                     ;; `:rf.causa/set-target-frame` handler writes both
+                     ;; `:rf.xray/set-target-frame` handler writes both
                      ;; `:target-frame` AND re-seeds `:epoch-history`
                      ;; from `(rf/epoch-history variant-id)` in lockstep
-                     ;; (per Causa's `epoch.cljs` reducer), so the L2
+                     ;; (per Xray's `epoch.cljs` reducer), so the L2
                      ;; list, App-DB diff and downstream subs all flip
                      ;; in one frame.
                      ;;
@@ -433,29 +433,29 @@
                      ;; (it's an atom-watch callback on the shell
                      ;; ratom), so the in-drain guard does not apply.
                      ;; The rf2-q9kv5 sibling dispatches in
-                     ;; `causa-preset/on-variant-selected!` below still
-                     ;; ride the async queue — they're Causa's own
+                     ;; `xray-preset/on-variant-selected!` below still
+                     ;; ride the async queue — they're Xray's own
                      ;; preset-applies and don't gate the next-frame
                      ;; panel paint the way the target-frame slot does.
-                     (rf/with-frame :rf/causa
-                       (rf/dispatch-sync [:rf.causa/set-target-frame now]))
-                     ;; rf2-v1ach: Causa now mounts per-panel into the
-                     ;; RHS via `causa-embed/causa-embed-panel`. The
+                     (rf/with-frame :rf/xray
+                       (rf/dispatch-sync [:rf.xray/set-target-frame now]))
+                     ;; rf2-v1ach: Xray now mounts per-panel into the
+                     ;; RHS via `xray-embed/xray-embed-panel`. The
                      ;; embed owns its own React lifecycle — selecting
                      ;; a variant rebuilds the panel-host component
                      ;; (keyed on `variant-id::panel-id`) which drives
-                     ;; the Causa mount-fn on commit. We retain the
+                     ;; the Xray mount-fn on commit. We retain the
                      ;; per-variant project-root + keybinding bridges
-                     ;; so the popout escape hatch + Causa's source-
+                     ;; so the popout escape hatch + Xray's source-
                      ;; coord chips honour Story's configured
-                     ;; `:rf.story/project-root`. Per-variant Causa bridges
+                     ;; `:rf.story/project-root`. Per-variant Xray bridges
                      ;; live on a separate seam from the embed mount.
-                     (causa-preset/wire-cross-host!)
-                     ;; rf2-q9kv5: apply any per-story Causa preset
+                     (xray-preset/wire-cross-host!)
+                     ;; rf2-q9kv5: apply any per-story Xray preset
                      ;; (focus tab, configure filters, focus a cascade
                      ;; position) + seed the RHS chip-row's user-
-                     ;; override slot from the story's `:causa-panel`.
-                     (causa-preset/on-variant-selected! now)
+                     ;; override slot from the story's `:xray-panel`.
+                     (xray-preset/on-variant-selected! now)
                      ;; rf2-8i2a9: auto-run the variant's `:play-script`
                      ;; if `:auto-run?` is true. Best-effort — yields one
                      ;; tick via setTimeout so React commits the canvas
@@ -518,17 +518,17 @@
 ;; ---- the top-level component ---------------------------------------------
 
 (defn- right-panel
-  "The right-side pane — Causa mount + controls + dispatch console +
+  "The right-side pane — Xray mount + controls + dispatch console +
   Stage-6 registered story-panels stacked vertically.
 
-  Per rf2-sgdd3 Causa is the primary RHS inspector: the Story-shipped
-  scrubber / trace / actions panels were retired in favour of Causa's
+  Per rf2-sgdd3 Xray is the primary RHS inspector: the Story-shipped
+  scrubber / trace / actions panels were retired in favour of Xray's
   ribbon + L2 event list (replaces scrubber), Trace tab (replaces trace
-  panel), and Event-tab cascade view (replaces actions panel). Causa
-  mounts into the `[data-rf-causa-host]` slot below via its standard
+  panel), and Event-tab cascade view (replaces actions panel). Xray
+  mounts into the `[data-rf-xray-host]` slot below via its standard
   `mount/open!` flow — driven from the selection-watcher whenever a
   variant becomes focused (config bridges via
-  `causa-preset/wire-cross-host!`).
+  `xray-preset/wire-cross-host!`).
 
   Stage 6 (rf2-zhwd) adds `panels/render-panels-at-placement` so any
   `reg-story-panel` registration with `:placement :right` appears here.
@@ -553,26 +553,26 @@
              :role       "complementary"
              :aria-label "Inspectors"
              :tab-index  "0"}
-     ;; rf2-v1ach — Causa-in-Story per-panel embed. Replaces the
-     ;; pre-rf2-v1ach whole-shell mount that crammed Causa's 4-layer
-     ;; chrome into a 320px column. The new shape: ONE Causa panel
+     ;; rf2-v1ach — Xray-in-Story per-panel embed. Replaces the
+     ;; pre-rf2-v1ach whole-shell mount that crammed Xray's 4-layer
+     ;; chrome into a 320px column. The new shape: ONE Xray panel
      ;; mounted at a time, chip-row picker for runtime swap, popout
      ;; chip for the full-shell escape hatch. Per-story author
-     ;; intent rides the `:causa-panel` slot (or legacy
-     ;; `:causa :panel`); user clicks override for the session.
+     ;; intent rides the `:xray-panel` slot (or legacy
+     ;; `:xray :panel`); user clicks override for the session.
      ;;
-     ;; Feature-detect-safe: `causa-embed-panel` renders a graceful
-     ;; empty state when Causa is not on the classpath.
+     ;; Feature-detect-safe: `xray-embed-panel` renders a graceful
+     ;; empty state when Xray is not on the classpath.
      [:section {:style (:rhs-section styles)
-                :data-rf-rhs-section "causa"}
+                :data-rf-rhs-section "xray"}
       [:div {:style (merge (:rhs-section-h styles)
                            (:rhs-section-h-accent styles))}
-       [:span "Causa"]
+       [:span "Xray"]
        [:span {:style {:font-weight "400"
                        :color (:text-tertiary colors/tokens)
                        :letter-spacing "0.04em"}}
         "diagnostic"]]
-      [causa-embed/causa-embed-panel]]
+      [xray-embed/xray-embed-panel]]
      (when (:controls vis)
        [:section {:style (:rhs-section styles)
                   :data-rf-rhs-section "controls"}
@@ -846,14 +846,14 @@
            ;; rf2-v1ach: per-panel embed manages its own mount on
            ;; commit. The cross-host bridges (project-root +
            ;; keybinding detach) still need to fire so the popout
-           ;; escape hatch + Causa's source-coord chips resolve
+           ;; escape hatch + Xray's source-coord chips resolve
            ;; against Story's `:rf.story/project-root`.
-           (causa-preset/wire-cross-host!)
+           (xray-preset/wire-cross-host!)
            ;; rf2-q9kv5: apply per-story preset on the mount-time
            ;; selection too (the selection-watcher only fires on
            ;; change, so a pre-selected variant would otherwise miss
            ;; the preset).
-           (causa-preset/on-variant-selected! vid)
+           (xray-preset/on-variant-selected! vid)
            ;; rf2-8i2a9: mount-time auto-run for an already-selected
            ;; variant (deep-link / persisted selection). Yields a tick
            ;; so the canvas has committed before the script's first

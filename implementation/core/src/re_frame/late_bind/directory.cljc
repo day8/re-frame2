@@ -537,7 +537,7 @@
    {:key         :epoch/cascade-cause
     :producer-ns 're-frame.epoch
     :design-bead "rf2-25zo2"
-    :description "Walk a frame's in-flight cascade buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution. Consumed by re-frame.views at view-render emit time so the Causa Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
+    :description "Walk a frame's in-flight cascade buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution. Consumed by re-frame.views at view-render emit time so the Xray Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
    {:key         :epoch/record-render!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-qs6dl"
@@ -545,7 +545,7 @@
    {:key         :epoch/record-sub-run!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-wi900"
-    :description "Subs sibling of :epoch/record-render!. Attribute a post-settle sub-run emit (a :sub/run / :rf.sub/skip op firing at React deref time, after the causing cascade settled, because reactions recompute lazily) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a sub-run op arrives with no in-flight cascade; back-fills the sub-run (and its :value-changed? / :prev-value / :value attribution) into the causing epoch record and re-fans it to epoch listeners. Fixes the one-epoch :sub-runs lag visible in Causa's per-cascade Views subs table."}
+    :description "Subs sibling of :epoch/record-render!. Attribute a post-settle sub-run emit (a :sub/run / :rf.sub/skip op firing at React deref time, after the causing cascade settled, because reactions recompute lazily) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a sub-run op arrives with no in-flight cascade; back-fills the sub-run (and its :value-changed? / :prev-value / :value attribution) into the causing epoch record and re-fans it to epoch listeners. Fixes the one-epoch :sub-runs lag visible in Xray's per-cascade Views subs table."}
    {:key         :epoch/epoch-history
     :producer-ns 're-frame.epoch
     :description "Return the committed-epoch ring buffer (introspection)."}
@@ -623,7 +623,7 @@
    ;;
    ;; The three hooks let `re-frame.epoch/settle!` reach the aggregator
    ;; (`:trace.cascade/capture-for-epoch!`) without requiring the
-   ;; cascade ns, and let Causa's Reactive panel publish / withdraw its
+   ;; cascade ns, and let Xray's Reactive panel publish / withdraw its
    ;; focus predicate (`set-focus-predicate!` / `clear-focus-predicate!`)
    ;; through the same registry the rest of the substrate uses. The
    ;; cascade ns is JVM-autoloaded from `re-frame.core` only; CLJS
@@ -636,11 +636,11 @@
    {:key         :trace.cascade/set-focus-predicate!
     :producer-ns 're-frame.trace.cascade
     :design-bead "rf2-931pm"
-    :description "Install the predicate the aggregator consults at end-of-epoch (`(fn [frame-id epoch-id event-id] truthy?)`). Causa's Reactive panel calls this at mount."}
+    :description "Install the predicate the aggregator consults at end-of-epoch (`(fn [frame-id epoch-id event-id] truthy?)`). Xray's Reactive panel calls this at mount."}
    {:key         :trace.cascade/clear-focus-predicate!
     :producer-ns 're-frame.trace.cascade
     :design-bead "rf2-931pm"
-    :description "Restore the no-op default focus predicate (no epoch focused). Causa's Reactive panel calls this on unmount."}
+    :description "Restore the no-op default focus predicate (no epoch focused). Xray's Reactive panel calls this on unmount."}
 
    ;; ---- re-frame.event-emit (rf2-rirbq — always-on event observability) -----
    {:key         :event-emit/dispatch-on-event

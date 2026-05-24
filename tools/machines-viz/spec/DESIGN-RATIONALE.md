@@ -15,14 +15,14 @@ read it and not re-ask the same questions. Where the spec text reads
 "per lock #N in DESIGN-RATIONALE.md", this is where to come.
 
 A subset of these locks are **lifted from
-[`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)**.
-Causa Spec 003 specified `MachineChart`'s prop surface, share-URL
+[`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)**.
+Xray Spec 003 specified `MachineChart`'s prop surface, share-URL
 encoding, transition-history ribbon, and `:spawn-all` viz before
 this tool had its own spec folder. The scaffold (rf2-x50eu)
-migrates those decisions into Machines-Viz's home; Causa's 003
+migrates those decisions into Machines-Viz's home; Xray's 003
 remains the authoritative source for the **embedding-side**
 contract (transition history ribbon UX, source-coord jumps,
-Causa's panel chrome). Where the two could drift, this doc cites
+Xray's panel chrome). Where the two could drift, this doc cites
 back to 003.
 
 ---
@@ -47,7 +47,7 @@ What surface does Machines-Viz ship at v1.0?
 - **A multi-user canvas.** Multiplayer editing à la Stately Studio.
   Rejected — out of lane.
 - **One embeddable component + a static read-only viewer page.**
-  Causa and Story embed the component; the viewer page renders a
+  Xray and Story embed the component; the viewer page renders a
   shared URL. The framework owns the registry (via `reg-machine`);
   Machines-Viz owns the rendering.
 
@@ -81,7 +81,7 @@ What surface does Machines-Viz ship at v1.0?
 
 ## Lock #2 — `MachineChart` prop contract
 
-**Locked 2026-05-13 (Mike, lifted from Causa 003).**
+**Locked 2026-05-13 (Mike, lifted from Xray 003).**
 **Props: `:machine-id`, `:frame-id`, `:on-state-click`,
 `:on-transition-click` (plus read-only flags).**
 
@@ -125,12 +125,12 @@ What does the host pass to `MachineChart` to render a chart?
 ### Why
 
 - **Thin host interface** — the host doesn't need to thread the
-  definition or the snapshot. Causa's panel is a one-liner;
+  definition or the snapshot. Xray's panel is a one-liner;
   Story's per-variant panel is the same.
 - **Hot-reload safe** — the chart re-reads `(rf/machine-meta id)`
   on every mount and on registry-change traces; the host doesn't
   have to plumb hot-reload through.
-- **Callback shape locks the host's freedom** — Causa wires
+- **Callback shape locks the host's freedom** — Xray wires
   `:on-state-click` to "jump to source"; Story wires it to
   "highlight in the per-variant chrome"; the viewer page no-ops
   both. Each host chooses, the component stays neutral.
@@ -142,8 +142,8 @@ What does the host pass to `MachineChart` to render a chart?
   `:read-only? true` so neither callback fires regardless of
   what the host passes.
 
-Source: lifted from Causa
-[`003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
+Source: lifted from Xray
+[`003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
 §Embedding posture. The prop names matched there are reproduced
 here verbatim.
 
@@ -151,7 +151,7 @@ here verbatim.
 
 ## Lock #3 — Share-URL encoding: EDN → transit → base64url
 
-**Locked 2026-05-13 (Mike, lifted from Causa 003).** **Pipeline
+**Locked 2026-05-13 (Mike, lifted from Xray 003).** **Pipeline
 is `chart-state → EDN-print → transit-write → base64url → URL
 fragment`. Versioned envelope; topology + current-state snapshot
 only.**
@@ -200,10 +200,10 @@ How does Machines-Viz encode a chart for sharing?
   than rendering garbage.
 - **Charts exceeding URL limits** — the `Copy as edn fragment
   instead` fallback puts the EDN on the clipboard for paste-into-
-  a-doc. Per Causa 003 §Share affordance §Performance.
+  a-doc. Per Xray 003 §Share affordance §Performance.
 
-Source: lifted from Causa
-[`003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
+Source: lifted from Xray
+[`003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
 §Share affordance §Share URL + §Performance.
 
 ---
@@ -315,7 +315,7 @@ framework ships its `re-frame.machines` public API.
 
 ## Lock #5 — Current-state in share-URL: state name only, no `:data`
 
-**Locked 2026-05-13 (Mike, lifted from Causa 003; tightened
+**Locked 2026-05-13 (Mike, lifted from Xray 003; tightened
 2026-05-14 per rf2-li3o4).** **The share-URL payload carries the
 topology + the current state's name (`:state` keyword only). No
 runtime `:data`; no transition history; no event vector; no
@@ -333,10 +333,10 @@ What state-information does the share-URL carry?
   share loses that context.
 - **Topology + a transition history.** The chart can replay the
   last N transitions on load. Rejected — encodes session data,
-  violates the no-session-export principle (Causa Lock #4 lifted),
+  violates the no-session-export principle (Xray Lock #4 lifted),
   inflates the URL beyond practical limits.
 - **Topology + full snapshot (state + `:data`).** The original
-  lift from Causa 003. Rejected (rf2-li3o4) — `:data` is operator-
+  lift from Xray 003. Rejected (rf2-li3o4) — `:data` is operator-
   side runtime accumulation; a well-intentioned "Copy as Share
   URL" click would exfiltrate tokens, form contents, and request
   payloads. The accident-class beats the visual-continuity
@@ -344,7 +344,7 @@ What state-information does the share-URL carry?
 - **Topology + the state name only.** The chart highlights the
   active state node; `:data` is unavailable to the viewer (which
   has no per-data affordance anyway — the chart's data display
-  is operator-side, in Causa's inspector chrome). The recipient
+  is operator-side, in Xray's inspector chrome). The recipient
   has a "show idle" toggle to clear the highlight.
 
 ### Pick
@@ -357,7 +357,7 @@ with `:state` only).**
 - **Visual continuity holds** — the recipient sees which state the
   sharer was in; the static active-state affordance needs the
   state name only.
-  The chart's data display is operator-side chrome (Causa's
+  The chart's data display is operator-side chrome (Xray's
   inspector panel), not a `MachineChart` affordance.
 - **Privacy is structural, not prose** — the encoder cannot emit
   `:data` because the schema is `{:closed true}` on `:snapshot`.
@@ -369,7 +369,7 @@ with `:state` only).**
   a visual hint.
 - **"Show idle" toggle** — the viewer page offers a one-click
   "clear active state" if the recipient wants to discuss the
-  machine in the abstract. Causa 003 §Share-URL §Read-only viewer
+  machine in the abstract. Xray 003 §Share-URL §Read-only viewer
   specifies this affordance.
 - **No source-coords either** — source coords carry absolute file
   paths; the viewer has no editor handler wired; they are
@@ -377,8 +377,8 @@ with `:state` only).**
   is stripped before serialisation so macro-captured coords cannot
   leak through `:definition` either.
 
-Source: lifted from Causa
-[`003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
+Source: lifted from Xray
+[`003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
 §Share-URL §NOT a session export + §Privacy posture, then
 tightened per the rf2-li3o4 security audit (the lift carried a
 broader `:data :any` than this jar's Principles permitted; the
@@ -388,7 +388,7 @@ schema now matches the Principles).
 
 ## Lock #6 — Read-only viewer: same component, click handlers no-op'd
 
-**Locked 2026-05-13 (Mike, lifted from Causa 003).** **The
+**Locked 2026-05-13 (Mike, lifted from Xray 003).** **The
 viewer page mounts the same `MachineChart` component with
 `:read-only? true`. No transition-history ribbon (there's no
 history); a single banner labels it as a static snapshot.**
@@ -416,14 +416,14 @@ What renders inside the read-only viewer page?
   rendering bug surfaces in both.
 - **The component already encapsulates the rendering.** Hiding
   the transition-history ribbon is the host's responsibility —
-  the viewer page's host renders no ribbon, Causa's host renders
+  the viewer page's host renders no ribbon, Xray's host renders
   one.
 - **The banner labels the surface** — "This is a static machine
-  chart, not a Causa session — interactions are disabled." Per
-  Causa 003 §Read-only viewer.
+  chart, not a Xray session — interactions are disabled." Per
+  Xray 003 §Read-only viewer.
 
-Source: lifted from Causa
-[`003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
+Source: lifted from Xray
+[`003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
 §Share-URL §Read-only viewer.
 
 ---
@@ -473,7 +473,7 @@ but is **not load-bearing** — every consumer can self-host.**
 
 ## Lock #8 — `:after` countdown rings: 60Hz when visible, paused when not
 
-**Locked 2026-05-13 (Mike, lifted from Causa 003).** **`:after`
+**Locked 2026-05-13 (Mike, lifted from Xray 003).** **`:after`
 countdown rings render at 60Hz while the chart is on-screen;
 backgrounded charts pause the ring render but the underlying
 timer keeps running.**
@@ -518,10 +518,10 @@ per-chart animation clock, never per-node / per-ring timers.**
 - **`prefers-reduced-motion` clamps the ring to a step
   animation** — not a smooth fill. The user controls.
 
-Source: lifted from Causa
-[`003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
+Source: lifted from Xray
+[`003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
 §Performance + §Animation (the broader UX baseline lives in
-[Causa 007-UX-IA](../../causa/spec/007-UX-IA.md)). The
+[Xray 007-UX-IA](../../xray/spec/007-UX-IA.md)). The
 single-animation-clock clarification was added 2026-05-14 per the
 perf-audit findings (rf2-j3iwt) and rf2-t1yvw.
 
@@ -529,7 +529,7 @@ perf-audit findings (rf2-j3iwt) and rf2-t1yvw.
 
 ## Lock #9 — Layout: recompute on registry change, not on transition
 
-**Locked 2026-05-13 (Mike, lifted from Causa 003); tightened
+**Locked 2026-05-13 (Mike, lifted from Xray 003); tightened
 2026-05-14 (Mike, per rf2-t1yvw + perf-audit rf2-j3iwt).** **Chart
 layout MUST run only on machine (re-)registration, user-driven
 compound-state expand/collapse, a `:show-*` prop transition that
@@ -584,23 +584,23 @@ as load-bearing, citing that section and this lock.
   a layout pass — so editing a machine and saving causes the
   chart to redraw correctly without manual intervention.
 
-Source: lifted from Causa
-[`003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
+Source: lifted from Xray
+[`003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
 §Performance; tightened to MUST 2026-05-14 per rf2-t1yvw + audit-bead
 rf2-j3iwt.
 
 ---
 
-## Lock #10 — Source migration from Causa 003
+## Lock #10 — Source migration from Xray 003
 
 **Locked 2026-05-13 (Mike).** **The following content migrates
-from Causa 003 to this jar's spec when implementation work
-begins. Until then, Causa 003 remains the read-the-spec source of
+from Xray 003 to this jar's spec when implementation work
+begins. Until then, Xray 003 remains the read-the-spec source of
 truth.**
 
 ### Migrating content
 
-| Topic | Causa 003 section | Lands in Machines-Viz spec at |
+| Topic | Xray 003 section | Lands in Machines-Viz spec at |
 |---|---|---|
 | `MachineChart` prop contract | §Embedding posture | [`API.md`](./API.md) §MachineChart (already lifted) |
 | Share-URL encoding pipeline | §Share affordance §Share URL + §Performance | [`API.md`](./API.md) §Share-URL encoding (already lifted) |
@@ -613,21 +613,21 @@ truth.**
 | Privacy posture for share-URL | §Privacy posture | [Principles §No session data in shares](./Principles.md) (already lifted) |
 | Auto-pan on transition | §Auto-pan | future 001-Rendering.md |
 
-### What stays in Causa 003 (the embedding-host side)
+### What stays in Xray 003 (the embedding-host side)
 
-- **Transition-history ribbon UX** — Causa's chrome around the
+- **Transition-history ribbon UX** — Xray's chrome around the
   chart; not part of `MachineChart` itself.
-- **Source-coord jumps via Causa's editor-URL handler** — the
-  framework registry exposes coords; Causa wires the URL handler;
+- **Source-coord jumps via Xray's editor-URL handler** — the
+  framework registry exposes coords; Xray wires the URL handler;
   Machines-Viz fires `:on-state-click` and stops there.
-- **Causa's machine picker dropdown.**
-- **Causa's panel header + auto-pan toggle persistence.**
+- **Xray's machine picker dropdown.**
+- **Xray's panel header + auto-pan toggle persistence.**
 
 ### Why
 
 The split is **chart-component-concerns vs embedding-host-
 concerns**. Everything that's about rendering / encoding /
-export lives here; everything that's about Causa's panel chrome
+export lives here; everything that's about Xray's panel chrome
 or Story's per-variant ribbon lives in those tools' spec.
 
 The migration is staged: this scaffold PR (rf2-x50eu) covers
@@ -636,7 +636,7 @@ detailed rendering / layout / export specs (a future
 `001-Rendering.md`, possibly more) land as separate beads once
 implementation work picks up.
 
-Until those land, **Causa 003 is the source of truth for
+Until those land, **Xray 003 is the source of truth for
 unmigrated content**, and this DESIGN-RATIONALE cites back to it.
 
 ---
@@ -740,9 +740,9 @@ Per `ai/findings/perf-audit-machines-viz-2026-05-14.md` findings 1+2
 The locks above cover the v1.0 surface. Open questions deferred
 to implementation:
 
-- **Layout algorithm** — Dagre? ELK? Custom? (Causa 003 doesn't
+- **Layout algorithm** — Dagre? ELK? Custom? (Xray 003 doesn't
   pick; defer until first cut.)
-- **SVG primitive vs Canvas vs HTML/CSS** — Causa 003 hints
+- **SVG primitive vs Canvas vs HTML/CSS** — Xray 003 hints
   "SVG primitive" (per §Share affordance §Performance) but
   doesn't lock; defer to a `001-Rendering.md` bead.
 - **Component substrate** — `MachineChart` is registered via
@@ -752,7 +752,7 @@ to implementation:
   rendering case (compound, parallel, `:after`, `:spawn-all`,
   `:final?`); shape mirrors the framework's conformance corpus.
   Defer to implementation.
-- **Edge labels on dense graphs** — Causa 003 doesn't address
+- **Edge labels on dense graphs** — Xray 003 doesn't address
   label collision; defer.
 
 Each of these will land as a Locked entry above when picked, or
@@ -762,8 +762,8 @@ as a bead against this jar.
 
 ## See also
 
-- [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md) — the source spec these locks migrated from; embedding-host contract.
-- [`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md) — Causa's locks; #4 (no session export) is lifted into Lock #5 above.
+- [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md) — the source spec these locks migrated from; embedding-host contract.
+- [`tools/xray/spec/DESIGN-RATIONALE.md`](../../xray/spec/DESIGN-RATIONALE.md) — Xray's locks; #4 (no session export) is lifted into Lock #5 above.
 - `ai/findings/xstate-advanced-features-2026-05-13.md` — visualizer-as-product deprecation rationale (gitignored working note).
 - `ai/findings/sweep-tools-vs-sota-2026-05-13.md` §machines-viz — peer-comparison + gap analysis (gitignored working note).
 - `ai/findings/perf-audit-machines-viz-2026-05-14.md` — perf audit findings 1+2 underpinning Lock #11 + the API.md §Performance invariants MUSTs; audit-bead rf2-j3iwt (gitignored working note).

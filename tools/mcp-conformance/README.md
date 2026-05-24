@@ -3,9 +3,9 @@
 End-to-end **MCP-client** conformance harness for the re-frame2 MCP
 servers — `re-frame2-pair-mcp` and `story-mcp`. Source: rf2-cum40.
 
-(Historical: a third server `causa-mcp` was envisaged; it was dropped
-per rf2-hvl1g — AI agent access to Causa state flows via
-`re-frame2-pair-mcp` against the framework-published Causa runtime API.)
+(Historical: a third server `xray-mcp` was envisaged; it was dropped
+per rf2-hvl1g — AI agent access to Xray state flows via
+`re-frame2-pair-mcp` against the framework-published Xray runtime API.)
 
 This artefact has four surfaces:
 

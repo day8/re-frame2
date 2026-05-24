@@ -3,12 +3,12 @@
  *
  * Shared between the six framework-behavior scenarios under
  * `testbeds/<surface>/spec.cjs`. Each scenario asserts against the
- * framework's trace bus and/or epoch history via the Causa preload's
- * mirror — every testbed wires `day8.re-frame2-causa.preload` through
+ * framework's trace bus and/or epoch history via the Xray preload's
+ * mirror — every testbed wires `day8.re-frame2-xray.preload` through
  * shadow-cljs `:devtools/:preloads`, which registers a trace-collector
  * cb against `re-frame.trace/register-listener!`. Reading the
- * Causa-side mirror is therefore reading the framework's emitted
- * stream (Causa's collector is push-on-emit, not opt-in).
+ * Xray-side mirror is therefore reading the framework's emitted
+ * stream (Xray's collector is push-on-emit, not opt-in).
  *
  * Helpers are CLJS-aware: each `page.evaluate(...)` invocation uses
  * `cljs.core.pr_str` to materialise CLJS PersistentMap entries into
@@ -18,14 +18,14 @@
  *
  * The framework's own `re-frame.core/trace-buffer` and
  * `re-frame.core/epoch-history` are also accessible on `window` under
- * their dotted-ns munge in `:browser :dev` builds; the Causa surface
+ * their dotted-ns munge in `:browser :dev` builds; the Xray surface
  * is preferred for the trace bus because every testbed already routes
  * through it. For epoch history we use `re_frame.core.epoch_history`
- * directly — epoch records are not buffered by Causa's trace bus.
+ * directly — epoch records are not buffered by Xray's trace bus.
  */
 
 /**
- * Read the Causa trace bus and return each event as a pr-str EDN
+ * Read the Xray trace bus and return each event as a pr-str EDN
  * string. Returns `{ ok, events?, reason? }`.
  *
  * `events` is oldest-first to match the buffer's append-order, so a
@@ -37,12 +37,12 @@ async function readTraceEventsAsEdn(page) {
     const cljs = window.cljs && window.cljs.core;
     const bus =
       window.day8 &&
-      window.day8.re_frame2_causa &&
-      window.day8.re_frame2_causa.trace_bus;
+      window.day8.re_frame2_xray &&
+      window.day8.re_frame2_xray.trace_bus;
     if (!cljs || !bus || typeof bus.buffer !== 'function') {
       return {
         ok: false,
-        reason: 'cljs.core / day8.re_frame2_causa.trace_bus.buffer not on window',
+        reason: 'cljs.core / day8.re_frame2_xray.trace_bus.buffer not on window',
       };
     }
     const events = [];
@@ -57,12 +57,12 @@ async function readTraceEventsAsEdn(page) {
 }
 
 /**
- * Clear the Causa trace bus. Useful between sub-scenarios in one
+ * Clear the Xray trace bus. Useful between sub-scenarios in one
  * spec to keep `events.find(...)` scoped to the events under test
  * without earlier `:counter/initialise` / lifecycle emits in the way.
  *
- * Per `day8.re-frame2-causa.trace-bus/clear-buffer!`: this empties
- * Causa's own buffer; the framework's `re-frame.trace/trace-buffer`
+ * Per `day8.re-frame2-xray.trace-bus/clear-buffer!`: this empties
+ * Xray's own buffer; the framework's `re-frame.trace/trace-buffer`
  * is untouched (the two are independent ring buffers per Spec 009
  * §Retain-N trace ring buffer).
  */
@@ -70,8 +70,8 @@ async function clearTraceBus(page) {
   return page.evaluate(() => {
     const bus =
       window.day8 &&
-      window.day8.re_frame2_causa &&
-      window.day8.re_frame2_causa.trace_bus;
+      window.day8.re_frame2_xray &&
+      window.day8.re_frame2_xray.trace_bus;
     if (!bus || typeof bus.clear_buffer_BANG_ !== 'function') {
       return { ok: false, reason: 'trace_bus.clear_buffer_BANG_ not on window' };
     }

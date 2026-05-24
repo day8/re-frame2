@@ -101,7 +101,7 @@ The sentinel literal is a legal `:expected` value. Authors write the `:rf/redact
    :play-script [[:dispatch-sync [:rf.assert/path-equals [:auth :token] :rf/redacted]]]})
 ```
 
-A passing assertion proves the observation surface saw a sentinel, not the secret. The display contract (the `:test` mode pane and the `[data-test="story-test-row-detail"]` disclosure) matches Causa's posture: a disclosure that revealed the underlying value would be non-conformant.
+A passing assertion proves the observation surface saw a sentinel, not the secret. The display contract (the `:test` mode pane and the `[data-test="story-test-row-detail"]` disclosure) matches Xray's posture: a disclosure that revealed the underlying value would be non-conformant.
 
 ## The recorder facade
 
@@ -219,5 +219,5 @@ The script mixes DOM gestures (`:type` / `:click`), explicit dispatches (`:dispa
 - [Runtime](runtime.md) — the four-phase lifecycle (`:loaders` → `:events` → render → `:play-script`); `read-assertions` / `assertions-passing?` for post-run inspection.
 - [MCP surface](mcp-surface.md) — the gated agent-write path that calls `reg-variant*` with a generated `:play-script` body.
 - [Story tutorial — Recorder + Test Codegen](../03-recorder-codegen.md) — record a canvas interaction end-to-end; the hero chapter.
-- [Story tutorial — Time-travel in Story](../06-time-travel.md) — Causa embedded in the RHS, scoped per variant frame; pairs with the `:rf.assert/state-is` machine-state assertion.
+- [Story tutorial — Time-travel in Story](../06-time-travel.md) — Xray embedded in the RHS, scoped per variant frame; pairs with the `:rf.assert/state-is` machine-state assertion.
 - [Framework API — Schemas and data classification](../../api/08-schemas.md) — `add-marks` / `set-marks`, the path-mark primitives `:rf.assert/*` records elide through.

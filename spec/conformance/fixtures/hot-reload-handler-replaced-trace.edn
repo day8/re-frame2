@@ -8,7 +8,7 @@
 ;;                :id              <id>       ;; the re-registered id
 ;;                :different-fn?   <bool>}}    ;; true when handler-fn identity changed
 ;;
-;; Devtools (re-frame-10x, re-frame-pair, Causa) subscribe to this event
+;; Devtools (re-frame-10x, re-frame-pair, Xray) subscribe to this event
 ;; and refresh their view. This fixture pins the cross-implementation
 ;; trace contract: a re-registration MUST emit the trace; the trace
 ;; MUST carry the kind + id of the re-registered slot; the

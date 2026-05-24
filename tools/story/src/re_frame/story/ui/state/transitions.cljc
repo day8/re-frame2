@@ -182,7 +182,7 @@
 ;; state. For `:set`-kind repeaters `vector-coerce` re-sorts on every
 ;; render, so editing any entry shuffled keys against values and the
 ;; bug fired on every keystroke. Same focus-leak class as rf2-kgn0c
-;; (workspace cells) / rf2-z4fza (causa trace ribbon) / rf2-c56hr
+;; (workspace cells) / rf2-z4fza (xray trace ribbon) / rf2-c56hr
 ;; (story workspace cell re-init).
 ;;
 ;; The fix carries a parallel vector of monotonically-allocated ids

@@ -225,8 +225,8 @@
 ;; find-by-attr family (rf2-1c036 gap 2)
 ;;
 ;; Generic over the attribute keyword — `:data-testid` is the React
-;; convention but Story keys on `:data-test` and Causa uses
-;; `:data-rf-causa-*`. The testid wrappers above are thin aliases for
+;; convention but Story keys on `:data-test` and Xray uses
+;; `:data-rf-xray-*`. The testid wrappers above are thin aliases for
 ;; the `:data-testid`-bound case.
 ;; ---------------------------------------------------------------------------
 
@@ -248,12 +248,12 @@
       (is (nil? (h/find-by-attr tree :data-test "missing"))))))
 
 (deftest find-by-attr-resolves-custom-prefix
-  (testing "Causa-style :data-rf-causa-* selectors are matched"
-    (let [tree [:div {:data-rf-causa-id "frame-picker"}
-                [:button {:data-rf-causa-id "btn-1"} "1"]
-                [:button {:data-rf-causa-id "btn-2"} "2"]]]
-      (is (some? (h/find-by-attr tree :data-rf-causa-id "btn-1")))
-      (is (= "2" (last (h/find-by-attr tree :data-rf-causa-id "btn-2")))))))
+  (testing "Xray-style :data-rf-xray-* selectors are matched"
+    (let [tree [:div {:data-rf-xray-id "frame-picker"}
+                [:button {:data-rf-xray-id "btn-1"} "1"]
+                [:button {:data-rf-xray-id "btn-2"} "2"]]]
+      (is (some? (h/find-by-attr tree :data-rf-xray-id "btn-1")))
+      (is (= "2" (last (h/find-by-attr tree :data-rf-xray-id "btn-2")))))))
 
 (deftest find-by-attr-handles-arbitrary-keys
   (testing "any attribute key — :id, :name, :class — is matchable"
@@ -297,7 +297,7 @@
       (is (= "x" (last (first hits)))))))
 
 ;; Back-compat: existing find-by-testid call sites must still work
-;; (Causa tests + every internal caller key on the testid wrapper).
+;; (Xray tests + every internal caller key on the testid wrapper).
 
 (deftest find-by-testid-still-routes-through-find-by-attr
   (testing "find-by-testid is a thin wrapper — semantics unchanged"

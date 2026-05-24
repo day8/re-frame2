@@ -6,14 +6,14 @@
   node + edge rendering; these primitives remain because they are
   consumed OUTSIDE the chart canvas:
 
-    - `countdown-ring` — Causa's `panels/machine_after_rings.cljs`
+    - `countdown-ring` — Xray's `panels/machine_after_rings.cljs`
       overlay paints rings ON TOP of the chart for the focused
       `:after`-timer. The overlay's positioning logic is host-side
       (it walks the chart's DOM to find node bboxes), but the ring
       glyph itself is pure-data hiccup so the JVM test corpus can
       still pin its shape.
-    - `sparkline` — used by Causa's cluster-row state-change rate
-      indicator and various Story / Causa stats surfaces. Pure
+    - `sparkline` — used by Xray's cluster-row state-change rate
+      indicator and various Story / Xray stats surfaces. Pure
       hiccup, JVM-runnable.
 
   Both fns produce hiccup forms; substrate-agnostic; JVM-testable.
@@ -65,7 +65,7 @@
         arc-len   (* f circ)
         gap-len   (- circ arc-len)
         token-key (get ring-color->token color :text-tertiary)
-        ;; rf2-uv1on — resolve through `var(--rf-causa-<key>, <hex>)`
+        ;; rf2-uv1on — resolve through `var(--rf-xray-<key>, <hex>)`
         ;; so light + dark themes both flow through the host's CSS
         ;; custom-property surface (the xyflow overlay paints from the
         ;; same palette the chart + host do). Falls back to the dark-

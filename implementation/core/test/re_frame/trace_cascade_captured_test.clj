@@ -207,7 +207,7 @@
 ;; ---- :rf.sub/run value-change + cascade attribution (rf2-l1jz8) --------------
 ;;
 ;; The reactive recompute path (subs.memo/validate-and-trace) enriches the
-;; `:rf.sub/run` tag with value-change + cascade attribution so Causa's
+;; `:rf.sub/run` tag with value-change + cascade attribution so Xray's
 ;; Reactive panel can populate "SUBS WHOSE VALUE CHANGED" / "SUBS THAT
 ;; CASCADED". These tests pin the emitted tags directly off the trace
 ;; stream (the structured projection threading is covered by the epoch +

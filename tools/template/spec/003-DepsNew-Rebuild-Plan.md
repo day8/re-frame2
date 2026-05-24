@@ -228,7 +228,7 @@ Suggested commit decomposition (each ≤ 60 min worker scope):
 
 **Gate:** Manual smoke gate met. `npm install && npx shadow-cljs
 watch app` against the emitted app is deferred to §2.2 once the
-re-frame2-causa Clojars artefact lands (rf2-y9zqc) — today the
+re-frame2-xray Clojars artefact lands (rf2-y9zqc) — today the
 emitted `deps.edn` pins `0.0.1.alpha` which isn't published yet, so
 the deps resolution would fail at run time regardless of the
 template's correctness. Static-shape check + content-substitution
@@ -351,8 +351,8 @@ Goal: tag-based release replaces the Clojars publish pipeline.
   - Triggers on push of tags matching
     `template-v[0-9]+.[0-9]+.[0-9]+*` (e.g.
     `template-v0.0.1.alpha`). The `template-v…` prefix keeps the
-    trigger disjoint from the framework `v…` and Causa
-    `causa-v…` tag spaces.
+    trigger disjoint from the framework `v…` and Xray
+    `xray-v…` tag spaces.
   - Verifies the pushed tag against the template's co-located
     `VERSION` file (`tools/template/VERSION`). A mismatched tag
     fails the gate before any deploy step runs.
@@ -501,7 +501,7 @@ The locks below are inherited from the template walkthrough (Mike,
 | Build targets: browser + `:test` | Q7 lock | shadow-cljs.edn |
 | SSR opt-in: `:include-ssr?` | Q7 lock; gated on rf2-0m5ea | `template-fn` branch on `:include-ssr?` |
 | Story opt-in: `:include-story?` | Q3/Q4 era | `template-fn` branch on `:include-story?` |
-| Causa preload (always-on) | Q9 lock | `_shared/shadow-cljs.edn` :preloads |
+| Xray preload (always-on) | Q9 lock | `_shared/shadow-cljs.edn` :preloads |
 | Skill install stub: `install-skills.sh` | Q9 lean A | Deferred — README mention only today (`_shared/README.md` §Future: skill install); placeholder script lands when the Claude Code skill marketplace publishes. |
 | Layout: `src/` + `test/` + `dev/scratch.cljs` + `dev/user.clj` | Q8 lock | Unconditional under `_shared/` |
 
@@ -526,5 +526,5 @@ DESIGN-RATIONALE justification.
 - rf2-gthro — Tailwind major-version verification (gates `:css :tailwind`
   flag work).
 - rf2-0m5ea — SSR validation (gates `:include-ssr?` flag work).
-- rf2-y9zqc — Causa preload Clojars artefact (gates the
+- rf2-y9zqc — Xray preload Clojars artefact (gates the
   always-on preload).

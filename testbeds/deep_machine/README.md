@@ -2,7 +2,7 @@
 
 One Reagent-mounted state machine that, in a single registration,
 exercises every grammar surface from [`spec/005-StateMachines.md`](../../spec/005-StateMachines.md)
-a tool (Causa, Story, re-frame2-pair-mcp) needs to discriminate when
+a tool (Xray, Story, re-frame2-pair-mcp) needs to discriminate when
 visualising hierarchy and transition cascades. The buttons drive the
 machine through each capability one at a time.
 
@@ -63,7 +63,7 @@ destroy / join shape, not what the children compute.
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Causa (26)**:
+**Xray (26)**:
 - Trace panel populates on first dispatch — each Button produces a
   rich cascade (multiple `:rf.machine/*` traces per click) that
   exercises the trace panel's grouping by `:cascade-id`.

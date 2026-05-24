@@ -1,16 +1,16 @@
 (ns re-frame.story.test-helpers.e2e-multi-frame
   "Multi-frame end-to-end test harness for Story (rf2-piucm).
 
-  Mirrors the Causa harness at
-  `day8.re-frame2-causa.test-helpers.e2e-multi-frame` (rf2-7icrs).
-  Story is structurally analogous to Causa — another re-frame2 tool
+  Mirrors the Xray harness at
+  `day8.re-frame2-xray.test-helpers.e2e-multi-frame` (rf2-7icrs).
+  Story is structurally analogous to Xray — another re-frame2 tool
   that observes / embeds a host. The host here is a Story VARIANT
   frame (each `run-variant` call allocates one); the observer is the
-  `:rf/causa` frame.
+  `:rf/xray` frame.
 
   ## Why a Story-specific helper
 
-  Causa's harness assumes ONE host frame registered ahead of time.
+  Xray's harness assumes ONE host frame registered ahead of time.
   Story allocates a fresh frame per variant via
   `re-frame.story.frames/allocate!`, and the lifecycle is driven
   through a state machine (`:rf.story.lifecycle/machine`). Story-
@@ -26,10 +26,10 @@
 
   This helper exposes:
 
-  - `with-story-and-causa-frames` — install Story canonical vocab +
-    Causa under `:rf/causa`, run body, tear down. Used for surfaces
-    1 + 6 (Causa-in-Story embed + panel routing) where the test needs
-    both Story's variant-allocation lifecycle AND Causa's trace-bus
+  - `with-story-and-xray-frames` — install Story canonical vocab +
+    Xray under `:rf/xray`, run body, tear down. Used for surfaces
+    1 + 6 (Xray-in-Story embed + panel routing) where the test needs
+    both Story's variant-allocation lifecycle AND Xray's trace-bus
     pipeline live in one process.
 
   - `dispatch-into-variant` / `sub-in-variant` — convenience wrappers
@@ -48,7 +48,7 @@
   The framework ships `re-frame.test-helpers` (rf2-irp6j) with a
   similar hiccup-walking surface — but it (a) keys on `:data-testid`
   while Story uses `:data-test`, and (b) eagerly invokes ANY fn-headed
-  vector without a class-3 guard, which throws on the Causa embed's
+  vector without a class-3 guard, which throws on the Xray embed's
   `r/create-class`-built `panel-host-component`. The walkers here
   handle both — `:data-test` lookups via `find-by-data-attr` and
   graceful-skip of class-3 components when their invocation returns
@@ -57,13 +57,13 @@
 
   ## Cost
 
-  Each invocation: ~10-15 ms (Story canonical-vocab install + Causa
+  Each invocation: ~10-15 ms (Story canonical-vocab install + Xray
   install + one variant allocate). Node CLJS, no DOM, no browser.
 
   ## Teardown
 
   The body runs inside a try/finally that clears Story registrar,
-  clears Causa's trace-bus buffer, and resets the shell-state-atom
+  clears Xray's trace-bus buffer, and resets the shell-state-atom
   so subsequent tests start from a fresh slate. The
   `make-reset-runtime-fixture` (which the per-test-file fixture wraps
   around `use-fixtures :each`) handles frame disposal and registrar
@@ -71,13 +71,13 @@
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
             [re-frame.story.ui.state :as ui-state]
-            [day8.re-frame2-causa.test-helpers.e2e-multi-frame :as causa-e2e]
-            [day8.re-frame2-causa.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as xray-e2e]
+            [day8.re-frame2-xray.trace-bus :as trace-bus]))
 
 ;; ---- install helpers -----------------------------------------------------
 
 (defn install-story-default!
-  "Canonical Story install path used by `with-story-and-causa-frames`
+  "Canonical Story install path used by `with-story-and-xray-frames`
   when the caller did not supply `:install-story`.
 
   - `story/clear-all!` — wipe the Story side-table. Per the impl,
@@ -111,23 +111,23 @@
 
 ;; ---- harness -------------------------------------------------------------
 
-(defn with-story-and-causa-frames
-  "Set up Story canonical vocab + the `:rf/causa` observer frame, run
+(defn with-story-and-xray-frames
+  "Set up Story canonical vocab + the `:rf/xray` observer frame, run
   `body-fn`, tear down.
 
   Opts (all optional):
 
     :install-story   — zero-arg fn to install Story state. Defaults to
                        `install-story-default!`.
-    :install-causa   — zero-arg fn to install Causa. Defaults to
-                       `causa-e2e/install-causa-default!`.
+    :install-xray   — zero-arg fn to install Xray. Defaults to
+                       `xray-e2e/install-xray-default!`.
     :register-stories — zero-arg fn that calls `(story/reg-story ...)`
                        and `(story/reg-variant ...)` so the registrar
                        knows about the variants the test will exercise.
 
   `body-fn` runs inside the harness; usage:
 
-      (with-story-and-causa-frames
+      (with-story-and-xray-frames
         {:register-stories (fn []
                              (story/reg-variant :story.counter/loaded
                                {:events [[:counter/initialise 5]]}))}
@@ -138,12 +138,12 @@
 
   Teardown clears the trace-bus buffer + resets shell state."
   [opts body-fn]
-  (let [{:keys [install-story install-causa register-stories]
+  (let [{:keys [install-story install-xray register-stories]
          :or   {install-story    install-story-default!
-                install-causa    causa-e2e/install-causa-default!}}
+                install-xray    xray-e2e/install-xray-default!}}
         opts]
     (install-story)
-    (install-causa)
+    (install-xray)
     (when register-stories (register-stories))
     (try
       (body-fn)
@@ -160,13 +160,13 @@
 
       (dispatch-into-variant [:counter/inc] :story.counter/loaded)
 
-  After the dispatch settles, drives a synchronous Causa trace-mirror
+  After the dispatch settles, drives a synchronous Xray trace-mirror
   + epoch-history sync so panel subs reflect the latest state without
   waiting for the production `next-tick` coalesce."
   [event variant-id]
   (rf/dispatch-sync event {:frame variant-id})
-  (causa-e2e/sync-causa-trace-mirror!)
-  (causa-e2e/sync-causa-epoch-history!))
+  (xray-e2e/sync-xray-trace-mirror!)
+  (xray-e2e/sync-xray-epoch-history!))
 
 (defn sub-in-variant
   "Subscribe in the variant frame and dereference. Returns the current
@@ -191,8 +191,8 @@
 ;; Story's chrome surfaces are mostly function components. To inspect
 ;; the final rendered hiccup we need to invoke `[fn args...]` nodes
 ;; recursively so the test sees the same tree the renderer would.
-;; `expand-tree` matches the pattern Causa's pills test uses
-;; (`tools/causa/test/.../filters/pills_cljs_test.cljs`) — kept inline
+;; `expand-tree` matches the pattern Xray's pills test uses
+;; (`tools/xray/test/.../filters/pills_cljs_test.cljs`) — kept inline
 ;; here so this helper is dependency-free at the Story-side seam (the
 ;; pattern is small enough not to warrant a framework-level helper
 ;; yet; rf2-irp6j tracks promoting it).

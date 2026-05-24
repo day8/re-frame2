@@ -20,8 +20,8 @@ Running everything everywhere makes PRs slow and the dev loop painful. Skipping 
 | **MCP conformance — wire** (`tools/mcp-conformance` suite) | medium | MCP servers honour the strict `CallToolResultSchema`; trusted-PATH + symlink-safe-unlink helpers. |
 | **MCP conformance — live** (`test:re-frame2-pair-live-overflow-hermetic`, `test:re-frame2-pair-live-subscribe`) | expensive | Real re-frame2-pair-mcp behaviour against a real shadow-cljs nREPL; over-budget eval cap; subscribe/unsubscribe lifecycle. |
 | **Example smoke** (`test:examples`, `test:examples:realworld`) | expensive | Whole-example browser smoke for the runnable examples (cart, counter variants, RealWorld). |
-| **Story feature gates** (`test:story-feature-load`, `test:story-play-scripts`) | expensive | Story testbed exercises the feature/load matrix; play-scripts double every story's `:play-script` as a regression test. `test:story-play-scripts` is single-testbed + high-signal (it renders the live shell + assertion-strip) and stays on the PR critical path; `test:story-feature-load` is nightly-full only (see the Story/Causa PR-smoke vs nightly-full split below). |
-| **Causa feature gates** (`test:causa-feature-gate`, `test:causa-feature-gate:smoke`) | expensive (full) / medium (smoke) | Causa feature matrix (4-layer chrome, tab navigation, exception/issue surfacing). The `--smoke` tier runs the 3 highest-signal scenarios over 2 staged surfaces on the PR critical path; the full 14-scenario / 13-surface sweep runs nightly. |
+| **Story feature gates** (`test:story-feature-load`, `test:story-play-scripts`) | expensive | Story testbed exercises the feature/load matrix; play-scripts double every story's `:play-script` as a regression test. `test:story-play-scripts` is single-testbed + high-signal (it renders the live shell + assertion-strip) and stays on the PR critical path; `test:story-feature-load` is nightly-full only (see the Story/Xray PR-smoke vs nightly-full split below). |
+| **Xray feature gates** (`test:xray-feature-gate`, `test:xray-feature-gate:smoke`) | expensive (full) / medium (smoke) | Xray feature matrix (4-layer chrome, tab navigation, exception/issue surfacing). The `--smoke` tier runs the 3 highest-signal scenarios over 2 staged surfaces on the PR critical path; the full 14-scenario / 13-surface sweep runs nightly. |
 | **Template emitted-app smoke** (`jvm-tools-template`) | expensive | The emitted app from `tools/template/` boots + passes its own gates — proves the template stays viable. |
 | **Skills structural** (`skills-structural`) | fast | Skill manifests + shared content stay structurally valid against the schema. |
 | **docs/cljs playground** (`tools-playground`, Playwright + headless Chromium) | medium | The roll-your-own live-CLJS-cell engine behind the docs reading guide + interactive chapters: rebuilds both committed bundles, smokes plain-eval + live re-frame2 (v2) render cells against them, then gates freshness — strict `git diff --exit-code` on the byte-deterministic esbuild artefacts (`docs/cljs/playground.{js,css}`) plus a smoke + structural-validity gate on the Closure `:advanced` SCI bundle (`docs/cljs/playground-rf2.js`), whose minified symbols are not byte-stable cross-platform so a byte-diff would be flaky. |
@@ -36,13 +36,13 @@ where adapter / framework gates already carry the signal (rf2-eceuv).
 |---|---|---|
 | `examples/` | **Humans** — learning + demonstration. | **No.** Per-example smoke specs are intentionally absent. |
 | `implementation/adapters/<name>/testbed/` | Per-adapter smoke. One tiny standalone counter per adapter (Reagent / UIx / Helix). Proves the adapter wires up end-to-end (mount, subscribe, dispatch, re-render). | Yes — one `spec.cjs` per adapter. |
-| `testbeds/` (top-level) | Framework feature-matrix substrates. Cross-cutting fixtures consumed by multiple tools (Causa, Story, re-frame2-pair-mcp). | Yes — per-testbed `spec.cjs` driving the matrix. |
-| `tools/causa/testbeds/` | Causa-rich demos and the deterministic `feature_matrix` substrate driven by `test:causa-feature-gate`. The `panel_gallery` substrate is a local-only visual gallery — its rf2-kgn0c workspace-switch regression class is covered by CLJS unit tests in `tools/story/test/re_frame/story_ui_cljs_test.cljs` (variant-id-keyed React identity) plus the `workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c` Playwright scenario in `tools/story/test/story_browser_scenarios.cjs` (driven per-PR by `test:story-feature-load`). | Yes — `feature_matrix` carries the per-PR Causa scenarios; other substrates here are local dev surfaces. |
+| `testbeds/` (top-level) | Framework feature-matrix substrates. Cross-cutting fixtures consumed by multiple tools (Xray, Story, re-frame2-pair-mcp). | Yes — per-testbed `spec.cjs` driving the matrix. |
+| `tools/xray/testbeds/` | Xray-rich demos and the deterministic `feature_matrix` substrate driven by `test:xray-feature-gate`. The `panel_gallery` substrate is a local-only visual gallery — its rf2-kgn0c workspace-switch regression class is covered by CLJS unit tests in `tools/story/test/re_frame/story_ui_cljs_test.cljs` (variant-id-keyed React identity) plus the `workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c` Playwright scenario in `tools/story/test/story_browser_scenarios.cjs` (driven per-PR by `test:story-feature-load`). | Yes — `feature_matrix` carries the per-PR Xray scenarios; other substrates here are local dev surfaces. |
 | `tools/story/testbeds/` | Story testbeds (counter-with-stories, login-form). | Yes — Story-owned scenarios. |
 | Framework tests (`clojure -M:test` per artefact) | The spec is the artefact; these protect contracts. | N/A (unit, not smoke). |
-| Causa feature-matrix gate (`test:causa-feature-gate`) | 13 scenarios across the matrix. | N/A (feature-gate, not smoke). |
+| Xray feature-matrix gate (`test:xray-feature-gate`) | 13 scenarios across the matrix. | N/A (feature-gate, not smoke). |
 
-Real bugs land in framework contracts + adapter wire-up + Causa lens
+Real bugs land in framework contracts + adapter wire-up + Xray lens
 behaviour, not in "this example mounted + clicked." Coverage value
 lives in the framework + feature-matrix gates + per-adapter smoke.
 Don't grow example-level specs.
@@ -60,31 +60,31 @@ The classifier maps "what files changed" → "which expensive jobs fire on this 
 ## The 4 tier scenarios (outputs of the management approach above)
 
 1. **Agent pre-checkin** — `scripts/test-fast-pr.sh` plus the surface-specific command for files touched. Run the always-on PR spine locally, then add the narrow changed surface: JVM artefact, browser, bundle, tool, template, or skill structural tests.
-2. **PR CI** — `.github/workflows/test.yml`. Always runs lockstep drift, skill/MCP drift, core JVM, CLJS node integration, JS harness self-tests, and docs link validation for docs PRs. Expensive jobs run only when conservative path filters say the owning surface changed. The `story-causa-browser` job runs the **PR-smoke tier** (a fast high-signal subset — see the Story/Causa split below), not the full sweep.
-3. **Nightly / manual** — `.github/workflows/expensive-tests.yml`. The rigorous browser/examples/bundle matrix, the **full** Story/Causa sweep, template emitted-app smoke, and live MCP conformance — kept off the PR critical path.
+2. **PR CI** — `.github/workflows/test.yml`. Always runs lockstep drift, skill/MCP drift, core JVM, CLJS node integration, JS harness self-tests, and docs link validation for docs PRs. Expensive jobs run only when conservative path filters say the owning surface changed. The `story-xray-browser` job runs the **PR-smoke tier** (a fast high-signal subset — see the Story/Xray split below), not the full sweep.
+3. **Nightly / manual** — `.github/workflows/expensive-tests.yml`. The rigorous browser/examples/bundle matrix, the **full** Story/Xray sweep, template emitted-app smoke, and live MCP conformance — kept off the PR critical path.
 4. **Release** — `.github/workflows/release.yml` plus the latest green expensive workflow. The core pre-release gate; release is cut only after the scheduled/manual expensive suite is green on the release candidate.
 
-### Story/Causa gate — PR-smoke vs nightly-full split
+### Story/Xray gate — PR-smoke vs nightly-full split
 
-The `story-causa-browser` Playwright gate used to run the full sweep
-(full Causa feature matrix + Story feature-load + Story static-export +
-Story play-scripts) on the critical path of every Story/Causa PR. That
+The `story-xray-browser` Playwright gate used to run the full sweep
+(full Xray feature matrix + Story feature-load + Story static-export +
+Story play-scripts) on the critical path of every Story/Xray PR. That
 made it the single slowest CI gate at ~700s (≈6× the next slowest job),
 and the **identical** sweep already runs nightly in
 `expensive-tests.yml` — so PR time ran the full matrix twice over. The
 dominant cost is shadow-cljs testbed compilation (each bundle is 400+
-files, ~24s; the full Causa gate stages 13 surfaces).
+files, ~24s; the full Xray gate stages 13 surfaces).
 
 The gate is now split into two tiers:
 
-- **PR tier (`story-causa-browser` in `test.yml`)** — a fast smoke on the
+- **PR tier (`story-xray-browser` in `test.yml`)** — a fast smoke on the
   critical path. It runs only:
-  - `npm run test:causa-feature-gate:smoke` — the 3 highest-signal Causa
+  - `npm run test:xray-feature-gate:smoke` — the 3 highest-signal Xray
     scenarios (6-tab shell handoff, deterministic-exception →
     Issues/Trace surfacing, Cmd-K palette) over just 2 staged surfaces
     (`counter` + `deliberate-throw`), compiling 2 testbed bundles
     instead of 13. Scenarios opt into the smoke via `smoke: true` in
-    `tools/causa/testbeds/feature_matrix/scenarios.cjs`; the gate fails
+    `tools/xray/testbeds/feature_matrix/scenarios.cjs`; the gate fails
     loud if the smoke set is ever empty.
   - `npm run test:story-play-scripts` — single-testbed
     (`counter-with-stories`), drives the live Story shell, and is the
@@ -95,7 +95,7 @@ The gate is now split into two tiers:
   keyed `.shadow-cljs/` + `.cpcache` compile cache (next bullet).
 
 - **Nightly tier (`expensive-tests.yml`)** — the full sweep:
-  `test:causa-feature-gate` (all 14 scenarios / 13 surfaces),
+  `test:xray-feature-gate` (all 14 scenarios / 13 surfaces),
   `test:story-feature-load`, `test:story-play-scripts`, and
   `test:story-static`. Off the PR critical path; the nightly-full set is
   a strict superset of the PR-smoke set, so nothing the smoke covers is
@@ -103,14 +103,14 @@ The gate is now split into two tiers:
 
 Both tiers restore a keyed shadow-cljs compile cache
 (`implementation/.shadow-cljs` + `implementation/.cpcache`), keyed on
-the build config + the Story/Causa src/testbed source hashes + shared
+the build config + the Story/Xray src/testbed source hashes + shared
 implementation source. The nightly run repopulates the cache so the
 first PR-smoke of the day lands a warm partial cache (shared
-`<os>-story-causa-shadow-` `restore-keys` prefix). Any change under the
+`<os>-story-xray-shadow-` `restore-keys` prefix). Any change under the
 keyed source trees busts the cache, so a stale cache can never serve
 wrong compile output.
 
-When adding a new Causa scenario, decide its tier: tag it `smoke: true`
+When adding a new Xray scenario, decide its tier: tag it `smoke: true`
 only if it is high-signal enough to earn a slot on every PR's critical
 path **and** it loads one of the already-staged smoke surfaces (or
 accept the extra compile if it must stage a new one). Everything else
@@ -130,7 +130,7 @@ agent pre-checkin "narrow to the changed surface" workflow.
 | `scripts/test-fast-pr.sh` | Fast PR spine: lockstep, skill/MCP drift, core JVM, JS harness self-tests, CLJS node integration. |
 | `scripts/test-jvm-implementation.sh` | All implementation JVM artefacts, including adapter diagnostic classpath probes. |
 | `scripts/test-jvm-tools.sh` | Tool JVM artefacts. |
-| `scripts/test-rigorous-local.sh` | Fast spine + JVM coordinators + rigorous browser/bundle/examples/Story/Causa gates. Expensive; use before release-sized changes. |
+| `scripts/test-rigorous-local.sh` | Fast spine + JVM coordinators + rigorous browser/bundle/examples/Story/Xray gates. Expensive; use before release-sized changes. |
 
 ### `implementation/package.json` (run from `implementation/`)
 
@@ -147,10 +147,10 @@ agent pre-checkin "narrow to the changed surface" workflow.
 | `npm run test:reagent-slim:bundle-isolation` | Reagent Slim invariant: slim advanced bundles exclude stock Reagent impl sentinels and `react-dom/server`, with a stock-Reagent positive control. |
 | `npm run test:examples` | Browser smoke across the runnable examples. |
 | `npm run test:examples:realworld` | Narrow RealWorld (Conduit / Spec 014) smoke only (rf2-h9ut9). The full sweep above is rigorous local / nightly / release; this changed-surface gate compiles and smokes one example end-to-end for cross-artefact runtime changes. Accepts `--filter <substring>` (or `EXAMPLES_FILTER=<substring>`) for ad-hoc narrowing against any single example or testbed. |
-| `npm run test:story-feature-load` | Story full-browser feature-load and resilience gate (`tools/story/test/story_feature_load.cjs`). **Nightly-full tier** — runs in `expensive-tests.yml`, not on the PR critical path (per the Story/Causa split above). |
-| `npm run test:story-play-scripts` | Story `:play-script` CI-as-test gate (rf2-3qcxk). Discovers every registered variant whose body carries a non-empty `:play-script` slot, navigates the live shell to each, waits for the auto-run's terminal status, and reports per-variant pass/fail. Variants whose id contains `failing` or `expected-fail` invert the assertion (expected `:fail`); everything else asserts `:pass`. **PR-smoke tier** — single-testbed, renders the assertion-strip, runs in the `story-causa-browser` PR job (and nightly). |
-| `npm run test:causa-feature-gate` | Causa browser feature/load gate from `tools/causa/spec/017-Test-Coverage-Matrix.md` — the full 14-scenario / 13-surface sweep. **Nightly-full tier** (`expensive-tests.yml`). |
-| `npm run test:causa-feature-gate:smoke` | PR-smoke tier of the Causa gate (`--smoke`). Runs only the scenarios tagged `smoke: true` over just the surfaces those scenarios load (3 scenarios / 2 surfaces today). On the `story-causa-browser` PR critical path. |
+| `npm run test:story-feature-load` | Story full-browser feature-load and resilience gate (`tools/story/test/story_feature_load.cjs`). **Nightly-full tier** — runs in `expensive-tests.yml`, not on the PR critical path (per the Story/Xray split above). |
+| `npm run test:story-play-scripts` | Story `:play-script` CI-as-test gate (rf2-3qcxk). Discovers every registered variant whose body carries a non-empty `:play-script` slot, navigates the live shell to each, waits for the auto-run's terminal status, and reports per-variant pass/fail. Variants whose id contains `failing` or `expected-fail` invert the assertion (expected `:fail`); everything else asserts `:pass`. **PR-smoke tier** — single-testbed, renders the assertion-strip, runs in the `story-xray-browser` PR job (and nightly). |
+| `npm run test:xray-feature-gate` | Xray browser feature/load gate from `tools/xray/spec/017-Test-Coverage-Matrix.md` — the full 14-scenario / 13-surface sweep. **Nightly-full tier** (`expensive-tests.yml`). |
+| `npm run test:xray-feature-gate:smoke` | PR-smoke tier of the Xray gate (`--smoke`). Runs only the scenarios tagged `smoke: true` over just the surfaces those scenarios load (3 scenarios / 2 surfaces today). On the `story-xray-browser` PR critical path. |
 | `npm run test:story-static` | Static-build contract and deployable-output sanity for the Story export. |
 | `npm run story:build` | Build the Story static artefact. |
 | `npm run test:script-policy` / `npm run test:script-helpers` | Self-tests for the JS harness helpers (path policy, changed-surface classifier port, browser-test report, gate report, local browser harness). |
@@ -159,7 +159,7 @@ agent pre-checkin "narrow to the changed surface" workflow.
 
 | Command | Scope |
 |---|---|
-| `npm test` | Runs the full MCP-client conformance suite via `scripts/test-all.cjs` — re-frame2-pair degraded, story end-to-end, causa placeholder, and exec-safety unit tests, with live-overflow flagged SKIP/RUN by env. |
+| `npm test` | Runs the full MCP-client conformance suite via `scripts/test-all.cjs` — re-frame2-pair degraded, story end-to-end, xray placeholder, and exec-safety unit tests, with live-overflow flagged SKIP/RUN by env. |
 | `npm run test:re-frame2-pair` | Degraded-mode re-frame2-pair-mcp conformance against the SDK's strict `CallToolResultSchema`. |
 | `npm run test:re-frame2-pair-live-overflow` | Live-runtime overflow conformance — SKIPs cleanly without `$SHADOW_CLJS_NREPL_PORT`. |
 | `npm run test:re-frame2-pair-live-overflow-hermetic` | Hermetic live overflow — boots shadow-cljs against the `skills/re-frame2-pair/tests/fixture/` counter and runs the live path with a real over-budget eval. Catches cap-trigger threshold drift, marker shape regressions, and SDK strict-schema rejection. |
@@ -187,7 +187,7 @@ cd tools/<artefact>          && clojure -M:test
 
 The repo-root coordinators (`scripts/test-jvm-implementation.sh`,
 `scripts/test-jvm-tools.sh`) iterate these. Adapter probes
-(`reagent`, `reagent-slim`, `uix`, `helix`) and the `tools/causa`
+(`reagent`, `reagent-slim`, `uix`, `helix`) and the `tools/xray`
 JVM probe are diagnostic skip-ok (see below).
 
 Green output should stay quiet. Failures must name the violated contract, owning
@@ -218,12 +218,12 @@ boolean GitHub-Actions outputs per surface:
 | `cljs_prod` | Surface that release-mode probes (`browser-test-prod-elision`, schemas boundary prod) cover changed. |
 | `bundle_isolation` | Surface that can affect bundle boundaries (adapters, build scripts, examples used as probes, package metadata) changed. |
 | `reagent_slim_bundle` | Reagent Slim adapter / its example / its check script changed. |
-| `adapter_testbed_smokes` | Adapter surface changed (`implementation/adapters/*`) or the orchestrator scripts that drive the smokes (`examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs`). Per rf2-bxdk8 + rf2-cjp0i + rf2-8cevm + rf2-t5slp: generic `examples/**` and `testbeds/**` paths no longer fire this gate (examples/ is test-free; testbed surfaces stay as Causa observation targets with no paired Playwright spec.cjs — see the rf2-tglku migration waves). Not set by `implementation/core/*`, per-feature artefacts, or build-config changes (rf2-8jz9t — adapter smokes only catch adapter-mount-specific bugs). |
-| `tools_jvm` | Story / Causa / Story-MCP / Causa-MCP / Pair2-MCP / MCP-base changed; gates the four per-tool JVM probes (`jvm-tools-{causa,story,story-mcp,mcp-base}`). Not set by `tools/template/*` or `tools/mcp-conformance/*` — those don't share runtime with the per-tool probes. |
+| `adapter_testbed_smokes` | Adapter surface changed (`implementation/adapters/*`) or the orchestrator scripts that drive the smokes (`examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs`). Per rf2-bxdk8 + rf2-cjp0i + rf2-8cevm + rf2-t5slp: generic `examples/**` and `testbeds/**` paths no longer fire this gate (examples/ is test-free; testbed surfaces stay as Xray observation targets with no paired Playwright spec.cjs — see the rf2-tglku migration waves). Not set by `implementation/core/*`, per-feature artefacts, or build-config changes (rf2-8jz9t — adapter smokes only catch adapter-mount-specific bugs). |
+| `tools_jvm` | Story / Xray / Story-MCP / Xray-MCP / Pair2-MCP / MCP-base changed; gates the four per-tool JVM probes (`jvm-tools-{xray,story,story-mcp,mcp-base}`). Not set by `tools/template/*` or `tools/mcp-conformance/*` — those don't share runtime with the per-tool probes. |
 | `template_expensive` | `tools/template/*` changed; gates the template emitted-app smoke. |
 | `mcp_conformance` | Any MCP-server tool, `tools/mcp-base/*`, or `tools/mcp-conformance/*` changed. |
 | `mcp_live` | re-frame2-pair-mcp / mcp-base / mcp-conformance changed; gates the live MCP coverage. |
-| `story_causa_browser` | Story / Causa runtime source changed under `tools/{story,causa}/{src,testbeds}/**` AND the changed file has a runtime extension (`.cljs`, `.cljc`, `.js`, `.cjs`, `.css`, `.scss`). Per rf2-k9ekz the trigger is narrowed: Markdown specs under `tools/{story,causa}/spec/**`, JVM unit tests under `tools/{story,causa}/test/**`, `deps.edn`, `README.md`, and `*.txt` do NOT fire it — they cannot affect chrome and so cannot invalidate the Playwright gate. Not set by the `-mcp` wrappers (they don't run in a browser). |
+| `story_xray_browser` | Story / Xray runtime source changed under `tools/{story,xray}/{src,testbeds}/**` AND the changed file has a runtime extension (`.cljs`, `.cljc`, `.js`, `.cjs`, `.css`, `.scss`). Per rf2-k9ekz the trigger is narrowed: Markdown specs under `tools/{story,xray}/spec/**`, JVM unit tests under `tools/{story,xray}/test/**`, `deps.edn`, `README.md`, and `*.txt` do NOT fire it — they cannot affect chrome and so cannot invalidate the Playwright gate. Not set by the `-mcp` wrappers (they don't run in a browser). |
 | `skills_structural` | `skills/re-frame2-pair/*` or `skills/shared/*` changed. |
 | `playground` | `tools/playground/*` changed, OR one of the three committed bundles (`docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js`) was hand-edited; gates `tools-playground` (smoke + bundle-drift). |
 
@@ -237,10 +237,10 @@ A few "blast-radius" inputs force the full sweep:
   almost every output) because core regressions can break every
   downstream substrate, tool, and bundle invariant. Exceptions: the
   two Playwright gates (`adapter_testbed_smokes` and
-  `story_causa_browser`) are **not** fired by `implementation/core/*`
+  `story_xray_browser`) are **not** fired by `implementation/core/*`
   changes (rf2-8jz9t + rf2-k9ekz). The Playwright gates exist to
   catch surface-specific browser bugs (adapter mount lifecycle,
-  Story variant boot, Causa panel layout) — none of which are core
+  Story variant boot, Xray panel layout) — none of which are core
   regressions. Core renames are caught by `node-test` (which
   exercises every public `re-frame.core` fn), and the nightly cron +
   post-merge gate runs the full matrix on main.
@@ -269,7 +269,7 @@ they consume API quota, force branch-protection bookkeeping, and
 clutter the PR-checks UI. rf2-os0c1 split four such over-firing rules:
 `tools/template/*` no longer fires `tools_jvm` (template doesn't share
 runtime with the per-tool JVM probes); `tools/story-mcp/*` no longer
-fires `story_causa_browser` (MCP wrappers don't run in a browser);
+fires `story_xray_browser` (MCP wrappers don't run in a browser);
 `tools/mcp-conformance/*` no longer fires
 `tools_jvm` (its wire-vocab JVM tests already run under
 `mcp-conformance-wire-vocab`, which is gated by `mcp_conformance`).
@@ -303,7 +303,7 @@ under that surface sets that output to `true`. The **blast-trigger row
 lights every output (defensive — anything that re-tiers the matrix
 must re-run the matrix).
 
-| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `adapter_testbed_smokes` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_causa_browser` | `skills_structural` | `playground` |
+| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `adapter_testbed_smokes` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_xray_browser` | `skills_structural` | `playground` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
 | S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |
@@ -314,10 +314,10 @@ must re-run the matrix).
 | S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
 | S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
 | S8a | `examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs` (orchestrator + runner + helpers — rf2-bxdk8 + rf2-cjp0i) |   |   |   |   |   |   | ✓ |   |   |   |   |   |   |   |
-| S9 | `testbeds/*` (rf2-7vsfm — surfaces retained as Causa observation targets; rf2-t5slp retired the Playwright gate after all spec.cjs migrated to unit tests) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
+| S9 | `testbeds/*` (rf2-7vsfm — surfaces retained as Xray observation targets; rf2-t5slp retired the Playwright gate after all spec.cjs migrated to unit tests) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
 | S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |   |
-| S11 | `tools/story/{src,testbeds}/**`, `tools/causa/{src,testbeds}/**` (runtime-extension files — rf2-k9ekz) |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |   |
-| S11a | `tools/story/{spec,test,bench}/**`, `tools/causa/{spec,test}/**`, `tools/{story,causa}/{deps.edn,README.md}` (non-runtime under story/causa) |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
+| S11 | `tools/story/{src,testbeds}/**`, `tools/xray/{src,testbeds}/**` (runtime-extension files — rf2-k9ekz) |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |   |
+| S11a | `tools/story/{spec,test,bench}/**`, `tools/xray/{spec,test}/**`, `tools/{story,xray}/{deps.edn,README.md}` (non-runtime under story/xray) |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
 | S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
 | S13 | `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |   |
 | S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |   |
@@ -338,11 +338,11 @@ PR time; one row per output here so the table stays scannable).
 | `bundle_isolation` | `bundle-isolation` |
 | `reagent_slim_bundle` | `reagent-slim-bundle-isolation` |
 | `adapter_testbed_smokes` | `adapter-testbed-smokes` (Playwright; the 3 adapter smokes only — rf2-9grp6 split out the framework + top-level testbeds into a separate gate, which rf2-t5slp then retired after all four rf2-tglku migration waves moved every framework + top-level testbed assertion to CLJS/JVM unit tests) |
-| `tools_jvm` | Per-tool JVM probes ×4 (`jvm-tools-causa`, `jvm-tools-story`, `jvm-tools-story-mcp`, `jvm-tools-mcp-base`) |
+| `tools_jvm` | Per-tool JVM probes ×4 (`jvm-tools-xray`, `jvm-tools-story`, `jvm-tools-story-mcp`, `jvm-tools-mcp-base`) |
 | `template_expensive` | `jvm-tools-template` (emitted-app smoke) |
 | `mcp_conformance` | MCP conformance ×4 (`mcp-conformance-{story,re-frame2-pair,wire-vocab,...}`) |
 | `mcp_live` | `mcp-conformance-re-frame2-pair` (live + hermetic) |
-| `story_causa_browser` | `story-causa-browser` (PR-smoke, Playwright — Causa feature-matrix `--smoke` + Story play-scripts only; the full Causa matrix, Story feature-load, and Story static run nightly in `expensive-tests.yml` — see the Story/Causa split above) |
+| `story_xray_browser` | `story-xray-browser` (PR-smoke, Playwright — Xray feature-matrix `--smoke` + Story play-scripts only; the full Xray matrix, Story feature-load, and Story static run nightly in `expensive-tests.yml` — see the Story/Xray split above) |
 | `skills_structural` | `skills-structural` |
 | `playground` | `tools-playground` (Playwright smoke of both bundles + byte-diff `git diff --exit-code` of the deterministic esbuild `docs/cljs/playground.{js,css}` + smoke/structural-validity gate on the non-deterministic Closure `docs/cljs/playground-rf2.js`) |
 
@@ -357,7 +357,7 @@ actually does today:
 | Gate | Workflow job | Why skip-ok |
 |---|---|---|
 | Adapter JVM classpath probes (Reagent / Reagent Slim / UIx / Helix) | `jvm-reagent`, `jvm-reagent-slim`, `jvm-uix`, `jvm-helix` | Adapter namespaces are `:cljs-only`. The job runs `clojure -M:test` with an `or-echo` fallback so a zero-test alias still proves the artefact's deps + classpath wiring stay green. Real adapter coverage is the browser counter + login specs (rf2-3yij / rf2-2qit Decision 7) under the adapter-testbed-smokes job, and per-adapter CLJS unit tests under the consolidated `node-test` build. |
-| `tools/causa` JVM probe | `jvm-tools-causa` | Causa ships two JVM tests today (`config_test.clj`, `trace_bus_test.clj`); an `or-echo` fallback keeps the job green if that set shrinks to zero on an intermediate cut. The CLJS surface is already covered by the consolidated `node-test` build (shadow-cljs.edn lists `tools/causa/test` as a source path). |
+| `tools/xray` JVM probe | `jvm-tools-xray` | Xray ships two JVM tests today (`config_test.clj`, `trace_bus_test.clj`); an `or-echo` fallback keeps the job green if that set shrinks to zero on an intermediate cut. The CLJS surface is already covered by the consolidated `node-test` build (shadow-cljs.edn lists `tools/xray/test` as a source path). |
 | Pair2 live-overflow without nREPL | `mcp-conformance-re-frame2-pair` — step `Run re-frame2-pair-mcp live-overflow conformance (SKIPPED without nREPL)` | The step runs `npm run test:re-frame2-pair-live-overflow` (no env). The script exits 0 with a SKIP marker when `$SHADOW_CLJS_NREPL_PORT` is unset — so the SKIP path is exercised on every CI run (a regression that broke the SKIP, e.g. crashing on missing env, surfaces here). Real live coverage is the hermetic step that follows: `npm run test:re-frame2-pair-live-overflow-hermetic` (which spawns shadow-cljs + Chromium against `skills/re-frame2-pair/tests/fixture/`, sets `SHADOW_CLJS_NREPL_PORT`, and runs the same script). |
 
 Do not treat a skip-ok diagnostic as evidence that the underlying behaviour was
@@ -374,11 +374,11 @@ the per-tool matrices govern the contract for individual features.
 | Tool | Coverage spec | Driving gate |
 |---|---|---|
 | Story | [`tools/story/spec/015-Test-Coverage.md`](tools/story/spec/015-Test-Coverage.md) | [`tools/story/test/story_feature_load.cjs`](tools/story/test/story_feature_load.cjs) (browser feature-load + 20-event re-check, run via `npm run test:story-feature-load` from `implementation/`). |
-| Causa | [`tools/causa/spec/017-Test-Coverage-Matrix.md`](tools/causa/spec/017-Test-Coverage-Matrix.md) | [`implementation/scripts/serve-and-run-causa-feature-gate.cjs`](implementation/scripts/serve-and-run-causa-feature-gate.cjs) (browser feature/load matrix slice + 20-event re-check, run via `npm run test:causa-feature-gate` from `implementation/`). |
+| Xray | [`tools/xray/spec/017-Test-Coverage-Matrix.md`](tools/xray/spec/017-Test-Coverage-Matrix.md) | [`implementation/scripts/serve-and-run-xray-feature-gate.cjs`](implementation/scripts/serve-and-run-xray-feature-gate.cjs) (browser feature/load matrix slice + 20-event re-check, run via `npm run test:xray-feature-gate` from `implementation/`). |
 
-Both feature gates are split per the Story/Causa PR-smoke vs
+Both feature gates are split per the Story/Xray PR-smoke vs
 nightly-full tiers above: a high-signal smoke runs on the PR critical
-path (`test:causa-feature-gate:smoke` + `test:story-play-scripts`) and
+path (`test:xray-feature-gate:smoke` + `test:story-play-scripts`) and
 the full sweep runs nightly. A coverage row that says `covered` in the
 per-tool matrix and is gated by the feature command above is real (the
 nightly-full sweep is the system of record for matrix coverage); a
@@ -403,7 +403,7 @@ combining these dimensions.
 | Skip semantics | Can the command exit 0 because prerequisites are absent? | Name/document it as diagnostic or skip-ok; do not count a skipped diagnostic as behavioural coverage. |
 | Failure quality | Will a failure be actionable from CI logs? | Green output should be quiet, but red must name the contract, owning surface, and reproduction command. |
 
-Use this frame before adding any new Playwright, bundle, MCP, Story, or Causa
+Use this frame before adding any new Playwright, bundle, MCP, Story, or Xray
 gate to PR CI. Browser and live-tool tests are valuable, but their cost grows
 quickly. Prefer one small fixture that proves the owning contract over repeated
 full-app sweeps. For adapter smoke tests, a minimal counter-style app is enough
@@ -425,10 +425,10 @@ Concrete examples from the current repo:
 - Changes under `implementation/core/**` have broad fan-out. Assume they can
   require the full rigorous matrix unless the diff is obviously narrow.
 - Changes under a tool are not automatically isolated. `tools/mcp-base/**`
-  fans out to Story MCP, Pair2 MCP, future Causa MCP, and the shared
+  fans out to Story MCP, Pair2 MCP, future Xray MCP, and the shared
   conformance harness. `tools/story/**` fans out to Story MCP and Story browser
-  gates. `tools/causa/**` fans out to Causa feature gates, production elision
-  sentinels, and future Causa MCP coverage.
+  gates. `tools/xray/**` fans out to Xray feature gates, production elision
+  sentinels, and future Xray MCP coverage.
 - Docs-only pushes should run docs, not tests. Bead-only pushes should run
   neither docs nor tests. PR CI still needs safe required-check behaviour, so
   avoid PR-level path filters that leave required checks pending forever.

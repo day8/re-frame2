@@ -502,7 +502,7 @@
 ;; ---- 5. Frame-level trace-emission gate (rf2-2qaqh) ------------------------
 ;;
 ;; A tool / inspector frame registered with `:rf.trace/frame-no-emit? true`
-;; (e.g. Causa's `:rf/causa`) produces NO trace — its own reactivity must
+;; (e.g. Xray's `:rf/xray`) produces NO trace — its own reactivity must
 ;; not flood the shared ring buffer it inspects. The frame-scoped sibling
 ;; of the handler-scoped `:rf.trace/no-emit?` (Spec 009 §Trace-emission
 ;; opt-out). The gate keys on the event's `:frame` tag, single-sourced via

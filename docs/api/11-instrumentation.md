@@ -1,8 +1,8 @@
 # 11 — Instrumentation
 
-The instrumentation surface is two surfaces stacked. The first is **dev-only**: a trace bus that emits one richly-tagged record per noteworthy event (dispatch, sub recompute, fx walk, render, machine transition, schema validation, error), buffered into a ring, fanned out to registered listeners synchronously, and elided entirely under `:advanced` + `goog.DEBUG=false`. The second is **always-on**: a pair of tight, production-survivable substrates (event-emit, error-emit) that deliver one record per processed event and one record per `:rf.error/*` event. Together they let the same app feed Causa in dev and Sentry / Datadog / Honeybadger in production from the same registration.
+The instrumentation surface is two surfaces stacked. The first is **dev-only**: a trace bus that emits one richly-tagged record per noteworthy event (dispatch, sub recompute, fx walk, render, machine transition, schema validation, error), buffered into a ring, fanned out to registered listeners synchronously, and elided entirely under `:advanced` + `goog.DEBUG=false`. The second is **always-on**: a pair of tight, production-survivable substrates (event-emit, error-emit) that deliver one record per processed event and one record per `:rf.error/*` event. Together they let the same app feed Xray in dev and Sentry / Datadog / Honeybadger in production from the same registration.
 
-This is the load-bearing surface for the pair-shape architecture — every tool that watches a running re-frame2 app composes against one of these surfaces. Causa subscribes to the dev trace bus. The MCP servers do the same. The event-emit substrate is what hosted observability shippers consume. The error-emit substrate is what hosted error monitors consume. Same registrations, three audiences.
+This is the load-bearing surface for the pair-shape architecture — every tool that watches a running re-frame2 app composes against one of these surfaces. Xray subscribes to the dev trace bus. The MCP servers do the same. The event-emit substrate is what hosted observability shippers consume. The error-emit substrate is what hosted error monitors consume. Same registrations, three audiences.
 
 This chapter covers the event-emit listener surface, the error-emit listener surface, the dev-only tracing surface, the epoch buffer (time-travel), the performance instrumentation gate, the source-coord annotation contract, the wire-boundary elision walker, and the error contract.
 
@@ -103,7 +103,7 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   (trace-buffer) → vector of trace events, oldest-first
   (trace-buffer opts) → vector of trace events, oldest-first
   ```
-- **Description**: "What's in the ring right now?" Reads the buffer non-destructively. Pair tools and Causa use this for post-mortem inspection.
+- **Description**: "What's in the ring right now?" Reads the buffer non-destructively. Pair tools and Xray use this for post-mortem inspection.
 
 ### `clear-trace-buffer!`
 
@@ -149,7 +149,7 @@ Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag. Wh
 |---|---|---|---|---|
 | `:rf.trace/no-emit?` | `reg-event-db` / `reg-event-fx` / `reg-event-ctx` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope. |
 
-Used by framework-internal bookkeeping handlers (Causa, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. The `:rf.trace/*` namespace is framework-owned (per [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)).
+Used by framework-internal bookkeeping handlers (Xray, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. The `:rf.trace/*` namespace is framework-owned (per [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)).
 
 ## Epoch history (Tool-Pair)
 

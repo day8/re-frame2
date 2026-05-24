@@ -166,24 +166,24 @@
 
 ;; ---- trace-disabled (tool / inspector) frames ----------------------------
 ;;
-;; Per rf2-2qaqh: an inspector tool (Causa, Story, re-frame2-pair) renders
-;; its OWN UI inside a dedicated frame (`:rf/causa`). That UI's reactive
+;; Per rf2-2qaqh: an inspector tool (Xray, Story, re-frame2-pair) renders
+;; its OWN UI inside a dedicated frame (`:rf/xray`). That UI's reactive
 ;; substrate emits `:sub/run` + `:view/render` trace events on every panel
 ;; render — and because the shared ring buffer is process-global, the
 ;; tool's self-instrumentation evicts every APPLICATION event from the
-;; ring (observed: 200/200 events were `:rf/causa`; zero app events). The
+;; ring (observed: 200/200 events were `:rf/xray`; zero app events). The
 ;; inspector must not flood the buffer it inspects.
 ;;
 ;; The fix is a frame-level emission gate, the frame-scoped sibling of the
 ;; handler-scoped `:rf.trace/no-emit?` (Spec 009 §Trace-emission opt-out):
 ;; a frame registered with `:rf.trace/frame-no-emit? true` is recorded
 ;; here, and `emit!` / `emit-error!` short-circuit (no envelope alloc, no
-;; delivery) for any event tagged with that frame. Causa marks `:rf/causa`
-;; trace-disabled at frame registration (`mount/ensure-causa-frame!`), so
+;; delivery) for any event tagged with that frame. Xray marks `:rf/xray`
+;; trace-disabled at frame registration (`mount/ensure-xray-frame!`), so
 ;; tool frames produce no trace at all while application frames are
 ;; unaffected.
 ;;
-;; Mechanism (not a hardcoded `:rf/causa` literal): `frame.cljc`'s
+;; Mechanism (not a hardcoded `:rf/xray` literal): `frame.cljc`'s
 ;; `reg-frame` reads the config flag and calls `set-frame-no-emit!` —
 ;; trace.cljc owns the canonical set + predicate so the gate is single-
 ;; sourced. The set is held under a defonce atom so a hot `:after-load`
@@ -211,7 +211,7 @@
 (defn frame-trace-disabled?
   "Canonical predicate: true iff `frame-id` is currently registered
   trace-disabled (a tool / inspector frame). Single-sourced here so no
-  call site hardcodes `:rf/causa`."
+  call site hardcodes `:rf/xray`."
   [frame-id]
   (contains? @trace-disabled-frames frame-id))
 
@@ -291,7 +291,7 @@
   success-path emits when the in-scope cascade was kicked off by a
   call-site-capturing macro (`rf/dispatch` / `rf/dispatch-sync` /
   `rf/subscribe` / `rf/inject-cofx`). Previously gated to errors
-  only; widened so consumers (Event lens, Causa, Story) can render
+  only; widened so consumers (Event lens, Xray, Story) can render
   jump-to-source links from every event in a cascade, not just
   errors."
   [op-type operation tags]

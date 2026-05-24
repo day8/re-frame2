@@ -23,14 +23,14 @@ Where a surface lives in more than one namespace (e.g. `add-marks` / `set-marks`
 
 ## Where surfaces live
 
-Story's user-facing surface splits across the facade plus a small set of sub-namespaces. The facade carries every user-callable surface; the sub-namespaces are public but called from chrome bootstrap, the shell, or the Causa preset — not from authored story bodies. This mirrors `re-frame.core`'s practice: the facade is the ergonomic surface, sub-namespace requires are a discoverability signal that the surface is chrome-internal even when public.
+Story's user-facing surface splits across the facade plus a small set of sub-namespaces. The facade carries every user-callable surface; the sub-namespaces are public but called from chrome bootstrap, the shell, or the Xray preset — not from authored story bodies. This mirrors `re-frame.core`'s practice: the facade is the ergonomic surface, sub-namespace requires are a discoverability signal that the surface is chrome-internal even when public.
 
 | Namespace | Use when |
 |---|---|
 | `re-frame.story` | The canonical require. Every registration macro + its `*`-fn partner, the run / reset / watch / destroy lifecycle, the registry query family, the assertion + recorder facades, the canonical vocabulary tables, `configure!`, the `*-id` Vars for built-in decorators, the shell-mount surface (CLJS-only), `variant-share-url`, and `add-marks` / `set-marks`. |
 | `re-frame.story.recorder.play-export` | The rich DOM-capture-aware `:play-script` translator (`recording->play-script`, `render-play-script`). Sub-namespace require — the facade exposes only the simpler `gen-play-snippet` projection. |
-| `re-frame.story.ui.causa-embed` | The Causa-RHS embed component (`causa-embed-panel`), `mount-fn-for` dispatch, `popout-full-shell!`. Called by the shell or the embed component, rarely by app code. |
-| `re-frame.story.causa-preset` | The chrome / Causa bridge — `wire-cross-host!`, `causa-available?`, `propagate-project-root!`. |
+| `re-frame.story.ui.xray-embed` | The Xray-RHS embed component (`xray-embed-panel`), `mount-fn-for` dispatch, `popout-full-shell!`. Called by the shell or the embed component, rarely by app code. |
+| `re-frame.story.xray-preset` | The chrome / Xray bridge — `wire-cross-host!`, `xray-available?`, `propagate-project-root!`. |
 | `re-frame.story.theme.*` | The design-token namespaces (`typography`, `colors`, `motion`, `depth`, `glyphs`). Consumed by third-party Story-panel authors; chrome consumes tokens, not raw literals. |
 | `re-frame.story.ui.keybindings` | The chrome's keybinding registry + installer pair. Called by the shell's bootstrap. |
 | `re-frame.story.ui.url-state` | The URL-state engine (`url-from-state`, `params-from-state`, `embed-flag-from-current-url`). Chrome-internal. |
@@ -56,4 +56,4 @@ The normative spec docs (`001-Authoring.md`, `002-Runtime.md`, `004-Assertions.m
 - [Story tutorial — Your first story](../01-first-story.md) — the chapter-1 walkthrough. Read this first if you've not yet authored a `reg-variant`.
 - [Story tutorial — Recorder + Test Codegen](../03-recorder-codegen.md) — record a canvas interaction, get a `:play-script` body back.
 - [Framework API — Instrumentation](../../api/11-instrumentation.md) — the trace bus the recorder reads, the source-coord stamping that drives Story's "open in editor" affordances.
-- [Causa API reference](../../causa/api/index.md) — the sibling tool's API. Story embeds Causa in its right-hand pane; the two cross-link extensively.
+- [Xray API reference](../../xray/api/index.md) — the sibling tool's API. Story embeds Xray in its right-hand pane; the two cross-link extensively.

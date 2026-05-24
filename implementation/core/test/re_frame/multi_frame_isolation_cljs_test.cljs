@@ -1,12 +1,12 @@
 (ns re-frame.multi-frame-isolation-cljs-test
   "Multi-frame isolation contract — node-CLJS port of the
-  `tools/causa/testbeds/parallel_frames` Playwright spec (rf2-lcg1z,
+  `tools/xray/testbeds/parallel_frames` Playwright spec (rf2-lcg1z,
   Wave 2 of the Playwright→CLJS migration rf2-tglku).
 
   The parallel-frames testbed mounts the SAME app code path in TWO
   frames on ONE page (`:above` and `:below`) with zero cross-frame
   coupling. The browser smoke walked through counter / clock-tick
-  isolation, machine-driven HTTP-mock fan-out, and the Causa target-
+  isolation, machine-driven HTTP-mock fan-out, and the Xray target-
   frame round-trip — 27 assertions total, 23 of which are pure data-
   layer contracts that need no browser.
 
@@ -26,7 +26,7 @@
        [[feedback_frames_are_isolated_contexts]] — frames are isolated
        contexts; cross-frame sub computation is an anti-pattern). The
        only correct cross-frame read is the explicit framework API
-       `rf/get-frame-db` (used by Causa's panel layer, NOT by user
+       `rf/get-frame-db` (used by Xray's panel layer, NOT by user
        subs).
     5. Frames can be destroyed independently — destroying `:below`
        leaves `:above`'s app-db / sub-cache / handler resolution
@@ -34,12 +34,12 @@
 
   ## Out of scope here (covered elsewhere)
 
-  - Causa-side `:rf.causa/set-target-frame` round-trip + L2 filtering
+  - Xray-side `:rf.xray/set-target-frame` round-trip + L2 filtering
     on multi-frame mount — covered by
-    `tools/causa/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs`
+    `tools/xray/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs`
     (rf2-ulpp8 / rf2-1p1j4).
   - Cross-frame fan-out via fx with `:frame` opts — covered by
-    `tools/causa/test/.../panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs`
+    `tools/xray/test/.../panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs`
     (rf2-83d4x cross-frame routing class).
   - State-machine + mock-fetch closure over originating frame —
     covered by the machines artefact's per-frame machine-state tests
@@ -51,8 +51,8 @@
   The frame ids `:above` / `:below` match the parallel-frames
   testbed's id-prefix convention (Spec Conventions §Feature
   modularity), keeping the contract surface visually identifiable
-  with the Causa-displayable showcase that still ships at
-  `tools/causa/testbeds/parallel_frames/`."
+  with the Xray-displayable showcase that still ships at
+  `tools/xray/testbeds/parallel_frames/`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -199,7 +199,7 @@
 ;; into another frame's app-db. The runtime contract is that
 ;; `with-frame` is the ONLY scoping affordance for subs; there is no
 ;; (sub :other-frame [...]) user-API. Cross-frame reads must go
-;; through the framework's explicit `rf/get-frame-db` (used by Causa,
+;; through the framework's explicit `rf/get-frame-db` (used by Xray,
 ;; not by user subs).
 ;;
 ;; The negative pin here: a sub running under :above does NOT see
@@ -228,7 +228,7 @@
         "rf/get-frame-db :below returns :below's app-db")
     ;; And running rf/get-frame-db from inside one frame returns the
     ;; OTHER frame's value — proving the API is frame-id-keyed, not
-    ;; ambient-frame-keyed. (This is the Causa panel-layer's read
+    ;; ambient-frame-keyed. (This is the Xray panel-layer's read
     ;; path.)
     (rf/with-frame frame-above
       (is (= 2 (:counter (rf/get-frame-db frame-below)))

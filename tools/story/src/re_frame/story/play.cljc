@@ -181,7 +181,7 @@
   Public (rf2-z2dq8) so the new rich-DSL runner (`runner-events`) and
   the runtime's loader/events drivers can drain between dispatches. The
   legacy `:rf.story/assertions` contract is load-bearing — the test-mode
-  pane, the chrome-level widget, and the Causa assertions panel all
+  pane, the chrome-level widget, and the Xray assertions panel all
   read off this slot."
   [frame-id phase]
   (let [evs (get @pending-exceptions frame-id [])]

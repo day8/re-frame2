@@ -31,8 +31,8 @@ Privacy declarations exist to stop leaks at every observation surface the framew
 
 | # | Boundary | What sees it | Production-elided? |
 |---|---|---|---|
-| 1 | **Trace-bus emit** — every `:rf/trace-event` built by `emit!` / `emit-error!` | Trace listeners, Causa panel, error monitors, log sinks | Yes — gated on `re-frame.interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`) for the dev-only stream; the always-on **error-emit substrate** ([009 §Error-emit substrate](009-Instrumentation.md)) survives production |
-| 2 | **Causa panels** — Event Detail, App-DB Diff, Subscriptions, Trace, Causality Graph, Machine Inspector, Flow Panel | The on-box dev tool; CLJS-only | Yes — Causa is dev-only |
+| 1 | **Trace-bus emit** — every `:rf/trace-event` built by `emit!` / `emit-error!` | Trace listeners, Xray panel, error monitors, log sinks | Yes — gated on `re-frame.interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`) for the dev-only stream; the always-on **error-emit substrate** ([009 §Error-emit substrate](009-Instrumentation.md)) survives production |
+| 2 | **Xray panels** — Event Detail, App-DB Diff, Subscriptions, Trace, Causality Graph, Machine Inspector, Flow Panel | The on-box dev tool; CLJS-only | Yes — Xray is dev-only |
 | 3 | **MCP wire transport** — `tools/re-frame2-pair-mcp`, `tools/story-mcp`, any future MCP server | Off-box LLM consumers | N/A (tooling, not shipped in the production bundle) |
 | 4 | **AI / LLM context lifted by tools** — any code path that lifts trace events / app-db / sub outputs / machine `:data` into an LLM prompt | The hosted LLM endpoint | N/A |
 | 5 | **Third-party log sinks** — Datadog, Sentry, LogRocket, Honeybadger, custom log fan-outs | Off-box ops/monitoring | The always-on error-emit substrate is **the live path** here — it survives `goog.DEBUG=false`, so sensitive-stamping MUST work in production builds. Per Spec 015 §Hot-path cost the trace bus is dev-only; the error substrate is not. |
@@ -214,7 +214,7 @@ The single most-asked question this doc answers: **what runs when, in what order
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  5. TRACE-BUS EMIT — every listener receives the redacted, stamped event    │
-│     - Dev-only listeners (Causa, story recorder, dev panels): consult       │
+│     - Dev-only listeners (Xray, story recorder, dev panels): consult       │
 │       :sensitive? at top level; on-box dev panels render an opaque indicator│
 │       and require `:trace/show-sensitive? true` to reveal.                  │
 │     - Always-on error-emit substrate listeners (production-survivable):     │
@@ -272,7 +272,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 - **Sensitive wins over large at the same path.** [015 §`:rf/redacted {:bytes N}`](015-Data-Classification.md#rfredacted-bytes-n--sensitive--large-composed) and [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The sensitive drop suppresses the size marker because the marker carries `:path` / `:bytes` / `:digest` which would themselves leak.
 - **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md), rf2-02vzz.
 - **Real values are never redacted mid-handler.** The router stashes a scrubbed *copy* at `:rf/redacted-event`; the handler body continues to read the unredacted `:event` coeffect.
-- **Production has one live path: the always-on error-emit substrate.** Everything else (dev trace bus, epoch ring, schema-validation traces, Causa) elides via `goog.DEBUG`. The error substrate honours `:sensitive?` *in production* — that's the load-bearing case for substrate-level enforcement (rf2-vnjfg).
+- **Production has one live path: the always-on error-emit substrate.** Everything else (dev trace bus, epoch ring, schema-validation traces, Xray) elides via `goog.DEBUG`. The error substrate honours `:sensitive?` *in production* — that's the load-bearing case for substrate-level enforcement (rf2-vnjfg).
 
 ---
 
@@ -296,7 +296,7 @@ The two verb families that decide whether a sensitive value passes through a con
 
 | Verb | Where | Default | Trust boundary |
 |---|---|---|---|
-| `:rf.privacy/show-sensitive?` | On-box devtools panels (Causa, Story trace panel) — set via each tool's `configure!`, e.g. `(causa-config/configure! {:rf.privacy/show-sensitive? true})`. Reads back via `(re-frame.privacy/get-show-sensitive)`. Per rf2-xea9u — the `:rf.privacy/*` namespace is the cross-tool reservation (every re-frame2 tool that consumes the trace bus reads the same atom; one config flip covers every tool). | `false` (suppress) | The panel is for the operator running this process; toggle controls UI visibility, not egress. |
+| `:rf.privacy/show-sensitive?` | On-box devtools panels (Xray, Story trace panel) — set via each tool's `configure!`, e.g. `(xray-config/configure! {:rf.privacy/show-sensitive? true})`. Reads back via `(re-frame.privacy/get-show-sensitive)`. Per rf2-xea9u — the `:rf.privacy/*` namespace is the cross-tool reservation (every re-frame2 tool that consumes the trace bus reads the same atom; one config flip covers every tool). | `false` (suppress) | The panel is for the operator running this process; toggle controls UI visibility, not egress. |
 | `:include-sensitive?` / `:rf.size/include-sensitive?` | Off-box wire egress (MCP servers, hosted-LLM preload, error monitors, Datadog/Sentry forwarders) | `false` (suppress) | The toggle controls whether sensitive values cross the process trust boundary. |
 
 Both default to suppress per Spec 009's default-private posture. A sixth consumer adding a knob picks the verb by trust-boundary class — on-box panel → `show-sensitive?`; off-box wire → `include-sensitive?`.
@@ -321,7 +321,7 @@ Counters that ride alongside MCP tool responses so the calling agent knows the p
 |---|---|---|---|
 | `:dropped-sensitive` | Integer count of leaves the walker dropped because they matched `:sensitive? true`. Omit when zero. | MCP response envelope (unqualified key) | Cross-MCP convention |
 | `:elided-large` | Integer count of leaves replaced with the `:rf.size/large-elided` marker. Omit when zero. | MCP response envelope (unqualified key) | Cross-MCP convention |
-| `[● REDACTED N]` / `[● ELIDED N]` | Panel-chrome mirror of the MCP slots for on-box surfaces (Causa, story panel) | Panel chrome (not JSON) | [Conventions §Reserved panel-chrome surface](Conventions.md) |
+| `[● REDACTED N]` / `[● ELIDED N]` | Panel-chrome mirror of the MCP slots for on-box surfaces (Xray, story panel) | Panel chrome (not JSON) | [Conventions §Reserved panel-chrome surface](Conventions.md) |
 
 The walker also emits a top-level `:rf.epoch/redacted-modified-paths-count` on `:rf/epoch-record` values when the `:redact-fn` substituted at non-schema-declared paths — apps can detect "the redact-fn touched these many slots" without re-walking.
 
@@ -379,7 +379,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
   {:sensitive [[:jwt] [:refresh-token]]}
   (fn [{:keys [db]} [_ {:keys [jwt refresh-token user]}]]
     ;; Writing the JWT into app-db [:auth :token] — the set-marks
-    ;; declaration on step 1 means downstream Causa renders the path
+    ;; declaration on step 1 means downstream Xray renders the path
     ;; as :rf/redacted. The propagation rule in Spec 015 also marks
     ;; the destination path even without the explicit set-marks call.
     {:db (-> db
@@ -416,7 +416,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 | Trace bus `:rf.event/dispatched` | `[:auth/log-in {:email "..." :password :rf/redacted :totp-code :rf/redacted}]`, top-level `:sensitive? true` |
 | Trace bus `:rf.fx/handled` for `:rf.http/managed` | `:rf.fx/args` body and params scrubbed (per-call `:sensitive? true`); `:headers` `X-MyApp-Session` value `:rf/redacted` (denylist hit) |
 | Trace bus `:rf.event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (set-marks + schema path-mark, plus event-arg propagation from `:auth/log-in-success`) |
-| Causa App-DB Diff panel | Same as above (Causa consults the same registry) |
+| Xray App-DB Diff panel | Same as above (Xray consults the same registry) |
 | MCP `get-app-db` tool response | `:rf/redacted` at the marked slots; `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
 | Off-box log shipper (Datadog/Sentry) | Drops the whole `:rf.event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
 | Always-on error-emit substrate (production survives) | The error record carries `:sensitive? true` and the listener-side scrub honours it before egress to Sentry |

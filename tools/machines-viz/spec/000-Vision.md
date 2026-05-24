@@ -13,7 +13,7 @@ edges / guards / actions with live response), **layout robustness**
 (nested compound states, parallel regions, multi-source edges, no
 edge-crossing collapse at machine sizes seen in real apps), and
 **visual ergonomics** (legibility at glance, motion that aids
-comprehension rather than ornament, density that fits a Causa
+comprehension rather than ornament, density that fits a Xray
 panel without scroll-thrash).
 
 Stately Studio is the floor, not the ceiling:
@@ -21,7 +21,7 @@ Stately Studio is the floor, not the ceiling:
 - **Floor:** if we ship something weaker than Stately Studio on
   any of the three axes above, the chart is not done.
 - **Ceiling-not-imposed-by-prior-art:** where divergence from
-  Stately Studio is principled (aesthetic coherence with Causa,
+  Stately Studio is principled (aesthetic coherence with Xray,
   full visual control, native re-frame2 plumbing), Machines-Viz
   **does** diverge — by intent, with rationale captured in the
   decision-trace below. Stately Studio's choices are inputs, not
@@ -78,8 +78,8 @@ required.
 
 `tools/machines-viz/` ships the projection as **one component**
 (`MachineChart`) plus a **read-only viewer page** that renders a
-chart from a URL fragment. Causa's Machine Inspector panel
-([`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md))
+chart from a URL fragment. Xray's Machine Inspector panel
+([`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md))
 embeds it as content; Story's per-variant machine panel embeds it
 the same way. The component is the single source of charting truth;
 the hosts add transition-history ribbons, source-coord jumps, and
@@ -143,7 +143,7 @@ exports:
 - **Not** a session recorder. The share-URL serialises **only**
   machine topology + a single current-state snapshot. No trace
   stream, no epoch buffer, no app-db slices, no conversation
-  buffer. Per Causa Lock #4 (session export forbidden), lifted
+  buffer. Per Xray Lock #4 (session export forbidden), lifted
   into Machines-Viz as load-bearing.
 - **Not** an *interactive* Markdown-embed. Machines-Viz **does**
   ship a Mermaid `stateDiagram-v2` exporter at v1.0 (per rf2-deo2i;
@@ -167,8 +167,8 @@ exports:
   instrumentation surface. If a chart needs data the framework
   doesn't emit, the answer is to file a `bd` bead against
   `spec/009-Instrumentation.md` — not to bolt a parallel
-  surface onto Machines-Viz. Same posture Causa takes (per
-  [Causa Principles §Observation only](../../causa/spec/Principles.md)).
+  surface onto Machines-Viz. Same posture Xray takes (per
+  [Xray Principles §Observation only](../../xray/spec/Principles.md)).
 - **Not** part of any production bundle. The bundle-isolation
   contract in [`tools/README.md`](../../README.md) holds: nothing
   under `implementation/` may `:require` from `machines-viz`.
@@ -196,7 +196,7 @@ must tell."
 
 ```
               ┌────────────────────────────────┐
-              │  Causa (Machine Inspector)     │   ─  embeds  ─┐
+              │  Xray (Machine Inspector)     │   ─  embeds  ─┐
               │   • transition-history ribbon  │               │
               │   • source-coord chips         │               │
               │   • frame picker               │               │
@@ -226,9 +226,9 @@ must tell."
                               └─────────────────────────────────────┘
 ```
 
-`tools/causa/` and `tools/story/` both depend on
+`tools/xray/` and `tools/story/` both depend on
 `tools/machines-viz/`. The arrow does not invert. Machines-Viz
-does not know about Causa's chrome or Story's variant runtime —
+does not know about Xray's chrome or Story's variant runtime —
 it only knows it has a `:machine-id`, a `:frame-id`, and two
 callbacks the host wired.
 
@@ -238,14 +238,14 @@ v1.0 `MachineChart` is one component rendered across **three
 interactive surfaces** plus the existing **Mermaid static
 emitter**:
 
-1. **Causa panel — the canonical observability surface.** The
-   Machines tab of Causa's 7-tab detail panel embeds
+1. **Xray panel — the canonical observability surface.** The
+   Machines tab of Xray's 7-tab detail panel embeds
    `MachineChart` as its content view (per
-   [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)).
+   [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)).
    This is the front door for live machine observability — the
    panel wires the transition-history ribbon, source-coord jumps,
    frame picker, UC1 sim playground, and UC2 instance browser
-   around the chart. Causa is the primary consumer; the chart's
+   around the chart. Xray is the primary consumer; the chart's
    ergonomics are tuned for this surface first.
 
 2. **User-app drop-in — production observability of running
@@ -309,7 +309,7 @@ The v1.0 `MachineChart` is built on:
 - **Interactive renderer: `@xyflow/react` (React Flow).**
   Production-grade React graph renderer. The same engine Stately
   Studio uses for its commercial editor. Custom node + edge
-  components (`chart.nodes` + `chart.edges`) recover the Causa
+  components (`chart.nodes` + `chart.edges`) recover the Xray
   visual identity (rounded-rect bodies, state-tag pills, final-
   state double border, active-state cyan tint + emphasised
   stroke, mono typography). xyflow handles pan / zoom / fit /
@@ -325,7 +325,7 @@ The v1.0 `MachineChart` is built on:
   Markdown-embed cases; not extended into interactive territory.
 
 **Three renderers, one shared model.** All three consume the same
-`reg-machine` body. The interactive surfaces (Causa panel,
+`reg-machine` body. The interactive surfaces (Xray panel,
 user-app drop-in, docs cells) share the xyflow + elkjs renderer;
 the static surface (Mermaid) is a parallel emitter against the
 same model.
@@ -333,12 +333,12 @@ same model.
 | Renderer | Layout | Output | Surface | Status |
 |---|---|---|---|---|
 | Mermaid | Mermaid-internal (Dagre-derived) | static SVG via DSL | docs prose, README, AI-pair chat replies | shipped (`re-frame.machines.mermaid`) |
-| xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Causa panel + user-app drop-in + docs cells | v1.0 commitment (Phase 2 COMPLETE — rf2-gpzb4 xyflow migration + rf2-lkwev/rf2-3ow55/rf2-yg9he/rf2-y9j79: full parallel-region rendering, `:spawn-all` join + cancellation-cascade overlays, UIx/Helix substrate adapters, browser-side visual-pin tests) |
+| xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Xray panel + user-app drop-in + docs cells | v1.0 commitment (Phase 2 COMPLETE — rf2-gpzb4 xyflow migration + rf2-lkwev/rf2-3ow55/rf2-yg9he/rf2-y9j79: full parallel-region rendering, `:spawn-all` join + cancellation-cascade overlays, UIx/Helix substrate adapters, browser-side visual-pin tests) |
 
 ### Alternatives rejected (with reasons)
 
 - **Graphviz-WASM (hpcc-js-wasm).** Excellent quality but
-  ~1.5 MB. The Causa panel must feel responsive; the bundle cost
+  ~1.5 MB. The Xray panel must feel responsive; the bundle cost
   is not worth it.
 - **Dagre / dagre-d3.** Smaller (~100 KB) but weak on nested
   compound states; maintenance stalled. Stately migrated AWAY
@@ -353,7 +353,7 @@ same model.
   "beautiful + integrated" bar without significant override work.
   Rejected 2026-05-19; **superseded 2026-05-21** — the override
   (rf2-gpzb4) accepts xyflow as the renderer BUT with extensive
-  custom node + edge components that recover the Causa identity;
+  custom node + edge components that recover the Xray identity;
   the default look itself remains rejected.
 - **JointJS / GoJS.** Commercial; wrong fit for re-frame2's
   open-source posture.
@@ -431,9 +431,9 @@ re-litigate them — these were knowingly traded, not overlooked):
   JVM `.cljc` tests carried pre-migration.
 - **Aesthetic coherence requires extensive custom node + edge
   components.** xyflow's default look (rounded-corner default
-  nodes, generic edge style) collides with the Causa devtool
+  nodes, generic edge style) collides with the Xray devtool
   aesthetic. Custom Reagent node + edge components in
-  `chart.nodes` + `chart.edges` recover the Causa identity
+  `chart.nodes` + `chart.edges` recover the Xray identity
   (rounded-rect 6px-radius lock per rf2-g6cig, mono typography
   per `theme/tokens`, state-tag pills per rf2-m1b88, final-
   state double border, active-state cyan tint + emphasised
@@ -447,7 +447,7 @@ re-litigate them — these were knowingly traded, not overlooked):
 (retained here for the record; the 2026-05-21 override
 supersedes it):
 
-> Three reasons compounded — aesthetic coherence with Causa,
+> Three reasons compounded — aesthetic coherence with Xray,
 > full visual control of every pixel, and distinctive look as a
 > feature not a bug. The cost was named: ~weeks of polish to
 > reach React Flow's baseline. The pay-off was named: aesthetic
@@ -555,7 +555,7 @@ callbacks. **Diverge.**
 trace bus carrying every event the chart needs, in-process, at
 near-zero cost. Inventing a WebSocket bridge would duplicate
 existing instrumentation and impose a separate-window UX where
-the in-app Causa panel does not need one. The Stately choice is
+the in-app Xray panel does not need one. The Stately choice is
 optimised for "attach my external inspector to a running
 production app from another window"; that use case is served by
 `tools/re-frame2-pair-mcp/` over raw nREPL (the AI-pair surface),
@@ -603,7 +603,7 @@ References:
 ### v1.0 (the foundation)
 
 The component + the read-only viewer + the encoding rules — the
-surface Causa and Story require to ship their panels. **The whole v1.0
+surface Xray and Story require to ship their panels. **The whole v1.0
 foundation has shipped** (the renderer per the rf2-gpzb4 xyflow
 migration + Phase 2; the share-URL / viewer / exporter trio per
 rf2-8d7w1) — see the per-surface "Status" column in
@@ -625,14 +625,14 @@ implementation-state list.
   [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4.
 - Compound / parallel / `:after` / `:spawn-all` / `:final?`
   rendering as specified in
-  [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md)
+  [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
   §What the panel shows + §`:spawn-all` viz + §Performance.
 - Source-coord chips on every clickable element (the host wires
   the editor URL handler via `:on-state-click` /
   `:on-transition-click`).
 - Accessibility: SVG `<title>` / `<desc>` + machine summary text
   alternative. **Full chart alt-view defers to v1.1** (same
-  posture Causa 003 §Accessibility takes — the transition-history
+  posture Xray 003 §Accessibility takes — the transition-history
   ribbon + machine picker on the host side carry the accessible
   surface in v1.0).
 
@@ -691,7 +691,7 @@ does **not** include:
 - **AI-generate-a-machine** (rf2-1bncf) — `(ai-generate/generate-machine
   user-prompt opts)` library fn with a pluggable `:resolver` seam.
   Production callers inject an LLM bridge (Anthropic / OpenAI /
-  local Ollama / Causa's chat / re-frame2-pair-mcp); tests inject a
+  local Ollama / Xray's chat / re-frame2-pair-mcp); tests inject a
   stub. Mirrors Stately Studio 2026's AI-generation feature. Per
   [`API.md`](./API.md) §AI-generate-a-machine.
 
@@ -747,7 +747,7 @@ Where Machines-Viz **defers** to peers:
 - [`Principles.md`](./Principles.md) — the load-bearing principles.
 - [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) — the locks; questions, options, picks (Lock #1 = component-not-product).
 - [`API.md`](./API.md) — the consolidated public surface (`MachineChart` contract, viewer page URL, share-URL encoding).
-- [`tools/causa/spec/000-Vision.md`](../../causa/spec/000-Vision.md) — Causa's Vision; the sibling observability surface that embeds `MachineChart` as the Machines tab.
-- [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md) — Causa's embedding-side spec; the source of truth for transition-history ribbon, source-coord integration, `:spawn-all` viz, share-affordance UX.
+- [`tools/xray/spec/000-Vision.md`](../../xray/spec/000-Vision.md) — Xray's Vision; the sibling observability surface that embeds `MachineChart` as the Machines tab.
+- [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md) — Xray's embedding-side spec; the source of truth for transition-history ribbon, source-coord integration, `:spawn-all` viz, share-affordance UX.
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the registry + authoring surface Machines-Viz visualises.
 - [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md) — the trace bus the live-highlight + active-state transport consumes.

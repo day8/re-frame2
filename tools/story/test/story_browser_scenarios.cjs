@@ -122,7 +122,7 @@ async function setMode(page, mode) {
 }
 
 // `scrubTo` helper retired per rf2-sgdd3 — the Story-side scrubber
-// slider was replaced by Causa's L1 ribbon (◀ ▶ ⏭) + L2 event list.
+// slider was replaced by Xray's L1 ribbon (◀ ▶ ⏭) + L2 event list.
 
 async function snapshotHash(page, variantId) {
   return canvas(page, variantId).getAttribute('data-snapshot-hash');
@@ -448,11 +448,11 @@ module.exports = {
       await a.locator('[data-test="inc"]').first().click();
       await expectTextEquals(a.locator('[data-test="count"]').first(), '2', 10000);
       // Per rf2-sgdd3 the Story-side scrubber + trace panels were
-      // retired in favour of Causa's L1 ribbon + L2 event list +
+      // retired in favour of Xray's L1 ribbon + L2 event list +
       // Trace tab; the time-travel sub-assertion that polled
       // `[data-test="story-trace-panel"][data-scrubbed-epoch]`
-      // moved out with them. Causa carries its own time-travel
-      // contract — covered by tools/causa/testbeds/*.
+      // moved out with them. Xray carries its own time-travel
+      // contract — covered by tools/xray/testbeds/*.
 
       await clickVariant(page, '/isolation-b');
       await waitForCanvas(page, ':story.counter-matrix/isolation-b');
@@ -648,13 +648,13 @@ module.exports = {
     // Scenario `lifecycle-phase-happy-path-order-rf2-rrw6o` retired per
     // rf2-sgdd3 — it polled `[data-test="story-actions-row"]` rows in
     // chronological order to validate Spec 008 four-phase ordering, but
-    // the Story-side actions panel was retired in favour of Causa's
+    // the Story-side actions panel was retired in favour of Xray's
     // Event-tab cascade view + filtered Trace tab. The four-phase
     // ordering contract is still validated by the JVM/CLJS unit suite
     // for `re-frame.story.lifecycle` directly; cross-variant isolation
     // is covered by `substrate-decorator-and-frame-isolation` above. A
-    // Causa-side equivalent (reading the spine projection rather than
-    // the Story actions panel rows) belongs in tools/causa/testbeds/
+    // Xray-side equivalent (reading the spine projection rather than
+    // the Story actions panel rows) belongs in tools/xray/testbeds/
     // and is out of scope for rf2-sgdd3.
 
     await scenario(page, 'reg-story-panel-for-filter-and-toggle-rf2-pv9xu', async () => {
@@ -1666,7 +1666,7 @@ module.exports = {
       // workspace slots should both be nil since the shell was just
       // freshly mounted and no variant has been selected on this
       // session. Per rf2-sgdd3 the scrubber-selection slot was
-      // retired alongside the scrubber panel (Causa is the RHS
+      // retired alongside the scrubber panel (Xray is the RHS
       // primary now); the unmount-then-mount round-trip is still
       // expected to leave the default shell state shape behind.
       const remountState = await page.evaluate(() => {
@@ -1827,10 +1827,10 @@ module.exports = {
       );
 
       // (ii) Trace panel phase grouping — retired per rf2-sgdd3.
-      // The Story-side trace panel was replaced by Causa's Trace tab.
+      // The Story-side trace panel was replaced by Xray's Trace tab.
       // The six-domino cascade projection contract lives in the JVM
       // `re-frame.trace.projection` unit suite; the visual surface is
-      // exercised by Causa's own browser tests under tools/causa/.
+      // exercised by Xray's own browser tests under tools/xray/.
 
       // ----------------------------------------------------------
       // (iii) Open-in-editor chip render in test mode

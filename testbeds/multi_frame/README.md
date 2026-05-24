@@ -5,7 +5,7 @@ A three-frame Reagent app — two counter frames (`:counter/a`,
 button whose handler runs on `:counter/a` and fans out a cross-frame
 `:dispatch` to `:counter/b` and `:log` in a single drain.
 
-The point: a consumer (Causa, Story, re-frame2-pair-mcp) observes that the
+The point: a consumer (Xray, Story, re-frame2-pair-mcp) observes that the
 framework keeps each frame's `app-db`, signal-graph cache, and epoch
 ring buffer cleanly partitioned — even when a single click produces
 events that route to three distinct frames.
@@ -63,10 +63,10 @@ that order against their respective `app-db`s.
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Causa (26)**:
+**Xray (26)**:
 - **Multi-frame app shows separate epoch ring buffers per frame** —
   the load-bearing scenario this surface unblocks. After one
-  Cross-bump click, Causa's trace panel must show three distinct
+  Cross-bump click, Xray's trace panel must show three distinct
   epoch records, one per frame, with the correct `:frame` tag on
   each.
 - Trace panel populates on first dispatch — exercised three times
@@ -100,4 +100,4 @@ The shadow-cljs build id is `testbeds/multi-frame`; output lands in
 
 - [`spec/002-Frames.md` §What lives in a frame](../../spec/002-Frames.md) — the per-frame partitioning contract this surface exercises.
 - [`spec/002-Frames.md` §Dispatches issued from inside a handler body](../../spec/002-Frames.md) — the cross-frame `:dispatch` fx contract the Cross-bump button exercises.
-- [`spec/009-Instrumentation.md` §Per-frame epoch buffers](../../spec/009-Instrumentation.md) — the ring-buffer-per-frame shape Causa's recorder reads against.
+- [`spec/009-Instrumentation.md` §Per-frame epoch buffers](../../spec/009-Instrumentation.md) — the ring-buffer-per-frame shape Xray's recorder reads against.

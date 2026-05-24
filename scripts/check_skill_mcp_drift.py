@@ -34,7 +34,7 @@ cardinal rule 7 instructs the agent to file GitHub issues but lacks
   - MISSING-BASH-ALLOW — body fires the rule's pattern but no allow-list
     entry matches the required shape.
 
-Causa-MCP is currently spec-only (no `src/`); the script skips its entry
+Xray-MCP is currently spec-only (no `src/`); the script skips its entry
 gracefully rather than failing on missing files.
 
 Exit code:

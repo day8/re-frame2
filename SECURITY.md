@@ -30,7 +30,7 @@ In scope:
 - the specification ([`spec/`](spec/)) where wording would mislead an
   implementer into a security-relevant behaviour;
 - the CLJS reference implementation ([`implementation/`](implementation/));
-- the tools ([`tools/`](tools/)) — Causa, Story, the MCP servers, the
+- the tools ([`tools/`](tools/)) — Xray, Story, the MCP servers, the
   template, and supporting libraries.
 
 The implementation-specific security posture (named functions, numeric

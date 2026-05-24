@@ -46,7 +46,7 @@
 ;; ---- recompute attribution sentinel + cause-sub resolution ---------------
 ;;
 ;; Per rf2-l1jz8 — the `:sub/run` trace carries value-change + cascade
-;; attribution so Causa's Reactive panel can populate its "SUBS WHOSE
+;; attribution so Xray's Reactive panel can populate its "SUBS WHOSE
 ;; VALUE CHANGED" and "SUBS THAT CASCADED" sections. The memo wrapper
 ;; already holds the prior computed value and prior input value(s) in its
 ;; volatile cells (it must, to dedup `=`-equal recomputes per rf2-719e),

@@ -192,25 +192,25 @@ nav:
       - "MCP surface": story/api/mcp-surface.md
       - "Reference": story/api/reference.md
 
-  - Causa:
-    # Section label IS the Causa welcome page (navigation.indexes, rf2-qgpkm).
-    - causa/index.md
-    - "1. Installation": causa/01-installation.md
-    - "2. Panel tour": causa/02-panel-tour.md
-    - "3. Time-travel scrubbing": causa/03-time-travel.md
-    - "4. Trace stream": causa/04-trace-stream.md
-    - "5. Click-to-source": causa/05-click-to-source.md
-    - "6. Schema-violation timeline": causa/06-schema-timeline.md
-    - "7. Hydration debugger": causa/07-hydration.md
-    - "8. Machine inspector": causa/08-machine-inspector.md
-    - "9. App-DB diff": causa/09-app-db-diff.md
+  - Xray:
+    # Section label IS the Xray welcome page (navigation.indexes, rf2-qgpkm).
+    - xray/index.md
+    - "1. Installation": xray/01-installation.md
+    - "2. Panel tour": xray/02-panel-tour.md
+    - "3. Time-travel scrubbing": xray/03-time-travel.md
+    - "4. Trace stream": xray/04-trace-stream.md
+    - "5. Click-to-source": xray/05-click-to-source.md
+    - "6. Schema-violation timeline": xray/06-schema-timeline.md
+    - "7. Hydration debugger": xray/07-hydration.md
+    - "8. Machine inspector": xray/08-machine-inspector.md
+    - "9. App-DB diff": xray/09-app-db-diff.md
     - "API reference":
       # Sub-section label IS its overview (navigation.indexes, rf2-qgpkm).
-      - causa/api/index.md
-      - "Mount control": causa/api/mount-control.md
-      - "Configuration keys": causa/api/config-keys.md
-      - "Runtime seam": causa/api/runtime-seam.md
-      - "Reference": causa/api/reference.md
+      - xray/api/index.md
+      - "Mount control": xray/api/mount-control.md
+      - "Configuration keys": xray/api/config-keys.md
+      - "Runtime seam": xray/api/runtime-seam.md
+      - "Reference": xray/api/reference.md
 
   - Skills:
     # Section label IS the Skills overview page (navigation.indexes, rf2-qgpkm).
@@ -220,7 +220,7 @@ nav:
     - re-frame2-setup: skills/re-frame2-setup.md
     - "re-frame-migration (v1→v2)": skills/re-frame-migration.md
     - re-frame2-implementor: skills/re-frame2-implementor.md
-    - re-frame2-causa: skills/re-frame2-causa.md
+    - re-frame2-xray: skills/re-frame2-xray.md
     - re-frame2-pair: skills/re-frame2-pair.md
     - re-frame2-pair-retro: skills/re-frame2-pair-retro.md
 

@@ -1,7 +1,7 @@
 # `section-grouping` — patch-list → path-headed cluster sections (rf2-qeous)
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> Projects a flat diff patch-list into path-headed cluster **sections** — the same sections-per-cluster decomposition Causa's panel renderer ships (rf2-gfxmk Phase 1 of rf2-abts7), but computed from the patch list rather than the annotated tree. [`diff-encode.md`](diff-encode.md) consumes this to shape the `:db-after` marker's `:sections` slot.
+> Projects a flat diff patch-list into path-headed cluster **sections** — the same sections-per-cluster decomposition Xray's panel renderer ships (rf2-gfxmk Phase 1 of rf2-abts7), but computed from the patch list rather than the annotated tree. [`diff-encode.md`](diff-encode.md) consumes this to shape the `:db-after` marker's `:sections` slot.
 
 This doc is one of eight per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md).
 
@@ -11,17 +11,17 @@ This doc is one of eight per-namespace contracts indexed from [`README.md`](READ
 
 - `group-patches-into-sections` — the flat-patch-list → sections projection.
 - `sections->patches` — the lossless inverse (flatten sections back to a replayable patch list).
-- `default-opts` (`{:max-coalesce-depth 3}`) — the tunable cluster-coalescence knob, mirroring Causa's defaults.
+- `default-opts` (`{:max-coalesce-depth 3}`) — the tunable cluster-coalescence knob, mirroring Xray's defaults.
 
 `section-grouping` does NOT own:
 
 - The patch grammar itself — that's [`diff-encode.md`](diff-encode.md) (`patch-schema`).
 - The `:section-path` / `:section-kind` / `:patches` section grammar's Malli schema — that's `diff-encode`'s `section-schema` (pinned at the encode/decode boundary).
-- The annotated-tree engine + Causa's panel `sections-per-cluster` pass — those live in `tools/causa/.../diff/`; mcp-base cannot pull Causa in (the dep arrow is tool → mcp-base, never the reverse), so it projects from patches instead.
+- The annotated-tree engine + Xray's panel `sections-per-cluster` pass — those live in `tools/xray/.../diff/`; mcp-base cannot pull Xray in (the dep arrow is tool → mcp-base, never the reverse), so it projects from patches instead.
 
 ## Why operate on patches, not the annotated tree
 
-The patches already carry path + op + value — every signal needed to head a cluster. Operating on patches keeps mcp-base dep-free (no Causa pull-in), round-trips losslessly (each section's `:patches` is a subset of the flat list; concatenating them reconstructs the path-ordered list that `apply-patches` replays unchanged), and loses no fidelity vs the annotated-tree projection for the agent-query use case — both produce the same N path-headed clusters; only the per-cluster body shape differs (patches here vs annotated subtree there).
+The patches already carry path + op + value — every signal needed to head a cluster. Operating on patches keeps mcp-base dep-free (no Xray pull-in), round-trips losslessly (each section's `:patches` is a subset of the flat list; concatenating them reconstructs the path-ordered list that `apply-patches` replays unchanged), and loses no fidelity vs the annotated-tree projection for the agent-query use case — both produce the same N path-headed clusters; only the per-cluster body shape differs (patches here vs annotated subtree there).
 
 ## Shape
 
@@ -45,7 +45,7 @@ The patches already carry path + op + value — every signal needed to head a cl
 
 ## Algorithm
 
-Mirrors the Causa pass (`section_grouping.cljc` §3.1.1), recast over patches:
+Mirrors the Xray pass (`section_grouping.cljc` §3.1.1), recast over patches:
 
 1. **Trivial cases first.** Empty patches → `[]`. A single root-path `:assoc` (`[[] :assoc <full-db>]`, the `reset-frame-db!` signature) → one `[]`-headed `:modified` section.
 
@@ -80,4 +80,4 @@ All passes are linear in patch count — negligible vs the walk that produced th
 - [`README.md`](README.md) — the per-namespace index this doc is part of.
 - [`diff-encode.md`](diff-encode.md) — the diff transform that produces the patch list this ns groups, and the `section-schema` Malli gate that pins the section shape at the wire boundary.
 - rf2-qeous — the bead that landed the path-headed cluster projection.
-- rf2-gfxmk / rf2-abts7 — Causa's panel `sections-per-cluster` decomposition this projection mirrors.
+- rf2-gfxmk / rf2-abts7 — Xray's panel `sections-per-cluster` decomposition this projection mirrors.

@@ -10,7 +10,7 @@
       cancelled cross-line + tooltip),
     - the `stroke-dasharray` arc maths (fraction → filled arc length),
     - the colour-tier → token mapping, and
-    - the rf2-uv1on `var(--rf-causa-<key>, <hex>)` theming so light +
+    - the rf2-uv1on `var(--rf-xray-<key>, <hex>)` theming so light +
       dark both flow through the host's CSS custom-property surface.
 
   Dual-target via the `_cljs_test.cljc` extension. Pure hiccup —
@@ -98,38 +98,38 @@
 ;; ---- var(--*) theming (rf2-uv1on) --------------------------------------
 
 (deftest countdown-ring-strokes-resolve-through-css-vars
-  (testing "the arc stroke is var(--rf-causa-<tier-token>, <hex>) so
+  (testing "the arc stroke is var(--rf-xray-<tier-token>, <hex>) so
             light + dark flow through the host's CSS custom-property
             surface (bead requirement)"
     (let [g       (prim/countdown-ring {:cx 0 :cy 0 :r 40 :fraction 0.8
                                         :color :green})
           [track arc] (circles g)]
       ;; :green tier → :green token.
-      (is (str/starts-with? (:stroke (second arc)) "var(--rf-causa-green"))
+      (is (str/starts-with? (:stroke (second arc)) "var(--rf-xray-green"))
       (is (str/includes? (:stroke (second arc)) "#3fb950")
           "carries the dark-palette hex fallback for standalone embeds")
       ;; track circle uses the subtle border token.
       (is (str/starts-with? (:stroke (second track))
-                            "var(--rf-causa-border-subtle")))))
+                            "var(--rf-xray-border-subtle")))))
 
 (deftest countdown-ring-cancelled-cross-uses-red-var
   (let [g    (prim/countdown-ring {:cx 0 :cy 0 :r 40 :fraction 0.2
                                    :cancelled? true})
         line (find-tag g :line)]
-    (is (str/starts-with? (:stroke (second line)) "var(--rf-causa-red"))))
+    (is (str/starts-with? (:stroke (second line)) "var(--rf-xray-red"))))
 
 (deftest countdown-ring-color-tiers-map-to-tokens
   (is (str/includes? (-> (prim/countdown-ring {:cx 0 :cy 0 :r 9 :fraction 1
                                                :color :amber})
                          circles second second :stroke)
-                     "--rf-causa-yellow")
+                     "--rf-xray-yellow")
       ":amber tier maps to the :yellow token")
   (is (str/includes? (-> (prim/countdown-ring {:cx 0 :cy 0 :r 9 :fraction 0
                                                :color :red})
                          circles second second :stroke)
-                     "--rf-causa-red"))
+                     "--rf-xray-red"))
   (is (str/includes? (-> (prim/countdown-ring {:cx 0 :cy 0 :r 9 :fraction 1
                                                :color :gray})
                          circles second second :stroke)
-                     "--rf-causa-text-tertiary")
+                     "--rf-xray-text-tertiary")
       ":gray tier maps to the :text-tertiary token"))

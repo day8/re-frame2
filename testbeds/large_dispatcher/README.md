@@ -5,7 +5,7 @@ in [spec/009 §Size elision in traces](../../spec/009-Instrumentation.md).
 Three buttons write to schema-declared `:large?` slots and one button
 writes to an undeclared slot to exercise the
 `:rf.warning/large-value-unschema'd` dev-mode advisory. A consumer
-(Causa, Story, re-frame2-pair-mcp) reads the surface to verify the
+(Xray, Story, re-frame2-pair-mcp) reads the surface to verify the
 wire-boundary walker substitutes the `:rf.size/large-elided`
 marker on the appropriate slot.
 
@@ -90,9 +90,9 @@ needs:
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Causa (26)**:
+**Xray (26)**:
 - **`:large?` value arrives as `:rf.size/large-elided` marker** —
-  the load-bearing scenario this surface unblocks. Causa's trace
+  the load-bearing scenario this surface unblocks. Xray's trace
   panel must show the `[:declared-large-value]` slot replaced with
   the marker shape under `:tags :app-db-after` on the first emit
   after button B.

@@ -1,9 +1,9 @@
 (ns re-frame.performance-emit-nightly-test
   "Spec 009 §Performance instrumentation — runtime call-site emission
-  (rf2-e3j8l, migrated from `tools/causa/testbeds/perf_counter/spec.cjs`).
+  (rf2-e3j8l, migrated from `tools/xray/testbeds/perf_counter/spec.cjs`).
 
   This file replaces the Playwright spec at
-  `tools/causa/testbeds/perf_counter/spec.cjs` (deleted in the same
+  `tools/xray/testbeds/perf_counter/spec.cjs` (deleted in the same
   commit). The Playwright assertion was: drive a real click in a perf-
   enabled browser bundle, then check that
   `performance.getEntriesByType('measure')` carries at least one entry
@@ -175,7 +175,7 @@
             :db + :fx; downstream subscribe forces a sub recompute)
             produces at least one entry in EACH of the three headless
             buckets (event / sub / fx). Mirrors the integration
-            assertion that the deleted `tools/causa/testbeds/perf_counter/
+            assertion that the deleted `tools/xray/testbeds/perf_counter/
             spec.cjs` used to make against a live browser bundle."
     (when performance/enabled?
       (clear-measures!)

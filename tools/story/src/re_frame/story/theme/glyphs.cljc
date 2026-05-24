@@ -74,14 +74,14 @@
 
 (defn chevron-right
   "Right-pointing chevron — used as a 'pop out' affordance on chips,
-  links, and the Causa-popout escape hatch."
+  links, and the Xray-popout escape hatch."
   ([] (chevron-right 12))
   ([size]
    (svg-wrap size
      [[:path {:d "M6 3 L11 8 L6 13"}]])))
 
 (defn external-link
-  "External-link arrow — used on 'pop out full Causa' chip + open-in-
+  "External-link arrow — used on 'pop out full Xray' chip + open-in-
   editor affordances."
   ([] (external-link 12))
   ([size]

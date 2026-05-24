@@ -1,7 +1,7 @@
 (ns re-frame.view-rendered-op-cljs-test
   "Per rf2-25zo2 — the substrate-agnostic `:rf.view/rendered` op fires
   alongside `:rf.view/render` for every render of a registered view, and
-  carries the cascade-attribution slots Causa's Reactive panel uses to
+  carries the cascade-attribution slots Xray's Reactive panel uses to
   graph cause→effect for re-renders.
 
   This test exercises the Reagent adapter side of the op; UIx and Helix
@@ -91,7 +91,7 @@
   (testing ":rf.view/rendered emitted inside a cascade carries
    :rf.view/cause-event-id — the in-flight cascade's :event/run-start event-id,
    sourced from the epoch capture buffer at emit time (rf2-25zo2). The
-   attribution is meant for Causa's Reactive panel to graph cause→effect
+   attribution is meant for Xray's Reactive panel to graph cause→effect
    for re-renders."
     (let [traces (record-traces!)]
       (rf/reg-view ^{:rf/id :rf2-25zo2/with-cause} cause-view []

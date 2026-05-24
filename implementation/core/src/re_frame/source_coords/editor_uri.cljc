@@ -2,7 +2,7 @@
   "Build an 'open in editor' URI from a source-coord map.
 
   Tools that surface a `{:file :line :column :ns}` source-coord — Story's
-  variant canvas, Story's per-test failure detail, Causa's event-detail
+  variant canvas, Story's per-test failure detail, Xray's event-detail
   hero, etc. — wrap the coord in a clickable affordance that launches the
   user's editor at that file:line. The de-facto protocol in 2026 is a
   custom URI scheme per editor:
@@ -14,7 +14,7 @@
       idea://open?file=<path>&line=<line>&column=<column>
 
   No single scheme covers every editor; the user picks one at boot via a
-  configuration key (`:rf.story/editor`, `:rf.causa/editor`). The pure
+  configuration key (`:rf.story/editor`, `:rf.xray/editor`). The pure
   helper here builds the URI string; the tool's UI layer attaches it to
   an `<a href>` or fires it via `window.location.href`.
 
@@ -60,7 +60,7 @@
 
   `editor-uri`'s 3-arg form accepts `{:project-root <string>}` —
   prepended to the source-coord's `:file` slot to produce the full
-  on-disk path. Tools (Story, Causa) carry their own project-root knob
+  on-disk path. Tools (Story, Xray) carry their own project-root knob
   (set once at boot by the host) and pass it through on every call.
   When `:project-root` is absent or blank, the file string ships
   verbatim and falls back to v1 semantics — useful for tests and for
@@ -78,7 +78,7 @@
   - No async / Promise — pure data → data, JVM + CLJS portable.
   - No dispatch / re-frame plumbing — the UI layer attaches the URI to
     a DOM node and lets the browser fire it. Keeps this helper tool-
-    agnostic so Story + Causa + future tools (Pair? a Helix DevTool?)
+    agnostic so Story + Xray + future tools (Pair? a Helix DevTool?)
     consume it identically.
 
   ## Source-coord shape
@@ -148,7 +148,7 @@
 ;; `forbidden-scheme?` (rf2-vwcsq) is a blocklist of three known-bad schemes
 ;; — it fails open against `http:` / `https:` and any scheme that hasn't
 ;; been catalogued as bad yet. The launch-time seam in each tool (Story's
-;; and Causa's `open!`) layers a positive allowlist on top: anything
+;; and Xray's `open!`) layers a positive allowlist on top: anything
 ;; outside `allowed-editor-uri-schemes` is refused before `window.location`
 ;; gets assigned. Per spec/Security.md §Pragmatic stance the rationale is
 ;; "gate accidents, not theoretical attacks" — a `{:custom ...}` template
@@ -156,9 +156,9 @@
 ;; an editor; the allowlist makes that an obvious no-op rather than a
 ;; silent surprise.
 ;;
-;; Originally lived in `day8.re-frame2-causa.open-in-editor` (rf2-cm93v);
+;; Originally lived in `day8.re-frame2-xray.open-in-editor` (rf2-cm93v);
 ;; lifted to this shared ns per rf2-p887o so Story consumes the same
-;; predicate Causa does.
+;; predicate Xray does.
 
 (def ^:const allowed-editor-uri-schemes
   "Positive allowlist of URI schemes the launcher will hand off to the
@@ -218,7 +218,7 @@
   guard in each tool's `open!`. Per rf2-cm93v: positive allowlist,
   defense-in-depth alongside `editor-uri`'s three-scheme reject.
 
-  Per rf2-p887o lives here (not in Causa) so Story consumes the same
+  Per rf2-p887o lives here (not in Xray) so Story consumes the same
   predicate — both surfaces gate `{:custom ...}` templates identically."
   [uri]
   (boolean

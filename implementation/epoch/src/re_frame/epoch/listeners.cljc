@@ -104,7 +104,7 @@
   mount-burst tail being absorbed rather than re-filed.
 
   Re-fans the corrected record out to epoch listeners so snapshot
-  consumers (Causa Views / Reactive panel, which cache `epoch-history`
+  consumers (Xray Views / Reactive panel, which cache `epoch-history`
   at settle time) re-sync to the corrected `:renders`.
 
   No-op when the frame has no settled epoch yet (a render before the
@@ -134,7 +134,7 @@
             ;; Re-fan the corrected record so snapshot consumers re-read
             ;; the ring. The fan-out is failure-isolated per listener
             ;; (same contract as the settle-time fan-out); a render-driven
-            ;; Causa pump (`:rf.causa/epoch-recorded`) is
+            ;; Xray pump (`:rf.xray/epoch-recorded`) is
             ;; `:rf.trace/no-emit?` so it commits no new epoch and cannot
             ;; loop back into this path.
             (notify-listeners! updated)))))))
@@ -149,7 +149,7 @@
   — so it cannot ride the in-flight cascade buffer (there is none). This
   back-fills the sub-run into the frame's most-recently-settled epoch
   record and re-fans the updated record out to epoch listeners so snapshot
-  consumers (Causa's per-cascade Views subs table, which caches
+  consumers (Xray's per-cascade Views subs table, which caches
   `epoch-history` at settle time) re-sync to the corrected `:sub-runs` +
   `:value-changed?` attribution.
 
@@ -206,7 +206,7 @@
     ;; registration-time tagalongs by gating on the presence of an
     ;; `:event/run-start` emit — that is the canonical "a cascade
     ;; started inside this drain" signal. When present, commit a
-    ;; partial `:halted-destroy` record so devtools (Causa,
+    ;; partial `:halted-destroy` record so devtools (Xray,
     ;; re-frame2-pair) receive the cascade context for the destroyed-
     ;; mid-drain case. We can't read the frame's container here
     ;; (destroy-frame!'s step 6 already dissoc'd the frame record);

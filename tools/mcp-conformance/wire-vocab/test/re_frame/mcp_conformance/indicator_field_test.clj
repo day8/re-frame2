@@ -432,9 +432,9 @@
 ;; - story-mcp emits ZERO envelope indicators (it doesn't walk
 ;;   tree-typed payloads today)
 ;;
-;; The causa-mcp T-Insp cluster (historic rf2-8xzoe.14..22) was
-;; reverted in rf2-bu21t — `tools/causa-mcp/` is now absent. Causa
-;; ships as a Clojars-only library; there is no causa-mcp wire
+;; The xray-mcp T-Insp cluster (historic rf2-8xzoe.14..22) was
+;; reverted in rf2-bu21t — `tools/xray-mcp/` is now absent. Xray
+;; ships as a Clojars-only library; there is no xray-mcp wire
 ;; surface to pin here. If a future MCP server reintroduces a
 ;; tree-walking surface, extend `tree-walking-tool-sources` and
 ;; `inline-emit-whitelist` above (or add a parallel pair) to cover

@@ -15,7 +15,7 @@ How to choose **which** re-frame2 artefacts to depend on, and **what version** t
 
 ## The lockstep contract
 
-re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release. The `day8/re-frame2-causa` devtools panel publishes on the same version line too. Mixing versions across artefacts is unsupported — the runtime contract between core, adapters, and the per-feature surfaces is checked at boot time and bound to a single coordinated VERSION.
+re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release. The `day8/re-frame2-xray` devtools panel publishes on the same version line too. Mixing versions across artefacts is unsupported — the runtime contract between core, adapters, and the per-feature surfaces is checked at boot time and bound to a single coordinated VERSION.
 
 Picking a re-frame2 VERSION for your project means picking it once and using it everywhere a `day8/re-frame2-*` coordinate appears.
 
@@ -35,9 +35,9 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
 | `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch` (also pulled in transitively by `re-frame2-pair`). |
 
-These eleven are the **publishable** lockstep set. (Two niche local roots — `day8/reagent-slim` and `day8/re-frame2-ssr-ring` — ride the same version but aren't part of greenfield.) Separately, the in-app devtools panel `day8/re-frame2-causa` ships on the same version line and is a **day-one** dep in the template (see the day-one shape below); it is tooling, not one of the eleven library artefacts.
+These eleven are the **publishable** lockstep set. (Two niche local roots — `day8/reagent-slim` and `day8/re-frame2-ssr-ring` — ride the same version but aren't part of greenfield.) Separately, the in-app devtools panel `day8/re-frame2-xray` ships on the same version line and is a **day-one** dep in the template (see the day-one shape below); it is tooling, not one of the eleven library artefacts.
 
-**Greenfield day-one shape.** This skill matches the [deps-new generator template](../README.md#relationship-to-the-generator-template) so the manual route and the one-command route land on the same scaffold. The template ships **four** re-frame2 coords on day one — core + the Reagent adapter, plus `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema; without this artefact CLJS soft-passes per Spec 010) and `day8/re-frame2-causa` (the in-app devtools panel, wired via `:devtools/preloads` and Causa-priority by default) — plus an explicit `reagent/reagent` pin.
+**Greenfield day-one shape.** This skill matches the [deps-new generator template](../README.md#relationship-to-the-generator-template) so the manual route and the one-command route land on the same scaffold. The template ships **four** re-frame2 coords on day one — core + the Reagent adapter, plus `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema; without this artefact CLJS soft-passes per Spec 010) and `day8/re-frame2-xray` (the in-app devtools panel, wired via `:devtools/preloads` and Xray-priority by default) — plus an explicit `reagent/reagent` pin.
 
 The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) stay pay-as-you-go: resist adding them until the author writes code that actually uses them, so apps that don't use them don't pay the classpath cost.
 
@@ -69,7 +69,7 @@ A minimal `deps.edn` for a greenfield re-frame2 project:
          day8/re-frame2            {:mvn/version "<VERSION>"}
          day8/re-frame2-reagent    {:mvn/version "<VERSION>"}
          day8/re-frame2-schemas    {:mvn/version "<VERSION>"}
-         day8/re-frame2-causa      {:mvn/version "<VERSION>"}
+         day8/re-frame2-xray      {:mvn/version "<VERSION>"}
 
          reagent/reagent           {:mvn/version "2.0.1"}}}
 ```

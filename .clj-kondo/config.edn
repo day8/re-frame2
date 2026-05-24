@@ -80,7 +80,7 @@
   ;; tells clj-kondo to lint each argument as an expression — the
   ;; nested fn-form body still gets full lexical-binding analysis, but
   ;; the form is not treated as a top-level def, so calls inside
-  ;; `(defn install! ...)` (Causa's deferred-registration pattern)
+  ;; `(defn install! ...)` (Xray's deferred-registration pattern)
   ;; don't trip `inline-def`. The trade-off: the `:id` argument is not
   ;; registered as a Var, but that's fine — re-frame2 callers reference
   ;; registered handlers by keyword, not by symbol.
@@ -146,8 +146,8 @@
  ;; paths skip that directory; this filter is the belt-and-braces for
  ;; editor integrations and ad-hoc local runs that pass the broader
  ;; `tools/` path.
- ;; `tools/causa/design-reference/` holds the authoritative Figma-derived
- ;; L&F reference (a hiccup/reagent mockup, `causa_devtools_reference.cljs`).
+ ;; `tools/xray/design-reference/` holds the authoritative Figma-derived
+ ;; L&F reference (a hiccup/reagent mockup, `xray_devtools_reference.cljs`).
  ;; It is a reference artefact — NOT on any shadow-cljs source path, never
  ;; compiled or wired into a build (the prior TSX reference was never linted
  ;; either). Exclude it from clj-kondo so the mockup's illustrative ns/shape

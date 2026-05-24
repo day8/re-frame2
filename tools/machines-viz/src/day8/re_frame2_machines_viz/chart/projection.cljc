@@ -143,7 +143,7 @@
                            `:eventId` / `:fromPath` / `:toPath` so the
                            edge component can hand the host the
                            originating transition). The on-chart machine
-                           simulator (Causa) wires this to send the
+                           simulator (Xray) wires this to send the
                            clicked event into the hermetic sim engine.
                            Edges with no fireable event (`:after` /
                            `:always`) carry the callback too but a nil

@@ -3,21 +3,21 @@
   `re-frame.epoch.capture/capture-event!` admits it into the cascade's
   trace buffer.
 
-  Discovered by the Causa matrix P1 gaps worker (rf2-bz72m chart-render
+  Discovered by the Xray matrix P1 gaps worker (rf2-bz72m chart-render
   scenario) while building a chart-render assertion: the framework
   emitted `:rf.machine/transition` WITHOUT `:frame`, so the epoch
   capture gate (`(when (and frame-id ...) (state/buffer-event! ...))`)
   silently dropped the event. The trace fanned out to direct trace
   listeners (so unit tests that registered a `register-listener!`
   observed it) but never reached the epoch-history `:trace-events`
-  slot the Causa Machine Inspector reads from. The chart 'never
-  rendered' for real cascades; Causa's own unit tests sidestepped it
-  via a `:rf.causa/set-epoch-history-for-test` injection seam.
+  slot the Xray Machine Inspector reads from. The chart 'never
+  rendered' for real cascades; Xray's own unit tests sidestepped it
+  via a `:rf.xray/set-epoch-history-for-test` injection seam.
 
   This test lives in the machines artefact (which does not depend on
   epoch) so the site contract is exercised even when the epoch artefact
   isn't on the test classpath. The end-to-end harvested-record
-  assertion lives upstack in the epoch / Causa gates — they read the
+  assertion lives upstack in the epoch / Xray gates — they read the
   same `:tags :frame` slot we lock here, so a future regression that
   drops the tag fails at this site test first (clear cause)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

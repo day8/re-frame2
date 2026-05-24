@@ -105,7 +105,7 @@
 (deftest example-five-variants-registered
   (testing "the five canonical variants registered on :story.counter
             (four authoring shapes + the rf2-9jfo1.2 events-only loader-
-            body shape folded in from the retired causa_rhs_smoke testbed)"
+            body shape folded in from the retired xray_rhs_smoke testbed)"
     (let [vs (story/variants-of :story.counter)]
       (is (contains? vs :story.counter/empty))
       (is (contains? vs :story.counter/loaded))
@@ -271,7 +271,7 @@
             catches the handler throw, the script step resolves
             cleanly, and `runner-events` drains the captured
             exception into the assertions list so the test-mode UI
-            + Causa assertions panel see the failure."
+            + Xray assertions panel see the failure."
     (async done
       (-> (story/run-variant :story.counter-diagnostics/failing-event-throws)
           (async-lib/then

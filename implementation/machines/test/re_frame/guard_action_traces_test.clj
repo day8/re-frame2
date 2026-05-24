@@ -14,7 +14,7 @@
 
   Both traces ride the standard trace bus, so `*handler-scope*`
   auto-stamps `:dispatch-id` under `:tags` — downstream cascade
-  correlation (Causa's `:rf.causa/machine-transitions-for-focused-event`
+  correlation (Xray's `:rf.xray/machine-transitions-for-focused-event`
   sub) groups them with the originating event without explicit
   threading from the substrate.
 
@@ -26,7 +26,7 @@
     - one action-ran trace per user-declared action invocation, in
       cascade order (exit → action → entry)
     - `:dispatch-id` matches the originating event's dispatch-id across
-      both trace operations, enabling Causa to group by cascade
+      both trace operations, enabling Xray to group by cascade
     - exceptional path: the throwing action emits `action-ran` with
       `:outcome :rf.error/action-threw` AND carries the exception"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -196,7 +196,7 @@
 
 (deftest cascade-correlation-dispatch-id-rides-both-traces
   (testing "guard-evaluated and action-ran both ride the standard trace bus,
-   so `*handler-scope*` auto-stamps `:dispatch-id` under `:tags` — Causa's
+   so `*handler-scope*` auto-stamps `:dispatch-id` under `:tags` — Xray's
    per-event grouping works without any explicit threading"
     (rf/reg-machine :ga/correlate
       {:initial :idle

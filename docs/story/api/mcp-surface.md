@@ -61,7 +61,7 @@ The split keeps Story's read surface composable:
 - **Crosses the wire elided** — every payload returned by a story-mcp tool (`get-variant`, `run-variant`, `snapshot-identity`, registry reads, recorder output). The MCP jar is the wire owner; egress is where elision lands.
 - **Crosses the wire raw** — nothing the MCP jar emits. A future in-process consumer that calls the read primitives directly (without going through the MCP jar) gets real values; this is by design so on-box devtool surfaces can read the same data unredacted.
 
-Story core's contract is **real-values-in, real-values-out**; elision is the MCP jar's responsibility. The same split governs Causa's runtime seam — the framework / Causa / Story emit; tools consume; the contract is the data shape, not the call shape.
+Story core's contract is **real-values-in, real-values-out**; elision is the MCP jar's responsibility. The same split governs Xray's runtime seam — the framework / Xray / Story emit; tools consume; the contract is the data shape, not the call shape.
 
 ## Public write primitives
 
@@ -114,14 +114,14 @@ The `reg-story-panel` surface is the single hook through which tooling embeds it
 1. **`:render` is a `:view` id.** Late-bind via `(rf/view ...)`. The actual view can register from a different artefact than the panel registration itself.
 2. **Placement is one of five slots** — `:right` / `:left` / `:bottom` / `:top` / `:modal`.
 3. **Visibility flows through `:panel-visibility`** — the shell's on/off switch keyed by panel id.
-4. **Author calls `reg-story-panel` from anywhere.** Built-in panels register from the canonical-vocabulary auto-install; third-party tooling (Causa's epoch view, future statechart-viz panels) registers from its own boot.
-5. **The Causa embed is the canonical late-bind example.** A stub view ships with Story; Causa registers the live view under the same `:rf.story.panel/epoch-view` id when present; the shell picks Causa's view automatically.
+4. **Author calls `reg-story-panel` from anywhere.** Built-in panels register from the canonical-vocabulary auto-install; third-party tooling (Xray's epoch view, future statechart-viz panels) registers from its own boot.
+5. **The Xray embed is the canonical late-bind example.** A stub view ships with Story; Xray registers the live view under the same `:rf.story.panel/epoch-view` id when present; the shell picks Xray's view automatically.
 
 The MCP jar consumes neither the panel host nor the view ids directly; it consumes the registry data. But the same contract is what allows the *MCP* to expose new panels to Story-the-tool via agent action: an agent calls `register-variant` *plus* `register-story-panel` (when the write surface is open) to ship a panel.
 
 ## Why a separate jar
 
-The MCP server depends on transport machinery (stdio adapter, JSON-RPC framing, asynchronous-handler runtime) that the vast majority of Story consumers never load. Splitting at the jar boundary keeps the Story core lean and lets the MCP surface evolve on its own cadence. The pattern mirrors `tools/causa/` vs. `tools/re-frame2-pair-mcp/` (the runtime seam vs. the MCP server that consumes it).
+The MCP server depends on transport machinery (stdio adapter, JSON-RPC framing, asynchronous-handler runtime) that the vast majority of Story consumers never load. Splitting at the jar boundary keeps the Story core lean and lets the MCP surface evolve on its own cadence. The pattern mirrors `tools/xray/` vs. `tools/re-frame2-pair-mcp/` (the runtime seam vs. the MCP server that consumes it).
 
 A typical agent's interaction with Story over the MCP surface:
 
@@ -144,5 +144,5 @@ Every read crosses the wire elided; every write goes through the gate. Story cor
 - [Play scripts](play-script.md) — the `:play-script` body shape an agent emits via the `register-variant` write tool.
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Framework API — Schemas and data classification](../../api/08-schemas.md) — `elide-wire-value`, the framework primitive the MCP jar's egress boundary calls.
-- [Causa runtime seam](../../causa/api/runtime-seam.md) — the parallel Tool-Pair contract for Causa-the-panel; same emit-and-consume discipline.
+- [Xray runtime seam](../../xray/api/runtime-seam.md) — the parallel Tool-Pair contract for Xray-the-panel; same emit-and-consume discipline.
 - Normative spec — [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) (the MCP jar's own spec folder: wire protocol, tool registry, write-surface gating).

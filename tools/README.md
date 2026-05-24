@@ -70,7 +70,7 @@ builds (today: `re-frame2-pair-mcp/server` and `re-frame2-pair-mcp/server-test`)
 `shadow-cljs compile <build>` works from `tools/` as well as from each
 tool's directory. Per-tool invocations remain valid — the coordinators
 compose the per-tool builds, they do not replace them. CLJS-only tools
-(`causa`) and JVM-only tools whose sources contain placeholder-bearing
+(`xray`) and JVM-only tools whose sources contain placeholder-bearing
 template files (`template`) are excluded from the shadow-cljs surface
 for technical reasons documented in the coordinator's comment block.
 
@@ -81,17 +81,17 @@ actively developed against. Maturity varies (the alpha framework is
 itself pre-1.0); the common factor is that the artefact exists, is
 wired into the build, and consumers can use it today.
 
-- **`tools/causa/`** — `day8/re-frame2-causa`. **Causa**, the in-app
+- **`tools/xray/`** — `day8/re-frame2-xray`. **Xray**, the in-app
   devtools panel for re-frame2 — structural successor to
-  re-frame-10x (renamed per `tools/causa/spec/DESIGN-RATIONALE.md`
-  Lock #1; the standalone 10x port is now redirected into Causa per
+  re-frame-10x (renamed per `tools/xray/spec/DESIGN-RATIONALE.md`
+  Lock #1; the standalone 10x port is now redirected into Xray per
   rf2-jt6t / #556). Preloaded into dev builds via `:preloads`;
   production builds elide it through the universal
   `interop/debug-enabled?` gate (zero bytes shipped to consumers).
   Panel inventory: event-detail, causality graph, time-travel
   scrubber, slice-centric app-db, machine inspector, schema-violation
   timeline, hydration debugger, issues ribbon, AI co-pilot rail. See
-  [`tools/causa/spec/000-Vision.md`](./causa/spec/000-Vision.md).
+  [`tools/xray/spec/000-Vision.md`](./xray/spec/000-Vision.md).
 
 - **`tools/mcp-base/`** — `day8/re-frame2-mcp-base`. Shared primitives
   for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): seven
@@ -143,7 +143,7 @@ wired into the build, and consumers can use it today.
   in its own frame (`spec/002`), is EDN-shaped data (not a function),
   ships with schema-derived controls (`spec/010`),
   assertion-vocabulary play sequences, and a content-hashed snapshot
-  identity for visual-regression keying. Embeds Causa's epoch panel
+  identity for visual-regression keying. Embeds Xray's epoch panel
   as a registered story panel. See
   [`tools/story/README.md`](./story/README.md).
 
@@ -245,7 +245,7 @@ Two rules apply:
    answer is "downstream of `/spec`."
 
 The rule applies to genuinely-shared tool contracts. Single-tool
-contracts (the `tools/causa/spec/...` panel inventory, the
+contracts (the `tools/xray/spec/...` panel inventory, the
 `tools/story/spec/...` Story format) stay with their tool and are
 not indexed in the framework's `spec/Ownership.md` — they are not
 *framework-level* surfaces.
@@ -260,7 +260,7 @@ not created up-front.
 - **`tools/machines-viz-mcp/`** — `day8/re-frame2-machines-viz-mcp`.
   A likely separate MCP surface for machine viz. Confirmed separation
   pending the first cut. (The chart-component role originally scoped
-  to `tools/machines-viz/` was superseded by Causa's Machine Inspector
+  to `tools/machines-viz/` was superseded by Xray's Machine Inspector
   panel per PR #1400/#1402/#1407; the pure Mermaid emitter relocated
   to `implementation/machines/src/re_frame/machines/mermaid.cljc` per
   rf2-yamkm.)

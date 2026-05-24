@@ -3,9 +3,9 @@
   boundary (rf2-qeous). The pass takes the flat patch list produced
   by `re-frame.mcp-base.diff-encode/collect-patches` and projects it
   into N path-headed clusters — the same `sections-per-cluster`
-  decomposition Causa ships in its panel renderer (rf2-gfxmk Phase 1
+  decomposition Xray ships in its panel renderer (rf2-gfxmk Phase 1
   of rf2-abts7), recast over patches so mcp-base stays free of the
-  causa dep."
+  xray dep."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.diff-encode :as de]
             [re-frame.mcp-base.section-grouping :as sg]))
@@ -110,7 +110,7 @@
   ;; [:user :last-edited-at] is a singleton → promotes to [:user];
   ;; [:flash] is a top-level singleton → stays at [:flash].
   ;;
-  ;; Three sections — fewer than Causa's panel-side annotated-tree
+  ;; Three sections — fewer than Xray's panel-side annotated-tree
   ;; projection produces (which can split [:cart :items] vs
   ;; [:cart :totals] because the annotated tree carries the
   ;; container structure that lets the renderer split overfilled

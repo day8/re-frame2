@@ -1,0 +1,551 @@
+(ns panel-gallery.fixtures
+  "Pure fixture builders for the Xray panel gallery (rf2-1o7mp).
+
+  Story variants seed state by firing REAL Xray init events
+  (`:rf.xray/sync-trace-buffer`, `:rf.xray/select-dispatch-id`)
+  against the variant frame. Those handlers preserve `db` via `assoc`,
+  so Story's `:rf.story/*` runtime slots survive untouched per
+  `tools/story/spec/002-Runtime.md` §Coexistence with hosting
+  application state.
+
+  This namespace exposes pure builder functions that synthesize
+  trace-event vectors shaped exactly as
+  `re-frame.trace.projection/group-cascades` projects them:
+
+      {:id <int>
+       :op-type   :rf.event | :fx | :rf.sub/run | :view | :error | :warning | ...
+       :operation :rf.event/dispatched | :rf.event/run-start | :rf.event/run-end | :rf.fx/do-fx | :rf.fx/handled | ...
+       :tags      {:rf.trace/dispatch-id <int>
+                   :rf.event/v       <event-vec>     ;; on :rf.event/dispatched
+                   :rf.trace/phase       :run-start | :run-end
+                   :rf.fx/id       <kw>            ;; on :rf.event/fx
+                   :rf.sub/id      <kw>            ;; on :rf.sub/run
+                   :rf.view/render-key  [<view-id> <args>] ;; on :view
+                   :frame       <frame-id>}}
+
+  The mirror of this shape lives in
+  `tools/xray/test/day8/re_frame2_xray/panels/event_detail_cljs_test.cljs`
+  (`cascade-evs`); the gallery uses the same template so any future
+  panel projection change shows up identically in both places.
+
+  Builders return plain vectors; the variant `:events` slot wraps each
+  in `[:rf.xray/sync-trace-buffer <buffer>]` for the seed dispatch.")
+
+;; ---- domino-row builders ------------------------------------------------
+;;
+;; Eight-event template per cascade — one of each row the event-detail
+;; panel renders. id-base lets a caller stack many cascades without id
+;; collision. Optional frame-id rides on every emit so cross-frame
+;; cascades surface the panel's `:frame` annotation in the cascade list.
+
+(defn cascade-evs
+  "Synthesize the eight trace events for a single cascade. Mirrors the
+  `cascade-evs` helper in event_detail_cljs_test so the gallery exercises
+  exactly the rows the unit tests pin.
+
+  Returns a vector of trace-event maps shaped per
+  `re-frame.trace.projection/group-cascades`."
+  ([dispatch-id event-vec id-base]
+   (cascade-evs dispatch-id event-vec id-base nil))
+  ([dispatch-id event-vec id-base frame-id]
+   (let [tag (cond-> {:dispatch-id dispatch-id}
+               frame-id (assoc :frame frame-id))]
+     [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+       :tags (assoc tag :rf.event/v event-vec)}
+      {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
+       :tags (assoc tag :rf.trace/phase :run-start)}
+      {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
+       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 4)}
+      {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
+       :tags tag}
+      {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+       :tags (assoc tag :rf.fx/id :db)}
+      {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
+       :tags (assoc tag :rf.fx/id :dispatch)}
+      {:id (+ id-base 7) :op-type :rf.sub :operation :rf.sub/run
+       :tags (assoc tag :rf.sub/id :sub/foo)}
+      {:id (+ id-base 8) :op-type :rf.view :operation :rf.view/render
+       :tags (assoc tag :rf.view/render-key [:app/root nil])}])))
+
+(defn cascade-with-counts
+  "Build a cascade with caller-controlled fanout. `counts` is a map of
+  `{:effects N :subs N :renders N}`; each non-zero count emits that
+  many additional rows of the matching `:op-type`. Always emits the
+  three baseline event/do-fx rows so the cascade has a recognisable
+  spine; never emits the eighth `:rf.view/render` row when `:renders 0`.
+
+  Synthetic fx-ids / sub-ids / render-keys cycle through a small pool
+  so the panel renders distinguishable values rather than 30 identical
+  rows."
+  [{:keys [dispatch-id event-vec id-base frame-id
+           effects subs renders]
+    :or {effects 1 subs 0 renders 0}}]
+  (let [tag (cond-> {:dispatch-id dispatch-id}
+              frame-id (assoc :frame frame-id))
+        spine [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+                :tags (assoc tag :rf.event/v event-vec)}
+               {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
+                :tags (assoc tag :rf.trace/phase :run-start)}
+               {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
+                :tags (assoc tag :rf.trace/phase :run-end :duration-ms 7)}
+               {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
+                :tags tag}]
+        fx-pool [:db :dispatch :http :rf.machine/transition :rf.flow/computed
+                 :navigate :persist :metrics]
+        sub-pool [:auth/user :route/active :counter/value :cart/items
+                  :ui/theme :i18n/locale :session/heartbeat :feature/flags
+                  :perf/budget :error/recent]
+        render-pool [[:app/root nil] [:nav/bar nil] [:counter/badge nil]
+                     [:cart/list nil] [:auth/menu {:variant :compact}]
+                     [:perf/ribbon nil] [:settings/tab {:tab :general}]
+                     [:modal/host nil]]
+        fx-rows (mapv (fn [i]
+                        {:id (+ id-base 100 i) :op-type :rf.fx :operation :rf.fx/handled
+                         :tags (assoc tag :rf.fx/id (nth fx-pool (mod i (count fx-pool))))})
+                      (range effects))
+        sub-rows (mapv (fn [i]
+                         {:id (+ id-base 1000 i) :op-type :rf.sub :operation :rf.sub/run
+                          :tags (assoc tag :rf.sub/id (nth sub-pool (mod i (count sub-pool))))})
+                       (range subs))
+        render-rows (mapv (fn [i]
+                            {:id (+ id-base 10000 i) :op-type :rf.view :operation :rf.view/render
+                             :tags (assoc tag :rf.view/render-key
+                                          (nth render-pool (mod i (count render-pool))))})
+                          (range renders))]
+    (-> []
+        (into spine)
+        (into fx-rows)
+        (into sub-rows)
+        (into render-rows))))
+
+(defn cascade-with-other
+  "Single cascade carrying non-domino rows under `:other` — errors,
+  warnings, and machine transitions. Exercises `event-detail`'s
+  `other-row` render branch."
+  [dispatch-id id-base]
+  (let [tag {:dispatch-id dispatch-id}]
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:user/save-profile {:id 7}])}
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 12)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags tag}
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :db)}
+     ;; Non-domino rows — surface under :other.
+     {:id (+ id-base 6) :op-type :rf.error/handler-exception
+      :operation :rf.error/handler-exception
+      :tags (assoc tag :rf.event/v [:user/save-profile {:id 7}])}
+     {:id (+ id-base 7) :op-type :rf.warning/large-value-unschema'd
+      :operation :rf.warning/large-value-unschema'd
+      :tags (assoc tag :rf.sub/id :user/profile)}
+     {:id (+ id-base 8) :op-type :rf.machine/transition
+      :operation :rf.machine/transition
+      :tags (assoc tag :machine-id :user/save :from :idle :to :saving)}]))
+
+;; ---- buffer builders ----------------------------------------------------
+;;
+;; Each builder returns the trace-buffer vector ready to be passed
+;; verbatim to `:rf.xray/sync-trace-buffer`. The seed event in
+;; `core.cljs` writes the vector into the variant frame's app-db
+;; under `:trace-buffer`; the `:rf.xray/trace-buffer` sub then reads
+;; it on the standard reactive path.
+
+(defn empty-buffer [] [])
+
+(defn n-cascades
+  "Build `n` shallow cascades, each with the canonical 8-row template
+  and a unique `:dispatch-id` / event vector. Useful for cascade-list
+  variants where the panel renders one row per cascade."
+  [n]
+  (->> (range n)
+       (mapcat (fn [i]
+                 (cascade-evs (+ 100 i)
+                              [:demo/event-N i]
+                              (* (inc i) 50))))
+       vec))
+
+(defn n-cascades-cross-frame
+  "Like `n-cascades` but every other cascade rides on a non-default
+  frame-id so the panel's per-row frame annotation is exercised."
+  [n]
+  (->> (range n)
+       (mapcat (fn [i]
+                 (let [fid (case (mod i 3)
+                             0 nil
+                             1 :tenant/alpha
+                             2 :tenant/beta)]
+                   (cascade-evs (+ 200 i)
+                                [:tenant/poke i]
+                                (* (inc i) 50)
+                                fid))))
+       vec))
+
+(defn deep-nested-buffer
+  "A single root cascade plus four child cascades simulating
+  programmatic re-dispatch from each handler. Each child carries its
+  own dispatch-id so the cascade list shows five entries — the
+  cascade-detail view of the root reveals the original event."
+  []
+  (->> [[100 [:auth/login {:user :ada}]]
+        [101 [:auth/load-profile :ada]]
+        [102 [:profile/fetch-permissions :ada]]
+        [103 [:permissions/cache-load :ada]]
+        [104 [:audit/note-login :ada]]]
+       (map-indexed (fn [i [dispatch-id ev]]
+                      (cascade-evs dispatch-id ev (* (inc i) 50))))
+       (mapcat identity)
+       vec))
+
+(defn redacted-cascade-buffer
+  "One cascade whose dispatched event carries a redaction marker on a
+  password slot. The panel surfaces the marker verbatim — this is the
+  visual edge for `:sensitive?` handlers per Spec 009."
+  []
+  (let [dispatch-id 100
+        id-base 50
+        tag {:dispatch-id dispatch-id}]
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:user/sign-in {:email "ada@example.com"
+                                              :password :rf/redacted
+                                              :totp     :rf/redacted}])}
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 9)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags tag}
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :http)}]))
+
+(defn large-payload-buffer
+  "One cascade whose event payload is large-elided per Spec 009. The
+  panel renders the marker shape verbatim — the upstream emit sets the
+  marker; the panel's job is to surface it without trying to expand."
+  []
+  (let [dispatch-id 100
+        id-base 50
+        tag {:dispatch-id dispatch-id}]
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:report/upload
+                               {:rf.size/large-elided
+                                {:source :schema
+                                 :handle :report/payload-1234
+                                 :original-size 4218543
+                                 :truncated-preview "{\"rows\": [{...} ...]"}}])}
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 23)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags tag}
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :http)}
+     {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :metrics)}]))
+
+(defn other-rows-buffer
+  "A buffer whose selected cascade carries non-domino rows — errors,
+  warnings, machine transitions — so the panel's `other-row` branch
+  renders."
+  []
+  (cascade-with-other 100 50))
+
+(defn long-handler-buffer
+  "A buffer of cascades whose `:run-end` rows carry a wide spread of
+  `:duration-ms` values so the panel's perf-tier dot ladder is visible
+  across the cascade list."
+  []
+  (->> [{:dispatch-id 100 :event-vec [:counter/increment] :id-base 50  :duration 1}
+        {:dispatch-id 101 :event-vec [:cart/add-item :apple] :id-base 100 :duration 6}
+        {:dispatch-id 102 :event-vec [:report/render-table] :id-base 150 :duration 22}
+        {:dispatch-id 103 :event-vec [:dashboard/refresh] :id-base 200 :duration 87}
+        {:dispatch-id 104 :event-vec [:scenario/replay] :id-base 250 :duration 312}]
+       (mapcat (fn [{:keys [dispatch-id event-vec id-base duration]}]
+                 (-> (cascade-evs dispatch-id event-vec id-base)
+                     ;; Patch the run-end emit's :duration-ms so the
+                     ;; perf-tier dot reflects the variant's intent.
+                     (update 2 update :tags assoc :duration-ms duration))))
+       vec))
+
+;; ---- specialised cascade builders --------------------------------------
+
+(defn exception-cascade-buffer
+  "Cascade whose handler threw — surfaces `:rf.error/handler-exception`
+  alongside the regular domino emits. The panel's `other-row` branch
+  renders the error row with severity dot + exception-message."
+  []
+  (let [dispatch-id 100
+        id-base     50
+        tag         {:dispatch-id dispatch-id}]
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:checkout/submit {:order-id 42}])}
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 5)}
+     {:id (+ id-base 4) :op-type :error :operation :rf.error/handler-exception
+      :tags (assoc tag :rf.event/v [:checkout/submit {:order-id 42}]
+                       :handler-id :checkout/submit-h
+                       :severity :error
+                       :reason "NullPointerException at checkout/submit-h:88"
+                       :exception-message "NullPointerException at checkout/submit-h:88")}]))
+
+(defn managed-http-cascade-buffer
+  "Cascade whose handler dispatched a managed HTTP fx — surfaces an
+  `:http/request` fx-row, an `:http/success` follow-up fx-row, and the
+  re-dispatched `:cart/loaded` cascade root. Exercises the cross-
+  cascade chain a managed-fx flow produces."
+  []
+  (let [tag1 {:dispatch-id 100}
+        tag2 {:dispatch-id 101}]
+    [;; Root cascade — :cart/refresh dispatches an :http/request fx.
+     {:id 51 :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag1 :rf.event/v [:cart/refresh])}
+     {:id 52 :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag1 :rf.trace/phase :run-start)}
+     {:id 53 :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag1 :rf.trace/phase :run-end :duration-ms 3)}
+     {:id 54 :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags tag1}
+     {:id 55 :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag1 :rf.fx/id :http/request
+                        :source :http :rf.event/origin :app)}
+     {:id 56 :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag1 :rf.fx/id :db)}
+     ;; Follow-up cascade — :cart/loaded re-dispatched by the http callback.
+     {:id 101 :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag2 :rf.event/v [:cart/loaded {:items 6 :total 24}])}
+     {:id 102 :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag2 :rf.trace/phase :run-start)}
+     {:id 103 :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag2 :rf.trace/phase :run-end :duration-ms 4)}
+     {:id 104 :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags tag2}
+     {:id 105 :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag2 :rf.fx/id :db)}
+     {:id 106 :op-type :rf.view :operation :rf.view/render
+      :tags (assoc tag2 :rf.view/render-key [:cart/list nil])}]))
+
+(defn machine-triggering-cascade-buffer
+  "Cascade whose handler triggered a state-machine transition —
+  surfaces `:rf.machine/transition` rows alongside the domino emits.
+  Exercises the Machines tab's transition-history ribbon (newest
+  first; spec/003)."
+  []
+  (let [tag1 {:dispatch-id 100}
+        tag2 {:dispatch-id 101}]
+    [;; Root — :user/save triggers the :user/save machine to :saving.
+     {:id 51 :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag1 :rf.event/v [:user/save {:id 7 :name "Ada"}])}
+     {:id 52 :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag1 :rf.trace/phase :run-start)}
+     {:id 53 :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag1 :rf.trace/phase :run-end :duration-ms 6)}
+     {:id 54 :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags tag1}
+     {:id 55 :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag1 :rf.fx/id :db)}
+     {:id 56 :op-type :rf.machine/transition :operation :rf.machine/transition
+      :tags (assoc tag1 :machine-id :user/save :from :idle :to :saving
+                        :event [:user/save {:id 7}])}
+     ;; Follow-up — :user/save-success transitions :user/save to :saved.
+     {:id 101 :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag2 :rf.event/v [:user/save-success {:id 7}])}
+     {:id 102 :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag2 :rf.trace/phase :run-start)}
+     {:id 103 :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag2 :rf.trace/phase :run-end :duration-ms 2)}
+     {:id 104 :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags tag2}
+     {:id 105 :op-type :rf.machine/transition :operation :rf.machine/transition
+      :tags (assoc tag2 :machine-id :user/save :from :saving :to :saved
+                        :event [:user/save-success {:id 7}])}
+     {:id 106 :op-type :rf.machine.microstep/transition
+      :operation :rf.machine.microstep/transition
+      :tags (assoc tag2 :machine-id :user/save :from :saved :to :idle
+                        :event [:user/save-success {:id 7}])}]))
+
+(defn very-deep-cascade-buffer
+  "Twelve sequential cascades — :auth/login chains through profile +
+  permissions + cache + audit + telemetry + ten more. Exercises the
+  event-list's overflow + scroll behaviour beyond the typical 8-row
+  default view."
+  []
+  (->> [[100 [:auth/login {:user :ada}]]
+        [101 [:auth/load-profile :ada]]
+        [102 [:profile/fetch-permissions :ada]]
+        [103 [:permissions/cache-load :ada]]
+        [104 [:audit/note-login :ada]]
+        [105 [:telemetry/note-session :ada]]
+        [106 [:flags/load-feature-flags :ada]]
+        [107 [:prefs/load-user-prefs :ada]]
+        [108 [:nav/resolve-initial-route]]
+        [109 [:cart/refresh]]
+        [110 [:inbox/load-counts :ada]]
+        [111 [:presence/announce :ada]]]
+       (map-indexed (fn [i [dispatch-id ev]]
+                      (cascade-evs dispatch-id ev (* (inc i) 50))))
+       (mapcat identity)
+       vec))
+
+;; ---- event-lens variants (rf2-zh2qc) -----------------------------------
+;;
+;; Builders that exercise the redesigned Event lens's 6-section layout
+;; under realistic combinations of substrate keys (rf2-twt7m): the
+;; dispatch-site coord on :rf.event/dispatched, the :fx + :db-present?
+;; tags on :rf.fx/do-fx, and (in tests) the :rf/default? flag on
+;; framework-auto-wrapped interceptors.
+
+(defn event-lens-simple-buffer
+  "Happy-path Event lens fixture — call-site captured, :fx + :db
+  returned, two fx-handlers ran. Renders all 6 sections including
+  HANDLER (when the variant pre-registers the handler) and the
+  EFFECTS RETURNED summary."
+  []
+  (let [dispatch-id 100
+        id-base     50
+        tag         {:dispatch-id dispatch-id}]
+    [(assoc {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+             :tags (assoc tag :rf.event/v [:cart/add-item {:id 42 :qty 2}])
+             :source :ui :origin :app}
+            :rf.trace/call-site
+            {:file "src/cart/views.cljs" :line 127})
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 11)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags (assoc tag :rf.event/fx [[:dispatch [:notify "added"]]]
+                       :rf.event/db-present? true)}
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :dispatch :rf.fx/args [[:notify "added"]]
+                       :duration-ms 0)}]))
+
+(defn event-lens-with-interceptors-buffer
+  "Event lens fixture with a user interceptor on the chain. Note: the
+  INTERCEPTORS section reads handler-meta off the registry at render
+  time, so this fixture pairs with a variant `:events` slot that
+  registers a real handler with the desired interceptor chain."
+  []
+  (event-lens-simple-buffer))
+
+(defn event-lens-with-coeffects-buffer
+  "Event lens fixture exercising the COEFFECTS section (rf2-jhhqt).
+  Stamps two user-injected coeffects (`:now` + `:local-storage`) onto
+  the `:rf.fx/do-fx` trace's `:tags :coeffects` slot — the substrate
+  filter has already excluded the framework defaults (`:db` `:event`
+  `:frame` `:source` `:trace-id`)."
+  []
+  (let [dispatch-id 110
+        id-base     60
+        tag         {:dispatch-id dispatch-id}]
+    [(assoc {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+             :tags (assoc tag :rf.event/v [:cart/restore])
+             :source :ui :origin :app}
+            :rf.trace/call-site
+            {:file "src/cart/events.cljs" :line 211})
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 7)}
+     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags (assoc tag :rf.event/fx [[:db nil]]
+                       :rf.event/db-present? true
+                       :rf.event/coeffects {:now "2026-05-18T19:00:00Z"
+                                   :local-storage {:user/last-cart-id "cart-42"
+                                                   :user/wishlist-ids #{"sku-9"}}})}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :db :duration-ms 1)}]))
+
+(defn event-lens-many-fx-buffer
+  "Event lens fixture — six fx handlers ran in the cascade, including
+  one managed-fx (HTTP). Exercises the inline managed-fx mount under
+  §6."
+  []
+  (let [dispatch-id 200
+        id-base     200
+        tag         {:dispatch-id dispatch-id}]
+    [(assoc {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+             :tags (assoc tag :rf.event/v [:dashboard/refresh-all])
+             :source :ui :origin :app}
+            :rf.trace/call-site
+            {:file "src/dashboard/views.cljs" :line 88})
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 47)}
+     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags (assoc tag :rf.event/fx [[:db nil] [:rf.http/get {:url "/api/stats"}]
+                            [:dispatch [:refresh-done]]]
+                       :rf.event/db-present? true)}
+     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :db :duration-ms 1)}
+     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :rf.http/get :duration-ms 87
+                       :source :http :rf.event/origin :app
+                       :rf.fx/args [{:url "/api/stats"}])}
+     {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :metrics :duration-ms 2)}
+     {:id (+ id-base 7) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :persist :duration-ms 3)}
+     {:id (+ id-base 8) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :navigate :duration-ms 1)}
+     {:id (+ id-base 9) :op-type :rf.fx :operation :rf.fx/handled
+      :tags (assoc tag :rf.fx/id :dispatch :rf.fx/args [[:refresh-done]]
+                       :duration-ms 0)}]))
+
+(defn event-lens-handler-threw-buffer
+  "Event lens fixture — handler threw mid-run. §5 + §6 should be
+  ABSENT; the cascade-outcome glyph is ✗ red and the Issues-tab
+  footer is the only inline cross-reference."
+  []
+  (let [dispatch-id 300
+        id-base     300
+        tag         {:dispatch-id dispatch-id}]
+    [(assoc {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+             :tags (assoc tag :rf.event/v [:checkout/submit {:order-id 42}])
+             :source :ui :origin :app}
+            :rf.trace/call-site
+            {:file "src/checkout/views.cljs" :line 203})
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
+      :tags (assoc tag :rf.trace/phase :run-start)}
+     {:id (+ id-base 3) :op-type :error :operation :rf.error/handler-exception
+      :tags (assoc tag :rf.trace/event-id :checkout/submit
+                       :exception-message "NullPointerException at checkout/submit-h:88"
+                       :severity :error)}]))
+
+(defn event-lens-hydration-completed-buffer
+  "Event lens fixture — a :rf.ssr/hydrated completion event. Renders
+  the SSR✓ outcome-line badge plus the hydration-outcome row inside
+  §5. With :mismatches 0 there's no jump-to-Issues affordance."
+  []
+  (let [dispatch-id 400
+        id-base     400
+        tag         {:dispatch-id dispatch-id}]
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:rf.ssr/hydrated {:duration-ms 87
+                                                  :subs-ran 142
+                                                  :mismatches 0}])
+      :source :ssr :origin :app}
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 87)}
+     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags tag}
+     {:id (+ id-base 4) :op-type :rf.event :operation :rf.ssr/hydration-outcome
+      :tags (assoc tag :duration-ms 87 :subs-ran 142 :mismatches 0)}]))
+
+(defn event-lens-hydration-mismatch-buffer
+  "Event lens fixture — hydration completed WITH mismatches. The
+  hydration-outcome row carries the jump-to-Issues affordance."
+  []
+  (let [dispatch-id 401
+        id-base     410
+        tag         {:dispatch-id dispatch-id}]
+    [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+      :tags (assoc tag :rf.event/v [:rf.ssr/hydrated {:duration-ms 91 :mismatches 3}])
+      :source :ssr :origin :app}
+     {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-end
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 91)}
+     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags tag}
+     {:id (+ id-base 4) :op-type :rf.event :operation :rf.ssr/hydration-outcome
+      :tags (assoc tag :duration-ms 91 :subs-ran 142 :mismatches 3)}]))

@@ -18,7 +18,7 @@ You'll know:
 
 ## Why the framework cares
 
-Observability is the third pillar — but observability without privacy is *the leak channel built into the runtime*. The Causa-MCP server (re-frame2-pair-mcp; the off-box AI surface) reads `app-db`. The Datadog forwarder you saw in [ch. 23](23-observability.md) reads `:tags :event`. The Sentry bridge in [ch. 16](16-errors.md) ships `:rf.error/*` events whose `:tags` include the event vector that triggered the throw. Every one of those consumers is downstream of the same stream — and every one of them, if it ships your password-bearing sign-in event unmodified, has a security incident.
+Observability is the third pillar — but observability without privacy is *the leak channel built into the runtime*. The Xray-MCP server (re-frame2-pair-mcp; the off-box AI surface) reads `app-db`. The Datadog forwarder you saw in [ch. 23](23-observability.md) reads `:tags :event`. The Sentry bridge in [ch. 16](16-errors.md) ships `:rf.error/*` events whose `:tags` include the event vector that triggered the throw. Every one of those consumers is downstream of the same stream — and every one of them, if it ships your password-bearing sign-in event unmodified, has a security incident.
 
 The framework's answer is *not* "filter at the consumer". Consumers are written by humans (you, the app writer) and AI agents and ops engineers — humans who forget, agents who don't know which slot is sensitive without being told. The framework's answer is **the registration declares the truth, the walker enforces it, the consumer reads the result**. Three pieces; one is yours.
 
@@ -48,7 +48,7 @@ Both elision flags live on the same surface: a Malli slot's per-slot props map. 
 
 That's the declaration. Nothing else.
 
-Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — re-frame2-pair-mcp, Datadog shipper, Causa-MCP — sees the redacted shape; the value never leaves the trust boundary.
+Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — re-frame2-pair-mcp, Datadog shipper, Xray-MCP — sees the redacted shape; the value never leaves the trust boundary.
 
 What `:sensitive? true` does:
 
@@ -145,7 +145,7 @@ The same composition rule binds the schema-validation emit-site (per [§Schema-v
 
 The schema is the input; the elision pipeline is the output. The framework does the wiring between the two — you don't see it from the app-writer side, but the one paragraph is worth knowing:
 
-At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, re-frame2-pair-mcp, story-mcp, and the Datadog shipper from [ch. 23](23-observability.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
+At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Xray, re-frame2-pair-mcp, story-mcp, and the Datadog shipper from [ch. 23](23-observability.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
 
 **One declaration; every consumer honours it.** If you declare `:sensitive? true` on `[:user :credit-card]`, every off-box ship, every on-box dev-panel render, every `:rf.http/*` request body, every schema-validation error trace substitutes `:rf/redacted` for the slot's value. The platform handles the rest.
 
@@ -218,13 +218,13 @@ Writer-side is half the picture. The other half is the *consumer*'s elision poli
 |---|---|---|---|
 | re-frame2-pair-mcp (AI surface) | `false` | `false` | Yes |
 | story-mcp (story playgrounds) | `false` | `false` | Yes |
-| Causa-MCP (cascade graph) | `false` | `false` | Yes |
+| Xray-MCP (cascade graph) | `false` | `false` | Yes |
 | Story panel (on-box dev UI) | `false` | `false` | No |
-| Causa panel (on-box dev UI) | `false` | `false` | No |
+| Xray panel (on-box dev UI) | `false` | `false` | No |
 
 [Chapter 23](23-observability.md)'s Datadog shipper is the sixth consumer — and it follows the same rule: **off-box shippers MUST default both `include-*` flags to `false`**. Off-box means "the data is leaving your trust boundary"; Datadog's trust boundary is not yours. The conservative default is the framework's safety net for app authors who opt into a published integration without reading its source.
 
-On-box dev UIs (the Causa panel, the Story panel) show a `[● ELIDED N]`-style indicator when the marker is in the rendered view, and the user clicks to opt in for a single fetch. Production-trust on-box consumers MAY default to `true`, but the rationale must be documented per-consumer.
+On-box dev UIs (the Xray panel, the Story panel) show a `[● ELIDED N]`-style indicator when the marker is in the rendered view, and the user clicks to opt in for a single fetch. Production-trust on-box consumers MAY default to `true`, but the rationale must be documented per-consumer.
 
 ## Worked example — login with a sensitive credential
 
@@ -283,5 +283,5 @@ One declaration site, one walker, every consumer honours it.
 - [04a — Schemas](05-schemas.md) — the per-slot props map this chapter writes to, and the rest of the schema vocabulary.
 - [10 — Doing HTTP requests](12-http.md) — the `:rf.http/managed` cascade that extends this chapter's privacy machinery.
 - [14 — Errors and how to handle them](16-errors.md) — the `:rf.error/*` taxonomy this chapter's schema-validation section bottoms out on.
-- [Causa](../causa/index.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason privacy and size matter is that the bus has five+ consumers.
+- [Xray](../xray/index.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason privacy and size matter is that the bus has five+ consumers.
 - [22 — Production observability](23-observability.md) — the consumer-side companion. Read it after this chapter to see the writer's declarations land on the wire.

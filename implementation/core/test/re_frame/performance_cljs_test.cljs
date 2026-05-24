@@ -20,7 +20,7 @@
   `re-frame.performance-emit-nightly-test` (rf2-e3j8l, nightly only
   via the `:node-test-perf-nightly` shadow-cljs build) — migrated from
   the deleted Playwright spec at
-  `tools/causa/testbeds/perf_counter/spec.cjs`."
+  `tools/xray/testbeds/perf_counter/spec.cjs`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.performance :as performance :include-macros true]))
 

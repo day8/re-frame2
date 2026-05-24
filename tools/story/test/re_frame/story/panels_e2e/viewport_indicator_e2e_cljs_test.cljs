@@ -98,7 +98,7 @@
             resolves to `:full` (no width/height) and the indicator
             self-elides (returns nil). Pinning the inverse here ensures
             the later 'indicator-renders' tests can't be trivial-pass."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (is (nil? (render-indicator-from-shell-state))
@@ -111,7 +111,7 @@
             slot; `effective-viewport` reads through it; the indicator
             renders the canonical \"375 × 667\" text with the
             `data-viewport-dims` attribute matching."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (vs/select! :mobile-portrait)
@@ -133,7 +133,7 @@
   (testing "rf2-f9xkq — calling `select!` with a different preset
             updates the indicator's rendered text. Catches the
             'indicator stuck on first selection' class of regression."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (vs/select! :mobile-portrait)
@@ -153,7 +153,7 @@
             (the no-resize default) re-elides the indicator. Pins the
             'sized → unsized → no chip' transition so a regression that
             kept a stale chip after un-selection would surface."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (vs/select! :tablet)
@@ -170,7 +170,7 @@
             the indicator with the custom dimensions. Pins the custom-
             entry path (the dropdown's Width × Height row at the
             bottom)."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (vs/select! {:width 1024 :height 600})
@@ -187,7 +187,7 @@
   (testing "rf2-f9xkq — when a variant body declares `:viewport`, that
             override wins over the toolbar's selection at indicator-
             render time. Per spec/014 §`:viewport` body slot."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories
        (fn []
          (story/reg-story* :story.vp-override

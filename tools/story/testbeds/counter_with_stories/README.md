@@ -16,7 +16,7 @@ The four canonical variants exercise three of the seven canonical
 `:rf.assert/*` events (`path-equals`, `sub-equals`, `dispatched?`,
 `effect-emitted`) plus the built-in `force-fx-stub` decorator for
 the save-flow variant. The fifth variant, `events-only-loaded`, was
-folded in from the retired `causa_rhs_smoke` testbed per rf2-9jfo1.2 —
+folded in from the retired `xray_rhs_smoke` testbed per rf2-9jfo1.2 —
 it pins the canonical events-only loader-body shape (no `:loaders`,
 no `:loaders-complete-when`, no `:frame-setup` decorators) that takes
 the rf2-043cm `:pre-mount → :ready` lifecycle fast-path.
@@ -47,7 +47,7 @@ README markets as a headline feature:
 - **Sign in (sensitive)** dispatches `:auth/sign-in` — registered
   with `:sensitive? true` handler metadata as the whole-handler
   privacy escape hatch. The metadata stamps every trace event emitted
-  inside the handler's scope with `:sensitive? true` (Causa filters
+  inside the handler's scope with `:sensitive? true` (Xray filters
   those out and surfaces `[● REDACTED N]` in the bottom rail).
 - **Upload large avatar (inline)** dispatches `:user/avatar/upload`
   with a 20 kB string in the event payload. Path D does not auto-elide

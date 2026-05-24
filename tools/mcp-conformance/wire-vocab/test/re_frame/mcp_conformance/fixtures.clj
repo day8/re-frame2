@@ -26,7 +26,7 @@
     needs the test to surface it.
   - **`known-servers`** — the canonical `#{:re-frame2-pair-mcp :story-mcp}`
     pair. A typo in any test's `:servers` set surfaces against this.
-    (causa-mcp was dropped in rf2-bu21t — causa now ships as a
+    (xray-mcp was dropped in rf2-bu21t — xray now ships as a
     Clojars-only library, not an MCP server.)
 
   ## What this ns does NOT own
@@ -102,8 +102,8 @@
   server means extending this set AND adding per-server source/spec
   coverage to every relevant test catalogue.
 
-  causa-mcp was dropped in rf2-bu21t — `tools/causa-mcp/` is no longer
-  in the repo; causa now ships as a Clojars-only library."
+  xray-mcp was dropped in rf2-bu21t — `tools/xray-mcp/` is no longer
+  in the repo; xray now ships as a Clojars-only library."
   #{:re-frame2-pair-mcp :story-mcp})
 
 ;; ---------------------------------------------------------------------------

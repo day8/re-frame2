@@ -240,7 +240,7 @@ const DEV_ONLY_SENTINELS = [
   // Emitted alongside :view/render from the same `(when interop/debug-
   // enabled? ...)`-gated emit-render-trace! body; carries :view-id,
   // :frame, :render-key, and (when available) :cause-event-id +
-  // :cause-subs for Causa's Reactive panel cascade graphing. The
+  // :cause-subs for Xray's Reactive panel cascade graphing. The
   // operation keyword's string fragment must elide under :advanced +
   // goog.DEBUG=false alongside the existing view/render sentinel.
   { source: 're-frame.views/reg-view* frame-aware-view (rf.view/rendered)',
@@ -249,7 +249,7 @@ const DEV_ONLY_SENTINELS = [
   // by `emit-view-unmounted!` (via the per-render-instance reaction
   // dispose installed by `install-unmount-hook!`) when a registered view
   // instance tears down; carries :view-id, :frame and the :render-key
-  // tuple for Causa's Views table to label the `unmount` action. The
+  // tuple for Xray's Views table to label the `unmount` action. The
   // emit body, the reaction creation, the on-dispose registration, and
   // the in-render deref that arms it all sit inside
   // `(when interop/debug-enabled? ...)`; the operation keyword's string
@@ -299,7 +299,7 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.core/{dispatch,subscribe,inject-cofx} (rf.trace/call-site stamping)',
     sentinel: 'rf.trace/call-site' },
   // re-frame.core/reg-event-{db,fx,ctx} — handler form-source capture
-  // (Spec 009 §`:rf.handler/source`, Causa Spec 021 §11.2 B.7 stretch,
+  // (Spec 009 §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch,
   // rf2-xgfuy). The defreg-event-macro emission wraps the bound source
   // string in `(if interop/debug-enabled? ~src-string nil)` and the
   // events/merge-form-source body is gated on `interop/debug-enabled?`.

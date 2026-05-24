@@ -2,9 +2,9 @@
 /*
  * Tutorial screenshot generator.
  *
- * Drives a headless Chromium through the Causa + Story testbeds and
- * captures annotated screenshots for the Causa and Story tutorials at
- * `docs/causa/` and `docs/story/`.
+ * Drives a headless Chromium through the Xray + Story testbeds and
+ * captures annotated screenshots for the Xray and Story tutorials at
+ * `docs/xray/` and `docs/story/`.
  *
  * Pipeline:
  *   1. The orchestrator at examples/scripts/serve-and-run-examples-tests.cjs
@@ -26,8 +26,8 @@
  *   - Viewport pinned to 1280x800.
  *   - The Story shell's first-visit help overlay is dismissed via
  *     localStorage seeding (`re-frame.story/seen-help-v1`).
- *   - Causa's first-paint <80ms gate is satisfied by waiting for the
- *     shell's data-testid="rf-causa-shell" before shooting.
+ *   - Xray's first-paint <80ms gate is satisfied by waiting for the
+ *     shell's data-testid="rf-xray-shell" before shooting.
  *   - The counter-with-stories testbed seeds :count=5 deterministically.
  *
  * How to run (from repo root):
@@ -39,7 +39,7 @@
  *   node docs/scripts/generate-tutorial-screenshots.cjs
  *
  * Outputs:
- *   docs/images/causa/*.png
+ *   docs/images/xray/*.png
  *   docs/images/story/*.png
  *
  * Reproducibility: each shot's filename is locked; re-running overwrites.
@@ -56,7 +56,7 @@ const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
-const OUT_CAUSA = path.join(REPO_ROOT, 'docs', 'images', 'causa');
+const OUT_XRAY = path.join(REPO_ROOT, 'docs', 'images', 'xray');
 const OUT_STORY = path.join(REPO_ROOT, 'docs', 'images', 'story');
 const ANNOTATION_SPEC = path.join(__dirname, 'tutorial-annotation-spec.json');
 
@@ -298,7 +298,7 @@ function inPageClearAnnotations() {
 
 const SCENES = [];
 
-// ------------------------------ Causa scenes ------------------------------
+// ------------------------------ Xray scenes ------------------------------
 
 async function dismissStoryHelp(page) {
   await page.evaluate(() => {
@@ -306,26 +306,26 @@ async function dismissStoryHelp(page) {
   });
 }
 
-async function openCausa(page) {
+async function openXray(page) {
   // The preload only attaches keybindings; the shell mounts lazily on
   // the first Ctrl+Shift+C.
   await page.keyboard.press('Control+Shift+C');
-  await page.locator('[data-testid="rf-causa-shell"]').waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator('[data-testid="rf-xray-shell"]').waitFor({ state: 'visible', timeout: 10000 });
 }
 
-async function navCausa(page, panelId) {
-  const item = page.locator(`[data-testid="rf-causa-sidebar-item-${panelId}"]`);
+async function navXray(page, panelId) {
+  const item = page.locator(`[data-testid="rf-xray-sidebar-item-${panelId}"]`);
   await item.click();
   // Distinctive top-level testid per panel — wait for it to render.
   const canvasMap = {
-    'event-detail': 'rf-causa-event-detail',
-    'time-travel': 'rf-causa-time-travel',
-    'app-db':      'rf-causa-app-db-diff',
-    'trace':       'rf-causa-trace',
-    'machines':    'rf-causa-machine-inspector',
-    'schemas':     'rf-causa-schema-violation-timeline',
-    'hydration':   'rf-causa-hydration-debugger',
-    'copilot':     'rf-causa-copilot-panel',
+    'event-detail': 'rf-xray-event-detail',
+    'time-travel': 'rf-xray-time-travel',
+    'app-db':      'rf-xray-app-db-diff',
+    'trace':       'rf-xray-trace',
+    'machines':    'rf-xray-machine-inspector',
+    'schemas':     'rf-xray-schema-violation-timeline',
+    'hydration':   'rf-xray-hydration-debugger',
+    'copilot':     'rf-xray-copilot-panel',
   };
   const canvasTestid = canvasMap[panelId];
   if (canvasTestid) {
@@ -335,8 +335,8 @@ async function navCausa(page, panelId) {
 }
 
 SCENES.push({
-  id: 'causa-floating-pill',
-  out: path.join(OUT_CAUSA, '01-floating-pill.png'),
+  id: 'xray-floating-pill',
+  out: path.join(OUT_XRAY, '01-floating-pill.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
@@ -348,44 +348,44 @@ SCENES.push({
 });
 
 SCENES.push({
-  id: 'causa-shell-opened',
-  out: path.join(OUT_CAUSA, '02-shell-opened.png'),
+  id: 'xray-shell-opened',
+  out: path.join(OUT_XRAY, '02-shell-opened.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
     await page.getByRole('button', { name: '+' }).click();
     await page.getByRole('button', { name: '-' }).click();
-    await openCausa(page);
+    await openXray(page);
   },
 });
 
 SCENES.push({
-  id: 'causa-sidebar-panels',
-  out: path.join(OUT_CAUSA, '02-sidebar-panels.png'),
+  id: 'xray-sidebar-panels',
+  out: path.join(OUT_XRAY, '02-sidebar-panels.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
-    await openCausa(page);
+    await openXray(page);
   },
 });
 
 SCENES.push({
-  id: 'causa-event-detail',
-  out: path.join(OUT_CAUSA, '02-event-detail.png'),
+  id: 'xray-event-detail',
+  out: path.join(OUT_XRAY, '02-event-detail.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
     await page.getByRole('button', { name: '+' }).click();
-    await openCausa(page);
-    await navCausa(page, 'event-detail');
+    await openXray(page);
+    await navXray(page, 'event-detail');
   },
 });
 
 SCENES.push({
-  id: 'causa-time-travel',
-  out: path.join(OUT_CAUSA, '03-time-travel.png'),
+  id: 'xray-time-travel',
+  out: path.join(OUT_XRAY, '03-time-travel.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
@@ -394,57 +394,57 @@ SCENES.push({
       await page.getByRole('button', { name: '+' }).click();
     }
     await page.getByRole('button', { name: '-' }).click();
-    await openCausa(page);
-    await navCausa(page, 'time-travel');
+    await openXray(page);
+    await navXray(page, 'time-travel');
   },
 });
 
 SCENES.push({
-  id: 'causa-trace',
-  out: path.join(OUT_CAUSA, '04-trace.png'),
+  id: 'xray-trace',
+  out: path.join(OUT_XRAY, '04-trace.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
     await page.getByRole('button', { name: '+' }).click();
     await page.getByRole('button', { name: '-' }).click();
-    await openCausa(page);
-    await navCausa(page, 'trace');
+    await openXray(page);
+    await navXray(page, 'trace');
   },
 });
 
 SCENES.push({
-  id: 'causa-app-db-diff',
-  out: path.join(OUT_CAUSA, '09-app-db-diff.png'),
+  id: 'xray-app-db-diff',
+  out: path.join(OUT_XRAY, '09-app-db-diff.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
-    await openCausa(page);
-    await navCausa(page, 'app-db');
+    await openXray(page);
+    await navXray(page, 'app-db');
   },
 });
 
 SCENES.push({
-  id: 'causa-machines',
-  out: path.join(OUT_CAUSA, '08-machines.png'),
+  id: 'xray-machines',
+  out: path.join(OUT_XRAY, '08-machines.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
-    await openCausa(page);
-    await navCausa(page, 'machines');
+    await openXray(page);
+    await navXray(page, 'machines');
   },
 });
 
 SCENES.push({
-  id: 'causa-click-to-source-dom-attribute',
-  out: path.join(OUT_CAUSA, '05-dom-attribute.png'),
+  id: 'xray-click-to-source-dom-attribute',
+  out: path.join(OUT_XRAY, '05-dom-attribute.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     // Highlight the data-rf2-source-coord attribute by adding a visual
     // marker on the + button + a callout above it. The screenshot
-    // captures the live counter (no Causa) — the message is "every
+    // captures the live counter (no Xray) — the message is "every
     // rendered element carries a coord."
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll('button'));
@@ -454,30 +454,30 @@ SCENES.push({
   },
 });
 
-// --- Additional Causa scenes ----------------------------------------------
+// --- Additional Xray scenes ----------------------------------------------
 
 SCENES.push({
-  id: 'causa-copilot-rail',
-  out: path.join(OUT_CAUSA, '10-copilot-rail.png'),
+  id: 'xray-copilot-rail',
+  out: path.join(OUT_XRAY, '10-copilot-rail.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
-    await openCausa(page);
+    await openXray(page);
     // The co-pilot cue is rendered in the shell's bottom rail; click it
     // to slide the rail open.
-    await page.locator('[data-testid="rf-causa-copilot-cue"]').click();
-    await page.locator('[data-testid="rf-causa-copilot-rail"]')
+    await page.locator('[data-testid="rf-xray-copilot-cue"]').click();
+    await page.locator('[data-testid="rf-xray-copilot-rail"]')
       .waitFor({ state: 'visible', timeout: 5000 });
     // Type a slash to render the slash-command popover so the rail has
     // visible content — the empty rail is less informative.
-    await page.locator('[data-testid="rf-causa-copilot-input"]').fill('/explain');
+    await page.locator('[data-testid="rf-xray-copilot-input"]').fill('/explain');
   },
 });
 
 SCENES.push({
-  id: 'causa-schemas-empty',
-  out: path.join(OUT_CAUSA, '06-schema-timeline.png'),
+  id: 'xray-schemas-empty',
+  out: path.join(OUT_XRAY, '06-schema-timeline.png'),
   url: '/counter/',
   before: async (page) => {
     // The counter example registers no schemas — the panel renders its
@@ -485,14 +485,14 @@ SCENES.push({
     // the prose can carry the "what it'd look like populated" weight
     // until a schemas-registered testbed lands.
     await page.locator('span').first().waitFor({ state: 'visible' });
-    await openCausa(page);
-    await navCausa(page, 'schemas');
+    await openXray(page);
+    await navXray(page, 'schemas');
   },
 });
 
 SCENES.push({
-  id: 'causa-hydration-empty',
-  out: path.join(OUT_CAUSA, '07-hydration.png'),
+  id: 'xray-hydration-empty',
+  out: path.join(OUT_XRAY, '07-hydration.png'),
   url: '/counter/',
   before: async (page) => {
     // Counter is SPA-only — the hydration panel renders its
@@ -500,14 +500,14 @@ SCENES.push({
     // screenshot illustrates the panel; a hydration-mismatch testbed
     // can supersede this scene later.
     await page.locator('span').first().waitFor({ state: 'visible' });
-    await openCausa(page);
-    await navCausa(page, 'hydration');
+    await openXray(page);
+    await navXray(page, 'hydration');
   },
 });
 
 SCENES.push({
-  id: 'causa-app-db-modes',
-  out: path.join(OUT_CAUSA, '09-app-db-modes.png'),
+  id: 'xray-app-db-modes',
+  out: path.join(OUT_XRAY, '09-app-db-modes.png'),
   url: '/counter/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
@@ -516,8 +516,8 @@ SCENES.push({
     await page.getByRole('button', { name: '+' }).click();
     await page.getByRole('button', { name: '+' }).click();
     await page.getByRole('button', { name: '-' }).click();
-    await openCausa(page);
-    await navCausa(page, 'app-db');
+    await openXray(page);
+    await navXray(page, 'app-db');
   },
 });
 
@@ -738,7 +738,7 @@ async function probeBaseUrl() {
 }
 
 (async () => {
-  ensureDir(OUT_CAUSA);
+  ensureDir(OUT_XRAY);
   ensureDir(OUT_STORY);
 
   if (!(await probeBaseUrl())) {

@@ -18,7 +18,7 @@ One pass through the pipeline is one **epoch**. You'll see it called the six-dom
 
 ## What we mean by "functional"
 
-re-frame2 takes the obvious functional commitments seriously: pure functions, immutable data, isolated and controlled effects. None of this is unusual in a Clojure framework — what's unusual is how aggressively it's enforced at the boundaries. Handlers cannot reach into `app-db` arbitrarily; they ask through cofx. Subscriptions cannot smuggle behaviour past the cache; they're computed functions of `app-db` and other subs. Effects don't escape the cascade; they're returned as data and the runtime actions them. The discipline is what makes the trace bus possible, what makes time-travel possible, and what lets six different tools (Causa, Story, MCP-pair, the Datadog shipper, the linter, the migration agent) all read the same event stream and tell consistent stories about it.
+re-frame2 takes the obvious functional commitments seriously: pure functions, immutable data, isolated and controlled effects. None of this is unusual in a Clojure framework — what's unusual is how aggressively it's enforced at the boundaries. Handlers cannot reach into `app-db` arbitrarily; they ask through cofx. Subscriptions cannot smuggle behaviour past the cache; they're computed functions of `app-db` and other subs. Effects don't escape the cascade; they're returned as data and the runtime actions them. The discipline is what makes the trace bus possible, what makes time-travel possible, and what lets six different tools (Xray, Story, MCP-pair, the Datadog shipper, the linter, the migration agent) all read the same event stream and tell consistent stories about it.
 
 ## What we mean by "data-oriented"
 

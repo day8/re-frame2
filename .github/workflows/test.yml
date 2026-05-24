@@ -24,7 +24,7 @@ on:
 
 # Fast PR spine jobs stay always-on: lockstep drift, skill/MCP drift,
 # core JVM, CLJS node integration, and JS harness self-tests. Expensive
-# browser, bundle, examples, Story/Causa, tool, template, MCP-live, and
+# browser, bundle, examples, Story/Xray, tool, template, MCP-live, and
 # skill structural jobs are guarded by the conservative changed-surface
 # classifier below. Skipped diagnostic jobs are not required coverage; the
 # nightly/manual workflow carries the rigorous full sweep.
@@ -45,7 +45,7 @@ jobs:
       template_expensive: ${{ steps.detect.outputs.template_expensive }}
       mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
       mcp_live: ${{ steps.detect.outputs.mcp_live }}
-      story_causa_browser: ${{ steps.detect.outputs.story_causa_browser }}
+      story_xray_browser: ${{ steps.detect.outputs.story_xray_browser }}
       skills_structural: ${{ steps.detect.outputs.skills_structural }}
       playground: ${{ steps.detect.outputs.playground }}
     steps:
@@ -1072,10 +1072,10 @@ jobs:
           EXAMPLES_FILTER: "adapters/"
         run: npm run test:examples
 
-  story-causa-browser:
-    name: Story/Causa browser gates (PR-smoke)
+  story-xray-browser:
+    name: Story/Xray browser gates (PR-smoke)
     needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.story_causa_browser == 'true'
+    if: needs.detect_changed_surfaces.outputs.story_xray_browser == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1102,15 +1102,15 @@ jobs:
           cli: latest
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Maven / gitlibs (Story/Causa shadow-cljs deps)
+      - name: Cache Maven / gitlibs (Story/Xray shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: |
             ~/.m2/repository
             ~/.gitlibs
-          key: ${{ runner.os }}-story-causa-browser-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json', 'tools/story/deps.edn', 'tools/causa/deps.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/machines/deps.edn') }}
+          key: ${{ runner.os }}-story-xray-browser-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json', 'tools/story/deps.edn', 'tools/xray/deps.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/machines/deps.edn') }}
           restore-keys: |
-            ${{ runner.os }}-story-causa-browser-
+            ${{ runner.os }}-story-xray-browser-
             ${{ runner.os }}-cljs-
 
       # rf2-og36y: cache the shadow-cljs compile output (.shadow-cljs/
@@ -1119,7 +1119,7 @@ jobs:
       # testbed compile (400+ files per bundle) is the dominant cost of
       # this gate; a warm `.shadow-cljs/` cache lets shadow recompile
       # only changed namespaces instead of the whole graph. The key is
-      # conservative — any change under the Story/Causa src or testbed
+      # conservative — any change under the Story/Xray src or testbed
       # trees, the shared implementation source, or the build config
       # busts it, so a stale cache can never serve wrong output. The
       # `restore-keys` prefix still gives a warm partial cache on a miss.
@@ -1129,9 +1129,9 @@ jobs:
           path: |
             implementation/.shadow-cljs
             implementation/.cpcache
-          key: ${{ runner.os }}-story-causa-shadow-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/deps.edn', 'implementation/package-lock.json', 'implementation/**/deps.edn', 'tools/story/deps.edn', 'tools/causa/deps.edn', 'tools/story/src/**', 'tools/story/testbeds/**', 'tools/causa/src/**', 'tools/causa/testbeds/**', 'implementation/core/src/**') }}
+          key: ${{ runner.os }}-story-xray-shadow-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/deps.edn', 'implementation/package-lock.json', 'implementation/**/deps.edn', 'tools/story/deps.edn', 'tools/xray/deps.edn', 'tools/story/src/**', 'tools/story/testbeds/**', 'tools/xray/src/**', 'tools/xray/testbeds/**', 'implementation/core/src/**') }}
           restore-keys: |
-            ${{ runner.os }}-story-causa-shadow-
+            ${{ runner.os }}-story-xray-shadow-
 
       - name: npm install
         run: npm ci
@@ -1140,13 +1140,13 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # PR-smoke tier (rf2-wa3oo + rf2-og36y). The full feature-load +
-      # full Causa matrix + Story static-export sweep is on the critical
-      # path of every Story/Causa PR at ~700s, and the identical sweep
+      # full Xray matrix + Story static-export sweep is on the critical
+      # path of every Story/Xray PR at ~700s, and the identical sweep
       # already runs nightly in expensive-tests.yml — so PR time ran the
       # full matrix twice over. PR time now runs only the high-signal
       # subset:
       #
-      #   - Causa feature gate in --smoke mode: the 3 highest-signal
+      #   - Xray feature gate in --smoke mode: the 3 highest-signal
       #     scenarios (6-tab shell handoff, deterministic-exception →
       #     Issues/Trace surfacing, Cmd-K palette) over just 2 staged
       #     surfaces (counter + deliberate-throw), compiling 2 testbed
@@ -1158,10 +1158,10 @@ jobs:
       #     assertion-strip :key fix stays covered on the PR critical
       #     path.
       #
-      # The full sweep (test:causa-feature-gate, test:story-feature-load,
+      # The full sweep (test:xray-feature-gate, test:story-feature-load,
       # test:story-static) runs nightly in expensive-tests.yml.
-      - name: Run Causa feature browser gate (PR-smoke)
-        run: npm run test:causa-feature-gate:smoke
+      - name: Run Xray feature browser gate (PR-smoke)
+        run: npm run test:xray-feature-gate:smoke
 
       # rf2-3qcxk — every Story variant whose body carries a
       # `:play-script` slot doubles as an automated regression test.
@@ -1241,7 +1241,7 @@ jobs:
   # Per-tool CI jobs (rf2-qq70f).
   #
   # Each `tools/<name>/` artefact ships its own test tree. Some surfaces
-  # (the *_cljs_test.cljs / .cljc files under tools/story/ and tools/causa/)
+  # (the *_cljs_test.cljs / .cljc files under tools/story/ and tools/xray/)
   # are already picked up by the consolidated `:node-test` build above
   # because shadow-cljs.edn lists those source paths. JVM-runnable tests
   # (clojure -M:test) and out-of-consolidated-tree node-test surfaces
@@ -1252,14 +1252,14 @@ jobs:
   # in parallel.
   # ---------------------------------------------------------------------------
 
-  jvm-tools-causa:
-    name: Diagnostic skip-ok JVM tools/causa classpath probe
+  jvm-tools-xray:
+    name: Diagnostic skip-ok JVM tools/xray classpath probe
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: tools/causa
+        working-directory: tools/xray
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -1282,20 +1282,20 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-clj-tools-causa-${{ hashFiles('tools/causa/deps.edn', 'implementation/core/deps.edn') }}
+          key: ${{ runner.os }}-clj-tools-xray-${{ hashFiles('tools/xray/deps.edn', 'implementation/core/deps.edn') }}
           restore-keys: |
-            ${{ runner.os }}-clj-tools-causa-
+            ${{ runner.os }}-clj-tools-xray-
             ${{ runner.os }}-clj-
 
-      # Causa ships JVM test files (`config_test.clj`, `trace_bus_test.clj`)
+      # Xray ships JVM test files (`config_test.clj`, `trace_bus_test.clj`)
       # alongside its CLJS test trees. The CLJS surfaces are already
       # picked up by the consolidated `:node-test` build (shadow-cljs.edn
-      # lists tools/causa/test as a source path); this job closes the
+      # lists tools/xray/test as a source path); this job closes the
       # JVM-side gap. `|| echo …` keeps the job green if the JVM-runnable
       # set shrinks to zero in the future — same shape as `jvm-machines`
       # / `jvm-reagent` above.
-      - name: Run JVM tests (tools/causa artefact)
-        run: clojure -M:test || echo "no JVM-runnable tests in tools/causa artefact"
+      - name: Run JVM tests (tools/xray artefact)
+        run: clojure -M:test || echo "no JVM-runnable tests in tools/xray artefact"
 
   jvm-tools-story:
     name: JVM tools/story (clojure -M:test)

@@ -37,7 +37,7 @@ Both elision flags live on the same surface: a Malli slot's per-slot props map. 
 
 That's the declaration. Nothing else.
 
-Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — re-frame2-pair-mcp, Datadog shipper, Causa-MCP — sees the elided shape; the value never leaves the trust boundary unless a consumer explicitly fetches it via the marker's handle.
+Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — re-frame2-pair-mcp, Datadog shipper, Xray-MCP — sees the elided shape; the value never leaves the trust boundary unless a consumer explicitly fetches it via the marker's handle.
 
 What `:large? true` does:
 
@@ -111,7 +111,7 @@ If the value really is below the threshold *most* of the time and only spikes oc
 
 The schema is the input; the elision pipeline is the output. The framework does the wiring between the two — you don't see it from the app-writer side, but the one paragraph is worth knowing:
 
-At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, re-frame2-pair-mcp, story-mcp, and the Datadog shipper from [ch. 23](23-observability.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
+At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Xray, re-frame2-pair-mcp, story-mcp, and the Datadog shipper from [ch. 23](23-observability.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
 
 **One declaration; every consumer honours it.** If you declare `:large? true` on `[:user :pdf-preview]`, every off-box ship, every on-box dev-panel render, every `:rf.http/*` request body substitutes the `:rf.size/large-elided` marker for the slot's value. The platform handles the rest.
 
@@ -156,9 +156,9 @@ Writer-side is half the picture. The other half is the *consumer*'s elision poli
 |---|---|---|
 | re-frame2-pair-mcp (AI surface) | `false` | Yes |
 | story-mcp (story playgrounds) | `false` | Yes |
-| Causa-MCP (cascade graph) | `false` | Yes |
+| Xray-MCP (cascade graph) | `false` | Yes |
 | Story panel (on-box dev UI) | `false` | No |
-| Causa panel (on-box dev UI) | `false` | No |
+| Xray panel (on-box dev UI) | `false` | No |
 
 [Chapter 23](23-observability.md)'s Datadog shipper is the sixth consumer — and it follows the same rule: **off-box shippers MUST default `include-large?` to `false`**. Off-box means "the data is leaving your trust boundary"; even when the value isn't sensitive, the wire-size budget is a hard limit.
 
@@ -208,5 +208,5 @@ The Datadog dashboard sees the cascade shape, the timing, the error class — it
 
 - [23a — Privacy: keeping secrets out of traces](24-privacy.md) — the matching privacy half. The `:sensitive?` flag, the `:rf/redacted` sentinel, the handler-meta escape hatch, the HTTP header / query-string denylists.
 - [04a — Schemas](05-schemas.md) — the per-slot props map this chapter writes to, and the rest of the schema vocabulary.
-- [Causa](../causa/index.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason size matters is that the bus has five+ consumers, several of which transport over a network.
+- [Xray](../xray/index.md) — the third-pillar pitch: one trace bus, every tool consumes it. The reason size matters is that the bus has five+ consumers, several of which transport over a network.
 - [22 — Production observability](23-observability.md) — the consumer-side companion. Read it after this chapter to see the writer's declarations land on the wire.

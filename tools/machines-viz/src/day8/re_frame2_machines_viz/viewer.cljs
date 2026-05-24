@@ -18,7 +18,7 @@
      `:definition` from the payload, `:current-state` from the
      snapshot's `:state` (the share carries the state NAME only — there
      is no runtime `:data`), and `:read-only? true`.
-  4. A banner reads: 'This is a static machine chart, not a Causa
+  4. A banner reads: 'This is a static machine chart, not a Xray
      session — interactions are disabled.'
   5. A 'show idle' toggle clears `:current-state` so the chart renders
      at rest (Lock #5).
@@ -115,7 +115,7 @@
     (fn [props]
       [:div {:style (:page styles)}
        [:div {:style (:banner styles) :data-testid "rf-mv-viewer-banner"}
-        [:span "This is a static machine chart, not a Causa session — interactions are disabled."]
+        [:span "This is a static machine chart, not a Xray session — interactions are disabled."]
         [:label {:style (:toggle styles)}
          [:input {:type "checkbox"
                   :checked @show-idle?

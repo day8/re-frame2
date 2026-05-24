@@ -3,7 +3,7 @@
 
   Per Spec 009 §`:op-type` vocabulary, `:rf.machine/destroyed` and
   `:rf.machine/system-id-released` ARE the contract surface that tools
-  (Causa, story-mcp, re-frame-10x) key on for the actor-destroy signal.
+  (Xray, story-mcp, re-frame-10x) key on for the actor-destroy signal.
   Independent emission sites = independent chances to drift in the
   argument-map keys; rf2-ur63f / round-2 audit Trace-r2-3 consolidates
   the three `:rf.machine/destroyed` sites and the two

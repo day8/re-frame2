@@ -54,11 +54,11 @@ The shell honours a second compile-time flag —
   manual `?` chip still renders so on-demand help is reachable; the
   modal just doesn't pop unprompted. Visitors arriving at a
   published docs site already arrived with intent.
-- **Causa preload omitted.** The Causa devtools preload
-  (`day8.re-frame2-causa.preload`) is wired via shadow-cljs's
+- **Xray preload omitted.** The Xray devtools preload
+  (`day8.re-frame2-xray.preload`) is wired via shadow-cljs's
   `:devtools/preloads` slot — which the documentation specifies
   applies to `watch`/`compile` only, NOT `release`. The static-export
-  build is a `release`, so Causa rides out of the bundle by
+  build is a `release`, so Xray rides out of the bundle by
   construction; no flag-side gate is required.
 - **Shadow-cljs hot-reload connection elided.** `release` builds
   don't include the websocket bridge to the dev server, so the bundle
@@ -223,13 +223,13 @@ their `staticwebapp.config.json` under Azure, etc.).
 | The chrome-level toolbar + mode-tabs strip | bundled |
 | The a11y panel (axe-core lazy-load endpoint stays the same) | bundled |
 | The per-variant trace-buffer infra (feeds the schema-validation panel) | bundled |
-| Causa (when the host build includes its preload) | bundled |
+| Xray (when the host build includes its preload) | bundled |
 
 ## What gets stripped
 
 | Surface | Why |
 |---|---|
-| `:devtools/preloads` (Causa preload) | `release` builds ignore the slot — Causa rides out by construction |
+| `:devtools/preloads` (Xray preload) | `release` builds ignore the slot — Xray rides out by construction |
 | `shadow-cljs` websocket bridge | `release` builds don't include the dev-server connection |
 | Registrar-fingerprint poll (the 500ms `setInterval`) | gated on `(not static-mode?)`; DCEs under `:advanced` |
 | First-visit help overlay auto-open | gated on `(not static-mode?)` |

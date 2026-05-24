@@ -1,6 +1,6 @@
 (ns deep-machine.core
   "Shared framework-behavior testbed — one machine that, in a single
-  declaration, exercises every machine grammar surface a tool (Causa,
+  declaration, exercises every machine grammar surface a tool (Xray,
   Story, re-frame2-pair-mcp) needs to discriminate when visualising the
   hierarchy and the transition cascade. A consumer sees:
 

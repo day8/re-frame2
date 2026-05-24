@@ -49,7 +49,7 @@
   ## Trace hook (future)
 
   Per the rf2-tjhhp note: this primitive paves the way for a
-  `pick-trace` instrumentation that Causa wants — 'the runtime checked
+  `pick-trace` instrumentation that Xray wants — 'the runtime checked
   these states in this order before settling on the deepest match'.
   When that lands, the trace will hang off this single fn rather than
   fan out across four pickers.

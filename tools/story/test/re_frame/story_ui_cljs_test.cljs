@@ -7,7 +7,7 @@
   - The pure shell-state helpers (selection, filters, fingerprints).
   - The pure layout resolver (`:grid`, `:prose`, `:variants-grid`).
   - The pure trace cascade grouper (six-domino projection — framework
-    code, consumed by Causa's Trace tab post-rf2-sgdd3).
+    code, consumed by Xray's Trace tab post-rf2-sgdd3).
   - The pure argtype inference + sidebar tag collection.
   - The public mount/unmount surface on `re-frame.story`.
 
@@ -697,7 +697,7 @@
 ;; ---- workspace cells re-run on full run-key (rf2-c56hr) -----------------
 ;;
 ;; Sibling to rf2-kgn0c (variant-id-keyed React identity) and rf2-z4fza
-;; (Causa trace `t:<trace-id>` keying). The prior workspace `variant-cell`
+;; (Xray trace `t:<trace-id>` keying). The prior workspace `variant-cell`
 ;; kept a `last-tick` atom and re-ran `run-variant-with-shell-opts!` ONLY
 ;; when `:hot-reload-tick` advanced. Consequence in `:variants-grid` /
 ;; `:grid` workspaces: editing a control through the controls panel
@@ -803,7 +803,7 @@
 ;; their original id → React reconciles them in place across a
 ;; mid-list delete → focus + cursor are preserved.
 ;;
-;; Same fix-class as rf2-kgn0c (workspace cells) / rf2-z4fza (causa
+;; Same fix-class as rf2-kgn0c (workspace cells) / rf2-z4fza (xray
 ;; trace ribbon) / rf2-c56hr (story workspace cell re-init). The
 ;; namespacing-prefix discipline (`r:` for repeater, `t:` for tuple,
 ;; `v:` for variant cells) is consistent across the family.
@@ -1010,9 +1010,9 @@
 (deftest trace-group-cascades-classifies
   (testing "group-cascades splits trace events into six-domino slots.
             Per rf2-wvzgd the projection lives in
-            `re-frame.trace.projection` — consumers (Causa, re-frame2-pair)
+            `re-frame.trace.projection` — consumers (Xray, re-frame2-pair)
             require that namespace directly. Per rf2-sgdd3 Story no
-            longer ships a built-in trace panel; Causa's Trace tab is
+            longer ships a built-in trace panel; Xray's Trace tab is
             the RHS replacement. Event shapes here track the
             framework's actual emit pattern per Spec 009 §`:op-type`
             vocabulary."
@@ -1129,7 +1129,7 @@
 (deftest shell-components-are-functions
   (testing "sidebar / controls expose top-level component fns (per
             rf2-sgdd3 the scrubber / trace / actions panels were
-            retired; Causa is the RHS primary inspector now)"
+            retired; Xray is the RHS primary inspector now)"
     (is (fn? sidebar/sidebar))
     ;; The controls/panel takes a variant-id arg.
     (is (fn? controls/panel))

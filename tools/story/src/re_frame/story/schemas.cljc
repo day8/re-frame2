@@ -247,21 +247,21 @@
 
 ;; ---- :rf/story ------------------------------------------------------------
 
-(def CausaPreset
-  "Schema for the optional `:causa` slot on a story / variant body —
-  per-story Causa pre-configuration applied when Causa mounts inside
+(def XrayPreset
+  "Schema for the optional `:xray` slot on a story / variant body —
+  per-story Xray pre-configuration applied when Xray mounts inside
   the rendered variant's frame (rf2-q9kv5).
 
   All slots are optional. The preset is plain data; the runtime side
-  (`re-frame.story.causa-preset`) feature-detects Causa and the optional
+  (`re-frame.story.xray-preset`) feature-detects Xray and the optional
   filters API, no-opping gracefully when absent.
 
-  - `:open?`   — when truthy, auto-open the Causa shell on variant mount.
+  - `:open?`   — when truthy, auto-open the Xray shell on variant mount.
                  Under the per-panel embed (rf2-v1ach) this is largely
                  superseded by `:panel` — the chip-row + selected panel
                  are the default RHS surface; `:open?` survives for the
                  popout / whole-shell escape hatch only.
-  - `:panel`   — rf2-v1ach. The Causa panel to mount in the RHS Causa
+  - `:panel`   — rf2-v1ach. The Xray panel to mount in the RHS Xray
                  host. One of:
                    `:event-detail` (default)
                    `:app-db`
@@ -275,7 +275,7 @@
                  `:routing-demo/*` → `:routing`, etc.). The user can
                  swap at runtime via the RHS chip-row; the user's
                  manual click overrides for the session.
-  - `:tab`     — DEPRECATED in v1. Was the Causa full-shell tab-id;
+  - `:tab`     — DEPRECATED in v1. Was the Xray full-shell tab-id;
                  pre-rf2-v1ach the RHS hosted the full 4-layer shell
                  and `:tab` pre-focused a panel inside it. Under the
                  per-panel embed the chip-row is the panel selector;
@@ -283,10 +283,10 @@
                  accepted by the preset runtime for back-compat with
                  the popout escape hatch but new authors should use
                  `:panel`.
-  - `:filters` — `{:out [event-id ...] :in [event-id ...]}` — Causa
+  - `:filters` — `{:out [event-id ...] :in [event-id ...]}` — Xray
                  auto-filter pills to pre-populate. Both axes are
                  optional. Skipped with a console warning when
-                 `day8.re-frame2-causa.filters` (rf2-ak4ms) is not on
+                 `day8.re-frame2-xray.filters` (rf2-ak4ms) is not on
                  the classpath.
   - `:focus`   — optional pre-focus coordinates. `{:event-pos N}` selects
                  the Nth event in the current cascade. Rare; usually you
@@ -324,9 +324,9 @@
     dispatch console for this story / its variants (rf2-q9kv5). Toolbar
     real-estate is precious; the chrome-level toolbar chip lets the user
     flip the chrome-toggle without editing the story body.
-  - `:causa` — per-story Causa preset (auto-open, tab focus, filter
-    pre-population). See `CausaPreset` schema. The preset is read on
-    variant mount and applied via `re-frame.story.causa-preset/
+  - `:xray` — per-story Xray preset (auto-open, tab focus, filter
+    pre-population). See `XrayPreset` schema. The preset is read on
+    variant mount and applied via `re-frame.story.xray-preset/
     apply-preset!`. (rf2-q9kv5)."
   [:map
    [:doc        {:optional true} :string]
@@ -339,7 +339,7 @@
    [:substrates {:optional true} SubstrateSet]
    [:platforms  {:optional true} PlatformSet]
    [:dispatch-console? {:optional true} :boolean]
-   [:causa      {:optional true} CausaPreset]
+   [:xray      {:optional true} XrayPreset]
    ;; rf2-zll4h — viewport + background switchers. Per-story override
    ;; that wins over the chrome toolbar selection at canvas mount time.
    ;; Both slots are optional; absent means 'inherit the toolbar
@@ -500,11 +500,11 @@
     [:substrates            {:optional true} SubstrateSet]
     [:modes                 {:optional true} ModeRefSet]
     ;; rf2-q9kv5: per-variant overrides for the dispatch-console panel +
-    ;; Causa preset. A variant may opt out of the dispatch-console panel
-    ;; (default true at story level) or carry a Causa preset that
+    ;; Xray preset. A variant may opt out of the dispatch-console panel
+    ;; (default true at story level) or carry a Xray preset that
     ;; overrides the parent story's preset.
     [:dispatch-console?     {:optional true} :boolean]
-    [:causa                 {:optional true} CausaPreset]
+    [:xray                 {:optional true} XrayPreset]
     ;; rf2-zll4h — viewport + background per-variant overrides. Resolved
     ;; with variant-first, then story-level, then chrome toolbar.
     [:viewport              {:optional true} ViewportSlot]

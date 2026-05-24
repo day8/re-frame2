@@ -54,8 +54,8 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 > *Cardinal rules to bake in (these go in SKILL.md):*
 >
 > *1. **Never hardcode the re-frame2 artefact VERSION in suggestions written to disk.** Look it up first; leave it as `<VERSION>`. (Concrete Clojure/CLJS/Reagent pins matching the template are fine.)*
-> *2. **All eleven artefacts ship at the same VERSION** (and `day8/re-frame2-causa` rides the same line). Mixing is unsupported.*
-> *3. **The day-one shape matches the generator template:** core + Reagent adapter + `-schemas` + `-causa` + explicit `reagent/reagent`. The remaining per-feature artefacts (`-machines`/`-routing`/`-flows`/`-http`/`-ssr`/`-epoch`) are pay-as-you-go.*
+> *2. **All eleven artefacts ship at the same VERSION** (and `day8/re-frame2-xray` rides the same line). Mixing is unsupported.*
+> *3. **The day-one shape matches the generator template:** core + Reagent adapter + `-schemas` + `-xray` + explicit `reagent/reagent`. The remaining per-feature artefacts (`-machines`/`-routing`/`-flows`/`-http`/`-ssr`/`-epoch`) are pay-as-you-go.*
 > *4. **The Reagent adapter is the default reference substrate.** Unless the author says UIx or Helix, scaffold Reagent.*
 > *5. **Don't write tests for the author.** This skill stops at "the counter mounts".*
 >

@@ -2,7 +2,7 @@
 
 The complete symbol table for Story's public surface, organised by namespace and section for `Ctrl-F` use. Every row carries a signature and a one-line intuition — the same shape as the topical chapters, but flat and exhaustive. Reach for the topical chapters when you want context and prose around the contract; reach for this page when you know what you're looking for and just want the row.
 
-Surfaces fall into the facade plus seven sub-namespaces. The facade carries every user-callable surface — registrations, runtime, recorder, configure!, shell-mount, privacy primitives. The sub-namespaces are public but called from chrome bootstrap, the shell, or the Causa preset, not from authored story bodies.
+Surfaces fall into the facade plus seven sub-namespaces. The facade carries every user-callable surface — registrations, runtime, recorder, configure!, shell-mount, privacy primitives. The sub-namespaces are public but called from chrome bootstrap, the shell, or the Xray preset, not from authored story bodies.
 
 For the topical walk-through with intuition notes and use-when prose, see [Registration](registration.md), [Play scripts](play-script.md), [Runtime](runtime.md), and [MCP surface](mcp-surface.md). For the index of *what* this reference covers (and what it deliberately omits — Story-internal chrome composers, the URL-state hydration helpers, the theme-token maps consumed only by chrome), see [the index](index.md#what-canonical-means-here).
 
@@ -158,25 +158,25 @@ The rich DOM-capture-aware `:play-script` translator. Sub-namespace require — 
 | `render-play-script` | `(render-play-script body)` → string | Render the `:play-script` map to EDN. |
 | `render-variant-form` | `(render-variant-form variant-id metadata)` → string | Render a full `(reg-variant ...)` form to EDN. |
 
-## `re-frame.story.ui.causa-embed`
+## `re-frame.story.ui.xray-embed`
 
-The Causa-RHS embed component. Reach here from the embed component or the Causa preset, rarely from app code.
-
-| Symbol | Kind | Audience | Intuition |
-|---|---|---|---|
-| `causa-embed-panel` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Causa-host Reagent component. Renders the chip-row picker plus the Causa panel-host `<div>`. Feature-detect-safe — graceful no-op when Causa's preload is not on the classpath. |
-| `mount-fn-for` | Pure dispatch fn | `chrome-shell` | `(mount-fn-for panel-id)` returns the Causa `mount-<panel>!` fn for `panel-id` (one of `:event-detail` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing` / `:issues`), or nil for an unknown id. Compile-time symbol resolution. |
-| `popout-full-shell!` | User-callable lifecycle | `user-app` | Pop out the full Causa 4-layer shell into a second window. Gated on `causa-preset/causa-available?` so the chip is a graceful no-op when Causa's preload is absent. |
-
-## `re-frame.story.causa-preset`
-
-The chrome / Causa bridge.
+The Xray-RHS embed component. Reach here from the embed component or the Xray preset, rarely from app code.
 
 | Symbol | Kind | Audience | Intuition |
 |---|---|---|---|
-| `wire-cross-host!` | Internal bridge | `chrome-shell` | Bridges-only host-wiring helper called by the shell on every variant selection. Threads through Causa's host-installation hooks (project-root, keybinding) but does NOT mount Causa. |
-| `causa-available?` | Pure predicate | `user-app` / `chrome-shell` | True when Causa's preload is on the build. The chip-row, popout, and `wire-cross-host!` all check this. |
-| `propagate-project-root!` | Internal bridge | `chrome-shell` | Bridges Story's `:rf.story/project-root` from `configure!` into Causa's `:rf.causa/project-root` slot so Causa-as-RHS source-coord chips share the same on-disk root. |
+| `xray-embed-panel` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Xray-host Reagent component. Renders the chip-row picker plus the Xray panel-host `<div>`. Feature-detect-safe — graceful no-op when Xray's preload is not on the classpath. |
+| `mount-fn-for` | Pure dispatch fn | `chrome-shell` | `(mount-fn-for panel-id)` returns the Xray `mount-<panel>!` fn for `panel-id` (one of `:event-detail` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing` / `:issues`), or nil for an unknown id. Compile-time symbol resolution. |
+| `popout-full-shell!` | User-callable lifecycle | `user-app` | Pop out the full Xray 4-layer shell into a second window. Gated on `xray-preset/xray-available?` so the chip is a graceful no-op when Xray's preload is absent. |
+
+## `re-frame.story.xray-preset`
+
+The chrome / Xray bridge.
+
+| Symbol | Kind | Audience | Intuition |
+|---|---|---|---|
+| `wire-cross-host!` | Internal bridge | `chrome-shell` | Bridges-only host-wiring helper called by the shell on every variant selection. Threads through Xray's host-installation hooks (project-root, keybinding) but does NOT mount Xray. |
+| `xray-available?` | Pure predicate | `user-app` / `chrome-shell` | True when Xray's preload is on the build. The chip-row, popout, and `wire-cross-host!` all check this. |
+| `propagate-project-root!` | Internal bridge | `chrome-shell` | Bridges Story's `:rf.story/project-root` from `configure!` into Xray's `:rf.xray/project-root` slot so Xray-as-RHS source-coord chips share the same on-disk root. |
 
 ## `re-frame.story.theme.*`
 

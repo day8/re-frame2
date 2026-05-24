@@ -1,0 +1,195 @@
+;; day8/re-frame2-xray — Xray, the re-frame2 devtools panel (Phase 1
+;; foundation, rf2-n6x4q; parent epic rf2-5aw5v).
+;;
+;; Per tools/README.md the artefact is a downstream consumer of
+;; implementation/core/ + an adapter (Reagent, UIx, or Helix). Xray
+;; does NOT register any new framework primitives; every surface it
+;; exposes is built on the Spec 009 trace bus, the Spec 002 frame
+;; primitive, and the Spec 006 substrate adapter API. The bundle-
+;; isolation contract holds: nothing in implementation/ may
+;; :require from here.
+;;
+;; ## Pin lockstep with implementation/core
+;;
+;; Xray rides the core artefact at :local/root during development;
+;; the release workflow rewrites :local/root → :mvn/version pinned to
+;; the same VERSION file the core artefact reads (mirrors the pattern
+;; in tools/story/deps.edn). Xray's published version equals the
+;; framework's published version at every release — same lockstep
+;; convention used by implementation/adapters/* (rf2-w05l) so apps
+;; never mix incompatible core + tools versions.
+;;
+;; ## Phase 1 scope (this commit)
+;;
+;; Foundation only: preload, Ctrl+Shift+C, frame-provider :rf/xray
+;; isolation, empty-shell layout, trace bus subscription. Panels
+;; (event-detail hero, time-travel, app-db diff, etc.) ship as
+;; separate beads under rf2-5aw5v.
+;;
+;; ## MCP surface
+;;
+;; AI agent access to Xray state flows via `tools/re-frame2-pair-mcp/`
+;; (which can read the framework-published Xray runtime API on
+;; `day8.re-frame2-xray.runtime`); per rf2-hvl1g there is no dedicated
+;; xray-mcp jar. Nothing in this deps.edn references an MCP server.
+{:paths ["src"]
+ :deps  {day8/re-frame2 {:local/root "../../implementation/core"}
+
+         ;; Per rf2-5so8f — `day8/re-frame2-epoch` is a hard dep of Xray,
+         ;; not an optional add-on. The Xray preload `:require`s
+         ;; `re-frame.epoch` (see preload.cljs §rf2-1barg) so the Time
+         ;; Travel scrubber has an epoch-history seed table to read from
+         ;; `rf/epoch-history` / `rf/register-epoch-listener!`.
+         ;; Without the artefact on the classpath the preload fails to
+         ;; compile in any downstream consumer build that doesn't
+         ;; coincidentally already declare `day8/re-frame2-epoch` — a
+         ;; silent footgun for migration authors following the skill doc.
+         ;;
+         ;; Spec C-000.27 forbids only *core* from transitively requiring
+         ;; per-feature namespaces; a downstream tool artefact pulling a
+         ;; per-feature artefact is allowed. Pay-as-you-go still holds at
+         ;; the level the user cares about: production builds never see
+         ;; Xray (per the `:devtools/preloads` gate + the
+         ;; `interop/debug-enabled?` elision in `re-frame.epoch`), and
+         ;; apps that don't install Xray don't get epoch unless they ask.
+         day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
+
+         ;; Per rf2-lq0ef — `day8/re-frame2-routing` is a hard dep of
+         ;; Xray. The Routes lens uses `re-frame.routing.match` directly
+         ;; for the Simulate-URL surface: paste a URL, the lens runs
+         ;; `match-against` on every registered route's compiled pattern
+         ;; and ranks the matching candidates by `:rf.route/rank`. The
+         ;; helper ns (`day8.re-frame2-xray.panels.routing-helpers`)
+         ;; `:require`s `re-frame.routing.match` at load time so a host
+         ;; without the routing artefact on its classpath would crash
+         ;; Xray's preload. Most real hosts already pull routing, but
+         ;; the Routes lens must work even for hosts that haven't
+         ;; registered any routes yet — same posture as the
+         ;; re-frame2-epoch dep above.
+         day8/re-frame2-routing {:local/root "../../implementation/routing"}
+
+         ;; Per rf2-uhsqb — `day8/re-frame2-flows` is a hard dep of
+         ;; Xray. The Static Flows sub-tab reads
+         ;; `re-frame.flows.registry/flows` at view-render time to
+         ;; project the registered-flows catalogue. Same posture as
+         ;; the routing dep above: most real hosts already pull the
+         ;; flows artefact, but the Static Flows sub-tab must work
+         ;; (rendering an empty catalogue when no flows are registered)
+         ;; even for hosts that haven't registered any flows yet.
+         day8/re-frame2-flows {:local/root "../../implementation/flows"}
+
+         ;; Per rf2-o5f5f.4 — `day8/re-frame2-schemas` is a hard dep
+         ;; of Xray. The Static Schemas sub-tab reads
+         ;; `re-frame.schemas.storage/schemas-by-frame` at view-render
+         ;; time to project the registered-schemas catalogue. Same
+         ;; posture as the flows + routing deps above: the Static
+         ;; Schemas sub-tab must work (rendering an empty catalogue
+         ;; when no schemas are registered) even for hosts that
+         ;; haven't registered any schemas yet.
+         day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
+
+         ;; Per rf2-o9arp — the MachineChart implementation lives in
+         ;; day8/re-frame2-machines-viz. Xray's panels require the
+         ;; canonical machines-viz chart surface directly
+         ;; (`day8.re-frame2-machines-viz.chart.layout`, the chart
+         ;; primitives, etc.); the old `day8.re-frame2-xray.chart.*`
+         ;; re-export shims were removed (rf2-blli8). This makes the
+         ;; chart embeddable in non-Xray hosts (Story, the read-only
+         ;; viewer page, direct user-app embeds) without dragging
+         ;; Xray's full panel chrome along.
+         day8/re-frame2-machines-viz {:local/root "../machines-viz"}
+
+         ;; Per rf2-wl5pa — Xray targets day8/reagent-slim (the rewrite)
+         ;; rather than stock Reagent. Xray has zero direct `reagent.*`
+         ;; requires under tools/xray/src/ (the dep is purely the
+         ;; substrate the host installs and that mount.cljs reaches via
+         ;; re-frame.substrate.adapter/render). Switching from stock
+         ;; Reagent to slim means:
+         ;;
+         ;;   1. UIx-only / Helix-only / plain-atom users get Xray
+         ;;      without dragging stock Reagent into their transitive
+         ;;      deps — Xray picks the lighter substrate regardless
+         ;;      of the host's adapter choice.
+         ;;
+         ;;   2. The smaller dev bundle (3954 bytes smaller on the
+         ;;      counter example per the rf2-tba5e smoke test) shaves
+         ;;      hot-reload latency — Xray overhead is felt most
+         ;;      acutely in the watch loop where the dev bundle dominates.
+         ;;
+         ;;   3. The framework's own devtools dogfood the framework's
+         ;;      Reagent rewrite at the load profile that matters.
+         ;;
+         ;; Note on the adapter ns: the in-tree slim adapter ns is
+         ;; `re-frame.adapter.reagent-slim`; at artefact-publication
+         ;; time the slim artefact ships its own `re-frame.adapter.reagent`
+         ;; ns (per implementation/adapters/reagent-slim/IMPL-SPEC.md §1.8).
+         ;; Either way, Xray never directly :requires the adapter ns —
+         ;; mount.cljs reaches the substrate via
+         ;; re-frame.substrate.adapter/render so the host's installed
+         ;; adapter governs the render path; the slim dep here is purely
+         ;; transitive-classpath assembly so Xray's published artefact
+         ;; carries an adapter on the consumer side.
+         day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
+
+         ;; binaryage/devtools — Chrome custom-formatters library that
+         ;; the EDN widget's value-rendering layer adopts (see
+         ;; views/edn_widget/cljs_devtools_render.cljs). Xray wraps
+         ;; `devtools.formatters.core/header-api-call` on a CLJS value
+         ;; to obtain the same coloured, structure-aware JSONML the
+         ;; Chrome DevTools console renders, then walks it into hiccup
+         ;; via a small adapter (modelled on re-frame-10x's same-named
+         ;; component). Faithful CLJS-aware rendering: records keep
+         ;; their type tag, persistent collections render with their
+         ;; native delimiters, metadata is annotated, and datafy/nav
+         ;; flows through `devtools.formatters` when applicable.
+         ;;
+         ;; Xray is dev-only (gated by `:devtools/preloads` in
+         ;; shadow-cljs) so this dep does NOT land in production
+         ;; bundles. The bundle-isolation gate
+         ;; (scripts/check-bundle-isolation.cjs) verifies the
+         ;; `devtools.formatters` ns body does not appear in the counter
+         ;; example's :advanced release bundle.
+         binaryage/devtools {:mvn/version "1.0.7"}
+
+         ;; zprint — canonical pretty-printer for the EDN widget's
+         ;; `code-block` rendering of handler-source strings. The Event
+         ;; panel's HANDLER section reads `:rf.handler/source` off the
+         ;; registry meta and renders it under a syntax-highlighted
+         ;; `<pre>`; zprint pre-formats the source to canonical
+         ;; line-breaks + indentation before the in-bundle tokenizer
+         ;; runs, so a poorly-formatted source registration still reads
+         ;; cleanly in the panel. Used in `:parse {:interpose true}` mode
+         ;; via `zprint.core/zprint-file-str` so existing comments and
+         ;; blank lines survive the round-trip.
+         ;;
+         ;; Xray is dev-only (gated by `:devtools/preloads` in
+         ;; shadow-cljs) so zprint does NOT land in production bundles.
+         ;; The bundle-isolation gate verifies via the `zprint.core`
+         ;; sentinel that the formatter body is absent from the counter
+         ;; example's :advanced release bundle.
+         zprint/zprint {:mvn/version "1.3.0"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
+                       day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
+                       io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+
+  ;; Clojars deploy. Mirrors implementation/adapters/reagent/deps.edn
+  ;; — the release workflow rewrites :local/root → :mvn/version before
+  ;; invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame2-xray
+   :main     day8.re-frame2-xray.preload
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}

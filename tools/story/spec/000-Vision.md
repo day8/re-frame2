@@ -78,7 +78,7 @@ commodity component-explorer styling:
 
 - **Warm-slate substrate + amber accent** instead of Storybook's
   cold-grey + brand-pink. Two surfaces, two roles: amber-on-warm-slate
-  reads "workshop"; Causa's cyan-on-cool-grey reads "diagnostic" (per
+  reads "workshop"; Xray's cyan-on-cool-grey reads "diagnostic" (per
   [`016-Design-Tokens.md`](016-Design-Tokens.md) §Colour).
 - **IBM Plex Sans + Plex Mono** instead of Inter / Nunito Sans /
   system-ui. Plex carries an editorial bias — geometric without
@@ -134,12 +134,12 @@ before they meet the token contracts.
 - **A visual-regression service.** Story ships the `snapshot-identity`
   hook and emits stable iframes; pixel capture and diff happen
   downstream.
-- **A reimplementation of Causa.** Story embeds Causa's epoch
-  panel (Causa is the structural successor to re-frame-10x; see
-  [`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md)
+- **A reimplementation of Xray.** Story embeds Xray's epoch
+  panel (Xray is the structural successor to re-frame-10x; see
+  [`tools/xray/spec/DESIGN-RATIONALE.md`](../../xray/spec/DESIGN-RATIONALE.md)
   Lock #1) as a registered story panel (see
   [`003-Render-Shell.md`](003-Render-Shell.md) and
-  [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §causa-embed). The two
+  [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §xray-embed). The two
   artefacts share the epoch buffer.
 - **A statechart visualisation engine.** Story ships a one-line
   current-state indicator for active machines; full chart rendering
@@ -152,7 +152,7 @@ before they meet the token contracts.
   code. See [`006-MCP-Surface.md`](006-MCP-Surface.md).
 - **A static-site generator.** Deferred to v2.
 - **A pixel-scrubbing UI.** BackstopJS-style before-after slider is
-  out of scope; the epoch scrubber inside Causa's embedded panel is
+  out of scope; the epoch scrubber inside Xray's embedded panel is
   the equivalent in re-frame2's data-space.
 
 ## Privacy posture (path-level data classification — Spec 015)
@@ -177,13 +177,13 @@ The posture is normative across Story's surfaces:
    maps via the standard registration grammar
    (per [spec/001 §Registration grammar](../../../spec/001-Registration.md)).
    No Story-specific declaration grammar — Story uses the framework's.
-2. **Display contract — canvas and Causa-RHS render sentinels.** The
+2. **Display contract — canvas and Xray-RHS render sentinels.** The
    canvas itself never observes raw `app-db` (the variant view does);
    but the diagnostic surfaces Story embeds — the docs / test mode
-   panes, the Causa-RHS chip-row panels (`:app-db`, `:event-detail`,
+   panes, the Xray-RHS chip-row panels (`:app-db`, `:event-detail`,
    `:trace`, `:machines`, `:views`, `:routing`, `:issues`), the
    schema-validation pane — render `:rf/redacted` per spec/015
-   §Display contract. Causa is the in-tree consumer; the contract is
+   §Display contract. Xray is the in-tree consumer; the contract is
    "render the sentinel; do NOT offer a click-to-expand affordance
    that reveals the underlying value" (per
    [spec/015 §The display contract](../../../spec/015-Data-Classification.md#the-display-contract--sentinels)).

@@ -117,7 +117,7 @@ jobs:
             --lint implementation \
             --lint examples \
             --lint testbeds \
-            --lint tools/causa \
+            --lint tools/xray \
             --lint tools/machines-viz \
             --lint tools/mcp-base \
             --lint tools/mcp-conformance \

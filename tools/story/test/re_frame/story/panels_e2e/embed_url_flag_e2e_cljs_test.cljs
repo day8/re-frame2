@@ -132,7 +132,7 @@
             the shell-state-atom when the URL parser reports the flag.
             The parser itself is covered by url-state-cljs-test; this
             seam test pins the parser→state hand-off."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (with-redefs [url-state/embed-flag-from-current-url (constantly true)]
@@ -147,7 +147,7 @@
   (testing "rf2-pucku — `hydrate-embed-flag!` writes :embed? false
             (the default-chrome shape) when no `?embed=1` is in the
             URL. Pins the 'absent param → chrome on' contract."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (with-redefs [url-state/embed-flag-from-current-url (constantly false)]
@@ -166,7 +166,7 @@
             sidebar / toolbar / right-panel guards all elide. The
             `[main-pane]` vector (which contains the variant canvas)
             still renders so the viewport remains visible."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         ;; Seed embed-mode directly — same effective state
@@ -229,10 +229,10 @@
             three chrome guards all admit their components. Pins the
             inverse so the assertions above can't trivially pass on
             a render that drops every vector."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
-        ;; No mutation — `with-story-and-causa-frames`'s setup
+        ;; No mutation — `with-story-and-xray-frames`'s setup
         ;; resets the shell-state-atom to its default shape, which
         ;; has every chrome pane toggled on.
         (let [tree (render-shell-tree)

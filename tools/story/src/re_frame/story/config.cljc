@@ -62,7 +62,7 @@
 ;;     arriving at a published docs site already know what they're
 ;;     looking at; the overlay is a dev-time onboarding affordance).
 ;;
-;; Causa preloads are already absent from `shadow-cljs release` builds
+;; Xray preloads are already absent from `shadow-cljs release` builds
 ;; (per shadow-cljs's docs on the :devtools key, `:preloads` is
 ;; honoured by `watch`/`compile` but NOT by `release`), so no flag-side
 ;; gate is required there.
@@ -304,7 +304,7 @@
 ;; Default is `false` (suppress sensitive events). A story author
 ;; debugging redaction policy flips this on via
 ;; `(story/configure! {:rf.privacy/show-sensitive? true})`. The
-;; `:rf.privacy/*` namespace is cross-tool — Causa reads the same key
+;; `:rf.privacy/*` namespace is cross-tool — Xray reads the same key
 ;; via its own `configure!` (rf2-xea9u).
 ;;
 ;; The flag is read at the head of every listener body, so toggling it
@@ -317,7 +317,7 @@
          true, and the UI surface tracks how many were suppressed.
          When `true`, listeners receive every event unchanged. Per
          Spec 009 §Privacy + bead rf2-bclgj. Cross-tool key shared
-         with Causa (rf2-xea9u)."}
+         with Xray (rf2-xea9u)."}
   show-sensitive?
   (atom false))
 
@@ -418,7 +418,7 @@
   "True iff the trace event `ev` carries `:sensitive? true` at the top
   level. Thin alias over the framework-published `re-frame.privacy/sensitive?`
   predicate (re-exported as `re-frame.core/sensitive?`) — per rf2-sqxjn
-  / rf2-iwqu9, every consumer of `:sensitive?` (Causa, Story,
+  / rf2-iwqu9, every consumer of `:sensitive?` (Xray, Story,
   story-mcp, re-frame2-pair-mcp) composes against ONE framework
   primitive rather than reimplementing the five-token check. Per Spec
   009 §Privacy."

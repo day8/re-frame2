@@ -16,10 +16,10 @@ drift across siblings makes that signal lossy (snapshot in re-frame2-pair ≠
 snapshot-identity in story) and pushes the agent towards trial-and-error
 rather than pattern-match.
 
-(Historical: a third server `causa-mcp` was envisaged; it was dropped
-per rf2-hvl1g — AI agent access to Causa state already flows via
-`re-frame2-pair-mcp` against the framework-published Causa runtime API,
-so a dedicated causa-mcp is unnecessary.)
+(Historical: a third server `xray-mcp` was envisaged; it was dropped
+per rf2-hvl1g — AI agent access to Xray state already flows via
+`re-frame2-pair-mcp` against the framework-published Xray runtime API,
+so a dedicated xray-mcp is unnecessary.)
 
 This doc locks the verb vocabulary the triplet picks from. New tools
 land against an existing verb; novel verbs require a Lock entry in

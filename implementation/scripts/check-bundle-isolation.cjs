@@ -170,9 +170,9 @@ const ARTEFACTS = [
   },
 
   // Epoch artefact (rf2-69ad2 split — re-frame.epoch lives at
-  // implementation/epoch/). Causa's preload.cljs `:requires`
+  // implementation/epoch/). Xray's preload.cljs `:requires`
   // re-frame.epoch to anchor it onto the dev classpath so every
-  // Causa-enabled build has working time-travel; the preload is
+  // Xray-enabled build has working time-travel; the preload is
   // dev-only (gated by shadow-cljs `:devtools/preloads`) so the
   // anchor must NOT pull epoch into a production bundle. This entry
   // pins that contract — if a host or a refactor accidentally
@@ -260,7 +260,7 @@ const ARTEFACTS = [
   // re-frame.trace.tooling (rf2-qwm0a — dev-tooling buffer + listener
   // surface split off from re-frame.trace for production DCE). The
   // counter example never `:require`s `re-frame.trace.tooling`
-  // (test-support / Causa preload / Story / re-frame2-pair-mcp do, but counter
+  // (test-support / Xray preload / Story / re-frame2-pair-mcp do, but counter
   // is the no-feature reference app). When this contract holds, the
   // tooling sibling's body is absent from the bundle entirely — the
   // `re-frame.trace/register-listener!` etc. wrappers are thin
@@ -289,7 +289,7 @@ const ARTEFACTS = [
 
   // re-frame.subs.tooling (rf2-bmzq0 — `sub-topology` and
   // `sub-cache-snapshot` split off from re-frame.subs for production
-  // DCE). Counter never `:require`s `re-frame.subs.tooling` (Causa /
+  // DCE). Counter never `:require`s `re-frame.subs.tooling` (Xray /
   // re-frame2-pair-mcp / re-frame-10x do, but counter is the no-feature
   // reference app). When this contract holds, the tooling sibling's
   // body is absent from the bundle entirely — the JVM-side aliases in
@@ -367,11 +367,11 @@ const ARTEFACTS = [
   // xyflow / @xyflow/react (rf2-uwvyj — Machines panel render-engine
   // Path B per spec/021 §6.0 + §17.4). The xyflow library is a
   // `devDependency` of `implementation/package.json` consumed only by
-  // tools/causa/src/day8/re_frame2_causa/panels/machines/
+  // tools/xray/src/day8/re_frame2_xray/panels/machines/
   // xyflow_wrapper.cljs. Counter (and the UIx + Helix counter
   // variants) MUST NOT pull xyflow into their production bundles —
-  // Causa is dev-only (gated by `:devtools/preloads` in shadow-cljs),
-  // and a host that doesn't install Causa should never pay for the
+  // Xray is dev-only (gated by `:devtools/preloads` in shadow-cljs),
+  // and a host that doesn't install Xray should never pay for the
   // ~50-80KB gzipped xyflow render engine.
   //
   // Sentinels are CSS class strings that survive `:advanced` because
@@ -383,8 +383,8 @@ const ARTEFACTS = [
   //
   // A non-zero hit means `@xyflow/react` got dragged into a
   // production bundle (most likely a `:require` slipped from a
-  // tools/causa/* ns into an implementation/* ns, or the wrapper got
-  // moved out of the Causa preload-gated tree). Tools/causa MUST NOT
+  // tools/xray/* ns into an implementation/* ns, or the wrapper got
+  // moved out of the Xray preload-gated tree). Tools/xray MUST NOT
   // be reachable from `implementation/` per the
   // bundle-isolation contract in `tools/README.md`.
   {
@@ -407,7 +407,7 @@ const ARTEFACTS = [
   // runs as xyflow's layout engine inside the MachineChart). Same
   // posture as xyflow: dev-only, used only by
   // `tools/machines-viz/src/.../chart.cljs` and gated behind the
-  // Causa preload. Production bundles MUST NOT pull elkjs — it's
+  // Xray preload. Production bundles MUST NOT pull elkjs — it's
   // ~1MB minified, ~250KB gzipped.
   //
   // Sentinel is a distinctive elk.js internal symbol that survives
@@ -428,10 +428,10 @@ const ARTEFACTS = [
   },
 
   // binaryage/cljs-devtools — the Chrome custom-formatters library
-  // Causa's EDN widget adopts for value-rendering
-  // (tools/causa/src/.../views/edn_widget/cljs_devtools_render.cljs).
+  // Xray's EDN widget adopts for value-rendering
+  // (tools/xray/src/.../views/edn_widget/cljs_devtools_render.cljs).
   // Same posture as xyflow + elkjs: dev-only, consumed only by tools/
-  // (Causa), gated behind the Causa `:devtools/preloads`. Production
+  // (Xray), gated behind the Xray `:devtools/preloads`. Production
   // bundles MUST NOT pull cljs-devtools — the formatters body weighs
   // tens of kilobytes and gives consumers no runtime benefit (Chrome's
   // console isn't relevant to end users).
@@ -443,8 +443,8 @@ const ARTEFACTS = [
   // cljs-devtools' source body (in ex-info contexts, in goog.provide
   // calls, in the prefs map). A non-zero hit means cljs-devtools' body
   // got pulled into the bundle — most likely a `:require` slipped from
-  // tools/causa/* into implementation/*, or the EDN widget got
-  // referenced outside the Causa preload-gated tree.
+  // tools/xray/* into implementation/*, or the EDN widget got
+  // referenced outside the Xray preload-gated tree.
   {
     name: 'cljs-devtools',
     internalSentinels: [
@@ -457,12 +457,12 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // zprint — the canonical pretty-printer Causa's EDN widget
+  // zprint — the canonical pretty-printer Xray's EDN widget
   // `code-block` uses to pre-format handler-source strings before the
   // in-bundle tokenizer renders them
-  // (tools/causa/src/.../views/edn_widget/widget.cljs). Same posture
-  // as cljs-devtools: dev-only, consumed only by tools/ (Causa), gated
-  // behind the Causa `:devtools/preloads`. Production bundles MUST
+  // (tools/xray/src/.../views/edn_widget/widget.cljs). Same posture
+  // as cljs-devtools: dev-only, consumed only by tools/ (Xray), gated
+  // behind the Xray `:devtools/preloads`. Production bundles MUST
   // NOT pull zprint — the formatter body + its rewrite-clj dep weigh
   // hundreds of kilobytes and give consumers no runtime benefit.
   //
@@ -470,8 +470,8 @@ const ARTEFACTS = [
   // the `zprint.core` namespace string appears in zprint's
   // goog.provide-equivalent + namespace registrations. A non-zero hit
   // means zprint's body got pulled into the bundle (most likely a
-  // `:require` slipped from tools/causa/* into implementation/*, or
-  // the EDN widget got referenced outside the Causa preload-gated
+  // `:require` slipped from tools/xray/* into implementation/*, or
+  // the EDN widget got referenced outside the Xray preload-gated
   // tree).
   {
     name: 'zprint',

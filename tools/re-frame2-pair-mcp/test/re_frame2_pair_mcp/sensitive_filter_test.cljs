@@ -3,7 +3,7 @@
   `:sensitive? true` events (rf2-zq0n1, follows rf2-a32kd).
 
   Spec 009 mandates that framework-published forwarders (Sentry /
-  Honeybadger, re-frame2-pair server, Causa-MCP) MUST default-drop trace events
+  Honeybadger, re-frame2-pair server, Xray-MCP) MUST default-drop trace events
   whose registration declared `:sensitive? true`. The runtime stamps
   the flag at the top level of every emitted trace event; the
   forwarder's job is to gate egress on it.

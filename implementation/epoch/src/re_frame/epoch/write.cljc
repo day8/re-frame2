@@ -25,7 +25,7 @@
     * **Projected egress** — `projected-record` and `projected-history`
       route the four payload-bearing slots through
       `re-frame.elision/elide-wire-value` for off-box egress
-      (Causa-MCP `watch-epochs`, story / pair recorders).
+      (Xray-MCP `watch-epochs`, story / pair recorders).
 
   Per rf2-0wi86 Phase-2 seam E. The orchestrators `restore-epoch` and
   `reset-frame-db!` live in the `re-frame.epoch` facade — they wire
@@ -375,8 +375,8 @@
 ;; single normative projection emission site for off-box epoch egress.
 ;; The in-process ring buffer (`epoch-history`) and `register-epoch-listener!`
 ;; listener fan-out deliver RAW records — restore-epoch and on-box
-;; devtools (Causa diff, REPL inspection) need them. Tools that
-;; egress an epoch record across a process boundary (Causa-MCP
+;; devtools (Xray diff, REPL inspection) need them. Tools that
+;; egress an epoch record across a process boundary (Xray-MCP
 ;; `watch-epochs`, story / pair recorders, hosted forwarders) MUST
 ;; route through `projected-record` first, parallel to how direct-read
 ;; tools route through `elide-wire-value` (per rf2-czv3p).
@@ -424,11 +424,11 @@
 
   Per Security.md §Epoch privacy posture and rf2-mrsck: this is the
   single normative projection emission site for off-box egress. Tools
-  that forward epoch records across a process boundary (Causa-MCP
+  that forward epoch records across a process boundary (Xray-MCP
   `watch-epochs`, story / pair recorders, hosted post-mortem
   forwarders) MUST route through this fn at the wire boundary; the
   on-box ring buffer and `register-epoch-listener!` listener fan-out
-  continue to deliver the RAW record so on-box devtools (Causa diff,
+  continue to deliver the RAW record so on-box devtools (Xray diff,
   REPL, `restore-epoch`) can reason about exact state.
 
   `record` may be `nil` (e.g. a missing epoch lookup) — the projection

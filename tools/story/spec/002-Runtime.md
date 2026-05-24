@@ -534,7 +534,7 @@ spec/Security.md §Author guidance for exceptions under path-level
    reachable from the path-marked declarations the walker consults.
    The `:error {:message ... :data ...}` slot inside the
    `:rf.error/exception` record reproduces what the author threw; the
-   variant pane and Causa Event Detail render it verbatim.
+   variant pane and Xray Event Detail render it verbatim.
 
 **Author responsibility.** When throwing inside a handler that reads
 sensitive-path values:

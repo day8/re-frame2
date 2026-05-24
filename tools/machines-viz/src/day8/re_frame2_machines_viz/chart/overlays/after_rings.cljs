@@ -7,7 +7,7 @@
   The rf2-gpzb4 xyflow migration ported the MachineChart from
   ELK+hand-rolled-SVG to `@xyflow/react`. Under the old renderer the
   chart published a positioned graph (`{:nodes [{:x :y :width
-  :height}]}`) and the after-rings overlay (Causa-side) read positions
+  :height}]}`) and the after-rings overlay (Xray-side) read positions
   straight off that data. xyflow owns node positions in the rendered
   DOM instead — so the overlay can no longer read a positioned graph;
   it must WALK THE DOM to find each bearing node's bounding box.
@@ -17,11 +17,11 @@
 
     - It takes a vector of presentation-ready `ring-specs` (each
       carrying `:node-id` + the `countdown-ring` payload — `:fraction`
-      `:color` `:cancelled?` `:tooltip` `:testid`). The host (Causa's
+      `:color` `:cancelled?` `:tooltip` `:testid`). The host (Xray's
       machine inspector) projects its trace buffer into these specs
       and supplies the scrubber-aware `:fraction` / `:color`, so the
       retro-replay behaviour (ring frozen at the scrubbed instant)
-      lives host-side in Causa's helpers — unchanged by this
+      lives host-side in Xray's helpers — unchanged by this
       migration.
     - It walks the chart's node DOM by `data-testid`
       (`rf-mv-chart-node-<node-id>`, the `chart.nodes/state-node`
@@ -30,13 +30,13 @@
       `after_rings_geometry` helper, and absolute-positions a
       `countdown-ring` glyph there.
 
-  ## Why presentation-ready specs (not Causa's trace subs)
+  ## Why presentation-ready specs (not Xray's trace subs)
 
-  machines-viz is bundle-isolated from Causa — it cannot `:require`
-  Causa's trace-buffer subs. Keeping the overlay's input a flat
+  machines-viz is bundle-isolated from Xray — it cannot `:require`
+  Xray's trace-buffer subs. Keeping the overlay's input a flat
   data vector means the overlay is pure-data-testable on the JVM
   (geometry) + the CLJS DOM walk is the only browser-specific seam.
-  Causa stays the data owner; this ns owns positioning + paint.
+  Xray stays the data owner; this ns owns positioning + paint.
 
   ## Coordinate model — no viewport-transform
 
@@ -52,7 +52,7 @@
   The overlay re-measures on:
 
     - mount + every render where the ring-spec set changes,
-    - a host-driven `:tick` value bump (Causa's rAF loop bumps
+    - a host-driven `:tick` value bump (Xray's rAF loop bumps
       `now-ms`, which flows into fresh `:fraction`s + a changed
       `:tick`), and
     - window resize (xyflow nodes may reflow).
@@ -65,7 +65,7 @@
   ## Theming
 
   Ring colours resolve through `theme/tokens/css-var`
-  (`var(--rf-causa-<key>, <hex>)`) so light + dark both flow through
+  (`var(--rf-xray-<key>, <hex>)`) so light + dark both flow through
   the host's CSS custom-property surface (per the bead's `var(--*)`
   requirement). The overlay chrome adds no opaque colours of its own."
   (:require [reagent.core :as r]
@@ -154,12 +154,12 @@
                    scrubber-aware retro-replay fraction comes pre-
                    baked.
     :tick        — opaque value the host bumps to force a re-measure
-                   (Causa passes `now-ms` so each rAF frame re-reads
+                   (Xray passes `now-ms` so each rAF frame re-reads
                    the DOM + repaints the swept arcs). Optional.
     :testid      — overlay root `data-testid`; defaults to
                    `\"rf-mv-chart-after-rings-overlay\"`.
     :on-hover    — `(fn [node-id] ...)`; fires on ring mouse-enter.
-                   Optional (Causa wires its timer-hover slot).
+                   Optional (Xray wires its timer-hover slot).
     :on-leave    — `(fn [node-id] ...)`; fires on ring mouse-leave.
 
   Returns nil when there are no ring-specs (the overlay layer drops

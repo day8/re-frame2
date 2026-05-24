@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate placeholder PNGs for the Causa + Story tutorials.
+"""Generate placeholder PNGs for the Xray + Story tutorials.
 
 These are committed so the docs site builds cleanly even without re-running
 the live Playwright capture pipeline (`generate-tutorial-screenshots.cjs`).
@@ -9,7 +9,7 @@ Running the Playwright pipeline overwrites these with the real captures.
 Each placeholder paints:
   - The expected output filename in large text
   - The descriptive caption in smaller text
-  - A coloured strip identifying causa vs story
+  - A coloured strip identifying xray vs story
 
 The PIL/Pillow runtime ships with the standard MkDocs/CI Python environment.
 
@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OUT_CAUSA = REPO_ROOT / "docs" / "images" / "causa"
+OUT_XRAY = REPO_ROOT / "docs" / "images" / "xray"
 OUT_STORY = REPO_ROOT / "docs" / "images" / "story"
 
 # (tool, filename, caption)
@@ -33,23 +33,23 @@ OUT_STORY = REPO_ROOT / "docs" / "images" / "story"
 # outputs. The Playwright pipeline overwrites these placeholders with
 # real captures (annotated per docs/scripts/tutorial-annotation-spec.json).
 PLACEHOLDERS = [
-    # Causa tutorial captures (this generator is the fallback for fresh
+    # Xray tutorial captures (this generator is the fallback for fresh
     # checkouts before someone runs Playwright):
-    ("causa", "01-floating-pill.png",   "The Causa floating pill on the live counter app"),
-    ("causa", "02-shell-opened.png",    "The Causa shell, opened over the live app"),
-    ("causa", "02-sidebar-panels.png",  "Sixteen panels in three bands"),
-    ("causa", "02-event-detail.png",    "Event detail — the landing panel"),
-    ("causa", "03-time-travel.png",     "Time-travel scrubber with epoch history"),
-    ("causa", "04-trace.png",           "Trace panel with live event count + filter bar"),
-    ("causa", "05-dom-attribute.png",   "data-rf2-source-coord on every rendered element"),
-    ("causa", "08-machines.png",        "Machine inspector with state-chart"),
-    ("causa", "09-app-db-diff.png",     "App-DB diff for a cascade"),
-    # Additional Causa scenes — the AI co-pilot lives at ch 10; the
+    ("xray", "01-floating-pill.png",   "The Xray floating pill on the live counter app"),
+    ("xray", "02-shell-opened.png",    "The Xray shell, opened over the live app"),
+    ("xray", "02-sidebar-panels.png",  "Sixteen panels in three bands"),
+    ("xray", "02-event-detail.png",    "Event detail — the landing panel"),
+    ("xray", "03-time-travel.png",     "Time-travel scrubber with epoch history"),
+    ("xray", "04-trace.png",           "Trace panel with live event count + filter bar"),
+    ("xray", "05-dom-attribute.png",   "data-rf2-source-coord on every rendered element"),
+    ("xray", "08-machines.png",        "Machine inspector with state-chart"),
+    ("xray", "09-app-db-diff.png",     "App-DB diff for a cascade"),
+    # Additional Xray scenes — the AI co-pilot lives at ch 10; the
     # conditional-band chapters shifted one slot down to absorb the move:
-    ("causa", "10-copilot-rail.png",    "AI co-pilot rail — pull-only, slash commands"),
-    ("causa", "06-schema-timeline.png", "Schema-violation timeline — dot per epoch"),
-    ("causa", "07-hydration.png",       "Hydration debugger — server vs client trees"),
-    ("causa", "09-app-db-modes.png",    "App-DB diff — three rendering modes"),
+    ("xray", "10-copilot-rail.png",    "AI co-pilot rail — pull-only, slash commands"),
+    ("xray", "06-schema-timeline.png", "Schema-violation timeline — dot per epoch"),
+    ("xray", "07-hydration.png",       "Hydration debugger — server vs client trees"),
+    ("xray", "09-app-db-modes.png",    "App-DB diff — three rendering modes"),
 
     # Story tutorial captures:
     ("story", "01-shell-overview.png",  "The Story shell — sidebar / canvas / inspectors"),
@@ -69,7 +69,7 @@ PLACEHOLDERS = [
 
 SIZE = (1280, 800)
 COLOURS = {
-    "causa": ("#0d47a1", "#bbdefb"),  # blue band, light blue body
+    "xray": ("#0d47a1", "#bbdefb"),  # blue band, light blue body
     "story": ("#1b5e20", "#c8e6c9"),  # green band, light green body
 }
 
@@ -137,7 +137,7 @@ def draw_placeholder(out: Path, caption: str, tool: str) -> None:
 
 def main() -> int:
     for tool, name, caption in PLACEHOLDERS:
-        out = (OUT_CAUSA if tool == "causa" else OUT_STORY) / name
+        out = (OUT_XRAY if tool == "xray" else OUT_STORY) / name
         draw_placeholder(out, caption, tool)
         print(f"OK  {out.relative_to(REPO_ROOT)}")
     print(f"\nGenerated {len(PLACEHOLDERS)} placeholders.")

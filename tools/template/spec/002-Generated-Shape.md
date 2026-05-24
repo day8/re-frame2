@@ -10,8 +10,8 @@ For substrate `:reagent` (the default):
 
 ```
 my-app/
-├── deps.edn                  re-frame2 + Reagent adapter + schemas + Causa + shadow-cljs
-├── shadow-cljs.edn           :app (watch/release) + :test builds; Causa preload on :app
+├── deps.edn                  re-frame2 + Reagent adapter + schemas + Xray + shadow-cljs
+├── shadow-cljs.edn           :app (watch/release) + :test builds; Xray preload on :app
 ├── package.json              react + react-dom + shadow-cljs
 ├── README.md                 "run shadow-cljs watch app; open localhost:8280"
 ├── .gitignore
@@ -24,7 +24,7 @@ my-app/
 │   └── ci.yml                baseline CI — JDK 21 + Clojure CLI + Node 22 + `npm test`
 ├── resources/public/
 │   ├── index.html            host page; loads /js/main.js + /css/app.css;
-│   │                         ships the [data-rf-causa-host] devtools column
+│   │                         ships the [data-rf-xray-host] devtools column
 │   └── css/app.css           plain stylesheet incl. the .rf2-app-shell layout
 ├── src/my_app/
 │   ├── core.cljs             entry point — mounts the view
@@ -45,8 +45,8 @@ The runtime deps line carries four re-frame2 coords:
 `day8/re-frame2` (core), the substrate adapter
 (`day8/re-frame2-reagent`), `day8/re-frame2-schemas` (so the
 `schema.cljs` whole-app-db schema validates rather than soft-passing
-per Spec 010), and `day8/re-frame2-causa` (the in-app devtools panel,
-preloaded on the `:app` build — see [§Causa devtools](#causa-devtools)
+per Spec 010), and `day8/re-frame2-xray` (the in-app devtools panel,
+preloaded on the `:app` build — see [§Xray devtools](#xray-devtools)
 below). All four ride the same `{{rf2-version}}` pin.
 
 `shadow-cljs.edn` ships `:source-paths ["src" "test" "dev"]` so the
@@ -80,30 +80,30 @@ app](../../../docs/guide/03-first-app.md) and the canonical
 [`examples/reagent/counter`](../../../examples/reagent/counter/)
 example.
 
-## Causa devtools
+## Xray devtools
 
-Every generated app ships [Causa](../../causa/) — the in-app devtools
+Every generated app ships [Xray](../../xray/) — the in-app devtools
 panel — **on by default in development**. Three wiring points land,
 identically across all three substrates:
 
-- **deps.edn** carries the `day8/re-frame2-causa` runtime coord at the
-  same `{{rf2-version}}` pin as the core coord (Causa publishes in
+- **deps.edn** carries the `day8/re-frame2-xray` runtime coord at the
+  same `{{rf2-version}}` pin as the core coord (Xray publishes in
   lockstep).
-- **shadow-cljs.edn** preloads `day8.re-frame2-causa.preload` under the
+- **shadow-cljs.edn** preloads `day8.re-frame2-xray.preload` under the
   `:app` build's `:devtools {:preloads …}` key. shadow honours
   `:devtools` only under `watch` / `compile`, never `release`, so the
   preload is automatically absent from production bundles — no manual
   guarding needed.
 - **index.html + app.css** reserve the layout: a
-  `[data-rf-causa-host]` `<aside>` column inside a `.rf2-app-shell`
-  flex container, with `.rf2-causa-host` fixed at `420px` and `#app`
+  `[data-rf-xray-host]` `<aside>` column inside a `.rf2-app-shell`
+  flex container, with `.rf2-xray-host` fixed at `420px` and `#app`
   taking the remaining width. Once `rf/init!` installs the adapter,
-  Causa auto-mounts into that column.
+  Xray auto-mounts into that column.
 
-Causa is default-on because the scaffold's headline promise is
+Xray is default-on because the scaffold's headline promise is
 "save and see it live" — the dispatch log, app-db diff, causality
 graph, and time-travel scrubber are the on-ramp's primary feedback
-surface. See [DESIGN-RATIONALE §9](DESIGN-RATIONALE.md#9--causa-on-by-default-rf2-y9zqc)
+surface. See [DESIGN-RATIONALE §9](DESIGN-RATIONALE.md#9--xray-on-by-default-rf2-y9zqc)
 for the WHY and the release-elision guarantee. The generated
 `README.md` documents the runtime experience (the
 `Ctrl+Shift+C` toggle, what each panel shows).

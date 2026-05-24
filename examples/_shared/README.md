@@ -24,7 +24,7 @@ One typography stack, one palette, one stylesheet linked by every
 | Palette           | warm paper bg #F7F3EC / deep ink #1A1814 / amber #C8741A |
 | Atmosphere        | paper-grain radial gradients fixed to the viewport       |
 
-The pairing nods to the rest of the project (Causa uses Inter + JBM,
+The pairing nods to the rest of the project (Xray uses Inter + JBM,
 Story uses IBM Plex on a similarly light surface) so examples, dev
 tools, and docs all sit naturally next to one another.
 

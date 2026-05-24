@@ -375,7 +375,7 @@
   buffer is empty when the depth limit trips. The halting event (the next
   one that would have been dequeued) never ran, so it has no cascade
   trace; this seam synthesises its `:halted-depth` record from the
-  explicit `trigger-event` so devtools (Causa, re-frame2-pair) get a
+  explicit `trigger-event` so devtools (Xray, re-frame2-pair) get a
   clear 'drain halted here' marker following the runaway `:ok` epochs.
 
   `db-before` / `db-after` are equal — the halting event made no db write
@@ -554,11 +554,11 @@
 
   Per Security.md §Epoch privacy posture and rf2-mrsck: this is the
   single normative projection emission site for off-box egress. Tools
-  that forward epoch records across a process boundary (Causa-MCP
+  that forward epoch records across a process boundary (Xray-MCP
   `watch-epochs`, story / pair recorders, hosted post-mortem
   forwarders) MUST route through this fn at the wire boundary; the
   on-box ring buffer and `register-epoch-listener!` listener fan-out
-  continue to deliver the RAW record so on-box devtools (Causa diff,
+  continue to deliver the RAW record so on-box devtools (Xray diff,
   REPL, `restore-epoch`) can reason about exact state.
 
   `record` may be `nil` (e.g. a missing epoch lookup) — the projection
@@ -622,7 +622,7 @@
 ;; time async reactive recompute) here so it is attributed to the cascade
 ;; that CAUSED it (the frame's most-recently-settled epoch) rather than the
 ;; next in-flight cascade — fixing the one-epoch `:sub-runs` /
-;; `:value-changed?` lag visible in Causa's per-cascade Views subs table.
+;; `:value-changed?` lag visible in Xray's per-cascade Views subs table.
 (late-bind/set-fn! :epoch/record-sub-run!     listeners/record-sub-run!)
 (late-bind/set-fn! :epoch/epoch-history       epoch-history)
 (late-bind/set-fn! :epoch/restore-epoch       restore-epoch)
@@ -636,6 +636,6 @@
 ;; Per rf2-mrsck and Security.md §Epoch privacy posture: off-box
 ;; egress projection helpers, parallel to elide-wire-value for direct
 ;; reads. Tools that forward records over a process boundary use
-;; these (Causa-MCP `watch-epochs`, story / pair recorders).
+;; these (Xray-MCP `watch-epochs`, story / pair recorders).
 (late-bind/set-fn! :epoch/projected-record    projected-record)
 (late-bind/set-fn! :epoch/projected-history   projected-history)

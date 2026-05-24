@@ -94,7 +94,7 @@
 ;; allocate and never engages for events-only variants like
 ;; counter_with_stories' `:story.counter/events-only-loaded` (the
 ;; canonical events-only loader-body shape preserved from the retired
-;; causa-rhs-smoke testbed per rf2-9jfo1.2).
+;; xray-rhs-smoke testbed per rf2-9jfo1.2).
 
 (deftest cljs-events-only-fast-path-to-ready
   (testing "rf2-043cm — events-only variant lands :ready directly on
@@ -126,7 +126,7 @@
                                               {:hiccup [] :frame-setup []
                                                :fx-override [] :errors []}))
         "the counter_with_stories `:story.counter/events-only-loaded`
-         body shape (preserved from the retired causa-rhs-smoke
+         body shape (preserved from the retired xray-rhs-smoke
          testbed per rf2-9jfo1.2) → events-only")
     (is (false? (loaders/events-only-variant? {:loaders [[:l]]} {}))
         ":loaders disqualifies")

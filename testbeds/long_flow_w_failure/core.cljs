@@ -1,7 +1,7 @@
 (ns long-flow-w-failure.core
   "Shared framework-behavior testbed — a multi-second cascade of
   app-db writes that drive a three-flow topology, with a configurable
-  mid-flow failure injection. A consumer (Causa, Story, re-frame2-pair-mcp)
+  mid-flow failure injection. A consumer (Xray, Story, re-frame2-pair-mcp)
   observes the flow-failure ATOMICITY contract (per
   [spec/013 §Failure semantics] / rf2-u0zz5) play out over a
   human-visible time window:

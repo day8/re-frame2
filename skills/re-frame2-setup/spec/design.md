@@ -25,15 +25,15 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 ### L1 — Never hardcode the re-frame2 artefact VERSION in suggestions written to disk
 
-re-frame2 ships eleven Maven artefacts in lockstep at a single VERSION (core + 7 per-feature + 3 per-adapter per `spec/Conventions.md`; `day8/re-frame2-causa` rides the same line). The re-frame2 VERSION changes. The skill leaves it as `<VERSION>` and points the author at `references/deps-versions.md` for lookup; the cardinal rule lives in SKILL.md so it's read on every load. Hardcoded re-frame2 VERSIONs in suggestions are a documented anti-pattern. (The non-re-frame2 pins — Clojure/ClojureScript/Reagent — are pinned to concrete versions matching the generator template, since those are slow-moving and the template fixes them.)
+re-frame2 ships eleven Maven artefacts in lockstep at a single VERSION (core + 7 per-feature + 3 per-adapter per `spec/Conventions.md`; `day8/re-frame2-xray` rides the same line). The re-frame2 VERSION changes. The skill leaves it as `<VERSION>` and points the author at `references/deps-versions.md` for lookup; the cardinal rule lives in SKILL.md so it's read on every load. Hardcoded re-frame2 VERSIONs in suggestions are a documented anti-pattern. (The non-re-frame2 pins — Clojure/ClojureScript/Reagent — are pinned to concrete versions matching the generator template, since those are slow-moving and the template fixes them.)
 
 ### L2 — All eleven artefacts ship at the same VERSION
 
-The author picks the VERSION once; every `day8/re-frame2-*` dep (including `-causa`) gets that same version. Mixing versions across artefacts is unsupported. This rule lands in both SKILL.md and `references/deps-versions.md`.
+The author picks the VERSION once; every `day8/re-frame2-*` dep (including `-xray`) gets that same version. Mixing versions across artefacts is unsupported. This rule lands in both SKILL.md and `references/deps-versions.md`.
 
 ### L3 — Day-one shape matches the generator template; remaining per-feature artefacts are pay-as-you-go
 
-The day-one deps match the deps-new template: core (`day8/re-frame2`), the Reagent adapter (`day8/re-frame2-reagent`), `-schemas` (the starter app attaches a whole-app-db schema), and `-causa` (the in-app devtools panel, Causa-priority by default), plus an explicit `reagent/reagent` pin. The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) come in **only when the author starts using the feature**. The skill resists "add them all defensively" — pay-as-you-go is the contract for everything past the day-one shape.
+The day-one deps match the deps-new template: core (`day8/re-frame2`), the Reagent adapter (`day8/re-frame2-reagent`), `-schemas` (the starter app attaches a whole-app-db schema), and `-xray` (the in-app devtools panel, Xray-priority by default), plus an explicit `reagent/reagent` pin. The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) come in **only when the author starts using the feature**. The skill resists "add them all defensively" — pay-as-you-go is the contract for everything past the day-one shape.
 
 ### L4 — The Reagent adapter is the default reference substrate
 

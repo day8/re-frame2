@@ -135,7 +135,7 @@
             layout whose final child is the (class-3) TOC pane vector.
             A regression that drops the TOC entry would leave the
             section list without in-page navigation."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (e2e/select-variant! variant-id)
@@ -168,7 +168,7 @@
             A regression that renamed a section without updating the
             TOC table (or vice versa) would point the jump buttons
             at non-existent ids."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (e2e/select-variant! variant-id)
@@ -202,7 +202,7 @@
             workspace produces a visible TOC list with the prose entry
             pruned. Pairs with the inverse: the rich variant DOES
             surface the prose row."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         ;; Rich variant: prose workspace is registered → prose IS visible.
@@ -237,7 +237,7 @@
             slot to choose between `:dev` / `:docs` / `:test` — so
             pinning the transition + the resulting layout shape
             covers the shell's docs-pane mount path end-to-end."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (e2e/select-variant! variant-id)

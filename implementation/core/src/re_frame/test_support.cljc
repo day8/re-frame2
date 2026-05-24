@@ -400,7 +400,7 @@
   ([events {:keys [after-each] :as opts}]
    (let [frame-id (resolve-frame opts)
          ;; Per rf2-t1lxr: test-fixture-driven dispatches default to
-         ;; :rf/dispatch-origin :test-harness so Causa's L2 timeline +
+         ;; :rf/dispatch-origin :test-harness so Xray's L2 timeline +
          ;; per-origin filters can discriminate test-driven cascades
          ;; from user-origin events. Caller may override.
          dispatch-opts (cond-> {:frame frame-id :rf/dispatch-origin :test-harness}

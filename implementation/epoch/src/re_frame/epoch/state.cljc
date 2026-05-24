@@ -34,7 +34,7 @@
   ;; cascade traces. The most-recent N records keep `:trace-events`;
   ;; older records keep only the cheap structured projections
   ;; (`:sub-runs` / `:renders` / `:effects`). Five matches the pair-
-  ;; tool / Causa "what just happened?" working set — devs typically
+  ;; tool / Xray "what just happened?" working set — devs typically
   ;; care about the latest handful of cascades' raw streams; a deeper
   ;; ring depth is for time-travel reproducibility (`:db-after` is
   ;; cheap), not raw-trace inspection. Apps that genuinely need the
@@ -454,7 +454,7 @@
 ;; cascade's settle, mis-attributing it to cascade N+1 (the one-epoch lag
 ;; both beads document: a phantom render in the wrong cascade's
 ;; `:renders`, a phantom sub-run + `:value-changed?` in the wrong
-;; cascade's `:sub-runs` / Causa Views subs table).
+;; cascade's `:sub-runs` / Xray Views subs table).
 ;;
 ;; The fix back-fills the event into the cascade that CAUSED it (the
 ;; frame's most-recently-settled epoch — the cascade that dirtied the
@@ -485,7 +485,7 @@
       (the Reactive panel's flow tally) see the post-settle event in the
       right cascade.
     * the structured `slot` projection — the primary consumer surface
-      (Causa Views / Reactive panel) — is always present on a built
+      (Xray Views / Reactive panel) — is always present on a built
       record; the projected row is appended when non-nil."
   [frame-id epoch-id slot event row]
   (let [updated (atom nil)]

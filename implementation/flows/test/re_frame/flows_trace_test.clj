@@ -177,7 +177,7 @@
 ;;
 ;; Per Spec 013 §Flow tracing: `:rf.flow/computed` carries `:before`
 ;; — the value at the flow's `:path` immediately before this drain's
-;; write. Self-contained trace consumers (Causa Event Detail, 10x
+;; write. Self-contained trace consumers (Xray Event Detail, 10x
 ;; flow panel) render the "wrote [path] <before> -> <after>" line
 ;; without walking the surrounding epoch's `:db-before` snapshot.
 ;; These tests pin the contract across the edge cases the audit
@@ -1050,7 +1050,7 @@
 ;; These tests pin the contract end-to-end so a future reorder of the drain
 ;; (e.g. moving the flow walk outside the handler scope) cannot silently
 ;; strip the privacy marker — which would leak auth-handler-triggered flow
-;; recompute traces past the default-drop forwarders (Sentry / Causa-MCP).
+;; recompute traces past the default-drop forwarders (Sentry / Xray-MCP).
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-computed-trace-inherits-sensitive-from-schema-scope

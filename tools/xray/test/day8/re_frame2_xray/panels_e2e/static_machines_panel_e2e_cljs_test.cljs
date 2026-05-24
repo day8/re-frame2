@@ -1,0 +1,210 @@
+(ns day8.re-frame2-xray.panels-e2e.static-machines-panel-e2e-cljs-test
+  "Multi-frame end-to-end coverage for the Static Machines L4 panel
+  (rf2-1laqx, parent rf2-fbp11). Renames the Playwright scenario
+  `runStaticMachinesPanel` (recoverable at 85b86a7b
+  `tools/xray/testbeds/feature_matrix/scenarios.cjs`) into the
+  CLJS-Node multi-frame e2e shape introduced by rf2-7icrs, per the
+  rf2-b8pui (#1620) canonical pattern.
+
+  ## Why this suite exists
+
+  The Static Machines panel is one of two Static-mode L4 surfaces
+  that lost their Playwright gate in the pre-merge scaffolding strip;
+  the Routes panel is the sibling under rf2-wj46n. The
+  `panel_cljs_test.cljs` unit gate next to the panel covers the
+  master-detail wiring against test-seam overrides — that test
+  bypasses the registrar ingress (`:rf.xray/registered-machines` is
+  mocked via the `set-registered-machines-override-for-test` seam).
+  This e2e walks the REAL ingress — the host frame registers a
+  machine via the framework's `rf/reg-machine` surface, Xray
+  subscribes and projects through the live `registered-machines`
+  sub, the panel renders.
+
+  ## The four sub-assertions (per the bead)
+
+    1. Browse-list — ≥ 1 row mounts after a `deep-machine/install!`
+       in the host (the same fixture the rf2-7icrs Machine Inspector
+       e2e walks).
+    2. Topology SVG — the `chart/svg` MachineChart primitive emits
+       ≥ 1 `<g>` layout-node child (machines-viz shim integrity per
+       rf2-o9arp).
+    3. 4-mode sub-strip — Topology pill `aria-selected=\"true\"`;
+       Cascade pill `aria-disabled=\"true\"` + `disabled` (sub-strip
+       placeholder states per rf2-o5f5f.2).
+    4. → Dynamic JUMP — clicking the per-row jump chip flips
+       `:rf.xray/mode` to `:dynamic`, opens the Dynamic Machines
+       tab (`:rf.xray/selected-tab :machines`), and focuses the
+       chosen machine-id (`:rf.xray/selected-machine-id`).
+
+  ## Static-mode posture
+
+  The harness here dispatches `:rf.xray/set-mode :static` directly
+  through the multi-frame helper — that's the minimum surface needed
+  to make the L4 `static-shell/detail-panel` render the live
+  `static-machines/panel` mount (`shell.cljs` case-switches on
+  `:rf.xray.static/selected-tab` which defaults to `:machines`, so
+  no extra tab-select dispatch is needed). Per rf2-8l3uk Static mode
+  is unconditionally available; there is no feature flag to opt into.
+
+  ## Pattern reference
+
+  Same shape as `event_status_colour_cross_site_e2e_cljs_test.cljs`
+  (rf2-b8pui, PR #1620) — `re-frame.test-helpers/find-by-attr`
+  family walks the expanded hiccup; `e2e/with-host-and-xray-frames`
+  wires the real trace bus + epoch capture; the deep-machine host
+  fixture registers `:deep/main`."
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
+            [re-frame.core :as rf]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
+            [re-frame.test-support :as test-support]
+            [day8.re-frame2-xray.static.machines.instances-jump :as jump]
+            [day8.re-frame2-xray.static.shell :as static-shell]
+            [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
+            [day8.re-frame2-xray.test-helpers.host-fixtures.deep-machine
+             :as deep-machine]))
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+;; ---- helpers -------------------------------------------------------------
+
+(defn- render-static-surface
+  "Render the Static surface under `:rf/xray`. Flips Xray's mode
+  slot to `:static` first so the surface composer + tab bar +
+  `static-shell/detail-panel` case-switch on the right axis. Returns
+  the expanded hiccup tree.
+
+  The view-fn `static-shell/surface` is `reg-view`-registered so its
+  subscribes resolve to `:rf/xray` when invoked inside a
+  `with-frame :rf/xray` body."
+  []
+  (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
+  (rf/with-frame :rf/xray
+    (th/expand-tree [static-shell/surface])))
+
+(defn- row-buttons
+  "Pull the per-row outer `<button>` nodes out of the expanded tree.
+  The browse-list mints a family of testids off the
+  `rf-xray-static-machines-row-` stem — the OUTER row button carries
+  `:data-machine-id` while per-row sub-elements (jump chip, id span,
+  source-coord chip, …) share the prefix without the attr. Filter on
+  the attr to keep only the row buttons."
+  [tree]
+  (->> (th/find-by-attr-prefix tree :data-testid
+                               "rf-xray-static-machines-row-")
+       (filterv #(some? (:data-machine-id (th/attrs %))))))
+
+(defn- name-of-machine-id-attr
+  "The row button's `:data-machine-id` is a stringified keyword
+  (e.g. `\":deep/main\"`). The per-row jump-chip testid stem uses
+  `(name machine-id)` — return that suffix. Round-trips both
+  namespaced and unqualified keyword strings."
+  [s]
+  (-> s
+      (str/replace #"^:[^/]+/" "")
+      (str/replace #"^:" "")))
+
+;; ---- tests ---------------------------------------------------------------
+
+(deftest static-machines-panel-mounts-with-browse-list-and-topology
+  (testing "rf2-1laqx — with a host machine registered, the Static
+            Machines panel mounts a non-empty browse-list AND a
+            Topology chart hosting the machines-viz xyflow chart.
+
+            Post-rf2-gpzb4 (2026-05-21 xyflow migration): the chart
+            is rendered by `mv-chart/MachineChart`, a Reagent
+            component. Hiccup-level inspection sees the component
+            placeholder + its outer wrapper testids (chart wrapper +
+            inner-testid). The xyflow node groups themselves are
+            React-internal — covered by browser-side tests."
+    (e2e/with-host-and-xray-frames
+      {:install-host deep-machine/install-and-init!}
+      (fn []
+        (let [tree    (render-static-surface)
+              panel   (th/find-by-attr tree :data-testid
+                                       "rf-xray-static-machines-panel")
+              rows    (row-buttons tree)
+              chart   (th/find-by-attr tree :data-testid
+                                       "rf-xray-static-machines-topology-chart")
+              chart-inner (th/find-by-attr tree :data-testid
+                                           "rf-xray-static-machines-topology-svg")]
+          (is (some? panel)
+              "Static Machines L4 panel did not mount — :rf.xray/mode :static + default :machines sub-tab should yield the panel")
+          (is (pos? (count rows))
+              (str "browse-list rendered zero machine rows — expected ≥ 1 row "
+                   "for the host's :deep/main registration"))
+          (is (some? chart)
+              "Topology chart wrapper missing — Topology is the default sub-mode and a definition IS registered for :deep/main")
+          (is (some? chart-inner)
+              (str "Topology xyflow chart wrapper missing — machines-viz "
+                   "shim integrity regression. The canvas wrapper must "
+                   "thread the inner-testid `rf-xray-static-machines-"
+                   "topology-svg` to the xyflow chart placeholder.")))))))
+
+(deftest static-machines-sub-strip-default-states
+  (testing "rf2-1laqx — the 4-mode sub-strip mounts with Topology
+            pill aria-selected='true' AND Cascade pill aria-disabled=
+            'true' + disabled (the placeholder pill states per
+            rf2-o5f5f.2 — Sim is a renderer, Instances is a JUMP,
+            Cascade is Dynamic-only)."
+    (e2e/with-host-and-xray-frames
+      {:install-host deep-machine/install-and-init!}
+      (fn []
+        (let [tree      (render-static-surface)
+              topology  (th/find-by-attr tree :data-testid
+                                         "rf-xray-static-machines-pill-topology")
+              sim       (th/find-by-attr tree :data-testid
+                                         "rf-xray-static-machines-pill-sim")
+              instances (th/find-by-attr tree :data-testid
+                                         "rf-xray-static-machines-pill-instances")
+              cascade   (th/find-by-attr tree :data-testid
+                                         "rf-xray-static-machines-pill-cascade")]
+          (is (and (some? topology) (some? sim)
+                   (some? instances) (some? cascade))
+              "sub-strip missing one or more of the four pills")
+          (is (= "true" (:aria-selected (th/attrs topology)))
+              "Topology pill should be aria-selected='true' on default mount")
+          (is (= "true" (:aria-disabled (th/attrs cascade)))
+              "Cascade pill should carry aria-disabled='true' — Dynamic-only surface per rf2-o5f5f.2")
+          (is (true? (:disabled (th/attrs cascade)))
+              "Cascade pill should carry the HTML disabled attribute so the click is a no-op"))))))
+
+(deftest static-machines-first-row-jump-flips-mode-and-opens-dynamic-machines-tab
+  (testing "rf2-1laqx — the first row's → Dynamic JUMP chip fires
+            the three-event handoff (set-mode :dynamic + select-tab
+            :machines + select-machine-id <mid>) so the user lands
+            on the Dynamic Machines panel focused on the chosen
+            machine."
+    (e2e/with-host-and-xray-frames
+      {:install-host deep-machine/install-and-init!}
+      (fn []
+        (let [tree        (render-static-surface)
+              rows        (row-buttons tree)
+              first-row   (first rows)
+              machine-id-str (some-> first-row th/attrs :data-machine-id)
+              ;; `:deep/main` → testid `rf-xray-static-machines-row-jump-main`.
+              jump-testid (str "rf-xray-static-machines-row-jump-"
+                               (some-> machine-id-str name-of-machine-id-attr))
+              jump-chip   (th/find-by-attr tree :data-testid jump-testid)]
+          (is (some? first-row) "no first row to JUMP from")
+          (is (some? machine-id-str)
+              "first row missing :data-machine-id — can't resolve jump testid")
+          (is (some? jump-chip)
+              (str "→ Dynamic jump chip missing at testid " (pr-str jump-testid)))
+          (is (fn? (th/extract-handler jump-chip :on-click))
+              "jump chip carries no :on-click handler — the JUMP is wired but never fires")
+          ;; Drive the production handler synchronously. The chip's own
+          ;; on-click calls `dispatch-jump!` (async); the test variant
+          ;; `dispatch-jump-sync!` is the same dispatcher with
+          ;; `dispatch-sync` semantics — the canonical seam panel_cljs_test
+          ;; uses to assert post-dispatch state without an event-queue flush.
+          (rf/with-frame :rf/xray
+            (jump/dispatch-jump-sync! :deep/main))
+          (is (= :dynamic (e2e/sub-xray [:rf.xray/mode]))
+              ":rf.xray/set-mode :dynamic did not flip the mode slot")
+          (is (= :machines (e2e/sub-xray [:rf.xray/selected-tab]))
+              ":rf.xray/select-tab :machines did not select the Dynamic Machines tab")
+          (is (= :deep/main (e2e/sub-xray [:rf.xray/selected-machine-id]))
+              ":rf.xray/select-machine-id :deep/main did not land on the slot"))))))

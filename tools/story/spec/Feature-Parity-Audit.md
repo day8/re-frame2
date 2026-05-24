@@ -109,7 +109,7 @@ by the prior pass; this manifest captures the gap-only summary.
 | 15 | Toolbar (theme/viewport/locale) | 5-cluster toolbar + `reg-mode` | **WIN** | — | — | — | MODES \| DATA \| VIEW \| DEBUG \| REC clusters with small-caps labels |
 | 16 | Backgrounds addon | `reg-mode` `:axis :background` | matches | — | — | — | One primitive; no separate addon |
 | 17 | Viewport addon | `reg-mode` `:axis :viewport` | matches | — | — | — | Same shape |
-| 18 | Actions panel | Causa-as-RHS Trace tab | **WIN** | — | — | — | Six-domino cascade, not just event log |
+| 18 | Actions panel | Xray-as-RHS Trace tab | **WIN** | — | — | — | Six-domino cascade, not just event log |
 | 19 | Measure / Outline / Highlight addons | layout-debug decorator trio | matches | — | — | — | All three ship inline |
 | 20 | a11y addon (axe-core) | `:rf.story.panel/a11y` + `:rf.story.panel/chrome-a11y` | matches+ | — | — | — | Variant-author panel + chrome dogfood panel; opt-in consent per rf2-20w5i |
 | 21 | Source code panel | `:source` slot + "Open in editor" chip | matches | — | — | — | URI-scheme handler; vscode/cursor/idea/custom |
@@ -336,7 +336,7 @@ rationale pointer.
 | CSF Factories (JS) | rejected | `DESIGN-RATIONALE.md` §Rejected: CSF Factories | EDN-first variant bodies are strictly stronger. Accepting `:render` fn-slots reimports closure-based authoring. |
 | Component-co-located fixtures (RC `.fixture.tsx`) | rejected | `DESIGN-RATIONALE.md` §Rejected: component-co-located fixtures | Registry IS the structure mechanism; file-system convention would be a second source of truth. |
 | Statechart visualisation engine | delegated | `DESIGN-RATIONALE.md` §Rejected: statechart visualisation engine | Owned by future `day8/re-frame2-machines-viz` — auto-layout for hierarchical statecharts with parallel regions is specialised work and shouldn't land on every Story consumer's bundle. |
-| Pixel-scrubber UI (BackstopJS slider) | rejected | `DESIGN-RATIONALE.md` §Rejected: pixel-scrubber UI | Causa's epoch panel scrubs through data-space state — strictly better for re-frame2 apps than pixel-space scrubbing. |
+| Pixel-scrubber UI (BackstopJS slider) | rejected | `DESIGN-RATIONALE.md` §Rejected: pixel-scrubber UI | Xray's epoch panel scrubs through data-space state — strictly better for re-frame2 apps than pixel-space scrubbing. |
 | Throw-on-first-failure assertion semantics | rejected | `DESIGN-RATIONALE.md` §Rejected: throw-on-first-failure | Record-don't-throw shows the full picture of what went wrong vs. Storybook's "first failure halts everything." |
 | In-process MCP server | rejected (delegated) | `DESIGN-RATIONALE.md` §separate-mcp-jar | stdio + JSON-RPC machinery doesn't belong in every Story consumer's bundle. `tools/story-mcp/` is the separate jar. |
 

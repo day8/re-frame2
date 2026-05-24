@@ -61,13 +61,13 @@ const SHOTS = [
       { selector: '[data-test="story-sidebar"]',                          label: '1', side: 'right' },
       // Canvas in the centre — point from the BOTTOM up
       { selector: '[data-test="story-canvas-frame"]',                     label: '2', side: 'bottom' },
-      // Right-pane inspectors (where Causa embeds)
+      // Right-pane inspectors (where Xray embeds)
       { selector: '[data-test="story-inspectors"]',                       label: '3', side: 'left' },
       // The mode-tab strip above the canvas
       { selector: '[data-test="story-mode-tabs"]',                        label: '4', side: 'top' },
-      // The controls panel on the right rail — Causa's chip row
+      // The controls panel on the right rail — Xray's chip row
       // accommodates the role; we point at the chip row.
-      { selector: '[data-test="story-causa-embed"]',                      label: '5', side: 'left' },
+      { selector: '[data-test="story-xray-embed"]',                      label: '5', side: 'left' },
     ],
   },
 
@@ -251,16 +251,16 @@ const SHOTS = [
   },
 
   // 06-time-travel.md — `06-time-travel.png`
-  // Causa-as-RHS embed mounts beneath the chip-row picker as soon as a
+  // Xray-as-RHS embed mounts beneath the chip-row picker as soon as a
   // panel is selected. By default the Event panel is open; we click
-  // through a counter increment first so the Causa spine has at least
+  // through a counter increment first so the Xray spine has at least
   // one epoch beyond the boot to scrub through.
   {
     name: 'time-travel',
     variant: 'story.counter/loaded',
     save: '06-time-travel.png',
     prep: async (page) => {
-      // Fire a couple of counter clicks so the Causa epoch buffer has
+      // Fire a couple of counter clicks so the Xray epoch buffer has
       // visible content.
       for (let i = 0; i < 2; i++) {
         await page.click('[data-test="inc"]').catch(() => {});
@@ -271,15 +271,15 @@ const SHOTS = [
     callouts: [
       // Left half — the variant's canvas
       { selector: '[data-test="story-canvas-frame"]',                     label: '1', side: 'top' },
-      // Right half — the Causa-as-RHS embed root
-      { selector: '[data-test="story-causa-embed"]',                      label: '2', side: 'left' },
-      // chip-row picker that swaps between Causa's panels
-      { selector: '[data-test="story-causa-panel-chip"]',                 label: '3', side: 'top' },
-      // Active Causa panel host (Event panel by default — carries the
+      // Right half — the Xray-as-RHS embed root
+      { selector: '[data-test="story-xray-embed"]',                      label: '2', side: 'left' },
+      // chip-row picker that swaps between Xray's panels
+      { selector: '[data-test="story-xray-panel-chip"]',                 label: '3', side: 'top' },
+      // Active Xray panel host (Event panel by default — carries the
       // ribbon + event list inside)
-      { selector: '[data-test="story-causa-panel-host"]',                 label: '4', side: 'left' },
+      { selector: '[data-test="story-xray-panel-host"]',                 label: '4', side: 'left' },
       // Popout button — proves the embed can detach into a separate window
-      { selector: '[data-test="story-causa-popout"]',                     label: '5', side: 'left' },
+      { selector: '[data-test="story-xray-popout"]',                     label: '5', side: 'left' },
     ],
   },
 

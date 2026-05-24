@@ -103,7 +103,7 @@
             shell-state-atom. The state-mutation arm is covered by
             chrome_hotkeys_e2e; pinned here so the render test below
             has a known starting state."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (is (false? (:full-screen? (e2e/chrome-visibility)))
@@ -123,7 +123,7 @@
             chrome, not the canvas. The root wrapper's
             `data-rf-chrome-fullscreen` reflects the render's view of
             the state."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         ;; Seed full-screen directly — the state-flip arm is covered by
@@ -168,7 +168,7 @@
             shell's reagent-render produces a hiccup tree where the
             three chrome guards all admit their components. Pins the
             inverse so the elision test above can't trivially pass."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (let [tree            (render-shell-tree)
@@ -194,7 +194,7 @@
               press 2 → chrome returns.
             Asserts the keydown→state→render pipeline is stable across
             both transitions (not just the activate edge)."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (dispatch! (e2e/fake-event {:key "f"}))

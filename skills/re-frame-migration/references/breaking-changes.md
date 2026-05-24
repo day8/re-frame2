@@ -127,9 +127,9 @@ If a rule is hybrid (A for one shape, B for another), the type column above list
 
 | Trigger in v1 dev deps | Successor | Where |
 |---|---|---|
-| `day8.re-frame/re-frame-10x` Maven coord; `day8.re-frame-10x.preload` `:preloads` entry | **Causa** (`day8/re-frame2-causa`) | [`causa-replaces-10x.md`](causa-replaces-10x.md) |
+| `day8.re-frame/re-frame-10x` Maven coord; `day8.re-frame-10x.preload` `:preloads` entry | **Xray** (`day8/re-frame2-xray`) | [`xray-replaces-10x.md`](xray-replaces-10x.md) |
 
-Causa is a from-scratch reimplementation against re-frame2's trace bus and epoch-history surfaces, not a port of 10x. It is **dev-only by construction** and elides cleanly under `:advanced` + `goog.DEBUG=false`. The swap is not an M-rule (no application code triggers it) but is the natural companion to M-0 — see [`causa-replaces-10x.md`](causa-replaces-10x.md) for the drop / add / host / keybinding shape and the 10x→Causa parity matrix.
+Xray is a from-scratch reimplementation against re-frame2's trace bus and epoch-history surfaces, not a port of 10x. It is **dev-only by construction** and elides cleanly under `:advanced` + `goog.DEBUG=false`. The swap is not an M-rule (no application code triggers it) but is the natural companion to M-0 — see [`xray-replaces-10x.md`](xray-replaces-10x.md) for the drop / add / host / keybinding shape and the 10x→Xray parity matrix.
 
 ## What stays the same (do not change)
 

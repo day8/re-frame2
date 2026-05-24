@@ -156,7 +156,7 @@
                & extra-data}
 
   The `:rf.error/id` slot is the canonical discriminator consumers read
-  uniformly (Causa, pair-tool, `:on-error`); the message string is the
+  uniformly (Xray, pair-tool, `:on-error`); the message string is the
   stringified kw so `.getMessage` pivots to the same category.
   `where-sym` is the user-facing fn symbol stamped on the error.
   `artefact-info` carries `{:error-keyword :maven :require-ns}`.

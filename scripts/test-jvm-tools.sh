@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 tools=(
-  tools/causa
+  tools/xray
   tools/machines-viz
   tools/story
   tools/story-mcp

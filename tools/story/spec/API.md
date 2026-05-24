@@ -20,12 +20,12 @@ re-export rule is:
   all sit on the facade.
 - **Chrome internals + theme tokens require sub-ns access.** Theme
   tokens (`re-frame.story.theme.*`), the chrome-host surface
-  (`re-frame.story.ui.causa-embed/*`, `re-frame.story.causa-preset/*`,
+  (`re-frame.story.ui.xray-embed/*`, `re-frame.story.xray-preset/*`,
   `re-frame.story.ui.keybindings/*`), the URL-state engine
   (`re-frame.story.ui.url-state/*`), and the schema-validation panel
   installer all require a direct `:require` of the sub-namespace. They
   are public but called from the chrome itself, the shell bootstrap, or
-  the Causa preset — not from user story bodies.
+  the Xray preset — not from user story bodies.
 
 The split mirrors `re-frame.core`'s practice: the facade carries the
 ergonomic surface; sub-namespace requires are the discoverability
@@ -272,9 +272,9 @@ contracts.
 ## Chrome-host surface
 
 The Story chrome's per-panel mount lifecycle plus the bridges-only
-wiring helper. The contract Story consumes from Causa is
+wiring helper. The contract Story consumes from Xray is
 `panels/mount-<panel>!` (each panel a separate fn on
-`day8.re-frame2-causa.panels`); Story owns the panel-host that drives
+`day8.re-frame2-xray.panels`); Story owns the panel-host that drives
 the lifecycle.
 
 The **Audience** column names who's expected to call each surface
@@ -283,19 +283,19 @@ The **Audience** column names who's expected to call each surface
 
 - `user-app` — the host application; safe to call from app code.
 - `chrome-shell` — Story's own shell; called by the embed component,
-  the Causa preset, or the shell's bootstrap. Not part of the user
+  the Xray preset, or the shell's bootstrap. Not part of the user
   surface but unavoidably public because the shell needs it.
 - `pure-data-for-help` — pure-data tables consumed by the help-overlay
   / cheat-sheet renderer. Public so consumers can walk the same data.
 
 | Surface | Where it lives | Kind | Audience | Purpose |
 |---|---|---|---|---|
-| `causa-embed-panel` | `re-frame.story.ui.causa-embed` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Causa-host Reagent component. Renders the chip-row picker plus the Causa panel-host `<div>` that one of `panels/mount-<panel>!` mounts into. Feature-detect-safe: renders a graceful no-op when Causa's preload is not on the classpath. See [`003-Render-Shell.md`](003-Render-Shell.md) §Causa per-panel embed. |
-| `mount-fn-for` | `re-frame.story.ui.causa-embed` | Pure dispatch fn | `chrome-shell` | Pure dispatch: `(mount-fn-for panel-id)` returns the Causa `mount-<panel>!` fn for `panel-id` (one of `:event-detail` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing` / `:issues`), or nil for an unknown id. Compile-time symbol resolution via a `case` dispatch — no runtime namespace walk. See [`003-Render-Shell.md`](003-Render-Shell.md) §The contract — `panels/mount-<panel>!`. |
-| `popout-full-shell!` | `re-frame.story.ui.causa-embed` | User-callable lifecycle | `user-app` | Pop out the full Causa 4-layer shell into a second window via `day8.re-frame2-causa.mount/popout!`. Gated on `causa-preset/causa-available?` so the chip remains a graceful no-op when Causa's preload is not on the build. |
-| `causa-preset/wire-cross-host!` | `re-frame.story.causa-preset` | Internal bridge | `chrome-shell` | Bridges-only host-wiring helper. Called by the shell on every variant selection; threads through Causa's host-installation hooks (project-root propagation, keybinding installation) but does NOT mount Causa — the embed's panel-host owns the per-panel mount. See [`003-Render-Shell.md`](003-Render-Shell.md) §`wire-cross-host!` — bridges-only, no mount. |
-| `causa-preset/causa-available?` | `re-frame.story.causa-preset` | Pure predicate | `user-app` / `chrome-shell` | Pure predicate: true when Causa's preload is on the build (the preload namespace resolved at compile time). The chip-row, popout, and `wire-cross-host!` all check this — Story is feature-detect-safe and degrades gracefully when Causa is absent. App code MAY call this to gate UI affordances that depend on Causa being present. |
-| `causa-preset/propagate-project-root!` | `re-frame.story.causa-preset` | Internal bridge | `chrome-shell` | Bridges Story's `:rf.story/project-root` from `configure!` into Causa's slot so Causa-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). |
+| `xray-embed-panel` | `re-frame.story.ui.xray-embed` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Xray-host Reagent component. Renders the chip-row picker plus the Xray panel-host `<div>` that one of `panels/mount-<panel>!` mounts into. Feature-detect-safe: renders a graceful no-op when Xray's preload is not on the classpath. See [`003-Render-Shell.md`](003-Render-Shell.md) §Xray per-panel embed. |
+| `mount-fn-for` | `re-frame.story.ui.xray-embed` | Pure dispatch fn | `chrome-shell` | Pure dispatch: `(mount-fn-for panel-id)` returns the Xray `mount-<panel>!` fn for `panel-id` (one of `:event-detail` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing` / `:issues`), or nil for an unknown id. Compile-time symbol resolution via a `case` dispatch — no runtime namespace walk. See [`003-Render-Shell.md`](003-Render-Shell.md) §The contract — `panels/mount-<panel>!`. |
+| `popout-full-shell!` | `re-frame.story.ui.xray-embed` | User-callable lifecycle | `user-app` | Pop out the full Xray 4-layer shell into a second window via `day8.re-frame2-xray.mount/popout!`. Gated on `xray-preset/xray-available?` so the chip remains a graceful no-op when Xray's preload is not on the build. |
+| `xray-preset/wire-cross-host!` | `re-frame.story.xray-preset` | Internal bridge | `chrome-shell` | Bridges-only host-wiring helper. Called by the shell on every variant selection; threads through Xray's host-installation hooks (project-root propagation, keybinding installation) but does NOT mount Xray — the embed's panel-host owns the per-panel mount. See [`003-Render-Shell.md`](003-Render-Shell.md) §`wire-cross-host!` — bridges-only, no mount. |
+| `xray-preset/xray-available?` | `re-frame.story.xray-preset` | Pure predicate | `user-app` / `chrome-shell` | Pure predicate: true when Xray's preload is on the build (the preload namespace resolved at compile time). The chip-row, popout, and `wire-cross-host!` all check this — Story is feature-detect-safe and degrades gracefully when Xray is absent. App code MAY call this to gate UI affordances that depend on Xray being present. |
+| `xray-preset/propagate-project-root!` | `re-frame.story.xray-preset` | Internal bridge | `chrome-shell` | Bridges Story's `:rf.story/project-root` from `configure!` into Xray's slot so Xray-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). |
 | `keybindings/bindings` | `re-frame.story.ui.keybindings` | Pure data table | `pure-data-for-help` | The canonical `{key → handler}` table for the chrome-visibility hotkeys (`f` / `s` / `a` / `t`). Public so the help overlay's cheat-sheet section and the `015-Test-Coverage.md` matrix row can both walk the table. See [`014-Chrome-Features.md`](014-Chrome-Features.md) §Chrome-visibility hotkeys. |
 | `keybindings/shortcut-keys` | `re-frame.story.ui.keybindings` | Pure data → data | `pure-data-for-help` | Pure data → data: the sorted list of bound keys. Consumed by the first-visit help overlay so the rendered shortcut table stays in lockstep with the registry. |
 | `keybindings/install!` / `keybindings/uninstall!` | `re-frame.story.ui.keybindings` | Installer pair (canonical shape) | `chrome-shell` | Install / teardown the single `window#keydown` capture-phase listener that backs the hotkey registry. Idempotent; no listener leak across re-mounts. Production builds with `re-frame.story.config/enabled?` false never install. The pair follows the canonical chrome-installer shape per [Conventions §Chrome-installer pair shape](Conventions.md#chrome-installer-pair-shape). |
@@ -329,7 +329,7 @@ axis before reaching into the implementation.
 | Var / fn | Notes |
 |---|---|
 | `goog-define :rf.story/enabled?` | Compile-time DCE flag; `true` in dev, `false` in `:advanced`. See [`005-SOTA-Features.md`](005-SOTA-Features.md). |
-| `configure!` | `(configure! {:rf.story/global-args {...} :rf.story/global-decorators [[<dec-id> & ref-args] ...] :rf.story/editor :vscode :rf.story/project-root "..." :rf.privacy/show-sensitive? false})` — set global config at boot. Every key lives under `:rf.story/*` per the `:rf.<tool>/*` convention (spec/Conventions §Reserved namespaces); the cross-tool privacy flag uses the shared `:rf.privacy/*` reservation. `:rf.story/global-decorators` replaces the global-decorators ref vector (rf2-9qpk3 — Storybook `preview.ts` `decorators: [...]` parity); each entry is `[decorator-id & ref-args]`, the same shape a `:decorators` slot takes, and the decorator bodies must already be registered via `reg-decorator` (or `reg-global-decorator`). The resolved per-variant stack is `(concat globals story variant)` with the earliest entry the outermost wrap; `nil` / `[]` clears it. See [Global decorators](#global-decorators-reg-global-decorator--rf2-835ey). `:rf.story/project-root` is bridged into Causa's slot via `re-frame.story.causa-preset/propagate-project-root!` so Causa-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). `:rf.privacy/show-sensitive?` is the on-box dev override that gates whether the chrome's diagnostic surfaces (Causa Event Detail, the `:test` mode pane row-detail disclosures) render path-marked values in clear vs. `:rf/redacted`; defaults to `false`. The off-box wire-egress equivalent (`:include-sensitive?` for MCP, per [spec/Conventions §Privacy config-knob naming](../../../spec/Conventions.md)) is owned by `tools/story-mcp/`. |
+| `configure!` | `(configure! {:rf.story/global-args {...} :rf.story/global-decorators [[<dec-id> & ref-args] ...] :rf.story/editor :vscode :rf.story/project-root "..." :rf.privacy/show-sensitive? false})` — set global config at boot. Every key lives under `:rf.story/*` per the `:rf.<tool>/*` convention (spec/Conventions §Reserved namespaces); the cross-tool privacy flag uses the shared `:rf.privacy/*` reservation. `:rf.story/global-decorators` replaces the global-decorators ref vector (rf2-9qpk3 — Storybook `preview.ts` `decorators: [...]` parity); each entry is `[decorator-id & ref-args]`, the same shape a `:decorators` slot takes, and the decorator bodies must already be registered via `reg-decorator` (or `reg-global-decorator`). The resolved per-variant stack is `(concat globals story variant)` with the earliest entry the outermost wrap; `nil` / `[]` clears it. See [Global decorators](#global-decorators-reg-global-decorator--rf2-835ey). `:rf.story/project-root` is bridged into Xray's slot via `re-frame.story.xray-preset/propagate-project-root!` so Xray-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). `:rf.privacy/show-sensitive?` is the on-box dev override that gates whether the chrome's diagnostic surfaces (Xray Event Detail, the `:test` mode pane row-detail disclosures) render path-marked values in clear vs. `:rf/redacted`; defaults to `false`. The off-box wire-egress equivalent (`:include-sensitive?` for MCP, per [spec/Conventions §Privacy config-knob naming](../../../spec/Conventions.md)) is owned by `tools/story-mcp/`. |
 
 ## Privacy
 
@@ -367,7 +367,7 @@ for the marquee posture statement, and the per-surface entries:
   summary surface.
 - [`010-Toolbar.md`](010-Toolbar.md) — toolbar chrome + mode toggle.
 - 011 + 012 — RETIRED per rf2-sgdd3 (actions panel + scrubber +
-  trace panel deleted in favour of embedded Causa). See
+  trace panel deleted in favour of embedded Xray). See
   `003-Render-Shell.md` §Right-hand pane for the post-rf2-sgdd3 RHS
   contract.
 - [`013-Static-Build.md`](013-Static-Build.md) — static-export

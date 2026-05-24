@@ -220,7 +220,7 @@
   [data-rf-story-root] button[disabled],
   [data-rf-story-root] [aria-disabled=\"true\"]{color:GrayText;border-color:GrayText}
   /* Background gradients (canvas frame amber edge, accent grounds,
-     causa-embed seams) are NOT auto-stripped under forced-colors —
+     xray-embed seams) are NOT auto-stripped under forced-colors —
      the browser keeps the gradient image intact, defeating the system-
      token remap. Kill background-image at the root so chrome grounds
      read as plain Canvas. Applies inside variant content too:

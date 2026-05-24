@@ -8,8 +8,8 @@
 
   Originally this code lived in `re-frame.story.ui.trace` alongside the
   six-domino trace panel view. Per rf2-sgdd3 the panel view was retired
-  in favour of Causa's Trace tab (richer filtering, focus, cascade
-  navigation) — Story's RHS embeds Causa now. The buffer infrastructure
+  in favour of Xray's Trace tab (richer filtering, focus, cascade
+  navigation) — Story's RHS embeds Xray now. The buffer infrastructure
   survives because `re-frame.story.ui.schema-validation` still consumes
   it to project Spec 010 schema-validation failures into its own
   registered story-panel.

@@ -20,7 +20,7 @@ into `:assertions` (see below) rather than throwing.
 | `:rf.assert/path-matches` | `[path malli-schema]` | `(m/validate schema (get-in @app-db path))` |
 | `:rf.assert/sub-equals` | `[sub-vec expected]` | `(= @(subscribe sub-vec) expected)` |
 | `:rf.assert/dispatched?` | `[event-vec]` | Was this event dispatched against this frame? |
-| `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. Pairs with the per-variant trace-buffer's `:rf.machine/guard-evaluated` + `:rf.machine/action-ran` ops (rf2-ec52e, per [spec/005-StateMachines.md](../../../spec/005-StateMachines.md) + [spec/009-Instrumentation.md §`:op-type` vocabulary](../../../spec/009-Instrumentation.md)) — failures of this assertion can be diagnosed against the captured guard/action trace via Causa's RHS view. |
+| `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. Pairs with the per-variant trace-buffer's `:rf.machine/guard-evaluated` + `:rf.machine/action-ran` ops (rf2-ec52e, per [spec/005-StateMachines.md](../../../spec/005-StateMachines.md) + [spec/009-Instrumentation.md §`:op-type` vocabulary](../../../spec/009-Instrumentation.md)) — failures of this assertion can be diagnosed against the captured guard/action trace via Xray's RHS view. |
 | `:rf.assert/no-warnings` | `[]` | No `:rf.warn/*` events seen during play. |
 | `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | Did the variant's drain emit fx-id? See §`:rf.assert/effect-emitted` payload shape. |
 
@@ -174,7 +174,7 @@ The pure projection helpers (`truncate`, `summary-line`,
 shape is unit-testable. The rendered rows carry stable `data-test`
 hooks (`story-canvas-assertion-strip` / `-row` / `-glyph` / `-label` /
 `-summary` / `-detail` / `-detail-reveal`) for the agent reader and the
-Story/Causa gate. Per rf2-5lw9w each row vector carries a React `:key`
+Story/Xray gate. Per rf2-5lw9w each row vector carries a React `:key`
 on the element Reagent hands to React (not on a function-call form) so
 the row seq does not warn.
 
@@ -212,7 +212,7 @@ The rules:
    variant in a side-by-side pane sees only its own declared marks
    (per [`002-Runtime.md`](002-Runtime.md) §Per-variant frame
    allocation + spec/015 §App-db marks scoping).
-4. **Display contract — same posture as Causa.** The `:test` mode
+4. **Display contract — same posture as Xray.** The `:test` mode
    pane and the `[data-test="story-test-row-detail"]` disclosure
    render `:rf/redacted` per spec/015 §Display contract. A disclosure
    that revealed the underlying value would be non-conformant — see

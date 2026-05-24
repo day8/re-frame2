@@ -348,7 +348,7 @@
 ;; `^{:key ...}` to the function-CALL form `(render-row ...)`; in CLJS the
 ;; metadata is dropped at read time (it never transfers to render-row's
 ;; return value), so React saw an unkeyed row seq and warned 194×/run —
-;; failing the Story/Causa feature-load browser gate all session. The fix
+;; failing the Story/Xray feature-load browser gate all session. The fix
 ;; renders each row as a component vector `[render-row ...]` so the key
 ;; lands on the element. The pre-existing suite checked row SHAPE but never
 ;; the seq-key contract, which is why this slipped past node-test. These

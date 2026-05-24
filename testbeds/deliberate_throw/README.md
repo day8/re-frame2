@@ -29,19 +29,19 @@ lets a consumer verify it discriminates.
   `:recovery` is what consumers test against; an `:on-error` override
   would mask it.
 - No epoch recorder wired into the app. The recorder is the consumer's
-  concern — `tools/causa/testbeds/deliberate-throw-recorder/spec.cjs`
+  concern — `tools/xray/testbeds/deliberate-throw-recorder/spec.cjs`
   (when filed) will register the listener itself.
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Causa (26)**:
+**Xray (26)**:
 - `:rf.error/*` events highlighted in trace stream
 - Handler exception surfaces as `:effects` outcome `:error` per epoch record
 - Partial epoch record (drain-halt) shows up with non-`:ok` outcome (rf2-v0jwt) — via Button D (machine action; the snapshot non-commit is the cleanest drain-halt observable)
 - Click-to-source from trace event lands on source-coord line — Buttons A/B/C/D each register their handler/fx/flow/machine via the four canonical `reg-*` shapes, so every flavour of source-coord capture exercises here.
 
 **Cross-cutting (6)**:
-- Deliberately-throwing handler surfaces structured trace in BOTH Causa + Story `:play`
+- Deliberately-throwing handler surfaces structured trace in BOTH Xray + Story `:play`
 - Flow `:rf.flow/failed` shows four-rule failure semantics (rf2-hrqvg) — Button C
 - State-machine transition cascade shows `:rf.machine/*` events — Button D's pre-throw transition fires the `:rf.machine/transition` trace before the action throws
 

@@ -46,7 +46,7 @@ chips:
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │ MODES [chip] [chip]  │  DATA [Dispatch] [Play]  │  VIEW [Vp] [Bg]  │  DEBUG [Insp] │ REC [REC] [reset] │
 ├──────────┬───────────────────────────────────┬─────────────────────────────────────┤
-│ sidebar  │ Canvas │ Docs │ Tests │           │ Causa                                │  ← mode-tabs strip
+│ sidebar  │ Canvas │ Docs │ Tests │           │ Xray                                │  ← mode-tabs strip
 │          ├───────────────────────────────────┤ ────────────────────────────────────│
 │ stories  │                                   │ controls                             │
 │ tags     │   <selected mode's pane>          │ ────────────────────────────────────│
@@ -63,7 +63,7 @@ chrome around it (hairlines, cluster labels, active-chip
 amber-deep border).
 
 (RHS shape per rf2-sgdd3 — scrubber / trace / actions panels were
-retired; Causa is the always-on primary inspector now.)
+retired; Xray is the always-on primary inspector now.)
 
 The strip renders inside the shell's root container, **before** the
 flex-row that holds `[sidebar] [main] [right-panel]`. It always

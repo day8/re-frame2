@@ -90,7 +90,7 @@
 ;; canned stub skips it. The testbed README documents an ordered
 ;; `:rf.http/<kind>` stream per click — so this per-testbed wrapper fx
 ;; replays the live path's `trace/emit-error!` before delegating to the
-;; canned stub. Consumers (Causa, Story, cross-cutting specs) can now
+;; canned stub. Consumers (Xray, Story, cross-cutting specs) can now
 ;; assert on the `:operation :rf.http/<kind>` trace directly rather than
 ;; falling back to the `:rf.fx/handled` proxy.
 

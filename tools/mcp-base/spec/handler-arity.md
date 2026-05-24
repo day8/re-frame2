@@ -31,7 +31,7 @@ handler invocation shape — each server's dispatcher is a distinct
 implementation. A future third MCP-server author who consults both
 servers as examples sees two patterns rather than one. This is the
 **deliberate gap** acknowledged here; the originally-anticipated
-third instance (`causa-mcp`) was dropped per rf2-hvl1g, so unification
+third instance (`xray-mcp`) was dropped per rf2-hvl1g, so unification
 will wait until a fresh third server crystallises the canonical shape.
 
 ## Why the divergence stayed
@@ -50,7 +50,7 @@ will factor an explicit `ExecutionContext` type (likely a record /
 map with optional `:conn` / `:progress-callback` / `:request-meta`
 slots) into `tools/mcp-base/` and refit both servers to a uniform
 `(fn [ctx args])` handler shape. That bead waits for a third server
-instance to land — the originally-anticipated `causa-mcp` was dropped
+instance to land — the originally-anticipated `xray-mcp` was dropped
 per rf2-hvl1g, so there's no reliable third instance to validate the
 shape against today.
 

@@ -2,7 +2,7 @@
   "Custom xyflow node components for the MachineChart.
 
   rf2-gpzb4 (2026-05-21 xyflow override) — these components recover
-  the Causa visual identity (rounded-rect node body, state-tag pills,
+  the Xray visual identity (rounded-rect node body, state-tag pills,
   final-state double border, active-state cyan tint + emphasised
   stroke) on top of xyflow's React node-rendering pipeline.
 

@@ -169,7 +169,7 @@ After working through this chapter:
 
 - **You paste the recorded body and the variant says "no assertions recorded" in *Tests* mode.** Easy mistake: you pasted the recorder's `{:play-script [...]}` map inside an existing variant's `{:events [...]}` slot. The `:play-script` is a top-level slot on `reg-variant`, not nested inside `:events`. The two slots have completely different runtime semantics (setup vs play); they're not interchangeable.
 
-- **The recorded body references events that aren't registered.** The view's button is dispatching a different event than you think, or the event handler isn't loaded into the build (typo in `:require` chains is the usual culprit). Open Causa's *Event* tab and check what's actually firing.
+- **The recorded body references events that aren't registered.** The view's button is dispatching a different event than you think, or the event handler isn't loaded into the build (typo in `:require` chains is the usual culprit). Open Xray's *Event* tab and check what's actually firing.
 
 ## Where we go next
 

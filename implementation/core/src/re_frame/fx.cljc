@@ -527,7 +527,7 @@
           ;; coord through `emit!`'s hoist of `*handler-scope*` — the
           ;; outer event handler's scope would otherwise stamp the
           ;; event handler's coord onto the
-          ;; `:rf.fx/handled` event (Story/Causa want jump-to-source to
+          ;; `:rf.fx/handled` event (Story/Xray want jump-to-source to
           ;; land on the fx handler's `reg-fx` site, not the event
           ;; handler that produced the fx vector). `:call-site` /
           ;; `:dispatch-id` are inherited from the outer scope.
@@ -650,7 +650,7 @@
                       USER-INJECTED subset (everything outside
                       `framework-coeffect-keys`) is stamped onto the
                       `:event/do-fx` marker's `:tags` under `:coeffects`
-                      so the Causa Event lens's COEFFECTS section can
+                      so the Xray Event lens's COEFFECTS section can
                       render values without a second emit. The filter
                       mirrors the INTERCEPTORS section's filter-out-
                       framework-defaults posture; the stamp is absent
@@ -674,7 +674,7 @@
    ;; effects map. The full `:db` VALUE is NOT stamped — slice
    ;; changes already ride the App-db diff trace
    ;; (`:event/db-changed`), and the value can be huge. Presence +
-   ;; shape is what consumers (Event lens, Causa) need to align
+   ;; shape is what consumers (Event lens, Xray) need to align
    ;; cascade rows with handler returns. The tag-map is the third
    ;; arg to `trace/emit!`; `trace/emit!` itself is DCE-gated, so
    ;; prod builds elide both the construction and the emit.

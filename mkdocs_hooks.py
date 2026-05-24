@@ -40,9 +40,9 @@
 #        - guide pages link to ../../skills/X/ (the source-tree directory)
 #          where docs/skills/X.md exists as the published summary — rewrite
 #          to ../skills/X.md so the published site lands on the summary.
-#        - guide sub-chapter pages link to ../../causa/ where the published
-#          site's causa section opens at causa/index.md — rewrite the bare
-#          directory link to ../../causa/index.md.
+#        - guide sub-chapter pages link to ../../xray/ where the published
+#          site's xray section opens at xray/index.md — rewrite the bare
+#          directory link to ../../xray/index.md.
 #        - spec/SPEC-AUTHORING.md links to conformance/ (sibling directory
 #          of spec/, staged into docs/spec/conformance/) — rewrite the bare
 #          directory link to conformance/README.md.
@@ -143,12 +143,12 @@ _SPEC_TO_DOCSROOT = re.compile(r'\]\(\.\./docs/')
 # directory form is matched; sub-paths fall through to the GitHub-URL rewrite.
 _GUIDE_SKILL_DIR = re.compile(r'\]\(\.\./\.\./skills/([A-Za-z0-9._-]+)/\)')
 
-# Case 3b: directory-style ../../causa/ from guide sub-chapter pages — the
-# published causa section opens at docs/causa/index.md. Rewrite the bare
+# Case 3b: directory-style ../../xray/ from guide sub-chapter pages — the
+# published xray section opens at docs/xray/index.md. Rewrite the bare
 # directory link to the explicit index file. Source path is unchanged on
 # GitHub (where a directory link opens the directory listing as the user
 # expects).
-_GUIDE_CAUSA_DIR = re.compile(r'\]\(\.\./\.\./causa/\)')
+_GUIDE_XRAY_DIR = re.compile(r'\]\(\.\./\.\./xray/\)')
 
 # Case 3c: directory-style conformance/ from spec/SPEC-AUTHORING.md — the
 # conformance corpus is staged at docs/spec/conformance/, with README.md as
@@ -248,10 +248,10 @@ def on_page_markdown(markdown, page, config, files):
         if src.count('/') >= 2:
             # depth-3 (or deeper) — sub-chapter pages
             markdown = _GUIDE_DEEP_TO_SPEC.sub('](../../spec/', markdown)
-            # Bare ../../causa/ -> ../../causa/index.md (chapter overview).
+            # Bare ../../xray/ -> ../../xray/index.md (chapter overview).
             # Only sub-chapter pages emit this shape; depth-2 guide pages
-            # would use ../causa/ and don't appear in the warning set.
-            markdown = _GUIDE_CAUSA_DIR.sub('](../../causa/index.md)', markdown)
+            # would use ../xray/ and don't appear in the warning set.
+            markdown = _GUIDE_XRAY_DIR.sub('](../../xray/index.md)', markdown)
         else:
             markdown = _GUIDE_TO_SPEC.sub('](../spec/', markdown)
             markdown = _GUIDE_TO_MIGRATION.sub('](../migration/', markdown)

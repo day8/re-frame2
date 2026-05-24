@@ -1,6 +1,6 @@
 # Skills
 
-> Eight Claude Code skills that travel with the re-frame2 repo — for authoring code, critiquing existing code, bootstrapping a project, migrating from v1, building a new re-frame2 implementation, touring the Causa devtools panel, pair-programming with a running app, and running a retrospective on a pairing session.
+> Eight Claude Code skills that travel with the re-frame2 repo — for authoring code, critiquing existing code, bootstrapping a project, migrating from v1, building a new re-frame2 implementation, touring the Xray devtools panel, pair-programming with a running app, and running a retrospective on a pairing session.
 
 A **skill** is a small package of agent-shaped instructions plus optional scripts and reference leaves. When you load a skill into Claude Code (or any other Anthropic-skill-compatible agent), the model picks up its system prompt and its operating contract — so the same conversation that was *"help me write a re-frame2 event handler"* becomes a focused interaction that knows the canonical shapes, the cardinal rules, and where the depth lives.
 
@@ -21,7 +21,7 @@ The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKI
 | [**re-frame2-setup**](re-frame2-setup.md) | Bootstrap a fresh re-frame2 ClojureScript project from nothing. Walks the author to a working counter under `shadow-cljs watch`. |
 | [**re-frame-migration** (v1→v2)](re-frame-migration.md) | Migrate an existing re-frame v1.x codebase to re-frame2. Applies the mechanical `M-rules` automatically; flags judgment calls. |
 | [**re-frame2-implementor**](re-frame2-implementor.md) | Build a new re-frame2 implementation in a different host language or substrate. Two-phase workflow — Phase 1 locks the decisions; Phase 2 walks the spec corpus with conformance as the acceptance test. |
-| [**re-frame2-causa**](re-frame2-causa.md) | Read-only tour of the **Causa** devtools panel — how to launch it and which tab, across its Dynamic event-spine and Static registry-browse modes, shows X. |
+| [**re-frame2-xray**](re-frame2-xray.md) | Read-only tour of the **Xray** devtools panel — how to launch it and which tab, across its Dynamic event-spine and Static registry-browse modes, shows X. |
 | [**re-frame2-pair**](re-frame2-pair.md) | Pair-program with a live, running re-frame2 app. Dispatch events, inspect `app-db`, walk epochs, hot-swap handlers — all via Tool-Pair contract. |
 | [**re-frame2-pair-retro**](re-frame2-pair-retro.md) | Retrospect a `re-frame2-pair` session. Surfaces friction; proposes targeted improvements; routes upstream GitHub issues to re-frame2 when the cause is framework-shaped. |
 
@@ -34,7 +34,7 @@ A quick decision flow:
 - **Writing new code in an existing v2 project?** → `re-frame2`.
 - **Critiquing existing v2 code on explicit pull (anti-pattern audit)?** → `re-frame2-improver`.
 - **Building a NEW re-frame2 implementation in a different host language or substrate?** → `re-frame2-implementor`.
-- **Touring the Causa devtools panel — how to launch it, or which tab / mode shows X?** → `re-frame2-causa`.
+- **Touring the Xray devtools panel — how to launch it, or which tab / mode shows X?** → `re-frame2-xray`.
 - **Debugging or pairing with a running v2 app?** → `re-frame2-pair`.
 - **Just finished a pairing session and noticed friction?** → `re-frame2-pair-retro`.
 
@@ -49,7 +49,7 @@ If a question spans more than one skill, pick the one whose **entry trigger** ma
 | `re-frame2-setup` | [`skills/re-frame2-setup/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) |
 | `re-frame-migration` | [`skills/re-frame-migration/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) |
 | `re-frame2-implementor` | [`skills/re-frame2-implementor/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-implementor) |
-| `re-frame2-causa` | [`skills/re-frame2-causa/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-causa) |
+| `re-frame2-xray` | [`skills/re-frame2-xray/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-xray) |
 | `re-frame2-pair` | [`skills/re-frame2-pair/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) |
 | `re-frame2-pair-retro` | [`skills/re-frame2-pair-retro/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro) |
 

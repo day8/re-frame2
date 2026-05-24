@@ -2,7 +2,7 @@
 
 A Reagent-mounted surface whose `app-db` carries 55 leaves across 6
 top-level keys at depths 1 through 5. Six buttons drive six
-structurally distinct diff shapes. A consumer (Causa, Story,
+structurally distinct diff shapes. A consumer (Xray, Story,
 re-frame2-pair-mcp) uses this surface to verify its diff visualisation
 renders realistic state without collapsing detail or re-rendering
 unchanged subtrees.
@@ -83,7 +83,7 @@ leaves is the smallest count that exercises:
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Causa (26)**:
+**Xray (26)**:
 - Trace panel populates on first dispatch — each button produces a
   visible `:event/db-changed` trace with `:tags :app-db-before` and
   `:tags :app-db-after` carrying the 55-leaf shape.

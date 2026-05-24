@@ -177,7 +177,7 @@
               ;; Per rf2-qlzh4: capture the pre-write value at the
               ;; flow's `:path` BEFORE we assoc-in the new output.
               ;; This becomes the `:before` slot on the
-              ;; `:rf.flow/computed` trace below — consumers (Causa
+              ;; `:rf.flow/computed` trace below — consumers (Xray
               ;; Event Detail, re-frame-10x flow panel) no longer
               ;; need to walk the epoch's `:db-before` snapshot to
               ;; render "wrote [:cart :total] 47.50 -> 52.50". The

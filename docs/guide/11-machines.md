@@ -75,7 +75,7 @@ The fix isn't to write better `cond` clauses. The fix is to step back and notice
 
 ## The same flow as a machine
 
-> 📸 **Screenshot needed**: Causa's Machine inspector showing the login flow's transition graph live in a browser. Annotate (1) the current state `:idle` highlighted in the diagram, (2) the transition arrows `:submit` → `:submitting`, (3) the `:guards` panel listing `:under-retry-limit`, (4) the snapshot panel showing `{:attempts 0 :error nil}`.
+> 📸 **Screenshot needed**: Xray's Machine inspector showing the login flow's transition graph live in a browser. Annotate (1) the current state `:idle` highlighted in the diagram, (2) the transition arrows `:submit` → `:submitting`, (3) the `:guards` panel listing `:under-retry-limit`, (4) the snapshot panel showing `{:attempts 0 :error nil}`.
 >
 > Save as: `/docs/images/guide/11-machine-inspector.png`
 

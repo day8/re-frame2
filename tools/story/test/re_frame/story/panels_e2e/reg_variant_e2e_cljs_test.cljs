@@ -20,7 +20,7 @@
   dispatches differently. The Playwright probe asserted `3` and was
   failing every Browser gate post-#1726.
 
-  Per Mike's testing direction (feedback_causa_story_cljs_unit_tests_
+  Per Mike's testing direction (feedback_xray_story_cljs_unit_tests_
   not_playwright) + the Wave 1-4 migration pattern (rf2-tglku epic):
   the architectural answer is a CLJS unit test that drives
   `story/run-variant` directly and asserts the result-map's

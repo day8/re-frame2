@@ -110,18 +110,18 @@
               "shadow-cljs.edn :source-paths includes \"test\" so the emitted test file is discoverable")
           (is (= :node-test (:target tst))
               "shadow-cljs :test build targets :node-test")
-          ;; Causa preload (rf2-y9zqc).
-          (is (some #{'day8.re-frame2-causa.preload}
+          ;; Xray preload (rf2-y9zqc).
+          (is (some #{'day8.re-frame2-xray.preload}
                     (get-in app [:devtools :preloads]))
-              "shadow-cljs :app :devtools/preloads wires Causa"))
+              "shadow-cljs :app :devtools/preloads wires Xray"))
 
-        ;; -- Causa coord in deps.edn (rf2-y9zqc) --
+        ;; -- Xray coord in deps.edn (rf2-y9zqc) --
         (let [deps (read-edn (io/file root "deps.edn"))]
-          (is (contains? (:deps deps) 'day8/re-frame2-causa)
-              "deps.edn references day8/re-frame2-causa")
+          (is (contains? (:deps deps) 'day8/re-frame2-xray)
+              "deps.edn references day8/re-frame2-xray")
           ;; Pin value owned by version_lockstep_test.clj (rf2-5v619, D3).
-          (is (some? (get-in deps [:deps 'day8/re-frame2-causa :mvn/version]))
-              "Causa coord carries an :mvn/version pin"))
+          (is (some? (get-in deps [:deps 'day8/re-frame2-xray :mvn/version]))
+              "Xray coord carries an :mvn/version pin"))
 
         ;; -- Schemas coord in deps.edn (rf2-48mij) --
         (let [deps (read-edn (io/file root "deps.edn"))]
@@ -272,8 +272,8 @@
                 "index.html CSP forbids framing (anti-clickjacking)")
             (is (.contains index-text "object-src 'none'")
                 "index.html CSP forbids plugin objects")
-            (is (.contains index-text "data-rf-causa-host")
-                "index.html provides Causa's default true-inline layout host")
+            (is (.contains index-text "data-rf-xray-host")
+                "index.html provides Xray's default true-inline layout host")
             (is (.contains readme-text "Production hardening")
                 "README documents Production hardening")
             (is (.contains readme-text "X-Content-Type-Options")

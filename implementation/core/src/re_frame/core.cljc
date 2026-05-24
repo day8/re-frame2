@@ -48,7 +48,7 @@
             ;; aggregator (rf2-931pm). CLJS deliberately omits the
             ;; require so Closure DCE keeps the aggregator + per-fn
             ;; keyword interns out of production bundles — the
-            ;; bundle-isolation gate verifies. Causa's Reactive panel
+            ;; bundle-isolation gate verifies. Xray's Reactive panel
             ;; loads the ns explicitly from its tools-side build.
             #?@(:clj [[re-frame.trace.cascade]])
             [re-frame.event-emit :as event-emit]
@@ -432,7 +432,7 @@
   snapshot for `frame-id`. Returns `{}` for a frame that has never
   seen a `render-head` call (or whose snapshot has been cleared via
   per-request frame teardown). Useful for tests, introspection, and
-  tools (Causa, MCP). Per Spec 011 §Head/meta contract (rf2-4dra9).
+  tools (Xray, MCP). Per Spec 011 §Head/meta contract (rf2-4dra9).
   Implementation ships in `day8/re-frame2-ssr`. Late-bound via
   `:ssr/head-snapshot`."}
   head-snapshot    rf-ssr/head-snapshot)
@@ -521,7 +521,7 @@
   Schema-attached marks are preserved — the two sources union per
   Spec 015 §Relationship with schema-attached marks. The declaration
   feeds the mark-lookup table the observation surfaces (trace bus,
-  Causa, MCP, third-party log sinks) consult at emission time — real
+  Xray, MCP, third-party log sinks) consult at emission time — real
   values flow through the application unchanged.
 
   Example:
@@ -986,7 +986,7 @@
 ;; convenience aliases in `re-frame.subs` keep the legacy
 ;; `subs/<name>` shape working; this ns mirrors them so the
 ;; `rf/sub-topology` / `rf/sub-cache` public API is unchanged. CLJS
-;; consumers needing the surface (Causa, re-frame2-pair-mcp, re-frame-10x,
+;; consumers needing the surface (Xray, re-frame2-pair-mcp, re-frame-10x,
 ;; conformance tests) call `re-frame.subs.tooling/<name>` directly so
 ;; production counter bundles DCE the bodies.
 
@@ -1005,7 +1005,7 @@
        subscription — what each sub depends on, computed from its
        registration (NOT from the live runtime cache). JVM-only convenience
        alias for `re-frame.subs.tooling/sub-topology` (rf2-bmzq0). CLJS
-       consumers (Causa, re-frame2-pair-mcp, re-frame-10x, conformance tests) call
+       consumers (Xray, re-frame2-pair-mcp, re-frame-10x, conformance tests) call
        the tooling ns directly so production bundles DCE the body.
        Per Spec 002 §The public registrar query API."}
        sub-topology subs/sub-topology)))
@@ -1096,7 +1096,7 @@
 ;; side `goog.DEBUG` gating of registration call sites. The heavier
 ;; trace-buffer machinery is still reached via `re-frame.trace.tooling/
 ;; <name>` directly for the production-DCE story; the trace-buffer
-;; reader is re-exported here for the JVM-side tools / story / causa /
+;; reader is re-exported here for the JVM-side tools / story / xray /
 ;; re-frame-10x consumers.
 
 (def ^{:doc "Register a trace-event listener under `id`. The listener
@@ -1181,7 +1181,7 @@
 
 (def ^{:doc "Project a sequence of raw trace events into one cascade
   record per `:dispatch-id`. Pure data — JVM and CLJS. Used by
-  `re-frame-10x`, Causa, and other tools that present cascade-level
+  `re-frame-10x`, Xray, and other tools that present cascade-level
   views over the raw event stream. Per Spec 009 §Trace projection."}
   group-cascades  trace-projection/group-cascades)
 
@@ -1235,7 +1235,7 @@
   (parallel to `elide-wire-value` for direct reads). Routes payload
   slots through wire-elision with off-box defaults; bookkeeping slots
   pass through unchanged. Tools that egress epoch records across a
-  process boundary (Causa-MCP `watch-epochs`, recorders, forwarders)
+  process boundary (Xray-MCP `watch-epochs`, recorders, forwarders)
   MUST route through this fn. Per Security.md §Epoch privacy posture
   (rf2-mrsck). Late-bound via `:epoch/projected-record`."}
   projected-record   rf-epoch/projected-record)

@@ -169,7 +169,7 @@ Typical improvements:
 ### Multi-tool coexistence
 
 Signals:
-- the pair tool's listener key collides with Causa (or another tool's) listener
+- the pair tool's listener key collides with Xray (or another tool's) listener
 - listener-ordering assumptions fail (per Spec 009 listener ordering is not contract)
 - multiple tools writing to the same trace consumer step on each other
 

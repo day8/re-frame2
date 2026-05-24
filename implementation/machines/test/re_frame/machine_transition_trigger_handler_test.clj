@@ -10,7 +10,7 @@
   machine's own registration coord via `emit!`'s hoist of
   `*current-trigger-handler*`.
 
-  Causa's machine-inspector wants 'jump to the action that just ran'
+  Xray's machine-inspector wants 'jump to the action that just ran'
   from a transition trace. With this widening, the registration coord
   rides on every `:rf.machine/transition` event — tools render the
   click-to-jump link from the same slot they already read on error
@@ -48,7 +48,7 @@
 (deftest machine-transition-carries-trigger-handler
   (testing ":rf.machine/transition fires inside the machine's event-handler
    scope, so :rf.trace/trigger-handler rides the trace with the machine's
-   registration coord — Causa's machine-inspector renders jump-to-source
+   registration coord — Xray's machine-inspector renders jump-to-source
    from this field"
     (rf/reg-machine :rf2-lf84g/tl
       {:initial :red

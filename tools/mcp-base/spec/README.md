@@ -7,10 +7,10 @@ the re-frame2 tool pair:
 - `tools/re-frame2-pair-mcp/` (CLJS / Node — runs over nREPL to a browser app)
 - `tools/story-mcp/` (JVM / Clojure — bridges to `tools/story/`)
 
-(Historical: a third server `causa-mcp` was envisaged, making this an
-MCP triplet; it was dropped per rf2-hvl1g — AI agent access to Causa
+(Historical: a third server `xray-mcp` was envisaged, making this an
+MCP triplet; it was dropped per rf2-hvl1g — AI agent access to Xray
 state flows via re-frame2-pair-mcp against the framework-published
-Causa runtime API, so a dedicated causa-mcp is unnecessary.)
+Xray runtime API, so a dedicated xray-mcp is unnecessary.)
 
 The factoring landed under [rf2-vw4sq][bead]. The per-namespace
 contract expansion (rf2-643ia / rf2-0hs5t.5) splits each shipped

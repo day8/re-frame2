@@ -9,7 +9,7 @@
   (`finalize-machine`) emitted it AFTER the cascade. A consumer keying
   on `:rf.machine/destroyed` therefore saw the destroy signal at a
   different point relative to the `:exit` side-effects depending on
-  which entry-point fired — a latent inconsistency for tools (Causa,
+  which entry-point fired — a latent inconsistency for tools (Xray,
   re-frame-10x, story-mcp) that key on the trace.
 
   Spec 005 §Declarative `:spawn` §Composition with explicit `:entry` /

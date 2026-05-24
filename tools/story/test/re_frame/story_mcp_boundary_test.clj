@@ -35,10 +35,10 @@
   - **`clear-kind!` clears a single kind without affecting siblings.**
     Used by MCP's `clear-variants` / `clear-stories` tools.
   - **`reg-story-panel` is the late-bind hook spec/006 §5 describes.**
-    Causa's epoch-view registration is the canonical late-bind
+    Xray's epoch-view registration is the canonical late-bind
     example: Story ships a stub registration (the SOTA spec's
-    five-line snippet); Causa's panel registers under the same
-    `:rf.story/causa-epoch` id and the registration replaces the stub.
+    five-line snippet); Xray's panel registers under the same
+    `:rf.story/xray-epoch` id and the registration replaces the stub.
     This pins the late-bind contract Story exposes to third-party
     tooling — including the MCP jar's hypothetical `register-story-
     panel` write tool (per spec/006 §5).
@@ -203,26 +203,26 @@
 (deftest reg-story-panel-late-bind-replaces-stub
   (testing "registering a panel under an id, then re-registering under
             the same id, replaces the slot — this is the late-bind
-            contract Causa's epoch-view depends on"
-    (story/reg-story-panel :rf.story/causa-epoch
+            contract Xray's epoch-view depends on"
+    (story/reg-story-panel :rf.story/xray-epoch
       {:doc       "Story-shipped stub"
        :title     "Epochs (stub)"
        :placement :bottom
-       :render    :rf.story.stubs/causa-epoch-stub})
-    (let [stub-body (story/handler-meta :story-panel :rf.story/causa-epoch)]
+       :render    :rf.story.stubs/xray-epoch-stub})
+    (let [stub-body (story/handler-meta :story-panel :rf.story/xray-epoch)]
       (is (= "Epochs (stub)" (:title stub-body)))
-      (is (= :rf.story.stubs/causa-epoch-stub (:render stub-body))))
-    ;; Now Causa ships its real view — register under the same id.
-    (story/reg-story-panel :rf.story/causa-epoch
-      {:doc       "Causa-shipped real view"
-       :title     "Epochs (Causa)"
+      (is (= :rf.story.stubs/xray-epoch-stub (:render stub-body))))
+    ;; Now Xray ships its real view — register under the same id.
+    (story/reg-story-panel :rf.story/xray-epoch
+      {:doc       "Xray-shipped real view"
+       :title     "Epochs (Xray)"
        :placement :bottom
-       :render    :day8.re-frame2-causa.panels.time-travel/Panel})
-    (let [real-body (story/handler-meta :story-panel :rf.story/causa-epoch)]
-      (is (= "Epochs (Causa)" (:title real-body)))
-      (is (= :day8.re-frame2-causa.panels.time-travel/Panel
+       :render    :day8.re-frame2-xray.panels.time-travel/Panel})
+    (let [real-body (story/handler-meta :story-panel :rf.story/xray-epoch)]
+      (is (= "Epochs (Xray)" (:title real-body)))
+      (is (= :day8.re-frame2-xray.panels.time-travel/Panel
              (:render real-body))
-          "Causa's :render slot replaces the stub's"))))
+          "Xray's :render slot replaces the stub's"))))
 
 (deftest reg-story-panel-placement-vocabulary
   (testing "the panel :placement slot accepts the five documented values

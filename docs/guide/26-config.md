@@ -70,11 +70,11 @@ There are four. Each is a plain-data setting that applies to the framework runti
      (update record :db-after dissoc :auth))})   ;; the ring stores the record
 ```
 
-Every dispatched event's full cascade is recorded as an *epoch record* — `:db-before`, `:db-after`, `:sub-runs`, `:renders`, `:effects`, `:trace-events` — and stored in a ring buffer. That buffer is what powers Causa's time-travel debugging, `restore-epoch`, `reset-frame-db!`, and the Tool-Pair surface.
+Every dispatched event's full cascade is recorded as an *epoch record* — `:db-before`, `:db-after`, `:sub-runs`, `:renders`, `:effects`, `:trace-events` — and stored in a ring buffer. That buffer is what powers Xray's time-travel debugging, `restore-epoch`, `reset-frame-db!`, and the Tool-Pair surface.
 
 50 epochs is enough for a typical debug session (you almost never want to rewind further than 50 user actions). 200 is reasonable for long-running stress tests. 0 disables history entirely — useful in SSR production where you have no replayer attached and the per-cascade allocation is wasted work.
 
-`:redact-fn` is the build-time hook for apps that record sensitive material into `app-db`. The framework invokes it **once per assembled record** — between `build-record` and ring-append / listener fan-out — so the ring buffer, every `register-epoch-listener!` listener, and every off-box egressor (Causa, re-frame2-pair-mcp) see the **same** redacted shape. The fn returns the record (potentially rewritten); any slot it overwrites can ride as the `:rf/redacted` sentinel or any app-chosen shape. A throwing fn does not break the drain — the framework catches the throw, emits `:rf.warning/epoch-redact-fn-exception`, and falls back to the raw record for that drain only. One caveat: `restore-epoch` rewinds `app-db` *to the recorded `:db-after`*, so if your fn redacted `:db-after`, the rewind lands `app-db` in the redacted state. Apps that need restore fidelity should leave `:db-before` / `:db-after` alone and redact only `:trace-events` / `:trigger-event`. The full posture lives at [Tool-Pair §Time-travel](../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Security §Epoch privacy posture](../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress).
+`:redact-fn` is the build-time hook for apps that record sensitive material into `app-db`. The framework invokes it **once per assembled record** — between `build-record` and ring-append / listener fan-out — so the ring buffer, every `register-epoch-listener!` listener, and every off-box egressor (Xray, re-frame2-pair-mcp) see the **same** redacted shape. The fn returns the record (potentially rewritten); any slot it overwrites can ride as the `:rf/redacted` sentinel or any app-chosen shape. A throwing fn does not break the drain — the framework catches the throw, emits `:rf.warning/epoch-redact-fn-exception`, and falls back to the raw record for that drain only. One caveat: `restore-epoch` rewinds `app-db` *to the recorded `:db-after`*, so if your fn redacted `:db-after`, the rewind lands `app-db` in the redacted state. Apps that need restore fidelity should leave `:db-before` / `:db-after` alone and redact only `:trace-events` / `:trigger-event`. The full posture lives at [Tool-Pair §Time-travel](../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Security §Epoch privacy posture](../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress).
 
 The setting is **dev-only** by status. Under `:advanced` + `goog.DEBUG=false`, the recording site DCEs and the buffer never allocates, regardless of what you configured.
 
@@ -336,7 +336,7 @@ See [Security.md §CRLF injection at HTTP-response boundaries](../../spec/Securi
 
 ### Editor URI templates — the scheme allowlist
 
-This one's about the dev-tools surface, not user-facing HTTP. When Causa's click-to-source affordance opens your editor at a file:line, it builds a URI string and hands it to the browser:
+This one's about the dev-tools surface, not user-facing HTTP. When Xray's click-to-source affordance opens your editor at a file:line, it builds a URI string and hands it to the browser:
 
 ```
 vscode://file/path/to/foo.cljs:42:7
@@ -344,7 +344,7 @@ cursor://file/path/to/foo.cljs:42:7
 idea://open?file=path/to/foo.cljs&line=42&column=7
 ```
 
-Each tool that surfaces source-coords (Story, Causa, re-frame2-pair-mcp) lets you pick your editor at boot:
+Each tool that surfaces source-coords (Story, Xray, re-frame2-pair-mcp) lets you pick your editor at boot:
 
 ```clojure
 {:rf.story/editor :vscode}     ;; one of :vscode / :cursor / :windsurf / :zed / :idea
@@ -449,7 +449,7 @@ When the cascade hits the ceiling, the runtime does **three** things, in order:
 2. **Restore frame-local registrations** that the cascade made. A handler that ran `(rf/dispatch [:rf.machine/spawn ...])` inside the cascade — which registered a frame-local handler at the spawned actor's `[:rf/machines <id>]` slot — has that registration reverted along with the `app-db` rollback. Otherwise an aborted drain would leave orphaned handlers attached to a frame at a value that never references them.
 3. **Surface the failure.** `:rf.error/drain-depth-exceeded` is emitted with `:tags {:depth :queue-size :last-event :rollback? true}` and routed through your frame's `:on-error` policy.
 
-The remaining queued events — the ones the cascade hadn't yet reached when the ceiling tripped — are discarded. The epoch buffer (consumed by Causa) records nothing for the failed drain. The frame is at the last settled state, which is always reachable by replay.
+The remaining queued events — the ones the cascade hadn't yet reached when the ceiling tripped — are discarded. The epoch buffer (consumed by Xray) records nothing for the failed drain. The frame is at the last settled state, which is always reachable by replay.
 
 This is the "events are atomic" principle scaled up to the cascade boundary. A handler is atomic with respect to its own side effects ([ch.04 — Events](04-events.md)); a *cascade* is atomic with respect to depth-exceeded aborts. If you've thought about events as "either all the effects happen or none of them do," the same model now applies to cascades: either the whole cascade settles or it's rolled back.
 
@@ -489,7 +489,7 @@ Default `:drain-depth 100` is right for almost every frame. Cases for tuning:
 
 - **Don't bump in production unless you've audited why your cascade is long.** A production frame routinely hitting 50+ depth is a code smell — usually a state machine ping-ponging, or an unintended self-dispatch. Bumping the ceiling masks the design issue; fixing the dispatch loop is the right move.
 
-If you're not sure what depth your cascades typically reach, the trace surface tells you: every successful drain records its depth as part of the per-cascade trace (visible in Causa). Check the trace for your typical user actions; pick a ceiling at 5x the observed maximum.
+If you're not sure what depth your cascades typically reach, the trace surface tells you: every successful drain records its depth as part of the per-cascade trace (visible in Xray). Check the trace for your typical user actions; pick a ceiling at 5x the observed maximum.
 
 ### A note on `:always`-depth and `:raise`-depth
 
@@ -509,7 +509,7 @@ Old re-frame used 14 separate top-level prefixes: `:registry/*`, `:machine/*`, `
 
 re-frame2 collapses to **one root prefix** and hierarchical sub-namespaces under it. Every framework-owned name starts `:rf` and a slash or a dot — the answer to "is this framework-owned?" is one character: does it start with `:rf`?
 
-That's it. `:rf.frame/...`, `:rf.error/...`, `:rf.http/...`, `:rf.machine/...`, `:rf.size/...`, `:rf.route/...`, `:rf.epoch/...`, `:rf.causa/...` — they're all framework-owned by virtue of the prefix. Pick anything outside the prefix and the framework's stance is "your name, your problem."
+That's it. `:rf.frame/...`, `:rf.error/...`, `:rf.http/...`, `:rf.machine/...`, `:rf.size/...`, `:rf.route/...`, `:rf.epoch/...`, `:rf.xray/...` — they're all framework-owned by virtue of the prefix. Pick anything outside the prefix and the framework's stance is "your name, your problem."
 
 ### The catalogue
 
@@ -532,7 +532,7 @@ Every reserved framework-owned sub-namespace. The set is fixed-and-additive (ent
 | `:rf.ssr/*` | SSR-specific advisories (hydration mismatch, head mismatch, …) | 011 |
 | `:rf.server/*` | Server-side response-shape fx (`:rf.server/set-status`, `-set-cookie`, `-redirect`, `-error-projection`, `-set-header`, `-append-header`) | 011 |
 | `:rf.epoch/*` | Tool-Pair epoch operations (`restore-epoch`, version-mismatch, schema-mismatch, …) | Tool-Pair |
-| `:rf.causa/*` | Canonical-devtools namespace for Causa — events, subs, fxs, app-db keys, traces | Tool-Pair |
+| `:rf.xray/*` | Canonical-devtools namespace for Xray — events, subs, fxs, app-db keys, traces | Tool-Pair |
 | `:rf.assert/*` | Assertion-event vocabulary used by the post-v1 stories library's play functions and test runner | 007 |
 | `:rf.test/*` | Test-runner-internal events and fx-stub ids | 008 |
 | `:rf.http/*` | Managed-HTTP fx ids and failure taxonomy keys (`:rf.http/managed`, `-managed-abort`, `:rf.http/timeout`, `:rf.http/decode-failure`, …); security args slot `:rf.http/max-decoded-keys` | 014 |
@@ -969,7 +969,7 @@ The reference for the underlying machinery already lives in [ch.24 — Privacy](
 
 ### Why this exists
 
-re-frame2's third pillar is one trace surface that every tool reads — Causa for the cascade graph, re-frame2-pair-mcp for AI pairing, story for playgrounds, the Datadog shipper from [ch.23 — Observability](23-observability.md) for production observability. That uniformity is the killer feature when you're debugging. It is also the killer threat: every event your app dispatches and every `app-db` snapshot the runtime captures rides the same bus. If the bus goes off-box without privacy honouring, your customer's card number lands in five places at once.
+re-frame2's third pillar is one trace surface that every tool reads — Xray for the cascade graph, re-frame2-pair-mcp for AI pairing, story for playgrounds, the Datadog shipper from [ch.23 — Observability](23-observability.md) for production observability. That uniformity is the killer feature when you're debugging. It is also the killer threat: every event your app dispatches and every `app-db` snapshot the runtime captures rides the same bus. If the bus goes off-box without privacy honouring, your customer's card number lands in five places at once.
 
 The framework's stance is **declare once at the source of truth, every consumer honours the declaration**. You write a flag on one line; the runtime substitutes a sentinel everywhere that flag's path appears. No per-consumer plumbing.
 
@@ -1002,7 +1002,7 @@ Without any declaration, here is what every consumer of the trace bus sees the m
  ...}
 ```
 
-Datadog now has the PAN. The Causa cascade graph has the PAN. The re-frame2-pair-mcp agent attached to your debug session has the PAN. The story recorder you used to capture the bug yesterday has the PAN baked into the saved scenario file. You did nothing wrong — you just hadn't told the framework which field was sensitive.
+Datadog now has the PAN. The Xray cascade graph has the PAN. The re-frame2-pair-mcp agent attached to your debug session has the PAN. The story recorder you used to capture the bug yesterday has the PAN baked into the saved scenario file. You did nothing wrong — you just hadn't told the framework which field was sensitive.
 
 Declare it once on the schema:
 
@@ -1033,7 +1033,7 @@ Now here is what every consumer sees:
  ...}
 ```
 
-Three slots redacted. `:postcode` rides through because you didn't flag it. The trace event also picked up a top-level `:sensitive? true` so the Datadog shipper from [ch.23 — Observability](23-observability.md) can drop the whole event with one boolean check; the re-frame2-pair-mcp egress walker swaps `:rf/redacted` in before sending; the on-box Causa panel shows a `[● REDACTED]` chip where the PAN used to render. One flag; five consumers; no extra wiring.
+Three slots redacted. `:postcode` rides through because you didn't flag it. The trace event also picked up a top-level `:sensitive? true` so the Datadog shipper from [ch.23 — Observability](23-observability.md) can drop the whole event with one boolean check; the re-frame2-pair-mcp egress walker swaps `:rf/redacted` in before sending; the on-box Xray panel shows a `[● REDACTED]` chip where the PAN used to render. One flag; five consumers; no extra wiring.
 
 If you're curious how the framework knew to walk those exact paths, the short version is: at boot the runtime extracts every `:sensitive?` claim from every registered schema into a reserved registry under `[:rf/elision :declarations]` in `app-db`, and the wire-boundary walker consults that registry on every trace emit. You don't see that machinery from where you sit. You write the flag; the platform does the wiring. [Chapter 24 — Privacy](24-privacy.md) has the full mechanism if you want it.
 
@@ -1078,7 +1078,7 @@ Note that handler-meta is the *only* escape hatch you should reach for. If a sin
 
 The next feature is a profile-photo uploader. The user picks an image; you base64-encode it client-side, store the result in `app-db` so the preview can render it, and POST it to a thumbnail-generation endpoint. A typical image is 800 KB after encoding. A scanned legal document is 5 MB.
 
-There is nothing sensitive about a profile photo — but you can't ship 5 MB inline as a trace `:app-db-after` payload. Datadog rejects the upload. The Causa panel locks up rendering it as text. The re-frame2-pair-mcp agent's context window OOMs. The trace bus assumes every payload can ride the wire; once one slot is megabytes, the assumption breaks.
+There is nothing sensitive about a profile photo — but you can't ship 5 MB inline as a trace `:app-db-after` payload. Datadog rejects the upload. The Xray panel locks up rendering it as text. The re-frame2-pair-mcp agent's context window OOMs. The trace bus assumes every payload can ride the wire; once one slot is megabytes, the assumption breaks.
 
 This is what `:large?` is for. Same schema surface, different verb:
 
@@ -1150,7 +1150,7 @@ For everything in tiers 1-3 the right answer is "write the schema flag". For thi
                     (update :db-after  dissoc :imports/staging)))})
 ```
 
-The framework invokes your `:redact-fn` **once per epoch record**, between the time the record is assembled and the time it is appended to the ring or fanned out to listeners. The per-frame ring buffer that backs time-travel debugging, every `register-epoch-listener!` listener you've installed, and every off-box egressor (Causa-MCP, re-frame2-pair-mcp, hosted post-mortem dashboards) all see the same record shape. There is no later listener that re-derives the raw slot you stripped.
+The framework invokes your `:redact-fn` **once per epoch record**, between the time the record is assembled and the time it is appended to the ring or fanned out to listeners. The per-frame ring buffer that backs time-travel debugging, every `register-epoch-listener!` listener you've installed, and every off-box egressor (Xray-MCP, re-frame2-pair-mcp, hosted post-mortem dashboards) all see the same record shape. There is no later listener that re-derives the raw slot you stripped.
 
 Three things worth knowing before you reach for this:
 
@@ -1164,9 +1164,9 @@ The hook composes with everything in tiers 1-3. The `:rf.epoch/sensitive?` rollu
 
 ### How the tiers compose — Tool-Pair and observability
 
-The four tiers cover every wire-egress boundary the framework owns. The Causa cascade graph, the story playground recorder, and the re-frame2-pair-mcp AI surface all consume the same elided records. The Datadog shipper from [ch.23 — Observability](23-observability.md) runs `rf/elide-wire-value` over every event before fan-out. The Tool-Pair surface used by re-frame2-pair-mcp and Causa-MCP routes every direct-read response (`get-app-db`, `get-path`, `watch-epochs`) through the wire-elision walker with off-box defaults (`:include-sensitive? false`, `:include-large? false`).
+The four tiers cover every wire-egress boundary the framework owns. The Xray cascade graph, the story playground recorder, and the re-frame2-pair-mcp AI surface all consume the same elided records. The Datadog shipper from [ch.23 — Observability](23-observability.md) runs `rf/elide-wire-value` over every event before fan-out. The Tool-Pair surface used by re-frame2-pair-mcp and Xray-MCP routes every direct-read response (`get-app-db`, `get-path`, `watch-epochs`) through the wire-elision walker with off-box defaults (`:include-sensitive? false`, `:include-large? false`).
 
-The two on-box dev panels — Causa and Story — render a small `[● REDACTED]` / `[● ELIDED 5.2MB]` chip wherever a sentinel or marker lands in the view tree. The reader clicks the chip to opt in for a single live-fetch via the marker's `:handle`. That's the only way a sensitive or large value re-materialises on screen, and it's per-fetch, not session-wide.
+The two on-box dev panels — Xray and Story — render a small `[● REDACTED]` / `[● ELIDED 5.2MB]` chip wherever a sentinel or marker lands in the view tree. The reader clicks the chip to opt in for a single live-fetch via the marker's `:handle`. That's the only way a sensitive or large value re-materialises on screen, and it's per-fetch, not session-wide.
 
 You'll see consumer-side knobs in the published tools:
 
@@ -1190,7 +1190,7 @@ The first three are what you'll write 99% of the time. The fourth is the escape 
 
 ## Exceptions under `:sensitive?`
 
-The path-marked `:sensitive?` declarations from [Spec 015](../../spec/015-Data-Classification.md) — what [chapter 24 — Privacy](24-privacy.md) and the [Privacy and elision in practice](#privacy-and-elision-in-practice) section above walked you through — redact at five observation surfaces: the trace bus, Causa, MCP, AI/LLM context, and third-party log sinks. They walk `app-db`, event arg-maps, sub outputs, fx inputs, cofx injections, machine `:data`, and flow outputs at emit time. They do **not** walk exception messages or `ex-data` maps.
+The path-marked `:sensitive?` declarations from [Spec 015](../../spec/015-Data-Classification.md) — what [chapter 24 — Privacy](24-privacy.md) and the [Privacy and elision in practice](#privacy-and-elision-in-practice) section above walked you through — redact at five observation surfaces: the trace bus, Xray, MCP, AI/LLM context, and third-party log sinks. They walk `app-db`, event arg-maps, sub outputs, fx inputs, cofx injections, machine `:data`, and flow outputs at emit time. They do **not** walk exception messages or `ex-data` maps.
 
 That is a small but real residual: if your handler reads a sensitive-path value and then `(throw (ex-info "User <email> failed login" {:user/email email}))`, the resulting `:rf.error/handler-exception` trace event carries the email **verbatim** in `:exception-message` and `:exception-data`. The framework has no way to know the string was assembled from a sensitive path; the ex-data map carries arbitrary author-supplied keys, not paths into a marked shape.
 
@@ -1244,7 +1244,7 @@ The `:rf.error/handler-exception` trace event the framework emits has the path-m
  ...}
 ```
 
-The top-level `:sensitive? true` rolls up because *some* leaf in the record overlapped a marked path — so the Datadog shipper from [chapter 23 — Observability](23-observability.md) drops the whole event. That covers the off-box case. But the on-box dev surfaces (Causa's Event Detail panel, the re-frame2-pair-mcp AI surface in `:show-sensitive? true` mode, a story scenario you saved for replay) all render `:exception-message` and `:exception-data` verbatim. The leaf-level redaction the walker performs on `:app-db-after` does not reach the assembled message string or the author-keyed ex-data map.
+The top-level `:sensitive? true` rolls up because *some* leaf in the record overlapped a marked path — so the Datadog shipper from [chapter 23 — Observability](23-observability.md) drops the whole event. That covers the off-box case. But the on-box dev surfaces (Xray's Event Detail panel, the re-frame2-pair-mcp AI surface in `:show-sensitive? true` mode, a story scenario you saved for replay) all render `:exception-message` and `:exception-data` verbatim. The leaf-level redaction the walker performs on `:app-db-after` does not reach the assembled message string or the author-keyed ex-data map.
 
 That is the gap. It is one screenful — but it is real, and it is the residual surface every author who reads or writes a sensitive path needs to know about.
 
@@ -1296,7 +1296,7 @@ The trace event now reads:
  ...}
 ```
 
-The dev sees the failing shape — they know an email-keyed lookup was the trigger — without seeing the email itself. The sentinel form matches what Causa's redaction chip renders for path-walked slots, so the dev's mental model is uniform: `:rf/redacted` means "the framework or the author scrubbed this".
+The dev sees the failing shape — they know an email-keyed lookup was the trigger — without seeing the email itself. The sentinel form matches what Xray's redaction chip renders for path-walked slots, so the dev's mental model is uniform: `:rf/redacted` means "the framework or the author scrubbed this".
 
 The pattern composes with Pattern C below — the helper there emits the sentinel for you so the call site reads cleanly.
 
@@ -1368,7 +1368,7 @@ A few observations that narrow the residual surface:
 
 - **Handlers that only *write* to sensitive paths are safe.** The event arg-map is path-walked at emit time; whatever the handler does internally is invisible to the trace. The exception path matters only when the handler *reads* and then *throws*.
 - **Handlers that read, compute, and write back to app-db are safe even if they throw later.** The trace event's `:app-db-after` is walked at emit time. A downstream event that subscribes to the (now correctly redacted) `[:user :email]` slot and throws from there has the same gap, but the trigger boundary moves with the read.
-- **The top-level `:sensitive? true` rollup covers off-box leaks.** Where the rollup fires (any path-marked slot present in the record), every off-box shipper — Datadog, Sentry, re-frame2-pair-mcp egress, story recorders writing to disk — drops the whole event by policy. The remaining surface is the *on-box dev panel* (Causa, the in-process REPL) where `:show-sensitive? true` would render the leaf, plus the `:exception-message` and `:exception-data` fields that the walker doesn't touch.
+- **The top-level `:sensitive? true` rollup covers off-box leaks.** Where the rollup fires (any path-marked slot present in the record), every off-box shipper — Datadog, Sentry, re-frame2-pair-mcp egress, story recorders writing to disk — drops the whole event by policy. The remaining surface is the *on-box dev panel* (Xray, the in-process REPL) where `:show-sensitive? true` would render the leaf, plus the `:exception-message` and `:exception-data` fields that the walker doesn't touch.
 
 So in practice you write the helper once, you use it in the handlers that read marked paths, and the on-box dev panel — where the dev has set `:show-sensitive? true` because they wanted to inspect the failing flow — shows them `:rf/redacted` in the slot they were going to read regardless. Off-box, the rollup carries the policy. The residual is a discipline at the assembly site, not a constant tax.
 

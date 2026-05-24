@@ -1,0 +1,378 @@
+(ns day8.re-frame2-xray.panels.app-db-diff-subs
+  "Subscriptions and read-models for the App-DB Diff panel.
+
+  ## rf2-gfxmk Phase 1 — sections-per-cluster
+
+  Three additional subs land here for the structural-diff engine:
+
+    `:rf.xray/selected-epoch-annotated-tree` — annotated-tree shape
+      from `day8.re-frame2-xray.diff.annotated-tree/diff-tree` for the
+      currently-focused epoch. Cached per `:epoch-id` for the same
+      reason the legacy `:selected-epoch-diff` is: cascades replay the
+      same `db-before` / `db-after` pair across the inspector's life.
+
+    `:rf.xray/selected-epoch-sections` — section-grouping pass output
+      consumed by the new renderer. Derived from the annotated tree
+      above; lexicographic ordering per design §3.1.1.
+
+  The legacy `:rf.xray/selected-epoch-diff` (flat triples) stays
+  registered for back-compat consumers — the pin-store, MCP exporter,
+  and `show me when this changed` walker continue to read it. It
+  computes its flat triples directly via
+  `app-db-diff-helpers/diff-paths` (independent of the annotated
+  tree above)."
+  (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.diff.annotated-tree :as at]
+            [day8.re-frame2-xray.diff.section-grouping :as sg]
+            [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]))
+
+(defn- find-epoch-in-history
+  "Return the `:rf/epoch-record` in `history` whose `:epoch-id` matches
+  `epoch-id`, or nil if absent. Pure data → record-or-nil. Inlined
+  here when the Time Travel panel was deleted (rf2-qy0nu) — App-DB
+  Diff was the only remaining consumer."
+  [history epoch-id]
+  (when (some? epoch-id)
+    (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
+          history)))
+
+(defonce diff-cache
+  ;; Per-`:epoch-id` cache for the diff triples computed by the
+  ;; `:rf.xray/selected-epoch-diff` sub. Tests reset this atom
+  ;; between cases; production callers should only write via the sub.
+  (atom {}))
+
+(defonce annotated-tree-cache
+  ;; Per-`:epoch-id` cache for the annotated-tree shape computed by
+  ;; `:rf.xray/selected-epoch-annotated-tree`. Same caching contract
+  ;; as `diff-cache` above. Tests reset this atom between cases.
+  (atom {}))
+
+(defonce redacted-modified-cache
+  ;; Per-`:epoch-id` cache for the redacted-paths-modified count
+  ;; computed by `:rf.xray/selected-epoch-redacted-modified-count`
+  ;; (rf2-bz1cl). Same caching contract as `diff-cache` above — the
+  ;; walk is bounded by `count-redacted-modified-paths`' structural-
+  ;; sharing short-circuit but cascades replay the same db-before /
+  ;; db-after pair across the inspector's life, so caching the
+  ;; final integer is still cheap insurance. Tests reset this atom
+  ;; between cases.
+  (atom {}))
+
+(defonce flow-writes-cache
+  ;; Per-`:epoch-id` cache for the flow-writes projection computed by
+  ;; `:rf.xray/selected-epoch-flow-writes` (rf2-s8r6c). Mirrors
+  ;; `diff-cache`'s contract — the walk over `:trace-events` is O(N)
+  ;; in trace count, and cascades replay the same record across the
+  ;; inspector's life. Tests reset this atom between cases.
+  (atom {}))
+
+(defn install!
+  "Install the App-DB Diff subscriptions."
+  []
+  ;; rf2-fvplw — panel-observed frame follows the spine `:rf.xray/focus`.
+  ;; The frame-picker writes `[:focus :frame]` via `:rf.xray/set-frame`,
+  ;; and `compose-focus` also derives `:frame` from the focused cascade.
+  ;; Without this seam the App-db panel previously read only the legacy
+  ;; `:target-frame` slot (which `:rf.xray/set-frame` does NOT touch),
+  ;; so it stayed hardcoded to `:rf/default` no matter what the user
+  ;; picked. The legacy slot survives as the fallback when no focus has
+  ;; resolved a frame yet (cold start, no focusable cascades) — keeps
+  ;; the boot-time empty-state useful.
+  (rf/reg-sub :rf.xray/observed-frame
+    :<- [:rf.xray/focus]
+    :<- [:rf.xray/target-frame]
+    (fn [[focus target] _query]
+      (or (:frame focus) target)))
+
+  (rf/reg-sub :rf.xray/target-frame-db
+    :<- [:rf.xray/observed-frame]
+    :<- [:rf.xray/epoch-history]
+    (fn [[target _epoch-history] _query]
+      (rf/get-frame-db target)))
+
+  ;; rf2-70tkv — derive the panel's epoch-id from the spine sub
+  ;; `:rf.xray/focus` rather than the legacy `:rf.xray/selected-
+  ;; epoch-id` slot. The spine sub auto-tracks head in LIVE mode
+  ;; (deriving `:epoch-id` from the head cascade via
+  ;; `epoch-id-for-cascade` against `:epoch-history`); the legacy
+  ;; slot is only written by user clicks (L2 row select, epoch
+  ;; chip, prev/next step) and so stays pinned to the last user
+  ;; action.
+  ;;
+  ;; Mike repro: user clicks an L2 row (legacy slot → pinned
+  ;; epoch); user clicks Follow-head (focus :mode flips to :live);
+  ;; new arrivals advance the focus's :dispatch-id correctly, but
+  ;; pre-fix the legacy slot was untouched so every App-DB diff
+  ;; sub kept resolving to the pinned epoch — the panel froze.
+  ;; Pivoting these subs on focus's :epoch-id closes the gap
+  ;; without changing the legacy slot's role (still authoritative
+  ;; under RETRO + LIVE-paused via the spine's compose-focus
+  ;; passthrough).
+  (rf/reg-sub :rf.xray/focus-epoch-id
+    :<- [:rf.xray/focus]
+    (fn [focus _query]
+      (:epoch-id focus)))
+
+  (rf/reg-sub :rf.xray/selected-epoch-record
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/focus-epoch-id]
+    (fn [[history selected-id] _query]
+      (when selected-id
+        (find-epoch-in-history history selected-id))))
+
+  ;; Per rf2-drf32 — the diff sub falls back to `(peek history)` when
+  ;; the selected epoch is absent from history. The selection slot is
+  ;; shared with the Time Travel panel (so a scrub from there is
+  ;; visible here too), but a stale selection (e.g. an epoch that has
+  ;; aged out of the ring buffer, or persisted from a prior session)
+  ;; previously stranded this panel showing "no slice changes" for
+  ;; every subsequent dispatch. Always picking the latest record when
+  ;; the selection can't be located restores the user's expectation
+  ;; that "the diff panel shows whatever just happened".
+  (rf/reg-sub :rf.xray/selected-epoch-diff
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/focus-epoch-id]
+    (fn [[history selected-id] _query]
+      (let [record (or (when selected-id
+                         (find-epoch-in-history history selected-id))
+                       (peek history))]
+        (when record
+          (let [epoch-id (:epoch-id record)
+                cached   (get @diff-cache epoch-id ::miss)]
+            (if (not= ::miss cached)
+              cached
+              (let [diff (h/diff-paths (:db-before record)
+                                       (:db-after  record))
+                    live (into #{} (map :epoch-id) history)]
+                (swap! diff-cache
+                       (fn [m]
+                         (-> m
+                             (select-keys live)
+                             (assoc epoch-id diff))))
+                diff)))))))
+
+  ;; ---- rf2-gfxmk Phase 1 — annotated-tree + sections -------------------
+  ;;
+  ;; The structural-diff engine produces an annotated mirror tree (every
+  ;; node tagged `:added`/`:removed`/`:modified`/`:same`/`:children`).
+  ;; The grouping pass decomposes that tree into N path-headed sections
+  ;; for the renderer. Both are cached per `:epoch-id` for the same
+  ;; reason `:selected-epoch-diff` is — cascades replay the same
+  ;; `db-before`/`db-after` pair as the inspector navigates.
+  (rf/reg-sub :rf.xray/selected-epoch-annotated-tree
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/focus-epoch-id]
+    (fn [[history selected-id] _query]
+      (let [record (or (when selected-id
+                         (find-epoch-in-history history selected-id))
+                       (peek history))]
+        (when record
+          (let [epoch-id (:epoch-id record)
+                cached   (get @annotated-tree-cache epoch-id ::miss)]
+            (if (not= ::miss cached)
+              cached
+              (let [tree (at/diff-tree (:db-before record)
+                                       (:db-after  record))
+                    live (into #{} (map :epoch-id) history)]
+                (swap! annotated-tree-cache
+                       (fn [m]
+                         (-> m
+                             (select-keys live)
+                             (assoc epoch-id tree))))
+                tree)))))))
+
+  (rf/reg-sub :rf.xray/selected-epoch-sections
+    :<- [:rf.xray/selected-epoch-annotated-tree]
+    (fn [annotated _query]
+      (if annotated
+        (sg/group-into-sections annotated)
+        [])))
+
+  ;; ---- rf2-bz1cl / rf2-dl3gx — redacted-paths-modified count ----------
+  ;;
+  ;; The structural diff (above) correctly emits NO rows when both
+  ;; sides of a path carry `:rf/redacted` — `:rf/redacted` = `:rf/redacted`
+  ;; structurally. When an app-supplied `:redact-fn` substitutes the
+  ;; sentinel into `:db-before` / `:db-after` AND the underlying values
+  ;; differ, the diff body is empty and the developer's "something
+  ;; changed" expectation is not met.
+  ;;
+  ;; This sub computes a separate-from-diff signal: the count of
+  ;; redacted leaves whose enclosing subtree mutated across the
+  ;; cascade. The renderer surfaces the count as a muted chip above
+  ;; the diff body when count > 0.
+  ;;
+  ;; ## Sources (preferred → fallback)
+  ;;
+  ;; 1. **Egress slot (rf2-dl3gx, preferred).** The epoch record may
+  ;;    carry `:rf.epoch/redacted-modified-paths-count` — an integer
+  ;;    computed BY THE FRAMEWORK from raw db-before / db-after values
+  ;;    BEFORE the `:redact-fn` runs (per
+  ;;    `re-frame.epoch.assembly/redacted-modified-paths-count` +
+  ;;    `spec/Spec-Schemas.md §:rf/epoch-record`). When the slot is
+  ;;    present the sub returns it verbatim — exact count, no walk.
+  ;;
+  ;; 2. **Heuristic fallback (rf2-bz1cl).** Records that lack the slot
+  ;;    (legacy snapshots, mock records with no schema layer, tests
+  ;;    seeding raw record maps) fall back to the Xray-side heuristic
+  ;;    `app-db-diff-helpers/count-redacted-modified-paths` — paths where
+  ;;    both sides carry the sentinel AND the parent subtree's pointer
+  ;;    differs. Tight upper bound; can over-state when a sibling
+  ;;    changed and the redacted slot was incidentally untouched.
+  ;;
+  ;; The cache is shared between both paths — `:epoch-id` keys the
+  ;; integer regardless of which source produced it.
+  ;;
+  ;; ## Selection fallback
+  ;;
+  ;; Mirrors `:rf.xray/selected-epoch-diff` — the same selection-stale
+  ;; path that strands the diff panel strands the chip; same
+  ;; `(peek history)` fallback applies.
+  (rf/reg-sub :rf.xray/selected-epoch-redacted-modified-count
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/focus-epoch-id]
+    (fn [[history selected-id] _query]
+      (let [record (or (when selected-id
+                         (find-epoch-in-history history selected-id))
+                       (peek history))]
+        (if record
+          (let [epoch-id (:epoch-id record)
+                cached   (get @redacted-modified-cache epoch-id ::miss)]
+            (if (not= ::miss cached)
+              cached
+              ;; Egress slot wins when present — exact count from the
+              ;; framework (rf2-dl3gx). Falls back to the Xray-side
+              ;; heuristic only when the slot is absent.
+              (let [egress (:rf.epoch/redacted-modified-paths-count record)
+                    n      (if (some? egress)
+                             egress
+                             (h/count-redacted-modified-paths
+                               (:db-before record)
+                               (:db-after  record)))
+                    live   (into #{} (map :epoch-id) history)]
+                (swap! redacted-modified-cache
+                       (fn [m]
+                         (-> m
+                             (select-keys live)
+                             (assoc epoch-id n))))
+                n)))
+          0))))
+
+  ;; ---- rf2-s8r6c — flow-writes projection -----------------------------
+  ;;
+  ;; Project the selected epoch's `:rf.flow/computed` trace events into
+  ;; `[{:flow-id … :write-path …} …]`. Same shape rf2-lo37i's
+  ;; `event-detail/flows-fired` produces but sourced from the epoch
+  ;; record's `:trace-events` slot (the App-DB Diff panel is epoch-
+  ;; rooted, not cascade-rooted, so it reads the per-epoch raw trace
+  ;; list rather than going through the cascade projection).
+  ;;
+  ;; Same selection-stale fallback as the diff sub — `(peek history)`
+  ;; when the selected epoch is absent from history.
+  (rf/reg-sub :rf.xray/selected-epoch-flow-writes
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/focus-epoch-id]
+    (fn [[history selected-id] _query]
+      (let [record (or (when selected-id
+                         (find-epoch-in-history history selected-id))
+                       (peek history))]
+        (when record
+          (let [epoch-id (:epoch-id record)
+                cached   (get @flow-writes-cache epoch-id ::miss)]
+            (if (not= ::miss cached)
+              cached
+              (let [writes (h/flow-writes-from-trace-events
+                             (:trace-events record))
+                    live   (into #{} (map :epoch-id) history)]
+                (swap! flow-writes-cache
+                       (fn [m]
+                         (-> m
+                             (select-keys live)
+                             (assoc epoch-id writes))))
+                writes)))))))
+
+  (rf/reg-sub :rf.xray/focused-slice-path
+    (fn [db _query]
+      (get db :focused-slice-path)))
+
+  (rf/reg-sub :rf.xray/show-me-when-this-changed-result
+    :<- [:rf.xray/focused-slice-path]
+    :<- [:rf.xray/epoch-history]
+    (fn [[focused-path history] _query]
+      (if focused-path
+        (h/epochs-touching-path history focused-path)
+        [])))
+
+  ;; ---- rf2-okvit / rf2-ad7zx.11 — current-state + inline-diff sections -
+  ;;
+  ;; The app-db tab is a CURRENT-STATE inspector (re-frame-10x style)
+  ;; that ALSO carries the focused epoch's diff inline (spec/021 §4.1 —
+  ;; "what does state LOOK LIKE — and what just changed?"). This sub
+  ;; decomposes the observed frame's LIVE app-db
+  ;; (`:rf.xray/target-frame-db`, which follows the picker / focused
+  ;; frame) into the section model `current-state-sections` produces:
+  ;; the TOP user-domain section (app-db minus reserved keys) + one
+  ;; section per reserved `:rf/*` area (machines/spawned fan out per
+  ;; instance; route + the other slices are singletons).
+  ;;
+  ;; The focused epoch record's `:db-before` is threaded as the diff
+  ;; PRE-IMAGE (spec/021 §4.3) so each section's changed nodes carry the
+  ;; inline `← changed from X` annotation in place. When no epoch is
+  ;; focusable (cold boot, no cascades) the record is nil and the
+  ;; sections render plain current-state — `current-state-sections`
+  ;; falls back to its `no-diff` sentinel automatically.
+  ;;
+  ;; nil-safe — an absent / empty db yields an empty TOP + every
+  ;; reserved area flagged `:empty?`.
+  (rf/reg-sub :rf.xray/app-db-state
+    :<- [:rf.xray/target-frame-db]
+    :<- [:rf.xray/selected-epoch-record]
+    (fn [[db record] _query]
+      (if-let [before (:db-before record)]
+        (h/current-state-sections db before)
+        (h/current-state-sections db))))
+
+  ;; rf2-fvplw — `:target-frame` in the composite output is the
+  ;; *observed* frame (picker-selected / focused-cascade frame), not
+  ;; the legacy `:target-frame` slot. The empty-state body uses this
+  ;; value, so the user always sees the frame their focus is on rather
+  ;; than the hardcoded `:rf/default`.
+  (rf/reg-sub :rf.xray/app-db-diff
+    :<- [:rf.xray/observed-frame]
+    :<- [:rf.xray/target-frame-db]
+    :<- [:rf.xray/selected-epoch-diff]
+    :<- [:rf.xray/selected-epoch-sections]
+    :<- [:rf.xray/focused-slice-path]
+    :<- [:rf.xray/show-me-when-this-changed-result]
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/selected-epoch-redacted-modified-count]
+    :<- [:rf.xray/selected-epoch-flow-writes]
+    :<- [:rf.xray/focus-epoch-id]
+    (fn [[target db diff-triples sections focused-path focused-hits
+          history redacted-modified-count flow-writes selected-epoch-id]
+         _query]
+      (let [{:keys [non-reserved]} (h/partition-reserved
+                                     (or diff-triples []))]
+        {:target-frame              target
+         :history-empty?            (empty? history)
+         :changed-non-reserved      non-reserved
+         :changed-sections          sections
+         :changed-reserved          (h/reserved-summary db)
+         :focused-path              focused-path
+         :focused-hits              focused-hits
+         ;; rf2-bz1cl — redacted-paths-modified hint chip surface.
+         ;; Count > 0 when an app `:redact-fn` substituted the
+         ;; `:rf/redacted` sentinel into both `:db-before` /
+         ;; `:db-after` at the same path inside a mutated subtree.
+         :redacted-modified-count   redacted-modified-count
+         ;; rf2-s8r6c — per-path origin attribution input. The renderer
+         ;; combines `:changed-sections` + the full triples + this vec
+         ;; to tag each section header with `[fx :db]` /
+         ;; `[flow :flow-id]` / mixed.
+         :flow-writes               (or flow-writes [])
+         :diff-triples              (or diff-triples [])
+         ;; rf2-5kfxe.2 — surfaced so the renderer can key each
+         ;; section by epoch-id, forcing a React re-mount per cascade
+         ;; and replaying the diff-flash CSS animation.
+         :selected-epoch-id         selected-epoch-id}))))

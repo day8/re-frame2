@@ -36,7 +36,7 @@
 
   `:rf.trace/no-emit? true` on the event's registered handler-meta
   drops the record entirely — framework-internal bookkeeping handlers
-  (Causa, Story) are not user-domain observable signal.
+  (Xray, Story) are not user-domain observable signal.
 
   NOTE: handler-meta `:sensitive?` is no longer consulted here.
   Sensitive data marking is path-based per the upcoming data-

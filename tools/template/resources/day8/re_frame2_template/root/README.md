@@ -41,12 +41,12 @@ state from the previous build. Add new `reg-event-db` / `reg-sub` /
 `reg-view` forms and they show up live; rename or remove a handler
 and the next reload drops the old registration.
 
-## In-app devtools (Causa)
+## In-app devtools (Xray)
 
-`shadow-cljs.edn` wires `day8.re-frame2-causa.preload` into
-`:devtools/preloads` on the `:app` build — the scaffold ships Causa
+`shadow-cljs.edn` wires `day8.re-frame2-xray.preload` into
+`:devtools/preloads` on the `:app` build — the scaffold ships Xray
 **on by default** for development. `resources/public/index.html`
-includes the `[data-rf-causa-host]` left layout column, so Causa
+includes the `[data-rf-xray-host]` left layout column, so Xray
 auto-opens beside your app once `rf/init!` runs. Press
 **Ctrl+Shift+C** to hide/show it: per-epoch dispatch log, app-db diff,
 causality graph, time-travel scrubber.
@@ -155,7 +155,7 @@ header {
 
 Always deploy the `release` build (not `watch`) to production — the
 release build sets `:closure-defines {goog.DEBUG false}` (next
-section), strips the Causa preload, and ships the minified bundle.
+section), strips the Xray preload, and ships the minified bundle.
 
 ## Production builds
 

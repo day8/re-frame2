@@ -10,7 +10,7 @@
   and pins the rendered DOM — node count, edge count, the custom
   node/edge class + testid contract, and the Controls / MiniMap /
   Background presence toggles. Per the saved-memory rule
-  (feedback_causa_story_cljs_unit_tests_not_playwright) these are
+  (feedback_xray_story_cljs_unit_tests_not_playwright) these are
   browser CLJS tests, NOT Playwright.
 
   ## Mounting

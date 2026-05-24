@@ -130,7 +130,7 @@
       (is (= "seeded" (rf/subscribe-once client-frame [:title]))
           "seeded :title from payload's :rf/app-db wins")
       ;; Lock the :rf/hydration metadata shape (the testbed's view
-      ;; doesn't read these slots, but downstream tooling — Causa /
+      ;; doesn't read these slots, but downstream tooling — Xray /
       ;; the late-bind compatibility-check fxs — does).
       (let [db (rf/get-frame-db client-frame)]
         (is (= 1 (get-in db [:rf/hydration :version]))

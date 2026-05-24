@@ -203,7 +203,7 @@
     context is captured by `snapshot-tuple` (`:active-modes` slot +
     merged into `:effective-args`); the available-mode SET does not
     change the snapshot for a given active-mode context.
-  - `:dispatch-console?` / `:causa` — dev-tooling affordances; no effect
+  - `:dispatch-console?` / `:xray` — dev-tooling affordances; no effect
     on the settled rendered state.
   - `:doc` / `:source` — prose + coords; runtime-environmental.
   - `:extends` — resolved away into `:effective-args` before hashing."

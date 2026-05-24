@@ -20,7 +20,7 @@
      pin the parse contract without DOM / React / xyflow.
   2. **One source for `node-id` + `edge-label`.** xyflow needs string
      ids; the same id contract is used by SCXML / Mermaid emitters
-     and the Causa topology overlay. Centralising it here means
+     and the Xray topology overlay. Centralising it here means
      every consumer addresses nodes the same way.
   3. **`highlight-id` resolution.** Snapshot `:state` → xyflow
      node-id mapping for the live-highlight surface. Pure fn, no

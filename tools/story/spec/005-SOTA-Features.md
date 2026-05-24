@@ -3,7 +3,7 @@
 > The `force-fx-stub` headline (one primitive replaces the
 > Storybook addon parade); the layout-debug overlay trio; a11y
 > axe-core panel; per-variant QR share; multi-substrate side-by-side
-> rendering; the Causa epoch panel embed contract (stub); the v1.1
+> rendering; the Xray epoch panel embed contract (stub); the v1.1
 > deferrals (perf ribbon, design tokens); production elision under
 > `:advanced` (`:rf.story/enabled?` sentinel pattern). The contract
 > Stage 6 implements + the production hygiene rules that apply across
@@ -136,14 +136,14 @@ The two panels share `a11y/ensure-axe-loaded!` + `a11y/cdn-opt-in?` so
 one consent decision approves both. State is independent: chrome
 violations don't pollute the per-variant panel and vice versa.
 
-### Six-domino trace (via embedded Causa)
+### Six-domino trace (via embedded Xray)
 
 Per [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane,
-Causa is mounted as the RHS primary inspector by default (rf2-sgdd3).
-Causa's Trace tab renders the six dominoes (event → handler → fx →
+Xray is mounted as the RHS primary inspector by default (rf2-sgdd3).
+Xray's Trace tab renders the six dominoes (event → handler → fx →
 effect → subscription → re-render) live, scoped to the selected
 variant's frame. Story's per-variant `trace-buffer` listener stays
-in place to feed the schema-validation panel; Causa runs its own
+in place to feed the schema-validation panel; Xray runs its own
 trace-cb registration for its UI.
 
 This is the debugging UX no JS tool can match — re-frame's structured
@@ -241,32 +241,32 @@ into the static playground; the axe-core opt-in prompt rides into the
 static site too, so a visitor running an a11y scan there sees the
 same consent dialog before any CDN load.
 
-### Causa epoch panel embed (stub + contract)
+### Xray epoch panel embed (stub + contract)
 
-Story registers Causa's existing epoch / time-travel panel as a story
-panel (Causa is the structural successor to re-frame-10x, per
-[`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md)
+Story registers Xray's existing epoch / time-travel panel as a story
+panel (Xray is the structural successor to re-frame-10x, per
+[`tools/xray/spec/DESIGN-RATIONALE.md`](../../xray/spec/DESIGN-RATIONALE.md)
 Lock #1):
 
 ```clojure
-(story/reg-story-panel :rf.story/causa-epoch
-  {:doc       "Causa's epoch buffer for the active variant."
-   :title     "Epochs (Causa)"
+(story/reg-story-panel :rf.story/xray-epoch
+  {:doc       "Xray's epoch buffer for the active variant."
+   :title     "Epochs (Xray)"
    :placement :bottom
-   :render    :day8.re-frame2-causa.panels.time-travel/Panel})
+   :render    :day8.re-frame2-xray.panels.time-travel/Panel})
 ```
 
-The view is consumed from `day8/re-frame2-causa` (per the
-`tools/causa/` alpha-phase line in
+The view is consumed from `day8/re-frame2-xray` (per the
+`tools/xray/` alpha-phase line in
 [`tools/README.md`](../../README.md)). Story's panel is the
-**adapter**; Causa stays its own artefact, on its own release cadence.
+**adapter**; Xray stays its own artefact, on its own release cadence.
 
-Story's `:rf.story/causa-epoch` registration ships with v1 but the
-panel only activates if `day8/re-frame2-causa` is on the classpath
-(per the late-bind hook in spec/002). If Causa is absent, the sidebar
-entry hides. The Causa artefact owns the actual view; Story owns the
+Story's `:rf.story/xray-epoch` registration ships with v1 but the
+panel only activates if `day8/re-frame2-xray` is on the classpath
+(per the late-bind hook in spec/002). If Xray is absent, the sidebar
+entry hides. The Xray artefact owns the actual view; Story owns the
 *integration*. See [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
-§causa-embed.
+§xray-embed.
 
 ### Test Codegen — record-as-`:play-script` (rf2-5fc15 + rf2-0wrud)
 
@@ -579,7 +579,7 @@ Storybook commodity alternatives live in
 | Gradient mesh + grain backdrop — anti-flat-chrome composition | F7 / rf2-4kqvw | Stage 4 |
 | Sidebar glyph rhythm — 5 SVG glyphs (story=◆, variant=●, workspace=▦, chevron, external-link); amber-diamond per-row; amber-active row border | F8 / rf2-ck4x5 | Stage 4 polish |
 | 5-cluster toolbar — MODES \| DATA \| VIEW \| DEBUG \| REC with token hairlines + small-caps cluster labels + accent-amber-deep active-chip border | F9 / rf2-sbluk | Stage 4 polish |
-| Causa-in-Story per-panel embed — Causa's RHS panels (`:app-db`, `:event-detail`, `:trace`, `:machines`, `:views`, `:routing`, `:issues`) mounted under Story's chrome | F1+F2+F3 | Stage 6 |
+| Xray-in-Story per-panel embed — Xray's RHS panels (`:app-db`, `:event-detail`, `:trace`, `:machines`, `:views`, `:routing`, `:issues`) mounted under Story's chrome | F1+F2+F3 | Stage 6 |
 | Phase 3 chrome surfaces — density knob, command palette, settings modal, polish sweep | rf2-38pb9 cluster | Stage 6 polish |
 
 These ship inside Story's v1 envelope; they are not deferrals. The
@@ -664,44 +664,44 @@ behaviour). Source-coords whose `:file` is already absolute (leading
 `/`, drive-letter prefix, or `file:` URI) pass through unchanged
 regardless of the root setting so a caller that already has an
 absolute coord isn't double-prefixed. The prefix lives in the shared
-`re-frame.source-coords.editor-uri/editor-uri` 3-arg form; Causa
+`re-frame.source-coords.editor-uri/editor-uri` 3-arg form; Xray
 consumes the same helper and will plumb its own knob in a follow-up.
 
-##### Bridge to Causa-as-RHS (rf2-r1uod)
+##### Bridge to Xray-as-RHS (rf2-r1uod)
 
-When Causa is mounted as Story's RHS inspector (per rf2-sgdd3),
-the Causa-side source-coord chips (Event lens Handler / Dispatch /
+When Xray is mounted as Story's RHS inspector (per rf2-sgdd3),
+the Xray-side source-coord chips (Event lens Handler / Dispatch /
 Interceptors, Trace tab rows, Issues ribbon) read their on-disk root
-from Causa's `day8.re-frame2-causa.config/project-root` slot — NOT
+from Xray's `day8.re-frame2-xray.config/project-root` slot — NOT
 from Story's `re-frame.story.config/project-root`. To keep
 project-root a single-source-of-truth setting the host only writes
 once, `(story/configure! {:rf.story/project-root <path>})` is bridged
-into Causa's slot by `re-frame.story.causa-preset/propagate-project-root!`:
+into Xray's slot by `re-frame.story.xray-preset/propagate-project-root!`:
 
 - The propagator fires from two seams: (1) `story/configure!` after
-  `set-project-root!` lands (the common case — Causa's preload runs
-  before the testbed `run` fn), and (2) `causa-preset/ensure-causa-
+  `set-project-root!` lands (the common case — Xray's preload runs
+  before the testbed `run` fn), and (2) `xray-preset/ensure-xray-
   mounted!` as defense-in-depth (lazy-load / hot-reload edge).
-- One-way (`story → causa`). Hosts that want Causa pointed at a
-  different on-disk root than Story call `causa-config/configure!`
+- One-way (`story → xray`). Hosts that want Xray pointed at a
+  different on-disk root than Story call `xray-config/configure!`
   directly AFTER `story/configure!` to override the bridge.
-- Feature-detect-safe: when Causa is not on the classpath the
+- Feature-detect-safe: when Xray is not on the classpath the
   propagator returns nil without touching the wire.
 
 Symmetric to shop's [rf2-6jyf6](https://github.com/day8/re-frame2/pull/1493) —
-Causa's standalone testbeds (shop) seed Causa's project-root directly
-via `causa-config/configure!`; Story testbeds with Causa-as-RHS seed
+Xray's standalone testbeds (shop) seed Xray's project-root directly
+via `xray-config/configure!`; Story testbeds with Xray-as-RHS seed
 via `story/configure! :rf.story/project-root` and let the bridge
 propagate.
 
 The shared URI builder lives at `re-frame.source-coords.editor-uri`
-under the core artefact and is CLJC-portable; Causa's mirror
-affordance (`day8.re-frame2-causa.open-in-editor`) consumes the same
+under the core artefact and is CLJC-portable; Xray's mirror
+affordance (`day8.re-frame2-xray.open-in-editor`) consumes the same
 helper. The matrix above is the canonical list for *both* tools — see
-[`tools/causa/spec/007-UX-IA.md` §Editor protocol matrix](../../causa/spec/007-UX-IA.md#editor-protocol-matrix)
-for Causa's keyboard-side surface and the Settings-modal hook. Story
-and Causa keep independent config keys (`:rf.story/editor` vs
-`:rf.causa/editor`) so a host can route each tool to a different
+[`tools/xray/spec/007-UX-IA.md` §Editor protocol matrix](../../xray/spec/007-UX-IA.md#editor-protocol-matrix)
+for Xray's keyboard-side surface and the Settings-modal hook. Story
+and Xray keep independent config keys (`:rf.story/editor` vs
+`:rf.xray/editor`) so a host can route each tool to a different
 editor.
 
 ## Production elision under `:advanced`
@@ -811,7 +811,7 @@ phase-2 SOTA adds that are cheap.
 | 5. Three-level args + auto-derived controls from Spec 010 schemas | Stages 2, 4 |
 | 6. `force-fx-stub` — universal-fx mocking primitive (replaces the Storybook addon parade; see §`force-fx-stub`) | Stage 2 |
 | 7. Six-domino trace panel per variant via `register-listener!` | Stage 6 |
-| 8. Causa epoch panel embedded as `reg-story-panel` | Stage 6 |
+| 8. Xray epoch panel embedded as `reg-story-panel` | Stage 6 |
 | 9. Story portability — `run-variant` returns `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` | Stage 3 |
 | 10. EDN-first variant artefact (no `:render` fn-slot, round-trippable) | Stage 2 |
 | 11. Inclusion tags (seven canonical + `!`-prefix removal) | Stage 2 |
@@ -821,7 +821,7 @@ phase-2 SOTA adds that are cheap.
 | `:variants-grid` workspace layout | Stage 4 |
 | Per-variant QR code in share menu | Stage 6 |
 | Multi-substrate side-by-side pane (substrate-failures inline) | Stage 6 |
-| Causa epoch panel embed (stub + contract) | Stage 6 |
+| Xray epoch panel embed (stub + contract) | Stage 6 |
 | Test Codegen — record canvas dispatches as `:play-script` (rf2-5fc15) | Stage 6 |
 
 ## v1.1 ship list (first follow-up)
@@ -846,7 +846,7 @@ phase-2 SOTA adds that are cheap.
 | Remote Storybook federation (multi-host composition) | Phase 1 §2.2 |
 | App-db snapshot diff (data-space visual regression) | Phase 2 §5.2 #7 |
 | oEmbed URLs for Notion / static-doc inlining | Phase 2 §5.2 #6 (deferred) |
-| BackstopJS-style pixel scrubber UI | Phase 2 §2.1 (out of scope; data-space scrubber via Causa suffices) |
+| BackstopJS-style pixel scrubber UI | Phase 2 §2.1 (out of scope; data-space scrubber via Xray suffices) |
 
 ## What we deliberately don't ship
 
@@ -866,7 +866,7 @@ list with reasoning; the short version:
 - **Statechart visualisation engine.** Deferred to
   `day8/re-frame2-machines-viz`.
 - **Pixel-scrubber UI (BackstopJS slider).** Data-space scrubber via
-  Causa's epoch panel covers the same UX better.
+  Xray's epoch panel covers the same UX better.
 - **BackstopJS-style baseline storage.** Services handle baselines.
 - **First-party SSR rendering pipeline.** Owned by Spec 011 +
   `day8/re-frame2-ssr`.
@@ -874,6 +874,6 @@ list with reasoning; the short version:
   [`006-MCP-Surface.md`](006-MCP-Surface.md).
 - **Built-in pixel diff under `:test` tag.** Stories-as-tests are
   state-space tests, not pixel-space tests.
-- **Full Causa reimplementation.** Story embeds Causa's epoch panel
+- **Full Xray reimplementation.** Story embeds Xray's epoch panel
   (the structural successor to re-frame-10x); does not own a parallel
   implementation.

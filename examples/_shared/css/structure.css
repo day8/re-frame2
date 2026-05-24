@@ -218,7 +218,7 @@ hr {
   box-sizing: border-box;
 }
 
-/* -- Causa-host shell (counter testbed pattern) -------------------------- */
+/* -- Xray-host shell (counter testbed pattern) -------------------------- */
 
 .rf2-testbed-shell {
   display: flex;
@@ -226,11 +226,11 @@ hr {
 }
 
 :root {
-  --rf-causa-accent: #7C5CFF;
+  --rf-xray-accent: #7C5CFF;
 }
 
-[data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 560px);
+[data-rf-xray-host] {
+  flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
 }

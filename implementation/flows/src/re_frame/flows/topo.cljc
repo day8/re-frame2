@@ -17,7 +17,7 @@
   either direction. Kahn's algorithm produces the order; on cycle we
   reconstruct a DFS path through the stuck nodes and throw
   `:rf.error/flow-cycle` with a closing-repeat cycle vector
-  (e.g. `[:a :b :a]`) — tools like Causa render this directly."
+  (e.g. `[:a :b :a]`) — tools like Xray render this directly."
   ;; Pure module — no requires. .cljc-portable so the JVM test sweep
   ;; can exercise the algorithm without dragging the CLJS runtime in.
   )
@@ -83,7 +83,7 @@
           ;; state is internally inconsistent: a stuck node found no
           ;; stuck dep to follow. Fail loud rather than silently
           ;; returning a malformed cycle path — a closing-repeat
-          ;; vector built from a dead end would lie to tools (Causa,
+          ;; vector built from a dead end would lie to tools (Xray,
           ;; the flow panel) about the offending chain.
           (throw (ex-info ":rf.error/flow-cycle-extract-invariant"
                           {:rf.error/id :rf.error/flow-cycle-extract-invariant
@@ -119,7 +119,7 @@
   On cycle: ex-data carries `:cycle` — an ordered cycle path with a
   closing repeat (e.g. `[:a :b :a]`) extracted via DFS through the
   stuck nodes. Per Spec 013 §Cycle detection / Spec 009 §Error contract.
-  Tools (e.g. Causa) render this directly as the offending chain.
+  Tools (e.g. Xray) render this directly as the offending chain.
 
   Note: callers re-run this on every drain via
   `re-frame.flows/run-flows-on-db`. A memo was trialled and removed (rf2-cd00):
@@ -162,7 +162,7 @@
               ;; Cycle ex-info carries the canonical thrown-error shape
               ;; (per Spec 009 §The thrown-error shape) every other flow
               ;; ex-info uses (`:rf.error/id` / `:where` / `:recovery` /
-              ;; `:reason`) so tools (Causa, re-frame-10x,
+              ;; `:reason`) so tools (Xray, re-frame-10x,
               ;; late-bind-missing wrappers) read the `:rf.error/id`
               ;; discriminator uniformly across error surfaces.
               ;; `topo.cljc` is the pure-data module — no `:require`s —

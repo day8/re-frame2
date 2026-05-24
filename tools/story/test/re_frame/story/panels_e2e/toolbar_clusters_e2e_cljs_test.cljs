@@ -100,7 +100,7 @@
             MODES / DATA / VIEW / DEBUG / REC. Each carries the
             canonical `:data-cluster` label so visual + test corpora
             can locate them."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-with-variant!}
       (fn []
         (let [tree     (render-toolbar)
@@ -121,7 +121,7 @@
   (testing "rf2-v58dm — clicking a chip toggles `:active-modes` AND
             the chip's aria-pressed flips AND the chip's style merges
             the `:chip-active` overlay"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-modes!}
       (fn []
         (let [tree-0 (render-toolbar)
@@ -148,7 +148,7 @@
   (testing "rf2-v58dm + spec/010 §Selection semantics — clicking a
             theme chip when another theme chip is active evicts the
             sibling. The rendered hiccup mirrors the eviction."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-modes!}
       (fn []
         ;; Pre-state: dark active.
@@ -173,7 +173,7 @@
 (deftest unaxed-modes-coexist
   (testing "an un-axis-tagged mode coexists with axis-tagged modes —
             clicking compact when dark is active leaves both on"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-modes!}
       (fn []
         (toolbar/toggle-mode! :Mode.theme/dark)
@@ -190,7 +190,7 @@
 (deftest empty-state-renders-placeholder
   (testing "no modes registered → MODES cluster renders the
             empty-state placeholder rather than chips"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}  ;; no register-stories — registry is empty.
       (fn []
         (let [tree (render-toolbar)]

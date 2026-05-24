@@ -4,7 +4,7 @@ A multi-second cascade of `app-db` writes that drive a three-flow
 topology, with a configurable mid-flow failure injection. The
 single Start click produces a visible ~5-second stream of
 `:rf.flow/computed` / `:rf.flow/failed` / `:rf.error/flow-eval-exception`
-traces that a consumer (Causa, Story, re-frame2-pair-mcp) reads to verify the
+traces that a consumer (Xray, Story, re-frame2-pair-mcp) reads to verify the
 flow-failure **atomicity** contract from
 [`spec/013-Flows.md` §Failure semantics](../../spec/013-Flows.md)
 (rf2-u0zz5): a flow throw is a pre-install throw, so it **aborts the
@@ -120,7 +120,7 @@ and produces enough trace shape to assert the whole abort signature.
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Causa (26)**:
+**Xray (26)**:
 - Trace panel grows on subsequent dispatch (rf2-1barg regression
   — gold standard) — exercised 20× in one Start click.
 - `:rf.error/*` events highlighted in trace stream — exercised

@@ -14,7 +14,7 @@
        (:include-sensitive? false, :include-large? false).
 
     3. Listener fan-out delivers RAW records by default — silent
-       projection would break Causa's diff visualiser and on-box
+       projection would break Xray's diff visualiser and on-box
        restore drivers (Tool-Pair §Time-travel). Forwarders that
        egress off-box opt INTO projection at the wire boundary via
        projected-record.
@@ -424,7 +424,7 @@
 
 (deftest listener-fan-out-delivers-raw-record
   (testing "register-epoch-listener! callbacks receive the RAW record (NOT
-            the projected one) — Causa's diff visualiser and on-box
+            the projected one) — Xray's diff visualiser and on-box
             restore drivers depend on the raw :db-after; a silent
             projection would break them. Forwarders that egress
             off-box opt INTO projection at the wire boundary."
@@ -445,7 +445,7 @@
 (deftest forwarder-shape-projects-at-egress
   (testing "the canonical off-box-forwarder pattern: register raw,
             project at egress. This pins the recommended shape for
-            tools (Causa-MCP watch-epochs, story / pair recorders)."
+            tools (Xray-MCP watch-epochs, story / pair recorders)."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     (let [shipped (atom [])

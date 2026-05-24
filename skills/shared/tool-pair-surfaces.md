@@ -1,6 +1,6 @@
 # Tool-Pair surfaces — shared enumeration
 
-The canonical list of the **consumer-facing Tool-Pair surfaces** re-frame2 exposes to tools (pair, pair-retro, Causa, …). This is the single home for the surface enumeration that several skills otherwise restate from memory and let drift out of sync. The authoritative contract is [`spec/Tool-Pair.md`](../../spec/Tool-Pair.md); this leaf is the skills-corpus pointer at it, not a second source of truth.
+The canonical list of the **consumer-facing Tool-Pair surfaces** re-frame2 exposes to tools (pair, pair-retro, Xray, …). This is the single home for the surface enumeration that several skills otherwise restate from memory and let drift out of sync. The authoritative contract is [`spec/Tool-Pair.md`](../../spec/Tool-Pair.md); this leaf is the skills-corpus pointer at it, not a second source of truth.
 
 When a finding routes **upstream to `re-frame2`** (the friction is in the framework's Tool-Pair contract, not the consuming tool or the author's code), name the specific surface here rather than gesturing at "the contract."
 
@@ -22,5 +22,5 @@ These surfaces are **first-class in re-frame2 itself** — v2 tooling does not d
 ## Consumers
 
 - [`re-frame2-pair`](../re-frame2-pair/README.md) — the live-runtime pair tool; carries the fullest surface list.
-- [`re-frame2-pair-retro`](../re-frame2-pair-retro/SKILL.md) and [`re-frame2-causa`](../re-frame2-causa/README.md) — name a surface from this leaf when routing an upstream finding.
+- [`re-frame2-pair-retro`](../re-frame2-pair-retro/SKILL.md) and [`re-frame2-xray`](../re-frame2-xray/README.md) — name a surface from this leaf when routing an upstream finding.
 - [`retro-protocol.md`](retro-protocol.md) §Layer-routing rules — "upstream `re-frame2`" findings route to a surface enumerated here.

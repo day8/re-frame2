@@ -84,7 +84,7 @@
 (deftest root-carries-data-test-selector
   (testing "the root scrim of the rendered palette carries
             `data-test=story-command-palette` so downstream tests
-            (and Causa's spine instrumentation) can anchor on it."
+            (and Xray's spine instrumentation) can anchor on it."
     (let [tree (view/render-palette (base-props))
           root (th/find-by-attr tree :data-test "story-command-palette")]
       (is (some? root)

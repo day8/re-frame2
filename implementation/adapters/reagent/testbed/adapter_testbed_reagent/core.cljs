@@ -8,7 +8,7 @@
    re-render — without depending on any example.
 
    Minimal by design. Don't grow it. Real coverage is the framework's
-   CLJS / browser tests and the Causa feature gate."
+   CLJS / browser tests and the Xray feature gate."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core    :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]))

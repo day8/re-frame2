@@ -1,11 +1,11 @@
 (ns re-frame.handler-source-test
   "rf2-xgfuy — DEBUG-gated handler form-source capture at reg-event-{db,
-  fx,ctx}. Per Spec 009 §`:rf.handler/source` and Causa Spec 021 §11.2
+  fx,ctx}. Per Spec 009 §`:rf.handler/source` and Xray Spec 021 §11.2
   B.7 stretch.
 
   The reg-event-* macros stamp the whole `(reg-event-X :id ...)` form
   as a string into the handler's registry metadata under
-  `:rf.handler/source` so Causa's Event panel can render the source
+  `:rf.handler/source` so Xray's Event panel can render the source
   inline. JVM-side is always-on (bundle-size argument doesn't apply);
   CLJS-side is `goog.DEBUG`-gated so production bundles DCE the
   literal source-string bytes. See `re-frame.core_reg_macros/defreg-
@@ -50,7 +50,7 @@
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy/event-db-sample))]
       ;; Whole-form capture: the handler-fn body must appear too, not
-      ;; just the surface. The Causa Event panel renders the body inline.
+      ;; just the surface. The Xray Event panel renders the body inline.
       (is (str/includes? src "(fn [db _ev] db)")
           ":rf.handler/source should include the handler-fn body"))))
 

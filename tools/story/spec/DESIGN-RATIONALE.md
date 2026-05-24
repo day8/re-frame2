@@ -150,40 +150,40 @@ registration call) and to `nil` in production. Compile-time flag is
 override to `false` for prod builds). See
 [`005-SOTA-Features.md`](005-SOTA-Features.md) §Production elision.
 
-### §causa-embed — embed via `reg-story-panel`
+### §xray-embed — embed via `reg-story-panel`
 
 **Decision.** Story does **not** reimplement an epoch UI. Story
-registers Causa's existing epoch / time-travel panel as a story panel
-via (Causa is the structural successor to re-frame-10x, per
-[`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md)
+registers Xray's existing epoch / time-travel panel as a story panel
+via (Xray is the structural successor to re-frame-10x, per
+[`tools/xray/spec/DESIGN-RATIONALE.md`](../../xray/spec/DESIGN-RATIONALE.md)
 Lock #1):
 
 ```clojure
-(story/reg-story-panel :rf.story/causa-epoch
-  {:doc       "Causa's epoch buffer for the active variant."
-   :title     "Epochs (Causa)"
+(story/reg-story-panel :rf.story/xray-epoch
+  {:doc       "Xray's epoch buffer for the active variant."
+   :title     "Epochs (Xray)"
    :placement :bottom
-   :render    :day8.re-frame2-causa.panels.time-travel/Panel})
+   :render    :day8.re-frame2-xray.panels.time-travel/Panel})
 ```
 
-The view is consumed from `day8/re-frame2-causa` (per the
-`tools/causa/` line in [`tools/README.md`](../../README.md)).
-Story's panel is the **adapter**; Causa stays its own artefact, on
+The view is consumed from `day8/re-frame2-xray` (per the
+`tools/xray/` line in [`tools/README.md`](../../README.md)).
+Story's panel is the **adapter**; Xray stays its own artefact, on
 its own release cadence.
 
 **Rationale.** The epoch panel's UX (time-travel scrubber, app-db
-follower, event replay) is already best-in-class inside Causa
+follower, event replay) is already best-in-class inside Xray
 (carrying forward the design re-frame-10x established). Reimplementing
 it inside Story would (a) double the implementation surface, (b) split
 the maintenance work, (c) drift over time. Embedding keeps one source
 of truth.
 
-**Implication.** Story's `:rf.story/causa-epoch` registration ships
-with v1 but the panel only activates if `day8/re-frame2-causa` is on
-the classpath (per the late-bind hook in spec/002). If Causa is
-absent, the sidebar entry hides. The Causa artefact owns the actual
+**Implication.** Story's `:rf.story/xray-epoch` registration ships
+with v1 but the panel only activates if `day8/re-frame2-xray` is on
+the classpath (per the late-bind hook in spec/002). If Xray is
+absent, the sidebar entry hides. The Xray artefact owns the actual
 view; Story owns the *integration*. See
-[`005-SOTA-Features.md`](005-SOTA-Features.md) §Causa epoch panel
+[`005-SOTA-Features.md`](005-SOTA-Features.md) §Xray epoch panel
 embed.
 
 ## Decisions surfaced during IMPL-SPEC drafting
@@ -258,12 +258,12 @@ RENDERS a host app's design tokens for the developer to inspect;
 the chrome's own tokens are the substrate that affordance would
 render against.)
 
-### §causa-embed-inert-without-causa — Causa embed registration ships in v1 but stays inert if Causa absent
+### §xray-embed-inert-without-xray — Xray embed registration ships in v1 but stays inert if Xray absent
 
-Per §causa-embed above. The `reg-story-panel` call is unconditional;
+Per §xray-embed above. The `reg-story-panel` call is unconditional;
 the panel's `:render` resolves via late-bind to a hidden no-op if
-Causa isn't present. This keeps the user experience graceful when
-Causa isn't on the classpath.
+Xray isn't present. This keeps the user experience graceful when
+Xray isn't on the classpath.
 
 ## Phase-2 SOTA additions — tier choices
 
@@ -344,7 +344,7 @@ the chrome reads as a workshop rather than a forensic console), amber
 `:accent-amber*` tokens (the active-row / active-chip / sidebar-glyph
 identity), and the semantic foreground tokens (`:text-primary` /
 `:text-secondary` / `:text-tertiary`). The pairing also achieves the
-**two-surface, two-role** signal when Causa lands in the RHS: Causa is
+**two-surface, two-role** signal when Xray lands in the RHS: Xray is
 cool-grey + cyan (diagnostic), Story is warm-slate + amber (workshop)
 — the user reads "workshop" vs "diagnostic" without needing labels.
 Raw hex literals at call sites are banned (rf2-i3i5j AC#3); the
@@ -365,8 +365,8 @@ geometric without being sterile, with characterful italics, a
 confident `g`, and a mono sibling tuned to the same proportions. The
 sans + mono pair share design DNA so chrome that mixes them (a
 variant id rendered next to its status text) holds together
-typographically. **Crucially, the pair distinguishes Story from Causa
-visually**: Causa uses Inter + JetBrains Mono — Story's Plex pair is
+typographically. **Crucially, the pair distinguishes Story from Xray
+visually**: Xray uses Inter + JetBrains Mono — Story's Plex pair is
 the typographic complement, not the same family. Raw `font-family`
 strings at call sites are banned (rf2-2rwdc AC#5); `sans-stack` /
 `mono-stack` / `display-stack` are the public contract.
@@ -465,7 +465,7 @@ bundle weight of layout engines (`@xyflow/react`, `d3-hierarchy`,
 **Rejected.** BackstopJS's tactile pixel scrubber is a great UX for
 pixel visual regression.
 
-**Why.** Story's data-space scrubber via Causa's epoch panel covers
+**Why.** Story's data-space scrubber via Xray's epoch panel covers
 the same UX *better* for re-frame2 apps — scrub through events with
 `app-db` following, not through static pixels. Pixel scrubbing is a
 downstream visual-regression-service concern. Story does not host
@@ -506,14 +506,14 @@ on `:assertions` + `:app-db`. It does **not** capture or diff pixels.
 pixel-space tests. This is the
 [Spec 007 §Story-as-test-duality](../../../spec/007-Stories.md) lock.
 
-### Rejected: Full Causa reimplementation
+### Rejected: Full Xray reimplementation
 
-**Rejected (delegated).** Story embeds Causa's epoch panel (the
+**Rejected (delegated).** Story embeds Xray's epoch panel (the
 structural successor to re-frame-10x); does not own a parallel
-implementation. See §causa-embed above.
+implementation. See §xray-embed above.
 
-**Why.** Causa's UX is mature; replicating it would split maintenance
-and drift. The right primitive is "Causa is a peer artefact, Story
+**Why.** Xray's UX is mature; replicating it would split maintenance
+and drift. The right primitive is "Xray is a peer artefact, Story
 integrates."
 
 ## Open items (deliberate punts)

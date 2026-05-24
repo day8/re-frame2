@@ -5,14 +5,14 @@
 ;; Node script published on npm as `@day8/re-frame2-pair-mcp`); the
 ;; other tools are either JVM-only (mcp-base, story, story-mcp,
 ;; template) or CLJS-but-built-from-implementation/shadow-cljs.edn
-;; (causa — its tests run under the implementation's :node-test build).
+;; (xray — its tests run under the implementation's :node-test build).
 ;;
 ;; This coordinator aggregates re-frame2-pair-mcp's `:server` and `:server-test`
 ;; builds at the tools/ root so the npm-side `shadow-cljs compile
 ;; <build>` invocation works from `tools/` as well as from
 ;; `tools/re-frame2-pair-mcp/`. Builds are namespaced under
-;; `re-frame2-pair-mcp/<name>` so future tool builds (e.g. `causa/<name>` when
-;; Causa gains its own CLJS surface separate from the implementation
+;; `re-frame2-pair-mcp/<name>` so future tool builds (e.g. `xray/<name>` when
+;; Xray gains its own CLJS surface separate from the implementation
 ;; build) can land alongside without name collisions.
 ;;
 ;; `:deps true` routes classpath resolution through tools/deps.edn —

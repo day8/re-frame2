@@ -17,7 +17,7 @@ printf '==> implementation rigorous browser/bundle gates\n'
   npm run test:reagent-slim:bundle-isolation && \
   npm run test:examples && \
   npm run test:story-feature-load && \
-  npm run test:causa-feature-gate && \
+  npm run test:xray-feature-gate && \
   npm run test:story-static)
 
 printf 'PASS rigorous local suite\n'

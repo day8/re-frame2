@@ -7,7 +7,7 @@
 
   Coverage gap closed (rf2-kp835 Phase-1 audit): the `projected-record` and
   `projected-history` public-surface symbols had 0 callers in `tools/`. The
-  MCP-side accessors (Causa-MCP `watch-epochs`, story / pair recorders)
+  MCP-side accessors (Xray-MCP `watch-epochs`, story / pair recorders)
   haven't shipped end-to-end calls yet — Mike's Phase-2 decision (sibling
   bead rf2-xrlyi) kept both symbols canonical and asked for a conformance
   test exercising them via a representative MCP-style call path.
@@ -48,7 +48,7 @@
   (`npm test` -> `out/server-test.js`), and the artefacts do not
   statically depend on `re-frame.epoch` — the runtime accessors get into
   the running app via the injected-runtime path
-  (`day8.re-frame2-causa.runtime`), not the MCP-server bundle. The
+  (`day8.re-frame2-xray.runtime`), not the MCP-server bundle. The
   framework's epoch artefact owns the projection emission site (Spec
   Security.md §Epoch privacy posture line 104); pinning conformance from
   the artefact side keeps the test on the JVM next to the contract owner.

@@ -386,9 +386,9 @@ no fn-slots):
  :platforms             #{:server :client}
  :substrates            #{:reagent :uix ...}
  :modes                 #{<mode-id> ...}         ; cell = (variant × mode)
- :causa-panel           <panel-kw>               ; (rf2-v1ach) default Causa panel for the RHS embed
- :causa                 {:panel <panel-kw>       ;   nested form (same slot, alongside other :causa keys)
-                         :open?  <bool>          ;   per-story Causa preset — see §Causa preset slot
+ :xray-panel           <panel-kw>               ; (rf2-v1ach) default Xray panel for the RHS embed
+ :xray                 {:panel <panel-kw>       ;   nested form (same slot, alongside other :xray keys)
+                         :open?  <bool>          ;   per-story Xray preset — see §Xray preset slot
                          :tab    <kw>            ;   (deprecated alias for :panel)
                          :filters {...}
                          :focus   {...}}}
@@ -439,14 +439,14 @@ The `:rf/variant` schema (in
 no-fn-slots rule. Stage 2 macros validate the body against this schema
 and reject with `:rf.error/variant-shape` on miss.
 
-#### `:causa-panel` — RHS Causa embed default (rf2-v1ach)
+#### `:xray-panel` — RHS Xray embed default (rf2-v1ach)
 
-The optional `:causa-panel` slot declares which Causa panel renders
-by default in the RHS Causa embed (per
+The optional `:xray-panel` slot declares which Xray panel renders
+by default in the RHS Xray embed (per
 [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane). The
-slot's value is one of the seven canonical Causa panel ids:
+slot's value is one of the seven canonical Xray panel ids:
 
-| `:causa-panel` value | Causa panel rendered (chip label)             | Typical use case                                  |
+| `:xray-panel` value | Xray panel rendered (chip label)             | Typical use case                                  |
 |----------------------|-----------------------------------------------|---------------------------------------------------|
 | `:event-detail`      | Event — six-domino cascade view (default)     | "What happened on the last event?"                |
 | `:app-db`            | App-db — structural diff across the cascade   | State-shape stories (counter, settings, modals)   |
@@ -462,38 +462,38 @@ chip-row picker in the RHS — their click is sticky for the session
 and overrides the declared default. Unknown keywords fall back to
 `:event-detail` so a typo doesn't blank the embed. The canonical id
 list lives in
-[`re-frame.story.ui.causa-embed/panel-catalog`](../src/re_frame/story/ui/causa_embed.cljs);
-the Causa-side mount surface (one `mount-<panel>!` per id) lives at
-[`day8.re-frame2-causa.panels`](../../causa/src/day8/re_frame2_causa/panels.cljs).
+[`re-frame.story.ui.xray-embed/panel-catalog`](../src/re_frame/story/ui/xray_embed.cljs);
+the Xray-side mount surface (one `mount-<panel>!` per id) lives at
+[`day8.re-frame2-xray.panels`](../../xray/src/day8/re_frame2_xray/panels.cljs).
 
 Two equivalent forms are accepted on the variant (or story) body:
 
 ```clojure
-;; Top-level form — recommended when there's no other :causa preset.
+;; Top-level form — recommended when there's no other :xray preset.
 (story/reg-variant :story.counter/at-five
   {:events       [[:counter/initialise 5]]
-   :causa-panel  :app-db})              ; "state-shape story → app-db lens"
+   :xray-panel  :app-db})              ; "state-shape story → app-db lens"
 
 ;; Nested form — recommended when the variant also carries other
-;; :causa preset slots (`:open?` / `:filters` / `:focus`). Lets the
-;; author group all Causa-side configuration in one map.
+;; :xray preset slots (`:open?` / `:filters` / `:focus`). Lets the
+;; author group all Xray-side configuration in one map.
 (story/reg-variant :story.routing/deep-link
   {:events [[:router/navigate "/checkout/42"]]
-   :causa  {:panel   :routing
+   :xray  {:panel   :routing
             :filters {:out [:router/url-change]}}})
 ```
 
-Both forms read the same logical slot — `:causa-panel` on the body
-beats `[:causa :panel]` nested. The variant body's `:causa-panel`
+Both forms read the same logical slot — `:xray-panel` on the body
+beats `[:xray :panel]` nested. The variant body's `:xray-panel`
 also wins over the parent story's; the resolver lives in
-`re-frame.story.ui.causa-embed/resolve-panel`.
+`re-frame.story.ui.xray-embed/resolve-panel`.
 
 Both the cross-package `:rf/variant` schema in
 [`Spec-Schemas.md`](../../../spec/Spec-Schemas.md) and Story's local
 `Variant` schema (`tools/story/src/re_frame/story/schemas.cljc`) are
-open by convention — the top-level `:causa-panel` keyword passes
+open by convention — the top-level `:xray-panel` keyword passes
 validation as an open-shape addition, and the nested form rides the
-`:causa` slot's `CausaPreset` schema (whose `:panel` key is locked
+`:xray` slot's `XrayPreset` schema (whose `:panel` key is locked
 there). See [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand
 pane and §Mount lifecycle for how the RHS embed consumes the slot.
 
@@ -596,7 +596,7 @@ Only `:variants-grid` honours `:isolation`; other layouts ignore it.
    :isolation :shared})    ; render cells serially with prev/next nav
 ```
 
-Belt-and-braces to the Causa modal-positioning fix (rf2-om6fa);
+Belt-and-braces to the Xray modal-positioning fix (rf2-om6fa);
 together they cover the full-viewport modal stack symptom *and* the
 remaining interior state-bleed.
 

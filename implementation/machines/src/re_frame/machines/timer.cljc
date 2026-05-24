@@ -306,7 +306,7 @@
                     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
                       ;; Per rf2-t1lxr: machine :after timer firing tags
                       ;; the resulting dispatch with :rf/dispatch-origin
-                      ;; :timer so Causa can prefix the L2 row + filter on
+                      ;; :timer so Xray can prefix the L2 row + filter on
                       ;; timer-origin epochs.
                       ;; Per Spec 005 §Hierarchy interaction: carry the
                       ;; scheduling node's decl-path (`invoke-id`) so the

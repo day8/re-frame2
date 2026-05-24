@@ -11,8 +11,8 @@
  * orchestrator invocation, scoped via EXAMPLES_FILTER=testbeds/)
  * was retired after all four rf2-tglku migration waves moved every
  * framework + top-level testbed Playwright spec.cjs to CLJS/JVM
- * unit tests. The testbed surfaces themselves (tools/causa/testbeds/**
- * and top-level testbeds/**) stay in-tree as Causa observation
+ * unit tests. The testbed surfaces themselves (tools/xray/testbeds/**
+ * and top-level testbeds/**) stay in-tree as Xray observation
  * targets; they're no longer staged by this orchestrator.
  *
  * 1. Compiles each surface's shadow-cljs build (one per smoke).
@@ -120,7 +120,7 @@ cleanup.installSignalHandlers();
 // Per-example smoke coverage that previously lived under
 // `examples/<substrate>/<name>/*.spec.cjs` has been permanently
 // retired — real regressions are caught by substrate contract tests,
-// the Causa feature-matrix gate, bundle-isolation, the perf-bundle
+// the Xray feature-matrix gate, bundle-isolation, the perf-bundle
 // gate, and mcp-conformance.
 //
 // Per rf2-t5slp the framework-testbeds orchestrator invocation was
@@ -128,8 +128,8 @@ cleanup.installSignalHandlers();
 // rf2-lcg1z / rf2-pxb7t / rf2-e3j8l) moved every framework + top-
 // level testbed assertion to CLJS/JVM unit tests under
 // `implementation/{core,epoch,flows,http,machines,ssr}/test/`. The
-// testbed surfaces themselves (`tools/causa/testbeds/**` +
-// `testbeds/**`) stay in-tree as Causa observation targets; the
+// testbed surfaces themselves (`tools/xray/testbeds/**` +
+// `testbeds/**`) stay in-tree as Xray observation targets; the
 // build targets stay in `implementation/shadow-cljs.edn` but no
 // `EXAMPLES` row references them here.
 const EXAMPLES = [

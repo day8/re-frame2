@@ -477,7 +477,7 @@
       ;; cascade against — each `:<-` input is re-resolved fresh against
       ;; the supplied `db`, not observed as a changed upstream signal.
       ;; It therefore emits the BASE `:sub/run` shape only; attribution is
-      ;; a reactive-path concern. Consumers (Causa) read attribution off
+      ;; a reactive-path concern. Consumers (Xray) read attribution off
       ;; the reactive epoch records, never off compute-sub emissions.
       (trace/emit! :rf.sub :rf.sub/run
                    {:rf.sub/id      query-id

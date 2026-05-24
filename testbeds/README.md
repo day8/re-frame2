@@ -1,12 +1,12 @@
 # Testbeds — shared framework-behavior surfaces
 
 > **Type:** Test fixture (framework-behavior).
-> Not a tutorial. The apps here deliberately error, deliberately leak, deliberately blow budgets — every line exists to give a tool (Causa, Story, re-frame2-pair-mcp) something concrete to observe. Read [`examples/`](../examples/) for tutorial-shaped apps; read here when you need to know what a panel/recorder/MCP wire is *supposed* to do when a `:rf.error/*`, `:rf.http/*`, or `:rf.flow/*` event flies past.
+> Not a tutorial. The apps here deliberately error, deliberately leak, deliberately blow budgets — every line exists to give a tool (Xray, Story, re-frame2-pair-mcp) something concrete to observe. Read [`examples/`](../examples/) for tutorial-shaped apps; read here when you need to know what a panel/recorder/MCP wire is *supposed* to do when a `:rf.error/*`, `:rf.http/*`, or `:rf.flow/*` event flies past.
 
 The split lives in [`spec/Ownership.md` §examples-split](../spec/Ownership.md) and the umbrella decision sits in **rf2-96nb3**. Top-level structure:
 
 - **`examples/`** — tutorial apps. Each demonstrates one or two specs and reads as exemplary application code.
-- **`tools/<tool>/testbeds/`** — tool-specific fixtures. Colocated with the tool that owns them; for example, `tools/causa/testbeds/two_frame_isolation/` exercises Causa's panel layer against a canonical multi-frame app.
+- **`tools/<tool>/testbeds/`** — tool-specific fixtures. Colocated with the tool that owns them; for example, `tools/xray/testbeds/two_frame_isolation/` exercises Xray's panel layer against a canonical multi-frame app.
 - **`testbeds/`** *(this directory)* — **shared** framework-behavior fixtures. Consumed by multiple tools at once; the surfaces don't know about consumers, and consumers test against them externally.
 
 ## Layout
@@ -48,11 +48,11 @@ shadow-cljs watch testbeds/non-trivial-app-db
 shadow-cljs watch testbeds/large-dispatcher
 ```
 
-Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed index.html served from `implementation/out/testbeds/<name>/`). The Causa preload is wired on every testbed build (mirroring the examples convention) so the trace panel and dev-tools are live on each surface.
+Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed index.html served from `implementation/out/testbeds/<name>/`). The Xray preload is wired on every testbed build (mirroring the examples convention) so the trace panel and dev-tools are live on each surface.
 
 ## Which tools consume what
 
-| Surface | Causa scenarios | Story scenarios | re-frame2-pair-mcp scenarios |
+| Surface | Xray scenarios | Story scenarios | re-frame2-pair-mcp scenarios |
 |---|---|---|---|
 | `deliberate_throw/` | Handler exception surfaces as `:effects` outcome `:error` on epoch record; `:rf.error/handler-exception` highlighted in trace stream; partial epoch on flow throw; structured trace in Story `:play` replay | Recorder captures the click, plays it back, repro is identical; `:rf.assert/*` envelope around the trigger | Trace event arrives over the wire with `:rf.error/*` :op-type intact; `:dispatch` MCP call surfaces the error in the response envelope |
 | `schema_violation/` | Schema-validation-failure trace + `:rollback?` flag visible in trace panel; `:where` tag is one of `:event / :app-db / :cofx / :fx-args`; recovery (`:rollback?`, `:skipped`, `:replaced-with-default`) matches the per-step table | Recorder redacts post-`:sensitive?` events; the variant under `app-db` validation triggers the rollback path observable in subscribed views | Schema-validation-failure event arrives with `:path`, `:value`, `:explain` carried verbatim; `:rollback?` flag visible |

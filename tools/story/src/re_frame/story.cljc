@@ -89,12 +89,12 @@
             ;; Reagent / reagent.dom.client into their classpath.
             #?(:cljs [re-frame.story.ui.shell :as ui-shell])
             #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
-            ;; rf2-r1uod — Story → Causa project-root bridge. `configure!`
-            ;; calls `causa-preset/propagate-project-root!` so Causa-as-RHS
+            ;; rf2-r1uod — Story → Xray project-root bridge. `configure!`
+            ;; calls `xray-preset/propagate-project-root!` so Xray-as-RHS
             ;; source-coord chips resolve coords against the same on-disk
             ;; root Story uses. CLJS-only require because the propagator
-            ;; is CLJS-only (it feature-detects Causa via `find-ns-obj`).
-            #?(:cljs [re-frame.story.causa-preset :as causa-preset])
+            ;; is CLJS-only (it feature-detects Xray via `find-ns-obj`).
+            #?(:cljs [re-frame.story.xray-preset :as xray-preset])
             #?(:clj [re-frame.story.macros :as macros]))
   ;; The seven reg-* macros are defined in the #?(:clj ...) blocks
   ;; below. Self-refer them via :require-macros so CLJS callers can
@@ -622,10 +622,10 @@
 
   Every key lives under the `:rf.story/*` reserved sub-namespace per
   spec/Conventions.md §Reserved namespaces — the `:rf.<tool>/*`
-  convention introduced by Causa's rename (rf2-xea9u). Cross-tool keys
+  convention introduced by Xray's rename (rf2-xea9u). Cross-tool keys
   (read by more than one re-frame2 tool from the same atom) live under
   their own reservation — `:rf.privacy/show-sensitive?` is read by
-  Story AND Causa.
+  Story AND Xray.
 
   `{:rf.story/global-args {...}}` — replace the global args map.
 
@@ -660,18 +660,18 @@
   (no prefix; source-coord file ships verbatim — useful when the
   classpath already resolves to absolute paths, and for tests).
 
-  Per rf2-r1uod the value is also bridged into Causa's
-  `:rf.causa/project-root` slot via
-  `re-frame.story.causa-preset/propagate-project-root!` so Causa-as-RHS
+  Per rf2-r1uod the value is also bridged into Xray's
+  `:rf.xray/project-root` slot via
+  `re-frame.story.xray-preset/propagate-project-root!` so Xray-as-RHS
   source-coord chips (open-in-editor on the Handler / Dispatch /
   Interceptor chips, Trace tab rows, Issues ribbon) resolve against the
-  same on-disk root. The bridge is one-way; hosts that want Causa
-  pointed at a different root call `causa-config/configure!` directly
+  same on-disk root. The bridge is one-way; hosts that want Xray
+  pointed at a different root call `xray-config/configure!` directly
   AFTER `story/configure!`. Symmetric to shop's rf2-6jyf6.
 
   `{:rf.privacy/show-sensitive? <bool>}` — privacy gate for
   `:sensitive? true` trace events per Spec 009 §Privacy (rf2-bclgj).
-  Cross-tool key (Causa reads the same slot). Defaults to `false` —
+  Cross-tool key (Xray reads the same slot). Defaults to `false` —
   Story's per-variant trace-buffer listener (consumed by the
   schema-validation panel), the recorder, and the play-assertion
   listeners drop sensitive events and surface a `[● REDACTED]` hint
@@ -690,10 +690,10 @@
     (config/set-editor! editor))
   (when (contains? opts :rf.story/project-root)
     (config/set-project-root! project-root)
-    ;; rf2-r1uod — bridge into Causa's `:rf.causa/project-root` slot so
-    ;; Causa-as-RHS source-coord chips share the same on-disk root.
-    ;; Feature-detect-safe (no-op when Causa is not on the classpath).
-    #?(:cljs (causa-preset/propagate-project-root!)))
+    ;; rf2-r1uod — bridge into Xray's `:rf.xray/project-root` slot so
+    ;; Xray-as-RHS source-coord chips share the same on-disk root.
+    ;; Feature-detect-safe (no-op when Xray is not on the classpath).
+    #?(:cljs (xray-preset/propagate-project-root!)))
   (when (contains? opts :rf.privacy/show-sensitive?)
     (config/set-show-sensitive! show-sensitive?))
   nil)
@@ -995,10 +995,10 @@
      The shell is a Reagent component tree composed of:
      - a sidebar (story tree + tag filter + workspace list)
      - the main pane (selected variant's canvas or selected workspace)
-     - a right panel — Causa embedded as the primary inspector,
+     - a right panel — Xray embedded as the primary inspector,
        plus controls, dispatch console, and play status / viewport
        / background chrome chips (rf2-sgdd3 — the Story-side
-       scrubber / trace / actions panels were retired; Causa's L1
+       scrubber / trace / actions panels were retired; Xray's L1
        ribbon + L2 event list + Trace tab + Event-tab cascade view
        cover what they did)
 

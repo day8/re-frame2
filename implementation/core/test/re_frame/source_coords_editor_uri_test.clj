@@ -198,8 +198,8 @@
 
 ;; ---- positive scheme allowlist (rf2-cm93v / rf2-p887o) -------------------
 ;;
-;; The allowlist was lifted from `day8.re-frame2-causa.open-in-editor` into
-;; this shared ns per rf2-p887o so Story and Causa consume the same predicate.
+;; The allowlist was lifted from `day8.re-frame2-xray.open-in-editor` into
+;; this shared ns per rf2-p887o so Story and Xray consume the same predicate.
 
 (deftest allowed-uri-accepts-builtin-editor-schemes
   (testing "the built-in editor schemes pass the allowlist"
@@ -426,7 +426,7 @@
     ;; with Mike's local re-frame2 worktree as the project root, the URI
     ;; must absolute-path the file the OS-side editor handler resolves.
     (is (= (str "vscode://file/"
-                "C:/Users/miket/code/re-frame2/tools/causa/testbeds/"
+                "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
                 "panel_gallery/event_detail_stories.cljs:115:3")
            (eu/editor-uri
              :vscode
@@ -434,4 +434,4 @@
               :line 115
               :column 3}
              {:project-root
-              "C:/Users/miket/code/re-frame2/tools/causa/testbeds"})))))
+              "C:/Users/miket/code/re-frame2/tools/xray/testbeds"})))))

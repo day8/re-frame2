@@ -1,0 +1,9 @@
+{
+  "name": "re-frame2-xray",
+  "version": "0.1.0-alpha.1",
+  "description": "Read-only tour skill for Xray — the re-frame2 in-app devtools panel. Teaches launch modes, the Dynamic ↔ Static mode toggle, and the tab inventory (7 Dynamic event-spine tabs + 5 Static registry-browse tabs); defers driving / implementing Xray to sibling skills.",
+  "skills": [
+    "./SKILL.md"
+  ],
+  "status": "pre-alpha"
+}
