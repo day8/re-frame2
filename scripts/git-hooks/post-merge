@@ -1,0 +1,41 @@
+#!/usr/bin/env sh
+# .git/hooks/post-merge (re-frame2-managed segment)
+#
+# Warns when a `git pull` (which invokes `git merge` and thus this hook)
+# brings down source changes for an MCP server whose compiled binary is
+# gitignored — the binary on disk is now stale.
+#
+# Installed by scripts/install-git-hooks.sh (POSIX) or .ps1 (Windows).
+# Source of truth: scripts/git-hooks/post-merge.
+#
+# The hook is ADVISORY: it never fails the merge. It prints to stderr only.
+#
+# Cross-platform: runs under Git Bash on Windows, macOS, Linux. POSIX sh.
+
+# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---
+# Managed by scripts/install-git-hooks.sh. Do not edit between markers.
+{
+  # Locate the repo root from the hook context. Git invokes hooks with the
+  # working directory set to the top of the worktree, but be defensive in
+  # case a wrapper changed cwd.
+  _rf2_repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || _rf2_repo_root=""
+  if [ -n "$_rf2_repo_root" ]; then
+    _rf2_lib="$_rf2_repo_root/scripts/git-hooks/lib/check-stale-mcp-binary.sh"
+    if [ -f "$_rf2_lib" ]; then
+      # ORIG_HEAD is set by `git merge` (and thus `git pull`) to the
+      # pre-merge HEAD. Compare it against the post-merge HEAD to find
+      # changed paths. If ORIG_HEAD is unset (rare — e.g. a fast-forward
+      # via plumbing that didn't update it), skip silently.
+      if git rev-parse --verify ORIG_HEAD >/dev/null 2>&1; then
+        _rf2_changed=$(git diff --name-only ORIG_HEAD HEAD 2>/dev/null)
+        if [ -n "$_rf2_changed" ]; then
+          # shellcheck source=lib/check-stale-mcp-binary.sh
+          . "$_rf2_lib"
+          printf '%s\n' "$_rf2_changed" | check_stale_mcp_binary
+        fi
+      fi
+    fi
+  fi
+  unset _rf2_repo_root _rf2_lib _rf2_changed
+} || true
+# --- END re-frame2 MCP-staleness check (rf2-6jj3r) ---
