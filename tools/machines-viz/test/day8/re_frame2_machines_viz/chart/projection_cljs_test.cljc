@@ -796,3 +796,94 @@
       (is (= "on-leave" (:exit (:data a))))
       (is (nil? (:entry (:data b))) "a state with no entry carries nil")
       (is (nil? (:exit (:data b)))))))
+
+;; ---- elk bend-point edge routing (rf2-cz8v6, G2) -----------------------
+;;
+;; elk computes multi-point edge routes (start → bend… → end) that go
+;; AROUND nested/parallel containers. `chart.cljs/compute-layout!` lifts
+;; them into an `{edge-id [{:x :y} …]}` map (absolute coords via
+;; `elk.json.edgeCoords ROOT`); the projector attaches each edge's route
+;; to its `:data {:points}` so `chart.edges/transition-edge` can draw a
+;; poly-path THROUGH the bends instead of a bezier shortcut that may cut
+;; across a container (§1.7 of `001-Topology-Parity.md`). These pins
+;; guard the projection half at the cheap JVM layer.
+
+(deftest xyflow-graph-attaches-edge-points-to-matching-edge
+  (testing "rf2-cz8v6 (THE G2 CAPABILITY) — an edge whose id has an
+            entry in :edge-points carries that route on its
+            `:data {:points}` so the edge renders THROUGH the bend
+            points (not a straight/bezier shortcut)"
+    (let [parsed   (layout/parse-definition idle-loading)
+          ;; the idle→loading :start edge
+          start    (->> (:edges parsed)
+                        (filter #(= (:source %) (layout/node-id [:idle])))
+                        first)
+          route    [{:x 0 :y 0} {:x 0 :y 50} {:x 80 :y 50} {:x 80 :y 100}]
+          graph    (projection/xyflow-graph
+                     parsed {} {:edge-points {(:id start) route}})
+          start-e  (edge-by-id graph (:id start))]
+      (is (some? start-e))
+      (is (= route (:points (:data start-e)))
+          "elk's routed bend-points ride on the edge data"))))
+
+(deftest xyflow-graph-edge-without-route-falls-back-to-nil-points
+  (testing "rf2-cz8v6 — a simple edge with no :edge-points entry carries
+            `:points nil`, so the edge component falls back to the
+            bezier path (the no-bend-point case)"
+    (let [parsed (layout/parse-definition idle-loading)
+          ;; supply a route for ONE edge only; every other edge is bare
+          start  (->> (:edges parsed)
+                      (filter #(= (:source %) (layout/node-id [:idle])))
+                      first)
+          graph  (projection/xyflow-graph
+                   parsed {} {:edge-points {(:id start) [{:x 0 :y 0} {:x 9 :y 9}]}})
+          others (remove #(= (:id %) (:id start))
+                         (remove #(:entry (:data %)) (:edges graph)))]
+      (is (seq others) "fixture has more than one transition edge")
+      (is (every? #(nil? (:points (:data %))) others)
+          "edges with no route entry carry nil points (bezier fallback)"))))
+
+(deftest xyflow-graph-no-edge-points-leaves-all-points-nil
+  (testing "rf2-cz8v6 — omitting :edge-points entirely (the pre-layout
+            render, before elk resolves) leaves EVERY edge's :points nil
+            so the whole chart falls back to beziers"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})]
+      (is (seq (:edges graph)))
+      (is (every? #(nil? (:points (:data %))) (:edges graph))
+          "no edge-points map → no routed edges"))))
+
+(deftest xyflow-graph-self-loop-never-carries-points
+  (testing "rf2-cz8v6 — a self-loop keeps its dedicated loop path: even
+            when elk emits a route for the self-edge id, the projector
+            drops it so :points stays nil (self-loops unchanged)"
+    (let [parsed (layout/parse-definition self-loop-machine)
+          self   (->> (:edges parsed)
+                      (filter #(= (:source %) (:target %)))
+                      first)
+          graph  (projection/xyflow-graph
+                   parsed {} {:edge-points {(:id self) [{:x 0 :y 0} {:x 5 :y 5}]}})
+          self-e (edge-by-id graph (:id self))]
+      (is (some? self) "fixture has a self-transition")
+      (is (true? (:selfLoop (:data self-e))))
+      (is (nil? (:points (:data self-e)))
+          "a self-loop never carries elk points (it keeps its loop path)"))))
+
+(deftest xyflow-graph-routed-edge-keeps-active-highlight
+  (testing "rf2-cz8v6 — G1's active-edge styling survives routing: an
+            edge that BOTH has a route AND touches the highlighted node
+            is `:active` (highlighted) AND carries its `:points`"
+    (let [parsed  (layout/parse-definition idle-loading)
+          hi      (layout/node-id [:loading])
+          start   (->> (:edges parsed)
+                       (filter #(= (:source %) (layout/node-id [:idle])))
+                       first)
+          route   [{:x 0 :y 0} {:x 0 :y 40} {:x 60 :y 40}]
+          graph   (projection/xyflow-graph
+                    parsed {} {:highlight-id hi
+                               :edge-points  {(:id start) route}})
+          start-e (edge-by-id graph (:id start))]
+      (is (true? (:active (:data start-e)))
+          "the idle→loading edge still highlights (target is active)")
+      (is (= route (:points (:data start-e)))
+          "and still carries its elk route — highlight + routing coexist"))))
