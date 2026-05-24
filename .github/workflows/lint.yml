@@ -27,6 +27,17 @@ name: lint
 # template tree is excluded explicitly — those `.cljs` files carry
 # `{{placeholder}}` substitutions and are not valid Clojure (see
 # tools/deps.edn for the matching shadow-cljs exclusion rationale).
+#
+# REQUIRED-CHECK SHAPE (rf2-aemyt). The `pull_request` trigger is
+# deliberately UNFILTERED so the `Lint required` aggregator below posts a
+# status context on EVERY PR — a path-filtered workflow skips entirely on
+# an unrelated PR and emits NO context, which means a required-but-absent
+# context would sit permanently pending (the phantom trap rf2-dtvmb hit).
+# The expensive clj-kondo + Splint jobs are instead gated job-side on a
+# tiny `detect` job that diffs the PR's changed files against the lint
+# surface, so they still skip on PRs that touch no lint paths while the
+# aggregator stays present and green (all-skipped ⇒ pass). The exact
+# display name `Lint required` is the string the branch ruleset requires.
 
 on:
   push:
@@ -38,15 +49,10 @@ on:
       - 'testbeds/**'
       - '.clj-kondo/**'
       - '.github/workflows/lint.yml'
+  # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
+  # above). The lint surface is re-applied job-side via the `detect` job.
   pull_request:
     branches: [main]
-    paths:
-      - 'implementation/**'
-      - 'tools/**'
-      - 'examples/**'
-      - 'testbeds/**'
-      - '.clj-kondo/**'
-      - '.github/workflows/lint.yml'
   # Nightly run keeps the gate honest even when no lint-surface file
   # changes (e.g. a dep bump in another tree might silently break kondo
   # via :lint-as). 03:30 UTC sits below the 04:00 UTC `expensive-tests`
@@ -60,8 +66,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Lightweight changed-surface gate (rf2-aemyt). On a pull_request this
+  # diffs HEAD against the merge base and lights `lint_surface` only when a
+  # path in the lint surface changed; on push / schedule / dispatch it
+  # always lights so the linters run unconditionally. The heavy clj-kondo +
+  # Splint jobs key their `if:` on this output, while the always-present
+  # aggregator does not — so an unrelated PR runs only this ~5-second job
+  # plus the rollup, and both linters skip.
+  detect:
+    name: Detect lint surface
+    runs-on: ubuntu-latest
+    outputs:
+      lint_surface: ${{ steps.detect.outputs.lint_surface }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      # On a PR, classify the changed-file list against the lint surface.
+      # On any non-PR event (push/schedule/dispatch) light the gate so the
+      # linters always run. Mirrors the git-diff classifier shape used by
+      # .github/scripts/report-changed-surfaces.sh in test.yml.
+      - name: Classify changed files against the lint surface
+        id: detect
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
+            echo "lint_surface=true" >> "$GITHUB_OUTPUT"
+            echo "Non-PR event (${GITHUB_EVENT_NAME}): running linters unconditionally."
+            exit 0
+          fi
+          git fetch --no-tags --depth=100 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
+          files="$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
+          lint_surface=false
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              implementation/*|tools/*|examples/*|testbeds/*|.clj-kondo/*|.github/workflows/lint.yml)
+                lint_surface=true ;;
+            esac
+          done <<< "$files"
+          echo "lint_surface=${lint_surface}" >> "$GITHUB_OUTPUT"
+          echo "lint_surface=${lint_surface}"
+
   clj-kondo:
     name: clj-kondo (fail on errors, warnings informational)
+    needs: detect
+    if: needs.detect.outputs.lint_surface == 'true'
     runs-on: ubuntu-latest
     # The job runs with `--fail-level error` so an introduced ERROR
     # blocks the PR. Warnings stay informational and surface in the
@@ -129,6 +179,8 @@ jobs:
 
   splint:
     name: Splint (fail on errors, warnings informational)
+    needs: detect
+    if: needs.detect.outputs.lint_surface == 'true'
     runs-on: ubuntu-latest
     # The job runs with `--fail-on-errors` so an introduced ERROR (a
     # file Splint cannot parse) blocks the PR. Style warnings still
@@ -183,3 +235,40 @@ jobs:
             ../tools \
             ../examples \
             ../testbeds
+
+  # ---------------------------------------------------------------------------
+  # Required-checks aggregator (rf2-aemyt).
+  #
+  # ONE stable status context — `Lint required` — that is ALWAYS present on
+  # every PR (the workflow's pull_request trigger is unfiltered) and that
+  # passes iff every lint job that actually ran also passed. This is the
+  # single lint context the branch ruleset should require: a skipped
+  # surface-gated linter is OK (it contributed no signal), but the moment
+  # clj-kondo or Splint reports `failure`/`cancelled` the aggregator goes
+  # red and blocks the merge.
+  #
+  # `if: always()` is mandatory — without it the aggregator would itself be
+  # skipped whenever an upstream job skips, and a skipped required check
+  # never satisfies the ruleset. The pass/fail decision reads
+  # `needs.*.result`: `success` and `skipped` are acceptable; `failure`
+  # and `cancelled` are not. The `detect` job is included in `needs:` so a
+  # broken classifier (its own failure) is also caught.
+  # ---------------------------------------------------------------------------
+  lint-required:
+    name: Lint required
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs:
+      - detect
+      - clj-kondo
+      - splint
+    steps:
+      - name: Fail if any required lint job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "::error::A required lint.yml job reported failure or cancelled — blocking merge."
+          echo "needs results: ${{ join(needs.*.result, ', ') }}"
+          exit 1
+
+      - name: All required lint jobs passed or were skipped
+        run: echo "All lint jobs that ran passed (skipped surface-gated linters are OK)."
