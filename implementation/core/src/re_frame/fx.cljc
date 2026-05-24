@@ -594,26 +594,31 @@
                           :frame      frame-id
                           :recovery   :no-recovery})))))))
 
-(def ^:private framework-coeffect-keys
+(def framework-coeffect-keys
   "Coeffect keys populated by the runtime itself (not by user-registered
-  `reg-cofx` / `inject-cofx`). Filtered OUT of the `:coeffects` stamp on
-  `:event/do-fx` per rf2-jhhqt so the Event lens's COEFFECTS section
-  shows only user-injected coeffects (mirrors the INTERCEPTORS section's
-  filter-out-framework-defaults posture).
+  `reg-cofx` / `inject-cofx`). Filtered OUT of the `:rf.event/coeffects`
+  stamp on `:rf.event/run-end` (rf2-9dk9y) so the Xray Event lens's
+  COEFFECTS section shows only user-injected coeffects (mirrors the
+  AFTER INTERCEPTORS section's filter-out-framework-defaults posture).
 
   `:db` + `:event` are populated by `assemble-initial-ctx`; `:frame` ditto.
   `:source` + `:trace-id` are envelope keys also surfaced on the cofx
   map by `assemble-initial-ctx` for handler-body convenience."
   #{:db :event :frame :source :trace-id})
 
-(defn- user-injected-coeffects
+(defn user-injected-coeffects
   "Project the user-injected subset of a coeffects map. Pure data → data.
 
   Filters out the framework-default keys per `framework-coeffect-keys`.
   Returns nil when the projection is empty (so the caller can use
-  `(when ...)` to skip the trace stamp entirely — `:event/do-fx` consumers
-  treat ABSENT `:coeffects` as 'no user-injected coeffects', distinct
-  from an empty map which would itself be a 'stamped but empty' signal)."
+  `(when ...)` to skip the trace stamp entirely — consumers treat ABSENT
+  `:rf.event/coeffects` as 'no user-injected coeffects', distinct from
+  an empty map which would itself be a 'stamped but empty' signal).
+
+  Called from `re-frame.router/emit-cascade-trailers!` to stamp the
+  per-event user-cofx subset onto `:rf.event/run-end` (rf2-9dk9y — the
+  stamp moved here from `:rf.fx/do-fx` so events that return only `:db`
+  — no `:fx` — still get a COEFFECTS row in the Xray Event lens)."
   [coeffects]
   (when (map? coeffects)
     (let [projected (reduce-kv (fn [acc k v]
@@ -666,25 +671,18 @@
                       effects shape they need via per-fx args. Absent ⇒
                       the trace marker degrades gracefully (no `:fx` /
                       `:db-present?` slots).
-    :coeffects        the handler's final coeffects map (rf2-jhhqt). The
-                      USER-INJECTED subset (everything outside
-                      `framework-coeffect-keys`) is stamped onto the
-                      `:event/do-fx` marker's `:tags` under `:coeffects`
-                      so the Xray Event lens's COEFFECTS section can
-                      render values without a second emit. The filter
-                      mirrors the INTERCEPTORS section's filter-out-
-                      framework-defaults posture; the stamp is absent
-                      entirely (not an empty map) when zero user
-                      coeffects were injected. `trace/emit!` is itself
-                      DCE-gated so prod CLJS bundles elide both the
-                      projection and the emit.
 
   The 3-arity (no `opts`) is the bare machine-exit / cascade-fx walk
-  shape; the router supplies the full opts map once per drained event."
+  shape; the router supplies the full opts map once per drained event.
+
+  Per rf2-9dk9y: the `:coeffects` stamp moved OFF this marker and
+  ONTO `:rf.event/run-end` (where it rides regardless of whether the
+  handler returned `:fx` — the prior placement silently dropped the
+  COEFFECTS row when a handler returned only `:db`)."
   ([frame-id fx-vec active-platform]
    (do-fx frame-id fx-vec active-platform nil))
   ([frame-id fx-vec active-platform
-    {:keys [overrides origin-event parent-envelope effects coeffects]}]
+    {:keys [overrides origin-event parent-envelope effects]}]
    (doseq [pair fx-vec]
      (when (and (vector? pair) (seq pair))
        (handle-one-fx frame-id pair active-platform (or overrides {})
@@ -698,15 +696,7 @@
    ;; cascade rows with handler returns. The tag-map is the third
    ;; arg to `trace/emit!`; `trace/emit!` itself is DCE-gated, so
    ;; prod builds elide both the construction and the emit.
-   ;;
-   ;; Per rf2-jhhqt: additionally stamp `:coeffects` with the user-
-   ;; injected subset of the handler's coeffects map (filter out the
-   ;; framework defaults — `:db` `:event` `:frame` `:source` `:trace-id`).
-   ;; Stamp is absent entirely when zero user cofx — the Event lens
-   ;; treats absent as 'no COEFFECTS section'.
-   (let [user-cofx (user-injected-coeffects coeffects)]
-     (trace/emit! :rf.fx :rf.fx/do-fx
-                  (cond-> {:frame frame-id}
-                    (some? effects)  (assoc :rf.event/fx          (:fx effects)
-                                            :rf.event/db-present? (contains? effects :db))
-                    (some? user-cofx) (assoc :rf.event/coeffects user-cofx))))))
+   (trace/emit! :rf.fx :rf.fx/do-fx
+                (cond-> {:frame frame-id}
+                  (some? effects)  (assoc :rf.event/fx          (:fx effects)
+                                          :rf.event/db-present? (contains? effects :db))))))

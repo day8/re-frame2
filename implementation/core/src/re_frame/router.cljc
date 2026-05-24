@@ -633,17 +633,18 @@
   (whether the handler returned a `:db` slot). The value of `:db`
   is NOT stamped — App-db diff traces already carry slice changes.
 
-  Per rf2-jhhqt: the handler's final coeffects map is also threaded
-  to `do-fx` (the `:coeffects` opt) so the terminating `:event/do-fx`
-  trace marker can stamp `:coeffects` with the user-injected subset
-  (the framework defaults `:db` `:event` `:frame` `:source` `:trace-id`
-  are filtered out inside `do-fx`). Powers the Event lens's COEFFECTS
-  section without a second emit.
+  Per rf2-9dk9y: the user-injected coeffects projection moved OFF the
+  `:rf.fx/do-fx` marker and ONTO `:rf.event/run-end` (see
+  `emit-cascade-trailers!`). The prior placement silently dropped the
+  COEFFECTS row whenever a handler returned only `:db` (no `:fx`) — the
+  fx walk was short-circuited so the marker never emitted. Pinning the
+  cofx stamp to the always-fires run-end emit makes the COEFFECTS
+  section render uniformly across event flavours.
 
   Per rf2-ee38b.1: the former positional do-fx arity ladder collapsed
   into a single `opts` map — this is the sole caller threading the full
   set of optionals."
-  [effects coeffects frame frame-record fx-overrides envelope]
+  [effects frame frame-record fx-overrides envelope]
   (when-let [fx-vec (:fx effects)]
     (let [active-platform (or (-> frame-record :config :platform)
                               interop/platform)
@@ -652,8 +653,7 @@
                 {:overrides       fx-overrides
                  :origin-event    event
                  :parent-envelope envelope
-                 :effects         effects
-                 :coeffects       coeffects}))))
+                 :effects         effects}))))
 
 ;; ---- process-event* phases ------------------------------------------------
 ;;
@@ -869,7 +869,6 @@
   signal."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
   (let [effects    (:effects final-ctx)
-        coeffects  (:coeffects final-ctx)
         error      (:rf/interceptor-error final-ctx)
         flow-error (:rf/flow-error final-ctx)
         db-before  (get-in final-ctx [:coeffects :db])]
@@ -899,7 +898,7 @@
       :rolled-back
       :else
       (do
-        (run-fx-effects! effects coeffects frame frame-record fx-overrides envelope)
+        (run-fx-effects! effects frame frame-record fx-overrides envelope)
         :ok))))
 
 (defn- emit-cascade-trailers!
@@ -930,26 +929,58 @@
   per-op handler duration — NOT the whole run-end − run-start cascade
   bracket (which also covers fx+subs+views). nil in production (the
   caller's read rides `interop/debug-enabled?`); the `(some? ...)` slot
-  then collapses."
-  [event-id event emit-event frame outcome start-ms handler-elapsed-ms]
-  (trace/emit! :rf.event :rf.event/run-end
-               (cond-> {:rf.trace/event-id event-id
-                        :rf.event/v        emit-event
-                        :frame             frame
-                        :rf.trace/phase    :run-end}
-                 (some? handler-elapsed-ms)
-                 (assoc :rf.event/elapsed-ms handler-elapsed-ms)))
-  ;; Sticky hook (rf2-f72pd) — always-on per-event observability fan-out
-  ;; per rf2-rirbq; survives `:advanced` + `goog.DEBUG=false`.
-  (when-let [emit-event! (late-bind/get-fn-cached :event-emit/dispatch-on-event)]
-    (let [end-ms     (interop/now-ms)
-          elapsed-ms (long (max 0 (- end-ms start-ms)))]
-      (emit-event! emit-event
-                   event-id
-                   frame
-                   end-ms
-                   outcome
-                   elapsed-ms))))
+  then collapses.
+
+  Per rf2-9dk9y two further `:tags` slots ride this emit so the Xray
+  Event lens's COEFFECTS / AFTER INTERCEPTORS sections render uniformly
+  regardless of whether the handler returned `:fx`:
+
+    `:rf.event/coeffects`    — the USER-INJECTED subset of the
+                                handler's final coeffects map (framework
+                                defaults `:db` `:event` `:frame`
+                                `:source` `:trace-id` filtered out at
+                                this boundary). Absent entirely when
+                                zero user cofx were injected.
+    `:rf.event/after-deltas` — vector of per-`:after` interceptor
+                                ctx-delta records `{:rf.icpt/id <id>
+                                :rf.icpt/ctx-delta {...}}` populated by
+                                `interceptor/execute-chain` for every
+                                user-registered `:after` that mutated
+                                the context. Absent when no user-`:after`
+                                ran. The Xray AFTER INTERCEPTORS section
+                                reads it to render an EDN-diff under
+                                each row."
+  [event-id event emit-event frame outcome start-ms handler-elapsed-ms final-ctx]
+  ;; The cofx / after-delta projections are dev-only: their cost rides
+  ;; `interop/debug-enabled?` so production CLJS bundles DCE the
+  ;; projection AND the `trace/emit!` body below (the emit itself is
+  ;; gated the same way internally).
+  (let [user-cofx    (when interop/debug-enabled?
+                       (fx/user-injected-coeffects (:coeffects final-ctx)))
+        after-deltas (when interop/debug-enabled?
+                       (not-empty (:rf/icpt-after-deltas final-ctx)))]
+    (trace/emit! :rf.event :rf.event/run-end
+                 (cond-> {:rf.trace/event-id event-id
+                          :rf.event/v        emit-event
+                          :frame             frame
+                          :rf.trace/phase    :run-end}
+                   (some? handler-elapsed-ms)
+                   (assoc :rf.event/elapsed-ms handler-elapsed-ms)
+                   (some? user-cofx)
+                   (assoc :rf.event/coeffects user-cofx)
+                   (some? after-deltas)
+                   (assoc :rf.event/after-deltas after-deltas)))
+    ;; Sticky hook (rf2-f72pd) — always-on per-event observability fan-out
+    ;; per rf2-rirbq; survives `:advanced` + `goog.DEBUG=false`.
+    (when-let [emit-event! (late-bind/get-fn-cached :event-emit/dispatch-on-event)]
+      (let [end-ms     (interop/now-ms)
+            elapsed-ms (long (max 0 (- end-ms start-ms)))]
+        (emit-event! emit-event
+                     event-id
+                     frame
+                     end-ms
+                     outcome
+                     elapsed-ms)))))
 
 (defn- run-handler-cascade!
   "Sequence the four cascade phases under the handler's
@@ -1028,7 +1059,7 @@
             outcome   (commit-and-flow! final-ctx event-id event frame
                                         frame-record fx-overrides envelope start-ms)]
         (emit-cascade-trailers! event-id event emit-event frame outcome
-                                start-ms handler-elapsed-ms)))))
+                                start-ms handler-elapsed-ms final-ctx)))))
 
 (defn- process-event*
   "Per-event drain body. Resolve handler, then sequence the four cascade

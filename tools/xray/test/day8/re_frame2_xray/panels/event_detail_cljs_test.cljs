@@ -67,10 +67,15 @@
     - Stamps `:source` + `:origin` (also top-level — `build-event`'s
       success-path hoist).
     - Stamps `:fx` + `:db-present?` on the `:rf.fx/do-fx` trace's
-      `:tags` (rf2-twt7m Change 2) so EFFECTS RETURNED has data."
+      `:tags` (rf2-twt7m Change 2) so EFFECTS RETURNED has data.
+    - Stamps `:rf.event/coeffects` + `:rf.event/after-deltas` on the
+      `:rf.event/run-end` trace's `:tags` (rf2-9dk9y — supersedes the
+      prior do-fx-marker placement) so COEFFECTS + AFTER INTERCEPTORS
+      surfaces have data."
   ([dispatch-id event-vec id-base]
    (cascade-evs dispatch-id event-vec id-base nil))
-  ([dispatch-id event-vec id-base {:keys [frame-id call-site source origin fx db-present? coeffects]
+  ([dispatch-id event-vec id-base {:keys [frame-id call-site source origin fx db-present?
+                                          coeffects after-deltas]
                                     :or   {fx          [[:db nil] [:dispatch [:bar]]]
                                            db-present? true
                                            source      :ui
@@ -86,13 +91,14 @@
              frame-id (assoc :frame frame-id))}
     {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
      :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-end :duration-ms 11}
-             frame-id (assoc :frame frame-id))}
+             frame-id        (assoc :frame frame-id)
+             (seq coeffects) (assoc :rf.event/coeffects coeffects)
+             (seq after-deltas) (assoc :rf.event/after-deltas after-deltas))}
     {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
      :tags (cond-> {:rf.trace/dispatch-id dispatch-id}
              frame-id    (assoc :frame frame-id)
              fx          (assoc :rf.event/fx fx)
-             db-present? (assoc :rf.event/db-present? true)
-             (seq coeffects) (assoc :rf.event/coeffects coeffects))}
+             db-present? (assoc :rf.event/db-present? true))}
     {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
      :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.fx/id :db :duration-ms 1}
              frame-id (assoc :frame frame-id))}
@@ -514,6 +520,57 @@
                                     "rf-xray-event-detail-interceptor-row-auth/require-login")))
         (is (some? (find-by-testid tree
                                     "rf-xray-event-detail-interceptor-row-auth/log-action")))))))
+
+(deftest after-interceptors-step-omits-cofx-interceptors
+  (testing "rf2-9dk9y bug B — a chain consisting ONLY of inject-cofx
+            interceptors must not surface an AFTER INTERCEPTORS section.
+            Their contribution belongs to COEFFECTS; surfacing them here
+            (the prior misclassification Mike observed live) would render
+            an empty-bodied row since cofx wrappers have no :after."
+    (rf/with-frame :rf/default
+      (rf/reg-cofx :testdeck/now (fn [ctx] (assoc-in ctx [:coeffects :testdeck/now] 0)))
+      (rf/reg-event-fx :counter/inc
+        [(rf/inject-cofx :testdeck/now)]
+        (fn [_ _] {:db {:k 1}})))
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0
+                                {:coeffects {:testdeck/now 1716000000000}}))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree "rf-xray-event-detail-section-after-interceptors"))
+            "AFTER INTERCEPTORS omitted — the cofx interceptor is filtered out
+             so the otherwise-empty user-chain leaves the section absent")
+        (is (some? (find-by-testid tree "rf-xray-event-detail-section-coeffects"))
+            "COEFFECTS section IS present (the cofx renders there instead)")))))
+
+(deftest after-interceptors-rows-render-ctx-delta-from-handler-stamp
+  (testing "rf2-9dk9y bug B — each AFTER INTERCEPTORS row carries an
+            EDN-diff block showing what its :after added / changed /
+            removed in :rf/ctx. Read off :tags :rf.event/after-deltas
+            on the cascade's :handler (run-end) trace."
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :auth/login
+        [(rf/->interceptor :id :auth/require-login :after identity)
+         (rf/->interceptor :id :auth/log-action    :after identity)]
+        (fn [_ _] {})))
+    (seed-buffer!
+      (cascade-evs 100 [:auth/login] 0
+                   {:after-deltas
+                    [{:rf.icpt/id        :auth/require-login
+                      :rf.icpt/ctx-delta {:coeffects {:added {:user/id 42}}}}
+                     {:rf.icpt/id        :auth/log-action
+                      :rf.icpt/ctx-delta {:effects {:changed
+                                                    {:db {:before {:k 1}
+                                                          :after  {:k 2}}}}}}]}))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree
+                                    "rf-xray-event-detail-icpt-delta-auth/require-login"))
+            "delta block renders for the first interceptor")
+        (is (some? (find-by-testid tree
+                                    "rf-xray-event-detail-icpt-delta-auth/log-action"))
+            "delta block renders for the second interceptor")))))
 
 ;; ---- (6) EVENT HANDLER step --------------------------------------------
 
@@ -1000,18 +1057,40 @@
         (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-row-auth/token")))
         (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-row-env/build")))))))
 
-(deftest user-coeffects-helper-projects-stamp-from-do-fx
-  (testing "user-coeffects reads :tags :coeffects off the cascade's :fx
-            (do-fx) trace; returns nil when the stamp is absent / empty"
+(deftest user-coeffects-helper-projects-stamp-from-run-end
+  (testing "rf2-9dk9y — user-coeffects reads :tags :rf.event/coeffects
+            off the cascade's :handler (run-end) trace; returns nil when
+            the stamp is absent / empty. The stamp moved off :rf.fx/do-fx
+            because do-fx doesn't fire for handlers that return only :db
+            (no :fx) — bug A's repro"
     (is (= {:now "2026-05-18"}
            (event-detail/user-coeffects
-             {:fx {:tags {:rf.event/coeffects {:now "2026-05-18"}}}})))
-    (is (nil? (event-detail/user-coeffects {:fx {:tags {}}}))
+             {:handler {:tags {:rf.event/coeffects {:now "2026-05-18"}}}})))
+    (is (nil? (event-detail/user-coeffects {:handler {:tags {}}}))
         "absent stamp → nil")
-    (is (nil? (event-detail/user-coeffects {:fx {:tags {:rf.event/coeffects {}}}}))
+    (is (nil? (event-detail/user-coeffects {:handler {:tags {:rf.event/coeffects {}}}}))
         "empty stamp → nil (silent-by-default)")
-    (is (nil? (event-detail/user-coeffects {:fx nil}))
-        "no do-fx trace → nil")))
+    (is (nil? (event-detail/user-coeffects {:handler nil}))
+        "no run-end trace → nil")))
+
+(deftest user-coeffects-survives-handlers-that-return-only-db
+  (testing "rf2-9dk9y bug A regression — a synthetic cascade for a handler
+            that returned only {:db ...} (no :fx) still surfaces its
+            user-injected cofx under COEFFECTS. Before the fix, the stamp
+            rode on :rf.fx/do-fx and was therefore silently dropped when
+            do-fx never fired."
+    (seed-buffer!
+      (cascade-evs 100 [:counter/inc] 0
+                   {:fx nil
+                    :db-present? true
+                    :coeffects {:testdeck/now 1716000000000}}))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-xray-event-detail-section-coeffects"))
+            "COEFFECTS section renders even though :fx was nil")
+        (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-row-testdeck/now"))
+            "the user-injected cofx surfaces as a row")))))
 
 ;; ---- (9) handler-threw — omits post-handler steps, NO footer ----------
 
@@ -1070,6 +1149,42 @@
                  {:id :user-icpt :before identity}]
           user  (event-detail/user-interceptors chain)]
       (is (= [:user-icpt] (map :id user))))))
+
+(deftest user-interceptors-filters-cofx-interceptors
+  (testing "rf2-9dk9y bug B — interceptors carrying :rf/cofx-id
+            (`inject-cofx`) are filtered from AFTER INTERCEPTORS so their
+            contribution is rendered under COEFFECTS only (the prior
+            behaviour leaked the cofx interceptor into AFTER INTERCEPTORS,
+            misclassifying it and rendering it without any ctx delta
+            since it has no :after)"
+    (let [chain [{:id :cofx-now :rf/cofx-id :testdeck/now :before identity}
+                 {:id :cofx-jwt :rf/cofx-id :auth/jwt    :before identity}
+                 {:id :auth/require-login :before identity :after identity}
+                 {:id :rf/db-handler :rf/default? true :before identity}]
+          user  (event-detail/user-interceptors chain)]
+      (is (= [:auth/require-login] (map :id user))
+          "only the genuine user `:after`-bearing interceptor remains; the
+           cofx wrappers + the framework default are both filtered out"))))
+
+(deftest after-deltas-by-id-projects-handler-tag
+  (testing "rf2-9dk9y — after-deltas-by-id flattens the
+            :rf.event/after-deltas vector off the cascade's :handler
+            (run-end) trace into a {:rf.icpt/id → ctx-delta} lookup map"
+    (is (= {:auth/require-login {:coeffects {:added {:user/id 42}}}
+            :auth/log-action    {:effects   {:changed {:db {:before {:k 1}
+                                                            :after  {:k 2}}}}}}
+           (event-detail/after-deltas-by-id
+             {:handler
+              {:tags {:rf.event/after-deltas
+                      [{:rf.icpt/id :auth/require-login
+                        :rf.icpt/ctx-delta {:coeffects {:added {:user/id 42}}}}
+                       {:rf.icpt/id :auth/log-action
+                        :rf.icpt/ctx-delta {:effects {:changed {:db {:before {:k 1}
+                                                                     :after  {:k 2}}}}}}]}}})))
+    (is (= {} (event-detail/after-deltas-by-id {:handler nil}))
+        "no run-end trace → {}")
+    (is (= {} (event-detail/after-deltas-by-id {:handler {:tags {}}}))
+        "no :rf.event/after-deltas tag → {}")))
 
 (deftest cascade-outcome-projection-shape-is-stable
   (testing "cascade-outcome returns the documented keys"

@@ -224,6 +224,16 @@
          captured-cs  (when interop/debug-enabled? call-site)]
      (interceptor/->interceptor
        :id (keyword (str "cofx-" (name cofx-id)))
+       ;; Per rf2-9dk9y: tag this interceptor with `:rf/cofx-id` so
+       ;; tooling (Xray's Event lens) classifies it as a cofx injector
+       ;; and renders it under the COEFFECTS section — NOT under AFTER
+       ;; INTERCEPTORS, where it would be doubly misleading (it has no
+       ;; `:after`, and its `:before` contribution is the injected
+       ;; coeffect value, already surfaced in COEFFECTS). The tag
+       ;; preserves the cofx's fully-qualified id (the interceptor's
+       ;; own `:id` collapses to `(name cofx-id)`, losing the
+       ;; namespace).
+       :rf/cofx-id cofx-id
        :before
        (fn [ctx]
          (if-let [meta (registrar/lookup :cofx cofx-id)]
