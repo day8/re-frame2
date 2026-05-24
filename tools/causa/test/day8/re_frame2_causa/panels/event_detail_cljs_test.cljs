@@ -456,6 +456,27 @@
         (is (some? (find-by-testid tree "rf-causa-event-detail-event-vector"))
             "event vector rendered inside the DISPATCH step")))))
 
+(deftest dispatch-event-vector-renders-in-boxed-block
+  (testing "rf2-l3h1m — the DISPATCH event vector renders in a BOXED block
+            (`bg-muted p-3 rounded` in EventPanel.tsx; raised `:bg-3` fill
+            + subtle border + radius here), not inline/unboxed. The box
+            carries a background fill, a border, and a non-zero
+            border-radius so it reads as the same surface family as the
+            §3 EVENT HANDLER source code-block."
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree     (event-detail/Panel)
+            box      (find-by-testid tree "rf-causa-event-detail-event-vector")
+            style    (:style (second box))]
+        (is (some? box) "event vector box rendered")
+        (is (some? (:background style)) "box carries a background fill")
+        (is (some? (:border style)) "box carries a border")
+        (is (and (some? (:border-radius style))
+                 (not= "0" (:border-radius style)))
+            "box has a non-zero border-radius (rounded)")
+        (is (some? (:padding style)) "box carries inner padding")))))
+
 ;; ---- (5) AFTER INTERCEPTORS step — optional, omitted when empty -------
 
 (deftest after-interceptors-step-absent-when-zero-non-standard

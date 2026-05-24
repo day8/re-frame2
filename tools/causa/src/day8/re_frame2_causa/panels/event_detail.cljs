@@ -363,6 +363,11 @@
   step 1 these are the SAME step (the prior split DISPATCH SITE / EVENT
   sub-sections are merged; rf2-ad7zx.5).
 
+  The dispatched event vector renders in a BOXED block (`bg-muted p-3
+  rounded` in the mock; raised `:bg-3` fill + subtle border + 3px radius
+  here) per `EventPanel.tsx` (rf2-l3h1m) — the same surface family as the
+  §3 EVENT HANDLER source code-block.
+
   The FROM row matches `EventPanel.tsx`'s dispatch presentation
   (rf2-ad7zx.17): `FROM:` then the dispatch SOURCE rendered as a single
   accent-coloured click-to-source link (`view ↗`) — the `↗`
@@ -377,10 +382,23 @@
         label      (or (some-> source name) "unknown")
         linked?    (and (map? coord) (seq (:file coord)))]
     [:div
-     ;; The dispatched event vector.
+     ;; The dispatched event vector — rendered in a boxed `bg-muted p-3
+     ;; rounded` block per `EventPanel.tsx`'s DISPATCH presentation
+     ;; (rf2-l3h1m). The surface treatment (raised `:bg-3` fill, subtle
+     ;; border, 3px radius) mirrors the §3 EVENT HANDLER source code-block
+     ;; (`edn/code-block`) so the two pipeline steps read as a consistent
+     ;; family of boxed payloads. `min-width:0` keeps the inner inspector
+     ;; free to shrink so a wide vector scrolls within the box rather than
+     ;; clipping at narrow panel widths.
      [:div {:data-testid "rf-causa-event-detail-event-vector"
-            :style {:font-weight 600
-                    :margin-bottom "4px"}}
+            :style {:background    (:bg-3 tokens)
+                    :border        (str "1px solid " (:border-subtle tokens))
+                    :border-radius "3px"
+                    :padding       "8px 10px"
+                    :margin-bottom "4px"
+                    :min-width     "0"
+                    :overflow-x    "auto"
+                    :font-weight   600}}
       (edn/inspect event-vec "event-detail/event")]
      ;; FROM: <source> ↗ — the dispatch-origin as a single
      ;; click-to-source link (EventPanel.tsx shape; rf2-ad7zx.17).
