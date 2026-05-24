@@ -101,7 +101,7 @@ state-mutating vs state-observing.
 
 | Phase | Steps | What |
 |---|---|---|
-| **Handling** (state-mutating) | Dispatch → Coeffects → Handler → Effects → Flows recompute | The `Event` L4 panel renders the handling pipeline as a numbered vertical flow (the rendered section order — DISPATCH · COEFFECTS · EVENT HANDLER · DB CHANGES · AFTER INTERCEPTORS · FLOWS · FX — is in §2.2; optional sections are omitted when absent). |
+| **Handling** (state-mutating) | Dispatch → Coeffects → Handler → Flows recompute → Effects | The `Event` L4 panel renders the handling pipeline as a numbered vertical flow (the rendered section order — DISPATCH · COEFFECTS · EVENT HANDLER · FLOWS · DB CHANGES · AFTER INTERCEPTORS · FX — is in §2.2; optional sections are omitted when absent). Flows recompute at the outermost `:after`, reshaping the pending `:db` before it commits — so they precede DB CHANGES and FX. |
 | **Pivot** (the keystone) | — | Handling → reactive transition. The architectural inflection. App-db panel sits on this boundary. |
 | **Reactive** (state-observing) | Subs recompute → Views re-render | The `View` L4 panel renders the cascade as a left → right graph (§3). |
 
@@ -226,10 +226,14 @@ Section order (numbered; optional sections shown only when present):
      value it added to context (`+ [:now] #inst…`).
   3. **EVENT HANDLER** — the flavour (`reg-event-db` / `reg-event-fx`) as a click-to-source
      link + the **syntax-highlighted handler source** in a code block.
-  4. **DB CHANGES** — the app-db diff: `~ [path] old → new` · `+ [path] value` · `- [path]`.
-  5. **AFTER INTERCEPTORS** *(optional)* — non-standard after-interceptors: each id
+  4. **FLOWS** *(optional)* — flows that recomputed + the db path they wrote. Flows fire at
+     the outermost `:after` interceptor, right after the handler — they reshape the pending
+     `:db` BEFORE the single deferred install (the atomic commit), so they precede DB CHANGES
+     and run long before FX.
+  5. **DB CHANGES** — the app-db diff: `~ [path] old → new` · `+ [path] value` · `- [path]`.
+     Already reflects any FLOWS recomputes (flows ran before the db committed).
+  6. **AFTER INTERCEPTORS** *(optional)* — non-standard after-interceptors: each id
      (click-to-source) + the effect it contributed (`+ [:fx :local-storage] {…}`).
-  6. **FLOWS** *(optional)* — flows that recomputed + the db path they wrote.
   7. **FX** — the fx handlers that ran (`:dispatch → […]` · `:http-xhrio → {…}`).
 
 The cascade-id stays internal (`data-dispatch-id` on the lens root for tests/agents); not
@@ -270,19 +274,19 @@ flows, and fx):
 │   │      (fn [db _]                                                       │
 │   │        (update db :counter inc)))                                     │
 │   │                                                                       │
-│  ④  DB CHANGES                                                            │
+│  ④  FLOWS                                  (optional · shown when present) │
+│   │    :totals-flow ↗  →  [:totals] recomputed                           │
+│   │      + [:totals :sum]  42                                            │
+│   │                                                                       │
+│  ⑤  DB CHANGES                                                            │
 │   │    ~ [:counter]       1 → 2                                           │
 │   │    + [:last-updated]  #inst "2026-05-23T12:30:05"                     │
 │   │                                                                       │
-│  ⑤  AFTER INTERCEPTORS                     (optional · shown when present) │
+│  ⑥  AFTER INTERCEPTORS                     (optional · shown when present) │
 │   │    :persist-db ↗                                                      │
 │   │      + [:fx :local-storage]  {:key "app-state" :value {...}}          │
 │   │    :analytics ↗                                                       │
 │   │      + [:fx :track]          {:event "counter-inc"}                   │
-│   │                                                                       │
-│  ⑥  FLOWS                                  (optional · shown when present) │
-│   │    :totals-flow ↗  →  [:totals] recomputed                           │
-│   │      + [:totals :sum]  42                                            │
 │   │                                                                       │
 │  ⑦  FX                                                                    │
 │        :dispatch    → [:title/flow [:rf/init]]                            │
@@ -317,7 +321,7 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 
 | From | Reads |
 |---|---|
-| Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.fx/do-fx` (step 4 — effects returned, carries `:rf.event/fx`), `:rf.fx/handled` per fx-id (step 5 — effects applied), `:rf.flow/computed` (step 6) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
+| Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.flow/computed` (step 4 — flows reshape the pending `:db` at the outermost `:after`, before commit), `:rf.fx/do-fx` (step 5 — the committed db diff, carries `:rf.event/fx`), `:rf.fx/handled` per fx-id (step 7 — effects applied) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
 | Registries | Handler metadata (`reg-event-*` form file:line, optional source string when DEBUG-gated) |
 | App-db panel (bridge) | Inline diff renderer for the handler's `:db` effect — the DB CHANGES section (reuses the shared renderer §10) |
 
@@ -439,7 +443,7 @@ FLOW`), not the prior depth-first indented tree. Columns, left → right:
   edges) carries the "one sub drives N views" fact (a small `×N` may annotate it).
 
 **Cascade scope — flows are NOT in the reactive graph.** The graph is strictly **app-db → subs →
-views**. Flows mutate state — they belong to the handling pipeline (Event panel step 6) — and they
+views**. Flows mutate state — they belong to the handling pipeline (Event panel step 4) — and they
 may **feed** the cascade by writing db-paths the subs watch, but they do not appear as graph nodes.
 Quoted from the super-prompt (A.3):
 
@@ -447,7 +451,7 @@ Quoted from the super-prompt (A.3):
 > renders flows (alongside other handling steps).
 
 The L2 row's `🌊 flow-recomputed` badge surfaces flows as a cross-epoch signal; per-epoch flow
-detail lives in Event panel step 6.
+detail lives in Event panel step 4.
 
 Below the graph, two list sections record the epoch's reactive teardown (Figma design):
 
@@ -1018,7 +1022,7 @@ direction (deferred to follow-on bead). Default zoom: fit-on-mount with
 |---|---|
 | Transition edge | (no-op MVP; stretch: scroll to the dispatching event in Event panel) |
 | Guard row | Inline source-glance (DEBUG-gated source string) |
-| Action chip | Switch to **Event** panel, scroll to step 5 `:fx` row for that action |
+| Action chip | Switch to **Event** panel, scroll to step 7 `:fx` row for that action |
 | Canvas node | Set this state as the "selected" for filter-IN candidate |
 
 ### §6.5 Film-strip
@@ -1468,8 +1472,8 @@ prerequisites.
 | **Cascade aggregate** | `:rf.cascade/captured` | `{:rf.trace/dispatch-id <id> :subs-ran N :subs-skipped N :views-rendered N :flows-recomputed N}` | Optional — emitted at end-of-epoch for fast L2 badge / Reactive summary line |
 | **Dispatch-origin tag** | (on existing `:rf.event/dispatched`) | `:tags :rf.event/origin <origin-kw>` per §1.5 taxonomy (landed) | Event panel step 1 · L2 row prefix · filter pills |
 | **Handler-source string** | (on existing handler registry) | Stamp `:source-string` metadata via macro (DEBUG-gated) | Event panel step 3 inline source · §2.2 |
-| **Flow recompute** | `:rf.flow/computed` | `{:flow-id :inputs-changed [...] :rf.trace/dispatch-id <id>}` | Event panel step 6 |
-| **Flow skip** | `:rf.flow/skipped` | `{:flow-id :reason :input-unchanged :rf.trace/dispatch-id <id>}` | Event panel step 6 "dim" rows |
+| **Flow recompute** | `:rf.flow/computed` | `{:flow-id :inputs-changed [...] :rf.trace/dispatch-id <id>}` | Event panel step 4 |
+| **Flow skip** | `:rf.flow/skipped` | `{:flow-id :reason :input-unchanged :rf.trace/dispatch-id <id>}` | Event panel step 4 "dim" rows |
 | **Route phase taxonomy** | (on existing `:rf.route/*`) | Confirm `:tags :phase #{:can-leave :can-enter :on-match :settle}` is consistent | Routing panel §7 |
 
 **Per-substrate adapter work for `:rf.view/rendered`:**
@@ -1522,7 +1526,7 @@ real beads after approving this doc.
   epoch. Gates: L2 badge "cascade size", Reactive header summary line.
 
 - **rf2-?????** — *Substrate: add `:rf.flow/skipped` trace op.* Mirror
-  `:rf.sub/skipped` for flows. Gates: Event panel step 6 dim-row
+  `:rf.sub/skipped` for flows. Gates: Event panel step 4 dim-row
   rendering.
 
 - **rf2-?????** — *Substrate: focused-event-only attribution gate.*

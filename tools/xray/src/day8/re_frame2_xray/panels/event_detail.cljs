@@ -14,9 +14,9 @@
       1. DISPATCH             event vector + `FROM: <source>` (click-to-source)
       2. COEFFECTS  (opt)     user-injected coeffects + the value each added
       3. EVENT HANDLER        reg-event-* flavour + syntax-highlighted source
-      4. DB CHANGES           the app-db diff (+ SSR hydration addendum)
-      5. AFTER INTERCEPTORS (opt) non-standard after-interceptors
-      6. FLOWS      (opt)     flows that recomputed + the db path written
+      4. FLOWS      (opt)     flows that recomputed + the db path written
+      5. DB CHANGES           the app-db diff (+ SSR hydration addendum)
+      6. AFTER INTERCEPTORS (opt) non-standard after-interceptors
       7. FX                   the fx handlers that ran
 
   Steps are numbered DYNAMICALLY 1..N — an absent OPTIONAL section
@@ -490,7 +490,7 @@
               (with-meta (coeffect-row id v)
                          {:key (pr-str id)}))))))
 
-;; ---- step AFTER INTERCEPTORS (spec/021 §2.2 step 5) -------------------
+;; ---- step AFTER INTERCEPTORS (spec/021 §2.2 step 6) -------------------
 
 (defn- interceptor-row
   [{:keys [id file line] :as _interceptor}]
@@ -755,13 +755,17 @@
                      :font-size "11px"}}
        "(none)"])))
 
-;; ---- §8 FLOWS ----------------------------------------------------------
-;; rf2-lo37i — Flows fire automatically AFTER fx handlers run. Each flow's
-;; `:output` fn reads from `:inputs` paths and writes to a `:path`. Without
-;; first-class visibility here a developer cannot attribute an app-db
-;; change to the flow that caused it. Surfaced as a peer section sitting
-;; after §7 EFFECTS HANDLERS RAN — the cascade-order placement: flows are
-;; the framework's automatic step after the handler-effects complete.
+;; ---- step FLOWS (spec/021 §2.2 step 4) ---------------------------------
+;; rf2-lo37i — Flows fire automatically right after the event handler, at
+;; the OUTERMOST `:after` interceptor — they transform the pending `:db`
+;; effect BEFORE the single deferred app-db install (the atomic commit
+;; boundary), so they precede DB CHANGES and run long before FX. Each
+;; flow's `:output` fn reads from `:inputs` paths and writes to a `:path`.
+;; Without first-class visibility here a developer cannot attribute an
+;; app-db change to the flow that caused it. Surfaced as a peer section
+;; sitting between EVENT HANDLER and DB CHANGES — the cascade-order
+;; placement: flows are the framework's automatic step that reshapes the
+;; pending db before it commits.
 ;;
 ;; Per spec/013-Flows.md + spec/009-Instrumentation.md:
 ;;   `:rf.flow/computed` (op-type `:flow`) carries `:flow-id`,
@@ -885,7 +889,7 @@
       (or rows []))))
 
 (defn- flow-row
-  "One row inside the §8 FLOWS section. Shape per design:
+  "One row inside the FLOWS section. Shape per design:
 
       ▸ :flow-id              wrote [:write :path]   <result>
                               read  [:in1] [:in2]
@@ -1074,9 +1078,9 @@
                   :color       (:text-primary tokens)}}
     body]])
 
-;; ---- §2 step DB CHANGES — flat changed-paths diff list ----------------
+;; ---- step DB CHANGES — flat changed-paths diff list ------------------
 ;;
-;; Per spec/021 §2.2 step 4 (line 229) the DB CHANGES section is the
+;; Per spec/021 §2.2 step 5 the DB CHANGES section is the
 ;; app-db diff rendered as a FLAT list of changed paths ONLY:
 ;;
 ;;     ~ [path] old → new        (modified)
@@ -1197,7 +1201,7 @@
 
 (defn- db-changes-body
   "Step DB CHANGES body — the app-db diff for the focused epoch as a
-  FLAT changed-paths list (spec/021 §2.2 step 4 · spec/004 §slice-
+  FLAT changed-paths list (spec/021 §2.2 step 5 · spec/004 §slice-
   centric). One `~`/`+`/`-` row per changed path; NO untouched
   top-level keys, NO whole-tree render.
 
@@ -1279,19 +1283,23 @@
                              added.
     3. EVENT HANDLER       — flavour (`reg-event-*`, click-to-source) +
                              syntax-highlighted handler source.
-    4. DB CHANGES          — the app-db diff (+ SSR hydration-outcome
+    4. FLOWS      (opt)    — flows that recomputed + the db path each
+                             wrote. Fire at the outermost `:after`, right
+                             after the handler — they reshape the pending
+                             `:db` BEFORE it commits, so they precede DB
+                             CHANGES.
+    5. DB CHANGES          — the app-db diff (+ SSR hydration-outcome
                              addendum when the focused event hydrated).
-    5. AFTER INTERCEPTORS (opt) — non-standard after-interceptors.
-    6. FLOWS      (opt)    — flows that recomputed + the db path each
-                             wrote.
+    6. AFTER INTERCEPTORS (opt) — non-standard after-interceptors.
     7. FX                  — the fx handlers that ran.
 
   ## Handler-threw branch
 
   When the cascade carries a handler exception the handler never
-  returned, so the post-handler steps (DB CHANGES, AFTER INTERCEPTORS,
-  FLOWS, FX) are simply omitted — absence conveys the throw (spec/021
-  §2.2: no footer). Only DISPATCH / COEFFECTS? / EVENT HANDLER render.
+  returned, so the post-handler steps (FLOWS, DB CHANGES, AFTER
+  INTERCEPTORS, FX) are simply omitted — absence conveys the throw
+  (spec/021 §2.2: no footer). Only DISPATCH / COEFFECTS? / EVENT HANDLER
+  render.
 
   ## No top header (rf2-ad7zx.17)
 
@@ -1320,10 +1328,10 @@
         candidates [["dispatch"          "DISPATCH"           (dispatch-body cascade event)]
                     ["coeffects"         "COEFFECTS"          (coeffects-body cascade)]
                     ["handler"           "EVENT HANDLER"      (handler-body event-id meta)]
+                    ["flows"             "FLOWS"              (when-not threw? (flows-body cascade))]
                     ["db-changes"        "DB CHANGES"         db-changes]
                     ["after-interceptors" "AFTER INTERCEPTORS" (when-not threw?
                                                                  (after-interceptors-body user-icpts))]
-                    ["flows"             "FLOWS"              (when-not threw? (flows-body cascade))]
                     ["fx"                "FX"                 (when-not threw? (fx-body cascade))]]
         ;; Drop omitted (nil-body) steps, then number what remains 1..N
         ;; — dynamic numbering so the visible steps read contiguously.

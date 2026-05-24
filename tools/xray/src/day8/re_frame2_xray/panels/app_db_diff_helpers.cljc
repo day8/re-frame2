@@ -698,12 +698,13 @@
 ;;
 ;;   1. The event handler's `:db` effect — `[fx :db]`.
 ;;   2. A flow's `:output` fn — `[flow :flow-id]`. Per Spec 013, flows
-;;      fire automatically AFTER the handler's effects run; each flow
-;;      writes its computed result back into app-db at its registered
-;;      `:path`.
+;;      fire automatically right after the event handler — at the
+;;      outermost :after interceptor — transforming the pending `:db`
+;;      before it commits; each flow writes its computed result into
+;;      app-db at its registered `:path`.
 ;;
 ;; Without per-path attribution the developer sees "path X changed" and
-;; has to look elsewhere (the §8 FLOWS section in the Event lens) to
+;; has to look elsewhere (the FLOWS section in the Event lens) to
 ;; figure out which subset of changes came from flow recomputes. The
 ;; origin chip on each diff section closes that gap: the section header
 ;; carries `[fx :db]` or `[flow :flow-id]` next to the breadcrumb.

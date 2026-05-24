@@ -14,7 +14,8 @@
        HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS RAN.
     4. Silent-by-default — sections ABSENT (not '(none)') when their
        data is empty.
-    5. Handler threw → §6/§7 suppressed + Issues-tab footer renders.
+    5. Handler threw → every post-handler stage (FLOWS, DB CHANGES,
+       AFTER INTERCEPTORS, FX) suppressed + Issues-tab footer renders.
     6. Pure projection helpers (`user-interceptors`, `user-coeffects`,
        `cascade-outcome`, `effects-handlers-ran`, `hydration-outcome-row`).
     7. The meta-on-vector pattern (rf2-ppzid) — :key reaches every
@@ -237,8 +238,9 @@
   out the per-step `*-label` / `*-body` children testids `step-section`
   emits.
 
-  Section order: DISPATCH → COEFFECTS? → EVENT HANDLER → DB CHANGES →
-  AFTER INTERCEPTORS? → FLOWS? → FX (optional steps shown when present)."
+  Section order: DISPATCH → COEFFECTS? → EVENT HANDLER → FLOWS? →
+  DB CHANGES → AFTER INTERCEPTORS? → FX (optional steps shown when
+  present)."
   #{"rf-xray-event-detail-section-dispatch"
     "rf-xray-event-detail-section-coeffects"
     "rf-xray-event-detail-section-handler"
@@ -265,8 +267,8 @@
   (testing "rf2-ad7zx.5 — a cascade with call-site + fx + after-
             interceptors + user coeffects + a flow yields the full
             7-step numbered pipeline (spec/021 §2.2): DISPATCH,
-            COEFFECTS, EVENT HANDLER, DB CHANGES, AFTER INTERCEPTORS,
-            FLOWS, FX"
+            COEFFECTS, EVENT HANDLER, FLOWS, DB CHANGES,
+            AFTER INTERCEPTORS, FX"
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke
         [(rf/->interceptor :id :auth/require-login)]
@@ -296,9 +298,9 @@
         (doseq [[id label] [["dispatch" "DISPATCH"]
                             ["coeffects" "COEFFECTS"]
                             ["handler" "EVENT HANDLER"]
+                            ["flows" "FLOWS"]
                             ["db-changes" "DB CHANGES"]
                             ["after-interceptors" "AFTER INTERCEPTORS"]
-                            ["flows" "FLOWS"]
                             ["fx" "FX"]]]
           (is (some? (find-by-testid tree (str "rf-xray-event-detail-section-" id)))
               (str "step " label " present"))
@@ -307,10 +309,11 @@
 
 (deftest event-lens-step-order-matches-spec-021-section-2-2
   (testing "rf2-ad7zx.5 — steps render top-to-bottom in spec/021 §2.2
-            order: DISPATCH → COEFFECTS → EVENT HANDLER → DB CHANGES →
-            AFTER INTERCEPTORS → FLOWS → FX (optional steps shown when
-            present). This fixture seeds no flow, so FLOWS is OMITTED —
-            absence by omission, dynamic numbering closes the gap."
+            order: DISPATCH → COEFFECTS → EVENT HANDLER → FLOWS →
+            DB CHANGES → AFTER INTERCEPTORS → FX (optional steps shown
+            when present). This fixture seeds no flow, so FLOWS is
+            OMITTED — absence by omission, dynamic numbering closes the
+            gap."
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke
         [(rf/->interceptor :id :auth/require-login)]
@@ -845,9 +848,11 @@
                row-tids)
             "flow rows appear in cascade firing order")))))
 
-(deftest flows-step-sits-before-fx-step
-  (testing "rf2-ad7zx.5 — spec/021 §2.2 step order: FLOWS (step 6) sits
-            BEFORE FX (step 7) in the pipeline."
+(deftest flows-step-sits-after-handler-before-db-changes-and-fx
+  (testing "rf2-9eca7 — spec/021 §2.2 step order: FLOWS (step 4) fires at
+            the outermost :after, right after the EVENT HANDLER and
+            BEFORE DB CHANGES (the commit) + FX. Flows reshape the
+            pending :db before it installs, so they precede both."
     (rf/with-frame :rf/default
       (rf/reg-flow {:id     :a-flow
                     :inputs [[:in]] :output identity :path [:a]}))
@@ -862,21 +867,27 @@
                         (keep (fn [n]
                                 (when (and (vector? n) (map? (second n)))
                                   (let [tid (str (or (:data-testid (second n)) ""))]
-                                    (when (#{"rf-xray-event-detail-section-fx"
-                                             "rf-xray-event-detail-section-flows"}
+                                    (when (#{"rf-xray-event-detail-section-handler"
+                                             "rf-xray-event-detail-section-flows"
+                                             "rf-xray-event-detail-section-db-changes"
+                                             "rf-xray-event-detail-section-fx"}
                                             tid)
                                       tid)))))
                         (distinct)
                         (vec))]
-        (is (= ["rf-xray-event-detail-section-flows"
+        (is (= ["rf-xray-event-detail-section-handler"
+                "rf-xray-event-detail-section-flows"
+                "rf-xray-event-detail-section-db-changes"
                 "rf-xray-event-detail-section-fx"]
                tids)
-            "FLOWS appears BEFORE FX in document order")))))
+            "FLOWS appears right after EVENT HANDLER and before DB CHANGES + FX in document order")))))
 
 (deftest flows-section-absent-when-handler-threw
-  (testing "rf2-lo37i — when the handler threw, the effects walk never
-            ran, so flows never fired. The FLOWS section should be
-            absent (mirrors §6 + §7 suppression)"
+  (testing "rf2-lo37i — when the handler threw, the outermost :after
+            (and its flow transform) never ran, so flows never fired and
+            the pending :db never committed. The FLOWS section should be
+            absent (mirrors the DB CHANGES + FX suppression — every
+            post-handler stage is omitted)"
     (seed-buffer!
       (concat (cascade-evs 100 [:checkout/submit] 0
                             {:fx nil :db-present? false})
