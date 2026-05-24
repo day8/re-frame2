@@ -588,8 +588,13 @@
                    :cursor          "pointer"
                    :opacity         1
                    :padding         "0"
-                   :width           "22px"
-                   :height          "22px"
+                   ;; rf2-xrn3l — Figma authority specifies 21px square nav
+                   ;; buttons (chevron-left / chevron-right / chevrons-right
+                   ;; in the chrome ribbon's left cluster). The prior 22px
+                   ;; was a 1-px drift from the authority — corrected here
+                   ;; to match the Figma export.
+                   :width           "21px"
+                   :height          "21px"
                    :display         "inline-flex"
                    :align-items     "center"
                    :justify-content "center"
