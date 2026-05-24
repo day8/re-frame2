@@ -24,7 +24,7 @@ Classification key:
 | `testbeds/deliberate_throw/spec.cjs` | 116 | Spec 009 handler-exception trace | 4 |
 | `testbeds/drain_depth_trigger/spec.cjs` | 164 | Spec 002 drain-depth rollback + epoch record | 7 |
 | `testbeds/http_toggle/spec.cjs` | 110 | Spec 014 :rf.http/* category attribution | 6 (×3 categories = 18 obs) |
-| `testbeds/long_flow_w_failure/spec.cjs` | 172 | Spec 013 flow four-rule failure | 6 |
+| `testbeds/long_flow_w_failure/spec.cjs` | 172 | Spec 013 flow atomicity-contract failure | 6 |
 | `testbeds/non_trivial_app_db/spec.cjs` | 159 | Spec 009 event/dispatched < event/db-changed ordering | 4 |
 | ~~`testbeds/ssr_basic/spec.cjs`~~ DELETED Wave 3 (rf2-pxb7t) → `implementation/ssr/test/re_frame/ssr_hydration_test.clj` | ~~143~~ | Spec 011 hydration baseline | ~~13~~ |
 | ~~`testbeds/ssr_hydration_mismatch/spec.cjs`~~ DELETED Wave 3 (rf2-pxb7t) → `implementation/ssr/test/re_frame/ssr_hydration_mismatch_test.clj` | ~~136~~ | Spec 011 :rf.ssr/hydration-mismatch | ~~9~~ |
