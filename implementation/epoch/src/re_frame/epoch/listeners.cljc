@@ -233,6 +233,17 @@
                         :rf.epoch/id       (:epoch-id record)
                         :rf.trace/event-id (:event-id record)
                         :outcome           :halted-destroy})
+          ;; Per rf2-18g1w / rf2-jppad — consumer-facing tier (`:ok` /
+          ;; `:blocked` / `:error`) emitted alongside `:rf.epoch/snapshotted`
+          ;; so the trace stream carries both the detailed cause (snapshotted
+          ;; `:outcome`) and the coarse summary the Trace-panel close-row and
+          ;; Story outcome chips read directly. `:halted-destroy` → `:blocked`.
+          (trace/emit! :rf.epoch :rf.epoch/outcome
+                       {:frame             frame-id
+                        :rf.epoch/id       (:epoch-id record)
+                        :rf.trace/event-id (:event-id record)
+                        :outcome           (assembly/outcome->consumer-facing
+                                             :halted-destroy)})
           (notify-listeners! record))))
     (let [silenced-cbs (->> (state/observations-snapshot)
                             (keep (fn [[cb-id frames]]

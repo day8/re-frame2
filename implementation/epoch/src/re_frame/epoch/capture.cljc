@@ -46,6 +46,12 @@
 (def skip-ops
   #{;; Drain-settle emit (after harvest-buffer! has emptied the buffer).
     :rf.epoch/snapshotted
+    ;; rf2-18g1w — consumer-facing `{:ok :blocked :error}` outcome op.
+    ;; Emitted at the same cascade-trailer point as `:rf.epoch/snapshotted`
+    ;; (immediately after, with the buffer already harvested). Must be
+    ;; skipped for the same reason: re-buffering it would leak it into
+    ;; the next cascade's record.
+    :rf.epoch/outcome
     ;; restore-epoch success + the five documented failure modes.
     :rf.epoch/restored
     :rf.epoch/restore-unknown-epoch

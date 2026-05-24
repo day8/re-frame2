@@ -71,7 +71,14 @@
    ;; subsequence match, so this trailing one is found last.)
    {:operation :rf.epoch/snapshotted
     :tags      {:frame   :rf/default
-                :outcome :halted-depth}}]
+                :outcome :halted-depth}}
+   ;; rf2-18g1w / rf2-jppad — paired with :rf.epoch/snapshotted the runtime
+   ;; emits :rf.epoch/outcome carrying the consumer-facing {:ok :blocked
+   ;; :error} summary. :halted-depth projects to :blocked per the canonical
+   ;; mapping (`re-frame.epoch.assembly/outcome->consumer-facing`).
+   {:operation :rf.epoch/outcome
+    :tags      {:frame   :rf/default
+                :outcome :blocked}}]
 
   ;; Per rf2-nj6p7 §Drain versus event: five durable :ok epochs (one per
   ;; dequeued :recursive event, db chaining {:depth 1}…{:depth 5}) followed
