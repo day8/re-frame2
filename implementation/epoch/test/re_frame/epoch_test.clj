@@ -1069,6 +1069,111 @@
           ":rf.epoch/restore-non-ok-record fired so listeners can surface
            the refusal to the user"))))
 
+;; ---- :rf.epoch/outcome consumer-facing enum (rf2-18g1w) ------------------
+;;
+;; Per Mike's decision on rf2-jppad (2026-05-25) the runtime emits a
+;; SEPARATE trace op `:rf.epoch/outcome` carrying the consumer-facing
+;; `{:ok :blocked :error}` tier, derived from the detailed cause enum
+;; on `:rf.epoch/snapshotted` (`:ok` / `:halted-depth` / `:halted-destroy`
+;; / `:halted-handler-exception`, per Spec-Schemas §`:rf/epoch-record`
+;; §Outcomes / rf2-v0jwt). The new op sits at the same cascade-trailer
+;; point as `:rf.epoch/snapshotted` — both fire per dequeued event —
+;; and the consuming spec (`tools/xray/spec/023-Trace-Panel.md` §13)
+;; reads it directly for the EPOCH CLOSE row.
+;;
+;; The mapping is load-bearing — Xray's Trace panel renders off it,
+;; Story chips render off it, MCP wire consumers may key off it. The
+;; pure helper `re-frame.epoch.assembly/outcome->consumer-facing` is
+;; the single canonical projection; these four deftests pin the
+;; full mapping table at the helper level. The two emit sites are
+;; covered by the integration tests below.
+
+(deftest outcome-enum-projection-pins-mapping
+  (testing "the pure helper is total over the schema's four cause values
+            and projects them onto the {:ok :blocked :error} consumer-
+            facing tier per rf2-18g1w / rf2-jppad (the rationale lives
+            in `re-frame.epoch.assembly/outcome->consumer-facing`)"
+    (testing ":ok → :ok (the cascade settled cleanly)"
+      (is (= :ok (assembly/outcome->consumer-facing :ok))))
+    (testing ":halted-depth → :blocked (drain hit the depth limit)"
+      (is (= :blocked (assembly/outcome->consumer-facing :halted-depth))))
+    (testing ":halted-destroy → :blocked (frame destroyed mid-drain)"
+      (is (= :blocked (assembly/outcome->consumer-facing :halted-destroy))))
+    (testing ":halted-handler-exception → :error (schema-reserved)"
+      (is (= :error (assembly/outcome->consumer-facing :halted-handler-exception))))))
+
+(deftest rf-epoch-outcome-emits-on-ok-cascade
+  (testing "every :ok cascade emits a paired :rf.epoch/outcome trace
+            alongside :rf.epoch/snapshotted, carrying the consumer-facing
+            :outcome :ok tag. The two emits share the same :frame /
+            :rf.epoch/id / :rf.trace/event-id so consumers can correlate."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [recorded (record-trace!)]
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+      (let [snapshotted (filter #(= :rf.epoch/snapshotted (:operation %)) @recorded)
+            outcomes    (filter #(= :rf.epoch/outcome (:operation %)) @recorded)]
+        (is (= 2 (count snapshotted))
+            "one :rf.epoch/snapshotted per dequeued event")
+        (is (= 2 (count outcomes))
+            "one paired :rf.epoch/outcome per dequeued event")
+        (is (every? #(= :ok (get-in % [:tags :outcome])) outcomes)
+            "every :ok cascade projects to consumer-facing :outcome :ok")
+        (is (= (mapv #(get-in % [:tags :rf.epoch/id]) snapshotted)
+               (mapv #(get-in % [:tags :rf.epoch/id]) outcomes))
+            ":rf.epoch/id is shared between the paired emits — consumers
+             correlate snapshotted detail ↔ outcome summary")))))
+
+(deftest rf-epoch-outcome-emits-on-halted-depth
+  (testing "a depth-exceeded drain emits :rf.epoch/outcome :blocked
+            for the trailing halt marker (the :halted-depth cause
+            projects to the :blocked consumer tier per rf2-18g1w).
+            The durable :ok events that preceded it emit :outcome :ok."
+    (rf/reg-frame :test/main {:drain-depth 5})
+    (rf/reg-event-fx :loop
+      (fn [{:keys [db]} _]
+        {:db (update (or db {}) :n (fnil inc 0))
+         :fx [[:dispatch [:loop]]]}))
+
+    (let [recorded (record-trace!)]
+      (rf/dispatch-sync [:loop] {:frame :test/main})
+
+      (let [outcomes (filterv #(= :rf.epoch/outcome (:operation %)) @recorded)]
+        (is (= 6 (count outcomes))
+            "five durable :ok event outcomes + one trailing :blocked
+             halt-marker outcome")
+        (is (= (repeat 5 :ok) (mapv #(get-in % [:tags :outcome]) (take 5 outcomes)))
+            "the durable per-event epochs emit :outcome :ok")
+        (is (= :blocked (get-in (last outcomes) [:tags :outcome]))
+            "the trailing :halted-depth halt-marker projects to :blocked")))))
+
+(deftest rf-epoch-outcome-emits-on-halted-destroy
+  (testing "a mid-drain destroy emits :rf.epoch/outcome :blocked alongside
+            the partial :halted-destroy :rf.epoch/snapshotted record (the
+            :halted-destroy cause projects to the :blocked consumer tier
+            per rf2-18g1w). The frame's ring buffer is dropped in the
+            same destroy step, so :epoch-history is empty — the outcome
+            survives in the trace stream as evidence."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-fx :self-destruct
+      (fn [_ _]
+        (rf/destroy-frame! :test/short-lived)
+        {}))
+
+    (let [recorded (record-trace!)]
+      (rf/dispatch-sync [:self-destruct] {:frame :test/short-lived})
+
+      (let [outcomes (filterv #(= :rf.epoch/outcome (:operation %)) @recorded)]
+        (is (seq outcomes)
+            ":rf.epoch/outcome fired for the mid-drain destroy")
+        (is (some #(= :blocked (get-in % [:tags :outcome])) outcomes)
+            "the :halted-destroy cause projects to :blocked at the consumer
+             tier per rf2-18g1w / rf2-jppad")))))
+
 ;; ---- :halted-handler-exception is schema-reserved, never emitted ---------
 ;;
 ;; Per Spec-Schemas §`:rf/epoch-record` §Outcomes (rf2-v0jwt) and Spec 009
@@ -1972,6 +2077,7 @@
     ;; not :rf.epoch — and it emits AFTER the frame's ring buffer has
     ;; been dropped so it can't race a future cascade. Not in skip-ops.)
     (let [expected #{:rf.epoch/snapshotted
+                     :rf.epoch/outcome                  ;; rf2-18g1w
                      :rf.epoch/restored
                      :rf.epoch/restore-unknown-epoch
                      :rf.epoch/restore-schema-mismatch

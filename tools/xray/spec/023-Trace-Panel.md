@@ -35,7 +35,7 @@ The Trace panel's contract is **completeness**: it must surface *every* op-famil
 ## §2 Layout
 
 - **No top chrome.** No title bar, no filter bar, no summary/profile strip. The panel opens directly on the arc.
-- **Arc envelope.** An `EPOCH OPEN` row and an `EPOCH CLOSE` row bracket the arc and carry the epoch-lifecycle ops (`:rf.epoch/*`): open shows epoch id · event · frame · `snapshotted`; close shows `:rf.epoch/outcome` (`:ok` / failure). Restore/replay/db-replaced lifecycle ops, when they occur, render in the envelope.
+- **Arc envelope.** An `EPOCH OPEN` row and an `EPOCH CLOSE` row bracket the arc and carry the epoch-lifecycle ops (`:rf.epoch/*`): open shows epoch id · event · frame · `snapshotted` (from `:rf.epoch/snapshotted`); close shows `:rf.epoch/outcome` (the consumer-facing summary `:ok` / `:blocked` / `:error` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) — rf2-18g1w / rf2-jppad). Restore/replay/db-replaced lifecycle ops, when they occur, render in the envelope.
 - **Four phase bands** (collapsible), in arc order:
   - **① DISPATCH** — the event dispatched (trigger + origin).
   - **② EVENT HANDLING** — coeffects (injected inputs) → handler ran → **flows** (transform the pending `:db`, right after the handler per rf2-u0zz5) → db changed (net, at install). (Interceptors are not separately traced; before-interceptor injection surfaces as COEFFECT rows, after-interceptor effects as the FX/DB rows they produce.)
@@ -151,7 +151,7 @@ The panel renders **one** epoch's arc; work that produces *other* epochs is show
 ## §13 Empty bands, outcomes & short-circuit
 
 - **Empty phase bands** render their header dimmed with `(none)` — never hidden — so the 4-phase shape is always legible and the absence is itself information (a no-op event has empty ③④; a blocked navigation has empty ④).
-- **Outcome** — EPOCH CLOSE shows the real `:rf.epoch/outcome`: `:ok` · `:blocked` (e.g. routing `:can-leave` rejected) · `:error` (handler/fx threw) · plus a **platform tag** for server epochs. This is a trace fact (not an aggregate), so it stays despite §2's "no summary."
+- **Outcome** — EPOCH CLOSE reads the `:outcome` tag off the `:rf.epoch/outcome` trace op (the consumer-facing summary the runtime emits paired with `:rf.epoch/snapshotted` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) — rf2-18g1w / rf2-jppad): `:ok` · `:blocked` (e.g. routing `:can-leave` rejected, drain depth-limit tripped, frame destroyed mid-drain) · `:error` (handler/fx threw — schema-reserved cause, not currently emitted) · plus a **platform tag** for server epochs. The runtime does the cause→summary projection; the panel reads the summary directly. This is a trace fact (not an aggregate), so it stays despite §2's "no summary."
 - **Short-circuit** — on a throw (`:rf.error/*`) the arc stops at the failing op (inline error row); later phases simply have no ops; outcome `:error`. No fabricated rows.
 
 ## §14 States & responsive

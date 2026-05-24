@@ -158,6 +158,15 @@ const DEV_ONLY_SENTINELS = [
   // `(when interop/debug-enabled? ...)`; the string fragment must elide.
   { source: 're-frame.epoch/settle! (rf.epoch/snapshotted)',
     sentinel: 'rf.epoch/snapshotted' },
+  // re-frame.epoch — :rf.epoch/outcome trace op (rf2-18g1w / rf2-jppad —
+  // consumer-facing {:ok :blocked :error} summary paired with
+  // :rf.epoch/snapshotted at the cascade trailer). Emitted at the same
+  // call site as :rf.epoch/snapshotted (settle! commit-record! + the
+  // listeners/on-frame-destroyed! mid-drain destroy path); the whole
+  // emit body sits inside the same `(when interop/debug-enabled? ...)`
+  // gate, so the string fragment must elide under :advanced + goog.DEBUG=false.
+  { source: 're-frame.epoch/settle! (rf.epoch/outcome)',
+    sentinel: 'rf.epoch/outcome' },
   // re-frame.epoch — :rf.epoch/restored trace op. Emitted on the happy
   // path of restore-epoch. The entire restore-epoch body is guarded by
   // an `(if-not interop/debug-enabled? false ...)` early-return so the

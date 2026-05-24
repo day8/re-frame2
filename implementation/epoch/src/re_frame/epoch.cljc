@@ -288,6 +288,18 @@
                   :rf.epoch/id       (:epoch-id record)
                   :rf.trace/event-id (:event-id record)
                   :outcome           outcome})
+    ;; Per rf2-18g1w / rf2-jppad — consumer-facing `{:ok :blocked :error}`
+    ;; tier emitted as a separate op at the same cascade-trailer point as
+    ;; `:rf.epoch/snapshotted`. Tools that want the detailed CAUSE read
+    ;; the `:outcome` tag on `:rf.epoch/snapshotted`; tools that want the
+    ;; coarse summary (Xray Trace panel close-row §13, Story outcome chips)
+    ;; read this op's `:outcome` tag directly. See
+    ;; `outcome->consumer-facing` above for the mapping rationale.
+    (trace/emit! :rf.epoch :rf.epoch/outcome
+                 {:frame             frame-id
+                  :rf.epoch/id       (:epoch-id record)
+                  :rf.trace/event-id (:event-id record)
+                  :outcome           (assembly/outcome->consumer-facing outcome)})
     (listeners/notify-listeners! record)
     record))
 

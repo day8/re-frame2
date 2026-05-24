@@ -35,6 +35,53 @@
             [re-frame.privacy :as privacy]
             [re-frame.trace :as trace]))
 
+;; ---- consumer-facing outcome enum (rf2-18g1w) -----------------------------
+;;
+;; The runtime's `:rf/epoch-record :outcome` enum carries the detailed CAUSE
+;; of an epoch's close — `:ok` / `:halted-depth` / `:halted-destroy` /
+;; `:halted-handler-exception` (per Spec-Schemas §`:rf/epoch-record`
+;; §Outcomes, rf2-v0jwt). Consumers (Xray's Trace panel close-row, Story
+;; outcome chips) usually want a coarser tier: "did this epoch land
+;; cleanly, was it stopped, or did it error?". Per rf2-jppad / rf2-18g1w
+;; the runtime emits the consumer-facing tier directly as the separate
+;; trace op `:rf.epoch/outcome` (Spec 009) so the consuming spec
+;; (`tools/xray/spec/023-Trace-Panel.md` §13) doesn't have to re-derive
+;; the projection. The cause-enum on the epoch record stays; the new op
+;; is additive.
+;;
+;; Mapping (pinned in `epoch-test/outcome-enum-projection-pins-mapping`;
+;; load-bearing — devtools and trace-stream consumers depend on it):
+;;
+;;     :ok                       → :ok       (the cascade settled cleanly)
+;;     :halted-depth             → :blocked  (the drain hit the depth limit;
+;;                                            the halting event never ran)
+;;     :halted-destroy           → :blocked  (the frame was destroyed mid-
+;;                                            drain — a deliberate lifecycle
+;;                                            stop, not an error)
+;;     :halted-handler-exception → :error    (schema-reserved cause; the
+;;                                            reference runtime currently
+;;                                            does NOT emit this — the
+;;                                            interceptor error-capture seam
+;;                                            settles such cascades :ok with
+;;                                            the error trace under
+;;                                            :trace-events. The mapping is
+;;                                            pinned for a future runtime
+;;                                            that aborts the drain on a
+;;                                            handler throw.)
+(defn outcome->consumer-facing
+  "Project the detailed `:outcome` cause from the `:rf/epoch-record` enum
+  (`:ok` / `:halted-depth` / `:halted-destroy` / `:halted-handler-exception`,
+  per Spec-Schemas §`:rf/epoch-record` §Outcomes, rf2-v0jwt) onto the
+  three-tier consumer-facing summary (`:ok` / `:blocked` / `:error`, per
+  `tools/xray/spec/023-Trace-Panel.md` §13). Pure; total over the four
+  schema-pinned cause values. Per rf2-jppad / rf2-18g1w."
+  [outcome]
+  (case outcome
+    :ok                       :ok
+    :halted-depth             :blocked
+    :halted-destroy           :blocked
+    :halted-handler-exception :error))
+
 ;; ---- redaction hook -------------------------------------------------------
 
 (defn maybe-redact
