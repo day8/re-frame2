@@ -1096,3 +1096,173 @@
     (rf/dispatch-sync [:inc-n])
     (is (= 700 (:doubled (rf/get-frame-db :rf/default)))
         "after re-registration the flow body re-evaluates on the next drain")))
+
+;; ---------------------------------------------------------------------------
+;; 10. New ordering: flows transform the pending `:db` effect as the
+;;     OUTERMOST `:after` — after the rest of the `:after` chain reshapes
+;;     the db, and BEFORE the `:db` install + BEFORE `:fx` (rf2-u0zz5,
+;;     Spec 013 §Drain integration).
+;;
+;; These pin the observable consequences of the relocation:
+;;   (a) `:fx` sees the flow-derived app-db (preserved guarantee);
+;;   (b) the reactive cascade (subs) sees the flow-derived db;
+;;   (c) flows run BEFORE the `:db` install (the value installed already
+;;       carries flow output — single install of the flow-augmented db);
+;;   (d) flows run AFTER the `:after` chain reshape (path-scoped handlers
+;;       still feed the FULL db to flows — see
+;;       `flow-reads-full-db-under-path-scoped-handler`); and
+;;   (e) a user `:after` interceptor — which runs BEFORE the outermost flow
+;;       transform — sees the handler's PRE-flow `:db` effect (flow output
+;;       reaches it via app-db post-install, not via the chain).
+;; ---------------------------------------------------------------------------
+
+(deftest user-after-interceptor-precedes-flow-transform
+  (testing "rf2-u0zz5 (e): a user `:after` runs BEFORE the outermost flow transform"
+    ;; The flow doubles :n into [:doubled]. A user `:after` interceptor —
+    ;; which runs BEFORE the outermost flow transform — captures the
+    ;; effects' :db. It must see the handler's write but the PRE-flow
+    ;; :doubled value (carried from the prior drain), NOT the freshly
+    ;; flow-computed one. The flow output is observable in app-db AFTER
+    ;; install — asserted at the end. This pins the deliberate ordering:
+    ;; flows are outermost so they read the full reshaped db; user :after
+    ;; interceptors precede them.
+    (let [seen-db (atom :unset)]
+      (rf/reg-event-db :init (fn [_ _] {:n 0}))
+      (rf/reg-event-db :set-n
+        [(rf/->interceptor
+           :id    :test/capture-after
+           :after (fn [ctx]
+                    (reset! seen-db (rf/get-effect ctx :db))
+                    ctx))]
+        (fn [db [_ v]] (assoc db :n v)))
+      (rf/reg-flow {:id     :double
+                    :inputs [[:n]]
+                    :output (fn [n] (* 2 n))
+                    :path   [:doubled]})
+      ;; init: flow first-computes 0 * 2 = 0 into [:doubled].
+      (rf/dispatch-sync [:init])
+      (is (= 0 (:doubled (rf/get-frame-db :rf/default)))
+          "after :init the flow wrote :doubled = 0")
+      (reset! seen-db :unset)
+      ;; set-n 7: the user :after captures the pending :db effect BEFORE
+      ;; the outermost flow transform recomputes :doubled.
+      (rf/dispatch-sync [:set-n 7])
+      (is (map? @seen-db)
+          "the user after-interceptor captured the effects' :db")
+      (is (= 7 (:n @seen-db))
+          "the user :after saw the handler's own write")
+      (is (= 0 (:doubled @seen-db))
+          "the user :after saw the PRE-flow :doubled (0, carried from the prior
+           drain) — it ran BEFORE the outermost flow transform recomputed it
+           (rf2-u0zz5 ordering)")
+      ;; The recomputed flow output IS in app-db after install — the
+      ;; deliverable path for consumers that need flow output.
+      (is (= 14 (:doubled (rf/get-frame-db :rf/default)))
+          "the recomputed flow output (7 * 2 = 14) landed in the installed app-db"))))
+
+(deftest fx-sees-flow-derived-app-db
+  (testing "rf2-u0zz5 (b): an :fx entry reading app-db sees the flow output (preserved)"
+    (let [fx-saw (atom :unset)]
+      ;; A custom fx reads the live app-db when it runs; since :fx walks
+      ;; after the flow-augmented install, it must see :doubled.
+      (rf/reg-fx :test/peek-db
+                 (fn [_m _args]
+                   (reset! fx-saw (rf/get-frame-db :rf/default))))
+      (rf/reg-event-db :init (fn [_ _] {:n 0}))
+      (rf/reg-event-fx :go
+                       (fn [_ [_ v]]
+                         {:db {:n v}
+                          :fx [[:test/peek-db {}]]}))
+      (rf/reg-flow {:id     :double
+                    :inputs [[:n]]
+                    :output (fn [n] (* 2 n))
+                    :path   [:doubled]})
+      (rf/dispatch-sync [:init])
+      (rf/dispatch-sync [:go 5])
+      (is (= 10 (:doubled @fx-saw))
+          ":fx read the flow-derived :doubled (5 * 2 = 10) from app-db"))))
+
+(deftest reactive-cascade-sees-flow-derived-db
+  (testing "rf2-u0zz5 (c): a subscription over the flow's :path sees the flow output"
+    (rf/reg-event-db :init (fn [_ _] {:n 0}))
+    (rf/reg-event-db :set-n (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-flow {:id     :double
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 n))
+                  :path   [:doubled]})
+    (rf/reg-sub :doubled (fn [db _] (:doubled db)))
+    (rf/dispatch-sync [:init])
+    (rf/dispatch-sync [:set-n 9])
+    (is (= 18 @(rf/subscribe [:doubled]))
+        "the sub recomputed against the flow-augmented db install (9 * 2 = 18)")))
+
+(deftest flow-reads-full-db-under-path-scoped-handler
+  (testing "rf2-u0zz5: a flow reading a full-db path sees the FULL reshaped db
+            even when the triggering handler is `(rf/path ...)`-scoped"
+    ;; The handler writes the :counter slice (path-scoped). The flow reads
+    ;; the FULL-DB path [:counter :n] and writes [:counter :doubled]. The
+    ;; flow transform must run against the FULL db (after the path
+    ;; interceptor splices the slice back), NOT the bare slice — otherwise
+    ;; `(get-in slice [:counter :n])` would be nil and the flow would
+    ;; mis-compute.
+    (rf/reg-event-db :seed (fn [_ _] {:counter {:n 0}}))
+    (rf/reg-event-db :inc
+                     [(rf/path :counter)]
+                     (fn [c _] (update c :n inc)))
+    (rf/reg-flow {:id     :counter/doubled
+                  :inputs [[:counter :n]]
+                  :output (fn [n] (* 2 (or n 0)))
+                  :path   [:counter :doubled]})
+    (rf/dispatch-sync [:seed])
+    (rf/dispatch-sync [:inc])
+    (let [db (rf/get-frame-db :rf/default)]
+      (is (= 1 (get-in db [:counter :n]))
+          "the path-scoped handler incremented :counter/:n")
+      (is (= 2 (get-in db [:counter :doubled]))
+          "the flow read the FULL-db [:counter :n] (=1) and wrote 1 * 2 = 2 —
+           it ran against the reshaped full db, not the path slice"))
+    (rf/dispatch-sync [:inc])
+    (let [db (rf/get-frame-db :rf/default)]
+      (is (= 2 (get-in db [:counter :n])))
+      (is (= 4 (get-in db [:counter :doubled]))
+          "second increment: flow recomputed 2 * 2 = 4 off the full db"))))
+
+(deftest flow-runs-before-db-install
+  (testing "rf2-u0zz5 (c): a single :db install carries the flow output, AND
+            the :rf.event/db-changed trace fires once with the flow output"
+    ;; Flows transform the pending :db effect, so the cascade performs
+    ;; exactly ONE app-db install — of the flow-augmented value. We pin
+    ;; this by (1) capturing app-db AT the :rf.event/db-changed trace emit
+    ;; (which fires at install) and asserting it already carries the flow
+    ;; output, and (2) asserting db-changed fired exactly once (no second
+    ;; install from a separate post-install flow mutation, as the prior
+    ;; design produced).
+    (let [db-at-changed (atom :unset)
+          changed-count (atom 0)]
+      (re-frame.trace/register-listener!
+        ::db-changed-recorder
+        (fn [ev]
+          (when (= :rf.event/db-changed (:operation ev))
+            (swap! changed-count inc)
+            ;; At the db-changed emit the container has been replaced, so
+            ;; reading the live app-db reflects the just-installed value.
+            (reset! db-at-changed (rf/get-frame-db :rf/default)))))
+      (try
+        (rf/reg-event-db :init (fn [_ _] {:n 0}))
+        (rf/reg-event-db :set-n (fn [db [_ v]] (assoc db :n v)))
+        (rf/reg-flow {:id     :double
+                      :inputs [[:n]]
+                      :output (fn [n] (* 2 n))
+                      :path   [:doubled]})
+        (rf/dispatch-sync [:init])
+        (reset! db-at-changed :unset)
+        (reset! changed-count 0)
+        (rf/dispatch-sync [:set-n 6])
+        (is (= 1 @changed-count)
+            "exactly one :rf.event/db-changed fired — a single, flow-augmented install
+             (the prior design produced a separate post-install flow mutation)")
+        (is (= 12 (:doubled @db-at-changed))
+            "the db installed at :rf.event/db-changed already carried the flow output —
+             flows ran before install (rf2-u0zz5)")
+        (finally
+          (re-frame.trace/unregister-listener! ::db-changed-recorder))))))

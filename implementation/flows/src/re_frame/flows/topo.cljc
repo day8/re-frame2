@@ -9,8 +9,8 @@
   of the original monolith so the algorithm is unit-testable in
   isolation. The registry calls `topo-sort` up-front on a prospective
   flow map to spot cycles before mutating state (rf2-7csri); the
-  post-drain walker (`re-frame.flows/run-flows!`) calls it on every
-  drain to fix evaluation order.
+  innermost-`:after` walker (`re-frame.flows/run-flows-on-db`) calls it
+  on every drain to fix evaluation order.
 
   Per Spec 013 §Topological sort the rule is: flow B depends on flow
   A iff A's `:path` and any of B's `:inputs` share a path prefix in
@@ -122,7 +122,7 @@
   Tools (e.g. Causa) render this directly as the offending chain.
 
   Note: callers re-run this on every drain via
-  `re-frame.flows/run-flows!`. A memo was trialled and removed (rf2-cd00):
+  `re-frame.flows/run-flows-on-db`. A memo was trialled and removed (rf2-cd00):
   the per-frame flow map is tiny (Kahn over a handful of nodes) and a
   memo keyed on the flow map needs explicit invalidation on every
   reg-flow / clear-flow anyway. The unmemoised call is the cheapest

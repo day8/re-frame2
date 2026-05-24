@@ -3,8 +3,9 @@
   `spec/conformance/fixtures/flow-*.edn` fixture through the live flows
   runtime — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` /
   `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the
-  topological sort, the dirty-check `last-inputs` map, the post-drain
-  `run-flows!` walker, and the `:rf.flow/*` trace vocabulary — and
+  topological sort, the dirty-check `last-inputs` map, the
+  innermost-`:after` `run-flows-on-db` walker, and the `:rf.flow/*`
+  trace vocabulary — and
   asserts the conformance-corpus's recorded outcome against what the
   artefact actually produces.
 

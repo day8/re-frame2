@@ -791,15 +791,15 @@
 ;; `:fx` and tooling rely on to skip work that depended on a now-
 ;; invalid derived state."
 ;;
-;; Pre-fix, `router.run-flows!` caught + swallowed the throw and
-;; returned nil; control flowed on to `run-fx-effects!` regardless.
 ;; A handler emitting `[:dispatch [:react-to-area-change]]` from `:fx`
-;; fired the child dispatch even when the source flow threw — child
-;; handler ran on stale derived state; side effects (HTTP, navigation,
-;; analytics) escaped.
+;; must not fire the child dispatch when the source flow threw — child
+;; handler would run on stale derived state; side effects (HTTP,
+;; navigation, analytics) would escape.
 ;;
-;; Post-fix: `run-flows!` returns truthy on success / falsey on flow
-;; throw. `commit-and-flow!` gates `run-fx-effects!` on the return.
+;; Per rf2-u0zz5: the flow transform is the innermost `:after`; on a
+;; throw it stashes `:rf/flow-error` on the context, and
+;; `commit-and-flow!` skips `run-fx-effects!` when that key is set
+;; (after committing the prior-flow-preserved db).
 ;; ---------------------------------------------------------------------------
 
 (deftest fx-does-not-run-after-flow-throws
@@ -812,9 +812,10 @@
                        (fn [_ _]
                          {:db {:n 2}
                           :fx [[:dispatch [:after-throw]]]}))
-      ;; Register a flow that throws. The flow runs AFTER :db commits
-      ;; and BEFORE :fx walks (per Spec 002 §`:fx` ordering); a throw
-      ;; halts the cascade so :after-throw must NOT dispatch.
+      ;; Register a flow that throws. The flow runs as the innermost
+      ;; :after — after the handler, BEFORE :db install and BEFORE :fx
+      ;; walks (rf2-u0zz5); a throw halts the cascade so :after-throw
+      ;; must NOT dispatch.
       (rf/reg-flow {:id     :boom
                     :inputs [[:n]]
                     :output (fn [_] (throw (ex-info "boom" {:why :test})))
@@ -1090,27 +1091,37 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 8b. Strict trace-stream ordering on a flow throw (Spec 013 §Failure
-;;     semantics / §Trace stream ordering, 013-Flows.md:155-163; G2).
+;;     semantics / §Trace stream ordering; rf2-u0zz5 NEW ordering).
 ;;
-;; The contract: on a flow throw the stream carries, in order,
-;; `:event/db-changed` (the post-handler db commit the failing flow saw)
-;; → `:rf.flow/failed` → `:rf.error/flow-eval-exception`, and NO further
-;; `:rf.fx/handled` trace fires this drain (the cascade halts; pinned for
-;; the :fx GAP by `fx-does-not-run-after-flow-throws` above). The existing
-;; conformance fixture is a subset match that omits `:event/db-changed`;
-;; this test pins the full ordered sequence plus the post-handler-db
-;; snapshot relationship.
+;; Per rf2-u0zz5 the flow walk is now the INNERMOST `:after` — it runs
+;; BEFORE `:db` install, so the failure window opens BEFORE
+;; `:rf.event/db-changed`, not after. The contract: on a flow throw the
+;; stream carries, in order, `:rf.flow/failed` → `:rf.error/flow-eval-
+;; exception` → `:rf.event/db-changed` (install of the prior-flow-
+;; preserved db), and NO further `:rf.fx/handled` trace fires this drain
+;; (the cascade halts; pinned for the :fx GAP by
+;; `fx-does-not-run-after-flow-throws` above). This inverts the prior
+;; design where `:rf.event/db-changed` fired before flows.
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-throw-trace-stream-is-strictly-ordered
-  (testing "Spec 013:155-163 — db-changed → flow/failed → flow-eval-exception
-            in order, with the post-handler db snapshot the failing flow saw"
+  (testing "rf2-u0zz5 — flow/failed → flow-eval-exception → db-changed
+            in order; db-changed (install) fires AFTER the flow failure,
+            carrying the prior-flow-preserved db"
     (let [evs (record-all-traces
                 (fn []
+                  ;; :seed-write writes :n via the handler AND :a-out via
+                  ;; prior flow :ok, so a :db effect + a prior-flow write
+                  ;; both exist when :boom throws — guaranteeing the
+                  ;; install of the prior-flow-preserved db fires.
                   (rf/reg-event-db :seed (fn [_ _] {:n 0}))
                   (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
-                  (rf/reg-flow {:id     :boom
+                  (rf/reg-flow {:id     :ok
                                 :inputs [[:n]]
+                                :output (fn [n] (* 10 n))
+                                :path   [:a-out]})
+                  (rf/reg-flow {:id     :boom
+                                :inputs [[:a-out]]
                                 :output (fn [_] (throw (ex-info "boom" {})))
                                 :path   [:doomed]})
                   ;; Seed first so :n exists; the flow throws on this drain
@@ -1118,8 +1129,8 @@
                   ;; stream against a known post-handler db value.
                   (rf/dispatch-sync [:seed])
                   (rf/dispatch-sync [:bump])))
-          ;; Restrict to the :bump cascade (its db-changed carries {:n 1}).
-          ;; Take everything from the :bump :run-start trace to the end.
+          ;; Restrict to the :bump cascade. Take everything from the
+          ;; :bump :run-start trace to the end.
           evs-v       (vec evs)
           bump-start  (->> (map-indexed vector evs-v)
                            (filter (fn [[_ ev]]
@@ -1132,21 +1143,24 @@
           db-changed  (first (filterv #(= :rf.event/db-changed (:operation %)) tail))
           ;; positions within the bump cascade
           pos         (fn [op] (.indexOf ^java.util.List ops op))
-          p-changed   (pos :rf.event/db-changed)
           p-failed    (pos :rf.flow/failed)
-          p-error     (pos :rf.error/flow-eval-exception)]
+          p-error     (pos :rf.error/flow-eval-exception)
+          p-changed   (pos :rf.event/db-changed)]
       (is (some? db-changed)
-          ":rf.event/db-changed fired on the bump cascade")
+          ":rf.event/db-changed fired on the bump cascade (prior-flow-preserved install)")
       (is (= :bump (get-in db-changed [:tags :rf.event/v 0]))
           ":rf.event/db-changed is for the :bump event")
-      (is (and (<= 0 p-changed) (< p-changed p-failed) (< p-failed p-error))
-          (str "ordered: :event/db-changed (" p-changed ") < :rf.flow/failed ("
-               p-failed ") < :rf.error/flow-eval-exception (" p-error ")"))
-      ;; Post-handler-db snapshot relationship: the failing flow read the
-      ;; committed db (:n incremented to 1). The error is the LAST relevant
-      ;; trace — no :rf.fx/handled fires after it this drain (cascade halt).
-      (is (= 1 (:n (rf/get-frame-db :rf/default)))
-          "the post-handler db the failing flow saw has :n = 1 (commit landed)")
+      ;; NEW ordering (rf2-u0zz5): flow failure precedes db-changed.
+      (is (and (<= 0 p-failed) (< p-failed p-error) (< p-error p-changed))
+          (str "ordered: :rf.flow/failed (" p-failed ") < :rf.error/flow-eval-exception ("
+               p-error ") < :rf.event/db-changed (" p-changed ")"))
+      ;; The prior flow :ok's write IS installed (rule 1): :a-out = 10.
+      (is (= 10 (:a-out (rf/get-frame-db :rf/default)))
+          "the prior flow's write was preserved and installed (Spec 013 §Failure semantics rule 1)")
+      (is (not (contains? (rf/get-frame-db :rf/default) :doomed))
+          "the failing flow's own output is NOT written")
+      ;; The db-changed is the LAST relevant trace — no :rf.fx/handled
+      ;; fires after it this drain (cascade halt).
       (let [after-error (subvec (vec ops) (inc p-error))]
         (is (not-any? #(= :rf.fx/handled %) after-error)
-            "no :rf.fx/handled trace fires after the flow-eval-exception — cascade halts (Spec 013:163 GAP)")))))
+            "no :rf.fx/handled trace fires after the flow-eval-exception — cascade halts")))))

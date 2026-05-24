@@ -43,7 +43,7 @@
       (finally
         (reset! late-bind/hooks hooks-before)
         (late-bind/invalidate-cache! :schemas/validate-app-schema!)
-        (late-bind/invalidate-cache! :flows/run-flows!)))))
+        (late-bind/invalidate-cache! :flows/run-flows-on-db)))))
 
 (use-fixtures :each reset-runtime)
 
@@ -129,12 +129,16 @@
             — the runtime halts the cascade before :fx — the event-emit
             record's :outcome is NON-:ok."
     (let [seen (atom [])]
-      ;; Stub the flow-run hook to throw, driving run-flows! down its
-      ;; catch branch (which returns false → cascade halt).
-      (late-bind/set-fn! :flows/run-flows!
-                         (fn [_frame]
+      ;; Stub the flow-transform hook to throw, driving the router's
+      ;; flows-after-interceptor down its catch branch (which stashes
+      ;; :rf/flow-error → cascade halt before :fx). The hook is the
+      ;; (frame db) -> db transform; on throw it carries the partial db
+      ;; under :rf.flow/partial-db per Spec 013 §Failure semantics.
+      (late-bind/set-fn! :flows/run-flows-on-db
+                         (fn [_frame db]
                            (throw (ex-info "flow output blew up"
-                                           {:rf.flow/failed-id :flow/derived}))))
+                                           {:rf.flow/failed-id :flow/derived
+                                            :rf.flow/partial-db db}))))
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
@@ -156,8 +160,8 @@
     (let [seen (atom [])]
       (late-bind/set-fn! :schemas/validate-app-schema!
                          (fn [_db-after _event-id _frame] true))
-      (late-bind/set-fn! :flows/run-flows!
-                         (fn [_frame] nil))
+      (late-bind/set-fn! :flows/run-flows-on-db
+                         (fn [_frame db] db))
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))

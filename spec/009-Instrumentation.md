@@ -241,6 +241,33 @@ The map is open. New fields can be added by future versions without breaking con
 - **Op-type-specific fields inside `:tags`** are stable within their op-type — including `:frame`, which every emit site supplies under `:tags`. New optional tag keys are additive; existing keys don't change shape.
 - **New `:op-type` values** can be added without breaking existing tools — tools filter the values they recognise.
 
+### Canonical per-event trace sequence
+
+A single event's cascade emits a **canonical, ordered trace sequence**. The ordering is contract — off-box monitors, Causa's Trace panel, Story, and conformance recorders rely on it to place each phase relative to the others. A conformant port MUST emit (the phases that fire for a given event; omit those whose condition is unmet) in this order:
+
+```
+:rf.event/dispatched         ;; (envelope queued; one per dispatch — may precede the drain)
+:rf.event/run-start          ;; the handler's interceptor chain begins
+  … handler body + the rest of the :after chain run (reshaping the :db effect) …
+:rf.flow/computed | :rf.flow/skip | :rf.flow/failed   ;; the OUTERMOST :after —
+                             ;; the flow transform, per flow, in topological order.
+                             ;; Fires after the rest of the :after chain (so it
+                             ;; sees the fully-reshaped :db effect) and BEFORE
+                             ;; :rf.event/db-changed (install).
+:rf.event/run-end            ;; the interceptor chain (handler + all :after) completed
+:rf.event/db-changed         ;; the FLOW-AUGMENTED :db installs into app-db
+:rf.sub/run | :rf.sub/skip   ;; sub-cache recompute on the new (flow-augmented) db
+:rf.fx/do-fx                 ;; the :fx walk begins
+:rf.fx/handled               ;; per :fx entry (reads the flow-augmented app-db)
+:rf.view/render | :rf.view/rendered   ;; reactive re-render on the new db
+```
+
+**The flow position is the load-bearing change (rf2-u0zz5).** `:rf.flow/computed` is emitted **after the handler's `:after` chain** (the flow transform is the outermost `:after`, so it fires after the rest of the chain reshapes the `:db` effect) and **before `:rf.event/db-changed`**. This is the inversion from the prior design, where `:rf.event/db-changed` fired *before* flows (flows then mutated the already-installed db). Now `:rf.event/db-changed` reflects the **flow-augmented db** — the value installed already carries every flow's output. A consumer placing flows on the cascade timeline reads `:rf.flow/computed` between `:rf.event/run-start` and `:rf.event/db-changed`; the flow's write is visible in the `:rf.event/db-changed` snapshot, not applied after it.
+
+`:rf.event/run-end` marks completion of the interceptor chain (handler + the full `:after` cascade, including the outermost flow transform); it therefore falls **after** the `:rf.flow/*` traces and **before** `:rf.event/db-changed`. The relative order that consumers depend on is **`:rf.flow/computed` → `:rf.event/db-changed` → `:rf.fx/handled`**.
+
+On a flow throw the tail truncates per [013 §Trace stream ordering on a flow throw](013-Flows.md#trace-stream-ordering-on-a-flow-throw): the `:rf.flow/failed` → `:rf.error/flow-eval-exception` pair fires, prior-flow writes still install via `:rf.event/db-changed`, and no `:rf.fx/handled` fires for the halted cascade.
+
 ### Flow trace events
 
 Five trace events constitute the flow lifecycle stream (per [013 §Flow tracing](013-Flows.md#flow-tracing)). All five carry `:op-type :flow`; consumers filter by `:op-type` to subscribe to the whole stream and branch on `:operation` to discriminate. Every event's `:tags` carries `:flow-id` and `:frame` so tools can attribute and route per-frame.
@@ -248,7 +275,7 @@ Five trace events constitute the flow lifecycle stream (per [013 §Flow tracing]
 | `:operation` | When it fires | `:tags` payload (in addition to `:flow-id` and `:frame`) |
 |---|---|---|
 | `:rf.flow/registered` | After `reg-flow` (or `:rf.fx/reg-flow`) successfully registers a flow against a frame, including post-cycle-detection. | `:inputs` (the flow's input paths), `:path` (the flow's output path) |
-| `:rf.flow/computed` | A flow's `:output` fn ran and the result was assoc-in'd at `:path`. Fires only when the dirty-check observed an input value-difference. | `:input-values` (raw values read from the input paths), `:result` (the new output value), `:path` |
+| `:rf.flow/computed` | A flow's `:output` fn ran and the result was assoc-in'd into the **pending `:db` effect** at `:path` (the innermost-`:after` flow transform — before `:db` installs). Fires only when the dirty-check observed an input value-difference, and BEFORE `:rf.event/db-changed` (per [§Canonical per-event trace sequence](#canonical-per-event-trace-sequence)). | `:input-values` (raw values read from the input paths), `:result` (the new output value), `:path` |
 | `:rf.flow/skip` | The dirty-check found inputs `=`-equal to the previous run; the recompute was suppressed (per [013 §Dirty-check semantics](013-Flows.md#dirty-check-semantics) and rf2-719e value-equal recompute suppression). | `:reason` (currently `:inputs-value-equal`; the keyword is open for future skip reasons), `:input-paths-unchanged` (the flow's input db-paths whose values were stable — for a value-equal skip every input is stable by definition, so this names the full input set; consumed by the cascade-DAG aggregator per rf2-931pm). |
 | `:rf.flow/cleared` | After `clear-flow` (or `:rf.fx/clear-flow`) removes the flow from the per-frame registry and dissoc-in's its output path. | `:path` (the path that was vacated) |
 | `:rf.flow/failed` | The flow's `:output` fn threw during recompute. The exception is re-thrown after this trace fires so the router's outer catch emits the cascade-level `:rf.error/flow-eval-exception` (per [§Error contract](#error-contract)); tools see the per-flow detail here and the cascade halt there. Per [013 §Failure semantics](013-Flows.md#failure-semantics), prior successful flows' writes in the same drain are flushed to `app-db` before the throw propagates; the failing flow's own `:path` is not written and its `last-inputs` is not advanced; downstream flows do not run on this drain. | `:ex` (the exception), `:inputs` (the input values that were read just before the throw) |

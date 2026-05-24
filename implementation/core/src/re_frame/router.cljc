@@ -424,6 +424,13 @@
   pre-handler value (per Spec 010 §Per-step recovery row 4 /
   rf2-wkxng / rf2-6m0se).
 
+  Per Spec 013 §Drain integration (rf2-u0zz5): `(:db effects)` here is
+  the FLOW-AUGMENTED value — the innermost flows-after-interceptor has
+  already rewritten the pending `:db` effect by the time the chain
+  returns. So `:event/db-changed` reflects the flow-derived db and fires
+  AFTER `:rf.flow/computed` (per Spec 009 §Canonical per-event trace
+  sequence).
+
   On rollback, a second :event/db-changed trace is emitted for the
   restored state with `:phase :rollback` so listeners (subs, 10x,
   pair-tools) observe the post-rollback app-db without ambiguity —
@@ -466,109 +473,143 @@
           false)))
     true))
 
-(defn- run-flows!
-  "Per Spec 013 §Drain integration: run flows after :db commits and
-  before :fx walks. Returns `true` on success (including the no-flows-
-  artefact short-circuit) and `false` when a flow's `:output` threw.
-  Per Spec 013 §Failure semantics rule 3: the caller MUST halt the
-  cascade on `false` — downstream `:fx` does NOT run when a flow has
-  thrown (an `:fx` entry's side effects can rely on derived state the
-  failing flow was supposed to produce).
+(def ^:private flows-after-interceptor
+  "Per Spec 013 §Drain integration (rf2-u0zz5): the framework-owned
+  OUTERMOST `:after` interceptor that runs the flow transform. The router
+  PREPENDS it to the dispatch-time `full-chain` (NOT the registered
+  handler-meta chain — see `prepare-handler-ctx`), so it is the first
+  interceptor in declaration order and therefore the LAST `:after` to
+  fire: after the rest of the `:after` chain, before `:db` install, and
+  before `:fx`.
 
-  Flow evaluation exceptions surface as :rf.error/flow-eval-exception
-  through BOTH the dev-only trace surface AND the always-on error-emit
-  substrate (per rf2-hrt5c — the security-audit fix). The drain
-  continues with the NEXT event after the substrate emit; this drain's
-  `:fx` is skipped per rf2-fslx0.
+  Outermost (not innermost) is load-bearing: the `path` std-interceptor's
+  `:after` splices the handler's slice back into the FULL db, and flows
+  read full-app-db `:inputs` paths — so the flow transform MUST run after
+  that reshape. Running flows innermost would expose them to the
+  un-spliced path slice and mis-read their inputs.
 
-  Per rf2-hrt5c: pre-fix, `:rf.error/flow-eval-exception` rode the
-  trace path only. `trace/emit-error!` is gated by
-  `interop/debug-enabled?` and DCEs to a no-op under `:advanced` +
-  `goog.DEBUG=false` — so a CLJS production build silently swallowed
-  flow-eval throws (no `:on-error` policy fire, no corpus-wide
-  listener record for off-box monitors). This routing now mirrors the
-  handler-exception path (`emit-handler-exception!`) — both fan-out
-  paths fire from one normative emission site, the trace path
-  enriches dev consumers, and the substrate path survives prod
-  elision. There is no `:handler-id` (no handler ran — the throw
-  came from the post-commit flow walk); the `:where :flow-eval`
-  discriminator distinguishes this path from the handler-exception
-  one for policy fns that key on it.
+  Its `:after` reads the chain's PENDING `:db` effect (the full,
+  fully-reshaped value — or the current app-db value when no `:db` effect
+  was produced), runs `:flows/run-flows-on-db` over that value, and writes
+  the flow-augmented db back into `(:effects ctx :db)`. The eventual `:db`
+  install and the `:fx` walk therefore observe the flow-derived db.
 
-  Per rf2-fslx0: pre-fix this fn returned nil on both success and
-  failure paths, so `commit-and-flow!` had no signal to skip `:fx`
-  on flow throws. A handler emitting `[:dispatch [:react-to-area-
-  change]]` from `:fx` would fire the child dispatch even when the
-  source flow threw — child handler runs on stale derived state,
-  side effects (HTTP / navigation / analytics) escape. Spec 013
-  §Failure semantics rule 3 + §rationale (line 202) state the
-  cascade halts at a failing flow."
-  [frame event event-id start-ms]
-  ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
-  (if-let [flows-fn (late-bind/get-fn-cached :flows/run-flows!)]
-    (try
-      (flows-fn frame)
-      true
-      (catch #?(:clj Throwable :cljs :default) e
-        (let [end-ms     (interop/now-ms)
-              ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an
-              ;; integer. Round once at the substrate boundary so the
-              ;; contract holds across the JVM long / CLJS float split
-              ;; from `interop/now-ms` (mirrors `emit-handler-exception!`).
-              elapsed-ms (long (max 0 (- end-ms start-ms)))
-              msg        #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
-              ;; Per rf2-je5p8: `evaluate-flow!`'s catch wraps the user
-              ;; throw in an ex-info carrying `:rf.flow/failed-id`.
-              ;; Extract it onto the substrate record's `:tags` so the
-              ;; always-on error-emit substrate (the only signal in CLJS
-              ;; prod where `:rf.flow/failed` DCEs) can attribute the
-              ;; `:rf.error/flow-eval-exception` to a specific flow.
-              ;; Absent slot leaves `:flow-id` nil — preserves the prior
-              ;; contract for non-wrapped throws (e.g. a hypothetical
-              ;; throw from outside `evaluate-flow!`). There is no real
-              ;; flow value to carry, so attribution is `:flow-id`-only
-              ;; per Spec 013 §Failure semantics.
-              flow-id    (some-> (ex-data e) :rf.flow/failed-id)
-              tags       (cond-> {:event-id          event-id
-                                  :event             event
-                                  :frame             frame
-                                  :where             :flow-eval
-                                  :handler-id        nil
-                                  :exception         e
-                                  :exception-message msg
-                                  :reason            "Flow evaluation threw."
-                                  :recovery          :no-recovery}
-                           flow-id (assoc :flow-id flow-id))]
-          ;; Always-on per rf2-bacs4 / rf2-hqbeh — fires in CLJS
-          ;; production builds where `trace/emit-error!` below is
-          ;; compile-time elided. The two fan-out paths (corpus-wide
-          ;; listener registry + per-frame `:on-error` policy) are
-          ;; independent and isolated; both see the
-          ;; `:rf.error/flow-eval-exception` record.
-          (error-emit/dispatch-on-error!
-            :rf.error/flow-eval-exception
-            event
-            event-id
-            frame
-            e
-            elapsed-ms
-            end-ms
-            {:operation :rf.error/flow-eval-exception
-             :op-type   :error
-             :tags      tags
-             :recovery  :no-recovery})
-          ;; Dev-side trace emission. Gated by `interop/debug-enabled?`
-          ;; inside `trace/emit-error!`; DCEs to a no-op in CLJS prod
-          ;; builds. Same payload shape as before the rf2-hrt5c fix —
-          ;; existing trace consumers are unaffected.
-          (trace/emit-error! :rf.error/flow-eval-exception
-                             {:frame frame :event event :exception e})
-          ;; Per rf2-fslx0 — Spec 013 §Failure semantics rule 3:
-          ;; signal failure so `commit-and-flow!` skips `:fx`.
-          false)))
-    ;; No flows artefact loaded — short-circuit. Treat as success
-    ;; (apps without flows don't have this cascade-halt concern).
-    true))
+  When the flows artefact is absent (`:flows/run-flows-on-db` hook nil)
+  the `:after` is a single nil-check no-op.
+
+  Failure (Spec 013 §Failure semantics): `run-flows-on-db` re-throws an
+  ex-info carrying `:rf.flow/partial-db` (prior successful flows' writes,
+  rule 1) and `:rf.flow/failed-id`. The `:after` catches it, installs the
+  partial db into `(:effects ctx :db)` so the prior writes still commit,
+  and stashes the throw under `:rf/flow-error` so `commit-and-flow!` can
+  emit `:rf.error/flow-eval-exception` and skip `:fx` (rule 3). The throw
+  is NOT recorded into `:rf/interceptor-error` — a flow-eval failure is a
+  distinct error category from a handler/interceptor exception, with its
+  own substrate routing and `:where :flow-eval` discriminator.
+
+  Frame-agnostic: a single shared interceptor value (no per-dispatch
+  allocation). The dispatching frame is read from the context coeffects
+  (`assemble-initial-ctx` stamps `:frame`)."
+  (interceptor/->interceptor
+    :id          :rf/flows
+    :rf/default? true
+    :after
+    (fn [ctx]
+      (if-let [run-on-db (late-bind/get-fn-cached :flows/run-flows-on-db)]
+        (let [frame      (:frame (:coeffects ctx))
+              effects    (:effects ctx)
+              has-db?     (contains? effects :db)
+              pending-db  (if has-db?
+                            (:db effects)
+                            (frame/frame-app-db-value frame))]
+          (try
+            (let [new-db (run-on-db frame pending-db)]
+              ;; Only publish a `:db` effect when flows actually changed
+              ;; the value OR the handler already had one — a no-flow /
+              ;; no-write event must not synthesise a spurious `:db`
+              ;; effect (which would force an app-db install + db-changed
+              ;; trace on an event that wrote nothing).
+              (if (or has-db? (not (identical? new-db pending-db)))
+                (interceptor/assoc-effect ctx :db new-db)
+                ctx))
+            (catch #?(:clj Throwable :cljs :default) e
+              ;; Rule 1: install the prior-flow-augmented db (carried on
+              ;; the ex-info) so prior successful flows' writes commit
+              ;; even as the cascade halts. Only publish a `:db` effect
+              ;; when the handler already had one OR a prior flow actually
+              ;; wrote (partial-db diverged from the pending value) — a
+              ;; first-flow throw on a no-`:db` event must not synthesise
+              ;; a spurious `:db` install + db-changed trace.
+              (let [partial-db (:rf.flow/partial-db (ex-data e))
+                    wrote?     (and (some? partial-db)
+                                    (not (identical? partial-db pending-db)))]
+                (-> (cond-> ctx
+                      (or has-db? wrote?)
+                      (interceptor/assoc-effect :db (or partial-db pending-db)))
+                    (assoc :rf/flow-error e))))))
+        ;; No flows artefact loaded — short-circuit (steady state for
+        ;; apps that never registered any flow).
+        ctx))))
+
+(defn- emit-flow-eval-exception!
+  "Surface a flow-eval throw (stashed by `flows-after-interceptor` under
+  `:rf/flow-error`) as `:rf.error/flow-eval-exception` through BOTH the
+  dev-only trace surface AND the always-on error-emit substrate (per
+  rf2-hrt5c — the security-audit fix). Per Spec 013 §Failure semantics
+  rule 3 the caller skips `:fx` after this fires; the drain continues
+  with the NEXT event.
+
+  Per rf2-hrt5c: `trace/emit-error!` is gated by `interop/debug-enabled?`
+  and DCEs under `:advanced` + `goog.DEBUG=false` — so the substrate path
+  is what survives prod elision and reaches off-box monitors. Mirrors
+  the handler-exception path (`emit-handler-exception!`). There is no
+  `:handler-id` (the throw came from the flow transform, not a handler);
+  `:where :flow-eval` discriminates this path for policy fns.
+
+  Per rf2-je5p8: `evaluate-flow!`'s catch (preserved through
+  `run-flows-on-db`'s re-wrap) carries `:rf.flow/failed-id` on the
+  ex-data; it is stamped onto the substrate record's `:tags` as
+  `:flow-id` so CLJS-prod ops (where `:rf.flow/failed` DCEs) can
+  attribute the cascade-level error to a specific flow. Attribution is
+  `:flow-id`-only — there is no real flow value to carry."
+  [e event event-id frame start-ms]
+  (let [end-ms     (interop/now-ms)
+        ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an integer.
+        ;; Round once at the substrate boundary (JVM long / CLJS float).
+        elapsed-ms (long (max 0 (- end-ms start-ms)))
+        msg        #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
+        flow-id    (some-> (ex-data e) :rf.flow/failed-id)
+        tags       (cond-> {:event-id          event-id
+                            :event             event
+                            :frame             frame
+                            :where             :flow-eval
+                            :handler-id        nil
+                            :exception         e
+                            :exception-message msg
+                            :reason            "Flow evaluation threw."
+                            :recovery          :no-recovery}
+                     flow-id (assoc :flow-id flow-id))]
+    ;; Always-on per rf2-bacs4 / rf2-hqbeh — fires in CLJS production
+    ;; where `trace/emit-error!` below is compile-time elided. The two
+    ;; fan-out paths (corpus-wide listener registry + per-frame
+    ;; `:on-error` policy) are independent and isolated.
+    (error-emit/dispatch-on-error!
+      :rf.error/flow-eval-exception
+      event
+      event-id
+      frame
+      e
+      elapsed-ms
+      end-ms
+      {:operation :rf.error/flow-eval-exception
+       :op-type   :error
+       :tags      tags
+       :recovery  :no-recovery})
+    ;; Dev-side trace emission. Gated by `interop/debug-enabled?` inside
+    ;; `trace/emit-error!`; DCEs in CLJS prod. Same payload shape as
+    ;; before — existing trace consumers are unaffected.
+    (trace/emit-error! :rf.error/flow-eval-exception
+                       {:frame frame :event event :exception e})))
 
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
@@ -623,19 +664,22 @@
 ;;                               applicable) plus :rf.error/no-such-handler.
 ;;                               Lives in re-frame.router.diagnostics per
 ;;                               rf2-0ytl4 seam R-B.
-;;   prepare-handler-ctx         build the full interceptor chain + initial
+;;   prepare-handler-ctx         build the full interceptor chain (incl. the
+;;                               innermost flows-after-interceptor) + initial
 ;;                               context and the effective fx-overrides map;
 ;;                               returns a tight map consumed by run-chain
 ;;                               and commit-and-flow!
 ;;   run-chain                   execute the interceptor chain bracketed in
 ;;                               performance marks; skipped when event-payload
 ;;                               validation fails (per Spec 010 §Per-step
-;;                               recovery step 1)
-;;   commit-and-flow!            handler-exception emit (if any), :db commit,
-;;                               flows, then walk :fx in source order; returns
-;;                               the dispatch outcome keyword (:ok / :error /
-;;                               :rolled-back / :flow-error) for the event-emit
-;;                               record
+;;                               recovery step 1). Flows run HERE, inside the
+;;                               chain, as the innermost :after (rf2-u0zz5).
+;;   commit-and-flow!            handler-exception emit (if any), flow-eval
+;;                               error emit (if any), :db commit (of the
+;;                               flow-augmented db), then walk :fx in source
+;;                               order; returns the dispatch outcome keyword
+;;                               (:ok / :error / :rolled-back / :flow-error)
+;;                               for the event-emit record
 ;;   emit-cascade-trailers!      :run-end trace + always-on event-emit fan-out
 ;;   run-handler-cascade!        sequence prepare → run → commit → trailers
 ;;                               under `trace/with-handler-scope`
@@ -695,11 +739,29 @@
         ;; OUT-OF-CHAIN projection used by emit sites that fire BEFORE
         ;; the chain.
         user-paths      (privacy/user-redaction-paths base-chain)
-        full-chain      (if (seq redaction-paths)
+        redacted-chain  (if (seq redaction-paths)
                           (into [(privacy/schema-redaction-interceptor
                                    redaction-paths)]
                                 base-chain)
                           base-chain)
+        ;; Per Spec 013 §Drain integration (rf2-u0zz5): PREPEND the
+        ;; framework's flow-transform interceptor at the HEAD of the
+        ;; dispatch-time chain so its `:after` is the OUTERMOST `:after`
+        ;; — it fires after the rest of the `:after` chain (handler body
+        ;; + every user / framework `:after`) has fully reshaped the
+        ;; pending `:db` effect into the complete app-db form. This is
+        ;; load-bearing: a `(rf/path :slice)` interceptor's `:after`
+        ;; splices the handler's slice back into the FULL db, so the flow
+        ;; transform (which reads full-db `:inputs` paths) MUST run after
+        ;; that splice — i.e. outermost. The rest of the `:after` chain
+        ;; therefore precedes flows and sees its INPUT; the flow output
+        ;; reaches `:fx`, the reactive cascade, and the single `:db`
+        ;; install (all of which run after the chain). Added here
+        ;; (dispatch-time) rather than baked into the registered handler-
+        ;; meta chain so tooling that reads `(handler-meta :event id)
+        ;; :interceptors` still sees the user-authored chain with the
+        ;; handler-wrapper at its tail.
+        full-chain      (into [flows-after-interceptor] redacted-chain)
         initial-ctx     (assemble-initial-ctx envelope frame frame-record fx-overrides)
         all-paths       (into (vec redaction-paths) user-paths)]
     {:full-chain   full-chain
@@ -760,6 +822,19 @@
   `run-fx-effects!` so reserved-fx defmethods can propagate
   inheritable keys onto child dispatches.
 
+  Per Spec 013 §Drain integration (rf2-u0zz5): flows have ALREADY run
+  by the time this fn executes — the framework's innermost `:after`
+  interceptor (`flows-after-interceptor`) transformed the pending `:db`
+  effect inside the chain. So `(:db effects)` here is the FLOW-AUGMENTED
+  value, and a flow throw is signalled by `(:rf/flow-error final-ctx)`
+  rather than an inline `run-flows!` call. On a flow throw the prior
+  successful flows' writes are already in `(:db effects)` (the `:after`
+  installed the partial db), so the commit STILL fires (rule 1 — prior
+  writes preserved) but `:fx` is SKIPPED (rule 3). The error trace is
+  emitted BEFORE the commit so the stream carries
+  `:rf.flow/failed → :rf.error/flow-eval-exception → :rf.event/db-changed`
+  (per Spec 013 §Trace stream ordering on a flow throw).
+
   Returns the dispatch OUTCOME keyword for the always-on event-emit
   record (Spec 009 §Event-emit listener §Record shape):
 
@@ -768,10 +843,10 @@
                    threw; `emit-handler-exception!` has already fired.
     :rolled-back — post-commit `:db` schema validation rejected the
                    new state and the container was restored to its
-                   pre-handler value (Spec 010 row 4); flows + :fx
-                   were skipped.
+                   pre-handler value (Spec 010 row 4); :fx was skipped.
     :flow-error  — a flow's `:output` threw (Spec 013 §Failure
-                   semantics rule 3); :fx was skipped.
+                   semantics rule 3); prior-flow writes committed, :fx
+                   was skipped.
 
   All three non-`:ok` values surface to off-box observability shippers
   (Datadog / Sentry / Honeycomb) so a dispatch that rolled back its
@@ -781,30 +856,34 @@
   signal, and `commit-db-effect!` short-circuits the schema commit
   when the handler errored (no `:db` effect to validate)."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
-  (let [effects   (:effects final-ctx)
-        coeffects (:coeffects final-ctx)
-        error     (:rf/interceptor-error final-ctx)
-        db-before (get-in final-ctx [:coeffects :db])]
+  (let [effects    (:effects final-ctx)
+        coeffects  (:coeffects final-ctx)
+        error      (:rf/interceptor-error final-ctx)
+        flow-error (:rf/flow-error final-ctx)
+        db-before  (get-in final-ctx [:coeffects :db])]
     (when error
       (emit-handler-exception! error event-id event frame final-ctx start-ms))
     (cond
       error :error
+      ;; Per Spec 013 §Failure semantics: a flow's `:output` threw during
+      ;; the innermost `:after` flow transform. The transform already
+      ;; installed the prior-flow-augmented `:db` effect (rule 1), so we
+      ;; STILL commit (preserving prior writes) but SKIP `:fx` (rule 3) —
+      ;; an `:fx [[:dispatch [:react-to-area-change]]]` must not fire on
+      ;; a halted cascade. Emit the cascade-level
+      ;; `:rf.error/flow-eval-exception` BEFORE the commit so the trace
+      ;; stream is `flow/failed → flow-eval-exception → db-changed`.
+      flow-error
+      (do
+        (emit-flow-eval-exception! flow-error event event-id frame start-ms)
+        (commit-db-effect! effects event-id event frame final-ctx db-before)
+        :flow-error)
       ;; Per Spec 010 §Per-step recovery row 4: `commit-db-effect!`
       ;; returns false when post-commit schema validation rejected the
       ;; new state and rolled the container back to its pre-handler
-      ;; value. Flows + :fx are skipped; the dispatch failed.
+      ;; value. `:fx` is skipped; the dispatch failed.
       (not (commit-db-effect! effects event-id event frame final-ctx db-before))
       :rolled-back
-      ;; Per rf2-fslx0 — Spec 013 §Failure semantics rule 3: when a
-      ;; flow throws, halt the cascade. `run-flows!` returns false on
-      ;; flow throw (after fanning out
-      ;; `:rf.error/flow-eval-exception` through trace + error-emit
-      ;; substrate); `run-fx-effects!` then skips. Without this gate
-      ;; an `:fx [[:dispatch [:react-to-area-change]]]` would fire its
-      ;; child dispatch on stale derived state — side effects (HTTP /
-      ;; navigation / analytics) would escape.
-      (not (run-flows! frame event event-id start-ms))
-      :flow-error
       :else
       (do
         (run-fx-effects! effects coeffects frame frame-record fx-overrides envelope)

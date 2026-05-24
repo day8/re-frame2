@@ -935,6 +935,18 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 
     ;; 1. Run the interceptor chain — :before steps in order, then handler,
     ;;    then :after steps in reverse. The chain produces an effects map.
+    ;;
+    ;;    THE FLOW TRANSFORM IS THE OUTERMOST :after (per [013 §Drain
+    ;;    integration](013-Flows.md#drain-integration)). Because :after runs
+    ;;    outermost-LAST, the framework's flow-transform :after fires after
+    ;;    the rest of the :after chain has reshaped the `:db` effect into the
+    ;;    complete app-db form (in particular after a `(path :slice)`
+    ;;    interceptor splices the handler's slice back into the full db —
+    ;;    flows read full-app-db `:inputs` paths, so they MUST run after that
+    ;;    reshape). It rewrites the PENDING `:db` effect in the chain context
+    ;;    (NOT the installed app-db). This is the moment `:rf.flow/computed`
+    ;;    / `:rf.flow/skip` / `:rf.flow/failed` emit.
+    ;;
     ;;    Throws inside :before / :after / handler are recorded into the
     ;;    chain context under two paired keys — `:rf/interceptor-error`
     ;;    (singleton, the FIRST throw) and `:rf/interceptor-errors` (vector,
@@ -943,12 +955,18 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
     ;;    Trace stream emits one `:rf.error/handler-exception` per chain
     ;;    execution, keyed off the singleton. See
     ;;    [Spec-Schemas §InterceptorContextErrorKeys](Spec-Schemas.md#interceptorcontexterrorkeys--post-chain-interceptor-context-error-contract).
-    (let [effects (run-interceptor-chain
+    (let [effects (run-interceptor-chain      ;; flow-transform is innermost :after
                     frame envelope handler-meta)]
 
-      ;; 2. Apply :db FIRST. Atomic single replace-container! call.
-      ;;    This is the moment sub-cache invalidation fires (per :fx ordering
-      ;;    rule 4 above and per [006 §Subscription cache invalidation]).
+      ;; 2. Apply :db FIRST — the FLOW-AUGMENTED `:db` effect. Atomic single
+      ;;    replace-container! call. By this point the flow-transform :after
+      ;;    has already rewritten `(:db effects)` (step 1), so the value
+      ;;    installed here is the flow-derived db. This is the moment
+      ;;    sub-cache invalidation fires (per :fx ordering rule 4 above and
+      ;;    per [006 §Subscription cache invalidation]) AND the moment the
+      ;;    `:rf.event/db-changed` trace fires — AFTER flows (per [013
+      ;;    §Drain integration](013-Flows.md#drain-integration) and [009
+      ;;    §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)).
       (when (contains? effects :db)
         (substrate/replace-container! (:app-db frame) (:db effects))
         (sub-cache/invalidate! frame))

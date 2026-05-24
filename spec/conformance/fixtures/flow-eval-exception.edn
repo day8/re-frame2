@@ -5,17 +5,19 @@
 ;;   2. The failing flow's own output is NOT written; its last-inputs
 ;;      is NOT advanced (re-attempts next drain).
 ;;   3. Downstream flows scheduled later in topo order do NOT run.
-;;   4. The exception surfaces at the router's outer catch as
-;;      `:rf.error/flow-eval-exception` on BOTH the dev-only trace
+;;   4. The exception surfaces from the router's flows-after-interceptor
+;;      as `:rf.error/flow-eval-exception` on BOTH the dev-only trace
 ;;      surface AND the always-on error-emit substrate (per Spec 013
 ;;      §Resolved decisions §`:rf.error/flow-eval-exception` rides the
 ;;      always-on error substrate, rf2-0q0du).
 ;;
 ;; The fixture also asserts the cascade halt: an
 ;; :fx [[:dispatch [:should-not-fire]]] entry on the failing handler
-;; does NOT run (because the flow walk throws AFTER :db commits but
-;; BEFORE :fx walks — per Spec 013 §Drain integration §rule 3 +
-;; rf2-fslx0).
+;; does NOT run. Per Spec 013 §Drain integration (rf2-u0zz5) the flow
+;; walk is the innermost `:after` — it throws AFTER the handler body but
+;; BEFORE :db install and BEFORE :fx walks; the prior-flow-preserved db
+;; (incl. the handler's own :db) still installs (rule 1) while :fx is
+;; skipped (rule 3).
 ;;
 ;; ONE flow keeps the topo order deterministic across hosts: the
 ;; flow throws iff its input is a string. The conformance DSL's
