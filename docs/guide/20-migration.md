@@ -65,7 +65,7 @@ The skill applies steps 1–4 unprompted and stops at step 5 for review.
 
 ### Flows — the replacement for `on-changes`
 
-Another concrete instance of "removed interceptors": v1's `on-changes` ("when these in-paths change, compute and write to that out-path") migrates to **flows**. A flow is the same compute-on-input-change semantics, lifted out of the per-event interceptor chain and into the runtime — registered once, evaluated automatically after each event drain, toggleable at runtime via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`.
+Another concrete instance of "removed interceptors": v1's `on-changes` ("when these in-paths change, compute and write to that out-path") migrates to **flows**. A flow is the same compute-on-input-change semantics, lifted out of the per-event interceptor chain and into the runtime — registered once, evaluated automatically right after the event handler (as the outermost `:after`, transforming the pending `:db` effect before it installs), toggleable at runtime via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`.
 
 ```clojure
 (rf/reg-flow
@@ -83,7 +83,7 @@ Two things to know up front:
 
 The migration rewrite is Type B — mechanically straightforward (`(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow {:id ... :inputs in-paths :output f :path out-path})`), but the agent stops to ask about the `:id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditionally toggled rather than always-on. Apps without `on-changes` see no migration here at all.
 
-Flows are frame-scoped, evaluated in topological order after each event drain, schema-validatable, and toggleable at runtime via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`.
+Flows are frame-scoped, evaluated in topological order right after the handler (before the db install), schema-validatable, and toggleable at runtime via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`.
 
 ## A note on the tooling
 
