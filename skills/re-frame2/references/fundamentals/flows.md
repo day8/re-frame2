@@ -12,7 +12,7 @@ re-frame2 flows are the v2 incarnation of **re-frame v1's `on-changes` intercept
 
 | v1 `on-changes` | re-frame2 flow |
 |---|---|
-| Wired into a *specific event's* interceptor chain at registration time | Registered against a **frame** in the runtime; runs after *every* drain |
+| Wired into a *specific event's* interceptor chain at registration time | Registered against a **frame** in the runtime; runs right after *every* event handler |
 | Inputs are a positional list → output fn | `:inputs` is a vector of app-db paths → positional `:output` fn (same shape) |
 | Cannot be toggled at runtime | Toggle via `:rf.fx/reg-flow` / `:rf.fx/clear-flow` from a handler |
 
@@ -63,7 +63,7 @@ From `examples/reagent/flows/core.cljs` — a cart whose subtotal and total are 
 ;; :cart/total reads ANOTHER flow's output ([:cart :subtotal]) plus the
 ;; runtime-toggleable discount rate. The runtime derives the dependency edge
 ;; from the path overlap and topologically sorts so :cart/subtotal always
-;; runs first — both settle in one post-drain walk.
+;; runs first — both settle in one walk right after the handler.
 (rf/reg-flow
   {:id     :cart/total
    :inputs [[:cart :subtotal] [:cart :discount-rate]]
@@ -101,11 +101,12 @@ Two reserved fx-ids register / clear a flow mid-event. They route to the **dispa
 
 ## How flows run (drain integration)
 
-Flow evaluation happens **after `:db` commits and before `:fx` walks**, once per event drain, over **this frame's** registered flows only:
+Flow evaluation happens **right after the event handler's interceptor chain — as the framework's outermost `:after` — transforming the pending `:db` effect before the single deferred install and before `:fx` walks**, once per event, over **this frame's** registered flows only:
 
-1. Handler's `:db` commits; sub-cache invalidates.
-2. `run-flows!` walks the frame's flows in **topologically-sorted** order (dependency derived from `:path`/`:inputs` overlap). Each flow recomputes only if its input values changed by `=` since last run; the first walk of a newly-registered flow always fires.
-3. `:fx` walks — so an `:fx` entry that reads `app-db` sees flow outputs (e.g. `[:dispatch [:react-to-area-change]]` works cleanly).
+1. The interceptor chain runs (`:before`s, handler, then `:after`s in reverse). The flow transform is the **outermost `:after`**, so it fires last — after every other `:after` (incl. a `(path :slice)` interceptor's `:after`) has reshaped the handler's slice back into the full `:db` effect.
+2. The flow walk reads the chain's **pending `:db` effect** (not the live `app-db`) and walks the frame's flows in **topologically-sorted** order (dependency derived from `:path`/`:inputs` overlap). Each flow recomputes only if its input values changed by `=` since last run (the first walk of a newly-registered flow always fires), `assoc-in`-ing its output into the pending `:db` effect.
+3. The single **deferred `:db` install** writes the flow-augmented value into `app-db`; sub-cache invalidates; `:rf.event/db-changed` fires here — after flows.
+4. `:fx` walks — so an `:fx` entry that reads `app-db` sees flow outputs (e.g. `[:dispatch [:react-to-area-change]]` works cleanly).
 
 ## Common gotchas
 
