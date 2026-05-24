@@ -56,7 +56,7 @@
              :as t
              :refer [tokens mono-stack sans-stack display-stack]]))
 
-;; ---- guards + actions lists --------------------------------------------
+;; ---- safe-name helper ---------------------------------------------------
 
 (defn- safe-name
   "Render `x` to a string suitable for `data-testid` suffixes. Belt-and-
@@ -71,95 +71,207 @@
     (string? x)                       x
     :else                             (str x)))
 
-(defn- guards-list
-  "Render the per-transition Guards section. Empty list = no surface
-  (silent-by-default per rf2-g3ghh)."
-  [guards]
-  (when (seq guards)
-    [:div {:data-testid "rf-xray-machine-focused-event-guards"
-           :style {:padding "8px 12px"
-                   :background (:bg-1 tokens)
-                   :border-top (str "1px solid " (:border-subtle tokens))}}
-     [:div {:style {:color (:text-tertiary tokens)
-                    :font-family sans-stack
-                    :font-size "10px"
-                    :text-transform "uppercase"
-                    :letter-spacing "0.5px"
-                    :margin-bottom "4px"}}
-      "Guards"]
-     (into [:ul {:style {:list-style "none"
-                         :margin 0
-                         :padding 0
-                         :font-family mono-stack
-                         :font-size "11px"
-                         :color (:text-primary tokens)}}]
-           (for [{:keys [guard-id input outcome]} guards]
-             ^{:key (str guard-id)}
-             [:li {:data-testid (str "rf-xray-machine-focused-event-guard-"
-                                     (safe-name guard-id))
-                   :style {:display "flex"
-                           :align-items "center"
-                           :gap "8px"
-                           :padding "2px 0"}}
-              [:span {:style {:color (case outcome
-                                       :pass (:green tokens)
-                                       :fail (:red tokens)
-                                       (:text-tertiary tokens))
-                              :font-weight 600}}
-               (case outcome :pass "✓" :fail "✗" "?")]
-              [:span (str guard-id)]
-              (when input
-                [:span {:style {:color (:text-tertiary tokens)}}
-                 (pr-str input)])]))]))
+;; ---- focused-transition lens (rf2-2n34o · spec/003 §Focused-transition lens) -----
+;;
+;; The lens is the above-chart forensic block specified in
+;; spec/003-Machine-Inspector.md §Focused-transition lens (rf2-99rhe).
+;; It renders the EXACT shape:
+;;
+;;   Target Machine Instance: :title/flow-instance-42
+;;   TRANSITION
+;;     idle → loading
+;;   GUARDS RUN
+;;     :token?
+;;       (fn [data] (get-in data [:session :token]))
+;;       → return true
+;;   ACTIONS RUN
+;;     :fetch!
+;;       (fn [data] {:fx [[:dispatch [:loading/complete]]]})
+;;       → :fx :dispatch → [:loading/complete]
+;;
+;; Data sources (all available post-rf2-ypu5i, rf2-99rhe, rf2-8og3k):
+;;   - target instance id + from→to: `:rf.machine/transition` tags
+;;   - guard id + return: `:rf.machine/guard-evaluated` tags
+;;   - guard / action fn-source: `(rf/handler-meta :machine-guard / :machine-action ...)`
+;;   - action id + `:fx` output: `:rf.machine/action-ran` tags `:outcome`
+;;
+;; Dynamic-mode constraint (rf2-8og3k): the lens binds to EXACTLY ONE
+;; instance — the first transition record in trace order (the upstream
+;; projection already sorts cascade-document-order, so `first` is the
+;; tiebreaker). When no machine transitioned, the panel renders only the
+;; verbatim empty-state placeholder (see `blank-state`).
 
-(defn- actions-list
-  "Render the per-transition Actions section. Empty list = no surface."
-  [actions]
-  (when (seq actions)
-    [:div {:data-testid "rf-xray-machine-focused-event-actions"
-           :style {:padding "8px 12px"
-                   :background (:bg-1 tokens)
-                   :border-top (str "1px solid " (:border-subtle tokens))}}
-     [:div {:style {:color (:text-tertiary tokens)
-                    :font-family sans-stack
-                    :font-size "10px"
-                    :text-transform "uppercase"
-                    :letter-spacing "0.5px"
-                    :margin-bottom "4px"}}
-      "Actions"]
-     (into [:ul {:style {:list-style "none"
-                         :margin 0
-                         :padding 0
-                         :font-family mono-stack
-                         :font-size "11px"
-                         :color (:text-primary tokens)}}]
-           (for [{:keys [action-id input outcome]} actions]
-             ^{:key (str action-id)}
-             [:li {:data-testid (str "rf-xray-machine-focused-event-action-"
-                                     (safe-name action-id))
-                   :style {:display "flex"
-                           :align-items "center"
-                           :gap "8px"
-                           :padding "2px 0"}}
-              [:span {:style {:color (case outcome
-                                       :ok   (:green tokens)
-                                       :fail (:red tokens)
-                                       (:text-tertiary tokens))
-                              :font-weight 600}}
-               (case outcome :ok "✓" :fail "✗" "•")]
-              [:span (str action-id)]
-              (when input
-                [:span {:style {:color (:text-tertiary tokens)}}
-                 (pr-str input)])]))]))
+(defn- fn-source-line
+  "Render the captured fn-source string under a guard / action id, or a
+  muted fallback when production-elision dropped it (Spec 005
+  §`reg-machine` / `reg-machine*`: programmatic registrations carry no
+  source). The string is intentionally rendered raw — no syntax
+  highlighting at v1, matching the spec's plain monospace treatment."
+  [source]
+  [:div {:style {:padding-left "16px"
+                 :color (if source (:text-secondary tokens) (:text-tertiary tokens))
+                 :font-style (when-not source "italic")
+                 :font-family mono-stack
+                 :font-size "11px"
+                 :line-height 1.5
+                 :white-space "pre-wrap"
+                 :word-break "break-word"}}
+   (or source "(fn source unavailable)")])
+
+(defn- dispatch-vectors-from-fx
+  "Extract `[:dispatch <event>]` entries from an action's returned
+  `{:fx [...]}` map. Returns a vector of event-vectors (possibly empty).
+  Tolerates `nil`, non-map outcomes, or :fx vectors carrying non-dispatch
+  fx entries (those are skipped)."
+  [outcome]
+  (let [fx (when (map? outcome) (:fx outcome))]
+    (->> (or fx [])
+         (keep (fn [entry]
+                 (when (and (vector? entry)
+                            (= :dispatch (first entry)))
+                   (second entry))))
+         vec)))
+
+(defn- lens-guard-block
+  "Render one guard's block inside the lens GUARDS RUN section:
+
+       :guard-id
+         (fn source)
+         → return <pass|fail>"
+  [machine-id {:keys [guard-id outcome]}]
+  (let [m       (try (rf/handler-meta :machine-guard [machine-id guard-id])
+                     (catch :default _ nil))
+        source  (:rf.handler/source m)
+        return  (case outcome
+                  :pass "true"
+                  :fail "false"
+                  (when (some? outcome) (pr-str outcome)))]
+    [:div {:data-testid (str "rf-xray-machine-lens-guard-"
+                             (safe-name guard-id))
+           :data-guard-id (str guard-id)
+           :data-outcome (when outcome (name outcome))
+           :style {:font-family mono-stack
+                   :font-size "12px"
+                   :color (:text-primary tokens)
+                   :margin "2px 0"}}
+     [:div {:style {:padding-left "16px"
+                    :color (:magenta tokens)}}
+      (str guard-id)]
+     (fn-source-line source)
+     (when return
+       [:div {:style {:padding-left "16px"
+                      :color (:info tokens)}}
+        (str "→ return " return)])]))
+
+(defn- lens-action-block
+  "Render one action's block inside the lens ACTIONS RUN section:
+
+       :action-id
+         (fn source)
+         → :fx :dispatch → [<dispatch-vec>]
+
+  The trailing dispatch lines surface child-cascade `:dispatch` entries
+  pulled from the action's returned `{:fx [...]}` map. When no `:fx
+  :dispatch` fired, the arrow line is suppressed."
+  [machine-id {:keys [action-id outcome]}]
+  (let [m         (try (rf/handler-meta :machine-action [machine-id action-id])
+                       (catch :default _ nil))
+        source    (:rf.handler/source m)
+        dispatches (dispatch-vectors-from-fx outcome)]
+    [:div {:data-testid (str "rf-xray-machine-lens-action-"
+                             (safe-name action-id))
+           :data-action-id (str action-id)
+           :data-dispatch-count (str (count dispatches))
+           :style {:font-family mono-stack
+                   :font-size "12px"
+                   :color (:text-primary tokens)
+                   :margin "2px 0"}}
+     [:div {:style {:padding-left "16px"
+                    :color (:magenta tokens)}}
+      (str action-id)]
+     (fn-source-line source)
+     (into [:<>]
+           (for [[idx ev] (map-indexed vector dispatches)]
+             ^{:key idx}
+             [:div {:data-testid (str "rf-xray-machine-lens-action-dispatch-"
+                                      (safe-name action-id) "-" idx)
+                    :style {:padding-left "16px"
+                            :color (:info tokens)}}
+              (str "→ :fx :dispatch → " (pr-str ev))]))]))
+
+(defn- focused-transition-lens
+  "The above-chart forensic lens per spec/003 §Focused-transition lens.
+  Reads `record` (the focused transition, picked via
+  `h/pick-focused-transition` — see Dynamic-mode rule, rf2-8og3k) and
+  renders the Target Machine Instance / TRANSITION / GUARDS RUN /
+  ACTIONS RUN block in the normative order. Pure hiccup — fn-source is
+  resolved via `rf/handler-meta` which is a pure registrar lookup."
+  [{:keys [machine-id from-state to-state guards actions]}]
+  [:div {:data-testid "rf-xray-machine-focused-transition-lens"
+         :data-machine-id (str machine-id)
+         :data-guard-count (str (count guards))
+         :data-action-count (str (count actions))
+         :style {:padding "12px 14px"
+                 :background (:bg-1 tokens)
+                 :border-bottom (str "1px solid " (:border-subtle tokens))
+                 :font-family mono-stack
+                 :font-size "12px"
+                 :color (:text-primary tokens)
+                 :line-height 1.55}}
+   [:div {:data-testid "rf-xray-machine-lens-target-instance"
+          :style {:margin-bottom "6px"}}
+    [:span {:style {:color (:text-tertiary tokens)}}
+     "Target Machine Instance: "]
+    [:span {:style {:color (:magenta tokens)}}
+     (h/format-machine-id machine-id)]]
+   [:div {:data-testid "rf-xray-machine-lens-transition"
+          :style {:margin "4px 0"}}
+    [:div {:style {:color (:text-tertiary tokens)
+                   :text-transform "uppercase"
+                   :font-size "10px"
+                   :letter-spacing "0.5px"}}
+     "Transition"]
+    [:div {:style {:padding-left "16px"}}
+     [:span {:style {:color (:text-secondary tokens)}}
+      (h/format-state from-state)]
+     [:span {:style {:color (:accent tokens) :margin "0 6px"}} "→"]
+     [:span {:style {:color (:text-primary tokens) :font-weight 600}}
+      (h/format-state to-state)]]]
+   (when (seq guards)
+     [:div {:data-testid "rf-xray-machine-lens-guards-run"
+            :style {:margin "4px 0"}}
+      [:div {:style {:color (:text-tertiary tokens)
+                     :text-transform "uppercase"
+                     :font-size "10px"
+                     :letter-spacing "0.5px"}}
+       "Guards Run"]
+      (into [:div]
+            (for [g guards]
+              ^{:key (str (:guard-id g))}
+              (lens-guard-block machine-id g)))])
+   (when (seq actions)
+     [:div {:data-testid "rf-xray-machine-lens-actions-run"
+            :style {:margin "4px 0"}}
+      [:div {:style {:color (:text-tertiary tokens)
+                     :text-transform "uppercase"
+                     :font-size "10px"
+                     :letter-spacing "0.5px"}}
+       "Actions Run"]
+      (into [:div]
+            (for [a actions]
+              ^{:key (str (:action-id a))}
+              (lens-action-block machine-id a)))])])
 
 ;; ---- per-machine focused-event section ---------------------------------
 
 (defn- focused-event-section
-  "Render one section per transitioned machine. Header → chart →
-  guards → actions → cancellation cascade (inline) → after-rings
-  overlay (on the chart)."
+  "Render one section per transitioned machine. Lens (above the chart,
+  rf2-2n34o) → header → chart → cancellation cascade (inline) →
+  after-rings overlay (on the chart). Guards / actions detail lives
+  in the lens, not in a separate strip below the chart."
   [{:keys [machine-id from-state to-state on-event event microstep?
-           definition guards actions fired-edge-ids]}]
+           definition fired-edge-ids]
+    :as record}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance (layout-or-fallback / ensure-elk! / compute-layout!)
   ;; is GONE. xyflow + elkjs now own positioning end-to-end inside
@@ -225,6 +337,11 @@
                         :font-size "11px"
                         :margin-left "auto"}}
          (h/format-event event)])]
+     ;; rf2-2n34o — focused-transition lens, ABOVE the chart per
+     ;; spec/003 §Focused-transition lens. The lens is the panel's
+     ;; forensic above-chart block; the chart below shows the same
+     ;; transition's topology.
+     (focused-transition-lens record)
      (cond
        (nil? definition)
        [:div {:data-testid "rf-xray-machine-focused-event-no-definition"
@@ -312,8 +429,11 @@
                                         :path       path}]
                                       {:frame :rf/xray}))
               :show-after-rings?  true}]])))
-     (guards-list guards)
-     (actions-list actions)
+     ;; rf2-2n34o — guards/actions detail lives in the
+     ;; `focused-transition-lens` ABOVE the chart (per spec/003
+     ;; §Focused-transition lens). The redundant ✓/✗ status strips
+     ;; that used to render below the chart are gone — single source of
+     ;; truth for the forensic block.
      ;; rf2-59e7k — Cancellation cascade inline (per machine). The
      ;; SidePanel reg-view short-circuits to nil when the focused
      ;; machine has no cancellation in the trace window, so the mount
@@ -369,58 +489,70 @@
 
 (defn- focused-event-view
   "Top-level focused-event lens. Reads the
-  `:rf.xray/machine-transitions-for-focused-event` composite sub.
-  Returns nil when no machine transitioned in the focused event's
-  cascade — the panel renders the blank state in that case."
+  `:rf.xray/machine-transitions-for-focused-event` composite sub and
+  binds the panel to **exactly one** machine instance per the
+  Dynamic-mode single-instance rule (rf2-8og3k): the first transition
+  record in trace order. Returns nil when no machine transitioned in
+  the focused event's cascade — the panel renders the empty-state
+  placeholder in that case (see `blank-state`)."
   []
   (let [records @(rf/subscribe
-                   [:rf.xray/machine-transitions-for-focused-event])]
-    (when (seq records)
-      (into [:div {:data-testid "rf-xray-machine-focused-event"
-                   :data-section-count (count records)
-                   ;; rf2-zdfbm — fill the focused-event host so each
-                   ;; per-machine section (`flex 1`) can grow its topology
-                   ;; chart into the panel's available height.
-                   :style {:display "flex"
-                           :flex-direction "column"
-                           :flex 1
-                           :min-height 0}}]
-            (for [rec records]
-              (with-meta (focused-event-section rec)
-                {:key (str (:machine-id rec) "-"
-                           (:id rec) "-"
-                           (:from-state rec) "-"
-                           (:to-state rec))}))))))
+                   [:rf.xray/machine-transitions-for-focused-event])
+        ;; Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
+        ;; single-instance, event-driven, rf2-8og3k): pick the first
+        ;; transition by trace order. The upstream projection already
+        ;; sorts cascade-document-order, so `first` is the tiebreaker.
+        record  (h/pick-focused-transition records)]
+    (when record
+      [:div {:data-testid "rf-xray-machine-focused-event"
+             ;; The host carries the count of records the cascade
+             ;; transitioned (1..N) but only the focused instance
+             ;; renders — pinned so tests can assert the rule (one
+             ;; section even when N > 1).
+             :data-section-count "1"
+             :data-cascade-transition-count (str (count records))
+             ;; rf2-zdfbm — fill the focused-event host so the section
+             ;; (`flex 1`) can grow its topology chart into the panel's
+             ;; available height.
+             :style {:display "flex"
+                     :flex-direction "column"
+                     :flex 1
+                     :min-height 0}}
+       (with-meta (focused-event-section record)
+         {:key (str (:machine-id record) "-"
+                    (:id record) "-"
+                    (:from-state record) "-"
+                    (:to-state record))})])))
 
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its
-  cascade. The Dynamic Machines panel is **event-driven only** (Mike's
-  2026-05-19 redesign, panel docstring §4-15): it is silent-by-default
-  (rf2-g3ghh) when the focused event triggered no machine transition.
+  cascade. Per spec/003 §Empty state — focused event does not target a
+  state machine (rf2-8og3k) the panel renders ONLY the verbatim
+  placeholder text — no chart, no lens, no history ribbon, no machine
+  name, no instance picker, no hint. Just the single line:
 
-  This is a TRULY BLANK affordance — not a topology render. The earlier
-  rf2-t5wp9 (#1757) variant rendered one per-machine topology section
-  here, which contradicted the event-driven-only contract and produced
-  the inverted visibility bug (rf2-zdfbm): content surfaced on
-  non-machine events, drowning the panel's lens job. The most-recent-
-  known-state topology view belongs to the future Static Machines
-  surface (rf2-r4nao), not the Dynamic lens."
+      This event does not target a state machine
+
+  Visual treatment: centered in the panel viewport, body weight,
+  muted-foreground colour token per 007-UX-IA (matching the quiet
+  empty-state pattern other Xray panels use)."
   []
   [:div {:data-testid "rf-xray-machine-inspector-blank"
          :style {:padding "16px"
                  :color (:text-tertiary tokens)
                  :font-family sans-stack
-                 :font-size "13px"
+                 :font-size "14px"
                  :flex 1
                  :display "flex"
                  :flex-direction "column"
                  :align-items "center"
                  :justify-content "center"
                  :text-align "center"}}
-   [:p {:style {:margin "0 0 6px 0" :font-size "14px"}}
-    "No machine activity in the focused event."]
-   [:p {:style {:margin 0 :font-size "12px" :color (:text-tertiary tokens)}}
-    "Select an event that triggered a transition to inspect machines."]])
+   [:p {:data-testid "rf-xray-machine-inspector-blank-message"
+        :style {:margin 0
+                :font-weight 600
+                :color (:text-tertiary tokens)}}
+    h/empty-state-text]])
 
 ;; ---- empty state (no machines registered at all) -----------------------
 
