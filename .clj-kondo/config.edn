@@ -146,4 +146,12 @@
  ;; paths skip that directory; this filter is the belt-and-braces for
  ;; editor integrations and ad-hoc local runs that pass the broader
  ;; `tools/` path.
- :output {:exclude-files ["tools/template/resources/"]}}
+ ;; `tools/causa/design-reference/` holds the authoritative Figma-derived
+ ;; L&F reference (a hiccup/reagent mockup, `causa_devtools_reference.cljs`).
+ ;; It is a reference artefact — NOT on any shadow-cljs source path, never
+ ;; compiled or wired into a build (the prior TSX reference was never linted
+ ;; either). Exclude it from clj-kondo so the mockup's illustrative ns/shape
+ ;; doesn't gate production lint. Per rf2-7sxsz (Mike 2026-05-24).
+ :output {:exclude-files ["tools/template/resources/"
+                          ;; separator-agnostic (matches both / and \ paths)
+                          "design-reference"]}}
