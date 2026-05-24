@@ -656,12 +656,13 @@
   so the disabled glyph dimmed the wrong button.)"
   [{:keys [at-head? at-tail? live?]}]
   (let [head-disabled? (boolean (and at-head? live?))
-        ;; rf2-3f2di A2 — filled `:accent` buttons (reference chrome-
-        ;; ribbon): blue bg, white icon, 4px radius, hover opacity lift
-        ;; (the `:hover` rule lives in `theme/global-styles/motion-css`).
-        btn-style {:background      (:accent tokens)
+        ;; rf2-3f2di A2 / rf2-xawwb — filled nav buttons (Figma-Make chrome-
+        ;; ribbon): blue `active-bg` fill, white `active-text` icon, 4px
+        ;; radius, hover opacity lift (the `:hover` rule lives in
+        ;; `theme/global-styles/motion-css`).
+        btn-style {:background      (:active-bg tokens)
                    :border          "none"
-                   :color           (:white tokens)
+                   :color           (:active-text tokens)
                    :cursor          "pointer"
                    :opacity         1
                    :padding         "0"
@@ -804,10 +805,13 @@
               :style {:display         "inline-flex"
                       :align-items     "center"
                       :gap             "4px"
-                      :background      (:accent tokens)
+                      ;; rf2-xawwb — blue `active-bg` fill / white
+                      ;; `active-text` ink to match the Figma-Make chrome
+                      ;; nav buttons on the dark band.
+                      :background      (:active-bg tokens)
                       :border          "none"
                       :border-radius   "4px"
-                      :color           (:white tokens)
+                      :color           (:active-text tokens)
                       :cursor          (if disabled? "not-allowed" "pointer")
                       :opacity         (if disabled? 0.5 1)
                       :padding         "2px 8px"
@@ -903,6 +907,50 @@
                                :line-height   "1"}}
         "✕"]])))                  ;; ✕
 
+(defn- ribbon-theme-toggle
+  "rf2-xawwb — theme toggle (Figma-Make surface). A sun/moon icon-button
+  on the chrome ribbon's right cluster that flips light ⇄ dark.
+
+  ## Integrates the EXISTING theme mechanism (no parallel state)
+
+  Xray already owns a `:theme` setting (`config.cljc`, default `:light`)
+  read via `[:rf.xray/setting :theme nil]` and written via
+  `[:rf.xray/settings-update :theme nil <kw>]`, whose handler calls
+  `settings/effects/apply-theme!` to toggle the `rf-xray-theme-light` /
+  `rf-xray-theme-dark` class on the shell + `<html>` root. This button
+  dispatches through that SAME event — it does NOT toggle a bare `dark`
+  class on `document.documentElement` (the Figma stub's approach) nor
+  introduce a second theme atom. The settings popup's theme radio and
+  this toggle therefore stay in lockstep.
+
+  The glyph follows the convention NEXT action: in DARK mode it shows
+  the sun `☀` (click → go light); in LIGHT mode the moon `☾` (click →
+  go dark). Muted `chrome-ribbon-text-muted` ink to sit quietly beside
+  the `⚙`/`✕` icons on the dark band."
+  []
+  (let [theme @(rf/subscribe [:rf.xray/setting :theme nil])
+        dark? (= theme :dark)
+        next  (if dark? :light :dark)]
+    [:button {:data-testid "rf-xray-theme-toggle"
+              :title       (if dark? "Switch to light theme" "Switch to dark theme")
+              :aria-label  (if dark? "Switch to light theme" "Switch to dark theme")
+              :on-click    #(rf/dispatch [:rf.xray/settings-update :theme nil next]
+                                         {:frame :rf/xray})
+              :style       {:background      "transparent"
+                            :border          "none"
+                            :border-radius   "4px"
+                            :color           (:chrome-ribbon-text-muted tokens)
+                            :cursor          "pointer"
+                            :font-size       "14px"
+                            :line-height     "1"
+                            :display         "inline-flex"
+                            :align-items     "center"
+                            :justify-content "center"
+                            :width           "22px"
+                            :height          "22px"
+                            :padding         "0"}}
+     [:span {:aria-hidden "true"} (if dark? "☀" "☾")]]))
+
 (defn- ribbon-right-icons
   "Right-icons cluster — `⚙` settings · `✕` close. Per spec/018 §3
   Right-icon behaviour the pop-out (`⛶`) slot is reserved for the
@@ -933,7 +981,10 @@
   (let [icon-style {:background      "transparent"
                     :border          "none"
                     :border-radius   "4px"
-                    :color           (:text-tertiary tokens)
+                    ;; rf2-xawwb — muted-white ink on the dark chrome band
+                    ;; (Figma-Make surface) so the settings/close glyphs
+                    ;; read against the near-black ribbon in both themes.
+                    :color           (:chrome-ribbon-text-muted tokens)
                     :cursor          "pointer"
                     :font-size       "14px"
                     :line-height     "1"
@@ -1056,7 +1107,13 @@
                    :gap              "12px"
                    :height           (:top-strip-height layout)
                    :padding          "0 12px"
-                   :background       (:bg-1 tokens)
+                   ;; rf2-xawwb — DARK chrome band (Figma-Make surface).
+                   ;; The chrome ribbon paints the dedicated dark-chrome
+                   ;; token in BOTH themes; chrome text reads the white
+                   ;; `chrome-ribbon-text` token so it stays legible on the
+                   ;; near-black band.
+                   :background       (:chrome-ribbon-bg tokens)
+                   :color            (:chrome-ribbon-text tokens)
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
                    ;; rf2-o5f5f.1 — mode-signal mechanism #2: a 2-px
                    ;; left-edge stripe in the single `:accent` (GitHub
@@ -1077,14 +1134,15 @@
      [:div {:data-testid "rf-xray-ribbon-selectors"
             :style {:display "flex" :align-items "center" :gap "13px"
                     :flex-wrap "wrap"}}
-      ;; rf2-3f2di A4 — `Events` label leads the left cluster (reference
-      ;; chrome-ribbon left side: `text-[var(--devtools-text)] font-medium`).
+      ;; rf2-xawwb — `Event History` label leads the left cluster (Figma-
+      ;; Make surface renamed `Events` → `Event History`). White ink on the
+      ;; dark chrome band (`chrome-ribbon-text`).
       [:span {:data-testid "rf-xray-ribbon-events-label"
-              :style {:color       (:text-primary tokens)
+              :style {:color       (:chrome-ribbon-text tokens)
                       :font-family sans-stack
                       :font-weight 500
                       :white-space "nowrap"}}
-       "Events"]
+       "Event History"]
       ;; rf2-3f2di A2/A5 — blue-filled nav cluster, promoted to bar-1.
       [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?}]
       ;; Xray spine controls — the always-present blue `focus` button
@@ -1093,15 +1151,14 @@
       ;; cluster because they are spine navigation, not scope selectors.
       [ribbon-focus-button {:focused-cascade focused-cascade}]
       [ribbon-focus-chip {:focus-set focus-set}]
-      ;; rf2-3f2di A5 — `Filters:` label + the add(+) affordance (the
-      ;; committed pills live on bar-2). Reference chrome-ribbon left
-      ;; side: `Filters:` muted label then the `+` add button.
-      [:span {:data-testid "rf-xray-ribbon-filters-label"
-              :style {:color       (:text-secondary tokens)
-                      :font-family sans-stack
-                      :white-space "nowrap"}}
-       "Filters:"]
-      [filter-pills/add-pill]]
+      ;; rf2-xawwb — `+ filter` text button (Figma-Make chrome-ribbon).
+      ;; Replaces the prior `Filters:` label + plus-icon affordance with a
+      ;; single outlined `+ filter` text button. Opens the same edit
+      ;; popup (`filter-pills/chrome-add-filter-button` delegates to the
+      ;; canonical `:rf.xray/open-edit-popup` flow), so the add behaviour
+      ;; is RETAINED — only the surface changes. Muted-outline on the dark
+      ;; band so it reads as a secondary chrome affordance.
+      [filter-pills/chrome-add-filter-button]]
      ;; RIGHT cluster — scope selectors (Frame + Dynamic/Static) then the
      ;; silent-by-default indicators + chrome actions. Per the authority
      ;; reference chrome-ribbon right side (rf2-3f2di A5).
@@ -1123,6 +1180,9 @@
       ;; manager modal.
       [spine-filters/ribbon-mute-indicator muted-count]
       [ribbon-redacted-indicator redacted-count]
+      ;; rf2-xawwb — theme toggle (sun/moon) sits before the settings/close
+      ;; icons per the Figma-Make chrome-ribbon right cluster.
+      [ribbon-theme-toggle]
       [ribbon-right-icons]]]))
 
 ;; ---- L2 event list -------------------------------------------------------
