@@ -313,7 +313,23 @@
   them off the DOM).
 
   Returns nil when the projection has no active timers (the overlay
-  layer drops out so unrelated chart hover handlers aren't shadowed)."
+  layer drops out so unrelated chart hover handlers aren't shadowed).
+
+  ## rf2-fkpuv — DOM-rooted via `display: contents`
+
+  The body delegates to the machines-viz overlay component, whose
+  React-element head is a function (not a DOM tag). A bare component
+  head as the reg-view root would skip the source-coord DOM
+  annotation (Spec 006 §Source-coord annotation: pair tools fall back
+  to `:rf/id` for non-DOM roots) and emit a one-shot warning per id.
+  A wrapper `<div>` with `display: contents` participates in the DOM
+  tree (so `data-rf2-source-coord` + `data-rf-view` have a home and
+  click-to-source works) while being neutralised for layout — the
+  inner machines-viz overlay's `position: absolute` still anchors to
+  the chart's `position: relative` wrapper (the offsetParent the
+  overlay queries to measure node rects is unchanged because a
+  `display: contents` element is not a positioning context). Same
+  pattern as `shell.cljs` (rf2-uu3lp)."
   [& _opts]
   (let [timers @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
         now    @(rf/subscribe [:rf.xray/now-ms])
@@ -329,18 +345,20 @@
         specs  (rings-h/timers->ring-specs
                  timers chart-layout/highlight-id now)]
     (when (seq specs)
-      [mv-after-rings/AfterRingsOverlay
-       {:ring-specs specs
-        ;; `now` is the rAF-bumped (or scrubber-pinned) instant —
-        ;; bumping it on every frame forces the overlay to re-measure
-        ;; the DOM + repaint the swept arcs (Lock #8 60Hz-when-visible
-        ;; cadence, driven by THIS ns's clock, not the overlay's).
-        :tick       now
-        :testid     "rf-xray-machine-inspector-after-rings-overlay"
-        :on-hover   (fn [node-id] (timer-hovered! specs node-id))
-        :on-leave   (fn [_node-id]
-                      (rf/dispatch [:rf.xray/timer-hover nil]
-                                   {:frame :rf/xray}))}])))
+      [:div {:data-rf-xray-after-rings-host ""
+             :style {:display "contents"}}
+       [mv-after-rings/AfterRingsOverlay
+        {:ring-specs specs
+         ;; `now` is the rAF-bumped (or scrubber-pinned) instant —
+         ;; bumping it on every frame forces the overlay to re-measure
+         ;; the DOM + repaint the swept arcs (Lock #8 60Hz-when-visible
+         ;; cadence, driven by THIS ns's clock, not the overlay's).
+         :tick       now
+         :testid     "rf-xray-machine-inspector-after-rings-overlay"
+         :on-hover   (fn [node-id] (timer-hovered! specs node-id))
+         :on-leave   (fn [_node-id]
+                       (rf/dispatch [:rf.xray/timer-hover nil]
+                                    {:frame :rf/xray}))}]])))
 
 ;; ---- public install entry -----------------------------------------------
 
