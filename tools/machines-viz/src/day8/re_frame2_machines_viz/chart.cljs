@@ -44,7 +44,10 @@
             ["elkjs/lib/elk.bundled.js" :as elkjs]
             [clojure.string :as str]
             [reagent.core :as r]
+            [re-frame.interop :as interop]
+            [re-frame.trace :as trace]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [day8.re-frame2-machines-viz.chart.layout-error :as layout-error]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.chart.nodes :as nodes]
             [day8.re-frame2-machines-viz.chart.edges :as edges]
@@ -262,33 +265,113 @@
     {:positions   @positions
      :edge-points @edge-points}))
 
+;; ---- error reporting (rf2-4lyvh) ----------------------------------------
+;;
+;; Before rf2-4lyvh, compute-layout! had two bare `(catch :default _ nil)`
+;; clauses (one sync around `.layout`, one async on the rejection branch)
+;; that discarded ELK errors entirely. The downstream `(when result ...)`
+;; guard in MachineChart then silently no-op'd, leaving `layout-state` at
+;; its initial `{:positions {} :edge-points {}}` — every node renders at
+;; the default origin, all stacked. The operator saw nothing in the
+;; console. The fix surfaces ELK failures three ways:
+;;
+;;   1. A `:rf.error/machines-viz-elk-layout-failed` trace event lands on
+;;      the bus so tools (Xray Issues panel, off-box monitors) that
+;;      subscribe to `:rf.error/*` see the failure.
+;;   2. `js/console.error` (gated on `interop/debug-enabled?` so the path
+;;      is elision-safe in production bundles) so an operator opening
+;;      DevTools sees something immediately.
+;;   3. The callback receives a result-map shape carrying `:layout-error`
+;;      instead of `nil`; the projector renders a banner on the chart
+;;      area so the failure is visible IN the panel, not just in console.
+;;
+;; The pure data side (input summary + error→data adapter + result-map
+;; builder) lives in `chart.layout-error` so the .cljc test corpus can
+;; pin every shape without loading elkjs / xyflow. The side-effect side
+;; (trace emit + dev-only console.error + the elkjs interop indirection)
+;; stays here next to the .layout call.
+
+(defn ^:private report-layout-error!
+  "Surface an ELK layout failure: emit the canonical error trace + a
+  console.error in dev builds. Returns nothing — the caller still has to
+  build the result-map shape that gets handed to `done-fn`. Split out so
+  the side-effect surface (trace + console) is in one place + unit-
+  testable via `with-redefs` on the trace fn."
+  [error parsed direction layout-options machine-id]
+  (let [summary (layout-error/input-summary parsed direction layout-options)
+        err     (layout-error/error->data error)]
+    (trace/emit-error! :rf.error/machines-viz-elk-layout-failed
+                       {:elk-error     err
+                        :machine-id    machine-id
+                        :input-summary summary})
+    (when interop/debug-enabled?
+      (js/console.error "[machines-viz] ELK layout failed:" error
+                        (pr-str (assoc summary :machine-id machine-id))))))
+
+(defn invoke-elk-layout!
+  "Indirection over `(.layout elk-instance input)`. Lives at the
+  public surface (not `^:private`) ONLY as a test seam: the
+  `compute-layout!` error-path tests (rf2-4lyvh) rebind this via
+  `set!` to stub elkjs's behaviour (sync throw / async reject / async
+  resolve) without reaching into the `defonce` elk instance. The
+  `defonce` is intentional — we want one elk instance per process —
+  and reaching into its internals from a test is fragile.
+
+  No production code outside this ns should call this fn; treat it
+  as private-by-convention. Returns whatever elkjs returns: a Promise
+  on success; may throw synchronously on a malformed input (rare,
+  but observed in the wild)."
+  [^js input]
+  (.layout elk-instance input))
+
 (defn compute-layout!
   "Run elk.js layout on `parsed` (the output of
   `chart.layout/parse-definition`); call `done-fn` with a map
   `{:positions {node-id {:x :y :width :height}} :edge-points {edge-id
-  [{:x :y} …]}}` when ready (or with `nil` on failure). The
-  `:edge-points` half (rf2-cz8v6 / G2) carries elk's routed bend-points
-  so the chart routes edges AROUND nested containers instead of cutting
-  across them. The async path is idiomatic xyflow + elkjs:
+  [{:x :y} …]}}` on success.
+
+  On failure (rf2-4lyvh) the callback receives the SAME map shape with
+  empty `:positions` + `:edge-points` AND an extra `:layout-error
+  {:error … :input-summary …}` slot — the existing `(when result ...)`
+  guard at the callsite is preserved, the projector can read
+  `:layout-error` to render an in-panel indicator instead of silently
+  rendering every node stacked at origin. The failure also fires a
+  `:rf.error/machines-viz-elk-layout-failed` trace event + (in dev
+  builds, gated on `interop/debug-enabled?`) a `js/console.error`.
+
+  The `:edge-points` half (rf2-cz8v6 / G2) carries elk's routed bend-
+  points so the chart routes edges AROUND nested containers instead of
+  cutting across them. The async path is idiomatic xyflow + elkjs:
 
     1. `(->elk-input parsed direction layout-options)` builds a JS
        graph.
     2. `.layout` returns a Promise.
     3. Resolve → `elk-result->positions` → callback.
-    4. Reject → callback with nil; caller may render a 'laying out…'
-       placeholder."
+    4. Reject → callback with the layout-error result-map (above).
+
+  Optional `:machine-id` is threaded onto the error trace's `:tags` so
+  consumers (Xray Issues panel) can attribute the failure to a specific
+  machine; nil when called without a machine id (e.g. unit tests)."
   ([parsed done-fn]
-   (compute-layout! parsed :tb nil done-fn))
+   (compute-layout! parsed :tb nil nil done-fn))
   ([parsed direction layout-options done-fn]
-   (let [input (->elk-input parsed direction layout-options)
-         p     (try (.layout elk-instance input)
-                    (catch :default _ nil))]
-     (if (and p (.-then p))
+   (compute-layout! parsed direction layout-options nil done-fn))
+  ([parsed direction layout-options machine-id done-fn]
+   (let [input  (->elk-input parsed direction layout-options)
+         handle (fn handle-error [e]
+                  (report-layout-error! e parsed direction layout-options
+                                        machine-id)
+                  (done-fn (layout-error/layout-error-result
+                             e parsed direction layout-options)))
+         p      (try (invoke-elk-layout! input)
+                     (catch :default e
+                       (handle e)
+                       nil))]
+     (when (and p (.-then p))
        (-> p
            (.then (fn [result]
                     (done-fn (elk-result->positions result))))
-           (.catch (fn [_e] (done-fn nil))))
-       (done-fn nil)))))
+           (.catch (fn [e] (handle e))))))))
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
 ;;
@@ -481,7 +564,7 @@
         (when (and (seq (:nodes parsed))
                    (not= this-key @layout-key))
           (reset! layout-key this-key)
-          (compute-layout! parsed direction layout-options
+          (compute-layout! parsed direction layout-options machine-id
                            (fn [result]
                              (when result
                                (reset! layout-state result)))))
@@ -536,7 +619,7 @@
                 to-highlight-id   (layout/highlight-id to-highlight)
                 callback          (when-not read-only? on-state-click)
                 edge-callback     (when-not read-only? on-edge-click)
-                {:keys [positions edge-points]} @layout-state
+                {:keys [positions edge-points layout-error]} @layout-state
                 {:keys [nodes edges]}
                 (projection/xyflow-graph parsed
                               positions
@@ -622,6 +705,12 @@
                    ;; DOM tests can read every traversed arm at the chart
                    ;; root (mirrors `data-highlight-ids`). "" when none.
                    :data-fired-edge-ids (str/join " " (sort (set fired-edge-ids)))
+                   ;; rf2-4lyvh — surface ELK layout-failure as a root
+                   ;; data-attr so DOM tests + hosts can pin the failure
+                   ;; without inspecting the banner DOM. "true" / "false";
+                   ;; the visible banner below carries the human-readable
+                   ;; message.
+                   :data-layout-error (if layout-error "true" "false")
                    :role "application"
                    :aria-label aria-label
                    :style {:position "relative"
@@ -705,4 +794,40 @@
                         (seq (:steps cancellation-cascade)))
                [overlay-cascade/CancellationCascadeOverlay
                 {:cascade-spec cancellation-cascade
-                 :tick         overlay-tick}])]))))))
+                 :tick         overlay-tick}])
+             ;; rf2-4lyvh — ELK layout-failure indicator. When
+             ;; `compute-layout!` surfaces a `:layout-error` slot the
+             ;; chart would otherwise render every node stacked at
+             ;; origin (no positions). Paint a small banner over the
+             ;; canvas so the operator sees the failure IN the panel,
+             ;; not just in the trace bus or DevTools console. The full
+             ;; structured failure lives on the `:rf.error/machines-
+             ;; viz-elk-layout-failed` trace event (tools/Xray Issues
+             ;; panel surfaces it from there); this banner is the dev-
+             ;; tool affordance for the operator running the live app.
+             (when layout-error
+               [:div {:data-testid (str testid "-layout-error-banner")
+                      :role "status"
+                      :aria-live "polite"
+                      :style {:position      "absolute"
+                              :top           "8px"
+                              :left          "8px"
+                              :right         "8px"
+                              :z-index       10
+                              :padding       "8px 12px"
+                              :font-family   tokens/sans-stack
+                              :font-size     "12px"
+                              :line-height   1.4
+                              :color         (:text-primary tokens/tokens)
+                              :background    (tokens/with-alpha :error 0.15)
+                              :border        (str "1px solid "
+                                                  (:error tokens/tokens))
+                              :border-radius "4px"}}
+                [:strong {:style {:color (:error tokens/tokens)
+                                  :margin-right "6px"}}
+                 "Layout failed."]
+                [:span (or (get-in layout-error [:error :message])
+                           "ELK threw an unknown error.")]
+                [:span {:style {:color (:text-tertiary tokens/tokens)
+                                :margin-left "6px"}}
+                 "See console / Issues panel."]])]))))))
