@@ -588,8 +588,13 @@
                    :cursor          "pointer"
                    :opacity         1
                    :padding         "0"
-                   :width           "22px"
-                   :height          "22px"
+                   ;; rf2-xrn3l — Figma authority specifies 21px square nav
+                   ;; buttons (chevron-left / chevron-right / chevrons-right
+                   ;; in the chrome ribbon's left cluster). The prior 22px
+                   ;; was a 1-px drift from the authority — corrected here
+                   ;; to match the Figma export.
+                   :width           "21px"
+                   :height          "21px"
                    :display         "inline-flex"
                    :align-items     "center"
                    :justify-content "center"
@@ -879,16 +884,13 @@
                    :background       (:chrome-ribbon-bg tokens)
                    :color            (:chrome-ribbon-text tokens)
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
-                   ;; rf2-o5f5f.1 — mode-signal mechanism #2: a 2-px
-                   ;; left-edge stripe in the single `:accent` (GitHub
-                   ;; blue — the Figma export carries one accent;
-                   ;; rf2-ad7zx.13). Painted on the ribbon so it lines up
-                   ;; with the top-of-shell edge regardless of the L2
-                   ;; resize-handle. The stripe-hex helper resolves the
-                   ;; `:accent` token through the current palette (light
-                   ;; vs dark via CSS custom properties).
-                   :border-left      (str "2px solid "
-                                          (static-shell/stripe-hex-for-mode :dynamic))
+                   ;; rf2-4yemd — the rf2-o5f5f.1 mode-signal mechanism #2
+                   ;; (a 2-px `:accent` left-edge stripe) was retired. The
+                   ;; Figma authority chrome ribbon has NO left-edge accent
+                   ;; — Dynamic mode signals through the mode-pill alone.
+                   ;; Removing the stripe also resolves the visual `blue
+                   ;; left edge on the chrome ribbon` reported by Mike
+                   ;; 2026-05-24.
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
      ;; LEFT cluster — `Events` label · nav · add(+). Per the authority

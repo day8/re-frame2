@@ -319,6 +319,22 @@
         (is (not (re-find #"❖" (text-nodes ribbon)))
             "no diamond `❖` glyph anywhere in the chrome ribbon")))))
 
+(deftest chrome-ribbon-has-no-left-edge-stripe
+  (testing "rf2-4yemd — the chrome ribbon must NOT paint a left-edge
+            accent stripe. The prior `rf2-o5f5f.1 mode-signal mechanism
+            #2` (a 2-px `:accent` `border-left`) was retired to match the
+            Figma authority chrome (no left-edge accent on the ribbon);
+            this is also the fix for the `blue left edge on chrome ribbon`
+            observed live 2026-05-24."
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [ribbon (shell/ribbon nil)
+            root   (find-by-testid ribbon "rf-xray-ribbon")
+            style  (:style (second root))]
+        (is (some? root))
+        (is (nil? (:border-left style))
+            "chrome ribbon root has no :border-left in its inline style")))))
+
 (deftest events-ribbon-carries-warning-and-committed-pills
   (testing "rf2-3f2di A5/A6 — reconciled to the authority reference
             events-ribbon (bar-2). It carries the `N events filtered out`

@@ -265,14 +265,16 @@
       (is (re-find #"outline-color:\s*Highlight" css)
           "focus-visible outline-color is Highlight inside the block"))))
 
-(deftest motion-css-forced-colors-maps-ribbon-stripe-to-highlight
-  (testing "rf2-wxepo — the L1 ribbon's 2px left-edge mode stripe
-            (runtime violet / static cyan) maps to `Highlight` so the
-            mode signal is preserved under HCM."
+(deftest motion-css-has-no-ribbon-border-left-color-rule
+  (testing "rf2-4yemd — the chrome ribbon's left-edge mode stripe
+            (rf2-o5f5f.1 mechanism #2) was retired to match the Figma
+            authority. The HCM `border-left-color` rule on
+            `rf-xray-ribbon` that re-coloured the stripe to `Highlight`
+            was retired alongside it — nothing left to recolour."
     (let [css @#'gs/motion-css]
-      (is (re-find #"\[data-testid=\"rf-xray-ribbon\"\]\s*\{[^}]*border-left-color:\s*Highlight"
-                   css)
-          "ribbon border-left-color is Highlight"))))
+      (is (not (re-find #"\[data-testid=\"rf-xray-ribbon\"\]\s*\{[^}]*border-left-color"
+                        css))
+          "no `border-left-color` rule scoped to `[data-testid=\"rf-xray-ribbon\"]`"))))
 
 (deftest motion-css-forced-colors-distinguishes-status-accents
   (testing "rf2-wxepo — the four lifecycle-status accents map onto
