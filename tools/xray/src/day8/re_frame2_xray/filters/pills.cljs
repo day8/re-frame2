@@ -173,6 +173,11 @@
                        :font-size   (:caption type-scale)
                        :white-space "nowrap"}}
         (str mode-glyph " " body-text)])
+     ;; rf2-xawwb — a VERTICAL DIVIDER sits before the `✕` (Figma-Make
+     ;; surface): a 1px tone-coloured rule separating the pill body from
+     ;; the remove affordance. The remove button keeps its own border-left
+     ;; as the divider so it round-trips through the same tone; the explicit
+     ;; padding gives the `✕` a square hit-area that reads against the rule.
      [:button {:data-testid  (str testid "-remove")
                :on-click     #(rf/dispatch
                                 [:rf.xray/remove-filter mode idx]
@@ -183,8 +188,8 @@
                        :border        "none"
                        :color         tone
                        :cursor        "pointer"
-                       :padding       "0 2px"
-                       :margin-left   "2px"
+                       :padding       "0 4px 0 6px"
+                       :margin-left   "4px"
                        :font-family   sans-stack
                        :font-size     (:caption type-scale)
                        :line-height   "1"

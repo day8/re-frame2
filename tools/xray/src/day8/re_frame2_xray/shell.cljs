@@ -1851,22 +1851,24 @@
    "Clear Filters"])
 
 (rf/reg-view events-ribbon
-  "L1.5 **events ribbon** (bar-2) — reconciled to the authoritative
-  reference events-ribbon (`tools/xray/design-reference/xray_devtools_
-  reference.cljs`, rf2-3f2di A5/A6). The second stratum below the chrome
-  ribbon. LEFT → RIGHT:
+  "L1.5 **events ribbon** (bar-2) — reconciled to the Figma-Make surface
+  (rf2-xawwb). The second stratum below the chrome ribbon. LEFT → RIGHT:
 
-    - the `N events filtered out` warning text (when N > 0), in the
-      `:warning` colour;
+    - the `↳ filters:` contextual label (corner-down-right glyph);
+    - the add-filter `+` ICON button
+      (`filter-pills/events-add-filter-button`) — opens the edit popup;
     - the committed green-bordered IN pills + red-bordered OUT pills
-      (`filter-pills/pills-view`, A6);
-    - FAR RIGHT (only when a filter is active): the `Clear Filters`
-      button (Xray wiring — one-click reset of every pill + mute).
+      (`filter-pills/pills-view`), each with a vertical divider before
+      its `✕`;
+    - pushed to the FAR RIGHT (via `margin-left: auto`): the `N events
+      filtered out` warning text (when N > 0, `:warning` colour) +
+      (only when a filter is active) the `Clear Filters` button.
 
-  The nav cluster, focus button, focus-chip, and the add(+) affordance
-  moved UP to the chrome ribbon (bar-1) per the reference's chrome-ribbon
-  / events-ribbon split (rf2-3f2di A5). This bar now carries ONLY the
-  filtered-out warning + the committed pills + the reset action.
+  rf2-xawwb supersedes the rf2-3f2di A5/A6 layout (warning LED the bar):
+  the Figma-Make surface leads with the `filters:` label + add(+) and
+  pushes the filtered-out count to the trailing edge. The nav cluster,
+  focus button, focus-chip, and the chrome add affordance live UP on the
+  chrome ribbon (bar-1).
 
   Visibility (rf2-4vp5j Decision 3, preserved):
     - the bar renders its background/hairline always (it is a fixed
@@ -1895,20 +1897,35 @@
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
-     ;; rf2-3f2di A5 — the `N events filtered out` warning leads the
-     ;; bar-2 cluster (reference events-ribbon left side), ahead of the
-     ;; pills. Renders only when N > 0.
-     (filters-hidden-message hidden-summary)
+     ;; rf2-xawwb — `↳ filters:` contextual label leads the events ribbon
+     ;; (Figma-Make surface), followed by the add-filter (+) ICON button,
+     ;; then the committed pills. The corner-down-right glyph mirrors the
+     ;; tabs ribbon's `for selected event` label idiom.
+     [:span {:data-testid "rf-xray-events-ribbon-filters-label"
+             :style {:display      "inline-flex"
+                     :align-items  "center"
+                     :gap          "6px"
+                     :color        (:text-secondary tokens)
+                     :font-family  sans-stack
+                     :font-size    (:caption type-scale)
+                     :white-space  "nowrap"}}
+      [:span {:aria-hidden "true"} "↳"]
+      "filters:"]
+     [filter-pills/events-add-filter-button]
      ;; rf2-3f2di A6 — the committed green/red filter pills.
      [ribbon-filter-pills {:filters filters}]
-     ;; rf2-4vp5j Decision 3 — Clear Filters on the far right, only when
-     ;; a filter is active. `margin-left: auto` pushes it to the trailing
-     ;; edge regardless of pill count.
-     (when any-active?
+     ;; rf2-xawwb — the `N events filtered out` warning is pushed to the
+     ;; RIGHT end (Figma-Make surface), alongside Clear Filters. The
+     ;; `margin-left: auto` on this trailing cluster shoves both to the
+     ;; trailing edge regardless of pill count. The warning renders only
+     ;; when N > 0; Clear Filters only when a filter is active.
+     (when (or (:visible? hidden-summary) any-active?)
        [:div {:data-testid "rf-xray-events-ribbon-actions"
-              :style {:display "flex" :align-items "center" :gap "8px"
+              :style {:display "flex" :align-items "center" :gap "12px"
                       :margin-left "auto"}}
-        [clear-filters-button]])]))
+        (filters-hidden-message hidden-summary)
+        (when any-active?
+          [clear-filters-button])])]))
 
 ;; rf2-ad7zx.12 + rf2-lnod7 — the L2 list's column-header row, reconciled
 ;; to the Figma EventList (the `event-list` component in
