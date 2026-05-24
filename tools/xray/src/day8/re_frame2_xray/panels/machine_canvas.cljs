@@ -254,6 +254,14 @@
     :current-state      — live snapshot state for the active-state
                           highlight. Optional; nil renders no
                           highlight.
+    :fired-edge-ids     — rf2-qeemm (G3). A SET of canonical machines-viz
+                          edge-ids that fired THIS epoch (resolved by the
+                          host via
+                          `panels.machines.trace-state/extract-fired-edge-ids`).
+                          Forwarded to `mv-chart/MachineChart` so the
+                          traversed edges paint the FIRED treatment on the
+                          live chart — not just the from/to lens. nil /
+                          `#{}` → no fired highlight (Static passes none).
     :sim?               — rf2-u422r. When true the active-state
                           highlight uses the amber sim palette (so the
                           on-chart hermetic simulator reads distinct
@@ -277,6 +285,7 @@
   internally — no host-side viewport machinery is needed
   post-migration."
   [{:keys [definition machine-id from-highlight to-highlight current-state
+           fired-edge-ids
            sim? on-state-click on-edge-click
            show-after-rings? show-view-mode-toggle?
            show-controls? testid inner-testid]
@@ -309,6 +318,7 @@
       :from-highlight  from-highlight
       :to-highlight    to-highlight
       :current-state   current-state
+      :fired-edge-ids  fired-edge-ids
       :sim?            sim?
       :on-state-click  on-state-click
       :on-edge-click   on-edge-click

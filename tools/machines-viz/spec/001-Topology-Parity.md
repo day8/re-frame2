@@ -180,17 +180,22 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 | **Guards / actions** | ✅ Guard in `[...]`, action after `/`; entry/exit state actions render as `entry / <name>` / `exit / <name>` rows under the label; state-tag pills above. | `layout.cljc` `edge-label`, `name-of`; `nodes.cljs` `state-node` (entry/exit rows, tag pills). |
 | **Layout** | ✅ elk Layered, `DOWN`/`RIGHT` direction, `INCLUDE_CHILDREN` when nested, per-container padding for header strips; async + cached pass; xyflow `fitView`. | `chart.cljs` `compute-layout!`/`default-elk-options`; `projection.cljc` `->elk-children` (per-container `layoutOptions`). |
 | **Edge routing through nesting** | ✅ **Closed (rf2-cz8v6).** elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into an `{edge-id [{:x :y} …]}` map that the projector attaches to the edge `:data {:points}`. `transition-edge` then draws a smooth poly-path THROUGH the bends, so a deeply-nested transition routes **around** a container instead of cutting across it. Self-loops keep their dedicated loop path; an edge with no elk route falls back to the bezier. | `chart.cljs` `default-elk-options` (`ORTHOGONAL` + `edgeCoords ROOT`) / `elk-edge-points` / `elk-result->positions`; `projection.cljc` `xyflow-graph` (`:edge-points` → `:data {:points}`); `edges.cljs` `edge-path` (poly-path). |
+| **Fired-this-epoch edge highlight** | ✅ **Closed (rf2-8jzm1 + rf2-qeemm / G3).** The Xray inspector resolves the focused epoch's traversed edges via `extract-fired-edge-ids` (CANONICAL machines-viz edge-ids, B7) and threads them as `:fired-edge-ids` (set) into `MachineChart`; the projector marks each matching edge `:fired` and `transition-edge` paints the FIRED treatment (emphasised + animated stroke + `data-fired`) along the routed path — coexisting with G2's bend-points + G1's active styling. Matches the EDGE directly (not the from/to ENDPOINT lens), so every microstep / guard-fork arm lights up. **Colour delegated to Figma** (`:accent` baseline, distinct from the focused/active `:info`). | `projection.cljc` `xyflow-graph` (`:fired-edge-ids` → `:data {:fired}`); `chart.cljs` (`:fired-edge-ids` prop); `edges.cljs` `transition-edge` (FIRED stroke + `data-fired`); Xray `trace_state/extract-fired-edge-ids` + `machine_inspector` / `machine_canvas` wiring. |
 | **Simulation** | ✅ (host-side, trace-driven + hermetic sim) — live highlight off `[:rf/machines <id>]` + the Spec 009 bus; the Static-Machines Sim sub-mode is a hermetic what-if walker. Edge labels carry `:eventId` + `:onClick` so a host wires "click to send". | `projection.cljc` (`:on-edge-click`/`:eventId`); Xray `static/machines/sim.cljs` (per 003). |
 | **Interactivity / ergonomics** | ✅ xyflow pan/zoom/fit/minimap/background; density-resolved geometry + typography; node/edge click callbacks; `:after` countdown rings + `:spawn-all` join + cancellation overlays (re-frame2-native, no Stately peer). | `chart.cljs`; `visual-constants`; overlays per 003 / 000-Vision. |
 
 **Headline:** structurally **at parity** on hierarchy, regions
 (layout), initial, final, transition scoping, event labels,
 guards/actions, layout, and ergonomics. The high-severity **parallel
-multi-active highlight** gap (G1) is now **closed** (rf2-yoe6e /
-rf2-g2svr), the bend-point edge-routing gap (G2) is now **closed**
-(rf2-cz8v6), and the region-ACTIVE chrome polish (G4) is now **closed**
-(rf2-80rm2) — the parallel-parity read is complete; the residue is the
-two **fired-edge consistency** items the live-chart wiring needs.
+multi-active highlight** gap (G1) is **closed** (rf2-yoe6e / rf2-g2svr),
+the bend-point edge-routing gap (G2) is **closed** (rf2-cz8v6), the
+region-ACTIVE chrome polish (G4) is **closed** (rf2-80rm2), and the
+**fired-this-epoch edge highlight** (G3) is now **closed** (rf2-8jzm1
+canonical-id helper + rf2-qeemm live-chart wiring) — **the
+machine-topology parity roadmap is COMPLETE (G1 / G2 / G3 / G4 all
+✅).** The sole remaining roadmap item is the low-severity ELK
+cross-hierarchy-routing assertion (G5, rf2 N2), an option-pin polish on
+top of G2.
 
 ## §3 — Gap analysis + deliberate divergences
 
@@ -203,7 +208,7 @@ new), and the parity-bar row it serves.
 |---|---|---|---|---|
 | **G1** | ✅ **CLOSED (rf2-yoe6e / rf2-g2svr).** Was: a parallel snapshot's `:state` is a region-map `{region path}` with **N active leaves**; `highlight-id` returned nil for a map, so the chart highlighted **none** (or only a degenerate single id). Now: `highlight-ids` resolves the whole `:state` (flat / compound / region-map, nested values → deepest leaf) to the **set** of active-leaf node-ids; `xyflow-graph` threads `:highlight-ids` and marks **every** active leaf, so all N regions light up at once — Stately's §1.2 read. | **High** | §1.2, §1.9 | **contract:** rf2-yoe6e ✅ · **impl:** rf2-g2svr ✅ |
 | **G2** | ✅ **CLOSED (rf2-cz8v6).** Was: edges were beziers between handles; elk's Layered bend-points were discarded (§1.7), so in deep nesting an edge could cut **across** a region/compound container instead of routing **around** it. Now: elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into the projection (`:edge-points` → `:data {:points}`), and `edges.cljs/edge-path` draws a smooth poly-path THROUGH them — routing around non-incident containers (the [`000-Vision.md`](000-Vision.md) §Quality-bar "no edge-crossing collapse" floor). Self-loops keep their loop path; no-route edges fall back to the bezier; G1's active-edge highlight survives the new path. | **Medium** | §1.7, §1.9 | **impl:** rf2-cz8v6 ✅ |
-| **G3** | **Fired-edge id consistency (live chart).** To highlight "the edge that fired this epoch" on the live chart, the host's trace→edge-id mapping MUST mint the **same** `edge-id` `chart.layout` mints. Today the helper chain needs consolidating so `extract-fired-edge-ids` emits machines-viz `edge-id`s. (The node-id scheme was already unified — rf2-m8kod.) | **Medium** | §1.3, §1.8 | **helpers:** rf2-8jzm1 (existing) · **wire:** rf2-qeemm (existing) |
+| **G3** | ✅ **CLOSED (rf2-8jzm1 + rf2-qeemm).** Was: to highlight "the edge that fired this epoch" on the live chart, the host's trace→edge-id mapping had to mint the **same** `edge-id` `chart.layout` mints, and the ids weren't wired through to the canvas. Now: `extract-fired-edge-ids` (rf2-8jzm1) projects the definition through the public `parse-definition` and reads ids off the projected edges — they agree with the live chart **by construction**; rf2-qeemm threads them as `:fired-edge-ids` (set) into `MachineChart`, the projector marks each matching edge `:fired`, and `transition-edge` paints the FIRED treatment (emphasised + animated stroke + `data-fired`) on the live canvas. Matches the EDGE directly so every traversed arm (microsteps, guard-fork candidates) lights up. **Palette delegated to Figma.** | **Medium** | §1.3, §1.8 | **helpers:** rf2-8jzm1 ✅ · **wire:** rf2-qeemm ✅ |
 | **G4** | ✅ **CLOSED (rf2-80rm2).** Was: once G1 lit N region LEAVES, the **region CONTAINER** still read structural-only — an active region was indistinguishable from an inactive one at the zone level. Now: `xyflow-graph` folds a container (region OR compound) into `:active` when any descendant leaf is active — walked UP the `:parent-id` chain every node already carries (reuses the G1 active set; no path-prefix reimplementation). `parallel-region-node` / `compound-node` paint active chrome (solid emphasised boundary + the `:info` active-token glow ring, the same affordance state nodes use), so each active region reads as active at a glance and the N active regions read as a set. **Palette delegated to Figma.** | **Low–Medium** | §1.2 | **impl:** rf2-80rm2 ✅ |
 | **G5** | **Cross-hierarchy edge-routing option not asserted.** elk routes cross-hierarchy edges only when the option is activated on the top level (§1.7). The default elk options set `INCLUDE_CHILDREN` for nesting but do not pin the cross-hierarchy edge-routing option; an edge from a deeply-nested leaf to a top-level state may not route cleanly even after G2. | **Low** | §1.7 | **NEW — see §5 N2** (pairs with rf2-cz8v6/G2) |
 
@@ -275,6 +280,7 @@ not **which colour**.
 | **Edge (resting transition)** | thin stroke + arrowhead + label backplate | *`border-default`* |
 | **Edge (active — touches active state)** | mid-weight stroke + arrow tinted to active hue | *`info`, midweight* |
 | **Edge (focused — the fired FROM→TO)** | **emphasised** stroke + **animated glow** | *`info` + `mv-chart-transition-glow`* |
+| **Edge (fired THIS epoch) — G3** | matched by **edge-id** (not endpoint), the **heaviest** stroke + **animated glow** + a hue **distinct from focused/active**; `data-fired` DOM hook; lights **every** traversed arm (microsteps, guard-fork candidates) | *`accent` + `mv-chart-transition-glow`* — distinct from the focused/active `info` |
 | **Edge (self-loop)** | a small loop off the node edge (not a degenerate bezier) | shipped path |
 | **Edge (internal self-transition)** | **dashed** loop + **no arrowhead** (no exit/entry re-trigger) | shipped dash |
 | **Edge (`:after` timer)** | `after(<ms>)` label + `data-after-ms` hook for the countdown-ring overlay | shipped |
@@ -303,18 +309,28 @@ not **which colour**.
   non-incident region/compound box). Figma owns stroke style; the
   **routing geometry** is the contract.
 
-### 4.4 G3 — fired-edge id consistency
+### 4.4 G3 — fired-edge id consistency ✅ CLOSED
 
-- **Single edge-id source of truth.** `chart.layout/edge-id` is the
-  canonical minting fn. The host's `extract-fired-edge-ids`
-  (Xray-side, rf2-8jzm1) MUST call into / reproduce **exactly** that
-  scheme (source-id `__` target-id `__` event-segment `__g_<guard>`
-  `__a_<action>` + per-key ordinal tiebreak) so a fired-this-epoch
-  trace maps to a real chart edge-id. The node-id half is already
-  unified (rf2-m8kod injective hex-escape).
-- **Wire the highlight (rf2-qeemm).** With consistent ids, the host
-  sets the focused FROM→TO edge to the **focused** dimension (§4.2)
-  for the fired transition of the focused epoch.
+- ✅ **Single edge-id source of truth (rf2-8jzm1 — DONE).**
+  `chart.layout/edge-id` is the canonical minting fn. Rather than
+  RE-IMPLEMENT the scheme (source-id `__` target-id `__` event-segment
+  `__g_<guard>` `__a_<action>` + per-key ordinal tiebreak), the host's
+  `extract-fired-edge-ids` (Xray-side) **projects the definition through
+  the public `parse-definition`** and reads ids off the projected edges,
+  so they agree with the live chart **by construction** — exactly one
+  minting fn. The node-id half was already unified (rf2-m8kod injective
+  hex-escape).
+- ✅ **Wire the highlight (rf2-qeemm — DONE).** `MachineChart` accepts a
+  `:fired-edge-ids` (set) prop; `xyflow-graph` marks each matching edge
+  `:fired`; `edges.cljs/transition-edge` paints the FIRED treatment
+  (heaviest stroke + animated glow + `data-fired`, in a hue distinct
+  from the focused/active `:info`) along the routed path — coexisting
+  with G2's bend-points + G1's active styling. The Xray inspector
+  resolves the set per focused epoch (`extract-fired-edge-ids`) and
+  threads it through `machine_canvas/Chart` → `MachineChart`. Because
+  the match is by **edge-id** (not endpoint node-ids like the from/to
+  lens), it lights **every** traversed arm — microsteps, guard-fork
+  candidates — the lens cannot reach. **Palette delegated to Figma.**
 
 ## §5 — Roadmap
 
@@ -349,8 +365,8 @@ project dispatch rules): `tools/xray/spec/003-Machine-Inspector.md`.
 
 | Step | Bead | New? | Hot-zone | Notes |
 |---|---|---|---|---|
-| C1 | **rf2-8jzm1** — consolidate trace→state helpers; emit machines-viz edge-ids | existing | isolated (Xray helpers ns + tests) | Closes **G3** (helper half). `extract-fired-edge-ids` mints `chart.layout/edge-id`-identical ids. |
-| C2 | **rf2-qeemm** — wire fired-this-epoch edge highlight to the live chart | existing | isolated (Xray panel wiring + tests) | Closes **G3** (wire half). Sets the focused FROM→TO edge dimension. Depends on C1 + A2. |
+| C1 | **rf2-8jzm1** ✅ — consolidate trace→state helpers; emit machines-viz edge-ids | existing | isolated (Xray helpers ns + tests) | **Closed G3 (helper half).** `extract-fired-edge-ids` mints `chart.layout/edge-id`-identical ids (via `parse-definition` projection — agree by construction). |
+| C2 | **rf2-qeemm** ✅ — wire fired-this-epoch edge highlight to the live chart | existing | isolated (machines-viz `chart`/`projection`/`edges` + Xray panel wiring + tests) | **Closed G3 (wire half).** `:fired-edge-ids` prop → `:fired` edge flag → FIRED treatment (`data-fired`). Depended on C1 + A2. |
 
 ### Phase D — documentation
 

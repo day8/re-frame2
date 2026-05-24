@@ -122,11 +122,25 @@
 
 (defn- event-from-trace
   "Pull the event keyword off a `:rf.machine/transition` trace event.
-  The runtime stamps the inner event under `:event` (a keyword, or a
-  `[event-id & args]` vector). Legacy fixtures may carry it under
-  `:payload :event`. Returns the bare event keyword or nil."
+
+  Tolerant of the three shapes that carry the inner event (mirrors the
+  before/after-state tolerance of `to-path-from-trace`):
+
+    1. Modern runtime: `:tags {:event <kw-or-vec>}` — `commit-or-finalize`
+       (`lifecycle_fx/registration`) emits `(trace/emit! :rf.machine
+       :rf.machine/transition {:event inner-event ...})`, so the inner
+       event lands under `:tags :event`. This is the shape the live chart
+       wiring (rf2-qeemm / G3) sees in production + the sub-reactivity
+       fixtures use.
+    2. Legacy/test fixtures: top-level `:event`.
+    3. Pre-rf2-hwuki: `:payload :event`.
+
+  The event may be a keyword or a `[event-id & args]` vector; returns the
+  bare event keyword (the vector's head) or nil."
   [ev]
-  (let [event (or (:event ev) (get-in ev [:payload :event]))]
+  (let [event (or (get-in ev [:tags :event])
+                  (:event ev)
+                  (get-in ev [:payload :event]))]
     (cond
       (keyword? event) event
       (vector? event)  (first event)

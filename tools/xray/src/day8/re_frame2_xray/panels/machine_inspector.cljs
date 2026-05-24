@@ -42,12 +42,14 @@
   Same contract as every other Xray panel — the view is pure hiccup,
   no Reagent / UIx / Helix references. Frame isolation comes from the
   enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]
+            [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             [day8.re-frame2-xray.share :as share]
             [day8.re-frame2-xray.theme.tokens
@@ -157,7 +159,7 @@
   guards → actions → cancellation cascade (inline) → after-rings
   overlay (on the chart)."
   [{:keys [machine-id from-state to-state on-event event microstep?
-           definition guards actions]}]
+           definition guards actions fired-edge-ids]}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance (layout-or-fallback / ensure-elk! / compute-layout!)
   ;; is GONE. xyflow + elkjs now own positioning end-to-end inside
@@ -266,6 +268,12 @@
                   :data-machine-id (str machine-id)
                   :data-from-highlight-id (or from-id "")
                   :data-to-highlight-id (or to-id "")
+                  ;; rf2-qeemm (G3) — surface the focused epoch's fired
+                  ;; edge-ids on the canvas wrapper (sorted, space-joined)
+                  ;; so the JVM/hiccup suite + hosts pin the wiring without
+                  ;; reaching into the xyflow canvas. "" when none fired.
+                  :data-fired-edge-ids (str/join
+                                         " " (sort (set fired-edge-ids)))
                   :data-view-mode "canvas"
                   ;; rf2-zdfbm — fill the section's available height so the
                   ;; topology chart (`machine-canvas/Chart` is `height
@@ -293,6 +301,10 @@
               :machine-id         machine-id
               :from-highlight     from-state
               :to-highlight       to-state
+              ;; rf2-qeemm (G3) — the focused epoch's traversed edges paint
+              ;; the FIRED treatment on the live chart (canonical ids from
+              ;; `extract-fired-edge-ids`, attached to the section record).
+              :fired-edge-ids     fired-edge-ids
               :on-state-click     (fn [path]
                                     (rf/dispatch
                                       [:rf.xray/machine-state-clicked
@@ -617,7 +629,18 @@
     (fn [[focus history definitions] _query]
       (let [record (h/focused-epoch-record history focus)
             events (when record (:trace-events record))]
-        (h/project-focused-event-transitions events definitions))))
+        ;; rf2-qeemm (G3) — attach the focused epoch's fired-edge-ids to
+        ;; each per-machine section. `extract-fired-edge-ids` (B7,
+        ;; canonical) mints the SAME edge-ids the live chart mints off the
+        ;; same definition, so the set lands on real chart edges. The view
+        ;; threads it into `MachineChart` so the traversed arms paint the
+        ;; FIRED treatment — every microstep / guard-fork candidate the
+        ;; from/to lens cannot reach.
+        (mapv (fn [{:keys [machine-id definition] :as rec}]
+                (assoc rec :fired-edge-ids
+                       (trace-state/extract-fired-edge-ids
+                         definition events machine-id)))
+              (h/project-focused-event-transitions events definitions)))))
 
   ;; Test-only overrides for the focused-event composite.
   (rf/reg-event-db :rf.xray/set-epoch-history-for-test
