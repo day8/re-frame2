@@ -117,6 +117,41 @@ A facade `reg-view` body that imports a leaf-side `reg-view` (i.e. the
 leaf calls `reg-view` and the facade `def`-rebinds) is the divergence
 remediation explicitly removed; do not re-introduce it.
 
+### DOM hiccup root (rf2-fkpuv)
+
+Every facade `reg-view` body MUST produce a hiccup vector with a
+**DOM-tag keyword head** (`:div`, `:section`, `:svg`, …) as its root —
+not a function-component head like
+`[some.ns/SomeComponent {...}]` or a `:<>` fragment. Per
+[main Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1)
+the adapter stamps `data-rf2-source-coord` (+ `data-rf-view`) on the
+root DOM element so pair tools can map a clicked DOM node back to the
+reg-view call site. A non-DOM root is a documented exemption
+([Spec 006 §Documented exemption: non-DOM roots](../../../spec/006-ReactiveSubstrate.md#documented-exemption-non-dom-roots)) —
+the annotation is skipped, pair tools fall back to `:rf/id`, and the
+adapter emits a one-shot `console.warn` per id.
+
+When the body **logically** delegates to a single inner component
+(e.g. an overlay imported from another artefact such as
+`tools/machines-viz/`), wrap the delegation in a
+`display: contents` `:div`:
+
+```clojure
+(rf/reg-view AfterRingsOverlay
+  [& _opts]
+  …
+  [:div {:data-rf-xray-after-rings-host ""
+         :style {:display "contents"}}
+   [mv-after-rings/AfterRingsOverlay {...}]])
+```
+
+`display: contents` keeps the wrapper visible to the DOM (so the
+source-coord attribute has a home) while being neutralised for layout
+— the inner component renders as if it were the direct child of the
+facade's mount point. The pattern is established by `shell.cljs`'s
+`dynamic-chrome` / `surface-composer` (rf2-uu3lp) and the
+`machine-after-rings/AfterRingsOverlay` overlay (rf2-fkpuv).
+
 ### Per-leaf smoke tests
 
 Every implementation leaf SHOULD ship at least one smoke test in its own

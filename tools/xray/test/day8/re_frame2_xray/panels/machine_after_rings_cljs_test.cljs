@@ -168,18 +168,31 @@
 ;; Post-migration the Xray overlay is the DATA owner: it projects the
 ;; trace buffer into ring-specs + delegates positioning + paint to the
 ;; machines-viz `AfterRingsOverlay`, which walks the xyflow node DOM.
-;; The Xray overlay returns `[mv-after-rings/AfterRingsOverlay {...}]`
-;; (or nil when no active timers). We assert the delegated PROPS — the
-;; DOM-walk geometry is exercised by the machines-viz overlay's own
-;; suite + the geometry helper's JVM tests. (The old SVG-positioned-
-;; graph + viewport-transform tests are gone with the elk renderer.)
+;; Per rf2-fkpuv the Xray overlay returns
+;; `[:div {... :style {:display "contents"}}
+;;   [mv-after-rings/AfterRingsOverlay {...}]]` (or nil when no active
+;; timers) — the `display: contents` wrapper gives Spec 006
+;; §Source-coord annotation a DOM root to stamp `data-rf2-source-coord`
+;; on. The helpers below dig past the wrapper to the delegated head +
+;; props. The DOM-walk geometry is exercised by the machines-viz
+;; overlay's own suite + the geometry helper's JVM tests. (The old
+;; SVG-positioned-graph + viewport-transform tests are gone with the
+;; elk renderer.)
+
+(defn- delegated-child
+  "Pull the inner `[mv-after-rings/AfterRingsOverlay {...}]` hiccup
+  past the `display: contents` wrapper `:div` (rf2-fkpuv)."
+  [tree]
+  (when (and (vector? tree) (= :div (first tree)))
+    (nth tree 2)))
 
 (defn- delegated-props
   "Pull the props map the Xray overlay hands to the machines-viz
-  overlay. The overlay's render returns `[Component props]`; props is
-  the second element."
+  overlay. The Xray overlay returns
+  `[:div {...} [mv-after-rings/AfterRingsOverlay {props}]]`; this
+  digs past the wrapper to the props."
   [tree]
-  (when (vector? tree) (second tree)))
+  (some-> tree delegated-child second))
 
 (deftest overlay-returns-nil-with-no-active-timers
   (setup-xray-frame!)
@@ -199,9 +212,13 @@
     (pin-now-ms! 2000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
     (let [tree  (after-rings/AfterRingsOverlay)
+          child (delegated-child tree)
           props (delegated-props tree)
           specs (:ring-specs props)]
-      (is (= mv-after-rings/AfterRingsOverlay (first tree))
+      (is (= :div (first tree))
+          "root is a `display: contents` wrapper :div so Spec 006
+           §Source-coord annotation has a DOM root to stamp (rf2-fkpuv)")
+      (is (= mv-after-rings/AfterRingsOverlay (first child))
           "delegates to the machines-viz xyflow overlay")
       (is (= 1 (count specs)))
       (is (= "idle" (-> specs first :node-id))
