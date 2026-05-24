@@ -1573,12 +1573,13 @@
         (is (empty? label-strings)
             "no 'cascade #NNN' label appears anywhere in the rendered lens")))))
 
-(deftest cascade-container-carries-accent-stripe-per-section-17
-  (testing "rf2-zv9r9 / rf2-ad7zx — per spec/021 §17.1.3 + spec/022 the
-            Event panel identity stripe is the mode :accent (the single
-            GitHub blue). Rendered as a 3px left border on the outer
-            cascade container — it survives the top-ribbon removal
-            (rf2-ad7zx.17)."
+(deftest cascade-container-has-no-accent-stripe-rf2-cjdw3
+  (testing "rf2-cjdw3 — the 3px :accent border-left that previously
+            hugged the cascade root is GONE. It was a stale visual
+            affordance from before the focus-feature retirement
+            (#2091) / Figma re-skin (#2089), not in the current Figma
+            authority. The cascade container still mounts; just the
+            inline border-left is dropped."
     (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
@@ -1586,10 +1587,8 @@
             cascade (find-by-testid tree "rf-xray-event-detail-cascade")
             border (get-in cascade [1 :style :border-left])]
         (is (some? cascade) "cascade container present")
-        (is (and (string? border)
-                 (str/includes? border "3px")
-                 (str/includes? border "solid"))
-            "stripe is a 3px solid left border")))))
+        (is (nil? border)
+            "no inline border-left on the cascade root (rf2-cjdw3)")))))
 
 ;; ---- (13) handler-source slot (rf2-xgfuy DEBUG-stamp consumer) --------
 

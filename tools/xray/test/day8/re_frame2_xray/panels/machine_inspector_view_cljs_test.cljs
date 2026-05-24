@@ -15,6 +15,7 @@
   Same approach as every other Xray view test — walk the rendered
   hiccup tree by `data-testid` rather than mounting to the DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -308,9 +309,15 @@
         (is (= "idle"    (:data-from-highlight-id (second chart))))
         (is (= "authing" (:data-to-highlight-id   (second chart))))))))
 
-(deftest focused-event-lens-renders-multi-machine-cascade
-  (testing "a cascade triggering transitions across multiple machines
-            yields one section per machine, document-order"
+(deftest focused-event-lens-binds-to-first-machine-in-trace-order-rf2-8og3k
+  (testing "Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
+            single-instance, event-driven, rf2-8og3k): when the focused
+            event's cascade transitioned multiple machine instances, the
+            panel binds to EXACTLY ONE — the first transition trace in
+            trace order (earliest `:rf.trace/at`; ties broken by
+            trace-emission sequence within the same epoch). The host
+            still records the cascade transition count so callers can
+            distinguish 'one transition' from 'first of N'."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login :checkout/flow :session/clock])
@@ -337,13 +344,200 @@
                    :event      [:tick] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 7)
       (let [tree     (machine-inspector/Panel)
+            host     (find-by-testid tree "rf-xray-machine-focused-event")
             sections (find-all-by-testid-prefix
                        tree "rf-xray-machine-focused-event-section-")]
-        (is (= 3 (count sections))
-            "three sections — one per transitioned machine")
-        (is (= [":auth/login" ":checkout/flow" ":session/clock"]
+        (is (some? host) "focused-event host mounts")
+        (is (= "1" (:data-section-count (second host)))
+            "exactly one section rendered (Dynamic-mode single-instance)")
+        (is (= "3" (:data-cascade-transition-count (second host)))
+            "cascade transition count is preserved on the host")
+        (is (= 1 (count sections))
+            "exactly one machine section — the trace-order tiebreaker winner")
+        (is (= [":auth/login"]
                (mapv #(:data-machine-id (second %)) sections))
-            "sections appear in cascade document order")))))
+            "the first-by-trace-order machine wins (lowest :id wins)")))))
+
+;; ---- (4b) focused-transition lens (rf2-2n34o · spec/003 §Focused-transition lens) -----
+
+(defn- register-machine-guard-meta! [machine-id guard-id source]
+  ;; Bypass `reg-machine` — register the handler-meta entry directly so
+  ;; the lens has data to render under JVM/Node tests without booting
+  ;; the `reg-machine` macro pipeline.
+  (registrar/register!
+    :machine-guard [machine-id guard-id]
+    {:rf/guard-id        guard-id
+     :rf/machine-id      machine-id
+     :rf.handler/source  source
+     :handler-fn         (fn [_] true)}))
+
+(defn- register-machine-action-meta! [machine-id action-id source]
+  (registrar/register!
+    :machine-action [machine-id action-id]
+    {:rf/action-id       action-id
+     :rf/machine-id      machine-id
+     :rf.handler/source  source
+     :handler-fn         (fn [_] nil)}))
+
+(deftest blank-state-renders-verbatim-empty-state-text-rf2-8og3k
+  (testing "spec/003 §Empty state — focused event does not target a state
+            machine (rf2-8og3k): the panel renders ONLY the verbatim
+            placeholder string when the focused event triggered no
+            transitions. No chart, no lens, no history ribbon — just
+            that one line."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (let [tree    (machine-inspector/Panel)
+            blank   (find-by-testid tree "rf-xray-machine-inspector-blank")
+            message (find-by-testid tree "rf-xray-machine-inspector-blank-message")]
+        (is (some? blank)  "blank-state container present")
+        (is (some? message) "verbatim message container present")
+        ;; The verbatim string per spec/003 §Empty state.
+        (is (= "This event does not target a state machine"
+               (last message))
+            "the empty-state surface renders the verbatim spec text")
+        ;; No lens, no chart, no history ribbon in the empty state.
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-focused-transition-lens"))
+            "no lens in the empty state")
+        (is (nil? (find-by-testid tree "rf-xray-machine-focused-event-chart"))
+            "no chart in the empty state")))))
+
+(deftest lens-renders-target-instance-and-transition-rf2-2n34o
+  (testing "spec/003 §Focused-transition lens — rendered shape: the lens
+            block sits above the chart and carries Target Machine
+            Instance: + TRANSITION (from → to) lines."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle    :data {}}
+                   :after      {:state :authing :data {}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree   (machine-inspector/Panel)
+            lens   (find-by-testid tree "rf-xray-machine-focused-transition-lens")
+            target (find-by-testid tree "rf-xray-machine-lens-target-instance")
+            transition (find-by-testid tree "rf-xray-machine-lens-transition")]
+        (is (some? lens)        "the focused-transition lens mounts above the chart")
+        (is (= ":auth/login" (:data-machine-id (second lens))))
+        (is (some? target)      "Target Machine Instance: line present")
+        (is (some? transition)  "TRANSITION line present")))))
+
+(deftest lens-renders-guard-source-and-return-rf2-2n34o
+  (testing "spec/003 §Focused-transition lens — GUARDS RUN: id + fn-source
+            (from `rf/handler-meta :machine-guard`) + return value
+            rendered. The trace's `:rf.machine/guard-evaluated` event
+            carries the outcome :pass / :fail; the lens prints
+            `→ return true` / `→ return false`."
+    (setup-xray-frame!)
+    (register-machine-guard-meta! :auth/login :token?
+      "(fn [data] (get-in data [:session :token]))")
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle    :data {}}
+                   :after      {:state :authing :data {}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}
+           {:id 2 :time 11 :operation :rf.machine/guard-evaluated
+            :tags {:machine-id :auth/login :guard-id :token? :outcome :pass}}]}])
+      (focus-epoch! 1)
+      (let [tree    (machine-inspector/Panel)
+            guard   (find-by-testid tree "rf-xray-machine-lens-guard-token?")
+            guards-run (find-by-testid tree "rf-xray-machine-lens-guards-run")
+            hiccup-strs (->> guard flatten (filter string?) (str/join " "))]
+        (is (some? guards-run) "GUARDS RUN section present")
+        (is (some? guard) "guard block rendered for :token?")
+        (is (= "pass" (:data-outcome (second guard))))
+        (is (str/includes? hiccup-strs ":token?")
+            "guard id rendered")
+        (is (str/includes?
+              hiccup-strs "(fn [data] (get-in data [:session :token]))")
+            "guard fn-source rendered from handler-meta")
+        (is (str/includes? hiccup-strs "→ return true")
+            "return value rendered as `→ return true`")))))
+
+(deftest lens-renders-action-source-and-dispatch-follow-on-rf2-2n34o
+  (testing "spec/003 §Focused-transition lens — ACTIONS RUN: id + fn-source
+            + `:fx :dispatch → [<event>]` follow-on rendered. The action's
+            `:outcome` slot on the trace carries the returned `{:fx [...]}`
+            map; the lens extracts the `:dispatch` entries."
+    (setup-xray-frame!)
+    (register-machine-action-meta! :auth/login :fetch!
+      "(fn [data] {:fx [[:dispatch [:loading/complete]]]})")
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle    :data {}}
+                   :after      {:state :authing :data {}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}
+           {:id 2 :time 11 :operation :rf.machine/action-ran
+            :tags {:machine-id :auth/login
+                   :action-id :fetch!
+                   :outcome   {:fx [[:dispatch [:loading/complete]]]}}}]}])
+      (focus-epoch! 1)
+      (let [tree        (machine-inspector/Panel)
+            actions-run (find-by-testid tree "rf-xray-machine-lens-actions-run")
+            action      (find-by-testid tree "rf-xray-machine-lens-action-fetch!")
+            dispatch    (find-by-testid
+                          tree "rf-xray-machine-lens-action-dispatch-fetch!-0")
+            hiccup-strs (->> action flatten (filter string?) (str/join " "))]
+        (is (some? actions-run) "ACTIONS RUN section present")
+        (is (some? action) "action block rendered for :fetch!")
+        (is (= "1" (:data-dispatch-count (second action))))
+        (is (some? dispatch) "downstream :dispatch line rendered")
+        (is (str/includes? hiccup-strs ":fetch!"))
+        (is (str/includes?
+              hiccup-strs "(fn [data] {:fx [[:dispatch [:loading/complete]]]})")
+            "action fn-source rendered from handler-meta")
+        (is (str/includes?
+              hiccup-strs ":fx :dispatch → [:loading/complete]")
+            "downstream dispatch event rendered after `→ :fx :dispatch →`")))))
+
+(deftest lens-falls-back-to-placeholder-when-source-absent-rf2-2n34o
+  (testing "spec/003 §Focused-transition lens — when no handler-meta is
+            registered (programmatic `reg-machine*` path, or production-
+            elided), the lens renders a muted '(fn source unavailable)'
+            line instead of crashing."
+    (setup-xray-frame!)
+    ;; No register-machine-guard-meta! call — handler-meta returns nil.
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle    :data {}}
+                   :after      {:state :authing :data {}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}
+           {:id 2 :time 11 :operation :rf.machine/guard-evaluated
+            :tags {:machine-id :auth/login :guard-id :token? :outcome :pass}}]}])
+      (focus-epoch! 1)
+      (let [tree  (machine-inspector/Panel)
+            guard (find-by-testid tree "rf-xray-machine-lens-guard-token?")
+            hiccup-strs (->> guard flatten (filter string?) (str/join " "))]
+        (is (some? guard) "guard block rendered without crashing")
+        (is (str/includes? hiccup-strs "(fn source unavailable)")
+            "muted fallback rendered when handler-meta is absent")))))
 
 ;; ---- (5) per-machine prev/next nav -------------------------------------
 

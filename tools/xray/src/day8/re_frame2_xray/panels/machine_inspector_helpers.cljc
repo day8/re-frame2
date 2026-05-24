@@ -641,3 +641,36 @@
           ;; silent on what is really a buffer-eviction event.
           (peek history))
       :else (peek history))))
+
+;; ---- Dynamic-mode single-instance rule (rf2-8og3k, impl rf2-2n34o) ------
+;;
+;; Per spec/003-Machine-Inspector.md §Dynamic mode — single-instance,
+;; event-driven (rf2-8og3k): the Dynamic Machines panel binds to EXACTLY
+;; ONE machine instance per focused event, or to NONE. When the focused
+;; event's cascade transitioned multiple instances, the rule picks the
+;; FIRST transition trace by trace order (earliest `:rf.trace/at`;
+;; ties broken by trace-emission sequence within the same epoch).
+;;
+;; `project-focused-event-transitions` already sorts the records
+;; cascade-document-order (oldest-first by `:id` or `:time`), so the
+;; tiebreaker is satisfied by `first`. This helper exists to name the
+;; rule at the call site — the spec text "first by trace order" lands
+;; here, not buried in a `(first records)` call.
+
+(defn pick-focused-transition
+  "Pick the focused transition record per the Dynamic-mode single-
+  instance rule (spec/003 §Dynamic mode — single-instance, event-driven,
+  rf2-8og3k). Returns the FIRST record in trace order (which is what the
+  upstream projection already produces — this helper names the rule),
+  or nil when no machine transitioned in the focused event's cascade.
+
+  Pure fn — JVM-runnable."
+  [transition-records]
+  (first transition-records))
+
+(def empty-state-text
+  "The Dynamic Machines panel's empty-state placeholder text, rendered
+  verbatim per spec/003 §Empty state — focused event does not target a
+  state machine (rf2-8og3k). The string is the entire empty-state
+  content — no chart, no lens, no history ribbon."
+  "This event does not target a state machine")
