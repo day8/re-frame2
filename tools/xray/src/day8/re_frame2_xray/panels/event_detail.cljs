@@ -1553,10 +1553,15 @@
   ;; rf2-2moh1 — register the Dynamic Event tab with the internal L4
   ;; tab registry. The runtime shell's L3 tab bar + L4 detail panel
   ;; pick the entry up by `tabs-for-mode :dynamic`.
+  ;; rf2-xawwb — the Figma-Make tabs ribbon renames the first tab
+  ;; `Event` → `Handler` (it answers "what did this event's HANDLER
+  ;; do?"). The tab `:id` stays `:event` so every existing
+  ;; `:rf.xray/select-tab :event` dispatch, testid, sub, and registry
+  ;; lookup keeps resolving — only the visible label + mnemonic change.
   (panel-registry/reg-l4-tab!
     {:id    :event
-     :label "Event"
-     :mnem  "e"
+     :label "Handler"
+     :mnem  "h"
      :modes #{:dynamic}
      :order 0
      :panel Panel}))

@@ -2118,30 +2118,25 @@
 ;; ---- L3 tab bar ----------------------------------------------------------
 
 (defn- tab-button
-  "One tab in the L3 tab bar — an UNDERLINE tab per the authoritative
-  reference (`tools/xray/design-reference/xray_devtools_reference.cljs`,
-  the `main-app` tab-strip, rf2-3f2di A1), NOT a radio glyph and NOT a
-  filled-accent pill. Each tab is a borderless button on a transparent
-  background:
+  "One tab in the L3 tab bar — a ROUNDED-TOP folder tab on the DARK tabs
+  ribbon (rf2-xawwb · Figma-Make surface). Each tab is a borderless
+  button with `border-radius: 4px 4px 0 0`:
 
-  - the ACTIVE tab carries a 2px `border-bottom` in `:accent` and the
-    NORMAL text colour (`:text-primary` = the reference
-    `text-[var(--devtools-text)]`) — the underline, not a filled fill,
-    is the selected signal;
-  - INACTIVE tabs are transparent with a 2px TRANSPARENT bottom border
-    (so the active underline never shifts the row by 2px) and NEUTRAL
-    muted ink (`:text-tertiary` = the reference `--devtools-text-muted`,
-    the `text-muted-foreground` of the reference Tabs).
+  - the ACTIVE tab carries a LIGHT `chrome-ribbon-tab-active` fill with
+    dark `chrome-ribbon-tab-active-text` ink — the lit fill reads as a
+    folder tab lifting out of the dark band onto the panel below;
+  - INACTIVE tabs carry a faint translucent-white fill
+    (`rgba(255,255,255,0.12)`) with muted-white `chrome-ribbon-text-muted`
+    ink, so they recede into the dark band.
 
-  The subtle `:hover` background fill lives in
+  The subtle `:hover` lift for inactive tabs lives in
   `theme/global-styles/motion-css` (keyed off the `rf-xray-tab-*`
   testid, since inline styles can't carry a `:hover` pseudo-class). The
-  mnemonic letter is exposed via the `title` attribute. The decorative
-  `●/○` radio glyph is GONE — the underline + text colour carry the
-  selected signal.
+  mnemonic letter is exposed via the `title` attribute.
 
-  rf2-3f2di — the prior rf2-ad7zx.16 filled-accent pill (bg `:accent`,
-  white text) is superseded by the reference's underline treatment.
+  rf2-xawwb — supersedes the rf2-3f2di underline treatment (a 2px
+  `:accent` bottom border on a transparent bar) with the Figma-Make
+  rounded-top tabs on the dark band.
 
   `aria-label` wraps the visible label as `Xray <tab-label> tab` so the
   button's accessible name never collides with host-app role queries
@@ -2169,38 +2164,30 @@
               :on-click      #(rf/dispatch [:rf.xray/select-tab id] {:frame :rf/xray})
               :title         (str label " (" mnem ")")
               :aria-label    (str "Xray " label " tab")
-              :style {;; rf2-3f2di A1 — UNDERLINE tab per the authority
-                      ;; reference. ACTIVE → transparent bg, normal text
-                      ;; ink, 2px `:accent` bottom border (the underline);
-                      ;; INACTIVE → transparent bg, neutral muted ink, 2px
-                      ;; TRANSPARENT bottom border (so the active
-                      ;; underline never shifts the row 2px). The `:hover`
-                      ;; fill for inactive tabs is applied via the scoped
-                      ;; CSS rule in motion-css.
-                      :background    "transparent"
+              :style {;; rf2-xawwb — ROUNDED-TOP tab on the dark tabs
+                      ;; ribbon (Figma-Make surface). ACTIVE → light
+                      ;; `chrome-ribbon-tab-active` fill + dark
+                      ;; `chrome-ribbon-tab-active-text` ink (the tab
+                      ;; "lifts" onto the panel below); INACTIVE →
+                      ;; translucent white fill + muted-white ink. Both
+                      ;; carry `border-radius: 4px 4px 0 0` so the top
+                      ;; corners round like folder tabs. The `:hover` lift
+                      ;; for inactive tabs is the scoped rule in motion-css.
+                      :background    (if active?
+                                       (:chrome-ribbon-tab-active tokens)
+                                       "rgba(255,255,255,0.12)")
                       :border        "none"
-                      ;; The selected signal is the 2px accent underline
-                      ;; (reference `main-app` tab-strip:
-                      ;; `border-bottom: 2px solid var(--devtools-active)`
-                      ;; when active, `2px solid transparent` otherwise).
-                      :border-bottom (if active?
-                                       (str "2px solid " (:accent tokens))
-                                       "2px solid transparent")
-                      ;; ACTIVE → normal text ink (reference
-                      ;; `text-[var(--devtools-text)]` = `:text-primary`);
-                      ;; INACTIVE → neutral muted ink (`:text-tertiary` =
-                      ;; reference `--devtools-text-muted`).
+                      :border-radius "4px 4px 0 0"
                       :color         (if active?
-                                       (:text-primary tokens)
-                                       (:text-tertiary tokens))
+                                       (:chrome-ribbon-tab-active-text tokens)
+                                       (:chrome-ribbon-text-muted tokens))
                       :cursor        "pointer"
-                      :padding       "0 16px"       ; reference `px-4`, full-height
-                      :height        "100%"
+                      :padding       "4px 16px"     ; rounded-top tab pad
                       :font-family   sans-stack
                       :font-size     (:body type-scale)
                       :font-weight   (if active? 600 400)
                       :white-space   "nowrap"
-                      :transition    "border-color 120ms ease-out, color 120ms ease-out"}}
+                      :transition    "background-color 120ms ease-out, color 120ms ease-out"}}
      label]))
 
 (rf/reg-view tab-bar
@@ -2225,18 +2212,37 @@
     [:div {:data-testid "rf-xray-tab-bar"
            :role        "tablist"
            :aria-label  "Xray panel tabs"
-           ;; rf2-3f2di A1 — `align-items: stretch` + `gap: 0` so the
-           ;; full-height underline tabs (reference `main-app` tab-strip)
-           ;; sit flush and their 2px accent bottom-border lands on the
-           ;; bar's bottom edge. Height matches the 34px ribbon rhythm.
+           ;; rf2-xawwb — DARK tabs ribbon (Figma-Make surface). The tab
+           ;; strip becomes a dark band carrying rounded-top tab buttons.
+           ;; `align-items: flex-end` so each rounded-top tab sits flush
+           ;; on the bar's bottom edge (the active tab's light fill reads
+           ;; as a folder-tab lifting onto the panel below). `gap: 3px`
+           ;; gives the rounded tabs breathing room. Prefixed with the
+           ;; `for selected event` contextual label.
            :style {:display       "flex"
-                   :align-items   "stretch"
-                   :gap           "0"
+                   :align-items   "flex-end"
+                   :gap           "3px"
                    :height        "34px"
                    :padding       "0 12px"
-                   :background    (:bg-1 tokens)
+                   :background    (:chrome-ribbon-bg tokens)
                    :border-top    (str "1px solid " (:border-subtle tokens))
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
+     ;; rf2-xawwb — `↳ for selected event` contextual label (Figma-Make
+     ;; tabs ribbon): the corner-down-right glyph + muted-white text on
+     ;; the dark band, signalling that the tabs below project the
+     ;; CURRENTLY-SELECTED L2 event.
+     [:span {:data-testid "rf-xray-tab-bar-context-label"
+             :style {:display      "inline-flex"
+                     :align-items  "center"
+                     :gap          "6px"
+                     :align-self   "center"
+                     :margin-right "10px"
+                     :color        (:chrome-ribbon-text-muted tokens)
+                     :font-family  sans-stack
+                     :font-size    (:caption type-scale)
+                     :white-space  "nowrap"}}
+      [:span {:aria-hidden "true"} "↳"]
+      "for selected event"]
      ;; rf2-2moh1 — iterate `dynamic-tabs` (registry-derived) rather
      ;; than a literal vector. Tab order follows each entry's `:order`.
      (for [{:keys [id] :as tab} (dynamic-tabs)]
