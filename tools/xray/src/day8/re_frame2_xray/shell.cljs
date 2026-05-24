@@ -874,7 +874,7 @@
      [:span {:aria-hidden "true"} "● "]
      (str "REDACTED " redacted-count)]))
 
-(defn- ribbon-theme-toggle
+(rf/reg-view ribbon-theme-toggle
   "rf2-xawwb — theme toggle (Figma-Make surface). A sun/moon icon-button
   on the chrome ribbon's right cluster that flips light ⇄ dark.
 
@@ -893,7 +893,23 @@
   The glyph follows the convention NEXT action: in DARK mode it shows
   the sun `☀` (click → go light); in LIGHT mode the moon `☾` (click →
   go dark). Muted `chrome-ribbon-text-muted` ink to sit quietly beside
-  the `⚙`/`✕` icons on the dark band."
+  the `⚙`/`✕` icons on the dark band.
+
+  ## rf2-uu3lp — `reg-view` so the subscribe routes to `:rf/xray`
+
+  The `:theme` setting lives in Xray's `:rf/xray` frame (the
+  `:rf.xray/setting` sub + `:rf.xray/settings-update` event are
+  registered against `:rf/xray` via `registry/register-xray-handlers!`).
+  A plain `defn` rendered inside the shell's `:rf/xray` frame-provider
+  would not pick up the surrounding frame (Spec 004 §Plain Reagent fns
+  / Spec 006 §Plain-fn-under-non-default-frame warning) — the subscribe
+  here would route to `:rf/default` and read the host app's app-db.
+  The dispatch ALREADY carries an explicit `{:frame :rf/xray}` arg, but
+  the subscribe was relying on React-context which the plain fn does
+  not consult. `reg-view`-registration makes the component
+  `:contextType frame-context`-aware so the subscribe resolves to
+  `:rf/xray` through the enclosing Provider — same shape as every other
+  Xray shell region (rf2-in6l2)."
   []
   (let [theme @(rf/subscribe [:rf.xray/setting :theme nil])
         dark? (= theme :dark)
@@ -2107,9 +2123,24 @@
   (rf2-o5f5f.1).
 
   Per rf2-in6l2 `reg-view`-registered for parity with every other
-  shell region."
+  shell region.
+
+  ## rf2-uu3lp — DOM-rooted via `display: contents`
+
+  The five children are stacked flex items of `shell-view`'s flex
+  column (L1 ribbon · events ribbon · L2 list · L3 tab bar · L4 detail
+  panel). A bare React Fragment root would skip the source-coord DOM
+  annotation (Spec 006 §Documented exemption: non-DOM roots) and emit
+  a one-shot warning. A wrapper `<div>` with `display: contents`
+  participates in the DOM tree (so `data-rf2-source-coord` has a home
+  and click-to-source works) while being neutralised for layout — the
+  children render as if they were direct flex items of the
+  shell-view's column. The `data-rf-xray-dynamic-chrome` attr is a
+  test-friendly handle if a future selector needs it; no production
+  code reads it today."
   []
-  [:<>
+  [:div {:data-rf-xray-dynamic-chrome ""
+         :style {:display "contents"}}
    [ribbon {}]
    [events-ribbon]
    [event-list]
@@ -2125,12 +2156,24 @@
   the swap.
 
   Per rf2-in6l2 `reg-view`-registered so the subscribe resolves to
-  `:rf/xray` via React-context."
+  `:rf/xray` via React-context.
+
+  ## rf2-uu3lp — DOM-rooted via `display: contents`
+
+  Returning the inner component head directly (`[dynamic-chrome]` /
+  `[static-shell/surface]`) would skip the source-coord DOM
+  annotation (Spec 006 §Documented exemption: component head) and
+  emit a one-shot warning. A `display: contents` wrapper lets
+  `data-rf2-source-coord` land on a real DOM node while keeping the
+  inner surface as the effective layout child of `shell-view`'s flex
+  column."
   []
   (let [mode @(rf/subscribe [:rf.xray/mode])]
-    (case mode
-      :static  [static-shell/surface]
-      [dynamic-chrome])))
+    [:div {:data-rf-xray-surface-composer ""
+           :style {:display "contents"}}
+     (case mode
+       :static  [static-shell/surface]
+       [dynamic-chrome])]))
 
 ;; ---- shell view ----------------------------------------------------------
 
@@ -2203,7 +2246,14 @@
   ;; as the modal-positioning read above — `shell-view` sits outside
   ;; its own frame-provider).
   (let [lens-mode @(rf/subscribe :rf/xray [:rf.xray/mode])]
-   [rf/frame-provider {:frame :rf/xray}
+   ;; rf2-uu3lp — the outer `<div>` IS the shell-view's root so the
+   ;; source-coord walk has a DOM node to annotate (Spec 006
+   ;; §Source-coord annotation; would otherwise warn-once because the
+   ;; previous root was the non-DOM `frame-provider` component head).
+   ;; The frame-provider sits one level inside, wrapping every
+   ;; subscribing child — React-context discipline is preserved. The
+   ;; outer `<div>` carries attrs/styles only; it never subscribes,
+   ;; so its position outside the frame is immaterial.
    [:div {:data-testid "rf-xray-shell"
           :class (str "mode-" (name (or lens-mode :dynamic)))
           ;; rf2-plajx — Xray shell root is a landmark. A 40%-
@@ -2256,6 +2306,11 @@
                             :min-width  "560px"
                             :z-index    2147483000
                             :box-shadow "rgba(0, 0, 0, 0.4) -8px 0 24px"}))}
+    ;; rf2-uu3lp — frame-provider sits INSIDE the outer `<div>` (the
+    ;; `<div>` carries the source-coord annotation as the DOM root).
+    ;; Every subscribing child below is wrapped so the `:rf/xray`
+    ;; frame flows through React-context.
+    [rf/frame-provider {:frame :rf/xray}
     ;; Left-edge horizontal resize handle (rf2-x8h9y) — only renders
     ;; in `:inline` (right-rail) mode. Position-absolute pins it to
     ;; the LEFT edge of this flex container; the outer div is
