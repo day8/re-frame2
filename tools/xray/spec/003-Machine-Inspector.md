@@ -31,14 +31,16 @@ state-chart per registered machine. Post-rf2-y9xmf the panel surfaces
 the focused event's machine activity only; the interactive simulation
 (UC1) + dynamic multi-instance views (UC2 Mode A/B/C) descriptions in
 later sections are normative for the Static re-host, NOT for the
-Dynamic tab. The state-chart layout primitive is **owned by
+Dynamic tab. The state-chart primitive is **owned by
 `tools/machines-viz/`** as its own tool jar (canonical implementation
-at `tools/machines-viz/src/day8/re_frame2_machines_viz/chart/{layout,svg,interaction}.cljc`,
-per rf2-o9arp / PR #1570); Xray re-exports the public chart API via
-thin shim namespaces (`day8.re-frame2-xray.chart.svg/...` →
-`day8.re-frame2-machines-viz.chart.svg/...`) so the panel surface
-imports a Xray-namespaced public name while the implementation lives
-one tool over.
+at `tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs`
+(the `MachineChart` component) + `chart/{layout,projection,nodes,edges}`,
+per rf2-o9arp / PR #1570 and the rf2-gpzb4 xyflow migration); since the
+xyflow migration the chart renders via **`@xyflow/react` + `elkjs`**, and
+Xray imports `MachineChart` **directly**
+(`[day8.re-frame2-machines-viz.chart :as mv-chart]` →
+`mv-chart/MachineChart`) — the former Xray-side re-export shims were
+removed.
 
 The Machines tab is the **single most distinctive Xray surface** because
 re-frame2's machine substrate (Spec 005) carries the richest runtime
@@ -139,9 +141,10 @@ tool-jar dependency.
 
 ```
 tools/xray/  ─requires→  tools/machines-viz/  ─requires→  implementation/machines/
-   (panel surface)           (chart primitive:                (machine registry +
-   (chart re-export           chart/{layout,svg,interaction}    runtime substrate)
-    shims)                    .cljc)
+   (panel surface,           (MachineChart primitive:        (machine registry +
+    direct import of          chart.cljs (xyflow+elkjs) +      runtime substrate)
+    MachineChart)             chart/{layout,projection,
+                              nodes,edges})
 ```
 
 ### Direct-import contract (post xyflow migration)
@@ -229,7 +232,7 @@ The 4 sub-modes (mnemonic letters `t/s/i/c` surfaced in each pill's `title`) liv
 
 | Pill | Behaviour in Static | Body renderer |
 |---|---|---|
-| **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/svg` MachineChart primitive the Dynamic panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.xray.static.machines/state-clicked` for a per-state metadata rail (follow-on bead). Carries an "Open chart in pop-out" affordance. | inline SVG chart |
+| **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/MachineChart` (xyflow + elkjs) primitive the Dynamic panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.xray.static.machines/state-clicked` for a per-state metadata rail (follow-on bead). Carries an "Open chart in pop-out" affordance. | xyflow MachineChart |
 | **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is the definition's declared `:initial` + `:data`. Engine events/subs live under the `:rf.xray.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). Failed-guard handling + sim-trail described in §UC1 — Sim sub-mode below remain the design reference for v1 mechanics. | Sim body panel (banner + topology highlight + mock-`:data` form + sim-trail) |
 | **Instances** (`i`) | **JUMP to Dynamic.** Clicking the pill (or the per-row `→ Dynamic` chip in the browse-list) dispatches three events against `:rf/xray`: `:rf.xray/set-mode :dynamic` · `:rf.xray/select-tab :machines` · `:rf.xray/select-machine-id <mid>`. The user lands on the Dynamic Machines tab with this machine pre-selected. Mode B/C auto-detection (Mode B for 2-8 live, Mode C for ≥8) is the Dynamic panel's responsibility — the Static-side JUMP just lands the selection. | no body — the click is the surface |
 | **Cascade** (`c`) | **Dimmed + disabled** with a tooltip: *"Cancellation cascade is a Dynamic-only surface. Switch to Dynamic mode to view."* The pill renders for muscle-memory consistency with the Dynamic sub-strip (same DOM, same letter mnemonic) but is non-interactive — `disabled` + `aria-disabled="true"` + dashed border + 0.5 opacity. The cancellation cascade composes against the trace ring buffer which is event-coupled — there is no spine in Static mode, so the surface has no source data. | no body — the pill IS the surface |
@@ -302,7 +305,7 @@ defs). When a machine is selected, the inspection view renders:
 ╭─ Machine Inspector · :checkout ─── frame: :app/main ── Sim ○ ──╮
 │ 6 states · 11 transitions · 2 spawned children · src/cart/...:42 │
 ├──────────────────────────────────────────────┬─────────────────┤
-│  [diagram canvas: ELK+SVG primitive]         │ Metadata          │
+│  [diagram canvas: xyflow+elkjs primitive]    │ Metadata          │
 │                                              │ ─────────────     │
 │  (states, edges, source coords inline)       │ id   :checkout    │
 │                                              │ tags #{:user-flow}│
@@ -635,71 +638,60 @@ per-machine in localStorage).
 - **Transition history** virtualises past 200 entries; older entries
   scroll into view but are not retained in DOM.
 
-## Layout engine — ELK with layered fallback
+## Render + layout engine — xyflow over elkjs
 
-The layout engine ships in **`tools/machines-viz/`** (per §Architectural
-posture above); the namespace paths below are relative to
-`tools/machines-viz/src/day8/re_frame2_machines_viz/`. Xray consumes
-them through the re-export shims (see §Re-export shim contract).
+The chart ships in **`tools/machines-viz/`** (per §Architectural posture
+above); the namespace paths below are relative to
+`tools/machines-viz/src/day8/re_frame2_machines_viz/`. Xray consumes the
+`MachineChart` component **directly** — there is no Xray-side shim layer
+(the former re-export shims were removed with the rf2-gpzb4 xyflow
+migration).
 
-Two layout engines flow through `chart/svg.cljc`'s renderer behind the
-same `{:nodes :edges :width :height :initial-id}` data shape:
+Post-migration the chart has a single render stack: **`@xyflow/react`**
+draws the canvas (custom Stately/xstate-style nodes + edges from
+`chart/nodes.cljs` + `chart/edges.cljs`); **`elkjs`** runs as xyflow's
+layout backend. There is no second "fallback" engine — the pre-migration
+ELK+SVG renderer and its hand-rolled `layered-fallback` positioner are
+gone (`chart/layout.cljc` survives only as the substrate-agnostic
+definition→graph PARSER, not a positioner).
 
-| Engine | Source ns | When used |
+| Concern | Source ns | What it does |
 |---|---|---|
-| **ELK.js** (preferred) | `chart/elk_layout.cljs` | Browser session once the lazy import resolves; produces orthogonal edge routing + layered placement. |
-| **Layered fallback** | `chart/layout.cljc` (`layered-fallback`) | Sync, pure, JVM-runnable. Used by the JVM + node-runtime test corpus, and as the runtime fallback whenever ELK is unavailable. Simple BFS-rank placement + straight-line edges. |
+| **Component + interop glue** | `chart.cljs` (`MachineChart`) | Reagent component; mounts `[:> ReactFlow ...]`, runs the elkjs pass, holds the positions atom. |
+| **Graph parse** | `chart/layout.cljc` (`parse-definition`, `highlight-id`) | Pure CLJS data→data; JVM-runnable; definition → flat nodes + edges + per-node/per-edge metadata. Tests pin this without DOM / xyflow / elkjs. |
+| **xyflow projection** | `chart/projection.cljc` (`xyflow-graph`, `->elk-children`) | Pure projector: parsed graph + elk positions → xyflow `:nodes` / `:edges` shape with per-node/per-edge `:data` payloads (highlight flags, labels, density). |
+| **elkjs layout** | `chart.cljs` (`compute-layout!`) | Async elk.js pass over the parsed graph; merges positions back into xyflow nodes. |
 
-### Lazy load + render-pulse cadence
+### elkjs layout pass
 
-ELK.js is a ~250 kB browser bundle (gzipped). Bundling it into every
-Xray dev session would inflate the preload cost whether the user
-opens the Machines tab or not, so the loader is lazy:
+`elkjs` is a direct `:require` in `chart.cljs`
+(`["elkjs/lib/elk.bundled.js" :as elkjs]`) — a `devDependency` of
+`implementation/package.json`, bundle-isolated from production (the
+chart is dev-only: Xray preload + the static viewer page; the
+`check-bundle-isolation.cjs` sentinel pins this). There is no lazy
+`js/import` loader-atom; the import resolves at module load.
 
-1. First open of the Machines tab triggers a `js/import` of
-   `"elkjs/lib/elk.bundled.js"`.
-2. The loader atom tracks `nil → :loading → {:elk <inst>} | {:failed <msg>}`.
-3. ELK's `layout` returns a Promise — the synchronous renderer can't
-   wait. So the panel renders the **layered-fallback layout
-   immediately**, kicks the ELK pass in the background, caches the
-   result keyed on `[definition direction]`, and dispatches a no-op
-   render-pulse event so the subscribe-driven view re-runs and picks
-   up the cached ELK positions on the next tick.
-4. Subsequent renders of the same `[definition direction]` resolve
-   synchronously from the cache; the cache holds the most-recent
-   layout (one machine inspected at a time is the common case).
+The pass is async + cached:
 
-### Fallback semantics
+1. When the `[definition direction layout-options]` tuple changes,
+   `MachineChart` calls `compute-layout!` with the parsed graph.
+2. `compute-layout!` builds an elk.js input graph (`->elk-input`),
+   calls `elk.layout` (returns a Promise), and on resolution maps the
+   elk result → `{node-id {:x :y :width :height}}` into a positions
+   `r/atom`. On rejection it calls back with nil and the previous
+   positions are retained (no empty-chart flash; xyflow re-fits when
+   the new positions land).
+3. `xyflow-graph` (in `chart/projection.cljc`) merges those positions
+   onto the xyflow node objects; xyflow's own `fitView` frames the
+   result. xyflow owns zoom / pan / fit internally — hosts no longer
+   manage a `{:scale :tx :ty}` viewport.
 
-The fallback engages whenever ELK is not ready or the layout call
-rejects — three concrete paths:
-
-| Trigger | Cause |
-|---|---|
-| Offline / CSP block | The dynamic `js/import` rejects with a module-not-found. |
-| Test rigs | Node + JVM runtimes have no bundler-resolvable `elkjs`; the import is unavailable. |
-| Transient layout failure | ELK's `.layout` Promise rejects (rare). The cache is left untouched; the next render-pulse retries. |
-
-In every fallback path the chart still mounts — the `layered-fallback`
-shape is data-compatible with ELK's positioned output. The user gets
-a readable chart that loses orthogonal routing but keeps the
-node/edge content. v1 does NOT surface a "layout engine: fallback"
-status indicator on the Machines tab itself (the chart just renders).
-
-### v1 ships (deferred follow-ons)
-
-- **Edge polylines from ELK's bend points** — v1 collapses ELK's
-  multi-point routes to straight lines between source/target centres.
-  `chart/svg.cljc` already supports the multi-point case via
-  `path-from-points`; lifting ELK's bend points into the `:points`
-  slot is follow-on work.
-- **Compound-state hierarchical containment in ELK** — v1 ships every
-  state as a flat ELK child + relies on the existing dashed-border
-  treatment for visual grouping. ELK's hierarchical mode (parent
-  containers with child layout) is a richer follow-on.
-- **Unified ELK loader** — this surface holds its own loader atom.
-  Future consumers can either share it or fold into a shared
-  `chart/elk_loader.cljs`.
+Canonical elk options (`default-elk-options`): `"elk.algorithm" "layered"`,
+`"elk.direction" "DOWN"` (or `"RIGHT"` for `:lr`), spline edge routing,
+and `"elk.hierarchyHandling" "INCLUDE_CHILDREN"` whenever the graph nests
+(parallel regions per rf2-lkwev, or compound substates per rf2-54s5a).
+Hosts may override via the `:layout-options` prop (merged over the
+defaults).
 
 ## Share affordance
 
@@ -778,9 +770,9 @@ reproducible from the registry alone.
 
 ### Performance
 
-- PNG / SVG rendering: client-side via the same SVG primitive the
-  inspector uses, at the chart's natural size. Sub-50ms for charts up
-  to ~80 nodes.
+- PNG / SVG rendering: client-side, derived from the same
+  `MachineChart` (xyflow + elkjs) the inspector renders, at the chart's
+  natural size. Sub-50ms for charts up to ~80 nodes.
 - Mermaid emit: pure data → text projection; sub-1ms for typical
   machines.
 
