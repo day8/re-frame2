@@ -296,6 +296,134 @@
     (is (= 480 (config/get-setting :general :panel-width-px)))
     (config/reset-settings!)))
 
+;; ---- L2 event-list column widths (rf2-6ni62) -----------------------------
+;;
+;; The L2 event list's `source` / `timestamp` / `duration` columns are
+;; user-resizable via drag handles between cells. Defaults mirror the
+;; pre-resize fixed widths so a fresh install lays out identically; the
+;; floors keep any column from collapsing below its lowercase header
+;; label width. The helpers are CLJC-pure / JVM-testable — the drag-
+;; handle dispatch path clamps to the floor BEFORE the persistence
+;; write, so the persisted payload is always in-range.
+
+(deftest event-list-col-defaults-mirror-pre-resize-widths
+  (testing "rf2-6ni62 — defaults match the pre-resize fixed widths so a
+            fresh install lays out identically to the pre-feature shell"
+    (is (= {:source 52 :timestamp 76 :duration 60}
+           config/event-list-col-default-widths))))
+
+(deftest event-list-col-default-settings-include-widths-map
+  (testing "rf2-6ni62 — the default settings map carries `:general
+            :event-list-col-widths` so the persistence round-trip + the
+            sub's read never see a nil"
+    (is (= config/event-list-col-default-widths
+           (get-in config/default-settings
+                   [:general :event-list-col-widths])))))
+
+(deftest clamp-event-list-col-width-floors
+  (testing "rf2-6ni62 — clamp-event-list-col-width snaps a sub-floor
+            request to that column's floor"
+    (is (= 40 (config/clamp-event-list-col-width :source 10)))
+    (is (= 40 (config/clamp-event-list-col-width :source 40)))
+    (is (= 41 (config/clamp-event-list-col-width :source 41)))
+    (is (= 60 (config/clamp-event-list-col-width :timestamp 20)))
+    (is (= 60 (config/clamp-event-list-col-width :timestamp 60)))
+    (is (= 48 (config/clamp-event-list-col-width :duration 10)))
+    (is (= 48 (config/clamp-event-list-col-width :duration 48)))))
+
+(deftest clamp-event-list-col-width-passes-in-range
+  (testing "rf2-6ni62 — in-range values pass through verbatim"
+    (is (= 100 (config/clamp-event-list-col-width :source 100)))
+    (is (= 200 (config/clamp-event-list-col-width :timestamp 200)))
+    (is (= 150 (config/clamp-event-list-col-width :duration 150)))))
+
+(deftest clamp-event-list-col-width-unknown-col-returns-nil
+  (testing "rf2-6ni62 — unknown column ids (event-id is flex, never
+            sized; future unsupported keys) yield nil so the caller's
+            update path can no-op on them"
+    (is (nil? (config/clamp-event-list-col-width :event-id 100)))
+    (is (nil? (config/clamp-event-list-col-width :unknown 100)))
+    (is (nil? (config/clamp-event-list-col-width nil 100)))))
+
+(deftest clamp-event-list-col-width-non-numeric-falls-back-to-default
+  (testing "rf2-6ni62 — malformed persisted payload (string, nil, NaN)
+            shouldn't leave the column at an unusable size — fall back
+            to the column's default width"
+    (is (= 52 (config/clamp-event-list-col-width :source nil)))
+    (is (= 76 (config/clamp-event-list-col-width :timestamp "wide")))
+    (is (= 60 (config/clamp-event-list-col-width :duration nil)))))
+
+(deftest resolve-event-list-col-widths-from-nil
+  (testing "rf2-6ni62 — nil persisted payload resolves to the defaults"
+    (is (= config/event-list-col-default-widths
+           (config/resolve-event-list-col-widths nil)))))
+
+(deftest resolve-event-list-col-widths-from-empty
+  (testing "rf2-6ni62 — empty / non-map payload resolves to the defaults"
+    (is (= config/event-list-col-default-widths
+           (config/resolve-event-list-col-widths {})))
+    (is (= config/event-list-col-default-widths
+           (config/resolve-event-list-col-widths "not-a-map")))))
+
+(deftest resolve-event-list-col-widths-merges-partial
+  (testing "rf2-6ni62 — a partial persisted payload merges over the
+            defaults; columns the user has not touched read their
+            defaults"
+    (is (= {:source 120 :timestamp 76 :duration 60}
+           (config/resolve-event-list-col-widths {:source 120})))
+    (is (= {:source 52 :timestamp 100 :duration 60}
+           (config/resolve-event-list-col-widths {:timestamp 100})))))
+
+(deftest resolve-event-list-col-widths-clamps-each-column
+  (testing "rf2-6ni62 — a legacy / hand-edited payload with a sub-floor
+            value is clamped on read (defence-in-depth — the write path
+            clamps too, but a payload that pre-dates the clamp would
+            slip through without this read-side clamp)"
+    (is (= {:source 40 :timestamp 76 :duration 60}
+           (config/resolve-event-list-col-widths {:source 10}))
+        "sub-floor source snaps to 40")
+    (is (= {:source 52 :timestamp 60 :duration 60}
+           (config/resolve-event-list-col-widths {:timestamp 20}))
+        "sub-floor timestamp snaps to 60")
+    (is (= {:source 52 :timestamp 76 :duration 48}
+           (config/resolve-event-list-col-widths {:duration 5}))
+        "sub-floor duration snaps to 48")))
+
+(deftest resolve-event-list-col-widths-drops-unknown-keys
+  (testing "rf2-6ni62 — unknown keys in the persisted payload are
+            silently dropped (forward-compat: a future column id would
+            land in the persisted payload but is ignored by older Xrays;
+            the resolved map only carries the known shape)"
+    (let [resolved (config/resolve-event-list-col-widths
+                     {:source 100 :phantom 200 :event-id 999})]
+      (is (= {:source 100 :timestamp 76 :duration 60} resolved))
+      (is (not (contains? resolved :phantom)))
+      (is (not (contains? resolved :event-id))))))
+
+(deftest resolve-event-list-col-widths-handles-non-numeric-per-column
+  (testing "rf2-6ni62 — a per-column non-numeric value falls back to
+            that column's default; surrounding columns are unaffected"
+    (is (= {:source 52 :timestamp 76 :duration 60}
+           (config/resolve-event-list-col-widths
+             {:source "wide" :timestamp nil :duration "tall"})))))
+
+(deftest update-setting-round-trips-event-list-col-widths
+  (testing "rf2-6ni62 — the standard settings round-trip drives the
+            event-list-col-widths slot. After the round-trip get-setting
+            reads the new map."
+    (config/reset-settings!)
+    (config/update-setting! :general :event-list-col-widths
+                            {:source 120 :timestamp 90 :duration 80})
+    (is (= {:source 120 :timestamp 90 :duration 80}
+           (config/get-setting :general :event-list-col-widths)))
+    (config/reset-settings!)))
+
+(deftest event-list-col-keyboard-steps-published
+  (testing "rf2-6ni62 — fine + coarse keyboard step constants are
+            published for the divider's arrow-key handler"
+    (is (= 10 config/event-list-col-keyboard-step-px))
+    (is (= 3 config/event-list-col-keyboard-coarse-multiplier))))
+
 (deftest editor-uri-project-root-regression-rf2-5m5n2
   (testing "regression: the relative source-coord case the editor's
             OS handler used to reject ('Path does not exist') now

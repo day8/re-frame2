@@ -105,6 +105,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
+            [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.filters :as filters]
             [day8.re-frame2-xray.filters.pills :as filter-pills]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
@@ -312,27 +313,16 @@
 ;; column width) and above `event-row` / `l2-column-header`, all later in
 ;; the file — so the symbols resolve at every use site (CLJS top-level
 ;; defs must precede use).
-(def ^:private l2-source-col-width
-  "Fixed width for the `source` column so the header label and every
-  row's origin tag align on the same left edge."
-  "52px")
-
-(def ^:private l2-time-col-min-width
-  "Min-width / right-aligned slot for the `timestamp` column — shared
-  by the header `timestamp` label and every row's absolute-time value so
-  the two right-align on the same edge. Sized (rf2-3f2di A8) to hold the
-  `HH:MM:SS.mmm` absolute clock string (`12:30:05.123`) without
-  wrapping; the prior 44px held only the relative `1s`/`now` chip."
-  "76px")
-
-(def ^:private l2-duration-col-min-width
-  "Min-width / right-aligned slot for the trailing `duration` column
-  (rf2-lnod7) — shared by the header `duration` label and every row's
-  handler-duration cell so the two right-align on the same edge. The
-  Figma EventList's fourth column; restored after the gap audit
-  (rf2-4297k) found it clipped off the live list's right edge. Sized to
-  hold `1234.5 ms` without wrapping."
-  "60px")
+;;
+;; rf2-6ni62 — the three trailing columns (`source`, `timestamp`,
+;; `duration`) are USER-RESIZABLE via drag dividers between cells.
+;; Per-column widths flow from the `:rf.xray/event-list-col-widths` sub
+;; — `l2-column-header` subscribes once and threads the resolved map
+;; through to every row; `event-row` reads its props rather than
+;; subscribing per-row (one subscribe per L2 paint, not N). The pre-
+;; rf2-6ni62 fixed-px constants below are retained as DEFAULTS in
+;; `config/event-list-col-default-widths` — a fresh install lays out
+;; identically to the pre-feature shell.
 
 (def ^:private l2-col-gap
   "Inter-column gap for both the header row and every data row. ONE
@@ -344,6 +334,200 @@
   left value sets where the gutter starts, the right where the time
   column ends. Shared so neither surface drifts."
   "6px")
+
+;; ---- column-divider drag state (rf2-6ni62) -----------------------------
+;;
+;; Mirrors `resize-handle.cljs` §drag-state. Each divider's pointerdown
+;; records the start-x + start-width snapshot, then attaches document-
+;; level pointermove / pointerup / pointercancel listeners so a drag
+;; faster than the per-element hit-test cadence keeps tracking the
+;; pointer (the standard split-pane recipe — without document-level
+;; capture a fast drag stalls). The `col-id` rides on the drag-state so
+;; the dispatch path knows which column to write back into.
+
+(defonce ^:private col-divider-drag-state
+  (atom nil))
+
+(defn col-divider-dragging?
+  "Test seam — true iff a column-divider drag is in progress."
+  []
+  (some? @col-divider-drag-state))
+
+(defn- col-divider-detach-listeners! []
+  (when-let [{:keys [on-move on-up on-cancel prev-cursor]} @col-divider-drag-state]
+    (when (and (exists? js/document) (.-removeEventListener js/document))
+      (try (.removeEventListener js/document "pointermove" on-move)
+           (catch :default _ nil))
+      (try (.removeEventListener js/document "pointerup" on-up)
+           (catch :default _ nil))
+      (try (.removeEventListener js/document "pointercancel" on-cancel)
+           (catch :default _ nil)))
+    (when (and (exists? js/document) (.-body js/document))
+      (set! (-> js/document .-body .-style .-cursor)
+            (or prev-cursor "")))
+    (reset! col-divider-drag-state nil)))
+
+(defn- col-divider-on-move [^js e]
+  (when-let [{:keys [col-id start-x start-width]} @col-divider-drag-state]
+    ;; Divider sits to the RIGHT of the column it sizes; dragging right
+    ;; widens, dragging left narrows. dx = (now-x - start-x).
+    (let [dx        (- (.-pageX e) start-x)
+          new-width (+ start-width dx)]
+      (rf/dispatch [:rf.xray/set-event-list-col-width col-id new-width]
+                   {:frame :rf/xray}))))
+
+(defn- col-divider-on-up [^js _e]
+  (col-divider-detach-listeners!))
+
+(defn- col-divider-on-cancel [^js _e]
+  (col-divider-detach-listeners!))
+
+(defn col-divider-start-drag!
+  "Begin a column-divider drag for `col-id` (`:source` /
+  `:timestamp` / `:duration`). Records the snapshot + attaches the
+  document-level move/up/cancel listeners. Exposed for the divider
+  view's `:on-pointer-down` handler AND for the test suite, which
+  drives the lifecycle without a real DOM."
+  [^js e col-id current-width]
+  (col-divider-detach-listeners!)
+  (let [start-x     (.-pageX e)
+        pointer-id  (.-pointerId e)
+        prev-cursor (when (and (exists? js/document)
+                               (.-body js/document))
+                      (-> js/document .-body .-style .-cursor))
+        on-move     col-divider-on-move
+        on-up       col-divider-on-up
+        on-cancel   col-divider-on-cancel]
+    (reset! col-divider-drag-state
+            {:col-id      col-id
+             :start-x     start-x
+             :start-width (or current-width 0)
+             :pointer-id  pointer-id
+             :on-move     on-move
+             :on-up       on-up
+             :on-cancel   on-cancel
+             :prev-cursor prev-cursor})
+    (when (and (exists? js/document) (.-body js/document))
+      (set! (-> js/document .-body .-style .-cursor) "col-resize"))
+    (when (and (exists? js/document) (.-addEventListener js/document))
+      (try (.addEventListener js/document "pointermove" on-move)
+           (catch :default _ nil))
+      (try (.addEventListener js/document "pointerup" on-up)
+           (catch :default _ nil))
+      (try (.addEventListener js/document "pointercancel" on-cancel)
+           (catch :default _ nil)))
+    (try (.preventDefault e) (catch :default _ nil))))
+
+(defn col-divider-simulate-move!
+  "Test-only: drive the document-level pointermove handler. No-op when
+  no drag is in progress."
+  [page-x]
+  (when @col-divider-drag-state
+    (col-divider-on-move #js {:pageX page-x})))
+
+(defn col-divider-simulate-up!
+  "Test-only: drive the document-level pointerup handler."
+  []
+  (when @col-divider-drag-state
+    (col-divider-on-up nil)))
+
+(defn col-divider-simulate-cancel!
+  "Test-only: drive the document-level pointercancel handler."
+  []
+  (when @col-divider-drag-state
+    (col-divider-on-cancel nil)))
+
+(defn col-divider-handle-keydown!
+  "Keyboard-navigable column-divider resize. Per spec/007-UX-IA.md
+  §Resize affordance every drag handle MUST be operable without a
+  pointer device. Mirrors the panel resize handle's bindings:
+
+    ArrowRight        +<step>px (widen the column to the LEFT)
+    ArrowLeft         -<step>px (narrow)
+    Shift+ArrowRight  +<coarse> (10 × 3 = 30px)
+    Shift+ArrowLeft   -<coarse>
+    Enter / Space     reset this column to its default
+
+  The clamp lives in the registry handler — we dispatch the desired
+  width and let `:rf.xray/set-event-list-col-width` apply the per-
+  column floor. Returns true iff the keypress was handled."
+  [^js e col-id current-width]
+  (let [key      (.-key e)
+        shift?   (.-shiftKey e)
+        step     (if shift?
+                   (* config/event-list-col-keyboard-step-px
+                      config/event-list-col-keyboard-coarse-multiplier)
+                   config/event-list-col-keyboard-step-px)
+        dispatch (fn [px]
+                   (rf/dispatch [:rf.xray/set-event-list-col-width col-id px]
+                                {:frame :rf/xray}))]
+    (case key
+      "ArrowRight"   (do (dispatch (+ current-width step)) true)
+      "ArrowLeft"    (do (dispatch (- current-width step)) true)
+      ("Enter" " ")  (do (rf/dispatch
+                           [:rf.xray/reset-event-list-col-width col-id]
+                           {:frame :rf/xray})
+                         true)
+      false)))
+
+(defn- col-divider
+  "Render a draggable divider sitting to the RIGHT of the column with
+  `col-id`. The divider is a 6px-wide vertical strip carrying the
+  `col-resize` cursor + a hover affordance defined in
+  `theme/global_styles/motion-css` (the rule paints a 1px accent stripe
+  on hover so authors can find the affordance without a hidden hit-test
+  game; the cursor change is the always-visible signal).
+
+  rf2-6ni62. The divider participates in the row's flex layout as a
+  zero-content cell with explicit width — placed BETWEEN the column
+  it sizes (to its left) and the next column. Per the alignment
+  contract the same divider widths apply to header + every row, so the
+  flex layout stays consistent across surfaces."
+  [{:keys [col-id col-px row-height]}]
+  (let [floor    (get config/event-list-col-min-widths col-id)
+        col-label (name col-id)]
+    [:div {:data-testid           (str "rf-xray-event-list-col-divider-" col-label)
+           :data-rf-xray-col-id   col-label
+           :role                  "separator"
+           :aria-orientation      "vertical"
+           :aria-label            (str "Resize " col-label " column")
+           :aria-valuemin         floor
+           :aria-valuemax         600
+           :aria-valuenow         col-px
+           :tab-index             0
+           :title                 (str "Drag to resize " col-label
+                                       " column · double-click to reset · "
+                                       "arrow keys (Shift = coarse)")
+           :on-pointer-down       (fn [^js e]
+                                    (col-divider-start-drag! e col-id col-px))
+           :on-key-down           (fn [^js e]
+                                    (when (col-divider-handle-keydown! e col-id col-px)
+                                      (try (.preventDefault e)
+                                           (catch :default _ nil))))
+           :on-double-click       (fn [^js _e]
+                                    (rf/dispatch
+                                      [:rf.xray/reset-event-list-col-width col-id]
+                                      {:frame :rf/xray}))
+           :style {:flex          "0 0 auto"
+                   :width         "5px"
+                   :align-self    "stretch"
+                   :height        (or row-height "100%")
+                   :cursor        "col-resize"
+                   :background    "transparent"
+                   ;; Disable native gestures during drag (text-select
+                   ;; on mouse, page-pan on touch).
+                   :touch-action  "none"
+                   :user-select   "none"}}]))
+
+(defn- ->px
+  "Coerce a plain number to a `\"<n>px\"` string for inline styles.
+  Accepts an already-formatted string verbatim (defence-in-depth on a
+  legacy default that snuck through as a string)."
+  [v]
+  (cond
+    (string? v) v
+    (number? v) (str v "px")
+    :else       nil))
 
 ;; ---- Relative-time chip (rf2-vbbq0 / rf2-0s2at) --------------------------
 ;;
@@ -470,24 +654,29 @@
   for call-site stability and ignored. The chip's `:title` carries the
   full ISO walltime + epoch-ms as the power-user reveal.
 
+  rf2-6ni62 — `col-px` is the user-resizable `timestamp` column width
+  (pixels). The header + every row read from the same
+  `:rf.xray/event-list-col-widths` sub so the two surfaces never drift
+  out of column alignment.
+
   Renders nothing when the cascade carries no dispatched-time stamp."
-  [cascade _now-ms]
+  [cascade _now-ms col-px]
   (when-let [then-ms (cascade-dispatched-time-ms cascade)]
     (let [label   (format-clock-time then-ms)
           tooltip (format-absolute-time then-ms)]
       [:span {:data-testid     "rf-xray-row-time-chip"
               :data-then-ms    (str then-ms)
               :title           tooltip
-              ;; rf2-ad7zx.15 — the trailing time column. Shares the
-              ;; header `timestamp` column's right-aligned min-width slot
-              ;; (`l2-time-col-min-width`) so the value right-aligns under
-              ;; the header label. Spacing from the preceding column comes
-              ;; from the row's shared flex `gap`.
+              ;; rf2-ad7zx.15 / rf2-6ni62 — the trailing time column.
+              ;; Shares the header `timestamp` column's right-aligned
+              ;; width with the same `col-px` source so the value
+              ;; right-aligns under the header label. Spacing from the
+              ;; preceding column comes from the row's shared flex `gap`.
               :style {:color         (:text-tertiary tokens)
                       :flex-shrink   0
                       :font-family   mono-stack
                       :font-size     (:caption type-scale)
-                      :min-width     l2-time-col-min-width
+                      :width         (->px col-px)
                       :text-align    "right"
                       :white-space   "nowrap"}}
        label])))
@@ -497,15 +686,20 @@
   Figma EventList's fourth column. Right-aligned handler wall-time
   (`1.2 ms`), sourced from the cascade's `:handler` trace event via
   `l2-timeline/cascade-duration-label`. Shares the header `duration`
-  column's right-aligned min-width slot (`l2-duration-col-min-width`)
-  so the value right-aligns under the header label; spacing from the
+  column's right-aligned width with the same `col-px` source so the
+  value right-aligns under the header label; spacing from the
   preceding timestamp column comes from the row's shared flex `gap`.
+
+  rf2-6ni62 — `col-px` is the user-resizable `duration` column width
+  (pixels). Header + every row read from the same
+  `:rf.xray/event-list-col-widths` sub so the two surfaces never drift
+  out of column alignment.
 
   ALWAYS renders the cell span (occupying its column width) so the
   columns stay aligned row-to-row; when the cascade carries no measured
   handler duration the cell is simply blank rather than collapsing the
   column."
-  [cascade]
+  [cascade col-px]
   (let [label (l2-timeline/cascade-duration-label cascade)]
     [:span {:data-testid   "rf-xray-row-duration"
             :data-duration (str (l2-timeline/cascade-duration-ms cascade))
@@ -513,7 +707,7 @@
                     :flex-shrink   0
                     :font-family   mono-stack
                     :font-size     (:caption type-scale)
-                    :min-width     l2-duration-col-min-width
+                    :width         (->px col-px)
                     :text-align    "right"
                     :white-space   "nowrap"}}
      label]))
@@ -1116,8 +1310,14 @@
   The menu state lives in app-db (`:row-context-menu`) so the menu
   renders at the shell-view root and floats above the L2 list's
   overflow-hidden clipping. preventDefault on the right-click
-  suppresses the browser's native menu."
-  [{:keys [cascade focused-id auto-track? now-ms]}]
+  suppresses the browser's native menu.
+
+  rf2-6ni62 — `col-widths` carries the resolved
+  `{:source N :timestamp N :duration N}` map every row reads its
+  inline column widths from. The parent (`event-list`) subscribes
+  ONCE per paint and threads the resolved map through props so each
+  row doesn't re-subscribe per render."
+  [{:keys [cascade focused-id auto-track? now-ms col-widths]}]
   (let [id          (:dispatch-id cascade)
         focused?    (= id focused-id)
         ;; rf2-ad7zx.12 — the Figma `source` column tag (origin name as
@@ -1264,17 +1464,24 @@
                      :text-align "left"
                      :min-width "0"}}
       (render-event-id-only event-vec)]
+     ;; rf2-6ni62 — divider sits to the RIGHT of `event id` and resizes
+     ;; the `source` column to its right. The divider widths participate
+     ;; in the flex layout on rows + header identically so the cells
+     ;; stay column-for-column aligned.
+     [col-divider {:col-id    :source
+                   :col-px    (:source col-widths)
+                   :row-height "22px"}]
      ;; rf2-ad7zx.12 + rf2-lnod7 — the `source` COLUMN (Figma EventList).
-     ;; A fixed-width cell aligned under the header's `source` label,
-     ;; carrying the dispatch-origin as a short text tag. The reference
-     ;; tags EVERY row, so the default app-code origin (`:user`, plus
-     ;; nil/unknown synthetic cascades) renders `ui` rather than a blank
-     ;; cell. rf2-pjjwh dropped the leading origin-prefix glyph — the mock
-     ;; carries the source tag as plain text only.
+     ;; A user-resizable cell (rf2-6ni62) aligned under the header's
+     ;; `source` label, carrying the dispatch-origin as a short text tag.
+     ;; The reference tags EVERY row, so the default app-code origin
+     ;; (`:user`, plus nil/unknown synthetic cascades) renders `ui` rather
+     ;; than a blank cell. rf2-pjjwh dropped the leading origin-prefix
+     ;; glyph — the mock carries the source tag as plain text only.
      [:span {:data-testid (when source-tag (str "rf-xray-row-origin-" source-tag))
              :data-rf-xray-origin source-tag
              :style {:flex-shrink 0
-                     :width l2-source-col-width
+                     :width (->px (:source col-widths))
                      :display "inline-flex"
                      :align-items "center"
                      :overflow "hidden"
@@ -1284,14 +1491,22 @@
                      :font-family sans-stack
                      :font-size (:caption type-scale)}}
       (when source-tag source-tag)]
+     ;; rf2-6ni62 — divider sits between `source` and `timestamp`.
+     [col-divider {:col-id    :timestamp
+                   :col-px    (:timestamp col-widths)
+                   :row-height "22px"}]
      ;; Timestamp column (rf2-3f2di A8) — absolute wall-clock
      ;; `HH:MM:SS.mmm`, right-aligned. The chip carries an absolute-time
      ;; `:title` tooltip as the power-user reveal.
-     (relative-time-chip cascade now-ms)
+     (relative-time-chip cascade now-ms (:timestamp col-widths))
+     ;; rf2-6ni62 — divider sits between `timestamp` and `duration`.
+     [col-divider {:col-id    :duration
+                   :col-px    (:duration col-widths)
+                   :row-height "22px"}]
      ;; Duration cell (rf2-lnod7) — the trailing `duration` column,
      ;; restoring the Figma EventList's fourth column. Handler wall-time
      ;; (`1.2 ms`), right-aligned, flush against the row's trailing edge.
-     (duration-cell cascade)]))
+     (duration-cell cascade (:duration col-widths))]))
 
 ;; ---- events ribbon (rf2-4vp5j) -----------------------------------------
 ;;
@@ -1443,8 +1658,14 @@
   lnod7 + rf2-xawwb, Figma-Make EventList). Names the FOUR columns the
   rows align to, in Figma-Make order — `event id` · `source` ·
   `timestamp` · `duration`. Caption-weight, muted, on the chrome surface
-  so it reads as chrome rather than data. Pure hiccup."
-  []
+  so it reads as chrome rather than data.
+
+  rf2-6ni62 — accepts `col-widths` (the resolved
+  `{:source N :timestamp N :duration N}` map) so the header column
+  widths read from the SAME source the rows do. Dividers between
+  columns carry the drag affordance — pointerdown begins a drag,
+  arrow keys do a fine resize, double-click resets to default."
+  [col-widths]
   (let [cell {:color       (:text-tertiary tokens)
               :font-family sans-stack
               :font-size   (:caption type-scale)
@@ -1453,12 +1674,13 @@
               :white-space "nowrap"}]
     [:div {:data-testid "rf-xray-event-list-header"
            :role        "row"
-           ;; rf2-ad7zx.15 — the header shares the EXACT column structure
-           ;; of the data rows (`event-row`): same flex `gap`, same
-           ;; horizontal `padding`, and the SAME per-column widths via the
-           ;; shared `l2-*-col-*` constants. It also carries a matching
-           ;; `1px solid transparent` border so the rows' active-row 1px
-           ;; border (content-box) never offsets the data columns 1px
+           ;; rf2-ad7zx.15 / rf2-6ni62 — the header shares the EXACT
+           ;; column structure of the data rows (`event-row`): same flex
+           ;; `gap`, same horizontal `padding`, the SAME per-column
+           ;; widths via the shared `:rf.xray/event-list-col-widths` sub,
+           ;; and the SAME dividers between cells. It also carries a
+           ;; matching `1px solid transparent` border so the rows'
+           ;; active-row 1px border never offsets the data columns 1px
            ;; right of the header. Result: event id / source / timestamp /
            ;; duration sit directly above their data columns (Figma
            ;; EventList).
@@ -1483,19 +1705,32 @@
              :style (merge cell {:flex "1 1 auto" :min-width "0"
                                  :text-align "left"})}
       "event id"]
+     ;; rf2-6ni62 — divider between `event id` (flex) and `source`.
+     [col-divider {:col-id    :source
+                   :col-px    (:source col-widths)
+                   :row-height "100%"}]
      [:span {:data-testid "rf-xray-event-list-col-source"
-             :style (merge cell {:width l2-source-col-width :flex-shrink 0})}
+             :style (merge cell {:width (->px (:source col-widths))
+                                 :flex-shrink 0})}
       "source"]
+     ;; rf2-6ni62 — divider between `source` and `timestamp`.
+     [col-divider {:col-id    :timestamp
+                   :col-px    (:timestamp col-widths)
+                   :row-height "100%"}]
      [:span {:data-testid "rf-xray-event-list-col-timestamp"
              :style (merge cell {:flex-shrink 0 :text-align "right"
-                                 :min-width l2-time-col-min-width})}
+                                 :width (->px (:timestamp col-widths))})}
       "timestamp"]
+     ;; rf2-6ni62 — divider between `timestamp` and `duration`.
+     [col-divider {:col-id    :duration
+                   :col-px    (:duration col-widths)
+                   :row-height "100%"}]
      ;; rf2-lnod7 — the fourth Figma column. Restored after the gap
      ;; audit (rf2-4297k) found the live header carried only three
      ;; columns and the duration was clipped off the right edge.
      [:span {:data-testid "rf-xray-event-list-col-duration"
              :style (merge cell {:flex-shrink 0 :text-align "right"
-                                 :min-width l2-duration-col-min-width})}
+                                 :width (->px (:duration col-widths))})}
       "duration"]]))
 
 (rf/reg-view event-list
@@ -1542,7 +1777,11 @@
   ;; mounted by the shell-view); defonce + DOM guards keep it a
   ;; no-op everywhere it matters.
   (inject-scrollbar-style!)
-  (let [cascades       @(rf/subscribe [:rf.xray/filtered-cascades])
+  (let [;; rf2-6ni62 — subscribe ONCE per L2 paint; thread the resolved
+        ;; widths map through to the header + every row so the two
+        ;; surfaces never drift out of column alignment.
+        col-widths     @(rf/subscribe [:rf.xray/event-list-col-widths])
+        cascades       @(rf/subscribe [:rf.xray/filtered-cascades])
         ;; rf2-4vp5j — the hidden-by-filters message moved UP to the
         ;; events ribbon (`events-ribbon`); the L2 list no longer renders
         ;; the banner itself. The events ribbon is the always-present
@@ -1604,7 +1843,7 @@
         ;; stack. Rendered only with rows present so the empty state
         ;; stays a clean "No events." message.
         (list
-         ^{:key "header"} [l2-column-header]
+         ^{:key "header"} [l2-column-header col-widths]
          (into ^{:key "rows"}
                [:ul {:style {:list-style "none" :margin 0 :padding 0
                             :display "flex" :flex-direction "column"
@@ -1614,7 +1853,8 @@
                 [event-row {:cascade     cascade
                             :focused-id  focused-id
                             :auto-track? auto-track?
-                            :now-ms      now-ms}]))))]]))
+                            :now-ms      now-ms
+                            :col-widths  col-widths}]))))]]))
 
 ;; ---- L3 tab bar ----------------------------------------------------------
 

@@ -896,6 +896,30 @@
     "  min-width: 0;\n"
     "  overflow: hidden;\n"
     "  white-space: nowrap;\n"
+    "}\n"
+    ;; rf2-6ni62 — L2 event-list column-divider hover affordance.
+    ;; The divider is a 5px-wide transparent strip between cells; the
+    ;; always-visible signal is the `cursor: col-resize` style on the
+    ;; element itself. On hover we paint a soft 1px accent stripe down
+    ;; the divider's middle so the affordance reads as draggable
+    ;; without depending on a JS pointer-move pre-flash. Mirrors the
+    ;; panel-resize-handle's always-visible accent stripe at lower
+    ;; intensity (the panel handle is the principal affordance; column
+    ;; dividers are secondary). The accent stripe routes through the
+    ;; ACTIVE-theme CSS variable so light/dark both read.
+    "[data-testid^=\"rf-xray-event-list-col-divider-\"] {\n"
+    "  transition: background-color calc(120ms * var(--rf-xray-motion-scale, 1)) ease-out;\n"
+    "}\n"
+    "[data-testid^=\"rf-xray-event-list-col-divider-\"]:hover {\n"
+    "  background: linear-gradient(\n"
+    "    to right,\n"
+    "    transparent 0,\n"
+    "    transparent 2px,\n"
+    "    color-mix(in srgb, var(--rf-xray-accent) 45%, transparent) 2px,\n"
+    "    color-mix(in srgb, var(--rf-xray-accent) 45%, transparent) 3px,\n"
+    "    transparent 3px,\n"
+    "    transparent\n"
+    "  ) !important;\n"
     "}\n"))
 
 (defn- inject-motion-style!

@@ -937,11 +937,14 @@
         (is (= (:flex (style-of h-event-id))
                (:flex (style-of r-event-id)))
             "header `event id` column and row event-id both flex-grow")
-        ;; TIMESTAMP / time column — header label min-width == chip min-width,
-        ;; both right-aligned, so the timestamp header sits over the chip
-        (is (= (:min-width (style-of h-timestamp))
-               (:min-width (style-of r-time)))
-            "header `timestamp` min-width == row time-chip min-width")
+        ;; TIMESTAMP / time column — header label width == chip width,
+        ;; both right-aligned, so the timestamp header sits over the chip.
+        ;; rf2-6ni62 moved this column to an explicit `:width` (user-
+        ;; resizable, no longer a min-width slot); header + row both read
+        ;; from the same `:rf.xray/event-list-col-widths` sub.
+        (is (= (:width (style-of h-timestamp))
+               (:width (style-of r-time)))
+            "header `timestamp` width == row time-chip width")
         (is (= "right"
                (:text-align (style-of h-timestamp))
                (:text-align (style-of r-time)))
@@ -1027,9 +1030,12 @@
             "the duration value reads the handler wall-time as `1.2 ms`")))))
 
 (deftest event-list-duration-column-aligns-header-and-row
-  (testing "rf2-lnod7 — the header `duration` label and the row's
-            duration cell share the SAME right-aligned min-width slot so
-            the value sits directly under the header label."
+  (testing "rf2-lnod7 / rf2-6ni62 — the header `duration` label and the
+            row's duration cell share the SAME width source so the value
+            sits directly under the header label. rf2-6ni62 promoted the
+            column to a user-resizable explicit `:width` (no longer the
+            min-width slot); header + row both read from the same
+            `:rf.xray/event-list-col-widths` sub so they never drift."
     (xray-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:poll/tick]))
     (trace-bus/collect-trace! (run-end-trace-ev 1 0.4))
@@ -1039,9 +1045,9 @@
             r-duration (find-by-testid tree "rf-xray-row-duration")]
         (is (some? h-duration) "header duration column renders")
         (is (some? r-duration) "row duration cell renders")
-        (is (= (:min-width (style-of h-duration))
-               (:min-width (style-of r-duration)))
-            "header `duration` min-width == row duration-cell min-width")
+        (is (= (:width (style-of h-duration))
+               (:width (style-of r-duration)))
+            "header `duration` width == row duration-cell width")
         (is (= "right"
                (:text-align (style-of h-duration))
                (:text-align (style-of r-duration)))

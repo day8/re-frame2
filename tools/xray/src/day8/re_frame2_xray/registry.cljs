@@ -236,6 +236,57 @@
         {:fx [[:dispatch [:rf.xray/set-panel-width-px
                           config/default-panel-width-px]]]}))
 
+    ;; ---- L2 event-list resizable column widths (rf2-6ni62) -------
+    ;;
+    ;; The L2 event-list carries four columns — `event-id` (flex),
+    ;; `source`, `timestamp`, `duration`. The trailing three are
+    ;; user-resizable via drag handles between cells. State lives in
+    ;; the same settings map every other persistence-bearing knob
+    ;; uses (`:general :event-list-col-widths`), so widths survive
+    ;; reload through `config/update-setting!` → localStorage.
+    ;;
+    ;; The sub resolves the persisted map over the defaults (defence-
+    ;; in-depth: a legacy / malformed payload yields a clamped, fully-
+    ;; shaped map every consumer can read against). Header and rows
+    ;; both read from the SAME sub so the two surfaces never drift
+    ;; out of column alignment — the alignment guarantee.
+    ;;
+    ;; `:rf.trace/no-emit?` mirrors `:rf.xray/set-panel-width-px`:
+    ;; drag emits one event per pixel of motion; emitting them would
+    ;; flood the trace buffer with shape no panel consumes.
+    (rf/reg-sub :rf.xray/event-list-col-widths
+      (fn [db _query]
+        (config/resolve-event-list-col-widths
+          (or (get-in db [:settings :general :event-list-col-widths])
+              (config/get-setting :general :event-list-col-widths)))))
+
+    (rf/reg-event-db :rf.xray/set-event-list-col-width
+      {:rf.trace/no-emit? true}
+      (fn [db [_ col-id px]]
+        (if-let [clamped (config/clamp-event-list-col-width col-id px)]
+          (let [persisted (or (config/get-setting :general :event-list-col-widths)
+                              config/event-list-col-default-widths)
+                next-map  (assoc persisted col-id clamped)]
+            ;; Dual-write: the atom (canonical, drives localStorage
+            ;; round-trip via `update-setting!`) and app-db (drives
+            ;; immediate reactive re-render of every header + row).
+            (config/update-setting! :general :event-list-col-widths next-map)
+            (assoc-in db [:settings :general :event-list-col-widths] next-map))
+          ;; Unknown column-id (e.g. `event-id` — flex, never sized):
+          ;; no-op. Defensive — the divider views only dispatch for
+          ;; the three resizable ids.
+          db)))
+
+    ;; Reset one column to its default — bound to a divider's
+    ;; double-click and to the Enter/Space keyboard affordance.
+    ;; Routes through the same write surface so persistence stays
+    ;; consistent.
+    (rf/reg-event-fx :rf.xray/reset-event-list-col-width
+      {:rf.trace/no-emit? true}
+      (fn [_ [_ col-id]]
+        (when-let [default-px (get config/event-list-col-default-widths col-id)]
+          {:fx [[:dispatch [:rf.xray/set-event-list-col-width col-id default-px]]]})))
+
     ;; ---- 4-layer chrome — active filter pills (rf2-xy4yb / spec/018 §7) ----
     ;;
     ;; The ribbon's filter cluster reads `:rf.xray/active-filters` —

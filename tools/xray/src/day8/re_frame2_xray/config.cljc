@@ -740,7 +740,21 @@
   - `:trace-buffer/keep` (default 1000) — count of raw trace events
     to retain (mirrors `trace-bus/default-buffer-depth`).
   - `:app-db/inspector-collapse-threshold` (default 50) — branch
-    factor above which the App-db inspector collapses by default."
+    factor above which the App-db inspector collapses by default.
+
+  ## `:event-list-col-widths` (rf2-6ni62 — resizable event-list columns)
+
+  Per-column pixel widths for the L2 event list's three user-resizable
+  columns. The leading `event-id` column stays `flex: 1 1 auto` and
+  absorbs any remaining width; the trailing three carry explicit widths
+  the user drags via divider handles between cells. Persisted through
+  the same settings round-trip so widths survive reload. Floors live in
+  `event-list-col-min-widths`; defaults match the pre-resize fixed
+  widths so a fresh install reads identically to the pre-feature shell.
+
+  Header + every row read these widths via the same
+  `:rf.xray/event-list-col-widths` sub so the two surfaces never drift
+  out of column alignment."
   {:general   {:text-size              13              ; px — slider range 10–18
                :panel-position         :right-rail     ; :right-rail | :popout | :fullscreen
                :panel-width-px         default-panel-width-px ; rf2-x8h9y resize handle
@@ -773,7 +787,17 @@
                ;; so authors can preview / live in the system-token
                ;; chrome on demand. Additive to the OS detection —
                ;; both paths produce the same painted chrome.
-               :use-system-colors?      false}
+               :use-system-colors?      false
+               ;; rf2-6ni62 — L2 event-list user-resizable column
+               ;; widths in pixels. Keys match the three resizable
+               ;; columns (`event-id` is flex). Defaults mirror the
+               ;; pre-resize fixed widths so a fresh install lays out
+               ;; identically. The drag-handle dispatch path clamps to
+               ;; `event-list-col-min-widths` before the write so the
+               ;; persisted payload is always in-range.
+               :event-list-col-widths   {:source    52
+                                         :timestamp 76
+                                         :duration  60}}
    :theme     :light                                 ; :light | :dark (rf2-3f2di — light default per the authority reference)
    :diff      {:highlight-fn-ref-changes? false}
    :buffer    {:retained-epochs                    200
@@ -794,6 +818,93 @@
           floor  min-panel-width-px
           ceil   (max floor max-px)]
       (long (-> px (max floor) (min ceil))))))
+
+;; ---- L2 event-list column widths (rf2-6ni62) -----------------------------
+;;
+;; The L2 event list carries four columns — `event-id` (flex), `source`,
+;; `timestamp`, `duration`. The trailing three are user-resizable via
+;; drag handles BETWEEN columns. Defaults below mirror the pre-resize
+;; fixed widths so a fresh install lays out exactly as it did before the
+;; feature. Floors keep any column from collapsing to nothing — sized
+;; from the lowercase column-label width (per-column floor, not a single
+;; 60px blanket) so the header `source` / `timestamp` / `duration`
+;; lowercase labels always read.
+;;
+;; The helpers stay CLJC-pure / JVM-testable: takes a persisted map of
+;; `{:source N :timestamp N :duration N}` (or nil / partial / malformed),
+;; returns a fully-resolved map every consumer can read against. The
+;; drag-handle dispatch path clamps to the floor BEFORE the write, so
+;; the persisted payload is always in-range; `resolve-event-list-col-
+;; widths` is defence-in-depth for legacy payloads that pre-date the
+;; clamp.
+
+(def event-list-col-default-widths
+  "Default per-column widths in pixels for the L2 event list's three
+  user-resizable columns. Keys match the column ids (`event-id` is
+  flex; never sized). Values mirror the pre-resize fixed widths
+  (rf2-pjjwh + rf2-3f2di + rf2-lnod7) so a fresh install lays out
+  identically to the pre-feature shell."
+  {:source    52
+   :timestamp 76
+   :duration  60})
+
+(def event-list-col-min-widths
+  "Per-column floors in pixels. The user cannot drag below these
+  values — sized so the lowercase header label still reads (the column
+  header carries `source` / `timestamp` / `duration` in
+  `text-transform: lowercase` `caption` weight). Larger than a blanket
+  60px floor would allow because the `source` tag column is the
+  narrowest by design; smaller is fine here because the cell only ever
+  carries 2–6 character text (`ui` / `fx` / `timer` / …)."
+  {:source    40
+   :timestamp 60
+   :duration  48})
+
+(def event-list-col-keyboard-step-px
+  "Keyboard fine step for an arrow-key press on a column divider.
+  Mirrors the panel resize handle's 8px convention but uses 10px here
+  so users can land on a column count consistent with the per-pixel
+  drag granularity (10px is one tap of the trackpad scroll wheel on
+  modern OSes)."
+  10)
+
+(def event-list-col-keyboard-coarse-multiplier
+  "Multiplier for Shift+arrow on a column divider. 10 × 3 = 30px per
+  press for coarse traversal."
+  3)
+
+(defn clamp-event-list-col-width
+  "Pure helper: clamp `px` for `col-id` to that column's floor.
+  Unknown columns (`event-id` — not user-resizable; any future
+  unsupported key) return `nil` so the caller's update path can no-op
+  on them. Non-numeric input falls back to the column's default
+  width — a malformed persisted payload never leaves the column at an
+  unusable size."
+  [col-id px]
+  (when-let [floor (get event-list-col-min-widths col-id)]
+    (let [default-px (get event-list-col-default-widths col-id)]
+      (if-not (number? px)
+        default-px
+        (long (max floor px))))))
+
+(defn resolve-event-list-col-widths
+  "Pure helper: merge `persisted` (a partial / nil / malformed map of
+  `{:source N :timestamp N :duration N}`) over the defaults, clamping
+  each known column to its floor. Always returns a fully-shaped map
+  every consumer can read against — header and row both blend their
+  `width` style off the result so the two surfaces never drift.
+
+  Unknown keys in `persisted` are silently dropped (forward-compat: a
+  future column id would land in the persisted payload but is ignored
+  by older Xrays). CLJC-pure / JVM-testable."
+  [persisted]
+  (let [persisted (when (map? persisted) persisted)]
+    (reduce-kv
+      (fn [acc col-id default-px]
+        (let [raw (get persisted col-id default-px)]
+          (assoc acc col-id (clamp-event-list-col-width col-id raw))))
+      {}
+      event-list-col-default-widths)))
 
 (defonce
   ^{:doc "Atom holding the live settings map. Seeded with
