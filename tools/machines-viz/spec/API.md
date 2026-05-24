@@ -60,7 +60,7 @@ registry).
 | `:on-state-click` | no | `nil` | `(fn [path] ...)`. Fires when the user clicks a state node; `path` is the clicked node's path. No-op'd when `:read-only?` is true. |
 | `:read-only?` | no | `nil` | When `true`, all `:on-*` callbacks are no-op'd. The viewer page sets this. |
 | `:direction` | no | `:tb` | Layout axis. `:tb` lays the chart top-to-bottom; `:lr` left-to-right. Fed to elkjs as `elk.direction`. |
-| `:layout-options` | no | `nil` | Host-side elkjs `layoutOptions` overrides merged on top of `default-elk-options` (`chart.cljs/default-elk-options`). The `:direction` arg drives `elk.direction`. |
+| `:layout-options` | no | `nil` | Host-side elkjs `layoutOptions` overrides merged on top of `default-elk-options` (`chart.cljs/default-elk-options`). The `:direction` arg drives `elk.direction`, and the chart auto-sets `elk.hierarchyHandling INCLUDE_CHILDREN` on the root layout whenever the graph nests (parallel regions or compound substates) so elk routes edges ACROSS nesting levels (parity gap G5 / rf2-gpa9k — see `chart.cljs/elk-layout-options`). |
 | `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Resolves the geometry + typography map via `visual-constants/chart-for-density`; the resolved map is threaded through the projector onto every node/edge `:data` so the xyflow node/edge components render at the chosen density. The chart root surfaces the resolved density as `data-density`. `nil` ≡ `:regular`; an unknown density throws at render time. Per [§Density](#density) and rf2-32gw5. |
 | `:height` | no | `"100%"` | Outer wrapper height (CSS string). xyflow requires a non-zero parent height. |
 | `:show-minimap?` | no | `false` | When `true`, render xyflow's built-in MiniMap. |

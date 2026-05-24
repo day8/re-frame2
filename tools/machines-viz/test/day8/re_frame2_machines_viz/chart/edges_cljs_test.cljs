@@ -75,6 +75,93 @@
     (let [edge (->edge [(->section (pt 5 5) [] (pt 5 5))])]
       (is (nil? (chart/elk-edge-points edge))))))
 
+;; ---- elk-layout-options: the G5 cross-hierarchy switch ------------------
+;;
+;; `chart/elk-layout-options` is the pure root `layoutOptions` computation
+;; `->elk-input` `clj->js`-es onto the elk graph. The G5 capability —
+;; routing edges ACROSS nesting levels — rides entirely on whether this
+;; map carries `elk.hierarchyHandling INCLUDE_CHILDREN`. Without it elk
+;; uses `SEPARATE_CHILDREN` (lay each level out independently, no
+;; cross-hierarchy edge routes), so these pins are the regression guard
+;; for the switch (rf2-gpa9k). The G2 routing keys it pairs with
+;; (rf2-cz8v6) are pinned alongside so the pairing can't silently drift.
+
+(defn- nested-parsed
+  "A parsed graph with a compound substate — `:child` carries a
+  `:parent-id`, so the graph nests."
+  []
+  {:parallel? false
+   :nodes [{:id "parent" :compound? true}
+           {:id "child" :parent-id "parent"}]
+   :edges []})
+
+(defn- parallel-parsed
+  "A parsed graph flagged `:parallel?` (orthogonal regions) with no
+  per-node `:parent-id` — parallelism alone must enable the switch."
+  []
+  {:parallel? true
+   :nodes [{:id "regionA"} {:id "regionB"}]
+   :edges []})
+
+(defn- flat-parsed
+  "A plain, single-level machine — no nesting, not parallel."
+  []
+  {:parallel? false
+   :nodes [{:id "a"} {:id "b"}]
+   :edges []})
+
+(deftest elk-layout-options-nested-enables-cross-hierarchy
+  (testing "rf2-gpa9k (G5) — a NESTED graph (a node has :parent-id, e.g.
+            a compound substate) requests cross-hierarchy routing:
+            elk.hierarchyHandling INCLUDE_CHILDREN"
+    (is (= "INCLUDE_CHILDREN"
+           (get (chart/elk-layout-options (nested-parsed) nil :tb)
+                "elk.hierarchyHandling")))))
+
+(deftest elk-layout-options-parallel-enables-cross-hierarchy
+  (testing "rf2-gpa9k (G5) — a PARALLEL graph (:parallel? true) requests
+            cross-hierarchy routing even with no per-node :parent-id"
+    (is (= "INCLUDE_CHILDREN"
+           (get (chart/elk-layout-options (parallel-parsed) nil :tb)
+                "elk.hierarchyHandling")))))
+
+(deftest elk-layout-options-flat-omits-cross-hierarchy
+  (testing "rf2-gpa9k (G5) — a FLAT, non-parallel graph does NOT set
+            elk.hierarchyHandling, so elk's per-level default
+            (SEPARATE_CHILDREN) stands"
+    (is (not (contains? (chart/elk-layout-options (flat-parsed) nil :tb)
+                        "elk.hierarchyHandling")))))
+
+(deftest elk-layout-options-pins-g2-routing-keys
+  (testing "rf2-cz8v6 (G2) — the routing keys cross-hierarchy bend-points
+            depend on are present on every graph: elk.edgeRouting
+            ORTHOGONAL (Manhattan routes around containers) + edgeCoords
+            ROOT (absolute coords so the lifted bends match xyflow's
+            frame). G5's INCLUDE_CHILDREN only pays off when paired here."
+    (doseq [parsed [(nested-parsed) (parallel-parsed) (flat-parsed)]]
+      (let [opts (chart/elk-layout-options parsed nil :tb)]
+        (is (= "ORTHOGONAL" (get opts "elk.edgeRouting")))
+        (is (= "ROOT" (get opts "elk.json.edgeCoords")))))))
+
+(deftest elk-layout-options-direction-from-arg
+  (testing "rf2-gpa9k — elk.direction is forced from the direction arg
+            (:lr → RIGHT, :tb → DOWN), independent of the switch"
+    (is (= "RIGHT" (get (chart/elk-layout-options (flat-parsed) nil :lr)
+                        "elk.direction")))
+    (is (= "DOWN" (get (chart/elk-layout-options (flat-parsed) nil :tb)
+                       "elk.direction")))))
+
+(deftest elk-layout-options-host-overrides-merge
+  (testing "rf2-gpa9k — host :layout-options merge on top of the canonical
+            defaults without clobbering the G2 routing keys or the G5
+            switch"
+    (let [opts (chart/elk-layout-options
+                 (nested-parsed) {"elk.spacing.nodeNode" "99"} :tb)]
+      (is (= "99" (get opts "elk.spacing.nodeNode")) "host override applied")
+      (is (= "ORTHOGONAL" (get opts "elk.edgeRouting")) "G2 key survives")
+      (is (= "INCLUDE_CHILDREN" (get opts "elk.hierarchyHandling"))
+          "G5 switch survives"))))
+
 ;; ---- elk-route case (the G2 capability) --------------------------------
 
 (deftest edge-path-routes-through-bend-points
