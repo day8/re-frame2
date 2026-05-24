@@ -33,7 +33,7 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
             ;; Loading `re-frame.flows` registers the late-bind hooks
-            ;; (`:flows/reg-flow`, `:flows/run-flows!`) the router
+            ;; (`:flows/reg-flow`, `:flows/run-flows-on-db`) the router
             ;; reaches at dispatch time — keep the require even when
             ;; the test ns doesn't reach `flows/...` directly through
             ;; a public fn.

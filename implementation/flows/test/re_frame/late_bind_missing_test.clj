@@ -96,9 +96,10 @@
 ;; Framework-internal hooks (rf2-g9t87)
 ;;
 ;; The four hooks below are framework-internal: their consumers are
-;; `re-frame.router/run-flows!` (post-commit drain step), `re-frame.frame/
-;; destroy-frame!` (per-frame teardown cascade), and `re-frame.test-
-;; support/make-reset-runtime-fixture` (test-fixture reset bracket). None of
+;; `re-frame.router/flows-after-interceptor` (innermost `:after` flow
+;; transform), `re-frame.frame/destroy-frame!` (per-frame teardown
+;; cascade), and `re-frame.test-support/make-reset-runtime-fixture`
+;; (test-fixture reset bracket). None of
 ;; these surface to user-facing `rf/...` fns, so the absent-artefact
 ;; semantics is "graceful no-op", not "raise a typed ex-info".
 ;;
@@ -109,14 +110,15 @@
 ;; / `(is (do ... :ok))` confirms the no-op path.
 ;; ---------------------------------------------------------------------------
 
-(deftest run-flows!-no-ops-when-flows-artefact-missing
-  (testing "router.run-flows! returns nil without throwing when :flows/run-flows! hook is nil"
-    ;; Consumer is `re-frame.router/run-flows!` (private; reach via the
-    ;; user-visible drain). Drive a dispatch through the router — the
-    ;; absent-flows-artefact branch is the steady-state for apps that
-    ;; never registered any flows. With the hook nil, the post-commit
-    ;; flow walker collapses to a no-op and the drain completes.
-    (with-hook-as-nil :flows/run-flows!
+(deftest run-flows-on-db-no-ops-when-flows-artefact-missing
+  (testing "router's flows-after-interceptor no-ops without throwing when :flows/run-flows-on-db hook is nil"
+    ;; Consumer is `re-frame.router/flows-after-interceptor` (private;
+    ;; reach via the user-visible drain). Drive a dispatch through the
+    ;; router — the absent-flows-artefact branch is the steady-state for
+    ;; apps that never registered any flows. With the hook nil, the
+    ;; innermost flow-transform `:after` collapses to a single nil-check
+    ;; no-op and the drain completes.
+    (with-hook-as-nil :flows/run-flows-on-db
       (fn []
         (rf/init! plain-atom/adapter)
         (rf/reg-event-db :flows-absent/init (fn [_ _] {:probe :ok}))

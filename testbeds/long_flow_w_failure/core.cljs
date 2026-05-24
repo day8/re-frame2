@@ -2,20 +2,29 @@
   "Shared framework-behavior testbed — a multi-second cascade of
   app-db writes that drive a three-flow topology, with a configurable
   mid-flow failure injection. A consumer (Causa, Story, re-frame2-pair-mcp)
-  observes the four-rule flow-failure contract (per
-  [spec/013 §Failure semantics] / rf2-hrqvg) play out over a
+  observes the flow-failure ATOMICITY contract (per
+  [spec/013 §Failure semantics] / rf2-u0zz5) play out over a
   human-visible time window:
 
-    Rule 1 — prior-flow writes are preserved (:flow-a's output keeps
-             advancing while :flow-b's throw is mid-cascade).
-    Rule 2 — the failing flow's output is not written; its
-             `last-inputs` is NOT advanced; the flow re-attempts on
-             the next drain.
-    Rule 3 — the cascade halts at the failing flow; :flow-c does NOT
-             run on the drain where :flow-b throws.
-    Rule 4 — the exception surfaces at the router's outer catch as
-             :rf.error/flow-eval-exception; the per-flow
-             :rf.flow/failed trace fires first.
+    A flow throw is a PRE-INSTALL throw, so it ABORTS THE WHOLE EVENT:
+      - No :db install — app-db is UNCHANGED for the failing tick.
+        Neither :input, nor :a-result (a prior flow's write), nor
+        :b-result, nor :c-result advances. NO partial commit.
+      - No :rf.event/db-changed for the failing tick.
+      - :fx is skipped.
+      - last-inputs is rolled back, so every flow re-attempts cleanly
+        on the next drain.
+      - The exception surfaces at the router as
+        :rf.error/flow-eval-exception; the per-flow :rf.flow/failed
+        trace fires first for attribution.
+
+    So: ticks BEFORE fail-at commit all three flows (every value
+    advances). The tick AT/AFTER fail-at throws on :flow-b and the
+    whole tick aborts — the visible state freezes at the last clean
+    tick, while the trace stream still shows :rf.flow/computed (for
+    the prior flow that RAN before the throw — its write was
+    discarded) → :rf.flow/failed → :rf.error/flow-eval-exception per
+    failing tick.
 
   The cascade ('long flow'):
 
@@ -77,10 +86,13 @@
 
 (def default-fail-at
   "Tick index at which :flow-b throws. With default-total-ticks=20
-  and default-fail-at=5, four ticks succeed (1..4), :flow-b throws
-  on tick 5, then ticks 6..20 each retry (because :flow-b's
-  last-inputs is NOT advanced per rule 2) — every subsequent tick
-  re-throws on :flow-b's recompute against the new :input."
+  and default-fail-at=5, four ticks succeed (1..4) and commit all
+  three flows; tick 5 throws on :flow-b and the WHOLE tick aborts
+  (no install — app-db frozen at tick 4); ticks 6..20 each re-attempt
+  and re-abort (their :input ≥ :fail-at, so :flow-b re-throws). The
+  visible state stays frozen at tick 4 while the trace stream shows a
+  :rf.flow/failed → :rf.error/flow-eval-exception pair per failing
+  tick — and NO :rf.event/db-changed for any of ticks 5..20."
   5)
 
 ;; ----------------------------------------------------------------------------
@@ -125,14 +137,15 @@
 ;; map by path-prefix overlap between one flow's `:path` and another's
 ;; `:inputs` — two flows that don't share such an overlap are
 ;; topologically *parallel*, and Kahn's algorithm picks an unspecified
-;; order between them. The four-rule failure contract talks about
-;; PRIOR flows (those scheduled earlier in topo order); to assert
-;; Rule 1 ("prior-flow writes preserved") against :flow-a when
-;; :flow-b throws, the testbed must pin :flow-a → :flow-b in topo
-;; order. We do that by listing `[:a-result]` in :flow-b's :inputs
-;; — the path-prefix overlap with :flow-a's :path forces the edge.
-;; The same `[:a-result] [:b-result]` pair already pins :flow-c after
-;; both upstreams.
+;; order between them. The atomicity contract distinguishes the flow
+;; that RAN before the throw (whose :rf.flow/computed trace still
+;; fires, even though its write is discarded by the abort) from the
+;; downstream flow that never ran. To make :flow-a the demonstrable
+;; "ran-then-discarded" prior flow and :flow-c the "never-ran"
+;; downstream flow, the testbed pins :flow-a → :flow-b → :flow-c in
+;; topo order: listing `[:a-result]` in :flow-b's :inputs forces the
+;; path-prefix overlap edge with :flow-a's :path, and the
+;; `[:a-result] [:b-result]` pair already pins :flow-c after both.
 ;;
 ;; The :input itself stays in :flow-b's :inputs so the read-from-app-
 ;; db dirty-check still fires when the tick handler bumps :input —
@@ -141,17 +154,20 @@
 ;; :output would not be the trigger. Listing both keeps the value
 ;; flow honest and the ordering pinned.
 ;;
-;; Rule-1 / Rule-3 evidence: when :flow-b throws on tick N, :flow-a's
-;; output for tick N IS flushed to :a-result (prior writes preserved);
-;; :flow-c's output for tick N is NOT computed (cascade halts).
+;; Atomicity evidence: when :flow-b throws on tick N, the WHOLE tick
+;; aborts — :flow-a's :rf.flow/computed fires (it ran) but its write
+;; is DISCARDED (no install); :flow-c never runs (cascade halts); and
+;; app-db (incl. :input, :a-result, :b-result, :c-result) is frozen at
+;; tick N-1's committed value.
 
 (rf/reg-flow
   {:id     ::flow-a
    :inputs [[:input]]
    :output (fn flow-a [input]
-             ;; Trivial pure transform. The point is the WRITE — a
-             ;; consumer that sees :a-result advance on tick N has
-             ;; positive evidence of rule 1.
+             ;; Trivial pure transform. The point is the WRITE — on a
+             ;; clean tick :a-result advances and commits; on a failing
+             ;; tick :flow-a's :rf.flow/computed still fires (it ran)
+             ;; but the write is DISCARDED when the tick aborts.
              (* 2 input))
    :path   [:a-result]
    :doc    "Doubles :input. Watched by :flow-b (topo-order pin) and
@@ -168,16 +184,16 @@
    :output (fn flow-b [input _a-result]
              ;; HOT PATH — the failure-injection site for the
              ;; cascade. The throw fires whenever this fn is called
-             ;; with input == :fail-at. The flow's last-inputs is
-             ;; NOT advanced (rule 2), so the next drain with a new
-             ;; :input value re-attempts; if the new :input is also
-             ;; ≥ :fail-at, the throw re-fires.
+             ;; with input ≥ :fail-at. The throw aborts the whole
+             ;; tick (no install); last-inputs is rolled back, so the
+             ;; next drain with a new :input value re-attempts. If the
+             ;; new :input is also ≥ :fail-at, the throw re-fires.
              ;;
              ;; A consumer reading the trace stream sees
              ;; :rf.flow/failed (this flow's id) followed by
-             ;; :rf.error/flow-eval-exception (rule 4) on EVERY
-             ;; subsequent tick after the fail-at threshold —
-             ;; positive evidence of rule 2.
+             ;; :rf.error/flow-eval-exception on EVERY tick after the
+             ;; fail-at threshold — with NO :rf.event/db-changed for
+             ;; any of those aborted ticks.
              (let [fail-at-input
                    ;; The :input value the :tick handler bumps to
                    ;; coincides with the tick index — tick 5
@@ -207,8 +223,8 @@
    :output (fn flow-c [a b]
              ;; Watches :flow-a's and :flow-b's outputs. Only runs
              ;; when both upstreams have successfully advanced —
-             ;; per rule 3, :flow-c does NOT run on the drain
-             ;; where :flow-b throws.
+             ;; :flow-c does NOT run on the drain where :flow-b
+             ;; throws (the cascade halts before it).
              (+ a b))
    :path   [:c-result]
    :doc    "Sums :a-result + :b-result. Watches :flow-a and
@@ -294,8 +310,8 @@
               (str (/ (* total default-tick-ms) 1000.0))]
       "-second cascade. Each tick recomputes three flows in topo
       order; :flow-b throws when :input ≥ fail-at, demonstrating
-      the four-rule flow-failure contract over a human-visible
-      window."]
+      the flow-failure ATOMICITY contract (a flow throw aborts the
+      whole tick — nothing commits) over a human-visible window."]
 
      [:div {:style {:display :flex :gap "0.5em" :flex-wrap :wrap
                     :align-items :center :margin-bottom "0.5em"}}
@@ -334,13 +350,14 @@
       "tick="       [:span {:data-testid "tick"}       (str tick-count "/" total)] "\n"
       "input="      [:span {:data-testid "input"}      input-val]          "\n"
       "a-result="   [:span {:data-testid "a-result"}   a-result]
-      "  (= 2 × input — rule 1 evidence)"                                  "\n"
+      "  (= 2 × input until tick=" fail-at
+      "; FROZEN thereafter — the failing tick aborts, nothing commits)"    "\n"
       "b-result="   [:span {:data-testid "b-result"}   b-result]
       "  (= 3 × input until tick=" fail-at
-      "; thereafter unchanged — rule 2 evidence)"                          "\n"
+      "; FROZEN thereafter — :flow-b throws)"                              "\n"
       "c-result="   [:span {:data-testid "c-result"}   c-result]
       "  (= a + b until tick=" fail-at
-      "; thereafter unchanged — rule 3 evidence)"]]))
+      "; FROZEN thereafter — cascade halts)"]]))
 
 (reg-view root []
   [buttons])

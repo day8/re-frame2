@@ -935,6 +935,26 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 
     ;; 1. Run the interceptor chain — :before steps in order, then handler,
     ;;    then :after steps in reverse. The chain produces an effects map.
+    ;;
+    ;;    THE FLOW TRANSFORM IS THE OUTERMOST :after (per [013 §Drain
+    ;;    integration](013-Flows.md#drain-integration)). Because :after runs
+    ;;    outermost-LAST, the framework's flow-transform :after fires after
+    ;;    the rest of the :after chain has reshaped the `:db` effect into the
+    ;;    complete app-db form (in particular after a `(path :slice)`
+    ;;    interceptor splices the handler's slice back into the full db —
+    ;;    flows read full-app-db `:inputs` paths, so they MUST run after that
+    ;;    reshape). It rewrites the PENDING `:db` effect in the chain context
+    ;;    (NOT the installed app-db). This is the moment `:rf.flow/computed`
+    ;;    / `:rf.flow/skip` / `:rf.flow/failed` emit.
+    ;;
+    ;;    A FLOW THROW is a PRE-INSTALL throw (per [013 §Failure semantics]
+    ;;    (013-Flows.md#failure-semantics) — the atomicity contract): the
+    ;;    flow-transform :after DISCARDS the pending `:db` effect (drops it
+    ;;    from `effects`) and records the throw. With no `:db` effect, the
+    ;;    install at step 2 is a no-op — app-db unchanged, no
+    ;;    `:rf.event/db-changed`, and step 3 skips `:fx`. No partial commit:
+    ;;    neither the handler's `:db` nor any prior flow's write lands.
+    ;;
     ;;    Throws inside :before / :after / handler are recorded into the
     ;;    chain context under two paired keys — `:rf/interceptor-error`
     ;;    (singleton, the FIRST throw) and `:rf/interceptor-errors` (vector,
@@ -943,17 +963,43 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
     ;;    Trace stream emits one `:rf.error/handler-exception` per chain
     ;;    execution, keyed off the singleton. See
     ;;    [Spec-Schemas §InterceptorContextErrorKeys](Spec-Schemas.md#interceptorcontexterrorkeys--post-chain-interceptor-context-error-contract).
-    (let [effects (run-interceptor-chain
+    (let [effects (run-interceptor-chain      ;; flow-transform is outermost :after
                     frame envelope handler-meta)]
 
-      ;; 2. Apply :db FIRST. Atomic single replace-container! call.
-      ;;    This is the moment sub-cache invalidation fires (per :fx ordering
-      ;;    rule 4 above and per [006 §Subscription cache invalidation]).
+      ;; THE :db INSTALL IS THE SINGLE, DEFERRED, ALL-OR-NOTHING COMMIT
+      ;; BOUNDARY. ANY pre-install throw — cofx, handler, interceptor :after,
+      ;; or the flow transform — aborts the event: no install, app-db
+      ;; UNCHANGED, no `:rf.event/db-changed`, no `:fx`. The mechanism is
+      ;; uniform and FREE: a handler / interceptor throw never produced a
+      ;; `:db` effect, and the flow-throw path DISCARDS the one it had — so
+      ;; in every pre-install-throw case `effects` carries no `:db`, and the
+      ;; guarded install below installs nothing. (`:fx` is the only
+      ;; POST-install stage; an fx throw at step 3 does NOT wind back the
+      ;; installed `:db` — its side effects may already have fired.)
+
+      ;; 2. Apply :db FIRST — the FLOW-AUGMENTED `:db` effect. Atomic single
+      ;;    replace-container! call. Installs ONLY when a `:db` effect is
+      ;;    present — so a pre-install throw (which leaves no `:db` effect)
+      ;;    installs nothing. By this point the flow-transform :after has
+      ;;    already rewritten `(:db effects)` (step 1), so the value
+      ;;    installed here is the flow-derived db. This is the moment
+      ;;    sub-cache invalidation fires (per :fx ordering rule 4 above and
+      ;;    per [006 §Subscription cache invalidation]) AND the moment the
+      ;;    `:rf.event/db-changed` trace fires — AFTER flows (per [013
+      ;;    §Drain integration](013-Flows.md#drain-integration) and [009
+      ;;    §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)).
+      ;;    `contains? effects :db` is the WHOLE guard: a pre-install throw
+      ;;    leaves no `:db` effect (a handler / interceptor throw never made
+      ;;    one; the flow-throw path discarded it), so this is a no-op and
+      ;;    the event aborts with app-db unchanged.
       (when (contains? effects :db)
         (substrate/replace-container! (:app-db frame) (:db effects))
         (sub-cache/invalidate! frame))
 
-      ;; 3. Walk :fx in source order. Each entry's handler returns
+      ;; 3. Walk :fx in source order — SKIPPED on any pre-install throw
+      ;;    (handler / interceptor :after / flow): the event aborted at the
+      ;;    commit boundary, so no `:fx` runs. (:fx is the only POST-install
+      ;;    stage.) On a clean settle, each entry's handler returns
       ;;    synchronously before the next begins. Errors trace and continue.
       ;;    The fx-handler is invoked with the binary `(m args)` contract
       ;;    documented in [§The binary fx-handler signature](#the-binary-fx-handler-signature):
@@ -964,14 +1010,21 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    `:dispatch-later` — can copy envelope fields onto the child envelope,
       ;;    per [§Cascade propagation](#cascade-propagation)); both reach the
       ;;    fx-handler as fields of `m`, not as separate positional arguments.
-      (let [m (handler-context frame envelope)]      ;; same `m` the event handler saw
+      ;;    Skipped on a pre-install throw — the chain context records the
+      ;;    throw under `:rf/interceptor-error` (handler / interceptor) or
+      ;;    `:rf/flow-error` (flow transform); either suppresses the walk.
+      ;;    (An `:fx` effect CAN still be present — a handler may produce
+      ;;    `:fx` before a later interceptor `:after` throws — so unlike the
+      ;;    `:db` install this guard cannot rely on effect-absence alone.)
+      (when-not (or (:rf/interceptor-error effects) (:rf/flow-error effects))
+       (let [m (handler-context frame envelope)]      ;; same `m` the event handler saw
         (doseq [[fx-id args] (:fx effects)]
           (try
             (let [fx-handler (lookup-fx frame fx-id)]  ;; honors :fx-overrides
               (fx-handler m args))                     ;; binary contract: (m, args)
             (catch :default e
               (raise! :rf.error/fx-handler-exception
-                      {:fx-id fx-id :event event :frame (:id frame) :ex e})))))
+                      {:fx-id fx-id :event event :frame (:id frame) :ex e}))))))
 
       (trace! :event/run-end {:event event :frame (:id frame)}))))
 

@@ -4,7 +4,7 @@
 ;; Per Spec 013 the flow surface (`reg-flow`, `clear-flow`, the
 ;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs, the per-frame
 ;; flow registry, the topological sort, the dirty-check `last-inputs`
-;; map, and the post-drain `run-flows!` walker) ships as a separate
+;; map, and the innermost-`:after` `run-flows-on-db` walker) ships as a separate
 ;; Maven artefact so apps that don't register any flows don't drag the
 ;; namespace, the topo-sort engine, or any of the `:rf.flow/*`
 ;; trace strings onto the classpath.
@@ -18,7 +18,7 @@
 ;; `rf/reg-flow` / `rf/clear-flow` or relies on the `:rf.fx/reg-flow`
 ;; / `:rf.fx/clear-flow` runtime fxs — loading the namespace registers
 ;; its late-bind hooks (`:flows/reg-flow`, `:flows/clear-flow`,
-;; `:flows/run-flows!`, `:flows/reset-last-inputs!`, `:flows/reset-flows!`)
+;; `:flows/run-flows-on-db`, `:flows/reset-last-inputs!`, `:flows/reset-flows!`)
 ;; and installs the registrar replacement-hook for hot-reload
 ;; `last-inputs` invalidation.
 ;;
@@ -27,7 +27,7 @@
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to flows (e.g. `re-frame.core`'s `reg-flow` / `clear-flow`
 ;; re-exports, `re-frame.fx`'s `:rf.fx/reg-flow` / `:rf.fx/clear-flow`
-;; effect handlers, `re-frame.router`'s post-drain `run-flows!` call,
+;; effect handlers, `re-frame.router`'s innermost-`:after` `run-flows-on-db` call,
 ;; `re-frame.test-support`'s reset-runtime fixture's flows reset) flow
 ;; through `re-frame.late-bind` exactly as the schemas / machines /
 ;; routing hooks already do.

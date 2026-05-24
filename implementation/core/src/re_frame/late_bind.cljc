@@ -31,7 +31,7 @@
 ;;
 ;; `get-fn-cached` is a sticky variant of `get-fn` for hooks that are
 ;; published once at boot and never withdrawn in production
-;; (`:schemas/validate-*!`, `:flows/run-flows!`, `:epoch/settle!`,
+;; (`:schemas/validate-*!`, `:flows/run-flows-on-db`, `:epoch/settle!`,
 ;; `:epoch/capture-event`, `:event-emit/dispatch-on-event`,
 ;; `:router/dispatch!`, …). These run on every dispatch — the dispatch
 ;; cascade reads ~6+ keys per event, so a 100-event cascade was 600+
@@ -106,7 +106,7 @@
   dev-time hot-reload of an artefact re-resolves on the next dispatch.
   Use at hot-path call sites — every dispatch reads
   `:schemas/validate-event!`, `:schemas/validate-app-schema!`,
-  `:flows/run-flows!`, `:epoch/settle!`, `:epoch/capture-event`,
+  `:flows/run-flows-on-db`, `:epoch/settle!`, `:epoch/capture-event`,
   `:event-emit/dispatch-on-event`, `:router/dispatch!` — so a
   100-event cascade resolved each ~100 times before this cache."
   [hook-key]

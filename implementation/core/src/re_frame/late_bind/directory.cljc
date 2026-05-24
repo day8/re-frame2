@@ -110,9 +110,10 @@
    {:key         :flows/clear-flow
     :producer-ns 're-frame.flows
     :description "Remove a previously-registered flow definition (public-API + :rf.fx/clear-flow)."}
-   {:key         :flows/run-flows!
+   {:key         :flows/run-flows-on-db
     :producer-ns 're-frame.flows
-    :description "Re-evaluate every registered flow for the current frame."}
+    :design-bead "rf2-u0zz5"
+    :description "Run the frame's flows over a given db value, returning the flow-augmented db. Invoked by the router's innermost flows-after-interceptor to transform the handler's pending `:db` effect (before install + before the rest of the `:after` chain)."}
    {:key         :flows/reset-last-inputs!
     :producer-ns 're-frame.flows
     :description "Reset memoised last-input snapshots (test isolation)."}

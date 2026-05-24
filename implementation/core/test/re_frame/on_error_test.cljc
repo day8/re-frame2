@@ -316,3 +316,70 @@
         (is (vector? (:event r))
             "event vector flows through (subject only to per-path wire elision)")
         (is (= :err/normal-throw (first (:event r))))))))
+
+;; ============================================================================
+;; rf2-u0zz5 — atomicity contract: any pre-install throw aborts the event
+;; ----------------------------------------------------------------------------
+;; The `:db` install is the single, deferred, all-or-nothing commit
+;; boundary. ANY throw before it — handler, interceptor `:after`, or the
+;; flow transform — aborts the event: NO install, app-db UNCHANGED, NO
+;; `:rf.event/db-changed`, NO `:fx`. (The flow-transform variant is pinned
+;; in re-frame.flows-trace-test; here we pin the handler and
+;; interceptor-`:after` variants — proving the abort is UNIFORM across all
+;; pre-install throw sources.)
+;; ============================================================================
+
+(deftest handler-throw-leaves-app-db-unchanged-no-db-changed
+  (testing "A handler throw aborts the event before the install: app-db
+            is UNCHANGED and NO :rf.event/db-changed is emitted."
+    (let [traces (atom [])]
+      ;; Seed a known app-db value via a clean dispatch first.
+      (rf/reg-event-db :seed (fn [_ _] {:seeded 1}))
+      (rf/dispatch-sync [:seed])
+      (is (= {:seeded 1} (rf/get-frame-db :rf/default)) "seeded")
+      ;; Now register a handler that mutates :db and then throws. Even
+      ;; though it produced a :db value before throwing, nothing installs.
+      (rf/reg-event-db :throws
+                       (fn [db _]
+                         ;; Build a would-be new db, then throw — the
+                         ;; handler returns nothing; its effect never
+                         ;; reaches the install.
+                         (let [_ (assoc db :would-be 2)]
+                           (throw (ex-info "boom" {})))))
+      (rf/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
+      (try
+        (rf/dispatch-sync [:throws])
+        (finally (rf/unregister-listener! ::rec)))
+      (is (= {:seeded 1} (rf/get-frame-db :rf/default))
+          "app-db is UNCHANGED — the handler threw before the install")
+      (is (not-any? #(= :rf.event/db-changed (:operation %)) @traces)
+          "NO :rf.event/db-changed on a handler throw — nothing was installed"))))
+
+(deftest interceptor-after-throw-leaves-app-db-unchanged-no-db-changed
+  (testing "An interceptor :after throw aborts the event before the
+            install — even though the handler produced a :db effect: app-db
+            is UNCHANGED and NO :rf.event/db-changed is emitted."
+    (let [traces (atom [])
+          ;; A user interceptor whose :after throws AFTER the handler has
+          ;; produced its :db effect.
+          boom-after (rf/->interceptor
+                       :id :test/boom-after
+                       :after (fn [_ctx] (throw (ex-info "after boom" {}))))]
+      (rf/reg-event-db :seed (fn [_ _] {:seeded 1}))
+      (rf/dispatch-sync [:seed])
+      (is (= {:seeded 1} (rf/get-frame-db :rf/default)) "seeded")
+      ;; This handler successfully writes :db; the interceptor's :after
+      ;; then throws — so a :db effect IS present when the throw fires,
+      ;; yet nothing installs (the error path returns before the commit).
+      (rf/reg-event-db :writes-then-after-throws
+                       [boom-after]
+                       (fn [db _] (assoc db :written 99)))
+      (rf/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
+      (try
+        (rf/dispatch-sync [:writes-then-after-throws])
+        (finally (rf/unregister-listener! ::rec)))
+      (is (= {:seeded 1} (rf/get-frame-db :rf/default))
+          "app-db is UNCHANGED — the interceptor :after threw before the install
+           even though the handler's :db effect was present")
+      (is (not-any? #(= :rf.event/db-changed (:operation %)) @traces)
+          "NO :rf.event/db-changed on an interceptor :after throw"))))

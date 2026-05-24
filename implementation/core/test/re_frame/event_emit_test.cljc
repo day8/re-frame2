@@ -43,7 +43,7 @@
       (finally
         (reset! late-bind/hooks hooks-before)
         (late-bind/invalidate-cache! :schemas/validate-app-schema!)
-        (late-bind/invalidate-cache! :flows/run-flows!)))))
+        (late-bind/invalidate-cache! :flows/run-flows-on-db)))))
 
 (use-fixtures :each reset-runtime)
 
@@ -125,14 +125,20 @@
             "schema rollback surfaces as the distinct :rolled-back outcome")))))
 
 (deftest listener-marks-flow-throw-as-non-ok-outcome
-  (testing "When a flow's :output throws during the post-commit flow walk
-            — the runtime halts the cascade before :fx — the event-emit
-            record's :outcome is NON-:ok."
+  (testing "When a flow's :output throws during the outermost :after flow
+            transform — the runtime ABORTS the event (no install, app-db
+            unchanged, :fx skipped) — the event-emit record's :outcome is
+            NON-:ok and the handler's :db did NOT land (atomicity contract,
+            Spec 013 §Failure semantics)."
     (let [seen (atom [])]
-      ;; Stub the flow-run hook to throw, driving run-flows! down its
-      ;; catch branch (which returns false → cascade halt).
-      (late-bind/set-fn! :flows/run-flows!
-                         (fn [_frame]
+      ;; Stub the flow-transform hook to throw, driving the router's
+      ;; flows-after-interceptor down its catch branch (which DISCARDS the
+      ;; pending :db effect + stashes :rf/flow-error → event aborts before
+      ;; install + :fx). The hook is the (frame db) -> db transform; on
+      ;; throw it carries only :rf.flow/failed-id for attribution — there
+      ;; is no partial-db (no partial commit per the atomicity contract).
+      (late-bind/set-fn! :flows/run-flows-on-db
+                         (fn [_frame _db]
                            (throw (ex-info "flow output blew up"
                                            {:rf.flow/failed-id :flow/derived}))))
       (rf/register-event-listener!
@@ -146,7 +152,10 @@
         (is (not= :ok outcome)
             "a flow-aborted dispatch is NOT reported as a clean :ok")
         (is (= :flow-error outcome)
-            "a flow-output throw surfaces as the distinct :flow-error outcome")))))
+            "a flow-output throw surfaces as the distinct :flow-error outcome"))
+      (is (not (contains? (rf/get-frame-db :rf/default) :n))
+          "the handler's :db write did NOT land — a flow throw aborts the
+           event with no install (app-db unchanged)"))))
 
 (deftest listener-marks-clean-dispatch-as-ok-with-failure-hooks-installed
   (testing "With BOTH cascade-failure hooks installed but PASSING (schema
@@ -156,8 +165,8 @@
     (let [seen (atom [])]
       (late-bind/set-fn! :schemas/validate-app-schema!
                          (fn [_db-after _event-id _frame] true))
-      (late-bind/set-fn! :flows/run-flows!
-                         (fn [_frame] nil))
+      (late-bind/set-fn! :flows/run-flows-on-db
+                         (fn [_frame db] db))
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
