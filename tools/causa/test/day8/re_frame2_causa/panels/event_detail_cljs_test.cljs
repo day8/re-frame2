@@ -8,7 +8,7 @@
        — the panel's spine plumbing didn't change).
     2. No top header/ribbon (rf2-ad7zx.17) — the panel leads with the
        numbered pipeline; the pipeline rail runs through the circle
-       centres from step 1; the FROM row matches EventPanel.tsx.
+       centres from step 1; the FROM row matches EventPanel.
     3. The 7 sections render in order (Mike's Q1 verbatim per
        rf2-jhhqt): DISPATCH SITE, EVENT, COEFFECTS, INTERCEPTORS,
        HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS RAN.
@@ -363,7 +363,7 @@
         (is (= "4" (step-of "fx")) "FX numbered 4 (contiguous despite omissions)")))))
 
 (deftest panel-has-no-top-header-ribbon-and-leads-with-dispatch
-  (testing "rf2-ad7zx.17 — per EventPanel.tsx the panel has NO top
+  (testing "rf2-ad7zx.17 — per EventPanel the panel has NO top
             header/ribbon: the prior identity ribbon (⚡ panel icon +
             lifecycle status dot + event-id label + `epoch #N` + SSR
             badge) is gone. The panel leads directly with step 1
@@ -404,7 +404,7 @@
 ;; ---- (4) DISPATCH step (event vector + FROM origin) -------------------
 
 (deftest dispatch-from-row-matches-eventpanel-tsx-source-link
-  (testing "rf2-ad7zx.17 — the FROM row matches EventPanel.tsx: `FROM:`
+  (testing "rf2-ad7zx.17 — the FROM row matches EventPanel: `FROM:`
             then the dispatch SOURCE as a SINGLE click-to-source link
             (`view ↗`) — the `↗` chip trails the source text. The prior
             `· origin <origin>` clutter and the standalone `file:line`
@@ -424,7 +424,7 @@
         (is (some? from) "the source is rendered as a single FROM link span")
         (is (re-find #"view" from-text) "dispatch source is the link text")
         (is (some? chip) "the ↗ click-to-source chip trails the source")
-        ;; EventPanel.tsx shape — NO `· origin` clutter, NO standalone
+        ;; EventPanel shape — NO `· origin` clutter, NO standalone
         ;; file:line coord span.
         (is (not (re-find #"origin" caption-text))
             "no `· origin <origin>` clutter (dropped per the mock)")
@@ -458,7 +458,7 @@
 
 (deftest dispatch-event-vector-renders-in-boxed-block
   (testing "rf2-l3h1m — the DISPATCH event vector renders in a BOXED block
-            (`bg-muted p-3 rounded` in EventPanel.tsx; raised `:bg-3` fill
+            (`bg-muted p-3 rounded` in EventPanel; raised `:bg-3` fill
             + subtle border + radius here), not inline/unboxed. The box
             carries a background fill, a border, and a non-zero
             border-radius so it reads as the same surface family as the
@@ -1208,7 +1208,7 @@
             absolutely-positioned RAIL element (NOT a container
             border-left) that runs through the CENTRE of the numbered
             step circles and STARTS at circle 1's centre (not the panel
-            top), matching EventPanel.tsx.
+            top), matching EventPanel.
 
             Geometry: the step circle sits at section-left -22px with
             width 20px, so its centre-x is at 12px from the pipeline

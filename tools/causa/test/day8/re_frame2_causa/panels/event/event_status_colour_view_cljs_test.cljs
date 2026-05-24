@@ -23,7 +23,7 @@
        rf2-ycoct so the bar represents every visible row's parent).
 
   The Event L4 header dot was a third site until rf2-ad7zx.17 removed
-  the Event panel's top ribbon (matching `EventPanel.tsx`); the Event
+  the Event panel's top ribbon (matching `EventPanel`); the Event
   panel now renders no status dot at all.
 
   ## Pure hiccup walk
@@ -184,7 +184,7 @@
 ;; ---- (2) Event panel no longer carries a status dot (rf2-ad7zx.17) -----
 ;;
 ;; The Event panel's top header/ribbon — which carried the lifecycle
-;; status dot — was removed to match `EventPanel.tsx` (rf2-ad7zx.17). The
+;; status dot — was removed to match `EventPanel` (rf2-ad7zx.17). The
 ;; status-colour vocabulary now has TWO render sites (L2 row + Trace bar)
 ;; rather than three; the pure-data layer is exercised in
 ;; `event_status_colour_cljs_test.cljc`.

@@ -72,8 +72,8 @@ the left because normal layout owns the relationship.
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Wireframe at default (reconciled to the Figma design — `design-reference/App.tsx` +
-`ChromeRibbon` / `EventsRibbon` / `EventList`):
+Wireframe at default (reconciled to the Figma design — `design-reference/causa_devtools_reference.cljs`,
+the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -255,8 +255,9 @@ separate spine state, surfaced by the L2 head-row cue.)
 
 ### L1 chrome ribbon (`rf-causa-ribbon`, ~32px — Figma design rf2-ad7zx)
 
-Reconciled to `design-reference/components/ChromeRibbon.tsx`. Left → right: the logo/wordmark,
-the two scope dropdowns, then the chrome actions at the far right.
+Reconciled to the Figma design (`design-reference/causa_devtools_reference.cljs`, the
+`chrome-ribbon` component). Left → right: the logo/wordmark, the two scope dropdowns, then
+the chrome actions at the far right.
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
@@ -272,8 +273,9 @@ render to the right of the Mode dropdown when active. Kept per the functional-se
 
 ### L1.5 events ribbon (`rf-causa-events-ribbon`, ~36px — Figma design rf2-ad7zx)
 
-Reconciled to `design-reference/components/EventsRibbon.tsx`. Left → right: label, nav cluster,
-focus chip, filter pills + add; `Clear Filters` at the far right.
+Reconciled to the Figma design (`design-reference/causa_devtools_reference.cljs`, the
+`events-ribbon` component). Left → right: label, nav cluster, focus chip, filter pills + add;
+`Clear Filters` at the far right.
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
@@ -324,8 +326,9 @@ On page load after `rf/init!`, when `[data-rf-causa-host]` exists:
 
 ## Event-list rows (L2 · table — rf2-ad7zx)
 
-Reconciled to the Figma design (`tools/causa/design-reference/components/EventList.tsx` + the
-brief), the later iteration: the L2 spine is a **compact, scannable four-column table** — one row
+Reconciled to the Figma design (`tools/causa/design-reference/causa_devtools_reference.cljs`,
+the `event-list` component + the brief), the later iteration: the L2 spine is a **compact,
+scannable four-column table** — one row
 per event, newest at the bottom — not a single-line gutter-glyph row. The prior gutter-glyph +
 right-aligned-badge row shape is **superseded**; the functional semantic markers the framework
 needs (redaction / issue / pin) survive as a subtle per-row tint or trailing marker (below), not
@@ -777,7 +780,8 @@ Perf:      fast     #3fb950  (<16ms)
 ```
 
 **Accent identity = GitHub-style blue (rf2-ad7zx.13).** The accent is the single GitHub blue
-(`#539bf5` dark / `#0969da` light) the Figma export ships (`design-reference/styles/devtools.css`).
+(`#539bf5` dark / `#0969da` light) the Figma export ships (the `devtools-css` block embedded in
+`design-reference/causa_devtools_reference.cljs`).
 There is **one** accent — active tab, chrome stripe, active states, focus ring, the L4 header
 stripe, and the logo / wordmark all read it. The **Dynamic / Static MODE stays functional** (it
 gates motion) but **no longer drives accent colour**: the shell reads the same blue in either
@@ -856,7 +860,7 @@ probe.
 Every L4 panel renders a **3-px left-border** on its `<h1>` in the **single `accent`** (GitHub
 blue). The prior per-panel **domain-colour** mapping (`:event` violet · `:app-db`/`:views` cyan ·
 `:trace` orange · `:machines` green · `:routing` yellow · `:issues` red) is **superseded**: the
-Figma export carries a **single accent identity** (App.tsx's active tab + every panel reads
+Figma export carries a **single accent identity** (App's active tab + every panel reads
 `--devtools-active` → the accent), so the stripe is a consistent signal, not a per-panel domain
 colour. Surfaces stay neutral so the blue accent pops.
 

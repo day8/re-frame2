@@ -8,8 +8,8 @@
 >
 > **Authority:** the **Figma design wins on look + brand** (Mike: keep the Figma design, don't
 > go off script). This doc — the GitHub-style blue/neutral identity, type scale,
-> visual-encoding — is downstream of the **Figma export** (`tools/causa/design-reference/styles/devtools.css`
-> + `theme.css`) and takes precedence on anything *visible*.
+> visual-encoding — is downstream of the **Figma export** (the `devtools-css` block embedded in
+> `tools/causa/design-reference/causa_devtools_reference.cljs`) and takes precedence on anything *visible*.
 > [007-UX-IA §Colour system](007-UX-IA.md#colour-system) keeps the **functional semantic accents**
 > the framework needs but the mock didn't render (redacted, pair-origin, perf tiers) + the
 > CSS-custom-property surface. Keep in sync; on the visible chrome the **Figma design wins**.
@@ -107,7 +107,7 @@ op-family legends — and are **not** collapsed into the accent.
 `orange` here is the **functional perf-amber** (`#FB923C` / `#C2570F`) — it is NOT a brand
 colour and is distinct from the removed orange brand identity.
 
-### Syntax highlighting (Figma devtools.css)
+### Syntax highlighting (Figma `devtools-css` block)
 
 EDN / Clojure source rendering reads:
 

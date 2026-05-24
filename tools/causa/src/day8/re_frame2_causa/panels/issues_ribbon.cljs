@@ -15,7 +15,8 @@
 
   ## What this panel shows (Figma design — rf2-ad7zx)
 
-  Reconciled to `design-reference/components/IssuesPanel.tsx` + spec/021
+  Reconciled to `design-reference/causa_devtools_reference.cljs` (the
+  `issues-panel` component) + spec/021
   §8.2 — each issue trace event from the focused epoch lands as ONE row:
 
       ▌ SEVERITY  category   short description        timestamp  ↗
@@ -77,7 +78,8 @@
 
 (defn- issue-row
   "One row in the issues feed, reconciled to the Figma design
-  (`design-reference/components/IssuesPanel.tsx` + spec/021 §8.2):
+  (`design-reference/causa_devtools_reference.cljs`, the `issues-panel`
+  component + spec/021 §8.2):
 
       ▌ SEVERITY  category   short description       timestamp  ↗
 
@@ -185,7 +187,8 @@
 
 (defn- footer-hint
   "Reference footer hint (rf2-tha26 ·
-  `design-reference/components/IssuesPanel.tsx`). Spells out the row's
+  `design-reference/causa_devtools_reference.cljs`, the `issues-panel`
+  component). Spells out the row's
   two affordances — click the row pivots to the Event panel (the
   cascade that produced the issue); click `↗` opens the responsible
   handler at `file:line`. Rendered below the feed (feed branch only) so

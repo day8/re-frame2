@@ -1,7 +1,7 @@
 (ns day8.re-frame2-causa.panels.reactive-flow-graph
   "Pure layout for the Views panel's left → right REACTIVE FLOW graph
-  (rf2-ad7zx.6 · spec/021 §3.2 · Figma `design-reference/components/
-  ViewsPanel.tsx`).
+  (rf2-ad7zx.6 · spec/021 §3.2 · Figma `design-reference/causa_devtools_reference.cljs`,
+  the `views-panel` component).
 
   The Views panel renders the reactive cascade as a node-and-edge graph,
   not the prior three stacked tables. The cascade is a DAG flowing

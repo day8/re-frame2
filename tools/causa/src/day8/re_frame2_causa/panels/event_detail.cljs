@@ -5,7 +5,8 @@
   ## Numbered vertical-flow pipeline (spec/021 §2.2 · Figma design)
 
   Reconciled to the Figma design under rf2-ad7zx.5
-  (`tools/causa/design-reference/components/EventPanel.tsx` +
+  (`tools/causa/design-reference/causa_devtools_reference.cljs`, the
+  `event-panel` component +
   `tools/causa/spec/021-Dynamic-Panel-Designs.md` §2.2). The handling
   perspective is a top-to-bottom ONE-WAY pipeline drawn as a thin left
   RAIL with a NUMBERED STEP CIRCLE at each section. Sections, in order:
@@ -25,7 +26,7 @@
   a throwing handler simply omits DB CHANGES and the later steps —
   absence conveys the throw.
 
-  Per `EventPanel.tsx` there is **no top header/ribbon** (rf2-ad7zx.17):
+  Per `EventPanel` there is **no top header/ribbon** (rf2-ad7zx.17):
   the panel leads directly with step 1 (DISPATCH). The vertical pipeline
   RAIL runs through the CENTRE of the numbered step circles, starting at
   circle 1 (not the panel top).
@@ -365,10 +366,10 @@
 
   The dispatched event vector renders in a BOXED block (`bg-muted p-3
   rounded` in the mock; raised `:bg-3` fill + subtle border + 3px radius
-  here) per `EventPanel.tsx` (rf2-l3h1m) — the same surface family as the
+  here) per `EventPanel` (rf2-l3h1m) — the same surface family as the
   §3 EVENT HANDLER source code-block.
 
-  The FROM row matches `EventPanel.tsx`'s dispatch presentation
+  The FROM row matches `EventPanel`'s dispatch presentation
   (rf2-ad7zx.17): `FROM:` then the dispatch SOURCE rendered as a single
   accent-coloured click-to-source link (`view ↗`) — the `↗`
   external-link glyph trails the source text and opens the call-site in
@@ -383,7 +384,7 @@
         linked?    (and (map? coord) (seq (:file coord)))]
     [:div
      ;; The dispatched event vector — rendered in a boxed `bg-muted p-3
-     ;; rounded` block per `EventPanel.tsx`'s DISPATCH presentation
+     ;; rounded` block per `EventPanel`'s DISPATCH presentation
      ;; (rf2-l3h1m). The surface treatment (raised `:bg-3` fill, subtle
      ;; border, 3px radius) mirrors the §3 EVENT HANDLER source code-block
      ;; (`edn/code-block`) so the two pipeline steps read as a consistent
@@ -401,7 +402,7 @@
                     :font-weight   600}}
       (edn/inspect event-vec "event-detail/event")]
      ;; FROM: <source> ↗ — the dispatch-origin as a single
-     ;; click-to-source link (EventPanel.tsx shape; rf2-ad7zx.17).
+     ;; click-to-source link (EventPanel shape; rf2-ad7zx.17).
      [:div {:data-testid "rf-causa-event-detail-dispatch-caption"
             :style {:display "flex"
                     :align-items "center"
@@ -991,8 +992,8 @@
 
 ;; ---- numbered vertical-flow pipeline chrome (spec/021 §2.2 · rf2-ad7zx) -
 ;;
-;; Per the Figma design (`tools/causa/design-reference/components/
-;; EventPanel.tsx`) + spec/021 §2.2 the Event panel expresses its
+;; Per the Figma design (`tools/causa/design-reference/causa_devtools_reference.cljs`,
+;; the `event-panel` component) + spec/021 §2.2 the Event panel expresses its
 ;; top-to-bottom one-way pipeline as a thin vertical RAIL running
 ;; through the CENTRE of a column of NUMBERED STEP CIRCLEs (1, 2, …),
 ;; one per section (rf2-ad7zx.17). The rail is muted (`:border-subtle`)
@@ -1015,7 +1016,7 @@
   is the uppercase section label. `body` is opaque hiccup.
 
   The step circle sits in the left gutter (negative-margin onto the
-  rail) per the Figma `EventPanel.tsx` `<section>` shape. testids:
+  rail) per the Figma `EventPanel` `<section>` shape. testids:
 
     - section root   `rf-causa-event-detail-section-<id>`
     - step circle    `rf-causa-event-detail-step-circle-<id>`
@@ -1260,7 +1261,8 @@
 (defn- event-lens
   "Render the Event-panel pipeline for a cascade per
   spec/021-Dynamic-Panel-Designs.md §2.2 + the Figma design
-  (`tools/causa/design-reference/components/EventPanel.tsx`), reconciled
+  (`tools/causa/design-reference/causa_devtools_reference.cljs`, the
+  `event-panel` component), reconciled
   under rf2-ad7zx.5.
 
   The handling perspective is a top-to-bottom ONE-WAY pipeline expressed
@@ -1293,7 +1295,7 @@
 
   ## No top header (rf2-ad7zx.17)
 
-  Per `EventPanel.tsx` the panel has NO top header/ribbon — it leads
+  Per `EventPanel` the panel has NO top header/ribbon — it leads
   directly with step 1 (DISPATCH). The prior identity ribbon (⚡ icon +
   lifecycle status dot + event-id + `epoch #N` + SSR badge) is removed;
   the film-strip header is a future MVP item, not the current chrome.
@@ -1336,7 +1338,7 @@
 
      ;; Numbered vertical-flow pipeline body. A thin vertical RAIL runs
      ;; through the CENTRE of the numbered step circles (rf2-ad7zx.17,
-     ;; matching `EventPanel.tsx`): an absolutely-positioned line whose
+     ;; matching `EventPanel`): an absolutely-positioned line whose
      ;; `left` sits on the circles' centre-x and whose `top` starts at
      ;; circle 1's centre (NOT the panel top). Each step's circle rides
      ;; on it. Optional steps are already filtered out of `present`.

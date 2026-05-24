@@ -24,7 +24,7 @@
     - Edge-label font, size, fill.
 
   ## Figma reconcile (rf2-ad7zx.10 · §6.2 Case C ·
-  design-reference/components/MachinePanel.tsx)
+  design-reference/causa_devtools_reference.cljs, the `machine-panel` component)
 
   The later Figma iteration draws the focused FROM/TO transition as
   circle nodes inside a dashed `active (compound)` container:

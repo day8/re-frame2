@@ -115,7 +115,7 @@
 (deftest severity-badge-label-uppercase
   (testing "rf2-ad7zx.9 — the per-row TEXT badge is uppercase
             ERROR / WARNING / ADVISORY per the Figma design
-            (design-reference/components/IssuesPanel.tsx)"
+            (design-reference/causa_devtools_reference.cljs, the issues-panel component)"
     (is (= "ERROR"    (h/severity-badge-label :error)))
     (is (= "WARNING"  (h/severity-badge-label :warning)))
     (is (= "ADVISORY" (h/severity-badge-label :advisory)))

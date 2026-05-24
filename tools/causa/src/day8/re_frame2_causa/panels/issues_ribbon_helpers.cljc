@@ -48,7 +48,7 @@
 
   Each row reads its 3px LEFT-BORDER + uppercase TEXT badge in its
   severity colour per the Figma design
-  (`design-reference/components/IssuesPanel.tsx`).
+  (`design-reference/causa_devtools_reference.cljs`, the `issues-panel` component).
 
   Lifecycle / success-path traces (`:op-type` `:rf.event`, `:rf.fx`,
   `:rf.frame`, `:rf.sub/*`, `:rf.view/*`, etc.) are NOT issues and never reach
@@ -65,7 +65,8 @@
   ## No filtering (rf2-ad7zx.9)
 
   The Figma design (spec/021 §8.2 +
-  `design-reference/components/IssuesPanel.tsx`) renders pure rows
+  `design-reference/causa_devtools_reference.cljs`, the `issues-panel`
+  component) renders pure rows
   with NO filter chrome — the focused epoch IS the scope, and issues
   are rare-but-high-signal so every one reads inline. The legacy
   severity / category-prefix chip-filter axes, the `since-ms` axis,
@@ -153,7 +154,8 @@
 (defn severity-badge-label
   "Uppercase severity label for the per-row TEXT badge — `ERROR` /
   `WARNING` / `ADVISORY` per the Figma design
-  (`design-reference/components/IssuesPanel.tsx`). Pure data → string;
+  (`design-reference/causa_devtools_reference.cljs`, the `issues-panel`
+  component). Pure data → string;
   JVM-testable."
   [severity]
   (case severity

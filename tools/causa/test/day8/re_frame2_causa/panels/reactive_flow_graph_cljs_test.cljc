@@ -1,6 +1,6 @@
 (ns day8.re-frame2-causa.panels.reactive-flow-graph-cljs-test
   "Pure-data tests for the reactive-flow graph layout (rf2-ad7zx.6 ·
-  spec/021 §3.2 · Figma `ViewsPanel.tsx`).
+  spec/021 §3.2 · Figma `ViewsPanel`).
 
   Covers `shared-sub-set` (the shared-subscription detector) and `layout`
   (the node + edge geometry the Views panel renders as inline SVG).

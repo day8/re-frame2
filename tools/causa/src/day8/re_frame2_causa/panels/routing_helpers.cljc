@@ -477,7 +477,7 @@
   Returns `[{:row <row-from-project-routes>
              :depth <int>           ;; 0 for roots, +1 per :parent hop;
                                     ;; the view turns depth into a left
-                                    ;; indent (RoutesPanel.tsx
+                                    ;; indent (RoutesPanel
                                     ;; `paddingLeft: level * 2 + 0.5rem`)
              :last-at-depth? <bool> ;; true when this row is the last
                                     ;; sibling at its depth

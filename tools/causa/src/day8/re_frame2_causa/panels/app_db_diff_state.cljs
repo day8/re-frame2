@@ -33,7 +33,8 @@
 
   ## Flat-hairline layout (spec/021 §4.2-4.3, Figma · rf2-ad7zx.11)
 
-  Reconciled to `tools/causa/design-reference/components/AppDbPanel.tsx`:
+  Reconciled to `tools/causa/design-reference/causa_devtools_reference.cljs`
+  (the `app-db-panel` component):
   sections render FLAT — an uppercase caption label over the value body,
   with adjacent sections separated by a 1px hairline (`border-t`), NOT
   bordered cards. The old `:bg-3` card + radius + per-section header-rule

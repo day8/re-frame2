@@ -236,7 +236,8 @@
 
 ;; ---- (4b) op-family classification — rf2-ad7zx.8 -----------------------
 ;;
-;; Per spec/021 §5.2 + design-reference/components/TracePanel.tsx each
+;; Per spec/021 §5.2 + design-reference/causa_devtools_reference.cljs
+;; (the trace-panel component) each
 ;; row bands a 3px op-FAMILY-coloured left-border — FIVE families plus
 ;; the two severity tiers — not the full op-type vocabulary.
 
