@@ -289,7 +289,8 @@
 (deftest chrome-ribbon-carries-causa-logo-top-left
   (testing "rf2-ad7zx.12 — the chrome ribbon's LEFT cluster opens with
             the `❖ Causa` wordmark per the Figma design-reference
-            (ChromeRibbon.tsx). It was MISSING pre-Figma (the ribbon
+            (the chrome-ribbon component in causa_devtools_reference.cljs).
+            It was MISSING pre-Figma (the ribbon
             jumped straight to the Frame selector). The wordmark renders
             inside the selector cluster, before the Frame dropdown."
     (causa-setup!)
@@ -513,7 +514,8 @@
 
 (deftest tab-bar-is-figma-button-bar-not-radios
   (testing "rf2-ad7zx.16 — the L3 tab strip renders as the Figma
-            button-bar (design-reference/components/Tabs.tsx + App.tsx
+            button-bar (design-reference/causa_devtools_reference.cljs —
+            the tabs component + the main layout's
             TabsList), NOT radio-circle glyphs. Each tab is a rounded
             button; the ACTIVE tab carries a filled `:accent` background
             with white text; inactive tabs are transparent with
@@ -749,8 +751,8 @@
 
 (deftest event-list-header-shares-row-column-layout
   (testing "rf2-ad7zx.15 — the column-header row and the data rows share
-            ONE column structure (per design-reference/components/
-            EventList.tsx). The header's `source` / `event id` /
+            ONE column structure (per design-reference/causa_devtools_reference.cljs,
+            the event-list component). The header's `source` / `event id` /
             `timestamp` columns MUST sit directly above the rows' columns,
             so the header cells and the row cells reference the same fixed
             widths, the same leading gutter width, and the containers

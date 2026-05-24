@@ -42,7 +42,8 @@
 
 ;; ---- op-family classification (rf2-ad7zx.8) -----------------------------
 ;;
-;; The Figma Trace design (`design-reference/components/TracePanel.tsx`)
+;; The Figma Trace design (the `trace-panel` component in
+;; `design-reference/causa_devtools_reference.cljs`)
 ;; bands each row with a 3px op-FAMILY-coloured left border — FIVE
 ;; families, not the full op-type vocabulary:
 ;;
@@ -84,7 +85,8 @@
   var lookup keeps the map pure data + the palette consolidated
   (rf2-5kfxe.4 discipline).
 
-  Family → token (spec/021 §5.2 · design-reference/TracePanel.tsx):
+  Family → token (spec/021 §5.2 · design-reference/causa_devtools_reference.cljs,
+  the `trace-panel` component):
 
     :dispatch → :accent         (the single GitHub-blue accent)
     :db       → :info           (the cool-blue 'changed/recompute' partner,

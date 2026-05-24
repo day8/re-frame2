@@ -237,7 +237,7 @@
 
 (defn unmounted-views
   "Project the epoch's UNMOUNTED VIEWS section rows (spec/021 §3.2 ·
-  Figma `ViewsPanel.tsx`). One row per `:rf.view/unmounted` op this
+  Figma `ViewsPanel`). One row per `:rf.view/unmounted` op this
   cascade — views whose component instance tore down this epoch.
 
   Reads the same `:rf.view/unmounted` teardown op `view-rows` reads for

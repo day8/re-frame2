@@ -297,8 +297,8 @@
 
 (rf/reg-view frame-switcher-view
   "L1 chrome-ribbon frame-switcher — the `Frame ▾` dropdown BUTTON per
-  the Figma design-reference (`design-reference/components/ChromeRibbon
-  .tsx`) + spec/018 §3 Frame dropdown. STRICTLY single-select (spec/018
+  the Figma design-reference (the `chrome-ribbon` component in
+  `design-reference/causa_devtools_reference.cljs`) + spec/018 §3 Frame dropdown. STRICTLY single-select (spec/018
   §1 Non-goals + Round-3 rf2-i74n7): no 'All frames (merged)' option, no
   `:multiple` attribute. Excludes `:rf/causa` by default per spec/018 §8
   I1.

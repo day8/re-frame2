@@ -10,7 +10,8 @@
 
   A scrollable, relative-timestamped ribbon scoped to the spine's
   focused epoch. Per the Figma design (rf2-ad7zx.8 — spec/021 §5.2 +
-  `design-reference/components/TracePanel.tsx`) each row carries:
+  `design-reference/causa_devtools_reference.cljs`, the `trace-panel`
+  component) each row carries:
 
       relative-time · readable plain-language description · duration
 
@@ -172,7 +173,8 @@
   EVERY push. Same discipline class as rf2-kgn0c's `v:<variant-id>`
   cell-keying in the story workspace.
 
-  Per rf2-ad7zx.8 (spec/021 §5.2 · design-reference/TracePanel.tsx):
+  Per rf2-ad7zx.8 (spec/021 §5.2 · design-reference/causa_devtools_reference.cljs,
+  the `trace-panel` component):
   the op-family colour is a **3px left-border band** on the row
   container (dispatch = mode accent · db = changed · fx = warning ·
   reactive = dim · machine = chart tone) — NOT an op-type dot. Child
@@ -223,7 +225,8 @@
                         ;; op-family colour band as a 3px LEFT-BORDER.
                         :border-left    (str "3px solid " band-colour)
                         ;; rf2-tha26 — Figma rounded hover-pill rows
-                        ;; (`design-reference/components/TracePanel.tsx`):
+                        ;; (the `trace-panel` component in
+                        ;; `design-reference/causa_devtools_reference.cljs`):
                         ;; rows are discrete pills (`rounded` +
                         ;; `space-y-0.5`) lit by a `hover:bg` fill rather
                         ;; than flat rows divided by hairlines. Inline
@@ -372,7 +375,8 @@
 
 (defn- footer-legend
   "Reference footer legend (rf2-tha26 ·
-  `design-reference/components/TracePanel.tsx`). Names the two reading
+  `design-reference/causa_devtools_reference.cljs`, the `trace-panel`
+  component). Names the two reading
   conventions of the ribbon — rows are colour-banded by op-family
   (the 3px left border), and clicking a row expands its raw
   `:operation` + tags payload inline. Rendered below the feed (feed

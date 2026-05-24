@@ -200,9 +200,9 @@ click for the operator who wants to focus, but is opt-out, not default.
 
 ### §2.2 Layout — numbered vertical-flow pipeline (Figma design — rf2-ad7zx)
 
-> Reconciled to the Figma design (`tools/causa/design-reference/components/EventPanel.tsx`),
-> the later iteration. The prior chevron/bare-label/`EFFECTS RETURNED+APPLIED` shape and the
-> brief's outcome-badge proposal are **superseded**.
+> Reconciled to the Figma design (`tools/causa/design-reference/causa_devtools_reference.cljs`,
+> the `event-panel` component), the later iteration. The prior chevron/bare-label/`EFFECTS
+> RETURNED+APPLIED` shape and the brief's outcome-badge proposal are **superseded**.
 
 The Event panel expresses its top-to-bottom one-way pipeline as a **thin vertical line down
 the panel's left edge** with a small **numbered step circle** (`1`, `2`, …) at each section.
@@ -236,8 +236,9 @@ The cascade-id stays internal (`data-dispatch-id` on the lens root for tests/age
 shown. The sections form a one-way pipeline — **linear numbered flow, not a flat list.**
 
 The sketches below match the numbered section order above +
-`tools/causa/design-reference/components/EventPanel.tsx`: a thin vertical rail down the left
-edge with a small **numbered step circle** (`①②…`) at each section, sections rendered top→bottom,
+`tools/causa/design-reference/causa_devtools_reference.cljs` (the `event-panel` component): a
+thin vertical rail down the left edge with a small **numbered step circle** (`①②…`) at each
+section, sections rendered top→bottom,
 optional sections (COEFFECTS / AFTER INTERCEPTORS / FLOWS) shown only when present. The `↗`
 glyphs mark click-to-source links (DISPATCH origin, each COEFFECT id, EVENT HANDLER, each AFTER
 INTERCEPTOR id, each FLOW id). There is **no outcome badge** and **no "db committed" footer** —
@@ -416,7 +417,8 @@ deeper than 4 levels rare enough that vertical scroll is acceptable.
 The reactive cascade is a DAG (§A.3 super-prompt).
 
 **Layout — a left → right reactive-flow graph (Figma design — rf2-ad7zx).** Reconciled to
-`tools/causa/design-reference/components/ViewsPanel.tsx`, the later iteration. The panel renders
+`tools/causa/design-reference/causa_devtools_reference.cljs` (the `views-panel` component), the
+later iteration. The panel renders
 the cascade as a **left → right node-and-edge graph** (an inline SVG canvas headed `REACTIVE
 FLOW`), not the prior depth-first indented tree. Columns, left → right:
 
@@ -618,7 +620,8 @@ Lines-per-screen target ~30-50 depending on db shape.
 
 ### §4.2 Layout (Figma design — rf2-ad7zx)
 
-Reconciled to `tools/causa/design-reference/components/AppDbPanel.tsx`, the later iteration —
+Reconciled to `tools/causa/design-reference/causa_devtools_reference.cljs` (the `app-db-panel`
+component), the later iteration —
 the **sectioned-by-reserved-area** model (the prior separate DIFF / STATE two-zone split is
 superseded). The complete app-db renders as **vertical sections**, each headed by an uppercase
 caption label and rendering its value as a collapsible widget; adjacent sections are separated
@@ -770,7 +773,8 @@ epoch-per-event (§1.1), one epoch = one event, so the focused epoch's
   the others retain it; see §2.5.)
 
 **Readable rows (Figma design — rf2-ad7zx).** Reconciled to
-`tools/causa/design-reference/components/TracePanel.tsx`, the later iteration. Each op renders
+`tools/causa/design-reference/causa_devtools_reference.cljs` (the `trace-panel` component), the
+later iteration. Each op renders
 as a **plain-language line**, not its raw op-type:
 `dispatched [:counter-inc]` · `db changed [:counter] 1 → 2` · `fx :dispatch → [:title/flow …]`
 · `machine :title/flow idle → loading`. Each row carries:
@@ -958,7 +962,8 @@ edge, `:after`-rings, action/guard labels) is absent.
 
 **Case C — focused epoch triggered ≥1 transitions (Figma design — rf2-ad7zx).**
 
-Reconciled to `tools/causa/design-reference/components/MachinePanel.tsx`, the later iteration —
+Reconciled to `tools/causa/design-reference/causa_devtools_reference.cljs` (the `machine-panel`
+component), the later iteration —
 the FROM/TO states are circle nodes inside a dashed **compound-state container** (`active
 (compound)`); the FROM is dashed/dim, the TO is a **double-circle active node** in the mode
 accent; the fired transition edge carries its **event label + guard + action inline**
@@ -1042,7 +1047,8 @@ screen target ~16-30.
 
 ### §7.2 Layout (Figma design — rf2-ad7zx)
 
-Reconciled to `tools/causa/design-reference/components/RoutesPanel.tsx`, the later iteration —
+Reconciled to `tools/causa/design-reference/causa_devtools_reference.cljs` (the `routes-panel`
+component), the later iteration —
 **three stacked sections** (the prior "Active route tree first + This-epoch KV" shape is
 superseded). Section order, top → bottom, each separated by a 1px hairline:
 
@@ -1118,7 +1124,8 @@ to the Event panel. Empty state is a single calm line. Lines-per-screen target ~
 
 ### §8.2 Layout (Figma design — rf2-ad7zx)
 
-Reconciled to `tools/causa/design-reference/components/IssuesPanel.tsx`, the later iteration —
+Reconciled to `tools/causa/design-reference/causa_devtools_reference.cljs` (the `issues-panel`
+component), the later iteration —
 **one row per issue** (the prior multi-row KV block per issue is superseded). Each row carries a
 **3px left border coloured by severity** + an uppercase **severity badge** (in its severity
 colour) + the **category** (muted) + the **short description** (primary) + the **timestamp**
@@ -1216,7 +1223,8 @@ three variants:
 The facade also ships `code-block {:source src :lang :clojure}` —
 a lightweight Clojure-token highlighter used by the Event panel's
 HANDLER source slot. Token colours follow the Figma export's syntax theme
-(`design-reference/styles/devtools.css` `.syntax-*`): **keywords red**
+(the `.syntax-*` rules in the `devtools-css` block of
+`design-reference/causa_devtools_reference.cljs`): **keywords red**
 (`#cf222e` light / `#ff7b72` dark), **strings** blue/green, **numbers** blue,
 **comments** muted-italic. (This is the code surface — distinct from the
 data-value keyword accent in §10.3, which is the mode accent.)
@@ -1744,7 +1752,7 @@ to the Figma export + the locked tokens in [022-Design-Tokens](022-Design-Tokens
 | **Background — panel canvas** | `:bg-2` (`#242424`) | |
 | **Background — hover row** | `hover` / `:bg-active` (`#2a2a2a`) | |
 | **Background — popover** | `:bg-3` (`#2a2a2a`) | |
-| **L4 panel header stripe** | the **mode `accent`** (the single GitHub-blue accent, both modes) | rf2-ad7zx — the per-panel domain-colour stripe (§007 Per-L4 panel accent stripe) is superseded by the single mode-accent identity, matching the Figma export's one-accent design (App.tsx active-tab `--devtools-active`). |
+| **L4 panel header stripe** | the **mode `accent`** (the single GitHub-blue accent, both modes) | rf2-ad7zx — the per-panel domain-colour stripe (§007 Per-L4 panel accent stripe) is superseded by the single mode-accent identity, matching the Figma export's one-accent design (App active-tab `--devtools-active`). |
 | **Cross-panel arrow / `⤴` link** | `accent` 600-weight | |
 | **Film-strip back/forward chevron** | `:text-secondary` default · `:text-primary` on hover | |
 

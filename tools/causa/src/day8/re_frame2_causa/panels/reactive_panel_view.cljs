@@ -6,7 +6,8 @@
   Renders the reactive cascade as a left → right REACTIVE FLOW graph —
   an inline-SVG node-and-edge canvas (NOT the prior three stacked
   tables). Reconciled to `tools/causa/spec/021-Dynamic-Panel-Designs.md`
-  §3.2 + `tools/causa/design-reference/components/ViewsPanel.tsx` (the
+  §3.2 + `tools/causa/design-reference/causa_devtools_reference.cljs`
+  (the `views-panel` component — the
   later iteration, authoritative over the §3.1.1 table iteration).
 
   ## Shape (spec/021 §3.2)

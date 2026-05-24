@@ -51,8 +51,9 @@
 
 (def dark-palette
   "Dark-theme colour tokens — the GitHub-style blue/neutral palette the
-  Figma export ships (`tools/causa/design-reference/styles/devtools.css`
-  + `theme.css`, rf2-ad7zx.13). The default Causa palette; `tokens` is
+  Figma export ships (the `devtools-css` block embedded in
+  `tools/causa/design-reference/causa_devtools_reference.cljs`,
+  rf2-ad7zx.13). The default Causa palette; `tokens` is
   an alias of this map so the inline `(:bg-1 tokens)` call sites keep
   resolving without a runtime switch (the CSS-variable migration is the
   v1.0 styling pass).
@@ -91,7 +92,7 @@
    ;; recompute · L4 header stripe). Figma has no per-mode colour swap.
    :accent         "#539bf5"
 
-   ;; ── semantic + change (Figma devtools.css) ──
+   ;; ── semantic + change (Figma devtools-css block) ──
    :error          "#f85149"   ; Figma --devtools-error
    :warning        "#d29922"   ; Figma --devtools-warning
    :advisory       "#79c0ff"   ; lowest Issues severity — calm cool blue (= syntax-number)
@@ -128,8 +129,8 @@
 
 (def light-palette
   "Light-theme colour tokens — the GitHub-style blue/neutral light
-  palette the Figma export ships (`design-reference/styles/devtools.css`
-  + `theme.css`, rf2-ad7zx.13).
+  palette the Figma export ships (the `devtools-css` block embedded in
+  `design-reference/causa_devtools_reference.cljs`, rf2-ad7zx.13).
 
   Surfaces invert (bg-0 is the *lightest* deepest-canvas tone, bg-3
   the chrome strip); text inverts so primary is near-black; borders are
@@ -160,7 +161,7 @@
    ;; ── accent (single blue — Figma --devtools-active / --devtools-changed) ──
    :accent         "#0969da"
 
-   ;; ── semantic + change (Figma devtools.css) ──
+   ;; ── semantic + change (Figma devtools-css block) ──
    :error          "#cf222e"   ; Figma --devtools-error
    :warning        "#9a6700"   ; Figma --devtools-warning
    :advisory       "#0550ae"   ; cool advisory blue (= syntax-number)

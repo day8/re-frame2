@@ -795,7 +795,8 @@
     "    rgba(236, 72, 153, 0.10) 6px 12px) !important;\n"
     "}\n"
     ;; rf2-ad7zx.16 — L3 tab-bar hover. The Figma button-bar
-    ;; (`design-reference/components/Tabs.tsx` + App.tsx TabsList) gives
+    ;; (the `tabs` component + the main layout's TabsList in
+    ;; `design-reference/causa_devtools_reference.cljs`) gives
     ;; inactive tabs a subtle `hover:bg-[var(--devtools-hover)]` fill;
     ;; the active tab keeps its filled `:accent` background. Inline
     ;; styles can't carry a `:hover` pseudo-class, so the hover lift is a
@@ -807,7 +808,8 @@
     "  color: " (:text-primary tokens/tokens) ";\n"
     "}\n"
     ;; rf2-tha26 — Trace-panel rounded hover-pill rows. The Figma
-    ;; `design-reference/components/TracePanel.tsx` renders each trace
+    ;; `design-reference/causa_devtools_reference.cljs` (the `trace-panel`
+    ;; component) renders each trace
     ;; row as a discrete `rounded` pill lit by a
     ;; `hover:bg-[var(--devtools-hover)]` fill (no flat hairline
     ;; dividers). Inline styles can't carry a `:hover` pseudo-class

@@ -365,7 +365,8 @@
 ;; rf2-ad7zx.15 — ONE shared column layout for the L2 event list, so the
 ;; column-header row (`l2-column-header`) and every data row (`event-row`)
 ;; reference the SAME constants and align column-for-column under the
-;; Figma EventList (`design-reference/components/EventList.tsx`). The
+;; Figma EventList (the `event-list` component in
+;; `design-reference/causa_devtools_reference.cljs`). The
 ;; header was hand-authored with copied numbers in rf2-ad7zx.12 and drifted
 ;; out of alignment (Mike, live step-deck verify); these defs make the
 ;; two surfaces literally share the same column structure.
@@ -571,7 +572,8 @@
 
 (defn- ribbon-nav-cluster
   "Nav cluster — thin chevrons `‹ › »` per spec/018 §3 + the Figma
-  EventsRibbon (`design-reference/components/EventsRibbon.tsx`). Buttons
+  EventsRibbon (the `events-ribbon` component in
+  `design-reference/causa_devtools_reference.cljs`). Buttons
   dispatch `:rf.causa/focus-cascade-prev` / `-next` /
   `:rf.causa/follow-head`.
 
@@ -717,8 +719,9 @@
 
 (defn- ribbon-focus-button
   "Always-present blue `focus` button (rf2-cplj8) — restores the Figma
-  EventsRibbon's primary `focus` affordance (`design-reference/
-  components/EventsRibbon.tsx`): a filled `:accent` button with white
+  EventsRibbon's primary `focus` affordance (the `events-ribbon`
+  component in `design-reference/causa_devtools_reference.cljs`): a filled
+  `:accent` button with white
   text + a leading target glyph, sitting beside the nav cluster.
 
   ## What it does
@@ -873,8 +876,8 @@
 
   ## rf2-cplj8 — lucide-style icon buttons
 
-  Per the Figma ChromeRibbon (`design-reference/components/
-  ChromeRibbon.tsx`) the settings + close affordances are clean
+  Per the Figma ChromeRibbon (the `chrome-ribbon` component in
+  `design-reference/causa_devtools_reference.cljs`) the settings + close affordances are clean
   lucide `Settings` / `X` icons (`w-3.5 h-3.5`, `text-muted`) inside
   `p-1 rounded hover:bg` square hit-areas — NOT bare unicode glyphs in
   bordered/padded text-buttons. Inline SVG is not idiomatic in this
@@ -974,8 +977,9 @@
      [:div {:data-testid "rf-causa-ribbon-selectors"
             :style {:display "flex" :align-items "center" :gap "8px"}}
       ;; rf2-ad7zx.12 + rf2-cplj8 — the `❖ Causa` wordmark, top-left of the
-      ;; chrome ribbon per the Figma design-reference (`design-reference/
-      ;; components/ChromeRibbon.tsx`). Semibold, `:body-tight`, NEUTRAL
+      ;; chrome ribbon per the Figma design-reference (the `chrome-ribbon`
+      ;; component in `design-reference/causa_devtools_reference.cljs`).
+      ;; Semibold, `:body-tight`, NEUTRAL
       ;; `:text-primary` ink (`text-[var(--devtools-text)]`) — the Figma
       ;; ChromeRibbon renders the wordmark + glyph in the chrome text
       ;; colour, NOT the `:accent` blue. The single accent is reserved for
@@ -1642,8 +1646,8 @@
   prominent yellow accent. Counts pill/mute suppression ONLY — the frame
   is a view scope, never counted as hidden (rf2-4vp5j Workstream C).
 
-  rf2-ad7zx.18 — per the Figma mock (`design-reference/components/
-  EventsRibbon.tsx`) the hidden-state is a plain count beside `Clear
+  rf2-ad7zx.18 — per the Figma mock (the `events-ribbon` component in
+  `design-reference/causa_devtools_reference.cljs`) the hidden-state is a plain count beside `Clear
   Filters`; it no longer re-renders the active pills/mute as cause chips.
   The committed pills already live in the LEFT cluster (via
   `ribbon-filter-pills` → `filters.pills/pills-view`); re-rendering them
@@ -1787,7 +1791,8 @@
         [clear-filters-button]])]))
 
 ;; rf2-ad7zx.12 + rf2-lnod7 — the L2 list's column-header row, reconciled
-;; to the Figma EventList (`design-reference/components/EventList.tsx`).
+;; to the Figma EventList (the `event-list` component in
+;; `design-reference/causa_devtools_reference.cljs`).
 ;; The Figma mock renders a sticky header naming the FOUR columns the
 ;; rows align to: `source` · `event id` · `timestamp` · `duration`. The
 ;; header was MISSING pre-Figma (the list was a bare row stack), which
@@ -1997,13 +2002,13 @@
   glyph (rf2-ad7zx.16). Each tab is a rounded button; the ACTIVE tab
   is a filled `:accent` background with white text; inactive tabs are
   transparent with NEUTRAL muted ink (`:text-tertiary` = Figma
-  `--devtools-text-muted`, the `text-muted-foreground` of Tabs.tsx;
+  `--devtools-text-muted`, the `text-muted-foreground` of Tabs;
   rf2-cplj8) and a subtle `:hover` background
   fill (the hover rule lives in `theme/global-styles/motion-css`,
   keyed off the `rf-causa-tab-*` testid, since inline styles can't
   carry a `:hover` pseudo-class). Mirrors
-  `tools/causa/design-reference/components/Tabs.tsx` +
-  `App.tsx` TabsList (`px-3 py-1.5 rounded`,
+  `tools/causa/design-reference/causa_devtools_reference.cljs` (the `tabs`
+  component + the main layout's TabsList) (`px-3 py-1.5 rounded`,
   `data-[state=active]:bg-[var(--devtools-active)]` =`:accent`,
   `data-[state=active]:text-white`,
   `hover:bg-[var(--devtools-hover)]` =`:hover`). The mnemonic letter is
@@ -2047,7 +2052,7 @@
                       :border-radius "6px"          ; Tailwind `rounded`
                       ;; rf2-cplj8 — inactive tabs use NEUTRAL muted ink
                       ;; (`:text-tertiary` = Figma `--devtools-text-muted`,
-                      ;; the `text-muted-foreground` the Tabs.tsx TabsList
+                      ;; the `text-muted-foreground` the Tabs TabsList
                       ;; carries) rather than the brighter blue-ish
                       ;; `:text-secondary`. The muted ink lets the active
                       ;; tab's filled-accent fill be the only bright signal.

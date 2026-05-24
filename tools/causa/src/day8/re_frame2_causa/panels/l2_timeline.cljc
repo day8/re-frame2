@@ -116,7 +116,8 @@
 
 (def ui-source-tag
   "SOURCE-column label for the default app-code origin. The Figma
-  EventList (`design-reference/components/EventList.tsx`) renders a
+  EventList (the `event-list` component in
+  `design-reference/causa_devtools_reference.cljs`) renders a
   concrete `source` tag for EVERY row — the mock's `view` rows are the
   UI-triggered dispatches (the common case). Causa's closed-enum source
   axis names that origin `:user`; the visible column label for it is
@@ -125,7 +126,8 @@
 
 (defn origin-source-tag
   "Pure-data SOURCE column label (rf2-ad7zx.12, rf2-lnod7). The Figma
-  EventList (`design-reference/components/EventList.tsx`) renders a
+  EventList (the `event-list` component in
+  `design-reference/causa_devtools_reference.cljs`) renders a
   left-most `source` column as a short text tag — `fx` / `view` /
   `timer` / `machine` in the mock — and tags EVERY row, never a blank
   cell. Causa's real source axis is the closed-enum dispatch-origin

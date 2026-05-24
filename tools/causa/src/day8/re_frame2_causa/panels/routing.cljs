@@ -1,6 +1,7 @@
 (ns day8.re-frame2-causa.panels.routing
   "Routing tab — three stacked sections (rf2-ad7zx.7, reconciled to the
-  Figma design `tools/causa/design-reference/components/RoutesPanel.tsx`
+  Figma design `tools/causa/design-reference/causa_devtools_reference.cljs`
+  (the `routes-panel` component)
   + spec/021 §7.2).
 
   ## Three stacked sections (post-rf2-ad7zx.7 reshape)
@@ -11,7 +12,7 @@
   spec/021 §14.1 (rf2-6xezz) the panel carries no self-naming heading
   and no per-panel header icon — content opens directly on the CURRENT
   ROUTE section (the L4 tab strip is the single source of panel
-  identity, and the Figma `RoutesPanel.tsx` opens the same way):
+  identity, and the Figma `RoutesPanel` opens the same way):
 
       │ CURRENT ROUTE                                                   │
       │   :user/profile    params {:id 42}    /users/42                 │
@@ -52,7 +53,7 @@
   All registered routes (id → path pattern) drawn as an indented tree
   when nested — nested routes left-indent by depth and their parent
   rows carry a `▾` disclosure chevron (leaf rows get an aligned
-  spacer), matching the Figma `RoutesPanel.tsx` `ChevronRight` +
+  spacer), matching the Figma `RoutesPanel` `ChevronRight` +
   per-level `paddingLeft`. The tree is always fully expanded (§7.1:
   depth ≤ 4). The **current route is highlighted** (mode-accent row +
   `◀ current` marker) and the focused navigation's FROM→TO is marked on
@@ -88,7 +89,7 @@
 ;; The Routing panel's accent is the single GitHub-blue `:accent` token
 ;; (per `panel-domain->token`). Both the CURRENT ROUTE id and the
 ;; current row in the ROUTE TABLE ride this hue so the operator's eye
-;; ties the two surfaces together (RoutesPanel.tsx `--devtools-active`).
+;; ties the two surfaces together (RoutesPanel `--devtools-active`).
 
 (def ^:private mode-accent (:accent tokens))
 
@@ -97,7 +98,7 @@
 (defn- section-caption
   "Uppercase, tracked, muted section caption — the Figma
   `devtools-caption uppercase tracking-wide text-muted` idiom
-  (RoutesPanel.tsx). Plain caption, no collapse glyph; the panel's
+  (RoutesPanel). Plain caption, no collapse glyph; the panel's
   three sections are always visible per spec §7.2."
   [label testid]
   [:div {:data-testid testid
@@ -113,7 +114,7 @@
 (defn- section
   "Wrap a section caption + body. `first?` omits the top hairline (the
   first section sits flush under the header). Sections after the first
-  carry a 1px solid `border-top` hairline — the RoutesPanel.tsx
+  carry a 1px solid `border-top` hairline — the RoutesPanel
   `border-t border-[var(--devtools-border)]` separator."
   [{:keys [first? testid]} caption body]
   [:section {:data-testid testid
@@ -264,7 +265,7 @@
 
 (defn- depth->indent
   "Left indent for a route-table row at the given depth. Mirrors the
-  Figma `RoutesPanel.tsx` `paddingLeft: level * 2 + 0.5rem` — depth-0
+  Figma `RoutesPanel` `paddingLeft: level * 2 + 0.5rem` — depth-0
   rows sit at the base 0.5rem, each nesting level adds 2rem. The
   structure reads off indentation alone (per §17.4: tree nesting is
   whitespace, not box-drawing text glyphs)."
@@ -400,7 +401,7 @@
 
 (rf/reg-view Panel
   "The Routing tab's root view — three stacked sections per spec/021 §7.2
-  (reconciled to RoutesPanel.tsx). Subscribes to
+  (reconciled to RoutesPanel). Subscribes to
   `:rf.causa/routing-tab-data` and renders, top → bottom:
 
     1. CURRENT ROUTE          — active id + params + matched path.
@@ -413,7 +414,7 @@
   Content starts immediately at the CURRENT ROUTE section — per spec/021
   §14.1 (rf2-6xezz) every L4 panel scrubs its self-naming heading + the
   per-panel header icon (the L4 tab strip is the single source of panel
-  identity). This matches the Figma `RoutesPanel.tsx`, which opens
+  identity). This matches the Figma `RoutesPanel`, which opens
   directly on the CURRENT ROUTE section with no header chrome.
 
   When the host has no routes registered the panel renders the

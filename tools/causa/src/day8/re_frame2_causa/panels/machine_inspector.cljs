@@ -743,7 +743,7 @@
   ;; tab registry.
   (panel-registry/reg-l4-tab!
     {:id    :machines
-     ;; rf2-ad7zx.10 — Figma App.tsx labels the Dynamic L4 tab "Machine"
+     ;; rf2-ad7zx.10 — Figma App labels the Dynamic L4 tab "Machine"
      ;; (singular · the focused-epoch lens is on ONE machine's topology).
      ;; The internal id stays `:machines` (mnemonic + routing unchanged).
      :label "Machine"

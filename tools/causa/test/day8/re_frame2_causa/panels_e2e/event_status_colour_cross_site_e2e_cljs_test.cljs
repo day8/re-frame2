@@ -38,7 +38,7 @@
        `data-testid='rf-causa-trace-cascade-status-bar-<status>'`
 
   The L4 Event header dot was a third site until rf2-ad7zx.17 removed
-  the Event panel's top ribbon (matching `EventPanel.tsx`); the Event
+  the Event panel's top ribbon (matching `EventPanel`); the Event
   panel now carries no status dot.
 
   ## Cascades exercised

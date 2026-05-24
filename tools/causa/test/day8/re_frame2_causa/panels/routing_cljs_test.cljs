@@ -1,6 +1,6 @@
 (ns day8.re-frame2-causa.panels.routing-cljs-test
   "CLJS-side wiring + view tests for Causa's Dynamic Routing tab —
-  the three-section stack (rf2-ad7zx.7, reconciled to RoutesPanel.tsx
+  the three-section stack (rf2-ad7zx.7, reconciled to RoutesPanel
   + spec/021 §7.2; refining rf2-3kjlo / rf2-o5f5f.3).
 
   ## Scope (post-rf2-ad7zx.7)
@@ -185,7 +185,7 @@
             "panel root present")
         ;; spec/021 §14.1 (rf2-6xezz) — every L4 panel scrubs its
         ;; self-naming heading + per-panel header icon; content opens
-        ;; directly on CURRENT ROUTE (matching Figma RoutesPanel.tsx).
+        ;; directly on CURRENT ROUTE (matching Figma RoutesPanel).
         (is (nil? (find-by-testid tree "rf-causa-routing-header"))
             "no panel header (heading + icon scrubbed per §14.1)")
         (is (nil? (find-by-testid tree "rf-causa-routing-panel-icon"))
