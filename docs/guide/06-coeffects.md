@@ -150,6 +150,73 @@ Each cofx is independent. They run on the way in, in declaration order; by the t
 
 A handler shape note worth pinning: **`reg-event-db` doesn't see injected cofx values.** Its handler signature is `(fn [db event] ...)`, not `(fn [coeffects event] ...)` — only `:db` is destructured. If you need a cofx value, the event registers under `reg-event-fx` (or `reg-event-ctx` for the rare cases that want the whole context map). The interceptors slot still works on `reg-event-db` for other purposes — a logger, an undo wrapper — but `inject-cofx` is wasted on it.
 
+## When ceremony outweighs benefit — the inline-interceptor escape hatch
+
+`reg-cofx` + `inject-cofx` is the canonical path, and most of the time it's the right one. But it isn't the *only* legal way to put a value into the coeffects map. The framework recognises that `inject-cofx` is implemented as an interceptor — and the interceptor primitive ([chapter 09](09-interceptors.md)) is open. Any map of the shape `{:id <id> :before (fn [ctx] ...)}` is a legal participant in an event's interceptor vector. If the `:before` happens to `assoc-in` something under `[:coeffects k]`, the handler reads it the same way as if it had come through `reg-cofx`.
+
+That escape hatch exists because the registry indirection isn't free — and most of the time, the things you pay for with it are things you do want.
+
+### What the registry buys you
+
+A cofx-with-an-id is **addressable**. The id is the surface that test code re-registers against to stub the value (chapter 15). It's the surface a REPL session re-binds to hot-swap behaviour — re-registering `:now` takes effect on the *next* dispatch with no event-handler re-registration. It's the surface devtools (Xray) enumerate to show you the cofx graph. And it's the surface that lets one handler serve many call sites with different parameters (one `:local-store` cofx, many storage keys — earlier in this chapter).
+
+For roughly 5–10% of cofxes, those benefits are load-bearing. `:now`, `:new-id`, `:local-store`, anything you'll stub in tests or want to surface to a tool — `reg-cofx` is the right reach.
+
+For the other 90% — a cofx defined once, used in two events, in the same module, never stubbed, never enumerated, never hot-rebound — the registry hop is ceremony for benefits you'll never claim. The inline interceptor map is what you reach for instead.
+
+### Decision rubric
+
+**Use `reg-cofx` + `inject-cofx` when ANY of the following holds:**
+
+- the cofx might be mocked or stubbed in tests by id
+- you want REPL hot-rebind — re-registering picks up on the next dispatch without re-registering event handlers
+- devtools (Xray, re-frame2-pair) should enumerate it
+- it's parameterised by id (e.g. `:local-store`-by-key — one handler, many call-site keys)
+
+**Use an inline interceptor map when ALL of the following holds:**
+
+- defined once, used in a small set of events, in the same module
+- never stubbed in tests
+- the cofx body is trivial (a single `assoc-in`, typically)
+
+Default to `reg-cofx` for anything that names a generally-useful input — current time, fresh ids, storage reads, browser locale. The inline form is the right call when the registry indirection visibly buys nothing.
+
+### Worked example — both forms, side by side
+
+A handler that wants a current-millis stamp for one event only:
+
+```clojure
+;; Registry path — preferred when reuse, stubbing, or enumeration matter:
+(rf/reg-cofx :now
+  {:doc "Inject the current wall-clock time into coeffects under :now."}
+  (fn [ctx]
+    (assoc-in ctx [:coeffects :now] (.getTime (js/Date.)))))
+
+(rf/reg-event-fx :ping
+  [(rf/inject-cofx :now)]
+  (fn [{:keys [db now]} _]
+    {:db (assoc db :last-ping now)}))
+
+;; Inline-interceptor path — preferred when ceremony outweighs benefit:
+(def ^:private inject-now
+  {:id     ::inject-now
+   :before (fn [ctx]
+             (assoc-in ctx [:coeffects :now] (.getTime (js/Date.))))})
+
+(rf/reg-event-fx :ping
+  [inject-now]
+  (fn [{:keys [db now]} _]
+    {:db (assoc db :last-ping now)}))
+```
+
+Both produce identical runtime behaviour for the `:ping` event. The trade is exactly the one the rubric maps: the inline form trades registry-id-addressability — and everything that flows from it — for one fewer indirection.
+
+A note on the inline form's `:id`. The interceptor still wants a (namespaced) keyword `:id` so the runtime can name it in traces and so per-frame `:interceptor-overrides` ([chapter 08 §Per-frame overrides](08-frames.md) — `:interceptor-overrides` keys the override map by `:id`) can target it. The `::` reader macro is the right reach: it expands to a namespace-qualified keyword, so two modules each declaring `::inject-now` don't collide.
+
+A note on what you *don't* get from the inline form. You can't `(rf/reg-cofx ::inject-now ...)` from a test to override it — there's no registry slot. If a test wants to fix the clock, you have a few options: lift the inline interceptor to a `reg-cofx` (the rubric's *might be stubbed* trigger has now fired); or pass a clock fn through the interceptor's closure and rebind the closure in the test; or, most often in practice, just don't write a test that depends on this particular handler's wall-clock value — the kind of trivial cofx that wins as an inline interceptor is exactly the kind that doesn't deserve a focused test.
+
+This is design decision **rf2-bku5r**. The agent-skill terser treatment lives at [`skills/re-frame2/references/fundamentals/cofx.md`](../../skills/re-frame2/references/fundamentals/cofx.md) §When `reg-cofx` is overkill.
+
 ## Common cofxes
 
 There's no closed list — every app registers the cofxes it needs. A few recur often enough to be worth naming.
