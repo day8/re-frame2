@@ -79,8 +79,10 @@
   classification, band projection, epoch-scoped feed, empty-state
   classification — lives in `trace_helpers.cljc` so the algebra runs
   under the JVM unit-test target."
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.panels.app-db-diff-format :as f]
             [day8.re-frame2-xray.panels.cancellation-cascade-helpers :as cch]
             [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
@@ -122,6 +124,133 @@
       :panel-id  :trace
       :render-id (str "trace-row-" id)})])
 
+;; ---- per-path db-changed diff rows (spec/023 §APP-DB CHANGES) -----------
+;;
+;; The trace event `:rf.event/db-changed` carries only `:event` + `:frame`
+;; — no per-path diff payload (Mike-decided rf2-8q8i4 = (b), 2026-05-25:
+;; PANEL-SIDE derive). Per-path before→after rows are derived at render
+;; time from the focused epoch record's `:db-before` / `:db-after` slots
+;; by `trace_helpers/db-changed-diff-triples` (which routes through
+;; `app-db-diff-helpers/diff-paths` — the same structural-sharing engine
+;; the App-DB Diff tab + the Event-panel APP-DB CHANGES section consume,
+;; spec/004 §Changed-paths derivation). The feed projection attaches the
+;; triples to every `:rf.event/db-changed` row's `:db-diff` slot so the
+;; view stays dumb-and-pure.
+;;
+;; The row idiom mirrors the Event-panel APP-DB CHANGES section
+;; (`panels/event_detail.cljs` `db-change-row`, spec/021 §2.2 step 6
+;; mockup):
+;;
+;;     + [:path] new            (added — green)
+;;     ~ [:path] old → new      (modified — amber)
+;;     - [:path]                (removed — red — path alone)
+;;
+;; The diff helper itself (`diff-paths`) is already extracted to
+;; `app_db_diff_helpers.cljc` (shared); the render-side `db-change-row`
+;; in `event_detail.cljs` is private (`defn-`) — v1 keeps a small
+;; trace-flavoured duplicate here (denser layout, slightly different
+;; padding to fit the arc's row rhythm) per the rf2-b3zw2 brief's
+;; safer-move guidance (event_detail.cljs is post-#2114 stabilised; the
+;; lens cluster + B+ section reorder just landed). Dedupe is filed as a
+;; follow-on bead.
+
+(def ^:private diff-op->glyph
+  "Cascade diff glyph per op (spec/021 §10.3 / event_detail.cljs `op->glyph`)."
+  {:added    "+"
+   :modified "~"
+   :removed  "-"})
+
+(def ^:private diff-op->tone
+  "Glyph + path colour per op (spec/021 §10.3 / event_detail.cljs `op->tone`)."
+  {:added    :green
+   :modified :yellow
+   :removed  :red})
+
+(defn- path-suffix
+  "Stable testid suffix for a changed path — pr-str of the path vector
+  with characters that break a data-testid selector folded to `_`.
+  Mirrors event_detail.cljs's `path-suffix` so the testids read
+  consistently across the two panels."
+  [path]
+  (-> (str/join " " (map pr-str path))
+      (str/replace #"\s+" "_")))
+
+(defn- db-diff-row
+  "Render one changed-path row beneath a `:rf.event/db-changed` op row.
+  `triple` is one `app-db-diff-helpers/diff-paths` triple
+  (`{:op :path :before :after}`). Pure hiccup; no nav (the parent row's
+  click toggles the raw trace-event EDN, this sub-row is informational).
+  Shape per spec/021 §2.2 step 6 mockup:
+
+      ~ [:counter]  1 → 2
+      + [:last-updated]  #inst \"…\"
+      - [:stale]
+
+  Indented under the parent op row so the diff reads as a sub-list of
+  the db-changed event."
+  [parent-row-id {:keys [op path before after] :as _triple}]
+  (let [suffix     (path-suffix path)
+        glyph      (get diff-op->glyph op "?")
+        tone       (get tokens (get diff-op->tone op) (:text-secondary tokens))
+        path-label (f/format-edn (vec path))
+        row-test-id (str "rf-xray-trace-row-" parent-row-id
+                         "-db-diff-row-" suffix)]
+    [:div {:data-testid row-test-id
+           :data-op     (name op)
+           :on-click    (fn [e] (.stopPropagation e))
+           :style       {:display       "flex"
+                         :align-items   "baseline"
+                         :flex-wrap     "wrap"
+                         :gap           "8px"
+                         :padding       "1px 16px 1px 56px"
+                         :font-family   mono-stack
+                         :font-size     "11px"}}
+     [:span {:data-testid (str row-test-id "-glyph")
+             :style       {:flex        "0 0 12px"
+                           :color       tone
+                           :font-weight 700
+                           :text-align  "center"
+                           :user-select "none"}}
+      glyph]
+     [:span {:data-testid (str row-test-id "-path")
+             :style {:color tone}}
+      path-label]
+     (case op
+       :modified
+       [:span {:style {:display     "inline-flex"
+                       :align-items "baseline"
+                       :flex-wrap   "wrap"
+                       :gap         "6px"
+                       :min-width   0}}
+        [:span {:style {:color           (:text-tertiary tokens)
+                        :text-decoration "line-through"}}
+         (edn/inspect-inline before)]
+        [:span {:style {:color (:text-tertiary tokens)}} "→"]
+        [:span {:style {:color (:text-primary tokens)}}
+         (edn/inspect-inline after)]]
+
+       :added
+       [:span {:style {:color (:text-primary tokens) :min-width 0}}
+        (edn/inspect-inline after)]
+
+       ;; :removed — path alone (spec/021 line 229 / event_detail `db-change-row`).
+       nil)]))
+
+(defn- db-diff-rows
+  "Render the per-path diff list under a `:rf.event/db-changed` row. When
+  the diff is empty (`db-before == db-after`) renders no list — the spec
+  treats the empty diff section as the no-changes case (spec/023
+  §APP-DB CHANGES). The container carries the testid
+  `rf-xray-trace-row-<id>-db-diff` so tests can target the section
+  regardless of contents."
+  [parent-row-id triples]
+  (when (seq triples)
+    (into [:div {:data-testid (str "rf-xray-trace-row-" parent-row-id "-db-diff")
+                 :style       {:padding "2px 0 6px 0"}}]
+          (for [{:keys [path] :as triple} triples]
+            (with-meta (db-diff-row parent-row-id triple)
+                       {:key (pr-str path)})))))
+
 ;; ---- one op row (spec/023 §3) -------------------------------------------
 
 (defn- op-row
@@ -141,7 +270,7 @@
   leads with `!`, the badge + verb ride the semantic colour, and the row
   carries a tinted left rail."
   [{:keys [id operation rel-time time area area-badge verb target
-           duration-ms source-coord dispatch-id]
+           duration-ms source-coord dispatch-id db-diff]
     :as row}
    {:keys [expanded?]}]
   (let [row-test-id (str "rf-xray-trace-row-" id)
@@ -287,6 +416,13 @@
                             :white-space "nowrap"
                             :text-align  "right"}}
        (or (h/format-duration duration-ms) "—")]]
+     ;; Per-path db-changed diff rows (rf2-b3zw2 / rf2-8q8i4 = (b)) —
+     ;; only present on `:rf.event/db-changed` rows; derived panel-side
+     ;; from the focused epoch record's `:db-before` / `:db-after` by
+     ;; `trace_helpers/db-changed-diff-triples`. Empty diffs render no
+     ;; sub-list per spec/023 §APP-DB CHANGES (the empty-diff case).
+     (when (= operation :rf.event/db-changed)
+       (db-diff-rows id db-diff))
      ;; Row click → raw trace-event EDN inline (spec/023 §3).
      (when expanded? (render-payload row))]))
 

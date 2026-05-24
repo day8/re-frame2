@@ -136,6 +136,10 @@ Per-op fields already on the epoch record / trace bus: views (`:rf.view/elapsed-
 - **Flow result** — `:rf.flow/computed` carries `:result` (computed value), `:before` (prior value), `:input-values`. The FLOW row renders the value + the `[:path] before → after` delta directly (no db-snapshot walk needed).
 - **Net db** — `:rf.event/db-changed` is the net installed diff (handler + flows combined). So the three contributions are distinguishable: handler-return (`:rf.event/fx` `:db`) → per-flow delta (`:rf.flow/computed` `:before`→`:result`) → net install (`:rf.event/db-changed`). No new trace fields required (rf2-u0zz5 must keep them distinct at the new emit points).
 
+### §10.1 APP-DB CHANGES — per-path diff is PANEL-SIDE DERIVED
+
+The `:rf.event/db-changed` trace event carries only `:event` + `:frame` — **no per-path diff payload on the event itself**. The per-path before→after rows the DB row presents (`+ [:path] new` / `~ [:path] old → new` / `- [:path]`) are **derived at render time** from the focused epoch record's `:db-before` / `:db-after` slots (already on every `:rf/epoch-record` per [`Spec 009`](../../../spec/009-Instrumentation.md) / [`spec/Spec-Schemas.md §:rf/epoch-record`](../../../spec/Spec-Schemas.md)). The derivation routes through the same structural-sharing engine the App-DB Diff tab and the Event-panel APP-DB CHANGES section consume (`app-db-diff-helpers/diff-paths`, [`004-App-DB-Diff.md §Changed-paths derivation`](./004-App-DB-Diff.md) — O(changed paths), not O(db size)). One engine, one shape; differences in rendering live in the view. When `db-before == db-after` the diff is `[]` and the DB row renders no per-path sub-list — the empty-diff case. Decision recorded on rf2-8q8i4 (panel-side derive, 2026-05-25); implementation tracked under rf2-b3zw2.
+
 ## §11 Implementation dependencies
 
 1. **Timing instrumentation** (Spec 009) — run-start/run-end (or elapsed-ms) on sub / cofx / fx / flow / handler trace events, so §6 durations populate beyond views.

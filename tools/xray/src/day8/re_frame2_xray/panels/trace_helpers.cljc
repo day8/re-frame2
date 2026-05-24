@@ -54,6 +54,7 @@
   per-row payload-expand affordance is the drill-down. Show every op,
   no default narrowing (spec/023 §2 completeness-first)."
   (:require [clojure.string :as str]
+            [day8.re-frame2-xray.panels.app-db-diff-helpers :as diff-h]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
@@ -754,6 +755,58 @@
                           :empty? (empty? band-rows)}))
                      band-order)}))
 
+;; ---- per-path db-changed diff (rf2-b3zw2 / rf2-8q8i4 = (b)) -------------
+;;
+;; The trace event `:rf.event/db-changed` carries only `:event` + `:frame`
+;; (no per-path diff payload — Mike's 2026-05-25 decision rf2-8q8i4 = (b),
+;; PANEL-SIDE derive). Per spec/023 §10 the "net db" diff IS the
+;; meaningful content of a DB row, but its derivation is the panel's
+;; responsibility, not the runtime's: it comes from the focused epoch
+;; record's `:db-before` / `:db-after` slots (already on every
+;; `:rf/epoch-record` per Spec 009 / spec/Spec-Schemas.md).
+;;
+;; The cleanest place to derive it is right here in the feed projection
+;; — `project-feed-from-epoch` already holds the epoch record. We attach
+;; the diff triples onto each `:rf.event/db-changed` row's `:db-diff`
+;; slot so the view stays dumb-and-pure: it renders `:db-diff` if
+;; present, omits the per-path lines otherwise (the empty-diff case —
+;; `db-before` == `db-after` — yields `[]` and the view renders no
+;; per-path rows).
+;;
+;; The diff itself routes through `app-db-diff-helpers/diff-paths` — the
+;; SAME structural-sharing engine spec/004-App-DB-Diff.md describes and
+;; the App-DB Diff tab / Event-panel APP-DB CHANGES section both consume
+;; (spec/021 §2.2 step 6). One derivation, one engine, one shape —
+;; differences in rendering live in the view, not in re-derived data.
+
+(defn db-changed-diff-triples
+  "Derive the per-path diff for a `:rf.event/db-changed` row from the
+  focused epoch record. Routes through
+  `app-db-diff-helpers/diff-paths` — the structural-sharing engine
+  (spec/004 §Changed-paths derivation, O(changed paths) not O(db
+  size)). Returns a vector of `{:op :added/:modified/:removed
+  :path [...] :before <v> :after <v>}` triples, sorted by path-as-
+  pr-str. Returns `[]` when `db-before == db-after` (the no-changes
+  case — empty diff section per spec/023 §APP-DB CHANGES).
+
+  Pure data → data; JVM-testable."
+  [{:keys [db-before db-after] :as _epoch-record}]
+  (diff-h/diff-paths db-before db-after))
+
+(defn- attach-db-diff
+  "Attach the per-path diff triples to every `:rf.event/db-changed` row
+  in `rows`. Other rows pass through untouched. The diff is computed
+  ONCE per feed projection (cheap — pointer-equal subtrees skip via
+  structural sharing) and copied onto every db-changed row in the
+  epoch; in normal use the runtime emits at most one db-changed row
+  per epoch, but the projection is robust to none / many. Pure data."
+  [rows triples]
+  (mapv (fn [{:keys [operation] :as row}]
+          (cond-> row
+            (= operation :rf.event/db-changed)
+            (assoc :db-diff triples)))
+        rows))
+
 ;; ---- epoch-scoped feed projection (the panel reads this) ----------------
 
 (defn project-feed-from-epoch
@@ -797,7 +850,15 @@
   (let [record-present? (= :focused focus-status)
         trace-events    (when record-present?
                           (:trace-events epoch-record))
-        rows            (with-rel-times (project-rows (or trace-events [])))
+        ;; Derive the per-path db-changed diff ONCE from the epoch
+        ;; record's `:db-before` / `:db-after` (rf2-b3zw2 — panel-side
+        ;; derive, Mike-decided rf2-8q8i4 = (b)) and attach to each
+        ;; db-changed row's `:db-diff` slot.
+        db-diff         (when record-present?
+                          (db-changed-diff-triples epoch-record))
+        raw-rows        (with-rel-times (project-rows (or trace-events [])))
+        rows            (cond-> raw-rows
+                          (some? db-diff) (attach-db-diff db-diff))
         {:keys [envelope outcome bands]} (build-bands rows)
         n               (count rows)
         empty-kind      (cond
