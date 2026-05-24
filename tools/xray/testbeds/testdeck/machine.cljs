@@ -161,9 +161,14 @@
       {:tags  #{:ws/active :ws/authenticating}
        ;; Mock auth — branch on the user-armed failure guard. Guarded
        ;; `:after` transitions: the first whose guard passes wins.
+       ;; The failure branch crosses hierarchy ([:active :authenticating]
+       ;; → top-level [:failed]), so it uses the unambiguous vector form
+       ;; (Spec 005 §Target resolution — vector vs keyword). A keyword
+       ;; `:target :failed` would resolve relative to `:authenticating`'s
+       ;; parent `:active`, which has no `:failed` substate.
        :after {AUTHENTICATING-MS
                [{:guard :handshake-ok? :target :connected}
-                {:target :failed :action :record-error}]}}
+                {:target [:failed] :action :record-error}]}}
 
       :connected
       {:tags  #{:ws/active :ws/connected}
