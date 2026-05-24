@@ -1398,13 +1398,13 @@
             "⏭ ENABLED — paused-at-head, pressing it resumes LIVE")))))
 
 (deftest ribbon-nav-disabled-button-has-inert-styling
-  (testing "rf2-x5tro + rf2-3f2di A2 — a disabled nav button READS as
-            inert, not just cursor: not-allowed. With the blue-filled
-            treatment (reference chrome-ribbon) the inert signal is a
-            strong opacity drop (the filled blue fades) + not-allowed
-            cursor. The button keeps its filled :accent base + white icon
-            + borderless box; only the opacity recedes. Asserted on ⏭ at
-            head + live."
+  (testing "rf2-x5tro + rf2-xawwb — a disabled nav button READS as inert,
+            not just cursor: not-allowed. With the blue-filled treatment
+            (Figma-Make chrome-ribbon) the inert signal is a strong
+            opacity drop (the filled blue fades) + not-allowed cursor. The
+            button keeps its filled :active-bg base + white :active-text
+            icon + borderless box; only the opacity recedes. Asserted on
+            ⏭ at head + live."
     (xray-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
@@ -1416,11 +1416,11 @@
         (is (true? (:disabled (second head)))
             "⏭ disabled at head + live (single event, fresh focus)")
         ;; The proper inert appearance — filled but faded.
-        (is (= (:accent tokens) (:background style))
-            "disabled nav button keeps the filled :accent base")
+        (is (= (:active-bg tokens) (:background style))
+            "disabled nav button keeps the filled :active-bg base")
         (is (= "none" (:border style))
             "disabled nav button has NO border box — borderless filled style")
-        (is (= (:white tokens) (:color style))
+        (is (= (:active-text tokens) (:color style))
             "disabled icon stays white (the opacity drop carries the fade)")
         (is (= 0.4 (:opacity style))
             "disabled opacity reduced so the filled blue recedes")
@@ -2350,15 +2350,15 @@
                 (str label " icon-button has NO border box"))
             (is (= "transparent" (:background style))
                 (str label " icon-button is transparent (hover fill via CSS)"))
-            (is (= (:text-tertiary tokens) (:color style))
-                (str label " icon-button uses muted :text-tertiary ink"))))))))
+            (is (= (:chrome-ribbon-text-muted tokens) (:color style))
+                (str label " icon-button uses muted-white :chrome-ribbon-text-muted ink (dark band, rf2-xawwb)"))))))))
 
 (deftest chrome-ribbon-nav-buttons-are-blue-filled
-  (testing "rf2-3f2di A2 — the chrome-ribbon nav cluster renders FILLED
-            `:accent` buttons (reference chrome-ribbon: blue bg, white
-            icon), NOT borderless icon-buttons and NOT bordered triangles.
-            The active (enabled) button carries `background: :accent` +
-            white icon + `border: none`."
+  (testing "rf2-xawwb — the chrome-ribbon nav cluster renders FILLED
+            `:active-bg` buttons (Figma-Make chrome-ribbon: blue bg, white
+            `:active-text` icon), NOT borderless icon-buttons and NOT
+            bordered triangles. The active (enabled) button carries
+            `background: :active-bg` + white icon + `border: none`."
     (xray-setup!)
     ;; Two events + focus the middle so prev/next are ENABLED (active style).
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
@@ -2374,18 +2374,18 @@
             (is (some? btn) (str tid " present"))
             (is (= "none" (:border style))
                 (str tid " is borderless (no 1px border box)"))
-            (is (= (:accent tokens) (:background style))
-                (str tid " background is the filled :accent (blue)"))
-            (is (= (:white tokens) (:color style))
-                (str tid " icon is white"))))
+            (is (= (:active-bg tokens) (:background style))
+                (str tid " background is the filled :active-bg (blue)"))
+            (is (= (:active-text tokens) (:color style))
+                (str tid " icon is white :active-text"))))
         ;; the nav cluster lives in the chrome ribbon (bar-1) now.
         (is (some? (find-by-testid (find-by-testid tree "rf-xray-ribbon")
                                    "rf-xray-ribbon-nav"))
             "the nav cluster is mounted inside the chrome ribbon (A5)")))))
 
 (deftest chrome-ribbon-carries-blue-focus-button
-  (testing "rf2-3f2di A5 — the always-present blue `focus` button is a
-            filled :accent button with white text + the `focus` label,
+  (testing "rf2-xawwb — the always-present blue `focus` button is a filled
+            :active-bg button with white :active-text + the `focus` label,
             now sitting in the CHROME ribbon left cluster (it moved up
             with the nav cluster). Distinct from the focus-CHIP (which
             only appears when a focus-set is active)."
@@ -2396,10 +2396,10 @@
             btn    (find-by-testid tree "rf-xray-focus-button")
             style  (:style (second btn))]
         (is (some? btn) "the blue focus button renders (always present)")
-        (is (= (:accent tokens) (:background style))
-            "focus button background is the filled :accent (blue)")
-        (is (= (:white tokens) (:color style))
-            "focus button text is white")
+        (is (= (:active-bg tokens) (:background style))
+            "focus button background is the filled :active-bg (blue)")
+        (is (= (:active-text tokens) (:color style))
+            "focus button text is white :active-text")
         (is (re-find #"focus" (text-nodes btn))
             "the button carries the `focus` label")
         ;; It lives in the chrome ribbon (bar-1) now, not the events ribbon.
