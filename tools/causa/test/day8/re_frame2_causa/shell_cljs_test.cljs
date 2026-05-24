@@ -51,7 +51,7 @@
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.shell :as shell]
-            [day8.re-frame2-causa.theme.tokens :refer [tokens]]
+            [day8.re-frame2-causa.theme.tokens :refer [tokens layout]]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
@@ -524,7 +524,7 @@
       (let [tree (shell/shell-view)]
         ;; (a) NO radio-circle glyphs anywhere in the tab strip. The
         ;; old tab-button stamped a `◉` (active) / `○` (inactive) span;
-        ;; the L2 gutter glyph `◉/○` lives in event rows, NOT in the
+        ;; the L2 gutter glyph `◉/◌` lives in event rows, NOT in the
         ;; tab buttons — so we assert per-button.
         (doseq [tab-id expected-tab-ids]
           (let [btn  (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
@@ -548,14 +548,16 @@
               "active tab background is the filled :accent token")
           (is (= (:white tokens) (:color style))
               "active tab text is white"))
-        ;; (d) INACTIVE tabs are transparent with secondary ink.
+        ;; (d) INACTIVE tabs are transparent with NEUTRAL muted ink
+        ;; (rf2-cplj8 — `:text-tertiary`, Figma `text-muted-foreground`,
+        ;; NOT the brighter blue-ish `:text-secondary`).
         (doseq [tab-id (remove #{:event} expected-tab-ids)]
           (let [btn   (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
                 style (:style (second btn))]
             (is (= "transparent" (:background style))
                 (str "inactive tab " tab-id " background is transparent"))
-            (is (= (:text-secondary tokens) (:color style))
-                (str "inactive tab " tab-id " text is secondary ink"))))))
+            (is (= (:text-tertiary tokens) (:color style))
+                (str "inactive tab " tab-id " text is neutral muted ink"))))))
     ;; (e) After switching the active tab, the filled-accent treatment
     ;; follows the new selection (and the old tab reverts to transparent).
     (select-tab! :machines)
@@ -1367,11 +1369,14 @@
             "⏭ ENABLED — paused-at-head, pressing it resumes LIVE")))))
 
 (deftest ribbon-nav-disabled-button-has-inert-styling
-  (testing "rf2-x5tro — a disabled nav button READS as inert, not just
-            cursor: not-allowed. The disabled style dims the background
-            + border, drops ink to :text-tertiary, and reduces opacity
-            so the button visibly recedes (border + background are no
-            longer the active treatment). Asserted on ⏭ at head + live."
+  (testing "rf2-x5tro + rf2-cplj8 — a disabled nav button READS as inert,
+            not just cursor: not-allowed. Post rf2-cplj8 the nav buttons
+            are BORDERLESS lucide-style chevrons (Figma EventsRibbon) so
+            there is no border/background to dim — the inert signal is
+            the muted :text-tertiary ink + reduced opacity + not-allowed
+            cursor. The active button has a transparent borderless base
+            (`border: none`), so a disabled button must stay borderless
+            too. Asserted on ⏭ at head + live."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/causa
@@ -1382,14 +1387,14 @@
         (is (some? active) "nav cluster renders")
         (is (true? (:disabled (second head)))
             "⏭ disabled at head + live (single event, fresh focus)")
-        ;; The proper inert appearance — every signal, not just cursor.
-        (is (= (:bg-1 tokens) (:background style))
-            "disabled background dims to the recessed bg-1 token")
-        (is (= (str "1px solid " (:border-subtle tokens)) (:border style))
-            "disabled border dims to border-subtle")
+        ;; The proper inert appearance — borderless, muted, recessed.
+        (is (= "transparent" (:background style))
+            "disabled nav button stays transparent (borderless treatment)")
+        (is (= "none" (:border style))
+            "disabled nav button has NO border box — borderless lucide style")
         (is (= (:text-tertiary tokens) (:color style))
             "disabled ink drops to text-tertiary")
-        (is (= 0.5 (:opacity style))
+        (is (= 0.4 (:opacity style))
             "disabled opacity reduced so the button recedes")
         (is (= "not-allowed" (:cursor style))
             "cursor: not-allowed telegraphs the no-op")))))
@@ -2258,3 +2263,176 @@
     (rf/with-frame :rf/causa
       (is (nil? @(rf/subscribe [:rf.causa/relative-time-now-ms]))
           "no `:dispatched :time` anywhere → nil anchor"))))
+
+;; -------------------------------------------------------------------------
+;; rf2-cplj8 — chrome + ribbon + event-list + tab Figma fidelity
+;;
+;; Reconciles shell.cljs to the Figma design-reference components
+;; (ChromeRibbon / EventsRibbon / EventList / Tabs). The structural /
+;; token contracts asserted here:
+;;   (1) chrome ribbon logo → NEUTRAL :text-primary ink (not :accent);
+;;       chrome ribbon height → 32px (Figma `h-8`);
+;;       settings/close → borderless square icon-buttons.
+;;   (2) events ribbon nav cluster → BORDERLESS chevron buttons (no
+;;       border box); the always-present blue `focus` button is restored.
+;;   (3) event-list event-id column → explicitly LEFT-aligned (header +
+;;       row); the selected/active row → subtle :hover fill, NOT a 1px
+;;       blue ring.
+;;   (4) inactive tabs → NEUTRAL muted :text-tertiary ink (covered by
+;;       `tab-bar-is-figma-button-bar-not-radios` above).
+;; -------------------------------------------------------------------------
+
+(deftest chrome-logo-uses-neutral-ink-not-accent
+  (testing "rf2-cplj8 — the `❖ Causa` wordmark renders in the NEUTRAL
+            chrome text colour (:text-primary = Figma --devtools-text),
+            NOT the :accent blue. The single accent is reserved for
+            active/selected affordances."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [ribbon (shell/ribbon nil)
+            logo   (find-by-testid ribbon "rf-causa-ribbon-logo")
+            style  (:style (second logo))]
+        (is (some? logo) "the wordmark renders")
+        (is (= (:text-primary tokens) (:color style))
+            "the logo ink is the neutral :text-primary token")
+        (is (not= (:accent tokens) (:color style))
+            "the logo ink is NOT the :accent blue")))))
+
+(deftest chrome-ribbon-height-is-figma-h8
+  (testing "rf2-cplj8 — the chrome ribbon is 32px tall (Figma ChromeRibbon
+            `h-8`), down from the previous 40px, reclaiming vertical
+            canvas. Driven by the single `:top-strip-height` layout token."
+    (is (= "32px" (:top-strip-height layout))
+        "the :top-strip-height layout token is 32px (Figma h-8)")
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [ribbon (shell/ribbon nil)
+            style  (:style (second ribbon))]
+        (is (= "32px" (:height style))
+            "the chrome ribbon paints the 32px height")))))
+
+(deftest chrome-icon-buttons-are-borderless
+  (testing "rf2-cplj8 — the settings + close icons are BORDERLESS square
+            icon-buttons (Figma ChromeRibbon `p-1 rounded`), muted ink,
+            no border box."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree     (shell/shell-view)
+            settings (find-by-testid tree "rf-causa-icon-settings")
+            close    (find-by-testid tree "rf-causa-icon-close")]
+        (doseq [[label btn] [["settings" settings] ["close" close]]]
+          (let [style (:style (second btn))]
+            (is (some? btn) (str label " icon present"))
+            (is (= "none" (:border style))
+                (str label " icon-button has NO border box"))
+            (is (= "transparent" (:background style))
+                (str label " icon-button is transparent (hover fill via CSS)"))
+            (is (= (:text-tertiary tokens) (:color style))
+                (str label " icon-button uses muted :text-tertiary ink"))))))))
+
+(deftest events-ribbon-nav-buttons-are-borderless
+  (testing "rf2-cplj8 — the events-ribbon nav cluster renders BORDERLESS
+            chevron buttons (Figma EventsRibbon `p-1 rounded`), NOT
+            bordered unicode-triangle pills. The active (enabled) button
+            carries `border: none` + transparent background."
+    (causa-setup!)
+    ;; Two events + focus the middle so prev/next are ENABLED (active style).
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:mid/event]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 3 [:newer/event]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade 2]))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (doseq [tid ["rf-causa-nav-prev" "rf-causa-nav-next" "rf-causa-nav-head"]]
+          (let [btn   (find-by-testid tree tid)
+                style (:style (second btn))]
+            (is (some? btn) (str tid " present"))
+            (is (= "none" (:border style))
+                (str tid " is borderless (no 1px border box)"))
+            (is (= "transparent" (:background style))
+                (str tid " is transparent (hover fill via scoped CSS)"))))))))
+
+(deftest events-ribbon-restores-blue-focus-button
+  (testing "rf2-cplj8 — the always-present blue `focus` button (Figma
+            EventsRibbon) is restored: a filled :accent button with white
+            text + the `focus` label, sitting in the events-ribbon left
+            cluster. Distinct from the focus-CHIP (which only appears when
+            a focus-set is active)."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
+    (rf/with-frame :rf/causa
+      (let [tree   (shell/shell-view)
+            btn    (find-by-testid tree "rf-causa-focus-button")
+            style  (:style (second btn))]
+        (is (some? btn) "the blue focus button renders (always present)")
+        (is (= (:accent tokens) (:background style))
+            "focus button background is the filled :accent (blue)")
+        (is (= (:white tokens) (:color style))
+            "focus button text is white")
+        (is (re-find #"focus" (text-nodes btn))
+            "the button carries the `focus` label")
+        ;; It lives in the events ribbon, not the chrome ribbon.
+        (is (some? (find-by-testid (find-by-testid tree "rf-causa-events-ribbon")
+                                   "rf-causa-focus-button"))
+            "the focus button is mounted inside the events ribbon")))))
+
+(deftest focus-button-dispatches-set-focus-for-current-event
+  (testing "rf2-cplj8 — clicking the blue `focus` button focuses on the
+            currently-selected cascade's inferred dimension via
+            :rf.causa/set-focus (the ribbon-level counterpart of the
+            per-row gutter gesture)."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade 1]))
+    (let [dispatches (atom [])]
+      (with-redefs [rf/dispatch* (fn
+                                   ([ev]       (swap! dispatches conj ev) nil)
+                                   ([ev _opts] (swap! dispatches conj ev) nil))]
+        (rf/with-frame :rf/causa
+          (let [tree    (shell/shell-view)
+                btn     (find-by-testid tree "rf-causa-focus-button")
+                handler (:on-click (second btn))]
+            (is (fn? handler) "focus button carries an on-click when a
+                               dimension can be inferred")
+            (when handler (handler nil)))))
+      (is (some #(= :rf.causa/set-focus (first %)) @dispatches)
+          "the focus button dispatches :rf.causa/set-focus"))))
+
+(deftest event-id-column-is-left-aligned
+  (testing "rf2-cplj8 — the `event id` column is explicitly LEFT-aligned
+            on BOTH the header label and the row keyword (Figma EventList
+            `text-left`), not centred."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [tree       (shell/shell-view)
+            h-event-id (find-by-testid tree "rf-causa-event-list-col-event-id")
+            r-event-id (find-by-testid tree "rf-causa-row-event-id")]
+        (is (= "left" (:text-align (style-of h-event-id)))
+            "header `event id` label is explicitly left-aligned")
+        (is (= "left" (:text-align (style-of r-event-id)))
+            "row event-id keyword is explicitly left-aligned")))))
+
+(deftest focused-row-uses-hover-fill-not-blue-ring
+  (testing "rf2-cplj8 — the selected/active row marks itself with a subtle
+            :hover background fill (Figma EventList `isActive` →
+            `bg-[var(--devtools-hover)]`), NOT a full 1px blue ring. The
+            border stays the transparent border-box base so the columns
+            never drift from the header."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade 1]))
+    (rf/with-frame :rf/causa
+      (let [tree  (shell/shell-view)
+            row   (find-by-testid tree "rf-causa-event-row-1")
+            style (:style (second row))]
+        (is (some? row) "the focused row renders")
+        (is (= (:hover tokens) (:background style))
+            "focused row background is the subtle :hover fill")
+        (is (= "1px solid transparent" (:border style))
+            "focused row border is the transparent base — NO blue ring")
+        (is (not= (str "1px solid " (:accent tokens)) (:border style))
+            "focused row does NOT paint the :accent blue ring")))))

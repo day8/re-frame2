@@ -441,14 +441,15 @@
   `:bottom-rail-height` tokens were retired in Round-3 rf2-g9pee).
 
   Per rf2-4vp5j the top of the shell splits into TWO strata: the
-  **chrome ribbon** (`:top-strip-height`, made compact — it now carries
-  only the Frame + Dynamic/Static dropdowns on the left and `⚙`/`✕` on
+  **chrome ribbon** (`:top-strip-height`, made compact — 32px per the
+  Figma ChromeRibbon `h-8`, rf2-cplj8 — it now carries only the Frame +
+  Dynamic/Static dropdowns on the left and the settings/close icons on
   the right; nav, focus-chip and filter pills moved down) and the
   **events ribbon** (`:events-ribbon-height`, carrying `Events:` + nav +
   focus-chip + pills on the left and the hidden-count + Clear Filters on
   the right). The compacted chrome height reclaims vertical canvas for
   the L2 event list."
-  {:top-strip-height     "40px"
+  {:top-strip-height     "32px"
    :events-ribbon-height "36px"})
 
 ;; ---- motion (rf2-5kfxe.5) ----------------------------------------------
