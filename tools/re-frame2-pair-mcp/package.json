@@ -20,7 +20,8 @@
     "start": "node out/server.js",
     "stdio-roundtrip": "node test/stdio-roundtrip.js",
     "probe-mcp-path": "node bin/probe-mcp-path.cjs",
-    "test:probe-mcp-path": "node test/probe-mcp-path-test.cjs"
+    "test:probe-mcp-path": "node test/probe-mcp-path-test.cjs",
+    "test:roots-discovery-live": "node test/roots-discovery-live.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -5,35 +5,56 @@
 
   ## Lifecycle
 
-  1. boot: discover the nREPL port via the four-step cascade — the
-     `--port-file <path>` flag, the `SHADOW_CLJS_NREPL_PORT` env var,
-     a probe of shadow's HTTP API at port 9630 (which yields the
-     consumer project root → port-file lookup; rf2-umoz2), and finally
-     a cwd-relative port-file scan. See `nrepl/discover-port`. Open
-     the persistent socket lazily on first tool call (so the server
-     starts cleanly even before shadow-cljs is running — the first
-     tool that needs the socket gets a structured error).
-  2. `initialize`: standard MCP handshake.
+  1. boot: parse launch flags, build the MCP `Server`, connect the
+     stdio transport. The persistent nREPL socket is NOT opened
+     here — discovery is lazy (rf2-3grub) so it can ask the MCP
+     client for workspace roots after initialization completes.
+  2. `initialize`: standard MCP handshake. Server learns the client's
+     capabilities (`roots`, `elicitation`).
   3. `tools/list`: returns the full tool catalogue — see
      `tools.registry/tools` for the authoritative list (the single
-     source of truth). It spans the bash-shim-overlap ops, the
-     direct-read primitives, the write tools (`restore-epoch` /
-     `reset-frame-db`, gated behind `--allow-writes`), the streaming
-     triad, the registrar-introspection pair, and the agent-onboarding
-     tool. The count is derived, not hand-maintained here.
-  4. `tools/call`: dispatch to `tools.cljs`. Each call ensures the
-     in-browser runtime is injected via the sentinel probe.
-  5. stdin EOF: shut down cleanly.
+     source of truth).
+  4. `tools/call` (first time): runs the port-discovery cascade
+     (rf2-3grub) — the five-step precedence:
+
+        1. `--port-file <path>` explicit override (rf2-3dbwh)
+        2. `$SHADOW_CLJS_NREPL_PORT` env var
+        3. MCP `roots/list` → walk for `shadow-cljs.edn` → port-file
+        4. Shadow HTTP probe at `:9630` → `/api/project-info` (rf2-umoz2)
+        5. CWD-relative scan (legacy fallback)
+
+     Step 3 is the rf2-3grub primary path — generic, zero-config, no
+     port-range guessing. On ambiguity (2+ shadow builds in the
+     workspace), the server drives `elicitation/create` to ask the user
+     which project. The result (port + project-home) is cached for the
+     session.
+
+  5. `tools/call` (subsequent): re-reads the port file at the cached
+     `project-home` before each call — a shadow restart writes a new
+     port but the file location is stable, so the cache stays valid
+     across restarts. If the port changed, close the stale socket and
+     reconnect transparently.
+
+  6. stdin EOF: shut down cleanly.
 
   ## Why low-level Server, not McpServer
 
   The SDK's high-level `McpServer` registers tools at construction time
   with a schema-validation layer. We want explicit control over the
   request handlers (parallel to the JVM port at `tools/story-mcp/`),
-  so we use the low-level `Server` + `setRequestHandler` API."
+  so we use the low-level `Server` + `setRequestHandler` API.
+
+  ## Server reference for roots/elicitation
+
+  The Server instance carries `listRoots()` and `elicitInput()` methods
+  (SDK 1.29+); these are the primitives the discovery cascade uses.
+  The server reference is captured in `server-instance` so the
+  lazy-discovery flow can reach it without threading it through every
+  tool handler signature."
   (:require [applied-science.js-interop :as j]
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.roots-discovery :as roots-discovery]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
@@ -41,7 +62,9 @@
             [re-frame2-pair-mcp.tools.resource-controls :as resource]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
-            ["@modelcontextprotocol/sdk/types.js" :as mcp-types]))
+            ["@modelcontextprotocol/sdk/types.js" :as mcp-types]
+            ["fs" :as fs]
+            ["path" :as node-path]))
 
 (def ^:const server-name    "re-frame2-pair-mcp")
 (def ^:const server-version "0.1.0")
@@ -65,26 +88,230 @@
        "`--port-file <absolute-path-to-nrepl.port>` "
        "(the cwd-independent escape hatch)."))
 
-(defn- resolve-port
-  "Run the async port-discovery cascade — see `nrepl/discover-port` for
-  the four-step precedence (rf2-umoz2 added the shadow HTTP probe as
-  step 3). Returns a Promise resolving to an integer port or rejecting
-  with a structured `:rf.error/pair-mcp-nrepl-port-not-found` ex-info."
-  [explicit-port-file http-port]
-  (-> (nrepl/discover-port explicit-port-file http-port)
-      (.then (fn [port]
-               (if port
-                 port
-                 (throw (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
-                                 {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found
-                                  :where    'pair-mcp/resolve-port
-                                  :recovery :no-recovery
-                                  :reason   port-not-found-hint
-                                  :hint     port-not-found-hint})))))))
+;; ---------------------------------------------------------------------------
+;; Session-cache for the lazy-discovered project (rf2-3grub).
+;; ---------------------------------------------------------------------------
+
+(def ^:private session-state
+  "Per-server-instance cache for the resolved nREPL endpoint. Lazy on
+  first tool call (`ensure-connection!`); invalidated when the cached
+  port-file disappears or content changes on a per-tool-call re-read.
+
+  Shape:
+
+      {:project-home   <abs-dir | nil>     ;; nil when env-var or cwd-scan won
+       :port-file      <abs-file | nil>    ;; the specific port file we cached
+       :port           <int | nil>         ;; the port last seen
+       :conn           <atom | nil>        ;; the persistent nREPL conn
+       :discovered?    <bool>              ;; have we run discovery yet?
+       :discovery-error <ex-info | nil>}   ;; sticky error from prior attempt
+
+  Resetting `:discovered? false` triggers a full re-discovery on the
+  next tool call — used by the operator-initiated re-attach branch
+  (deferred to a follow-up bead)."
+  (atom {:project-home    nil
+         :port-file       nil
+         :port            nil
+         :conn            nil
+         :discovered?     false
+         :discovery-error nil}))
+
+;; The Server instance is captured here when `build-server` returns it,
+;; so the discovery flow can reach `listRoots()` and `elicitInput()`
+;; without threading the server through every handler signature.
+(def ^:private server-instance (atom nil))
+
+(defn- list-roots-fn
+  "Closure over the captured Server instance that calls SDK
+  `server.listRoots()`. Returns a Promise resolving to
+  `{:roots [{:uri ...} ...]}` shape. Rejects when the client doesn't
+  expose `roots` (older clients) — `roots-discovery/discover-via-roots*`
+  catches that rejection and surfaces `:workspace-discovery-unsupported`,
+  which the cascade interprets as 'fall through to step 4'."
+  []
+  (if-let [^js server @server-instance]
+    (j/call server :listRoots)
+    (js/Promise.reject (js/Error. "Server not yet initialized"))))
+
+(defn- elicit-choice!
+  "Drive `elicitation/create` to ask the user which shadow project to
+  attach to. `candidates` is a vector of `{:project-home :port-file :port}`
+  maps. Returns a Promise resolving to the chosen candidate, or rejecting
+  when the user cancels/declines or the client doesn't support
+  `elicitation/create`.
+
+  The MCP elicitation form is keyed by integer index — the user picks a
+  numbered project; we map back to the candidate. A simpler enum field
+  works because shadow-project absolute paths can be long and unwieldy
+  inside a select widget."
+  [candidates]
+  (let [labels   (mapv (fn [c] (str (:project-home c) " (port " (:port c) ")"))
+                       candidates)
+        ^js server @server-instance]
+    (-> (j/call server :elicitInput
+                #js {:message "Multiple running shadow-cljs builds found in the open workspace. Which project should re-frame2-pair attach to?"
+                     :requestedSchema
+                     #js {:type "object"
+                          :properties
+                          #js {:project
+                               #js {:type        "string"
+                                    :enum        (clj->js labels)
+                                    :description "Choose the project whose live shadow build should drive this pair-mcp session."}}
+                          :required #js ["project"]}})
+        (.then (fn [^js result]
+                 (let [action (j/get result :action)]
+                   (case action
+                     "accept"
+                     (let [picked   (j/get-in result [:content :project])
+                           label-ix (->> labels
+                                         (map-indexed vector)
+                                         (some (fn [[i lbl]] (when (= picked lbl) i))))]
+                       (if-let [c (when label-ix (nth candidates label-ix))]
+                         c
+                         ;; The user accepted but the answer doesn't map back
+                         ;; — defensive guard against a hand-edited form.
+                         (js/Promise.reject
+                           (js/Error.
+                             (str "elicitation accepted but unknown project label: " picked)))))
+
+                     ("cancel" "decline")
+                     (js/Promise.reject
+                       (js/Error. (str "elicitation " action " — no project chosen")))
+
+                     (js/Promise.reject
+                       (js/Error. (str "elicitation returned unexpected action: " action))))))))))
+
+(defn- read-port-file*
+  "Read the port file at `path`. Returns an int or nil (missing /
+  unreadable / non-numeric content). Mirrors `nrepl/read-port-file` but
+  kept local so a future test seam doesn't have to thread through the
+  transport ns."
+  [path]
+  (try
+    (let [content (str/trim (.toString (.readFileSync fs path)))
+          n       (js/parseInt content 10)]
+      (when-not (js/isNaN n) n))
+    (catch :default _ nil)))
 
 (defn- new-conn-for-port [port]
   (log! "nREPL port =" port)
   (nrepl/make-conn port "127.0.0.1"))
+
+(defn- discover-and-cache!
+  "First-tool-call discovery (rf2-3grub). Run the five-step cascade in
+  `nrepl/discover-port` with the captured Server's `listRoots` as the
+  injected roots-discovery fn. On `:ambiguous` (2+ shadow candidates),
+  drive `elicitation/create` to ask the user. Cache the chosen port +
+  project-home in `session-state`.
+
+  Returns a Promise resolving to the session-state map on success, or
+  rejecting with a structured ex-info on failure."
+  [launch-flags]
+  (let [{:keys [port-file http-port]} launch-flags
+        roots-fn (fn [] (roots-discovery/discover-via-roots list-roots-fn))]
+    (-> (nrepl/discover-port port-file http-port roots-fn)
+        (.then
+          (fn [result]
+            (cond
+              ;; Single shadow build in workspace, or fallback succeeded.
+              (and (:port result) (nil? (:ambiguous result)))
+              (let [port (:port result)
+                    ph   (:project-home result)
+                    conn (new-conn-for-port port)]
+                (swap! session-state assoc
+                       :project-home ph
+                       :port-file    (or (:port-file result)
+                                         (when ph
+                                           (node-path/join ph ".shadow-cljs/nrepl.port")))
+                       :port         port
+                       :conn         conn
+                       :discovered?  true)
+                @session-state)
+
+              ;; Ambiguous — drive elicitation/create.
+              (:ambiguous result)
+              (-> (elicit-choice! (:ambiguous result))
+                  (.then (fn [chosen]
+                           (let [port (:port chosen)
+                                 ph   (:project-home chosen)
+                                 conn (new-conn-for-port port)]
+                             (swap! session-state assoc
+                                    :project-home ph
+                                    :port-file    (:port-file chosen)
+                                    :port         port
+                                    :conn         conn
+                                    :discovered?  true)
+                             @session-state)))
+                  (.catch
+                    (fn [_err]
+                      ;; Elicitation unsupported or user cancelled — surface
+                      ;; the ambiguous result as a structured boot error so
+                      ;; the agent can ask in chat and retry with --port-file.
+                      (let [payload (roots-discovery/ambiguous-result-payload
+                                      (:ambiguous result))]
+                        (throw (ex-info ":rf.error/pair-mcp-ambiguous-shadow"
+                                        {:rf.error/id :rf.error/pair-mcp-ambiguous-shadow
+                                         :where    'pair-mcp/discover-and-cache!
+                                         :recovery :pick-via-port-file
+                                         :reason   (:reason payload)
+                                         :candidates (:candidates payload)
+                                         :hint     (:hint payload)}))))))
+
+              ;; Nothing resolved.
+              :else
+              (throw (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
+                              {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found
+                               :where    'pair-mcp/discover-and-cache!
+                               :recovery :no-recovery
+                               :reason   port-not-found-hint
+                               :hint     port-not-found-hint}))))))))
+
+(defn- ensure-connection!
+  "Lazy-discovery entry: called before every tool dispatch. Three paths:
+
+  1. First call (or after invalidation) — runs `discover-and-cache!`.
+  2. Cached + port-file still resolves to the same port — fast path,
+     returns the cached conn atom.
+  3. Cached + port-file content changed — shadow was restarted; close
+     the stale socket, swap in a new conn for the new port.
+
+  Returns a Promise resolving to the live conn atom, or rejecting with
+  the cached/structured discovery error."
+  [launch-flags]
+  (let [{:keys [discovered? discovery-error port-file port conn]} @session-state]
+    (cond
+      (and (not discovered?) (some? discovery-error))
+      (js/Promise.reject discovery-error)
+
+      (not discovered?)
+      (-> (discover-and-cache! launch-flags)
+          (.then (fn [_] (:conn @session-state)))
+          (.catch (fn [e]
+                    (swap! session-state assoc :discovery-error e)
+                    (js/Promise.reject e))))
+
+      :else
+      (let [current-port (when port-file (read-port-file* port-file))]
+        (cond
+          ;; The cached file vanished — shadow shut down. Force re-discovery.
+          (and port-file (nil? current-port))
+          (do (log! "cached port file disappeared at" port-file "— re-discovering")
+              (nrepl/close! conn)
+              (swap! session-state assoc :discovered? false :conn nil
+                     :discovery-error nil)
+              (ensure-connection! launch-flags))
+
+          ;; Port changed — shadow restarted on a new ephemeral port.
+          (and current-port (not= current-port port))
+          (do (log! "nREPL port changed:" port "→" current-port "— reconnecting")
+              (nrepl/close! conn)
+              (let [conn' (new-conn-for-port current-port)]
+                (swap! session-state assoc :port current-port :conn conn')
+                (js/Promise.resolve conn')))
+
+          ;; Same port (or env/cwd path without project-home) — fast path.
+          :else
+          (js/Promise.resolve conn))))))
 
 ;; ---------------------------------------------------------------------------
 ;; MCP request handlers.
@@ -93,20 +320,36 @@
 (defn- handle-list [_req]
   (js/Promise.resolve #js {:tools (tools/tool-descriptors-js)}))
 
-(defn- handle-call [conn req extra]
+(defn- handle-call [launch-flags req extra]
   (let [params (j/get req :params)
         name   (j/get params :name)
         args   (or (j/get params :arguments) #js {})]
-    (-> (tools/invoke conn name args extra)
-        (.catch (fn [err]
-                  (log! "handler threw for" name "—" (.-message err))
-                  (let [payload {:ok?     false
-                                 :reason  :handler-threw
-                                 :message (.-message err)}]
-                    #js {:isError          true
-                         :content          #js [#js {:type "text"
-                                                     :text (pr-str payload)}]
-                         :structuredContent (clj->js payload)}))))))
+    (-> (ensure-connection! launch-flags)
+        (.then (fn [conn]
+                 (-> (tools/invoke conn name args extra)
+                     (.catch (fn [err]
+                               (log! "handler threw for" name "—" (.-message err))
+                               (let [payload {:ok?     false
+                                              :reason  :handler-threw
+                                              :message (.-message err)}]
+                                 #js {:isError          true
+                                      :content          #js [#js {:type "text"
+                                                                  :text (pr-str payload)}]
+                                      :structuredContent (clj->js payload)}))))))
+        (.catch
+          (fn [err]
+            ;; Discovery failed — surface a structured tool-call error.
+            (let [data    (or (ex-data err) {})
+                  payload {:ok?    false
+                           :reason (or (:rf.error/id data) :nrepl-port-not-found)
+                           :hint   (or (:hint data) port-not-found-hint)}
+                  payload (if-let [cs (:candidates data)]
+                            (assoc payload :candidates cs)
+                            payload)]
+              #js {:isError          true
+                   :content          #js [#js {:type "text"
+                                               :text (pr-str payload)}]
+                   :structuredContent (clj->js payload)}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Server boot.
@@ -115,9 +358,20 @@
 (defn build-server
   "Build an MCP `Server` instance with `tools/list` wired to the static
   descriptors and `tools/call` routed to `call-handler` (a `(req,
-  extra) → Promise<result>` fn). Shared by the success-path boot and
-  the degraded-mode boot (rf2-ambfv) so the two share one Server
-  shape — a future descriptor / capability change lands once."
+  extra) → Promise<result>` fn).
+
+  Capabilities declared at construction (rf2-3grub):
+
+  - `:tools`   — the tool catalogue (this is what we serve).
+
+  Note: SDK 1.29's `listRoots()` / `elicitInput()` aren't gated by
+  server-side capability declarations — the server can issue those
+  requests at any time and the SDK delivers them to the client. The
+  client's `initialize` response surfaces its OWN `roots` /
+  `elicitation` capabilities; we observe those via
+  `server.getClientCapabilities()` post-init, but the `roots-discovery`
+  flow tries the request optimistically and treats rejection as
+  graceful degradation."
   [call-handler]
   (let [Server          (j/get mcp-server :Server)
         ListToolsSchema (j/get mcp-types :ListToolsRequestSchema)
@@ -130,10 +384,16 @@
     server))
 
 (defn boot!
-  "Build the MCP server, register handlers, and return it. Exposed for
-  tests so they can drive the dispatcher without taking over stdin/out."
-  [conn]
-  (build-server (fn [req extra] (handle-call conn req extra))))
+  "Build the MCP server, register handlers, capture the server reference
+  for the lazy-discovery flow, and return it. Exposed for tests so they
+  can drive the dispatcher without taking over stdin/out.
+
+  `launch-flags` is the parsed `parse-launch-flags` map — the discovery
+  cascade reads `:port-file` and `:http-port` from it on first tool call."
+  [launch-flags]
+  (let [server (build-server (fn [req extra] (handle-call launch-flags req extra)))]
+    (reset! server-instance server)
+    server))
 
 (defn- connect-transport!
   "Connect `server` to a fresh stdio transport. Logs `ready-msg` on
@@ -145,22 +405,6 @@
         (.catch (fn [err]
                   (log! "transport.connect failed:" (.-message err))
                   (js/process.exit 1))))))
-
-(defn- degraded-handler
-  "Build a `tools/call` handler that surfaces the boot-error structurally
-  on every call. Used when the nREPL port couldn't be resolved — the
-  MCP client can still discover tools and gets a typed error on first
-  invocation rather than a transport-level failure."
-  [boot-error]
-  (fn [_req]
-    (js/Promise.resolve
-      (let [payload {:ok?    false
-                     :reason :nrepl-port-not-found
-                     :hint   (-> boot-error ex-data :hint)}]
-        #js {:isError          true
-             :content          #js [#js {:type "text"
-                                         :text (pr-str payload)}]
-             :structuredContent (clj->js payload)}))))
 
 (defn- parse-string-value-flag
   "Generic launch-flag pluck: returns the trailing value of `--name <v>`
@@ -302,26 +546,13 @@
       (log! "nREPL port-file (--port-file):" pf))
     (when-let [hp (:http-port launch-flags)]
       (log! "shadow HTTP port (--http-port):" hp))
-    ;; Port discovery is async (the shadow HTTP probe in step 3 of
-    ;; `nrepl/discover-port` is a real network call; rf2-umoz2). The
-    ;; rest of boot — stdio transport, dispatcher wiring — sequences off
-    ;; the resolved port via .then. Degraded boot fires from the .catch
-    ;; branch so a missing nREPL still yields a tools/list-discoverable
-    ;; server that surfaces a structured error on first call. Same
-    ;; observable shape as the pre-rf2-umoz2 sync boot — the await is an
-    ;; implementation detail.
-    (-> (resolve-port (:port-file launch-flags) (:http-port launch-flags))
-        (.then (fn [port]
-                 (let [conn   (new-conn-for-port port)
-                       server (boot! conn)]
-                   (log! "starting stdio transport")
-                   (connect-transport! server "ready — awaiting MCP frames on stdin"))))
-        (.catch (fn [e]
-                  (log! "boot failed:" (.-message e))
-                  ;; Even on boot failure (e.g. nREPL port missing) we keep the
-                  ;; process alive so the MCP client can talk to us, list tools,
-                  ;; and surface a structured error from the first tool call. The
-                  ;; bash-shim chain had the same semantics — the error came back
-                  ;; as `{:ok? false :reason :nrepl-port-not-found}`.
-                  (let [server (build-server (degraded-handler e))]
-                    (connect-transport! server "ready (degraded — no nREPL port)")))))))
+    ;; rf2-3grub — port discovery is LAZY (first tool call). We boot the
+    ;; transport with the discovery cascade ready to fire on demand. This
+    ;; matters because the MCP `roots/list` request can only succeed
+    ;; AFTER the client's `initialize` handshake completes — i.e. after
+    ;; transport.connect resolves. Driving discovery from `main` would
+    ;; race the handshake. Instead we capture the launch-flags in a
+    ;; closure that `ensure-connection!` consults on each tool call.
+    (let [server (boot! launch-flags)]
+      (log! "starting stdio transport")
+      (connect-transport! server "ready — awaiting MCP frames on stdin (nREPL discovery deferred to first tool call)"))))

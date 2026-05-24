@@ -78,25 +78,34 @@ The server auto-discovers the nREPL port from (highest precedence first):
 1. `--port-file <path>` launch flag — an explicit, **cwd-independent**
    path to the port file. See [Launch flags](#launch-flags).
 2. `$SHADOW_CLJS_NREPL_PORT` env var.
-3. **Shadow HTTP probe (rf2-umoz2)** — `GET http://127.0.0.1:9630/api/project-info`
-   returns the live build's absolute `:project-home`; the server then
-   reads the port-file candidates resolved against that root. This is
-   the cwd-robust auto-discovery step; the HTTP port is overridable via
-   `--http-port <n>` for the rare case shadow's `:http :port` is pinned.
-4. CWD-relative scan of `target/shadow-cljs/nrepl.port`,
+3. **MCP `roots/list` walk (rf2-3grub)** — primary zero-config path.
+   On the first tool call the server asks its MCP client for the
+   workspace directories the user has opened, walks each one for
+   `shadow-cljs.edn`, and reads the adjacent `.shadow-cljs/nrepl.port`.
+   Multiple running shadow builds trigger an `elicitation/create`
+   prompt so the user picks the project to attach to. Survives shadow
+   restarts via a per-tool-call port-file re-read. Requires an MCP
+   client that exposes `roots` (Claude Code 2.1.39+, Cursor, etc.).
+4. **Shadow HTTP probe (rf2-umoz2)** — fallback for clients without
+   `roots`. `GET http://127.0.0.1:9630/api/project-info` returns the
+   live build's absolute `:project-home`; the server then reads the
+   port-file candidates resolved against that root. The HTTP port is
+   overridable via `--http-port <n>` for the rare case shadow's `:http
+   :port` is pinned.
+5. CWD-relative scan of `target/shadow-cljs/nrepl.port`,
    `.shadow-cljs/nrepl.port`, `.nrepl-port` — legacy fallback for
    setups without shadow's web server (older shadow, manual nREPL boot).
 
-> **The cwd caveat step 3 solves (rf2-3dbwh + rf2-umoz2).** Step 4 is
-> bare *relative* paths resolved against `process.cwd()`. The MCP
-> server runs as a **subprocess of the agent host** (Claude Code /
-> Cursor / Copilot), whose cwd is frequently **not** your project
-> root. Pre-rf2-umoz2 only the env var or `--port-file` worked there;
-> step 3 now closes the gap by asking shadow itself for the project
-> root. The explicit escape hatches in steps 1–2 remain the
-> deterministic overrides — pass `--port-file <absolute-path>` or set
-> `SHADOW_CLJS_NREPL_PORT` if discovery still fails (shadow not running,
-> non-default `:http :port` not surfaced via `--http-port`, etc.).
+> **The cwd caveat step 3 solves (rf2-3grub).** Step 5 is bare
+> *relative* paths resolved against `process.cwd()`. The MCP server
+> runs as a **subprocess of the agent host** (Claude Code / Cursor /
+> Copilot), whose cwd is frequently **not** your project root. Step 3
+> closes that gap by asking the MCP client (which knows the workspace)
+> for the open project roots; step 4 keeps the shadow-specific HTTP
+> escape hatch for clients that pre-date `roots`. The explicit overrides
+> in steps 1–2 remain the deterministic operator escape — pass
+> `--port-file <absolute-path>` or set `SHADOW_CLJS_NREPL_PORT` if
+> discovery still fails.
 
 ### Path-drift probe
 
