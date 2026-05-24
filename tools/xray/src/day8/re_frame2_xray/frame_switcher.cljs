@@ -303,13 +303,15 @@
   `:multiple` attribute. Excludes `:rf/xray` by default per spec/018 §8
   I1.
 
-  ## Figma shape (rf2-ad7zx.12)
+  ## Figma shape (rf2-pjjwh)
 
-  The control reads `Frame ▾` — the literal word `Frame` followed by a
-  chevron, NOT the selected value inline (`Frame: :step-deck`). The
-  current selection is surfaced INSIDE the option list (the active
-  option is `:value`-bound + carries a `✓`), not as the button label,
-  matching Chrome DevTools' device-toolbar + the Figma chrome ribbon.
+  The control's button face shows the CURRENTLY-SELECTED frame value
+  (live) — the Figma mock's frame switcher surfaces the active frame, not
+  a static `Frame` / `Main` placeholder. The label binds to
+  `:rf.xray/current-frame`; it falls back to the literal `Frame` only when
+  no frame is pickable yet (cold start). The option list also carries a
+  `✓` on the active option. (rf2-pjjwh supersedes rf2-ad7zx.12's static
+  `Frame ▾` label.)
 
   Implementation is the overlay pattern: a styled `Frame ▾` button face
   is the visible affordance; a native `<select>` is layered transparently
@@ -362,10 +364,14 @@
                    :line-height   "1.3"
                    :cursor        (if pickable? "pointer" "default")
                    :flex-shrink   0}}
-     ;; Figma `Frame ▾` button face — the literal word + a chevron. The
-     ;; selected value is surfaced inside the option list, never on the
-     ;; button (rf2-ad7zx.12).
-     [:span {:data-testid "rf-xray-ribbon-frame-label"} "Frame"]
+     ;; rf2-pjjwh — the button face shows the CURRENTLY-SELECTED frame
+     ;; (live), per the Figma mock's frame switcher (which surfaces the
+     ;; active frame, not a static `Main` / `Frame` placeholder). Binds to
+     ;; `:rf.xray/current-frame`; falls back to the literal `Frame` only
+     ;; when no frame is pickable yet (cold start, empty stream). The
+     ;; option list still carries the `✓` on the active option.
+     [:span {:data-testid "rf-xray-ribbon-frame-label"}
+      (if active (str active) "Frame")]
      [:span {:data-testid "rf-xray-ribbon-frame-chevron"
              :aria-hidden "true"
              :style {:font-size (:caption type-scale)
