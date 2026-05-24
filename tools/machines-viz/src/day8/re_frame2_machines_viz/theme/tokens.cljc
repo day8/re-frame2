@@ -118,6 +118,14 @@
    :magenta        "#E879F9"
    :info           "#79c0ff"
 
+   ;; syntax-highlighter palette (rf2-93jp0) — mirrored from Xray's
+   ;; dark-palette so the `xray-and-machines-viz-dark-palettes-match-
+   ;; key-set` drift gate stays green. Tokens are Xray-source-highlighter
+   ;; surface; the chart itself does not read them.
+   :syntax-keyword "#ff7b72"
+   :syntax-string  "#a5d6ff"
+   :syntax-number  "#79c0ff"
+
    :red-deep       "#a83a3a"
    :white          "#ffffff"})
 
@@ -178,6 +186,16 @@
    :red            "#C84444"
    :magenta        "#B146C2"
    :info           "#0550ae"
+
+   ;; syntax-highlighter palette (rf2-93jp0) — light-palette mirror of
+   ;; Xray's syntax tokens. The light drift gate (`xray-and-machines-
+   ;; viz-light-palettes-match-values`) is shared-key equality, so
+   ;; mirroring keeps the two palettes symmetric and lets a future
+   ;; embed of machines-viz that DOES want to colour code surfaces find
+   ;; the same Figma palette under the same token name.
+   :syntax-keyword "#cf222e"
+   :syntax-string  "#0a3069"
+   :syntax-number  "#0550ae"
 
    :red-deep       "#9A3030"
    :white          "#ffffff"})

@@ -19,6 +19,7 @@
 
   Pure-data scope — no DOM mount; hiccup-shape assertions only."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -439,30 +440,71 @@
       (is (= "auto" (:overflow-x style))
           "overflow-x:auto keeps long handler lines scrollable in-panel"))))
 
-(deftest code-block-keyword-token-uses-accent
-  (let [out      (w/code-block {:source ":foo"})
-        spans    (walk-hiccup out)
-        accent?  (fn [n]
-                   (let [c (some-> n second :style :color)]
-                     (= c (:accent tokens))))
-        kw-span  (some #(when (and (vector? %)
-                                   (= :span (first %))
-                                   (accent? %)) %)
-                       spans)]
-    (is (some? kw-span)
-        "keyword tokens render with the mode accent colour")))
+(deftest code-block-keyword-token-uses-syntax-keyword
+  (testing "rf2-93jp0 — keyword tokens render with the Figma
+            `.syntax-keyword` red family (`:syntax-keyword`), NOT
+            `:accent`. The pre-rf2-93jp0 mapping painted keywords +
+            builtins on the same `:accent` blue (monochromatic against
+            a real editor); the split moves keywords to the dedicated
+            syntax token so `:foo` reads visibly distinct from
+            `reg-event-db`."
+    (let [out      (w/code-block {:source ":foo"})
+          spans    (walk-hiccup out)
+          kw?      (fn [n]
+                     (let [c (some-> n second :style :color)]
+                       (= c (:syntax-keyword tokens))))
+          kw-span  (some #(when (and (vector? %)
+                                     (= :span (first %))
+                                     (kw? %)) %)
+                         spans)]
+      (is (some? kw-span)
+          "keyword tokens render on the :syntax-keyword token (red)"))))
 
-(deftest code-block-string-token-uses-green
-  (let [out     (w/code-block {:source "\"hi\""})
-        spans   (walk-hiccup out)
-        green?  (fn [n]
-                  (let [c (some-> n second :style :color)]
-                    (= c (:green tokens))))
-        str-span (some #(when (and (vector? %)
-                                   (= :span (first %))
-                                   (green? %)) %)
-                       spans)]
-    (is (some? str-span))))
+(deftest code-block-string-token-uses-syntax-string
+  (testing "rf2-93jp0 — string tokens render on the dedicated
+            `:syntax-string` token (Figma `.syntax-string` blue family),
+            NOT the semantic `:green` (which carries success / changed
+            meanings elsewhere)."
+    (let [out      (w/code-block {:source "\"hi\""})
+          spans    (walk-hiccup out)
+          str?     (fn [n]
+                     (let [c (some-> n second :style :color)]
+                       (= c (:syntax-string tokens))))
+          str-span (some #(when (and (vector? %)
+                                     (= :span (first %))
+                                     (str? %)) %)
+                         spans)]
+      (is (some? str-span)
+          "string tokens render on the :syntax-string token (blue)"))))
+
+(deftest code-block-builtin-and-keyword-render-distinct-colours
+  (testing "rf2-93jp0 — `(let [x :foo] x)` paints `let` (builtin) and
+            `:foo` (keyword) on DIFFERENT colours. The headline
+            regression behind the fix — pre-fix both landed on `:accent`
+            and the editor read monochromatic."
+    (let [out          (w/code-block {:source "(let [x :foo] x)"})
+          spans        (walk-hiccup out)
+          coloured     (keep (fn [n]
+                               (when (vector? n)
+                                 (let [[tag attrs & body] n
+                                       c (some-> attrs :style :color)
+                                       lit (first body)]
+                                   (when (and (= :span tag)
+                                              (string? lit))
+                                     [lit c]))))
+                             spans)
+          builtin-colour (some (fn [[lit c]] (when (= lit "let") c)) coloured)
+          keyword-colour (some (fn [[lit c]] (when (= lit ":foo") c)) coloured)]
+      (is (some? builtin-colour)
+          "builtin `let` rendered with a colour span")
+      (is (some? keyword-colour)
+          "keyword `:foo` rendered with a colour span")
+      (is (not= builtin-colour keyword-colour)
+          "builtin and keyword must paint on distinct hues post rf2-93jp0")
+      (is (= keyword-colour (:syntax-keyword tokens))
+          "keyword colour = :syntax-keyword token")
+      (is (= builtin-colour (:accent tokens))
+          "builtin colour = :accent token (chrome blue, macro-call emphasis)"))))
 
 ;; ---- zprint pre-format ---------------------------------------------------
 
@@ -518,14 +560,46 @@
 ;; ---- highlight-clojure-token mapping -------------------------------------
 
 (deftest highlight-clojure-token-mapping
-  (is (= :accent        (w/highlight-clojure-token :keyword)))
-  (is (= :green         (w/highlight-clojure-token :string)))
-  (is (= :info          (w/highlight-clojure-token :number)))
-  (is (= :text-tertiary (w/highlight-clojure-token :comment)))
-  (is (= :text-primary  (w/highlight-clojure-token :symbol)))
-  (is (= :accent        (w/highlight-clojure-token :builtin)))
-  ;; Unknown token-type falls through to text-primary.
-  (is (= :text-primary  (w/highlight-clojure-token :unknown))))
+  (testing "rf2-93jp0 — each token type resolves to a Figma-aligned
+            syntax token; keyword and builtin paint DIFFERENT hues so
+            `:foo` and `reg-event-db` no longer read identically."
+    (is (= :syntax-keyword (w/highlight-clojure-token :keyword))
+        "keyword on the Figma `.syntax-keyword` red family")
+    (is (= :syntax-string  (w/highlight-clojure-token :string))
+        "string on the Figma `.syntax-string` blue family")
+    (is (= :syntax-number  (w/highlight-clojure-token :number))
+        "number on the Figma `.syntax-number` cool-blue")
+    (is (= :text-tertiary  (w/highlight-clojure-token :comment)))
+    (is (= :text-primary   (w/highlight-clojure-token :symbol)))
+    (is (= :text-tertiary  (w/highlight-clojure-token :paren)))
+    (is (= :accent         (w/highlight-clojure-token :builtin))
+        "builtin on the chrome accent (macro-call emphasis, distinct
+         from the keyword red)")
+    ;; Unknown token-type falls through to text-primary.
+    (is (= :text-primary   (w/highlight-clojure-token :unknown))))
+  (testing "keyword and builtin map to DIFFERENT tokens (rf2-93jp0
+            split — pre-fix they both pointed at `:accent`)"
+    (is (not= (w/highlight-clojure-token :keyword)
+              (w/highlight-clojure-token :builtin))
+        "keyword vs builtin must be visually distinct")))
+
+(deftest highlight-clojure-token-palette-resolution
+  (testing "rf2-93jp0 — every token-keyword returned by
+            `highlight-clojure-token` must actually resolve to a
+            CSS-variable string in the live `tokens` map (so the
+            `code-block` per-span `:color` lookup never falls back to
+            the `:text-primary` default for a syntax token)."
+    (doseq [tok-type [:keyword :string :number :comment
+                      :symbol :paren :builtin]]
+      (let [token-kw (w/highlight-clojure-token tok-type)
+            resolved (get tokens token-kw)]
+        (is (string? resolved)
+            (str tok-type " → " token-kw
+                 " must resolve to a CSS-variable string in `tokens`"))
+        (is (and (string? resolved)
+                 (str/starts-with? resolved "var(--rf-xray-"))
+            (str tok-type " → " token-kw
+                 " must resolve via the `var(--rf-xray-…)` indirection"))))))
 
 ;; ---- render dispatcher ---------------------------------------------------
 

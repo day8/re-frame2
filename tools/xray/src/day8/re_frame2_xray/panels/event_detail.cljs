@@ -552,11 +552,14 @@
   "Renders the `↳ source` block under the handler flavour+coord row.
   Per Mike-direction 2026-05-21 (rf2-n4ad0) the handler source now
   routes through the canonical EDN widget's `code-block` for
-  syntax-highlighted rendering (keywords + builtins in the mode accent,
-  strings green, numbers cyan). When the substrate meta hasn't
-  yet been captured (e.g. before rf2-xgfuy lands, or in a production
-  goog.DEBUG=false build) the row renders the `<source not yet
-  captured>` placeholder per the task brief."
+  syntax-highlighted rendering. Per rf2-93jp0 the per-token palette
+  mirrors the Figma authority's `.syntax-*` classes — keywords red,
+  strings blue, numbers cool-blue, builtins on the chrome accent
+  (visually distinct from keywords), in both light and dark themes.
+  When the substrate meta hasn't yet been captured (e.g. before
+  rf2-xgfuy lands, or in a production goog.DEBUG=false build) the row
+  renders the `<source not yet captured>` placeholder per the task
+  brief."
   [meta]
   (let [src (handler-source-string meta)]
     [:div {:data-testid "rf-xray-event-detail-handler-source"
