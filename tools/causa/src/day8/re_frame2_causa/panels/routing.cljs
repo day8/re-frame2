@@ -7,11 +7,12 @@
 
   The prior 'Active route tree first + This-epoch KV' shape is
   superseded. The panel now reads top → bottom as three stacked
-  sections, each separated from the next by a 1px hairline:
+  sections, each separated from the next by a 1px hairline. Per
+  spec/021 §14.1 (rf2-6xezz) the panel carries no self-naming heading
+  and no per-panel header icon — content opens directly on the CURRENT
+  ROUTE section (the L4 tab strip is the single source of panel
+  identity, and the Figma `RoutesPanel.tsx` opens the same way):
 
-      ┌─ ROUTING · epoch #38 ─────────────────────── [◀ Prev] [Next ▶] ─┐
-      │▌ stripe: the single GitHub-blue accent                          │
-      │                                                                 │
       │ CURRENT ROUTE                                                   │
       │   :user/profile    params {:id 42}    /users/42                 │
       │ ─────────────────────────────────────────────────────────────  │
@@ -49,10 +50,14 @@
   ## Section 3 — ROUTE TABLE (registered route graph as a tree)
 
   All registered routes (id → path pattern) drawn as an indented tree
-  when nested (`├─ └─` branch glyphs; flat list otherwise), with the
-  **current route highlighted** (mode-accent row + `◀ current` marker)
-  and the focused navigation's FROM→TO marked on it. The overlay
-  glyphs `◉ TO` / `◇ FROM` paint inline on the matching rows.
+  when nested — nested routes left-indent by depth and their parent
+  rows carry a `▾` disclosure chevron (leaf rows get an aligned
+  spacer), matching the Figma `RoutesPanel.tsx` `ChevronRight` +
+  per-level `paddingLeft`. The tree is always fully expanded (§7.1:
+  depth ≤ 4). The **current route is highlighted** (mode-accent row +
+  `◀ current` marker) and the focused navigation's FROM→TO is marked on
+  it — the overlay glyphs `◉ TO` / `◇ FROM` paint inline on the
+  matching rows.
 
   ## Focus contract (rf2-h0120 alignment)
 
@@ -76,7 +81,6 @@
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.routing-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
-             :as t
              :refer [tokens mono-stack sans-stack]]))
 
 ;; ---- accent -------------------------------------------------------------
@@ -258,27 +262,43 @@
     :from {:glyph "◇" :colour (:info tokens)          :label "FROM"}
     nil))
 
-(defn- tree-prefix
-  "Compose the `├─ └─` branch prefix for a route-table row at the given
-  depth. Depth-0 rows render with no prefix; deeper rows render
-  `<spacer>(└─|├─) ` — `└─` for last-sibling rows, `├─` otherwise.
-  Same box-drawing scheme the spec mockup uses (§7.2). Routing trees
-  are shallow (≤ 4 levels per §7.1) so the depth indentation + branch
-  glyphs alone read cleanly."
-  [depth last-at-depth?]
-  (if (zero? depth)
-    ""
-    (let [indent (apply str (repeat (dec depth) "  "))
-          branch (if last-at-depth? "└─ " "├─ ")]
-      (str indent branch))))
+(defn- depth->indent
+  "Left indent for a route-table row at the given depth. Mirrors the
+  Figma `RoutesPanel.tsx` `paddingLeft: level * 2 + 0.5rem` — depth-0
+  rows sit at the base 0.5rem, each nesting level adds 2rem. The
+  structure reads off indentation alone (per §17.4: tree nesting is
+  whitespace, not box-drawing text glyphs)."
+  [depth]
+  (str (+ 0.5 (* 2 depth)) "rem"))
+
+(defn- disclosure-cell
+  "The leading cell of a route-table row. Parent routes (those with
+  nested children) paint a `▾` disclosure chevron — the routing tree is
+  always fully expanded per §7.1 (depth ≤ 4), so the chevron is a
+  static affordance signalling 'this route has children', matching the
+  Figma `ChevronRight` parent glyph + the spec mockup's `▾ :users`.
+  Leaf rows render an aligned spacer so every id column lines up
+  (Figma `{!route.children && <span className=\"w-3\" />}`)."
+  [has-children? testid]
+  (if has-children?
+    [:span {:data-testid (str testid "-chevron")
+            :aria-hidden "true"
+            :style       {:color       (:text-tertiary tokens)
+                          :font-size   "10px"
+                          :min-width   "12px"
+                          :user-select "none"}}
+     "▾"]
+    [:span {:aria-hidden "true"
+            :style       {:min-width "12px"}}]))
 
 (defn- route-table-row
   "Render one route in the ROUTE TABLE. The current route's row rides
   the mode accent (highlight background + accent id + `◀ current`
-  marker); other rows are quiet. The FROM/TO overlay glyph paints to
-  the right of the path when the focused epoch navigated to/from this
-  route."
-  [{:keys [row depth last-at-depth?]}]
+  marker); other rows are quiet. Nested routes indent by depth and
+  their parent rows carry a `▾` disclosure chevron (leaves get an
+  aligned spacer). The FROM/TO overlay glyph paints to the right of
+  the path when the focused epoch navigated to/from this route."
+  [{:keys [row depth has-children?]}]
   (let [{:keys [route-id path doc marker]} row
         current?  (= marker :here)
         glyph     (marker-glyph marker)
@@ -291,7 +311,7 @@
            :style {:display      "flex"
                    :align-items  "center"
                    :gap          "8px"
-                   :padding      "3px 8px"
+                   :padding      (str "3px 8px 3px " (depth->indent depth))
                    :border-radius "3px"
                    :font-family  mono-stack
                    :font-size    "12px"
@@ -300,10 +320,8 @@
                    :background   (cond
                                    current?         (:bg-active tokens)
                                    (= marker :to)   (:bg-active tokens)
-                                   :else            "transparent")
-                   :white-space  "pre"}}
-     [:span {:style {:color (:text-tertiary tokens)}}
-      (tree-prefix depth last-at-depth?)]
+                                   :else            "transparent")}}
+     (disclosure-cell has-children? testid)
      [:span {:data-testid (str testid "-id")
              :style       {:min-width "8rem"
                            :color     (if current? mode-accent
@@ -354,44 +372,6 @@
              ^{:key (str (-> entry :row :route-id))}
              (route-table-row entry)))]))
 
-;; ---- header --------------------------------------------------------------
-
-(defn- header
-  [{:keys [navigated? to-id silent?]}]
-  [:div {:data-testid "rf-causa-routing-header"
-         :style       {:display         "flex"
-                       :align-items     "baseline"
-                       :justify-content "space-between"
-                       :padding         "12px 16px 8px 16px"
-                       :border-bottom   (str "1px solid " (:border-subtle tokens))
-                       :font-family     sans-stack}}
-   [:div
-    ;; Per rf2-6xezz / rf2-rb6js the panel no longer renders a heading
-    ;; that names itself — the L4 tab strip is the single source of
-    ;; panel identity. The icon + orientation paragraph stay as chrome.
-    [:div {:style {:display     "flex"
-                   :align-items "center"
-                   :gap         "8px"}}
-     ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. 🌐 in the
-     ;; routing domain colour via panel-icon-style.
-     [:span {:data-testid "rf-causa-routing-panel-icon"
-             :aria-hidden "true"
-             :style       (t/panel-icon-style :routing)}
-      (:routing t/panel-icon)]]
-    [:p {:style {:margin      "4px 0 0 0"
-                 :color       (:text-tertiary tokens)
-                 :font-size   "11px"
-                 :line-height 1.4}}
-     "Where am I, what navigated this epoch, and the full registered "
-     "route graph. For the route catalogue browse + Simulate-URL surface, "
-     "switch to Static mode."]]
-   (when (and navigated? to-id (not silent?))
-     [:span {:data-testid "rf-causa-routing-nav-summary"
-             :style       {:color       (:green tokens)
-                           :font-size   "11px"
-                           :font-family mono-stack}}
-      (str "→ " to-id)])])
-
 ;; ---- empty (no routes registered) ---------------------------------------
 
 (defn- silent-state
@@ -430,6 +410,12 @@
                                 tree, current row highlighted + FROM/TO
                                 overlay glyphs.
 
+  Content starts immediately at the CURRENT ROUTE section — per spec/021
+  §14.1 (rf2-6xezz) every L4 panel scrubs its self-naming heading + the
+  per-panel header icon (the L4 tab strip is the single source of panel
+  identity). This matches the Figma `RoutesPanel.tsx`, which opens
+  directly on the CURRENT ROUTE section with no header chrome.
+
   When the host has no routes registered the panel renders the
   silent-by-default caption (no sections)."
   []
@@ -445,7 +431,6 @@
                              :font-family    sans-stack
                              :font-size      "14px"
                              :overflow       "auto"}}
-     (header {:navigated? navigated? :to-id to-id :silent? silent?})
      (if silent?
        (silent-state)
        [:<>

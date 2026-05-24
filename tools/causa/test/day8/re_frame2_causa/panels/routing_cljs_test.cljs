@@ -183,11 +183,13 @@
       (let [tree (routing/Panel)]
         (is (some? (find-by-testid tree "rf-causa-routing"))
             "panel root present")
-        (is (some? (find-by-testid tree "rf-causa-routing-header"))
-            "header always renders")
-        ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
-        (is (some? (find-by-testid tree "rf-causa-routing-panel-icon"))
-            "panel header icon (🌐) present")
+        ;; spec/021 §14.1 (rf2-6xezz) — every L4 panel scrubs its
+        ;; self-naming heading + per-panel header icon; content opens
+        ;; directly on CURRENT ROUTE (matching Figma RoutesPanel.tsx).
+        (is (nil? (find-by-testid tree "rf-causa-routing-header"))
+            "no panel header (heading + icon scrubbed per §14.1)")
+        (is (nil? (find-by-testid tree "rf-causa-routing-panel-icon"))
+            "no per-panel header icon (🌐 removed per §14.1)")
         ;; §1 CURRENT ROUTE
         (is (some? (find-by-testid tree "rf-causa-routing-current"))
             "§1 CURRENT ROUTE section renders")
@@ -203,7 +205,22 @@
         (doseq [rid (keys cart-routes)]
           (is (some? (find-by-testid tree
                        (str "rf-causa-routing-table-row-" (name rid))))
-              (str "route-table row rendered for " rid)))))))
+              (str "route-table row rendered for " rid)))
+        ;; Tree disclosure: :route/checkout is a parent (cart-routes nests
+        ;; :route/payment + :route/confirm under it) so its row carries
+        ;; the `▾` disclosure chevron (Figma ChevronRight on parent rows).
+        ;; Row test-ids use (name route-id), so :route/checkout → checkout.
+        (let [chevron (find-by-testid
+                        tree "rf-causa-routing-table-row-checkout-chevron")]
+          (is (some? chevron)
+              "parent route :route/checkout renders a disclosure chevron")
+          (is (re-find #"▾" (node-text chevron))
+              "chevron glyph is ▾ (always-expanded tree)"))
+        ;; Leaf routes carry NO chevron — the leading cell is an aligned
+        ;; spacer instead.
+        (is (nil? (find-by-testid
+                    tree "rf-causa-routing-table-row-cart-chevron"))
+            "leaf route :route/cart renders no disclosure chevron")))))
 
 (deftest current-route-section-shows-id-params-path
   (testing "§1 surfaces the active id, params, and matched path"
@@ -234,8 +251,8 @@
       (let [tree (routing/Panel)]
         (is (some? (find-by-testid tree "rf-causa-routing"))
             "panel root present")
-        (is (some? (find-by-testid tree "rf-causa-routing-header"))
-            "header still renders")
+        (is (nil? (find-by-testid tree "rf-causa-routing-header"))
+            "no panel header even in the silent state (scrubbed per §14.1)")
         (is (some? (find-by-testid tree "rf-causa-routing-silent"))
             "silent caption rendered for empty registrar")
         (is (nil? (find-by-testid tree "rf-causa-routing-table"))
@@ -297,9 +314,10 @@
         ;; :to overlay glyph present on the destination table row.
         (is (some? (find-by-testid tree "rf-causa-routing-table-marker-to"))
             ":to overlay glyph rendered on destination route in the table")
-        ;; Header summary surfaces the TO id.
-        (is (some? (find-by-testid tree "rf-causa-routing-nav-summary"))
-            "header carries → TO summary chip")
+        ;; The header (+ its → TO summary chip) is gone per §14.1; the
+        ;; NAVIGATION THIS EPOCH section is now the sole TO surface.
+        (is (nil? (find-by-testid tree "rf-causa-routing-nav-summary"))
+            "no header summary chip (header scrubbed per §14.1)")
         ;; NAVIGATION section surfaces FROM ──► TO + outcome.
         (is (some? (find-by-testid tree "rf-causa-routing-nav-to"))
             "NAVIGATION TO id rendered")
