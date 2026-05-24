@@ -20,6 +20,7 @@
        structured `:reason` slots an agent can read."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [applied-science.js-interop :as j]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.handler-meta :as hm]))
@@ -191,3 +192,130 @@
           rl-enum (-> (find-descriptor "list-handlers") :inputSchema :properties :kind :enum set)]
       (is (= hm-enum rl-enum)
           "drift here would make agents learn two vocabularies for one concept"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-l7vnd regression — handler-meta returns :ok? true with the real
+;; data as top-level keys; the bug shape was :ok? false :reason
+;; :unexpected-shape with the actual map embedded as an EDN string.
+;;
+;; Pre-rf2-l7vnd path the runtime emitted a map containing
+;; `:handler-fn <Function>`; `pr-str` rendered that as
+;; `#object[Function ...]`; nrepl's `read-edn-safe` couldn't parse it
+;; back; the tool body fell into `(not (map? v))` and stuffed the raw
+;; string under `:value`. Two complementary defences pin the fix:
+;;
+;;   - Runtime side (skills/re-frame2-pair/preload/...): dissoc'd
+;;     :handler-fn before returning. Pinned structurally by the
+;;     babashka test `registrar_describe_test.clj`.
+;;
+;;   - MCP tool side (here): defensive re-parse so a future runtime
+;;     slip emitting a stringified map still surfaces as :ok? true.
+;; ---------------------------------------------------------------------------
+
+(defn- with-canned-eval!
+  "Stub `nrepl/cljs-eval-value` to resolve every call with `v`. The
+  probe call (first eval, `__re_frame2_pair_runtime` form) gets the
+  same response so we MUST hand back `true` from the first call. The
+  trick: gate by call-count, so call 1 returns true (probe), call 2
+  returns the canned value (actual handler-meta eval)."
+  [canned-handler-value body-fn]
+  (let [orig nrepl/cljs-eval-value
+        ;; conn cache makes the probe round-trip skipped after the
+        ;; first call. To be safe across tests, we always return
+        ;; `true` for forms that contain the probe sentinel and the
+        ;; canned value otherwise.
+        stub (fn
+               ([_conn _build-id form-str]
+                (js/Promise.resolve
+                  (if (re-find #"__re_frame2_pair_runtime" form-str)
+                    true
+                    canned-handler-value)))
+               ([_conn _build-id form-str _opts]
+                (js/Promise.resolve
+                  (if (re-find #"__re_frame2_pair_runtime" form-str)
+                    true
+                    canned-handler-value))))]
+    (set! nrepl/cljs-eval-value stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+
+(deftest handler-meta-returns-ok-true-with-real-keys
+  (testing "registered handler → :ok? true with the metadata as top-level keys"
+    (async done
+      (let [canned {:ns 'testdeck.counter
+                    :file "testdeck/counter.cljs"
+                    :line 82
+                    :handler-fn-hash 1140207590}]
+        (-> (with-canned-eval! canned
+              (fn []
+                (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":counter/inc"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (not (is-error? result))
+                                   "the response MUST NOT carry :isError true — bug shape")
+                               (is (true? (:ok? edn))
+                                   "the response MUST carry :ok? true, not :ok? false :reason :unexpected-shape")
+                               (is (= :event (:kind edn)))
+                               (is (= :counter/inc (:id edn)))
+                               (is (= 'testdeck.counter (:ns edn))
+                                   "real metadata keys must appear at the top level, not buried under :value")
+                               (is (= 82 (:line edn)))
+                               (is (= 1140207590 (:handler-fn-hash edn))
+                                   "handler-fn-hash is the wire-friendly substitute for :handler-fn")
+                               (is (not (contains? edn :value))
+                                   "the bug shape stuffed the map under :value as a string — must not recur"))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest handler-meta-defensive-reparse-of-stringified-map
+  (testing "if a runtime emits a stringified map, the tool still recovers :ok? true"
+    ;; This pins the MCP-side defensive re-parse — should a future
+    ;; runtime slip emit `#object[...]` again, the tool tries one more
+    ;; EDN read of the raw string before falling to :unexpected-shape.
+    (async done
+      (let [stringified-map "{:ns testdeck.counter, :line 99, :handler-fn-hash 42}"]
+        (-> (with-canned-eval! stringified-map
+              (fn []
+                (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":counter/inc"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (true? (:ok? edn))
+                                   "defensive re-parse: stringified map recovered as :ok? true")
+                               (is (= 99 (:line edn))
+                                   "the recovered map's keys must be top-level"))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest handler-meta-not-registered-passes-through
+  (testing "the runtime's :not-registered envelope still passes through unchanged"
+    (async done
+      (let [canned {:ok? false :reason :not-registered :kind :event :id :no/such}]
+        (-> (with-canned-eval! canned
+              (fn []
+                (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":no/such"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (false? (:ok? edn)))
+                               (is (= :not-registered (:reason edn))))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest handler-meta-genuinely-unparseable-still-fails
+  (testing "a non-map non-recoverable value still surfaces :unexpected-shape"
+    (async done
+      ;; A plain integer back from the runtime is genuinely the wrong
+      ;; shape — not a map, not a stringified map. The tool MUST still
+      ;; surface :unexpected-shape so the bug envelope keeps doing its job
+      ;; for actual shape errors.
+      (-> (with-canned-eval! 42
+            (fn []
+              (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":anything"}))
+                  (.then (fn [result]
+                           (let [edn (extract-edn result)]
+                             (is (false? (:ok? edn)))
+                             (is (= :unexpected-shape (:reason edn)))
+                             (is (= 42 (:value edn))
+                                 "the offending value rides on :value for forensics"))
+                           (done))))))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
