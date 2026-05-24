@@ -86,6 +86,187 @@ The header carries:
   `machine-id` (the cascade may touch several; nav scope is the first).
   Hidden when no machine is in scope (the blank or empty-state branches).
 
+The above-the-chart framing region is described in
+[§Focused-transition lens — above the chart (rf2-99rhe)](#focused-transition-lens--above-the-chart-rf2-99rhe)
+below; that lens is the surface a developer reads when they ask
+"what just fired, and why?"
+
+<!-- ============================================================ -->
+<!--  FOCUSED-TRANSITION LENS  (rf2-99rhe)                          -->
+<!-- ============================================================ -->
+
+## Focused-transition lens — above the chart (rf2-99rhe)
+
+The **focused-transition lens** is a forensic per-transition detail
+panel that lives ABOVE the chart in the Machines panel. It answers
+the question "this transition fired — show me everything about it":
+which instance, which states it moved between, which guards
+evaluated and how they decided, which actions ran and what `:fx`
+they returned, and which downstream `:dispatch`es cascaded from
+those actions.
+
+The chart shows the **topology** of the transition (FROM dashed,
+TO bold, edge emphasised); the lens shows the **forensics**.
+
+### Selection sources
+
+The lens is bound to a single fired transition at a time. The
+selection can arrive from three surfaces, all of which write to
+the same `:rf.xray/focused-transition` slot:
+
+1. **Chart fired-edge highlight.** Clicking the emphasised edge
+   in the topology view (the FROM→TO edge for the currently-rendered
+   transition) selects it. The renderer-side fired-edge wiring
+   (parity gap G3) is owned by `tools/machines-viz/`; the host-side
+   wiring this panel implements is documented at
+   [`tools/machines-viz/spec/001-Topology-Parity.md`](../../machines-viz/spec/001-Topology-Parity.md).
+2. **Transition history ribbon.** See
+   [§Transition history ribbon](#transition-history-ribbon) — clicking
+   an entry rewinds the chart AND selects that entry as the focused
+   transition (the same click drives both view-only chart rewind and
+   lens binding, no double-affordance).
+3. **L2 event row.** Selecting an event in the spine's L2 event list
+   that triggered a transition surfaces the head transition from the
+   resulting cascade in the lens. Selecting an event with no machine
+   activity collapses the lens to its empty state.
+
+The lens binding is **view-only** (same passive-scrubbing rule as the
+global spine in [`018-Event-Spine.md`](018-Event-Spine.md) §6) — Xray
+does not call `restore-epoch` from the lens.
+
+### Rendered shape
+
+The lens renders the following block of text-rich detail. The shape
+is normative — any v1 implementation must render exactly these
+labels in exactly this order:
+
+```
+Target Machine Instance: :title/flow-instance-42
+TRANSITION
+  idle → loading
+GUARDS RUN
+  :token?
+    (fn [data] (get-in data [:session :token]))
+    → return true
+ACTIONS RUN
+  :fetch!
+    (fn [data] {:fx [[:dispatch [:loading/complete]]]})
+    → :fx :dispatch → [:loading/complete]
+```
+
+Reading top-to-bottom: which instance fired · the from→to states ·
+each guard that evaluated (id · fn source · return value) · each
+action that ran (id · fn source · `:fx` output · downstream
+`:dispatch` cascade child).
+
+The text is rendered in monospace; ids use accent-violet (per the
+[§Source-coord integration](#source-coord-integration) palette);
+return values render in cyan; the trailing dispatch vector in the
+`ACTIONS RUN` block is itself a clickable cross-reference to the
+child epoch in the spine.
+
+### Data sources
+
+| Field | Source | Status | Notes |
+|---|---|---|---|
+| Target instance id (`:title/flow-instance-42`) | `:rf.machine/transition` `:tags {:machine-id …}` | available | the head trace's `:machine-id` tag |
+| `from → to` states | `:rf.machine/transition` `:tags` | available | from/to are first-class fields on the transition trace per [Spec 005 §Trace events](../../../spec/005-StateMachines.md#trace-events) |
+| Guard id (`:token?`) | `:rf.machine/guard-evaluated` `:tags {:guard-id …}` per [Spec 005 §Trace events — guard evaluations and action runs](../../../spec/005-StateMachines.md#trace-events--guard-evaluations-and-action-runs) | available | one trace per user-declared guard call site |
+| Guard **fn source** | handler-meta on the guard registration | ⚠ **CORE-side gap** — see §Core-side enabler below | needs handler-meta wiring for machine guards (parallel to the `:rf.handler/source` capture pattern for events / cofx per #2097); the impl bead awaits this. Until then the lens renders `(fn source unavailable — pending rf2-99rhe-impl)` in place of the source line and surfaces the guard id alone. |
+| Guard return (`true`) | `:rf.machine/guard-evaluated` `:tags {:outcome :pass \| :fail}` | available | binary outcome on the trace |
+| Action id (`:fetch!`) | `:rf.machine/action-ran` `:tags {:action-id …}` | available | one trace per user-declared action invocation |
+| Action **fn source** | handler-meta on the action registration | ⚠ **CORE-side gap** — see §Core-side enabler below | same gap as guard; same fallback rendering |
+| Action `:fx` output | `:rf.machine/action-ran` `:tags {:outcome <return-value>}` | available | the action's return value rides the trace (`:ok` for nil; otherwise the literal `{:fx …}` map) |
+| Downstream `:dispatch [...]` | cascade child-epoch link via the spine | available | the `:dispatch` is a child epoch off the focused cascade; the lens reads the link from the spine's epoch graph |
+
+The two ⚠ entries are the **only** fields the lens cannot render
+today. Everything else flows from existing Spec 005 / Spec 009
+trace contracts without further framework work.
+
+#### Core-side enabler — guard / action fn source capture
+
+The guard and action fn-source rows above require a **CORE-side
+enabler**: machine guards and actions are registered as anonymous
+fns in the machine's `:guards` / `:actions` map, and the framework
+does not currently capture their form-source the way it does for
+`reg-event-*` / `reg-cofx` handlers via the compile-time
+`pr-str` + dynamic-var thread + registrar merge pattern (per
+[Spec 009 §Handler-meta source capture](../../../spec/009-Instrumentation.md)).
+
+The enabler parallels the existing `:rf.handler/source` pattern
+plus the `:rf/cofx-id` work (#2097): introduce `:rf/guard-id` +
+`:rf/action-id` markers, and capture the form-source for each
+`reg-machine`-registered guard / action fn into handler-meta so
+the lens can read `(:rf.handler/source (rf/handler-meta :machine-guard [<machine-id> <guard-id>]))`
+(and the action equivalent) at render time. This is a cheap
+CORE-side change scoped to the `reg-machine` macro path and the
+registrar; bead filed separately so the lens impl bead can land
+once the data is available.
+
+### Operator decision pending (rf2-99rhe)
+
+> **Operator decision pending (rf2-99rhe):** Mike has not yet
+> ruled on whether this lens **is** the whole above-chart framing
+> region, or whether it is **one element among several** in that
+> region (alongside a machine-instance picker, a mode strip, sim
+> controls, or the transition-history ribbon migrated up from
+> below the chart).
+>
+> **Reading A — "Whole".** The lens IS the above-chart framing.
+> The `Target Machine Instance: :title/flow-instance-42` header
+> line becomes the instance picker (a dropdown over
+> `(rf/machine-instances frame-id machine-id)`). Mode strip / sim
+> controls live elsewhere or are deferred. The transition history
+> ribbon stays below the chart per its current spec.
+>
+> **Reading B — "One element among several" (proposed default).**
+> The lens is what appears when a transition is selected; other
+> above-chart UI (machine-instance picker, the transition-history
+> ribbon migrated above the chart, optional mode strip / sim
+> controls) lives in parallel rows in the same above-chart region.
+> When no transition is selected, the lens collapses to a thin
+> placeholder row ("Select a transition to inspect — click an
+> edge, a history entry, or an event") and the other rows still
+> render. When a transition IS selected, the lens expands inline
+> within the above-chart region.
+>
+> **Recommended default — Reading B.** Two reasons. First, the
+> lens is a *forensic* surface tied to a *selected* transition;
+> coupling it to selection state (collapsing when no transition is
+> selected) is more honest than forcing it to be the only
+> above-chart content even when there is nothing to inspect.
+> Second, Reading B leaves the door open for the transition-history
+> ribbon to migrate from below the chart to above it (a natural
+> evolution since the ribbon is the primary selection-source for
+> the lens), and for an explicit instance picker row to coexist —
+> both of which Reading A would force us to bolt into the lens
+> header. Reading B is the lower-coupling shape.
+>
+> Mike to rule on PR review. Until then, the lens is specified at
+> the **content** level (the rendered shape and field sources
+> above are normative under either reading) and left
+> under-determined at the **above-chart layout** level (which
+> reading wins).
+
+### Cross-references
+
+- [§Transition history ribbon](#transition-history-ribbon) — the
+  ribbon is the primary selection-source for the lens. Click
+  semantics, microstep indentation, and tooltips live there. The
+  ribbon's location (above vs below the chart) is settled by the
+  Reading-A / Reading-B decision flagged above.
+- [§Selection and switching](#selection-and-switching) — the
+  panel-header machine picker (Sim re-host reference territory) is
+  a peer concept to the lens's `Target Machine Instance:` line; the
+  Reading-A / Reading-B decision determines whether they merge.
+- [§Source-coord integration](#source-coord-integration) — every
+  id rendered in the lens (machine-id · guard-id · action-id · the
+  child-`:dispatch` event-id) is a clickable source-coord chip per
+  the existing editor-protocol matrix. The lens does not introduce
+  a new source-coord pattern; it reuses the panel-wide one.
+
+<!-- ============================================================ -->
+
 ## What is NOT in the Dynamic panel post-rf2-y9xmf
 
 - No machine picker (the panel is event-driven; no exploratory
