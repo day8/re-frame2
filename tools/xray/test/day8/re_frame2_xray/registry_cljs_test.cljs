@@ -277,6 +277,8 @@
    :rf.xray.static.machines/sub-mode-by-id
    ;; rf2-x8h9y — horizontal resize handle width.
    :rf.xray/panel-width-px
+   ;; rf2-6ni62 — L2 event-list user-resizable column widths.
+   :rf.xray/event-list-col-widths
    ;; rf2-vbbq0 / rf2-0s2at — L2 row relative-time chip anchor (sub
    ;; composed off `:rf.xray/cascades` — dispatched-time of the most
    ;; recent cascade; flips on event arrival, not on a per-second tick).
@@ -460,6 +462,8 @@
    :rf.xray/palette-toggle
    :rf.xray/preview-cascade
    :rf.xray/remove-filter
+   ;; rf2-6ni62 — L2 event-list column-divider double-click reset.
+   :rf.xray/reset-event-list-col-width
    ;; rf2-x8h9y — resize-handle double-click reset.
    :rf.xray/reset-panel-width
    :rf.xray/reset-suppressed-counters
@@ -524,6 +528,8 @@
    :rf.xray.static.interceptors/set-registry-override-for-test
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.xray/set-modal-positioning
+   ;; rf2-6ni62 — L2 event-list column-divider live update event.
+   :rf.xray/set-event-list-col-width
    ;; rf2-x8h9y — resize-handle live update event.
    :rf.xray/set-panel-width-px
    ;; rf2-7hwwe — `:after` countdown rings now-ms override (test-only).
