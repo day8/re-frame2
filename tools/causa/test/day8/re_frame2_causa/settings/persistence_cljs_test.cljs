@@ -37,7 +37,9 @@
     (is (= :right-rail
               (config/get-setting :general :panel-position)))
     (is (= false  (config/get-setting :general :auto-open-on-error?)))
-    (is (= :dark  (config/get-setting :theme nil)))
+    ;; rf2-3f2di B2 — theme default flipped dark → light to match the
+    ;; authoritative reference's light-by-default render.
+    (is (= :light (config/get-setting :theme nil)))
     ;; rf2-3zyyx — epoch-history default matches the substrate's
     ;; `re-frame.epoch.state/default-depth` so a fresh install carries
     ;; the same ring depth Causa observed before the knob was surfaced.
@@ -115,10 +117,12 @@
 
 (deftest reset-clears-everything
   (config/update-setting! :general :text-size 18)
-  (config/update-setting! :theme nil :light)
+  ;; rf2-3f2di B2 — flip away from the new `:light` default so reset has
+  ;; a non-default value to revert.
+  (config/update-setting! :theme nil :dark)
   (config/reset-settings!)
   (is (= 13 (config/get-setting :general :text-size)))
-  (is (= :dark (config/get-setting :theme nil)))
+  (is (= :light (config/get-setting :theme nil)))
   (is (nil? (storage-payload))
       "localStorage payload cleared on reset"))
 
@@ -163,4 +167,5 @@
   ;; Other general slots keep their defaults
   (is (= :right-rail (config/get-setting :general :panel-position)))
   (is (= false (config/get-setting :general :auto-open-on-error?)))
-  (is (= :dark (config/get-setting :theme nil))))
+  ;; rf2-3f2di B2 — the theme default is now `:light`.
+  (is (= :light (config/get-setting :theme nil))))

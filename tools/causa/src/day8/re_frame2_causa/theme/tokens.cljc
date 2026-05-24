@@ -441,17 +441,24 @@
   in earlier Causa redesigns and the now-unused `:sidebar-width` /
   `:bottom-rail-height` tokens were retired in Round-3 rf2-g9pee).
 
-  Per rf2-4vp5j the top of the shell splits into TWO strata: the
-  **chrome ribbon** (`:top-strip-height`, made compact — 32px per the
-  Figma ChromeRibbon `h-8`, rf2-cplj8 — it now carries only the Frame +
-  Dynamic/Static dropdowns on the left and the settings/close icons on
-  the right; nav, focus-chip and filter pills moved down) and the
-  **events ribbon** (`:events-ribbon-height`, carrying `Events:` + nav +
-  focus-chip + pills on the left and the hidden-count + Clear Filters on
-  the right). The compacted chrome height reclaims vertical canvas for
-  the L2 event list."
-  {:top-strip-height     "32px"
-   :events-ribbon-height "36px"})
+  Per rf2-4vp5j the top of the shell splits into TWO strata, reconciled
+  to the authoritative reference (`tools/causa/design-reference/causa_
+  devtools_reference.cljs`, rf2-3f2di) where every bar is a uniform
+  34px (`chrome-ribbon` / `events-ribbon` `:height \"34px\"`):
+
+  - the **chrome ribbon** (`:top-strip-height`, 34px) — bar-1, carrying
+    the `Events` label + the `[◀ ▶ ⏭]` nav cluster + `Filters:` + the
+    add(+) on the left, and the Frame dropdown + Dynamic/Static dropdown
+    + settings + close on the right (the reference chrome-ribbon
+    layout).
+  - the **events ribbon** (`:events-ribbon-height`, 34px) — bar-2,
+    carrying the `N events filtered out` warning text + the green/red
+    filter pills (the reference events-ribbon layout).
+
+  The reference's uniform 34px rhythm (rf2-3f2di) supersedes the prior
+  32px/36px split (rf2-cplj8)."
+  {:top-strip-height     "34px"
+   :events-ribbon-height "34px"})
 
 ;; ---- motion (rf2-5kfxe.5) ----------------------------------------------
 

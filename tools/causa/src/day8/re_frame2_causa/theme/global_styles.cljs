@@ -175,15 +175,16 @@
 ;; Emit one CSS custom-property block per theme keyed by the theme
 ;; class the shell carries (`rf-causa-theme-dark` / `rf-causa-theme-
 ;; light`). Properties land at `:root` for the active theme so any
-;; descendant can read them via `var(--rf-causa-bg-1)`. The dark
-;; block also publishes at `:root` *unconditionally* as a default —
-;; until the shell mounts (or under a host that never adds a theme
-;; class) the dark palette is the safe fallback.
+;; descendant can read them via `var(--rf-causa-bg-1)`. The LIGHT
+;; block also publishes at `:root` *unconditionally* as a default
+;; (rf2-3f2di) — until the shell mounts (or under a host that never
+;; adds a theme class) the light palette is the safe fallback, matching
+;; the authoritative reference's light-by-default render.
 ;;
-;; The 357 inline-style call sites keep reading dark hexes through
-;; `(:bg-1 tokens)` for now; the v1.0 styling pass migrates each one
-;; through to the CSS-variable surface so the toggle takes effect
-;; everywhere.
+;; The inline-style call sites resolve the `var(--rf-causa-*)` strings
+;; through `(:bg-1 tokens)`; the active theme class on the shell root
+;; (`apply-theme!`, default `:light` per config) decides which palette
+;; the browser substitutes at paint time.
 
 (def ^:private themes-style-id
   "rf-causa-themes")
@@ -204,10 +205,12 @@
        (apply str)))
 
 (defn- themes-css
-  "Build the per-theme CSS block. The dark palette publishes at `:root`
-  (the safe fallback) AND at `.rf-causa-theme-dark` (so the class
-  toggle has a matched landing). The light palette publishes at
-  `.rf-causa-theme-light` so the class toggle activates it.
+  "Build the per-theme CSS block. The LIGHT palette publishes at `:root`
+  (the safe fallback — rf2-3f2di flipped the default from dark to light
+  so the pre-mount fallback matches the authoritative reference, which
+  renders light by default) AND at `.rf-causa-theme-light` (so the class
+  toggle has a matched landing). The dark palette publishes at
+  `.rf-causa-theme-dark` so the class toggle activates it.
 
   `--rf-causa-accent` is the SINGLE accent token (GitHub blue `#539bf5`
   dark / `#0969da` light — the Figma export's `--devtools-active`).
@@ -216,11 +219,12 @@
   accent, so the whole shell reads the same blue accent in both modes."
   [themes]
   (str
-    ;; Default — :root carries the dark palette so any descendant
-    ;; reading `var(--rf-causa-bg-1)` resolves it even before the
-    ;; shell class is attached.
+    ;; Default — :root carries the LIGHT palette (rf2-3f2di) so any
+    ;; descendant reading `var(--rf-causa-bg-1)` resolves the light
+    ;; default even before the shell class is attached, matching the
+    ;; authoritative reference's light-by-default render.
     ":root {\n"
-    (palette->declarations (:dark themes))
+    (palette->declarations (:light themes))
     "}\n"
     ;; Explicit class blocks — `apply-theme!` (settings/effects.cljs)
     ;; writes one of these classes on the shell + `<html>` root.

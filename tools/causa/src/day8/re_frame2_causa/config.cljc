@@ -642,8 +642,10 @@
 ;;   asking for Causa to interrupt them)
 ;; - panel-position default `:right-rail` (matches the existing
 ;;   `:rf.causa/layout-host-selector` inline-host posture)
-;; - theme default `:dark` (Causa is a dev tool — the canvas-and-
-;;   chrome palette in `theme/tokens.cljc` is the dark one)
+;; - theme default `:light` (rf2-3f2di — the authoritative reference
+;;   `tools/causa/design-reference/causa_devtools_reference.cljs` renders
+;;   light by default; Causa boots onto the same default. Both palettes
+;;   exist in `theme/tokens.cljc` and the user can flip to dark.)
 ;; - text-size default 13 (matches `theme/tokens.cljc :type-scale
 ;;   :body` — the popup's slider is the one knob that scales every
 ;;   subsequent inline-style reads via the published CSS custom
@@ -772,7 +774,7 @@
                ;; chrome on demand. Additive to the OS detection —
                ;; both paths produce the same painted chrome.
                :use-system-colors?      false}
-   :theme     :dark                                  ; :dark | :light
+   :theme     :light                                 ; :light | :dark (rf2-3f2di — light default per the authority reference)
    :diff      {:highlight-fn-ref-changes? false}
    :buffer    {:retained-epochs                    200
                :trace-buffer/keep                  1000

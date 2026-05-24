@@ -444,16 +444,17 @@
 ;; ---- rf2-5kfxe.6 — light theme CSS variables ---------------------------
 
 (deftest themes-css-publishes-root-defaults
-  (testing "rf2-5kfxe.6 — the :root block publishes the dark palette
-            as the default so any descendant that reads
-            `var(--rf-causa-bg-1)` resolves to the dark hex even
-            before any theme class is attached."
+  (testing "rf2-3f2di B2 — the :root block publishes the LIGHT palette
+            as the default (flipped from dark) so any descendant that
+            reads `var(--rf-causa-bg-1)` resolves to the light hex even
+            before any theme class is attached, matching the
+            authoritative reference's light-by-default render."
     (let [css (@#'gs/themes-css {:dark  {:bg-1 "#15171B" :accent-violet "#7C5CFF"}
                                   :light {:bg-1 "#F1F3F6" :accent-violet "#5538D8"}})]
-      (is (re-find #":root\s*\{[^}]*--rf-causa-bg-1:\s*#15171B" css)
-          "root block carries the dark bg-1")
-      (is (re-find #":root\s*\{[^}]*--rf-causa-accent-violet:\s*#7C5CFF" css)
-          "root block carries the dark accent-violet"))))
+      (is (re-find #":root\s*\{[^}]*--rf-causa-bg-1:\s*#F1F3F6" css)
+          "root block carries the light bg-1 default")
+      (is (re-find #":root\s*\{[^}]*--rf-causa-accent-violet:\s*#5538D8" css)
+          "root block carries the light accent-violet default"))))
 
 (deftest themes-css-emits-per-theme-class-blocks
   (testing "rf2-5kfxe.6 — `.rf-causa-theme-dark` and

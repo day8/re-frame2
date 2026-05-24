@@ -397,9 +397,11 @@
 
 (def ^:private l2-time-col-min-width
   "Min-width / right-aligned slot for the `timestamp` column — shared
-  by the header `timestamp` label and every row's relative-time chip so
-  the two right-align on the same edge."
-  "44px")
+  by the header `timestamp` label and every row's absolute-time value so
+  the two right-align on the same edge. Sized (rf2-3f2di A8) to hold the
+  `HH:MM:SS.mmm` absolute clock string (`12:30:05.123`) without
+  wrapping; the prior 44px held only the relative `1s`/`now` chip."
+  "76px")
 
 (def ^:private l2-duration-col-min-width
   "Min-width / right-aligned slot for the trailing `duration` column
@@ -474,12 +476,48 @@
         (< s 86400)       (str (quot s 3600) "h")
         :else             (str (quot s 86400) "d")))))
 
+(defn- pad2
+  "Left-pad an integer to two digits with a leading zero. Pure-data;
+  JVM-portable."
+  [n]
+  (if (< n 10) (str "0" n) (str n)))
+
+(defn- pad3
+  "Left-pad an integer to three digits with leading zeros (for the
+  millisecond field). Pure-data; JVM-portable."
+  [n]
+  (cond
+    (< n 10)  (str "00" n)
+    (< n 100) (str "0" n)
+    :else     (str n)))
+
+(defn format-clock-time
+  "CLJS-side helper (rf2-3f2di A8). Given an epoch-ms (the cascade's
+  dispatched `:time`), returns the ABSOLUTE wall-clock string the L2
+  `timestamp` column renders — `HH:MM:SS.mmm` (e.g. `12:30:05.123`) per
+  the authoritative reference event-list (`tools/causa/design-reference/
+  causa_devtools_reference.cljs`, which renders absolute timestamps like
+  `12:30:05.123`, NOT relative `1s`/`now` chips).
+
+  Uses the LOCAL-time components (`getHours` / `getMinutes` /
+  `getSeconds` / `getMilliseconds`) so the column reads in the operator's
+  timezone. Returns the empty string when `then-ms` is nil or `js/Date`
+  is unavailable so the caller can decide whether to render anything."
+  [then-ms]
+  (if (or (nil? then-ms) (not (exists? js/Date)))
+    ""
+    (let [d (js/Date. then-ms)]
+      (str (pad2 (.getHours d)) ":"
+           (pad2 (.getMinutes d)) ":"
+           (pad2 (.getSeconds d)) "."
+           (pad3 (.getMilliseconds d))))))
+
 (defn format-absolute-time
   "CLJS-side helper. Given an epoch-ms (the cascade's dispatched
   `:time`), returns an absolute-time tooltip string for the chip's
   `:title` attribute. Used as the power-user reveal that complements
-  the relative chip — clicking the row still opens the Event lens, but
-  a hover shows the precise walltime + epoch-ms.
+  the `HH:MM:SS.mmm` clock column — clicking the row still opens the
+  Event lens, but a hover shows the full ISO walltime + epoch-ms.
 
   Returns the empty string when `then-ms` is nil so the caller can
   decide whether to attach the tooltip."
@@ -502,26 +540,27 @@
     (when (number? t) t)))
 
 (defn relative-time-chip
-  "Render the L2 row's right-aligned relative-time chip. `now-ms` is the
-  anchor supplied by the L2 view — sourced from the
-  `:rf.causa/relative-time-now-ms` sub (dispatched-time of the most
-  recent cascade, per rf2-0s2at; flips on event arrival, not on a
-  per-second tick). Renders nothing when the cascade carries no
-  dispatched-time stamp."
-  [cascade now-ms]
+  "Render the L2 row's right-aligned `timestamp` column. Per rf2-3f2di
+  A8 this renders the ABSOLUTE wall-clock time (`HH:MM:SS.mmm`, e.g.
+  `12:30:05.123`) per the authoritative reference event-list — NOT a
+  relative `1s`/`now` chip. The `now-ms` anchor is no longer consumed for
+  the label (absolute time needs no anchor); the parameter is retained
+  for call-site stability and ignored. The chip's `:title` carries the
+  full ISO walltime + epoch-ms as the power-user reveal.
+
+  Renders nothing when the cascade carries no dispatched-time stamp."
+  [cascade _now-ms]
   (when-let [then-ms (cascade-dispatched-time-ms cascade)]
-    (let [now      (or now-ms (interop/now-ms))
-          label    (format-relative-time now then-ms)
-          tooltip  (format-absolute-time then-ms)]
+    (let [label   (format-clock-time then-ms)
+          tooltip (format-absolute-time then-ms)]
       [:span {:data-testid     "rf-causa-row-time-chip"
               :data-then-ms    (str then-ms)
               :title           tooltip
               ;; rf2-ad7zx.15 — the trailing time column. Shares the
               ;; header `timestamp` column's right-aligned min-width slot
-              ;; (`l2-time-col-min-width`) so the chip right-aligns under
+              ;; (`l2-time-col-min-width`) so the value right-aligns under
               ;; the header label. Spacing from the preceding column comes
-              ;; from the row's shared flex `gap` — no extra `margin-left`,
-              ;; which used to push the chip 4px past the header column.
+              ;; from the row's shared flex `gap`.
               :style {:color         (:text-tertiary tokens)
                       :flex-shrink   0
                       :font-family   mono-stack
@@ -591,34 +630,38 @@
     snap is a true no-op. When at head but PAUSED (frozen inspection)
     `»` stays enabled — pressing it resumes LIVE, which is not a no-op.
 
-  ## rf2-cplj8 — borderless lucide chevron buttons
+  ## rf2-3f2di A2 — blue-filled chevron buttons
 
-  Per the Figma EventsRibbon the nav cluster is three BORDERLESS
-  icon-buttons (`p-1 rounded hover:bg`) carrying thin
-  ChevronLeft/Right/ChevronsRight icons — NOT bordered unicode
-  triangles. Inline SVG is not idiomatic in this pure-hiccup view, so
-  the buttons keep glyphs but swap the chunky filled triangles
-  (`◀ ▶ ⏭`) for the angle-quotation chevrons (`‹ › »`, U+2039 / U+203A
-  / U+00BB) which read as lucide's thin strokes. The bordered pill
-  becomes a square rounded hit-area with a testid-keyed `hover:bg`
-  (the `:hover` lift lives in `theme/global-styles/motion-css`).
+  Per the authoritative reference chrome-ribbon
+  (`tools/causa/design-reference/causa_devtools_reference.cljs`) the nav
+  cluster is three FILLED `:accent` buttons (blue bg, white icon,
+  `p-1 rounded`, hover lifts opacity 0.9 → 1) carrying the
+  ChevronLeft/Right/ChevronsRight glyphs — NOT borderless icon-buttons,
+  NOT bordered unicode triangles. Inline SVG is not idiomatic in this
+  pure-hiccup view, so the buttons keep glyphs but swap the chunky
+  filled triangles (`◀ ▶ ⏭`) for the angle-quotation chevrons
+  (`‹ › »`, U+2039 / U+203A / U+00BB) which read as the reference's thin
+  strokes. (rf2-3f2di supersedes the rf2-cplj8 borderless treatment.)
 
-  ## Disabled appearance (rf2-x5tro / rf2-cplj8)
+  ## Disabled appearance (rf2-x5tro / rf2-3f2di)
 
   A disabled button must READ as inert, not merely block clicks. With
-  the borderless treatment there is no border/background to dim, so the
-  inert signal is the muted `:text-tertiary` ink + reduced opacity +
-  `cursor: not-allowed`. The native `:disabled` attribute (plus the
-  dropped `:on-click` per rf2-fzbrw) blocks interaction; the inline
-  style + `aria-disabled` carry the visual + a11y signal.
+  the blue-filled treatment the inert signal is a strong opacity drop
+  (the filled blue fades) + `cursor: not-allowed`. The native
+  `:disabled` attribute (plus the dropped `:on-click` per rf2-fzbrw)
+  blocks interaction; the inline style + `aria-disabled` carry the
+  visual + a11y signal.
 
   (rf2-htik0 P1 — earlier wiring had the head/tail boundaries flipped
   so the disabled glyph dimmed the wrong button.)"
   [{:keys [at-head? at-tail? live?]}]
   (let [head-disabled? (boolean (and at-head? live?))
-        btn-style {:background      "transparent"
+        ;; rf2-3f2di A2 — filled `:accent` buttons (reference chrome-
+        ;; ribbon): blue bg, white icon, 4px radius, hover opacity lift
+        ;; (the `:hover` rule lives in `theme/global-styles/motion-css`).
+        btn-style {:background      (:accent tokens)
                    :border          "none"
-                   :color           (:text-primary tokens)
+                   :color           (:white tokens)
                    :cursor          "pointer"
                    :opacity         1
                    :padding         "0"
@@ -631,12 +674,10 @@
                    :font-family     sans-stack
                    :font-size       "15px"
                    :line-height     "1"}
-        ;; rf2-cplj8 — borderless inert state: no border/bg to dim, so
-        ;; the muted ink + reduced opacity + `not-allowed` cursor carry
-        ;; the signal. The native `:disabled` attribute already blocks
-        ;; clicks at the DOM layer (rf2-fzbrw).
-        disabled-style {:color   (:text-tertiary tokens)
-                        :opacity 0.4
+        ;; rf2-3f2di — filled inert state: the blue fill fades + the
+        ;; `not-allowed` cursor carries the signal. The native
+        ;; `:disabled` attribute already blocks clicks (rf2-fzbrw).
+        disabled-style {:opacity 0.4
                         :cursor  "not-allowed"}]
     [:div {:data-testid "rf-causa-ribbon-nav"
            :style {:display "flex" :align-items "center" :gap "2px"}}
@@ -917,23 +958,68 @@
                :style       icon-style}
       [:span {:aria-hidden "true"} "✕"]]]))
 
+(defn nav-boundary-state
+  "Pure helper (rf2-3f2di A5) — compute the `{:at-head? :at-tail? :live?
+  :focused-cascade}` state the nav cluster + focus button consume, from
+  the already-resolved sub values. Extracted so the chrome ribbon (which
+  now hosts the nav cluster per the authority reference) and any test
+  can derive the boundary state without re-subscribing. Mirrors the
+  boundary walk the events ribbon previously did inline.
+
+  - `focus` — `:rf.causa/focus` (carries `:dispatch-id` + `:mode` +
+    `:paused?`).
+  - `cascades` — `:rf.causa/filtered-cascades` (frame view-scope + pills
+    + mutes already applied).
+  - `focus-set` — `:rf.causa/focus-set` (when active, nav walks ONLY the
+    in-focus subset).
+  - `show-ungrouped?` — `:rf.causa/show-ungrouped?` (the L2 visibility
+    predicate must agree with what the user sees).
+
+  Pure-data → map; JVM-runnable so the boundary logic is testable
+  without a CLJS runtime."
+  [{:keys [focus cascades focus-set show-ungrouped?]}]
+  (let [focused-id      (:dispatch-id focus)
+        event-cascades  (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
+        ;; rf2-cplj8 — the currently-focused cascade drives the always-
+        ;; present blue `focus` button; falls back to the most-recent
+        ;; event-cascade so the button is actionable in default LIVE-at-
+        ;; head (where `focused-id` is nil — the spine auto-tracks head).
+        focused-cascade (or (some #(when (= focused-id (:dispatch-id %)) %)
+                                  event-cascades)
+                            (last event-cascades))
+        ids             (if focus-set
+                          (fh/in-focus-ids event-cascades focus-set)
+                          (mapv :dispatch-id event-cascades))
+        at-head?        (or (empty? ids)
+                            (= focused-id (last ids))
+                            (and (nil? focused-id) (not focus-set)))
+        at-tail?        (or (empty? ids)
+                            (= focused-id (first ids)))
+        live?           (and (= :live (:mode focus))
+                             (not (:paused? focus)))]
+    {:at-head?        at-head?
+     :at-tail?        at-tail?
+     :live?           live?
+     :focused-cascade focused-cascade}))
+
 (rf/reg-view ribbon
-  "L1 **chrome ribbon** — the top stratum per rf2-4vp5j's two-ribbon
-  redesign. Compact (`:top-strip-height`, lowered to 40px) because it
-  now carries only scope SELECTORS on the left and chrome ACTIONS on
-  the right:
+  "L1 **chrome ribbon** (bar-1) — reconciled to the authoritative
+  reference chrome-ribbon (`tools/causa/design-reference/causa_devtools_
+  reference.cljs`, rf2-3f2di A4/A5). 34px tall (`:top-strip-height`).
 
-    - **LEFT** — the Frame dropdown (`frame-switcher/frame-switcher-
-      view`) + the Dynamic/Static mode dropdown (`mode-pill/mode-pill`).
-      Both share one compact control style so they read as a single
-      selector stratum.
-    - **RIGHT** — the mute (🔇 N) + REDACTED (● N) silent-by-default
-      indicators, then the `⚙` settings + `✕` close icon-buttons.
+    - **LEFT** — the `Events` label (the reference leads with it; the
+      `❖ Causa` wordmark was DROPPED per A4), the `[◀ ▶ ⏭]` blue-filled
+      nav cluster (A2), the always-present blue `focus` button + the
+      focus-chip (Causa spine controls, grouped with the nav), then the
+      `Filters:` label + the `[ + ]` add-pill (A5).
+    - **RIGHT** — the Frame dropdown (`frame-switcher/frame-switcher-
+      view`) + the Dynamic/Static mode dropdown (`mode-pill/mode-pill`)
+      + the mute (🔇 N) / REDACTED (● N) silent-by-default indicators +
+      the `⚙` settings · `✕` close icon-buttons.
 
-  The nav cluster (`[◀ ▶ ⏭]`), the focus-chip, and the filter pills
-  moved DOWN to the events ribbon (`events-ribbon`) — they are
-  spine/filter chrome, not scope selectors. Moving them out is what
-  buys the compacted height.
+  The committed filter pills (green/red) live on bar-2 (the events
+  ribbon, `events-ribbon`); only the add(+) sits up here, matching the
+  reference's chrome-ribbon (add) / events-ribbon (pills) split.
 
   The 2-px left-edge accent stripe (rf2-o5f5f.1 mode-signal mechanism
   #2 — the single GitHub-blue accent in both modes, rf2-ad7zx.13) stays
@@ -949,7 +1035,20 @@
         ;; count sub (not the raw set) means the ribbon re-renders only
         ;; when the count changes; the indicator's click opens the
         ;; unmute manager.
-        muted-count    @(rf/subscribe [:rf.causa/muted-event-ids-count])]
+        muted-count    @(rf/subscribe [:rf.causa/muted-event-ids-count])
+        ;; rf2-3f2di A5 — the nav cluster + focus button + focus-chip +
+        ;; pills moved UP to the chrome ribbon per the authority
+        ;; reference, so the chrome ribbon now subscribes to the spine /
+        ;; filter state the events ribbon used to own.
+        focus          @(rf/subscribe [:rf.causa/focus])
+        cascades       @(rf/subscribe [:rf.causa/filtered-cascades])
+        focus-set      @(rf/subscribe [:rf.causa/focus-set])
+        show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
+        {:keys [at-head? at-tail? live? focused-cascade]}
+        (nav-boundary-state {:focus           focus
+                             :cascades        cascades
+                             :focus-set       focus-set
+                             :show-ungrouped? show-ungrouped?})]
     [:div {:data-testid "rf-causa-ribbon"
            :style {:display          "flex"
                    :align-items      "center"
@@ -971,48 +1070,53 @@
                                           (static-shell/stripe-hex-for-mode :dynamic))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
-     ;; LEFT cluster — the `❖ Causa` wordmark, then the scope selectors
-     ;; (Frame + Dynamic/Static), one shared compact control style so the
-     ;; selectors read as one stratum.
+     ;; LEFT cluster — `Events` label · nav · focus button · focus-chip ·
+     ;; `Filters:` · add(+). Per the authority reference chrome-ribbon
+     ;; (rf2-3f2di A4/A5). The `❖ Causa` wordmark was dropped (A4); the
+     ;; cluster now leads with the `Events` label.
      [:div {:data-testid "rf-causa-ribbon-selectors"
-            :style {:display "flex" :align-items "center" :gap "8px"}}
-      ;; rf2-ad7zx.12 + rf2-cplj8 — the `❖ Causa` wordmark, top-left of the
-      ;; chrome ribbon per the Figma design-reference (the `chrome-ribbon`
-      ;; component in `design-reference/causa_devtools_reference.cljs`).
-      ;; Semibold, `:body-tight`, NEUTRAL
-      ;; `:text-primary` ink (`text-[var(--devtools-text)]`) — the Figma
-      ;; ChromeRibbon renders the wordmark + glyph in the chrome text
-      ;; colour, NOT the `:accent` blue. The single accent is reserved for
-      ;; ACTIVE/selected affordances (tab fill, focus button); spending it
-      ;; on the static wordmark dilutes that signal. `aria-hidden` on the
-      ;; decorative `❖` glyph keeps the wordmark from announcing its
-      ;; unicode name.
-      [:div {:data-testid "rf-causa-ribbon-logo"
-             :style {:display      "flex"
-                     :align-items  "center"
-                     :gap          "5px"
-                     :color        (:text-primary tokens)
-                     :font-family  sans-stack
-                     :font-size    (:body-tight type-scale)
-                     :font-weight  600
-                     :white-space  "nowrap"
-                     :user-select  "none"}}
-       [:span {:aria-hidden "true"} "❖"]
-       [:span "Causa"]]
+            :style {:display "flex" :align-items "center" :gap "13px"
+                    :flex-wrap "wrap"}}
+      ;; rf2-3f2di A4 — `Events` label leads the left cluster (reference
+      ;; chrome-ribbon left side: `text-[var(--devtools-text)] font-medium`).
+      [:span {:data-testid "rf-causa-ribbon-events-label"
+              :style {:color       (:text-primary tokens)
+                      :font-family sans-stack
+                      :font-weight 500
+                      :white-space "nowrap"}}
+       "Events"]
+      ;; rf2-3f2di A2/A5 — blue-filled nav cluster, promoted to bar-1.
+      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?}]
+      ;; Causa spine controls — the always-present blue `focus` button
+      ;; (focuses the selected cascade's dimension) + the focus-chip
+      ;; (state display of the active focus-set). Grouped with the nav
+      ;; cluster because they are spine navigation, not scope selectors.
+      [ribbon-focus-button {:focused-cascade focused-cascade}]
+      [ribbon-focus-chip {:focus-set focus-set}]
+      ;; rf2-3f2di A5 — `Filters:` label + the add(+) affordance (the
+      ;; committed pills live on bar-2). Reference chrome-ribbon left
+      ;; side: `Filters:` muted label then the `+` add button.
+      [:span {:data-testid "rf-causa-ribbon-filters-label"
+              :style {:color       (:text-secondary tokens)
+                      :font-family sans-stack
+                      :white-space "nowrap"}}
+       "Filters:"]
+      [filter-pills/add-pill]]
+     ;; RIGHT cluster — scope selectors (Frame + Dynamic/Static) then the
+     ;; silent-by-default indicators + chrome actions. Per the authority
+     ;; reference chrome-ribbon right side (rf2-3f2di A5).
+     [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
       ;; L1 frame-switcher slot (rf2-iwwou) — single contractually-
       ;; anchored surface. The view itself reads `:rf.causa/current-
       ;; frame` + `:rf.causa/available-frames` and writes via
-      ;; `:rf.causa/select-frame` — no ad-hoc frame access from the
-      ;; ribbon. See `frame_switcher.cljs` for the contract. The frame
-      ;; is a view SCOPE, not a filter (rf2-4vp5j Workstream C).
+      ;; `:rf.causa/select-frame`. The frame is a view SCOPE, not a
+      ;; filter (rf2-4vp5j Workstream C).
       [frame-switcher/frame-switcher-view]
-      ;; Dynamic/Static dropdown (rf2-4vp5j) — compact, understated;
-      ;; the accent stripe carries the mode signal so the control
-      ;; itself stays quiet. Always rendered (the `:rf.causa/static-
-      ;; mode?` feature gate was removed per rf2-8l3uk).
-      [mode-pill/mode-pill]]
-     ;; RIGHT cluster — silent-by-default indicators + chrome actions.
-     [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
+      ;; Dynamic/Static dropdown (rf2-4vp5j) — compact, understated; the
+      ;; accent stripe carries the mode signal so the control stays
+      ;; quiet. Always rendered (the `:rf.causa/static-mode?` feature
+      ;; gate was removed per rf2-8l3uk).
+      [mode-pill/mode-pill]
       ;; rf2-ikuwt — mute indicator (🔇 N) renders inline next to the
       ;; REDACTED indicator. Both are silent-by-default surfaces that
       ;; only paint when their count is positive. Click → unmute
@@ -1640,18 +1744,18 @@
 ;; one-click reset (`:rf.causa/clear-all-filters`).
 
 (defn filters-hidden-message
-  "Pure hiccup. The `N events hidden by filters` count — the RIGHT-side
-  signal of the events ribbon, sitting beside `Clear Filters`. Renders
-  nil unless the hidden count is positive (`:visible?`). Keeps rf2-jvghz's
-  prominent yellow accent. Counts pill/mute suppression ONLY — the frame
-  is a view scope, never counted as hidden (rf2-4vp5j Workstream C).
+  "Pure hiccup. The `N events filtered out` warning count — the LEADING
+  signal of the events ribbon (bar-2), sitting before the committed
+  filter pills. Renders nil unless the hidden count is positive
+  (`:visible?`). Counts pill/mute suppression ONLY — the frame is a view
+  scope, never counted as hidden (rf2-4vp5j Workstream C).
 
-  rf2-ad7zx.18 — per the Figma mock (the `events-ribbon` component in
-  `design-reference/causa_devtools_reference.cljs`) the hidden-state is a plain count beside `Clear
-  Filters`; it no longer re-renders the active pills/mute as cause chips.
-  The committed pills already live in the LEFT cluster (via
-  `ribbon-filter-pills` → `filters.pills/pills-view`); re-rendering them
-  here duplicated every pill in front of `Clear Filters`."
+  rf2-3f2di A5 — reconciled to the authoritative reference events-ribbon
+  (`tools/causa/design-reference/causa_devtools_reference.cljs`): the
+  warning reads `\"N events filtered out\"` in the `:warning` colour
+  (reference `--devtools-warning`, `font-medium`), leading the bar-2
+  cluster ahead of the green/red pills. (Supersedes the prior rf2-jvghz
+  `N events hidden by filters` yellow chip on the right.)"
   [{:keys [hidden visible?] :as _summary}]
   (when visible?
     [:div {:data-testid "rf-causa-filters-hidden-indicator"
@@ -1662,8 +1766,8 @@
                    :font-size   (:caption type-scale)
                    :color       (:text-primary tokens)}}
      [:span {:data-testid "rf-causa-filters-hidden-count"
-             :style {:font-weight 600 :color (:yellow tokens) :white-space "nowrap"}}
-      (str hidden " event" (when (not= 1 hidden) "s") " hidden by filters")]]))
+             :style {:font-weight 500 :color (:warning tokens) :white-space "nowrap"}}
+      (str hidden " event" (when (not= 1 hidden) "s") " filtered out")]]))
 
 (defn- clear-filters-button
   "Restrained outline `Clear Filters` button — resets pills + mutes (NOT
@@ -1687,75 +1791,43 @@
    "Clear Filters"])
 
 (rf/reg-view events-ribbon
-  "L1.5 **events ribbon** (rf2-4vp5j) — the second stratum below the
-  chrome ribbon. LEFT → RIGHT: `Events:` label · the `[◀ ▶ ⏭]` nav
-  cluster · the focus-chip · the active filter pills + add-pill widget.
-  FAR RIGHT (only when a filter is active): the `N hidden` message +
-  the `Clear Filters` button.
+  "L1.5 **events ribbon** (bar-2) — reconciled to the authoritative
+  reference events-ribbon (`tools/causa/design-reference/causa_devtools_
+  reference.cljs`, rf2-3f2di A5/A6). The second stratum below the chrome
+  ribbon. LEFT → RIGHT:
 
-  The nav cluster, focus-chip, and filter pills moved here from the
-  chrome ribbon (they are spine/filter chrome, not scope selectors).
-  Boundary detection for the nav cluster is computed here against the
-  same `l2-cascade-visible?` visible-row set the L2 list renders.
+    - the `N events filtered out` warning text (when N > 0), in the
+      `:warning` colour;
+    - the committed green-bordered IN pills + red-bordered OUT pills
+      (`filter-pills/pills-view`, A6);
+    - FAR RIGHT (only when a filter is active): the `Clear Filters`
+      button (Causa wiring — one-click reset of every pill + mute).
 
-  Visibility of the right-side action cluster (rf2-4vp5j Decision 3):
-    - both absent in the clean/default state (no pills, no mutes);
+  The nav cluster, focus button, focus-chip, and the add(+) affordance
+  moved UP to the chrome ribbon (bar-1) per the reference's chrome-ribbon
+  / events-ribbon split (rf2-3f2di A5). This bar now carries ONLY the
+  filtered-out warning + the committed pills + the reset action.
+
+  Visibility (rf2-4vp5j Decision 3, preserved):
+    - the bar renders its background/hairline always (it is a fixed
+      stratum), but its content is empty in the clean/default state (no
+      pills, no warning, no Clear Filters);
     - `Clear Filters` shows when ANY filter is active (`:any-active?`);
-    - the `N hidden` message shows beside it only when N > 0
-      (`:visible?`) — an active filter that hides nothing → button
-      present, message absent.
+    - the `N filtered out` warning shows only when N > 0 (`:visible?`).
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`. A distinct `bg-2` background + `border-subtle` hairline
   separate it from the chrome ribbon's `bg-1` as a distinct layer."
   []
-  (let [focus           @(rf/subscribe [:rf.causa/focus])
-        ;; rf2-4vp5j — boundary detection walks the FILTERED cascade
-        ;; list (frame view-scope + pills + mutes) so the `[◀ ▶]`
-        ;; disabled glyphs match exactly what the user sees in L2.
-        cascades        @(rf/subscribe [:rf.causa/filtered-cascades])
-        focus-set       @(rf/subscribe [:rf.causa/focus-set])
-        filters         @(rf/subscribe [:rf.causa/active-filters])
+  (let [filters         @(rf/subscribe [:rf.causa/active-filters])
         hidden-summary  @(rf/subscribe [:rf.causa/hidden-by-filters])
-        ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
-        ;; bucket. The boundary walk MUST agree with what the user
-        ;; sees in L2, so it composes against the same
-        ;; `l2-cascade-visible?` predicate the L2 list uses.
-        show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
-        focused-id      (:dispatch-id focus)
-        event-cascades  (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
-        ;; rf2-cplj8 — the currently-focused cascade drives the always-
-        ;; present blue `focus` button: it focuses on THIS cascade's
-        ;; inferred dimension (the ribbon-level counterpart of the per-row
-        ;; gutter gesture). Falls back to the most-recent event-cascade so
-        ;; the button is actionable in the default LIVE-at-head state where
-        ;; `focused-id` is nil (the spine auto-tracks head without pinning).
-        focused-cascade (or (some #(when (= focused-id (:dispatch-id %)) %)
-                                  event-cascades)
-                            (last event-cascades))
-        ;; rf2-a1z3b — when a focus-set is active the nav buttons walk
-        ;; ONLY the in-focus subset; boundary predicates honour that.
-        ids             (if focus-set
-                          (fh/in-focus-ids event-cascades focus-set)
-                          (mapv :dispatch-id event-cascades))
-        at-head?        (or (empty? ids)
-                            (= focused-id (last ids))
-                            (and (nil? focused-id) (not focus-set)))
-        at-tail?        (or (empty? ids)
-                            (= focused-id (first ids)))
-        ;; rf2-x5tro — `⏭` is a true no-op only when the spine is
-        ;; already tracking head LIVE (`:live` mode + unpaused). At
-        ;; head but PAUSED, `⏭` resumes LIVE, so it stays enabled.
-        live?           (and (= :live (:mode focus))
-                             (not (:paused? focus)))
         any-active?     (:any-active? hidden-summary)]
     [:div {:data-testid "rf-causa-events-ribbon"
            :role        "toolbar"
-           :aria-label  "Causa events"
+           :aria-label  "Causa filters"
            :style {:display          "flex"
                    :align-items      "center"
-                   :justify-content  "space-between"
-                   :gap              "12px"
+                   :gap              "13px"
                    :min-height       (:events-ribbon-height layout)
                    :flex-wrap        "wrap"
                    :padding          "0 12px"
@@ -1763,31 +1835,19 @@
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
-     ;; LEFT cluster — label · nav · focus button · focus-chip · pills.
-     [:div {:data-testid "rf-causa-events-ribbon-left"
-            :style {:display "flex" :align-items "center"
-                    :flex-wrap "wrap" :gap "8px"}}
-      [:span {:data-testid "rf-causa-events-ribbon-label"
-              :style {:color       (:text-secondary tokens)
-                      :font-size   (:body-tight type-scale)
-                      :white-space "nowrap"}}
-       "Events:"]
-      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?}]
-      ;; rf2-cplj8 — the always-present blue `focus` button (Figma
-      ;; EventsRibbon) sits right after the nav cluster, before the
-      ;; state-display focus-chip. It focuses on the current selection's
-      ;; dimension; the chip then surfaces the resulting focus-set.
-      [ribbon-focus-button {:focused-cascade focused-cascade}]
-      [ribbon-focus-chip {:focus-set focus-set}]
-      [ribbon-filter-pills {:filters filters}]]
-     ;; RIGHT cluster — hidden-count message + Clear Filters. Both
-     ;; absent in the clean state; rendered together only when a filter
-     ;; is active (Clear always when active; message only when N > 0).
+     ;; rf2-3f2di A5 — the `N events filtered out` warning leads the
+     ;; bar-2 cluster (reference events-ribbon left side), ahead of the
+     ;; pills. Renders only when N > 0.
+     (filters-hidden-message hidden-summary)
+     ;; rf2-3f2di A6 — the committed green/red filter pills.
+     [ribbon-filter-pills {:filters filters}]
+     ;; rf2-4vp5j Decision 3 — Clear Filters on the far right, only when
+     ;; a filter is active. `margin-left: auto` pushes it to the trailing
+     ;; edge regardless of pill count.
      (when any-active?
        [:div {:data-testid "rf-causa-events-ribbon-actions"
               :style {:display "flex" :align-items "center" :gap "8px"
                       :margin-left "auto"}}
-        (filters-hidden-message hidden-summary)
         [clear-filters-button]])]))
 
 ;; rf2-ad7zx.12 + rf2-lnod7 — the L2 list's column-header row, reconciled
@@ -1998,22 +2058,30 @@
 ;; ---- L3 tab bar ----------------------------------------------------------
 
 (defn- tab-button
-  "One tab in the L3 tab bar — a Figma button-bar tab, NOT a radio
-  glyph (rf2-ad7zx.16). Each tab is a rounded button; the ACTIVE tab
-  is a filled `:accent` background with white text; inactive tabs are
-  transparent with NEUTRAL muted ink (`:text-tertiary` = Figma
-  `--devtools-text-muted`, the `text-muted-foreground` of Tabs;
-  rf2-cplj8) and a subtle `:hover` background
-  fill (the hover rule lives in `theme/global-styles/motion-css`,
-  keyed off the `rf-causa-tab-*` testid, since inline styles can't
-  carry a `:hover` pseudo-class). Mirrors
-  `tools/causa/design-reference/causa_devtools_reference.cljs` (the `tabs`
-  component + the main layout's TabsList) (`px-3 py-1.5 rounded`,
-  `data-[state=active]:bg-[var(--devtools-active)]` =`:accent`,
-  `data-[state=active]:text-white`,
-  `hover:bg-[var(--devtools-hover)]` =`:hover`). The mnemonic letter is
-  exposed via the `title` attribute. The decorative `●/○` radio glyph
-  is GONE — fill + text colour carry the selected signal.
+  "One tab in the L3 tab bar — an UNDERLINE tab per the authoritative
+  reference (`tools/causa/design-reference/causa_devtools_reference.cljs`,
+  the `main-app` tab-strip, rf2-3f2di A1), NOT a radio glyph and NOT a
+  filled-accent pill. Each tab is a borderless button on a transparent
+  background:
+
+  - the ACTIVE tab carries a 2px `border-bottom` in `:accent` and the
+    NORMAL text colour (`:text-primary` = the reference
+    `text-[var(--devtools-text)]`) — the underline, not a filled fill,
+    is the selected signal;
+  - INACTIVE tabs are transparent with a 2px TRANSPARENT bottom border
+    (so the active underline never shifts the row by 2px) and NEUTRAL
+    muted ink (`:text-tertiary` = the reference `--devtools-text-muted`,
+    the `text-muted-foreground` of the reference Tabs).
+
+  The subtle `:hover` background fill lives in
+  `theme/global-styles/motion-css` (keyed off the `rf-causa-tab-*`
+  testid, since inline styles can't carry a `:hover` pseudo-class). The
+  mnemonic letter is exposed via the `title` attribute. The decorative
+  `●/○` radio glyph is GONE — the underline + text colour carry the
+  selected signal.
+
+  rf2-3f2di — the prior rf2-ad7zx.16 filled-accent pill (bg `:accent`,
+  white text) is superseded by the reference's underline treatment.
 
   `aria-label` wraps the visible label as `Causa <tab-label> tab` so the
   button's accessible name never collides with host-app role queries
@@ -2041,31 +2109,38 @@
               :on-click      #(rf/dispatch [:rf.causa/select-tab id] {:frame :rf/causa})
               :title         (str label " (" mnem ")")
               :aria-label    (str "Causa " label " tab")
-              :style {;; Active tab → filled accent background + white
-                      ;; text (Figma `data-[state=active]:bg-…/text-white`);
-                      ;; inactive → transparent with neutral muted ink
-                      ;; (`:text-tertiary`, rf2-cplj8). The `:hover` fill for
-                      ;; inactive tabs is applied via the scoped CSS rule in
-                      ;; motion-css.
-                      :background    (if active? (:accent tokens) "transparent")
+              :style {;; rf2-3f2di A1 — UNDERLINE tab per the authority
+                      ;; reference. ACTIVE → transparent bg, normal text
+                      ;; ink, 2px `:accent` bottom border (the underline);
+                      ;; INACTIVE → transparent bg, neutral muted ink, 2px
+                      ;; TRANSPARENT bottom border (so the active
+                      ;; underline never shifts the row 2px). The `:hover`
+                      ;; fill for inactive tabs is applied via the scoped
+                      ;; CSS rule in motion-css.
+                      :background    "transparent"
                       :border        "none"
-                      :border-radius "6px"          ; Tailwind `rounded`
-                      ;; rf2-cplj8 — inactive tabs use NEUTRAL muted ink
-                      ;; (`:text-tertiary` = Figma `--devtools-text-muted`,
-                      ;; the `text-muted-foreground` the Tabs TabsList
-                      ;; carries) rather than the brighter blue-ish
-                      ;; `:text-secondary`. The muted ink lets the active
-                      ;; tab's filled-accent fill be the only bright signal.
+                      ;; The selected signal is the 2px accent underline
+                      ;; (reference `main-app` tab-strip:
+                      ;; `border-bottom: 2px solid var(--devtools-active)`
+                      ;; when active, `2px solid transparent` otherwise).
+                      :border-bottom (if active?
+                                       (str "2px solid " (:accent tokens))
+                                       "2px solid transparent")
+                      ;; ACTIVE → normal text ink (reference
+                      ;; `text-[var(--devtools-text)]` = `:text-primary`);
+                      ;; INACTIVE → neutral muted ink (`:text-tertiary` =
+                      ;; reference `--devtools-text-muted`).
                       :color         (if active?
-                                       (:white tokens)
+                                       (:text-primary tokens)
                                        (:text-tertiary tokens))
                       :cursor        "pointer"
-                      :padding       "6px 12px"     ; Tailwind `px-3 py-1.5`
+                      :padding       "0 16px"       ; reference `px-4`, full-height
+                      :height        "100%"
                       :font-family   sans-stack
                       :font-size     (:body type-scale)
                       :font-weight   (if active? 600 400)
                       :white-space   "nowrap"
-                      :transition    "background-color 120ms ease-out, color 120ms ease-out"}}
+                      :transition    "border-color 120ms ease-out, color 120ms ease-out"}}
      label]))
 
 (rf/reg-view tab-bar
@@ -2090,11 +2165,15 @@
     [:div {:data-testid "rf-causa-tab-bar"
            :role        "tablist"
            :aria-label  "Causa panel tabs"
+           ;; rf2-3f2di A1 — `align-items: stretch` + `gap: 0` so the
+           ;; full-height underline tabs (reference `main-app` tab-strip)
+           ;; sit flush and their 2px accent bottom-border lands on the
+           ;; bar's bottom edge. Height matches the 34px ribbon rhythm.
            :style {:display       "flex"
-                   :align-items   "center"
-                   :gap           "4px"
-                   :height        "40px"
-                   :padding       "0 8px"
+                   :align-items   "stretch"
+                   :gap           "0"
+                   :height        "34px"
+                   :padding       "0 12px"
                    :background    (:bg-1 tokens)
                    :border-top    (str "1px solid " (:border-subtle tokens))
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
@@ -2208,14 +2287,17 @@
 ;; discipline as the rest of the shell.
 
 (rf/reg-view dynamic-chrome
-  "The Dynamic chrome wrapped as a single component. Per rf2-4vp5j the
-  top splits into two strata — the **chrome ribbon** (`ribbon`: Frame +
-  Dynamic/Static dropdowns, `⚙`/`✕`) and the **events ribbon**
-  (`events-ribbon`: `Events:` + nav + focus-chip + pills, and the
-  hidden-count + Clear Filters on the right) — above the L2 event list,
-  L3 tab bar, and L4 detail panel. Extracted from the inline
-  composition in `shell-view` so the Static surface can swap in
-  alongside it via the mode composer (rf2-o5f5f.1).
+  "The Dynamic chrome wrapped as a single component. Per rf2-3f2di the
+  top splits into two strata reconciled to the authority reference — the
+  **chrome ribbon** (`ribbon`, bar-1: `Events` label + blue-filled nav +
+  focus button + focus-chip + `Filters:` + add(+) on the left; Frame +
+  Dynamic/Static dropdowns + indicators + `⚙`/`✕` on the right) and the
+  **events ribbon** (`events-ribbon`, bar-2: the `N events filtered out`
+  warning + the green/red committed pills, with Clear Filters on the
+  right when active) — above the L2 event list, L3 tab bar, and L4
+  detail panel. Extracted from the inline composition in `shell-view` so
+  the Static surface can swap in alongside it via the mode composer
+  (rf2-o5f5f.1).
 
   Per rf2-in6l2 `reg-view`-registered for parity with every other
   shell region."

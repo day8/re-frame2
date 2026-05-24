@@ -200,7 +200,10 @@
       (is (some? indicator) "banner renders when rows are hidden")
       (is (some? (find-by-testid tree "rf-causa-filters-hidden-clear"))
           "Clear filters button present")
-      (is (re-find #"1 event hidden by filters" (text-of count-node))))))
+      ;; rf2-3f2di A5 — the bar-2 warning reads `N events filtered out`
+      ;; (authority reference events-ribbon), superseding the prior
+      ;; `N events hidden by filters` copy.
+      (is (re-find #"1 event filtered out" (text-of count-node))))))
 
 (deftest hidden-message-does-not-duplicate-the-committed-pills
   (testing "rf2-ad7zx.18 — per the Figma EventsRibbon mock the hidden-state
