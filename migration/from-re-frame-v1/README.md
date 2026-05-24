@@ -1188,7 +1188,7 @@ Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` event
 
 **Type A** (mechanical, dep-only).
 
-As the fourth per-feature artefact split (Strategy B), Spec 013's flows surface — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the topological-sort engine, the dirty-check `last-inputs` map, the post-drain `run-flows!` walker, and the `re-frame.flows` namespace — ships as a separate Maven artefact `day8/re-frame2-flows`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the topo-sort engine, or any of the flow-evaluation machinery; an app that doesn't register any flows builds an `:advanced` bundle clean of every flows-related symbol.
+As the fourth per-feature artefact split (Strategy B), Spec 013's flows surface — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the topological-sort engine, the dirty-check `last-inputs` map, the `run-flows-on-db` outermost-`:after` flow transform (see line 846 above — flows run right after the handler, transforming the pending `:db` effect before the single deferred install), and the `re-frame.flows` namespace — ships as a separate Maven artefact `day8/re-frame2-flows`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the topo-sort engine, or any of the flow-evaluation machinery; an app that doesn't register any flows builds an `:advanced` bundle clean of every flows-related symbol.
 
 **What to look for** in the codebase:
 
