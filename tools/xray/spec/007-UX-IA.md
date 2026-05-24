@@ -77,8 +77,8 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ ❖ Xray   Frame ▾   Dynamic / Static ▾                            ⚙  ✕  │   L1 chrome ribbon
-│ Events:  [◀ ▶ ⏭]  🎯 focus   [source: view ×] [+]          Clear Filters │   L1.5 events ribbon
+│ Event History  [◀ ▶ ⏭]  + filter   :app/main ▾   Dynamic / Static ▾   ⚙ ✕│   L1 chrome ribbon
+│ ↳ filters:  +  [+ :auth/* ✎] [× :mouse-move ✎]              3 filtered out│   L1.5 events ribbon (shown only when filters exist — rf2-pjjwh)
 ├─────────────────────────────────────────────────────────────────────────┤
 │ source │ event id        │ timestamp      │ duration                     │   L2 — 4-col table
 │ fx     │ :title/flow     │ 12:30:05.123   │  1.2 ms                      │      6 rows default
@@ -96,16 +96,20 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 
 The four layers, top to bottom:
 
-1. **L1 — Two ribbons (rf2-4vp5j).** A **chrome ribbon** carries the **`❖ Xray`
-   logo/wordmark** (the single blue `accent`), then scope selectors (`Frame ▾` view-scope
-   dropdown + `Dynamic / Static ▾` **mode dropdown**) on the left, and chrome actions
-   (`⚙` settings + `✕` close) on the right. Below it an **events ribbon** carries the spine
-   + filter chrome: `Events:` label · nav (`◀` `▶` `⏭`) · the focus chip (`🎯 focus`, the
-   accent) · the active filter pills (each removable, `×`) + a `[+]` add-pill · and `Clear
-   Filters` at the far right. (`⛶` popout is omitted — silent-by-default until the
-   second-window UX lands.) LIVE/RETRO surfaces in the L2 event-list spine itself; the chrome
-   ribbon's mode dropdown toggles Dynamic ↔ Static (a separate axis). Anatomy in §The L1
-   ribbon below.
+1. **L1 — Two ribbons (rf2-4vp5j / rf2-pjjwh).** A **chrome ribbon** leads with the
+   `Event History` label, then the nav cluster (`◀` `▶` `⏭`) + the `+ filter` add affordance,
+   then scope selectors (the **`<frame>` ▾** view-scope dropdown whose face shows the
+   currently-selected frame, rf2-pjjwh + `Dynamic / Static ▾` **mode dropdown**), and chrome
+   actions (`⚙` settings + `✕` close) on the right. Below it an **events ribbon** carries the
+   filter chrome: `↳ filters:` label · a `+` add-filter icon · the active filter pills (each
+   removable, `×`). **rf2-pjjwh — the events ribbon is hidden by default and animates open
+   only once the first filter exists; it animates closed when the last filter is removed.**
+   The focus-dimension feature (focus button / `🎯 focus` chip / per-row focus gutter) and the
+   `Clear Filters` button were RETIRED (rf2-pjjwh — not in the Figma surface). Row click still
+   SELECTS the cascade and drives every L3/L4 panel. (`⛶` popout is omitted — silent-by-default
+   until the second-window UX lands.) LIVE/RETRO surfaces in the L2 event-list spine itself;
+   the chrome ribbon's mode dropdown toggles Dynamic ↔ Static (a separate axis). Anatomy in
+   §The L1 ribbon below.
 2. **L2 — Event list.** A **four-column table** (`source · event id · timestamp · duration`);
    **6 rows visible by default**, the **bottom edge a drag handle for vertical resize**;
    latest-on-bottom; virtualised; sticky header. The active/focused row takes a subtle
@@ -271,19 +275,20 @@ only when their count > 0** (absent in the Figma mock because the counts there a
 render to the right of the Mode dropdown when active. Kept per the functional-semantic carve-out
 (rf2-ad7zx).
 
-### L1.5 events ribbon (`rf-xray-events-ribbon`, ~36px — Figma design rf2-ad7zx)
+### L1.5 events ribbon (`rf-xray-events-ribbon`, ~36px — Figma design rf2-ad7zx / rf2-pjjwh)
 
 Reconciled to the Figma design (`design-reference/xray_devtools_reference.cljs`, the
-`events-ribbon` component). Left → right: label, nav cluster, focus chip, filter pills + add;
-`Clear Filters` at the far right.
+`events-ribbon` component). **rf2-pjjwh — this ribbon is hidden by default and animates open
+(CSS `grid-template-rows: 0fr ⇄ 1fr`) only once the first filter exists; it animates closed
+when the last filter is removed.** Left → right: `↳ filters:` label, a `+` add-filter icon,
+the filter pills. The nav cluster moved UP to the chrome ribbon; the focus chip and the
+`Clear Filters` button were RETIRED (rf2-pjjwh — not in the Figma surface).
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Label** | left | `Events:` (muted) | — |
-| **Nav** | left | `◀` back-one-event · `▶` forward-one-event · `⏭` fast-forward-to-latest (snap head + resume LIVE) | `j` / `k` / `G` |
-| **Focus chip** | left | `🎯 focus` — **filled with the mode accent** + white text; the current focus / `🎯 <label> ✕` when one is pinned; click to reveal pivot row; `✕` clears. | `Esc` clears |
-| **Filter pills** | left | active filter pills (each a removable `<key> ×` chip, e.g. `source: view ×`) + a trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
-| **Clear** | far right | `Clear Filters` (whenever any filter active). The `N events hidden by filters` count renders alongside when N > 0. | — |
+| **Label** | left | `↳ filters:` (muted) | — |
+| **Filter pills** | left | a `+` add-filter icon + active filter pills (each a removable `<key> ×` chip). Click any pill → edit popup; each pill's `✕` removes it. | `/` focus add-pill |
+| **Hidden** | far right | `N events filtered out` count, only when N > 0. | — |
 
 Full anatomy + filter-pill edit popup in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §3 + §7.
@@ -537,8 +542,10 @@ AND across modes; OR within mode. `(match-any-IN) AND NOT
 (match-any-OUT)`. localStorage persists per host app **within a session,
 but RESETS on every load** (rf2-swclw — pills are a transient filter; a
 fresh load starts unfiltered). When a filter is hiding rows mid-session,
-the events ribbon's far-right cluster shows `N events hidden by filters` +
-`Clear Filters` (rf2-jvghz). The frame view-scope is NOT a pill (rf2-4vp5j)
+the events ribbon's far-right cluster shows `N events filtered out`
+(rf2-jvghz). The `Clear Filters` button was retired (rf2-pjjwh); pills are
+removed individually via each pill's `✕`. The frame view-scope is NOT a
+pill (rf2-4vp5j)
 — it is excluded from this composition + the hidden count. Full edit-popup
 contract + Recommended-filters quick-add + right-click context menu in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §7.

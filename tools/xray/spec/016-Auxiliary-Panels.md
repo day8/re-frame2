@@ -67,7 +67,8 @@ To use Chrome DevTools for performance analysis:
 3. The Timings track shows the `rf:*` User-Timing entries inline with
    browser-level events (long tasks, layout shifts, INP).
 4. Per-event hot-path information stays inside Xray's chrome —
-   tier dots, ms duration — in the Event tab + event-list row gutters.
+   the ms duration in the Event tab + the L2 event-list `duration`
+   column (rf2-pjjwh; the row-gutter tier dot was retired).
 
 **Sensitive-data note for the cross-link:** Chrome DevTools cannot
 mark-render `:rf/redacted` sentinels — any User-Timing entry name that
@@ -239,11 +240,13 @@ Performance tab — the framework emits `rf:*` User-Timing entries
 DevTools renders natively. See the §Performance cross-link block at
 the top of this file.
 
-Per-cascade tier dots + duration ms stay inline in:
+Per-cascade duration stays inline in:
 
-- L2 event-list row gutters (`●` colour tier).
+- The L2 event-list `duration` column (`1.2 ms`, right-aligned —
+  rf2-pjjwh; the prior row-gutter tier dot was retired with the focus
+  gutter).
 - L4 Event tab content "event" header line (`⏱ 11ms · tier ●`).
-- Event-list row hover tooltips (`⏱ 12ms · tier ●`).
+- Event-list row hover tooltips (the row's `:title`).
 
 That's the entire Xray-side perf surface post-rewrite.
 

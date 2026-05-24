@@ -637,16 +637,6 @@
     "  [data-rf-xray-status=\"paused-by-tool\"] {\n"
     "    box-shadow: inset -2px 0 0 0 GrayText !important;\n"
     "  }\n"
-    ;; L2 row gutter — the 1px causal-chain thread (mode accent) and the
-    ;; focus markers (⦿ / ◌) need a system-token landing. The gutter
-    ;; <span> doesn't carry a testid hook, so we target the
-    ;; row-gutter testid pattern. The inset box-shadow becomes
-    ;; Highlight; the marker colour becomes Highlight too so the
-    ;; focus-set anchor reads at a glance.
-    "  [data-testid^=\"rf-xray-row-gutter-\"] {\n"
-    "    box-shadow: inset 1px 0 0 0 Highlight !important;\n"
-    "    color: Highlight !important;\n"
-    "  }\n"
     ;; L4 panel header accent stripes (3px left border on the panel
     ;; <h1>) — the single GitHub-blue accent
     ;; collapses to CanvasText so the stripe still paints as a
@@ -665,8 +655,7 @@
     "  [data-testid=\"rf-xray-icon-close\"],\n"
     "  [data-testid=\"rf-xray-nav-prev\"],\n"
     "  [data-testid=\"rf-xray-nav-next\"],\n"
-    "  [data-testid=\"rf-xray-nav-head\"],\n"
-    "  [data-testid=\"rf-xray-focus-chip-clear\"] {\n"
+    "  [data-testid=\"rf-xray-nav-head\"] {\n"
     "    color: ButtonText !important;\n"
     "  }\n"
     ;; Hyperlinks inside Xray chrome → LinkText. Sparingly used
@@ -731,10 +720,6 @@
     "[data-rf-force-colors=\"active\"] [data-rf-xray-status=\"paused-by-tool\"] {\n"
     "  box-shadow: inset -2px 0 0 0 GrayText !important;\n"
     "}\n"
-    "[data-rf-force-colors=\"active\"] [data-testid^=\"rf-xray-row-gutter-\"] {\n"
-    "  box-shadow: inset 1px 0 0 0 Highlight !important;\n"
-    "  color: Highlight !important;\n"
-    "}\n"
     "[data-rf-force-colors=\"active\"] [data-testid^=\"rf-xray-detail-panel-\"] h1 {\n"
     "  border-left-color: CanvasText !important;\n"
     "}\n"
@@ -742,8 +727,7 @@
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-icon-close\"],\n"
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-nav-prev\"],\n"
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-nav-next\"],\n"
-    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-nav-head\"],\n"
-    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-focus-chip-clear\"] {\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-nav-head\"] {\n"
     "  color: ButtonText !important;\n"
     "}\n"
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-shell\"] a,\n"
@@ -845,6 +829,32 @@
     "[data-testid=\"rf-xray-nav-head\"]:not([disabled]):hover {\n"
     "  background-color: rgba(255,255,255,0.12);\n"
     "  color: " (:chrome-ribbon-text tokens/tokens) ";\n"
+    "}\n"
+    ;; rf2-pjjwh — `filters:` (bar-2) conditional reveal animation. The
+    ;; events-ribbon is HIDDEN when there are zero filters and animates
+    ;; OPEN when the first filter is added / CLOSED when the last is
+    ;; removed. The collapse track is a CSS grid whose single row animates
+    ;; `0fr ⇄ 1fr` — the modern jank-free height collapse that doesn't need
+    ;; a fixed max-height (the bar grows to its natural height and back to
+    ;; zero with no layout jump). `min-height: 0` on the inner child lets
+    ;; the grid track collapse fully; `overflow: hidden` clips the content
+    ;; while it slides. Opacity cross-fades alongside so the bar doesn't
+    ;; pop. Runs through `--rf-xray-motion-scale` so the reduced-motion
+    ;; seam collapses it to an instant resolve.
+    ".rf-xray-filters-collapse {\n"
+    "  display: grid;\n"
+    "  grid-template-rows: 0fr;\n"
+    "  opacity: 0;\n"
+    "  transition: grid-template-rows calc(200ms * var(--rf-xray-motion-scale, 1)) ease-out,\n"
+    "              opacity calc(160ms * var(--rf-xray-motion-scale, 1)) ease-out;\n"
+    "}\n"
+    ".rf-xray-filters-collapse[data-open=\"true\"] {\n"
+    "  grid-template-rows: 1fr;\n"
+    "  opacity: 1;\n"
+    "}\n"
+    ".rf-xray-filters-collapse > * {\n"
+    "  min-height: 0;\n"
+    "  overflow: hidden;\n"
     "}\n"))
 
 (defn- inject-motion-style!

@@ -149,8 +149,8 @@
   "True iff `ev` is an error trace — classified by the universal
   severity axis (`:op-type :error`, per Spec 009) with a namespace
   fallback for any `:rf.error/*` operation. Mirrors the namespace-based
-  idiom in `shell/row-badges` and `issues-ribbon-helpers/op-type->severity`
-  rather than enumerating individual ops the substrate may add over time."
+  idiom in `issues-ribbon-helpers/op-type->severity` rather than
+  enumerating individual ops the substrate may add over time."
   [{:keys [op-type operation] :as _ev}]
   (or (= :error op-type)
       (and (keyword? operation) (= "rf.error" (namespace operation)))))

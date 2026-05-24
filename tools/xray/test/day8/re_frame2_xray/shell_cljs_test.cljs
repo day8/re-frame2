@@ -263,11 +263,11 @@
 (deftest chrome-ribbon-carries-events-nav-filters-and-selectors
   (testing "rf2-3f2di A4/A5 — reconciled to the authority reference
             chrome-ribbon. The chrome ribbon (rf-xray-ribbon) now leads
-            with the `Events` label, then the nav cluster + focus
-            controls + `Filters:` + the add(+) on the left, and carries
-            the Frame + Dynamic/Static selectors + the right-icons
-            cluster on the right. The committed filter pills moved DOWN to
-            the events ribbon (bar-2)."
+            with the `Events` label, then the nav cluster + the add(+) on
+            the left, and carries the Frame + Dynamic/Static selectors +
+            the right-icons cluster on the right. The committed filter
+            pills moved DOWN to the events ribbon (bar-2). rf2-pjjwh
+            retired the focus button + chip."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [ribbon (shell/ribbon nil)]
@@ -350,25 +350,53 @@
         (is (re-find #"filtered out" (text-nodes ribbon))
             "the `N events filtered out` warning renders on bar-2")))))
 
-(deftest events-ribbon-actions-absent-when-no-filters
-  (testing "rf2-4vp5j Decision 3 — with no pills + no mutes, the events
-            ribbon's right-side action cluster (Clear Filters + N-hidden
-            message) is absent (clean default state)."
+(deftest events-ribbon-hidden-when-no-filters
+  (testing "rf2-pjjwh — with no filters the `filters:` ribbon is collapsed
+            (data-open=false on the collapse track) and carries no action
+            cluster / warning. Clear Filters is retired entirely."
     (xray-setup!)
     (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree     (shell/shell-view)
+            collapse (find-by-testid tree "rf-xray-events-ribbon-collapse")]
+        (is (some? collapse) "the collapse track stays mounted (for the animation)")
+        (is (= "false" (:data-open (second collapse)))
+            "the filters ribbon is CLOSED when there are zero filters")
         (is (nil? (find-by-testid tree "rf-xray-events-ribbon-actions"))
             "no action cluster when no filter is active")
         (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
-            "no Clear Filters button when no filter is active")
+            "no Clear Filters button (retired)")
         (is (nil? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
             "no N-hidden message when no filter is active")))))
 
-(deftest events-ribbon-shows-clear-filters-when-filter-active
-  (testing "rf2-4vp5j Decision 3 — when a filter is active, Clear Filters
-            appears; the N-hidden message appears beside it only when N>0."
+(deftest events-ribbon-opens-when-first-filter-added
+  (testing "rf2-pjjwh — the `filters:` ribbon animates OPEN once the first
+            filter is created. The collapse track flips data-open
+            false → true; the pills cluster carries the new pill."
+    (xray-setup!)
+    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                               :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
+    ;; before: closed
+    (rf/with-frame :rf/xray
+      (is (= "false" (:data-open (second (find-by-testid (shell/shell-view)
+                                                         "rf-xray-events-ribbon-collapse"))))
+          "closed before any filter"))
+    ;; add a filter
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/add-filter :in {:pattern :a}]))
+    ;; after: open
+    (rf/with-frame :rf/xray
+      (let [tree (shell/shell-view)]
+        (is (= "true" (:data-open (second (find-by-testid tree "rf-xray-events-ribbon-collapse"))))
+            "open after the first filter is added")
+        (is (some? (find-by-testid tree "rf-xray-ribbon-filters"))
+            "the committed-pills cluster carries the new pill")))))
+
+(deftest events-ribbon-warning-without-clear-filters-when-filter-active
+  (testing "rf2-pjjwh — when a filter is active the `N events filtered
+            out` warning appears (when N>0), but the `Clear Filters`
+            button is RETIRED. The collapse track opens (data-open=true)."
     (xray-setup!)
     (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
@@ -377,16 +405,18 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :noise/tick}]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree     (shell/shell-view)
+            collapse (find-by-testid tree "rf-xray-events-ribbon-collapse")]
+        (is (= "true" (:data-open (second collapse)))
+            "the filters ribbon collapse track is OPEN when a filter is active")
         (is (some? (find-by-testid tree "rf-xray-events-ribbon-actions"))
-            "action cluster present when a filter is active")
-        (is (some? (find-by-testid tree "rf-xray-filters-hidden-clear"))
-            "Clear Filters button present")
+            "action cluster present when a filter hides ≥1 row")
         (is (some? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
             "N-hidden message present (the OUT pill hides 1 row → N>0)")
-        ;; the message says 'Clear Filters' (capitalised label per redesign)
-        (is (re-find #"Clear Filters"
-                     (text-nodes (find-by-testid tree "rf-xray-events-ribbon-actions"))))))))
+        (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
+            "Clear Filters button is RETIRED (rf2-pjjwh)")
+        (is (not (re-find #"Clear Filters" (text-nodes tree)))
+            "no `Clear Filters` copy anywhere in the shell")))))
 
 (deftest close-icon-dispatches-close-shell
   (testing "rf2-4vp5j Workstream A — the chrome ribbon `✕` dispatches the
@@ -779,13 +809,12 @@
 (deftest event-list-header-shares-row-column-layout
   (testing "rf2-ad7zx.15 — the column-header row and the data rows share
             ONE column structure (per design-reference/xray_devtools_reference.cljs,
-            the event-list component). The header's `source` / `event id` /
+            the event-list component). The header's `event id` / `source` /
             `timestamp` columns MUST sit directly above the rows' columns,
             so the header cells and the row cells reference the same fixed
-            widths, the same leading gutter width, and the containers
-            share the same flex gap + horizontal padding. rf2-ad7zx.12 had
-            hand-copied numbers that drifted out of alignment (Mike, live
-            step-deck verify)."
+            widths and the containers share the same flex gap + horizontal
+            padding. rf2-pjjwh retired the leading focus-gutter (and its
+            header spacer) per the Figma mock."
     (xray-setup!)
     ;; A cascade with a dispatched-time so the row renders its trailing
     ;; relative-time chip (the column the header's `timestamp` aligns to),
@@ -804,33 +833,21 @@
             ;; row cells (the :timer row)
             row         (first (find-all-by-testid-prefix
                                  tree "rf-xray-event-row-"))
-            r-gutter    (first (find-all-by-testid-prefix
-                                 tree "rf-xray-row-gutter-"))
             r-source    (find-by-testid tree "rf-xray-row-origin-timer")
             r-event-id  (find-by-testid tree "rf-xray-row-event-id")
-            r-time      (find-by-testid tree "rf-xray-row-time-chip")
-            ;; the header's leading gutter spacer is the first :span child
-            ;; of the header div (aria-hidden, no testid).
-            h-gutter    (some (fn [n]
-                                (when (and (vector? n)
-                                           (map? (second n))
-                                           (= "true" (:aria-hidden (second n))))
-                                  n))
-                              header)]
+            r-time      (find-by-testid tree "rf-xray-row-time-chip")]
         ;; sanity — every cell we compare exists
         (is (some? header)      "header row renders")
         (is (some? row)         "the :timer data row renders")
         (is (some? r-source)    "the row's source-tag cell renders")
         (is (some? r-time)      "the row's time chip renders (it carries :time)")
+        ;; rf2-pjjwh — no leading focus gutter on either surface.
+        (is (empty? (find-all-by-testid-prefix tree "rf-xray-row-gutter-"))
+            "no row gutter (the focus gutter was retired)")
         ;; SOURCE column — header label width == row tag width
         (is (= (:width (style-of h-source))
                (:width (style-of r-source)))
             "header `source` column width == row source-tag width")
-        ;; GUTTER — header spacer width == row gutter width (so the
-        ;; `source` column starts at the same x on both surfaces)
-        (is (= (:width (style-of h-gutter))
-               (:width (style-of r-gutter)))
-            "header gutter spacer width == row gutter width")
         ;; EVENT-ID column — both flex-grow with min-width 0
         (is (= (:flex (style-of h-event-id))
                (:flex (style-of r-event-id)))
@@ -945,34 +962,6 @@
                (:text-align (style-of r-duration)))
             "header duration and row duration both right-align")))))
 
-(deftest event-row-gutter-carries-cascade-chain-thread
-  (testing "rf2-5kfxe.10 — every L2 event-row gutter carries an inset
-            1px violet box-shadow on its left edge. Stacked rows
-            render as a continuous vertical thread that visually
-            expresses the spine's timeline rather than reading as a
-            flat list. Implemented via box-shadow (not border-left)
-            so the gutter glyph doesn't shift."
-    (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (rf/with-frame :rf/xray
-      (let [tree    (shell/shell-view)
-            gutters (find-all-by-testid-prefix tree "rf-xray-row-gutter-")
-            gutter  (first gutters)
-            shadow  (get-in gutter [1 :style :box-shadow])]
-        (is (seq gutters)
-            "at least one event-row gutter exists in the rendered tree")
-        (is (string? shadow))
-        (is (re-find #"inset" shadow)
-            "the thread uses `inset` so it paints inside the gutter
-             without consuming layout width")
-        (is (re-find #"1px 0 0 0" shadow)
-            "1px wide, left edge — a vertical line")
-        (is (re-find #"var\(--rf-xray-accent\)" shadow)
-            "mode accent — Xray's spine colour (orange Dynamic / cyan
-             Static, rf2-ad7zx), resolved through the theme's CSS
-             variable so the light theme + mode flip pick up the
-             corresponding hex (rf2-on4cm)")))))
-
 (deftest event-list-suppresses-ungrouped-cascade-placeholder
   (testing "per rf2-639lc Bug 1 the L2 list filters out the `:ungrouped`
             cascade produced by group-cascades for registry-time emits /
@@ -1031,7 +1020,9 @@
 
 (deftest event-list-reveals-ungrouped-bucket-when-opt-in
   (testing "rf2-r9lyy — `:show-ungrouped? true` reveals the :ungrouped
-            row in L2 with a distinct muted treatment"
+            row in L2. rf2-pjjwh retired the muted pseudo-row treatment
+            (the special italic/data-attribute styling), but the power-user
+            opt-in still surfaces the bucket as a plain row."
     (xray-setup!)
     (config/update-setting! :general :show-ungrouped? true)
     (try
@@ -1046,10 +1037,7 @@
           (is (= 2 (count rows))
               "both the real event AND the :ungrouped bucket render under opt-in")
           (is (some? ungrouped-row)
-              ":ungrouped bucket row is present")
-          (is (= "true"
-                 (:data-rf-xray-ungrouped (second ungrouped-row)))
-              ":ungrouped row carries the data attribute for visual treatment")))
+              ":ungrouped bucket row is present")))
       (finally
         (config/update-setting! :general :show-ungrouped? false)))))
 
@@ -1235,55 +1223,6 @@
             callback."
     (is (nil? (#'shell/focused-row-ref 42 false))
         "auto-track? false → nil ref")))
-
-;; -------------------------------------------------------------------------
-;; (3b) Focus chip body click — reveal pivot row (rf2-w738i)
-;; -------------------------------------------------------------------------
-;;
-;; The chip body used to advertise a "(future)" scroll-to-pivot gesture
-;; with no handler — a broken-claim affordance. It now WIRES that gesture
-;; to `scroll-row-into-view-by-id!`, locating the pivot row by the same
-;; `data-testid` the L2 renderer stamps.
-
-(deftest focus-chip-renders-nothing-without-focus-set
-  (testing "rf2-w738i — no active focus-set → the chip renders nothing
-            (no stray clickable chrome)"
-    (is (nil? (#'shell/ribbon-focus-chip {:focus-set nil})))))
-
-(deftest focus-chip-body-is-an-interactive-button
-  (testing "rf2-w738i — the chip body is a real button affordance:
-            role=button, keyboard-focusable, with both pointer + key
-            activation wired (no longer a misleading dead surface)"
-    (let [chip  (#'shell/ribbon-focus-chip
-                  {:focus-set {:dimension :event-id
-                               :value     :some/event
-                               :pivot-id  7}})
-          attrs (second chip)]
-      (is (= "rf-xray-focus-chip" (:data-testid attrs)))
-      (is (= "button" (:role attrs)) "chip body exposes role=button")
-      (is (= "0" (:tab-index attrs)) "chip body is keyboard-focusable")
-      (is (string? (:aria-label attrs)) "chip body has an accessible name")
-      (is (= "pointer" (get-in attrs [:style :cursor]))
-          "cursor:pointer telegraphs the (now-real) interactivity")
-      (is (fn? (:on-click attrs)) "pointer activation wired")
-      (is (fn? (:on-key-down attrs)) "keyboard activation wired"))))
-
-(deftest focus-chip-clear-button-stops-propagation
-  (testing "rf2-w738i — clicking ✕ clears focus WITHOUT also firing the
-            body's scroll gesture (stopPropagation on the clear button)"
-    (let [chip       (#'shell/ribbon-focus-chip
-                       {:focus-set {:dimension :event-id
-                                    :value     :some/event
-                                    :pivot-id  7}})
-          clear-btn  (find-by-testid chip "rf-xray-focus-chip-clear")
-          stopped?   (atom false)
-          stub-event #js {:stopPropagation #(reset! stopped? true)}]
-      (is (some? clear-btn) "clear ✕ button present")
-      ;; Invoking the handler must call stopPropagation (so the chip
-      ;; body's on-click doesn't also run). We don't assert the dispatch
-      ;; here (covered by the focus-clear event tests); only the guard.
-      ((:on-click (second clear-btn)) stub-event)
-      (is @stopped? "clear button stops propagation to the chip body"))))
 
 ;; -------------------------------------------------------------------------
 ;; (4a) Ribbon nav button enable/disable state — rf2-htik0 Bug 1
@@ -1939,65 +1878,8 @@
             "surviving pill carries the second pattern")))))
 
 ;; -------------------------------------------------------------------------
-;; (8) Pure helpers — gutter glyph + row badges
+;; (8) Pure helpers — event-id pluck
 ;; -------------------------------------------------------------------------
-
-(deftest gutter-glyph-default-is-circle
-  (is (= "●" (shell/gutter-glyph {:dispatch-id 1} 2))
-      "non-focused, no-errors, non-redacted → ●"))
-
-(deftest gutter-glyph-focused-row-is-target
-  (is (= "◉" (shell/gutter-glyph {:dispatch-id 1} 1))
-      "focused row → ◉"))
-
-(deftest row-badges-empty-by-default
-  (is (= [] (shell/row-badges {:other []}))
-      "no recognised op-types → no badges"))
-
-(deftest row-badges-detects-errors-and-http-and-machine
-  ;; Canonical post-`:rf.*`-migration trace shape (Spec 009): the
-  ;; machine op-type is `:rf.machine` / operation `:rf.machine/*` and
-  ;; HTTP is `:rf.http` / `:rf.http/*`. Feeding this shape would FAIL
-  ;; against the pre-fix `#":machine"` substring regex — `(str
-  ;; :rf.machine/transition)` is ":rf.machine/transition", which does
-  ;; NOT contain ":machine" (the substring is ".machine"). Pinning the
-  ;; migrated shape here closes the false-green blind spot where the
-  ;; old test fed `:machine/transition` and passed while the live badge
-  ;; never rendered.
-  (let [cascade {:other [{:op-type :error}
-                         {:op-type :rf.http :operation :rf.http/settled}
-                         {:op-type :rf.machine :operation :rf.machine/transition}]}]
-    (is (= ["⚠" "🌐" "🤖"] (shell/row-badges cascade))
-        "migrated :rf.machine/* + :rf.http/* shapes light all three badges")))
-
-(deftest row-badges-machine-detection-covers-op-type-and-sub-families
-  (testing "machine badge fires on the bare :op-type :rf.machine"
-    (is (= ["🤖"] (shell/row-badges {:other [{:op-type :rf.machine}]}))))
-  (testing "machine badge fires on a :rf.machine/* operation alone"
-    (is (= ["🤖"] (shell/row-badges
-                   {:other [{:operation :rf.machine/snapshot-updated}]}))))
-  (testing "machine badge folds in the :rf.machine.lifecycle/* sub-stream"
-    (is (= ["🤖"] (shell/row-badges
-                   {:other [{:operation :rf.machine.lifecycle/destroyed}]}))))
-  (testing "machine badge folds in the :rf.machine.microstep/* sub-stream"
-    (is (= ["🤖"] (shell/row-badges
-                   {:other [{:operation :rf.machine.microstep/transition}]}))))
-  (testing "a non-machine :rf.* family does NOT trip the machine badge"
-    (is (= [] (shell/row-badges {:other [{:operation :rf.event/dispatched}]})))))
-
-(deftest row-badges-http-detection-covers-op-type-and-canonical-family
-  (testing "http badge fires on the canonical :rf.http/* operation"
-    (is (= ["🌐"] (shell/row-badges
-                   {:other [{:op-type :rf.http :operation :rf.http/settled}]}))))
-  (testing "http badge still recognises the legacy :http/* alias"
-    (is (= ["🌐"] (shell/row-badges {:other [{:operation :http/get}]})))))
-
-(deftest row-badges-still-recognises-legacy-pre-migration-shape
-  ;; A pre-migration trace replayed through Xray keeps lighting up.
-  (let [cascade {:other [{:operation :machine/transition}
-                         {:operation :http/get}]}]
-    (is (= ["🌐" "🤖"] (shell/row-badges cascade))
-        "legacy :machine/* + :http/* still detected")))
 
 (deftest event-id-of-cascade-plucks-first-element
   (is (= :foo/bar (shell/event-id-of-cascade {:event [:foo/bar {:x 1}]})))
@@ -2383,52 +2265,17 @@
                                    "rf-xray-ribbon-nav"))
             "the nav cluster is mounted inside the chrome ribbon (A5)")))))
 
-(deftest chrome-ribbon-carries-blue-focus-button
-  (testing "rf2-xawwb — the always-present blue `focus` button is a filled
-            :active-bg button with white :active-text + the `focus` label,
-            now sitting in the CHROME ribbon left cluster (it moved up
-            with the nav cluster). Distinct from the focus-CHIP (which
-            only appears when a focus-set is active)."
+(deftest focus-button-and-chip-are-retired
+  (testing "rf2-pjjwh — the focus feature is retired: neither the blue
+            `focus` button nor the focus-chip appear in the chrome ribbon."
     (xray-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
-            btn    (find-by-testid tree "rf-xray-focus-button")
-            style  (:style (second btn))]
-        (is (some? btn) "the blue focus button renders (always present)")
-        (is (= (:active-bg tokens) (:background style))
-            "focus button background is the filled :active-bg (blue)")
-        (is (= (:active-text tokens) (:color style))
-            "focus button text is white :active-text")
-        (is (re-find #"focus" (text-nodes btn))
-            "the button carries the `focus` label")
-        ;; It lives in the chrome ribbon (bar-1) now, not the events ribbon.
-        (is (some? (find-by-testid (find-by-testid tree "rf-xray-ribbon")
-                                   "rf-xray-focus-button"))
-            "the focus button is mounted inside the chrome ribbon")))))
-
-(deftest focus-button-dispatches-set-focus-for-current-event
-  (testing "rf2-cplj8 — clicking the blue `focus` button focuses on the
-            currently-selected cascade's inferred dimension via
-            :rf.xray/set-focus (the ribbon-level counterpart of the
-            per-row gutter gesture)."
-    (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade 1]))
-    (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
-                                   ([ev]       (swap! dispatches conj ev) nil)
-                                   ([ev _opts] (swap! dispatches conj ev) nil))]
-        (rf/with-frame :rf/xray
-          (let [tree    (shell/shell-view)
-                btn     (find-by-testid tree "rf-xray-focus-button")
-                handler (:on-click (second btn))]
-            (is (fn? handler) "focus button carries an on-click when a
-                               dimension can be inferred")
-            (when handler (handler nil)))))
-      (is (some #(= :rf.xray/set-focus (first %)) @dispatches)
-          "the focus button dispatches :rf.xray/set-focus"))))
+      (let [tree (shell/shell-view)]
+        (is (nil? (find-by-testid tree "rf-xray-focus-button"))
+            "no focus button (the focus feature was retired)")
+        (is (nil? (find-by-testid tree "rf-xray-focus-chip"))
+            "no focus chip (the focus feature was retired)")))))
 
 (deftest event-id-column-is-left-aligned
   (testing "rf2-cplj8 — the `event id` column is explicitly LEFT-aligned

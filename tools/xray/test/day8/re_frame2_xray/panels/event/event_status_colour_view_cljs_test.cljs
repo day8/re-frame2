@@ -31,14 +31,12 @@
   Same approach as the surrounding panel suites — we walk the
   rendered tree by `data-testid` rather than mounting to a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.trace :as trace]
             [day8.re-frame2-xray.registry :as registry]
@@ -97,89 +95,31 @@
    :operation :rf.error/handler-exception
    :tags      {:rf.trace/dispatch-id dispatch-id :rf.trace/event-id :foo}})
 
-(defn- warning-ev
-  "A real `:rf.warning/large-value-unschema` trace (an op the substrate
-  actually emits — see implementation/core/src/re_frame/elision.cljc)
-  pinned to `dispatch-id`. The cascade projection routes the trace into
-  the cascade's `:other` bucket; `cascade-outcome` resolves to
-  :warning / yellow via the universal :op-type severity axis."
-  [id dispatch-id]
-  {:id        id
-   :op-type   :warning
-   :operation :rf.warning/large-value-unschema
-   :tags      {:rf.trace/dispatch-id dispatch-id}})
+;; ---- (1) L2 event-list row — status stripe RETIRED (rf2-pjjwh) ----------
+;;
+;; rf2-pjjwh retired the L2 row's trailing 2px lifecycle status stripe (the
+;; `box-shadow` accent + `data-rf-xray-status` attribute) — it was not in
+;; the Figma mock. The status-colour vocabulary now has a SINGLE render
+;; site (the Trace timeline bar); the pure-data layer is exercised in
+;; `event_status_colour_cljs_test.cljc`.
 
-;; ---- (1) L2 event-list row pickups -------------------------------------
-
-(deftest l2-row-success-cascade-rides-green
-  (testing "rf2-b76v4 — a happy-path cascade carries
-            data-rf-xray-status='settled-success' on its <li> and the
-            row's box-shadow rides the canonical green token. ONE
-            helper drives the value at the row level."
+(deftest l2-row-no-longer-carries-status-stripe
+  (testing "rf2-pjjwh — the L2 row carries NO `data-rf-xray-status`
+            attribute and NO lifecycle status box-shadow (the trailing
+            stripe was retired; the active row is marked by background
+            only)."
     (xray-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-bus/collect-trace! (handler-exception-ev 99 1))
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
-            row    (find-by-testid tree "rf-xray-event-row-1")
-            attrs  (second row)
-            status (:data-rf-xray-status attrs)
-            shadow (get-in attrs [:style :box-shadow])]
+      (let [tree  (shell/shell-view)
+            row   (find-by-testid tree "rf-xray-event-row-1")
+            attrs (second row)]
         (is (some? row) "L2 row renders for the cascade")
-        (is (= "settled-success" status)
-            "settled-success vocabulary lands on the row")
-        (is (string? shadow))
-        (is (string/includes? shadow (:green tokens/tokens))
-            "row's box-shadow accent uses the canonical :green token")))))
-
-(deftest l2-row-errored-cascade-rides-red
-  (testing "rf2-b76v4 — an errored cascade carries
-            data-rf-xray-status='settled-error' + a red box-shadow
-            on the row. Error vocabulary trumps the default ok."
-    (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! (handler-exception-ev 99 1))
-    (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
-            row    (find-by-testid tree "rf-xray-event-row-1")
-            attrs  (second row)
-            status (:data-rf-xray-status attrs)
-            shadow (get-in attrs [:style :box-shadow])]
-        (is (= "settled-error" status))
-        (is (string/includes? shadow (:red tokens/tokens))
-            "row's box-shadow accent uses the canonical :red token")))))
-
-(deftest l2-row-warning-cascade-rides-green-not-yellow
-  (testing "rf2-b76v4 — :warning outcomes resolve to :settled-success
-            at the row level (the row stays green). The yellow glyph
-            ALREADY signals warning at the Event header glyph slot;
-            re-amplifying it on the row would double-up the signal."
-    (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! (warning-ev 99 1))
-    (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
-            row    (find-by-testid tree "rf-xray-event-row-1")
-            attrs  (second row)
-            status (:data-rf-xray-status attrs)
-            shadow (get-in attrs [:style :box-shadow])]
-        (is (= "settled-success" status))
-        (is (string/includes? shadow (:green tokens/tokens)))))))
-
-(deftest l2-row-status-comes-from-the-canonical-helper
-  (testing "rf2-b76v4 — the row's data-rf-xray-status MATCHES the
-            name of the keyword `classify-status` resolves for the
-            same input. ONE helper, ONE vocabulary."
-    (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! (handler-exception-ev 99 1))
-    (rf/with-frame :rf/xray
-      (let [tree     (shell/shell-view)
-            row      (find-by-testid tree "rf-xray-event-row-1")
-            status   (:data-rf-xray-status (second row))
-            ;; Same state shape the row builds:
-            classify (event-status/classify-status {:outcome :error})]
-        (is (= (name classify) status)
-            "row's vocabulary matches the helper's classifier output")))))
+        (is (nil? (:data-rf-xray-status attrs))
+            "no data-rf-xray-status attribute on the row (stripe retired)")
+        (is (nil? (get-in attrs [:style :box-shadow]))
+            "no lifecycle status box-shadow on the row")))))
 
 ;; ---- (2) Event panel no longer carries a status dot (rf2-ad7zx.17) -----
 ;;
@@ -249,28 +189,23 @@
         (is (= (:red tokens/tokens)
                (get-in (second bar) [:style :background])))))))
 
-;; ---- (4) cross-site consistency — ONE vocabulary ------------------------
+;; ---- (4) single-site vocabulary — the Trace bar ------------------------
 
-(deftest both-sites-agree-on-cascade-status
-  (testing "rf2-b76v4 / rf2-ad7zx.17 — the L2 row + the Trace timeline
-            bar resolve to the SAME status keyword for the same cascade.
-            This is the bead's headline contract: ONE canonical map, NO
-            per-call-site rolling. (The Event L4 header dot was a third
-            site until rf2-ad7zx.17 removed the top ribbon.)"
+(deftest trace-bar-rides-the-canonical-status-vocabulary
+  (testing "rf2-b76v4 / rf2-pjjwh — the status-colour vocabulary now has a
+            SINGLE render site (the Trace timeline bar) since the L2 row
+            stripe was retired. The bar resolves to the canonical status
+            keyword from ONE map, NO per-call-site rolling."
     (xray-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-bus/collect-trace! (handler-exception-ev 99 1))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
-      (let [shell-tree   (shell/shell-view)
-            trace-tree   (trace/Panel)
-            l2-row       (find-by-testid shell-tree "rf-xray-event-row-1")
+      (let [trace-tree   (trace/Panel)
             trace-bar    (find-by-testid-prefix
                            trace-tree
                            "rf-xray-trace-cascade-status-bar-")
-            l2-status    (:data-rf-xray-status (second l2-row))
             trace-status (:data-rf-xray-status (second trace-bar))]
-        (is (= l2-status trace-status "settled-error")
-            (str "both consumers ride the same vocabulary — "
-                 "l2: " l2-status
-                 " · trace: " trace-status))))))
+        (is (= "settled-error" trace-status)
+            (str "the trace bar rides the canonical vocabulary — "
+                 "trace: " trace-status))))))

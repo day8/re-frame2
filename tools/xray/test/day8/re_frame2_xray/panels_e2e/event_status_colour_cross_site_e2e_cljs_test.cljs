@@ -26,20 +26,15 @@
   consumer-site hiccup trees and asserts the SAME
   `data-rf-xray-status` keyword surfaces at every site.
 
-  ## Consumer sites under test
+  ## Consumer site under test
 
-  Both nodes carry `data-rf-xray-status` (the helper's classifier
-  output `(name kw)`) so the walker keys on the same attribute
-  everywhere:
-
-    1. L2 event-row             — `shell/shell-view` <li>
-       `data-testid='rf-xray-event-row-<id>'`
-    2. L4 Trace cascade-status  — `trace/Panel` <div>
-       `data-testid='rf-xray-trace-cascade-status-bar-<status>'`
-
-  The L4 Event header dot was a third site until rf2-ad7zx.17 removed
-  the Event panel's top ribbon (matching `EventPanel`); the Event
-  panel now carries no status dot.
+  Post rf2-pjjwh the status-colour vocabulary has a SINGLE render site —
+  the L4 Trace cascade-status bar (`trace/Panel` <div>
+  `data-testid='rf-xray-trace-cascade-status-bar-<status>'`). The L2
+  event-row's trailing status stripe was retired (it was not in the Figma
+  mock); the L4 Event header dot was removed earlier (rf2-ad7zx.17). This
+  suite exercises the REAL trace bus → cascade projection → spine focus →
+  hiccup render pipeline end-to-end against the surviving site.
 
   ## Cascades exercised
 
@@ -53,7 +48,6 @@
             [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.panels.trace :as trace]
-            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
             [day8.re-frame2-xray.test-helpers.host-fixtures.counter :as counter]
             [day8.re-frame2-xray.test-helpers.host-fixtures.deliberate-throw
@@ -84,70 +78,48 @@
   (rf/dispatch-sync [:rf.xray/select-dispatch-id dispatch-id]
                     {:frame :rf/xray}))
 
-(defn- read-status-at-each-site
-  "Render the consumer views under `:rf/xray` and return a map of
-  `{:l2 <status-str>, :trace <status-str>}`, reading
-  `:data-rf-xray-status` off the canonical anchor node at each site.
-  Any missing site reads as nil so a failing assertion pinpoints which
-  surface fell off the helper.
-
-  Reads only — no state mutation. Safe to call repeatedly per
-  focused cascade."
-  [dispatch-id]
+(defn- read-trace-status
+  "Render the L4 Trace panel under `:rf/xray` and return the cascade-
+  status bar's `:data-rf-xray-status` (or nil when absent). Post rf2-pjjwh
+  the Trace bar is the single status-colour render site (the L2 row stripe
+  was retired). Reads only — no state mutation."
+  [_dispatch-id]
   (rf/with-frame :rf/xray
-    (let [shell-tree   (shell/shell-view)
-          trace-tree   (trace/Panel)
-          l2-row       (th/find-by-attr shell-tree :data-testid
-                                        (str "rf-xray-event-row-"
-                                             (str dispatch-id)))
-          trace-bar    (first (th/find-by-attr-prefix
-                                trace-tree :data-testid
-                                "rf-xray-trace-cascade-status-bar-"))]
-      {:l2    (get (th/attrs l2-row) :data-rf-xray-status)
-       :trace (get (th/attrs trace-bar) :data-rf-xray-status)})))
+    (let [trace-tree (trace/Panel)
+          trace-bar  (first (th/find-by-attr-prefix
+                              trace-tree :data-testid
+                              "rf-xray-trace-cascade-status-bar-"))]
+      (get (th/attrs trace-bar) :data-rf-xray-status))))
 
 ;; ---- tests --------------------------------------------------------------
 
-(deftest success-cascade-status-agrees-across-sites
-  (testing "rf2-b8pui / rf2-ad7zx.17 — happy-path host dispatch settles
-            to :settled-success at the L2 row and the L4 Trace
-            cascade-status bar. One vocabulary, one helper. (The Event
-            header dot was a third site until rf2-ad7zx.17 removed the
-            top ribbon.)"
+(deftest success-cascade-status-rides-trace-bar
+  (testing "rf2-b8pui / rf2-pjjwh — happy-path host dispatch settles to
+            :settled-success at the L4 Trace cascade-status bar through
+            the REAL trace bus → projection → spine → render pipeline.
+            (The L2 row stripe + Event header dot are both retired.)"
     (e2e/with-host-and-xray-frames
       {:install-host install-counter+throws!}
       (fn []
         (e2e/dispatch-host [:counter/inc])
         (let [focus-id (:dispatch-id (e2e/sub-xray [:rf.xray/focus]))
               _        (focus-cascade! focus-id)
-              status   (read-status-at-each-site focus-id)]
-          (is (= "settled-success" (:l2 status))
-              "L2 row did not classify a clean :counter/inc as :settled-success")
-          (is (= "settled-success" (:trace status))
-              "L4 Trace cascade-status bar did not classify a clean :counter/inc as :settled-success")
-          (is (= (:l2 status) (:trace status))
-              (str "consumer sites disagree on status — "
-                   "l2: "    (:l2 status)
-                   " · trace: " (:trace status))))))))
+              status   (read-trace-status focus-id)]
+          (is (= "settled-success" status)
+              "L4 Trace cascade-status bar did not classify a clean :counter/inc as :settled-success"))))))
 
-(deftest error-cascade-status-agrees-across-sites
-  (testing "rf2-b8pui / rf2-ad7zx.17 — a host handler-exception settles
-            to :settled-error at both sites. Catches the regression
-            class where the trace projection drops the error trace, or
-            the spine focuses on the wrong cascade, or one consumer
-            rolls its own colour decision."
+(deftest error-cascade-status-rides-trace-bar
+  (testing "rf2-b8pui / rf2-pjjwh — a host handler-exception settles to
+            :settled-error at the L4 Trace cascade-status bar. Catches
+            the regression class where the trace projection drops the
+            error trace, the spine focuses on the wrong cascade, or the
+            consumer rolls its own colour decision."
     (e2e/with-host-and-xray-frames
       {:install-host install-counter+throws!}
       (fn []
         (e2e/dispatch-host [:deliberate-throw/throw-in-handler])
         (let [focus-id (:dispatch-id (e2e/sub-xray [:rf.xray/focus]))
               _        (focus-cascade! focus-id)
-              status   (read-status-at-each-site focus-id)]
-          (is (= "settled-error" (:l2 status))
-              "L2 row did not classify a handler-throw as :settled-error")
-          (is (= "settled-error" (:trace status))
-              "L4 Trace cascade-status bar did not classify a handler-throw as :settled-error")
-          (is (= (:l2 status) (:trace status))
-              (str "consumer sites disagree on status — "
-                   "l2: "    (:l2 status)
-                   " · trace: " (:trace status))))))))
+              status   (read-trace-status focus-id)]
+          (is (= "settled-error" status)
+              "L4 Trace cascade-status bar did not classify a handler-throw as :settled-error"))))))

@@ -12,7 +12,7 @@ This spec replaces the legacy 16-panel sidebar (now dead — see [`000-Vision.md
 
 Make the five canonical questions ([`000-Vision.md`](000-Vision.md) §Why it exists) answerable in seconds via:
 
-1. A **two-ribbon chrome** (rf2-4vp5j) — a chrome ribbon (frame view-scope + Dynamic/Static mode dropdown + settings/close) above an events ribbon (nav, focus-chip, filter pills, hidden-by-filters + Clear Filters).
+1. A **two-ribbon chrome** (rf2-4vp5j) — a chrome ribbon (`Event History` label + nav cluster + `+ filter` + frame view-scope + Dynamic/Static mode dropdown + settings/close) above an events ribbon (filter pills + hidden-by-filters count). The events ribbon is hidden by default and animates open only once the first filter exists (rf2-pjjwh). The focus-dimension feature (focus button / focus-chip / per-row focus gutter / out-of-focus dimming) and the `Clear Filters` button were RETIRED per rf2-pjjwh — they were not in the Figma surface; row click still SELECTS the cascade and drives every panel.
 2. An **event list** that is the orienting timeline + canonical scrubber.
 3. A **tab bar** of 6 surfaces (Event / App-db / Views / Trace / Machines / Issues).
 4. A **detail panel** whose content is always the current tab's projection of the focused event.
@@ -173,15 +173,18 @@ Carries only scope selectors (left) and chrome actions (right):
 
 ### L1.5 events ribbon (`rf-xray-events-ribbon`, distinct `bg-2`)
 
-Carries the spine + filter chrome that moved DOWN off the chrome ribbon:
+The filter chrome. **rf2-pjjwh — this ribbon is HIDDEN by default and
+animates open (CSS `grid-template-rows: 0fr ⇄ 1fr`) only once the first
+filter exists; it animates closed when the last filter is removed.** The
+nav cluster + `+ filter` add affordance live UP on the chrome ribbon
+(bar-1); the focus-chip and the `Clear Filters` button were retired
+(rf2-pjjwh — not in the Figma surface).
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Label** | left | `Events:` | — |
-| **Nav** | left | `◀` back-one-event · `▶` forward-one-event · `⏭` fast-forward-to-latest (snap head + resume LIVE). Boundary-disabled against the visible filtered list. | `j` / `k` / `G` |
-| **Focus chip** | left | `🎯 <label> ✕` — the current focus, click to reveal the pivot row, `✕` clears focus. | `Esc` clears |
-| **Filter pills** | left | `[+ :auth/* ✎]` IN pills (green) + `[× :mouse-move ✎]` OUT pills (magenta) + trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
-| **Hidden + Clear** | far right | `N events hidden by filters` (only when N > 0) + `Clear Filters` (whenever any filter is active). | — |
+| **Label** | left | `↳ filters:` | — |
+| **Filter pills** | left | `[+ :auth/* ✎]` IN pills (green) + `[× :mouse-move ✎]` OUT pills (red) + a `+` add-filter icon. Click any pill → edit popup; each pill's `✕` removes it. | `/` focus add-pill |
+| **Hidden** | far right | `N events filtered out` (only when N > 0). | — |
 
 ### Mode is a DROPDOWN (rf2-4vp5j supersedes the "mode pill dropped" note)
 
@@ -198,9 +201,9 @@ Wireframe (two ribbons; cluster boundaries shown):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│ Frame: :app/main ▾   Dynamic ▾                                       🔇 2  ● 1   ⚙ ✕ │  L1 chrome
+│ Event History  [◀ ▶ ⏭]  + filter      :app/main ▾   Dynamic ▾        🔇 2  ● 1   ⚙ ✕ │  L1 chrome
 ├─────────────────────────────────────────────────────────────────────────────────────┤
-│ Events:  [◀ ▶ ⏭]  🎯 :order/retry ✕  [+ :auth/* ✎] [× :mouse-move ✎] [+]   3 hidden  Clear Filters │  L1.5 events
+│ ↳ filters:  +  [+ :auth/* ✎] [× :mouse-move ✎]                          3 events filtered out │  L1.5 events (shown only when filters exist — rf2-pjjwh)
 └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -310,17 +313,27 @@ below remains the canonical shape; this callout records what the
 
 ### Row anatomy
 
-ONE row shape, decorated by gutter glyph + right-aligned icon badges + trailing redaction marker + trailing relative-time chip:
+**rf2-pjjwh — clean Figma mock layout.** ONE row shape, four columns,
+matching the Figma EventList exactly. The active (selected) row is marked
+by BACKGROUND ONLY (`bg-[var(--devtools-hover)]`):
 
 ```
 │ Col          │ Width        │ Content                              │
 ├──────────────┼──────────────┼──────────────────────────────────────┤
-│ Gutter glyph │ 16px         │ ●  ◉  x  ▥  ↺                        │
-│ Event id     │ flex mono    │ :order/submit (long-keyword treated) │
-│ Badges       │ up to 3×16px │ ⚠ 🌐 🤖 (right-aligned)              │
-│ Red. marker  │ inline 80px  │ [● REDACTED N] / [● ELIDED N]        │
-│ Time chip    │ inline ≥30px │ now / 5s / 2m / 1h / 3d (right-aligned)│
+│ Event id     │ flex mono    │ :order/submit (accent keyword colour)│
+│ Source       │ 52px         │ ui / fx / timer / router (muted)     │
+│ Timestamp    │ ≥76px        │ 12:30:05.123 (right-aligned)         │
+│ Duration     │ ≥60px        │ 1.2 ms (right-aligned)               │
 ```
+
+rf2-pjjwh RETIRED these decorations the mock did not carry: the leading
+focus gutter (+ its glyph `● ◉ x ▥`), the origin-prefix glyph before the
+source tag, the activity badges (`⚠ 🌐 🤖`), the trailing 2px lifecycle
+status stripe, the redaction marker, and the out-of-focus dimming. The
+dropped fields (full event vector + args, sequence number, frame, source
+coord, handler duration) surface in the row's hover `:title` tooltip + the
+L4 Event tab on click. The timestamp column shows the absolute wall-clock
+`HH:MM:SS.mmm` (rf2-3f2di A8), not the relative chip described below.
 
 #### Relative-time chip (rf2-vbbq0 / rf2-0s2at)
 
@@ -336,36 +349,17 @@ Each row carries a trailing right-aligned chip showing how long ago the cascade 
 
 **Anchor (rf2-0s2at):** the "now" each chip computes against is the **dispatched-time of the most recent cascade in `:rf.xray/cascades`** — flips on event arrival, not on a per-second tick. Between events the L2 list stays frozen (no re-render); when a new event lands the anchor advances and every older row's chip recomputes (a row that read `3s` may now read `8s`). This replaces the earlier (rf2-vbbq0 original) 1s `setInterval` design: relative time is meaningful between events, not between seconds, and the per-second tick caused constant L2 flicker watching live testbeds. No timer; the anchor sub composes off the existing `:rf.xray/cascades` reactive path. The chip's `:title` attribute carries the absolute walltime (`HH:MM:SS · ISO · epoch-ms`) as the power-user reveal — hover the chip for the precise time without leaving L2. Replaces the v1 absolute datetime column dropped in Round-3 R3-C.
 
-#### Gutter glyphs
+#### Gutter glyphs / row badges / redaction marker — RETIRED (rf2-pjjwh)
 
-| Glyph | Meaning |
-|---|---|
-| `●` | Normal event (default) |
-| `◉` | Currently focused (the spine's `:dispatch-id`); cyan border |
-| `x` | Errored event (replaces `●` when row carries `⚠` badge) |
-| `▥` | Whole-event redacted (replaces `●` when entire arg-map sensitive) |
-| `↺` | Pinned cascade (modifier; rendered as `●↺` / `◉↺` overlay) |
-
-#### Row badges
-
-Three icon badges, right-aligned, fixed slots, present-or-absent:
-
-| Badge | Meaning | Click action | Hover tooltip |
-|---|---|---|---|
-| `⚠` | Exception during handler exec (JS exception / schema violation / hydration mismatch) | Pivots L3 → Issues tab + selects this row's issue | Error message (60 chars + `…`) |
-| `🌐` | Managed-HTTP related (event's fx included `:http/*` fx or registered HTTP fx) | Pivots L3 → Event tab + scrolls to "fx handlers that ran" → this HTTP fx | `<METHOD> <url> → <status>` or `pending` |
-| `🤖` | State-machine related (event transitioned / spawned / destroyed a machine) | Pivots L3 → Machines tab + filters to transitions caused by this event | First transition `from→to` + count of all |
-
-Badge order is fixed: `⚠` first (highest signal), `🌐` second, `🤖` third. Co-existing badges render as a cluster.
-
-#### Redaction marker
-
-When the event's arg-map carries `:rf/redacted` or `:rf/large` sentinels (per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md)), a trailing marker renders to the right of the badge cluster:
-
-- `[● REDACTED N]` — magenta — count of `:rf/redacted` sentinels in the event arg-map.
-- `[● ELIDED N]` — yellow — count of `:rf/large` sentinels in the event arg-map.
-
-Only ONE marker per row (per type); combined sensitivity uses the dominant `[● REDACTED]` form per §12. See §12 for the full data-classification rendering contract.
+The per-row gutter glyph (`● ◉ x ▥ ↺`), the three activity badges
+(`⚠ 🌐 🤖`), and the inline redaction/elision marker
+(`[● REDACTED N]` / `[● ELIDED N]`) were retired from the L2 row per
+rf2-pjjwh — the Figma EventList carries none of them. Error / HTTP /
+machine / redaction context still lives in the cascade record and surfaces
+in the L4 Event + Issues + Trace panels (the panels read the cascade's
+`:other` / `:errors` slots directly). The REDACTED count remains as a
+silent-by-default indicator on the chrome ribbon; see §12 for the full
+data-classification rendering contract.
 
 ### Row variants
 
