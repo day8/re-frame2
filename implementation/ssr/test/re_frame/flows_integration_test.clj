@@ -37,7 +37,16 @@
       the flow-augmented value (the flow ran before install; render reads
       the installed flow-augmented db).
     - An event whose `:fx` `:dispatch`es child events gives EACH child its
-      OWN independent flow eval, not the parent's."
+      OWN independent flow eval, not the parent's.
+    - A flow whose `:inputs` overlap the `:rf/route` slice reads the
+      POST-transition route (the slice rewrite is the handler's pending
+      `:db`; the flow at the outermost `:after` transforms that pending
+      value before install — there is no pre-transition window the flow
+      could observe). The dual atomicity assertion: a flow throw on a
+      `:rf.route/transitioned` dispatch aborts the WHOLE event — slice
+      stays on the previous route, `:on-match` `:dispatch` fxs are NOT
+      walked. Pin (rf2-qm8m3): regression coverage for the routing × flows
+      composition the rf2-hm4gi delta audit flagged."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -431,3 +440,155 @@
                (mapv #(-> % :tags :input-values) computes))
             "each compute observed its own event's input — parent saw [1],
              child saw [2] — independent evals, not a shared one")))))
+
+;; ===========================================================================
+;; 5. flow × routing (rf2-qm8m3) — a flow over the :rf/route slice reads the
+;;    POST-transition route, and a flow throw on a transition aborts the
+;;    WHOLE event (slice unchanged, :on-match :dispatch fxs skipped).
+;;
+;; `:rf.route/transitioned` is a normal event-fx: its handler returns
+;; `{:db (assoc db' :rf/route {...new-route...}) :fx [[:dispatch
+;; [:on-match]] ...]}`. The flow at the outermost `:after` transforms the
+;; pending :db (which already carries the rewritten :rf/route slice)
+;; BEFORE the single deferred install. So a flow whose :inputs overlap
+;; [:rf/route] sees the SETTLED post-transition slice, never an
+;; intermediate or pre-transition value. After install, `:fx` walks —
+;; any `[:dispatch [:on-match]]` entries fire against the flow-augmented
+;; db.
+;;
+;; The atomicity contract (`bd remember event-pipeline-atomicity` rule a):
+;; ANY pre-install throw, including a flow throw, aborts the event — no
+;; install, no db-changed, no :fx. So a flow throw on a transition event
+;; means the route slice rewrite does NOT land AND the queued `:on-match`
+;; child dispatches in :fx are NEVER walked (they sit in the post-install
+;; stage that the flow-throw path skips wholesale).
+;; ===========================================================================
+
+(deftest flow-over-route-slice-reads-settled-post-transition-route
+  (testing "a flow whose :inputs overlap [:rf/route] reads the
+            POST-transition route — the slice rewrite is the handler's
+            pending :db; the flow at the outermost :after transforms that
+            pending value, then a single deferred install commits the
+            slice + flow output together"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/home    {:path "/"})
+    ;; A flow over the route id derives a human label into a plain app-db
+    ;; path. Logging the input it observed proves it ran on the SETTLED
+    ;; post-transition slice, not the pre-transition one.
+    (let [flow-inputs (atom [])]
+      (rf/reg-flow {:id     :route/label
+                    :inputs [[:rf/route :id]]
+                    :output (fn [route-id]
+                              (swap! flow-inputs conj route-id)
+                              (str "you are at " route-id))
+                    :path   [:derived :route-label]})
+
+      ;; Land on /home first so there is a known PRE-transition slice the
+      ;; flow could potentially observe if it ran on the wrong value.
+      (rf/dispatch-sync [:rf.route/transitioned "/"])
+      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
+          "precondition: landed on :route/home")
+      (is (= [:route/home] @flow-inputs)
+          "precondition: flow ran once on the home slice (post-transition)")
+
+      ;; Now transition to /articles/42. The handler writes the new slice
+      ;; into pending :db; the flow's :after transforms that pending :db
+      ;; reading [:rf/route :id]; both land together at install.
+      (reset! *captured* [])
+      (reset! flow-inputs [])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+
+      ;; The installed slice carries the new route.
+      (is (= :route/article (get-in (rf/get-frame-db :rf/default)
+                                    [:rf/route :id]))
+          "the slice landed on :route/article")
+      (is (= {:id "42"} (get-in (rf/get-frame-db :rf/default)
+                                [:rf/route :params]))
+          ":params landed alongside the route id (same install)")
+
+      ;; The flow output is in app-db AND reflects the POST-transition slice.
+      (is (= "you are at :route/article"
+             (get-in (rf/get-frame-db :rf/default) [:derived :route-label]))
+          "the flow output derived from the POST-transition route id rode
+           the same install as the slice rewrite")
+      (is (= [:route/article] @flow-inputs)
+          "the single flow eval for this transition saw the SETTLED
+           post-transition route id — not the pre-transition :route/home")
+
+      ;; Trace signature: exactly one :rf.flow/computed for the dispatched
+      ;; transition, with the post-transition route id as input.
+      (let [computes (by-op :rf.flow/computed)]
+        (is (= 1 (count computes))
+            "exactly one :rf.flow/computed trace for the transition
+             dispatch — no double / missed eval")
+        (is (= [:route/article]
+               (-> computes first :tags :input-values))
+            "the :rf.flow/computed trace's :input-values carries the
+             post-transition route id")))))
+
+(deftest flow-throw-on-route-transition-aborts-event-slice-unchanged-no-on-match-fx
+  (testing "a flow throw on a :rf.route/transitioned dispatch aborts the
+            WHOLE event — the slice rewrite does NOT land, the route stays
+            on the pre-transition value, AND the :on-match :dispatch fxs
+            in the handler's :fx are NEVER walked (post-install stage
+            skipped per the atomicity contract — rule a)"
+    (let [on-match-fired (atom 0)]
+      (rf/reg-event-db :route/load-article
+                       (fn [db _]
+                         (swap! on-match-fired inc)
+                         (assoc db :article/loaded? true)))
+      ;; :route/article carries an :on-match — :rf.route/transitioned's
+      ;; handler will return `[:dispatch [:route/load-article]]` inside :fx
+      ;; for a successful transition. The flow throw must skip that :fx.
+      (rf/reg-route :route/article
+                    {:path     "/articles/:id"
+                     :params   [:map [:id :string]]
+                     :on-match [[:route/load-article]]})
+      (rf/reg-route :route/home {:path "/"})
+
+      ;; Land on /home cleanly (no throwing flow registered yet).
+      (rf/dispatch-sync [:rf.route/transitioned "/"])
+      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
+          "precondition: clean landing on :route/home")
+      (is (zero? @on-match-fired)
+          "precondition: :route/home has no :on-match — counter still 0")
+      (let [baseline-db (rf/get-frame-db :rf/default)]
+
+        ;; Register a flow that throws on every eval, then transition to a
+        ;; route whose :on-match would dispatch :route/load-article.
+        (rf/reg-flow {:id     :route/boom
+                      :inputs [[:rf/route :id]]
+                      :output (fn [_]
+                                (throw (ex-info "flow boom on route"
+                                                {:why :test})))
+                      :path   [:derived :route-doomed]})
+        (reset! *captured* [])
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+
+        ;; The route slice did NOT land — pre-install throw discards the
+        ;; entire pending :db (handler's slice rewrite + flow output alike).
+        (is (= baseline-db (rf/get-frame-db :rf/default))
+            "app-db is byte-for-byte the pre-transition value — the slice
+             rewrite was rolled in with the flow's pending write and
+             discarded wholesale by the flow throw")
+        (is (= :route/home (get-in (rf/get-frame-db :rf/default)
+                                   [:rf/route :id]))
+            "the :rf/route slice stayed on :route/home — the transition's
+             slice rewrite did NOT install")
+
+        ;; The :on-match :dispatch in the handler's :fx was NOT walked —
+        ;; :fx is the post-install stage that the flow-throw path skips
+        ;; wholesale (atomicity contract rule a).
+        (is (zero? @on-match-fired)
+            ":route/load-article was NOT invoked — the :on-match :dispatch
+             sat in the handler's :fx; a flow throw skips :fx entirely")
+
+        ;; Trace signature: :rf.flow/failed fired, but NO :rf.event/db-changed
+        ;; for this dispatch — the event aborted before install.
+        (is (seq (by-op :rf.flow/failed))
+            ":rf.flow/failed fired — the flow eval threw")
+        (is (not-any? #(= :rf.event/db-changed %) (ops))
+            "NO :rf.event/db-changed in the throw stream — the event
+             aborted before install (contrast: a clean transition would
+             emit one :rf.event/db-changed for the slice rewrite)")))))
