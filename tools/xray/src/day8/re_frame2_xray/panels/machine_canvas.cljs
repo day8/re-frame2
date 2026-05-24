@@ -233,9 +233,16 @@
 
 ;; ---- public Chart view --------------------------------------------------
 
-(defn Chart
+(rf/reg-view Chart
   "Render the interactive MachineChart inside the Dynamic Machines
   panel (or the Static Machines Topology body).
+
+  rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
+  React-context frame tier carries the enclosing `:rf/xray` frame
+  through to the inner view-mode-toggle subscribe. As a plain fn the
+  subscribe routed to `:rf/default` (the host app), which is a real
+  frame-leak — xray-internal slots must be read via xray's own frame.
+  Same surgery PR #2110 (rf2-uu3lp) applied to the rest of xray chrome.
 
   Args (map):
 

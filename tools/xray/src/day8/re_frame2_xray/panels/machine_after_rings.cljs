@@ -288,7 +288,7 @@
                    :epoch      (:epoch spec)}]
                  {:frame :rf/xray})))
 
-(defn AfterRingsOverlay
+(rf/reg-view AfterRingsOverlay
   "Mounts the focused machine's `:after` countdown rings over the
   xyflow chart. Subscribes to the active timers + now-ms + scrubber
   internally; projects each timer into a presentation-ready ring-spec
@@ -297,41 +297,50 @@
   rAF clock in live mode; then delegates positioning + paint to the
   machines-viz `AfterRingsOverlay`, which walks the xyflow node DOM.
 
+  rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
+  React-context frame tier carries the enclosing `:rf/xray` frame
+  through to the four subscribes inside. As a plain fn rendered under
+  `[rf/frame-provider {:frame :rf/xray}]`, the subscribes routed to
+  `:rf/default` (the host app's frame), which is a real frame-leak —
+  xray-internal slots must be read via xray's own frame. Same surgery
+  PR #2110 (rf2-uu3lp) applied to the rest of xray chrome.
+
   Accepts an optional opts map (currently unused — reserved for a
-  future per-call testid override). The legacy positioned-graph /
-  viewport-transform args are GONE (xyflow owns positions; the
-  overlay reads them off the DOM).
+  future per-call testid override). Variadic to preserve the prior
+  0-arg + 1-arg call shapes (the hiccup mount carries one arg, tests
+  call with zero or one). The legacy positioned-graph / viewport-
+  transform args are GONE (xyflow owns positions; the overlay reads
+  them off the DOM).
 
   Returns nil when the projection has no active timers (the overlay
   layer drops out so unrelated chart hover handlers aren't shadowed)."
-  ([] (AfterRingsOverlay nil))
-  ([_opts]
-   (let [timers @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
-         now    @(rf/subscribe [:rf.xray/now-ms])
-         scrub  @(rf/subscribe [:rf.xray/machine-scrubber-position])
-         ;; Kick the rAF loop iff ticking is needed (live mode + at
-         ;; least one armed timer). Cheap to call per render — the
-         ;; `:running?` sentinel collapses duplicate kicks. Per Lock #8
-         ;; this is the SINGLE per-chart clock (O(charts), not
-         ;; O(rings × charts)); the machines-viz overlay runs no clock
-         ;; of its own — it just re-measures the DOM when `:tick` bumps.
-         _      (when (rings-h/needs-ticking? timers scrub)
-                  (kick-tick!))
-         specs  (rings-h/timers->ring-specs
-                  timers chart-layout/highlight-id now)]
-     (when (seq specs)
-       [mv-after-rings/AfterRingsOverlay
-        {:ring-specs specs
-         ;; `now` is the rAF-bumped (or scrubber-pinned) instant —
-         ;; bumping it on every frame forces the overlay to re-measure
-         ;; the DOM + repaint the swept arcs (Lock #8 60Hz-when-visible
-         ;; cadence, driven by THIS ns's clock, not the overlay's).
-         :tick       now
-         :testid     "rf-xray-machine-inspector-after-rings-overlay"
-         :on-hover   (fn [node-id] (timer-hovered! specs node-id))
-         :on-leave   (fn [_node-id]
-                       (rf/dispatch [:rf.xray/timer-hover nil]
-                                    {:frame :rf/xray}))}]))))
+  [& _opts]
+  (let [timers @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
+        now    @(rf/subscribe [:rf.xray/now-ms])
+        scrub  @(rf/subscribe [:rf.xray/machine-scrubber-position])
+        ;; Kick the rAF loop iff ticking is needed (live mode + at
+        ;; least one armed timer). Cheap to call per render — the
+        ;; `:running?` sentinel collapses duplicate kicks. Per Lock #8
+        ;; this is the SINGLE per-chart clock (O(charts), not
+        ;; O(rings × charts)); the machines-viz overlay runs no clock
+        ;; of its own — it just re-measures the DOM when `:tick` bumps.
+        _      (when (rings-h/needs-ticking? timers scrub)
+                 (kick-tick!))
+        specs  (rings-h/timers->ring-specs
+                 timers chart-layout/highlight-id now)]
+    (when (seq specs)
+      [mv-after-rings/AfterRingsOverlay
+       {:ring-specs specs
+        ;; `now` is the rAF-bumped (or scrubber-pinned) instant —
+        ;; bumping it on every frame forces the overlay to re-measure
+        ;; the DOM + repaint the swept arcs (Lock #8 60Hz-when-visible
+        ;; cadence, driven by THIS ns's clock, not the overlay's).
+        :tick       now
+        :testid     "rf-xray-machine-inspector-after-rings-overlay"
+        :on-hover   (fn [node-id] (timer-hovered! specs node-id))
+        :on-leave   (fn [_node-id]
+                      (rf/dispatch [:rf.xray/timer-hover nil]
+                                   {:frame :rf/xray}))}])))
 
 ;; ---- public install entry -----------------------------------------------
 
