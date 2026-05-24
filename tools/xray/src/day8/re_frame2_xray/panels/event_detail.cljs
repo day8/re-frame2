@@ -81,6 +81,7 @@
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.app-db-diff-format :as f]
+            [day8.re-frame2-xray.panels.event.icons :as icons]
             [day8.re-frame2-xray.panels.overflow-indicator :as overflow]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as managed-fx-h]
             [day8.re-frame2-xray.panels.managed-fx-template :as managed-fx]
@@ -360,29 +361,44 @@
 
 (defn- coord-chip
   "Reusable 'open in editor' click-to-source affordance. Renders the
-  Figma `↗` external-link glyph; nothing when `coord` has no `:file`.
-  Dispatches `:rf.xray/open-in-editor` with the structured coord; the
-  trace-bus thereby records the click + the editor handler resolves the
-  URI through the rf2-cm93v allowlist."
+  Figma authority's `external-link` lucide SVG glyph (13px, currentColor
+  stroke, inline with the surrounding link text); nothing when `coord`
+  has no `:file`. Dispatches `:rf.xray/open-in-editor` with the
+  structured coord; the trace-bus thereby records the click + the
+  editor handler resolves the URI through the rf2-cm93v allowlist.
+
+  Per rf2-xw7mj the glyph is unified across every click-to-source site
+  in the Event lens (DISPATCH FROM, COEFFECTS rows, EVENT HANDLER
+  coord, AFTER INTERCEPTORS rows, FLOWS rows) so the affordance reads
+  as one vocabulary. The previous unicode `↗` arrow is superseded
+  here; the SVG mirrors the lucide-icons family the Figma authority
+  ships across the rest of the devtool chrome.
+
+  Accessibility: rendered as a `<button>` (so it's tab-focusable +
+  activates on Enter / Space natively); the SVG itself carries
+  `aria-hidden=\"true\"` so screen readers read the button's
+  `aria-label` (\"open in editor\") rather than walking the path
+  geometry."
   [coord testid]
   (when (and (map? coord) (seq (:file coord)))
     [:button {:data-testid testid
+              :aria-label  "open in editor"
               :title       "open in editor"
               :on-click    (fn [e]
                              (.stopPropagation e)
                              (rf/dispatch [:rf.xray/open-in-editor
                                            {:source-coord coord}]
                                           {:frame :rf/xray}))
-              :style       {:background  "transparent"
-                            :color       (:accent tokens)
-                            :border      "none"
-                            :padding     "0 4px"
-                            :margin-left "6px"
-                            :cursor      "pointer"
-                            :font-family mono-stack
-                            :font-size   "12px"
-                            :line-height 1}}
-     "↗"]))
+              :style       {:background      "transparent"
+                            :color           (:accent tokens)
+                            :border          "none"
+                            :padding         "0 4px"
+                            :margin-left     "6px"
+                            :cursor          "pointer"
+                            :display         "inline-flex"
+                            :align-items     "center"
+                            :line-height     1}}
+     (icons/external-link)]))
 
 (defn- dispatch-body
   "Step DISPATCH body — the dispatched event vector + the `FROM:
@@ -397,12 +413,13 @@
 
   The FROM row matches `EventPanel`'s dispatch presentation
   (rf2-ad7zx.17): `FROM:` then the dispatch SOURCE rendered as a single
-  accent-coloured click-to-source link (`view ↗`) — the `↗`
-  external-link glyph trails the source text and opens the call-site in
-  the editor. The prior `· origin <origin>` clutter and the standalone
-  `file:line` coord span are dropped (the mock surfaces neither); when no
-  call-site coord was captured the source renders as plain muted text
-  with no link affordance. Returns body hiccup."
+  accent-coloured click-to-source link — the lucide `external-link`
+  glyph (per the Figma authority, rf2-xw7mj) trails the source text and
+  opens the call-site in the editor. The prior `· origin <origin>`
+  clutter and the standalone `file:line` coord span are dropped (the
+  mock surfaces neither); when no call-site coord was captured the
+  source renders as plain muted text with no link affordance. Returns
+  body hiccup."
   [cascade event-vec]
   (let [coord      (dispatch-call-site cascade)
         [source _] (dispatch-source+origin cascade)
@@ -427,8 +444,9 @@
                     :overflow-x    "auto"
                     :font-weight   600}}
       (edn/inspect event-vec "event-detail/event")]
-     ;; FROM: <source> ↗ — the dispatch-origin as a single
-     ;; click-to-source link (EventPanel shape; rf2-ad7zx.17).
+     ;; FROM: <source> + external-link chip — the dispatch-origin as a
+     ;; single click-to-source link (EventPanel shape; rf2-ad7zx.17 +
+     ;; rf2-xw7mj for the unified lucide glyph).
      [:div {:data-testid "rf-xray-event-detail-dispatch-caption"
             :style {:display "flex"
                     :align-items "center"
@@ -438,7 +456,8 @@
                     :font-size "11px"}}
       "FROM:"
       (if linked?
-        ;; Accent-coloured source link + trailing ↗ (the coord-chip).
+        ;; Accent-coloured source link + trailing external-link chip
+        ;; (the coord-chip, rf2-xw7mj).
         [:span {:data-testid "rf-xray-event-detail-dispatch-from"
                 :style {:display "inline-flex"
                         :align-items "center"
@@ -489,16 +508,29 @@
       m)))
 
 (defn- coeffect-row
+  "One COEFFECTS row: `<id>  <chip?>  <value>`. Per rf2-xw7mj the
+  cofx-id renders alongside an `external-link` click-to-source chip
+  whenever the registered `reg-cofx` carries a captured source-coord
+  (`(rf/handler-meta :cofx id)`); the chip is omitted when the registry
+  lookup yields no `:file` (e.g. framework-default cofx or one
+  registered without coord capture). Matches the Figma authority's
+  click-to-source treatment for COEFFECTS coeffect-name links."
   [id value]
-  (let [suffix (interceptor-testid-suffix id)]
+  (let [suffix     (interceptor-testid-suffix id)
+        cofx-meta  (when (keyword? id) (rf/handler-meta :cofx id))
+        coord      (when (and cofx-meta (string? (:file cofx-meta)))
+                     {:file (:file cofx-meta) :line (:line cofx-meta)})]
     [:div {:data-testid (str "rf-xray-event-detail-coeffect-row-" suffix)
            :style {:display "flex"
                    :align-items "flex-start"
                    :padding "2px 0"}}
-     [:span {:style {:color (:accent tokens)
-                     :min-width "180px"
+     [:span {:style {:display      "inline-flex"
+                     :align-items  "center"
+                     :color        (:accent tokens)
+                     :min-width    "180px"
                      :margin-right "12px"}}
-      (pr-str id)]
+      (pr-str id)
+      (coord-chip coord (str "rf-xray-event-detail-coeffect-open-chip-" suffix))]
      [:span {:style {:color (:text-primary tokens)
                      :min-width 0
                      :flex 1
@@ -1050,9 +1082,19 @@
       ▸ :flow-id              wrote [:write :path]   <result>
                               read  [:in1] [:in2]
       ↳ :chained-flow         wrote [:other :path]   <result>
-                              read  [:in :read :the-upstream :wrote]"
+                              read  [:in :read :the-upstream :wrote]
+
+  Per rf2-xw7mj the flow-id renders alongside an `external-link`
+  click-to-source chip whenever the registered `reg-flow` carries a
+  captured source-coord (`(rf/handler-meta :flow id)`); the chip is
+  omitted when the registry lookup yields no `:file` (e.g. the flow
+  has been cleared mid-session). Matches the Figma authority's
+  click-to-source treatment for FLOWS flow-id links."
   [{:keys [flow-id write-path result read-paths via? via-flow-ids trace-id]}]
-  (let [suffix (interceptor-testid-suffix flow-id)]
+  (let [suffix     (interceptor-testid-suffix flow-id)
+        flow-meta  (when (keyword? flow-id) (rf/handler-meta :flow flow-id))
+        coord      (when (and flow-meta (string? (:file flow-meta)))
+                     {:file (:file flow-meta) :line (:line flow-meta)})]
     [:div {:data-testid (str "rf-xray-event-detail-flow-row-" suffix)
            :data-via    (str via?)
            :style {:padding     "4px 0"
@@ -1070,10 +1112,13 @@
                       :font-size   "12px"}}
        (if via? "↳" "▸")]
       [:span {:data-testid (str "rf-xray-event-detail-flow-row-id-" suffix)
-              :style {:color       (:accent tokens)
+              :style {:display     "inline-flex"
+                      :align-items "center"
+                      :color       (:accent tokens)
                       :font-weight 600
                       :min-width   "160px"}}
-       (pr-str flow-id)]
+       (pr-str flow-id)
+       (coord-chip coord (str "rf-xray-event-detail-flow-open-chip-" suffix))]
       (when via?
         [:span {:data-testid (str "rf-xray-event-detail-flow-row-via-" suffix)
                 :style {:color       (:text-tertiary tokens)
