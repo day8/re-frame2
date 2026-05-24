@@ -78,8 +78,8 @@ Errors & warnings are cross-cutting — see §7. Child epochs spawned by a `:dis
 | FLOW | computed · cleared · failed · skipped |
 | SUB | created · recalculated · ran-unchanged · cache-hit · disposed |
 | VIEW | mounted · re-rendered · skipped · unmounted |
-| MACHINE | created · transition · action-ran · guard-evaluated · after · spawned · spawn-cancelled · spawn-timed-out · timer-scheduled · timer-fired · timer-stale · timer-cancelled · timer-skipped-on-server · done · finished · event-received · system-id-bound · system-id-released · destroyed |
-| ROUTING | navigated · activated · deactivated · cleared · fragment-changed · url-changed · navigation-blocked · not-found |
+| MACHINE | created · transition · action-ran · guard-evaluated · after · spawned · spawn-cancelled · timer-scheduled · timer-fired · timer-stale · timer-cancelled · timer-skipped-on-server · done · finished · event-received · system-id-bound · system-id-released · destroyed (a `:spawn` wall-clock guard fires as `timer-fired` on the `:spawn`-bearing state's `:after` — the retired `spawn-timed-out` op, per Spec-009 / rf2-3y3y) |
+| ROUTING | activated · deactivated · cleared · fragment-changed · navigation-blocked (no-match surfaces as the `WARNING :rf.warning/no-not-found-route` row, not a positive ROUTING op; a URL change is the dispatched event `:rf.event/dispatched [:rf.route/handle-url-change …]`, an EVENT row) |
 | EPOCH | snapshotted · restored · db-replaced · replay-conflict · reset |
 
 Registration ops (`:rf.flow/registered`, `:rf.route/registered`, `:rf.fx/reg-flow`, `:rf.machine.registrar/*`) are boot-time / out-of-epoch and are normally absent from a per-epoch arc.
@@ -186,7 +186,7 @@ This is **interaction wiring, not visual** — Figma need only render a generic 
 ▾ ② EVENT HANDLING   COEFFECT current-route · handler ran · DB [:rf/route] (or [:rf/pending-navigation])
               ROUTING deactivated :app/home · ROUTING activated :app/settings
               — or — ROUTING navigation-blocked  (:can-leave)        → outcome :blocked
-▾ ③ EFFECTS   FX :rf.nav/push-url /settings · ROUTING url-changed ↗ child epoch #N
+▾ ③ EFFECTS   FX :rf.nav/push-url /settings   ↗ child epoch #N (the URL change re-enters as EVENT :rf.route/handle-url-change)
 ▾ ④ REACTIVE  SUB :route/current recalculated · VIEW route-outlet re-rendered
 ● EPOCH CLOSE outcome :ok | :blocked
 ```
@@ -240,14 +240,14 @@ Every Spec-009 trace operation → its row. `dur?` = number once timing instrume
 | `:rf.flow/computed` | ② | FLOW | computed | flow-id → path | dur? |
 | `:rf.flow/cleared` · `failed` · `skip` | ② | FLOW | cleared / failed / skipped | flow-id | — |
 | `:rf.route/activated` · `deactivated` · `cleared` · `fragment-changed` | ③ | ROUTING | activated / deactivated / cleared / fragment-changed | route-id / fragment | — |
-| `:rf.route/handle-url-change` | ③ | ROUTING | url-changed | url | — (↗ child) |
 | `:rf.route/navigation-blocked` | ② / ③ | ROUTING | navigation-blocked | route-id (guard) | — (→ outcome :blocked) |
-| `:rf.route/not-found` | ③ | ROUTING | not-found | url | — |
+| `:rf.warning/no-not-found-route` | inline (its phase) | WARNING | no-not-found-route | url (unmatched, no `:rf.route/not-found` route registered) | — |
+| `:rf.event/dispatched [:rf.route/handle-url-change …]` | ① | EVENT | dispatched | url (the URL-change EVENT — **not** a standalone trace op; it rides the `:rf.event/dispatched` row above) | — (↗ child) |
 | `:rf.machine.timer/scheduled` | ③ | MACHINE | timer-scheduled | delay · state | — (↗ future epoch) |
 | `:rf.machine.timer/fired` | own epoch | MACHINE | timer-fired | delay · state | — |
 | `:rf.machine.timer/stale-after` · `cancelled-on-resolution` | ③ | MACHINE | timer-stale / timer-cancelled | state | — |
 | `:rf.machine.timer/skipped-on-server` | ③ | MACHINE | timer-skipped-on-server | state | — |
-| `:rf.machine.spawn/*` · `spawn-all/*` (spawned / cancelled-on-join / timed-out) | ③ | MACHINE | spawned / spawn-cancelled / spawn-timed-out | invoke-id | — (↗ child) |
+| `:rf.machine/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | ③ | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
 | `:rf.machine/after` · `done` · `finished` | ② / ③ | MACHINE | after / done / finished | delay / output | — |
 | `:rf.sub/create` | ④ | SUB | created | sub-id | — |
 | `:rf.sub/run`+`computed` (value-changed? ✓) | ④ | SUB | recalculated | sub-id  old → new | dur? |
