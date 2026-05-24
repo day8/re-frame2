@@ -142,20 +142,51 @@
   raw-state fixtures to verify the gate forces
   `:rf.size/include-sensitive? false` server-side (the walker-option
   namespaced keyword, NOT the wire-key — the wire-key is the
-  unqualified `:include-sensitive` post-rf2-ihq4d)."
-  [eval-script forms-seen body-fn]
-  (let [orig nrepl/cljs-eval-value
-        stub (fn
-               ([_conn _build-id form-str]
-                (swap! forms-seen conj form-str)
-                (js/Promise.resolve (run-eval-script eval-script form-str)))
-               ([_conn _build-id form-str _opts]
-                (swap! forms-seen conj form-str)
-                (js/Promise.resolve (run-eval-script eval-script form-str))))]
-    (set! nrepl/cljs-eval-value stub)
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+  unqualified `:include-sensitive` post-rf2-ihq4d).
+
+  rf2-7tgfk: also stubs `nrepl/jvm-eval` so the preload-failure
+  diagnostic ladder doesn't short-circuit to `:nrepl-unreachable` on
+  every preload-missing fixture. The default JVM stub:
+    - returns `{:value \"1\"}` for the `1` health-probe so
+      `jvm-reachable?` resolves true.
+    - returns `{:value \"[:app]\"}` for `active-builds` so the
+      ladder treats `:app` as a running build.
+  Together these mean a fixture scripting the cljs probe form to
+  `false` lands on `:runtime-loaded-but-preload-missing` — the case
+  the original hint was for. Fixtures wanting the other ladder
+  rungs (`:build-not-running`, `:no-runtime-connected`,
+  `:nrepl-unreachable`) override via the new `:fixture/jvm-eval-script`
+  slot."
+  ([eval-script forms-seen body-fn]
+   (with-stubbed-eval! eval-script forms-seen nil body-fn))
+  ([eval-script forms-seen jvm-eval-script body-fn]
+   (let [orig-cljs nrepl/cljs-eval-value
+         orig-jvm  nrepl/jvm-eval
+         cljs-stub (fn
+                     ([_conn _build-id form-str]
+                      (swap! forms-seen conj form-str)
+                      (js/Promise.resolve (run-eval-script eval-script form-str)))
+                     ([_conn _build-id form-str _opts]
+                      (swap! forms-seen conj form-str)
+                      (js/Promise.resolve (run-eval-script eval-script form-str))))
+         default-jvm-script
+         ;; First-match wins; this is the failure-path default the
+         ;; rf2-7tgfk diagnostic ladder relies on.
+         [["active-builds" {:value "[:app]"}]
+          [:default        {:value "1"}]]
+         effective-jvm-script (or jvm-eval-script default-jvm-script)
+         jvm-stub (fn
+                    ([_conn form-str]
+                     (js/Promise.resolve (run-eval-script effective-jvm-script form-str)))
+                    ([_conn form-str _opts]
+                     (js/Promise.resolve (run-eval-script effective-jvm-script form-str))))]
+     (set! nrepl/cljs-eval-value cljs-stub)
+     (set! nrepl/jvm-eval         jvm-stub)
+     (-> (js/Promise.resolve nil)
+         (.then (fn [_] (body-fn)))
+         (.finally (fn []
+                     (set! nrepl/cljs-eval-value orig-cljs)
+                     (set! nrepl/jvm-eval         orig-jvm)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-shape matchers — partial / submap matching against the parsed EDN
@@ -305,14 +336,14 @@
      :edn-submap {:ok? true :build-id :app}}}
 
    {:fixture/id    :discover-app/preload-missing
-    :fixture/doc   "discover-app surfaces :runtime-not-preloaded when the global marker is absent."
+    :fixture/doc   "discover-app surfaces :runtime-loaded-but-preload-missing when the marker is absent (rf2-7tgfk — the specific rung of the diagnostic ladder)."
     :fixture/tool  "discover-app"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  false]
      [:default                    nil]]
     :fixture/expect
-    {:edn-submap {:ok? false :reason :runtime-not-preloaded}}}
+    {:edn-submap {:ok? false :reason :runtime-loaded-but-preload-missing}}}
 
    ;; ---------- eval-cljs --------------------------------------------------
    ;; The launch-flag gate (rf2-cxx5s, cascade from rf2-czv3p) ships
@@ -395,14 +426,14 @@
      :reason :missing-event}}
 
    {:fixture/id    :dispatch/preload-missing
-    :fixture/doc   "dispatch surfaces :runtime-not-preloaded when probe fails."
+    :fixture/doc   "dispatch surfaces :runtime-loaded-but-preload-missing when the marker is absent (rf2-7tgfk diagnostic ladder)."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:counter/inc]"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  false]
      [:default                    nil]]
     :fixture/expect
-    {:edn-submap {:ok? false :reason :runtime-not-preloaded}}}
+    {:edn-submap {:ok? false :reason :runtime-loaded-but-preload-missing}}}
 
    ;; ---------- restore-epoch (rf2-ee38b.18 — gated write) ----------------
    ;; The --allow-writes gate ships DEFAULT-OFF. The disabled fixture pins
@@ -546,14 +577,14 @@
     {:isError? false}}
 
    {:fixture/id    :snapshot/preload-missing
-    :fixture/doc   "snapshot surfaces :runtime-not-preloaded when probe fails."
+    :fixture/doc   "snapshot surfaces :runtime-loaded-but-preload-missing when the marker is absent (rf2-7tgfk diagnostic ladder)."
     :fixture/tool  "snapshot"
     :fixture/args  {:frames "all"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  false]
      [:default                    nil]]
     :fixture/expect
-    {:edn-submap {:ok? false :reason :runtime-not-preloaded}}}
+    {:edn-submap {:ok? false :reason :runtime-loaded-but-preload-missing}}}
 
    ;; ---------- get-path ---------------------------------------------------
    {:fixture/id    :get-path/happy
