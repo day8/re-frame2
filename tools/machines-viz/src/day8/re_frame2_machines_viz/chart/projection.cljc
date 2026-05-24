@@ -128,7 +128,24 @@
 
   Options:
 
-    :highlight-id        — node-id of the active state.
+    :highlight-ids       — rf2-g2svr (closes parity gap G1). A SET of
+                           active-leaf node-ids. A node is `:active`
+                           when its id ∈ this set. A PARALLEL machine's
+                           snapshot has N simultaneously-active leaves
+                           (one per region), so passing the set lights
+                           up EVERY active region at once — the multi-
+                           active highlight Stately renders (§1.2 of
+                           `001-Topology-Parity.md`). Resolve it from a
+                           snapshot `:state` via
+                           `chart.layout/highlight-ids` (handles all
+                           three `:state` arms: flat / compound /
+                           region-map).
+    :highlight-id        — node-id of the active state (the SINGLE-
+                           active convenience). Folded into
+                           `:highlight-ids` as a singleton so flat /
+                           compound callers need not build a set; when
+                           both are supplied the union is used. Resolve
+                           it via `chart.layout/highlight-id`.
     :from-highlight-id   — node-id of the focused-event lens's
                            origin state.
     :to-highlight-id     — node-id of the focused-event lens's
@@ -164,10 +181,20 @@
                            pixel-identical to pre-rf2-k647w."
   [{:keys [nodes edges]}
    positions
-   {:keys [highlight-id from-highlight-id to-highlight-id sim?
+   {:keys [highlight-id highlight-ids from-highlight-id to-highlight-id sim?
            on-state-click on-edge-click chart]
     :or   {chart vc/chart-regular}}]
-  (let [;; rf2-lkwev — container nodes (parallel regions AND compound
+  (let [;; rf2-g2svr (G1) — the active set unifies the single-active
+        ;; (`:highlight-id`) and multi-active (`:highlight-ids`) cases.
+        ;; A PARALLEL machine's snapshot has N simultaneously-active
+        ;; leaves; `:highlight-ids` carries them all so EVERY active
+        ;; region lights up at once. The scalar `:highlight-id` folds in
+        ;; as a singleton so flat/compound callers (and the focused-edge
+        ;; logic below) need no set. A node is active when its id ∈ the
+        ;; union.
+        active-ids (cond-> (set highlight-ids)
+                     (some? highlight-id) (conj highlight-id))
+        ;; rf2-lkwev — container nodes (parallel regions AND compound
         ;; parents) MUST precede their children in the xyflow nodes
         ;; array (xyflow requires a parentNode to appear before any node
         ;; that references it). The parse already emits parents first;
@@ -176,7 +203,7 @@
         (mapv (fn [n]
                 (let [pos      (get positions (:id n) {:x 0 :y 0})
                       region?  (boolean (:region? n))
-                      active?  (= (:id n) highlight-id)
+                      active?  (contains? active-ids (:id n))
                       from-hi? (= (:id n) from-highlight-id)
                       to-hi?   (= (:id n) to-highlight-id)
                       base
@@ -220,8 +247,8 @@
 
         proj-edges
         (mapv (fn [e]
-                (let [from-active? (or (= (:source e) highlight-id)
-                                       (= (:target e) highlight-id))
+                (let [from-active? (or (contains? active-ids (:source e))
+                                       (contains? active-ids (:target e)))
                       focused?     (and (some? from-highlight-id)
                                         (some? to-highlight-id)
                                         (= (:source e) from-highlight-id)

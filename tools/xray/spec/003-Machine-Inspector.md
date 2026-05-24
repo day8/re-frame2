@@ -579,7 +579,7 @@ Per Spec 005 and Spec 009:
 | Surface | Used for |
 |---|---|
 | `(rf/machines frame-id)` | Enumerate registered machines (drop-down in panel header). |
-| `[:rf/machines <id>]` slot in `app-db` | Read current snapshot; deref drives the live-highlight. |
+| `[:rf/machines <id>]` slot in `app-db` | Read current snapshot; deref drives the live-highlight. The host passes the snapshot's `:state` straight through as the chart's `:current-state`; for a **parallel** machine that `:state` is a region-map and the chart highlights **every** active region leaf simultaneously (parity gap G1; resolution via `chart.layout/highlight-ids` — see [machines-viz API §Parallel multi-active highlight](../../machines-viz/spec/API.md#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). |
 | `:rf.machine/transition` traces | Build the transition-history ribbon. |
 | `:rf.machine.microstep/transition` traces | Microstep replay within an `:always`-driven cascade. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | Drive `:after` countdown rings. |
@@ -663,7 +663,7 @@ definition→graph PARSER, not a positioner).
 | Concern | Source ns | What it does |
 |---|---|---|
 | **Component + interop glue** | `chart.cljs` (`MachineChart`) | Reagent component; mounts `[:> ReactFlow ...]`, runs the elkjs pass, holds the positions atom. |
-| **Graph parse** | `chart/layout.cljc` (`parse-definition`, `highlight-id`) | Pure CLJS data→data; JVM-runnable; definition → flat nodes + edges + per-node/per-edge metadata. Tests pin this without DOM / xyflow / elkjs. |
+| **Graph parse** | `chart/layout.cljc` (`parse-definition`, `highlight-id`, `highlight-ids`) | Pure CLJS data→data; JVM-runnable; definition → flat nodes + edges + per-node/per-edge metadata. `highlight-ids` resolves a whole snapshot `:state` (incl. a **parallel region-map**) to the **set** of active-leaf node-ids so the live highlight lights up **every** active region at once (parity gap G1; see [machines-viz API §Parallel multi-active highlight](../../machines-viz/spec/API.md#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). Tests pin this without DOM / xyflow / elkjs. |
 | **xyflow projection** | `chart/projection.cljc` (`xyflow-graph`, `->elk-children`) | Pure projector: parsed graph + elk positions → xyflow `:nodes` / `:edges` shape with per-node/per-edge `:data` payloads (highlight flags, labels, density). |
 | **elkjs layout** | `chart.cljs` (`compute-layout!`) | Async elk.js pass over the parsed graph; merges positions back into xyflow nodes. |
 

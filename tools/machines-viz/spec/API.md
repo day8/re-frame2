@@ -52,7 +52,7 @@ registry).
 |---|---|---|---|
 | `:machine-id` | no | `nil` | Identifies the machine. Surfaces as the chart's aria-label and on every per-node `:data` payload (read by tests + hosts). |
 | `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. The component does NOT subscribe to a framework registry directly — hosts pull the definition via `(rf/machine-meta machine-id)` and pass it in. |
-| `:current-state` | no | `nil` | The live `:state` keyword/vector for the active-state highlight. `nil` renders no highlight. |
+| `:current-state` | no | `nil` | The live snapshot `:state` value for the active-state highlight. Accepts all three Spec 005 `:state` arms: a flat keyword (`:authing`), a hierarchical path (`[:auth :authing]`), **or a parallel region-map** (`{:data :loading :form :neutral}`). For a region-map the chart lights up **every** active region leaf simultaneously (the multi-active highlight — see [§Parallel multi-active highlight](#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). `nil` renders no highlight. |
 | `:from-highlight` | no | `nil` | Focused-event lens origin (a `:state` value). |
 | `:to-highlight` | no | `nil` | Focused-event lens landing (a `:state` value). |
 | `:sim?` | no | `nil` | Flips the highlight palette to amber for the simulator path. |
@@ -93,6 +93,61 @@ each region's bounding box via `elk.hierarchyHandling
 INCLUDE_CHILDREN`. The chart root surfaces `data-region-count`; region
 containers are excluded from `data-node-count` + the aria-label state
 count (they are zone chrome, not states).
+
+### Parallel multi-active highlight (rf2-yoe6e, rf2-g2svr)
+
+> Closes parity gap **G1** in
+> [`001-Topology-Parity.md`](001-Topology-Parity.md) §3.1 — the single
+> most concrete missing capability vs Stately. Stately lights up
+> **every** active region of a parallel state at once
+> ([§1.2 parity bar](001-Topology-Parity.md)); this contract makes
+> `MachineChart` do the same.
+
+A `{:type :parallel}` machine's snapshot `:state` is a **region-map** —
+`{region <keyword-or-path>}` — with **N simultaneously-active leaves**,
+one per region (Spec 005 §Snapshot shape, third arm). The chart marks
+**every** active leaf `:active` at once, so a reader sees the active
+state in each region simultaneously (not a single arbitrary highlight).
+
+The resolution is pure and JVM-tested, in two layers:
+
+- **`chart.layout/highlight-ids`** — the resolver. Takes the whole
+  snapshot `:state` and returns a **set of active-leaf node-ids**:
+  - flat keyword (`:authing`) → `#{(node-id [:authing])}` — singleton.
+  - hierarchical path (`[:auth :authing]`) → `#{(node-id [...])}` — the
+    singleton holding the **deepest leaf** (`node-id` of the full path).
+  - **region-map** (`{:data :loading :form :neutral}`) → the **set of N
+    leaves**. Each region value is a keyword-or-path **relative to that
+    region's own state-tree**, resolved via `node-id` of the in-region
+    path (the parse keeps a region state's in-region node-id; it does
+    not region-prefix it). A **nested region value** (a region whose
+    value is itself a vector path) resolves to its **deepest leaf**,
+    exactly as the single-compound case does.
+  - `nil` / anything else → the empty set.
+
+  It **subsumes** the single-active `chart.layout/highlight-id` — for a
+  scalar `:state`, `highlight-ids` is exactly `#{(highlight-id state)}`.
+  `highlight-id` is retained for the focused-event lens
+  (`:from-highlight` / `:to-highlight`), which is genuinely single-state.
+
+- **`chart.projection/xyflow-graph`** threads the set as the
+  `:highlight-ids` option; a node is `:active` when its id ∈ the set.
+  The scalar `:highlight-id` option remains as a convenience that folds
+  into the set as a singleton (both supplied → the union). An edge is
+  `:active` when **either** endpoint is in the active set, so each
+  region's incident edges light independently (orthogonality preserved).
+
+The chart root surfaces the full active set as `data-highlight-ids` (a
+sorted, space-joined list of node-ids); `data-highlight-id` is kept as a
+single-active convenience (the lone id when the set is a singleton, `""`
+otherwise) so flat / compound charts stay observationally identical to
+the pre-G1 single-active behaviour.
+
+**Colour delegated to Figma.** This contract fixes *which* nodes are
+active and that *all* of them light up at once; the active palette + the
+"reads as a set" region-active chrome are owned by Figma per
+[`001-Topology-Parity.md`](001-Topology-Parity.md) §4.2 (the
+region-ACTIVE chrome polish is the follow-on G4 / N1, not this bead).
 
 ### Substrate adapters (rf2-yg9he, xyflow Phase 2)
 
@@ -135,11 +190,15 @@ For the supplied `:definition`, the chart shows:
   Edges are transitions, labelled with their triggering event id;
   `:after` edges read `after(<delay>)` and `:always` edges read
   `always` (per `chart.layout/edge-label`).
-- **The current state highlights.** When `:current-state` is set the
-  matching node carries a static active tint + bolder stroke; compound
-  states' active child is resolved recursively via
-  `chart.layout/highlight-id`. The highlight is a static affordance
-  (the heartbeat pulse was retired 2026-05-20 per rf2-2sez0); the only
+- **The current state highlights.** When `:current-state` is set every
+  active leaf carries a static active tint + bolder stroke. A flat /
+  compound snapshot has one active leaf; a **parallel** snapshot (a
+  region-map) has **N** simultaneously-active leaves and **every one**
+  lights up at once (see [§Parallel multi-active highlight](#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)).
+  The whole `:state` value resolves to the set of active node-ids via
+  `chart.layout/highlight-ids`; compound states' active child resolves
+  to the deepest leaf. The highlight is a static affordance (the
+  heartbeat pulse was retired 2026-05-20 per rf2-2sez0); the only
   continuous animation is the `:after` countdown rings overlay, which
   pauses when the chart is backgrounded.
 - **Focused-event lens highlights.** `:from-highlight` / `:to-highlight`

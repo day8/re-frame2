@@ -42,6 +42,7 @@
   contract."
   (:require ["@xyflow/react" :as xyflow]
             ["elkjs/lib/elk.bundled.js" :as elkjs]
+            [clojure.string :as str]
             [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
@@ -391,7 +392,13 @@
           ;; the root as `data-density`.
           (let [chart-vc          (vc/chart-for-density density)
                 density-name      (name (or density :regular))
-                highlight-id      (layout/highlight-id current-state)
+                ;; rf2-g2svr (G1) — `highlight-ids` resolves the WHOLE
+                ;; `:current-state` to the SET of active leaves, so a
+                ;; PARALLEL snapshot's N simultaneously-active leaves
+                ;; (one per region) ALL light up, not just one. Flat /
+                ;; compound snapshots resolve to a singleton set (same
+                ;; result the prior scalar `highlight-id` produced).
+                highlight-ids     (layout/highlight-ids current-state)
                 from-highlight-id (layout/highlight-id from-highlight)
                 to-highlight-id   (layout/highlight-id to-highlight)
                 callback          (when-not read-only? on-state-click)
@@ -399,7 +406,7 @@
                 {:keys [nodes edges]}
                 (projection/xyflow-graph parsed
                               @positions
-                              {:highlight-id      highlight-id
+                              {:highlight-ids     highlight-ids
                                :from-highlight-id from-highlight-id
                                :to-highlight-id   to-highlight-id
                                :sim?              sim?
@@ -455,7 +462,17 @@
                    ;; re-reading the bound prop (per spec/API.md
                    ;; §Density resolution rules).
                    :data-density density-name
-                   :data-highlight-id (or highlight-id "")
+                   ;; rf2-g2svr (G1) — the FULL active set surfaces as a
+                   ;; sorted, space-joined attr so hosts + DOM tests can
+                   ;; read every active leaf (N for a parallel snapshot).
+                   ;; `data-highlight-id` is kept as the single-active
+                   ;; convenience: the lone id when the set is a
+                   ;; singleton, "" otherwise (flat/compound stay
+                   ;; observationally identical to pre-G1).
+                   :data-highlight-ids (str/join " " (sort highlight-ids))
+                   :data-highlight-id (if (= 1 (count highlight-ids))
+                                        (first highlight-ids)
+                                        "")
                    :data-from-highlight-id (or from-highlight-id "")
                    :data-to-highlight-id (or to-highlight-id "")
                    :role "application"

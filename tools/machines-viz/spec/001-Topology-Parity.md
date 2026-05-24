@@ -170,7 +170,7 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 |---|---|---|
 | **Hierarchy** | ✅ Compound parents render as a dashed container with a header-strip title; children nest via xyflow `parentNode` + `extent:"parent"`; elk lays children inside the parent box (`INCLUDE_CHILDREN`). Nesting recurses (compound-in-compound, compound-in-region). | `nodes.cljs` `compound-node`; `projection.cljc` `->elk-children` (`:parent-id` grouping), `xyflow-graph` (`parentNode`/`extent`); `layout.cljc` `parse-flat` (`:parent-id` on nested nodes). |
 | **Parallel regions — structure** | ✅ **Every** region renders as a synthetic `:region?` compound node with a **distinct dashed boundary per region** (palette rotation) + `∥` glyph + region label; states carry `:region` + `:parent-id`; edges stay region-local. | `layout.cljc` `parse-parallel`/`region-node-id`; `projection.cljc` (`type "parallel-region"`); `nodes/parallel_region_node.cljs`. |
-| **Parallel regions — active highlight** | ⚠️ **Partial.** `highlight-id` resolves a keyword **or** a vector path; it returns **nil for a region-map** `{region path}`. A parallel snapshot has **N simultaneously-active leaves** but the chart can light up **at most one**. | `layout.cljc` `highlight-id` (handles keyword/vector only); `projection.cljc` `xyflow-graph` (single `:highlight-id`). |
+| **Parallel regions — active highlight** | ✅ **Closed (rf2-yoe6e / rf2-g2svr).** `highlight-ids` resolves the whole snapshot `:state` — flat keyword, compound path, **or region-map** `{region path}` — to the **set** of active-leaf node-ids; `xyflow-graph` threads `:highlight-ids` and marks **every** active leaf, so a parallel snapshot's **N simultaneously-active leaves** all light up at once. A nested region value resolves to its deepest leaf. | `layout.cljc` `highlight-ids`; `projection.cljc` `xyflow-graph` (`:highlight-ids` set). |
 | **Transition scoping** | ✅ `:on`, `:after`, `:always`, machine-level (top-level `:on`) fallback, external + internal self-transitions, vector-of-candidates forks. Self-loops render as a small loop (not a degenerate bezier); internal self-transitions render dashed + no arrowhead. | `layout.cljc` `collect-state-edges`, `collect-machine-edges`, `resolve-target-path`; `edges.cljs` (self-loop path, internal dash). |
 | **Initial** | ✅ Filled-dot `initial-marker` node + unlabelled entry edge into the initial state, at **every** compound level (xstate/SCXML semantics). | `nodes.cljs` `initial-marker`; `projection.cljc` (marker-nodes + entry-edges); `layout.cljc` `collect-nodes` (per-level `:initial?`). |
 | **Final** | ✅ Doubled border (outer ring 1px proud) + `✓` glyph inline on `state-node`. | `nodes.cljs` `state-node` (final ring + glyph). |
@@ -184,9 +184,12 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 
 **Headline:** structurally **at parity** on hierarchy, regions
 (layout), initial, final, transition scoping, event labels,
-guards/actions, layout, and ergonomics. **Two real capability gaps**
-remain (parallel multi-active highlight; bend-point edge routing), plus
-two **fired-edge consistency** items the live-chart wiring needs.
+guards/actions, layout, and ergonomics. The high-severity **parallel
+multi-active highlight** gap (G1) is now **closed** (rf2-yoe6e /
+rf2-g2svr); **one capability gap** remains (bend-point edge routing,
+G2), plus two **fired-edge consistency** items the live-chart wiring
+needs and the region-ACTIVE chrome polish (G4) that completes the
+parallel-parity read.
 
 ## §3 — Gap analysis + deliberate divergences
 
@@ -197,7 +200,7 @@ new), and the parity-bar row it serves.
 
 | # | Gap | Severity | Serves bar | Bead |
 |---|---|---|---|---|
-| **G1** | **Parallel multi-active highlight.** A parallel snapshot's `:state` is a region-map `{region path}` with **N active leaves**; `highlight-id` returns nil for a map, so the chart highlights **none** (or only a degenerate single id). Stately lights up **every** active region at once (§1.2). This is the **single most concrete missing capability**. | **High** | §1.2, §1.9 | **contract:** rf2-yoe6e (existing) · **impl:** rf2-g2svr (existing) |
+| **G1** | ✅ **CLOSED (rf2-yoe6e / rf2-g2svr).** Was: a parallel snapshot's `:state` is a region-map `{region path}` with **N active leaves**; `highlight-id` returned nil for a map, so the chart highlighted **none** (or only a degenerate single id). Now: `highlight-ids` resolves the whole `:state` (flat / compound / region-map, nested values → deepest leaf) to the **set** of active-leaf node-ids; `xyflow-graph` threads `:highlight-ids` and marks **every** active leaf, so all N regions light up at once — Stately's §1.2 read. | **High** | §1.2, §1.9 | **contract:** rf2-yoe6e ✅ · **impl:** rf2-g2svr ✅ |
 | **G2** | **elk bend-point edge routing.** Edges are beziers between handles; elk's Layered bend-points (ORTHOGONAL/polyline) are discarded (§1.7). In deep nesting, edges can cut **across** a region/compound container instead of routing **around** it — the [`000-Vision.md`](000-Vision.md) §Quality-bar "no edge-crossing collapse" floor at real machine sizes. | **Medium** | §1.7, §1.9 | **impl:** rf2-cz8v6 (existing, deferred polish) |
 | **G3** | **Fired-edge id consistency (live chart).** To highlight "the edge that fired this epoch" on the live chart, the host's trace→edge-id mapping MUST mint the **same** `edge-id` `chart.layout` mints. Today the helper chain needs consolidating so `extract-fired-edge-ids` emits machines-viz `edge-id`s. (The node-id scheme was already unified — rf2-m8kod.) | **Medium** | §1.3, §1.8 | **helpers:** rf2-8jzm1 (existing) · **wire:** rf2-qeemm (existing) |
 | **G4** | **Parallel-region chrome polish for the active read.** Once G1 lights up N regions, the **region container** should reflect "this region is active" (vs. structural-only chrome today) so a reader scanning N regions sees the active leaf in each at a glance — region-header active affordance + per-region active-leaf emphasis that reads as a set, not N independent highlights. | **Low–Medium** | §1.2 | **NEW — see §5 N1** |
