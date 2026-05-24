@@ -846,6 +846,8 @@ From the *handler's* perspective, the handler returns once with the full effects
 
 **Error during `:fx`.** If the fx-handler for `[a 1]` throws, subsequent entries `[b 2]` and `[c 3]` **continue to run.** Each thrown error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit is preserved (it happened before any `:fx` entry). Rationale: `:fx` entries are by design independent; ordering means *order*, not *dependency*. An fx that genuinely depends on a prior fx succeeding should be lifted to a `:dispatch` chain — observe the result via cofx in the dispatched handler. Halting on first error would conflate the two concerns.
 
+**Post-install asymmetry.** The asymmetry between pre-install throws (which abort the event cleanly — no `:db` install, no `:fx`, `app-db` unchanged) and post-install `:fx` throws (which do NOT wind `app-db` back, and do NOT undo side effects already fired) is a deliberate design choice. The full rationale and the compensating-event saga escape-valve guidance — including a worked example — lives at [013 §Why this asymmetry?](013-Flows.md#why-this-asymmetry--db-is-atomic-fx-is-best-effort-resolved-rf2-9o2kp-mike-2026-05-25).
+
 Conformance fixtures: [`fx-db-first.edn`](conformance/fixtures/fx-db-first.edn), [`fx-ordering-source-order.edn`](conformance/fixtures/fx-ordering-source-order.edn).
 
 ### Interceptor chain execution — `:before` short-circuit, `:after` always-runs
