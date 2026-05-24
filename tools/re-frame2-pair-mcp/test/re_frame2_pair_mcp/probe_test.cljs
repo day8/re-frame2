@@ -35,20 +35,42 @@
   "Install a stub `cljs-eval-value` that resolves to `canned-value` on
   every call, counting invocations into `call-count*`. Run `body-fn`
   (returning a Promise) and restore in `.finally` so cleanup outlives
-  async resolution. Mirror of `conformance_test/with-stubbed-eval!`."
+  async resolution. Mirror of `conformance_test/with-stubbed-eval!`.
+
+  rf2-7tgfk: also stubs `nrepl/jvm-eval` minimally so the preload-
+  failure diagnostic ladder runs to the `:runtime-loaded-but-preload-
+  missing` rung (the one that mirrors the OLD `:runtime-not-preloaded`
+  semantics — runtime alive, marker absent). Without the JVM stub the
+  ladder would short-circuit on `:nrepl-unreachable` for every
+  negative cljs probe."
   [canned-value call-count* body-fn]
-  (let [orig nrepl/cljs-eval-value
-        stub (fn
-               ([_conn _build-id _form-str]
-                (swap! call-count* inc)
-                (js/Promise.resolve canned-value))
-               ([_conn _build-id _form-str _opts]
-                (swap! call-count* inc)
-                (js/Promise.resolve canned-value)))]
-    (set! nrepl/cljs-eval-value stub)
+  (let [orig-cljs nrepl/cljs-eval-value
+        orig-jvm  nrepl/jvm-eval
+        cljs-stub (fn
+                    ([_conn _build-id _form-str]
+                     (swap! call-count* inc)
+                     (js/Promise.resolve canned-value))
+                    ([_conn _build-id _form-str _opts]
+                     (swap! call-count* inc)
+                     (js/Promise.resolve canned-value)))
+        jvm-stub  (fn
+                    ([_conn form-str]
+                     (js/Promise.resolve
+                       (if (re-find #"active-builds" form-str)
+                         {:value "[:app]"}
+                         {:value "1"})))
+                    ([_conn form-str _opts]
+                     (js/Promise.resolve
+                       (if (re-find #"active-builds" form-str)
+                         {:value "[:app]"}
+                         {:value "1"}))))]
+    (set! nrepl/cljs-eval-value cljs-stub)
+    (set! nrepl/jvm-eval         jvm-stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn []
+                    (set! nrepl/cljs-eval-value orig-cljs)
+                    (set! nrepl/jvm-eval         orig-jvm))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Conn fixture — a real conn-atom (not a stubbed one). The probe
@@ -202,8 +224,17 @@
           (.then (fn [_] (done)))))))
 
 (deftest ensure-runtime-rejects-on-missing-preload
-  ;; Negative path still surfaces the structured ex-info — cache only
+  ;; Negative path surfaces a structured ex-info — cache only
   ;; affects positive-result hot path.
+  ;;
+  ;; rf2-7tgfk: the rejection reason is now
+  ;; `:runtime-loaded-but-preload-missing` (the specific rung of the
+  ;; diagnostic ladder for the case where the JVM is reachable, the
+  ;; build is running, a CLJS runtime is connected, and ONLY the
+  ;; marker is absent). The probe-test stub returns `false` for the
+  ;; marker query (runtime alive, marker absent) → the ladder lands
+  ;; on this rung. Pre-rf2-7tgfk a single `:runtime-not-preloaded`
+  ;; reason covered every failure mode regardless of root cause.
   (async done
     (let [conn  (fresh-conn)
           calls (atom 0)]
@@ -214,7 +245,96 @@
                            (is false "ensure-runtime! must reject when preload missing")))
                   (.catch (fn [err]
                             (let [data (ex-data err)]
-                              (is (= :runtime-not-preloaded (:reason data)))
-                              (is (string? (:hint data))))))
+                              (is (= :runtime-loaded-but-preload-missing (:reason data)))
+                              (is (string? (:hint data)))
+                              (is (= :app (:build data))
+                                  "rejection carries the build id for the operator's next move"))))
                   (.then (fn [_] nil)))))
           (.then (fn [_] (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Diagnostic ladder — rf2-7tgfk. Pin each rung end-to-end.
+;; ---------------------------------------------------------------------------
+
+(defn- with-tri-stub!
+  "Stub harness with finer control over both `cljs-eval-value` and
+  `jvm-eval`. Used to drive each rung of the diagnostic ladder. Both
+  are a fn `(fn [form-str] -> canned)` so the test can branch on the
+  form being eval'd."
+  [cljs-fn jvm-fn body-fn]
+  (let [orig-cljs nrepl/cljs-eval-value
+        orig-jvm  nrepl/jvm-eval
+        cljs-stub (fn
+                    ([_conn _build-id form-str]      (js/Promise.resolve (cljs-fn form-str)))
+                    ([_conn _build-id form-str _opts] (js/Promise.resolve (cljs-fn form-str))))
+        jvm-stub  (fn
+                    ([_conn form-str]      (js/Promise.resolve (jvm-fn form-str)))
+                    ([_conn form-str _opts] (js/Promise.resolve (jvm-fn form-str))))]
+    (set! nrepl/cljs-eval-value cljs-stub)
+    (set! nrepl/jvm-eval         jvm-stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn []
+                    (set! nrepl/cljs-eval-value orig-cljs)
+                    (set! nrepl/jvm-eval         orig-jvm))))))
+
+(defn- assert-ladder-rejects-with-reason
+  "Drive `ensure-runtime!` to the rejection path and assert the rung's
+  reason + hint pattern. Centralises the deeply-nested Promise chain
+  shape so each rung test reads as data."
+  [conn expected-reason hint-pattern done extra-assertions]
+  (-> (probe/ensure-runtime! conn :app)
+      (.then  (fn [_] (is false "must reject") (done)))
+      (.catch (fn [err]
+                (let [data (ex-data err)]
+                  (is (= expected-reason (:reason data)))
+                  (is (re-find hint-pattern (:hint data)))
+                  (when extra-assertions (extra-assertions data))
+                  (done))))))
+
+(deftest diagnose-rung-nrepl-unreachable
+  (testing "JVM eval returns garbage (not \"1\") → :nrepl-unreachable"
+    (async done
+      (with-tri-stub! (fn [_] false)
+                      (fn [_] {:value "dead"})
+        (fn []
+          (assert-ladder-rejects-with-reason
+            (fresh-conn) :nrepl-unreachable #"nREPL" done nil))))))
+
+(deftest diagnose-rung-build-not-running
+  (testing "build is not in active-builds → :build-not-running with :running-builds"
+    (async done
+      (with-tri-stub! (fn [_] false)
+                      (fn [form-str]
+                        (if (re-find #"active-builds" form-str)
+                          {:value "[:other]"}
+                          {:value "1"}))
+        (fn []
+          (assert-ladder-rejects-with-reason
+            (fresh-conn) :build-not-running #":other" done
+            (fn [data]
+              (is (= [:other] (:running-builds data))))))))))
+
+(deftest diagnose-rung-no-runtime-connected
+  (testing "build is running but cljs-eval returns blank/nil → :no-runtime-connected"
+    (async done
+      (with-tri-stub! (fn [_] nil)
+                      (fn [form-str]
+                        (if (re-find #"active-builds" form-str)
+                          {:value "[:app]"}
+                          {:value "1"}))
+        (fn []
+          (assert-ladder-rejects-with-reason
+            (fresh-conn) :no-runtime-connected #"no CLJS runtime" done nil))))))
+
+(deftest diagnose-rung-runtime-loaded-but-preload-missing
+  (testing "cljs eval returns false → :runtime-loaded-but-preload-missing"
+    (async done
+      (with-tri-stub! (fn [_] false)
+                      (fn [form-str]
+                        (if (re-find #"active-builds" form-str)
+                          {:value "[:app]"}
+                          {:value "1"}))
+        (fn []
+          (assert-ladder-rejects-with-reason
+            (fresh-conn) :runtime-loaded-but-preload-missing #"preload" done nil))))))

@@ -1,0 +1,126 @@
+(ns re-frame2-pair-mcp.trace-window-test
+  "Unit tests for the `trace-window` MCP tool — specifically the
+  empty-result advisory added in rf2-fb4hn.
+
+  Pre-rf2-fb4hn the tool returned `:count 0` with no explanation when
+  the time window excluded every event in the per-frame ring. Operators
+  routinely misread this as \"events aren't being captured\" when in
+  fact events existed but fell outside `:ms`. The advisory distinguishes
+  \"genuinely empty history\" from \"window excludes the history\"."
+  (:require [cljs.test :refer-macros [deftest is testing async]]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.tools.trace-window :as tw]))
+
+;; ---------------------------------------------------------------------------
+;; Stub harness — `cljs-eval-value` is scripted by form-keyword
+;; substring: a sequence of [substring response] pairs picks the first
+;; pair whose substring appears in the eval form (probe forms contain
+;; `__re_frame2_pair_runtime`; trace-window's slice form contains
+;; `epoch-history`). A `:default` sentinel is the fall-through.
+;; ---------------------------------------------------------------------------
+
+(defn- with-substr-eval!
+  [script body-fn]
+  (let [orig nrepl/cljs-eval-value
+        match (fn [form-str]
+                (some (fn [[k v]]
+                        (when (or (= k :default)
+                                  (and (string? k) (re-find (re-pattern k) form-str)))
+                          v))
+                      script))
+        stub (fn
+               ([_conn _build-id form-str]
+                (js/Promise.resolve (match form-str)))
+               ([_conn _build-id form-str _opts]
+                (js/Promise.resolve (match form-str))))]
+    (set! nrepl/cljs-eval-value stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+
+;; ---------------------------------------------------------------------------
+;; Empty window + empty history → NO advisory.
+;; ---------------------------------------------------------------------------
+
+(deftest empty-history-no-advisory
+  (testing "trace-window with empty history returns count 0 + no advisory"
+    (async done
+      (let [script [["__re_frame2_pair_runtime" true]
+                    [:default                    {:epochs         []
+                                                  :id-aged-out?   false
+                                                  :requested-id   nil
+                                                  :head-id        nil
+                                                  :next-id        nil
+                                                  :history-count  0
+                                                  :remaining      0}]]]
+        (-> (with-substr-eval! script
+              (fn []
+                (-> (tw/trace-window-tool nil (tu/args->js {:ms 1000}))
+                    (.then (fn [result]
+                             (let [edn (tu/extract-edn result)]
+                               (is (true? (:ok? edn)))
+                               (is (= 0 (:count edn)))
+                               (is (not (contains? edn :advisory))
+                                   "genuine empty: history empty → no advisory")
+                               (done))))))))))))
+
+;; ---------------------------------------------------------------------------
+;; Empty window + non-empty history → ADVISORY with epochs-in-history.
+;; ---------------------------------------------------------------------------
+
+(deftest empty-window-non-empty-history-surfaces-advisory
+  (testing "trace-window with no events in window but 9 in history → :advisory"
+    (async done
+      (let [script [["__re_frame2_pair_runtime" true]
+                    [:default                    {:epochs         []
+                                                  :id-aged-out?   false
+                                                  :requested-id   nil
+                                                  :head-id        :epoch-9
+                                                  :next-id        nil
+                                                  :history-count  9
+                                                  :remaining      0}]]]
+        (-> (with-substr-eval! script
+              (fn []
+                (-> (tw/trace-window-tool nil (tu/args->js {:ms 1000 :frame "step-deck"}))
+                    (.then (fn [result]
+                             (let [edn      (tu/extract-edn result)
+                                   advisory (:advisory edn)]
+                               (is (true? (:ok? edn)))
+                               (is (= 0 (:count edn)))
+                               (is (some? advisory)
+                                   "advisory should fire: 0 matches but 9 in history")
+                               (is (= :window-excludes-history (:reason advisory)))
+                               (is (= 9 (:epochs-in-history advisory)))
+                               (is (= 1000 (:window-ms advisory)))
+                               (is (= :step-deck (:frame advisory)))
+                               (is (re-find #"9 epochs exist" (:hint advisory)))
+                               (is (re-find #"snapshot" (:hint advisory))
+                                   "hint points operators to snapshot for historical inspection")
+                               (done))))))))))))
+
+;; ---------------------------------------------------------------------------
+;; Non-empty window → NO advisory (the happy path).
+;; ---------------------------------------------------------------------------
+
+(deftest non-empty-window-no-advisory
+  (testing "trace-window with matches in window → no advisory regardless of history"
+    (async done
+      (let [script [["__re_frame2_pair_runtime" true]
+                    [:default                    {:epochs         [{:epoch-id :e1 :committed-at 100}]
+                                                  :id-aged-out?   false
+                                                  :requested-id   nil
+                                                  :head-id        :e1
+                                                  :next-id        nil
+                                                  :history-count  20
+                                                  :remaining      0}]]]
+        (-> (with-substr-eval! script
+              (fn []
+                (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000}))
+                    (.then (fn [result]
+                             (let [edn (tu/extract-edn result)]
+                               (is (true? (:ok? edn)))
+                               (is (= 1 (:count edn)))
+                               (is (not (contains? edn :advisory))
+                                   "advisory should NOT fire when count > 0")
+                               (done))))))))))))

@@ -343,10 +343,25 @@ together with the load-time marker at
 `js/globalThis.__re_frame2_pair_runtime`.
 
 Every tool that needs the runtime calls `ensure-runtime!` first; the
-probe is one bencode round-trip on the persistent socket. Missing
-marker → structured `:reason :runtime-not-preloaded` error with the
-setup hint. There is no cljs-eval inject fallback (rf2-7dvg cut it
-for pre-alpha simplicity).
+probe is one bencode round-trip on the persistent socket. There is
+no cljs-eval inject fallback (rf2-7dvg cut it for pre-alpha
+simplicity).
+
+### Failure-path diagnostic ladder (rf2-7tgfk)
+
+When the probe fails, `ensure-runtime!` no longer surfaces a single
+blanket `:runtime-not-preloaded` reason. A diagnostic ladder runs on
+the failure path and reports one of four specific reasons:
+
+| `:reason`                                | Meaning |
+|------------------------------------------|---------|
+| `:nrepl-unreachable`                     | The JVM-side nREPL round-trip fails. The JVM may have stopped, or the MCP server is holding a stale socket. Restart `shadow-cljs watch`. |
+| `:build-not-running`                     | shadow-cljs's `active-builds` doesn't include the targeted build. Carries `:running-builds` so the operator can pick the right `--build=<id>`. |
+| `:no-runtime-connected`                  | The build IS running but no CLJS runtime answered the eval (cljs-eval returned blank). Open the app in a browser tab — or reload an existing tab whose WebSocket has dropped. |
+| `:runtime-loaded-but-preload-missing`    | A CLJS runtime is alive but the `__re_frame2_pair_runtime` marker is absent. The original setup hint ("add the preload to your shadow-cljs.edn") applies here. |
+
+The ladder costs one extra `jvm-eval` (active-builds enumeration) on
+the failure path; the probe cache means the success path stays free.
 
 ## Spec
 

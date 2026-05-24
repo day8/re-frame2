@@ -64,6 +64,76 @@
        "and make sure the directory containing re_frame2_pair/runtime.cljs "
        "is on :source-paths. See skills/re-frame2-pair/SKILL.md (§Setup)."))
 
+;; ---------------------------------------------------------------------------
+;; Diagnostic-ladder vocabulary (rf2-7tgfk).
+;;
+;; A failed preload probe used to surface ONE reason
+;; (`:runtime-not-preloaded`) whose hint always read "add the preload
+;; to your shadow-cljs.edn". In the 2026-05-25 pair-debug session that
+;; suggestion was misleading in three of the four failure modes the
+;; operator hit (~30 min of dead-end debugging). The ladder below
+;; distinguishes the cases the original single reason hid:
+;;
+;;   :nrepl-unreachable             - JVM eval round-trip fails. The
+;;                                    socket may be dead even though
+;;                                    the bash side of the world is up.
+;;   :build-not-running             - shadow's active-builds doesn't
+;;                                    include the build the tool is
+;;                                    targeting. Almost always a
+;;                                    --build typo or operator
+;;                                    targeted the wrong dev build.
+;;   :no-runtime-connected          - build IS running but cljs-eval
+;;                                    returns blank — no browser tab
+;;                                    has connected (or the tab's ws
+;;                                    is dead).
+;;   :runtime-loaded-but-preload-missing
+;;                                  - the original meaning: a CLJS
+;;                                    runtime is alive but the
+;;                                    `__re_frame2_pair_runtime` marker
+;;                                    is absent. The "add the preload"
+;;                                    hint fits ONLY this case.
+;;
+;; The ladder costs one extra `jvm-eval` (active-builds enumeration)
+;; on the failure path; ~50ms total. The probe-cache short-circuit
+;; means a healthy session pays nothing.
+;; ---------------------------------------------------------------------------
+
+(def ^:private nrepl-unreachable-hint
+  (str "The nREPL connection looks dead. Likely: the JVM running "
+       "shadow-cljs has stopped (or has been restarted, leaving the "
+       "MCP server holding a stale socket). Restart `shadow-cljs watch` "
+       "and retry; the MCP server reconnects on the next tool call."))
+
+(defn- build-not-running-hint [build-id running]
+  (cond
+    (empty? running)
+    (str "no shadow-cljs build is currently running. Start your dev "
+         "build (`shadow-cljs watch <build>`) before retrying.")
+
+    :else
+    (str "shadow-cljs is running " (vec running) " but not "
+         build-id ". Pass --build=" (first running)
+         " (or set SHADOW_CLJS_BUILD_ID) — or restart the watch worker "
+         "for " build-id " if you really mean to target it.")))
+
+(defn- no-runtime-connected-hint [build-id]
+  (str "build " build-id " is running but no CLJS runtime is currently "
+       "connected (the cljs-eval round-trip returned blank). Open the app "
+       "in a browser tab — or if a tab IS open, the WebSocket has dropped: "
+       "reload the page so the runtime reconnects."))
+
+(defn- jvm-reachable?
+  "Round-trip `1` through `jvm-eval`. Resolves to true on `:value \"1\"`,
+  false on any other shape / rejection. Used to disambiguate
+  `:nrepl-unreachable` from `:build-not-running`."
+  [conn]
+  (-> (try
+        (nrepl/jvm-eval conn "1")
+        (catch :default _ (js/Promise.resolve nil)))
+      (.then (fn [resp]
+               (= "1" (str (:value resp)))))
+      (.catch (fn [_] false))))
+
 (defn- conn-has-probed?
   "True iff `build-id` has been confirmed preloaded on the current
   socket generation. Defensive against `nil` / non-atom `conn` —
@@ -102,6 +172,104 @@
                    ok?)))
         (.catch (fn [_] false)))))
 
+;; Forward declare for diagnose-preload-failure! — running-builds is
+;; defined below alongside resolve-build! and friends; the ladder uses
+;; it on the failure path. Keeping running-builds where it is preserves
+;; the grouping with resolve-build! (both touch shadow's JVM API).
+(declare running-builds)
+
+(defn diagnose-preload-failure!
+  "Run the failure-path diagnostic ladder (rf2-7tgfk). Called only when
+  `runtime-preloaded?` returned false, so the cost is paid exactly when
+  it matters. Resolves to a map `{:reason <kw> :hint <str> ...}` whose
+  `:reason` distinguishes:
+
+    :nrepl-unreachable                     - the nREPL JVM round-trip fails.
+    :build-not-running                     - shadow's active-builds doesn't
+                                             include the targeted build.
+                                             Carries :running-builds for
+                                             the operator's next move.
+    :no-runtime-connected                  - build IS running but cljs-eval
+                                             returns blank (no browser tab
+                                             connected, or its ws is dead).
+    :runtime-loaded-but-preload-missing    - a CLJS runtime is alive but
+                                             the preload marker is absent.
+                                             The original hint applies here.
+
+  The ladder runs one extra `jvm-eval` (active-builds enumeration) plus
+  one `cljs-eval` (blank-vs-false discriminator) — ~50ms on the failure
+  path; the probe cache keeps the success path free."
+  [conn build-id]
+  (-> (jvm-reachable? conn)
+      (.then
+        (fn [nrepl-ok?]
+          (if-not nrepl-ok?
+            (js/Promise.resolve
+              {:reason :nrepl-unreachable
+               :build  build-id
+               :hint   nrepl-unreachable-hint})
+            (-> (running-builds conn)
+                (.then
+                  (fn [running]
+                    (if-not (some #(= build-id %) running)
+                      (js/Promise.resolve
+                        {:reason         :build-not-running
+                         :build          build-id
+                         :running-builds running
+                         :hint           (build-not-running-hint build-id running)})
+                      ;; Build IS running — distinguish "no runtime
+                      ;; connected" (cljs-eval returns blank/nil) from
+                      ;; "runtime present but marker absent" (cljs-eval
+                      ;; returns false). The original probe collapsed
+                      ;; both into "false"; here we re-evaluate the
+                      ;; raw form and inspect the shape.
+                      (-> (nrepl/cljs-eval-value
+                            conn build-id
+                            "(some? (and (exists? js/globalThis) (.-__re_frame2_pair_runtime js/globalThis)))")
+                          (.then
+                            (fn [v]
+                              (cond
+                                ;; blank/nil → no runtime answered the eval
+                                (nil? v)
+                                {:reason         :no-runtime-connected
+                                 :build          build-id
+                                 :running-builds running
+                                 :hint           (no-runtime-connected-hint build-id)}
+
+                                ;; false → runtime is alive but marker
+                                ;; is absent — the case the original hint
+                                ;; was written for.
+                                (false? v)
+                                {:reason :runtime-loaded-but-preload-missing
+                                 :build  build-id
+                                 :hint   preload-missing-hint}
+
+                                ;; Should not happen — a true here
+                                ;; means the probe state flipped under
+                                ;; us. Treat as missing marker.
+                                :else
+                                {:reason :runtime-loaded-but-preload-missing
+                                 :build  build-id
+                                 :hint   preload-missing-hint})))
+                          (.catch (fn [_]
+                                    ;; The discriminator eval threw —
+                                    ;; we know the build is running
+                                    ;; (active-builds confirmed it), so
+                                    ;; this is most likely a transient
+                                    ;; cljs-eval failure. Fall back to
+                                    ;; the most conservative reason.
+                                    (js/Promise.resolve
+                                      {:reason :no-runtime-connected
+                                       :build  build-id
+                                       :running-builds running
+                                       :hint   (no-runtime-connected-hint build-id)})))))))))))
+      (.catch (fn [_]
+                ;; Ladder itself threw — degrade to the original reason.
+                (js/Promise.resolve
+                  {:reason :runtime-not-preloaded
+                   :build  build-id
+                   :hint   preload-missing-hint})))))
+
 (defn runtime-health!
   "Call `(re-frame2-pair.runtime/health)`. Caller must have already
   confirmed the preload landed via `runtime-preloaded?`."
@@ -115,16 +283,26 @@
 
   After the first positive probe per `(conn, build-id)`, this resolves
   synchronously from cache — no nREPL round-trip per tool call
-  (rf2-sjpx0)."
+  (rf2-sjpx0).
+
+  rf2-7tgfk: on a failed probe the rejection no longer always reads
+  `:runtime-not-preloaded`. The diagnostic ladder
+  (`diagnose-preload-failure!`) inspects the failure mode and rejects
+  with one of four specific reasons — `:nrepl-unreachable`,
+  `:build-not-running`, `:no-runtime-connected`, or
+  `:runtime-loaded-but-preload-missing` — each with a targeted hint.
+  The original blanket `:runtime-not-preloaded` reason is reserved as
+  the degradation fallback if the ladder itself errors."
   [conn build-id]
   (-> (runtime-preloaded? conn build-id)
       (.then (fn [ok?]
                (if ok?
                  nil
-                 (js/Promise.reject
-                   (ex-info "re-frame2-pair runtime not preloaded"
-                            {:reason :runtime-not-preloaded
-                             :hint   preload-missing-hint})))))))
+                 (-> (diagnose-preload-failure! conn build-id)
+                     (.then (fn [diag]
+                              (js/Promise.reject
+                                (ex-info "re-frame2-pair runtime probe failed"
+                                         diag))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Running-build enumeration + fail-loud build resolution (rf2-ivlb3).

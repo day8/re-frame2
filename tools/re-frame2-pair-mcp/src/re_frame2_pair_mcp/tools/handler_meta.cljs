@@ -55,6 +55,7 @@
   (\"where's X defined\", \"what's registered\") with a narrow surface
   the agent can rely on across runtimes and editor-config postures."
   (:require [clojure.string :as str]
+            [cljs.reader :as edn]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
@@ -152,12 +153,18 @@
   map or a structured `:not-registered` map. Keeps the tool's response
   shape uniform across kinds.
 
+  rf2-l7vnd: `dissoc :handler-fn` for the same reason `registrar-describe`
+  drops it — a raw Function ref is unreadable on the EDN wire and made
+  the tool envelope misreport :unexpected-shape. The machine surface
+  doesn't always carry one, but the dissoc is idempotent and cheap and
+  keeps the response shape EDN-clean by construction across both kinds.
+
   The composed form is one expression so the eval is a single
   round-trip — composition is the same idiom every other tool uses."
   [id]
   (let [id-edn (pr-str id)]
     (str "(if-let [m (re-frame.core/machine-meta " id-edn ")]"
-         "  m"
+         "  (dissoc m :handler-fn)"
          "  {:ok? false :reason :not-registered :kind :machine :id " id-edn "})")))
 
 (defn handler-meta-tool [conn args]
@@ -199,17 +206,33 @@
                      ;;   - eval returned non-map: surface as
                      ;;     :unexpected-shape — should never happen
                      ;;     against a healthy runtime.
-                     (wire/ok-text
-                       (cond
-                         (not (map? v))
-                         {:ok? false :reason :unexpected-shape
-                          :kind kind :id id-val :value v}
+                     ;;
+                     ;; rf2-l7vnd defensive re-parse: if `v` is a STRING
+                     ;; that looks like a stringified map (starts with
+                     ;; `{`), one more EDN read can recover the map.
+                     ;; This guards against a runtime that ships a value
+                     ;; with an unreadable token (`#object[Function ...]`,
+                     ;; `#js {...}`, …) — `read-edn-safe` in nrepl.cljs
+                     ;; would drop back to the raw string. The runtime
+                     ;; now strips :handler-fn before returning so the
+                     ;; primary path is clean; this re-parse is the
+                     ;; belt to the runtime's braces.
+                     (let [v* (if (and (string? v)
+                                       (str/starts-with? (str/trim v) "{"))
+                                (try (edn/read-string v)
+                                     (catch :default _ v))
+                                v)]
+                       (wire/ok-text
+                         (cond
+                           (not (map? v*))
+                           {:ok? false :reason :unexpected-shape
+                            :kind kind :id id-val :value v*}
 
-                         (false? (:ok? v))
-                         (assoc v :kind kind :id id-val)
+                           (false? (:ok? v*))
+                           (assoc v* :kind kind :id id-val)
 
-                         :else
-                         (assoc v :ok? true :kind kind :id id-val)))))
+                           :else
+                           (assoc v* :ok? true :kind kind :id id-val))))))
             (.catch (fn [err] (probe/err->result :handler-meta-failed err))))))))
 
 ;; ---------------------------------------------------------------------------

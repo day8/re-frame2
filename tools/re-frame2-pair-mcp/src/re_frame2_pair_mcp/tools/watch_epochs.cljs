@@ -15,7 +15,18 @@
   Post-eval shrink pipeline lives in
   `re-frame2-pair-mcp.tools.wire-pipeline` (rf2-ae8ie). This tool body
   builds the eval form, awaits the runtime response, and routes the
-  matches vector through `run-wire-pipeline` with `:kind :epoch-vector`."
+  matches vector through `run-wire-pipeline` with `:kind :epoch-vector`.
+
+  ## Empty-result advisory (rf2-fb4hn)
+
+  When the response would carry `:count 0` but the frame's per-frame
+  epoch-history is non-empty, an `:advisory` rides on the envelope
+  distinguishing two cases:
+
+    - `:no-events-since-id` — caller passed `:since-id` and no new
+      epochs landed after it. Calmly says \"nothing new\".
+    - `:pred-excludes-history` — the predicate filtered every epoch
+      out. Says the history exists; the pred is the gate."
   (:require [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
@@ -58,19 +69,31 @@
                                                    (or pred-map {})
                                                    (ef/rt-raw "%")))
                               " (:epochs r))")
+            history-call (if sticky-frame
+                           (ef/rt-call 'epoch-history sticky-frame)
+                           (ef/rt-call 'epoch-history))
             form (ef/emit
                    (ef/rt-let
-                     ['r       epochs-since-call
-                      'matches (ef/rt-raw matches-form)
-                      'page    (ef/rt-raw (str "(vec (take " limit " matches))"))
-                      'next-id (ef/rt-raw
-                                 "(when (< (count page) (count matches)) (:epoch-id (last page)))")]
+                     ['r             epochs-since-call
+                      'matches       (ef/rt-raw matches-form)
+                      'page          (ef/rt-raw (str "(vec (take " limit " matches))"))
+                      'next-id       (ef/rt-raw
+                                       "(when (< (count page) (count matches)) (:epoch-id (last page)))")
+                      ;; rf2-fb4hn: history-count surfaces the
+                      ;; per-frame ring depth so the tool can advise
+                      ;; on the \"empty matches but non-empty history\"
+                      ;; case the operator typically misreads as
+                      ;; pre-attach invisibility.
+                      'history-count (ef/rt-raw (str "(count " (ef/emit history-call) ")"))
+                      'since-count   (ef/rt-raw "(count (:epochs r))")]
                      (ef/rt-raw
                        (str "{:matches page"
                             " :id-aged-out? (:id-aged-out? r)"
                             " :requested-id (:requested-id r)"
                             " :head-id (:head-id r)"
                             " :next-id next-id"
+                            " :history-count history-count"
+                            " :since-count since-count"
                             " :remaining (max 0 (- (count matches) (count page)))}"))))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
@@ -90,19 +113,61 @@
                                                  :mode   mode
                                                  :dedup? dedup?})
                           {:keys [dropped elided count]} indicators
-                          next-id     (:next-id v)
-                          next-cursor (cursor/encode-cursor
-                                        (when next-id
-                                          {:v        1
-                                           :after-id next-id
-                                           :ms       nil
-                                           :until-ms nil
-                                           :frame    sticky-frame}))
-                          remaining   (or (:remaining v) 0)
-                          base        (cond-> {:ok?          true
-                                               :head-id      (:head-id v)
-                                               :id-aged-out? (boolean aged-out?)}
-                                        (:requested-id v) (assoc :requested-id (:requested-id v)))]
+                          next-id       (:next-id v)
+                          next-cursor   (cursor/encode-cursor
+                                          (when next-id
+                                            {:v        1
+                                             :after-id next-id
+                                             :ms       nil
+                                             :until-ms nil
+                                             :frame    sticky-frame}))
+                          remaining     (or (:remaining v) 0)
+                          history-count (or (:history-count v) 0)
+                          since-count   (or (:since-count v) 0)
+                          ;; rf2-fb4hn: two distinct empty-result
+                          ;; explainers, picked by the runtime data:
+                          ;;
+                          ;;   - since-count = 0 + history-count > 0
+                          ;;     → caller's :since-id is at (or past)
+                          ;;     the head; calmly say \"nothing new
+                          ;;     yet\".
+                          ;;
+                          ;;   - since-count > 0 + count = 0
+                          ;;     → events landed since the id but the
+                          ;;     :pred filtered them all out — point
+                          ;;     at the predicate, not the buffer.
+                          advisory
+                          (cond
+                            (and (zero? count)
+                                 (zero? since-count)
+                                 (pos? history-count))
+                            {:reason            :no-events-since-id
+                             :frame             sticky-frame
+                             :epochs-in-history history-count
+                             :requested-id      effective-after
+                             :hint              (str "Per-frame history holds "
+                                                     history-count
+                                                     " epochs but none have landed since the "
+                                                     "supplied :since-id. Dispatch an event "
+                                                     "to advance the head, or omit :since-id "
+                                                     "to see the full ring.")}
+
+                            (and (zero? count)
+                                 (pos? since-count))
+                            {:reason            :pred-excludes-history
+                             :frame             sticky-frame
+                             :epochs-in-history history-count
+                             :epochs-since-id   since-count
+                             :hint              (str since-count
+                                                     " epochs landed since the requested id but "
+                                                     "the :pred filter excluded all of them. "
+                                                     "Drop / widen :pred, or use trace-window for "
+                                                     "an unfiltered view.")})
+                          base          (cond-> {:ok?          true
+                                                 :head-id      (:head-id v)
+                                                 :id-aged-out? (boolean aged-out?)}
+                                          (:requested-id v) (assoc :requested-id (:requested-id v))
+                                          advisory          (assoc :advisory advisory))]
                       (wire/ok-text (wire/with-indicators
                                       (assoc base
                                              :matches             value

@@ -343,10 +343,20 @@
    :handler-fn, the :rf/machine? flag where applicable, and any extra
    keys the registrar carries (e.g. retained source forms when present).
 
-   Augments with :handler-fn-hash for use as a probe over hot-reload."
+   Augments with :handler-fn-hash for use as a probe over hot-reload.
+
+   rf2-l7vnd: the :handler-fn slot carries a raw Function. `pr-str` of a
+   Function emits `#object[Function ...]` — unreadable EDN on the MCP
+   wire, which made the tool's read-back fall to a string and the
+   handler-meta envelope misreport :unexpected-shape. The hash already
+   covers every hot-reload probing use; the raw fn ref had no surviving
+   on-the-wire consumer. Drop it before returning so the response is
+   EDN-clean by construction."
   [kind id]
   (if-let [m (rf/handler-meta kind id)]
-    (assoc m :handler-fn-hash (handler-fn-hash m))
+    (-> m
+        (assoc :handler-fn-hash (handler-fn-hash m))
+        (dissoc :handler-fn))
     {:ok? false :reason :not-registered :kind kind :id id}))
 
 (defn registrar-handler-ref
