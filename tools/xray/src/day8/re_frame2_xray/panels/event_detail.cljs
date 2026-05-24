@@ -46,11 +46,21 @@
                on success-path emits. DISPATCH reads it.
     Change 3 — Framework-auto-wrapped interceptors carry
                `:rf/default? true` so AFTER INTERCEPTORS can filter them
-               out without an allowlist.
-    Change 4 — (rf2-jhhqt) `:rf.fx/do-fx` traces carry
-               `:rf.event/coeffects` on their `:tags` — the USER-INJECTED
-               subset of the handler's coeffects (framework defaults
-               filtered at the substrate). COEFFECTS reads it.
+               out without an allowlist. `inject-cofx` interceptors carry
+               `:rf/cofx-id` (rf2-9dk9y) — also filtered, since their
+               contribution renders under COEFFECTS instead.
+    Change 4 — (rf2-9dk9y, supersedes rf2-jhhqt) `:rf.event/run-end`
+               traces carry `:rf.event/coeffects` on their `:tags` — the
+               USER-INJECTED subset of the handler's coeffects (framework
+               defaults filtered at the substrate). COEFFECTS reads it.
+               Run-end always fires, so events that return only `:db`
+               (no `:fx`) still surface their user cofx.
+    Change 5 — (rf2-9dk9y) `:rf.event/run-end` traces carry
+               `:rf.event/after-deltas` on their `:tags` — a vector of
+               per-`:after`-interceptor ctx-delta records
+               `{:rf.icpt/id <id> :rf.icpt/ctx-delta {...}}`. AFTER
+               INTERCEPTORS reads it to render the +/~/- diff under each
+               row, matching APP-DB CHANGES' EDN-diff idiom.
 
   Handler-site coord + source read via `(rf/handler-meta :event id)` —
   no trace involvement; reads the registry at render time.
@@ -217,13 +227,25 @@
 
 (defn user-interceptors
   "Filter `interceptors` (the chain on `(rf/handler-meta :event id)
-  :interceptors`) down to the user-visible ones — drop any flagged
-  `:rf/default? true`, plus the known auto-wrapper ids as a belt-and-
-  braces fallback. Pure fn; JVM-testable."
+  :interceptors`) down to the user-visible AFTER INTERCEPTORS surface —
+  drop:
+
+    - any flagged `:rf/default? true` (the substrate-side marker for
+      framework-auto-wrapped interceptors, per rf2-twt7m Change 3);
+    - any flagged `:rf/cofx-id` (per rf2-9dk9y — the `inject-cofx`
+      interceptor's contribution is rendered under COEFFECTS, not
+      AFTER INTERCEPTORS, so it would be doubly misleading to surface
+      it here — it has no `:after` and its `:before` injection is
+      already shown one section up);
+    - the known framework auto-wrapper ids as a belt-and-braces
+      fallback for older registrations that pre-date the flag.
+
+  Pure fn; JVM-testable."
   [interceptors]
   (vec
     (remove (fn [i]
               (or (true? (:rf/default? i))
+                  (some? (:rf/cofx-id i))
                   (contains? default-interceptor-id? (:id i))))
             (or interceptors []))))
 
@@ -450,16 +472,19 @@
 
 (defn user-coeffects
   "Project the user-injected coeffects map off the cascade's
-  `:event/do-fx` trace (rf2-jhhqt — substrate Change 4 stamps the
-  user-injected subset on `:tags :rf.event/coeffects`). Pure fn; JVM-testable.
+  `:rf.event/run-end` trace (rf2-9dk9y — the substrate stamps the user-
+  injected subset on `:tags :rf.event/coeffects` of run-end so it rides
+  uniformly across event flavours; the prior placement on `:rf.fx/do-fx`
+  silently dropped the stamp whenever a handler returned only `:db` and
+  no `:fx`, because do-fx was never invoked). Pure fn; JVM-testable.
 
-  Returns the map (preserving id → value pairs) or nil when the
-  cascade carries no coeffects stamp / the stamp is empty. The
-  substrate filters the framework defaults (`:db` `:event` `:frame`
-  `:source` `:trace-id`) at emit-time so this fn is a thin reader —
-  it does NOT re-filter."
-  [cascade]
-  (let [m (some-> (do-fx-trace cascade) :tags :rf.event/coeffects)]
+  Returns the map (preserving id → value pairs) or nil when the cascade
+  carries no coeffects stamp / the stamp is empty. The substrate
+  filters the framework defaults (`:db` `:event` `:frame` `:source`
+  `:trace-id`) at emit-time so this fn is a thin reader — it does NOT
+  re-filter."
+  [{:keys [handler] :as _cascade}]
+  (let [m (some-> handler :tags :rf.event/coeffects)]
     (when (and (map? m) (seq m))
       m)))
 
@@ -496,43 +521,162 @@
 
 ;; ---- step AFTER INTERCEPTORS (spec/021 §2.2 step 6) -------------------
 
+(defn after-deltas-by-id
+  "Project the per-`:after` ctx-delta records off the cascade's
+  `:rf.event/run-end` trace (rf2-9dk9y) into a `{:rf.icpt/id → delta}`
+  lookup map. Returns `{}` when the trace carries no after-deltas (no
+  user `:after` ran, or every `:after` was a no-op). Pure fn;
+  JVM-testable."
+  [{:keys [handler] :as _cascade}]
+  (let [rows (some-> handler :tags :rf.event/after-deltas)]
+    (if (sequential? rows)
+      (reduce (fn [acc {:keys [rf.icpt/id rf.icpt/ctx-delta]}]
+                (cond-> acc
+                  (and (some? id) (some? ctx-delta))
+                  (assoc id ctx-delta)))
+              {}
+              rows)
+      {})))
+
+(def ^:private ctx-delta-op->glyph
+  "EDN-diff glyph idiom mirrors APP-DB CHANGES: `+` added, `~` changed,
+  `-` removed."
+  {:added   "+"
+   :changed "~"
+   :removed "-"})
+
+(def ^:private ctx-delta-op->colour-key
+  "Token key per op — same green/yellow/red palette APP-DB CHANGES uses
+  (`app-db-diff-format/op->border`) so the two sections read as one
+  visual idiom."
+  {:added   :green
+   :changed :yellow
+   :removed :red})
+
+(defn- ctx-delta-row
+  "One `[<glyph>] [<segment>/<key>] [<value>]` row for the after-delta
+  block. `segment` is `:coeffects` or `:effects`; `op` is `:added`,
+  `:changed`, or `:removed`; `value` is the post-state for added /
+  the pre-state for removed / the `{:before _ :after _}` pair for
+  changed (pre-formatted by `format-changed-value`)."
+  [segment op k display-value testid-suffix]
+  (let [glyph    (ctx-delta-op->glyph op)
+        colour   (get tokens (ctx-delta-op->colour-key op))]
+    [:div {:data-testid (str "rf-xray-event-detail-icpt-delta-row-" testid-suffix)
+           :style {:display "flex"
+                   :align-items "flex-start"
+                   :padding "1px 0 1px 24px"
+                   :font-family mono-stack
+                   :font-size "11px"}}
+     [:span {:style {:color colour
+                     :font-weight 700
+                     :margin-right "8px"
+                     :min-width "10px"}}
+      glyph]
+     [:span {:style {:color (:text-tertiary tokens)
+                     :margin-right "8px"
+                     :min-width "0"}}
+      (str (name segment) "/" (pr-str k))]
+     [:span {:style {:color (:text-primary tokens)
+                     :min-width "0"
+                     :flex 1
+                     :word-break "break-word"}}
+      display-value]]))
+
+(defn- format-changed-value
+  "Pretty-print a `{:before _ :after _}` change pair as
+  `<before> → <after>` using the same EDN formatter App-DB diff rows
+  use, so the value column reads consistently with that section."
+  [{:keys [before after]}]
+  (str (f/format-display-edn before) " → " (f/format-display-edn after)))
+
+(defn- ctx-delta-block
+  "Render the ctx-delta data captured for one `:after` interceptor as a
+  block of rows (one per added/changed/removed key per ctx-segment).
+  Returns nil when `delta` is nil so the caller can omit the block
+  entirely (per spec/021 §2.2 — absence by omission). Per rf2-9dk9y."
+  [delta icpt-suffix]
+  (when (seq delta)
+    (let [segments  [:coeffects :effects]
+          per-seg   (fn [seg]
+                      (let [seg-delta (get delta seg)
+                            added     (sort (keys (:added seg-delta)))
+                            changed   (sort (keys (:changed seg-delta)))
+                            removed   (sort (keys (:removed seg-delta)))]
+                        (concat
+                          (for [k added]
+                            (ctx-delta-row seg :added k
+                                           (f/format-display-edn
+                                             (get-in seg-delta [:added k]))
+                                           (str icpt-suffix "-" (name seg) "-added-"
+                                                (interceptor-testid-suffix k))))
+                          (for [k changed]
+                            (ctx-delta-row seg :changed k
+                                           (format-changed-value
+                                             (get-in seg-delta [:changed k]))
+                                           (str icpt-suffix "-" (name seg) "-changed-"
+                                                (interceptor-testid-suffix k))))
+                          (for [k removed]
+                            (ctx-delta-row seg :removed k
+                                           (f/format-display-edn
+                                             (get-in seg-delta [:removed k]))
+                                           (str icpt-suffix "-" (name seg) "-removed-"
+                                                (interceptor-testid-suffix k)))))))
+          rows      (mapcat per-seg segments)]
+      (when (seq rows)
+        (into [:div {:data-testid (str "rf-xray-event-detail-icpt-delta-" icpt-suffix)
+                     :style {:padding "2px 0 4px 0"}}]
+              (map-indexed
+                (fn [i row] (with-meta row {:key (str i)}))
+                rows))))))
+
 (defn- interceptor-row
-  [{:keys [id file line] :as _interceptor}]
+  [{:keys [id file line] :as _interceptor} delta]
   (let [coord   (when (string? file) {:file file :line line})
         display (format-coord-display coord)
         suffix  (interceptor-testid-suffix id)]
     [:div {:data-testid (str "rf-xray-event-detail-interceptor-row-" suffix)
-           :style {:display "flex"
-                   :align-items "center"
-                   :padding "2px 0"}}
-     [:span {:style {:color (:accent tokens)
-                     :margin-right "12px"
-                     :min-width "180px"}}
-      (pr-str id)]
-     (if display
-       [:span {:style {:color (:text-secondary tokens)}}
-        display]
-       [:span {:style {:color (:text-tertiary tokens)
-                       :font-style "italic"
-                       :font-size "11px"}}
-        "rf2 std-interceptor"])
-     (coord-chip coord
-                 (str "rf-xray-event-detail-interceptor-open-chip-" suffix))]))
+           :style {:padding "2px 0"}}
+     [:div {:style {:display "flex"
+                    :align-items "center"}}
+      [:span {:style {:color (:accent tokens)
+                      :margin-right "12px"
+                      :min-width "180px"}}
+       (pr-str id)]
+      (if display
+        [:span {:style {:color (:text-secondary tokens)}}
+         display]
+        [:span {:style {:color (:text-tertiary tokens)
+                        :font-style "italic"
+                        :font-size "11px"}}
+         "rf2 std-interceptor"])
+      (coord-chip coord
+                  (str "rf-xray-event-detail-interceptor-open-chip-" suffix))]
+     ;; Per rf2-9dk9y: render the per-:after ctx-delta block below the
+     ;; row when the substrate captured one — using the EDN-diff
+     ;; +/~/- idiom shared with APP-DB CHANGES. Absent (`nil` delta)
+     ;; when the :after was a no-op, or when this interceptor has no
+     ;; :after fn — the row then reads as 'ran, no ctx mutation' /
+     ;; ':before-only' respectively.
+     (ctx-delta-block delta suffix)]))
 
 (defn- after-interceptors-body
   "Step AFTER INTERCEPTORS body — one row per non-standard interceptor.
   Returns nil when the user has no non-standard interceptors; the
   OPTIONAL step is then omitted entirely (spec/021 §2.2 — absence by
   omission). Pre-computed via `user-interceptors` (test-level helper)
-  before invoking this fn. Returns body hiccup otherwise."
-  [user-icpts]
+  before invoking this fn. `id->delta` is the per-id ctx-delta lookup
+  (`after-deltas-by-id`) — looked up per row to render what each
+  `:after` added / changed / removed in `:rf/ctx`. Returns body hiccup
+  otherwise."
+  [user-icpts id->delta]
   (when (seq user-icpts)
     (into [:div]
           ;; Per rf2-ppzid: `^{:key ...}` reader-meta on a fn CALL FORM
           ;; (a list) is lost — `with-meta` on the fn return preserves
           ;; the key correctly.
           (for [icpt user-icpts]
-            (with-meta (interceptor-row icpt)
+            (with-meta (interceptor-row icpt (get id->delta (:id icpt)))
                        {:key (pr-str (:id icpt))})))))
 
 ;; ---- step EVENT HANDLER (spec/021 §2.2 step 3) ------------------------
@@ -1330,10 +1474,11 @@
 
   The stripe (mode `:accent`) sits on the outer container per §17.1.3."
   [{:keys [dispatch-id frame event] :as cascade}]
-  (let [event-id   (when (vector? event) (first event))
-        meta       (when event-id (rf/handler-meta :event event-id))
-        user-icpts (user-interceptors (:interceptors meta))
-        threw?     (has-handler-exception? cascade)
+  (let [event-id    (when (vector? event) (first event))
+        meta        (when event-id (rf/handler-meta :event event-id))
+        user-icpts  (user-interceptors (:interceptors meta))
+        id->delta   (after-deltas-by-id cascade)
+        threw?      (has-handler-exception? cascade)
         ;; Build the DB CHANGES body — the app-db diff, with the SSR
         ;; hydration-outcome addendum appended when present.
         db-changes (when-not threw?
@@ -1351,7 +1496,7 @@
                     ["db-changes"        "APP-DB CHANGES"     db-changes]
                     ["flows"             "FLOWS"              (when-not threw? (flows-body cascade))]
                     ["after-interceptors" "AFTER INTERCEPTORS" (when-not threw?
-                                                                 (after-interceptors-body user-icpts))]
+                                                                 (after-interceptors-body user-icpts id->delta))]
                     ["fx"                "FX"                 (when-not threw? (fx-body cascade))]]
         ;; Drop omitted (nil-body) steps, then number what remains 1..N
         ;; — dynamic numbering so the visible steps read contiguously.

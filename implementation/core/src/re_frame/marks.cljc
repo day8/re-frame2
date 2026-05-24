@@ -619,8 +619,8 @@
   "Walk cofx-relevant tag shapes: the cofx-injected value rides under a
   cofx-id key (per `re-frame.cofx`'s injection convention). When a
   trace event carries a `:rf.event/coeffects` slot (e.g.
-  `:rf.event/dispatched`, `:rf.fx/do-fx`), walk each cofx-id key against
-  the cofx's marks."
+  `:rf.event/dispatched`, `:rf.event/run-end` — rf2-9dk9y), walk each
+  cofx-id key against the cofx's marks."
   [tags]
   (let [cofx-map (:rf.event/coeffects tags)]
     (if-not (map? cofx-map)

@@ -9,7 +9,8 @@
 
   The 'context' is a map with :coeffects (inputs) and :effects (outputs).
   The chain runs :before in order, then the handler, then :after in
-  reverse order.")
+  reverse order."
+  (:require [re-frame.interop :as interop]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -132,13 +133,102 @@
                         {:phase :before :id (:id interceptor) :exception e})))
       context)))
 
+(def ^:private ctx-delta-segments
+  "Top-level ctx segments diffed by `compute-ctx-delta`. We compare the
+  user-meaningful contents (`:coeffects` and `:effects`) — the only
+  slots an interceptor's `:after` legitimately mutates per Spec 002
+  §The context map — and skip framework bookkeeping
+  (`:rf/interceptor-error` etc.) so the captured delta surfaces what the
+  interceptor DID, not the runtime's own scaffolding."
+  [:coeffects :effects])
+
+(defn- segment-delta
+  "Project changes between `before` and `after` for one segment map.
+  Returns `{:added {k v ...} :changed {k {:before _ :after _}} :removed
+  {k v ...}}` with each sub-map elided when empty. Returns nil when
+  the segment didn't change at all so the caller can drop the slot."
+  [before after]
+  (let [b   (or before {})
+        a   (or after {})
+        ks-b (set (keys b))
+        ks-a (set (keys a))
+        added   (reduce (fn [acc k]
+                          (if (contains? ks-b k) acc (assoc acc k (get a k))))
+                        {} ks-a)
+        removed (reduce (fn [acc k]
+                          (if (contains? ks-a k) acc (assoc acc k (get b k))))
+                        {} ks-b)
+        ;; Keys present in BOTH maps — values are compared via `=`.
+        common  (filter ks-b ks-a)
+        changed (reduce (fn [acc k]
+                          (let [vb (get b k) va (get a k)]
+                            (if (= vb va)
+                              acc
+                              (assoc acc k {:before vb :after va}))))
+                        {} common)]
+    (when (or (seq added) (seq removed) (seq changed))
+      (cond-> {}
+        (seq added)   (assoc :added added)
+        (seq changed) (assoc :changed changed)
+        (seq removed) (assoc :removed removed)))))
+
+(defn- compute-ctx-delta
+  "Project the per-`:after`-interceptor mutation surface as data. Pure
+  fn over the before/after context snapshots; idempotent and JVM-
+  portable. Returns nil when the `:after` was a no-op (returned the
+  context unchanged) so the caller can skip stashing the row entirely
+  — the Xray AFTER INTERCEPTORS section renders nothing for no-op
+  interceptors. Per rf2-9dk9y."
+  [before after]
+  (let [slots (reduce (fn [acc seg]
+                        (if-let [d (segment-delta (get before seg)
+                                                  (get after seg))]
+                          (assoc acc seg d)
+                          acc))
+                      {}
+                      ctx-delta-segments)]
+    (when (seq slots) slots)))
+
+(defn- framework-default-interceptor?
+  "True iff `interceptor` is a framework-installed scaffolding interceptor
+  whose ctx-delta should NOT be captured for the Xray AFTER INTERCEPTORS
+  surface — they are not user-meaningful interceptors. Mirrors the
+  filter the Xray panel applies on the registration-time list (`:rf/
+  default? true` plus the well-known auto-wrapper ids).
+
+  - `:rf/default?` is the substrate-side marker.
+  - `:rf/cofx-id` flags `inject-cofx` interceptors (rf2-9dk9y) —
+    their COEFFECTS contribution is rendered separately.
+
+  Pure predicate; no allocation when the interceptor carries neither
+  flag."
+  [interceptor]
+  (or (true? (:rf/default? interceptor))
+      (some? (:rf/cofx-id interceptor))))
+
 (defn- invoke-after [context interceptor]
   (if-let [f (:after interceptor)]
-    (try
-      (or (f context) context)
-      (catch #?(:clj Throwable :cljs :default) e
-        (record-error context
-                      {:phase :after :id (:id interceptor) :exception e})))
+    (let [;; Dev-only ctx-delta capture per rf2-9dk9y. The snapshot ride
+          ;; the same `interop/debug-enabled?` gate as the trace surface
+          ;; so production CLJS bundles DCE the capture. Framework
+          ;; defaults (`:rf/default?`, `:rf/cofx-id`) are skipped — they
+          ;; are not user-meaningful interceptors on the AFTER
+          ;; INTERCEPTORS surface.
+          capture? (and interop/debug-enabled?
+                        (not (framework-default-interceptor? interceptor)))
+          before   (when capture? context)]
+      (try
+        (let [after (or (f context) context)]
+          (if capture?
+            (if-let [delta (compute-ctx-delta before after)]
+              (update after :rf/icpt-after-deltas (fnil conj [])
+                      {:rf.icpt/id        (:id interceptor)
+                       :rf.icpt/ctx-delta delta})
+              after)
+            after))
+        (catch #?(:clj Throwable :cljs :default) e
+          (record-error context
+                        {:phase :after :id (:id interceptor) :exception e}))))
     context))
 
 (defn execute-chain

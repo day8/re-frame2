@@ -661,19 +661,26 @@
         (finally
           (rf/unregister-listener! ::top-level))))))
 
-;; ---- rf2-jhhqt: :coeffects stamp on :rf.fx/do-fx -------------------------
+;; ---- rf2-9dk9y: :coeffects stamp on :rf.event/run-end --------------------
 ;;
-;; Per rf2-jhhqt the user-injected subset of the handler's final
-;; coeffects map rides under `:tags :rf.event/coeffects` on :rf.fx/do-fx.
-;; Mirrors the rf2-twt7m Change 2 stamping: substrate-side filter keeps
-;; the framework defaults (:db :event :frame :source :trace-id) out so
-;; the Event lens's COEFFECTS section reads a pre-filtered map.
+;; Per rf2-9dk9y (supersedes rf2-jhhqt) the user-injected subset of the
+;; handler's final coeffects map rides under `:tags :rf.event/coeffects`
+;; on :rf.event/run-end — NOT on :rf.fx/do-fx as it used to. The prior
+;; placement silently dropped the stamp whenever a handler returned only
+;; :db (no :fx), because the do-fx walk was short-circuited and the
+;; marker never emitted. The Xray Event lens's COEFFECTS section was
+;; therefore empty for textbook reg-event-fx like `:counter/inc` that
+;; injected a cofx but returned only a :db slot. Pinning the stamp to
+;; the always-fires run-end emit makes the COEFFECTS section render
+;; uniformly across event flavours. The substrate-side filter
+;; (`fx/user-injected-coeffects`) keeps the framework defaults
+;; (:db :event :frame :source :trace-id) out at emit time.
 
-(deftest event-do-fx-stamps-user-injected-coeffects
+(deftest event-run-end-stamps-user-injected-coeffects-with-fx
   (testing "a handler whose chain injects user coeffects (:now etc.)
-   sees them stamped under :tags :rf.event/coeffects on :rf.fx/do-fx; the
-   framework defaults (:db :event :frame) are filtered out at the
-   substrate"
+   AND returns both :db + :fx sees them stamped under :tags
+   :rf.event/coeffects on :rf.event/run-end; the framework defaults
+   (:db :event :frame) are filtered out at the substrate"
     (rf/reg-fx :fx-test/cofx-sink (fn [_ _] :ok))
     (rf/reg-cofx :fx-test/now
       (fn [ctx]
@@ -689,34 +696,65 @@
     (let [acc (collect-traces! ::user-cofx)]
       (try
         (rf/dispatch-sync [:fx-test/uses-user-cofx])
-        (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
-              cofx  (get-in dof [:tags :rf.event/coeffects])]
-          (is (some? dof) ":rf.fx/do-fx fired")
+        (let [[re]  (filterv #(= :rf.event/run-end (:operation %)) @acc)
+              cofx  (get-in re [:tags :rf.event/coeffects])
+              [dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)]
+          (is (some? re) ":rf.event/run-end fired")
           (is (= {:fx-test/now    "2026-05-18T19:00:00Z"
                   :fx-test/locale :en-AU}
                  cofx)
-              "only the user-injected coeffects ride under :tags :rf.event/coeffects")
+              "only the user-injected coeffects ride under :tags :rf.event/coeffects on run-end")
           (is (not (contains? cofx :db))    "framework :db NOT stamped")
           (is (not (contains? cofx :event)) "framework :event NOT stamped")
-          (is (not (contains? cofx :frame)) "framework :frame NOT stamped"))
+          (is (not (contains? cofx :frame)) "framework :frame NOT stamped")
+          (is (not (contains? (:tags dof) :rf.event/coeffects))
+              "the stamp lives on run-end now — :rf.fx/do-fx no longer carries it"))
         (finally
           (rf/unregister-listener! ::user-cofx))))))
 
-(deftest event-do-fx-coeffects-stamp-absent-when-no-user-cofx
-  (testing "a handler with no inject-cofx has its :rf.fx/do-fx fire
-   WITHOUT a :coeffects stamp (silent-by-default — distinct from a
-   stamped empty map)"
-    (rf/reg-fx :fx-test/plain-sink (fn [_ _] :ok))
-    (rf/reg-event-fx :fx-test/no-user-cofx
-      (fn [_ _] {:db {:k 1}
-                 :fx [[:fx-test/plain-sink :go]]}))
+(deftest event-run-end-stamps-user-injected-coeffects-without-fx
+  (testing "rf2-9dk9y bug A — a reg-event-fx that injects user cofx and
+   returns only {:db ...} (no :fx) STILL surfaces its coeffects on
+   :rf.event/run-end. Was silently dropped under the prior do-fx-marker
+   stamping (do-fx was short-circuited when the handler returned no :fx,
+   so the COEFFECTS section was empty for textbook handlers like
+   :counter/inc — the cofx never reached the Xray Event lens)"
+    (rf/reg-cofx :fx-test/now
+      (fn [ctx]
+        (assoc-in ctx [:coeffects :fx-test/now] "2026-05-18T19:00:00Z")))
+    (rf/reg-event-fx :fx-test/db-only-with-cofx
+      [(rf/inject-cofx :fx-test/now)]
+      (fn [{:keys [fx-test/now]} _]
+        {:db {:stamped-at now}}))
+    (let [acc (collect-traces! ::db-only-cofx)]
+      (try
+        (rf/dispatch-sync [:fx-test/db-only-with-cofx])
+        (let [[re]  (filterv #(= :rf.event/run-end (:operation %)) @acc)
+              cofx  (get-in re [:tags :rf.event/coeffects])
+              dof   (first (filterv #(= :rf.fx/do-fx (:operation %)) @acc))]
+          (is (some? re) ":rf.event/run-end fired (always — independent of :fx)")
+          (is (= {:fx-test/now "2026-05-18T19:00:00Z"} cofx)
+              "the user-injected cofx surfaces under :tags :rf.event/coeffects
+               EVEN THOUGH the handler returned no :fx — bug A's repro")
+          (is (nil? dof)
+              ":rf.fx/do-fx was correctly NOT emitted (no :fx vector); the
+               cofx stamp would have been dropped if it still rode on do-fx"))
+        (finally
+          (rf/unregister-listener! ::db-only-cofx))))))
+
+(deftest event-run-end-coeffects-stamp-absent-when-no-user-cofx
+  (testing "a handler with no inject-cofx has its :rf.event/run-end fire
+   WITHOUT a :rf.event/coeffects stamp (silent-by-default — distinct
+   from a stamped empty map)"
+    (rf/reg-event-db :fx-test/no-user-cofx
+      (fn [db _] (assoc db :k 1)))
     (let [acc (collect-traces! ::no-cofx)]
       (try
         (rf/dispatch-sync [:fx-test/no-user-cofx])
-        (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
-              tags  (:tags dof)]
-          (is (some? dof) ":rf.fx/do-fx fired")
-          (is (not (contains? tags :coeffects))
-              ":coeffects key ABSENT on :tags when no user cofx injected"))
+        (let [[re]  (filterv #(= :rf.event/run-end (:operation %)) @acc)
+              tags  (:tags re)]
+          (is (some? re) ":rf.event/run-end fired")
+          (is (not (contains? tags :rf.event/coeffects))
+              ":rf.event/coeffects key ABSENT on :tags when no user cofx injected"))
         (finally
           (rf/unregister-listener! ::no-cofx))))))
