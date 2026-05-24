@@ -2,26 +2,34 @@
   "Event panel — the L4 default-tab panel. Answers \"what did this event
   DO?\" by rendering the focused epoch's end-to-end mutation pipeline.
 
-  ## Numbered vertical-flow pipeline (spec/021 §2.2 · Figma design)
+  ## Numbered vertical-flow pipeline (spec/021 §2.2 · operational order)
 
-  Reconciled to the Figma design under rf2-ad7zx.5
-  (`tools/xray/design-reference/xray_devtools_reference.cljs`, the
-  `event-panel` component +
-  `tools/xray/spec/021-Dynamic-Panel-Designs.md` §2.2). The handling
-  perspective is a top-to-bottom ONE-WAY pipeline drawn as a thin left
-  RAIL with a NUMBERED STEP CIRCLE at each section. Sections, in order:
+  Per spec/021 §2.2 (B+ order, decided 2026-05-25 under rf2-5t9h0 / impl
+  rf2-ynnre) the panel renders sections in the framework's OPERATIONAL
+  order — what happens, in the order it happens — so the visual rhythm
+  teaches the atomicity contract (flows reshape the pending `:db`
+  BEFORE the single deferred install; FX runs AFTER the commit). The
+  handling perspective is a top-to-bottom ONE-WAY pipeline drawn as a
+  thin left RAIL with a NUMBERED STEP CIRCLE at each section. Sections,
+  in order:
 
       1. DISPATCH             event vector + `FROM: <source>` (click-to-source)
       2. COEFFECTS  (opt)     user-injected coeffects + the value each added
       3. EVENT HANDLER        reg-event-* flavour + syntax-highlighted source
-      4. APP-DB CHANGES       the app-db diff (+ SSR hydration addendum)
-      5. FLOWS      (opt)     flows that recomputed + the db path written
-      6. AFTER INTERCEPTORS (opt) non-standard after-interceptors
-      7. FX                   the fx handlers that ran
+                              + the returned effects map (t1 pending — :db
+                              slot present? :fx vector entries)
+      4. FLOWS      (opt)     flows that recomputed + the db path written
+                              (t1→t2 reshape · pre-commit)
+      5. AFTER INTERCEPTORS (opt) non-standard after-interceptors
+      6. APP-DB CHANGES       the COMMITTED diff (t4 · post-flow · atomic
+                              install boundary; + SSR hydration addendum)
+      7. FX                   the fx handlers that ran (post-commit · irreversible)
 
-  rf2-xawwb — the Figma-Make surface numbers APP-DB CHANGES as step 4 and
-  FLOWS as step 5 (supersedes rf2-9eca7 / #2070, which placed FLOWS
-  before DB CHANGES).
+  rf2-ynnre — supersedes the earlier rf2-xawwb / Figma-A order
+  (HANDLER → APP-DB CHANGES → FLOWS → FX), which displayed the result
+  before the attribution. The atomicity contract was pinned 2026-05-24
+  (spec/013-Flows.md §Failure semantics) AFTER the Figma was drawn; B+
+  brings the panel into line with it.
 
   Steps are numbered DYNAMICALLY 1..N — an absent OPTIONAL section
   (COEFFECTS / AFTER INTERCEPTORS / FLOWS) consumes no number; absence is
@@ -763,12 +771,89 @@
                        :color       (:text-tertiary tokens)}}
         "<source not yet captured>"])]))
 
+(defn- handler-returned-effects-block
+  "Renders the `↳ returned effects` sub-block under the handler source.
+  This is the t1 observable — the effects map the event handler RETURNED,
+  PRE-flow-transform and PRE-commit. Per rf2-ynnre (B+ visual order) the
+  HANDLER step surfaces this map so the panel reads in operational order
+  — what did the handler return, what did flows then reshape, what was
+  ultimately committed.
+
+  Today the trace surface captures `:fx` (the returned fx vector, off
+  `:rf.fx/do-fx :tags :rf.event/fx`) and `:db-present?` (a boolean, off
+  the same trace's `:tags :rf.event/db-present?`), but NOT the pending
+  `:db` value itself. The pending `:db` is `nil` for handlers that
+  returned no `:db` slot; otherwise its committed value reads naturally
+  one step down in APP-DB CHANGES (when no flows fired the t4 committed
+  diff EQUALS the t1 pending diff). A CORE follow-on can later capture
+  the t1-pending-`:db` snapshot for the flow-having case — until then
+  this block shows what is observable.
+
+  Returns nil when neither `:db` was returned nor any `:fx` (the rare
+  noop event); the absence-by-omission rule applies inside the section
+  body too — no empty `(none)` placeholder."
+  [cascade]
+  (let [do-fx-tags (some-> (do-fx-trace cascade) :tags)
+        db-pres?   (:rf.event/db-present? do-fx-tags)
+        fx-vec     (:rf.event/fx do-fx-tags)]
+    (when (or db-pres? (seq fx-vec))
+      [:div {:data-testid "rf-xray-event-detail-handler-returned-effects"
+             :style {:margin-top "8px"
+                     :padding "6px 0 0 16px"
+                     :border-top (str "1px dashed " (:border-subtle tokens))}}
+       [:div {:data-testid "rf-xray-event-detail-handler-returned-effects-caption"
+              :style {:color (:text-tertiary tokens)
+                      :font-family sans-stack
+                      :font-size "11px"
+                      :margin-bottom "4px"}}
+        "↳ returned effects (pre-commit)"]
+       (when db-pres?
+         [:div {:data-testid "rf-xray-event-detail-handler-returned-db"
+                :style {:display "flex"
+                        :align-items "baseline"
+                        :gap "8px"
+                        :padding "1px 0"
+                        :font-family mono-stack
+                        :font-size "11px"}}
+          [:span {:style {:color (:accent tokens)
+                          :min-width "32px"}} ":db"]
+          [:span {:style {:color (:text-tertiary tokens)
+                          :font-style "italic"}}
+           "pending — see APP-DB CHANGES below for the committed diff"]])
+       (when (seq fx-vec)
+         (into [:div {:data-testid "rf-xray-event-detail-handler-returned-fx"
+                      :style {:padding "1px 0"
+                              :font-family mono-stack
+                              :font-size "11px"}}
+                [:div {:style {:display "flex"
+                               :align-items "baseline"
+                               :gap "8px"}}
+                 [:span {:style {:color (:accent tokens)
+                                 :min-width "32px"}} ":fx"]
+                 [:span {:style {:color (:text-tertiary tokens)}}
+                  (str (count fx-vec) " entr"
+                       (if (= 1 (count fx-vec)) "y" "ies")
+                       " — see FX below for what ran")]]]
+               (map-indexed
+                 (fn [i pair]
+                   (let [[fx-id _] (when (vector? pair) pair)]
+                     (with-meta
+                       [:div {:data-testid (str "rf-xray-event-detail-handler-returned-fx-row-"
+                                                 (interceptor-testid-suffix fx-id))
+                              :style {:padding "1px 0 1px 40px"
+                                      :color (:text-secondary tokens)}}
+                        (pr-str pair)]
+                       {:key (str i)})))
+                 fx-vec)))])))
+
 (defn- handler-body
   "Step EVENT HANDLER body — `reg-event-<kind>` flavour + source coord
   (a click-to-source link), then the syntax-highlighted handler source
   (`:rf.handler/source` meta, DEBUG-gated · rf2-xgfuy; placeholder when
-  absent). Per spec/021 §2.2 step 3. Returns body hiccup."
-  [event-id meta]
+  absent), then the t1 RETURNED EFFECTS sub-block (rf2-ynnre — what the
+  handler RETURNED, pre-flow-transform and pre-commit). Per spec/021 §2.2
+  step 3. Returns body hiccup."
+  [event-id meta cascade]
   (let [kind   (:event/kind meta)
         coord  (when (string? (:file meta))
                  {:file (:file meta) :line (:line meta)})
@@ -799,7 +884,8 @@
            (str "no registration found for " (pr-str event-id))
            "no handler registered")])
       (coord-chip coord "rf-xray-event-detail-handler-open-chip")]
-     (handler-source-line meta)]))
+     (handler-source-line meta)
+     (handler-returned-effects-block cascade)]))
 
 ;; ---- hydration outcome (SSR addendum) --------------------------------
 
@@ -913,32 +999,52 @@
               :style {:margin "6px 0 4px 16px"}}
         (managed-fx/record-panel managed-fx-record)])]))
 
+(defn- fx-post-commit-caption
+  "Tiny inline caption at the top of the FX section body — `post-commit ·
+  irreversible`. Per rf2-ynnre (B+ visual order) FX is the only stage
+  AFTER the atomic `:db` install: an fx throw surfaces an error but does
+  NOT wind app-db back, and side effects (http / nav / dispatch) may
+  already have fired. The caption makes the commit boundary legible at
+  the panel so users see where ordering atomicity ends and irreversible
+  effects begin. Cross-ref `spec/013-Flows.md §Failure semantics`."
+  []
+  [:div {:data-testid "rf-xray-event-detail-fx-post-commit-caption"
+         :style {:color (:text-tertiary tokens)
+                 :font-family sans-stack
+                 :font-size "11px"
+                 :font-style "italic"
+                 :margin-bottom "4px"}}
+   "post-commit · irreversible (fx throws don't wind app-db back)"])
+
 (defn- fx-body
-  "Step FX body — one row per `:rf.fx/handled` fx-handler that ran.
-  Inline-mounts the managed-fx record beneath its causing fx-handler row
-  per §8.3 (colocation). Per spec/021 §2.2 step 7 FX is a REQUIRED step
-  (always shown — `(none)` when no fx handlers ran, per the sparse-case
-  mockup), unlike the optional COEFFECTS / AFTER INTERCEPTORS / FLOWS
-  steps. Returns body hiccup."
+  "Step FX body — a small `post-commit · irreversible` caption (rf2-ynnre
+  — clarifies the commit boundary), then one row per `:rf.fx/handled`
+  fx-handler that ran. Inline-mounts the managed-fx record beneath its
+  causing fx-handler row per §8.3 (colocation). Per spec/021 §2.2 step 7
+  FX is a REQUIRED step (always shown — `(none)` when no fx handlers
+  ran, per the sparse-case mockup), unlike the optional COEFFECTS /
+  AFTER INTERCEPTORS / FLOWS steps. Returns body hiccup."
   [cascade]
   (let [rows    (effects-handlers-ran cascade)
         records (managed-fx-h/cascade->managed-fx-records cascade)]
-    (if (seq rows)
-      (into [:div]
-            ;; Per rf2-ppzid — `with-meta` on the fn return, not
-            ;; `^{:key ...}` on the call form.
-            (for [{:keys [id] :as row} rows]
-              (with-meta
-                (fx-handler-row row (managed-fx-record-for-row records id))
-                {:key id})))
-      [:div {:data-testid "rf-xray-event-detail-fx-none"
-             :style {:color (:text-tertiary tokens)
-                     :font-style "italic"
-                     :font-family sans-stack
-                     :font-size "11px"}}
-       "(none)"])))
+    [:div
+     (fx-post-commit-caption)
+     (if (seq rows)
+       (into [:div]
+             ;; Per rf2-ppzid — `with-meta` on the fn return, not
+             ;; `^{:key ...}` on the call form.
+             (for [{:keys [id] :as row} rows]
+               (with-meta
+                 (fx-handler-row row (managed-fx-record-for-row records id))
+                 {:key id})))
+       [:div {:data-testid "rf-xray-event-detail-fx-none"
+              :style {:color (:text-tertiary tokens)
+                      :font-style "italic"
+                      :font-family sans-stack
+                      :font-size "11px"}}
+        "(none)"])]))
 
-;; ---- step FLOWS (Figma-Make surface step 5 · rf2-xawwb) ----------------
+;; ---- step FLOWS (spec/021 §2.2 step 4 · rf2-ynnre — operational order) -
 ;; rf2-lo37i — Flows fire automatically right after the event handler, at
 ;; the OUTERMOST `:after` interceptor — they transform the pending `:db`
 ;; effect BEFORE the single deferred app-db install (the atomic commit
@@ -947,13 +1053,15 @@
 ;; visibility here a developer cannot attribute an app-db change to the
 ;; flow that caused it.
 ;;
-;; rf2-xawwb — the Figma-Make surface PRESENTS FLOWS as step 5, AFTER the
-;; APP-DB CHANGES diff (step 4): the diff leads, and the FLOWS section
-;; then attributes the flow-driven slots within it. (This supersedes the
-;; rf2-9eca7 / #2070 presentation order that placed FLOWS before DB
-;; CHANGES. The underlying framework TIMING is unchanged — flows still
-;; reshape the pending db before commit; only the panel's visual ordering
-;; changes to match the authoritative surface.)
+;; rf2-ynnre — FLOWS sits at step 4, BETWEEN EVENT HANDLER (step 3) and
+;; APP-DB CHANGES (step 6 — the committed diff). The visual order tracks
+;; the framework's operational order (handler returns pending `:db` →
+;; flows reshape it → atomic install → fx), so the panel's section
+;; rhythm teaches the atomicity contract for free. (Supersedes rf2-xawwb
+;; / Figma-A which placed FLOWS AFTER APP-DB CHANGES — diff-leads-
+;; attribution-follows; that order pre-dated Mike's 2026-05-24 atomicity
+;; pin under spec/013-Flows.md §Failure semantics.) The framework
+;; TIMING is unchanged; only the panel's display order changes.
 ;;
 ;; Per spec/013-Flows.md + spec/009-Instrumentation.md:
 ;;   `:rf.flow/computed` (op-type `:flow`) carries `:flow-id`,
@@ -1279,10 +1387,11 @@
                   :color       (:text-primary tokens)}}
     body]])
 
-;; ---- step DB CHANGES — flat changed-paths diff list ------------------
+;; ---- step APP-DB CHANGES — flat changed-paths diff list ---------------
 ;;
-;; Per spec/021 §2.2 step 5 the DB CHANGES section is the
-;; app-db diff rendered as a FLAT list of changed paths ONLY:
+;; Per spec/021 §2.2 step 6 (rf2-ynnre — operational order) the APP-DB
+;; CHANGES section is the COMMITTED app-db diff at t4 (the atomic
+;; install boundary) rendered as a FLAT list of changed paths ONLY:
 ;;
 ;;     ~ [path] old → new        (modified)
 ;;     + [path] value            (added)
@@ -1400,11 +1509,32 @@
        ;; :removed — path alone (spec/021 line 229: `- [path]`).
        nil)]))
 
+(defn- db-changes-committed-caption
+  "Tiny inline caption at the top of the APP-DB CHANGES section body —
+  `committed diff (post-flow)`. Per rf2-ynnre (B+ visual order) this
+  section IS the COMMITTED diff at t4 — the single atomic `:db` install
+  boundary. When flows fired, the diff equals
+  `(pre-event-db → post-flow-pending-db)` = `(pre-event-db →
+  post-event-committed-db)`; when no flows fired, it equals the
+  handler's pending `:db` diff (t1 = t4). The caption keeps users from
+  reading the section as 'what the handler returned' — the handler's
+  returned effects map lives one step up in EVENT HANDLER. Cross-ref
+  `spec/013-Flows.md §Failure semantics` (the atomic-install contract)."
+  []
+  [:div {:data-testid "rf-xray-event-detail-db-changes-committed-caption"
+         :style {:color (:text-tertiary tokens)
+                 :font-family sans-stack
+                 :font-size "11px"
+                 :font-style "italic"
+                 :margin-bottom "4px"}}
+   "committed diff (post-flow · atomic install boundary)"])
+
 (defn- db-changes-body
-  "Step DB CHANGES body — the app-db diff for the focused epoch as a
-  FLAT changed-paths list (spec/021 §2.2 step 5 · spec/004 §slice-
-  centric). One `~`/`+`/`-` row per changed path; NO untouched
-  top-level keys, NO whole-tree render.
+  "Step APP-DB CHANGES body — a tiny `committed diff` caption (rf2-ynnre
+  — clarifies the commit-boundary framing) then the app-db diff for the
+  focused epoch as a FLAT changed-paths list (spec/021 §2.2 step 6 ·
+  spec/004 §slice-centric). One `~`/`+`/`-` row per changed path; NO
+  untouched top-level keys, NO whole-tree render.
 
   Per spec/021 §2.2 this step is the app-db diff ALONE — the prior
   combined `:db + :fx` shape (and the `db now committed for epoch #N`
@@ -1431,35 +1561,37 @@
         db-after  (:db-after record)
         had-snap? (or (some? db-before) (some? db-after))
         evicted?  (db-fx-evicted? record dispatch-id)]
-    (cond
-      evicted?
-      [:div {:data-testid "rf-xray-event-detail-db-changes-evicted"
-             :style {:padding "6px 0"
-                     :color (:text-tertiary tokens)
-                     :font-style "italic"
-                     :font-family sans-stack
-                     :font-size "12px"}}
-       "Epoch evicted from buffer — increase :epoch-history to retain more."]
+    [:div
+     (db-changes-committed-caption)
+     (cond
+       evicted?
+       [:div {:data-testid "rf-xray-event-detail-db-changes-evicted"
+              :style {:padding "6px 0"
+                      :color (:text-tertiary tokens)
+                      :font-style "italic"
+                      :font-family sans-stack
+                      :font-size "12px"}}
+        "Epoch evicted from buffer — increase :epoch-history to retain more."]
 
-      ;; The focused epoch carried db snapshots AND the structural diff
-      ;; found changed paths — render the flat list (changed paths only).
-      (and (some? record) had-snap? (seq triples))
-      [:div {:data-testid "rf-xray-event-detail-db-diff"
-             :style {:padding     "4px 0"
-                     :font-family mono-stack
-                     :font-size   "12px"}}
-       (into [:div]
-             (for [{:keys [path] :as triple} triples]
-               (with-meta (db-change-row triple)
-                          {:key (pr-str path)})))]
+       ;; The focused epoch carried db snapshots AND the structural diff
+       ;; found changed paths — render the flat list (changed paths only).
+       (and (some? record) had-snap? (seq triples))
+       [:div {:data-testid "rf-xray-event-detail-db-diff"
+              :style {:padding     "4px 0"
+                      :font-family mono-stack
+                      :font-size   "12px"}}
+        (into [:div]
+              (for [{:keys [path] :as triple} triples]
+                (with-meta (db-change-row triple)
+                           {:key (pr-str path)})))]
 
-      :else
-      [:div {:data-testid "rf-xray-event-detail-db-changes-empty"
-             :style {:color (:text-tertiary tokens)
-                     :font-style "italic"
-                     :font-family sans-stack
-                     :font-size "12px"}}
-       "no app-db change this epoch"])))
+       :else
+       [:div {:data-testid "rf-xray-event-detail-db-changes-empty"
+              :style {:color (:text-tertiary tokens)
+                      :font-style "italic"
+                      :font-family sans-stack
+                      :font-size "12px"}}
+        "no app-db change this epoch"])]))
 
 ;; ---- the lens (numbered vertical-flow pipeline · spec/021 §2.2) --------
 
@@ -1477,30 +1609,36 @@
   of a step is conveyed by omission.
 
   Step order (numbered; optional steps shown only when present) — the
-  Figma-Make surface order (rf2-xawwb):
+  OPERATIONAL order (rf2-ynnre, supersedes rf2-xawwb's Figma-A):
 
     1. DISPATCH            — the event vector + `FROM: <source>`
                              (click-to-source).
     2. COEFFECTS  (opt)    — user-injected coeffects + the value each
                              added.
     3. EVENT HANDLER       — flavour (`reg-event-*`, click-to-source) +
-                             syntax-highlighted handler source.
-    4. APP-DB CHANGES      — the app-db diff (+ SSR hydration-outcome
-                             addendum when the focused event hydrated).
-    5. FLOWS      (opt)    — flows that recomputed + the db path each
-                             wrote. (Framework-timing note: flows fire at
-                             the outermost `:after` and reshape the
-                             pending `:db` BEFORE it commits; the
-                             Figma-Make surface PRESENTS them after the
-                             APP-DB CHANGES diff so the diff leads and the
-                             flow attribution reads as the explanation of
-                             the flow-driven slots within it.)
-    6. AFTER INTERCEPTORS (opt) — non-standard after-interceptors.
-    7. FX                  — the fx handlers that ran.
+                             syntax-highlighted handler source +
+                             returned effects map (t1 — pending `:db`
+                             presence + `:fx` vector entries).
+    4. FLOWS      (opt)    — flows that recomputed + the db path each
+                             wrote (t1→t2 reshape · pre-commit). Flows
+                             fire at the outermost `:after` and reshape
+                             the pending `:db` BEFORE it commits.
+    5. AFTER INTERCEPTORS (opt) — non-standard after-interceptors.
+    6. APP-DB CHANGES      — the COMMITTED diff at t4 (post-flow, atomic
+                             install boundary). When flows fired,
+                             includes the flow-driven slot mutations;
+                             when none fired this equals the handler's
+                             pending `:db` diff. + SSR hydration-outcome
+                             addendum when the focused event hydrated.
+    7. FX                  — the fx handlers that ran. Post-commit ·
+                             irreversible: fx throws do NOT wind app-db
+                             back (`spec/013-Flows.md §Failure semantics`).
 
-  rf2-xawwb — supersedes the rf2-9eca7 (#2070) placement of FLOWS BEFORE
-  DB CHANGES; the Figma-Make surface numbers APP-DB CHANGES as step 4 and
-  FLOWS as step 5.
+  rf2-ynnre — supersedes rf2-xawwb's Figma-A order (HANDLER → APP-DB
+  CHANGES → FLOWS → FX, which read 'result-then-attribution'). Mike
+  voted B+ on 2026-05-25 (rf2-5t9h0): swap to operational order. The
+  framework timing is unchanged; only the panel's visual ordering
+  changes so the section rhythm teaches the atomicity contract.
 
   ## Handler-threw branch
 
@@ -1537,11 +1675,11 @@
         ;; on the threw branch.
         candidates [["dispatch"          "DISPATCH"           (dispatch-body cascade event)]
                     ["coeffects"         "COEFFECTS"          (coeffects-body cascade)]
-                    ["handler"           "EVENT HANDLER"      (handler-body event-id meta)]
-                    ["db-changes"        "APP-DB CHANGES"     db-changes]
+                    ["handler"           "EVENT HANDLER"      (handler-body event-id meta cascade)]
                     ["flows"             "FLOWS"              (when-not threw? (flows-body cascade))]
                     ["after-interceptors" "AFTER INTERCEPTORS" (when-not threw?
                                                                  (after-interceptors-body user-icpts id->delta))]
+                    ["db-changes"        "APP-DB CHANGES"     db-changes]
                     ["fx"                "FX"                 (when-not threw? (fx-body cascade))]]
         ;; Drop omitted (nil-body) steps, then number what remains 1..N
         ;; — dynamic numbering so the visible steps read contiguously.
@@ -1646,7 +1784,7 @@
 
 (rf/reg-view Panel
   "The Event lens panel's root view. Subscribes to
-  `:rf.xray/event-detail` and renders either the 6-section
+  `:rf.xray/event-detail` and renders either the 7-section
   `event-lens` (when a cascade is focused) or the cascade-list empty
   state (when not)."
   []

@@ -28,9 +28,14 @@
      count pushed to the RIGHT end.
   4. **Event-list column order:** `event id` FIRST, then `source`,
      `timestamp`, `duration`.
-  5. **Handler panel** numbered lifecycle pipeline is 6 steps: 1 DISPATCH,
-     2 COEFFECTS, 3 EVENT HANDLER, 4 APP-DB CHANGES, 5 FLOWS, 6 FX. The
-     FLOWS step shows the flow(s) that recomputed + their db contribution.
+  5. **Handler panel** numbered lifecycle pipeline is 6 steps in operational
+     order (rf2-ynnre, B+): 1 DISPATCH, 2 COEFFECTS, 3 EVENT HANDLER,
+     4 FLOWS, 5 APP-DB CHANGES, 6 FX. FLOWS sits BETWEEN EVENT HANDLER and
+     APP-DB CHANGES so the panel's section rhythm tracks the operational
+     order (handler returns pending `:db` → flows reshape → atomic commit
+     → fx). Supersedes the earlier Figma-A order (HANDLER → APP-DB
+     CHANGES → FLOWS → FX), per Mike's 2026-05-25 B+ decision on
+     rf2-5t9h0.
 
   ## What this reference DELIBERATELY keeps richer than the Figma stub
 
@@ -383,8 +388,8 @@
    [tab-button active-tab :issues "Issues"]])
 
 ;; ============================================================================
-;; Handler Panel Component (rf2-xawwb — 6-step: DISPATCH / COEFFECTS /
-;; EVENT HANDLER / APP-DB CHANGES / FLOWS / FX)
+;; Handler Panel Component (rf2-ynnre B+ — 6-step operational order:
+;; DISPATCH / COEFFECTS / EVENT HANDLER / FLOWS / APP-DB CHANGES / FX)
 ;; ============================================================================
 
 (defn step-circle [n]
@@ -459,26 +464,11 @@
         "  (" [:span {:class "syntax-keyword"} "fn"] " [db _]\n"
         "    (" [:span {:class "syntax-keyword"} "update"] " db " [:span {:class "syntax-keyword"} ":counter"] " inc)))"]]]
 
-     ;; 4. APP-DB CHANGES (rf2-xawwb — renamed from `DB CHANGES`)
+     ;; 4. FLOWS (rf2-ynnre — step 4, between EVENT HANDLER and APP-DB
+     ;; CHANGES, matching operational order). Shows the flow(s) that
+     ;; recomputed + their db contribution.
      [:section {:style {:position "relative"}}
       [step-circle 4]
-      [step-label "APP-DB CHANGES"]
-      [:div {:class "devtools-mono" :style {:display "flex" :flex-direction "column" :gap "4px"}}
-       [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
-        [:span {:style {:color "var(--devtools-changed)"}} "~"]
-        [:span {:style {:color "var(--devtools-text-muted)"}} "[:counter]"]
-        [:span {:style {:color "var(--devtools-error)"}} "1"]
-        [:span {:style {:color "var(--devtools-text-muted)"}} "→"]
-        [:span {:style {:color "var(--devtools-success)"}} "2"]]
-       [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
-        [:span {:style {:color "var(--devtools-success)"}} "+"]
-        [:span {:style {:color "var(--devtools-text-muted)"}} "[:last-updated]"]
-        [:span {:style {:color "var(--devtools-success)"}} "#inst \"2026-05-23T12:30:05\""]]]]
-
-     ;; 5. FLOWS (rf2-xawwb — step 5, after APP-DB CHANGES). Shows the
-     ;; flow(s) that recomputed + their db contribution.
-     [:section {:style {:position "relative"}}
-      [step-circle 5]
       [step-label "FLOWS"]
       [:div {:class "devtools-mono"}
        [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
@@ -493,10 +483,34 @@
          [:span "[:totals :sum]"]
          [:span {:style {:color "var(--devtools-success)"}} "42"]]]]]
 
-     ;; 6. FX
+     ;; 5. APP-DB CHANGES (rf2-ynnre — step 5, after FLOWS, matching
+     ;; operational order). Carries the `committed diff` caption to
+     ;; clarify it's the post-flow t4 observable.
+     [:section {:style {:position "relative"}}
+      [step-circle 5]
+      [step-label "APP-DB CHANGES"]
+      [:div {:class "devtools-caption" :style {:color "var(--devtools-text-muted)"
+                                               :font-style "italic" :margin-bottom "4px"}}
+       "committed diff (post-flow · atomic install boundary)"]
+      [:div {:class "devtools-mono" :style {:display "flex" :flex-direction "column" :gap "4px"}}
+       [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
+        [:span {:style {:color "var(--devtools-changed)"}} "~"]
+        [:span {:style {:color "var(--devtools-text-muted)"}} "[:counter]"]
+        [:span {:style {:color "var(--devtools-error)"}} "1"]
+        [:span {:style {:color "var(--devtools-text-muted)"}} "→"]
+        [:span {:style {:color "var(--devtools-success)"}} "2"]]
+       [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
+        [:span {:style {:color "var(--devtools-success)"}} "+"]
+        [:span {:style {:color "var(--devtools-text-muted)"}} "[:last-updated]"]
+        [:span {:style {:color "var(--devtools-success)"}} "#inst \"2026-05-23T12:30:05\""]]]]
+
+     ;; 6. FX (rf2-ynnre — carries the post-commit · irreversible caption)
      [:section {:style {:position "relative"}}
       [step-circle 6]
       [step-label "FX"]
+      [:div {:class "devtools-caption" :style {:color "var(--devtools-text-muted)"
+                                               :font-style "italic" :margin-bottom "4px"}}
+       "post-commit · irreversible (fx throws don't wind app-db back)"]
       [:div {:class "devtools-mono" :style {:display "flex" :flex-direction "column" :gap "4px"}}
        [:div {:style {:display "flex" :gap "8px"}}
         [:span {:style {:color "var(--devtools-text-muted)"}} ":dispatch"]
