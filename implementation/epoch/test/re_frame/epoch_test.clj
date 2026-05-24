@@ -1118,6 +1118,122 @@
                     history)
           "no record across the whole ring carries the reserved outcome"))))
 
+;; ---- rf2-xs7fn: flow-throw epoch shape (regression-guard) ----------------
+;;
+;; Sibling to `handler-exception-settles-ok-never-halted-handler-exception`
+;; above: pins the epoch-record observability shape of a flow-throw event.
+;;
+;; Per the confirmed atomicity contract (Spec 013 §Failure semantics;
+;; `bd remember --key event-pipeline-atomicity`) a flow's `:output` throw is
+;; a PRE-INSTALL failure — the router's `flows-after-interceptor` dissoc-s
+;; the pending `:db` so the single deferred install installs NOTHING. The
+;; cascade-level `:rf.error/flow-eval-exception` is emitted by
+;; `emit-flow-eval-exception!` (router.cljc) and `commit-and-flow!` skips
+;; `:fx`. `settle-event-epoch!` (router.cljc:1175) receives only the
+;; `(frame-id db-before db-after)` triple — the outcome slot is not
+;; threaded through — so the resulting epoch record's `:outcome` is `:ok`
+;; and the error rides `:trace-events`. Pinned downstream consequence:
+;;
+;;   1. `:db-before == :db-after`   (the pending `:db` was discarded — no
+;;                                   handler write and no flow write landed)
+;;   2. `:outcome :ok`              (current intentional behaviour — the
+;;                                   flow-throw failure rides `:trace-events`,
+;;                                   not the outcome slot; mirrors the
+;;                                   handler-exception pin above)
+;;   3. `:trace-events` contains a `:rf.error/flow-eval-exception` entry
+;;
+;; This contract could quietly regress (e.g. a future widening of
+;; `settle!`'s outcome surface that rolled `:flow-error` into one of the
+;; `:halted-*` enums); the test names it directly. The companion
+;; observability surfaces are pinned elsewhere — the always-on event-emit
+;; record's `:flow-error` outcome lives in
+;; `core/test/re_frame/event_emit_test.cljc`; the trace-stream + app-db
+;; invariants live in `ssr/test/re_frame/flows_integration_test.clj`.
+
+(deftest flow-throw-epoch-shape
+  (testing "a flow whose :output throws aborts the event pre-install: the
+            epoch settles with :db-before == :db-after (the pending :db was
+            discarded — no handler write and no flow write landed), :outcome
+            is :ok (current intentional behaviour — flow-throw rides
+            :trace-events, not the outcome slot, sibling to
+            handler-exception-settles-ok-never-halted-handler-exception),
+            and :trace-events carries a :rf.error/flow-eval-exception entry"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    ;; Handler returns a :db effect (so the normal flow path would
+    ;; transform it). The flow's :output throws, so the router DISCARDS
+    ;; the pending :db wholesale.
+    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    ;; Seed a clean baseline FIRST, then register the throwing flow — the
+    ;; flow throws on every eval, so registering it after the seed keeps
+    ;; the baseline untouched and isolates the throw to the :bump drain.
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/reg-flow {:id     :boom
+                  :inputs [[:n]]
+                  :output (fn [_] (throw (ex-info "flow boom" {:why :test})))
+                  :path   [:derived :doomed]}
+                 {:frame :test/main})
+    (rf/dispatch-sync [:bump] {:frame :test/main})
+
+    (let [history (rf/epoch-history :test/main)
+          boom-r  (last history)]
+      (is (= 2 (count history))
+          "the flow-throw cascade still commits exactly one epoch record
+           (one per dequeued event — the throw is observable, not silent)")
+      (is (= :bump (:event-id boom-r))
+          "the flow-throwing event is the cascade trigger")
+      ;; Property 1 — :db-before == :db-after (no install happened).
+      (is (= (:db-before boom-r) (:db-after boom-r))
+          ":db-before == :db-after — the pending :db (handler write +
+           flow write) was DISCARDED wholesale; no partial commit")
+      (is (= {:n 0} (:db-after boom-r))
+          "the seeded baseline is what landed in :db-after — the handler's
+           :n inc did NOT take effect (no install)")
+      ;; Property 2 — :outcome :ok (current intentional behaviour;
+      ;; flow-throw rides :trace-events, not the outcome slot).
+      (is (= :ok (:outcome boom-r))
+          ":outcome is :ok — the drain settled cleanly; flow-throw rides
+           :trace-events, not the outcome slot (sibling of the handler-
+           exception contract pinned above)")
+      (is (nil? (:halt-reason boom-r))
+          "no :halt-reason on a clean settle — there was no drain halt")
+      ;; Property 3 — the cascade-level error rides :trace-events.
+      (is (has-error-op? (:trace-events boom-r) :rf.error/flow-eval-exception)
+          "the flow throw surfaces as a :rf.error/flow-eval-exception trace
+           under :trace-events"))))
+
+(deftest clean-flow-eval-epoch-shape-contrast
+  (testing "contrast (sibling of flow-throw-epoch-shape above): a clean
+            flow eval produces an epoch whose :db-after CARRIES the flow's
+            output value — :db-before != :db-after when the flow installs
+            its computed value at :path. Names the success-path counterpart
+            so a future regression that left :db-after equal to :db-before
+            for clean flow evals is caught alongside the throw-path pin."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:w 2 :h 3}))
+    (rf/reg-event-db :bump-w (fn [db _] (update db :w inc)))
+    (rf/reg-flow {:id     :rect/area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* (or w 0) (or h 0)))
+                  :path   [:rect :area]}
+                 {:frame :test/main})
+
+    (rf/dispatch-sync [:seed]   {:frame :test/main})  ;; area=6
+    (rf/dispatch-sync [:bump-w] {:frame :test/main})  ;; area=9
+
+    (let [history (rf/epoch-history :test/main)
+          bump-r  (last history)]
+      (is (= :bump-w (:event-id bump-r)))
+      (is (= :ok (:outcome bump-r)))
+      (is (not= (:db-before bump-r) (:db-after bump-r))
+          ":db-before != :db-after — a clean flow eval installs its
+           augmented value into the post-cascade db")
+      (is (= 9 (get-in (:db-after bump-r) [:rect :area]))
+          "the flow's computed output landed at :path in :db-after")
+      (is (not (has-error-op? (:trace-events bump-r)
+                              :rf.error/flow-eval-exception))
+          "no :rf.error/flow-eval-exception on a clean flow eval"))))
+
 ;; ---- rejected / aborted dispatch commits no epoch (rf2-zymix) ------------
 ;;
 ;; Per `settle!`'s empty-buffer policy (epoch.cljc) — a drain boundary
