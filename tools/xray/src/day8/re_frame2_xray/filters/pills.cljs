@@ -173,6 +173,11 @@
                        :font-size   (:caption type-scale)
                        :white-space "nowrap"}}
         (str mode-glyph " " body-text)])
+     ;; rf2-xawwb — a VERTICAL DIVIDER sits before the `✕` (Figma-Make
+     ;; surface): a 1px tone-coloured rule separating the pill body from
+     ;; the remove affordance. The remove button keeps its own border-left
+     ;; as the divider so it round-trips through the same tone; the explicit
+     ;; padding gives the `✕` a square hit-area that reads against the rule.
      [:button {:data-testid  (str testid "-remove")
                :on-click     #(rf/dispatch
                                 [:rf.xray/remove-filter mode idx]
@@ -183,8 +188,8 @@
                        :border        "none"
                        :color         tone
                        :cursor        "pointer"
-                       :padding       "0 2px"
-                       :margin-left   "2px"
+                       :padding       "0 4px 0 6px"
+                       :margin-left   "4px"
                        :font-family   sans-stack
                        :font-size     (:caption type-scale)
                        :line-height   "1"
@@ -228,6 +233,68 @@
                           :font-size     (:caption type-scale)
                           :white-space   "nowrap"}}
    "[ + ]"])
+
+(defn chrome-add-filter-button
+  "rf2-xawwb — the chrome-ribbon `+ filter` TEXT button (Figma-Make
+  surface). Replaces the prior `Filters:` label + plus-icon affordance
+  on bar-1 with a single outlined text button. Opens the SAME edit
+  popup as `add-pill` (`:rf.xray/open-edit-popup {:source :add :mode
+  :in}`) — only the surface changes; the add behaviour is retained.
+
+  Outlined on the dark chrome band: a muted `chrome-ribbon-text-muted`
+  border + ink so it reads as a secondary chrome affordance against the
+  near-black ribbon."
+  []
+  [:button {:data-testid "rf-xray-filter-add"
+            :on-click    #(rf/dispatch
+                            [:rf.xray/open-edit-popup
+                             {:source :add :mode :in}]
+                            {:frame :rf/xray})
+            :aria-label  "Add filter pill"
+            :title       "Add filter pill"
+            :style       {:background    "transparent"
+                          :border        (str "1px solid "
+                                              (:chrome-ribbon-text-muted tokens))
+                          :color         (:chrome-ribbon-text-muted tokens)
+                          :cursor        "pointer"
+                          :padding       "2px 8px"
+                          :border-radius "4px"
+                          :font-family   sans-stack
+                          :font-size     (:caption type-scale)
+                          :white-space   "nowrap"}}
+   "+ filter"])
+
+(defn events-add-filter-button
+  "rf2-xawwb — the events-ribbon add-filter `+` ICON button (Figma-Make
+  surface). Sits after the `filters:` contextual label on bar-2, before
+  the committed pills. Opens the SAME edit popup as `add-pill`; the add
+  behaviour is retained. A square bordered `+` icon-button on the light
+  data canvas (the events ribbon stays on `bg-2`, not the dark chrome
+  band)."
+  []
+  [:button {:data-testid "rf-xray-filter-add-events"
+            :on-click    #(rf/dispatch
+                            [:rf.xray/open-edit-popup
+                             {:source :add :mode :in}]
+                            {:frame :rf/xray})
+            :aria-label  "Add filter pill"
+            :title       "Add filter pill"
+            :style       {:background      "transparent"
+                          :border          (str "1px solid "
+                                                (:border-default tokens))
+                          :color           (:text-secondary tokens)
+                          :cursor          "pointer"
+                          :width           "21px"
+                          :height          "21px"
+                          :padding         "0"
+                          :border-radius   "4px"
+                          :display         "inline-flex"
+                          :align-items     "center"
+                          :justify-content "center"
+                          :font-family     sans-stack
+                          :font-size       (:body type-scale)
+                          :line-height     "1"}}
+   [:span {:aria-hidden "true"} "+"]])
 
 ;; ---- cluster -------------------------------------------------------------
 

@@ -238,9 +238,9 @@
   out the per-step `*-label` / `*-body` children testids `step-section`
   emits.
 
-  Section order: DISPATCH → COEFFECTS? → EVENT HANDLER → FLOWS? →
-  DB CHANGES → AFTER INTERCEPTORS? → FX (optional steps shown when
-  present)."
+  Section order (rf2-xawwb Figma-Make surface): DISPATCH → COEFFECTS? →
+  EVENT HANDLER → APP-DB CHANGES → FLOWS? → AFTER INTERCEPTORS? → FX
+  (optional steps shown when present)."
   #{"rf-xray-event-detail-section-dispatch"
     "rf-xray-event-detail-section-coeffects"
     "rf-xray-event-detail-section-handler"
@@ -264,10 +264,10 @@
        (vec)))
 
 (deftest event-lens-renders-all-seven-steps-when-fully-populated
-  (testing "rf2-ad7zx.5 — a cascade with call-site + fx + after-
+  (testing "rf2-xawwb — a cascade with call-site + fx + after-
             interceptors + user coeffects + a flow yields the full
-            7-step numbered pipeline (spec/021 §2.2): DISPATCH,
-            COEFFECTS, EVENT HANDLER, FLOWS, DB CHANGES,
+            7-step numbered pipeline (Figma-Make surface order): DISPATCH,
+            COEFFECTS, EVENT HANDLER, APP-DB CHANGES, FLOWS,
             AFTER INTERCEPTORS, FX"
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke
@@ -298,8 +298,8 @@
         (doseq [[id label] [["dispatch" "DISPATCH"]
                             ["coeffects" "COEFFECTS"]
                             ["handler" "EVENT HANDLER"]
+                            ["db-changes" "APP-DB CHANGES"]
                             ["flows" "FLOWS"]
-                            ["db-changes" "DB CHANGES"]
                             ["after-interceptors" "AFTER INTERCEPTORS"]
                             ["fx" "FX"]]]
           (is (some? (find-by-testid tree (str "rf-xray-event-detail-section-" id)))
@@ -848,11 +848,14 @@
                row-tids)
             "flow rows appear in cascade firing order")))))
 
-(deftest flows-step-sits-after-handler-before-db-changes-and-fx
-  (testing "rf2-9eca7 — spec/021 §2.2 step order: FLOWS (step 4) fires at
-            the outermost :after, right after the EVENT HANDLER and
-            BEFORE DB CHANGES (the commit) + FX. Flows reshape the
-            pending :db before it installs, so they precede both."
+(deftest flows-step-sits-after-db-changes-before-fx
+  (testing "rf2-xawwb — Figma-Make surface step order: EVENT HANDLER →
+            APP-DB CHANGES (step 4) → FLOWS (step 5) → FX. The APP-DB
+            CHANGES diff leads and the FLOWS section then attributes the
+            flow-driven slots within it. (Supersedes rf2-9eca7 / #2070,
+            which placed FLOWS before DB CHANGES. The framework TIMING is
+            unchanged — flows still reshape the pending db before commit;
+            only the panel's visual ordering changes.)"
     (rf/with-frame :rf/default
       (rf/reg-flow {:id     :a-flow
                     :inputs [[:in]] :output identity :path [:a]}))
@@ -876,11 +879,11 @@
                         (distinct)
                         (vec))]
         (is (= ["rf-xray-event-detail-section-handler"
-                "rf-xray-event-detail-section-flows"
                 "rf-xray-event-detail-section-db-changes"
+                "rf-xray-event-detail-section-flows"
                 "rf-xray-event-detail-section-fx"]
                tids)
-            "FLOWS appears right after EVENT HANDLER and before DB CHANGES + FX in document order")))))
+            "APP-DB CHANGES precedes FLOWS, both after EVENT HANDLER and before FX (rf2-xawwb)")))))
 
 (deftest flows-section-absent-when-handler-threw
   (testing "rf2-lo37i — when the handler threw, the outermost :after

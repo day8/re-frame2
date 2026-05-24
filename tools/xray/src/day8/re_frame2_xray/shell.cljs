@@ -374,7 +374,8 @@
 ;; Layout (left → right), matching the Figma EventList columns plus Xray's
 ;; leading focus gutter (a Xray affordance the mock didn't carry):
 ;;
-;;   [gutter 14px] gap [source 52px] gap [event id flex-1] gap [time →right]
+;;   [gutter 14px] gap [event id flex-1] gap [source 52px] gap [time →right]
+;;   (rf2-xawwb — event-id leads, source follows, per the Figma-Make surface)
 ;;
 ;; Both surfaces use the SAME flex container gap + horizontal padding, and
 ;; a matching `1px solid transparent` border so the row's focused/ungrouped
@@ -656,12 +657,13 @@
   so the disabled glyph dimmed the wrong button.)"
   [{:keys [at-head? at-tail? live?]}]
   (let [head-disabled? (boolean (and at-head? live?))
-        ;; rf2-3f2di A2 — filled `:accent` buttons (reference chrome-
-        ;; ribbon): blue bg, white icon, 4px radius, hover opacity lift
-        ;; (the `:hover` rule lives in `theme/global-styles/motion-css`).
-        btn-style {:background      (:accent tokens)
+        ;; rf2-3f2di A2 / rf2-xawwb — filled nav buttons (Figma-Make chrome-
+        ;; ribbon): blue `active-bg` fill, white `active-text` icon, 4px
+        ;; radius, hover opacity lift (the `:hover` rule lives in
+        ;; `theme/global-styles/motion-css`).
+        btn-style {:background      (:active-bg tokens)
                    :border          "none"
-                   :color           (:white tokens)
+                   :color           (:active-text tokens)
                    :cursor          "pointer"
                    :opacity         1
                    :padding         "0"
@@ -804,10 +806,13 @@
               :style {:display         "inline-flex"
                       :align-items     "center"
                       :gap             "4px"
-                      :background      (:accent tokens)
+                      ;; rf2-xawwb — blue `active-bg` fill / white
+                      ;; `active-text` ink to match the Figma-Make chrome
+                      ;; nav buttons on the dark band.
+                      :background      (:active-bg tokens)
                       :border          "none"
                       :border-radius   "4px"
-                      :color           (:white tokens)
+                      :color           (:active-text tokens)
                       :cursor          (if disabled? "not-allowed" "pointer")
                       :opacity         (if disabled? 0.5 1)
                       :padding         "2px 8px"
@@ -903,6 +908,50 @@
                                :line-height   "1"}}
         "✕"]])))                  ;; ✕
 
+(defn- ribbon-theme-toggle
+  "rf2-xawwb — theme toggle (Figma-Make surface). A sun/moon icon-button
+  on the chrome ribbon's right cluster that flips light ⇄ dark.
+
+  ## Integrates the EXISTING theme mechanism (no parallel state)
+
+  Xray already owns a `:theme` setting (`config.cljc`, default `:light`)
+  read via `[:rf.xray/setting :theme nil]` and written via
+  `[:rf.xray/settings-update :theme nil <kw>]`, whose handler calls
+  `settings/effects/apply-theme!` to toggle the `rf-xray-theme-light` /
+  `rf-xray-theme-dark` class on the shell + `<html>` root. This button
+  dispatches through that SAME event — it does NOT toggle a bare `dark`
+  class on `document.documentElement` (the Figma stub's approach) nor
+  introduce a second theme atom. The settings popup's theme radio and
+  this toggle therefore stay in lockstep.
+
+  The glyph follows the convention NEXT action: in DARK mode it shows
+  the sun `☀` (click → go light); in LIGHT mode the moon `☾` (click →
+  go dark). Muted `chrome-ribbon-text-muted` ink to sit quietly beside
+  the `⚙`/`✕` icons on the dark band."
+  []
+  (let [theme @(rf/subscribe [:rf.xray/setting :theme nil])
+        dark? (= theme :dark)
+        next  (if dark? :light :dark)]
+    [:button {:data-testid "rf-xray-theme-toggle"
+              :title       (if dark? "Switch to light theme" "Switch to dark theme")
+              :aria-label  (if dark? "Switch to light theme" "Switch to dark theme")
+              :on-click    #(rf/dispatch [:rf.xray/settings-update :theme nil next]
+                                         {:frame :rf/xray})
+              :style       {:background      "transparent"
+                            :border          "none"
+                            :border-radius   "4px"
+                            :color           (:chrome-ribbon-text-muted tokens)
+                            :cursor          "pointer"
+                            :font-size       "14px"
+                            :line-height     "1"
+                            :display         "inline-flex"
+                            :align-items     "center"
+                            :justify-content "center"
+                            :width           "22px"
+                            :height          "22px"
+                            :padding         "0"}}
+     [:span {:aria-hidden "true"} (if dark? "☀" "☾")]]))
+
 (defn- ribbon-right-icons
   "Right-icons cluster — `⚙` settings · `✕` close. Per spec/018 §3
   Right-icon behaviour the pop-out (`⛶`) slot is reserved for the
@@ -933,7 +982,10 @@
   (let [icon-style {:background      "transparent"
                     :border          "none"
                     :border-radius   "4px"
-                    :color           (:text-tertiary tokens)
+                    ;; rf2-xawwb — muted-white ink on the dark chrome band
+                    ;; (Figma-Make surface) so the settings/close glyphs
+                    ;; read against the near-black ribbon in both themes.
+                    :color           (:chrome-ribbon-text-muted tokens)
                     :cursor          "pointer"
                     :font-size       "14px"
                     :line-height     "1"
@@ -1056,7 +1108,13 @@
                    :gap              "12px"
                    :height           (:top-strip-height layout)
                    :padding          "0 12px"
-                   :background       (:bg-1 tokens)
+                   ;; rf2-xawwb — DARK chrome band (Figma-Make surface).
+                   ;; The chrome ribbon paints the dedicated dark-chrome
+                   ;; token in BOTH themes; chrome text reads the white
+                   ;; `chrome-ribbon-text` token so it stays legible on the
+                   ;; near-black band.
+                   :background       (:chrome-ribbon-bg tokens)
+                   :color            (:chrome-ribbon-text tokens)
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
                    ;; rf2-o5f5f.1 — mode-signal mechanism #2: a 2-px
                    ;; left-edge stripe in the single `:accent` (GitHub
@@ -1077,14 +1135,15 @@
      [:div {:data-testid "rf-xray-ribbon-selectors"
             :style {:display "flex" :align-items "center" :gap "13px"
                     :flex-wrap "wrap"}}
-      ;; rf2-3f2di A4 — `Events` label leads the left cluster (reference
-      ;; chrome-ribbon left side: `text-[var(--devtools-text)] font-medium`).
+      ;; rf2-xawwb — `Event History` label leads the left cluster (Figma-
+      ;; Make surface renamed `Events` → `Event History`). White ink on the
+      ;; dark chrome band (`chrome-ribbon-text`).
       [:span {:data-testid "rf-xray-ribbon-events-label"
-              :style {:color       (:text-primary tokens)
+              :style {:color       (:chrome-ribbon-text tokens)
                       :font-family sans-stack
                       :font-weight 500
                       :white-space "nowrap"}}
-       "Events"]
+       "Event History"]
       ;; rf2-3f2di A2/A5 — blue-filled nav cluster, promoted to bar-1.
       [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?}]
       ;; Xray spine controls — the always-present blue `focus` button
@@ -1093,15 +1152,14 @@
       ;; cluster because they are spine navigation, not scope selectors.
       [ribbon-focus-button {:focused-cascade focused-cascade}]
       [ribbon-focus-chip {:focus-set focus-set}]
-      ;; rf2-3f2di A5 — `Filters:` label + the add(+) affordance (the
-      ;; committed pills live on bar-2). Reference chrome-ribbon left
-      ;; side: `Filters:` muted label then the `+` add button.
-      [:span {:data-testid "rf-xray-ribbon-filters-label"
-              :style {:color       (:text-secondary tokens)
-                      :font-family sans-stack
-                      :white-space "nowrap"}}
-       "Filters:"]
-      [filter-pills/add-pill]]
+      ;; rf2-xawwb — `+ filter` text button (Figma-Make chrome-ribbon).
+      ;; Replaces the prior `Filters:` label + plus-icon affordance with a
+      ;; single outlined `+ filter` text button. Opens the same edit
+      ;; popup (`filter-pills/chrome-add-filter-button` delegates to the
+      ;; canonical `:rf.xray/open-edit-popup` flow), so the add behaviour
+      ;; is RETAINED — only the surface changes. Muted-outline on the dark
+      ;; band so it reads as a secondary chrome affordance.
+      [filter-pills/chrome-add-filter-button]]
      ;; RIGHT cluster — scope selectors (Frame + Dynamic/Static) then the
      ;; silent-by-default indicators + chrome actions. Per the authority
      ;; reference chrome-ribbon right side (rf2-3f2di A5).
@@ -1123,6 +1181,9 @@
       ;; manager modal.
       [spine-filters/ribbon-mute-indicator muted-count]
       [ribbon-redacted-indicator redacted-count]
+      ;; rf2-xawwb — theme toggle (sun/moon) sits before the settings/close
+      ;; icons per the Figma-Make chrome-ribbon right cluster.
+      [ribbon-theme-toggle]
       [ribbon-right-icons]]]))
 
 ;; ---- L2 event list -------------------------------------------------------
@@ -1641,6 +1702,29 @@
               gutter-click (assoc :on-click gutter-click))
       (or focus-marker
           [:span {:style {:color glyph-col}} glyph])]
+     ;; rf2-xawwb — column order is `event id` FIRST, then `source`
+     ;; (Figma-Make surface). The bare event-id keyword leads the row as
+     ;; the primary read; the source tag follows as secondary context.
+     ;; Round-3 rf2-cmtkw — minimal default row renders ONLY the bare
+     ;; event-id keyword (e.g. `:cart/add-item`). The full event vector
+     ;; with args moves to the row's hover tooltip + the L4 Handler tab
+     ;; detail. The event-id column is LEFT-aligned (Figma `text-left`) so
+     ;; the keyword sits flush under the header's `event id` label.
+     [:span {:data-testid "rf-xray-row-event-id"
+             :style {:flex "1 1 auto" :overflow "hidden"
+                     :text-overflow "ellipsis"
+                     :text-align "left"
+                     :min-width "0"}}
+      (if ungrouped?
+        ;; rf2-r9lyy — the :ungrouped pseudo-cascade has no event
+        ;; vector by construction. Render a clear muted label instead
+        ;; of the defence-in-depth `<no event>` fallback so the user
+        ;; understands they're looking at the bucket of events outside
+        ;; any dispatch.
+        [:span {:style {:color      (:text-tertiary tokens)
+                        :font-style "italic"}}
+         ":ungrouped (pseudo-cascade)"]
+        (render-event-id-only event-vec))]
      ;; rf2-ad7zx.12 + rf2-lnod7 — the `source` COLUMN, reconciled to the
      ;; Figma EventList. A fixed-width cell aligned under the header's
      ;; `source` label, carrying the dispatch-origin as a short text tag
@@ -1650,9 +1734,9 @@
      ;; (rf2-4297k) flagged the pre-rf2-lnod7 blank ui-origin column.
      ;; `:ungrouped` rows still render an empty spacer cell (no dispatch
      ;; envelope, no origin to surface) while occupying the column width
-     ;; so the `event id` column stays left-aligned across rows. The
-     ;; `:title` carries the closed-enum value as a hover affordance
-     ;; (rf2-gf58j origin glyphs preserved as the leading mark).
+     ;; so the columns stay aligned across rows. The `:title` carries the
+     ;; closed-enum value as a hover affordance (rf2-gf58j origin glyphs
+     ;; preserved as the leading mark).
      [:span {:data-testid (when (and source-tag (not ungrouped?))
                             (str "rf-xray-row-origin-" source-tag))
              :data-rf-xray-origin (when (and source-tag (not ungrouped?))
@@ -1673,30 +1757,6 @@
         (list
          (when origin-prefix ^{:key "g"} [:span {:aria-hidden "true"} origin-prefix])
          ^{:key "t"} [:span source-tag]))]
-     ;; Round-3 rf2-cmtkw — minimal default row renders ONLY the
-     ;; bare event-id keyword (e.g. `:cart/add-item`). The full event
-     ;; vector with args moves to the row's hover tooltip + the L4
-     ;; Event tab detail (the panel that owns the room for it).
-     ;; Earlier rf2-htik0 Bug 3 inline-rendered the truncated full
-     ;; vector here — superseded by the Round-3 minimal-row contract.
-     ;; rf2-cplj8 — the event-id column is explicitly LEFT-aligned (Figma
-     ;; EventList `text-left`) so the keyword sits flush at the column's
-     ;; left edge under the header's `event id` label.
-     [:span {:data-testid "rf-xray-row-event-id"
-             :style {:flex "1 1 auto" :overflow "hidden"
-                     :text-overflow "ellipsis"
-                     :text-align "left"
-                     :min-width "0"}}
-      (if ungrouped?
-        ;; rf2-r9lyy — the :ungrouped pseudo-cascade has no event
-        ;; vector by construction. Render a clear muted label instead
-        ;; of the defence-in-depth `<no event>` fallback so the user
-        ;; understands they're looking at the bucket of events outside
-        ;; any dispatch.
-        [:span {:style {:color      (:text-tertiary tokens)
-                        :font-style "italic"}}
-         ":ungrouped (pseudo-cascade)"]
-        (render-event-id-only event-vec))]
      (when (seq badges)
        ;; rf2-gf58j — activity-badge cluster sourced from
        ;; `panels.l2-timeline/activity-badges`. Render order matches
@@ -1791,22 +1851,24 @@
    "Clear Filters"])
 
 (rf/reg-view events-ribbon
-  "L1.5 **events ribbon** (bar-2) — reconciled to the authoritative
-  reference events-ribbon (`tools/xray/design-reference/xray_devtools_
-  reference.cljs`, rf2-3f2di A5/A6). The second stratum below the chrome
-  ribbon. LEFT → RIGHT:
+  "L1.5 **events ribbon** (bar-2) — reconciled to the Figma-Make surface
+  (rf2-xawwb). The second stratum below the chrome ribbon. LEFT → RIGHT:
 
-    - the `N events filtered out` warning text (when N > 0), in the
-      `:warning` colour;
+    - the `↳ filters:` contextual label (corner-down-right glyph);
+    - the add-filter `+` ICON button
+      (`filter-pills/events-add-filter-button`) — opens the edit popup;
     - the committed green-bordered IN pills + red-bordered OUT pills
-      (`filter-pills/pills-view`, A6);
-    - FAR RIGHT (only when a filter is active): the `Clear Filters`
-      button (Xray wiring — one-click reset of every pill + mute).
+      (`filter-pills/pills-view`), each with a vertical divider before
+      its `✕`;
+    - pushed to the FAR RIGHT (via `margin-left: auto`): the `N events
+      filtered out` warning text (when N > 0, `:warning` colour) +
+      (only when a filter is active) the `Clear Filters` button.
 
-  The nav cluster, focus button, focus-chip, and the add(+) affordance
-  moved UP to the chrome ribbon (bar-1) per the reference's chrome-ribbon
-  / events-ribbon split (rf2-3f2di A5). This bar now carries ONLY the
-  filtered-out warning + the committed pills + the reset action.
+  rf2-xawwb supersedes the rf2-3f2di A5/A6 layout (warning LED the bar):
+  the Figma-Make surface leads with the `filters:` label + add(+) and
+  pushes the filtered-out count to the trailing edge. The nav cluster,
+  focus button, focus-chip, and the chrome add affordance live UP on the
+  chrome ribbon (bar-1).
 
   Visibility (rf2-4vp5j Decision 3, preserved):
     - the bar renders its background/hairline always (it is a fixed
@@ -1835,41 +1897,51 @@
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
-     ;; rf2-3f2di A5 — the `N events filtered out` warning leads the
-     ;; bar-2 cluster (reference events-ribbon left side), ahead of the
-     ;; pills. Renders only when N > 0.
-     (filters-hidden-message hidden-summary)
+     ;; rf2-xawwb — `↳ filters:` contextual label leads the events ribbon
+     ;; (Figma-Make surface), followed by the add-filter (+) ICON button,
+     ;; then the committed pills. The corner-down-right glyph mirrors the
+     ;; tabs ribbon's `for selected event` label idiom.
+     [:span {:data-testid "rf-xray-events-ribbon-filters-label"
+             :style {:display      "inline-flex"
+                     :align-items  "center"
+                     :gap          "6px"
+                     :color        (:text-secondary tokens)
+                     :font-family  sans-stack
+                     :font-size    (:caption type-scale)
+                     :white-space  "nowrap"}}
+      [:span {:aria-hidden "true"} "↳"]
+      "filters:"]
+     [filter-pills/events-add-filter-button]
      ;; rf2-3f2di A6 — the committed green/red filter pills.
      [ribbon-filter-pills {:filters filters}]
-     ;; rf2-4vp5j Decision 3 — Clear Filters on the far right, only when
-     ;; a filter is active. `margin-left: auto` pushes it to the trailing
-     ;; edge regardless of pill count.
-     (when any-active?
+     ;; rf2-xawwb — the `N events filtered out` warning is pushed to the
+     ;; RIGHT end (Figma-Make surface), alongside Clear Filters. The
+     ;; `margin-left: auto` on this trailing cluster shoves both to the
+     ;; trailing edge regardless of pill count. The warning renders only
+     ;; when N > 0; Clear Filters only when a filter is active.
+     (when (or (:visible? hidden-summary) any-active?)
        [:div {:data-testid "rf-xray-events-ribbon-actions"
-              :style {:display "flex" :align-items "center" :gap "8px"
+              :style {:display "flex" :align-items "center" :gap "12px"
                       :margin-left "auto"}}
-        [clear-filters-button]])]))
+        (filters-hidden-message hidden-summary)
+        (when any-active?
+          [clear-filters-button])])]))
 
-;; rf2-ad7zx.12 + rf2-lnod7 — the L2 list's column-header row, reconciled
-;; to the Figma EventList (the `event-list` component in
-;; `design-reference/xray_devtools_reference.cljs`).
-;; The Figma mock renders a sticky header naming the FOUR columns the
-;; rows align to: `source` · `event id` · `timestamp` · `duration`. The
-;; header was MISSING pre-Figma (the list was a bare row stack), which
-;; is the gap Mike flagged ("does not match the Figma mock"); the gap
-;; audit (rf2-4297k) then found the `duration` column clipped off the
-;; right edge — only three columns rendered. The column widths mirror
-;; the row layout below: a fixed leading FOCUS gutter (14px, unlabeled —
-;; it is a Xray affordance the mock didn't have), a fixed `source` tag
-;; column, the flexible `event id` column, then the right-aligned
-;; `timestamp` chip and `duration` cells.
+;; rf2-ad7zx.12 + rf2-lnod7 + rf2-xawwb — the L2 list's column-header row,
+;; reconciled to the Figma-Make EventList. The header names the FOUR
+;; columns the rows align to, in Figma-Make order: `event id` · `source`
+;; · `timestamp` · `duration` (event-id leads; source follows). The
+;; column widths mirror the row layout below: a fixed leading FOCUS
+;; gutter (14px, unlabeled — a Xray affordance the mock didn't have),
+;; the flexible `event id` column, a fixed `source` tag column, then the
+;; right-aligned `timestamp` chip and `duration` cells.
 
 (defn- l2-column-header
   "Sticky column-header row for the L2 event list (rf2-ad7zx.12 + rf2-
-  lnod7, Figma EventList). Names the FOUR columns the rows align to —
-  `source` · `event id` · `timestamp` · `duration`. Caption-weight,
-  muted, on the chrome surface so it reads as chrome rather than data.
-  Pure hiccup."
+  lnod7 + rf2-xawwb, Figma-Make EventList). Names the FOUR columns the
+  rows align to, in Figma-Make order — `event id` · `source` ·
+  `timestamp` · `duration`. Caption-weight, muted, on the chrome surface
+  so it reads as chrome rather than data. Pure hiccup."
   []
   (let [cell {:color       (:text-tertiary tokens)
               :font-family sans-stack
@@ -1902,17 +1974,17 @@
      ;; (the gutter itself is a Xray affordance, unlabeled in the header).
      [:span {:aria-hidden "true"
              :style {:width l2-gutter-col-width :flex-shrink 0}}]
-     [:span {:data-testid "rf-xray-event-list-col-source"
-             :style (merge cell {:width l2-source-col-width :flex-shrink 0})}
-      "source"]
-     ;; rf2-cplj8 — the `event id` column is explicitly LEFT-aligned (Figma
-     ;; EventList renders every body cell `text-left`). The label sits flush
-     ;; at the column's left edge directly above the row's left-aligned
-     ;; event-id keyword, rather than drifting toward centre.
+     ;; rf2-xawwb — column order is `event id` FIRST, then `source`
+     ;; (Figma-Make surface). The event-id is the primary read; source is
+     ;; secondary context, so the id leads. The `event id` column is
+     ;; LEFT-aligned (the row's keyword sits flush under this label).
      [:span {:data-testid "rf-xray-event-list-col-event-id"
              :style (merge cell {:flex "1 1 auto" :min-width "0"
                                  :text-align "left"})}
       "event id"]
+     [:span {:data-testid "rf-xray-event-list-col-source"
+             :style (merge cell {:width l2-source-col-width :flex-shrink 0})}
+      "source"]
      [:span {:data-testid "rf-xray-event-list-col-timestamp"
              :style (merge cell {:flex-shrink 0 :text-align "right"
                                  :min-width l2-time-col-min-width})}
@@ -2058,30 +2130,25 @@
 ;; ---- L3 tab bar ----------------------------------------------------------
 
 (defn- tab-button
-  "One tab in the L3 tab bar — an UNDERLINE tab per the authoritative
-  reference (`tools/xray/design-reference/xray_devtools_reference.cljs`,
-  the `main-app` tab-strip, rf2-3f2di A1), NOT a radio glyph and NOT a
-  filled-accent pill. Each tab is a borderless button on a transparent
-  background:
+  "One tab in the L3 tab bar — a ROUNDED-TOP folder tab on the DARK tabs
+  ribbon (rf2-xawwb · Figma-Make surface). Each tab is a borderless
+  button with `border-radius: 4px 4px 0 0`:
 
-  - the ACTIVE tab carries a 2px `border-bottom` in `:accent` and the
-    NORMAL text colour (`:text-primary` = the reference
-    `text-[var(--devtools-text)]`) — the underline, not a filled fill,
-    is the selected signal;
-  - INACTIVE tabs are transparent with a 2px TRANSPARENT bottom border
-    (so the active underline never shifts the row by 2px) and NEUTRAL
-    muted ink (`:text-tertiary` = the reference `--devtools-text-muted`,
-    the `text-muted-foreground` of the reference Tabs).
+  - the ACTIVE tab carries a LIGHT `chrome-ribbon-tab-active` fill with
+    dark `chrome-ribbon-tab-active-text` ink — the lit fill reads as a
+    folder tab lifting out of the dark band onto the panel below;
+  - INACTIVE tabs carry a faint translucent-white fill
+    (`rgba(255,255,255,0.12)`) with muted-white `chrome-ribbon-text-muted`
+    ink, so they recede into the dark band.
 
-  The subtle `:hover` background fill lives in
+  The subtle `:hover` lift for inactive tabs lives in
   `theme/global-styles/motion-css` (keyed off the `rf-xray-tab-*`
   testid, since inline styles can't carry a `:hover` pseudo-class). The
-  mnemonic letter is exposed via the `title` attribute. The decorative
-  `●/○` radio glyph is GONE — the underline + text colour carry the
-  selected signal.
+  mnemonic letter is exposed via the `title` attribute.
 
-  rf2-3f2di — the prior rf2-ad7zx.16 filled-accent pill (bg `:accent`,
-  white text) is superseded by the reference's underline treatment.
+  rf2-xawwb — supersedes the rf2-3f2di underline treatment (a 2px
+  `:accent` bottom border on a transparent bar) with the Figma-Make
+  rounded-top tabs on the dark band.
 
   `aria-label` wraps the visible label as `Xray <tab-label> tab` so the
   button's accessible name never collides with host-app role queries
@@ -2109,38 +2176,30 @@
               :on-click      #(rf/dispatch [:rf.xray/select-tab id] {:frame :rf/xray})
               :title         (str label " (" mnem ")")
               :aria-label    (str "Xray " label " tab")
-              :style {;; rf2-3f2di A1 — UNDERLINE tab per the authority
-                      ;; reference. ACTIVE → transparent bg, normal text
-                      ;; ink, 2px `:accent` bottom border (the underline);
-                      ;; INACTIVE → transparent bg, neutral muted ink, 2px
-                      ;; TRANSPARENT bottom border (so the active
-                      ;; underline never shifts the row 2px). The `:hover`
-                      ;; fill for inactive tabs is applied via the scoped
-                      ;; CSS rule in motion-css.
-                      :background    "transparent"
+              :style {;; rf2-xawwb — ROUNDED-TOP tab on the dark tabs
+                      ;; ribbon (Figma-Make surface). ACTIVE → light
+                      ;; `chrome-ribbon-tab-active` fill + dark
+                      ;; `chrome-ribbon-tab-active-text` ink (the tab
+                      ;; "lifts" onto the panel below); INACTIVE →
+                      ;; translucent white fill + muted-white ink. Both
+                      ;; carry `border-radius: 4px 4px 0 0` so the top
+                      ;; corners round like folder tabs. The `:hover` lift
+                      ;; for inactive tabs is the scoped rule in motion-css.
+                      :background    (if active?
+                                       (:chrome-ribbon-tab-active tokens)
+                                       "rgba(255,255,255,0.12)")
                       :border        "none"
-                      ;; The selected signal is the 2px accent underline
-                      ;; (reference `main-app` tab-strip:
-                      ;; `border-bottom: 2px solid var(--devtools-active)`
-                      ;; when active, `2px solid transparent` otherwise).
-                      :border-bottom (if active?
-                                       (str "2px solid " (:accent tokens))
-                                       "2px solid transparent")
-                      ;; ACTIVE → normal text ink (reference
-                      ;; `text-[var(--devtools-text)]` = `:text-primary`);
-                      ;; INACTIVE → neutral muted ink (`:text-tertiary` =
-                      ;; reference `--devtools-text-muted`).
+                      :border-radius "4px 4px 0 0"
                       :color         (if active?
-                                       (:text-primary tokens)
-                                       (:text-tertiary tokens))
+                                       (:chrome-ribbon-tab-active-text tokens)
+                                       (:chrome-ribbon-text-muted tokens))
                       :cursor        "pointer"
-                      :padding       "0 16px"       ; reference `px-4`, full-height
-                      :height        "100%"
+                      :padding       "4px 16px"     ; rounded-top tab pad
                       :font-family   sans-stack
                       :font-size     (:body type-scale)
                       :font-weight   (if active? 600 400)
                       :white-space   "nowrap"
-                      :transition    "border-color 120ms ease-out, color 120ms ease-out"}}
+                      :transition    "background-color 120ms ease-out, color 120ms ease-out"}}
      label]))
 
 (rf/reg-view tab-bar
@@ -2165,18 +2224,37 @@
     [:div {:data-testid "rf-xray-tab-bar"
            :role        "tablist"
            :aria-label  "Xray panel tabs"
-           ;; rf2-3f2di A1 — `align-items: stretch` + `gap: 0` so the
-           ;; full-height underline tabs (reference `main-app` tab-strip)
-           ;; sit flush and their 2px accent bottom-border lands on the
-           ;; bar's bottom edge. Height matches the 34px ribbon rhythm.
+           ;; rf2-xawwb — DARK tabs ribbon (Figma-Make surface). The tab
+           ;; strip becomes a dark band carrying rounded-top tab buttons.
+           ;; `align-items: flex-end` so each rounded-top tab sits flush
+           ;; on the bar's bottom edge (the active tab's light fill reads
+           ;; as a folder-tab lifting onto the panel below). `gap: 3px`
+           ;; gives the rounded tabs breathing room. Prefixed with the
+           ;; `for selected event` contextual label.
            :style {:display       "flex"
-                   :align-items   "stretch"
-                   :gap           "0"
+                   :align-items   "flex-end"
+                   :gap           "3px"
                    :height        "34px"
                    :padding       "0 12px"
-                   :background    (:bg-1 tokens)
+                   :background    (:chrome-ribbon-bg tokens)
                    :border-top    (str "1px solid " (:border-subtle tokens))
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
+     ;; rf2-xawwb — `↳ for selected event` contextual label (Figma-Make
+     ;; tabs ribbon): the corner-down-right glyph + muted-white text on
+     ;; the dark band, signalling that the tabs below project the
+     ;; CURRENTLY-SELECTED L2 event.
+     [:span {:data-testid "rf-xray-tab-bar-context-label"
+             :style {:display      "inline-flex"
+                     :align-items  "center"
+                     :gap          "6px"
+                     :align-self   "center"
+                     :margin-right "10px"
+                     :color        (:chrome-ribbon-text-muted tokens)
+                     :font-family  sans-stack
+                     :font-size    (:caption type-scale)
+                     :white-space  "nowrap"}}
+      [:span {:aria-hidden "true"} "↳"]
+      "for selected event"]
      ;; rf2-2moh1 — iterate `dynamic-tabs` (registry-derived) rather
      ;; than a literal vector. Tab order follows each entry's `:order`.
      (for [{:keys [id] :as tab} (dynamic-tabs)]

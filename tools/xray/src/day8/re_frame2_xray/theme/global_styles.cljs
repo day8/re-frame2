@@ -798,18 +798,16 @@
     "    rgba(236, 72, 153, 0.30) 0 6px,\n"
     "    rgba(236, 72, 153, 0.10) 6px 12px) !important;\n"
     "}\n"
-    ;; rf2-ad7zx.16 — L3 tab-bar hover. The Figma button-bar
-    ;; (the `tabs` component + the main layout's TabsList in
-    ;; `design-reference/xray_devtools_reference.cljs`) gives
-    ;; inactive tabs a subtle `hover:bg-[var(--devtools-hover)]` fill;
-    ;; the active tab keeps its filled `:accent` background. Inline
-    ;; styles can't carry a `:hover` pseudo-class, so the hover lift is a
-    ;; scoped CSS rule keyed off the `rf-xray-tab-*` testid. The
-    ;; `[aria-selected="false"]` predicate scopes it to inactive tabs so
-    ;; hovering the active tab doesn't override its accent fill.
+    ;; rf2-xawwb — L3 tabs-ribbon hover (Figma-Make dark tabs ribbon).
+    ;; Inactive rounded-top tabs sit on the DARK chrome band with a faint
+    ;; translucent-white fill; on hover the fill brightens and the ink
+    ;; lifts to full white. Keyed off the `rf-xray-tab-*` testid + the
+    ;; `[aria-selected="false"]` predicate so hovering the active (light-
+    ;; filled) tab doesn't override its fill. Inline styles can't carry a
+    ;; `:hover` pseudo-class, hence the scoped rule.
     "[data-testid^=\"rf-xray-tab-\"][aria-selected=\"false\"]:hover {\n"
-    "  background-color: " (:hover tokens/tokens) ";\n"
-    "  color: " (:text-primary tokens/tokens) ";\n"
+    "  background-color: rgba(255,255,255,0.22);\n"
+    "  color: " (:chrome-ribbon-text tokens/tokens) ";\n"
     "}\n"
     ;; rf2-tha26 — Trace-panel rounded hover-pill rows. The Figma
     ;; `design-reference/xray_devtools_reference.cljs` (the `trace-panel`
@@ -830,20 +828,23 @@
     "li[data-testid^=\"rf-xray-trace-group-\"]:hover {\n"
     "  background-color: " (:hover tokens/tokens) ";\n"
     "}\n"
-    ;; rf2-cplj8 — borderless chrome icon-buttons hover. The Figma
-    ;; ChromeRibbon + EventsRibbon render the settings/close icons and
-    ;; the nav chevrons as `p-1 rounded hover:bg-[var(--devtools-hover)]`
-    ;; borderless buttons. Inline styles can't carry `:hover`, so the
-    ;; fill lift is a scoped CSS rule keyed off each button's testid. The
-    ;; `:not([disabled])` predicate keeps a disabled (inert) nav chevron
-    ;; from lighting up on hover.
+    ;; rf2-cplj8 / rf2-xawwb — borderless chrome icon-buttons hover. The
+    ;; settings / close / theme-toggle icons + the blue-filled nav
+    ;; chevrons live on the DARK chrome band (Figma-Make surface), so the
+    ;; hover lift is a faint translucent-white wash that keeps the white
+    ;; ink legible (NOT the `:hover`/`:text-primary` pair, which would
+    ;; turn the glyph dark on the near-black band). Inline styles can't
+    ;; carry `:hover`, so the fill is a scoped rule keyed off each
+    ;; button's testid. The `:not([disabled])` predicate keeps a disabled
+    ;; (inert) nav chevron from lighting up on hover.
     "[data-testid=\"rf-xray-icon-settings\"]:hover,\n"
     "[data-testid=\"rf-xray-icon-close\"]:hover,\n"
+    "[data-testid=\"rf-xray-theme-toggle\"]:hover,\n"
     "[data-testid=\"rf-xray-nav-prev\"]:not([disabled]):hover,\n"
     "[data-testid=\"rf-xray-nav-next\"]:not([disabled]):hover,\n"
     "[data-testid=\"rf-xray-nav-head\"]:not([disabled]):hover {\n"
-    "  background-color: " (:hover tokens/tokens) ";\n"
-    "  color: " (:text-primary tokens/tokens) ";\n"
+    "  background-color: rgba(255,255,255,0.12);\n"
+    "  color: " (:chrome-ribbon-text tokens/tokens) ";\n"
     "}\n"))
 
 (defn- inject-motion-style!

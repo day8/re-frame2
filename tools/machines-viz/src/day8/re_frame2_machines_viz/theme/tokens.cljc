@@ -79,6 +79,19 @@
    :bg-3           "#2a2a2a"
    :bg-active      "#2a2a2a"
 
+   ;; chrome ribbon (rf2-xawwb · Figma-Make surface) — mirrored from
+   ;; Xray's dark-palette to satisfy the `xray-and-machines-viz-dark-
+   ;; palettes-match-key-set` drift gate. These are Xray-chrome tokens
+   ;; (the chart itself doesn't read them) but the gate requires an exact
+   ;; key-set mirror, so they're published here at the same values.
+   :chrome-ribbon-bg              "#0d1117"
+   :chrome-ribbon-text            "#e6edf3"
+   :chrome-ribbon-text-muted      "#8b949e"
+   :chrome-ribbon-tab-active      "#2a2a2a"
+   :chrome-ribbon-tab-active-text "#e6edf3"
+   :active-bg                     "#1f6feb"
+   :active-text                   "#ffffff"
+
    :border-subtle  "#2a2a2a"
    :border-default "#373737"
 
@@ -127,6 +140,18 @@
    :bg-2           "#ffffff"
    :bg-3           "#e8e8e8"
    :bg-active      "#e8e8e8"
+
+   ;; chrome ribbon (rf2-xawwb · Figma-Make surface) — mirrored from
+   ;; Xray's light-palette so the two palettes stay symmetric (the dark
+   ;; drift gate is key-set equality; the light gate checks shared-key
+   ;; values agree). Xray-chrome tokens; the chart doesn't read them.
+   :chrome-ribbon-bg              "#2a2a2a"
+   :chrome-ribbon-text            "#ffffff"
+   :chrome-ribbon-text-muted      "#b0b0b0"
+   :chrome-ribbon-tab-active      "#ffffff"
+   :chrome-ribbon-tab-active-text "#24292f"
+   :active-bg                     "#0969da"
+   :active-text                   "#ffffff"
 
    :border-subtle  "#e8e8e8"
    :border-default "#d1d1d1"

@@ -73,6 +73,20 @@
    :bg-3           "#2a2a2a"   ; popovers / strip (= Figma --devtools-hover)
    :bg-active      "#2a2a2a"
 
+   ;; ── chrome ribbon (rf2-xawwb · Figma-Make surface) ──
+   ;; The chrome ribbon + tabs ribbon read a DEDICATED dark-chrome
+   ;; band that is dark in BOTH themes — the Figma-Make surface paints
+   ;; the top chrome bar and the tab strip on a near-black band with
+   ;; white text, so the data canvas below pops. These map to the
+   ;; Figma `--devtools-chrome-ribbon-*` + `--devtools-active-*` vars.
+   :chrome-ribbon-bg              "#0d1117"   ; Figma --devtools-chrome-ribbon-bg (dark)
+   :chrome-ribbon-text            "#e6edf3"   ; Figma --devtools-chrome-ribbon-text
+   :chrome-ribbon-text-muted      "#8b949e"   ; Figma --devtools-chrome-ribbon-text-muted
+   :chrome-ribbon-tab-active      "#2a2a2a"   ; active tab fill on the dark band
+   :chrome-ribbon-tab-active-text "#e6edf3"   ; active tab ink
+   :active-bg                     "#1f6feb"   ; Figma --devtools-active-bg (nav buttons)
+   :active-text                   "#ffffff"   ; Figma --devtools-active-text
+
    ;; ── borders ──
    :border-subtle  "#2a2a2a"
    :border-default "#373737"   ; Figma --devtools-border
@@ -148,6 +162,21 @@
    :bg-2           "#ffffff"   ; panel surface
    :bg-3           "#e8e8e8"   ; popovers / strip (= Figma --devtools-hover)
    :bg-active      "#e8e8e8"
+
+   ;; ── chrome ribbon (rf2-xawwb · Figma-Make surface) ──
+   ;; Dark chrome band even under the LIGHT theme — the Figma-Make
+   ;; surface keeps the top chrome ribbon + tab strip dark (#2a2a2a)
+   ;; with white text in light mode, so the chrome reads as a distinct
+   ;; band above the light data canvas. The active tab fills WHITE on
+   ;; the light surface (the tab "lifts" out of the dark band onto the
+   ;; light panel below).
+   :chrome-ribbon-bg              "#2a2a2a"   ; Figma --devtools-chrome-ribbon-bg (light)
+   :chrome-ribbon-text            "#ffffff"   ; Figma --devtools-chrome-ribbon-text
+   :chrome-ribbon-text-muted      "#b0b0b0"   ; Figma --devtools-chrome-ribbon-text-muted
+   :chrome-ribbon-tab-active      "#ffffff"   ; active tab fill (lifts onto light canvas)
+   :chrome-ribbon-tab-active-text "#24292f"   ; active tab ink
+   :active-bg                     "#0969da"   ; Figma --devtools-active-bg (nav buttons)
+   :active-text                   "#ffffff"   ; Figma --devtools-active-text
 
    ;; ── borders ── (light mid-greys)
    :border-subtle  "#e8e8e8"
