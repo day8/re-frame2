@@ -39,6 +39,18 @@
   cards) rather than the stub — the live App-db panel is the contractual
   surface and the reference documents its shape.
 
+  ## What this reference DELIBERATELY diverges from the Figma authority
+
+  - **Inactive-tab background opacity = 0.12 (NOT the authority's 0.2)**
+    — see `tab-button` below. The Figma authority paints inactive tabs
+    at `rgba(255,255,255,0.2)`; both this mirror and the live shell
+    (`tools/xray/src/day8/re_frame2_xray/shell.cljs`) use 0.12 instead.
+    The quieter inactive fill lets the active tab POP in the rhythm
+    of the dark tabs ribbon; 0.2 made the inactive tabs read as
+    competing siblings rather than backgrounded options. This is a
+    deliberate, contractual divergence from the authority — codified
+    here (rf2-2kw7f) so a future audit doesn't re-raise it as drift.
+
   ## Out of scope (WIP)
 
   The Machine panel design is a work-in-progress (Mike). This reference
@@ -339,6 +351,9 @@
 
 (defn tab-button [active-tab tab-id label]
   (let [is-active (= @active-tab tab-id)]
+    ;; rf2-2kw7f — inactive fill is rgba(...,0.12), NOT the Figma
+    ;; authority's 0.2. Deliberate; see the docstring (§What this
+    ;; reference DELIBERATELY diverges from the Figma authority).
     [:button {:class "devtools-body"
               :style {:padding "3px 16px" :border-radius "4px 4px 0 0" :border "none"
                       :background (if is-active "var(--devtools-chrome-ribbon-tab-active)" "rgba(255,255,255,0.12)")
