@@ -306,9 +306,23 @@
                                                   :regionIndex (:region-index n)))
                        :draggable false
                        :selectable false}]
+                  ;; rf2-a64bi — BOTH region AND compound containers receive
+                  ;; `:style {:width :height}` from elk's measured position.
+                  ;; The parallel-region renderer (`parallel_region_node`)
+                  ;; AND the compound renderer (`compound_node`) both fill
+                  ;; their box with `width:100% height:100%`, so xyflow must
+                  ;; allocate the box elk measured — otherwise it falls back
+                  ;; to `compound-node-min-{width,height}` (220×120), and
+                  ;; substates whose parent-relative coords elk computed
+                  ;; against the FULL measured extent overflow the smaller
+                  ;; fallback box and visually escape the container. The
+                  ;; asymmetry (region styled, compound not) was the bug;
+                  ;; mirroring the region path here keeps containment.
                   (cond-> base
-                    region? (assoc :style {:width  (:width pos)
-                                           :height (:height pos)})
+                    (or region? (:compound? n))
+                    (assoc :style {:width  (:width pos)
+                                   :height (:height pos)})
+
                     (and (not region?) (:parent-id n))
                     (assoc :parentNode (:parent-id n)
                            :extent     "parent"))))
