@@ -85,13 +85,33 @@
   "Canonical elk.js `layoutOptions` for the chart. Tuned for state-
   machine readability per the rf2-0yil0 audit cluster + rf2-gg7ws
   visual-quality lift (kept across the xyflow migration since the
-  layout engine itself is unchanged; only the renderer swapped)."
+  layout engine itself is unchanged; only the renderer swapped).
+
+  rf2-cz8v6 (G2 — bend-point edge routing): two routing-relevant keys.
+
+    - `elk.edgeRouting` is `ORTHOGONAL` (not `SPLINES`): the Layered
+      algorithm then computes Manhattan bend-point routes that go
+      AROUND nested/parallel containers, which the chart lifts into the
+      xyflow edge geometry (`chart.edges/transition-edge` renders a
+      smooth poly-path through them). With `SPLINES` elk emits a single
+      control-rich curve that, once collapsed to its bend points, reads
+      no better than the bezier fallback — ORTHOGONAL is what makes the
+      around-the-container routing legible at machine sizes (§1.7 of
+      `001-Topology-Parity.md`).
+    - `elk.json.edgeCoords` is `ROOT`: elk reports every edge section's
+      `startPoint` / `bendPoints` / `endPoint` relative to the ROOT
+      graph (i.e. absolute flow coordinates) rather than the default
+      per-container origin. xyflow hands the custom edge component
+      ABSOLUTE `sourceX`/`sourceY`/… so the lifted bend-points must be
+      in the same frame; `ROOT` makes elk do that rebasing for us
+      (added ELK 0.9; elkjs 0.11 wraps a newer core)."
   {"elk.algorithm"                              "layered"
    "elk.direction"                              "DOWN"
    "elk.spacing.nodeNode"                       "40"
    "elk.layered.spacing.nodeNodeBetweenLayers"  "70"
    "elk.layered.crossingMinimization.strategy"  "LAYER_SWEEP"
-   "elk.edgeRouting"                            "SPLINES"})
+   "elk.edgeRouting"                            "ORTHOGONAL"
+   "elk.json.edgeCoords"                        "ROOT"})
 
 (defn- ->elk-input
   "Build an elk.js JS-side input graph for the given parsed nodes +
@@ -125,38 +145,103 @@
                            :labels [{:text (:event-label e)}]})
                         edges))}))
 
+(defn elk-edge-points
+  "rf2-cz8v6 (G2) — lift one elk edge's routed bend-points into a flat
+  `[{:x :y} …]` vector of absolute (flow) coordinates.
+
+  An elk edge carries one or more `sections`; each section has a
+  `startPoint`, an `endPoint`, and an optional `bendPoints` array. We
+  chain them into start → bend… → end. With `elk.json.edgeCoords ROOT`
+  set on the layout (`default-elk-options`) every coordinate is already
+  root-relative — i.e. the same absolute frame xyflow hands the custom
+  edge component as `sourceX`/`sourceY`/… — so no re-basing is needed.
+
+  Returns nil when the edge has no usable section (elk gave no route),
+  so the projector can fall back to the bezier path. A degenerate
+  one-or-zero-point result is treated as no route (nothing to route
+  through)."
+  [^js edge]
+  (let [sections (or (.-sections edge) #js [])
+        pts      (->> (areduce sections i acc []
+                        (let [^js s  (aget sections i)
+                              ^js sp (.-startPoint s)
+                              ^js ep (.-endPoint s)
+                              bp     (or (.-bendPoints s) #js [])]
+                          (-> acc
+                              (cond-> sp (conj {:x (.-x sp) :y (.-y sp)}))
+                              (into (map (fn [^js p] {:x (.-x p) :y (.-y p)})) bp)
+                              (cond-> ep (conj {:x (.-x ep) :y (.-y ep)})))))
+                      ;; Collapse consecutive duplicate points (a
+                      ;; section's endPoint can repeat the next section's
+                      ;; startPoint) so the rendered path has no zero-
+                      ;; length segments.
+                      (dedupe))]
+    (when (> (count pts) 1)
+      (vec pts))))
+
 (defn- elk-result->positions
-  "Adapter: elk.js JS result → `{node-id {:x :y :width :height}}` map.
+  "Adapter: elk.js JS result → `{:positions {node-id {:x :y :width
+  :height}} :edge-points {edge-id [{:x :y} …]}}`.
+
   Used by `xyflow-graph` to merge xyflow-side node objects with
-  elk-laid-out positions.
+  elk-laid-out positions, and (rf2-cz8v6 / G2) to route edges through
+  elk's computed bend-points.
+
+  ## Positions
 
   Walks nested elk children (rf2-lkwev — parallel machines nest each
   region's states under the region container). elkjs reports a child's
   `x`/`y` RELATIVE to its parent container, which is exactly what
   xyflow's parentNode sub-flow wants — so we record each node's
   position AS elkjs gives it, no re-basing. Region containers get
-  their root-relative position + the size elkjs computed for the zone."
+  their root-relative position + the size elkjs computed for the zone.
+
+  ## Edge points (rf2-cz8v6 / G2)
+
+  elk attaches each edge's routed `sections` to whichever node it lays
+  the edge out under (the LCA of its endpoints). We walk EVERY node's
+  `edges` array so cross-hierarchy edges (laid out at a container or at
+  the root) are all collected. Each edge's points are lifted via
+  `elk-edge-points`; with `edgeCoords ROOT` they are already absolute,
+  so a deeply-nested transition's route is in the same frame as a flat
+  one. Edges with no route (no sections) are simply absent from the
+  map — the projector / edge component then falls back to the bezier
+  path."
   [elk-result]
-  (let [acc (atom {})]
-    (letfn [(walk! [^js node]
+  (let [positions   (atom {})
+        edge-points (atom {})]
+    (letfn [(collect-edges! [^js node]
+              (let [edges (or (.-edges node) #js [])
+                    n     (alength edges)]
+                (dotimes [i n]
+                  (let [e   (aget edges i)
+                        pts (elk-edge-points e)]
+                    (when pts
+                      (swap! edge-points assoc (.-id e) pts))))))
+            (walk! [^js node]
+              (collect-edges! node)
               (let [children (or (.-children node) #js [])
                     n        (alength children)]
                 (dotimes [i n]
                   (let [c (aget children i)]
-                    (swap! acc assoc (.-id c)
+                    (swap! positions assoc (.-id c)
                            {:x      (or (.-x c) 0)
                             :y      (or (.-y c) 0)
                             :width  (or (.-width c) projection/state-node-min-width)
                             :height (or (.-height c) projection/state-node-min-height)})
                     (walk! c)))))]
       (walk! elk-result))
-    @acc))
+    {:positions   @positions
+     :edge-points @edge-points}))
 
 (defn compute-layout!
   "Run elk.js layout on `parsed` (the output of
-  `chart.layout/parse-definition`); call `done-fn` with a map of
-  `{node-id {:x :y :width :height}}` when ready (or with `nil` on
-  failure). The async path is idiomatic xyflow + elkjs:
+  `chart.layout/parse-definition`); call `done-fn` with a map
+  `{:positions {node-id {:x :y :width :height}} :edge-points {edge-id
+  [{:x :y} …]}}` when ready (or with `nil` on failure). The
+  `:edge-points` half (rf2-cz8v6 / G2) carries elk's routed bend-points
+  so the chart routes edges AROUND nested containers instead of cutting
+  across them. The async path is idiomatic xyflow + elkjs:
 
     1. `(->elk-input parsed direction layout-options)` builds a JS
        graph.
@@ -316,7 +401,13 @@
     :testid            — root wrapper `data-testid`; defaults to
                          `\"rf-mv-chart\"` so tests + hosts find it."
   [_initial-props]
-  (let [positions     (r/atom {})
+  (let [;; rf2-cz8v6 (G2) — the layout atom now holds BOTH the node
+        ;; positions and elk's routed edge bend-points
+        ;; (`{:positions {…} :edge-points {…}}`) so the projector can
+        ;; route edges around nested containers. Starts empty (no
+        ;; positions, no routes) — the pre-layout render falls back to
+        ;; origin + bezier until the async elk pass resolves.
+        layout-state  (r/atom {:positions {} :edge-points {}})
         layout-key    (r/atom nil)]
     (fn [{:keys [machine-id definition current-state from-highlight to-highlight
                  sim? on-state-click on-edge-click read-only?
@@ -349,9 +440,9 @@
                    (not= this-key @layout-key))
           (reset! layout-key this-key)
           (compute-layout! parsed direction layout-options
-                           (fn [poss]
-                             (when poss
-                               (reset! positions poss)))))
+                           (fn [result]
+                             (when result
+                               (reset! layout-state result)))))
         (cond
           (nil? definition)
           [:div {:data-testid (str testid "-no-definition")
@@ -403,15 +494,20 @@
                 to-highlight-id   (layout/highlight-id to-highlight)
                 callback          (when-not read-only? on-state-click)
                 edge-callback     (when-not read-only? on-edge-click)
+                {:keys [positions edge-points]} @layout-state
                 {:keys [nodes edges]}
                 (projection/xyflow-graph parsed
-                              @positions
+                              positions
                               {:highlight-ids     highlight-ids
                                :from-highlight-id from-highlight-id
                                :to-highlight-id   to-highlight-id
                                :sim?              sim?
                                :on-state-click    callback
                                :on-edge-click     edge-callback
+                               ;; rf2-cz8v6 (G2) — elk's routed bend-
+                               ;; points; the projector attaches each
+                               ;; edge's route to its :data {:points}.
+                               :edge-points       edge-points
                                :chart             chart-vc})
                 aria-label (str "State machine"
                                 (when machine-id

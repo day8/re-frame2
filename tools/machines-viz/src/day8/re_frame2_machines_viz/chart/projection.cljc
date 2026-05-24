@@ -166,6 +166,21 @@
                            `:always`) carry the callback too but a nil
                            `:eventId`; the host filters those out. nil
                            omits the wiring entirely (no-op edge labels).
+    :edge-points         — rf2-cz8v6 (closes parity gap G2). A map
+                           `{edge-id [{:x :y} …]}` of elk's routed
+                           bend-points (absolute / flow coordinates;
+                           `chart`'s `compute-layout!` sets
+                           `elk.json.edgeCoords ROOT` so they share
+                           xyflow's frame). When an edge has an entry,
+                           its route is attached to the edge `:data` as
+                           `:points`, and `chart.edges/transition-edge`
+                           draws a smooth poly-path THROUGH those points
+                           — routing AROUND nested/parallel containers
+                           rather than cutting across them (§1.7 of
+                           `001-Topology-Parity.md`). An edge with no
+                           entry (or a self-loop, which keeps its
+                           dedicated loop path) falls back to the bezier
+                           between handles. Defaults to `{}`.
     :chart               — rf2-k647w. The resolved visual-constants
                            map for the active `:density`
                            (`visual-constants/chart-for-density`).
@@ -182,8 +197,8 @@
   [{:keys [nodes edges]}
    positions
    {:keys [highlight-id highlight-ids from-highlight-id to-highlight-id sim?
-           on-state-click on-edge-click chart]
-    :or   {chart vc/chart-regular}}]
+           on-state-click on-edge-click edge-points chart]
+    :or   {chart vc/chart-regular edge-points {}}}]
   (let [;; rf2-g2svr (G1) — the active set unifies the single-active
         ;; (`:highlight-id`) and multi-active (`:highlight-ids`) cases.
         ;; A PARALLEL machine's snapshot has N simultaneously-active
@@ -270,7 +285,13 @@
                                         (not (:always? e))
                                         (keyword? (:event e))
                                         (not= :* (:event e)))
-                      event-id     (when fireable? (:event e))]
+                      event-id     (when fireable? (:event e))
+                      ;; rf2-cz8v6 (G2) — elk's routed bend-points for
+                      ;; this edge (absolute coords). Self-loops keep
+                      ;; their dedicated loop path, so they never carry
+                      ;; points even if elk emitted a degenerate route.
+                      points       (when-not self-loop?
+                                     (get edge-points (:id e)))]
                   {:id     (:id e)
                    :source (:source e)
                    :target (:target e)
@@ -286,6 +307,13 @@
                             :guard      (layout/name-of (:guard e))
                             :action     (layout/name-of (:action e))
                             :selfLoop   self-loop?
+                            ;; rf2-cz8v6 (G2) — elk's routed bend-points
+                            ;; (a `[{:x :y} …]` vector in absolute /
+                            ;; flow coords) when elk computed a route;
+                            ;; the edge component draws a smooth poly-
+                            ;; path THROUGH them (around nested
+                            ;; containers). nil → the bezier fallback.
+                            :points       points
                             ;; rf2-ee38b.21 — an internal self-transition
                             ;; (omit :target) runs only :action; the
                             ;; renderer draws it as a self-loop with no
@@ -340,6 +368,11 @@
                  :data        {:eventLabel "" :entry true
                                :active false :focused false :afterMs nil
                                :guard nil :action nil :selfLoop false
+                               ;; rf2-cz8v6 (G2) — entry edges keep the
+                               ;; bezier (a short marker→state hop never
+                               ;; crosses a container); :points nil so
+                               ;; the every-edge :data shape stays whole.
+                               :points nil
                                :internal false :machineLevel false
                                :eventId nil :fromPath nil :toPath nil
                                :onClick on-edge-click :chart chart}})

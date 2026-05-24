@@ -178,7 +178,7 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 | **Event labels** | ✅ `event [guard] / action` composed label; `after(<ms>)`, `always`, `* (any)` wildcard segments; backplate for legibility; label is clickable when a fireable event-id + host callback are present. | `layout.cljc` `edge-label`/`event-segment`; `edges.cljs` `transition-edge`. |
 | **Guards / actions** | ✅ Guard in `[...]`, action after `/`; entry/exit state actions render as `entry / <name>` / `exit / <name>` rows under the label; state-tag pills above. | `layout.cljc` `edge-label`, `name-of`; `nodes.cljs` `state-node` (entry/exit rows, tag pills). |
 | **Layout** | ✅ elk Layered, `DOWN`/`RIGHT` direction, `INCLUDE_CHILDREN` when nested, per-container padding for header strips; async + cached pass; xyflow `fitView`. | `chart.cljs` `compute-layout!`/`default-elk-options`; `projection.cljc` `->elk-children` (per-container `layoutOptions`). |
-| **Edge routing through nesting** | ⚠️ **Partial.** Edges use `getBezierPath` (a straight-ish curve between handles); **elk bend-points are not consumed.** Deep nesting can route an edge **across** a container rather than around it. | `edges.cljs` `transition-edge` (`getBezierPath`); `layout.cljc` docstring "Edge points + bend-points — REMOVED". |
+| **Edge routing through nesting** | ✅ **Closed (rf2-cz8v6).** elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into an `{edge-id [{:x :y} …]}` map that the projector attaches to the edge `:data {:points}`. `transition-edge` then draws a smooth poly-path THROUGH the bends, so a deeply-nested transition routes **around** a container instead of cutting across it. Self-loops keep their dedicated loop path; an edge with no elk route falls back to the bezier. | `chart.cljs` `default-elk-options` (`ORTHOGONAL` + `edgeCoords ROOT`) / `elk-edge-points` / `elk-result->positions`; `projection.cljc` `xyflow-graph` (`:edge-points` → `:data {:points}`); `edges.cljs` `edge-path` (poly-path). |
 | **Simulation** | ✅ (host-side, trace-driven + hermetic sim) — live highlight off `[:rf/machines <id>]` + the Spec 009 bus; the Static-Machines Sim sub-mode is a hermetic what-if walker. Edge labels carry `:eventId` + `:onClick` so a host wires "click to send". | `projection.cljc` (`:on-edge-click`/`:eventId`); Xray `static/machines/sim.cljs` (per 003). |
 | **Interactivity / ergonomics** | ✅ xyflow pan/zoom/fit/minimap/background; density-resolved geometry + typography; node/edge click callbacks; `:after` countdown rings + `:spawn-all` join + cancellation overlays (re-frame2-native, no Stately peer). | `chart.cljs`; `visual-constants`; overlays per 003 / 000-Vision. |
 
@@ -186,10 +186,10 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 (layout), initial, final, transition scoping, event labels,
 guards/actions, layout, and ergonomics. The high-severity **parallel
 multi-active highlight** gap (G1) is now **closed** (rf2-yoe6e /
-rf2-g2svr); **one capability gap** remains (bend-point edge routing,
-G2), plus two **fired-edge consistency** items the live-chart wiring
-needs and the region-ACTIVE chrome polish (G4) that completes the
-parallel-parity read.
+rf2-g2svr) and the bend-point edge-routing gap (G2) is now **closed**
+(rf2-cz8v6); the residue is two **fired-edge consistency** items the
+live-chart wiring needs and the region-ACTIVE chrome polish (G4) that
+completes the parallel-parity read.
 
 ## §3 — Gap analysis + deliberate divergences
 
@@ -201,7 +201,7 @@ new), and the parity-bar row it serves.
 | # | Gap | Severity | Serves bar | Bead |
 |---|---|---|---|---|
 | **G1** | ✅ **CLOSED (rf2-yoe6e / rf2-g2svr).** Was: a parallel snapshot's `:state` is a region-map `{region path}` with **N active leaves**; `highlight-id` returned nil for a map, so the chart highlighted **none** (or only a degenerate single id). Now: `highlight-ids` resolves the whole `:state` (flat / compound / region-map, nested values → deepest leaf) to the **set** of active-leaf node-ids; `xyflow-graph` threads `:highlight-ids` and marks **every** active leaf, so all N regions light up at once — Stately's §1.2 read. | **High** | §1.2, §1.9 | **contract:** rf2-yoe6e ✅ · **impl:** rf2-g2svr ✅ |
-| **G2** | **elk bend-point edge routing.** Edges are beziers between handles; elk's Layered bend-points (ORTHOGONAL/polyline) are discarded (§1.7). In deep nesting, edges can cut **across** a region/compound container instead of routing **around** it — the [`000-Vision.md`](000-Vision.md) §Quality-bar "no edge-crossing collapse" floor at real machine sizes. | **Medium** | §1.7, §1.9 | **impl:** rf2-cz8v6 (existing, deferred polish) |
+| **G2** | ✅ **CLOSED (rf2-cz8v6).** Was: edges were beziers between handles; elk's Layered bend-points were discarded (§1.7), so in deep nesting an edge could cut **across** a region/compound container instead of routing **around** it. Now: elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into the projection (`:edge-points` → `:data {:points}`), and `edges.cljs/edge-path` draws a smooth poly-path THROUGH them — routing around non-incident containers (the [`000-Vision.md`](000-Vision.md) §Quality-bar "no edge-crossing collapse" floor). Self-loops keep their loop path; no-route edges fall back to the bezier; G1's active-edge highlight survives the new path. | **Medium** | §1.7, §1.9 | **impl:** rf2-cz8v6 ✅ |
 | **G3** | **Fired-edge id consistency (live chart).** To highlight "the edge that fired this epoch" on the live chart, the host's trace→edge-id mapping MUST mint the **same** `edge-id` `chart.layout` mints. Today the helper chain needs consolidating so `extract-fired-edge-ids` emits machines-viz `edge-id`s. (The node-id scheme was already unified — rf2-m8kod.) | **Medium** | §1.3, §1.8 | **helpers:** rf2-8jzm1 (existing) · **wire:** rf2-qeemm (existing) |
 | **G4** | **Parallel-region chrome polish for the active read.** Once G1 lights up N regions, the **region container** should reflect "this region is active" (vs. structural-only chrome today) so a reader scanning N regions sees the active leaf in each at a glance — region-header active affordance + per-region active-leaf emphasis that reads as a set, not N independent highlights. | **Low–Medium** | §1.2 | **NEW — see §5 N1** |
 | **G5** | **Cross-hierarchy edge-routing option not asserted.** elk routes cross-hierarchy edges only when the option is activated on the top level (§1.7). The default elk options set `INCLUDE_CHILDREN` for nesting but do not pin the cross-hierarchy edge-routing option; an edge from a deeply-nested leaf to a top-level state may not route cleanly even after G2. | **Low** | §1.7 | **NEW — see §5 N2** (pairs with rf2-cz8v6/G2) |
@@ -284,12 +284,14 @@ not **which colour**.
 
 ### 4.3 G2 / G5 — edge routing through nesting
 
-- **Consume elk bend-points (rf2-cz8v6/G2).** elk's Layered result
-  carries per-edge **bend-point sections**; the projection should pass
-  them through so `edges.cljs` can render a **polyline / piecewise
-  curve** through the bend points instead of a single bezier between
-  handles. This is what stops an edge cutting across a nested
-  container at machine sizes (§1.7).
+- ✅ **Consume elk bend-points (rf2-cz8v6/G2 — DONE).** elk's Layered
+  result carries per-edge **bend-point sections**; `compute-layout!`
+  (with `elk.edgeRouting ORTHOGONAL` + `elk.json.edgeCoords ROOT`) lifts
+  them as absolute coords into `:edge-points`, the projection threads
+  them onto each edge `:data {:points}`, and `edges.cljs/edge-path`
+  renders a **rounded poly-path** through the bend points instead of a
+  single bezier between handles. This is what stops an edge cutting
+  across a nested container at machine sizes (§1.7).
 - **Assert cross-hierarchy edge routing (rf2 NEW N2/G5).** Add the elk
   top-level cross-hierarchy edge-routing option to
   `default-elk-options` so an edge from a nested leaf to a top-level
@@ -339,7 +341,7 @@ project dispatch rules): `tools/xray/spec/003-Machine-Inspector.md`.
 
 | Step | Bead | New? | Hot-zone | Notes |
 |---|---|---|---|---|
-| B1 | **rf2-cz8v6** — elk bend-point edge routing | existing (deferred polish) | isolated (`chart.cljs` position pass + `chart.edges` polyline + tests) | Closes **G2**. Consume elk bend-point sections; render polyline through them. |
+| B1 | **rf2-cz8v6** ✅ — elk bend-point edge routing | existing | isolated (`chart.cljs` position pass + `chart.edges` polyline + tests) | **Closed G2.** elk `ORTHOGONAL` + `edgeCoords ROOT`; `compute-layout!` lifts bend-point sections; `edge-path` renders a rounded poly-path through them. |
 | B2 | **N2 (NEW)** — `feat(machines-viz): assert ELK cross-hierarchy edge-routing in default-elk-options` | **NEW** | isolated (`chart.cljs` `default-elk-options` + projection test) | Closes **G5**. Small option add; pairs with B1 (bend-points need cross-hierarchy routing enabled to matter). Land with or just before B1. |
 
 ### Phase C — fired-edge live highlight (host wiring)

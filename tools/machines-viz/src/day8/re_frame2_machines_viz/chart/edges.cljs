@@ -50,6 +50,118 @@
 (def ^:private BaseEdge        (.-BaseEdge xyflow))
 (def ^:private EdgeLabelRenderer (.-EdgeLabelRenderer xyflow))
 
+;; ---- elk bend-point routing (rf2-cz8v6, G2) ----------------------------
+;;
+;; When elk hands us a multi-point route (start → bend… → end, in
+;; absolute flow coords), we render the edge ALONG it instead of a
+;; single bezier between handles. This is what stops a deeply-nested
+;; transition cutting ACROSS a region/compound container — the route
+;; goes AROUND it (§1.7 of `001-Topology-Parity.md`).
+
+(def ^:private corner-radius
+  "Max rounding applied at each bend (px). Kept small so the route
+  stays visibly orthogonal (it reads as elk's Manhattan routing) while
+  softening the hard corners to match the chart's bezier aesthetic."
+  8)
+
+(defn- poly-path
+  "Build an SVG path string that runs THROUGH `pts` (a JS array of
+  `#js {:x :y}` points) with small rounded corners at each interior
+  bend. `pts` has ≥ 2 entries (the projector / layout filter degenerate
+  routes out). Mirrors the rounded-orthogonal look of a hand-routed
+  statechart edge without depending on a layout-engine path string."
+  [pts]
+  (let [n (alength pts)]
+    (if (<= n 2)
+      ;; A straight start→end run — no interior bend to round.
+      (let [a (aget pts 0) b (aget pts (dec n))]
+        (str "M " (.-x a) "," (.-y a) " L " (.-x b) "," (.-y b)))
+      (let [sb   (js/Array.)
+            p0   (aget pts 0)]
+        (.push sb (str "M " (.-x p0) "," (.-y p0)))
+        ;; For each interior point, draw a line up TO a point shy of the
+        ;; corner, then a quadratic curve THROUGH the corner to a point
+        ;; just past it — rounding the bend.
+        (dotimes [i (- n 2)]
+          (let [prev (aget pts i)
+                cur  (aget pts (inc i))
+                nxt  (aget pts (+ i 2))
+                dx1  (- (.-x cur) (.-x prev))
+                dy1  (- (.-y cur) (.-y prev))
+                dx2  (- (.-x nxt) (.-x cur))
+                dy2  (- (.-y nxt) (.-y cur))
+                len1 (js/Math.hypot dx1 dy1)
+                len2 (js/Math.hypot dx2 dy2)
+                ;; clamp the rounding to half of the shorter incident
+                ;; segment so adjacent corners never overlap.
+                r    (js/Math.min corner-radius (/ len1 2) (/ len2 2))
+                ;; entry point: r before the corner along the incoming seg
+                ex   (if (pos? len1) (- (.-x cur) (* (/ dx1 len1) r)) (.-x cur))
+                ey   (if (pos? len1) (- (.-y cur) (* (/ dy1 len1) r)) (.-y cur))
+                ;; exit point: r after the corner along the outgoing seg
+                xx   (if (pos? len2) (+ (.-x cur) (* (/ dx2 len2) r)) (.-x cur))
+                xy   (if (pos? len2) (+ (.-y cur) (* (/ dy2 len2) r)) (.-y cur))]
+            (.push sb (str "L " ex "," ey))
+            (.push sb (str "Q " (.-x cur) "," (.-y cur) " " xx "," xy))))
+        (let [last-pt (aget pts (dec n))]
+          (.push sb (str "L " (.-x last-pt) "," (.-y last-pt))))
+        (.join sb " ")))))
+
+(defn- path-midpoint
+  "The label anchor for a routed edge: the midpoint of the path's
+  middle segment (so the label sits ON the route, not floating at the
+  bezier midpoint). `pts` is the JS points array (≥ 2)."
+  [pts]
+  (let [n (alength pts)
+        i (quot n 2)
+        a (aget pts (max 0 (dec i)))
+        b (aget pts i)]
+    [(/ (+ (.-x a) (.-x b)) 2)
+     (/ (+ (.-y a) (.-y b)) 2)]))
+
+(defn edge-path
+  "Pure path-selection for a transition edge — the single source of
+  truth `transition-edge` renders + the test suite pins (rf2-cz8v6).
+
+  Returns `{:d <svg-path-string> :label-x <px> :label-y <px> :routed?
+  <bool>}`. Path selection, in priority order:
+
+    1. `self-loop?`  → a small loop off the node's edge (NOT routed —
+       self-loops keep their dedicated path even if elk emitted bends).
+    2. elk route     → when `points` is a JS array of ≥ 2 `#js {:x :y}`,
+       a smooth poly-path THROUGH the bends so the edge goes AROUND
+       nested containers (`:routed? true`).
+    3. bezier        → `getBezierPath` between the handles (`:routed?
+       false`) — the no-bend-point fallback."
+  [{:keys [src-x src-y tgt-x tgt-y src-pos tgt-pos self-loop? points]}]
+  (let [routed? (and (not self-loop?)
+                     (some? points)
+                     (> (alength points) 1))]
+    (cond
+      self-loop?
+      (let [r 30]
+        {:d (str "M " src-x "," src-y
+                 " C " (+ src-x r) "," (- src-y r)
+                 " "  (+ src-x r) "," (+ src-y r)
+                 " "  src-x       "," src-y)
+         :label-x (+ src-x r 4)
+         :label-y src-y
+         :routed? false})
+
+      routed?
+      (let [[lx ly] (path-midpoint points)]
+        {:d (poly-path points) :label-x lx :label-y ly :routed? true})
+
+      :else
+      (let [bz (get-bezier-path
+                 #js {:sourceX        src-x
+                      :sourceY        src-y
+                      :sourcePosition src-pos
+                      :targetX        tgt-x
+                      :targetY        tgt-y
+                      :targetPosition tgt-pos})]
+        {:d (aget bz 0) :label-x (aget bz 1) :label-y (aget bz 2) :routed? false}))))
+
 ;; ---- helpers ------------------------------------------------------------
 ;;
 ;; rf2-k647w — edge typography (label font-size + backplate opacity)
@@ -125,27 +237,20 @@
         ;; Render it WITHOUT the re-entry arrowhead + with a dashed loop
         ;; so it reads as "no exit/entry re-trigger" (Stately parity).
         internal?  (boolean (.-internal d))
+        ;; rf2-cz8v6 (G2) — elk's routed bend-points (absolute coords),
+        ;; a JS array of `#js {:x :y}`. Present only when elk computed a
+        ;; multi-point route; nil for a simple edge (bezier fallback)
+        ;; and for self-loops (which keep their dedicated loop path).
+        points     (.-points d)
         {:keys [edge-label-px edge-label-backplate-opacity]} vc
-        ;; A self-transition (source == target) renders as a small loop
-        ;; off the node's edge instead of xyflow's degenerate near-zero
-        ;; bezier. Everything else uses `getBezierPath`, which returns
-        ;; [path-string label-x label-y offset-x offset-y] (aget'd).
-        [path label-x label-y]
-        (if self-loop?
-          (let [r 30]
-            [(str "M " src-x "," src-y
-                  " C " (+ src-x r) "," (- src-y r)
-                  " "  (+ src-x r) "," (+ src-y r)
-                  " "  src-x       "," src-y)
-             (+ src-x r 4) src-y])
-          (let [bz (get-bezier-path
-                     #js {:sourceX        src-x
-                          :sourceY        src-y
-                          :sourcePosition src-pos
-                          :targetX        tgt-x
-                          :targetY        tgt-y
-                          :targetPosition tgt-pos})]
-            [(aget bz 0) (aget bz 1) (aget bz 2)]))
+        ;; rf2-cz8v6 (G2) — path selection lives in the pure `edge-path`
+        ;; helper (self-loop → elk route → bezier), so the test suite
+        ;; pins the SAME geometry the renderer paints.
+        {path :d label-x :label-x label-y :label-y routed? :routed?}
+        (edge-path {:src-x src-x :src-y src-y
+                    :tgt-x tgt-x :tgt-y tgt-y
+                    :src-pos src-pos :tgt-pos tgt-pos
+                    :self-loop? self-loop? :points points})
         stroke  (edge-stroke {:active? active? :focused? focused?})
         stroke-w (edge-stroke-width {:active? active? :focused? focused? :chart vc})]
     (r/as-element
@@ -171,6 +276,10 @@
                ;; DOM suite + a host can distinguish self-transition kind
                ;; + inherited fallbacks.
                :data-internal (str internal?)
+               ;; rf2-cz8v6 (G2) — surface whether this edge rendered
+               ;; along elk's bend-point route (true) or fell back to
+               ;; the bezier (false), so the DOM suite can pin routing.
+               :data-routed (str routed?)
                :data-machine-level (str (boolean (.-machineLevel d)))
                ;; rf2-u422r — clickable edges surface their fireable
                ;; event-id so a host (Xray on-chart sim) + tests can
