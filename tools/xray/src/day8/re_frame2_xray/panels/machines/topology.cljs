@@ -61,7 +61,7 @@
        in the focused epoch.
     2. The `:state` field of the machine's live snapshot map.
     3. nil — no current-state overlay rendered."
-  (:require [clojure.string :as str]))
+  (:require [day8.re-frame2-machines-viz.chart.layout :as chart-layout]))
 
 ;; ---- state walking ------------------------------------------------------
 
@@ -81,18 +81,21 @@
     :else             nil))
 
 (defn- node-id-for-path
-  "Stable string id for a state path. Matches `chart-layout/node-id`'s
-  shape so node-ids resolve consistently across renderers."
+  "Stable string id for a state path. DELEGATES to the canonical
+  machines-viz `chart.layout/node-id` — the single source of truth for
+  the machine node-id scheme (rf2-ee38b.21 · rf2-m8kod).
+
+  Why delegate rather than re-implement: the old local body used the
+  non-injective `[^a-zA-Z0-9_] → _` collapse, which MERGED `:a/b`,
+  `:a-b`, and `:a_b` onto the same id. The Xray topology overlay and
+  the live MachineChart must address nodes identically, so any future
+  'highlight fired edges on the live chart' wiring (rf2-qeemm/B8) would
+  silently mis-target with two divergent schemes. `chart.layout/node-id`
+  is the injective hex-escape scheme (`_<hex>` per non-alnum char, `_2f`
+  namespace separator, `__` path join); using it directly keeps the two
+  renderers in lockstep by construction."
   [path]
-  (->> path
-       (map (fn [p]
-              (if (keyword? p)
-                (if-let [ns (namespace p)]
-                  (str ns "_" (name p))
-                  (name p))
-                (str p))))
-       (str/join "__")
-       (#(str/replace % #"[^a-zA-Z0-9_]" "_"))))
+  (chart-layout/node-id path))
 
 (defn- walk-states
   "Walk a `{state-id state-node}` map under `parent-path`; emit a flat
