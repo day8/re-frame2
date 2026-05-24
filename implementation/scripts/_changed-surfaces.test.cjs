@@ -96,6 +96,148 @@ test('Mixed Story src + spec change DOES trigger story_xray_browser (rf2-k9ekz)'
   assert.equal(result.story_xray_browser, 'true');
 });
 
+// rf2-f79t8 (b) — a tools/{story,xray}/spec/**.md MARKDOWN change is a
+// pure doc change: it cannot affect any runtime, JVM unit test, or MCP
+// wire surface, so it must NOT fan out to the JVM/MCP probes (tools_jvm,
+// mcp_conformance). docs.yml + the nightly full matrix cover docs.
+
+test('Story spec-only .md does NOT fan out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
+  const result = classify('tools/story/spec/Spec.md');
+  assert.equal(result.tools_jvm, 'false');
+  assert.equal(result.mcp_conformance, 'false');
+  assert.equal(result.cljs_node_test, 'false');
+});
+
+test('Xray spec-only .md does NOT fan out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
+  const result = classify('tools/xray/spec/017-Test-Coverage-Matrix.md');
+  assert.equal(result.tools_jvm, 'false');
+  assert.equal(result.mcp_conformance, 'false');
+  assert.equal(result.cljs_node_test, 'false');
+});
+
+test('Story NON-spec change (JVM .clj test) STILL fans out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
+  const result = classify('tools/story/test/some_test.clj');
+  assert.equal(result.tools_jvm, 'true');
+  assert.equal(result.mcp_conformance, 'true');
+  // A JVM-only .clj does not compile into the consolidated :node-test build.
+  assert.equal(result.cljs_node_test, 'false');
+});
+
+test('Story deps.edn change STILL fans out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
+  const result = classify('tools/story/deps.edn');
+  assert.equal(result.tools_jvm, 'true');
+  assert.equal(result.mcp_conformance, 'true');
+});
+
+test('Mixed Story spec .md + JVM .clj DOES fan out to tools_jvm (rf2-f79t8)', () => {
+  const result = classify('tools/story/spec/bar.md', 'tools/story/test/some_test.clj');
+  assert.equal(result.tools_jvm, 'true');
+  assert.equal(result.mcp_conformance, 'true');
+});
+
+// rf2-f79t8 (a) — jvm-core + cljs (the consolidated :node-test build) are
+// job-level gated so a spec/docs-only PR skips the two heavy always-on
+// suites. The classifier drives the `if:` via implementation_jvm
+// (jvm-core) and cljs_node_test (cljs). The pull_request trigger stays
+// UNFILTERED — gating is job-side, NOT a trigger path filter.
+
+test('Spec-only .md change skips jvm-core + cljs (implementation_jvm + cljs_node_test false) (rf2-f79t8)', () => {
+  const result = classify('spec/006-ReactiveSubstrate.md');
+  assert.equal(result.implementation_jvm, 'false');
+  assert.equal(result.cljs_node_test, 'false');
+});
+
+test('Docs-only change skips jvm-core + cljs (rf2-f79t8)', () => {
+  const result = classify('docs/guide/intro.md');
+  assert.equal(result.implementation_jvm, 'false');
+  assert.equal(result.cljs_node_test, 'false');
+});
+
+test('Core change runs jvm-core + cljs (implementation_jvm + cljs_node_test true) (rf2-f79t8)', () => {
+  const result = classify('implementation/core/src/re_frame/core.cljc');
+  assert.equal(result.implementation_jvm, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('Conformance fixture change runs cljs (CLJS corpus runner is in node-test) (rf2-f79t8)', () => {
+  const result = classify('spec/conformance/fixtures/dispatch.edn');
+  assert.equal(result.implementation_jvm, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('shadow-cljs.edn change runs cljs (it defines the node-test build) (rf2-f79t8)', () => {
+  const result = classify('implementation/shadow-cljs.edn');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('Story CLJS test-tree change runs cljs (node-test compiles tools/story/test) (rf2-f79t8)', () => {
+  const result = classify('tools/story/test/re_frame/story_cljs_test.cljs');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)', () => {
+  const result = classify('tools/xray/src/day8/re_frame2_xray/core.cljs');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+// rf2-f79t8 (a) — workflow-level shape: jvm-core + cljs must be
+// job-level gated (needs + if), NOT trigger-filtered, and the
+// pull_request trigger must stay unfiltered so the aggregator is always
+// present.
+
+function jobBlock(workflow, jobName) {
+  // Tolerate CRLF: match the job header at 2-space indent followed by a
+  // line break (\r?\n), mirroring storyXrayJobBlock's indexOf approach
+  // but anchored on the exact job name.
+  const header = new RegExp(`\\n {2}${jobName}:\\r?\\n`);
+  const m = header.exec(workflow);
+  assert.notEqual(m, null, `${jobName} job not found in test.yml`);
+  const rest = workflow.slice(m.index + 1);
+  const nextJob = rest.search(/\n {2}[A-Za-z0-9_-]+:\r?\n/);
+  return nextJob === -1 ? rest : rest.slice(0, nextJob);
+}
+
+test('jvm-core is job-level gated on implementation_jvm (rf2-f79t8)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-core');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
+  );
+});
+
+test('cljs (node-test) is job-level gated on cljs_node_test (rf2-f79t8)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.cljs_node_test == 'true'/,
+  );
+});
+
+test('test.yml pull_request trigger stays UNFILTERED (no PR-level paths filter) (rf2-f79t8)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  // The `on:` block must carry a `pull_request:` with `branches: [main]`
+  // and NO `paths:`/`paths-ignore:` under it — a path-filtered PR trigger
+  // would make the required aggregator absent on filtered PRs.
+  const onBlock = workflow.slice(0, workflow.indexOf('\njobs:'));
+  const prStart = onBlock.indexOf('  pull_request:');
+  assert.notEqual(prStart, -1, 'pull_request trigger not found');
+  const prBlock = onBlock.slice(prStart);
+  assert.doesNotMatch(prBlock, /^\s+paths:/m);
+  assert.doesNotMatch(prBlock, /^\s+paths-ignore:/m);
+});
+
+test('All required checks passed aggregator still present + needs jvm-core + cljs (rf2-f79t8)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  assert.match(workflow, /name: All required checks passed/);
+  const block = jobBlock(workflow, 'all-required-passed');
+  assert.match(block, /if: \$\{\{ always\(\) \}\}/);
+  assert.match(block, /- jvm-core\r?\n/);
+  // `- cljs` followed directly by a line break (not `- cljs-browser` etc.)
+  assert.match(block, /- cljs\r?\n/);
+});
+
 // rf2-wa3oo — the story-xray-browser PR job now runs the PR-SMOKE
 // tier, not the full sweep. It runs the Xray gate in --smoke mode and
 // the single-testbed Story :play-script gate (which renders the

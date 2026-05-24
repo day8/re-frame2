@@ -29,6 +29,7 @@ else
 fi
 
 implementation_jvm=false
+cljs_node_test=false
 adapter_diagnostic=false
 cljs_browser=false
 cljs_prod=false
@@ -45,6 +46,7 @@ playground=false
 
 mark_all() {
   implementation_jvm=true
+  cljs_node_test=true
   adapter_diagnostic=true
   cljs_browser=true
   cljs_prod=true
@@ -86,6 +88,29 @@ is_story_xray_runtime_path() {
   esac
 }
 
+# rf2-f79t8 — predicate: does `$1` compile into the consolidated
+# `:node-test` build? shadow-cljs.edn lists tools/{story,xray}/{src,test}
+# as :source-paths, so a CLJS/CLJC change under those trees changes the
+# node-test output and MUST fire the `cljs` job (which is gated on
+# cljs_node_test). Markdown specs (tools/{story,xray}/spec/**), EDN
+# config, and JVM-only `.clj` files there do NOT compile into node-test
+# and so must not fire it — the same spec-md-exclusion philosophy the
+# runtime-extension guard applies to the Playwright gate.
+is_story_xray_node_test_path() {
+  case "$1" in
+    tools/story/src/*|tools/xray/src/*|tools/story/test/*|tools/xray/test/*|tools/story/testbeds/*|tools/xray/testbeds/*)
+      case "$1" in
+        *.cljs|*.cljc)
+          return 0 ;;
+        *)
+          return 1 ;;
+      esac
+      ;;
+    *)
+      return 1 ;;
+  esac
+}
+
 if [ "$files" = "__ALL__" ]; then
   mark_all
 else
@@ -107,6 +132,7 @@ else
         # Story variant boot silently is caught by the nightly cron +
         # post-merge gate (both run the full matrix on main).
         implementation_jvm=true
+        cljs_node_test=true
         adapter_diagnostic=true
         cljs_browser=true
         cljs_prod=true
@@ -122,6 +148,7 @@ else
         # at scripts/check-reagent-slim-bundle-isolation.cjs is the
         # canonical gate; adapter_testbed_smokes is no longer fired here.
         implementation_jvm=true
+        cljs_node_test=true
         adapter_diagnostic=true
         cljs_browser=true
         cljs_prod=true
@@ -134,6 +161,7 @@ else
         # source changes are the canonical trigger; orchestrator-script
         # changes are caught by the harness-script case below.
         implementation_jvm=true
+        cljs_node_test=true
         adapter_diagnostic=true
         cljs_browser=true
         cljs_prod=true
@@ -161,6 +189,7 @@ else
         # (createRoot lifecycle, hydration, real concurrent scheduling).
         # Nightly + post-merge gate runs the full matrix.
         implementation_jvm=true
+        cljs_node_test=true
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
@@ -179,8 +208,11 @@ else
         # per-artefact _conformance_test.clj. Fire implementation_jvm
         # so the per-artefact corpus runners pick up new fixtures, and
         # fire the CLJS surfaces so the cross-platform corpus runner
-        # in core does too.
+        # in core does too. The CLJS corpus runner
+        # (conformance_corpus_cljs_test.cljs) is in the consolidated
+        # :node-test build, so cljs_node_test fires too.
         implementation_jvm=true
+        cljs_node_test=true
         cljs_browser=true
         cljs_prod=true
         ;;
@@ -193,7 +225,9 @@ else
         # Xray browser gate). A shadow-cljs.edn or implementation/
         # scripts/ change that breaks the build is caught by the
         # nightly cron + post-merge gate (both run the full matrix on
-        # main).
+        # main). shadow-cljs.edn + package-lock.json directly determine
+        # the :node-test build, so cljs_node_test fires here too.
+        cljs_node_test=true
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
@@ -228,24 +262,47 @@ else
         template_expensive=true
         ;;
       tools/story/*|tools/xray/*)
-        # rf2-os0c1 + rf2-k9ekz + rf2-t5slp — Story / Xray changes
-        # legitimately fan out to tools_jvm (per-artefact JVM unit tests
-        # + sibling story-mcp consumer) and mcp_conformance (the MCP
-        # wrappers consume these artefacts). story_xray_browser is
-        # narrowed (rf2-k9ekz): it fires ONLY when the changed path is
-        # under tools/{story,xray}/{src,testbeds}/** AND the file has a
-        # runtime extension (.cljs/.cljc/.js/.cjs/.css/.scss). Markdown
-        # specs under tools/{story,xray}/spec/**, JVM unit tests under
-        # tools/{story,xray}/test/**, deps.edn, README.md, and *.txt
-        # do NOT fire it — they cannot affect chrome and so cannot
-        # invalidate the Playwright gate. The split-out framework-
-        # testbeds gate (formerly rf2-9grp6) was retired in rf2-t5slp
-        # after all four rf2-tglku migration waves moved every Xray-
-        # owned testbed assertion to CLJS/JVM unit tests.
-        tools_jvm=true
-        mcp_conformance=true
+        # rf2-os0c1 + rf2-k9ekz + rf2-t5slp + rf2-f79t8 — Story / Xray
+        # changes legitimately fan out to tools_jvm (per-artefact JVM
+        # unit tests + sibling story-mcp consumer) and mcp_conformance
+        # (the MCP wrappers consume these artefacts).
+        #
+        # rf2-f79t8 — spec-md guard. A pure documentation change under
+        # tools/{story,xray}/spec/**.md cannot affect any runtime, any
+        # JVM unit test, or any MCP wire surface, so it must NOT fan out
+        # to the JVM/MCP probes (jvm-tools-{xray,story,story-mcp},
+        # node-test-tools-story-mcp, mcp-conformance-*). It is covered by
+        # docs.yml + the nightly full matrix. Mirrors the
+        # runtime-extension guard already applied to story_xray_browser
+        # below (rf2-k9ekz). All NON-spec-md changes (src/test .clj/.cljs,
+        # deps.edn, README, EDN, …) still fire the probes conservatively.
+        case "$file" in
+          tools/story/spec/*.md|tools/xray/spec/*.md)
+            : # spec doc only — no runtime/JVM/MCP/CLJS fan-out
+            ;;
+          *)
+            tools_jvm=true
+            mcp_conformance=true
+            ;;
+        esac
+        # story_xray_browser is narrowed (rf2-k9ekz): it fires ONLY when
+        # the changed path is under tools/{story,xray}/{src,testbeds}/**
+        # AND the file has a runtime extension
+        # (.cljs/.cljc/.js/.cjs/.css/.scss). Markdown specs, JVM unit
+        # tests under tools/{story,xray}/test/**, deps.edn, README.md,
+        # and *.txt do NOT fire it. The split-out framework-testbeds
+        # gate (formerly rf2-9grp6) was retired in rf2-t5slp.
         if is_story_xray_runtime_path "$file"; then
           story_xray_browser=true
+        fi
+        # rf2-f79t8 — the consolidated :node-test build lists
+        # tools/{story,xray}/{src,test} as :source-paths (shadow-cljs.edn),
+        # so a CLJS/CLJC change under those trees changes node-test output
+        # and must fire the `cljs` job (gated on cljs_node_test). A
+        # markdown / EDN / JVM-only `.clj` change does not compile into
+        # node-test and so does not fire it.
+        if is_story_xray_node_test_path "$file"; then
+          cljs_node_test=true
         fi
         ;;
       tools/story-mcp/*)
@@ -309,6 +366,7 @@ emit() {
 }
 
 emit implementation_jvm "$implementation_jvm"
+emit cljs_node_test "$cljs_node_test"
 emit adapter_diagnostic "$adapter_diagnostic"
 emit cljs_browser "$cljs_browser"
 emit cljs_prod "$cljs_prod"
