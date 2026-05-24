@@ -95,6 +95,21 @@ INCLUDE_CHILDREN`. The chart root surfaces `data-region-count`; region
 containers are excluded from `data-node-count` + the aria-label state
 count (they are zone chrome, not states).
 
+### Container sizing — `:style {:width :height}` from ELK (rf2-a64bi)
+
+BOTH region containers (above) AND compound containers receive a
+`:style {:width :height}` slot on their projected xyflow node, sourced
+from elk's measured `{:x :y :width :height}` position entry. Container
+renderers (`parallel-region-node`, `compound-node`) fill their box with
+`width:100% height:100%`, so the projector MUST hand xyflow the box elk
+measured — otherwise xyflow falls back to
+`compound-node-min-{width,height}` (220×120, the renderer's minimum DOM
+size), and substates whose parent-relative coordinates elk computed
+against the FULL measured extent overflow the smaller fallback and
+visually escape the container. Leaf (non-container) state nodes carry
+NO `:style`; xyflow sizes them from the rendered DOM
+(`state-node-min-{width,height}`).
+
 ### Parallel multi-active highlight (rf2-yoe6e, rf2-g2svr)
 
 > Closes parity gap **G1** in

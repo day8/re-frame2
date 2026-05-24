@@ -570,6 +570,63 @@
           region    (node-by-id graph rid)]
       (is (= {:width 320 :height 180} (:style region))))))
 
+(deftest xyflow-graph-compound-style-from-measured-position
+  (testing "rf2-a64bi — a compound container's `:style {:width :height}`
+            comes from its measured position entry, the SAME way a region
+            container's does. The compound renderer fills its box with
+            `width:100% height:100%`, so without the styled box xyflow
+            falls back to `compound-node-min-{width,height}` (220×120)
+            and substates whose parent-relative elk coords were computed
+            against the FULL measured extent overflow + visually escape
+            the container."
+    (let [parsed    (layout/parse-definition compound-machine)
+          cid       (layout/node-id [:authenticated])
+          positions {cid {:x 0 :y 0 :width 328 :height 156}}
+          graph     (projection/xyflow-graph parsed positions {})
+          compound  (node-by-id graph cid)]
+      (is (= "compound" (:type compound)) "fixture sanity: authenticated is compound")
+      (is (= {:width 328 :height 156} (:style compound))))))
+
+(deftest xyflow-graph-compound-style-coexists-with-parent-relative-substates
+  (testing "rf2-a64bi — when a compound has substates, the compound's
+            `:style {:width :height}` matches elk's bounding box AND each
+            substate carries `:parentNode` + `:extent \"parent\"` with a
+            parent-relative `:position`. The two together are the
+            containment contract: xyflow allocates the measured box, then
+            clamps the parent-relative substates inside it."
+    (let [parsed    (layout/parse-definition compound-machine)
+          cid       (layout/node-id [:authenticated])
+          browsing  (layout/node-id [:authenticated :browsing])
+          paying    (layout/node-id [:authenticated :paying])
+          positions {cid      {:x 0   :y 0  :width 328 :height 156}
+                     browsing {:x 14  :y 34 :width 140 :height 44}
+                     paying   {:x 174 :y 34 :width 140 :height 44}}
+          graph     (projection/xyflow-graph parsed positions {})
+          compound  (node-by-id graph cid)
+          b         (node-by-id graph browsing)
+          p         (node-by-id graph paying)]
+      (is (= {:width 328 :height 156} (:style compound))
+          "compound gets elk's measured box as :style")
+      (is (= cid (:parentNode b)) ":browsing nests under :authenticated")
+      (is (= cid (:parentNode p)) ":paying nests under :authenticated")
+      (is (= "parent" (:extent b)))
+      (is (= "parent" (:extent p)))
+      (is (= {:x 14 :y 34} (:position b))
+          "substate :position is parent-relative (passed through verbatim)")
+      (is (= {:x 174 :y 34} (:position p))))))
+
+(deftest xyflow-graph-leaf-state-has-no-style
+  (testing "rf2-a64bi — a leaf (non-container) state carries NO `:style`
+            even with a measured size in the positions map; xyflow sizes
+            leaf nodes from the rendered DOM (`state-node-min-{width,height}`)
+            rather than a projector-supplied box."
+    (let [parsed    (layout/parse-definition idle-loading)
+          idle-id   (layout/node-id [:idle])
+          positions {idle-id {:x 0 :y 0 :width 200 :height 60}}
+          graph     (projection/xyflow-graph parsed positions {})
+          idle      (node-by-id graph idle-id)]
+      (is (nil? (:style idle))))))
+
 (deftest xyflow-graph-position-defaults-to-origin
   (testing "a node with no entry in the positions map defaults to
             {:x 0 :y 0} (the pre-layout placeholder)"
