@@ -89,6 +89,14 @@ main read**.
 - **[017-Test-Coverage-Matrix.md](017-Test-Coverage-Matrix.md)** —
   Browser-feature coverage matrix. Future: bug-class coverage column
   ensures every bug-class in spec has at least one test-row.
+- **[023-Trace-Panel.md](023-Trace-Panel.md)** — The Trace tab's
+  dedicated redesign spec and **Figma-handoff target**: the complete
+  trace arc of one epoch across 4 phase bands (Dispatch · Event-handling ·
+  Effects/Fx · Reactive-rendering), row anatomy, the full Spec-009
+  op-handling matrix (Appendix A — the completeness contract), with
+  colour/visual encoding delegated to Figma (§8). Supersedes
+  [021 §5](021-Dynamic-Panel-Designs.md#5-the-trace-panel-per-epoch-raw-ops)
+  (v1-shipped layout) as the direction-setter.
 
 ### Reference
 
