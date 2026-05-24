@@ -540,8 +540,6 @@
     ;; its own palette (Canvas / CanvasText / Highlight / …), which
     ;; collapses every author-encoded signal across the Xray chrome:
     ;;
-    ;;   - L1 ribbon stripe (the single GitHub-blue accent on the left
-    ;;     edge)
     ;;   - L2 row focused border (accent)
     ;;   - L2 row status accent (the 2px inset box-shadow on the
     ;;     trailing edge — box-shadow itself is also dropped in HCM)
@@ -593,12 +591,11 @@
     "  [data-testid=\"rf-xray-palette-backdrop\"] *:focus-visible {\n"
     "    outline-color: Highlight !important;\n"
     "  }\n"
-    ;; L1 ribbon stripe (single GitHub-blue accent) → Highlight.
-    ;; The 2px left border is the operator's chrome-edge accent signal;
-    ;; preserve it as the user's selected-emphasis hue.
-    "  [data-testid=\"rf-xray-ribbon\"] {\n"
-    "    border-left-color: Highlight !important;\n"
-    "  }\n"
+    ;; rf2-4yemd — the L1 ribbon left-edge stripe was retired
+    ;; (rf2-o5f5f.1 mode-signal mechanism #2 dropped to match the Figma
+    ;; authority chrome). The HCM `border-left-color` rule on
+    ;; `rf-xray-ribbon` that recoloured it to `Highlight` has been
+    ;; removed alongside — nothing left to recolour.
     ;; L2 focused event row — `aria-pressed=\"true\"` rides on the
     ;; focused row's `<li>`. The 1px solid mode-accent border becomes a
     ;; Highlight outline (outline composes over the existing border
@@ -700,9 +697,8 @@
     "[data-testid=\"rf-xray-static-shell\"][data-rf-force-colors=\"active\"] *:focus-visible {\n"
     "  outline-color: Highlight !important;\n"
     "}\n"
-    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-ribbon\"] {\n"
-    "  border-left-color: Highlight !important;\n"
-    "}\n"
+    ;; rf2-4yemd — parallel removal of the operator-opt-in HCM rule that
+    ;; recoloured the (now-retired) L1 ribbon left-edge stripe.
     "[data-rf-force-colors=\"active\"] [data-testid^=\"rf-xray-event-row-\"][aria-pressed=\"true\"] {\n"
     "  outline: 2px solid Highlight !important;\n"
     "  outline-offset: -1px !important;\n"
