@@ -4,8 +4,10 @@
    A flow is a *registered, runtime-toggleable computed-state declaration
    that materialises its output into `app-db`*. It says: \"when these
    `app-db` paths change, run this pure function and write the result to
-   that `app-db` path.\" Flows evaluate automatically after every event
-   drain, in topological order over their static input/output graph.
+   that `app-db` path.\" Flows evaluate automatically right after the event
+   handler — as the outermost `:after`, transforming the pending `:db`
+   effect before it installs into `app-db` — in topological order over
+   their static input/output graph.
 
    WHY A FLOW AND NOT A SUB?  This is the load-bearing question Spec 013
    §When (and when not) to use a flow answers, and the whole point of this
@@ -27,7 +29,7 @@
    2. A TOPOLOGICAL CASCADE — `:cart/total` reads `[:cart :subtotal]`
       (another flow's output) plus `[:cart :discount-rate]`. The runtime
       sorts the two flows so `:cart/subtotal` always runs first; both
-      settle in one post-drain walk.
+      settle in one walk — right after the handler, before the db install.
    3. RUNTIME-TOGGLEABLE DERIVATION — the discount is a feature gate. The
       `:rf.fx/reg-flow` / `:rf.fx/clear-flow` fx register and clear the
       `:cart/discount-rate` flow from a handler, mid-event. v1's
@@ -76,7 +78,8 @@
 ;; (optionally-registered) discount rate. The runtime derives the
 ;; dependency edge from the path overlap and topologically sorts so
 ;; `:cart/subtotal` always runs before `:cart/total` — both settle in a
-;; single post-drain walk (Spec 013 §Topological sort and cycle detection).
+;; single walk, run right after the handler before the db install
+;; (Spec 013 §Topological sort and cycle detection).
 ;;
 ;; `:cart/discount-rate` is NOT registered at boot. When absent, its path
 ;; is nil and `:output` treats it as 0% off. The "Apply 10% discount"
@@ -102,9 +105,10 @@
    {:sku "RF2-STKR"  :name "Sticker pack"       :price 500  :qty 3}])
 
 (rf/reg-event-db :cart/initialise
-  {:doc "Seed the cart. The :cart/subtotal and :cart/total flows fire on
-         the post-drain walk of THIS event and materialise their outputs —
-         a newly-registered flow's first walk always recomputes."}
+  {:doc "Seed the cart. The :cart/subtotal and :cart/total flows fire right
+         after THIS event's handler (before the db install) and materialise
+         their outputs — a newly-registered flow's first walk always
+         recomputes."}
   (fn handler-cart-initialise [db _]
     (assoc db :cart {:items seed-items})))
 
@@ -164,8 +168,9 @@
 
 (rf/reg-event-db :cart/touch
   {:doc    "No-op state nudge. Writing :cart/discount-engaged? changes the
-            discount flow's input so the post-drain walk recomputes
-            :cart/discount-rate (and the dependent :cart/total). Pure
+            discount flow's input so the walk right after this handler
+            recomputes :cart/discount-rate (and the dependent
+            :cart/total). Pure
             mechanism to surface the one-drain-lag from §Sequencing."
    :schema [:cat [:= :cart/touch] :boolean]}
   (fn handler-cart-touch [db [_ engaged?]]

@@ -399,8 +399,9 @@
          (Spec 013 §Sub integration (b)). No special flow sub-id — a flow's
          output is ordinary app-db state and consumers read it through a
          plain sub over the path. Drives the submit button's disabled
-         attribute. nil until the flow's first post-drain walk lands
-         (Spec 013 §Sequencing), which `(boolean ...)` normalises to false."}
+         attribute. nil until the flow's first walk lands — the walk runs
+         right after the handler, before the db install (Spec 013
+         §Sequencing) — which `(boolean ...)` normalises to false."}
   (fn [db _]
     (boolean (get-in db [:editor :can-submit?]))))
 
