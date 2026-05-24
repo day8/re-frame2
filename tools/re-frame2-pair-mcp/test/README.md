@@ -131,6 +131,30 @@ return shape. The real `~/.claude.json` is never read.
 
 Run with: `npm run test:probe-mcp-path` (or `node test/probe-mcp-path-test.cjs`).
 
+#### `post-merge-hook-test.cjs` — stale-binary post-merge hook (rf2-6jj3r)
+
+Unit + smoke tests for the repo's `post-merge` git hook (source lives
+under `scripts/git-hooks/`). The hook is pure POSIX sh (no CLJS source
+of truth), so its tests sit here as a `.cjs` sibling for the same
+reason as `probe-mcp-path-test.cjs`.
+
+Two layers:
+
+- **Unit** — dot-sources `scripts/git-hooks/lib/check-stale-mcp-binary.sh`
+  and pipes synthetic lists of changed file paths through
+  `check_stale_mcp_binary`. Asserts warning text appears only for
+  paths that fall inside an MCP source surface (the `src/` tree, the
+  build-config files `shadow-cljs.edn` / `deps.edn` / `package.json`)
+  and is silent otherwise.
+- **Smoke** — spins up a tiny temp git repo, stages the hook's
+  detection library at the expected relative path, sets `ORIG_HEAD`
+  to a prior commit, and runs `scripts/git-hooks/post-merge`
+  end-to-end. Asserts the warning fires for a real cross-MCP diff and
+  is silent for an unrelated diff.
+
+Run with: `npm run test:post-merge-hook` (or
+`node test/post-merge-hook-test.cjs`).
+
 ## Adding a new test — decision tree
 
 ```

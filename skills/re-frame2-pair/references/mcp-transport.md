@@ -36,6 +36,31 @@ The server auto-discovers the nREPL port from (in order):
 3. `.shadow-cljs/nrepl.port`
 4. `.nrepl-port`
 
+## Stale-binary post-merge hook (rf2-6jj3r)
+
+When you work inside the re-frame2 source repo (rather than against a
+globally-installed npm release), the MCP binary lives at
+`tools/re-frame2-pair-mcp/out/server.js` and is rebuilt locally —
+`out/` is `.gitignore`d. After `git pull` brings down MCP source-side
+changes, the binary on disk is now stale; the running MCP server is
+still exec-ing the previous build. Symptoms are confusing
+(stale-fix-still-not-fixed; `:nrepl-port-not-found` after a port
+discovery improvement merged; …).
+
+Install the repo's git hooks once per clone so `git pull` warns when
+this happens:
+
+```bash
+scripts/install-git-hooks.sh
+# or, on Windows:
+powershell -ExecutionPolicy Bypass -File scripts/install-git-hooks.ps1
+```
+
+The hook is idempotent, advisory (it never blocks a pull), and prints
+the exact rebuild command + bounce hint when MCP source / build config
+changed in the pulled commits. Re-run to refresh after upstream hook
+edits.
+
 ## MCP tool reference (args)
 
 | MCP tool       | Args |

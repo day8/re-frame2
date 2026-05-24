@@ -363,7 +363,31 @@ npm run stdio-roundtrip
 
 # Live-nREPL integration test (requires an nREPL running on $NREPL_TEST_PORT)
 NREPL_TEST_PORT=17777 node test/live-nrepl.js
+
+# Stale-binary post-merge hook tests (rf2-6jj3r)
+npm run test:post-merge-hook
 ```
+
+### Stale-binary post-merge hook (rf2-6jj3r)
+
+`out/server.js` is gitignored and rebuilt locally. After
+`git pull` brings down MCP source changes, the binary on disk is
+stale until you re-run `npm run build` AND bounce the MCP server in
+your host (typically by restarting Claude Code). To get a stderr
+warning automatically on every pull, install the repo's git hooks
+once per clone (from the repo root):
+
+```bash
+scripts/install-git-hooks.sh
+# or, on Windows / PowerShell:
+powershell -ExecutionPolicy Bypass -File scripts/install-git-hooks.ps1
+```
+
+Both installers are idempotent. The hook is advisory only — it never
+blocks `git pull`. Source lives at
+[`scripts/git-hooks/post-merge`](../../scripts/git-hooks/post-merge);
+the testable detection helper lives at
+[`scripts/git-hooks/lib/check-stale-mcp-binary.sh`](../../scripts/git-hooks/lib/check-stale-mcp-binary.sh).
 
 ## Implementation language
 
