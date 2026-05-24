@@ -660,8 +660,8 @@ force continue / cancel). See
 ### Issues tab — flow cascade-halt alarm
 
 When `:rf.error/flow-eval-exception` fires, surface a high-priority
-entry listing the subsequent flows that did NOT run (the four-rule
-cascade-halt rule per Spec 013). See
+entry listing the subsequent flows that did NOT run (the cascade-halt
+clause of the atomicity contract per Spec 013 §Failure semantics). See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.4.
 
 ### Issues tab — open-redirect / CRLF / trusted-shell advisories

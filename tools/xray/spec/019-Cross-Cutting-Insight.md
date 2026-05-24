@@ -627,8 +627,8 @@ Erlang-Observer-for-managed-effects.
 #### F.4 — "A flow's `:output` threw and the cascade halted; what didn't run?"
 
 **Bug class:** Flow cascade-halt. When `:rf.error/flow-eval-exception`
-fires, the four-rule cascade-halt contract per Spec 013 means downstream
-flows in topological order do NOT run. Authors rarely realise this.
+fires, the atomicity contract per Spec 013 §Failure semantics means
+downstream flows in topological order do NOT run. Authors rarely realise this.
 
 **Insight Xray provides:** A high-priority **Issues entry** that lists
 the subsequent flows that did NOT run:

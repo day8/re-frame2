@@ -42,7 +42,7 @@ lets a consumer verify it discriminates.
 
 **Cross-cutting (6)**:
 - Deliberately-throwing handler surfaces structured trace in BOTH Xray + Story `:play`
-- Flow `:rf.flow/failed` shows four-rule failure semantics (rf2-hrqvg) — Button C
+- Flow `:rf.flow/failed` shows atomicity-contract failure semantics per Spec 013 §Failure semantics (rf2-hrqvg) — Button C
 - State-machine transition cascade shows `:rf.machine/*` events — Button D's pre-throw transition fires the `:rf.machine/transition` trace before the action throws
 
 **Story (18)**:
@@ -69,5 +69,5 @@ orchestrator stages `index.html` next to `main.js` and serves it under
 
 - [`spec/009-Instrumentation.md` §Error contract](../../spec/009-Instrumentation.md) — the `:rf.error/*` catalogue this surface fires four entries from.
 - [`spec/005-StateMachines.md` §Errors](../../spec/005-StateMachines.md) — the machine-action-exception contract.
-- [`spec/013-Flows.md` §Failure semantics](../../spec/013-Flows.md) — the four-rule flow-failure contract (rf2-hrqvg).
+- [`spec/013-Flows.md` §Failure semantics](../../spec/013-Flows.md) — the flow-failure atomicity contract (rf2-hrqvg).
 - [`spec/Spec-Schemas.md` §`:rf/epoch-record`](../../spec/Spec-Schemas.md) — the epoch-record outcome taxonomy a consumer's recorder reads.
