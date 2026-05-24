@@ -271,3 +271,84 @@
         (let [t (first skips)]
           (is (= {:key :payload} (get-in t [:tags :rf.cofx/value]))
               "2-arity form: :rf.cofx/value carries the value arg on the skip trace"))))))
+
+;; ---- :rf.cofx/run success emit + per-op timing (rf2-hhh92) -----------------
+;;
+;; Per Spec 009 §:op-type vocabulary, a cofx whose handler runs to success
+;; emits one `:rf.cofx/run` op carrying `:rf.cofx/id`, `:rf.cofx/value`
+;; (the per-call injected value; absent on the no-value path), and
+;; `:rf.cofx/elapsed-ms` (the dev-only wall-clock of the handler invoke).
+;; The emit rides INSIDE the cofx handler's scope binding so its
+;; source-coord / trigger-handler ride the trace.
+
+(deftest cofx-success-emits-rf-cofx-run
+  (testing "a successful cofx injection emits exactly one :rf.cofx/run op
+            carrying :rf.cofx/id, :rf.cofx/value, and :rf.cofx/elapsed-ms"
+    (let [traces (collect-traces! ::cofx-run)]
+      (rf/reg-cofx :cofx-test/server-clock
+        {:platforms #{:server}}
+        (fn [ctx v]
+          (assoc-in ctx [:coeffects :cofx-test/server-clock] v)))
+      (rf/reg-event-fx :cofx-test/read-clock
+        [(rf/inject-cofx :cofx-test/server-clock {:tz "UTC"})]
+        (fn [_ _] {}))
+      (rf/dispatch-sync [:cofx-test/read-clock])
+      (rf/unregister-listener! ::cofx-run)
+
+      (let [runs (filter #(= :rf.cofx/run (:operation %)) @traces)]
+        (is (= 1 (count runs))
+            "exactly one :rf.cofx/run trace per successful cofx injection")
+        (let [t (first runs)]
+          (is (= :rf.cofx (:op-type t))
+              ":op-type is :rf.cofx — the cofx family discriminator")
+          (is (= :cofx-test/server-clock (get-in t [:tags :rf.cofx/id]))
+              ":rf.cofx/id identifies the cofx that ran")
+          (is (= {:tz "UTC"} (get-in t [:tags :rf.cofx/value]))
+              ":rf.cofx/value carries the per-call injected value")
+          (is (number? (get-in t [:tags :rf.cofx/elapsed-ms]))
+              ":rf.cofx/elapsed-ms carries the dev-only handler wall-clock")
+          (is (>= (get-in t [:tags :rf.cofx/elapsed-ms]) 0)
+              ":rf.cofx/elapsed-ms is non-negative"))))))
+
+(deftest cofx-no-value-run-omits-value
+  (testing "the no-value (1-arity) cofx injection emits :rf.cofx/run WITHOUT
+            a :rf.cofx/value slot (parity with the skip / error branches)"
+    (let [traces (collect-traces! ::cofx-run-no-value)]
+      (rf/reg-cofx :cofx-test/no-value-cofx
+        {:platforms #{:server}}
+        (fn [ctx]
+          (assoc-in ctx [:coeffects :cofx-test/no-value-cofx] :ran)))
+      (rf/reg-event-fx :cofx-test/read-no-value
+        [(rf/inject-cofx :cofx-test/no-value-cofx)]
+        (fn [_ _] {}))
+      (rf/dispatch-sync [:cofx-test/read-no-value])
+      (rf/unregister-listener! ::cofx-run-no-value)
+
+      (let [runs (filter #(= :rf.cofx/run (:operation %)) @traces)]
+        (is (= 1 (count runs)))
+        (let [t (first runs)]
+          (is (= :cofx-test/no-value-cofx (get-in t [:tags :rf.cofx/id])))
+          (is (not (contains? (:tags t) :rf.cofx/value))
+              "no-value injection: no :rf.cofx/value slot on :rf.cofx/run")
+          (is (number? (get-in t [:tags :rf.cofx/elapsed-ms]))
+              ":rf.cofx/elapsed-ms is still present on the no-value path"))))))
+
+(deftest skipped-cofx-emits-no-rf-cofx-run
+  (testing "a platform-skipped cofx emits :rf.cofx/skipped-on-platform but
+            NOT :rf.cofx/run — the handler never ran"
+    (let [traces (collect-traces! ::cofx-run-skipped)]
+      (rf/reg-cofx :cofx-test/client-only-run
+        {:platforms #{:client}}
+        (fn [ctx v]
+          (assoc-in ctx [:coeffects :cofx-test/client-only-run] v)))
+      (rf/reg-event-fx :cofx-test/read-client-only
+        [(rf/inject-cofx :cofx-test/client-only-run {:k :v})]
+        (fn [_ _] {}))
+      (rf/dispatch-sync [:cofx-test/read-client-only])
+      (rf/unregister-listener! ::cofx-run-skipped)
+
+      (is (empty? (filter #(= :rf.cofx/run (:operation %)) @traces))
+          "no :rf.cofx/run when the cofx was platform-skipped")
+      (is (= 1 (count (filter #(= :rf.cofx/skipped-on-platform (:operation %))
+                              @traces)))
+          "the skip trace fired instead"))))

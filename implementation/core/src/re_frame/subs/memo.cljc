@@ -196,7 +196,15 @@
   (trace/with-handler-scope
     (trace/handler-scope-from-meta :sub query-id sub-meta)
     (try
-      (let [computed (performance/mark-and-measure :sub query-id
+      ;; rf2-hhh92: wall-clock the sub body (dev-only) so `:rf.sub/run`
+      ;; carries `:rf.sub/elapsed-ms` — the per-op duration the Trace
+      ;; panel's DURATION column reads. The `now-ms` brackets ride
+      ;; `interop/debug-enabled?` (nil t0 in prod), so Closure DCEs them
+      ;; under :advanced + `goog.DEBUG=false` — zero prod cost. Distinct
+      ;; from the `performance/mark-and-measure` perf surface (default-off,
+      ;; browser-only, NOT on the trace stream).
+      (let [t0        (when interop/debug-enabled? (interop/now-ms))
+            computed (performance/mark-and-measure :sub query-id
                       (if (empty? input-signals)
                         (body-fn (first in-vals) query-v)
                         ;; Layer-2+: deliver inputs as a coll if many,
@@ -204,6 +212,7 @@
                         (if (= 1 (count input-signals))
                           (body-fn (first in-vals) query-v)
                           (body-fn (vec in-vals) query-v))))
+            elapsed-ms (when interop/debug-enabled? (- (interop/now-ms) t0))
             validated (maybe-validate-sub! computed query-v query-id sub-meta)]
         ;; Emit AFTER compute+validate so the trace carries the computed
         ;; value + attribution (rf2-l1jz8). The base tag is unconditional
@@ -238,6 +247,8 @@
                                   :rf.sub/value          validated
                                   :rf.sub/cascade?       cascade?
                                   :rf.sub/cause-sub      cause-sub}
+                           (some? elapsed-ms)
+                           (assoc :rf.sub/elapsed-ms elapsed-ms)
                            reader-rk (assoc :rf.sub/reader-render-key reader-rk))))
           (trace/emit! :rf.sub :rf.sub/run
                        {:rf.sub/id      query-id
