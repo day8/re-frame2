@@ -63,6 +63,57 @@ And the handler that ingests it (`examples/reagent/todomvc/events.cljs`):
 
 The cofx writes under `[:coeffects :todo.storage/todos]`; the handler destructures the same key off the coeffect map.
 
+## When `reg-cofx` is overkill — the inline-interceptor escape hatch
+
+`reg-cofx` + `inject-cofx` is the canonical path. It earns its weight by giving the cofx an **id** — and an id is what lets you stub it in tests, hot-rebind it at the REPL (re-registering takes effect on the next dispatch with no event-handler re-registration), enumerate it from devtools (Xray's cofx list), and parameterise it across many call sites (one `:local-store` handler, many keys).
+
+But many cofxes never claim those benefits. A handler that needs a current-millis stamp for one event, defined once in the same module, never stubbed — paying the two-line registry hop just to land a value under `[:coeffects :now]` is ceremony without payoff. For that case, the framework's interceptor primitive (Spec 002 §`:interceptors`, [event-state-cycle](event-state-cycle.md)) is the escape hatch: an inline `{:id ... :before (fn [ctx] (assoc-in ctx [:coeffects k] v))}` map is a legal participant in any event's interceptor vector, with no registry indirection.
+
+### Decision rubric
+
+**Use `reg-cofx` + `inject-cofx` when ANY of:**
+
+- the cofx might be mocked/stubbed in tests by id
+- you want hot-rebind at the REPL — re-registering picks up on the next dispatch without re-registering event handlers
+- devtools (Xray, re-frame2-pair) should enumerate it
+- it's parameterised by id (e.g. `:local-store`-by-key — one handler, many call-site keys)
+
+**Use an inline interceptor map when ALL of:**
+
+- defined once, used in a small set of events, in the same module
+- never stubbed in tests
+- the cofx body is trivial (a single `assoc-in` typically)
+
+Default to `reg-cofx` for anything that names a generally-useful input (`:now`, `:new-id`, `:local-store`, browser locale, anything cross-cutting). Reach for the inline form only when the registry indirection visibly buys nothing.
+
+### Worked example — both forms
+
+```clojure
+;; Registry path (preferred when reuse / stubbing / enumeration matter):
+(rf/reg-cofx :now
+  {:doc "Inject the current wall-clock time into coeffects under :now."}
+  (fn [ctx] (assoc-in ctx [:coeffects :now] (.getTime (js/Date.)))))
+
+(rf/reg-event-fx :ping
+  [(rf/inject-cofx :now)]
+  (fn [{:keys [db now]} _]
+    {:db (assoc db :last-ping now)}))
+
+;; Inline-interceptor path (preferred when ceremony outweighs benefit):
+(def ^:private inject-now
+  {:id     ::inject-now
+   :before (fn [ctx] (assoc-in ctx [:coeffects :now] (.getTime (js/Date.))))})
+
+(rf/reg-event-fx :ping
+  [inject-now]
+  (fn [{:keys [db now]} _]
+    {:db (assoc db :last-ping now)}))
+```
+
+Both produce identical runtime behaviour for this event. The trade is per the rubric above — the inline form trades registry-id-addressability (and everything that flows from it) for one fewer indirection.
+
+Design decision: **rf2-bku5r**. The narrative treatment for humans is at [`docs/guide/06-coeffects.md`](../../../../docs/guide/06-coeffects.md) §When `reg-cofx` is overkill.
+
 ## Why coeffects instead of `(.-localStorage ...)` in the handler?
 
 Pure handlers are testable, replayable (for re-frame2-pair epoch restore), and serialisable (for SSR snapshots). A handler that reads `Date.now()` directly is non-deterministic; the same handler that destructures `now` from coeffects is a pure function of its inputs.
