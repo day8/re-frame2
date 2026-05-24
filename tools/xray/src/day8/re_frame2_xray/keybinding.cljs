@@ -227,19 +227,7 @@
         :rf.xray/settings-toggle
 
         (and (not shift?) (or (= "s" k) (= "KeyS" code)))
-        :rf.xray/settings-toggle
-
-        ;; Esc — clear focus-set (rf2-a1z3b). The focus primitive is a
-        ;; lens (NOT a filter); Esc is the universal 'undo the lens'
-        ;; gesture. Modals + popovers register their own Escape
-        ;; handlers on their input elements (the palette / settings
-        ;; handlers preventDefault + stopPropagation before this
-        ;; listener fires), so Esc here only reaches the focus clear
-        ;; when no modal is open. When no focus-set is active the event
-        ;; handler is a no-op (`clear-focus-reducer` dissocs an absent
-        ;; slot).
-        (and (not shift?) (or (= "Escape" k) (= "Escape" code) (= "Esc" k)))
-        :rf.xray/clear-focus))))
+        :rf.xray/settings-toggle))))
 
 (defn- handle-keydown [^js event]
   (cond

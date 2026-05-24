@@ -152,8 +152,6 @@
    ;; the legacy `:selected-epoch-id` slot (which only updates on
    ;; explicit user clicks). This sub is the thin projection seam.
    :rf.xray/focus-epoch-id
-   ;; rf2-a1z3b — focus-navigation primitive slot sub.
-   :rf.xray/focus-set
    :rf.xray/focus-slot
    ;; rf2-iwwou — hardened L1 frame-switcher slot. Public contract
    ;; every frame-aware feature reaches through: the ribbon picker,
@@ -381,9 +379,6 @@
    ;; indicator (resets IN/OUT pills + frame pin + mutes).
    :rf.xray/clear-all-filters
    :rf.xray/clear-machine-selection
-   ;; rf2-a1z3b — focus-navigation primitive (gutter click on L2 row sets a
-   ;; focus-set; `[◀][▶]` step within the in-focus subset).
-   :rf.xray/clear-focus
    :rf.xray/clear-selected-dispatch-id
    :rf.xray/clear-slice-focus
    :rf.xray/clear-trace-buffer
@@ -501,8 +496,6 @@
    :rf.xray.static.machines/set-search
    :rf.xray.static.machines/set-sub-mode
    :rf.xray.static.machines/state-clicked
-   ;; rf2-a1z3b — focus-navigation primitive write event.
-   :rf.xray/set-focus
    :rf.xray/set-frame
    :rf.xray/set-machine-definitions-override-for-test
    :rf.xray/set-machine-snapshots-override-for-test

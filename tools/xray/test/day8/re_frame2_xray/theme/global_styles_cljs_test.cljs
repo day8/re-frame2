@@ -305,15 +305,6 @@
       (is (re-find #"aria-pressed=\"true\"[^}]*outline:[^}]*Highlight" css)
           "focused row outline uses Highlight"))))
 
-(deftest motion-css-forced-colors-maps-gutter-thread-to-highlight
-  (testing "rf2-wxepo — the L2 row gutter's 1px causal-chain thread
-            (violet inset box-shadow) and focus markers map to
-            Highlight under HCM so the spine's vertical thread + the
-            focus-set anchors stay visible."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"data-testid\^=\"rf-xray-row-gutter-\"[^}]*Highlight"
-                   css)
-          "gutter rule uses Highlight"))))
 
 (deftest motion-css-forced-colors-maps-panel-accent-stripe-to-canvastext
   (testing "rf2-wxepo — every L4 panel-domain accent stripe
@@ -327,16 +318,15 @@
           "panel <h1> border-left-color is CanvasText"))))
 
 (deftest motion-css-forced-colors-maps-interactive-icons-to-buttontext
-  (testing "rf2-wxepo — the ribbon icons (settings ✕, close ✕,
-            nav chevrons, focus-chip clear) map to ButtonText under
-            HCM so they read as actionable controls in the HCM
-            theme's interactive-ink hue."
+  (testing "rf2-wxepo — the ribbon icons (settings ✕, close ✕, nav
+            chevrons) map to ButtonText under HCM so they read as
+            actionable controls in the HCM theme's interactive-ink hue.
+            rf2-pjjwh retired the focus-chip clear selector."
     (let [css @#'gs/motion-css]
       (is (re-find #"data-testid=\"rf-xray-icon-settings\"" css))
       (is (re-find #"data-testid=\"rf-xray-icon-close\"" css))
       (is (re-find #"data-testid=\"rf-xray-nav-prev\"" css))
       (is (re-find #"data-testid=\"rf-xray-nav-next\"" css))
-      (is (re-find #"data-testid=\"rf-xray-focus-chip-clear\"" css))
       (is (re-find #"ButtonText" css)
           "ButtonText system token is used"))))
 
@@ -441,7 +431,28 @@
         (is (not (re-find #"(?i)\b(margin|padding|width|height)\s*:" rule))
             "no box-model property that could shift surrounding pixels")))))
 
-;; ---- rf2-5kfxe.6 — light theme CSS variables ---------------------------
+;; ---- rf2-pjjwh — filters-ribbon conditional reveal animation -----------
+
+(deftest motion-css-declares-filters-collapse-animation
+  (testing "rf2-pjjwh — the motion stylesheet ships the
+            `.rf-xray-filters-collapse` rule that animates the `filters:`
+            (bar-2) ribbon OPEN/CLOSED via a grid-template-rows 0fr ⇄ 1fr
+            transition keyed off the `data-open` attribute."
+    (let [css   @#'gs/motion-css
+          base  (re-find #"\.rf-xray-filters-collapse\s*\{[\s\S]*?\}" css)
+          open  (re-find #"\.rf-xray-filters-collapse\[data-open=\"true\"\]\s*\{[\s\S]*?\}" css)]
+      (is (some? base) "the collapse base rule is present")
+      (is (some? open) "the [data-open=\"true\"] open rule is present")
+      (when base
+        (is (re-find #"grid-template-rows:\s*0fr" base)
+            "closed state collapses the grid row to 0fr")
+        (is (re-find #"transition:\s*grid-template-rows" base)
+            "the height collapse is animated via a grid-template-rows transition")
+        (is (re-find #"--rf-xray-motion-scale" base)
+            "the transition runs through the reduced-motion scale seam"))
+      (when open
+        (is (re-find #"grid-template-rows:\s*1fr" open)
+            "open state expands the grid row to 1fr")))))
 
 (deftest themes-css-publishes-root-defaults
   (testing "rf2-3f2di B2 — the :root block publishes the LIGHT palette

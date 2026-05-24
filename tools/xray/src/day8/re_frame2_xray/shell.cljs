@@ -107,7 +107,6 @@
             [re-frame.interop :as interop]
             [day8.re-frame2-xray.filters :as filters]
             [day8.re-frame2-xray.filters.pills :as filter-pills]
-            [day8.re-frame2-xray.focus-helpers :as fh]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.app-db-segment-inspector
@@ -119,15 +118,11 @@
             ;; with `panel-registry/reg-l4-tab!` (rf2-2moh1) and
             ;; `detail-panel` reaches the entry through
             ;; `panel-registry/tab-by-id`. The shell no longer requires
-            ;; those panel nses directly; the event-detail ns is the
-            ;; one exception (kept for the inline cascade-outcome helpers
-            ;; the ribbon's :rf.xray/event-detail subscribers consume).
-            [day8.re-frame2-xray.panels.event-detail :as event-detail]
-            [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
-            ;; rf2-gf58j — L2 epoch-timeline dispatch-origin prefix +
-            ;; activity badges. Pure-fn helpers live in `panels/l2-
-            ;; timeline.cljc` so the shape is JVM-testable; the shell
-            ;; consumes them in `event-row` (single insertion site).
+            ;; those panel nses directly.
+            ;; rf2-ad7zx.12 — L2 `source` column dispatch-origin tag.
+            ;; Pure-fn helpers live in `panels/l2-timeline.cljc` so the
+            ;; shape is JVM-testable; the shell consumes them in
+            ;; `event-row` (single insertion site).
             [day8.re-frame2-xray.panels.l2-timeline :as l2-timeline]
             [day8.re-frame2-xray.palette :as palette]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
@@ -292,76 +287,6 @@
   (or (cascade-has-event? cascade)
       (and show-ungrouped? (ungrouped-cascade? cascade))))
 
-(defn gutter-glyph
-  "Pick the gutter glyph per spec/018 §4 Row anatomy. The selected row
-  gets `◉`; an errored row gets `x`; a wholly-redacted row gets `▥`;
-  default is `●`."
-  [cascade focused-id]
-  (cond
-    (= (:dispatch-id cascade) focused-id) "◉"
-    (boolean (seq (:errors cascade)))     "x"
-    (:whole-redacted? cascade)            "▥"
-    :else                                 "●"))
-
-(defn- op-namespace
-  "The `:operation` keyword's namespace as a string, or nil when the
-  operation is missing / not a keyword. Mirrors the family-detection
-  idiom in `panels.l2-timeline` so badge classification matches the
-  rest of the post-`:rf.*`-migration Xray code."
-  [op]
-  (when (keyword? op) (namespace op)))
-
-(defn- ns-in-family?
-  "True when the operation keyword belongs to `family` — either an
-  exact namespace match (`:rf.http/settled` → `\"rf.http\"`) or a
-  dotted sub-family (`:rf.machine.lifecycle/destroyed` →
-  `\"rf.machine.lifecycle\"` is in the `rf.machine` family). Lets a
-  single family check fold in lifecycle / microstep sub-streams without
-  a fragile substring regex."
-  [op family]
-  (when-let [ns (op-namespace op)]
-    (or (= ns family)
-        (str/starts-with? ns (str family ".")))))
-
-(defn row-badges
-  "Per spec/018 §4 Row badges. Returns a vector of present badges in
-  the fixed `[:warn :http :machine]` order. Walks the cascade's
-  `:other` bucket and classifies each event by its Spec 009 `:op-type`
-  family (`:rf.machine`, `:rf.http`, severity discriminators) — the
-  same family-detection idiom `panels.l2-timeline` uses, NOT a
-  substring regex.
-
-  Post-`:rf.*`-migration the machine op-type is `:rf.machine` and
-  operations are `:rf.machine/transition` etc.; the old `#\":machine\"`
-  regex matched the pre-migration `:machine/*` shape but NOT
-  `:rf.machine/*` (whose substring is `.machine`, not `:machine`), so
-  the badge silently stopped rendering. Detection now matches the
-  `:op-type` / `:operation` namespace precisely and folds in the
-  `:rf.machine.lifecycle/*` and `:rf.machine.microstep/*` sub-streams.
-  The legacy bare `:machine` / `:http` shapes are still recognised so
-  any pre-migration trace replayed through Xray keeps lighting up."
-  [cascade]
-  (let [others (:other cascade)
-        warn?  (some (fn [e] (or (= :error (:op-type e))
-                                 (= :warning (:op-type e))))
-                     others)
-        http?  (some (fn [e]
-                       (or (contains? #{:rf.http :http} (:op-type e))
-                           (let [op (:operation e)]
-                             (or (ns-in-family? op "rf.http")
-                                 (ns-in-family? op "http")))))
-                     others)
-        machine? (some (fn [e]
-                         (or (contains? #{:rf.machine :machine} (:op-type e))
-                             (let [op (:operation e)]
-                               (or (ns-in-family? op "rf.machine")
-                                   (ns-in-family? op "machine")))))
-                       others)]
-    (cond-> []
-      warn?    (conj "⚠")
-      http?    (conj "🌐")
-      machine? (conj "🤖"))))
-
 ;; rf2-ad7zx.15 — ONE shared column layout for the L2 event list, so the
 ;; column-header row (`l2-column-header`) and every data row (`event-row`)
 ;; reference the SAME constants and align column-for-column under the
@@ -371,26 +296,22 @@
 ;; out of alignment (Mike, live step-deck verify); these defs make the
 ;; two surfaces literally share the same column structure.
 ;;
-;; Layout (left → right), matching the Figma EventList columns plus Xray's
-;; leading focus gutter (a Xray affordance the mock didn't carry):
+;; Layout (left → right), matching the Figma EventList columns exactly
+;; (rf2-pjjwh retired the leading focus gutter — a Xray affordance the mock
+;; didn't carry):
 ;;
-;;   [gutter 14px] gap [event id flex-1] gap [source 52px] gap [time →right]
+;;   gap [event id flex-1] gap [source 52px] gap [time →right] gap [dur →right]
 ;;   (rf2-xawwb — event-id leads, source follows, per the Figma-Make surface)
 ;;
 ;; Both surfaces use the SAME flex container gap + horizontal padding, and
-;; a matching `1px solid transparent` border so the row's focused/ungrouped
-;; border (which paints 1px) never shifts the data 1px right of the header
+;; a matching `1px solid transparent` border so the row's active-row border
+;; (which paints 1px) never shifts the data 1px right of the header
 ;; (default content-box would otherwise offset every bordered row).
 ;;
 ;; Declared here — above the relative-time chip (which references the time
 ;; column width) and above `event-row` / `l2-column-header`, all later in
 ;; the file — so the symbols resolve at every use site (CLJS top-level
 ;; defs must precede use).
-(def ^:private l2-gutter-col-width
-  "Width of the leading FOCUS gutter cell — shared by the header spacer
-  and every row's gutter so the `source` column starts at the same x."
-  "14px")
-
 (def ^:private l2-source-col-width
   "Fixed width for the `source` column so the header label and every
   row's origin tag align on the same left edge."
@@ -754,160 +675,6 @@
      [:span {:aria-hidden "true"} "● "]
      (str "REDACTED " redacted-count)]))
 
-;; Forward declaration — the L2 scroll-into-view machinery is defined
-;; alongside the event-list renderer further down (it lives next to its
-;; sibling `scroll-focused-row-into-view!`), but the L1 focus chip below
-;; reaches it for the rf2-w738i "reveal pivot row" gesture.
-(declare scroll-row-into-view-by-id!)
-
-(defn- ribbon-focus-button
-  "Always-present blue `focus` button (rf2-cplj8) — restores the Figma
-  EventsRibbon's primary `focus` affordance (the `events-ribbon`
-  component in `design-reference/xray_devtools_reference.cljs`): a filled
-  `:accent` button with white
-  text + a leading target glyph, sitting beside the nav cluster.
-
-  ## What it does
-
-  Establishes a focus-set on the CURRENTLY-focused cascade's inferred
-  dimension — the ribbon-level counterpart of the per-row gutter focus
-  gesture (`focus-gesture-handler`). The button is ALWAYS present (per
-  the Figma mock) so the operator always has a one-click path to
-  'focus on what I'm looking at', complementing the focus-chip which
-  only appears AFTER a focus-set is active.
-
-  Dispatches `:rf.xray/set-focus <dimension> <value> <pivot-id>` for
-  the focused cascade. When no dimension can be inferred (`:ungrouped`
-  / unrouted focus, or no focused cascade) the button is disabled —
-  there is nothing to focus on.
-
-  Distinct from the focus-chip (rf2-a1z3b): the chip is a STATE display
-  (the active focus-set, with reveal-pivot + clear) that renders only
-  when a focus-set exists; this button is an ACTION the operator can
-  always reach."
-  [{:keys [focused-cascade]}]
-  (let [dim       (when focused-cascade (fh/infer-dimension focused-cascade))
-        disabled? (nil? dim)
-        on-click  (when dim
-                    (fn [_e]
-                      (rf/dispatch [:rf.xray/set-focus
-                                    (:dimension dim)
-                                    (:value dim)
-                                    (:dispatch-id focused-cascade)]
-                                   {:frame :rf/xray})))]
-    [:button {:data-testid   "rf-xray-focus-button"
-              :on-click      on-click
-              :disabled      disabled?
-              :aria-disabled disabled?
-              :title         (if dim
-                               (str "Focus on " (fh/dimension-label dim))
-                               "Select an event to focus on its dimension")
-              :aria-label    "Focus on the selected event"
-              :style {:display         "inline-flex"
-                      :align-items     "center"
-                      :gap             "4px"
-                      ;; rf2-xawwb — blue `active-bg` fill / white
-                      ;; `active-text` ink to match the Figma-Make chrome
-                      ;; nav buttons on the dark band.
-                      :background      (:active-bg tokens)
-                      :border          "none"
-                      :border-radius   "4px"
-                      :color           (:active-text tokens)
-                      :cursor          (if disabled? "not-allowed" "pointer")
-                      :opacity         (if disabled? 0.5 1)
-                      :padding         "2px 8px"
-                      :font-family     sans-stack
-                      :font-size       (:caption type-scale)
-                      :font-weight     500
-                      :line-height     "1"
-                      :white-space     "nowrap"}}
-     [:span {:aria-hidden "true"} "◎"]
-     "focus"]))
-
-(defn- ribbon-focus-chip
-  "Focus chip (rf2-a1z3b) — surfaces the active focus-set as
-  `🎯 <pivot-label> ✕`. Renders nothing when no focus-set is active.
-
-  Two interactive surfaces:
-
-    - **Chip body** (rf2-w738i) — clicking (or Enter / Space on the
-      keyboard) scrolls the pivot row back into view in L2. The pivot
-      is the anchor row that established the focus (`:pivot-id`); after
-      stepping through the focus subset with `[◀][▶]` the user can lose
-      sight of it, so the chip body is the 'take me back to the anchor'
-      gesture. Wired to `scroll-row-into-view-by-id!` — the row is
-      located by the same `data-testid` the L2 renderer stamps.
-    - **`✕` clear button** — clears focus (`:rf.xray/clear-focus`).
-      `stopPropagation` keeps the body's scroll gesture from also firing.
-
-  Placement: directly after the nav cluster so the user's eye picks
-  it up next to `[◀][▶]` — those buttons step ONLY through the focus
-  subset while the chip is present, so the cluster reads naturally
-  as 'stepping inside this focus'."
-  [{:keys [focus-set]}]
-  (when focus-set
-    (let [label    (fh/pivot-label focus-set)
-          pivot-id (:pivot-id focus-set)
-          scroll!  (fn [^js e]
-                     (.stopPropagation e)
-                     (scroll-row-into-view-by-id! pivot-id))
-          tip      (str "Focus: " (fh/dimension-label focus-set)
-                        " — click to reveal the pivot row (Esc to clear)")]
-      [:div {:data-testid "rf-xray-focus-chip"
-             :title       tip
-             :role        "button"
-             :tab-index   "0"
-             :aria-label  (str "Reveal pivot row for focus " label)
-             :on-click    scroll!
-             :on-key-down (fn [^js e]
-                            (let [k (.-key e)]
-                              (when (or (= k "Enter") (= k " "))
-                                (.preventDefault e)
-                                (scroll! e))))
-             :style       {:display        "inline-flex"
-                           :align-items    "center"
-                           :gap            "4px"
-                           :padding        "2px 6px 2px 8px"
-                           :background     (:bg-active tokens)
-                           :border         (str "1px solid " (:accent tokens))
-                           :border-radius  "10px"
-                           :font-family    sans-stack
-                           :font-size      (:body type-scale)
-                           :color          (:text-primary tokens)
-                           :cursor         "pointer"
-                           :max-width      "240px"}}
-       ;; rf2-vxpq1 — `🎯` is a decorative glyph; the chip's
-       ;; "Focus: <label>" tooltip + the label span carry the
-       ;; accessible meaning. `aria-hidden` suppresses the unicode-
-       ;; name announcement ("direct hit").
-       [:span {:aria-hidden "true"
-               :style {:color (:accent tokens)
-                       :font-weight 600}}
-        "🎯"]                ;; 🎯 (UTF-16 surrogate pair for portability)
-       [:span {:data-testid "rf-xray-focus-chip-label"
-               :style {:overflow      "hidden"
-                       :text-overflow "ellipsis"
-                       :white-space   "nowrap"
-                       :max-width     "180px"
-                       :font-family   mono-stack
-                       :font-size     (:caption type-scale)}}
-        label]
-       [:button {:data-testid "rf-xray-focus-chip-clear"
-                 :on-click    (fn [^js e]
-                                (.stopPropagation e)
-                                (rf/dispatch [:rf.xray/clear-focus]
-                                             {:frame :rf/xray}))
-                 :title       "Clear focus (Esc)"
-                 :aria-label  "Clear focus"
-                 :style       {:background    "transparent"
-                               :border        "none"
-                               :color         (:text-secondary tokens)
-                               :cursor        "pointer"
-                               :padding       "0 2px"
-                               :font-size     (:body type-scale)
-                               :line-height   "1"}}
-        "✕"]])))                  ;; ✕
-
 (defn- ribbon-theme-toggle
   "rf2-xawwb — theme toggle (Figma-Make surface). A sun/moon icon-button
   on the chrome ribbon's right cluster that flips light ⇄ dark.
@@ -1011,48 +778,36 @@
       [:span {:aria-hidden "true"} "✕"]]]))
 
 (defn nav-boundary-state
-  "Pure helper (rf2-3f2di A5) — compute the `{:at-head? :at-tail? :live?
-  :focused-cascade}` state the nav cluster + focus button consume, from
-  the already-resolved sub values. Extracted so the chrome ribbon (which
-  now hosts the nav cluster per the authority reference) and any test
-  can derive the boundary state without re-subscribing. Mirrors the
-  boundary walk the events ribbon previously did inline.
+  "Pure helper (rf2-3f2di A5) — compute the `{:at-head? :at-tail? :live?}`
+  state the nav cluster consumes, from the already-resolved sub values.
+  Extracted so the chrome ribbon (which hosts the nav cluster per the
+  authority reference) and any test can derive the boundary state without
+  re-subscribing. Mirrors the boundary walk the events ribbon previously
+  did inline.
 
   - `focus` — `:rf.xray/focus` (carries `:dispatch-id` + `:mode` +
     `:paused?`).
   - `cascades` — `:rf.xray/filtered-cascades` (frame view-scope + pills
     + mutes already applied).
-  - `focus-set` — `:rf.xray/focus-set` (when active, nav walks ONLY the
-    in-focus subset).
   - `show-ungrouped?` — `:rf.xray/show-ungrouped?` (the L2 visibility
     predicate must agree with what the user sees).
 
   Pure-data → map; JVM-runnable so the boundary logic is testable
   without a CLJS runtime."
-  [{:keys [focus cascades focus-set show-ungrouped?]}]
+  [{:keys [focus cascades show-ungrouped?]}]
   (let [focused-id      (:dispatch-id focus)
         event-cascades  (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
-        ;; rf2-cplj8 — the currently-focused cascade drives the always-
-        ;; present blue `focus` button; falls back to the most-recent
-        ;; event-cascade so the button is actionable in default LIVE-at-
-        ;; head (where `focused-id` is nil — the spine auto-tracks head).
-        focused-cascade (or (some #(when (= focused-id (:dispatch-id %)) %)
-                                  event-cascades)
-                            (last event-cascades))
-        ids             (if focus-set
-                          (fh/in-focus-ids event-cascades focus-set)
-                          (mapv :dispatch-id event-cascades))
+        ids             (mapv :dispatch-id event-cascades)
         at-head?        (or (empty? ids)
                             (= focused-id (last ids))
-                            (and (nil? focused-id) (not focus-set)))
+                            (nil? focused-id))
         at-tail?        (or (empty? ids)
                             (= focused-id (first ids)))
         live?           (and (= :live (:mode focus))
                              (not (:paused? focus)))]
-    {:at-head?        at-head?
-     :at-tail?        at-tail?
-     :live?           live?
-     :focused-cascade focused-cascade}))
+    {:at-head? at-head?
+     :at-tail? at-tail?
+     :live?    live?}))
 
 (rf/reg-view ribbon
   "L1 **chrome ribbon** (bar-1) — reconciled to the authoritative
@@ -1061,9 +816,8 @@
 
     - **LEFT** — the `Events` label (the reference leads with it; the
       `❖ Xray` wordmark was DROPPED per A4), the `[◀ ▶ ⏭]` blue-filled
-      nav cluster (A2), the always-present blue `focus` button + the
-      focus-chip (Xray spine controls, grouped with the nav), then the
-      `Filters:` label + the `[ + ]` add-pill (A5).
+      nav cluster (A2), then the `+ filter` add-pill (A5). (rf2-pjjwh
+      retired the `focus` button + focus-chip with the focus feature.)
     - **RIGHT** — the Frame dropdown (`frame-switcher/frame-switcher-
       view`) + the Dynamic/Static mode dropdown (`mode-pill/mode-pill`)
       + the mute (🔇 N) / REDACTED (● N) silent-by-default indicators +
@@ -1088,18 +842,15 @@
         ;; when the count changes; the indicator's click opens the
         ;; unmute manager.
         muted-count    @(rf/subscribe [:rf.xray/muted-event-ids-count])
-        ;; rf2-3f2di A5 — the nav cluster + focus button + focus-chip +
-        ;; pills moved UP to the chrome ribbon per the authority
-        ;; reference, so the chrome ribbon now subscribes to the spine /
-        ;; filter state the events ribbon used to own.
+        ;; rf2-3f2di A5 — the nav cluster moved UP to the chrome ribbon
+        ;; per the authority reference, so the chrome ribbon subscribes to
+        ;; the spine state the events ribbon used to own.
         focus          @(rf/subscribe [:rf.xray/focus])
         cascades       @(rf/subscribe [:rf.xray/filtered-cascades])
-        focus-set      @(rf/subscribe [:rf.xray/focus-set])
         show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
-        {:keys [at-head? at-tail? live? focused-cascade]}
+        {:keys [at-head? at-tail? live?]}
         (nav-boundary-state {:focus           focus
                              :cascades        cascades
-                             :focus-set       focus-set
                              :show-ungrouped? show-ungrouped?})]
     [:div {:data-testid "rf-xray-ribbon"
            :style {:display          "flex"
@@ -1128,10 +879,11 @@
                                           (static-shell/stripe-hex-for-mode :dynamic))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
-     ;; LEFT cluster — `Events` label · nav · focus button · focus-chip ·
-     ;; `Filters:` · add(+). Per the authority reference chrome-ribbon
-     ;; (rf2-3f2di A4/A5). The `❖ Xray` wordmark was dropped (A4); the
-     ;; cluster now leads with the `Events` label.
+     ;; LEFT cluster — `Events` label · nav · add(+). Per the authority
+     ;; reference chrome-ribbon (rf2-3f2di A4/A5). The `❖ Xray` wordmark
+     ;; was dropped (A4); the cluster now leads with the `Events` label.
+     ;; rf2-pjjwh retired the focus button + focus-chip with the focus
+     ;; feature.
      [:div {:data-testid "rf-xray-ribbon-selectors"
             :style {:display "flex" :align-items "center" :gap "13px"
                     :flex-wrap "wrap"}}
@@ -1146,12 +898,6 @@
        "Event History"]
       ;; rf2-3f2di A2/A5 — blue-filled nav cluster, promoted to bar-1.
       [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?}]
-      ;; Xray spine controls — the always-present blue `focus` button
-      ;; (focuses the selected cascade's dimension) + the focus-chip
-      ;; (state display of the active focus-set). Grouped with the nav
-      ;; cluster because they are spine navigation, not scope selectors.
-      [ribbon-focus-button {:focused-cascade focused-cascade}]
-      [ribbon-focus-chip {:focus-set focus-set}]
       ;; rf2-xawwb — `+ filter` text button (Figma-Make chrome-ribbon).
       ;; Replaces the prior `Filters:` label + plus-icon affordance with a
       ;; single outlined `+ filter` text button. Opens the same edit
@@ -1278,22 +1024,6 @@
   (when (and el (.-scrollIntoView el))
     (.scrollIntoView el #js {:behavior "auto" :block "nearest"})))
 
-(defn- scroll-row-into-view-by-id!
-  "Scroll the L2 row whose `:dispatch-id` is `id` into view. Locates the
-  row by its `data-testid` (`rf-xray-event-row-<id>`) — the same id the
-  `event-row` renderer stamps — and delegates to
-  `scroll-focused-row-into-view!`. No-op when `js/document` is absent
-  (node-test) or the row isn't currently mounted (e.g. scrolled far out
-  of the virtual window). Returns the located element (or nil) so
-  callers / tests can assert the lookup."
-  [id]
-  (when (and (exists? js/document) (.-querySelector js/document) id)
-    (let [sel (str "[data-testid=\"rf-xray-event-row-" (str id) "\"]")
-          el  (.querySelector js/document sel)]
-      (when el
-        (scroll-focused-row-into-view! el))
-      el)))
-
 (defn- focused-row-ref
   "Build the `:ref` callback for a row that is BOTH focused AND in the
   auto-tracking branch (LIVE + head). Returns nil when not in the
@@ -1316,58 +1046,34 @@
         (do (reset! last-scrolled-focus-id id)
             (scroll-focused-row-into-view! el))))))
 
-(defn- focus-gesture-handler
-  "rf2-a1z3b — return the on-click handler for the L2 row's left
-  GUTTER. The gutter is the FOCUS surface (vs. the body, which is the
-  SELECTION surface). Click semantics:
-
-  - Out-of-focus row's gutter → set focus on the row's inferred
-    dimension (`fh/infer-dimension` picks first applicable from
-    machine / http / event-id / source-coord).
-  - Pivot row's gutter (same id, same dimension) → toggle focus OFF
-    (the `set-focus-reducer` recognises the duplicate and dissocs).
-  - In-focus non-pivot row's gutter → rebuild focus around this row
-    as the new pivot (dimension may stay the same or change).
-
-  Returns nil when no dimension can be inferred (`:ungrouped` /
-  unrouted cascade) — the gutter renders inert."
-  [cascade]
-  (when-let [{:keys [dimension value]} (fh/infer-dimension cascade)]
-    (fn [^js e]
-      (.stopPropagation e)
-      (rf/dispatch [:rf.xray/set-focus dimension value (:dispatch-id cascade)]
-                   {:frame :rf/xray}))))
-
 (defn- event-row
-  "One row in the L2 event list. Single line per spec/018 §4 Row
-  anatomy + Round-3 rf2-cmtkw — minimal default render.
+  "One row in the L2 event list. Single line per the Figma-Make
+  EventList (the `event-list` component in
+  `design-reference/xray_devtools_reference.cljs`) + rf2-pjjwh.
 
-  ## Round-3 rf2-cmtkw — minimal default row
+  ## rf2-pjjwh — clean mock layout
 
-  Default row content (ONE line only):
+  Default row content, four columns matching the mock exactly:
 
-      [gutter] :event-id  [⚠] [🌐] [🤖]
+      :event-id   source   timestamp   duration
 
   - **`:event-id`** — the bare event-id keyword (not the full event
     vector). Args / payload move to the tooltip + Event tab detail.
-  - **`⚠`** — exception/error glyph (from `:other` carrying
-    `:op-type :error` / `:warning`, or `:errors` slot populated).
-  - **`🌐`** — managed-HTTP marker (from `:other` carrying an
-    `:op-type :rf.http` or an `:operation` in the `:rf.http/*` /
-    legacy `:http/*` family).
-  - **`🤖`** — state-machine marker (from `:other` carrying an
-    `:op-type :rf.machine` or an `:operation` in the `:rf.machine/*`
-    family, including the `:rf.machine.lifecycle/*` and
-    `:rf.machine.microstep/*` sub-streams).
+  - **`source`** — the dispatch-origin tag (`ui` / `fx` / `timer` / …).
+  - **`timestamp`** — the absolute wall-clock `HH:MM:SS.mmm`.
+  - **`duration`** — the handler wall-time (`1.2 ms`).
 
-  Dropped from the default view (moved to hover tooltip + Event
-  detail tab): the full event vector with args, the sequence
-  number (`#<dispatch-id>`), the duration tier, the source
-  coordinate.
+  The active (selected) row is shown by BACKGROUND ONLY (the mock's
+  `isActive` → `bg-[var(--devtools-hover)]`). rf2-pjjwh removed the
+  leading focus gutter, the origin-prefix glyph, the activity badges
+  (⚠ 🌐 🤖), the trailing lifecycle status stripe, the out-of-focus
+  dimming, and the `:ungrouped` muted pseudo-row — none of those are
+  in the mock.
 
-  The row's `:title` attribute carries those dropped fields so a
-  hover surfaces them without leaving L2. Clicking the row opens
-  the Event tab in L4 with the full untruncated content.
+  The row's `:title` attribute carries the dropped fields (full event
+  vector with args, sequence number, frame, source coord, handler
+  duration) so a hover surfaces them without leaving L2. Clicking the
+  row opens the Event tab in L4 with the full untruncated content.
 
   Right-click (`on-context-menu`) lowers per spec/018 §7 'Right-click
   event-row → context menu' into `:rf.xray/open-row-context-menu`
@@ -1382,123 +1088,31 @@
   The menu state lives in app-db (`:row-context-menu`) so the menu
   renders at the shell-view root and floats above the L2 list's
   overflow-hidden clipping. preventDefault on the right-click
-  suppresses the browser's native menu.
-
-  ## Focus gutter (rf2-a1z3b)
-
-  The leftmost ~14px is the FOCUS surface (gutter); the rest is the
-  SELECTION surface (body). Gutter click sets/toggles focus on the
-  row's inferred dimension; body click selects the cascade (and
-  CLEARS focus when the clicked row is out-of-focus). When a
-  focus-set is active, out-of-focus rows render at ~40% opacity and
-  the gutter renders an OPEN `⦿` marker; the pivot row renders a
-  FILLED `⦿` marker."
-  [{:keys [cascade focused-id auto-track? focus-set in-focus? focus now-ms]}]
+  suppresses the browser's native menu."
+  [{:keys [cascade focused-id auto-track? now-ms]}]
   (let [id          (:dispatch-id cascade)
         focused?    (= id focused-id)
-        pivot?      (and focus-set (= id (:pivot-id focus-set)))
-        focus-active? (some? focus-set)
-        out-of-focus? (and focus-active? (not in-focus?))
-        ;; rf2-r9lyy — the `:ungrouped` pseudo-cascade bucket renders
-        ;; with a distinct muted treatment when the opt-in is on (the
-        ;; bucket only reaches this row when the user has flipped the
-        ;; Settings → Power user → 'Show :ungrouped' toggle ON, per
-        ;; `l2-cascade-visible?`). Muted background + zero event vector
-        ;; signal "this is a pseudo-cascade outside any dispatch".
-        ungrouped?  (ungrouped-cascade? cascade)
-        glyph       (gutter-glyph cascade focused-id)
-        ;; rf2-gf58j — L2 row chrome: per-origin prefix + per-cascade
-        ;; activity badges. Both pulled from the cascade record;
-        ;; helpers live in `panels.l2-timeline` so the projection is
-        ;; pure-data and JVM-testable.
-        origin         (l2-timeline/dispatch-origin-of cascade)
-        origin-prefix  (l2-timeline/origin-prefix-glyph origin)
-        origin-title   (l2-timeline/origin-prefix-title origin)
         ;; rf2-ad7zx.12 — the Figma `source` column tag (origin name as
-        ;; text; nil for :user / unknown so the cell stays blank).
+        ;; text; `ui` for the default app-code origin).
+        origin         (l2-timeline/dispatch-origin-of cascade)
         source-tag     (l2-timeline/origin-source-tag origin)
-        badges         (l2-timeline/activity-badges cascade)
-        badges-tooltip (l2-timeline/activity-badges-tooltip cascade)
         ev-id       (event-id-of-cascade cascade)
         event-vec   (:event cascade)
-        ;; rf2-b76v4 — canonical event-lifecycle status colour. ONE
-        ;; helper drives the row's status accent (a 2px inset stripe on
-        ;; the trailing edge — sibling to the gutter's causal-chain
-        ;; thread on the leading edge). Replaces the pre-rf2-b76v4
-        ;; rolled-on-the-fly bg/border colour decisions. The status fn
-        ;; reads the cascade's terminal outcome (error / warning / ok)
-        ;; via `event-detail/cascade-outcome` so the L2 row, the L4
-        ;; Event header and the Trace row all consume ONE vocabulary.
-        status-state (event-status/cascade->state
-                       cascade focus event-detail/cascade-outcome)
-        status-kw    (event-status/classify-status status-state)
-        status-hex   (event-status/event-status-colour status-state)
-        glyph-col   (cond
-                      focused?                                (:accent tokens)
-                      (= "x" glyph)                           (:red tokens)
-                      (= "▥" glyph)                           (:magenta tokens)
-                      :else                                   (:text-tertiary tokens))
-        ;; rf2-cplj8 — the selected/active row is a SUBTLE `:hover` fill
-        ;; (Figma EventList's `isActive` → `bg-[var(--devtools-hover)]`),
-        ;; NOT the full 1px blue ring it carried before. The ring competed
-        ;; with the gutter's leading-edge causal thread + the trailing
-        ;; status accent and read as heavier than the mock; a quiet
-        ;; background fill marks the row without boxing it.
-        bg          (cond
-                      focused?   (:hover tokens)
-                      ;; Muted background for the :ungrouped bucket so it
-                      ;; reads as visually distinct from the real-event
-                      ;; rows (rf2-r9lyy). Falls back to the same bg-2
-                      ;; the list uses if `:bg-2` is the only neutral
-                      ;; muted token available; the ribbon's own canvas
-                      ;; is bg-1 so this still reads as a recessed row.
-                      ungrouped? (:bg-2 tokens)
-                      :else      "transparent")
-        ;; rf2-cplj8 — the focused row no longer paints a blue ring; the
-        ;; `:hover` background fill carries the selected signal. It keeps
-        ;; the `1px solid transparent` base (border-box alignment with the
-        ;; header) so the columns never drift. The `:ungrouped` bucket
-        ;; keeps its dashed hairline since it has no `bg`-fill selection.
-        border      (cond
-                      ungrouped? (str "1px dashed " (:border-subtle tokens))
-                      :else      "1px solid transparent")
-        ;; rf2-b76v4 — the lifecycle-status accent rides as a 2px inset
-        ;; box-shadow on the row's TRAILING edge so it doesn't compete
-        ;; with the focused-row solid border (which paints the row
-        ;; outline) or the gutter's leading-edge causal-chain thread.
-        ;; The `:ungrouped` row suppresses the accent because the bucket
-        ;; has no lifecycle (no event vector, no cascade outcome).
-        status-shadow (when (and (not ungrouped?) status-hex)
-                        (str "inset -2px 0 0 0 " status-hex))
+        ;; rf2-pjjwh — the active row is marked by BACKGROUND ONLY
+        ;; (Figma EventList's `isActive` → `bg-[var(--devtools-hover)]`).
+        ;; No border ring, no trailing status stripe — those are not in
+        ;; the mock.
+        bg          (if focused? (:hover tokens) "transparent")
         ;; rf2-ieg6d Bug 1 — only the focused row in the LIVE-at-head
         ;; auto-tracking branch carries a ref. RETRO and non-focused rows
         ;; get nil (no DOM-side scroll work, no per-render cost).
         ref-fn      (when focused? (focused-row-ref id auto-track?))
-        gutter-click (focus-gesture-handler cascade)
-        ;; rf2-a1z3b — clicking a row's body clears focus when the row
-        ;; is OUT-of-focus (the gesture model: body-click on dim row
-        ;; says 'I want to select this; abandon the focus lens'). When
-        ;; the row is IN-focus or no focus-set is active, body-click is
-        ;; pure selection per the existing contract.
+        ;; rf2-pjjwh — body-click is pure SELECTION (drives the L3 tabs).
+        ;; The focus-set lens (and its body-click-clears-focus branch)
+        ;; was retired; row click selects the cascade, full stop.
         body-click  (fn [_e]
-                      (when out-of-focus?
-                        (rf/dispatch [:rf.xray/clear-focus] {:frame :rf/xray}))
                       (rf/dispatch [:rf.xray/focus-cascade id (:frame cascade)]
-                                   {:frame :rf/xray}))
-        ;; Focus-aware gutter marker per rf2-a1z3b. The existing glyph
-        ;; (●/◉/x/▥) keeps semantics for the spine's selection +
-        ;; error/redacted state; an additional ⦿ marker rides ON TOP
-        ;; in the gutter when a focus-set is active to signal in-focus
-        ;; (open) vs pivot (filled). When no focus-set is active the
-        ;; gutter renders the legacy glyph only.
-        focus-marker (cond
-                       pivot?     "⦿"          ;; filled (pivot anchor)
-                       in-focus?  "◌"          ;; open marker for in-focus non-pivot rows
-                       :else      nil)
-        focus-marker-col (cond
-                           pivot?    (:accent tokens)
-                           in-focus? (:accent tokens)
-                           :else     (:text-tertiary tokens))]
+                                   {:frame :rf/xray}))]
     ;; Density (rf2-htik0 Bug 2): height 22px + padding "1px 6px" tightens
     ;; the row from the earlier 28px / "4px 8px" spec-baseline. Xray is
     ;; info-dense; keeps clickable hit-area while letting ~10 rows fit in
@@ -1514,16 +1128,9 @@
     [:li (cond-> {:data-testid (str "rf-xray-event-row-" (str id))
                   :role        "button"
                   :tab-index   "0"
-                  :aria-label  (cond
-                                 ungrouped?
-                                 ":ungrouped pseudo-cascade — events outside any dispatch"
-
-                                 ev-id
+                  :aria-label  (if ev-id
                                  (str "Event " (str ev-id)
-                                      (when focused? " (focused)")
-                                      (when in-focus? " (in focus set)"))
-
-                                 :else
+                                      (when focused? " (focused)"))
                                  "Event row")
                   :aria-pressed (if focused? "true" "false")
                   :on-click    body-click
@@ -1579,26 +1186,11 @@
                                            :x        (.-clientX e)
                                            :y        (.-clientY e)}]
                                          {:frame :rf/xray})))
-                  ;; Round-3 rf2-cmtkw — dropped fields (full event
-                  ;; vector with args, sequence number, frame, source
-                  ;; coord, handler duration) surface in this hover
-                  ;; tooltip + the L4 Event tab on click. Default row
-                  ;; body shows only `event-id + ⚠/🌐/🤖`.
-                  :title (if ungrouped?
-                           ":ungrouped — events outside any dispatch (:rf.ssr/*, registry-time emits, REPL evals, frame lifecycle). Click to focus the bucket."
-                           (row-tooltip-text cascade))
-                  :data-rf-xray-in-focus (cond
-                                            (not focus-active?) "n/a"
-                                            in-focus?           "true"
-                                            :else               "false")
-                  :data-rf-xray-pivot    (if pivot? "true" "false")
-                  :data-rf-xray-ungrouped (if ungrouped? "true" "false")
-                  ;; rf2-b76v4 — the resolved lifecycle status keyword
-                  ;; rides on a data attribute so tests + the
-                  ;; pure-hiccup walker can assert the row picked up
-                  ;; the right vocabulary without parsing inline
-                  ;; styles.
-                  :data-rf-xray-status   (name status-kw)
+                  ;; rf2-cmtkw — dropped fields (full event vector with
+                  ;; args, sequence number, frame, source coord, handler
+                  ;; duration) surface in this hover tooltip + the L4
+                  ;; Event tab on click.
+                  :title (row-tooltip-text cascade)
                   :style {:display       "flex"
                           :align-items   "center"
                           ;; rf2-ad7zx.15 — shared column gap + horizontal
@@ -1607,174 +1199,66 @@
                           ;; (row density); only the column-defining axes
                           ;; (gap + h-padding) are shared with the header.
                           ;; `border-box` matches the header so the 1px
-                          ;; border below resolves identically on both
-                          ;; surfaces (no 1px column drift).
+                          ;; transparent border resolves identically on
+                          ;; both surfaces (no 1px column drift).
                           :box-sizing    "border-box"
                           :gap           l2-col-gap
                           :padding       (str "1px " l2-row-h-padding)
                           :height        "22px"
                           :line-height   "20px"
                           :cursor        "pointer"
+                          ;; rf2-pjjwh — active row marked by background
+                          ;; ONLY. The `1px solid transparent` border
+                          ;; keeps border-box alignment with the header so
+                          ;; columns never drift.
                           :background    bg
-                          :border        border
-                          ;; rf2-b76v4 — the lifecycle-status accent is
-                          ;; a 2px inset shadow on the row's trailing
-                          ;; edge. Sibling to the gutter's leading-edge
-                          ;; causal-chain thread (rf2-5kfxe.10), and
-                          ;; non-overlapping with the focused-row solid
-                          ;; border.
-                          :box-shadow    (or status-shadow "none")
+                          :border        "1px solid transparent"
                           :border-radius "2px"
                           :font-family   mono-stack
                           :font-size     (:mono-body type-scale)
-                          :color         (if ungrouped?
-                                           (:text-secondary tokens)
-                                           (:text-primary tokens))
-                          :font-style    (if ungrouped? "italic" "normal")
+                          :color         (:text-primary tokens)
                           :white-space   "nowrap"
                           :overflow      "hidden"
-                          :text-overflow "ellipsis"
-                          ;; rf2-a1z3b — out-of-focus rows dim to
-                          ;; `--rf-xray-row-dim-opacity` (default 0.4)
-                          ;; so the lens reads at a glance. Inline so
-                          ;; we don't need a stylesheet round-trip; the
-                          ;; CSS-var fallback keeps host overrides
-                          ;; possible.
-                          ;; rf2-r9lyy — :ungrouped rows render at 0.7
-                          ;; opacity even when in-focus so the bucket
-                          ;; reads as visually recessed against the real
-                          ;; cascade rows. Out-of-focus still wins (the
-                          ;; 0.4 dim is more aggressive).
-                          :opacity       (cond
-                                           out-of-focus?
-                                           "var(--rf-xray-row-dim-opacity, 0.4)"
-                                           ungrouped? 0.7
-                                           :else      1)}}
+                          :text-overflow "ellipsis"}}
            ref-fn (assoc :ref ref-fn))
-     ;; Gutter — FOCUS surface (rf2-a1z3b). Click sets/toggles focus
-     ;; on the row's inferred dimension. The hit-area is the 14px
-     ;; gutter cell; stopPropagation prevents the body-click handler
-     ;; from also firing.
-     ;;
-     ;; rf2-5kfxe.10 — cascade-chain timeline gutter. The gutter cell
-     ;; carries a 1px mode-accent inset border on its LEFT EDGE so
-     ;; stacked rows render as a continuous vertical thread — visually
-     ;; expressing the spine's timeline rather than reading as a flat
-     ;; list. `:ungrouped` rows break the thread (the bucket isn't on
-     ;; the cascade timeline). The thread is `align-self: stretch` so
-     ;; it spans the full row height edge-to-edge.
-     [:span (cond-> {:data-testid (str "rf-xray-row-gutter-" (str id))
-                     :style       {:width        l2-gutter-col-width
-                                   :flex-shrink  0
-                                   :display      "inline-flex"
-                                   :align-items  "center"
-                                   :justify-content "center"
-                                   :align-self   "stretch"
-                                   :cursor       (if gutter-click "pointer" "default")
-                                   :color        focus-marker-col
-                                   :font-size    "11px"
-                                   ;; rf2-5kfxe.10 — the timeline
-                                   ;; thread. `box-shadow inset` paints
-                                   ;; a 1px violet line on the left
-                                   ;; edge of the gutter without
-                                   ;; consuming any layout width
-                                   ;; (border-left would shift the
-                                   ;; glyph). Ungrouped rows break the
-                                   ;; thread because they're off-
-                                   ;; timeline.
-                                   :box-shadow   (if ungrouped?
-                                                   "none"
-                                                   (str "inset 1px 0 0 0 "
-                                                        (:accent tokens)))}
-                     :title       (cond
-                                    pivot?
-                                    (str "Clear focus on " (fh/dimension-label focus-set))
-
-                                    (and focus-active? in-focus?)
-                                    (str "Re-anchor focus on this row ("
-                                         (fh/dimension-label focus-set) ")")
-
-                                    gutter-click
-                                    (str "Focus on " (fh/dimension-label (fh/infer-dimension cascade)))
-
-                                    :else
-                                    "")}
-              gutter-click (assoc :on-click gutter-click))
-      (or focus-marker
-          [:span {:style {:color glyph-col}} glyph])]
-     ;; rf2-xawwb — column order is `event id` FIRST, then `source`
-     ;; (Figma-Make surface). The bare event-id keyword leads the row as
-     ;; the primary read; the source tag follows as secondary context.
-     ;; Round-3 rf2-cmtkw — minimal default row renders ONLY the bare
-     ;; event-id keyword (e.g. `:cart/add-item`). The full event vector
-     ;; with args moves to the row's hover tooltip + the L4 Handler tab
-     ;; detail. The event-id column is LEFT-aligned (Figma `text-left`) so
-     ;; the keyword sits flush under the header's `event id` label.
+     ;; rf2-pjjwh — column order: `event id` · `source` · `timestamp` ·
+     ;; `duration` (Figma-Make EventList). No leading focus gutter — that
+     ;; was a Xray affordance the mock didn't carry, retired with the
+     ;; focus feature. The bare event-id keyword leads the row as the
+     ;; primary read; the source tag follows as secondary context. The
+     ;; full event vector with args moves to the row's hover tooltip + the
+     ;; L4 Event tab detail. The event-id column is LEFT-aligned (Figma
+     ;; `text-left`) so the keyword sits flush under the header's
+     ;; `event id` label.
      [:span {:data-testid "rf-xray-row-event-id"
              :style {:flex "1 1 auto" :overflow "hidden"
                      :text-overflow "ellipsis"
                      :text-align "left"
                      :min-width "0"}}
-      (if ungrouped?
-        ;; rf2-r9lyy — the :ungrouped pseudo-cascade has no event
-        ;; vector by construction. Render a clear muted label instead
-        ;; of the defence-in-depth `<no event>` fallback so the user
-        ;; understands they're looking at the bucket of events outside
-        ;; any dispatch.
-        [:span {:style {:color      (:text-tertiary tokens)
-                        :font-style "italic"}}
-         ":ungrouped (pseudo-cascade)"]
-        (render-event-id-only event-vec))]
-     ;; rf2-ad7zx.12 + rf2-lnod7 — the `source` COLUMN, reconciled to the
-     ;; Figma EventList. A fixed-width cell aligned under the header's
-     ;; `source` label, carrying the dispatch-origin as a short text tag
-     ;; plus its glyph (`R fx-emit` etc). The reference tags EVERY row, so
-     ;; the default app-code origin (`:user`, plus nil/unknown synthetic
-     ;; cascades) renders `ui` rather than a blank cell — the gap audit
-     ;; (rf2-4297k) flagged the pre-rf2-lnod7 blank ui-origin column.
-     ;; `:ungrouped` rows still render an empty spacer cell (no dispatch
-     ;; envelope, no origin to surface) while occupying the column width
-     ;; so the columns stay aligned across rows. The `:title` carries the
-     ;; closed-enum value as a hover affordance (rf2-gf58j origin glyphs
-     ;; preserved as the leading mark).
-     [:span {:data-testid (when (and source-tag (not ungrouped?))
-                            (str "rf-xray-row-origin-" source-tag))
-             :data-rf-xray-origin (when (and source-tag (not ungrouped?))
-                                     source-tag)
-             :title (when (and source-tag (not ungrouped?)) origin-title)
+      (render-event-id-only event-vec)]
+     ;; rf2-ad7zx.12 + rf2-lnod7 — the `source` COLUMN (Figma EventList).
+     ;; A fixed-width cell aligned under the header's `source` label,
+     ;; carrying the dispatch-origin as a short text tag. The reference
+     ;; tags EVERY row, so the default app-code origin (`:user`, plus
+     ;; nil/unknown synthetic cascades) renders `ui` rather than a blank
+     ;; cell. rf2-pjjwh dropped the leading origin-prefix glyph — the mock
+     ;; carries the source tag as plain text only.
+     [:span {:data-testid (when source-tag (str "rf-xray-row-origin-" source-tag))
+             :data-rf-xray-origin source-tag
              :style {:flex-shrink 0
                      :width l2-source-col-width
                      :display "inline-flex"
                      :align-items "center"
-                     :gap "3px"
                      :overflow "hidden"
                      :text-overflow "ellipsis"
                      :white-space "nowrap"
-                     :color (:accent tokens)
+                     :color (:text-secondary tokens)
                      :font-family sans-stack
                      :font-size (:caption type-scale)}}
-      (when (and source-tag (not ungrouped?))
-        (list
-         (when origin-prefix ^{:key "g"} [:span {:aria-hidden "true"} origin-prefix])
-         ^{:key "t"} [:span source-tag]))]
-     (when (seq badges)
-       ;; rf2-gf58j — activity-badge cluster sourced from
-       ;; `panels.l2-timeline/activity-badges`. Render order matches
-       ;; the spec/021 §17.1.5 canonical sequence (⚠ ◆ 🌐 ⚡ ⏲);
-       ;; the tooltip names the present classes so the operator can
-       ;; read what the cluster means without leaving L2.
-       [:span (cond-> {:data-testid "rf-xray-row-badges"
-                       :style {:display "flex" :gap "4px" :flex-shrink 0
-                               :color (:yellow tokens)
-                               :font-size (:caption type-scale)}}
-                badges-tooltip (assoc :title badges-tooltip))
-        (for [b badges]
-          ^{:key b} [:span b])])
-     ;; Relative-time chip (rf2-vbbq0) — the `timestamp` column. Right-
-     ;; aligned per Mike's design (2026-05-19 Q10): "active-cascade-
-     ;; visibility" calls for the chip to ride on the row body rather
-     ;; than hide behind a hover tooltip. The chip carries an absolute-
-     ;; time `:title` tooltip as the power-user reveal.
+      (when source-tag source-tag)]
+     ;; Timestamp column (rf2-3f2di A8) — absolute wall-clock
+     ;; `HH:MM:SS.mmm`, right-aligned. The chip carries an absolute-time
+     ;; `:title` tooltip as the power-user reveal.
      (relative-time-chip cascade now-ms)
      ;; Duration cell (rf2-lnod7) — the trailing `duration` column,
      ;; restoring the Figma EventList's fourth column. Handler wall-time
@@ -1829,30 +1313,10 @@
              :style {:font-weight 500 :color (:warning tokens) :white-space "nowrap"}}
       (str hidden " event" (when (not= 1 hidden) "s") " filtered out")]]))
 
-(defn- clear-filters-button
-  "Restrained outline `Clear Filters` button — resets pills + mutes (NOT
-  the frame; rf2-4vp5j Workstream C). Rendered only when a filter is
-  active (`:any-active?`)."
-  []
-  [:button {:data-testid "rf-xray-filters-hidden-clear"
-            :on-click    #(rf/dispatch [:rf.xray/clear-all-filters]
-                                       {:frame :rf/xray})
-            :title       "Clear every filter pill and all mutes"
-            :style {:background    "transparent"
-                    :border        (str "1px solid " (:border-default tokens))
-                    :color         (:text-secondary tokens)
-                    :cursor        "pointer"
-                    :font-family   sans-stack
-                    :font-size     (:caption type-scale)
-                    :font-weight   500
-                    :padding       "2px 10px"
-                    :border-radius "4px"
-                    :white-space   "nowrap"}}
-   "Clear Filters"])
-
 (rf/reg-view events-ribbon
   "L1.5 **events ribbon** (bar-2) — reconciled to the Figma-Make surface
-  (rf2-xawwb). The second stratum below the chrome ribbon. LEFT → RIGHT:
+  (rf2-xawwb) + rf2-pjjwh. The second stratum below the chrome ribbon.
+  LEFT → RIGHT:
 
     - the `↳ filters:` contextual label (corner-down-right glyph);
     - the add-filter `+` ICON button
@@ -1861,80 +1325,90 @@
       (`filter-pills/pills-view`), each with a vertical divider before
       its `✕`;
     - pushed to the FAR RIGHT (via `margin-left: auto`): the `N events
-      filtered out` warning text (when N > 0, `:warning` colour) +
-      (only when a filter is active) the `Clear Filters` button.
+      filtered out` warning text (when N > 0, `:warning` colour).
 
-  rf2-xawwb supersedes the rf2-3f2di A5/A6 layout (warning LED the bar):
-  the Figma-Make surface leads with the `filters:` label + add(+) and
-  pushes the filtered-out count to the trailing edge. The nav cluster,
-  focus button, focus-chip, and the chrome add affordance live UP on the
-  chrome ribbon (bar-1).
+  ## rf2-pjjwh — conditional + animated
 
-  Visibility (rf2-4vp5j Decision 3, preserved):
-    - the bar renders its background/hairline always (it is a fixed
-      stratum), but its content is empty in the clean/default state (no
-      pills, no warning, no Clear Filters);
-    - `Clear Filters` shows when ANY filter is active (`:any-active?`);
-    - the `N filtered out` warning shows only when N > 0 (`:visible?`).
+  The whole `filters:` ribbon is HIDDEN when there are zero filters and
+  appears only after the user creates the first filter via `[+ filter]`.
+  It animates OPEN when the first filter is added and animates CLOSED when
+  the last filter is removed. The collapse uses a CSS
+  `grid-template-rows: 0fr ⇄ 1fr` transition (the modern jank-free
+  height-collapse technique) keyed off the `data-open` attribute — see
+  `theme/global-styles/motion-css` for the rule. The outer collapse track
+  stays mounted so the transition can run in both directions; the inner
+  content is the actual bar-2 surface.
+
+  rf2-pjjwh also REMOVED the `Clear Filters` button from the trailing
+  edge — pills are removed individually via each pill's `✕` (the
+  `[+ filter]` add affordance lives up on the chrome ribbon).
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/xray`. A distinct `bg-2` background + `border-subtle` hairline
   separate it from the chrome ribbon's `bg-1` as a distinct layer."
   []
-  (let [filters         @(rf/subscribe [:rf.xray/active-filters])
-        hidden-summary  @(rf/subscribe [:rf.xray/hidden-by-filters])
-        any-active?     (:any-active? hidden-summary)]
-    [:div {:data-testid "rf-xray-events-ribbon"
-           :role        "toolbar"
-           :aria-label  "Xray filters"
-           :style {:display          "flex"
-                   :align-items      "center"
-                   :gap              "13px"
-                   :min-height       (:events-ribbon-height layout)
-                   :flex-wrap        "wrap"
-                   :padding          "0 12px"
-                   :background       (:bg-2 tokens)
-                   :border-bottom    (str "1px solid " (:border-subtle tokens))
-                   :font-family      sans-stack
-                   :font-size        (:body type-scale)}}
-     ;; rf2-xawwb — `↳ filters:` contextual label leads the events ribbon
-     ;; (Figma-Make surface), followed by the add-filter (+) ICON button,
-     ;; then the committed pills. The corner-down-right glyph mirrors the
-     ;; tabs ribbon's `for selected event` label idiom.
-     [:span {:data-testid "rf-xray-events-ribbon-filters-label"
-             :style {:display      "inline-flex"
-                     :align-items  "center"
-                     :gap          "6px"
-                     :color        (:text-secondary tokens)
-                     :font-family  sans-stack
-                     :font-size    (:caption type-scale)
-                     :white-space  "nowrap"}}
-      [:span {:aria-hidden "true"} "↳"]
-      "filters:"]
-     [filter-pills/events-add-filter-button]
-     ;; rf2-3f2di A6 — the committed green/red filter pills.
-     [ribbon-filter-pills {:filters filters}]
-     ;; rf2-xawwb — the `N events filtered out` warning is pushed to the
-     ;; RIGHT end (Figma-Make surface), alongside Clear Filters. The
-     ;; `margin-left: auto` on this trailing cluster shoves both to the
-     ;; trailing edge regardless of pill count. The warning renders only
-     ;; when N > 0; Clear Filters only when a filter is active.
-     (when (or (:visible? hidden-summary) any-active?)
-       [:div {:data-testid "rf-xray-events-ribbon-actions"
-              :style {:display "flex" :align-items "center" :gap "12px"
-                      :margin-left "auto"}}
-        (filters-hidden-message hidden-summary)
-        (when any-active?
-          [clear-filters-button])])]))
+  (let [filters        @(rf/subscribe [:rf.xray/active-filters])
+        hidden-summary @(rf/subscribe [:rf.xray/hidden-by-filters])
+        filter-count   (+ (count (:in filters)) (count (:out filters)))
+        open?          (pos? filter-count)]
+    ;; rf2-pjjwh — collapse track. Always mounted so the height/opacity
+    ;; transition runs in BOTH directions (open when the first filter is
+    ;; added, closed when the last is removed). `data-open` drives the
+    ;; `grid-template-rows: 0fr ⇄ 1fr` + opacity rule in motion-css.
+    [:div {:data-testid "rf-xray-events-ribbon-collapse"
+           :class       "rf-xray-filters-collapse"
+           :data-open   (if open? "true" "false")}
+     [:div {:data-testid "rf-xray-events-ribbon"
+            :role        "toolbar"
+            :aria-label  "Xray filters"
+            ;; `aria-hidden` + the CSS collapse keep the closed bar out of
+            ;; the a11y tree and the tab order when there are no filters.
+            :aria-hidden (if open? "false" "true")
+            :style {:display          "flex"
+                    :align-items      "center"
+                    :gap              "13px"
+                    :min-height       (:events-ribbon-height layout)
+                    :flex-wrap        "wrap"
+                    :padding          "0 12px"
+                    :background       (:bg-2 tokens)
+                    :border-bottom    (str "1px solid " (:border-subtle tokens))
+                    :font-family      sans-stack
+                    :font-size        (:body type-scale)}}
+      ;; rf2-xawwb — `↳ filters:` contextual label leads the events ribbon
+      ;; (Figma-Make surface), followed by the add-filter (+) ICON button,
+      ;; then the committed pills. The corner-down-right glyph mirrors the
+      ;; tabs ribbon's `for selected event` label idiom.
+      [:span {:data-testid "rf-xray-events-ribbon-filters-label"
+              :style {:display      "inline-flex"
+                      :align-items  "center"
+                      :gap          "6px"
+                      :color        (:text-secondary tokens)
+                      :font-family  sans-stack
+                      :font-size    (:caption type-scale)
+                      :white-space  "nowrap"}}
+       [:span {:aria-hidden "true"} "↳"]
+       "filters:"]
+      [filter-pills/events-add-filter-button]
+      ;; rf2-3f2di A6 — the committed green/red filter pills.
+      [ribbon-filter-pills {:filters filters}]
+      ;; rf2-xawwb — the `N events filtered out` warning is pushed to the
+      ;; RIGHT end (Figma-Make surface). The `margin-left: auto` shoves it
+      ;; to the trailing edge regardless of pill count. Renders only when
+      ;; N > 0. rf2-pjjwh removed the trailing `Clear Filters` button.
+      (when (:visible? hidden-summary)
+        [:div {:data-testid "rf-xray-events-ribbon-actions"
+               :style {:display "flex" :align-items "center" :gap "12px"
+                       :margin-left "auto"}}
+         (filters-hidden-message hidden-summary)])]]))
 
-;; rf2-ad7zx.12 + rf2-lnod7 + rf2-xawwb — the L2 list's column-header row,
-;; reconciled to the Figma-Make EventList. The header names the FOUR
-;; columns the rows align to, in Figma-Make order: `event id` · `source`
-;; · `timestamp` · `duration` (event-id leads; source follows). The
-;; column widths mirror the row layout below: a fixed leading FOCUS
-;; gutter (14px, unlabeled — a Xray affordance the mock didn't have),
-;; the flexible `event id` column, a fixed `source` tag column, then the
-;; right-aligned `timestamp` chip and `duration` cells.
+;; rf2-ad7zx.12 + rf2-lnod7 + rf2-xawwb + rf2-pjjwh — the L2 list's
+;; column-header row, reconciled to the Figma-Make EventList. The header
+;; names the FOUR columns the rows align to, in Figma-Make order:
+;; `event id` · `source` · `timestamp` · `duration` (event-id leads;
+;; source follows). The column widths mirror the row layout below: the
+;; flexible `event id` column, a fixed `source` tag column, then the
+;; right-aligned `timestamp` chip and `duration` cells. (rf2-pjjwh
+;; retired the leading focus gutter the mock didn't carry.)
 
 (defn- l2-column-header
   "Sticky column-header row for the L2 event list (rf2-ad7zx.12 + rf2-
@@ -1955,10 +1429,11 @@
            ;; of the data rows (`event-row`): same flex `gap`, same
            ;; horizontal `padding`, and the SAME per-column widths via the
            ;; shared `l2-*-col-*` constants. It also carries a matching
-           ;; `1px solid transparent` border so the rows' focused/ungrouped
-           ;; 1px border (content-box) never offsets the data columns 1px
-           ;; right of the header. Result: source / event id / timestamp
-           ;; sit directly above their data columns (Figma EventList).
+           ;; `1px solid transparent` border so the rows' active-row 1px
+           ;; border (content-box) never offsets the data columns 1px
+           ;; right of the header. Result: event id / source / timestamp /
+           ;; duration sit directly above their data columns (Figma
+           ;; EventList).
            :style {:position      "sticky"
                    :top           0
                    :z-index       1
@@ -1970,10 +1445,8 @@
                    :border        "1px solid transparent"
                    :background    (:bg-1 tokens)
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
-     ;; Leading focus-gutter spacer — same width as the rows' focus gutter
-     ;; (the gutter itself is a Xray affordance, unlabeled in the header).
-     [:span {:aria-hidden "true"
-             :style {:width l2-gutter-col-width :flex-shrink 0}}]
+     ;; rf2-pjjwh — no leading focus-gutter spacer (the gutter was a Xray
+     ;; affordance the mock didn't carry, retired with the focus feature).
      ;; rf2-xawwb — column order is `event id` FIRST, then `source`
      ;; (Figma-Make surface). The event-id is the primary read; source is
      ;; secondary context, so the id leads. The `event id` column is
@@ -2048,7 +1521,6 @@
         ;; second stratum so the count surfaces above the list rather
         ;; than as an inline banner inside it.
         focus          @(rf/subscribe [:rf.xray/focus])
-        focus-set      @(rf/subscribe [:rf.xray/focus-set])
         ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
         ;; bucket. Default OFF preserves silent-by-default; ON
         ;; surfaces the bucket as a muted L2 row that focuses the
@@ -2072,11 +1544,7 @@
         auto-track?    (and (= :live (:mode focus))
                             (:head? focus)
                             (not (:paused? focus)))
-        event-cascades (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
-        ;; rf2-a1z3b — precompute the focus predicate ONCE per render
-        ;; so the per-row work is a single fn call rather than a
-        ;; predicate rebuild per row.
-        focus-pred     (fh/build-focus-predicate focus-set)]
+        event-cascades (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)]
     [:div {:data-testid "rf-xray-event-list-wrap"
            :style {:display "flex" :flex-direction "column"}}
      ;; rf2-4vp5j — the hidden-by-filters message now lives in the
@@ -2118,13 +1586,6 @@
                 [event-row {:cascade     cascade
                             :focused-id  focused-id
                             :auto-track? auto-track?
-                            :focus-set   focus-set
-                            :in-focus?   (focus-pred cascade)
-                            ;; rf2-b76v4 — pass the spine focus through
-                            ;; so the row's lifecycle-status classifier
-                            ;; can read `:mode` (RETRO → :stale) and
-                            ;; `:paused?` (paused-by-tool → :cyan).
-                            :focus       focus
                             :now-ms      now-ms}]))))]]))
 
 ;; ---- L3 tab bar ----------------------------------------------------------

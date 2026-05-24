@@ -283,9 +283,9 @@
   origin per-row.)
 
   Errors are ALSO read from `:errors` (the cascade's existing
-  pre-rf2-gf58j slot used by `shell/gutter-glyph`) so an
-  error-bearing cascade flags the warn badge whether the trace
-  surfaced as a `:rf.error/*` op or as a populated `:errors` vector."
+  pre-rf2-gf58j slot) so an error-bearing cascade flags the warn
+  badge whether the trace surfaced as a `:rf.error/*` op or as a
+  populated `:errors` vector."
   [cascade]
   (let [others (when (map? cascade) (:other cascade))
         errors (when (map? cascade) (:errors cascade))

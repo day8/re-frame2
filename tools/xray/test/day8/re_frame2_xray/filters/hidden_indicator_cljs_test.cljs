@@ -187,7 +187,7 @@
 ;; (2) view renders the banner
 ;; -------------------------------------------------------------------------
 
-(deftest indicator-renders-count-and-clear-when-hidden
+(deftest indicator-renders-count-when-hidden
   (xray-setup!)
   (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a]))
   (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b]))
@@ -198,8 +198,10 @@
           indicator (find-by-testid tree "rf-xray-filters-hidden-indicator")
           count-node (find-by-testid tree "rf-xray-filters-hidden-count")]
       (is (some? indicator) "banner renders when rows are hidden")
-      (is (some? (find-by-testid tree "rf-xray-filters-hidden-clear"))
-          "Clear filters button present")
+      ;; rf2-pjjwh — the Clear Filters button is retired; the warning
+      ;; carries the count only.
+      (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
+          "Clear filters button is retired (rf2-pjjwh)")
       ;; rf2-3f2di A5 — the bar-2 warning reads `N events filtered out`
       ;; (authority reference events-ribbon), superseding the prior
       ;; `N events hidden by filters` copy.
@@ -207,9 +209,10 @@
 
 (deftest hidden-message-does-not-duplicate-the-committed-pills
   (testing "rf2-ad7zx.18 — per the Figma EventsRibbon mock the hidden-state
-            is a plain count beside `Clear Filters`. The committed pill must
-            render EXACTLY ONCE (in the LEFT cluster via pills-view); the
-            hidden-message must NOT re-render it as a cause chip."
+            is a plain count. The committed pill must render EXACTLY ONCE
+            (in the LEFT cluster via pills-view); the hidden-message must
+            NOT re-render it as a cause chip. rf2-pjjwh — Clear Filters is
+            retired."
     (xray-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a]))
     (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b]))
@@ -225,11 +228,11 @@
             "no duplicate cause-chip cluster in the hidden-message")
         (is (nil? (find-by-testid tree "rf-xray-filters-hidden-pill-0"))
             "no duplicate pill chip in the hidden-message")
-        ;; the count + Clear Filters survive (Figma mock).
+        ;; the count survives; Clear Filters is retired (rf2-pjjwh).
         (is (some? (find-by-testid tree "rf-xray-filters-hidden-count"))
             "the hidden count is kept")
-        (is (some? (find-by-testid tree "rf-xray-filters-hidden-clear"))
-            "Clear Filters is kept")))))
+        (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
+            "Clear Filters is retired (rf2-pjjwh)")))))
 
 (deftest indicator-absent-when-nothing-hidden
   (xray-setup!)

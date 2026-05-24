@@ -287,9 +287,9 @@
         (hiccup-seq tree)))
 
 (deftest view-renders-frame-dropdown-button-always
-  (testing "rf2-ad7zx.12 — the Figma chrome ribbon ALWAYS shows a
-            `Frame ▾` dropdown button (logo + Frame + Dynamic/Static is
-            the chrome). rf2-ad7zx.14 — with a SINGLE frame the overlaid
+  (testing "rf2-pjjwh — the Figma chrome ribbon ALWAYS shows a frame
+            dropdown button whose face shows the CURRENTLY-SELECTED frame
+            value (live). rf2-ad7zx.14 — with a SINGLE frame the overlaid
             <select> is ENABLED (a native select with one option opens +
             shows it; it is not inert) and lists that lone frame as its
             only option, carrying its `✓`."
@@ -304,9 +304,9 @@
                               (and (vector? n) (= :option (first n))))
                             (hiccup-seq tree))]
         (is (some? button) "the Frame dropdown button always renders")
-        (is (some? label) "the literal `Frame` label renders (not the value inline)")
-        (is (= "Frame" (last label))
-            "the button reads `Frame`, NOT `Frame: <value>` (Mike's flag)")
+        (is (some? label) "the frame label renders")
+        (is (= ":app/main" (last label))
+            "the button face shows the currently-selected frame value (rf2-pjjwh)")
         (is (some? (find-by-testid tree "rf-xray-ribbon-frame-chevron"))
             "the `▾` chevron renders, marking it a dropdown")
         (is (some? picker) "the native <select> overlay is present for a11y")
@@ -325,13 +325,14 @@
 (deftest view-renders-dropdown-when-multiple-frames
   (testing "the view renders a strictly-single-select <select> overlay
             when multiple distinct frames are present; the visible
-            affordance stays the `Frame ▾` button (rf2-ad7zx.12)"
+            affordance's face shows the active frame value (rf2-pjjwh)"
     (dispatch-trace 1 :app/main)
     (dispatch-trace 2 :app/admin)
     (setup!)
     (rf/with-frame :rf/xray
       (let [tree   (frame-switcher/frame-switcher-view {})
-            picker (find-by-testid tree "rf-xray-ribbon-frame-picker")]
+            picker (find-by-testid tree "rf-xray-ribbon-frame-picker")
+            label  (find-by-testid tree "rf-xray-ribbon-frame-label")]
         (is (some? picker) "dropdown renders for multi-frame")
         (is (= :select (first picker))
             "it's a <select>, not a custom multi-select")
@@ -339,8 +340,12 @@
             "strictly single-select — no :multiple attribute")
         (is (not (:disabled (second picker)))
             "multi-frame — the select is enabled so the popup opens")
-        (is (= "Frame" (last (find-by-testid tree "rf-xray-ribbon-frame-label")))
-            "the button still reads `Frame` (the value is not inlined)")))))
+        ;; rf2-pjjwh — the button face shows the active frame value (the
+        ;; head-frame default is the most recent event's frame, :app/admin).
+        (is (string? (last label))
+            "the button face shows a concrete frame value, not a placeholder")
+        (is (not= "Frame" (last label))
+            "the button no longer shows the static `Frame` placeholder")))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Storage-key plumbing — per-instance isolation
