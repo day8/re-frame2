@@ -352,7 +352,7 @@ An attacker-controllable scheme — `javascript:`, `data:`, `vbscript:` — that
 
 re-frame2 is multi-frame (per [002-Frames.md](002-Frames.md)). Every pair-tool surface that names a `frame-id` (`get-frame-db`, `epoch-history`, `restore-epoch`, `reset-frame-db!`, `dispatch`, `dispatch-sync`, `subscribe`, `snapshot-of`, `app-schemas`, `sub-cache`) is **frame-targeted** — the tool must resolve a single frame before the call. In a single-frame application the resolution is trivial: every call lands in the lone registered frame. In a multi-frame application the tool needs a deterministic "operating frame" rule so successive calls don't fan out across different frames by accident, and so a user gesture like "show me app-db" has one unambiguous answer.
 
-Pair-shaped tools (re-frame-pair, re-frame2-pair, [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver), Causa, Story, any future companion that drives a multi-frame app) MUST implement the **hybrid-resolution** contract below. The contract is normative for pair-shaped tools — applications themselves continue to use the frame-routing rules of [002 §Routing](002-Frames.md#routing-the-dispatch-envelope); this section pins how a *tool sitting outside* the application picks which frame its read or write targets.
+Pair-shaped tools (re-frame-pair, re-frame2-pair, [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver), Xray, Story, any future companion that drives a multi-frame app) MUST implement the **hybrid-resolution** contract below. The contract is normative for pair-shaped tools — applications themselves continue to use the frame-routing rules of [002 §Routing](002-Frames.md#routing-the-dispatch-envelope); this section pins how a *tool sitting outside* the application picks which frame its read or write targets.
 
 **Resolution order.** Every frame-targeted call resolves the operating frame by walking the following four tiers in order; the first tier that yields a frame-id wins:
 
@@ -400,7 +400,7 @@ Pair-shaped tools that implement the operating-frame contract MUST expose three 
 
 The triple-shape lets a tool UI render both "you have pinned X" (the selection) and "writes will go to X" (the resolved frame) — useful when the two diverge (e.g. tier-1 override on the current call, or sole-registered tier-3 fallthrough that the user hasn't explicitly chosen).
 
-**MCP / RPC surfacing.** Tools that expose pair surfaces over MCP / RPC SHOULD enumerate the three ops in their tool catalogue under stable names (typically `set-operating-frame`, `reset-operating-frame`, `get-operating-frame`). The runtime contract does not pin the wire names — only the semantics — but cross-tool consistency lets a user trained on re-frame2-pair carry the mental model to re-frame-pair-improver, Causa, or Story without relearning the resolver.
+**MCP / RPC surfacing.** Tools that expose pair surfaces over MCP / RPC SHOULD enumerate the three ops in their tool catalogue under stable names (typically `set-operating-frame`, `reset-operating-frame`, `get-operating-frame`). The runtime contract does not pin the wire names — only the semantics — but cross-tool consistency lets a user trained on re-frame2-pair carry the mental model to re-frame-pair-improver, Xray, or Story without relearning the resolver.
 
 ### Worked example — multi-frame pair session
 
@@ -478,7 +478,7 @@ This is **dev-only** end-to-end — every primitive listed above elides in produ
 `register-listener!` callbacks see *every* trace event. Tools that only care about a single subsystem filter inside the callback by `:op-type` — the universal discriminator (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). The pattern is one-key dispatch on the event:
 
 ```clojure
-;; A tool (Causa's flow panel, a pair-tool flow inspector,
+;; A tool (Xray's flow panel, a pair-tool flow inspector,
 ;; a custom dashboard) subscribes to JUST the flow trace stream.
 ;; Per Spec 009 §Flow trace events, every flow lifecycle event carries
 ;; :op-type :flow with the per-event identity in :operation
@@ -546,18 +546,18 @@ Edge-case behaviour the example does not exercise but consumers should know abou
 ### Implications for downstream tools
 
 - **re-frame-pair** (the upstream nREPL companion) consumes only the surfaces above. It depends on re-frame2; it does not depend on re-frame-10x.
-- **Causa** (the structural successor to re-frame-10x; Maven coord `day8/re-frame2-causa`) is built as a renderer of the same surfaces — a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Causa and pair share the substrate; one does not depend on the other.
+- **Xray** (the structural successor to re-frame-10x; Maven coord `day8/re-frame2-xray`) is built as a renderer of the same surfaces — a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Xray and pair share the substrate; one does not depend on the other.
 - **Custom debug panels, story tools (Spec 007), and pair-improver-style skills** consume the same surface. Multi-tool coexistence is the expected default — multiple `register-listener!` keys, multiple readers of the trace buffer, multiple consumers of the registrar. Listener ordering is not contract (per [009 §Listener ordering](009-Instrumentation.md#listener-ordering)).
 
 The framework is **infrastructure-complete** for AI-tool consumption: data shapes, query APIs, retention policies, configuration knobs, production elision. Downstream tools own *presentation and orchestration*; they do not need to ship infrastructure that should live in the framework.
 
-### The Causa renderer
+### The Xray renderer
 
-Causa's host-integration model is the **true-inline layout host** — the app provides a left-side `[data-rf-causa-host]` column in its normal layout, and the Causa preload mounts the rendered shell into that host once the substrate adapter is ready. The host owns sizing and layout; Causa owns the rendered shell (so the host's flex/grid rules govern the panel's geometry, and the app stays visible/clickable to the right). The normative contract — layout-host selector, mount lifecycle, hot-reload posture, popout window, missing-host diagnostic, teardown semantics — lives in [`tools/causa/spec/011-Launch-Modes.md`](../tools/causa/spec/011-Launch-Modes.md) §Mount lifecycle and §Layout host contract.
+Xray's host-integration model is the **true-inline layout host** — the app provides a left-side `[data-rf-xray-host]` column in its normal layout, and the Xray preload mounts the rendered shell into that host once the substrate adapter is ready. The host owns sizing and layout; Xray owns the rendered shell (so the host's flex/grid rules govern the panel's geometry, and the app stays visible/clickable to the right). The normative contract — layout-host selector, mount lifecycle, hot-reload posture, popout window, missing-host diagnostic, teardown semantics — lives in [`tools/xray/spec/011-Launch-Modes.md`](../tools/xray/spec/011-Launch-Modes.md) §Mount lifecycle and §Layout host contract.
 
-Resizing the inline panel is a one-property CSS contract: the recommended host snippet reads `var(--rf-causa-inline-width, 560px)` for its `flex-basis`, so developers override the panel width by setting `--rf-causa-inline-width` anywhere up the cascade (`:root`, an ancestor, the host itself, or a user stylesheet). The same snippet publishes `--rf-causa-accent` (default `#7C5CFF`, Causa's brand violet) on `:root` so host stylesheets can read it to tint their own dev chrome without forking the hex. Both contracts are **JS-free** and **host-owned** — Causa does not read or set either property, the host's stylesheet is the single source of truth (per [`tools/causa/spec/011-Launch-Modes.md`](../tools/causa/spec/011-Launch-Modes.md) §Resizing the inline host and §Brand-accent CSS variable, `rf2-um813` + `rf2-9ovfb`).
+Resizing the inline panel is a one-property CSS contract: the recommended host snippet reads `var(--rf-xray-inline-width, 560px)` for its `flex-basis`, so developers override the panel width by setting `--rf-xray-inline-width` anywhere up the cascade (`:root`, an ancestor, the host itself, or a user stylesheet). The same snippet publishes `--rf-xray-accent` (default `#7C5CFF`, Xray's brand violet) on `:root` so host stylesheets can read it to tint their own dev chrome without forking the hex. Both contracts are **JS-free** and **host-owned** — Xray does not read or set either property, the host's stylesheet is the single source of truth (per [`tools/xray/spec/011-Launch-Modes.md`](../tools/xray/spec/011-Launch-Modes.md) §Resizing the inline host and §Brand-accent CSS variable, `rf2-um813` + `rf2-9ovfb`).
 
-The shadow-cljs dev-build preload is the canonical wiring: `:preloads [day8.re-frame2-causa.preload]` runs the foundation's idempotent side-effects (handlers registration, trace + epoch collectors, browser API, keybinding, auto-open) all gated on `interop/debug-enabled?` so Closure DCE strips them from production bundles. The AI access path is `tools/re-frame2-pair-mcp/` — raw nREPL pair-programming companion; it consumes the same Tool-Pair instrumentation as Causa, and the two surfaces are independent.
+The shadow-cljs dev-build preload is the canonical wiring: `:preloads [day8.re-frame2-xray.preload]` runs the foundation's idempotent side-effects (handlers registration, trace + epoch collectors, browser API, keybinding, auto-open) all gated on `interop/debug-enabled?` so Closure DCE strips them from production bundles. The AI access path is `tools/re-frame2-pair-mcp/` — raw nREPL pair-programming companion; it consumes the same Tool-Pair instrumentation as Xray, and the two surfaces are independent.
 
 ### Wire-protocol mechanisms (MCP-tool layer, not framework)
 

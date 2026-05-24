@@ -110,7 +110,7 @@
         focused?   (boolean (.-focused d))
         after-ms   (.-afterMs d)
         ;; rf2-u422r — on-chart click wiring. `:onClick` is the host
-        ;; callback (e.g. Causa's on-chart sim → sim-step); `:eventId`
+        ;; callback (e.g. Xray's on-chart sim → sim-step); `:eventId`
         ;; is the raw fireable event keyword (nil for `:after` / `:always`
         ;; auto edges). A label is clickable only when BOTH a callback +
         ;; a fireable event-id are present, so auto edges stay inert.
@@ -173,7 +173,7 @@
                :data-internal (str internal?)
                :data-machine-level (str (boolean (.-machineLevel d)))
                ;; rf2-u422r — clickable edges surface their fireable
-               ;; event-id so a host (Causa on-chart sim) + tests can
+               ;; event-id so a host (Xray on-chart sim) + tests can
                ;; address them; inert (auto / no-callback) edges omit it.
                :data-clickable (str clickable?)
                :data-event-id (when (and clickable? event-id)
@@ -214,7 +214,7 @@
 
 ;; rf2-gpzb4 — :after-timer edges share the transition-edge body but
 ;; carry the after-ms duration as a data-attribute so a host-side
-;; overlay (Causa's machine_after_rings ns) can find the bearing
+;; overlay (Xray's machine_after_rings ns) can find the bearing
 ;; node and paint a countdown ring on top. The default styling is
 ;; identical to transition-edge; future polish (a small countdown-
 ;; ring glyph rendered inline on the label) can land in a follow-on

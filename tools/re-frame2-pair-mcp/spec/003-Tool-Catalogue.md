@@ -790,7 +790,7 @@ The `:app-db` slice has three response postures:
 Path vocabulary matches `get-in`: a vector of keys / indices. EDN
 strings (`":cart"`, `"0"`, `"-1"`) are parsed by the reader; non-EDN
 strings (`"bare-key"`) stay as map-key strings. Same vocabulary as
-the `get-path` tool below and as Causa-MCP's `:path` mechanism — one
+the `get-path` tool below and as Xray-MCP's `:path` mechanism — one
 shape across the tool family.
 
 The other slices (`:sub-cache`, `:machines`, `:epochs`, `:traces`)

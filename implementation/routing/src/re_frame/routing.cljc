@@ -1088,7 +1088,7 @@
         ;; route-attribution travels with the structured error to every
         ;; downstream consumer — tools reading `:rf.error/handler-
         ;; exception` outside this listener's discrimination context
-        ;; (Causa's event lens, an off-box Sentry shipper, an SSR error
+        ;; (Xray's event lens, an off-box Sentry shipper, an SSR error
         ;; projection) can identify the throw as :on-match-attributed
         ;; without re-running the discrimination logic. Same pattern as
         ;; the flow-attribution slot `:rf.flow/failed-id` (rf2-je5p8 /
@@ -1105,7 +1105,7 @@
                                                :cljs (some-> exception .-message))
                          :reason            "An :on-match event threw."}]
           ;; Per rf2-t1lxr: routing-internal dispatches self-tag with
-          ;; :rf/dispatch-origin :router so Causa's L2 timeline + tools
+          ;; :rf/dispatch-origin :router so Xray's L2 timeline + tools
           ;; filter pills can discriminate framework-origin events from
           ;; user-origin events.
           (router/dispatch! [:rf.route.internal/on-match-error

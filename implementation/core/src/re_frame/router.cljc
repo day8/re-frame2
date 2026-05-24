@@ -82,7 +82,7 @@
     :source             :ui :timer :http :repl :machine ...
     :origin             actor identity tag (:app default; :pair, :story,
                         :test, ... per Spec 002 §Dispatch origin tagging)
-    :rf/dispatch-origin closed-enum functional source per Causa A.5 /
+    :rf/dispatch-origin closed-enum functional source per Xray A.5 /
                         Spec 009 §Dispatch-origin tagging — one of
                         :user :router :websocket :http :ssr :fx-emit
                         :timer :test-harness :tool :internal. Defaults
@@ -158,7 +158,7 @@
              :source                 (:source opts :ui)
              :origin                 (:origin opts :app)
              ;; Per rf2-t1lxr: the closed-enum functional source per
-             ;; Causa A.5 / Spec 009 §Dispatch-origin tagging. The 10-value
+             ;; Xray A.5 / Spec 009 §Dispatch-origin tagging. The 10-value
              ;; taxonomy (:user :router :websocket :http :ssr :fx-emit
              ;; :timer :test-harness :tool :internal) classifies WHERE the
              ;; dispatch came from. Defaults to :user; internal callers
@@ -1093,7 +1093,7 @@
   ran is a sequence of complete, individually-atomic events.
 
   Per rf2-v0jwt §Outcomes: commit a `:halted-depth` epoch record so
-  devtools (Causa, re-frame2-pair) get a clear 'drain halted here'
+  devtools (Xray, re-frame2-pair) get a clear 'drain halted here'
   marker following the runaway `:ok` epochs. The halting event never ran,
   so its record's `:db-before` / `:db-after` both equal the current
   (last-settled) db value and its buffer is empty — `commit-halt-record!`
@@ -1309,7 +1309,7 @@
       ;;
       ;; Per rf2-v0jwt: the just-completed event already ran in full
       ;; (run-to-completion) AND already settled its own per-event epoch
-      ;; (rf2-nj6p7) — that record is durable. Devtools (Causa, re-frame-
+      ;; (rf2-nj6p7) — that record is durable. Devtools (Xray, re-frame-
       ;; re-frame2-pair) also receive a `:halted-destroy` record for the
       ;; interrupted drain from the destroy hook / `handle-drain-
       ;; interrupted!`. `restore-epoch` refuses these records, preserving
@@ -1478,8 +1478,8 @@
   "Emit the :event :event/dispatched trace event for this envelope. Per
   Spec 009 §Dispatch correlation, :dispatch-id and :parent-dispatch-id
   ride on :tags. Per Spec 002 §Dispatch origin tagging, :origin rides
-  on :tags too. Per rf2-t1lxr, :rf/dispatch-origin (Causa A.5 closed-
-  enum functional source) also rides on :tags so Causa's L2 epoch
+  on :tags too. Per rf2-t1lxr, :rf/dispatch-origin (Xray A.5 closed-
+  enum functional source) also rides on :tags so Xray's L2 epoch
   timeline can render the per-row origin tag. Spec elision is
   automatic — trace/emit! short-circuits when interop/debug-enabled?
   is false at compile time.
@@ -1488,7 +1488,7 @@
   `*handler-scope*` binding's `:no-emit?` slot doesn't exist yet at
   enqueue time, so we read the flag directly off the target handler's
   registration meta and short-circuit the `:event/dispatched` emit
-  when set. Without this, a Causa-style bookkeeping handler would
+  when set. Without this, a Xray-style bookkeeping handler would
   have its enqueue trace delivered to listeners (re-entering the
   consumer's trace-cb) before the handler-scope binding ever took
   effect.

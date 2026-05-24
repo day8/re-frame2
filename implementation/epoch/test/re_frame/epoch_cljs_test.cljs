@@ -15,8 +15,8 @@
        are dropped.
     4. Per-dispatch fan-out — `register-epoch-listener!` fires once per
        drain-settle with the assembled record (the contract that
-       Causa's preload routes through to dispatch
-       `:rf.causa/epoch-recorded`; the per-dispatch signal is the
+       Xray's preload routes through to dispatch
+       `:rf.xray/epoch-recorded`; the per-dispatch signal is the
        epoch-cb fan-out itself, plus the `:rf.epoch/snapshotted`
        trace emitted alongside).
     5. Production-elision DCE — runtime gate sanity. Under the
@@ -144,7 +144,7 @@
 
 (deftest epoch-cb-fires-per-dispatch-cljs
   (testing "register-epoch-listener! fires once per drain-settle — the
-            contract Causa's preload (`:rf.causa/epoch-recorded`)
+            contract Xray's preload (`:rf.xray/epoch-recorded`)
             routes through. The companion `:rf.epoch/snapshotted`
             trace also fires once per dispatch."
     (rf/reg-event-db :n/init (fn [_ _] {:n 0}))

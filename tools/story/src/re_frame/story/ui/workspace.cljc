@@ -45,7 +45,7 @@
     last-seeded cell's app-db clobbers the rest, but a serialised
     renderer re-seeds each cell on visit.
 
-  Belt-and-braces to `:tabs`. The Causa modal-positioning fix
+  Belt-and-braces to `:tabs`. The Xray modal-positioning fix
   (rf2-om6fa) covered the most visible failure mode (full-viewport
   modal stack); `:isolation :shared` addresses the remaining interior
   state-bleed without forcing the author to convert the workspace to

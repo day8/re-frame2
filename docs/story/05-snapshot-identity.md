@@ -141,6 +141,6 @@ There is no explicit "you should now see" for this chapter — the snapshot iden
 
 ## Where we go next
 
-Chapter 6 is short. We've talked about time-travel as a Causa feature throughout the tutorial; chapter 6 spells out *what changes when you time-travel inside Story*, because the per-variant frame isolation makes the gesture qualitatively different from time-travel against a single host app.
+Chapter 6 is short. We've talked about time-travel as a Xray feature throughout the tutorial; chapter 6 spells out *what changes when you time-travel inside Story*, because the per-variant frame isolation makes the gesture qualitatively different from time-travel against a single host app.
 
 Next: [time-travel in Story](06-time-travel.md).

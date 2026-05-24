@@ -6,14 +6,14 @@
   WHY THIS NS EXISTS — three near-identical attribution escapes shipped to
   CI for the SAME structural reason: no test asserted per-cascade / per-mount
   attribution across ≥2 distinct cascades. Each was caught in production
-  (Causa's Views / Reactive panels), fixed in isolation, and shipped with its
+  (Xray's Views / Reactive panels), fixed in isolation, and shipped with its
   own inline test:
 
     rf2-qs6dl (#1935) — a `:rf.view/render` (`:rf.view/rendered`) fired at React
                         COMMIT time, AFTER its causing cascade settled, landed
                         in the now-empty buffer, and was harvested by the NEXT
                         cascade's settle — every render mis-attributed by one
-                        epoch. Causa showed a `counter-inc` epoch rendering
+                        epoch. Xray showed a `counter-inc` epoch rendering
                         `title-view`, which is impossible.
     rf2-wi900 (#1938) — the SUBS sibling. A reactive `:rf.sub/run` recomputes
                         lazily at React deref time, post-settle, same lag — so
@@ -70,7 +70,7 @@
 
   Supporting cases pin the boundary behaviour each fix also relies on:
   in-flight emits ride their own cascade (not back-filled); the back-fill
-  re-fans the corrected record to listeners (Causa caches at settle time);
+  re-fans the corrected record to listeners (Xray caches at settle time);
   an orphan emit before any cascade is a silent no-op; mount-burst tails are
   de-duped; a genuine re-render never collapses back to the mount epoch."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -547,7 +547,7 @@
 (deftest inv-4-back-fill-renotifies-listeners-with-corrected-attribution
   (testing "rf2-wi900 — back-filling a post-settle sub-run re-fans the
             corrected record out to epoch listeners so snapshot consumers
-            (Causa's per-cascade Views subs table, which caches epoch-history
+            (Xray's per-cascade Views subs table, which caches epoch-history
             at settle time) re-sync to the corrected :sub-runs +
             :rf.sub/value-changed? attribution. Without the re-fan a cached panel
             would show the stale settle-time record (the value-change absent)."
@@ -575,7 +575,7 @@
 
 (deftest inv-4-render-back-fill-renotifies-listeners
   (testing "rf2-qs6dl — the render sibling of the re-fan: back-filling a
-            post-settle render re-fans the corrected record so the Causa Views
+            post-settle render re-fans the corrected record so the Xray Views
             / Reactive panel re-syncs to the corrected :renders."
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))

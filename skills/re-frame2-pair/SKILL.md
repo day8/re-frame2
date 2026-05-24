@@ -72,7 +72,7 @@ Every operation eventually becomes a short ClojureScript form evaluated through 
 
 ## Setup — preload `re-frame2-pair.runtime`
 
-The skill's helper namespace ships into the app via shadow-cljs's standard `:devtools :preloads` mechanism. This is re-frame2-pair's runtime-helper requirement, separate from Causa's devtools preload and true-inline `[data-rf-causa-host]` panel contract. **The re-frame2-pair preload is required**; there is no per-session cljs-eval inject fallback. `discover-app` refuses with `:reason :runtime-not-preloaded` when it can't find the marker.
+The skill's helper namespace ships into the app via shadow-cljs's standard `:devtools :preloads` mechanism. This is re-frame2-pair's runtime-helper requirement, separate from Xray's devtools preload and true-inline `[data-rf-xray-host]` panel contract. **The re-frame2-pair preload is required**; there is no per-session cljs-eval inject fallback. `discover-app` refuses with `:reason :runtime-not-preloaded` when it can't find the marker.
 
 Two-line setup. In `shadow-cljs.edn`:
 
@@ -191,11 +191,11 @@ Load at most two references for a single task. If you find yourself wanting thre
 
 ---
 
-## When to also open Causa
+## When to also open Xray
 
-A re-frame2-pair session and a running Causa panel are **complementary** surfaces over the same trace bus + epoch history. Pair2 owns the *driving* (dispatch, hot-swap, restore-epoch); Causa owns the *seeing* (the visual reading of what just happened across its Dynamic event-spine tabs and Static registry-browse tabs — `skills/re-frame2-causa/` is the canonical source for Causa facts). Reach for Causa alongside re-frame2-pair when:
+A re-frame2-pair session and a running Xray panel are **complementary** surfaces over the same trace bus + epoch history. Pair2 owns the *driving* (dispatch, hot-swap, restore-epoch); Xray owns the *seeing* (the visual reading of what just happened across its Dynamic event-spine tabs and Static registry-browse tabs — `skills/re-frame2-xray/` is the canonical source for Xray facts). Reach for Xray alongside re-frame2-pair when:
 
-| Pair2 just did | Open Causa to … |
+| Pair2 just did | Open Xray to … |
 |---|---|
 | Rewound to an earlier epoch via `restore-epoch` | Scrub the bottom-rail time-travel scrubber to inspect adjacent epochs visually; pin slices in the App-DB Diff panel. |
 | Dispatched into a cascade you don't fully understand | The Event Detail panel lands on the latest cascade and shows the dispatch-id tree. |
@@ -203,7 +203,7 @@ A re-frame2-pair session and a running Causa panel are **complementary** surface
 | Stepped into a machine transition | Open the Machine Inspector for the state-chart view with transition history. |
 | Triggered a schema violation | The Schema Violation Timeline surfaces it with recovery mode + source coord. |
 
-The authoring-side guidance for getting Causa mounted (preload, layout host, suppress-auto-open knob, popout, host-CSS-variable resize) lives at [`skills/re-frame2/references/tooling/causa.md`](../re-frame2/references/tooling/causa.md). When you're advising a user mid-session on which panel to look at, route them there for the mount-side detail; this skill stays focused on the *driving* side.
+The authoring-side guidance for getting Xray mounted (preload, layout host, suppress-auto-open knob, popout, host-CSS-variable resize) lives at [`skills/re-frame2/references/tooling/xray.md`](../re-frame2/references/tooling/xray.md). When you're advising a user mid-session on which panel to look at, route them there for the mount-side detail; this skill stays focused on the *driving* side.
 
 ---
 

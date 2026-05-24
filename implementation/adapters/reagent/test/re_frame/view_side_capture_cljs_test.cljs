@@ -1,6 +1,6 @@
 (ns re-frame.view-side-capture-cljs-test
   "Per rf2-9hoos — the three view-side captures phase-A adds to the
-  view-render instrumentation so Causa's Views table (phase-B) can show,
+  view-render instrumentation so Xray's Views table (phase-B) can show,
   per view, its mount/rerender/unmount ACTION and the per-view REASON it
   rendered:
 

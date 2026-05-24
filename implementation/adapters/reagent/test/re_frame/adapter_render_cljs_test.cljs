@@ -4,7 +4,7 @@
   `(rdc/render root render-tree)` — NOT `(rdc/render mount-point tree)`
   directly. The pre-fix code passed a raw DOM element where the Root
   was required, causing
-  `TypeError: root.render is not a function` at Causa mount time.
+  `TypeError: root.render is not a function` at Xray mount time.
 
   This test pins the call sequence by spying through `with-redefs` on
   `reagent.dom.client`'s `create-root` / `render` / `hydrate-root` /

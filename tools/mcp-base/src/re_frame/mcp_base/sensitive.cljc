@@ -5,7 +5,7 @@
   ## What spec/009 mandates
 
   Framework-published forwarders — Sentry / Honeybadger, re-frame2-pair server,
-  Story-MCP, Causa-MCP — MUST default-drop trace events whose
+  Story-MCP, Xray-MCP — MUST default-drop trace events whose
   registration declared `:sensitive? true`. The runtime stamps the
   flag at the top level of every emitted trace event inside such a
   registration's handler scope; the forwarder's job is to gate egress

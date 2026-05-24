@@ -86,7 +86,7 @@
                :left     "12px"
                :z-index  1500}
    ;; rf2-8rvu4 — RHS section headers. Pre-rf2-8rvu4 the right-panel
-   ;; stacked Causa / Controls / Dispatch console / panel registrations
+   ;; stacked Xray / Controls / Dispatch console / panel registrations
    ;; with only a thin border-top between widgets, reading as one tall
    ;; column. The section-header pattern gives each widget a labelled
    ;; band so the panel parses as N labelled sections.
@@ -106,12 +106,12 @@
     :margin-bottom  "8px"
     :padding-bottom "6px"
     ;; Section dividers vary in weight: an amber-tinted hairline
-    ;; replaces the uniform #444 line — same trick Causa uses for
+    ;; replaces the uniform #444 line — same trick Xray uses for
     ;; spine boundaries.
     :border-bottom  (str "1px solid " (:border-subtle colors/tokens))
     :box-shadow     (str "0 1px 0 " (:accent-amber-soft colors/tokens))}
    :rhs-section-h-accent
-   {;; The Causa section gets a stronger accent so the diagnostic
+   {;; The Xray section gets a stronger accent so the diagnostic
     ;; surface reads as the RHS's primary tenant.
     :color (:accent-amber colors/tokens)}
    :rhs-section-body

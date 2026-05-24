@@ -4,7 +4,7 @@
 > **Normative status:** v1 contract surface — pattern contract; a conformant React-backed port MUST implement the walker against the read paths below. Non-React substrates (post-v1) MAY publish their own equivalent capture surface; this doc owns the React case.
 > Locked: 2026-05-19 — Fiber-reading for hierarchy capture relaxed; per-component metadata reads remain rejected.
 
-This doc pins the contract for **runtime view-hierarchy capture** — how a tool (today, Causa) reads the parent ⊃ children relationships of the views the host application has mounted. The contract is single-document because **the React Fiber parent/child slots ARE the contract for every React-backed substrate** the framework supports (Reagent / UIx / Helix all mount through React).
+This doc pins the contract for **runtime view-hierarchy capture** — how a tool (today, Xray) reads the parent ⊃ children relationships of the views the host application has mounted. The contract is single-document because **the React Fiber parent/child slots ARE the contract for every React-backed substrate** the framework supports (Reagent / UIx / Helix all mount through React).
 
 Per-adapter spec is intentionally absent — no adapter ships its own hierarchy-capture surface. The host's Fiber tree IS the source of truth; the walker reads it directly.
 
@@ -14,7 +14,7 @@ Per-adapter spec is intentionally absent — no adapter ships its own hierarchy-
 
 - Reading the **structural** Fiber slots — `return`, `child`, `sibling`, `elementType` — to reconstruct the parent ⊃ children view tree at any point in time.
 - Resolving each Fiber's `elementType` to a re-frame2 view-id where the adapter has tagged the fn at registration time (the `__rf2_view_id__` property below); falling back to `displayName` / `name` / a `"<host>"` label otherwise.
-- Surfacing the captured tree to the host tool (Causa) for the Views panel's Group-by-tree toggle, parent-cascade attribution, and future Static Views surfaces.
+- Surfacing the captured tree to the host tool (Xray) for the Views panel's Group-by-tree toggle, parent-cascade attribution, and future Static Views surfaces.
 
 **Explicitly out of scope (REJECTED per Views Q1; STAYS REJECTED per Comment 6 lock-in):**
 
@@ -37,13 +37,13 @@ The two prefixes are React's documented Fiber-pointer scheme. The walker reads O
 
 **Every Fiber-reading callsite MUST be wrapped in an `(when interop/debug-enabled? …)` form.** The framework's `goog.DEBUG`-derived define collapses these branches under Closure `:advanced` so production bundles carry zero Fiber-reading code paths.
 
-The walker is also dev-only by classpath: Causa's preload is `:devtools/preloads`-gated, so the walker namespace is not on the production classpath at all under the canonical install. The `interop/debug-enabled?` gate is the **second line of defence** against an accidental `:require` from a host's non-dev entry point.
+The walker is also dev-only by classpath: Xray's preload is `:devtools/preloads`-gated, so the walker namespace is not on the production classpath at all under the canonical install. The `interop/debug-enabled?` gate is the **second line of defence** against an accidental `:require` from a host's non-dev entry point.
 
 **Bundle-isolation contract** — the walker must not leak to production bundles. The contract is enforced by `implementation/scripts/check-bundle-isolation.cjs` (the same sentinel-grep that pins per-feature artefact isolation). A non-zero hit on a walker sentinel in the `examples/counter` production bundle is a hard failure.
 
 ## React-version regression check
 
-**Each React major bump (16 → 17 → 18 → 19 → …) MUST run a smoke test that confirms the walker still reads parent/child correctly.** The smoke test lives in `tools/causa/test/day8/re_frame2_causa/views/fiber_walker_cljs_test.cljs` and stubs a minimal Fiber-shaped object graph that mirrors the React version's published structure. If the smoke breaks, the choice is binary:
+**Each React major bump (16 → 17 → 18 → 19 → …) MUST run a smoke test that confirms the walker still reads parent/child correctly.** The smoke test lives in `tools/xray/test/day8/re_frame2_xray/views/fiber_walker_cljs_test.cljs` and stubs a minimal Fiber-shaped object graph that mirrors the React version's published structure. If the smoke breaks, the choice is binary:
 
 1. **Ship a fix** — update the walker to the new Fiber slot names / shape. This is the expected path when React renames a slot but keeps the structural model.
 2. **Fall back to data-attribute tagging** — switch the consuming tool to the fallback in bead `rf2-01il5`. Each `reg-view` mutates its first element's attribute map to include `data-rf-view="<name>"`; the walker queries `document.querySelectorAll('[data-rf-view]')` and infers parent ⊃ children by DOM containment. This is the React-version-independent escape hatch.
@@ -92,7 +92,7 @@ In document order. `:fiber-key` is used as the React key for tree-row rendering 
 
 Per the findings §12 lock-in:
 
-1. **Group-by-tree toggle** in the Causa Views panel — third toggle alongside Group-by-component and Group-by-sub. Parent ⊃ children indentation; collapsible "X (47 descendants re-rendered)" rollup rows.
+1. **Group-by-tree toggle** in the Xray Views panel — third toggle alongside Group-by-component and Group-by-sub. Parent ⊃ children indentation; collapsible "X (47 descendants re-rendered)" rollup rows.
 2. **Mount/unmount cascade attribution** — single row per cascade instead of N rows.
 3. **Future Static Views surface** — a Static sub-tab that browses registered views and shows their typical render hierarchy, viable now that runtime hierarchy is captureable.
 4. **Per-tree-node click-to-source** — combined with the existing source-coord lift, tree nodes carry their own jump-to-source affordance.
@@ -101,14 +101,14 @@ Per the findings §12 lock-in:
 
 | Surface                                | Owner                                                                  |
 |----------------------------------------|------------------------------------------------------------------------|
-| Fiber-walker implementation (CLJS)     | `tools/causa/src/day8/re_frame2_causa/views/fiber_walker.cljs`         |
-| Group-by-tree renderer                 | `tools/causa/src/day8/re_frame2_causa/views/group_by_tree.cljs`        |
-| Views panel toggle wiring              | `tools/causa/src/day8/re_frame2_causa/panels/views_view.cljs`          |
-| React-version regression smoke         | `tools/causa/test/day8/re_frame2_causa/views/fiber_walker_cljs_test.cljs` |
+| Fiber-walker implementation (CLJS)     | `tools/xray/src/day8/re_frame2_xray/views/fiber_walker.cljs`         |
+| Group-by-tree renderer                 | `tools/xray/src/day8/re_frame2_xray/views/group_by_tree.cljs`        |
+| Views panel toggle wiring              | `tools/xray/src/day8/re_frame2_xray/panels/views_view.cljs`          |
+| React-version regression smoke         | `tools/xray/test/day8/re_frame2_xray/views/fiber_walker_cljs_test.cljs` |
 | Production DCE contract                | `implementation/scripts/check-bundle-isolation.cjs`                    |
 | Fallback (data-attribute tagging)      | Bead `rf2-01il5`; documented in findings §12.1                         |
 | Reactive-substrate adapter API         | [`006-ReactiveSubstrate.md`](006-ReactiveSubstrate.md) (Fiber is the *contract*, not an adapter-side surface) |
-| Causa Views panel                      | `tools/causa/spec/012-Views.md`                                        |
+| Xray Views panel                      | `tools/xray/spec/012-Views.md`                                        |
 
 ## Decisions log
 

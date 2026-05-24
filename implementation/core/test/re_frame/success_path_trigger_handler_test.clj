@@ -9,7 +9,7 @@
   introduced (rf2-3nn8) for error events only; widened (rf2-lf84g) so
   success-path traces — `:rf.fx/handled`, `:rf.machine/transition`,
   `:rf.event/db-changed`, `:rf.fx/do-fx`, ... — also carry the coord, so
-  consumer tools (Story, Causa, re-frame-pair) can render
+  consumer tools (Story, Xray, re-frame-pair) can render
   jump-to-source links from every event in a cascade, not just errors.
 
   Locked shape (per rf2-3nn8 / rf2-lf84g):
@@ -82,7 +82,7 @@
 
 (deftest fx-handled-carries-fx-handler-trigger
   (testing ":rf.fx/handled rides the FX handler's registration coord
-   (not the enclosing event handler's) — Story/Causa want jump-to-source
+   (not the enclosing event handler's) — Story/Xray want jump-to-source
    to land on the fx's reg-fx site, not the event-handler that produced
    the fx vector"
     (rf/reg-fx :rf2-lf84g/my-fx
@@ -205,12 +205,12 @@
 ;; fn): the sub's coord". The `:rf.sub/run` success-trace emits inside the
 ;; sub's recompute scope, so it carries the sub's own registration coord
 ;; (not the enclosing event handler's, even when the recompute fires
-;; inside a dispatch's drain). Causa's event-detail panel + re-frame2-pair's
+;; inside a dispatch's drain). Xray's event-detail panel + re-frame2-pair's
 ;; jump-to-source UX render click-to-jump links from this slot on every
 ;; trace in a cascade, including sub recomputes.
 
 (deftest sub-run-carries-sub-trigger
-  (testing ":rf.sub/run rides the sub's own registration coord — Causa /
+  (testing ":rf.sub/run rides the sub's own registration coord — Xray /
    re-frame2-pair want jump-to-source to land on the reg-sub site of the sub
    that recomputed, not the upstream event handler whose db change
    caused the recompute"

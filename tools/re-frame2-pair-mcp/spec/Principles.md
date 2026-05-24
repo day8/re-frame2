@@ -451,7 +451,7 @@ for every record the runtime can produce.
 "what did this cascade do?" want scoped cluster summaries
 keyed by path. The flat patch list (the predecessor shape)
 forced agents to re-cluster mentally. The sections projection
-mirrors Causa's panel sections-per-cluster decomposition
+mirrors Xray's panel sections-per-cluster decomposition
 (rf2-gfxmk Phase 1 of rf2-abts7) so the on-box developer
 surface and the off-box agent surface read the same cascade
 shape.

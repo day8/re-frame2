@@ -29,7 +29,7 @@ The two routes are complementary, not redundant:
 
 Either way you end up at the same canonical shape — the skill walks the
 seven-step path manually and lands on the template's day-one scaffold
-(core + Reagent adapter + schemas + Causa, `init` entry symbol); the
+(core + Reagent adapter + schemas + Xray, `init` entry symbol); the
 template performs the same steps for you in one command. After the
 counter mounts, the same handoff to `re-frame2` / `re-frame2-pair`
 applies.
@@ -38,10 +38,10 @@ applies.
 
 The canonical seven-step greenfield path:
 
-1. Discover the current re-frame2 VERSION (the eleven artefacts ship in lockstep; Causa rides the same line).
-2. Add the day-one deps to `deps.edn` — `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-causa`, plus an explicit `reagent/reagent`.
+1. Discover the current re-frame2 VERSION (the eleven artefacts ship in lockstep; Xray rides the same line).
+2. Add the day-one deps to `deps.edn` — `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-xray`, plus an explicit `reagent/reagent`.
 3. Add `react`, `react-dom`, `shadow-cljs` to `package.json`. Run `npm install`.
-4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Causa `:devtools/preloads` wiring), plus `resources/public/index.html` carrying the `[data-rf-causa-host]` column.
+4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Xray `:devtools/preloads` wiring), plus `resources/public/index.html` carrying the `[data-rf-xray-host]` column.
 5. Write the entry namespace — `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export init [] ...)`.
 6. Write the first counter — registered event, registered sub, `reg-view`-defined view, mount.
 7. Run `shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.

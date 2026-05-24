@@ -16,7 +16,7 @@
   every consumer gets when `:density` is unspecified or `nil`.
   `compact` shrinks geometry + typography proportionally for grid
   layouts (Story's 50-chart panel grid); `cosy` widens both for the
-  single-chart-display case (Causa's machines tab on a wide
+  single-chart-display case (Xray's machines tab on a wide
   monitor). Hosts pick one via the chart's `:density` prop. The
   three maps share the SAME key set (asserted by
   `visual-constants-cljs-test`); a key in one is a key in all.
@@ -186,7 +186,7 @@
   "Chart visual constants — COSY density.
 
   Larger nodes, larger type, more breathing room. Targets the
-  single-chart-display case — Causa's machines tab on a wide monitor
+  single-chart-display case — Xray's machines tab on a wide monitor
   or a presentation-mode standalone viewer. The user is reading the
   chart, not scanning a grid; labels are payload, not decoration.
 

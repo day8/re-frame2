@@ -3,8 +3,8 @@
 
   Pins the cross-server **argument-slot vocabulary** that an agent
   learns once and recognises identically across every MCP server in
-  the re-frame2 pair (re-frame2-pair-mcp, story-mcp). (causa-mcp was dropped
-  in rf2-bu21t — causa now ships as a Clojars-only library, not an
+  the re-frame2 pair (re-frame2-pair-mcp, story-mcp). (xray-mcp was dropped
+  in rf2-bu21t — xray now ships as a Clojars-only library, not an
   MCP server.)
 
   Sibling to:
@@ -154,8 +154,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Historical note — the size-elision opt-out divergence pin
 ;; (`:include-large?` vs re-frame2-pair-mcp's `:elision`) lived here while
-;; causa-mcp shipped as an MCP server (rf2-8xzoe T-Insp cluster). The
-;; rf2-bu21t drop reverted causa-mcp; the divergence collapsed to a
+;; xray-mcp shipped as an MCP server (rf2-8xzoe T-Insp cluster). The
+;; rf2-bu21t drop reverted xray-mcp; the divergence collapsed to a
 ;; single-server re-frame2-pair-mcp `:elision` form. If a future MCP server
 ;; adopts `:include-large?` (per the canonical reserved spelling in
 ;; `mcp-base/vocab.cljc`), restore the divergence pin so the
@@ -380,8 +380,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Gate 4 — divergence pin (HISTORICAL).
 ;;
-;; This slot was the `:include-large?` (causa-mcp) vs `:elision`
-;; (re-frame2-pair-mcp) divergence pin. With causa-mcp removed in rf2-bu21t,
+;; This slot was the `:include-large?` (xray-mcp) vs `:elision`
+;; (re-frame2-pair-mcp) divergence pin. With xray-mcp removed in rf2-bu21t,
 ;; re-frame2-pair-mcp is the sole live emitter; the divergence collapses to a
 ;; single-server `:elision` spelling. The canonical
 ;; `:rf.size/include-large?` form remains reserved in
@@ -408,11 +408,11 @@
                  "the literal or update this test."))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 6 — causa-mcp impl-landed pin (HISTORICAL).
+;; Gate 6 — xray-mcp impl-landed pin (HISTORICAL).
 ;;
-;; This row was a `causa-mcp-tools-directory-present` structural-floor
+;; This row was a `xray-mcp-tools-directory-present` structural-floor
 ;; assertion under the T-Insp tool cluster (rf2-8xzoe.14..22). The
-;; rf2-bu21t drop removed `tools/causa-mcp/` entirely; the directory
+;; rf2-bu21t drop removed `tools/xray-mcp/` entirely; the directory
 ;; is now legitimately absent and the assertion is no longer
 ;; applicable.
 ;; ---------------------------------------------------------------------------

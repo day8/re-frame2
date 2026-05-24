@@ -30,7 +30,7 @@
   ## Trace integration
 
   Each step emits a `:rf.story.play/step` trace event via
-  `re-frame.trace.tooling/with-trace` so the Causa Trace tab shows the
+  `re-frame.trace.tooling/with-trace` so the Xray Trace tab shows the
   full play timeline with PASS/FAIL outcomes alongside the rest of the
   cascade."
   (:refer-clojure :exclude [run!])
@@ -293,7 +293,7 @@
   "Execute a `:dispatch` step. Returns a step-result.
 
   Drains any handler-exception trace events captured by the play
-  listener into `:rf.story/assertions` so the test-mode pane + Causa
+  listener into `:rf.story/assertions` so the test-mode pane + Xray
   assertions panel see the failure (rf2-z2dq8). The re-frame router
   catches handler exceptions and emits `:rf.error/handler-exception`
   rather than re-throwing, so the local catch fires only for
@@ -542,7 +542,7 @@
 ;; Rich-DSL `:assert-db` / `:assert-dom` step outcomes used to land ONLY
 ;; in the runner's `run-state` atom. The `:rf.story/assertions` app-db
 ;; slot — read by `run-variant`'s result map, `assertions-passing?`, the
-;; test-mode pane, the inline assertion strip, and the Causa assertions
+;; test-mode pane, the inline assertion strip, and the Xray assertions
 ;; panel — never saw them, so a failing rich-DSL assertion read as a
 ;; false GREEN through every slot consumer (only the toolbar chip + the
 ;; CI/Playwright runner, which read `run-state` directly, observed it).

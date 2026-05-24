@@ -294,7 +294,7 @@ See [14 — Adapters](14-adapters.md) for the per-substrate detail.
 
 ## DOM source-coord annotations
 
-Every adapter whose host has a DOM-attribute concept (Reagent / UIx / Helix on the browser; not Plain Atom) injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. The annotation is **mandatory** at the adapter contract level; it's what powers click-to-source navigation in Causa and re-frame2-pair.
+Every adapter whose host has a DOM-attribute concept (Reagent / UIx / Helix on the browser; not Plain Atom) injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. The annotation is **mandatory** at the adapter contract level; it's what powers click-to-source navigation in Xray and re-frame2-pair.
 
 Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`). Production `:advanced` builds elide the attribute via dead-code elimination — there's no DOM-bytes cost in shipped bundles.
 

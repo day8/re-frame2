@@ -2,7 +2,7 @@
   ":sensitive? default-suppress (per spec/009 §Privacy / sensitive data).
 
   Spec 009 mandates that framework-published forwarders — Sentry /
-  Honeybadger, re-frame2-pair server, Causa-MCP — MUST default-drop trace events
+  Honeybadger, re-frame2-pair server, Xray-MCP — MUST default-drop trace events
   whose registration was declared `:sensitive? true`. The runtime
   stamps `:sensitive? true` at the top level of every emitted trace
   event inside such a registration's handler scope; an event with no

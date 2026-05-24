@@ -32,7 +32,7 @@ Per Decision 4 the `reg-view` macro stays Reagent-only; Helix users write `defnc
 
 ## Testing
 
-The `examples/` tree carries no tests (locked policy, rf2-8cevm). Browser smoke coverage for the Helix substrate lives at the **adapter level**: a single mount + dispatch + assert smoke at [`implementation/adapters/helix/testbed/spec.cjs`](../../implementation/adapters/helix/testbed/) (one each for Reagent, UIx, and Helix). Real regressions are caught by the substrate contract tests (`npm run test:cljs`), the Causa feature-matrix gate (`npm run test:causa-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance — not by per-example specs.
+The `examples/` tree carries no tests (locked policy, rf2-8cevm). Browser smoke coverage for the Helix substrate lives at the **adapter level**: a single mount + dispatch + assert smoke at [`implementation/adapters/helix/testbed/spec.cjs`](../../implementation/adapters/helix/testbed/) (one each for Reagent, UIx, and Helix). Real regressions are caught by the substrate contract tests (`npm run test:cljs`), the Xray feature-matrix gate (`npm run test:xray-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance — not by per-example specs.
 
 From `implementation/`, the adapter smokes run via:
 

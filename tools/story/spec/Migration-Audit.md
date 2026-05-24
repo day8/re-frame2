@@ -4,7 +4,7 @@ Filed: 2026-05-20 14:21:34 AUSEST · Bead: **rf2-tglku** (P2 epic) · Audit only
 
 ## Brief
 
-Mike directive 2026-05-20: move the substantive assertions out of the Playwright gates into CLJS unit tests + adapter testbed smokes. Playwright residual = whatever genuinely needs a real browser. This doc inventories every `*.spec.cjs` file driven by the per-PR Story/Causa Playwright gates, classifies every assertion A/B/C, proposes per-spec migration target files, and recommends a post-migration gate posture.
+Mike directive 2026-05-20: move the substantive assertions out of the Playwright gates into CLJS unit tests + adapter testbed smokes. Playwright residual = whatever genuinely needs a real browser. This doc inventories every `*.spec.cjs` file driven by the per-PR Story/Xray Playwright gates, classifies every assertion A/B/C, proposes per-spec migration target files, and recommends a post-migration gate posture.
 
 Classification key:
 - **(A) Pure data flow / CLJS logic** — assertion is about app-db state, event-handler outcome, sub computation, machine state, flow output, trace-bus contents, epoch-history records. Migratable to `*_test.cljs` under the owning artefact's test dir using the multi-frame CLJS e2e helpers from rf2-7icrs (no browser needed).
@@ -18,8 +18,8 @@ Classification key:
 | `implementation/adapters/helix/testbed/spec.cjs` | 24 | Helix adapter smoke | 3 |
 | `implementation/adapters/reagent/testbed/spec.cjs` | 23 | Reagent adapter smoke | 3 |
 | `implementation/adapters/uix/testbed/spec.cjs` | 24 | UIx adapter smoke | 3 |
-| `tools/causa/testbeds/parallel_frames/spec.cjs` | 277 | Causa multi-frame isolation | 27 |
-| ~~`tools/causa/testbeds/perf_counter/spec.cjs`~~ DELETED Wave 4 (rf2-e3j8l) → `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` | ~~103~~ | Spec 009 perf User-Timing (nightly CLJS) | ~~6~~ |
+| `tools/xray/testbeds/parallel_frames/spec.cjs` | 277 | Xray multi-frame isolation | 27 |
+| ~~`tools/xray/testbeds/perf_counter/spec.cjs`~~ DELETED Wave 4 (rf2-e3j8l) → `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` | ~~103~~ | Spec 009 perf User-Timing (nightly CLJS) | ~~6~~ |
 | `testbeds/deep_machine/spec.cjs` | 149 | Spec 005 machine transition cascade | 5 |
 | `testbeds/deliberate_throw/spec.cjs` | 116 | Spec 009 handler-exception trace | 4 |
 | `testbeds/drain_depth_trigger/spec.cjs` | 164 | Spec 002 drain-depth rollback + epoch record | 7 |
@@ -50,15 +50,15 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 ### `implementation/adapters/uix/testbed/spec.cjs` (uix adapter smoke)
 Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
-### `tools/causa/testbeds/parallel_frames/spec.cjs` (Causa multi-frame demo) — MIGRATED (Wave 2, rf2-lcg1z)
+### `tools/xray/testbeds/parallel_frames/spec.cjs` (Xray multi-frame demo) — MIGRATED (Wave 2, rf2-lcg1z)
 
-**Status: spec.cjs DELETED.** Multi-frame isolation contract migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (per-PR via the standard `:node-test` build). The testbed surface (`core.cljs`, `index.html`, `README.md`) stays in-tree as the canonical Causa-displayable multi-frame demo. The Causa-side target-frame round-trip + L2 frame-scoped filter assertions were already covered ahead of this migration by `tools/causa/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs` (rf2-ulpp8 / rf2-1p1j4) and `multi_frame_isolation_e2e_cljs_test.cljs` (cross-frame fan-out via fx).
+**Status: spec.cjs DELETED.** Multi-frame isolation contract migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (per-PR via the standard `:node-test` build). The testbed surface (`core.cljs`, `index.html`, `README.md`) stays in-tree as the canonical Xray-displayable multi-frame demo. The Xray-side target-frame round-trip + L2 frame-scoped filter assertions were already covered ahead of this migration by `tools/xray/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs` (rf2-ulpp8 / rf2-1p1j4) and `multi_frame_isolation_e2e_cljs_test.cljs` (cross-frame fan-out via fx).
 
 | # | Assertion | Class | Rationale + target |
 |---:|---|:---:|---|
 | 1 | `expectVisible(parallel-frames-root)` | C | Page-mount sanity; cheap, keep at Playwright level since this is the gate's smoke entry. |
 | 2 | `expectVisible(above-panel)` + `below-panel` | C | Two-frame chrome layout — only meaningful with real DOM mount. STAYS. |
-| 3 | `expectTextEquals(above-counter-value, '0')` initial | A | Sub readout against frame-isolated app-db. → `tools/causa/test/.../parallel_frames_isolation_cljs_test.cljs` (new file) using e2e_multi_frame helpers. |
+| 3 | `expectTextEquals(above-counter-value, '0')` initial | A | Sub readout against frame-isolated app-db. → `tools/xray/test/.../parallel_frames_isolation_cljs_test.cljs` (new file) using e2e_multi_frame helpers. |
 | 4 | `expectTextEquals(below-counter-value, '0')` initial | A | Same as #3. → same target. |
 | 5 | `expectTextEquals(above-clock-ticks, '0 ticks')` | A | Initial frame-state readout. → same target. |
 | 6 | `expectTextEquals(below-clock-ticks, '0 ticks')` | A | Same. → same target. |
@@ -74,12 +74,12 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | 16 | After above-force-error: above-title-state = ':error' | A | Error fx path through machine. → same target. |
 | 17 | After above-force-error: below-title-state stays ':loaded' | A | Same isolation. → same target. |
 | 18 | above-title-value includes 'ERROR:' | A | Error-payload write. → same target. |
-| 19 | `:rf.causa/set-target-frame` round-trip on :above | A | Causa-side event + sub roundtrip. → `tools/causa/test/.../target_frame_roundtrip_cljs_test.cljs` (Causa is already heavy in panels_e2e CLJS tests; extend that surface). |
+| 19 | `:rf.xray/set-target-frame` round-trip on :above | A | Xray-side event + sub roundtrip. → `tools/xray/test/.../target_frame_roundtrip_cljs_test.cljs` (Xray is already heavy in panels_e2e CLJS tests; extend that surface). |
 | 20 | Same on :below | A | Same. → same target. |
 | 21 | Reset away from host frames on nil | A | Same. → same target. |
 | 22 | `(rf.get-frame-db :above) :counter` = 3 | A | Same as #9 underlying contract. → same target as #9 (avoid dual coverage). |
 | 23 | `(rf.get-frame-db :below) :counter` = 1 | A | Same as #10. → same target. |
-| 24 | `:rf/causa` carries no `:counter` leak | A | Cross-frame app-db isolation (host → Causa direction of Spec 008 §State isolation). → `tools/causa/test/.../embedding_contract_isolation_cljs_test.cljs` (new file). |
+| 24 | `:rf/xray` carries no `:counter` leak | A | Cross-frame app-db isolation (host → Xray direction of Spec 008 §State isolation). → `tools/xray/test/.../embedding_contract_isolation_cljs_test.cljs` (new file). |
 | 25 | `expectVisible` page banner timing | C | DOM mount; keep at Playwright. STAYS (subsumed by #1/#2). |
 | 26 | Polling DOM mirror reflects post-dispatch state | C-residual | Trivial — proves substrate re-renders. After A-migrations land, the 3 substrate-smoke adapters already cover this. DROP from this spec post-migration. |
 | 27 | Polling timing for async fx (600ms HTTP-mock delay) | A | Same as #13 — handled by sync mock + immediate assert in CLJS. → same target. |
@@ -87,11 +87,11 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 **Migrated subtotal: 23 of 27 = 85% to (A). Residual: 2-3 (B/C) — drop spec.cjs to a thin mount-smoke covering #1/#2 + one isolation eyeball (the counter-isolation 3×click + readback).**
 
 **Proposed CLJS target files:**
-- `tools/causa/testbeds/parallel_frames/test/.../parallel_frames_isolation_cljs_test.cljs` — assertions 3-18, 22-23, 27 (per-frame app-db isolation, counter/tick/HTTP-mock/error fan-out).
-- `tools/causa/test/day8/re_frame2_causa/panels_e2e/target_frame_roundtrip_e2e_cljs_test.cljs` — assertions 19-21 (Causa's own `:rf.causa/set-target-frame` event + `:rf.causa/target-frame` sub).
-- `tools/causa/test/day8/re_frame2_causa/panels_e2e/embedding_contract_isolation_e2e_cljs_test.cljs` — assertion 24 (Spec 008 §State isolation host→Causa direction).
+- `tools/xray/testbeds/parallel_frames/test/.../parallel_frames_isolation_cljs_test.cljs` — assertions 3-18, 22-23, 27 (per-frame app-db isolation, counter/tick/HTTP-mock/error fan-out).
+- `tools/xray/test/day8/re_frame2_xray/panels_e2e/target_frame_roundtrip_e2e_cljs_test.cljs` — assertions 19-21 (Xray's own `:rf.xray/set-target-frame` event + `:rf.xray/target-frame` sub).
+- `tools/xray/test/day8/re_frame2_xray/panels_e2e/embedding_contract_isolation_e2e_cljs_test.cljs` — assertion 24 (Spec 008 §State isolation host→Xray direction).
 
-### `tools/causa/testbeds/perf_counter/spec.cjs` (Spec 009 perf User-Timing) — MIGRATED (Wave 4, rf2-e3j8l)
+### `tools/xray/testbeds/perf_counter/spec.cjs` (Spec 009 perf User-Timing) — MIGRATED (Wave 4, rf2-e3j8l)
 
 **Status: spec.cjs DELETED. Migrated to `implementation/core/test/re_frame/performance_emit_nightly_test.cljs`** with a companion shadow-cljs build (`:node-test-perf-nightly`) that flips `re-frame.performance/enabled?` on at compile time. The test ns ends in `-emit-nightly-test`; the per-PR `:node-test` build's `:ns-regexp "cljs-test$"` does NOT match it, so it stays NIGHTLY ONLY (Mike's call — perf-timing assertions are too noisy under per-PR runner load). Invocation: `npm run test:cljs-perf-emit-nightly`.
 
@@ -269,9 +269,9 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
 (124 counts http_toggle's 6 ×3 categories and otherwise mirrors §Inventory.)
 
-Headline: **105 of 124 assertions (85%) migrated to CLJS/JVM unit tests across four waves.** Wave 1 (rf2-4j0tb) retired 6 framework testbed spec.cjs files (deliberate_throw, drain_depth_trigger, http_toggle, long_flow_w_failure, non_trivial_app_db, deep_machine) covering 41 assertions. Wave 2 (rf2-lcg1z) migrated parallel_frames' 23 isolation assertions to the per-PR `:node-test` build at `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` and DROPPED the residual 2-mount Playwright surface entirely — the multi-frame mount path is exercised by Causa's own panels-e2e tests. Wave 3 (rf2-pxb7t) migrated the 3 SSR testbed spec.cjs files covering 32 assertions to JVM tests at `implementation/ssr/test/re_frame/ssr_{hydration,hydration_mismatch,multi_frame_isolation}_test.clj` using `rf/subscribe-once` for synchronous reads; the 8 (C) DOM-mount probes retired alongside (substrate-mount sanity already covered by the 3 adapter smokes). Wave 4 (rf2-e3j8l) migrated perf_counter's 4 User-Timing residuals to a nightly `:node-test`-style build. 9 (7%) are the canonical 3 adapter smokes — they ARE the (B) bucket, no action. The 10 (8%) originally classified (C) collapsed to 0 across Waves 2 + 3.
+Headline: **105 of 124 assertions (85%) migrated to CLJS/JVM unit tests across four waves.** Wave 1 (rf2-4j0tb) retired 6 framework testbed spec.cjs files (deliberate_throw, drain_depth_trigger, http_toggle, long_flow_w_failure, non_trivial_app_db, deep_machine) covering 41 assertions. Wave 2 (rf2-lcg1z) migrated parallel_frames' 23 isolation assertions to the per-PR `:node-test` build at `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` and DROPPED the residual 2-mount Playwright surface entirely — the multi-frame mount path is exercised by Xray's own panels-e2e tests. Wave 3 (rf2-pxb7t) migrated the 3 SSR testbed spec.cjs files covering 32 assertions to JVM tests at `implementation/ssr/test/re_frame/ssr_{hydration,hydration_mismatch,multi_frame_isolation}_test.clj` using `rf/subscribe-once` for synchronous reads; the 8 (C) DOM-mount probes retired alongside (substrate-mount sanity already covered by the 3 adapter smokes). Wave 4 (rf2-e3j8l) migrated perf_counter's 4 User-Timing residuals to a nightly `:node-test`-style build. 9 (7%) are the canonical 3 adapter smokes — they ARE the (B) bucket, no action. The 10 (8%) originally classified (C) collapsed to 0 across Waves 2 + 3.
 
-**Ten testbed spec.cjs files now fully retired** (residual = 0 substantive assertions): Wave 1's six (`deep_machine`, `deliberate_throw`, `drain_depth_trigger`, `http_toggle`, `long_flow_w_failure`, `non_trivial_app_db`) + Wave 4's one (`perf_counter`) + Wave 3's three (`ssr_basic`, `ssr_hydration_mismatch`, `ssr_multi_frame`). For each, the testbed surface itself stays — `core.cljs` / `index.html` / `README.md` remain as the canonical Causa/Story observation target — but the Playwright spec.cjs has been deleted.
+**Ten testbed spec.cjs files now fully retired** (residual = 0 substantive assertions): Wave 1's six (`deep_machine`, `deliberate_throw`, `drain_depth_trigger`, `http_toggle`, `long_flow_w_failure`, `non_trivial_app_db`) + Wave 4's one (`perf_counter`) + Wave 3's three (`ssr_basic`, `ssr_hydration_mismatch`, `ssr_multi_frame`). For each, the testbed surface itself stays — `core.cljs` / `index.html` / `README.md` remain as the canonical Xray/Story observation target — but the Playwright spec.cjs has been deleted.
 
 ## §Migration ordering
 
@@ -288,7 +288,7 @@ One bead per spec.cjs file. Each can dispatch in parallel where target test file
 Each Wave 1 bead is fully isolated to one artefact's test dir + one repo-root spec.cjs file deletion. **Six beads, parallel-dispatchable.**
 
 **Wave 2 (rf2-lcg1z, COMPLETED):**
-- `B7` — `tools/causa/testbeds/parallel_frames/spec.cjs` DELETED. Multi-frame isolation contract migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (six deftests covering: two-frames-mount, counter-isolation, clock-tick-isolation, sub-lens-follows-frame, no-cross-frame-leakage + rf/get-frame-db as the only legitimate cross-frame read, destroy-independence). Causa-side target-frame round-trip + L2 frame-scoped filter were already covered by `tools/causa/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs` (rf2-ulpp8 / rf2-1p1j4) and `multi_frame_isolation_e2e_cljs_test.cljs` (cross-frame fan-out via fx). The testbed dir itself stays as the Causa-displayable showcase. **Surface: framework multi-frame.**
+- `B7` — `tools/xray/testbeds/parallel_frames/spec.cjs` DELETED. Multi-frame isolation contract migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (six deftests covering: two-frames-mount, counter-isolation, clock-tick-isolation, sub-lens-follows-frame, no-cross-frame-leakage + rf/get-frame-db as the only legitimate cross-frame read, destroy-independence). Xray-side target-frame round-trip + L2 frame-scoped filter were already covered by `tools/xray/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs` (rf2-ulpp8 / rf2-1p1j4) and `multi_frame_isolation_e2e_cljs_test.cljs` (cross-frame fan-out via fx). The testbed dir itself stays as the Xray-displayable showcase. **Surface: framework multi-frame.**
 
 **Wave 3 (rf2-pxb7t, COMPLETED — single-bundle worker, sequential):**
 - `B8` — `testbeds/ssr_basic/spec.cjs` deleted. Migrated to `implementation/ssr/test/re_frame/ssr_hydration_test.clj` (5 deftests / 11 substantive assertions covering :rf/hydrate replace-app-db + :rf/hydration metadata stash + post-hydrate dispatch round-trip + :rf/response payload echo + :rf.ssr/compatibility-check-skipped trace emit + no-mismatch-on-baseline).
@@ -297,7 +297,7 @@ Each Wave 1 bead is fully isolated to one artefact's test dir + one repo-root sp
   - All three deltas are pure-JVM tests using the `re-frame.ssr.test-fixture/reset-runtime` fixture + `rf/make-frame` + `rf/dispatch-sync` + `rf/subscribe-once`. Bead rf2-pxb7t cited the rf2-2mtl3 audit verifying `subscribe-once` already exists at `implementation/core/src/re_frame/subs.cljc:365`.
 
 **Wave 4 (rf2-e3j8l, COMPLETED):**
-- `B11` — `tools/causa/testbeds/perf_counter/spec.cjs` deleted. Migrated to `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` (3 buckets exercised end-to-end + naming convention + flag-canary). Runs under the new `:node-test-perf-nightly` shadow-cljs build with `re-frame.performance/enabled?` flipped on at compile time. Excluded from per-PR `:node-test` by ns-suffix convention (`-emit-nightly-test$` doesn't match `cljs-test$`). Invoke via `npm run test:cljs-perf-emit-nightly`. The `:render` bucket's call-site shape is covered transitively by the macro round-trip tests in `re-frame.performance-cljs-test`. **Surface: perf instrumentation.**
+- `B11` — `tools/xray/testbeds/perf_counter/spec.cjs` deleted. Migrated to `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` (3 buckets exercised end-to-end + naming convention + flag-canary). Runs under the new `:node-test-perf-nightly` shadow-cljs build with `re-frame.performance/enabled?` flipped on at compile time. Excluded from per-PR `:node-test` by ns-suffix convention (`-emit-nightly-test$` doesn't match `cljs-test$`). Invoke via `npm run test:cljs-perf-emit-nightly`. The `:render` bucket's call-site shape is covered transitively by the macro round-trip tests in `re-frame.performance-cljs-test`. **Surface: perf instrumentation.**
 
 **Wave 0 (no-op, no bead):**
 - `B0` — 3 adapter smokes (`helix/reagent/uix`). Stay as-is. No action.
@@ -308,7 +308,7 @@ Total bead count: **10 follow-on beads** (1 per spec.cjs file = 11 minus the 1-s
 
 **After all migrations land, the Playwright residual is:**
 - 3 adapter smokes (helix/reagent/uix) — substrate (B). **~30 LoC total, ~5s wall.** Required per-PR.
-- ~~`parallel_frames`~~ — DELETED (Wave 2, rf2-lcg1z); residuals migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (per-PR). The two page-mount eyeballs that would have justified a slim Playwright stay are subsumed by Causa's own panels-e2e suite, which mounts the same multi-frame topology in node-CLJS.
+- ~~`parallel_frames`~~ — DELETED (Wave 2, rf2-lcg1z); residuals migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (per-PR). The two page-mount eyeballs that would have justified a slim Playwright stay are subsumed by Xray's own panels-e2e suite, which mounts the same multi-frame topology in node-CLJS.
 - ~~`ssr_basic`~~ — DELETED (Wave 3, rf2-pxb7t); 11 substantive assertions migrated to `implementation/ssr/test/re_frame/ssr_hydration_test.clj`; (C) mount-probes retired (substrate-mount covered by adapter smokes).
 - ~~`ssr_hydration_mismatch`~~ — DELETED (Wave 3, rf2-pxb7t); 7 substantive assertions migrated to `implementation/ssr/test/re_frame/ssr_hydration_mismatch_test.clj`; (C) DOM probes retired.
 - ~~`ssr_multi_frame`~~ — DELETED (Wave 3, rf2-pxb7t); 14 substantive assertions migrated to `implementation/ssr/test/re_frame/ssr_multi_frame_isolation_test.clj`; (C) three-panel mount probe retired.
@@ -328,7 +328,7 @@ Rationale:
 A path-filter that runs Playwright only when:
 - `implementation/adapters/**` touched (substrate impact)
 - `testbeds/ssr_*/**` or `implementation/ssr/**` touched (SSR impact)
-- `tools/causa/spine/**` or `tools/story/render-shell/**` touched (chrome impact)
+- `tools/xray/spine/**` or `tools/story/render-shell/**` touched (chrome impact)
 
 Otherwise skip. This is the rf2-k9ekz sister bead — solve once the migration lands.
 

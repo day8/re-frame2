@@ -174,7 +174,7 @@
   returns nil (silenced reply).
 
   Per rf2-t1lxr: reply dispatches self-tag with
-  `:rf/dispatch-origin :http` so Causa's L2 timeline + tools can
+  `:rf/dispatch-origin :http` so Xray's L2 timeline + tools can
   discriminate HTTP-completion cascades from user-origin events."
   [args frame]
   (when-let [ev (build-reply-event args)]

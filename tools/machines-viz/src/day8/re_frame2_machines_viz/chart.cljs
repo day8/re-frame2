@@ -27,16 +27,16 @@
       tree.
     - **`countdown-ring` / `sparkline` primitives** — moved to
       `chart.primitives` since they are consumed OUTSIDE the chart
-      (Causa overlays, cluster sparklines).
+      (Xray overlays, cluster sparklines).
     - **Viewport state** — xyflow owns zoom/pan/fit internally;
       hosts no longer manage `{:scale :tx :ty}` slots. The previous
-      `chart.controls` reducer + Causa's `machine_canvas` viewport
+      `chart.controls` reducer + Xray's `machine_canvas` viewport
       machinery are obsolete with this migration.
 
   ## Bundle isolation
 
   `@xyflow/react` + `elkjs` are `devDependency`s of
-  `implementation/package.json`. The chart is dev-only (Causa
+  `implementation/package.json`. The chart is dev-only (Xray
   preload + the static viewer page). Production bundles MUST NOT
   pull either; the `check-bundle-isolation.cjs` sentinel pins this
   contract."
@@ -192,9 +192,9 @@
   `transition-glow-css` so the focused-edge animation continues to
   work post-migration."
   (str
-    ":root { --rf-causa-motion-scale: 1; }\n"
+    ":root { --rf-xray-motion-scale: 1; }\n"
     "@media (prefers-reduced-motion: reduce) {\n"
-    "  :root { --rf-causa-motion-scale: 0.001; }\n"
+    "  :root { --rf-xray-motion-scale: 0.001; }\n"
     "}\n"
     "@keyframes mv-chart-transition-glow {\n"
     "  0%   { opacity: 0.55; }\n"
@@ -278,12 +278,12 @@
                          overlay as a sibling of the canvas; it walks
                          the rendered node DOM to position each ring.
                          The host owns the trace→spec projection +
-                         the scrubber-aware fraction (Causa supplies
+                         the scrubber-aware fraction (Xray supplies
                          these from its trace buffer). nil / empty →
                          no overlay layer.
     :after-ring-tick   — opaque value the host bumps to force the
                          overlay to re-measure the DOM + repaint the
-                         swept arcs (Causa passes `now-ms`; Lock #8 —
+                         swept arcs (Xray passes `now-ms`; Lock #8 —
                          one rAF clock per chart, owned host-side).
     :on-after-ring-hover / :on-after-ring-leave — `(fn [node-id] ...)`
                          hover callbacks the overlay wires on each ring.
@@ -298,7 +298,7 @@
                          its `:rf.machine.spawn-all/*` buffer. nil →
                          no inspector.
     :on-spawn-child-click — `(fn [child-key] ...)`; fires on a join-
-                         inspector child-row click (Causa pivots to
+                         inspector child-row click (Xray pivots to
                          the child instance).
     :cancellation-cascade — rf2-3ow55. Optional presentation-ready
                          cascade-spec (`{:node-id :parent-label
@@ -510,7 +510,7 @@
              ;; that want rings pass presentation-ready `:after-ring-specs`
              ;; (see `chart.overlays.after-rings`); the host owns the
              ;; trace→spec projection + the rAF clock that bumps
-             ;; `:after-ring-tick` (Lock #8 — one clock per chart). Causa
+             ;; `:after-ring-tick` (Lock #8 — one clock per chart). Xray
              ;; mounts the same overlay via its `machine_canvas` wrapper;
              ;; this prop path serves standalone hosts (viewer, Story).
              (when (seq after-ring-specs)

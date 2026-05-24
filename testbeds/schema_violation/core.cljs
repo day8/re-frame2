@@ -2,7 +2,7 @@
   "Shared framework-behavior testbed — four trigger sites that each fail
   schema validation at a distinct check-point in the per-event order
   (per [spec/010 §Per-step recovery]). One button per :where surface so
-  a consumer (Causa, Story, re-frame2-pair-mcp) observes the corresponding
+  a consumer (Xray, Story, re-frame2-pair-mcp) observes the corresponding
   :rf.error/schema-validation-failure shape emerge once per click.
 
   Triggered :where surfaces:
@@ -147,7 +147,7 @@
         :style       {:color "#666"}}
     "Malli validation is loaded for this browser build; the feature gate
      asserts rollback, skipped handlers, skipped fx, and the matching
-     Causa timeline traces."]
+     Xray timeline traces."]
    [:div {:style {:display :flex :gap "0.5em" :flex-wrap :wrap}}
     [:button {:data-testid "violate-app-db"
               :on-click #(dispatch [::violate-app-db])}

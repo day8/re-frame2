@@ -982,7 +982,7 @@
 ;; behaviour, but the "last-registration-wins" invariant for the
 ;; metadata's `:frame` slot was never pinned. A regression that flipped
 ;; the registrar-write order (e.g. only-stamping-on-first-registration)
-;; would silently break Causa / re-frame-10x's per-flow frame
+;; would silently break Xray / re-frame-10x's per-flow frame
 ;; attribution.
 ;; ---------------------------------------------------------------------------
 
@@ -1021,7 +1021,7 @@
 ;; flows registration site stored the body under `:output` only — so
 ;; both reads were nil for every flow re-registration and
 ;; `:different-fn?` was always `false`. Tools (re-frame-10x's flow
-;; panel, Causa, re-frame2-pair) branching on `:different-fn? true` missed every
+;; panel, Xray, re-frame2-pair) branching on `:different-fn? true` missed every
 ;; real flow-body change. Fix: `reg-flow` now stamps `:handler-fn`
 ;; alongside `:output` so the cross-kind registrar trace surface Spec
 ;; 001 standardises works for flows too.

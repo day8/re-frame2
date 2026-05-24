@@ -231,7 +231,7 @@
   Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
   does NOT install an interceptor, does NOT change any handler's view
   of the data. The declaration only feeds the mark-lookup table the
-  observation surfaces (trace bus, Causa, MCP, third-party log sinks)
+  observation surfaces (trace bus, Xray, MCP, third-party log sinks)
   consult at emission time.
 
   Schema-attached marks (via `reg-app-schema` with `:sensitive?` /
@@ -273,7 +273,7 @@
   Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
   does NOT install an interceptor, does NOT change any handler's view
   of the data. The declaration only feeds the mark-lookup table the
-  observation surfaces (trace bus, Causa, MCP, third-party log sinks)
+  observation surfaces (trace bus, Xray, MCP, third-party log sinks)
   consult at emission time.
 
   Schema-attached marks (via `reg-app-schema` with `:sensitive?` /

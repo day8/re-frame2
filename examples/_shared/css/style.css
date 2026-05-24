@@ -8,12 +8,12 @@
  *
  * Mood              : Editorial Warm — established, refined, magazine.
  * Typography pairing: Inter (UI + body) + JetBrains Mono (code, mono labels).
- *                     Matches the project-wide family used by Causa, so the
+ *                     Matches the project-wide family used by Xray, so the
  *                     examples and the dev tools sit naturally next to one
  *                     another.
  * Palette           : warm paper bg #F7F3EC / deep ink #1A1814 / amber
  *                     accent #C8741A. A cohesive light-mode identity that
- *                     echoes Causa/Story's warm-slate-amber pairing.
+ *                     echoes Xray/Story's warm-slate-amber pairing.
  * Atmosphere        : subtle paper-grain radial gradients fixed to the
  *                     viewport + soft warm-toned shadows. No heavy textures.
  *
@@ -328,8 +328,8 @@ hr { border-top: 1px solid var(--ex-rule); }
   color: var(--ex-ink-muted);
 }
 
-/* Causa testbed shell ---------------------------------------------------- */
-[data-rf-causa-host] { border-left: 1px solid #2a2a2a; }
+/* Xray testbed shell ---------------------------------------------------- */
+[data-rf-xray-host] { border-left: 1px solid #2a2a2a; }
 
 /* Default page layout — used by examples that don't supply their own. */
 body > #app,

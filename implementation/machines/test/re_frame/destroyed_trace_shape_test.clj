@@ -19,7 +19,7 @@
        fire when a state-machine enters a `:final?` state. The trace
        carries `:system-id` AND `:reason :rf.machine/finished`.
 
-  Tools (re-frame-10x, Causa, story-mcp) key on the trace's argument
+  Tools (re-frame-10x, Xray, story-mcp) key on the trace's argument
   map. If the three emission sites drift in their key-set shape, tools
   that depend on the contract observe inconsistent payloads depending
   on which path emitted. This file locks the shape independently of

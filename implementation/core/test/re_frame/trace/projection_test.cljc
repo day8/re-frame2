@@ -199,7 +199,7 @@
 
 (deftest group-cascades-dispatched-slot-carries-full-trace-event
   (testing "the :dispatched slot preserves the full :rf.event/dispatched
-            trace so consumers (Causa Event lens) can read top-level
+            trace so consumers (Xray Event lens) can read top-level
             hoisted slots like :rf.trace/call-site (rf2-twt7m Change 1)
             without scanning the raw buffer"
     (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched

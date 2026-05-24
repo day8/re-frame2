@@ -2,7 +2,7 @@
 
 Schemas in re-frame2 are *Malli schemas attached to `app-db` paths*. You register them with `reg-app-schema` (path-keyed, not id-keyed — the only `reg-*` that breaks that pattern, deliberately); the runtime validates `app-db` writes against the matching schemas in dev; production builds elide the validation at the call sites; and a small set of marks (`:sensitive?`, `:large?`) on the schemas drive automatic redaction and size-elision at every wire boundary.
 
-The payoff is that the same schema declaration drives three separate surfaces: dev-time validation, observability redaction (Causa, story-mcp, off-box error forwarders), and bundle-time size protection. You don't write the privacy rules three times in three different places; you declare them once on the schema, and the framework's wire-boundary walker enforces them everywhere.
+The payoff is that the same schema declaration drives three separate surfaces: dev-time validation, observability redaction (Xray, story-mcp, off-box error forwarders), and bundle-time size protection. You don't write the privacy rules three times in three different places; you declare them once on the schema, and the framework's wire-boundary walker enforces them everywhere.
 
 This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), the boundary-validation interceptor, and the data-classification mechanism (`add-marks`, `set-marks`, plus the egress-side `sensitive?` / `redact-interceptor` / `elide-wire-value` surface). For the canonical contract, see [010-Schemas.md](../../spec/010-Schemas.md) and [Privacy.md](../../spec/Privacy.md).
 
@@ -169,7 +169,7 @@ The two-verb shape (`add` vs `set`) follows the [Conventions §Tear-down verb ax
 
 ### The egress-side surface: `elide-wire-value`
 
-This is the framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. Every tool that emits wire data — off-box error-monitor forwarders, the Causa-MCP and re-frame2-pair-mcp and story-mcp servers, the on-box dev panels — routes through this walker. **The walker is the single normative emission site for the `:rf/redacted` sentinel and the `:rf.size/large-elided` marker.** Per-tool reimplementation is prohibited.
+This is the framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. Every tool that emits wire data — off-box error-monitor forwarders, the Xray-MCP and re-frame2-pair-mcp and story-mcp servers, the on-box dev panels — routes through this walker. **The walker is the single normative emission site for the `:rf/redacted` sentinel and the `:rf.size/large-elided` marker.** Per-tool reimplementation is prohibited.
 
 #### `elide-wire-value`
 
@@ -212,7 +212,7 @@ The single normative reference for "schemas are the only path" lives in [Guide c
 
 ## Privacy: the always-on predicate and the interceptor
 
-The trace runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a handler whose schema-derived path overlap declares sensitivity. (The legacy handler-meta `:sensitive?` annotation has been removed — sensitive data marking is path-based per the data-classification mechanism above.) Framework-published trace consumers — Sentry / Honeybadger forwarders, the re-frame2-pair server, Causa, Story, story-mcp, re-frame2-pair-mcp — MUST default-drop the stamped events at their egress boundary.
+The trace runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a handler whose schema-derived path overlap declares sensitivity. (The legacy handler-meta `:sensitive?` annotation has been removed — sensitive data marking is path-based per the data-classification mechanism above.) Framework-published trace consumers — Sentry / Honeybadger forwarders, the re-frame2-pair server, Xray, Story, story-mcp, re-frame2-pair-mcp — MUST default-drop the stamped events at their egress boundary.
 
 ### `sensitive?`
 

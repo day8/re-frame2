@@ -383,7 +383,7 @@ The fallback is a **lossy approximation** of the Fiber-walker's hierarchy captur
 
 4. **Portals (`React.createPortal`)** — portals teleport the rendered subtree to a different DOM location. The walker's DOM-containment inference will associate portal children with the portal target's ancestor chain, not with the portal-rendering component's ancestor chain. The Fiber-walker primary path handles portals correctly because Fiber `return` pointers follow the logical parent, not the DOM parent.
 
-5. **`display: none` subtrees** — elements with `display: none` are present in the DOM tree (and so are walkable by `querySelectorAll`) but are not laid out. The walker reports them; consumers (Causa Views panel) may choose to filter them out. This is a known fidelity gap, not a correctness bug.
+5. **`display: none` subtrees** — elements with `display: none` are present in the DOM tree (and so are walkable by `querySelectorAll`) but are not laid out. The walker reports them; consumers (Xray Views panel) may choose to filter them out. This is a known fidelity gap, not a correctness bug.
 
 6. **Interop component head (`:>` in Reagent)** — `[:> Cmp {…props}]` hands the props map straight to React's component, which may not be a DOM-tag (and certainly should not have framework-derived strings inserted into its props). The wrapper SKIPs and emits the same warning as the source-coord exemption.
 
@@ -400,7 +400,7 @@ When the fallback is consuming the tagged DOM, the walker:
 3. Infers parent-child by DOM containment: element B is a child of element A iff A is the nearest tagged ancestor of B (via `.contains()` walks).
 4. Produces the same output shape as the Fiber-walker (per [View-Hierarchy-Capture.md §Output shape](View-Hierarchy-Capture.md#output-shape)) so consumer code is path-agnostic.
 
-The walker implementation lives at `tools/causa/src/day8/re_frame2_causa/views/view_walker.cljs` (alongside the Fiber-walker per the spec's Ownership table). Both walkers are bundle-isolated from production builds.
+The walker implementation lives at `tools/xray/src/day8/re_frame2_xray/views/view_walker.cljs` (alongside the Fiber-walker per the spec's Ownership table). Both walkers are bundle-isolated from production builds.
 
 ## Subscription cache — contract and operational semantics
 
@@ -429,7 +429,7 @@ Each frame holds one sub-cache, keyed by `[query-vector]`:
 
 The cache is held inside the frame container (per [002 §What lives in a frame](002-Frames.md#what-lives-in-a-frame)). Two frames running the same `(rf/subscribe [:cart/total])` compute against their own `app-db`s and cache against their own caches; isolation is automatic.
 
-The canonical demo of this rule is the **parallel-frames** testbed at [`tools/causa/testbeds/parallel_frames/`](../tools/causa/testbeds/parallel_frames/) — one app mounted in two `frame-provider`-rooted subtrees (`:above` and `:below`) on one page. Same view source, same registered handlers and subs, two fully isolated reactive contexts that diverge as the user interacts with each independently. There is no cross-frame sub, no cross-frame data routing, no "route data home" pattern — each frame is its own world.
+The canonical demo of this rule is the **parallel-frames** testbed at [`tools/xray/testbeds/parallel_frames/`](../tools/xray/testbeds/parallel_frames/) — one app mounted in two `frame-provider`-rooted subtrees (`:above` and `:below`) on one page. Same view source, same registered handlers and subs, two fully isolated reactive contexts that diverge as the user interacts with each independently. There is no cross-frame sub, no cross-frame data routing, no "route data home" pattern — each frame is its own world.
 
 ### Lookup algorithm
 
@@ -1110,7 +1110,7 @@ A cooperative rendering substrate — a rendering layer designed natively to coo
 
 - **Foundation in v1.** The adapter contract (per [§The adapter API contract](#the-adapter-api-contract)) is the substrate-decoupling primitive — any cooperative variant ships as another adapter, no core change required.
 - **Scope deferred.** The evaluation itself: identifying the cooperation primitives a native substrate could expose (e.g., scheduler-aware re-render coalescing, subscription-graph-driven scheduling, batched view updates aligned to drain boundaries), and the benefits-vs-cost ledger against staying with Reagent / UIx / Helix adapters.
-- **Reconsideration trigger.** Either (a) measured re-render overhead in the Reagent path becomes the dominant cost on a real workload, or (b) a tool (causa / re-frame2-pair / story) needs scheduling hooks the React substrates can't surface.
+- **Reconsideration trigger.** Either (a) measured re-render overhead in the Reagent path becomes the dominant cost on a real workload, or (b) a tool (xray / re-frame2-pair / story) needs scheduling hooks the React substrates can't surface.
 - **Out of scope for the bead.** Building the cooperative substrate itself — the bead tracks the *decision*, not the implementation. A separate bead is filed if the evaluation lands "yes".
 
 ### Multi-adapter coexistence (post-v1, rf2-uipko)

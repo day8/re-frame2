@@ -136,7 +136,7 @@ Three semantic landmarks always render once the shell is up:
 |---|---|---|
 | `navigation` | `<nav>` | Sidebar with the variant tree |
 | `main` | `<main>` | Variant canvas |
-| `complementary` | `<aside>` | The RHS Causa embed |
+| `complementary` | `<aside>` | The RHS Xray embed |
 
 Waiting for `main` then for the canvas's `data-test-variant`
 selector is the correct gate — the canvas mounts only after the

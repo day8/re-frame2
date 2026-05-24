@@ -4,7 +4,7 @@
   The raw trace stream emits `:sub/run` (recomputed), `:rf.sub/skip`
   (input value-equal → no recompute), `:rf.flow/computed`,
   `:rf.flow/skip`, `:view/render`, etc. one event at a time. Pair-shaped
-  consumers (Causa's Reactive panel) want a single record per cascade
+  consumers (Xray's Reactive panel) want a single record per cascade
   capturing the full DAG — app-db changes → subs recomputed/skipped →
   views rendered/skipped — for the operator's currently-focused epoch.
 
@@ -13,13 +13,13 @@
   ring buffer blows the dev-only budget). The aggregator is therefore
   **focused-event-only**: the consumer publishes a focus predicate via
   `set-focus-predicate!` (typically `(fn [frame-id epoch-id event-id]
-  ...)` against Causa's selected epoch + a small back-buffer), and the
+  ...)` against Xray's selected epoch + a small back-buffer), and the
   aggregator walks the harvested cascade ONLY when the predicate
   returns truthy. Off-focus epochs pay nothing beyond one predicate
   call.
 
   The capture is **bounded** at 50 subs and 100 views per epoch (per
-  panel design rf2-931pm and Causa's Reactive panel rendering budget).
+  panel design rf2-931pm and Xray's Reactive panel rendering budget).
   Cascades exceeding either cap retain the first N entries and stamp
   `:truncated? true` so the panel can render a 'rest elided' affordance.
 
@@ -54,7 +54,7 @@
 ;; ---- focus-predicate seam -----------------------------------------------
 ;;
 ;; Default predicate returns false — i.e. NO epoch is focused, and the
-;; aggregator never walks. A consumer (Causa's Reactive panel) calls
+;; aggregator never walks. A consumer (Xray's Reactive panel) calls
 ;; `set-focus-predicate!` once at mount to install its focus logic, and
 ;; `clear-focus-predicate!` on unmount.
 
@@ -82,7 +82,7 @@
 
 (def ^:const sub-cap
   "Maximum number of subs (recomputed + skipped together) captured per
-  epoch. The Causa Reactive panel renders a 'rest elided' affordance
+  epoch. The Xray Reactive panel renders a 'rest elided' affordance
   when exceeded."
   50)
 

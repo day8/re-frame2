@@ -112,7 +112,7 @@ The `:request` map carries the wire shape. Keys are minimal and chosen to be hos
 
 #### JVM transport — degraded behaviour for CLJS-only options
 
-Six keys on the args map / request envelope are **CLJS-only** — semantically meaningful against the browser Fetch API and ignored by the JVM's `java.net.http.HttpClient`-backed transport. A request that carries any of them on the JVM proceeds normally; the option is **silently no-op** and the runtime emits one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace per occurrence so consumers (Causa, Story, off-box monitors) can spot the degraded code path:
+Six keys on the args map / request envelope are **CLJS-only** — semantically meaningful against the browser Fetch API and ignored by the JVM's `java.net.http.HttpClient`-backed transport. A request that carries any of them on the JVM proceeds normally; the option is **silently no-op** and the runtime emits one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace per occurrence so consumers (Xray, Story, off-box monitors) can spot the degraded code path:
 
 | Key | Where | JVM behaviour |
 |---|---|---|

@@ -2448,28 +2448,28 @@ without `re-frame.http-test-support` in their require closure.
 
 ---
 
-### M-67. Causa Static-mode feature gate removed — `:rf.causa/static-mode?` no longer accepted
+### M-67. Xray Static-mode feature gate removed — `:rf.xray/static-mode?` no longer accepted
 
-**Type A** (mechanical). Single-file removal per call site: drop the `:rf.causa/static-mode?` entry from any `(causa-config/configure! …)` map. The option no longer exists; Static mode is always available.
+**Type A** (mechanical). Single-file removal per call site: drop the `:rf.xray/static-mode?` entry from any `(xray-config/configure! …)` map. The option no longer exists; Static mode is always available.
 
 ```clojure
 ;; before
-(causa-config/configure!
-  {:rf.causa/static-mode? true        ;; REMOVE this entry
-   :rf.causa/editor        :cursor})
+(xray-config/configure!
+  {:rf.xray/static-mode? true        ;; REMOVE this entry
+   :rf.xray/editor        :cursor})
 
 ;; after
-(causa-config/configure!
-  {:rf.causa/editor :cursor})
+(xray-config/configure!
+  {:rf.xray/editor :cursor})
 ```
 
-The prior `:rf.causa/static-mode?` flag was a back-compat hedge that does not apply to pre-1.0. Static mode (mode pill at ribbon-left, Cmd-Shift-M / Ctrl-Shift-M chord, Static surface render) is now unconditionally available; hosts that previously opted in via `configure!` should drop the key.
+The prior `:rf.xray/static-mode?` flag was a back-compat hedge that does not apply to pre-1.0. Static mode (mode pill at ribbon-left, Cmd-Shift-M / Ctrl-Shift-M chord, Static surface render) is now unconditionally available; hosts that previously opted in via `configure!` should drop the key.
 
-**Detect.** Boot code that passes `:rf.causa/static-mode?` (any value) inside a `(causa-config/configure! …)` map.
+**Detect.** Boot code that passes `:rf.xray/static-mode?` (any value) inside a `(xray-config/configure! …)` map.
 
-**Mechanical sweep.** Remove the key/value pair from each `configure!` call. Unknown keys are silently ignored per the forward-compat rule in [`015-Configuration.md`](../../tools/causa/spec/015-Configuration.md), so a stale `:rf.causa/static-mode? true` is a no-op — the sweep is cosmetic, not behaviour-changing.
+**Mechanical sweep.** Remove the key/value pair from each `configure!` call. Unknown keys are silently ignored per the forward-compat rule in [`015-Configuration.md`](../../tools/xray/spec/015-Configuration.md), so a stale `:rf.xray/static-mode? true` is a no-op — the sweep is cosmetic, not behaviour-changing.
 
-**Cross-references.** [`015-Configuration.md` §Static mode availability](../../tools/causa/spec/015-Configuration.md#static-mode-availability); [`007-UX-IA.md` §Availability](../../tools/causa/spec/007-UX-IA.md#availability); [`018-Event-Spine.md` §Availability](../../tools/causa/spec/018-Event-Spine.md#availability); [`API.md` §Static mode](../../tools/causa/spec/API.md#static-mode-rf2-o5f5f1--rf2-8l3uk).
+**Cross-references.** [`015-Configuration.md` §Static mode availability](../../tools/xray/spec/015-Configuration.md#static-mode-availability); [`007-UX-IA.md` §Availability](../../tools/xray/spec/007-UX-IA.md#availability); [`018-Event-Spine.md` §Availability](../../tools/xray/spec/018-Event-Spine.md#availability); [`API.md` §Static mode](../../tools/xray/spec/API.md#static-mode-rf2-o5f5f1--rf2-8l3uk).
 
 ---
 
@@ -2748,7 +2748,7 @@ Apply only when the operator wants the modernisation. `day8.re-frame/async-flow-
 
 **[http-fx-to-managed-http.md](http-fx-to-managed-http.md).**
 
-The summary: `day8.re-frame/http-fx` is a v1-era **separate add-on lib** shipping the `:http-xhrio` fx (Google Closure `XhrIo` transport behind a re-frame `reg-fx` registration). The canonical v2 successor is `:rf.http/managed` (per [014-HTTPRequests.md](../../spec/014-HTTPRequests.md), shipped in the [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) artefact `day8/re-frame2-http`): the request envelope is the same shape, but the response surface adds the eight-category closed `:rf.http/*` failure taxonomy, schema-driven Malli decode + `:accept` projection, transport-level retry-with-backoff, per-attempt timeouts with a 30s security default, abort via `:request-id`, classification ordering (status-before-decode), and a co-located reply addressing mode. Trace events (`:rf.http/retry-attempt`, per-category failure traces) integrate with the standard trace surface that 10x / Causa / `register-listener!`-consumers see for free.
+The summary: `day8.re-frame/http-fx` is a v1-era **separate add-on lib** shipping the `:http-xhrio` fx (Google Closure `XhrIo` transport behind a re-frame `reg-fx` registration). The canonical v2 successor is `:rf.http/managed` (per [014-HTTPRequests.md](../../spec/014-HTTPRequests.md), shipped in the [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) artefact `day8/re-frame2-http`): the request envelope is the same shape, but the response surface adds the eight-category closed `:rf.http/*` failure taxonomy, schema-driven Malli decode + `:accept` projection, transport-level retry-with-backoff, per-attempt timeouts with a 30s security default, abort via `:request-id`, classification ordering (status-before-decode), and a co-located reply addressing mode. Trace events (`:rf.http/retry-attempt`, per-category failure traces) integrate with the standard trace surface that 10x / Xray / `register-listener!`-consumers see for free.
 
 Per-call-site escalations: per-XHR progress callbacks (out of scope for v1 managed-HTTP); custom `:format` / `:response-format` fns that aren't one of the canonical helpers; hand-rolled retry that closes over body content or app state (lift to a state machine per [O-16](#o-16-convert-day8re-frameasync-flow-fx-flows-to-reg-machine) — semantic retry); cljs-ajax `:interceptors` chains with response-side transforms (request-side ports to [M-39](#m-39-reg-http-interceptor--clear-http-interceptor--additive-request-side-middleware-on-rfhttpmanaged), response-side splits to `:accept` or `register-listener!`); `(rf/reg-fx :http-xhrio ...)` user-registrations that wrapped or overrode the lib's fx. The agent surfaces every request site and waits for operator approval.
 

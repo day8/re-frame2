@@ -101,7 +101,7 @@
   ;; `:op-type` is pinned on every entry below (rf2-a20e9): the prior
   ;; fixture asserted `:operation` only, which is exactly the blind spot
   ;; that let the machines `:op-type :machine → :rf.machine` drift pass
-  ;; CI. The op-type is the SEVERITY/FAMILY discriminator Causa's issue
+  ;; CI. The op-type is the SEVERITY/FAMILY discriminator Xray's issue
   ;; + reactive surfaces filter on; pinning it here catches any future
   ;; envelope-level regression.
   :trace-emissions

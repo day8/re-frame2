@@ -8,7 +8,7 @@
     "            The pipeline reads boundingBox() and overlays the region.",
     "            Use `{ selector: \"...\", inset: { x, y, w, h } }` to nudge.",
     "  xy        Absolute viewport coordinates `{x,y,w,h}` (for pill / overlay",
-    "            anchors that have no DOM hook — e.g. the Causa launcher pill).",
+    "            anchors that have no DOM hook — e.g. the Xray launcher pill).",
     "  label     Caption text painted next to the region.",
     "  colour    Hex stroke + label background (default `#e53935` red).",
     "  arrow     Optional `{from: {x,y}, to: {x,y}}` SVG arrow overlay.",
@@ -18,38 +18,38 @@
     "down after. Crisp anti-aliased strokes, drop-shadowed labels."
   ],
 
-  "causa-floating-pill": [
+  "xray-floating-pill": [
     {
       "xy": { "x": 1150, "y": 730, "w": 110, "h": 50 },
       "colour": "#1976d2",
-      "label": "Ctrl+Shift+C  -> open Causa",
+      "label": "Ctrl+Shift+C  -> open Xray",
       "labelPos": "above"
     }
   ],
 
-  "causa-shell-opened": [
+  "xray-shell-opened": [
     {
-      "selector": "[data-testid=\"rf-causa-shell\"]",
+      "selector": "[data-testid=\"rf-xray-shell\"]",
       "inset": { "y": 0, "h": 28 },
       "colour": "#43a047",
-      "label": "Causa shell — overlays the live app",
+      "label": "Xray shell — overlays the live app",
       "labelPos": "below"
     }
   ],
 
-  "causa-sidebar-panels": [
+  "xray-sidebar-panels": [
     {
-      "selector": "[data-testid=\"rf-causa-sidebar-item-event-detail\"]",
-      "groupExtendTo": "[data-testid=\"rf-causa-sidebar-item-copilot\"]",
+      "selector": "[data-testid=\"rf-xray-sidebar-item-event-detail\"]",
+      "groupExtendTo": "[data-testid=\"rf-xray-sidebar-item-copilot\"]",
       "colour": "#fb8c00",
       "label": "16 panels - three bands",
       "labelPos": "right"
     }
   ],
 
-  "causa-event-detail": [
+  "xray-event-detail": [
     {
-      "selector": "[data-testid=\"rf-causa-event-detail\"]",
+      "selector": "[data-testid=\"rf-xray-event-detail\"]",
       "inset": { "y": 4, "h": 48 },
       "colour": "#43a047",
       "label": "Event vector + diff + cascade",
@@ -57,18 +57,18 @@
     }
   ],
 
-  "causa-time-travel": [
+  "xray-time-travel": [
     {
-      "selector": "[data-testid=\"rf-causa-time-travel-slider\"]",
+      "selector": "[data-testid=\"rf-xray-time-travel-slider\"]",
       "colour": "#7e57c2",
       "label": "Scrubber - drag to rewind",
       "labelPos": "above"
     }
   ],
 
-  "causa-trace": [
+  "xray-trace": [
     {
-      "selector": "[data-testid=\"rf-causa-trace-counts\"]",
+      "selector": "[data-testid=\"rf-xray-trace-counts\"]",
       "padding": 6,
       "colour": "#1976d2",
       "label": "Live event count",
@@ -76,7 +76,7 @@
     }
   ],
 
-  "causa-click-to-source-dom-attribute": [
+  "xray-click-to-source-dom-attribute": [
     {
       "selector": "button[data-rf2-source-coord]",
       "padding": 6,
@@ -86,9 +86,9 @@
     }
   ],
 
-  "causa-machines": [
+  "xray-machines": [
     {
-      "selector": "[data-testid=\"rf-causa-machine-inspector\"]",
+      "selector": "[data-testid=\"rf-xray-machine-inspector\"]",
       "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
       "colour": "#5d4037",
       "label": "State chart - current state highlights live",
@@ -96,9 +96,9 @@
     }
   ],
 
-  "causa-app-db-diff": [
+  "xray-app-db-diff": [
     {
-      "selector": "[data-testid=\"rf-causa-app-db-diff\"]",
+      "selector": "[data-testid=\"rf-xray-app-db-diff\"]",
       "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
       "colour": "#388e3c",
       "label": "Slice-centric diff - only what changed",
@@ -106,18 +106,18 @@
     }
   ],
 
-  "causa-copilot-rail": [
+  "xray-copilot-rail": [
     {
-      "selector": "[data-testid=\"rf-causa-copilot-rail\"]",
+      "selector": "[data-testid=\"rf-xray-copilot-rail\"]",
       "colour": "#7e57c2",
       "label": "Pull-only AI rail - Ctrl+Shift+/",
       "labelPos": "left"
     }
   ],
 
-  "causa-schemas-empty": [
+  "xray-schemas-empty": [
     {
-      "selector": "[data-testid=\"rf-causa-schema-violation-timeline\"]",
+      "selector": "[data-testid=\"rf-xray-schema-violation-timeline\"]",
       "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
       "colour": "#c62828",
       "label": "Schema timeline - lit up when schemas are registered",
@@ -125,9 +125,9 @@
     }
   ],
 
-  "causa-hydration-empty": [
+  "xray-hydration-empty": [
     {
-      "selector": "[data-testid=\"rf-causa-hydration-debugger\"]",
+      "selector": "[data-testid=\"rf-xray-hydration-debugger\"]",
       "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
       "colour": "#00838f",
       "label": "Hydration panel - server | client side-by-side",
@@ -135,9 +135,9 @@
     }
   ],
 
-  "causa-app-db-modes": [
+  "xray-app-db-modes": [
     {
-      "selector": "[data-testid=\"rf-causa-app-db-diff\"]",
+      "selector": "[data-testid=\"rf-xray-app-db-diff\"]",
       "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
       "colour": "#388e3c",
       "label": "Three render modes - inline / side-by-side / just-the-delta",

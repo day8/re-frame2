@@ -18,7 +18,7 @@
             [re-frame.story     :as story]
             [re-frame.story.play.ci-runner :as story-ci]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [day8.re-frame2-causa.config :as causa-config]
+            [day8.re-frame2-xray.config :as xray-config]
             ;; Source the events + subs + views via the stories ns,
             ;; which itself requires them. When Story is elided the
             ;; stories ns still loads (it's a regular CLJS ns) but
@@ -46,7 +46,7 @@
    [views/counter-card {:label "Count"}]
    [elision/elision-card]])
 
-;; -- rf2-r1uod — Causa 'Open in editor' project-root for the live testbed.
+;; -- rf2-r1uod — Xray 'Open in editor' project-root for the live testbed.
 ;;
 ;; Story testbeds register source-coords with classpath-relative `:file`
 ;; slots (e.g. `"counter_with_stories/core.cljs"`); OS-side editor URI
@@ -58,8 +58,8 @@
 ;; `counter_with_stories/core.cljs:42` is the testbeds dir below.
 ;;
 ;; The value is plumbed via `story/configure! :rf.story/project-root` and bridged
-;; into Causa's slot by `re-frame.story.causa-preset/propagate-project-
-;; root!` so both Story's own 'Open' chips and Causa-as-RHS's chips (the
+;; into Xray's slot by `re-frame.story.xray-preset/propagate-project-
+;; root!` so both Story's own 'Open' chips and Xray-as-RHS's chips (the
 ;; Event lens Handler / Dispatch / Interceptors, Trace rows, Issues
 ;; ribbon) resolve against the same root.
 ;;
@@ -120,11 +120,11 @@
 
 (defn ^:export run []
   ;; Story owns this page's full-width browser-test canvas. When the
-  ;; Causa preload is present in shared dev test runs, keep its trace
+  ;; Xray preload is present in shared dev test runs, keep its trace
   ;; collectors/API/keybinding installed but skip the default panel
-  ;; launch; app pages that want Causa inline still provide the normal
-  ;; `[data-rf-causa-host]` contract.
-  (causa-config/configure! {:rf.causa/auto-open? false})
+  ;; launch; app pages that want Xray inline still provide the normal
+  ;; `[data-rf-xray-host]` contract.
+  (xray-config/configure! {:rf.xray/auto-open? false})
   (rf/init! reagent-adapter/adapter)
   ;; No explicit `(story/install-canonical-vocabulary!)` call — the
   ;; first `reg-*` in `counter-with-stories.stories` (loaded via
@@ -136,7 +136,7 @@
   ;; top via reg-story / reg-variant.
   ;;
   ;; rf2-r1uod — `:project-root` seeds Story's own 'Open' chips AND
-  ;; (via the causa-preset bridge) Causa-as-RHS's open-in-editor
+  ;; (via the xray-preset bridge) Xray-as-RHS's open-in-editor
   ;; chips so the Event lens / Trace rows / Issues ribbon resolve
   ;; their classpath-relative source-coord `:file` slots to absolute
   ;; on-disk URIs the OS-side editor handler can stat. Symmetric to
@@ -151,7 +151,7 @@
   ;; every dispatched event's elided record to the browser console —
   ;; visitors can see `:rf/redacted` substitution for the `:sensitive?`
   ;; handler and the `:rf.size/large-elided` marker for the `:large?`
-  ;; schema slot without needing the trace surface or Causa attached.
+  ;; schema slot without needing the trace surface or Xray attached.
   (elision/install-listener!)
   ;; rf2-3qcxk — install the CI-as-test global hook the Playwright
   ;; play-script runner reads. Inert until the runner polls it; safe

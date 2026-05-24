@@ -249,7 +249,7 @@
   See `kind-spec` for the per-kind :invoke / :commit pair.
 
   Per rf2-twt7m Change 3: the produced interceptor carries
-  `:rf/default? true` so tools (Causa, Story, the Event lens
+  `:rf/default? true` so tools (Xray, Story, the Event lens
   redesign rf2-zh2qc) can filter out the framework's auto-wrappers
   without a hardcoded allowlist of `:rf/db-handler` /
   `:rf/fx-handler` / `:rf/ctx-handler` interceptor ids. Self-
@@ -304,7 +304,7 @@
 
 (defn- merge-form-source
   "Merge `*pending-form-source*` into `m` under `:rf.handler/source`
-  (Spec 009 §`:rf.handler/source`, Causa Spec 021 §11.2 B.7 stretch,
+  (Spec 009 §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch,
   rf2-xgfuy). User-supplied `:rf.handler/source` overrides the auto-
   captured value (mirrors `source-coords/merge-coords` semantics — so
   tooling that synthesises registrations from another source can stamp

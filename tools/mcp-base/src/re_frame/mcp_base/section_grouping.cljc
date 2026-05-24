@@ -5,7 +5,7 @@
 
   The MCP wire boundary's `:db-after` shape evolves from flat patches
   to path-headed cluster sections — the same sections-per-cluster
-  decomposition Causa's panel renderer ships (rf2-gfxmk Phase 1 of
+  decomposition Xray's panel renderer ships (rf2-gfxmk Phase 1 of
   rf2-abts7), but projected from the patch list rather than from the
   annotated-tree.
 
@@ -16,15 +16,15 @@
   ## Why operate on patches, not the annotated tree
 
   The annotated-tree engine + sections-per-cluster pass live in
-  `tools/causa/src/.../diff/` — Causa's panel surface. mcp-base ships
-  independently to Clojars and cannot pull `tools/causa` in (the dep
-  arrow is tool → mcp-base, never the reverse, and Causa is a panel
+  `tools/xray/src/.../diff/` — Xray's panel surface. mcp-base ships
+  independently to Clojars and cannot pull `tools/xray` in (the dep
+  arrow is tool → mcp-base, never the reverse, and Xray is a panel
   bundle, not a base library).
 
   The patches already carry path + op + value — every signal needed
   to head a cluster. Operating on patches:
 
-    - Keeps mcp-base dep-free (no causa pull-in, no jar bloat).
+    - Keeps mcp-base dep-free (no xray pull-in, no jar bloat).
     - Round-trips losslessly: each section's `:patches` is a subset
       of the flat list; concatenating sections' patches reconstructs
       the original (path-ordered) list, which `apply-patches` then
@@ -57,7 +57,7 @@
 
   ## Algorithm
 
-  Mirrors the causa pass (`section_grouping.cljc` §3.1.1), recast
+  Mirrors the xray pass (`section_grouping.cljc` §3.1.1), recast
   over patches:
 
   1. **Trivial cases first.**
@@ -116,7 +116,7 @@
   A single `[[] :assoc <full-db>]` patch projects as one section
   headed at `[]` with `:section-kind :modified`. This is the
   signature of a `reset-frame-db!` or any wholesale root
-  replacement; collapsing to one root section matches Causa's
+  replacement; collapsing to one root section matches Xray's
   whole-DB rule (§3.1.1 step 4).
 
   ## Ordering
@@ -136,8 +136,8 @@
   (:require [clojure.string :as str]))
 
 (def default-opts
-  "Tunable knobs. Mirrors `tools/causa/.../section_grouping.cljc`'s
-  defaults so the agent sees the same cluster shape Causa's panel
+  "Tunable knobs. Mirrors `tools/xray/.../section_grouping.cljc`'s
+  defaults so the agent sees the same cluster shape Xray's panel
   renders. Tune against a real corpus in rf2-ogkh0."
   {:max-coalesce-depth 3})
 
@@ -214,7 +214,7 @@
   breadcrumb gives container context. Top-level singletons (path
   length 1) keep their full path.
 
-  Mirrors `tools/causa/.../section_grouping.cljc`'s singleton-promote
+  Mirrors `tools/xray/.../section_grouping.cljc`'s singleton-promote
   worked example."
   [{:keys [prefix patches]}]
   (if (= 1 (count patches))

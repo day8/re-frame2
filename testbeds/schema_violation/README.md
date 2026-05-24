@@ -50,7 +50,7 @@ suffix). Consumers that want the registration anchor reach
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Causa (26)**:
+**Xray (26)**:
 - Schema-validation-failure trace + `:rollback?` flag visible — Button A surfaces the rollback path; Buttons B/C/D verify the trace shape without `:rollback?`.
 - `:rf.error/*` events highlighted in trace stream — `:rf.error/schema-validation-failure` is one of the most common ops in the dev-mode trace surface.
 - Click-to-source from trace event lands on source-coord line — each `reg-*` registration captures source coords; the failing-id in the trace links back to its declaration.

@@ -128,7 +128,7 @@
       (is (vector? (:renders r)))
       (is (vector? (:effects r)))
       ;; rf2-rly4a — the settling cascade's :dispatch-id is pinned as a
-      ;; first-class slot (the stable epoch-id ↔ cascade link Causa's
+      ;; first-class slot (the stable epoch-id ↔ cascade link Xray's
       ;; focus correlation reads). It must equal the :dispatch-id tag the
       ;; cascade's own trace events carry.
       (is (some? (:dispatch-id r))

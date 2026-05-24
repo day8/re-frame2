@@ -345,7 +345,7 @@
 ;; between :db-before and :db-after. Computed inside `build-record`
 ;; from RAW values BEFORE the redact-fn runs, parallel to the
 ;; :rf.epoch/sensitive? rollup. Closes the "redact-fn ⇒ empty diff but
-;; something changed" gap by surfacing the count Causa's chip needs.
+;; something changed" gap by surfacing the count Xray's chip needs.
 ;;
 ;; Coverage matrix:
 ;;   G1. No sensitive paths declared → 0.

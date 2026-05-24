@@ -2,7 +2,7 @@
 ;; component + read-only viewer surfaces. Scaffolded per
 ;; tools/machines-viz/spec/000-Vision.md; src landing per rf2-o9arp
 ;; (the rf2-0yil0 audit cluster's first bead, which extracts the
-;; chart implementation out of Causa and into its own jar).
+;; chart implementation out of Xray and into its own jar).
 ;;
 ;; ## Bundle isolation
 ;;
@@ -14,7 +14,7 @@
 ;;
 ;; ## Lockstep version with implementation/core
 ;;
-;; Same posture as tools/causa/deps.edn — :local/root during
+;; Same posture as tools/xray/deps.edn — :local/root during
 ;; development; the release workflow rewrites :local/root →
 ;; :mvn/version pinned to the same VERSION file the core artefact
 ;; reads so machines-viz's published version equals the framework's
@@ -25,7 +25,7 @@
          ;; the public registrar API for `rf/machine-meta` (a future
          ;; capability bead wires the live snapshot read through
          ;; `re-frame.core`). For Phase-1 src-landing we ship with
-         ;; the framework core as the sole transitive dep — Causa
+         ;; the framework core as the sole transitive dep — Xray
          ;; brings its own substrate adapter on the consumer side.
          day8/re-frame2 {:local/root "../../implementation/core"}
 
@@ -53,7 +53,7 @@
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Clojars deploy. Mirrors tools/causa/deps.edn — the release
+  ;; Clojars deploy. Mirrors tools/xray/deps.edn — the release
   ;; workflow rewrites :local/root → :mvn/version before invoking
   ;; clein.
   :clein {:extra-deps {io.github.noahtheduke/clein

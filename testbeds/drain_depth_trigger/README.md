@@ -4,7 +4,7 @@ A single Reagent-mounted handler whose `:fx` recursively dispatches
 itself. The runtime's run-to-completion drain halts the cascade when
 the frame's `:drain-depth` ceiling is reached and rolls the frame's
 `app-db` back atomically (per [spec/002 §Run-to-completion rule 3]).
-A consumer (Causa, Story, re-frame2-pair-mcp) observes the
+A consumer (Xray, Story, re-frame2-pair-mcp) observes the
 `:rf.error/drain-depth-exceeded` shape, the rollback, and the
 `:halted-depth` epoch outcome (rf2-v0jwt).
 
@@ -68,10 +68,10 @@ to 5 keeps specs sub-second.
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Causa (26)**:
+**Xray (26)**:
 - **Partial epoch record (drain-halt) shows up with non-`:ok` outcome
   (rf2-v0jwt)** — the load-bearing scenario this surface unblocks. The
-  halt produces an epoch record with `:outcome :halted-depth`; Causa's
+  halt produces an epoch record with `:outcome :halted-depth`; Xray's
   trace panel surfaces the partial cascade with the halt category
   highlighted.
 - `:rf.error/*` events highlighted in trace stream — the

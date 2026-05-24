@@ -12,7 +12,7 @@
   - `open-chip-for-variant` reads `:source` off the variant body.
   - rf2-r2un8 — `:rf.story/open-in-editor` reg-event-fx + `:rf.editor/open`
     reg-fx produce a resolved URI through the same allowlist seam the
-    chip uses (Causa-parity port)."
+    chip uses (Xray-parity port)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.story.config :as config]
@@ -145,7 +145,7 @@
 ;; The matrix tests for `allowed-uri?` itself live in the shared editor-uri
 ;; test ns. These cases cover the Story chip's wiring: the chip hides when
 ;; a `{:custom ...}` template resolves to a disallowed scheme, and renders
-;; normally for safe ones — parity with Causa's surface (rf2-p887o).
+;; normally for safe ones — parity with Xray's surface (rf2-p887o).
 
 (deftest open-chip-hides-when-custom-template-resolves-to-unsafe-scheme
   (testing "open-chip returns nil when the resolved URI's scheme is not
@@ -221,13 +221,13 @@
             resolves to an absolute on-disk URI when the host has
             plumbed :rf.story/project-root through Story's configure!"
     (config/set-project-root!
-      "C:/Users/miket/code/re-frame2/tools/causa/testbeds")
+      "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
     (let [hiccup (open-in-editor/open-chip
                    {:file "panel_gallery/event_detail_stories.cljs"
                     :line 115
                     :column 3})]
       (is (= (str "vscode://file/"
-                  "C:/Users/miket/code/re-frame2/tools/causa/testbeds/"
+                  "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
                   "panel_gallery/event_detail_stories.cljs:115:3")
              (:href (second hiccup)))))))
 
@@ -392,7 +392,7 @@
 ;; `open-source-coord!` imperative path, and the dispatch-based event-fx
 ;; all share. Pinning its contract here means the chip's `:href`, the
 ;; inspector launcher, and the fx-emitted `:uri` always agree on the
-;; URI shape — one source of truth. Mirrors Causa's resolve-uri (port
+;; URI shape — one source of truth. Mirrors Xray's resolve-uri (port
 ;; per rf2-r2un8).
 
 (deftest resolve-uri-returns-vscode-default
@@ -436,9 +436,9 @@
 ;; Hosts that don't render the chip directly (agents replaying via MCP,
 ;; custom panels) can dispatch `[:rf.story/open-in-editor coord]` and
 ;; let the registered fx fire the URI through the same allowlist gate.
-;; Mirrors Causa's `:rf.causa/open-in-editor` + `:rf.editor/open`
+;; Mirrors Xray's `:rf.xray/open-in-editor` + `:rf.editor/open`
 ;; pairing (port per rf2-r2un8). Tests stub the `:rf.editor/open` reg-fx
-;; with a capture, mirroring the Causa test pattern — no `window.location`
+;; with a capture, mirroring the Xray test pattern — no `window.location`
 ;; mutation under the test runner.
 
 (defonce ^:private captured-editor-fx (atom []))
@@ -446,7 +446,7 @@
 (defn- install-with-capture!
   "Install Story's open-in-editor handlers then replace the
   `:rf.editor/open` reg-fx with a capture stub so the test can inspect
-  the fx args without touching `window.location`. Same pattern Causa's
+  the fx args without touching `window.location`. Same pattern Xray's
   test suite uses."
   []
   (reset! captured-editor-fx [])

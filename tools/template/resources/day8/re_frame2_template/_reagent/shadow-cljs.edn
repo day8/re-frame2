@@ -18,11 +18,11 @@
    :modules    {:main {:init-fn {{namespace}}.core/init}}
    ;; shadow's :browser target re-runs the module :init-fn after each
    ;; hot reload by default — no :after-load hook needed.
-   ;; :devtools/preloads loads Causa in dev watch/compile builds.
-   ;; Once rf/init! installs the adapter, Causa auto-mounts into
-   ;; resources/public/index.html's [data-rf-causa-host] left column.
+   ;; :devtools/preloads loads Xray in dev watch/compile builds.
+   ;; Once rf/init! installs the adapter, Xray auto-mounts into
+   ;; resources/public/index.html's [data-rf-xray-host] left column.
    ;; Cut from release builds automatically.
-   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
 
   :test
   {:target    :node-test

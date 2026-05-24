@@ -4,7 +4,7 @@
   Two MCP servers ship under `tools/`: re-frame2-pair-mcp and story-mcp.
   re-frame2-pair-mcp owns the reserved cross-server **wire vocabulary** —
   namespaced map keys an agent recognises identically across every
-  server that adopts it. (causa-mcp was dropped in rf2-bu21t — causa
+  server that adopts it. (xray-mcp was dropped in rf2-bu21t — xray
   now ships as a Clojars-only library, not an MCP server.)
 
   Six top-level wrapper markers (the `canonical-markers` table below is
@@ -153,7 +153,7 @@
 
   `:counts` (a per-top-key map) is permitted as an alternate
   per-key shape: a single marker MUST carry `:count` or `:counts`,
-  not neither. (Originally introduced for causa-mcp's
+  not neither. (Originally introduced for xray-mcp's
   `Principles.md` example; preserved as a permitted schema variant
   after the rf2-bu21t drop, so a future MCP server reviving
   per-key counts validates without a schema bump.)"

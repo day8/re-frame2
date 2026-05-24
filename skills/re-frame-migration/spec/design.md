@@ -97,7 +97,7 @@ skills/re-frame-migration/
 ├── references/
 │   ├── kickoff-prompt.md           (~70 lines)
 │   ├── setup.md                    (~170 lines)
-│   ├── causa-replaces-10x.md       (~240 lines; devtools swap — re-frame-10x → Causa)
+│   ├── xray-replaces-10x.md       (~240 lines; devtools swap — re-frame-10x → Xray)
 │   ├── breaking-changes.md         (~150 lines)
 │   ├── sequencing.md               (~150 lines)
 │   ├── auto-call-site-rewrites.md  (~250 lines; Type A — ns / effect-map / dispatch)

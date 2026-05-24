@@ -2,7 +2,7 @@
 
 A state machine in re-frame2 is registered with one call (`reg-machine`) and *is* an event handler. The transition table is data — a map of `:states`, `:on`, `:entry`, `:exit`, `:after` — that gets compiled into a `reg-event-fx` handler at registration time. Dispatch an event at the machine's id and the table decides the transition; the resulting `:db` and `:fx` flow through the normal cascade.
 
-The point of the machine surface isn't novelty — Statecharts have been around since 1987 — it's that the same trace bus, time-travel, and override surfaces that work for plain event handlers also work for machines, *because the machine is an event handler*. There's no parallel runtime to debug, no second store to inspect, no separate event log. Causa shows the machine state alongside `app-db`; the epoch buffer captures the snapshot the same way it captures everything else.
+The point of the machine surface isn't novelty — Statecharts have been around since 1987 — it's that the same trace bus, time-travel, and override surfaces that work for plain event handlers also work for machines, *because the machine is an event handler*. There's no parallel runtime to debug, no second store to inspect, no separate event log. Xray shows the machine state alongside `app-db`; the epoch buffer captures the snapshot the same way it captures everything else.
 
 This chapter covers the registration surface (`reg-machine`, `reg-machine*`, `make-machine-handler`), the inspection / subscription surface (`sub-machine`, `machines`, `machine-meta`, `machine-by-system-id`), the dispatch sugar (`dispatch-to-system`, `:raise`), the actor-lifecycle fx (`:rf.machine/spawn`, `:rf.machine/destroy`), and the post-v1 tooling exports (`machine->xstate-json`, `machine->mermaid`).
 
@@ -17,7 +17,7 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
   ```clojure
   (reg-machine machine-id machine-spec)
   ```
-- **Description**: The canonical macro. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords` — Causa uses these to navigate from a snapshot back to the state-node definition. Top-level call-site coords land on `handler-meta`.
+- **Description**: The canonical macro. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords` — Xray uses these to navigate from a snapshot back to the state-node definition. Top-level call-site coords land on `handler-meta`.
 - **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough) · [websocket](https://github.com/day8/re-frame2/tree/main/examples/reagent/websocket)
 
 ### `reg-machine*`

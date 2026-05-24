@@ -8,9 +8,9 @@ The MCP servers under `tools/` — `re-frame2-pair-mcp` and `story-mcp` —
 share a reserved cross-server **wire vocabulary**: namespaced map keys
 that an agent recognises identically across every server it talks to.
 
-(Historical: a third server `causa-mcp` was envisaged in the vocabulary;
-it was dropped per rf2-hvl1g — AI agent access to Causa state flows via
-`re-frame2-pair-mcp` against the framework-published Causa runtime API.
+(Historical: a third server `xray-mcp` was envisaged in the vocabulary;
+it was dropped per rf2-hvl1g — AI agent access to Xray state flows via
+`re-frame2-pair-mcp` against the framework-published Xray runtime API.
 A prior false-start drop was tracked under rf2-bu21t; rf2-hvl1g is the
 final close-out.)
 

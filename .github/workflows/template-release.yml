@@ -23,9 +23,9 @@
 # No Clojars push step. No artefact upload step. The tagged commit IS
 # the artefact; consumers retrieve it through git, not through Maven.
 #
-# # Why a separate workflow from release.yml + release-causa.yml
+# # Why a separate workflow from release.yml + release-xray.yml
 #
-# `release.yml` (framework) and `release-causa.yml` (Causa) both ship
+# `release.yml` (framework) and `release-xray.yml` (Xray) both ship
 # Clojars artefacts under the framework-wide lockstep VERSION at the
 # repo root. The template is the odd one out:
 #
@@ -37,10 +37,10 @@
 #     cutting a new template.
 #   - Its **own** VERSION file (`tools/template/VERSION`) drives this
 #     workflow; the framework-wide repo-root VERSION (`/VERSION`)
-#     drives the framework + Causa workflows. The two version
+#     drives the framework + Xray workflows. The two version
 #     sequences are decoupled.
 #
-# The separate tag prefix (`template-v…` vs `v…` vs `causa-v…`) keeps
+# The separate tag prefix (`template-v…` vs `v…` vs `xray-v…`) keeps
 # the trigger paths disjoint so a framework release does not
 # accidentally republish the template and vice versa.
 #

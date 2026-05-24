@@ -97,7 +97,7 @@ npm run story:build                  # build the story artefact
 
 Per-artefact tests run from each artefact directory via `clojure -M:test` (see e.g. `tools/story/deps.edn` `:test` alias). The canonical matrix and PR/nightly/release split lives in `TESTING.md`; workflow gates live in `.github/workflows/`.
 
-**Examples are test-free (locked 2026-05-19, rf2-8cevm).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at `implementation/adapters/<name>/testbed/spec.cjs` — mount + dispatch + assert. Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Causa feature-matrix gate (`npm run test:causa-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance. Framework testbeds (`tools/causa/testbeds/`, top-level `testbeds/`) carry their own non-adapter spec.cjs for cross-cutting surfaces (parallel-frames isolation, perf-API live counterpart, SSR, etc.).
+**Examples are test-free (locked 2026-05-19, rf2-8cevm).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at `implementation/adapters/<name>/testbed/spec.cjs` — mount + dispatch + assert. Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Xray feature-matrix gate (`npm run test:xray-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance. Framework testbeds (`tools/xray/testbeds/`, top-level `testbeds/`) carry their own non-adapter spec.cjs for cross-cutting surfaces (parallel-frames isolation, perf-API live counterpart, SSR, etc.).
 
 Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 
@@ -109,7 +109,7 @@ Top-level layout:
 
 - `spec/` — the specification (primary artefact; AI-targeted)
 - `implementation/` — CLJS reference: `core/` + per-substrate `adapters/` (Reagent, UIx, Helix) + per-feature artefacts (machines, schemas, …). The top-level `implementation/shadow-cljs.edn` + `implementation/deps.edn` coordinate the cross-artefact classpath.
-- `tools/` — dev/inspection tools that consume the Spec 009 instrumentation API and Tool-Pair contract (`story/`, `story-mcp/`, `re-frame2-pair-mcp/`, `causa/`, `template/`). Bundle-isolated from production builds; nothing in `implementation/` may `:require` from `tools/`.
+- `tools/` — dev/inspection tools that consume the Spec 009 instrumentation API and Tool-Pair contract (`story/`, `story-mcp/`, `re-frame2-pair-mcp/`, `xray/`, `template/`). Bundle-isolated from production builds; nothing in `implementation/` may `:require` from `tools/`.
 - `examples/` — worked examples per substrate.
 - `docs/` — human-facing guide (`docs/guide/`) and operational docs.
 - `skills/` — Claude Code skills for re-frame2 workflows.

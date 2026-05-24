@@ -168,7 +168,7 @@
 ;; ---- redacted-modified-paths-count (rf2-dl3gx) ---------------------------
 ;;
 ;; Per Security.md §Epoch privacy posture and rf2-dl3gx (follow-on to
-;; rf2-bz1cl's Causa-side heuristic chip): the record carries a
+;; rf2-bz1cl's Xray-side heuristic chip): the record carries a
 ;; top-level integer count of schema-declared sensitive paths
 ;; (`[:rf/elision :sensitive-declarations]`) whose value differs between
 ;; `:db-before` and `:db-after`. Computed inside `build-record` from RAW
@@ -187,10 +187,10 @@
 ;;
 ;; The count closes that gap by recording, on the raw record, exactly
 ;; how many schema-declared sensitive paths mutated this cascade.
-;; Downstream consumers (Causa's `redacted-paths-modified` chip per
-;; `tools/causa/spec/004-App-DB-Diff.md`, MCP wire pipeline, story
+;; Downstream consumers (Xray's `redacted-paths-modified` chip per
+;; `tools/xray/spec/004-App-DB-Diff.md`, MCP wire pipeline, story
 ;; recorders) read the integer directly rather than re-deriving from
-;; the post-redaction shape (which is heuristic — see the Causa helper
+;; the post-redaction shape (which is heuristic — see the Xray helper
 ;; for the heuristic's tightness and approximation notes).
 ;;
 ;; ## What counts
@@ -301,7 +301,7 @@
          ;; Per rf2-dl3gx and Security.md §Epoch privacy posture: the
          ;; record-level integer counter of schema-declared sensitive
          ;; paths whose value differs between :db-before / :db-after.
-         ;; Closes Causa's "redact-fn ⇒ empty diff but something changed"
+         ;; Closes Xray's "redact-fn ⇒ empty diff but something changed"
          ;; gap by surfacing the suppressed signal directly on the
          ;; record. Computed BEFORE :redact-fn runs (parallel to the
          ;; :rf.epoch/sensitive? rollup above).
@@ -330,8 +330,8 @@
        ;; Per rf2-rly4a — pin the settling cascade's `:dispatch-id` as a
        ;; first-class record slot. It is the stable cross-counter-space
        ;; link between the epoch ring (epoch-id space) and the raw trace
-       ;; stream's cascade list (dispatch-id space) that Causa's
-       ;; `:rf.causa/focus` correlation pivots on. Pinned here — not
+       ;; stream's cascade list (dispatch-id space) that Xray's
+       ;; `:rf.xray/focus` correlation pivots on. Pinned here — not
        ;; re-derived from `:trace-events` at read time — so the link
        ;; survives `:trace-events-keep` elision on older records and the
        ;; post-settle reactive back-fill (which pads `:trace-events` with

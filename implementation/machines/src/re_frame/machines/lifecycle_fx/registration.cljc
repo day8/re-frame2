@@ -332,7 +332,7 @@
       ;; admission (`re-frame.epoch.capture/capture-event!` silently
       ;; drops trace events whose tags lack `:frame`). Without this
       ;; tag the headline machine-transition trace never reaches the
-      ;; cascade's `:trace-events` slot, leaving the Causa Machine
+      ;; cascade's `:trace-events` slot, leaving the Xray Machine
       ;; Inspector chart blank for cascades that DID drive a transition.
       ;; Per Spec 005 §Trace events: the outer macrostep trace carries
       ;; `:microsteps <count>` — the total number of `:always` microsteps

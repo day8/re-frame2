@@ -5,7 +5,7 @@
   `re-frame.machines.lifecycle-fx.registration/make-machine-handler` at
   the top of its body. Each validator throws an `ex-info` keyed on a
   `:rf.error/machine-*` taxonomy member; consumers (the `reg-machine`
-  macro, the registrar, Causa) inspect the `ex-data`. The validators
+  macro, the registrar, Xray) inspect the `ex-data`. The validators
   in this namespace are:
 
     - `validate-parallel!` — `:type :parallel` shape (rf2-l67o).
@@ -34,7 +34,7 @@
 ;;    :reason      "<diagnostic>"     ;; one human-readable sentence
 ;;    + per-site slots (:state / :slot / :guard / :action / :region / …)}
 ;;
-;; `:rf.error/id` is read uniformly by every consumer (Causa's error
+;; `:rf.error/id` is read uniformly by every consumer (Xray's error
 ;; widget, the pair-tool overlay, `:on-error` policies); the message
 ;; string is the stringified kw so `.getMessage` / `ex-message` pivots
 ;; to the same category without ex-data. Modelled on

@@ -218,7 +218,7 @@ Reach for `render-to-string` when the test cares about HTML; reach for hiccup-wa
 
 The patterns above are for a **single application frame** — the host frame is the only frame; views are application views; tests assert against the same frame the events fire into. That's the canonical shape for testing your own app and the one this section is about.
 
-A different shape exists for tool / observer code — code that runs in one frame and observes another (re-frame-10x, Causa, custom dashboards). Those tests need *two* frames in one process: the application frame plus the observer frame, with a trace path between them. That shape — the harness, the trace-bus wiring, the cross-frame subscribe — is exercised by the framework's own tool suite ([`tools/causa/test/.../test_helpers/e2e_multi_frame.cljs`](https://github.com/day8/re-frame2/blob/main/tools/causa/test/day8/re_frame2_causa/test_helpers/e2e_multi_frame.cljs)) and is **not** the right shape for testing your application's views. Single-app tests stay in a single frame; reach for the multi-frame harness only when you're building observer-side tooling.
+A different shape exists for tool / observer code — code that runs in one frame and observes another (re-frame-10x, Xray, custom dashboards). Those tests need *two* frames in one process: the application frame plus the observer frame, with a trace path between them. That shape — the harness, the trace-bus wiring, the cross-frame subscribe — is exercised by the framework's own tool suite ([`tools/xray/test/.../test_helpers/e2e_multi_frame.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/test/day8/re_frame2_xray/test_helpers/e2e_multi_frame.cljs)) and is **not** the right shape for testing your application's views. Single-app tests stay in a single frame; reach for the multi-frame harness only when you're building observer-side tooling.
 
 #### Runnable companion
 
@@ -525,4 +525,4 @@ The split is the inverse of what most React-side test suites accumulate over tim
 ## Next
 
 - [14 — Errors and how to handle them](16-errors.md) — the trace-listener test pattern in this chapter generalises into a full surface for asserting error contracts; that chapter walks the `:rf.error/*` taxonomy end-to-end.
-- [Causa](../causa/index.md) — the trace bus, epochs, time-travel, source-coords, and the devtool that paints them.
+- [Xray](../xray/index.md) — the trace bus, epochs, time-travel, source-coords, and the devtool that paints them.

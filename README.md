@@ -79,7 +79,7 @@ Who cares about novelty? I just want a feature-rich, excellent, productive frame
 
 Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimensions:
 
-  - **[Causa](https://day8.github.io/re-frame2/causa/)** — the human-facing devtools panel, mounted in-app and preloaded into dev builds. Thirteen tightly-integrated panels — event detail, causality graph, time-travel scrubber, app-DB diff, subscriptions with TanStack-style freshness badges, machine inspector, schema-violation timeline, hydration debugger, an AI co-pilot rail, and more. Claude described it to me as a masterpiece, and who am I to argue.
+  - **[Xray](https://day8.github.io/re-frame2/xray/)** — the human-facing devtools panel, mounted in-app and preloaded into dev builds. Thirteen tightly-integrated panels — event detail, causality graph, time-travel scrubber, app-DB diff, subscriptions with TanStack-style freshness badges, machine inspector, schema-violation timeline, hydration debugger, an AI co-pilot rail, and more. Claude described it to me as a masterpiece, and who am I to argue.
   - **[re-frame2-pair](skills/re-frame2-pair/)** — a Claude skill that pair-programs against your *running* application via nREPL + MCP. The trace bus gives the AI deep insight; it dispatches events, scrubs epochs, hot-swaps handlers, and reads your DOM tree (every element is tagged with source coordinates). If something breaks, the AI can do a full retrospective on the cascade leading up to the failure, patch the code in place, scrub back, and try the revision for you. There's even a meta-skill that watches your pair sessions and surfaces improvements to the pair tool itself — AI improving AI tooling.
   - **[Story](https://day8.github.io/re-frame2/story/)** — a Storybook-class component playground. Parity with [Storybook 9](https://storybook.js.org/), [Histoire](https://histoire.dev/), and [Ladle](https://ladle.dev/) on the chrome shape, *plus* differentiators those tools can't easily reach: EDN-first variants (round-trip through MCP and visual-regression services), schema-derived controls (Malli walks generate the args editor automatically), per-variant frame isolation (no state leaks between scenarios), machine-state visualisation, a time-travel scrubber linked to the trace stream, and Test Codegen (record canvas interactions as a `:play` body — Storybook 9's killer feature, with Story's EDN-first form making the captured output cleaner).
   - **[Routing](https://day8.github.io/re-frame2/guide/18-routing/)** — URL-driven navigation with frame-aware semantics. Routes are registry entries; navigation is an event; `:route` is a sub. Per-pane routes are possible because frames are a thing. Same handler runs server- and client-side.
@@ -193,7 +193,7 @@ docs/
   release-process.md           Operational doc — multi-artefact release pipeline
   quiet-tests.md               Recipe for silent-on-success cljs.test / clojure.test reporters
 examples/                      Tutorial-only worked examples (counter, etc.)
-testbeds/                      Shared framework-behavior testbed surfaces (consumed by Causa + Story
+testbeds/                      Shared framework-behavior testbed surfaces (consumed by Xray + Story
                                + MCP servers). Bundle-isolated from production builds.
   deliberate_throw/            4 :rf.error/* trigger sites (handler / fx / flow / machine)
   schema_violation/            4 :where surfaces of schema-validation-failure
@@ -239,7 +239,7 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
   story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story
   re-frame2-pair-mcp/                   day8/re-frame2-re-frame2-pair-mcp — MCP agent surface for the re-frame2-pair
                                nREPL companion
-  causa/                       day8/re-frame2-causa — Causa, the re-frame2 devtools panel;
+  xray/                       day8/re-frame2-xray — Xray, the re-frame2 devtools panel;
                                the structural successor to re-frame-10x
   machines-viz-mcp/            day8/re-frame2-machines-viz-mcp — MCP agent surface for machines-viz
                                (spec-only)

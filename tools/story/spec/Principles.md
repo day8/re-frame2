@@ -76,7 +76,7 @@ dispatch types, effect substrates, or component substrates.
 ## Reagent for the v1 UI shell
 
 The UI shell that Story renders (sidebar, canvas, controls, trace
-panel, embedded Causa panel) is built with Reagent at v1, sourced from
+panel, embedded Xray panel) is built with Reagent at v1, sourced from
 `implementation/adapters/reagent/`. Reasoning lives in
 [`003-Render-Shell.md`](003-Render-Shell.md) §UI shell substrate; the
 short version is:
@@ -114,16 +114,16 @@ the convention from `tools/machines-viz/` vs.
 
 ## Embed, don't reimplement
 
-For the epoch panel (Causa — the structural successor to
+For the epoch panel (Xray — the structural successor to
 re-frame-10x, per
-[`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md)
+[`tools/xray/spec/DESIGN-RATIONALE.md`](../../xray/spec/DESIGN-RATIONALE.md)
 Lock #1), the chart visualisation (machines-viz, future), and any
 other peer artefact: **embed via `reg-story-panel`; don't
 reimplement.** The [`003-Render-Shell.md`](003-Render-Shell.md)
 §Panel registration contract — five rules — is the embed protocol.
 
-This keeps the maintenance surface bounded: Causa's UX evolves in
-Causa, not in Story; machines-viz evolves in its own jar.
+This keeps the maintenance surface bounded: Xray's UX evolves in
+Xray, not in Story; machines-viz evolves in its own jar.
 
 ## Record, don't throw
 

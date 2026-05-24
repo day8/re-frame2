@@ -19,7 +19,7 @@
 # (for non-core) :local/root "../core".
 #
 # Per rf2-lwtke the deployable jars under tools/* also participate in
-# lockstep — every Clojars-publishable tool (causa, story, story-mcp)
+# lockstep — every Clojars-publishable tool (xray, story, story-mcp)
 # carries :clein/build :version "../../VERSION" and must not hand-edit
 # a literal :mvn/version for any day8/re-frame2-* artefact.
 # tools/re-frame2-pair-mcp/ ships as a Node binary on npm and carries no
@@ -191,7 +191,7 @@ done
 # carries a :clein/build alias publishes to Clojars at the same lockstep
 # version as the framework artefacts above — every consumer that pins
 # `day8/re-frame2 {:mvn/version X}` should be able to pin
-# `day8/re-frame2-causa {:mvn/version X}` and get a coherent set. Without
+# `day8/re-frame2-xray {:mvn/version X}` and get a coherent set. Without
 # this loop a hand-edit to tools/<name>/deps.edn would not surface as a
 # drift report and could cut a broken release.
 #
@@ -214,7 +214,7 @@ done
 # reads the same sources of truth this script does (repo-root VERSION,
 # implementation/package.json).
 declare -A TOOLS_PATHS=(
-  [causa]="causa"
+  [xray]="xray"
   [story]="story"
   [story-mcp]="story-mcp"
 )
@@ -225,7 +225,7 @@ declare -A TOOLS_PATHS=(
 # associative array can't carry multi-valued entries cleanly, so we use
 # a single multi-line string and split on `|`.
 TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
-causa|day8/re-frame2 {:local/root "../../implementation/core"}
+xray|day8/re-frame2 {:local/root "../../implementation/core"}
 story|day8/re-frame2 {:local/root "../../implementation/core"}
 story|day8/re-frame2-reagent {:local/root "../../implementation/adapters/reagent"}
 story|day8/re-frame2-machines {:local/root "../../implementation/machines"}
@@ -233,7 +233,7 @@ story-mcp|day8/re-frame2-story {:local/root "../story"}
 EOF
 )
 
-TOOLS=(causa story story-mcp)
+TOOLS=(xray story story-mcp)
 
 for tool in "${TOOLS[@]}"; do
   subpath="${TOOLS_PATHS[$tool]}"

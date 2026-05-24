@@ -85,7 +85,7 @@ The longer name has been examined and intentionally retained
 
 The rename to `reg-panel` is mechanical (one macro + its `*`-fn partner
 + test selectors + spec references) but the contract surface is broad
-(authoring docs, MCP write surface, Causa late-bind contract). The
+(authoring docs, MCP write surface, Xray late-bind contract). The
 3-token form is retained; this section names the rationale so future
 audits do not re-open the question without new evidence.
 

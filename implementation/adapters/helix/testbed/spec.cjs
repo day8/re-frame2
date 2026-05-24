@@ -4,7 +4,7 @@
  * Proves the Helix adapter wires up end-to-end: mount, subscribe (via
  * use-subscribe), dispatch, re-render. Minimal by design — real
  * coverage lives in the framework's CLJS / browser tests and the
- * Causa feature gate.
+ * Xray feature gate.
  */
 const { expectTextEquals, expectVisible } =
   require('../../../../examples/scripts/spec-helpers.cjs');

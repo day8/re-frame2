@@ -4,7 +4,7 @@ A single Reagent button + outcome dropdown that drives a
 `:rf.http/managed` request through one of the eight failure categories
 in Spec 014 (plus the success path). One click + one selection emits
 the corresponding `:rf.http/*` event(s) on the trace stream so a
-consumer (Causa, Story, re-frame2-pair-mcp) verifies category attribution
+consumer (Xray, Story, re-frame2-pair-mcp) verifies category attribution
 end-to-end.
 
 | Outcome | `data-testid` (option) | Strategy | Reply `:kind` / `:failure :kind` |
@@ -76,7 +76,7 @@ spec can iterate the dropdown values and assert each emits its expected
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Causa (26)**:
+**Xray (26)**:
 - HTTP failure cascade visible as ordered `:rf.http/*` with category attribution — the bread-and-butter scenario this surface exists to drive.
 - Time-travel scrub forward/back mutates visible UI — every outcome produces a `:status` and `:reply` mutation observable on `data-testid="status"` and `data-testid="reply-kind"`.
 

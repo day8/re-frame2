@@ -13,7 +13,7 @@
      password in its event-vector payload. The registration declares
      `:sensitive? true` in its `:rf/registration-metadata` map so the
      runtime stamps `:sensitive? true` on every TRACE event emitted
-     inside the handler's scope (per Spec 009 §Privacy). Causa's
+     inside the handler's scope (per Spec 009 §Privacy). Xray's
      trace collector reads that top-level stamp and drops the event
      from the buffer (default posture); the bottom rail surfaces a
      `[● REDACTED N]` hint.
@@ -29,7 +29,7 @@
      this slot at its declared path, the value is replaced with a
      `{:rf.size/large-elided {:bytes … :path … :hint …}}` marker.
      The `:hint` propagates verbatim — AI consumers (re-frame2-pair-mcp,
-     Causa) see the orienting string without drilling into the
+     Xray) see the orienting string without drilling into the
      blob.
 
   4. **Always-on `event-emit` listener** — the demo registers a
@@ -41,10 +41,10 @@
 
   ## What to look for in the running app
 
-  Open the browser console + (optionally) the Causa panel.
+  Open the browser console + (optionally) the Xray panel.
 
   - **Click 'Sign in (sensitive)'** — dispatches `:auth/sign-in`.
-    In Causa the event is absent from the trace panel (filtered out
+    In Xray the event is absent from the trace panel (filtered out
     by the `:sensitive?` top-level stamp); the bottom rail shows
     `[● REDACTED N]`. The console line from the always-on listener
     is honest about its scope: it shows the original event vector
@@ -62,7 +62,7 @@
     app-db. The console shows the `:user/avatar-pdf` slot replaced
     by the `:rf.size/large-elided` marker, with `:hint \"Avatar PDF
     blob\"` propagated verbatim from the schema declaration. This
-    is the SCHEMA-driven branch — the same substitution Causa
+    is the SCHEMA-driven branch — the same substitution Xray
     applies when it renders `app-db` in its inspector panel.
 
   Pre-alpha."
@@ -113,7 +113,7 @@
   ;; Registration metadata — the registrar copies `:sensitive? true`
   ;; into the registry slot's meta; the runtime hoists it to the
   ;; TOP level of every trace event emitted within this handler's
-  ;; scope. Causa filters on the top-level stamp.
+  ;; scope. Xray filters on the top-level stamp.
   {:doc        "Demo sign-in handler — the password rides the event
                 vector. `:sensitive? true` tells trace consumers and
                 always-on substrates to suppress or redact these events."
@@ -235,7 +235,7 @@
 ;; app-db through `rf/elide-wire-value` and `console.log` the
 ;; result. The `:user/avatar-pdf` slot shows up as the marker map;
 ;; everything else passes through. This is exactly the substitution
-;; Causa applies when it renders its app-db inspector panel.
+;; Xray applies when it renders its app-db inspector panel.
 
 (defn- walk-app-db! []
   (let [db     (rf/get-frame-db :rf/default)
@@ -278,7 +278,7 @@
           [:span {:style {:font-size "12px" :color "#595959"}}
            (if last-sign-in
              (str "submitted for " (:email last-sign-in)
-                  " — trace surface redacted, [● REDACTED N] in Causa")
+                  " — trace surface redacted, [● REDACTED N] in Xray")
              "dispatch :auth/sign-in — handler :sensitive? escape hatch")]]
 
          ;; -- 2. inline large payload (wire-walker auto-detect) ---

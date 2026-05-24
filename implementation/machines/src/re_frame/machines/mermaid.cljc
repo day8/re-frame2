@@ -7,7 +7,7 @@
   and external rendering pipelines. Lives in
   `implementation/machines/` alongside the machine runtime per
   rf2-yamkm — the Mermaid emitter is a code-gen utility that belongs
-  with the machine impl rather than as a separate tool. (Causa's
+  with the machine impl rather than as a separate tool. (Xray's
   Machine Inspector, PR #1400/#1402/#1407, replaces the live-viz role
   the old `tools/machines-viz/` was scoped to.)
 
@@ -54,7 +54,7 @@
     does not model the shared one-event/many-regions transition
     semantics.
 
-  The full topology renders correctly in the Causa Machine Inspector;
+  The full topology renders correctly in the Xray Machine Inspector;
   Mermaid is the Markdown-paste lane only.
 
   ## Output
@@ -67,7 +67,7 @@
   %% rows omitted
   %% Parallel regions render as independent static region trees;
   %% broadcast macrostep semantics are lossy
-  %% (see Causa Machine Inspector for full topology)
+  %% (see Xray Machine Inspector for full topology)
   stateDiagram-v2
     [*] --> idle
     idle --> loading : start
@@ -91,7 +91,7 @@
        ":spawn-all rows omitted\n"
        "%% Parallel regions render as independent static region trees; "
        "broadcast macrostep semantics are lossy\n"
-       "%% (see Causa Machine Inspector for full topology)"))
+       "%% (see Xray Machine Inspector for full topology)"))
 
 (def ^:private root-fallback-segment :rf.machines.mermaid/root-fallback)
 (def ^:private parallel-root-path [:rf.machines.mermaid/parallel-root])

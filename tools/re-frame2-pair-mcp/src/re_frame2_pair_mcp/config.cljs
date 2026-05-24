@@ -7,7 +7,7 @@
 
   ## Why a separate config ns
 
-  Mirrors `day8.re-frame2-causa.config/get-editor` and
+  Mirrors `day8.re-frame2-xray.config/get-editor` and
   `re-frame.story.config/get-editor` — every consumer of
   `re-frame.source-coords.editor-uri/editor-uri` reads its preference
   from a per-tool atom so hosts can run multiple tools side-by-side

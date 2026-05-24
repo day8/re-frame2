@@ -7,7 +7,7 @@
        off posture (`interop/debug-enabled?` rebound to `false` —
        semantically equivalent to CLJS `:advanced` + `goog.DEBUG=false`),
        `(rf/handler-meta kind id)` MUST NOT carry `:ns` / `:file` /
-       `:line` / `:column` coord-keys. Causa Open-in-editor and
+       `:line` / `:column` coord-keys. Xray Open-in-editor and
        re-frame-pair are dev-only tools; they don't reach the registry
        at all in production bundles.
 
@@ -63,7 +63,7 @@
   (testing "Per rf2-3un2g Policy A: the dev posture (default
             `interop/debug-enabled?` = true) preserves the historical
             behaviour — `(rf/handler-meta ...)` returns the full coord-
-            map for Causa / re-frame-pair / IDE jump-to-source."
+            map for Xray / re-frame-pair / IDE jump-to-source."
     (rf/reg-event-db :rf2-3un2g/dev-keep-event
                      {:doc "kept"}
                      (fn [db _] db))

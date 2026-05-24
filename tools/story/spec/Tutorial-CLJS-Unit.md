@@ -29,7 +29,7 @@ gate-grade; this is the tutorial-shaped on-ramp for end-user app
 code.
 
 Per the project's testing direction
-([`feedback_causa_story_cljs_unit_tests_not_playwright`](https://github.com/day8/re-frame2)),
+([`feedback_xray_story_cljs_unit_tests_not_playwright`](https://github.com/day8/re-frame2)),
 Wave 1–4 migration moved 81% of Story's Playwright assertions to
 CLJS-unit tests. **New end-user tests default to CLJS-unit, not
 Playwright.** The CLJS test reaches every Story surface a Playwright
@@ -264,7 +264,7 @@ body, not in the test. Two reasons:
   colleague's machine. Events that live only in your test repo do
   not.
 - **EDN, not code.** The variant body is pure data; it serialises
-  to a Causa share-pack, to the MCP write surface, to a snapshot
+  to a Xray share-pack, to the MCP write surface, to a snapshot
   fixture. Test-side driving events serialise only as test code.
 
 ```clojure

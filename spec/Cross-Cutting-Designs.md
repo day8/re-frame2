@@ -23,7 +23,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Consumers.**
 - [Tool-Pair.md](Tool-Pair.md) — pair-shaped tools consume the walker at the wire boundary; the `:rf.size/large-elided` marker is the sixth of six normative wire-protocol markers catalogued in [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/README.md) — the four MCP-side response shapes (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`, `:rf.mcp/diff-from`), the `:rf.size/large-elided` per-value elision marker, and the `:rf.elision/at` fetch-handle tag that pairs with it.
 - `tools/re-frame2-pair-mcp/` — applies the walker in `tools.cljs` invoke pipeline; the `elision_test.cljs` suite pins the wire shape.
-- `tools/causa/` — on-box trace listener panels default `:rf.size/include-large?` to `false`; the `[● ELIDED N]` indicator surfaces the marker.
+- `tools/xray/` — on-box trace listener panels default `:rf.size/include-large?` to `false`; the `[● ELIDED N]` indicator surfaces the marker.
 - `tools/story/` — variant snapshots and trace scrubbers consume the same walker.
 - `implementation/schemas/` — publishes `extract-large-paths-from-schema` / `extract-sensitive-paths-from-schema` through the late-bind hook table; `re-frame.elision` consumes them to populate the unified registry (Option A per rf2-ynnq0 — schemas owns the deep walker, elision owns the app-db write).
 
@@ -72,7 +72,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 ## 5. Origin tagging
 
-**Design problem.** When multiple actors dispatch events into a frame — the user's application, a pair tool, a story runner, the REPL, the SSR boot path — every dispatch becomes indistinguishable downstream. Post-mortem trace views need to answer "show me only the dispatches the pair tool issued during this session" and "did this transition come from `:rf/router` or from user code?" The runtime needs one keyword convention, one carrying slot, and one lifting rule so every consumer (10x panel, causa trace filter, pair-tool's own filter, story scrubber) reads it the same way.
+**Design problem.** When multiple actors dispatch events into a frame — the user's application, a pair tool, a story runner, the REPL, the SSR boot path — every dispatch becomes indistinguishable downstream. Post-mortem trace views need to answer "show me only the dispatches the pair tool issued during this session" and "did this transition come from `:rf/router` or from user code?" The runtime needs one keyword convention, one carrying slot, and one lifting rule so every consumer (10x panel, xray trace filter, pair-tool's own filter, story scrubber) reads it the same way.
 
 **Canonical homes.**
 - [002-Frames.md §Dispatch origin tagging](002-Frames.md#dispatch-origin-tagging) — the `:origin` opt accepted on the dispatch envelope; open-vocabulary default `:app`; framework-reserved values (`:rf/router`, `:rf/ssr`, etc.); the distinction from `:source` (trigger-kind axis).
@@ -81,7 +81,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Consumers.**
 - `tools/re-frame2-pair-mcp/` — tags every dispatch / eval-cljs / restore-epoch / reset-frame-db with `:origin :re-frame2-pair-mcp` (per its NAMING.md row).
 - `tools/story-mcp/` — does not ship `dispatch` directly, but its `register-variant` / `record-as-variant` writes carry `:origin :story-mcp`.
-- `tools/causa/` — trace panel filter axis.
+- `tools/xray/` — trace panel filter axis.
 - Framework boot paths (router, SSR, machine timer) — set `:origin` to a runtime-reserved `:rf/*` value where the post-mortem distinction is useful.
 
 **The result.** One `:origin` keyword, one default (`:app`), one open vocabulary. Every dispatching surface — application, framework, tool — picks a value; every consuming surface filters on `(get-in trace-event [:tags :rf.event/origin])` (the dispatch *opt* is `:origin`; the trace *tag* it lifts onto is `:rf.event/origin`). Adding a sixth dispatching actor is one keyword choice and zero framework changes. The pair- and story-mcp catalogues both explicitly call out their `:origin` value so post-mortem "who dispatched this?" filters are one-key lookups.

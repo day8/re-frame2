@@ -4,17 +4,17 @@
 
   ## Why this exists
 
-  xyflow Phase 1 (#1806) deferred the cross-cutting Causa machine
+  xyflow Phase 1 (#1806) deferred the cross-cutting Xray machine
   surfaces. This overlay restores the `:spawn-all` join inspector
-  (Causa 003 §M.4 — `:spawn-all` never joins): when a state declares
+  (Xray 003 §M.4 — `:spawn-all` never joins): when a state declares
   `:spawn-all`, the inspector shows the N spawned children + their
   per-child join state (done / running / failed) and whether the join
   condition has resolved, anchored beside the spawn-all-bearing state.
 
   ## Pure-presentation, host-projected (mirrors after-rings)
 
-  machines-viz is bundle-isolated from Causa — it cannot `:require`
-  Causa's trace-buffer subs. So the overlay's input is a flat,
+  machines-viz is bundle-isolated from Xray — it cannot `:require`
+  Xray's trace-buffer subs. So the overlay's input is a flat,
   presentation-ready `join-spec` the host projects from its trace
   buffer (`:rf.machine.spawn-all/*` events). The overlay walks the
   chart's node DOM (`rf-mv-chart-node-<id>`) to anchor the card; the
@@ -28,7 +28,7 @@
   for K of N` remainder. One row per child: a glyph (`✓` done /
   `⧖` running / `✗` failed / `⊘` cancelled), the child key, and an
   optional status note. Click a child row → the host's
-  `:on-child-click` (Causa pivots to the child instance).
+  `:on-child-click` (Xray pivots to the child instance).
 
   ## Theming
 
@@ -191,7 +191,7 @@
     :testid     — overlay root data-testid; defaults to
                    `\"rf-mv-chart-spawn-all-join-overlay\"`.
     :on-child-click — `(fn [child-key] ...)`; fires on a child-row
-                   click (Causa pivots to the child instance)."
+                   click (Xray pivots to the child instance)."
   [_initial-props]
   (let [root-ref   (r/atom nil)
         anchored   (r/atom nil)

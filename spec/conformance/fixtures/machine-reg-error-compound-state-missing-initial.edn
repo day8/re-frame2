@@ -13,7 +13,7 @@
 ;; contract) at the conformance layer. The thrown error's `:rf.error/id`
 ;; discriminator is `:rf.error/machine-compound-state-missing-initial`.
 ;; Per [009 §The thrown-error shape](../../009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract):
-;; consumers (Causa's error widget, the pair-tool overlay) `case` on
+;; consumers (Xray's error widget, the pair-tool overlay) `case` on
 ;; `:rf.error/id`, never the message string.
 
 {:fixture/id           :machine/reg-error-compound-state-missing-initial

@@ -19,8 +19,8 @@
  *     Reagent / UIx / Helix mount + dispatch + render.
  *
  * Real-regression coverage for everything else lives in: substrate
- * contract tests under `npm run test:cljs`, the Causa feature-matrix
- * gate (`npm run test:causa-feature-gate`), bundle-isolation
+ * contract tests under `npm run test:cljs`, the Xray feature-matrix
+ * gate (`npm run test:xray-feature-gate`), bundle-isolation
  * (`npm run test:bundle-isolation`), the perf-bundle gate
  * (`npm run test:perf-bundle`), and mcp-conformance.
  *

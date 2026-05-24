@@ -185,7 +185,7 @@
 ;; tests inject a stub. We do NOT ship a default that calls an
 ;; external LLM because (a) it'd make this namespace depend on
 ;; network I/O, (b) it'd require shipping API keys / secret-handling,
-;; and (c) the principal use case is the IDE-side AI pair (Causa's
+;; and (c) the principal use case is the IDE-side AI pair (Xray's
 ;; chat / re-frame2-pair-mcp) which already has an LLM seam.
 
 (defn- default-resolver [_prompt]

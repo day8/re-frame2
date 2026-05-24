@@ -119,7 +119,7 @@
 ;; action invocation emits `:rf.machine/action-ran`. Both traces ride
 ;; through the standard trace bus, so `*handler-scope*` auto-stamps
 ;; `:dispatch-id` into `:tags` — downstream cascade-correlation (e.g.
-;; Causa's `:rf.causa/machine-transitions-for-focused-event` sub) groups
+;; Xray's `:rf.xray/machine-transitions-for-focused-event` sub) groups
 ;; them with the originating event without any explicit threading here.
 ;;
 ;; The synthesised `(constantly true)` returned by `resolve-guard` for a

@@ -68,7 +68,7 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
 </head>
 <body>
   <div class="rf2-app-shell">
-    <aside class="rf2-causa-host" data-rf-causa-host></aside>
+    <aside class="rf2-xray-host" data-rf-xray-host></aside>
     <main id="app"></main>
   </div>
   <script src="/js/main.js"></script>
@@ -81,21 +81,21 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
 ```css
 body { font: 16px/1.4 system-ui, sans-serif; margin: 0; }
 .rf2-app-shell { display: flex; min-height: 100vh; }
-.rf2-causa-host { flex: 0 0 420px; min-width: 320px; }
+.rf2-xray-host { flex: 0 0 420px; min-width: 320px; }
 #app { flex: 1; min-width: 0; padding: 2em; }
 ```
 
 Five contractual bits:
 
 - **`<main id="app"></main>`** — the app mount point. Whatever id you use here, the entry ns must call `(js/document.getElementById "<same-id>")`. By convention it's `"app"`.
-- **`<aside class="rf2-causa-host" data-rf-causa-host></aside>`** — Causa's default true-inline devtools host, the **left** layout column beside `#app`. Order it **first** in the DOM (`<aside>` then `<main>`) so flex flow places Causa on the left, matching the template. When `day8.re-frame2-causa.preload` is enabled Causa auto-opens into this host; if it's missing, Causa logs an actionable diagnostic, also reachable via `window.day8.re_frame2_causa.status()`.
-- **`.rf2-causa-host` flex CSS** — the host app owns sizing. The contract is a fixed-width column (`flex: 0 0 420px; min-width: 320px`) and an app region that can shrink (`#app { flex: 1; min-width: 0 }`). Causa injects its own drag handle on the panel's outer edge (persisted across reloads, double-click to reset), so the consumer's CSS stays this minimal. To change the default width, edit `flex-basis` here; the full resize-affordance / theming surface is the `re-frame2-causa` skill's territory, not greenfield's.
+- **`<aside class="rf2-xray-host" data-rf-xray-host></aside>`** — Xray's default true-inline devtools host, the **left** layout column beside `#app`. Order it **first** in the DOM (`<aside>` then `<main>`) so flex flow places Xray on the left, matching the template. When `day8.re-frame2-xray.preload` is enabled Xray auto-opens into this host; if it's missing, Xray logs an actionable diagnostic, also reachable via `window.day8.re_frame2_xray.status()`.
+- **`.rf2-xray-host` flex CSS** — the host app owns sizing. The contract is a fixed-width column (`flex: 0 0 420px; min-width: 320px`) and an app region that can shrink (`#app { flex: 1; min-width: 0 }`). Xray injects its own drag handle on the panel's outer edge (persisted across reloads, double-click to reset), so the consumer's CSS stays this minimal. To change the default width, edit `flex-basis` here; the full resize-affordance / theming surface is the `re-frame2-xray` skill's territory, not greenfield's.
 - **CSP + external stylesheet.** The CSP meta tag declares `style-src 'self'`, which blocks inline `<style>`/`style=` attributes — so styles live in `css/app.css`, not inline. Keep them out of the HTML to stay CSP-clean (and matching the template).
 - **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows. The absolute path from site root is correct for shadow-cljs's dev server.
 
-## `:devtools` block (hot-reload + Causa)
+## `:devtools` block (hot-reload + Xray)
 
-The top-level `:dev-http` (above) already starts the dev server. Add a `:devtools` block per build for hot-reload + the Causa devtools panel — both wired this way in the generator template:
+The top-level `:dev-http` (above) already starts the dev server. Add a `:devtools` block per build for hot-reload + the Xray devtools panel — both wired this way in the generator template:
 
 ```clojure
 :builds
@@ -105,16 +105,16 @@ The top-level `:dev-http` (above) already starts the dev server. Add a `:devtool
   :asset-path "/js"
   :modules    {:main {:init-fn your-app.core/init}}
   :devtools   {:after-load your-app.core/init
-               :preloads   [day8.re-frame2-causa.preload]}}}
+               :preloads   [day8.re-frame2-xray.preload]}}}
 ```
 
 - `:after-load your-app.core/init` — re-run the entry fn after each hot reload so the freshly-loaded code re-installs the adapter and re-renders. **Note:** if `init` also runs `(rf/dispatch-sync [:your-app/initialise])` (the seed event — see `entry-namespace.md`), `:after-load` re-runs that seed on **every** hot reload, resetting `app-db` to its initial state each save. For a counter that means the count jumps back to 0 on every reload. If preserving in-progress state across reloads matters, point `:after-load` at a separate fn that re-renders **without** re-seeding (calls `rdc/render` but not `dispatch-sync`).
-- `:preloads [day8.re-frame2-causa.preload]` — loads the Causa in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Causa never ships to production.
+- `:preloads [day8.re-frame2-xray.preload]` — loads the Xray in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Xray never ships to production.
 - The dev server itself comes from the top-level `:dev-http {8280 "resources/public"}` (not from a `:http-port`/`:http-root` inside `:devtools` — that's the older style; the template uses the top-level `:dev-http` form).
 
 With this block in place, `shadow-cljs watch app` starts the dev server. Visit `http://localhost:8280/` and the browser auto-refreshes on every recompile.
 
-re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's default behaviour is enough. **Causa is the one default preload:** because Causa is a day-one dep (see `deps-versions.md`), the template wires `day8.re-frame2-causa.preload` here. It auto-opens into the `[data-rf-causa-host]` column from the `index.html` above after `rf/init!` installs the substrate adapter (there is no lazy/manual-only launch step). If you genuinely want a Causa-free build, drop the `:preloads` entry and the `day8/re-frame2-causa` dep together.
+re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's default behaviour is enough. **Xray is the one default preload:** because Xray is a day-one dep (see `deps-versions.md`), the template wires `day8.re-frame2-xray.preload` here. It auto-opens into the `[data-rf-xray-host]` column from the `index.html` above after `rf/init!` installs the substrate adapter (there is no lazy/manual-only launch step). If you genuinely want a Xray-free build, drop the `:preloads` entry and the `day8/re-frame2-xray` dep together.
 
 ## Production build (`release`)
 
@@ -134,7 +134,7 @@ If you want to pin the port explicitly (e.g. for editor integrations), add a top
 
 A few things you might pull in by reflex from other CLJS framework setups that re-frame2 specifically does not require:
 
-- **No *framework* preload required** — re-frame2's core has no preload analogue to re-frame v1. The one default preload is Causa's devtools (`day8.re-frame2-causa.preload`, wired in `:devtools/preloads` — see the `index.html` section above for the host column it opens into).
+- **No *framework* preload required** — re-frame2's core has no preload analogue to re-frame v1. The one default preload is Xray's devtools (`day8.re-frame2-xray.preload`, wired in `:devtools/preloads` — see the `index.html` section above for the host column it opens into).
 - **No `:closure-defines`** for re-frame2 itself in dev. The single exception is opting into the performance-API instrumentation (Spec 009 §Performance instrumentation) — add `:compiler-options {:closure-defines {re-frame.performance/enabled? true}}` to the build only if the author asks for it explicitly. Default dev is fine.
 - **No special compiler options** for dev. `{:compiler-options {:warnings {...}}}` is up to the author.
 - **No SSR build entry** unless the author wants SSR. SSR is opt-in via `day8/re-frame2-ssr` (separate per-feature artefact); the SSR build is a separate `:target :node-script` (or `:target :browser` running in a static-render harness). Out of scope for greenfield.

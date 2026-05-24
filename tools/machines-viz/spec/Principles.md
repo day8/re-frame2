@@ -6,8 +6,8 @@ should be able to read this doc and reach the same answers
 Machines-Viz already reached.
 
 These are downstream of the framework's
-[Principles](../../../spec/Principles.md) and Causa's
-[Principles](../../causa/spec/Principles.md); they are
+[Principles](../../../spec/Principles.md) and Xray's
+[Principles](../../xray/spec/Principles.md); they are
 *Machines-Viz-specific*. Where they overlap, this doc cites instead
 of repeating.
 
@@ -26,15 +26,15 @@ If a chart needs data the framework doesn't emit, the answer is to
 `spec/009-Instrumentation.md` or `spec/005-StateMachines.md`) — not
 to bolt a parallel surface onto Machines-Viz.
 
-This is the same posture Causa takes
-([Causa Principles §Observation only](../../causa/spec/Principles.md)).
+This is the same posture Xray takes
+([Xray Principles §Observation only](../../xray/spec/Principles.md)).
 The rule applies twice in this jar: once because the framework
 should not grow tooling-only surfaces, once because every host that
 embeds `MachineChart` must be able to count on identical behaviour.
 
 ## Embedding-host-agnostic — one component, many hosts
 
-`MachineChart` does not know its host. Causa wraps it in the
+`MachineChart` does not know its host. Xray wraps it in the
 Machine Inspector panel; Story wraps it in a per-variant ribbon;
 the read-only viewer page wraps it in plain HTML. The component's
 contract is the same in every case:
@@ -46,7 +46,7 @@ contract is the same in every case:
   interaction.
 - No assumptions: the component does **not** assume the host
   surfaces a frame picker, a transition-history ribbon, an editor
-  URL handler, or any other Causa-shaped affordance. Hosts add
+  URL handler, or any other Xray-shaped affordance. Hosts add
   those.
 
 When two hosts disagree on a behaviour, the resolution lives in
@@ -59,7 +59,7 @@ pass it via props or via the (small) configuration surface in
 Per [`tools/README.md`](../../README.md), tools are kept off
 consumer apps' production classpaths **structurally**. Machines-Viz
 inherits the contract: nothing in `implementation/` may `:require`
-from this jar. Causa requires this jar; Story requires this jar;
+from this jar. Xray requires this jar; Story requires this jar;
 the framework runtime does not.
 
 This is non-negotiable. A consumer who deploys a re-frame2 app to
@@ -141,7 +141,7 @@ sensitive data by default (per
 URL that exfiltrates trace events is a privacy hole; one that
 exfiltrates `:data` is the same hole through a different door; one
 that leaks `:file` paths is a smaller hole but the same accident-
-class. We close all three structurally. Per Causa Lock #4 — Session
+class. We close all three structurally. Per Xray Lock #4 — Session
 export, lifted here.
 
 The encoder is the gatekeeper: it accepts a `chart-state` value and
@@ -183,20 +183,20 @@ The default `MachineChart` is a viewer. Interactions are limited
 to:
 
 - Click a state node → fire `:on-state-click` (host decides what to
-  do: Causa jumps to source; the viewer page no-ops).
+  do: Xray jumps to source; the viewer page no-ops).
 - Click an edge → fire `:on-transition-click` (host decides).
 - Hover an edge / state → reveal a tooltip (this is the
   component's own affordance; no host wiring).
 
 Machines-Viz **never** dispatches into the framework runtime. It
 **never** calls `restore-epoch`. It **never** writes to `app-db`.
-Same posture Causa takes
-([Causa Principles §Read-only by default](../../causa/spec/Principles.md))
-— the difference is that Causa's posture has a "mutate by
+Same posture Xray takes
+([Xray Principles §Read-only by default](../../xray/spec/Principles.md))
+— the difference is that Xray's posture has a "mutate by
 confirmation" escape (re-dispatch via right-click etc.); Machines-
 Viz has no escape. The component is observation, full stop.
 
-If a host needs to drive the runtime from a chart click (Causa's
+If a host needs to drive the runtime from a chart click (Xray's
 "jump to source", say), the host wires that through its own
 machinery — Machines-Viz fires the callback and stops there.
 
@@ -275,8 +275,8 @@ Every coloured marker pairs with a shape, icon, or text:
 - Stale microstep node: grey + dashed border + "(microstep)" text.
 
 The colour-blind path is reachable without hue. Same posture
-Causa takes
-([Causa 007-UX-IA §Colour is never alone](../../causa/spec/007-UX-IA.md)).
+Xray takes
+([Xray 007-UX-IA §Colour is never alone](../../xray/spec/007-UX-IA.md)).
 
 ## Restraint over completeness
 

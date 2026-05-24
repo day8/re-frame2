@@ -125,7 +125,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
     (uix-dom/render-root ($ views/counter-app) root))
   ```
   (Helix uses `(.render root ($ views/counter-app))` against a `react-dom/client` root, with `$` from `helix.core` — see the template's `_helix/core.cljs`.)
-- everything else (events, subs, schemas, Causa wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates.
+- everything else (events, subs, schemas, Xray wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates.
 
 The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants — invoke `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app :substrate :uix` (or `:helix`) and you get a working UIx/Helix counter without hand-wiring the substitutions above. See [the generator-template section](../README.md#relationship-to-the-generator-template).
 

@@ -22,7 +22,7 @@
   `<line>`/`<col>` are the source coords captured at `reg-view` macro-
   expansion time. We split on `:` to recover them, then look up
   `(rf/handler-meta :view <id>)` for the `:file` slot (the DOM attribute
-  carries line/col only — see `docs/causa/05-click-to-source.md`).
+  carries line/col only — see `docs/xray/05-click-to-source.md`).
 
   ## Inspector mode
 
@@ -130,7 +130,7 @@
      source-coord map `editor-uri/editor-uri` expects (`{:file :line
      :column}`). The DOM attribute carries line + col; the `:file` slot
      comes from the registered view's metadata (see
-     `re-frame.source-coords` / `docs/causa/05-click-to-source.md`).
+     `re-frame.source-coords` / `docs/xray/05-click-to-source.md`).
 
      Falls back to the always-on `error-coords-by-id` registry
      (rf2-3un2g) when the public meta has been stripped by production

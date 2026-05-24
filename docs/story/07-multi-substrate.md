@@ -100,7 +100,7 @@ We've covered:
 
 - **The three load-bearing rules** — frame-per-variant, EDN bodies, record-don't-throw. Internalise these and the rest of Story makes sense as a consequence.
 - **The daily affordances** — variants, mode tabs, the recorder, workspaces. The 80% of the playground you'll reach for in a normal week.
-- **The differentiators** — snapshot identity (content-based, rename-safe), time-travel (per-variant Causa embed), multi-substrate (same variant, several adapters). These are the bets re-frame2's substrate let us make that weren't available to upstream Storybook.
+- **The differentiators** — snapshot identity (content-based, rename-safe), time-travel (per-variant Xray embed), multi-substrate (same variant, several adapters). These are the bets re-frame2's substrate let us make that weren't available to upstream Storybook.
 - **The agent surface** — story-mcp, the EDN-first variant body, the recorder's data output. The self-healing loop that wasn't a use case five years ago and is going to matter more every year.
 
 If you want to look at a worked example end-to-end, [`tools/story/testbeds/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/tools/story/testbeds/counter_with_stories) wires every macro and every authoring shape against the canonical counter app — five variants, several workspaces, every assertion shape, every decorator kind, plus passing integration tests. It's the closest thing to a reference implementation of the patterns this tutorial walks.

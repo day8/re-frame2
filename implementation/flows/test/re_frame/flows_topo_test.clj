@@ -8,7 +8,7 @@
   construction — by Kahn's algorithm every stuck node has at least one
   stuck dep, so the next-dep lookup never returns nil — but the throw
   is load-bearing defence: a closing-repeat vector built from a dead
-  end would lie to tools (Causa flow panel, re-frame-10x cycle
+  end would lie to tools (Xray flow panel, re-frame-10x cycle
   visualisation) about the offending chain. Pin the throw + ex-data
   shape so a future refactor cannot silently break the invariant.
 

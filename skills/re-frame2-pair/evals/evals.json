@@ -15,7 +15,7 @@
     {"id": 9,  "name": "neg-spec-discussion",   "should_trigger": false, "prompt": "Why does re-frame2 use frames instead of a single global app-db?", "rationale": "Spec / design rationale belongs to SKILL-REDIRECT.md."},
     {"id": 10, "name": "neg-author-from-scratch", "should_trigger": false, "prompt": "Write me a brand-new re-frame2 reg-event-fx for posting a login form.", "rationale": "Authoring code without a running app is re-frame2."},
     {"id": 11, "name": "neg-greenfield",        "should_trigger": false, "prompt": "Bootstrap a new re-frame2 project from an empty directory.", "rationale": "Greenfield is re-frame2-setup."},
-    {"id": 12, "name": "neg-causa-tour",        "should_trigger": false, "prompt": "Which Causa panel surfaces schema violations?", "rationale": "Causa tour is its own skill."},
+    {"id": 12, "name": "neg-xray-tour",        "should_trigger": false, "prompt": "Which Xray panel surfaces schema violations?", "rationale": "Xray tour is its own skill."},
     {"id": 13, "name": "neg-retro-session",     "should_trigger": false, "prompt": "Retro on the re-frame2-pair session I just finished.", "rationale": "Session retro is re-frame2-pair-retro."},
     {"id": 14, "name": "neg-improver-static",   "should_trigger": false, "prompt": "Audit cart/events.cljs against re-frame2 best practices.", "rationale": "Static critique with no runtime is re-frame2-improver."},
     {"id": 15, "name": "neg-migration",         "should_trigger": false, "prompt": "I want to upgrade my re-frame v1 app to re-frame2.", "rationale": "Migration is re-frame-migration."},

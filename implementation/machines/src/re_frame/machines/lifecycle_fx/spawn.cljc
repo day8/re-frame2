@@ -241,7 +241,7 @@
     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
       ;; Per rf2-t1lxr: machine-spawn :start dispatches are framework-
       ;; internal lifecycle events — tag :rf/dispatch-origin :internal
-      ;; so Causa's L2 timeline can distinguish actor-bootstrap from
+      ;; so Xray's L2 timeline can distinguish actor-bootstrap from
       ;; user-origin events.
       (let [start (:start args)
             opts  {:frame frame-id :rf/dispatch-origin :internal}]

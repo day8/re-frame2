@@ -321,7 +321,7 @@
   ;; The `:rf.sub/run` trace shape carries `{:rf.sub/id :rf.sub/query-v :frame}` — not
   ;; the computed value (sub recompute keeps the value in the reaction).
   ;; Per-sub-path declarations apply downstream: wherever a tool lifts the
-  ;; sub's value into an observable surface (Causa sub panel, MCP wire),
+  ;; sub's value into an observable surface (Xray sub panel, MCP wire),
   ;; the consumer calls `marks/redact-with-paths` with the sub's declared
   ;; paths. This test exercises that contract via the public primitive.
   (rf/reg-sub :compound

@@ -32,7 +32,7 @@
   4. Escape exits full-screen ONLY when full-screen is currently on.
 
   Sub-millisecond per case; no DOM / no React. The harness lives in
-  this ns; no Causa pipeline is needed for this surface (the hotkeys
+  this ns; no Xray pipeline is needed for this surface (the hotkeys
   are Story chrome only)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -52,7 +52,7 @@
 (deftest f-key-toggles-full-screen
   (testing "rf2-p3i0t — `f` (no modifier, not editable) flips
             :full-screen?"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (is (false? (:full-screen? (e2e/chrome-visibility)))
@@ -66,7 +66,7 @@
 
 (deftest s-key-toggles-sidebar
   (testing "rf2-g8l8x — `s` flips :sidebar?"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (is (true? (:sidebar? (e2e/chrome-visibility))))
@@ -76,7 +76,7 @@
 (deftest a-key-toggles-rhs
   (testing "rf2-g8l8x — `a` (for `addons` per Storybook convention)
             flips :rhs?"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (is (true? (:rhs? (e2e/chrome-visibility))))
@@ -85,7 +85,7 @@
 
 (deftest t-key-toggles-toolbar
   (testing "rf2-g8l8x — `t` flips :toolbar?"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (is (true? (:toolbar? (e2e/chrome-visibility))))
@@ -97,7 +97,7 @@
 (deftest modifier-held-passes-through
   (testing "Cmd-/Ctrl-/Alt-held → dispatch! is a no-op (the palette /
             browser owns modifier-bearing chords). rf2-g8l8x §exclusions"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (let [before (e2e/chrome-visibility)]
@@ -111,7 +111,7 @@
   (testing "target is INPUT / TEXTAREA / SELECT / contenteditable →
             dispatch! is a no-op. Typing `f` into the sidebar search
             shouldn't toggle full-screen. rf2-g8l8x §focus-discrimination"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (let [before (e2e/chrome-visibility)]
@@ -125,7 +125,7 @@
 (deftest unbound-key-passes-through
   (testing "unbound key → dispatch! is a no-op. `g` is not in
             `bindings` so no toggle fires."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (let [before (e2e/chrome-visibility)]
@@ -139,7 +139,7 @@
 (deftest escape-exits-full-screen-only-when-on
   (testing "rf2-p3i0t — Escape exits full-screen when on; no-op
             otherwise."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         ;; off → Escape → still off
@@ -154,7 +154,7 @@
 (deftest escape-yields-when-editable
   (testing "Escape in an editable target does NOT exit full-screen —
             that key is the input's own cancel affordance"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {}
       (fn []
         (kb/full-screen-toggle!)

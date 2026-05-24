@@ -134,14 +134,14 @@ Summary as it pertains to the MCP surface:
    on/off switch keyed by panel id.
 4. **Author calls `reg-story-panel` from anywhere.** Built-in panels
    register from `install-canonical-vocabulary!`; third-party tooling
-   (Causa's epoch view, future statechart-viz panels) registers from
+   (Xray's epoch view, future statechart-viz panels) registers from
    its own boot.
 5. **Late-bind is the contract.** A `:render` id can be registered
    from any artefact on the classpath — Story panels resolve via
    `(rf/view <render-id>)` at render time, so the view-author and the
-   panel-registrant need not live in the same jar. (Causa itself does
+   panel-registrant need not live in the same jar. (Xray itself does
    NOT use `reg-story-panel`; per 003-Render-Shell.md §Panel-host the
-   Causa surface has its own per-panel mount contract. Late-bind still
+   Xray surface has its own per-panel mount contract. Late-bind still
    governs the other panels.)
 
 The MCP jar consumes neither the panel host nor the view ids

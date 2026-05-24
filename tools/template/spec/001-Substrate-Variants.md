@@ -80,13 +80,13 @@ choice swaps:
   `day8/re-frame2-helix`. The remaining runtime coords are identical
   across variants: `day8/re-frame2` (core), `day8/re-frame2-schemas`
   (so `schema.cljs`'s whole-app-db schema validates rather than
-  soft-passing per Spec 010), and `day8/re-frame2-causa` (the in-app
+  soft-passing per Spec 010), and `day8/re-frame2-xray` (the in-app
   devtools panel — see
-  [002 §Causa devtools](002-Generated-Shape.md#causa-devtools)).
+  [002 §Xray devtools](002-Generated-Shape.md#xray-devtools)).
 - `shadow-cljs.edn` and `package.json` — react / react-dom pins
   are identical; the substrate's own npm dep (where applicable)
   is added. The `:app` build's `:devtools {:preloads …}` carries
-  `day8.re-frame2-causa.preload` identically across variants.
+  `day8.re-frame2-xray.preload` identically across variants.
 
 The substrate-agnostic shell — `events.cljs`, `subs.cljs`,
 `schema.cljs`, `README.md`, `.gitignore`,

@@ -3,9 +3,9 @@
   the editor at a source-coord's file:line. Per rf2-evgf5 + Spec 005-
   SOTA-Features.md §'Open in editor' per variant.
 
-  Mirrors `day8.re-frame2-causa.open-in-editor` — same shape, same
+  Mirrors `day8.re-frame2-xray.open-in-editor` — same shape, same
   click-time gate, same launcher seam. Per rf2-r2un8: the two surfaces
-  were drifting; Causa's structure (resolve-uri helper + dispatch-based
+  were drifting; Xray's structure (resolve-uri helper + dispatch-based
   path + install! registration) is the canonical shape both tools
   consume now. Story keeps its existing public chip API
   (`open-chip` / `open-chip-for-variant` / `open-source-coord!`) but
@@ -73,7 +73,7 @@
   that resolves to `https://...` would navigate the tab rather than
   launch an editor; the allowlist makes that an obvious no-op rather
   than a silent surprise. The predicate lives in the shared
-  `editor-uri` ns so Causa's parallel surface consumes the same gate.
+  `editor-uri` ns so Xray's parallel surface consumes the same gate.
 
   ## Bundle isolation
 
@@ -114,7 +114,7 @@
 
 ;; ---- pure: resolve a source-coord to a launchable URI --------------------
 ;;
-;; Per rf2-r2un8 (porting Causa's structure): URI building is extracted
+;; Per rf2-r2un8 (porting Xray's structure): URI building is extracted
 ;; into one helper so the chip path and the dispatch path share the same
 ;; logic — chip's `:href`, chip's `:on-click`, the inspector launcher, and
 ;; the `:rf.story/open-in-editor` event-fx all call `resolve-uri`.
@@ -156,7 +156,7 @@
     - A bare display string `\"file:line\"` (defensive).
 
   Returns the map form; callers feed it to `editor-uri/editor-uri`
-  unchanged. Mirrors Causa's `coerce-coord` (rf2-r2un8 port)."
+  unchanged. Mirrors Xray's `coerce-coord` (rf2-r2un8 port)."
   [payload]
   (let [unwrapped (if (and (map? payload) (contains? payload :source-coord))
                     (:source-coord payload)
@@ -184,7 +184,7 @@
   The chip render path, `open-source-coord!` (element-inspector), and
   the `:rf.editor/open` reg-fx all call this — one source of truth for
   the URI shape across the data path and the side-effect path. Mirrors
-  Causa's `resolve-uri` (rf2-r2un8 port)."
+  Xray's `resolve-uri` (rf2-r2un8 port)."
   [source-coord]
   (when (editor-uri/has-source? source-coord)
     (let [opts {:project-root (config/get-project-root)}
@@ -345,14 +345,14 @@
 
 ;; ---- registration: the data-driven open-in-editor path ------------------
 ;;
-;; Per rf2-r2un8 (porting Causa's structure): a dispatch-based path
+;; Per rf2-r2un8 (porting Xray's structure): a dispatch-based path
 ;; alongside the imperative chip. Hosts that don't render the chip
 ;; directly — agents replaying via MCP, custom Story-host panels — can
 ;; dispatch `[:rf.story/open-in-editor coord]` and let the registered
 ;; fx fire the URI through the same allowlist gate the chip uses. The
 ;; `:rf.editor/open` reg-fx is namespaced under `:rf.editor/*` (not
 ;; `:rf.story.fx/*`) because the gate is editor-related, not Story-
-;; specific — Causa registers the same fx-id, idempotently. Either tool
+;; specific — Xray registers the same fx-id, idempotently. Either tool
 ;; loading first wins; the registered handler is the same shape so the
 ;; runtime cost of double-registration is zero.
 
@@ -371,7 +371,7 @@
     - `:rf.editor/open` reg-fx — the side-effectful launcher. Calls
       `open!` (which applies the rf2-cm93v allowlist + writes
       `window.location` via the navigator seam). Shares the
-      `:rf.editor/*` namespace with Causa's parallel registration so
+      `:rf.editor/*` namespace with Xray's parallel registration so
       both tools observe a single registered fx-id at runtime; whichever
       preload loads first wins, the handler body is identical so it
       doesn't matter.

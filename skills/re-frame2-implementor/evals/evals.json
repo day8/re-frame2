@@ -17,7 +17,7 @@
  {"id": 11, "name": "neg-live-pair", "should_trigger": false, "prompt": "Attach to my running shadow-cljs build and tell me what's in app-db.", "rationale": "Live-runtime work is re-frame2-pair."},
  {"id": 12, "name": "neg-migration", "should_trigger": false, "prompt": "I want to migrate my re-frame v1 app to re-frame2. Walk me through it.", "rationale": "v1->v2 migration is re-frame-migration."},
  {"id": 13, "name": "neg-spec-discussion", "should_trigger": false, "prompt": "Explain the EP rationale for why re-frame2 separates effects from coeffects.", "rationale": "Spec discussion belongs to SKILL-REDIRECT.md."},
- {"id": 14, "name": "neg-causa-tour", "should_trigger": false, "prompt": "Which Causa panel shows machine state?", "rationale": "Causa tour is its own skill."},
+ {"id": 14, "name": "neg-xray-tour", "should_trigger": false, "prompt": "Which Xray panel shows machine state?", "rationale": "Xray tour is its own skill."},
  {"id": 15, "name": "neg-vocab-port", "should_trigger": false, "prompt": "I'm porting Redux from JavaScript to TypeScript — any tips on the action-creator pattern?", "rationale": "Vocabulary hit on 'port' but unrelated framework."},
  {"id": 16, "name": "neg-improver", "should_trigger": false, "prompt": "Review my re-frame2 source for anti-patterns.", "rationale": "Critique mode on CLJS code is re-frame2-improver."},
  {"id": 17, "name": "neg-out-of-scope-python", "should_trigger": false, "prompt": "Can I implement re-frame2 in Python for a terminal UI app?", "rationale": "Out of scope: Python is not a cross-compile-to-JS host and a terminal UI is not React+VDOM. Per spec/000-Vision.md scope footnote, only the eight in-scope JS-React hosts are implementation targets."},

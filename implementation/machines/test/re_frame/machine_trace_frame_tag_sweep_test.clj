@@ -3,7 +3,7 @@
   event MUST carry the `:frame` tag so `re-frame.epoch.capture/capture-event!`
   admits it into the cascade's `:trace-events` buffer. Without the tag
   the trace is dropped silently — fans out to direct listeners but
-  never reaches the epoch-history slot the Causa Machine Inspector
+  never reaches the epoch-history slot the Xray Machine Inspector
   reads from.
 
   This test file is the sister to `re_frame.transition_frame_tag_test`
@@ -26,7 +26,7 @@
   machines artefact (which doesn't depend on epoch) so the contract is
   exercised even when the epoch artefact isn't on the test classpath.
   A future regression that drops `:frame` from any of these sites fails
-  here first (clear cause) before the upstack epoch / Causa gates
+  here first (clear cause) before the upstack epoch / Xray gates
   notice the absent trace events."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]

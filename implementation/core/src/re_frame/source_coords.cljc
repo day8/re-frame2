@@ -26,7 +26,7 @@
 
     1. **Public registry-meta**: in dev the captured coords are merged
        into the registrar slot's metadata via [[merge-coords]] —
-       `(rf/handler-meta kind id)` consumers (Causa Open-in-editor,
+       `(rf/handler-meta kind id)` consumers (Xray Open-in-editor,
        re-frame-pair, IDE jump-to-source) read them from there. In
        CLJS production (`:advanced` + `goog.DEBUG=false`) [[merge-coords]]
        returns `user-meta` unchanged — the coord keys are stripped from
@@ -66,10 +66,10 @@
   fx,ctx}` macros and consumed by `re-frame.events/register-event!`. nil
   outside a macro invocation.
 
-  Per Spec 009 §`:rf.handler/source` and Causa Spec 021 §11.2 B.7
+  Per Spec 009 §`:rf.handler/source` and Xray Spec 021 §11.2 B.7
   stretch: the macros stamp the whole `(reg-event-X :id ...)` form as
   a string into the handler's registry metadata under
-  `:rf.handler/source` so Causa's Event panel can render the source
+  `:rf.handler/source` so Xray's Event panel can render the source
   inline (no need to leave the browser to read what code ran).
 
   CLJS production elision: the macro emission wraps the binding-value

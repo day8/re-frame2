@@ -1,7 +1,7 @@
 # `sensitive` — Spec 009 §Privacy default-suppress filter
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> The cross-MCP privacy filter. Framework-published forwarders — Sentry / Honeybadger, re-frame2-pair server, Story-MCP, Causa-MCP — MUST default-drop trace events whose registration declared `:sensitive? true`. The runtime stamps the flag at the top level of every emitted trace event inside such a registration's handler scope; the forwarder's job is to gate egress on it before any data crosses the trust boundary.
+> The cross-MCP privacy filter. Framework-published forwarders — Sentry / Honeybadger, re-frame2-pair server, Story-MCP, Xray-MCP — MUST default-drop trace events whose registration declared `:sensitive? true`. The runtime stamps the flag at the top level of every emitted trace event inside such a registration's handler scope; the forwarder's job is to gate egress on it before any data crosses the trust boundary.
 
 This doc is one of eight per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md).
 

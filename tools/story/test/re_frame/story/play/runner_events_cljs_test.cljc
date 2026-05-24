@@ -240,7 +240,7 @@
 ;; Before this fix a failing `:assert-db` / `:assert-dom` step landed
 ;; ONLY in run-state; the `:rf.story/assertions` app-db slot stayed empty
 ;; so `run-variant`'s :assertions slot, `assertions-passing?`, the test
-;; pane, the inline strip, and the Causa panel all read FALSE-GREEN. The
+;; pane, the inline strip, and the Xray panel all read FALSE-GREEN. The
 ;; bridge in `record-result!` mirrors assertion-class outcomes into the
 ;; slot. These tests must FAIL without the bridge.
 

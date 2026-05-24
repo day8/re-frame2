@@ -4,9 +4,9 @@
 
   ## Why this exists
 
-  xyflow Phase 1 (#1806) deferred the cross-cutting Causa machine
+  xyflow Phase 1 (#1806) deferred the cross-cutting Xray machine
   surfaces. This overlay restores the cancellation-cascade visualiser
-  (Causa 003 §M.3 — cancellation cascade ambiguity): when a parent
+  (Xray 003 §M.3 — cancellation cascade ambiguity): when a parent
   transition cancels child machines, the scattered abort/destroy
   traces become ONE decision laid out vertically — the parent's exit
   → each destroyed child / aborted request, indented as a waterfall
@@ -14,7 +14,7 @@
 
   ## Pure-presentation, host-projected (mirrors after-rings)
 
-  machines-viz is bundle-isolated from Causa — it cannot read Causa's
+  machines-viz is bundle-isolated from Xray — it cannot read Xray's
   trace buffer. The overlay's input is a flat, presentation-ready
   `cascade-spec` the host projects from the cancellation-related trace
   cluster (`:rf.machine.lifecycle/destroyed`,

@@ -122,8 +122,8 @@ regressions before the Reagent layer.
   `:rf.error/schema-validation-failure` emission contract.
 - [`006-MCP-Surface.md`](./006-MCP-Surface.md) §Schema validation —
   the inventory diagram line this section makes substantive.
-- [`tools/causa/spec/005-Schema-Timeline.md`](../../causa/spec/005-Schema-Timeline.md)
-  — Causa's temporal surface for the same emission stream (the two
+- [`tools/xray/spec/005-Schema-Timeline.md`](../../xray/spec/005-Schema-Timeline.md)
+  — Xray's temporal surface for the same emission stream (the two
   panels share the same trace events but render different views).
 
 ## Sidebar tag-as-badge affordance (rf2-nwiwr)

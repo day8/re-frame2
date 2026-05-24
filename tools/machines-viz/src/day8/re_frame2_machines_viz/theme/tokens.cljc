@@ -3,14 +3,14 @@
 
   ## Why machines-viz owns its own tokens
 
-  Machines-Viz is bundle-isolated from Causa per the
+  Machines-Viz is bundle-isolated from Xray per the
   tools/README.md contract — a host that embeds `MachineChart`
-  outside Causa (Story, the read-only viewer page, a user dev
-  shell) must not transitively pull Causa's full theme module just
+  outside Xray (Story, the read-only viewer page, a user dev
+  shell) must not transitively pull Xray's full theme module just
   to render a chart. The slice the chart needs is small (palette +
   two font stacks + the motion seam) so we publish it here.
 
-  The palette mirrors Causa's `theme/tokens` at the values level —
+  The palette mirrors Xray's `theme/tokens` at the values level —
   the two will track each other until a CSS-variable migration
   consolidates them. Host applications can override the palette by
   wrapping `MachineChart` in a context that rebinds these vars (a
@@ -19,7 +19,7 @@
 
   ## Light + dark palettes (rf2-usord)
 
-  Both `dark-palette` (the default Causa surface) and `light-palette`
+  Both `dark-palette` (the default Xray surface) and `light-palette`
   (lighter hosts) are catalogued here. The `palettes` map keys both
   by theme name (`:dark` / `:light`) so the substrate-adapter
   `MachineChart` re-exports resolve via the `:theme` prop. `tokens`
@@ -41,8 +41,8 @@
   rf2-xfx6l / rf2-2sez0 — the chart's transition glow (the sole
   remaining continuous animation surface, fired one beat on event-
   fire) interpolates its `animation-duration` through the same
-  `--rf-causa-motion-scale` CSS custom property Causa publishes at
-  `:root`. The chart's host (Causa today) ensures the variable is
+  `--rf-xray-motion-scale` CSS custom property Xray publishes at
+  `:root`. The chart's host (Xray today) ensures the variable is
   set; when machines-viz ships standalone the chart's own inline
   `<style>` block declares the variable + the
   `prefers-reduced-motion` override so the chart honours the user's
@@ -64,10 +64,10 @@
 
 (def dark-palette
   "Dark-theme colour tokens — the GitHub-style blue/neutral Figma
-  palette (rf2-ad7zx.13). Mirrors `day8.re-frame2-causa.theme.tokens`
-  at the values level (drift-gate `causa-and-machines-viz-dark-palettes-
+  palette (rf2-ad7zx.13). Mirrors `day8.re-frame2-xray.theme.tokens`
+  at the values level (drift-gate `xray-and-machines-viz-dark-palettes-
   match-values`, rf2-z7ms8) so the chart renders identically whether
-  embedded by Causa, Story, the read-only viewer, or a user dev shell.
+  embedded by Xray, Story, the read-only viewer, or a user dev shell.
 
   The orange-identity scheme (`brand`, `accent-dynamic`, `accent-static`,
   the per-mode colour swap) is removed; the Figma export carries a
@@ -110,8 +110,8 @@
 
 (def light-palette
   "Light-theme colour tokens (rf2-usord). Mirrors
-  `day8.re-frame2-causa.theme.tokens/light-palette` at the values level
-  so the chart renders identically whether embedded by Causa, Story,
+  `day8.re-frame2-xray.theme.tokens/light-palette` at the values level
+  so the chart renders identically whether embedded by Xray, Story,
   the read-only viewer, or a user dev shell whose host runs a light
   theme. Surfaces invert (`bg-2` is the brightest 'top' canvas, `bg-0`
   the gentlest 'recess'); text inverts so primary is near-black; the
@@ -158,7 +158,7 @@
    :white          "#ffffff"})
 
 (def palettes
-  "Map of theme-name → palette map (rf2-usord). Mirrors Causa's
+  "Map of theme-name → palette map (rf2-usord). Mirrors Xray's
   `theme/tokens/themes`. The downstream substrate-adapter
   `MachineChart` exports look this up by the `:theme :dark | :light`
   prop; absent that, hosts can pick a palette from this map directly
@@ -168,7 +168,7 @@
 
 (def tokens
   "Backwards-compatible alias for the dark palette — same shape
-  Causa's `tokens` map exposes so the chart's `(:bg-1 tokens)` style
+  Xray's `tokens` map exposes so the chart's `(:bg-1 tokens)` style
   call sites read identically. The light theme is layered on top via
   the `:palette` render option (rf2-usord); the inline-style reads in
   `chart.nodes`, `chart.edges`, `chart.cljs` and the overlays continue
@@ -237,13 +237,13 @@
 ;; ---- CSS-variable theming (rf2-uv1on) ----------------------------------
 
 (defn css-var
-  "Resolve `token-key` to a `var(--rf-causa-<key>, <hex-fallback>)`
-  CSS string so a host that publishes the Causa CSS custom-property
+  "Resolve `token-key` to a `var(--rf-xray-<key>, <hex-fallback>)`
+  CSS string so a host that publishes the Xray CSS custom-property
   surface (light + dark themes both live there) gets live theme-
   switching, while a standalone embed degrades to the dark-palette
   hex.
 
-  This mirrors Causa's own `theme/tokens/css-var` naming so the
+  This mirrors Xray's own `theme/tokens/css-var` naming so the
   variables resolve against the SAME host-published `:root` block —
   the chart and the host paint from one palette. The fallback comes
   from `dark-palette` (the chart's default surface) so a host that
@@ -256,13 +256,13 @@
   ([token-key palette]
    (let [hex (get palette token-key)]
      (if hex
-       (str "var(--rf-causa-" (name token-key) ", " hex ")")
-       (str "var(--rf-causa-" (name token-key) ")")))))
+       (str "var(--rf-xray-" (name token-key) ", " hex ")")
+       (str "var(--rf-xray-" (name token-key) ")")))))
 
 ;; ---- motion seam (rf2-xfx6l) -------------------------------------------
 
 (def motion
-  "Motion-axis tokens (mirrors Causa's `theme/tokens/motion`).
+  "Motion-axis tokens (mirrors Xray's `theme/tokens/motion`).
 
   - `:scale-var-name`        — CSS custom property name; consumers
                                interpolate it into their inline
@@ -270,16 +270,16 @@
   - `:glow-duration-ms`      — transition-edge glow flash duration
                                (rf2-xfx6l).
 
-  The duration interpolates through `--rf-causa-motion-scale`
+  The duration interpolates through `--rf-xray-motion-scale`
   (collapsed to 0.001 under `prefers-reduced-motion: reduce`).
 
   rf2-2sez0 — `:pulse-duration-ms` retired 2026-05-20 with the
   heartbeat-pulse animation. Active-state emphasis is now static."
-  {:scale-var-name   "--rf-causa-motion-scale"
+  {:scale-var-name   "--rf-xray-motion-scale"
    :glow-duration-ms 400})
 
 (defn duration-css
-  "Build the canonical `calc(<ms>ms * var(--rf-causa-motion-scale, 1))`
+  "Build the canonical `calc(<ms>ms * var(--rf-xray-motion-scale, 1))`
   CSS string a consumer passes as `animation-duration`. Under
   `prefers-reduced-motion: reduce` the seam collapses durations so
   the keyframes resolve in a single frame.

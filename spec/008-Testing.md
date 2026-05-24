@@ -214,7 +214,7 @@ The companion helpers:
 
 When NOT to use Pattern 5:
 
-- **Multi-frame setups** (Causa, Story, cross-frame tests) — Pattern 1 / 2 with explicit `rf/with-frame` calls each frame is clearer; the fixture stash is single-slot by design.
+- **Multi-frame setups** (Xray, Story, cross-frame tests) — Pattern 1 / 2 with explicit `rf/with-frame` calls each frame is clearer; the fixture stash is single-slot by design.
 - **Tests that don't render** — the install + frame lifecycle of Pattern 5 is overkill for pure-event tests. Reach for `(rf/with-frame [f (rf/make-frame opts)] ...)` and skip the view-stash entirely.
 
 ### HTTP test surfaces — single namespace (rf2-lwmgw)
@@ -415,7 +415,7 @@ Form-3 components built via `r/create-class` are detected (the reagent-slim clas
 
 ### Selector convention — `:data-testid` vs `:data-test` vs custom
 
-React conventionally uses `:data-testid`; some codebases (notably Story) standardised on `:data-test` before the rename; framework tools may use their own prefix (Causa uses `:data-rf-causa-*`). The namespace ships two layers:
+React conventionally uses `:data-testid`; some codebases (notably Story) standardised on `:data-test` before the rename; framework tools may use their own prefix (Xray uses `:data-rf-xray-*`). The namespace ships two layers:
 
 - `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix` — the underlying. Match against any attr key the caller supplies. Use directly when the codebase keys on `:data-test` or a custom attribute.
 - `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix` — thin wrappers that pre-bind the attr to `:data-testid`. Use for the common React-convention case.
@@ -667,7 +667,7 @@ Some tests want to capture a frame's `app-db` and replay it later (golden-master
 - **Foundation in v1.** `machine-transition` is pure and JVM-runnable; `:guards` and `:actions` are machine-scoped fns the harness can call directly; the corpus shape per [005 §Future — Model-based testing harness](005-StateMachines.md#model-based-testing-harness--re-framemachinestest) is locked.
 - **Scope deferred.** The packaged library (`rf/test/machine-paths`, `rf/test/shortest-path-to`, coverage strategy selectors, EDN fixture emitter) ships as `re-frame.machines.test` post-v1.
 - **Reconsideration trigger.** Either an AI-implementor needs the coverage corpus for cross-language conformance, or app-side machines start exhibiting edge-case bugs that hand-written tests miss.
-- **Out of scope for the bead.** Time-travel / step-debugger over the generated paths — separate concern, lives in the tool layer (causa/re-frame2-pair).
+- **Out of scope for the bead.** Time-travel / step-debugger over the generated paths — separate concern, lives in the tool layer (xray/re-frame2-pair).
 - **Cross-link.** See [005 §Future — Model-based testing harness](005-StateMachines.md#model-based-testing-harness--re-framemachinestest) for the substrate-side framing.
 
 Sketch of the surface:

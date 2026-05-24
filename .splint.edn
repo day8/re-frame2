@@ -31,10 +31,10 @@
 ;; separators (`/` on Linux/macOS CI, `\` on Windows dev machines) so
 ;; the exclusion holds cross-platform. (A bare `tools/template/...`
 ;; string silently failed to match on Windows, where paths use `\`.)
-;; `tools/causa/design-reference/` holds the authoritative Figma-derived
-;; L&F reference (`causa_devtools_reference.cljs`, a hiccup/reagent mockup).
+;; `tools/xray/design-reference/` holds the authoritative Figma-derived
+;; L&F reference (`xray_devtools_reference.cljs`, a hiccup/reagent mockup).
 ;; It is a non-compiled reference artefact (the prior TSX reference was never
 ;; linted); exclude it so the mockup's shape doesn't gate production lint.
 ;; Per rf2-7sxsz (Mike 2026-05-24).
 {global {:excludes ["tools[/\\\\]template[/\\\\]resources[/\\\\]"
-                    "tools[/\\\\]causa[/\\\\]design-reference[/\\\\]"]}}
+                    "tools[/\\\\]xray[/\\\\]design-reference[/\\\\]"]}}

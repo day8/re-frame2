@@ -206,7 +206,7 @@
               (finally
                 ;; rf2-z2dq8 — drain handler-exception trace events the
                 ;; router caught into the assertions list so phase-1
-                ;; loader throws surface in the test-mode UI / Causa.
+                ;; loader throws surface in the test-mode UI / Xray.
                 (play/drain-pending-exceptions! variant-id :phase-1-loaders))))))
       ;; Evaluate :loaders-complete-when. In Stage 3 the predicate
       ;; resolves synchronously; Stage 6+ might add an async-retry shape.

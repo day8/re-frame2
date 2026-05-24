@@ -323,7 +323,7 @@
      :decorators [[:counter-with-stories/log-decorator "variant-level"]]})
 
   ;; Variant 3b — canonical events-only loader-body shape (rf2-9jfo1.2 —
-  ;; folded in from the retired `tools/story/testbeds/causa_rhs_smoke/`
+  ;; folded in from the retired `tools/story/testbeds/xray_rhs_smoke/`
   ;; testbed). Per rf2-043cm a variant is *events-only* when its body
   ;; declares no `:loaders` AND no `:loaders-complete-when` AND its
   ;; resolved decorator stack carries no `:frame-setup` decorators.
@@ -343,7 +343,7 @@
              path repro). Counter seeded at 5 via `:events`; no
              `:loaders`, no `:loaders-complete-when`, no `:frame-setup`
              decorators — the lifecycle takes the fast-path direct to
-             `:ready`. Folded in from the retired causa_rhs_smoke
+             `:ready`. Folded in from the retired xray_rhs_smoke
              testbed per rf2-9jfo1.2."
      :events [[:counter/initialise 5]]
      :tags   #{:dev :test :internal}

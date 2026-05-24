@@ -8,14 +8,14 @@
 
 ## What "embed mode" buys you
 
-Story's chrome — sidebar, RHS Causa embed, toolbar — is great for
+Story's chrome — sidebar, RHS Xray embed, toolbar — is great for
 authoring, but distracting when you want to drop a single variant
 into a docs page. The `?embed=1` query string elides the chrome and
 leaves the variant canvas alone, full-width, ready to iframe.
 
 Side-by-side:
 
-| Mode | Sidebar | RHS Causa | Toolbar | Canvas |
+| Mode | Sidebar | RHS Xray | Toolbar | Canvas |
 |---|---|---|---|---|
 | Full shell (no flag) | visible | visible | visible | inset |
 | `?embed=1` (embed mode) | hidden | hidden | hidden | full width |
@@ -107,7 +107,7 @@ const iframeSrc = embedUrl(shareUrl);
 The flag is read once by `embed-flag-from-current-url` at shell
 mount and written to `[:chrome-visibility :embed?]` on the
 shell-state atom. Every chrome pane's visibility resolver gates on
-that slot — sidebar, toolbar, RHS Causa embed all drop out of the
+that slot — sidebar, toolbar, RHS Xray embed all drop out of the
 render tree, leaving the canvas alone.
 
 ## The iframe

@@ -1,0 +1,539 @@
+(ns day8.re-frame2-xray.static.shell-cljs-test
+  "CLJS wiring + render tests for Xray's Static surface scaffold
+  (rf2-o5f5f.1).
+
+  ## What's under test
+
+    1. Mode-state lives on `:rf.xray/mode` (default `:dynamic`);
+       `:rf.xray/set-mode` writes a specific mode; `:rf.xray/
+       toggle-mode` flips between modes. Both attach the
+       `:rf.xray.static/persist-mode` fx so the value round-trips
+       through localStorage.
+
+    2. localStorage round-trip — the persisted slot survives a frame
+       reset (the hydrate path in `mount/ensure-xray-frame!`
+       restores the value via `:rf.xray/set-mode`).
+
+    3. Static shell renders the 3-layer chrome (ribbon · tab-bar ·
+       detail panel) with 5 sub-tabs (Machines / Routes / Schemas /
+       Flows / Interceptors — rf2-b2fif dropped the Views + Events
+       sub-tabs). Placeholder cards are only rendered for tabs
+       without a real panel installed yet — see `filled-static-tab-
+       ids` below.
+
+    4. `:rf.xray.static/select-tab` flips the Static-scoped tab
+       slot (does NOT clobber the Dynamic `:rf.xray/selected-tab`).
+
+    5. Sub-tab routing — clicking a Static tab swaps the detail
+       panel; an unknown tab id is rejected by the event handler.
+
+    6. The mode pill renders as a two-segment radio with the active
+       segment carrying `aria-checked='true'`.
+
+  ## Pure hiccup walk
+
+  Same approach as `shell_cljs_test.cljs` — we walk the view's
+  hiccup tree by `data-testid` rather than mounting to a real DOM."
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.static.mode-pill :as mode-pill]
+            [day8.re-frame2-xray.static.persistence :as static-persistence]
+            [day8.re-frame2-xray.static.shell :as static-shell]
+            [day8.re-frame2-xray.shell :as shell]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+
+;; ---- fixture ------------------------------------------------------------
+
+(defn- xray-init! []
+  (xray-test-support/reset-all!)
+  (trace-bus/clear-buffer!)
+  (config/reset-suppressed-count!)
+  (static-persistence/clear!))
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn xray-init!}))
+
+;; ---- hiccup walker (mirrors shell_cljs_test) ----------------------------
+
+(declare expand-tree)
+
+(defn- expand-tree
+  [tree]
+  (cond
+    (and (vector? tree) (fn? (first tree)))
+    (expand-tree (apply (first tree) (rest tree)))
+
+    (vector? tree)
+    (mapv expand-tree tree)
+
+    (seq? tree)
+    (map expand-tree tree)
+
+    :else
+    tree))
+
+(defn- hiccup-seq [tree]
+  (let [expanded (expand-tree tree)]
+    (tree-seq (some-fn vector? seq?) seq expanded)))
+
+(defn- find-by-testid [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (hiccup-seq tree)))
+
+(defn- find-all-by-testid-prefix [tree prefix]
+  (filterv (fn [node]
+             (and (vector? node)
+                  (map? (second node))
+                  (when-let [tid (:data-testid (second node))]
+                    (= 0 (.indexOf tid prefix)))))
+           (hiccup-seq tree)))
+
+(defn- text-nodes [tree]
+  (->> (hiccup-seq tree)
+       (filter string?)
+       (apply str)))
+
+;; ---- helpers ------------------------------------------------------------
+
+(defn- xray-setup! []
+  (registry/register-xray-handlers!)
+  (frame/reg-frame :rf/xray {}))
+
+(defn- frame-sub [q]
+  (rf/with-frame :rf/xray
+    @(rf/subscribe q)))
+
+(defn- frame-dispatch [ev]
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync ev)))
+
+;; -------------------------------------------------------------------------
+;; (1) mode-state lifecycle — set / toggle
+;; -------------------------------------------------------------------------
+
+(deftest mode-default-is-dynamic
+  (testing "with no host opt-in, the mode slot defaults to :dynamic"
+    (xray-setup!)
+    (is (= :dynamic (frame-sub [:rf.xray/mode])))))
+
+(deftest set-mode-writes-the-slot
+  (testing ":rf.xray/set-mode :static lands :static on the slot"
+    (xray-setup!)
+    (frame-dispatch [:rf.xray/set-mode :static])
+    (is (= :static (frame-sub [:rf.xray/mode])))
+    (frame-dispatch [:rf.xray/set-mode :dynamic])
+    (is (= :dynamic (frame-sub [:rf.xray/mode])))))
+
+(deftest set-mode-normalises-unknown-values
+  (testing "unknown / string mode values normalise back to :dynamic"
+    (xray-setup!)
+    (frame-dispatch [:rf.xray/set-mode :nonsense])
+    (is (= :dynamic (frame-sub [:rf.xray/mode]))
+        "unknown keyword → :dynamic")
+    (frame-dispatch [:rf.xray/set-mode "static"])
+    (is (= :static (frame-sub [:rf.xray/mode]))
+        "string 'static' normalises to :static")))
+
+(deftest toggle-mode-flips-dynamic-and-static
+  (testing ":rf.xray/toggle-mode flips between modes idempotently"
+    (xray-setup!)
+    (is (= :dynamic (frame-sub [:rf.xray/mode])) "starts on :dynamic")
+    (frame-dispatch [:rf.xray/toggle-mode])
+    (is (= :static (frame-sub [:rf.xray/mode])))
+    (frame-dispatch [:rf.xray/toggle-mode])
+    (is (= :dynamic (frame-sub [:rf.xray/mode])))
+    (frame-dispatch [:rf.xray/toggle-mode])
+    (is (= :static (frame-sub [:rf.xray/mode])))))
+
+;; -------------------------------------------------------------------------
+;; (2) localStorage persistence — round-trip
+;; -------------------------------------------------------------------------
+
+(deftest persistence-normalise-runs-on-input
+  (testing "static.persistence/normalise-mode coerces keywords + strings"
+    (is (= :dynamic (static-persistence/normalise-mode :dynamic)))
+    (is (= :static  (static-persistence/normalise-mode :static)))
+    (is (= :dynamic (static-persistence/normalise-mode "dynamic")))
+    (is (= :static  (static-persistence/normalise-mode "static")))
+    (is (= :dynamic (static-persistence/normalise-mode nil)))
+    (is (= :dynamic (static-persistence/normalise-mode :nonsense)))
+    (is (= :dynamic (static-persistence/normalise-mode "junk")))))
+
+(deftest persistence-raw-round-trip
+  (testing "->raw / <-raw lossless on canonical values"
+    (is (= :dynamic (static-persistence/<-raw (static-persistence/->raw :dynamic))))
+    (is (= :static  (static-persistence/<-raw (static-persistence/->raw :static))))))
+
+(deftest persistence-load-default-empty-slot
+  (when (and (exists? js/window) (.-localStorage js/window))
+    (static-persistence/clear!)
+    (testing "empty localStorage slot → :dynamic fallback"
+      (is (= :dynamic (static-persistence/load))))))
+
+(deftest persistence-save-and-load-round-trip
+  (when (and (exists? js/window) (.-localStorage js/window))
+    (testing "save! + load round-trip"
+      (static-persistence/clear!)
+      (static-persistence/save! :static)
+      (is (= :static (static-persistence/load)))
+      (static-persistence/save! :dynamic)
+      (is (= :dynamic (static-persistence/load))))))
+
+(deftest persistence-fx-installed-by-set-mode
+  (when (and (exists? js/window) (.-localStorage js/window))
+    (testing ":rf.xray/set-mode lands the value in localStorage via the fx"
+      (xray-setup!)
+      (static-persistence/clear!)
+      (frame-dispatch [:rf.xray/set-mode :static])
+      (is (= :static (static-persistence/load))
+          ":static was persisted")
+      (frame-dispatch [:rf.xray/toggle-mode])
+      (is (= :dynamic (static-persistence/load))
+          "toggle back to :dynamic was persisted"))))
+
+;; -------------------------------------------------------------------------
+;; (3) Static surface — 3-layer chrome render
+;; -------------------------------------------------------------------------
+
+(deftest static-surface-renders-three-layers
+  (testing "Static shell renders ribbon · tab-bar · detail panel
+            (NO L2 event list — Static is event-INDEPENDENT)"
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [tree (static-shell/surface)]
+        (is (some? (find-by-testid tree "rf-xray-static-surface"))
+            "Static surface envelope present")
+        (is (some? (find-by-testid tree "rf-xray-static-ribbon"))
+            "L1 ribbon present")
+        (is (some? (find-by-testid tree "rf-xray-static-tab-bar"))
+            "L3 tab bar present")
+        ;; default tab is :machines → detail panel testid carries the tab name
+        (is (some? (find-by-testid tree "rf-xray-static-detail-panel-machines"))
+            "L4 detail panel present (default :machines tab)")
+        ;; CRITICAL: no L2 event list in Static mode
+        (is (nil? (find-by-testid tree "rf-xray-event-list"))
+            "no L2 event list (Static is event-INDEPENDENT)")))))
+
+(deftest static-ribbon-mounts-mode-pill-frame-picker-and-right-icons
+  (testing "Static ribbon carries the mode pill at left + the L1 frame
+            picker + right icons cluster (Settings · Close). The frame
+            picker is mode-INDEPENDENT — Static registrations are
+            frame-scoped, so the picker mounts in both modes. Dynamic's
+            spine-coupled nav / filter clusters remain hidden (Static
+            has no spine)."
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [tree (static-shell/surface)]
+        (is (some? (find-by-testid tree "rf-xray-mode-pill"))
+            "mode pill present at ribbon-left")
+        ;; L1 frame picker mounts in Static (the picker collapses to a
+        ;; flat label when only one frame is available — match either
+        ;; the `<select>` or the label fallback).
+        (is (or (some? (find-by-testid tree "rf-xray-ribbon-frame-picker"))
+                (some? (find-by-testid tree "rf-xray-ribbon-frame")))
+            "L1 frame picker present (picker `<select>` or label fallback)")
+        (is (some? (find-by-testid tree "rf-xray-static-ribbon-icons"))
+            "right icons cluster present")
+        (is (some? (find-by-testid tree "rf-xray-static-icon-settings"))
+            "settings icon present")
+        (is (some? (find-by-testid tree "rf-xray-static-icon-close"))
+            "close icon present")
+        ;; Spine-coupled clusters MUST NOT mount in Static surface
+        (is (nil? (find-by-testid tree "rf-xray-ribbon-nav"))
+            "no nav cluster")
+        (is (nil? (find-by-testid tree "rf-xray-ribbon-filters"))
+            "no filter pills")))))
+
+;; -------------------------------------------------------------------------
+;; (4) Static tab inventory — 5 sub-tabs, each with a placeholder card
+;; -------------------------------------------------------------------------
+
+(def ^:private expected-static-tab-ids
+  ;; rf2-uhsqb added :flows; rf2-o5f5f.6 added :interceptors.
+  ;; rf2-b2fif removed :views + :events (info already in source code).
+  [:machines :routes :schemas :flows :interceptors])
+
+(deftest static-tab-bar-renders-five-tabs
+  (testing "Static L3 tab bar renders 5 sub-tabs per parent-epic
+            rf2-o5f5f sub-bead list + rf2-uhsqb Flows + rf2-o5f5f.6
+            Interceptors − rf2-b2fif Views + Events drop
+            (Machines / Routes / Schemas / Flows / Interceptors)"
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [tree (static-shell/surface)]
+        (doseq [tab-id expected-static-tab-ids]
+          (is (some? (find-by-testid tree (str "rf-xray-static-tab-" (name tab-id))))
+              (str "tab button for " tab-id)))))))
+
+(deftest static-tab-bar-uses-tablist-aria
+  (testing "Static tab-bar uses the canonical ARIA tab pattern
+            (role='tablist' on the container, role='tab' on each
+            button, aria-selected matching the active state)"
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [tree    (static-shell/surface)
+            tab-bar (find-by-testid tree "rf-xray-static-tab-bar")
+            attrs   (second tab-bar)]
+        (is (= "tablist" (:role attrs))
+            "container carries role='tablist'")
+        (is (string? (:aria-label attrs))
+            "container has an accessible name"))
+      (let [tree (static-shell/surface)]
+        (doseq [tab-id expected-static-tab-ids]
+          (let [btn   (find-by-testid tree (str "rf-xray-static-tab-" (name tab-id)))
+                attrs (second btn)]
+            (is (= "tab" (:role attrs))
+                (str "tab " tab-id " carries role='tab'"))
+            (is (= (if (= tab-id :machines) "true" "false")
+                   (:aria-selected attrs))
+                (str "tab " tab-id " aria-selected matches the active tab"))))))))
+
+(def ^:private filled-static-tab-ids
+  "Static tab ids that have a real panel installed — the placeholder
+  card for these tabs is no longer rendered. Sibling beads tick one
+  off each time they land."
+  ;; rf2-o5f5f.2 — :machines     mounts the Static Machines panel.
+  ;; rf2-o5f5f.3 — :routes       mounts the Static Routes panel.
+  ;; rf2-o5f5f.4 — :schemas      mounts the Static Schemas panel.
+  ;; rf2-uhsqb   — :flows        mounts the Static Flows panel.
+  ;; rf2-o5f5f.6 — :interceptors mounts the Static Interceptors panel.
+  ;; rf2-b2fif removed the Static Views + Events panels.
+  #{:machines :routes :schemas :flows :interceptors})
+
+(deftest static-placeholder-cards-name-sibling-bead
+  (testing "each placeholder card surfaces its sibling-bead id
+            (rf2-o5f5f.<N> will fill this) — except for tabs already
+            replaced by a real panel (filled-static-tab-ids)"
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (doseq [tab-id expected-static-tab-ids
+              :when (not (contains? filled-static-tab-ids tab-id))]
+        (frame-dispatch [:rf.xray.static/select-tab tab-id])
+        (let [tree (static-shell/surface)
+              card (find-by-testid tree (str "rf-xray-static-placeholder-" (name tab-id)))
+              text (text-nodes card)]
+          (is (some? card)
+              (str "placeholder card for " tab-id " rendered"))
+          (is (re-find #"rf2-o5f5f\." text)
+              (str "card text names a sibling bead id (got: " text ")"))
+          (is (re-find #"will fill this" text)
+              "card mentions 'will fill this'"))))))
+
+(deftest static-machines-mounts-live-panel-not-placeholder
+  (testing "rf2-o5f5f.2 — the :machines sub-tab mounts the live Static
+            Machines panel (replaces the placeholder card)"
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (frame-dispatch [:rf.xray.static/select-tab :machines])
+      (let [tree (static-shell/surface)]
+        (is (some? (find-by-testid tree "rf-xray-static-machines-panel"))
+            "live Machines panel mounts")
+        (is (nil? (find-by-testid tree "rf-xray-static-placeholder-machines"))
+            "placeholder card no longer renders for :machines")))))
+
+;; -------------------------------------------------------------------------
+;; (5) Static tab routing — selection + isolation
+;; -------------------------------------------------------------------------
+
+(deftest static-select-tab-flips-the-slot
+  (testing ":rf.xray.static/select-tab writes the Static-scoped slot"
+    (xray-setup!)
+    (is (= :machines (frame-sub [:rf.xray.static/selected-tab]))
+        "default is :machines")
+    (frame-dispatch [:rf.xray.static/select-tab :routes])
+    (is (= :routes (frame-sub [:rf.xray.static/selected-tab])))
+    (frame-dispatch [:rf.xray.static/select-tab :flows])
+    (is (= :flows (frame-sub [:rf.xray.static/selected-tab])))))
+
+(deftest static-select-tab-rejects-unknown-ids
+  (testing ":rf.xray.static/select-tab ignores ids not in the
+            inventory — guards against typos / drift between the
+            sibling beads and this scaffold"
+    (xray-setup!)
+    (frame-dispatch [:rf.xray.static/select-tab :machines])
+    (frame-dispatch [:rf.xray.static/select-tab :not-a-tab])
+    (is (= :machines (frame-sub [:rf.xray.static/selected-tab]))
+        "unknown tab id is rejected; slot stays on :machines")))
+
+(deftest static-tab-isolated-from-dynamic-tab
+  (testing "Dynamic and Static tab choices are independent —
+            switching one does NOT clobber the other"
+    (xray-setup!)
+    (frame-dispatch [:rf.xray/select-tab :machines])
+    (frame-dispatch [:rf.xray.static/select-tab :flows])
+    (is (= :machines (frame-sub [:rf.xray/selected-tab]))
+        "Dynamic tab unchanged")
+    (is (= :flows (frame-sub [:rf.xray.static/selected-tab]))
+        "Static tab landed independently")))
+
+;; -------------------------------------------------------------------------
+;; (6) Mode-signal mechanism — stripe colour helper
+;; -------------------------------------------------------------------------
+
+(deftest stripe-token-single-blue-accent-both-modes
+  (testing "mode-signal mechanism #2 — 2-px left-edge stripe is the
+            single :accent (GitHub blue) in BOTH modes (rf2-ad7zx.13:
+            the Figma export carries one accent, no per-mode colour
+            swap; the Dynamic/Static MODE stays functional but no longer
+            drives stripe colour)."
+    (is (= :accent (static-shell/stripe-token-for-mode :dynamic)))
+    (is (= :accent (static-shell/stripe-token-for-mode :static)))
+    ;; Unknown / nil values fall back to the same single accent
+    (is (= :accent (static-shell/stripe-token-for-mode :nonsense)))
+    (is (= :accent (static-shell/stripe-token-for-mode nil)))))
+
+;; -------------------------------------------------------------------------
+;; (7) Mode dropdown — compact single-select (rf2-4vp5j reshape)
+;; -------------------------------------------------------------------------
+;;
+;; rf2-4vp5j replaced the two-button radio pill with a compact `<select>`
+;; dropdown (mode is an occasional-use control; the accent stripe carries
+;; the mode signal). Both `<option>` testids + the `data-active-mode`
+;; attribute remain so the inventory + active-mode are assertable.
+
+(deftest mode-dropdown-renders-both-options
+  (testing "mode control is a single-select dropdown with Dynamic +
+            Static options"
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [tree (mode-pill/mode-pill)]
+        (is (some? (find-by-testid tree "rf-xray-mode-pill"))
+            "the select control is present")
+        (is (= :select (first tree)) "the control is a native <select>")
+        (is (some? (find-by-testid tree "rf-xray-mode-pill-dynamic"))
+            "Dynamic option present")
+        (is (some? (find-by-testid tree "rf-xray-mode-pill-static"))
+            "Static option present")))))
+
+(deftest mode-dropdown-reflects-active-mode
+  (testing "the dropdown's :value + data-active-mode track the live mode"
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [attrs (second (mode-pill/mode-pill))]
+        (is (= "dynamic" (:value attrs)))
+        (is (= "dynamic" (:data-active-mode attrs)))))
+    ;; flip to Static and re-render
+    (frame-dispatch [:rf.xray/set-mode :static])
+    (rf/with-frame :rf/xray
+      (let [attrs (second (mode-pill/mode-pill))]
+        (is (= "static" (:value attrs)))
+        (is (= "static" (:data-active-mode attrs)))))))
+
+(deftest mode-dropdown-label-helper
+  (testing "the pure mode-label helper maps each mode to its display text"
+    (is (= "Dynamic" (mode-pill/mode-label :dynamic)))
+    (is (= "Static"  (mode-pill/mode-label :static)))
+    (is (= "Dynamic" (mode-pill/mode-label :nonsense))
+        "unknown modes fall back to the Dynamic label")))
+
+;; -------------------------------------------------------------------------
+;; (8) Surface composer — shell.cljs dispatches Dynamic vs Static
+;; -------------------------------------------------------------------------
+
+(deftest surface-composer-renders-static-when-mode-static
+  (testing "with mode :static, the composer renders the Static surface
+            (per rf2-8l3uk — Static mode is unconditionally available)"
+    (xray-setup!)
+    (frame-dispatch [:rf.xray/set-mode :static])
+    (rf/with-frame :rf/xray
+      (let [tree (shell/surface-composer)]
+        (is (some? (find-by-testid tree "rf-xray-static-surface"))
+            "Static surface mounts")
+        (is (nil? (find-by-testid tree "rf-xray-ribbon"))
+            "Dynamic ribbon does NOT mount")
+        (is (nil? (find-by-testid tree "rf-xray-event-list"))
+            "Dynamic L2 event list does NOT mount")))))
+
+(deftest surface-composer-renders-dynamic-when-mode-dynamic
+  (testing "with mode :dynamic, the composer renders the Dynamic chrome
+            (per rf2-8l3uk — Static mode is unconditionally available)"
+    (xray-setup!)
+    (frame-dispatch [:rf.xray/set-mode :dynamic])
+    (rf/with-frame :rf/xray
+      (let [tree (shell/surface-composer)]
+        (is (some? (find-by-testid tree "rf-xray-ribbon"))
+            "Dynamic ribbon mounts")
+        (is (nil? (find-by-testid tree "rf-xray-static-surface"))
+            "Static surface does NOT mount")))))
+
+(deftest ribbon-always-mounts-mode-pill
+  (testing "the Dynamic ribbon ALWAYS mounts the mode pill (per
+            rf2-8l3uk — the `:rf.xray/static-mode?` feature gate was
+            removed; Static mode is unconditionally available)"
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [tree (shell/ribbon nil)]
+        (is (some? (find-by-testid tree "rf-xray-mode-pill"))
+            "mode pill mounts in the Dynamic ribbon unconditionally")))))
+
+;; -------------------------------------------------------------------------
+;; (8a) L1 frame picker is mode-independent — mounts in BOTH modes
+;; -------------------------------------------------------------------------
+;;
+;; Static is also frame-scoped: registrations (events · subs · machines
+;; · routes · schemas · flows · interceptors) live in a particular frame,
+;; so the user must be able to pick which frame they are browsing in
+;; both Dynamic (event-coupled spine) AND Static (event-independent
+;; registry browse) lenses. The composer renders the L1 ribbon for each
+;; mode and the ribbon mounts `frame-switcher/frame-switcher-view` in
+;; both.
+
+(deftest l1-frame-picker-mounts-in-dynamic-mode
+  (testing "Dynamic surface mounts the L1 frame picker (picker `<select>`
+            or single-frame label fallback per the frame-switcher
+            contract)"
+    (xray-setup!)
+    (frame-dispatch [:rf.xray/set-mode :dynamic])
+    (rf/with-frame :rf/xray
+      (let [tree (shell/surface-composer)]
+        (is (or (some? (find-by-testid tree "rf-xray-ribbon-frame-picker"))
+                (some? (find-by-testid tree "rf-xray-ribbon-frame")))
+            "L1 frame picker (or single-frame label) present in Dynamic")))))
+
+(deftest l1-frame-picker-mounts-in-static-mode
+  (testing "Static surface mounts the L1 frame picker — four of the five
+            Static tabs project a per-frame surface (machines snapshots,
+            current-route slice, app-db schemas, flows), so the picker
+            is mode-INDEPENDENT and persists across mode toggles even
+            though the registrar itself is process-global"
+    (xray-setup!)
+    (frame-dispatch [:rf.xray/set-mode :static])
+    (rf/with-frame :rf/xray
+      (let [tree (shell/surface-composer)]
+        (is (or (some? (find-by-testid tree "rf-xray-ribbon-frame-picker"))
+                (some? (find-by-testid tree "rf-xray-ribbon-frame")))
+            "L1 frame picker (or single-frame label) present in Static")))))
+
+;; -------------------------------------------------------------------------
+;; (9) Static tab inventory — pure-data shape
+;; -------------------------------------------------------------------------
+
+(deftest static-tab-inventory-shape
+  (testing "tab inventory carries id/label/mnem/placeholder-bead and
+            preserves canonical order"
+    (is (= [:machines :routes :schemas :flows :interceptors]
+           (mapv :id (static-shell/tabs)))
+        "5 tabs in canonical order (rf2-b2fif dropped :views + :events)")
+    (doseq [{:keys [id label mnem placeholder-bead]} (static-shell/tabs)]
+      (is (keyword? id) (str "id is keyword for " id))
+      (is (string? label) (str "label is a string for " id))
+      (is (and (string? mnem) (= 1 (count mnem)))
+          (str "mnem is one character for " id))
+      ;; Most sub-tabs are sibling beads under the rf2-o5f5f parent epic
+      ;; (rf2-o5f5f.2 / .3 / .4 / .5 / .6). The :flows tab landed under
+      ;; the standalone rf2-uhsqb bead per the parent-epic comment, so
+      ;; the regex accepts either shape.
+      (is (re-matches #"(rf2-o5f5f\.\d|rf2-[a-z0-9]+)" placeholder-bead)
+          (str "placeholder-bead names a sibling bead for " id)))))

@@ -36,7 +36,7 @@
   cluster summaries — the path breadcrumb signals 'these N changes
   belong together'. The flat patch list (the predecessor shape)
   forced agents to re-cluster mentally. The sections projection
-  mirrors Causa's panel `sections-per-cluster` decomposition
+  mirrors Xray's panel `sections-per-cluster` decomposition
   (rf2-gfxmk Phase 1 of rf2-abts7) — same path-headed clusters; only
   the per-section body shape differs (patches here vs annotated
   subtree there).

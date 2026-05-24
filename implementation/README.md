@@ -280,7 +280,7 @@ disambiguate names that look interchangeable at a glance.
 - **projected epoch record vs raw `:db-after`** — `epoch/projected-
   record` returns the elision-safe view of an epoch (the structured
   `:sub-runs` / `:renders` / `:effects` projections) and is safe
-  for off-box surfaces (Causa, Story-MCP, Pair2-MCP). The raw
+  for off-box surfaces (Xray, Story-MCP, Pair2-MCP). The raw
   `:db-before` / `:db-after` snapshots on a record are devtools-local
   and must not cross the elision boundary.
 

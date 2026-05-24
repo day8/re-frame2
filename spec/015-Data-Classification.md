@@ -2,13 +2,13 @@
 
 > Status: Drafting. **v1-required.** Builds on the registration grammar in [001-Registration](001-Registration.md), the dispatch envelope in [002-Frames](002-Frames.md), the trace surface in [009-Instrumentation](009-Instrumentation.md), the reserved-namespace policy in [Conventions](Conventions.md), and the privacy posture in [Security](Security.md).
 >
-> **The minimum claim:** application developers declaratively mark which *paths* inside well-known data shapes (event arg-maps, app-db, sub outputs, fx inputs, cofx injections, machine `:data`, flow outputs) carry **sensitive content** or **large blobs**. The framework auto-propagates those marks across the dataflow and observation surfaces (trace bus, Causa, MCP, third-party log sinks) substitute display sentinels (`:rf/redacted`, `:rf/large { …}`) at the marked paths *at emission time*. Real values flow through the application unchanged; only what leaves the trust boundary is filtered.
+> **The minimum claim:** application developers declaratively mark which *paths* inside well-known data shapes (event arg-maps, app-db, sub outputs, fx inputs, cofx injections, machine `:data`, flow outputs) carry **sensitive content** or **large blobs**. The framework auto-propagates those marks across the dataflow and observation surfaces (trace bus, Xray, MCP, third-party log sinks) substitute display sentinels (`:rf/redacted`, `:rf/large { …}`) at the marked paths *at emission time*. Real values flow through the application unchanged; only what leaves the trust boundary is filtered.
 >
 > **Posture.** This contract is **leak-prevention overlay on observability**, not a security boundary. Apps still own their own auth/authorisation, encryption-at-rest, and transport security. The classification machinery exists so that the framework's own dev-time observability surfaces (and their downstream consumers — log sinks, AI agents, dashboards) cannot accidentally exfiltrate user secrets or stuff log lines with multi-megabyte blobs. See [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the pattern-level threat model this contract grounds.
 
 ## Abstract
 
-re-frame2 ships **opt-in, path-marked data classification**: every registration kind that participates in the dataflow accepts a `{:sensitive [paths] :large [paths]}` declaration on its registration map, plus dedicated `add-marks` / `set-marks` APIs for marking paths inside `app-db` (additive merge and wholesale replace, respectively). Paths are vectors of keywords/indices that index into the relevant data shape; the framework consults them at *emission time* (when a trace event is built, when Causa renders a panel, when MCP returns a tool response, when a third-party log sink invokes its trace listener) and substitutes a display sentinel for the marked value.
+re-frame2 ships **opt-in, path-marked data classification**: every registration kind that participates in the dataflow accepts a `{:sensitive [paths] :large [paths]}` declaration on its registration map, plus dedicated `add-marks` / `set-marks` APIs for marking paths inside `app-db` (additive merge and wholesale replace, respectively). Paths are vectors of keywords/indices that index into the relevant data shape; the framework consults them at *emission time* (when a trace event is built, when Xray renders a panel, when MCP returns a tool response, when a third-party log sink invokes its trace listener) and substitutes a display sentinel for the marked value.
 
 Two sentinels carry the contract:
 
@@ -28,9 +28,9 @@ The two axes compose: a value marked **both** sensitive and large renders as `:r
 The classification machinery exists to stop leaks at every observation surface the framework owns or participates in. The complete set:
 
 1. **Trace bus emit** — every `:rf/trace-event` payload built inside `emit!` (per [009 §The trace event model](009-Instrumentation.md#the-trace-event-model)). The runtime substitutes sentinels at marked paths before the event reaches any listener.
-2. **Causa panel rendering** — Event Detail, App-DB Diff, Subscriptions, Trace, Causality Graph, Machine Inspector, Flow Panel. Causa is one of the in-tree consumers; its renderer consumes the same sentinel vocabulary every other consumer sees.
+2. **Xray panel rendering** — Event Detail, App-DB Diff, Subscriptions, Trace, Causality Graph, Machine Inspector, Flow Panel. Xray is one of the in-tree consumers; its renderer consumes the same sentinel vocabulary every other consumer sees.
 3. **MCP wire transport** — every tool response from `tools/re-frame2-pair-mcp/`, `tools/story-mcp/`, and any future MCP server. The cross-MCP wire elision walker (`rf/elide-wire-value`, per [Cross-MCP shared primitives in the Ownership matrix](Ownership.md) → [`tools/mcp-base/spec/sensitive.md`](../tools/mcp-base/spec/sensitive.md) and [`tools/mcp-base/spec/elision.md`](../tools/mcp-base/spec/elision.md)) reads the same marks the trace bus consults.
-4. **AI / LLM context handed off by tools** — any code path that lifts trace events, app-db snapshots, sub outputs, or machine `:data` into an LLM prompt. The Causa AI co-pilot rail (where one exists) is one such consumer; future LLM consumers of the trace surface MUST honour the same contract.
+4. **AI / LLM context handed off by tools** — any code path that lifts trace events, app-db snapshots, sub outputs, or machine `:data` into an LLM prompt. The Xray AI co-pilot rail (where one exists) is one such consumer; future LLM consumers of the trace surface MUST honour the same contract.
 5. **Third-party log sinks consuming the trace bus** — Datadog, Sentry, LogRocket, Honeybadger, custom log fan-outs, in-house observability pipelines. The framework's [§Sample wiring](009-Instrumentation.md#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc) snippets default to consulting marks before egress; user-supplied listeners are normatively expected to do the same.
 
 ### Out of scope (explicit non-goals)
@@ -115,7 +115,7 @@ The canonical event shape (per [002 §Routing — the dispatch envelope](002-Fra
                              :url    "/api/login"
                              :body   args}]]}))
 
-;; Trace-bus / Causa display of the dispatched event:
+;; Trace-bus / Xray display of the dispatched event:
 ;;   [:auth/log-in {:email     "alice@example.com"
 ;;                  :password  :rf/redacted
 ;;                  :totp-code :rf/redacted}]
@@ -142,7 +142,7 @@ Both take the same `{path mark, ...}` shape — a path-keyed map from `get-in`-s
    [:docs :csv-upload]     :large
    [:logs :history-buffer] :large})
 
-;; App-db inspection in Causa renders:
+;; App-db inspection in Xray renders:
 ;;   {:user {:ssn :rf/redacted :name "Alice"}
 ;;    :auth {:token :rf/redacted}
 ;;    :docs {:csv-upload :rf/large {:bytes 4523198 :head "ID,Name,Email\n..."}}}
@@ -173,7 +173,7 @@ Subscriptions support **two override granularities** in their registration map, 
 (rf/reg-sub :user-profile
   :<- [:db/users]
   (fn [users [_ uid]] (get users uid)))
-;; Output marked :rf/redacted in Causa's sub panel because the upstream
+;; Output marked :rf/redacted in Xray's sub panel because the upstream
 ;; [:user :ssn] path was declared sensitive via add-marks / set-marks.
 
 ;; Per-path declaration: explicit mark on slots of the sub's output.
@@ -225,7 +225,7 @@ Paths in an effect's `:sensitive` / `:large` declaration index into the **fx-inp
     ;; Trace-bus emits the fx invocation with the declared paths sentinel-substituted.
     (issue-http-request req)))
 
-;; Trace-bus / Causa display of the fx invocation:
+;; Trace-bus / Xray display of the fx invocation:
 ;;   [:rf.http/managed {:method :post
 ;;                      :url "/api/login"
 ;;                      :body    {:email "alice@…" :password :rf/redacted}
@@ -279,7 +279,7 @@ Each machine instance has a `:data` slot (analogous to XState's `context`) — g
                                        :on-done :authenticated}}
             :authenticated  {:on {:log-out :idle}}}})
 
-;; Causa's Machine Inspector renders the :data slot with marks resolved:
+;; Xray's Machine Inspector renders the :data slot with marks resolved:
 ;;   :data {:jwt :rf/redacted
 ;;          :refresh-token :rf/redacted
 ;;          :user {:ssn :rf/redacted :name "Alice"}
@@ -331,7 +331,7 @@ The grammar matches subscriptions row-for-row:
 | `:sensitive? true / false` | Whole-output force-mark or opt-out. Overrides propagation. |
 | `:large? true / false` | Symmetric to `:sensitive?`. |
 
-The flow's `:path` write into `app-db` carries the resolved sensitivity — Causa's App-DB-Diff panel sees `:rf/redacted` at the destination slot just as if `add-marks` / `set-marks` had declared the path directly.
+The flow's `:path` write into `app-db` carries the resolved sensitivity — Xray's App-DB-Diff panel sees `:rf/redacted` at the destination slot just as if `add-marks` / `set-marks` had declared the path directly.
 
 ## The display contract — sentinels
 
@@ -358,7 +358,7 @@ A two-element clause: the sentinel keyword `:rf/large` followed by a metadata ma
 | `:bytes` | Integer. Byte size of the original value (or a close approximation — implementations MAY use string-length or `count` over a serialised form). |
 | `:head` | String. First N characters of a printable rendering of the value. N is implementation-defined (CLJS reference uses 128 chars). May be absent for non-string values that have no printable head. |
 
-Causa's Event Detail and App-DB-Diff panels MAY surface a click-to-expand affordance for `:rf/large` entries, conditional on a per-row size-confirmation modal so the user does not accidentally inflate the panel with a multi-megabyte expansion.
+Xray's Event Detail and App-DB-Diff panels MAY surface a click-to-expand affordance for `:rf/large` entries, conditional on a per-row size-confirmation modal so the user does not accidentally inflate the panel with a multi-megabyte expansion.
 
 ### `:rf/redacted {:bytes N}` — sensitive + large composed
 
@@ -368,9 +368,9 @@ Causa's Event Detail and App-DB-Diff panels MAY surface a click-to-expand afford
 
 When a value is marked **both** sensitive and large, the sensitive sentinel wins on content visibility — `:rf/redacted` rides the head slot — but the size metadata MAY ride alongside (no `:head` is permitted; the content is sensitive). This preserves the size diagnostic without leaking content.
 
-### Causa rendering contract (the consumer)
+### Xray rendering contract (the consumer)
 
-| Mark axis | Causa renders | Drillable? |
+| Mark axis | Xray renders | Drillable? |
 |---|---|---|
 | `:sensitive` only | `:rf/redacted` | **NO** — never revealable; no expand affordance offered. |
 | `:large` only | `:rf/large {:bytes N :head "…"}` | **YES** — click-to-expand with size-confirmation modal. |
@@ -394,7 +394,7 @@ When an event handler writes a value sourced from a sensitive event-arg path int
         (assoc-in [:auth :token] jwt)        ;; ← destination path inherits :sensitive
         (assoc-in [:user :id] user-id))))
 
-;; After this handler runs, Causa's App-DB-Diff panel renders:
+;; After this handler runs, Xray's App-DB-Diff panel renders:
 ;;   {:auth {:token :rf/redacted}     <- mark propagated from event-arg [:jwt]
 ;;    :user {:id 42}}                  <- not marked
 ```
@@ -497,7 +497,7 @@ The CLJS reference materialises the merged mark set at `[:rf/elision :sensitive-
   {[:docs :csv-upload] {:source :marks}}}}
 ```
 
-The `:source` slot is for tooling (Causa's "why is this redacted?" affordance reads it); the lookup contract only requires the path → presence mapping. Per-source attribution is a CLJS-reference convenience.
+The `:source` slot is for tooling (Xray's "why is this redacted?" affordance reads it); the lookup contract only requires the path → presence mapping. Per-source attribution is a CLJS-reference convenience.
 
 ## Author guidance for the exception-path residual
 
@@ -506,7 +506,7 @@ The path-marked declarations in this Spec redact at the five observation surface
 - **Exception messages.** Once a sensitive value has been concatenated into an `ex-message` string, no path resolves to the substring; the walker has no rule that says "this substring of this string is a marked leaf."
 - **`ex-data` maps.** The map's keys are author-chosen (`{:user/email "..."}`); they have no relationship to the path-marked declarations in `[:rf/elision :sensitive-declarations]`. A walker rule that scrubbed `:user/email` would either need a separate ex-data-key registration (which would duplicate the path declaration and drift) or auto-detect by value comparison (the [§Out of scope §Full taint-tracking system](#out-of-scope-explicit-non-goals) non-goal).
 
-The residual surface is the intersection of *the handler read a sensitive-path value* AND *the handler then threw with that value in the message or the ex-data map*. The `:rf.error/handler-exception` trace event ([Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) the cascade emits carries the raw value in `:exception-message` / `:exception-data`. The top-level `:sensitive?` rollup fires (because some leaf in the record overlapped a marked path) and off-box shippers drop the whole event — but the on-box dev surfaces (Causa Event Detail, the re-frame2-pair-mcp surface under `:show-sensitive? true`, story scenarios saved for replay) render the exception fields verbatim.
+The residual surface is the intersection of *the handler read a sensitive-path value* AND *the handler then threw with that value in the message or the ex-data map*. The `:rf.error/handler-exception` trace event ([Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) the cascade emits carries the raw value in `:exception-message` / `:exception-data`. The top-level `:sensitive?` rollup fires (because some leaf in the record overlapped a marked path) and off-box shippers drop the whole event — but the on-box dev surfaces (Xray Event Detail, the re-frame2-pair-mcp surface under `:show-sensitive? true`, story scenarios saved for replay) render the exception fields verbatim.
 
 ```clojure
 ;; ANTI-PATTERN — the email lands in the trace event verbatim.

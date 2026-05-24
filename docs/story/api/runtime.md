@@ -382,14 +382,14 @@ The full v1 key surface:
    ;; On-disk root — prepended to classpath-relative source-coord :file slots
    :rf.story/project-root "C:/Users/me/code/my-app"
 
-   ;; Cross-tool privacy gate — read by Story AND Causa
+   ;; Cross-tool privacy gate — read by Story AND Xray
    :rf.privacy/show-sensitive? false})
 ```
 
 Two key behaviours are worth pinning:
 
-- **`:rf.story/project-root` bridges into Causa**. When set, Story propagates the value into Causa's own `:rf.causa/project-root` slot via `re-frame.story.causa-preset/propagate-project-root!` so the Causa-as-RHS source-coord chips share the same on-disk root. The bridge is one-way; hosts that want Causa pointed at a different root call `causa-config/configure!` directly AFTER `story/configure!`.
-- **`:rf.privacy/show-sensitive?` is cross-tool**. The slot is shared with Causa under the `:rf.privacy/*` reservation. Setting it from either Story's or Causa's `configure!` flips both tools' diagnostic surfaces.
+- **`:rf.story/project-root` bridges into Xray**. When set, Story propagates the value into Xray's own `:rf.xray/project-root` slot via `re-frame.story.xray-preset/propagate-project-root!` so the Xray-as-RHS source-coord chips share the same on-disk root. The bridge is one-way; hosts that want Xray pointed at a different root call `xray-config/configure!` directly AFTER `story/configure!`.
+- **`:rf.privacy/show-sensitive?` is cross-tool**. The slot is shared with Xray under the `:rf.privacy/*` reservation. Setting it from either Story's or Xray's `configure!` flips both tools' diagnostic surfaces.
 
 ## Substrate registration (CLJS-only)
 
@@ -479,4 +479,4 @@ Phase 4's `:dispatch` rail emits these fx; the chrome's control widgets and tool
 - [Story tutorial — Your first story](../01-first-story.md) — `mount-shell!` in context.
 - [Story tutorial — Snapshot identity + QR sharing](../05-snapshot-identity.md) — `snapshot-identity` + `variant-share-url` in worked usage.
 - [Framework API — Lifecycle](../../api/13-lifecycle.md) — `rf/init!` runs before `mount-shell!`. The adapter must be installed before Story attaches.
-- [Causa API — Configuration keys](../../causa/api/config-keys.md) — `:rf.causa/project-root`, the slot Story's `:rf.story/project-root` bridges into.
+- [Xray API — Configuration keys](../../xray/api/config-keys.md) — `:rf.xray/project-root`, the slot Story's `:rf.story/project-root` bridges into.

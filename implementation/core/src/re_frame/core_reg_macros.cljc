@@ -118,14 +118,14 @@
 
 ;; ---- defreg-event-macro --------------------------------------------------
 ;;
-;; Per Spec 009 §`:rf.handler/source` and Causa Spec 021 §11.2 B.7
+;; Per Spec 009 §`:rf.handler/source` and Xray Spec 021 §11.2 B.7
 ;; stretch (rf2-xgfuy): `reg-event-db` / `reg-event-fx` / `reg-event-ctx`
 ;; additionally capture the WHOLE `(reg-event-X :id ...)` form as a
-;; string under `:rf.handler/source` so Causa's Event panel can render
+;; string under `:rf.handler/source` so Xray's Event panel can render
 ;; the source inline.
 ;;
 ;; Scope decision (rf2-xgfuy): capture the WHOLE form (`(reg-event-X
-;; :id [interceptors] (fn ...))`), not just the handler-fn. The Causa
+;; :id [interceptors] (fn ...))`), not just the handler-fn. The Xray
 ;; Event panel mockup (Spec 021 §2.2) renders the macro name + id +
 ;; full handler-fn body — the whole form gives the consumer everything
 ;; in one slot rather than forcing it to re-derive the wrapping shape

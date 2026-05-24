@@ -45,7 +45,7 @@ Application keywords use the app's own namespace (`:cart/`, `:auth/`); `:rf/*` a
 
 ### L7 — `reg-*` macros over `register-*` functions
 
-The macros capture source-coords that Causa and re-frame2-pair rely on. Functional registrations exist for programmatic / generated cases; recipes always reach for the macro.
+The macros capture source-coords that Xray and re-frame2-pair rely on. Functional registrations exist for programmatic / generated cases; recipes always reach for the macro.
 
 ### L8 — Frames before globals
 
@@ -94,7 +94,7 @@ skills/re-frame2/
 ├── references/
 │   ├── fundamentals/            (events, fx, cofx, subs, flows, schemas, frames, event-state-cycle, project-structure)
 │   ├── state-machines/          (reg-machine, regions, tags, spawn, cancellation)
-│   ├── tooling/                 (stories, routing, story-recorder, story-mcp-loop, causa)
+│   ├── tooling/                 (stories, routing, story-recorder, story-mcp-loop, xray)
 │   └── cross-cutting/           (testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring)
 ├── patterns/                    (one leaf per canonical pattern)
 ├── decision-trees/              (pick-a-pattern, slice-or-machine)

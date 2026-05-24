@@ -85,37 +85,37 @@
 ;; ---- css-var (rf2-uv1on) -----------------------------------------------
 
 (deftest css-var-resolves-to-var-with-hex-fallback
-  (testing "css-var builds var(--rf-causa-<key>, <hex>) so a host that
-            publishes the Causa CSS custom-property surface drives
+  (testing "css-var builds var(--rf-xray-<key>, <hex>) so a host that
+            publishes the Xray CSS custom-property surface drives
             light + dark, while a standalone embed degrades to the
             dark-palette hex"
-    (is (= "var(--rf-causa-green, #3fb950)" (tokens/css-var :green)))
-    (is (= "var(--rf-causa-text-tertiary, #8b949e)"
+    (is (= "var(--rf-xray-green, #3fb950)" (tokens/css-var :green)))
+    (is (= "var(--rf-xray-text-tertiary, #8b949e)"
            (tokens/css-var :text-tertiary)))))
 
-(deftest css-var-name-matches-causa-convention
-  (testing "the variable name mirrors Causa's `var(--rf-causa-<key>)`
+(deftest css-var-name-matches-xray-convention
+  (testing "the variable name mirrors Xray's `var(--rf-xray-<key>)`
             so the chart + host paint from ONE :root palette"
     (is (str/starts-with? (tokens/css-var :info)
-                          "var(--rf-causa-info"))))
+                          "var(--rf-xray-info"))))
 
 (deftest css-var-falls-back-to-supplied-palette-hex
   (testing "css-var resolves the fallback hex from the supplied palette
             arg (light theme), not just the dark default"
-    (is (= "var(--rf-causa-info, #0550ae)"
+    (is (= "var(--rf-xray-info, #0550ae)"
            (tokens/css-var :info tokens/light-palette)))))
 
 (deftest css-var-no-fallback-for-unknown-key
   (testing "an unknown token has no hex → bare var() (host MUST define
             it; no garbage fallback)"
-    (is (= "var(--rf-causa-not-a-token)" (tokens/css-var :not-a-token)))))
+    (is (= "var(--rf-xray-not-a-token)" (tokens/css-var :not-a-token)))))
 
 ;; ---- motion seam (rf2-xfx6l) -------------------------------------------
 
 (deftest duration-css-interpolates-scale-var
   (testing "duration-css produces a calc() string that interpolates
-            the --rf-causa-motion-scale custom property"
-    (is (= "calc(2000ms * var(--rf-causa-motion-scale, 1))"
+            the --rf-xray-motion-scale custom property"
+    (is (= "calc(2000ms * var(--rf-xray-motion-scale, 1))"
            (tokens/duration-css 2000)))))
 
 (deftest motion-publishes-canonical-durations

@@ -1046,7 +1046,7 @@ async function assertTestWatchToggle(page) {
 // `assertActionsScrubberExactBurst` and `assertTracePanelCascadeRows`
 // retired per rf2-sgdd3 — Story no longer ships the actions / scrubber
 // / trace panels they probed. Equivalent coverage lives in
-// tools/causa/ browser tests against Causa's L2 event list + Trace
+// tools/xray/ browser tests against Xray's L2 event list + Trace
 // tab + Event-tab cascade view.
 
 async function assertSidebarNavigationSelectsEveryRow(page) {
@@ -1132,7 +1132,7 @@ const COVERAGE_MATRIX = [
       // failing with "expected 3 got 6" on the
       // :story.counter/clicked-three-times variant).
       //
-      // Per Mike's testing direction (feedback_causa_story_cljs_unit_
+      // Per Mike's testing direction (feedback_xray_story_cljs_unit_
       // tests_not_playwright) + the Wave 1-4 migration pattern
       // (rf2-tglku epic), the architectural answer is a CLJS unit
       // test that drives `story/run-variant` directly and asserts the
@@ -1332,33 +1332,33 @@ const COVERAGE_MATRIX = [
   { feature: 'Chrome test widget', kind: 'probe', probe: assertTestWidgetRunAll },
   { feature: 'Test watch mode', kind: 'probe', probe: assertTestWatchToggle },
   // Actions panel / Trace panel / Scrubber / Trace-scrubber cross-ref
-  // retired per rf2-sgdd3 — Causa is the RHS primary inspector now
+  // retired per rf2-sgdd3 — Xray is the RHS primary inspector now
   // (L1 ribbon + L2 event list replace the scrubber; Trace tab
   // replaces the trace panel; Event-tab cascade view replaces the
-  // actions panel). Coverage now lives in tools/causa/.
+  // actions panel). Coverage now lives in tools/xray/.
   {
     feature: 'Actions panel',
     kind: 'owned-by',
-    gate: 'tools/causa browser tests',
-    why: 'rf2-sgdd3 — replaced by Causa Event-tab cascade view',
+    gate: 'tools/xray browser tests',
+    why: 'rf2-sgdd3 — replaced by Xray Event-tab cascade view',
   },
   {
     feature: 'Trace panel',
     kind: 'owned-by',
-    gate: 'tools/causa browser tests',
-    why: 'rf2-sgdd3 — replaced by Causa Trace tab',
+    gate: 'tools/xray browser tests',
+    why: 'rf2-sgdd3 — replaced by Xray Trace tab',
   },
   {
     feature: 'Scrubber',
     kind: 'owned-by',
-    gate: 'tools/causa browser tests',
-    why: 'rf2-sgdd3 — replaced by Causa L1 ribbon + L2 event list',
+    gate: 'tools/xray browser tests',
+    why: 'rf2-sgdd3 — replaced by Xray L1 ribbon + L2 event list',
   },
   {
     feature: 'Trace/scrubber cross-reference',
     kind: 'owned-by',
-    gate: 'tools/causa browser tests',
-    why: 'rf2-sgdd3 — Causa Event-tab focused-event cascade is the replacement',
+    gate: 'tools/xray browser tests',
+    why: 'rf2-sgdd3 — Xray Event-tab focused-event cascade is the replacement',
   },
   {
     feature: 'A11y panel',

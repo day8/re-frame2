@@ -7,7 +7,7 @@ on:
 
 jobs:
   browser-bundle-and-story-gates:
-    name: Browser, bundle, examples, Story/Causa gates
+    name: Browser, bundle, examples, Story/Xray gates
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -49,7 +49,7 @@ jobs:
       # gate (.shadow-cljs incremental state + .cpcache classpath cache).
       # Restoring the warm cache here keeps the nightly-full sweep fast
       # AND keeps the cache primed for the PR-smoke gate (which shares the
-      # `<os>-story-causa-shadow-` restore-keys prefix), so the first PR
+      # `<os>-story-xray-shadow-` restore-keys prefix), so the first PR
       # of the day still lands a warm partial cache.
       - name: Cache shadow-cljs compile output (.shadow-cljs / .cpcache)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -57,9 +57,9 @@ jobs:
           path: |
             implementation/.shadow-cljs
             implementation/.cpcache
-          key: ${{ runner.os }}-story-causa-shadow-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/deps.edn', 'implementation/package-lock.json', 'implementation/**/deps.edn', 'tools/story/deps.edn', 'tools/causa/deps.edn', 'tools/story/src/**', 'tools/story/testbeds/**', 'tools/causa/src/**', 'tools/causa/testbeds/**', 'implementation/core/src/**') }}
+          key: ${{ runner.os }}-story-xray-shadow-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/deps.edn', 'implementation/package-lock.json', 'implementation/**/deps.edn', 'tools/story/deps.edn', 'tools/xray/deps.edn', 'tools/story/src/**', 'tools/story/testbeds/**', 'tools/xray/src/**', 'tools/xray/testbeds/**', 'implementation/core/src/**') }}
           restore-keys: |
-            ${{ runner.os }}-story-causa-shadow-
+            ${{ runner.os }}-story-xray-shadow-
 
       - name: npm install
         run: npm ci
@@ -79,7 +79,7 @@ jobs:
           npm run test:examples
           npm run test:story-feature-load
           npm run test:story-play-scripts
-          npm run test:causa-feature-gate
+          npm run test:xray-feature-gate
           npm run test:story-static
 
   template-emitted-app:
@@ -188,7 +188,7 @@ jobs:
           npm run test:exec-safety
           npm run test:re-frame2-pair
           npm run test:story
-          npm run test:causa
+          npm run test:xray
 
       - name: Install implementation deps (for Playwright)
         working-directory: implementation

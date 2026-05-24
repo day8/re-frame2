@@ -96,11 +96,11 @@
   `:rf.epoch/sensitive?`) and the cheap structured projections
   (`:sub-runs` / `:renders` / `:effects`) pass through unchanged.
 
-  Tools that egress epoch records over a process boundary (Causa-MCP
+  Tools that egress epoch records over a process boundary (Xray-MCP
   `watch-epochs`, story / pair recorders, hosted forwarders) MUST
   route through this fn. The on-box ring buffer and
   `register-epoch-listener!` listener fan-out continue to deliver the RAW
-  record so on-box devtools (Causa diff, REPL, `restore-epoch`) can
+  record so on-box devtools (Xray diff, REPL, `restore-epoch`) can
   reason about exact state. Returns `nil` for non-map input. No-op
   (returns `nil`) when the `day8/re-frame2-epoch` artefact is not on
   the classpath. Late-bound via `:epoch/projected-record`."

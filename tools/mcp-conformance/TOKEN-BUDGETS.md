@@ -9,10 +9,10 @@ The re-frame2 MCP pair — `tools/re-frame2-pair-mcp/` and
 (`:rf.mcp/overflow`). An agent host that attaches both sees one
 disciplined surface, not two dialects of "I'm too big".
 
-(Historical: a third server `causa-mcp` was envisaged in this contract;
-it was dropped per rf2-hvl1g. AI agent access to Causa state already
-flows via `re-frame2-pair-mcp` against the framework-published Causa
-runtime API, so a dedicated causa-mcp is unnecessary.)
+(Historical: a third server `xray-mcp` was envisaged in this contract;
+it was dropped per rf2-hvl1g. AI agent access to Xray state already
+flows via `re-frame2-pair-mcp` against the framework-published Xray
+runtime API, so a dedicated xray-mcp is unnecessary.)
 
 This doc is the canonical pin. Each server's `Principles.md` carries
 the per-server expansion (mechanism inventory, pipeline order,

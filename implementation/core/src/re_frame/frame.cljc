@@ -297,7 +297,7 @@
     (registrar/register! :frame id config)
     ;; Frame-level trace-emission gate (rf2-2qaqh): a frame registered
     ;; with `:rf.trace/frame-no-emit? true` is a tool / inspector frame
-    ;; (e.g. Causa's `:rf/causa`) whose own reactive substrate must NOT
+    ;; (e.g. Xray's `:rf/xray`) whose own reactive substrate must NOT
     ;; flood the shared trace ring it inspects. The flag is the frame-
     ;; scoped sibling of the handler-scoped `:rf.trace/no-emit?`
     ;; (Spec 009 §Trace-emission opt-out). Honoured on BOTH first

@@ -1,6 +1,6 @@
 # Story — Render Shell
 
-> The UI: sidebar, canvas, controls, workspaces, embedded Causa
+> The UI: sidebar, canvas, controls, workspaces, embedded Xray
 > inspector; the five workspace layouts (`:grid` / `:prose` /
 > `:variants-grid` / `:tabs` / `:custom`); hot-reload decorator
 > fingerprinting; the `mount-shell!` / `unmount-shell!` /
@@ -15,7 +15,7 @@ backdrop / glyphs / toolbar 5-cluster) the shell composes.
 
 ## UI shell substrate
 
-Story's own UI shell (sidebar, control panel, embedded Causa inspector,
+Story's own UI shell (sidebar, control panel, embedded Xray inspector,
 dispatch console, etc.) renders using **Reagent** at v1, sourced from
 `implementation/adapters/reagent/`. The UI shell namespaces live under
 `tools.story.ui.*`.
@@ -236,53 +236,53 @@ form. Rationale: see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
 
 The RHS stacks four regions vertically:
 
-1. **Causa — per-panel embed** (rf2-v1ach). Story's RHS hosts ONE
-   Causa panel at a time, picked by the user via a chip-row above
+1. **Xray — per-panel embed** (rf2-v1ach). Story's RHS hosts ONE
+   Xray panel at a time, picked by the user via a chip-row above
    the panel slot. The embed is rendered by
-   [`re-frame.story.ui.causa-embed/causa-embed-panel`](../src/re_frame/story/ui/causa_embed.cljs)
-   and supersedes the pre-rf2-v1ach whole-shell `[data-rf-causa-host]`
-   mount: the 4-layer Causa chrome (L1 ribbon + L2 event list +
+   [`re-frame.story.ui.xray-embed/xray-embed-panel`](../src/re_frame/story/ui/xray_embed.cljs)
+   and supersedes the pre-rf2-v1ach whole-shell `[data-rf-xray-host]`
+   mount: the 4-layer Xray chrome (L1 ribbon + L2 event list +
    tab-bar + detail panel) needs ~720px to render usefully and
    Story's RHS column is 320px, so the per-panel embed renders one
-   Causa panel cleanly at column width and exposes the rest via the
+   Xray panel cleanly at column width and exposes the rest via the
    pop-out escape hatch. See §Mount lifecycle below for the lock on
-   the contract between Story (the host) and Causa (the panel
+   the contract between Story (the host) and Xray (the panel
    provider).
 
    The region renders three things:
 
    - **Chip-row picker.** A horizontal strip of chips
      `[Event] [App-db] [Views] [Trace] [Machines] [Routing] [Issues]`
-     wearing the seven Causa panel ids in the canonical
+     wearing the seven Xray panel ids in the canonical
      debugging-frequency order. The active chip carries the warm
      amber accent; clicking a chip swaps which panel mounts below
      and the user's click is sticky for the session (it overrides
-     the variant's declared default per §Authoring `:causa-panel`
+     the variant's declared default per §Authoring `:xray-panel`
      slot). At the right edge of the chip-row sits a `[Pop out ↗]`
-     chip — clicking it opens the full Causa 4-layer shell in a
-     second window via `day8.re-frame2-causa.mount/popout!`, the
+     chip — clicking it opens the full Xray 4-layer shell in a
+     second window via `day8.re-frame2-xray.mount/popout!`, the
      escape hatch for the chrome the per-panel embed elides.
-   - **Panel host.** A `<div data-rf-causa-panel-host=<panel-id>>`
-     into which one of Causa's `panels/mount-<panel>!` fns
-     ([`day8.re-frame2-causa.panels`](../../causa/src/day8/re_frame2_causa/panels.cljs))
+   - **Panel host.** A `<div data-rf-xray-panel-host=<panel-id>>`
+     into which one of Xray's `panels/mount-<panel>!` fns
+     ([`day8.re-frame2-xray.panels`](../../xray/src/day8/re_frame2_xray/panels.cljs))
      mounts a Reagent tree. The host is owned by a Reagent class-3
      component (see §Mount lifecycle) that drives the
      mount/unmount round-trip on every panel-id swap.
-   - **Empty / no-Causa states.** When no variant is focused, the
+   - **Empty / no-Xray states.** When no variant is focused, the
      region renders an italic placeholder ("Select a variant to
-     inspect via Causa."). When Causa is not on the host build's
-     classpath the region renders a distinct empty state ("Causa
+     inspect via Xray."). When Xray is not on the host build's
+     classpath the region renders a distinct empty state ("Xray
      is not loaded in this build — embed surface unavailable.")
      so the chrome stays honest about what's available rather than
      blanking silently.
 
    Feature-detection rides
-   `re-frame.story.causa-preset/causa-available?`. The selection-
+   `re-frame.story.xray-preset/xray-available?`. The selection-
    watcher seam in [`shell.cljs`](../src/re_frame/story/ui/shell.cljs)
-   calls `causa-preset/wire-cross-host!` on every variant-selection
-   edge to bridge Story's configuration into Causa's slots
-   (`:rf.causa/project-root`, `:rf.causa/keybinding-enabled?`, listener
-   detach) — but does NOT mount Causa; the embed's panel-host owns
+   calls `xray-preset/wire-cross-host!` on every variant-selection
+   edge to bridge Story's configuration into Xray's slots
+   (`:rf.xray/project-root`, `:rf.xray/keybinding-enabled?`, listener
+   detach) — but does NOT mount Xray; the embed's panel-host owns
    the mount lifecycle. See §Mount lifecycle for the full sequencing.
 
    The diagnostic surface area the embed covers is the same as the
@@ -309,23 +309,23 @@ registration contract.
 
 ## Mount lifecycle (rf2-v1ach)
 
-The Causa-in-RHS embed (region 1 of §Right-hand pane) is the canonical
-Story-Causa mount surface. This section locks the public contract
-between Story (the host) and Causa (the panel provider). Third-party
-panels that want to compose alongside Causa (future statechart-viz,
+The Xray-in-RHS embed (region 1 of §Right-hand pane) is the canonical
+Story-Xray mount surface. This section locks the public contract
+between Story (the host) and Xray (the panel provider). Third-party
+panels that want to compose alongside Xray (future statechart-viz,
 custom inspectors) key against this same shape.
 
 ### The contract — `panels/mount-<panel>!`
 
-Causa exposes seven per-panel mount fns under the
-[`day8.re-frame2-causa.panels`](../../causa/src/day8/re_frame2_causa/panels.cljs)
+Xray exposes seven per-panel mount fns under the
+[`day8.re-frame2-xray.panels`](../../xray/src/day8/re_frame2_xray/panels.cljs)
 namespace (locked in
-[`tools/causa/spec/008-Embedding-Contract.md`](../../causa/spec/008-Embedding-Contract.md)
+[`tools/xray/spec/008-Embedding-Contract.md`](../../xray/spec/008-Embedding-Contract.md)
 §Per-panel mount API and
-[`tools/causa/spec/007-UX-IA.md`](../../causa/spec/007-UX-IA.md)
+[`tools/xray/spec/007-UX-IA.md`](../../xray/spec/007-UX-IA.md)
 §Mountable panel contract):
 
-| Panel id        | Mount fn                                                  | Causa Panel view                                  |
+| Panel id        | Mount fn                                                  | Xray Panel view                                  |
 |-----------------|-----------------------------------------------------------|---------------------------------------------------|
 | `:event-detail` | `(mount-event-detail!       mount-point opts) → unmount`  | Six-domino cascade view for the focused event     |
 | `:app-db`       | `(mount-app-db-diff!        mount-point opts) → unmount`  | Structural diff of app-db across the cascade      |
@@ -337,12 +337,12 @@ namespace (locked in
 
 Each mount fn:
 
-1. Installs Causa's handler registry (idempotent).
-2. Ensures the `:rf/causa` frame exists (idempotent
+1. Installs Xray's handler registry (idempotent).
+2. Ensures the `:rf/xray` frame exists (idempotent
    `rf/reg-frame`).
-3. Wraps the panel view in `[rf/frame-provider {:frame :rf/causa}
-   [<Panel>]]` so the panel's `:rf.causa/*` subscribes resolve to
-   Causa's state-isolation frame regardless of host React-context.
+3. Wraps the panel view in `[rf/frame-provider {:frame :rf/xray}
+   [<Panel>]]` so the panel's `:rf.xray/*` subscribes resolve to
+   Xray's state-isolation frame regardless of host React-context.
 4. Delegates to the host's `substrate-adapter/render` to mount the
    tree at `mount-point`.
 5. Returns an `unmount` fn so the caller owns lifecycle.
@@ -354,7 +354,7 @@ chip-row picker.
 
 Story drives the mount/unmount lifecycle from a Reagent class-3
 component (`panel-host-component` in
-[`causa_embed.cljs`](../src/re_frame/story/ui/causa_embed.cljs)).
+[`xray_embed.cljs`](../src/re_frame/story/ui/xray_embed.cljs)).
 Its job is to translate panel-id changes into mount/unmount round-
 trips against the active panel's `mount-<panel>!`:
 
@@ -363,62 +363,62 @@ trips against the active panel's `mount-<panel>!`:
 | `:component-did-mount`     | call `(mount-fn-for active-panel host-div)`; stash the returned unmount fn.                 |
 | `:component-did-update`    | when the panel-id changed, call the stashed unmount fn, then mount the new panel.           |
 | `:component-will-unmount`  | call the stashed unmount fn; clear the ref.                                                 |
-| `:reagent-render`          | render `<div data-rf-causa-panel-host=<panel-id> ref=... />` — stable across re-renders.    |
+| `:reagent-render`          | render `<div data-rf-xray-panel-host=<panel-id> ref=... />` — stable across re-renders.    |
 
 The component is keyed on `<variant-id>::<panel-id>` in the parent
 hiccup so a variant or panel change forces a fresh React mount
 (belt-and-braces — the lifecycle handlers cover it, but the key
-guarantees no state leaks across Causa-internal bugs).
+guarantees no state leaks across Xray-internal bugs).
 
 `mount-fn-for` does a feature-detect symbol → fn lookup against the
 `panel-id->mount-fn-sym` map (e.g. `:event-detail` → `'day8.re-
-frame2-causa.panels/mount-event-detail!`) — a nil result is a clean
-no-op render, so Causa absence never throws.
+frame2-xray.panels/mount-event-detail!`) — a nil result is a clean
+no-op render, so Xray absence never throws.
 
 ### Chip-click → swap sequence
 
 A user click on a chip in the picker:
 
-1. Mutates `:causa-panel` in
+1. Mutates `:xray-panel` in
    `re-frame.story.ui.state/shell-state-atom` via
    `state/swap-state!`.
-2. Re-renders `causa-embed-panel` (the atom is a Reagent ratom).
+2. Re-renders `xray-embed-panel` (the atom is a Reagent ratom).
 3. `effective-panel` resolves the new panel-id (user override
-   wins over story/variant `:causa-panel` slot).
+   wins over story/variant `:xray-panel` slot).
 4. The parent hiccup's React key changes — `panel-host-component`
    remounts cleanly; the previous panel's unmount fn fires; the
    new panel's mount fn fires.
 
 The user's chip click is sticky for the session — it overrides any
-declared `:causa-panel` until the user picks a different chip or
+declared `:xray-panel` until the user picks a different chip or
 the shell unmounts.
 
 ### `wire-cross-host!` — bridges-only, no mount
 
-[`re-frame.story.causa-preset/wire-cross-host!`](../src/re_frame/story/causa_preset.cljc)
+[`re-frame.story.xray-preset/wire-cross-host!`](../src/re_frame/story/xray_preset.cljc)
 fires from the selection-watcher on every variant-selection edge.
 It does THREE things — all configuration bridges, none of which
 mount anything:
 
 1. **`:rf.story/project-root`** — read Story's configured root via
    `story/configure!` and propagate to
-   `day8.re-frame2-causa.config/configure!` so Causa's source-
+   `day8.re-frame2-xray.config/configure!` so Xray's source-
    coord chips resolve against the same on-disk root Story uses
    (rf2-r1uod, symmetric to shop's rf2-6jyf6).
-2. **`:rf.causa/keybinding-enabled? false`** — flip Causa's
+2. **`:rf.xray/keybinding-enabled? false`** — flip Xray's
    keybinding config slot so Story's `Cmd/Ctrl+K` reaches Story's
-   own command palette without Causa's global capture-phase
+   own command palette without Xray's global capture-phase
    listener swallowing the key (rf2-q7who.1).
-3. **`day8.re-frame2-causa.keybinding/detach!`** — runtime removal
-   of the listener Causa's preload already installed under the
+3. **`day8.re-frame2-xray.keybinding/detach!`** — runtime removal
+   of the listener Xray's preload already installed under the
    default-true posture (rf2-ycrt2 — closes the gap rf2-q7who.1
    declared but did not close).
 
-This replaces the legacy `ensure-causa-mounted!` whose name
+This replaces the legacy `ensure-xray-mounted!` whose name
 implied a mount but in practice fired the same three bridges PLUS
-called `mount/open!` on Causa's whole-shell mount path. Under the
+called `mount/open!` on Xray's whole-shell mount path. Under the
 per-panel embed the panel-host owns the mount; `wire-cross-host!`
-fires the bridges only. The deprecated `ensure-causa-mounted!`
+fires the bridges only. The deprecated `ensure-xray-mounted!`
 shim was REMOVED (rf2-ee38b.3 — no production caller, per the
 project's no-back-compat posture). A caller that genuinely needs
 the legacy whole-shell open composes
@@ -431,10 +431,10 @@ A future tool (statechart-viz, profiler-overlay, etc.) that wants
 to compose into the same RHS picker would:
 
 1. Expose `(mount-<panel-id>! mount-point opts) → unmount-fn`
-   from its own namespace, following Causa's
+   from its own namespace, following Xray's
    `panels/mount-<panel>!` shape.
 2. Register the panel-id in Story's `panel-catalog` (rf2-v1ach
-   reserves the seven Causa ids; additions follow the same vector
+   reserves the seven Xray ids; additions follow the same vector
    shape).
 3. Map the panel-id to its mount-fn symbol in
    `panel-id->mount-fn-sym`.
@@ -442,13 +442,13 @@ to compose into the same RHS picker would:
 The chip-row picker, the panel-host's lifecycle, and the user-
 override stickiness all work identically — the contract is panel-
 provider-agnostic because it keys against the public mount-fn
-shape rather than Causa-specific internals.
+shape rather than Xray-specific internals.
 
-The detailed Causa-side contract — every mount fn's input subs,
+The detailed Xray-side contract — every mount fn's input subs,
 write events, and embedding `opts` — lives in
-[`tools/causa/spec/008-Embedding-Contract.md`](../../causa/spec/008-Embedding-Contract.md)
-and the per-panel Causa specs in
-[`tools/causa/spec/007-UX-IA.md`](../../causa/spec/007-UX-IA.md).
+[`tools/xray/spec/008-Embedding-Contract.md`](../../xray/spec/008-Embedding-Contract.md)
+and the per-panel Xray specs in
+[`tools/xray/spec/007-UX-IA.md`](../../xray/spec/007-UX-IA.md).
 
 ## Trace bus consumption
 
@@ -462,14 +462,14 @@ into a per-variant ring buffer (`re-frame.story.ui.trace-buffer`):
 ```
 
 The buffer is consumed by the schema-validation panel (rf2-dvue) to
-project Spec 010 validation failures. Causa, embedded in the RHS,
+project Spec 010 validation failures. Xray, embedded in the RHS,
 maintains its own trace history through its own preload-time
 `re-frame.trace.tooling/register-listener!` registration — the two
 are independent listeners on the framework trace bus.
 
 The six-domino cascade projection (`re-frame.trace.projection/
 group-cascades`) used to power Story's retired trace panel; it now
-lives in framework code and is consumed by Causa's Trace tab. Per
+lives in framework code and is consumed by Xray's Trace tab. Per
 Phase 1 §4.3 this is the debugging UX no JS tool can match.
 
 ## Panel registration contract
@@ -481,7 +481,7 @@ no parallel mounting protocol. Five rules govern panel hosting:
 1. **`:render` is a `:view` id.** The shell renders the panel by
    calling `(rf/view <render-id>)` and invoking the resolved fn with
    the current `variant-id`. Late-bind: the actual view can register
-   from a different artefact (e.g. `day8/re-frame2-causa` for the epoch
+   from a different artefact (e.g. `day8/re-frame2-xray` for the epoch
    panel) so long as the same `:view` id is registered before the user
    opens the panel.
 
@@ -505,17 +505,17 @@ no parallel mounting protocol. Five rules govern panel hosting:
    `[data-rf-story-variant-root]` — same engine, distinct scope, so
    Story dogfoods its OWN a11y rather than only the variant tree.
 
-5. **Causa is NOT a `reg-story-panel` registration.** Pre-rf2-v1ach
+5. **Xray is NOT a `reg-story-panel` registration.** Pre-rf2-v1ach
    the spec described a `:rf.story.panel/epoch` panel that late-bound
-   to a Causa-registered view. That model is superseded by the
+   to a Xray-registered view. That model is superseded by the
    per-panel embed locked in §Right-hand pane and §Mount lifecycle —
-   Story embeds Causa via a direct require of `causa-embed-panel`
+   Story embeds Xray via a direct require of `xray-embed-panel`
    and per-panel `mount-<panel>!` calls, not via `reg-story-panel`.
    The five-rule panel contract above still governs other tooling
    embeds (a11y, schema-validation, layout-debug, future third-party
-   panels that do NOT participate in the Causa chip-row); the Causa
+   panels that do NOT participate in the Xray chip-row); the Xray
    surface has its own dedicated contract because the chip-row
-   picker + Causa's mount-fn family are richer than `reg-story-
+   picker + Xray's mount-fn family are richer than `reg-story-
    panel`'s single-view-per-panel shape.
 
 See [`006-MCP-Surface.md`](006-MCP-Surface.md) for how the agent
@@ -559,7 +559,7 @@ tools/story/
 │           │   ├── variants_grid.cljs           ; :variants-grid layout
 │           │   ├── controls.cljs                ; auto-derived controls
 │           │   ├── multi_substrate.cljs         ; side-by-side substrate panes
-│           │   └── time_travel.cljs             ; (retired rf2-sgdd3 — Causa L1 ribbon + L2 list)
+│           │   └── time_travel.cljs             ; (retired rf2-sgdd3 — Xray L1 ribbon + L2 list)
 │           ├── panels/
 │           │   ├── trace_buffer.cljs            ; per-variant trace ring buffer (schema-validation consumer)
 │           │   ├── a11y.cljs                    ; axe-core integration — VARIANT scope

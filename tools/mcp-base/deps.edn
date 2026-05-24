@@ -1,10 +1,10 @@
 ;; day8/re-frame2-mcp-base — shared primitives for the re-frame2 MCP
 ;; tool pair (re-frame2-pair-mcp, story-mcp). Filed under rf2-vw4sq.
 ;;
-;; (Historical: a third server `causa-mcp` was envisaged as part of an
-;; MCP triplet; it was dropped per rf2-hvl1g — AI agent access to Causa
+;; (Historical: a third server `xray-mcp` was envisaged as part of an
+;; MCP triplet; it was dropped per rf2-hvl1g — AI agent access to Xray
 ;; state flows via re-frame2-pair-mcp against the framework-published
-;; Causa runtime API, so a dedicated causa-mcp is unnecessary.)
+;; Xray runtime API, so a dedicated xray-mcp is unnecessary.)
 ;;
 ;; ## Why this artefact exists
 ;;

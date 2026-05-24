@@ -5,27 +5,27 @@
   chrome literally adopted VS-Code Dark+ hexes (`#1e1e1e` / `#252526`
   / `#0e639c` / `#9cdcfe` / `#dcdcaa` / `#4ec9b0` / `#f48771` / …) —
   the rubric's 'cookie-cutter design that lacks context-specific
-  character' anti-pattern. Worse: Causa (which Story embeds in the
+  character' anti-pattern. Worse: Xray (which Story embeds in the
   RHS) ships its own cool slate palette around violet `#7C5CFF`, and
   the two render with a visible palette seam where they meet.
 
   This namespace defines Story's own palette — warmer slate grounds,
   an **amber accent (#F5A524)** that contrasts but does not clash
-  with Causa's cool violet, and a semantic palette that maps each
+  with Xray's cool violet, and a semantic palette that maps each
   feedback-state to the hex resolution. Hex literals at use-sites are
   banned (rf2-i3i5j acceptance criterion #3); call sites consume the
   `tokens` map.
 
   ## Why amber
 
-  - Warm temperature distinguishes Story from Causa's cool palette at
+  - Warm temperature distinguishes Story from Xray's cool palette at
     a glance — when both surfaces sit side-by-side in the RHS, the
     user reads 'workshop' (warm) vs 'diagnostic' (cool) without
     needing labels.
   - Amber `#F5A524` is the workshop's primary signal — Storybook is a
     woodshop / atelier metaphor; the gold-amber accent reads as
     'spotlight' / 'work in progress'.
-  - Pairs with Causa's `#7C5CFF` violet on the color wheel as a near-
+  - Pairs with Xray's `#7C5CFF` violet on the color wheel as a near-
     complementary contrast (amber yellow ↔ violet purple) without
     landing on the AI-slop 'purple gradient' floor.
   - WCAG-AA contrast preserved across every foreground/background
@@ -42,7 +42,7 @@
 
   ## Naming scheme
 
-  Mirrors Causa's `tools/causa/src/day8/re_frame2_causa/theme/tokens.cljc`
+  Mirrors Xray's `tools/xray/src/day8/re_frame2_xray/theme/tokens.cljc`
   shape — `:bg-0` / `:bg-1` / `:bg-2` / `:bg-3` for surface elevation,
   `:border-subtle` / `:border-default` / `:border-strong`,
   `:text-primary` / `:text-secondary` / `:text-tertiary`, and a
@@ -54,7 +54,7 @@
 
   Story carries five elevation levels because the shell is laid out as
   CANVAS (focal, lifted) over an inspector/sidebar ground over a base.
-  Causa is a single-pane diagnostic and only needs four. The extra
+  Xray is a single-pane diagnostic and only needs four. The extra
   `:bg-canvas` level is the variant render surface — visibly distinct
   so the user's eye snaps to the work-in-progress instead of the
   surrounding chrome."

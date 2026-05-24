@@ -189,7 +189,7 @@
 ;; the pre-split shape — no external caller reaches for it.
 (def ^:private frame-context provider/frame-context)
 
-;; rf2-25zo2: per-cascade cap on :rf.view/rendered emits. The Causa
+;; rf2-25zo2: per-cascade cap on :rf.view/rendered emits. The Xray
 ;; Reactive panel needs cascade-attribution per re-render, but a
 ;; full-page re-render can fire hundreds of view-render emits and blow
 ;; the per-cascade buffer's heap budget. The cap matches the
@@ -227,7 +227,7 @@
 
 (defn- emit-view-rendered-trace!
   "Emit the `:rf.view/rendered` cascade-attribution marker (rf2-25zo2,
-  consumed by Causa's Reactive panel for cascade graphing). Fires AFTER
+  consumed by Xray's Reactive panel for cascade graphing). Fires AFTER
   the user render-fn has run so the per-render deref sink is fully
   populated (rf2-9hoos). Carries:
 
@@ -247,7 +247,7 @@
                       view to re-render (rf2-8wrzz.1): the first sub in the
                       view's own read-set (`deref-subs`) whose value
                       changed in the cascade. The precise per-view cause
-                      Causa's Views panel shows as the re-render reason.
+                      Xray's Views panel shows as the re-render reason.
                       Absent on a structural re-render (no own sub changed)
                       or outside a cascade. Distinct from `:cause-subs`
                       (cascade-wide) and from `:deref-subs` (the full
@@ -324,7 +324,7 @@
 ;; ---- view unmount (rf2-9hoos) --------------------------------------------
 ;;
 ;; `:rf.view/unmounted` fires when a registered-view component instance
-;; tears down, so a consumer (Causa's Views table) can label the action
+;; tears down, so a consumer (Xray's Views table) can label the action
 ;; `unmount`. Not traced before rf2-9hoos.
 ;;
 ;; The teardown signal rides the per-render-instance reaction-dispose
@@ -505,7 +505,7 @@
               (let [mount? (when interop/debug-enabled? (first-render?! render-key))
                     ;; rf2-8wrzz.1: wall-clock the user render-fn (dev-only)
                     ;; so `:rf.view/rendered` can carry `:elapsed-ms` — the
-                    ;; per-view render timing Causa's Views panel shows. The
+                    ;; per-view render timing Xray's Views panel shows. The
                     ;; read rides `interop/debug-enabled?` so production
                     ;; DCEs it alongside the rest of the emit; nil in prod.
                     t0     (when interop/debug-enabled? (interop/now-ms))]

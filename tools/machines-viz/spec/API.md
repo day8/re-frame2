@@ -5,21 +5,21 @@ symbol a consumer of Machines-Viz might reach for.
 
 This doc is a **reference**. The normative descriptions for the
 embedding-host side of these surfaces live in
-[`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md);
+[`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md);
 where the two drift, this doc owns the **component contract** and
-the **share-URL encoding**, and Causa 003 owns the **panel chrome**.
+the **share-URL encoding**, and Xray 003 owns the **panel chrome**.
 
 ## Installation
 
 ```clojure
-;; consumer deps.edn — typically transitive through Causa or Story
+;; consumer deps.edn — typically transitive through Xray or Story
 {:deps {day8/re-frame2-machines-viz {:mvn/version "..."}}}
 ```
 
-For Causa users: pulled transitively via `day8/re-frame2-causa`.
+For Xray users: pulled transitively via `day8/re-frame2-xray`.
 For Story users with a machine panel: pulled transitively via
 `day8/re-frame2-story`. Direct dependents (a custom dev shell that
-wants a chart without the rest of Causa) declare it themselves.
+wants a chart without the rest of Xray) declare it themselves.
 
 ## `MachineChart` component
 
@@ -66,11 +66,11 @@ registry).
 | `:show-controls?` | no | `true` | When `true`, render xyflow's built-in zoom/pan/fit Controls. |
 | `:show-background?` | no | `true` | When `true`, render xyflow's dot-pattern Background. |
 | `:after-ring-specs` | no | `nil` | rf2-uv1on. Optional vector of presentation-ready `:after`-timer ring-specs (each `{:node-id :fraction :color :cancelled? :tooltip :testid}`). When non-empty the chart mounts the `chart.overlays.after-rings` overlay as a sibling of the canvas; it walks the rendered node DOM to position each ring. The host owns the trace→spec projection + the scrubber-aware fraction. `nil` / empty → no overlay. |
-| `:after-ring-tick` | no | `nil` | Opaque value the host bumps to force the after-rings overlay to re-measure + repaint (Causa passes `now-ms`; Lock #8 — one rAF clock per chart, owned host-side). |
+| `:after-ring-tick` | no | `nil` | Opaque value the host bumps to force the after-rings overlay to re-measure + repaint (Xray passes `now-ms`; Lock #8 — one rAF clock per chart, owned host-side). |
 | `:on-after-ring-hover` | no | `nil` | `(fn [node-id] ...)`. Hover-enter callback the overlay wires on each ring. |
 | `:on-after-ring-leave` | no | `nil` | `(fn [node-id] ...)`. Hover-leave callback the overlay wires on each ring. |
-| `:spawn-all-join` | no | `nil` | rf2-3ow55 (xyflow Phase 2). A presentation-ready `:spawn-all` join-spec — `{:node-id <string> :join <:all\|:any\|{:n N}\|{:fn _}> :children [{:key <kw> :done? :failed? :cancelled? :note}] :resolved? <bool?> :on-all-complete :on-any-failed}`. When present the chart mounts the `chart.overlays.spawn-all-join` inspector beside the spawn-all-bearing state, showing each spawned child + the join state. The host (Causa) projects the spec from its `:rf.machine.spawn-all/*` trace buffer; machines-viz owns only positioning + paint. `nil` → no inspector. |
-| `:on-spawn-child-click` | no | `nil` | `(fn [child-key] ...)`. Fires on a join-inspector child-row click; Causa pivots to the child instance. |
+| `:spawn-all-join` | no | `nil` | rf2-3ow55 (xyflow Phase 2). A presentation-ready `:spawn-all` join-spec — `{:node-id <string> :join <:all\|:any\|{:n N}\|{:fn _}> :children [{:key <kw> :done? :failed? :cancelled? :note}] :resolved? <bool?> :on-all-complete :on-any-failed}`. When present the chart mounts the `chart.overlays.spawn-all-join` inspector beside the spawn-all-bearing state, showing each spawned child + the join state. The host (Xray) projects the spec from its `:rf.machine.spawn-all/*` trace buffer; machines-viz owns only positioning + paint. `nil` → no inspector. |
+| `:on-spawn-child-click` | no | `nil` | `(fn [child-key] ...)`. Fires on a join-inspector child-row click; Xray pivots to the child instance. |
 | `:cancellation-cascade` | no | `nil` | rf2-3ow55 (xyflow Phase 2). A presentation-ready cascade-spec — `{:node-id <string> :parent-label <string?> :from-state <kw?> :steps [{:kind <:exit\|:destroy\|:abort\|:cleanup> :label <string> :note :delta-ms}]}`. When present (and `:steps` is non-empty) the chart mounts the `chart.overlays.cancellation-cascade` waterfall beneath the parent state, turning the scattered abort/destroy traces into one decision laid out vertically. The host projects the spec from the cancellation trace cluster. `nil` / no steps → dormant. |
 | `:overlay-tick` | no | `nil` | rf2-3ow55. Opaque value the host bumps to force the `:spawn-all` + cascade overlays to re-measure + repaint (mirrors `:after-ring-tick`). |
 | `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
@@ -120,7 +120,7 @@ there is no per-substrate fork of the chart.
 The chart's click surface is `:on-state-click`, invoked with the
 clicked node's `path`; the host resolves source coords for that path
 against `(rf/machine-meta machine-id)` and opens the editor (per
-[Causa 003 §Source-coord integration](../../causa/spec/003-Machine-Inspector.md#source-coord-integration)).
+[Xray 003 §Source-coord integration](../../xray/spec/003-Machine-Inspector.md#source-coord-integration)).
 The overlay callbacks (`:on-spawn-child-click`, `:on-after-ring-hover`,
 `:on-after-ring-leave`) fire with the relevant child-key / node-id.
 
@@ -164,7 +164,7 @@ For the supplied `:definition`, the chart shows:
   deliberately no `spawn` topology edge — `:spawn` / `:spawn-all` are
   state-entry actions, so spawned children surface through this overlay,
   not as a row of nodes (per `chart.projection/choose-edge-type` and
-  [Causa 003 §`:spawn-all` viz](../../causa/spec/003-Machine-Inspector.md#spawn-all-viz)).
+  [Xray 003 §`:spawn-all` viz](../../xray/spec/003-Machine-Inspector.md#spawn-all-viz)).
 - **Cancellation cascade (overlay, host-fed).** When the host passes a
   `:cancellation-cascade` spec with non-empty `:steps` the chart mounts
   the `chart.overlays.cancellation-cascade` waterfall beneath the parent
@@ -173,8 +173,8 @@ For the supplied `:definition`, the chart shows:
 What does **not** render (the chart is presentation-only — the host
 supplies the data and decides on the callbacks):
 
-- Transition history ribbon (Causa's chrome; lives in
-  `tools/causa/`).
+- Transition history ribbon (Xray's chrome; lives in
+  `tools/xray/`).
 - Source-coord chips with editor-URL handler wiring (the chart fires
   `:on-state-click`; the host opens the file).
 - A machine picker dropdown (the host owns machine selection and pulls
@@ -186,7 +186,7 @@ supplies the data and decides on the callbacks):
 ### Data sources
 
 The chart is **presentation-only**: it consumes nothing from the
-framework registry or the trace bus directly. The host (Causa, Story,
+framework registry or the trace bus directly. The host (Xray, Story,
 the viewer page) reads the framework's public surfaces and projects
 them into the chart's props. The table below maps each framework
 surface to the prop the host derives from it.
@@ -205,7 +205,7 @@ paints what it is handed. This keeps the chart testable in isolation and
 avoids coupling it to a framework registry.
 
 Source: the host-side surfaces are lifted from
-[Causa 003 §Data sources](../../causa/spec/003-Machine-Inspector.md#data-sources).
+[Xray 003 §Data sources](../../xray/spec/003-Machine-Inspector.md#data-sources).
 
 ## Density
 
@@ -216,8 +216,8 @@ different physical sizes without forking the renderer.
 | Density | When to pick it |
 |---|---|
 | `:compact` | Story's 50-chart panel grid; thumbnail listings; any surface where the chart is one of many and the user is scanning the grid for shape rather than reading individual labels. Walks the typography back to the spec/007-UX-IA refused-floor (state 11px / edge 9px) — the refused-floor was set for dense data-grid surfaces, and this density IS that surface. Geometry tightens ~25% (paddings, dot-grid spacing, pill height). |
-| `:regular` | The default. Causa's machines tab; the read-only viewer page; any embedded host that picks no density at all. Typography sits at the chart-floor (state 13px / edge 11px per rf2-gg7ws). The constants in `visual-constants/chart-regular` are the same constants `visual-constants/chart` aliases. |
-| `:cosy` | Single-chart presentation displays — Causa's machines tab on a wide monitor, a standalone viewer on a projector, an editor's docs-page screenshot. Walks the typography up to state 15px / edge 13px. Geometry loosens ~25%. |
+| `:regular` | The default. Xray's machines tab; the read-only viewer page; any embedded host that picks no density at all. Typography sits at the chart-floor (state 13px / edge 11px per rf2-gg7ws). The constants in `visual-constants/chart-regular` are the same constants `visual-constants/chart` aliases. |
+| `:cosy` | Single-chart presentation displays — Xray's machines tab on a wide monitor, a standalone viewer on a projector, an editor's docs-page screenshot. Walks the typography up to state 15px / edge 13px. Geometry loosens ~25%. |
 
 ### Identity vs. quantity
 
@@ -448,7 +448,7 @@ https://acme.example.com/path/to/viewer.html#machine=<base64-edn>
     `:spawn-all-join`, `:cancellation-cascade`, the tick props) left
     unset — a static share has no live trace bus to project them from.
 - A single banner at the top of the page reads: **"This is a
-  static machine chart, not a Causa session — interactions are
+  static machine chart, not a Xray session — interactions are
   disabled."**
 - A "show idle" toggle below the banner clears `:current-state` so the
   chart renders the machine at rest. Per
@@ -478,7 +478,7 @@ https://acme.example.com/path/to/viewer.html#machine=<base64-edn>
   the canonical viewer is read-only end-to-end.
 
 Source: lifted from
-[Causa 003 §Share affordance](../../causa/spec/003-Machine-Inspector.md#share-affordance).
+[Xray 003 §Share affordance](../../xray/spec/003-Machine-Inspector.md#share-affordance).
 
 ## Share-URL encoding
 
@@ -558,7 +558,7 @@ data are structurally excluded:
   absolute file paths (per [`spec/Spec-Schemas.md` §`:rf/source-coord-meta`](../../../spec/Spec-Schemas.md#rfsource-coord-meta))
   which reveal usernames, workstation layout, and internal repo
   structure. Source-coord chips are an editor-side affordance for
-  the operator running Causa; the viewer page has **no editor
+  the operator running Xray; the viewer page has **no editor
   handler wired** and cannot use them. They are dropped at encode
   time.
 
@@ -621,10 +621,10 @@ is under 4KB. Common URL limits sit around 8KB; we have headroom
 for moderately-sized charts.
 
 Charts large enough to exceed 8KB surface a fallback affordance
-(in the host that called `encode-share-url` — typically Causa's
+(in the host that called `encode-share-url` — typically Xray's
 share menu): **"Copy as EDN fragment instead"** which puts the
 EDN on the clipboard instead of the URL. Per
-[Causa 003 §Share affordance §Performance](../../causa/spec/003-Machine-Inspector.md#performance_1).
+[Xray 003 §Share affordance §Performance](../../xray/spec/003-Machine-Inspector.md#performance_1).
 
 ## Exporters
 
@@ -755,7 +755,7 @@ realises).
 
 ### Accessibility
 
-Per [Causa 003 §Accessibility](../../causa/spec/003-Machine-Inspector.md#accessibility)
+Per [Xray 003 §Accessibility](../../xray/spec/003-Machine-Inspector.md#accessibility)
 (the share-affordance subsection; not the panel-level one — that's
 the second `#accessibility_1`) and
 [Lock #10 above](./DESIGN-RATIONALE.md):
@@ -769,7 +769,7 @@ the second `#accessibility_1`) and
 The chart's in-place alt-view (for screen-reader navigation of the
 live chart itself, not the export) is a **v1.1 commitment**, per
 [`000-Vision.md` §v1.1 candidates](./000-Vision.md#v11-candidates-not-committed)
-and Causa 003 §Accessibility. v1.0 ships without it; the embedding
+and Xray 003 §Accessibility. v1.0 ships without it; the embedding
 host's transition-history ribbon + machine picker carry the
 accessible surface in the meantime.
 
@@ -841,7 +841,7 @@ A pure library fn that takes a natural-language prompt and returns
 a normalised re-frame2 machine spec. The LLM call is pluggable —
 the fn accepts an injected `:resolver` so callers wire in whichever
 LLM bridge fits their environment (Anthropic API / OpenAI API /
-local Ollama / Causa's chat seam / re-frame2-pair-mcp).
+local Ollama / Xray's chat seam / re-frame2-pair-mcp).
 
 ```clojure
 (:require [day8.re-frame2-machines-viz.ai-generate :as ai])
@@ -939,7 +939,7 @@ pure-data and JVM-callable.
 
 - [`000-Vision.md`](./000-Vision.md) — scope + non-goals + roadmap.
 - [`Principles.md`](./Principles.md) — load-bearing principles.
-- [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) — locks; cites Causa 003 lift-points. Lock #8, Lock #9, and Lock #11 are the rationales behind [§Performance invariants](#performance-invariants).
-- [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md) — embedding-host contract; the source spec these surfaces lifted from.
+- [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) — locks; cites Xray 003 lift-points. Lock #8, Lock #9, and Lock #11 are the rationales behind [§Performance invariants](#performance-invariants).
+- [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md) — embedding-host contract; the source spec these surfaces lifted from.
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the registry the chart visualises.
 - [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md) — the trace bus the live-highlight consumes.

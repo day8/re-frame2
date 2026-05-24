@@ -248,7 +248,7 @@
 (deftest registry-meta-stripped-of-coord-keys-under-prod
   (testing "Per rf2-3un2g Policy A: under `:advanced` + `goog.DEBUG=false`
             the public `rf/handler-meta` MUST NOT carry `:ns` / `:file`
-            / `:line` / `:column` coord-keys. Causa Open-in-editor and
+            / `:line` / `:column` coord-keys. Xray Open-in-editor and
             re-frame-pair are dev-only — production bundles strip the
             coord-keys from the registry-meta surface; coords for
             error-emit ride the always-on parallel registry instead."

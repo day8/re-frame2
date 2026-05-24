@@ -1,6 +1,6 @@
 # 12 — Registrar query API
 
-The registrar is the data structure that holds every registered handler — events, subs, fx, cofx, flows, machines, views, schemas, the lot. Treating it as a queryable data structure is what makes the framework's tools possible: Causa enumerates handlers to build its UI; the linter walks the registrar to find unreachable handlers; the migration agent reads `handler-meta` to discover source coords; the MCP servers expose handler metadata to LLM clients.
+The registrar is the data structure that holds every registered handler — events, subs, fx, cofx, flows, machines, views, schemas, the lot. Treating it as a queryable data structure is what makes the framework's tools possible: Xray enumerates handlers to build its UI; the linter walks the registrar to find unreachable handlers; the migration agent reads `handler-meta` to discover source coords; the MCP servers expose handler metadata to LLM clients.
 
 This chapter is the read-side surface. The write-side surface is `reg-*` / `clear-*` (rowed in [01 — Core](01-core.md)).
 
@@ -120,9 +120,9 @@ See [04 — Machines](04-machines.md) for the rest of the machine surface (subsc
   ```clojure
   (sub-cache frame-id) → live cache state
   ```
-- **Description**: The runtime cache. CLJS-only because it holds live `Reaction` objects; on JVM there are no reactions to hold. Tools that walk the cache for tab labels / counts in Causa go through this.
+- **Description**: The runtime cache. CLJS-only because it holds live `Reaction` objects; on JVM there are no reactions to hold. Tools that walk the cache for tab labels / counts in Xray go through this.
 
-The split — `sub-topology` JVM-runnable, `sub-cache` CLJS-only — is principled. Topology is a static property of the registration; the cache is a runtime property of the sub graph. Tools that want the design-time picture (linter, doc generator, conformance harness) reach for `sub-topology`; tools that want the runtime picture (Causa's sub-cache tab) reach for `sub-cache`.
+The split — `sub-topology` JVM-runnable, `sub-cache` CLJS-only — is principled. Topology is a static property of the registration; the cache is a runtime property of the sub graph. Tools that want the design-time picture (linter, doc generator, conformance harness) reach for `sub-topology`; tools that want the runtime picture (Xray's sub-cache tab) reach for `sub-cache`.
 
 ## Schemas
 
@@ -164,4 +164,4 @@ The pattern: dynamic-ID queries don't throw on absent frames — they return `ni
 
 - [01 — Core](01-core.md) — the write-side surface (`reg-*` / `clear-*`).
 - [04 — Machines](04-machines.md), [05 — Flows](05-flows.md), [06 — Routing](06-routing.md), [08 — Schemas](08-schemas.md), [09 — SSR](09-ssr.md) — the feature-specific surfaces each register their own kind into the registrar.
-- [11 — Instrumentation](11-instrumentation.md) — the trace bus is what Causa and the pair tools layer on top of the registrar to give "what's running" alongside "what's registered."
+- [11 — Instrumentation](11-instrumentation.md) — the trace bus is what Xray and the pair tools layer on top of the registrar to give "what's running" alongside "what's registered."

@@ -17,7 +17,7 @@
             [re-frame.core      :as rf]
             [re-frame.story     :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [day8.re-frame2-causa.config :as causa-config]
+            [day8.re-frame2-xray.config :as xray-config]
             [login-form.events]
             [login-form.subs]
             [login-form.views :as views]
@@ -53,14 +53,14 @@
     " flip green."]])
 
 ;; ---------------------------------------------------------------------------
-;; rf2-r1uod — Causa-as-RHS open-in-editor project-root for the live
+;; rf2-r1uod — Xray-as-RHS open-in-editor project-root for the live
 ;; testbed. Story testbeds register source-coords with classpath-
 ;; relative `:file` slots; OS-side editor URI handlers reject relative
 ;; paths. The Story testbeds source-path under shadow-cljs is
 ;; `../tools/story/testbeds` so the on-disk root that prepends to a
 ;; coord like `login_form/stories.cljs:42` is the testbeds dir below.
 ;; Plumbed via `story/configure! :rf.story/project-root` and bridged into
-;; Causa's slot by `causa-preset/propagate-project-root!`. Symmetric
+;; Xray's slot by `xray-preset/propagate-project-root!`. Symmetric
 ;; to shop's rf2-6jyf6.
 ;; ---------------------------------------------------------------------------
 
@@ -113,19 +113,19 @@
 
 (defn ^:export run []
   ;; Story owns this page's full-width browser-test canvas. When the
-  ;; Causa preload is present in shared dev test runs, keep its trace
+  ;; Xray preload is present in shared dev test runs, keep its trace
   ;; collectors/API/keybinding installed but skip the default panel
-  ;; launch; app pages that want Causa inline still provide the normal
-  ;; `[data-rf-causa-host]` contract.
-  (causa-config/configure! {:rf.causa/auto-open? false})
+  ;; launch; app pages that want Xray inline still provide the normal
+  ;; `[data-rf-xray-host]` contract.
+  (xray-config/configure! {:rf.xray/auto-open? false})
   (rf/init! reagent-adapter/adapter)
   ;; No explicit `(story/install-canonical-vocabulary!)` — the first
   ;; `reg-*` in `login-form.stories` (loaded via the :require above)
   ;; auto-installs the canonical vocabulary per rf2-p1ydc (audit D-2
   ;; / rf2-y8gag).
   ;; rf2-r1uod — `:rf.story/project-root` plumbed through Story; the
-  ;; `causa-preset` bridge propagates it into Causa's slot so the
-  ;; Causa-as-RHS open-in-editor chips resolve absolute on-disk paths.
+  ;; `xray-preset` bridge propagates it into Xray's slot so the
+  ;; Xray-as-RHS open-in-editor chips resolve absolute on-disk paths.
   (story/configure! {:rf.story/project-root (resolve-project-root)})
   ;; The live page wires `:rf.http/managed` to a demo override so
   ;; submit / retry have something to do. Story variants don't see

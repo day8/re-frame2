@@ -10,13 +10,13 @@ So Story isn't a category invention. We're not pitching you on a new way to thin
 
 The reason for an entirely separate tool — instead of, say, an MDX bridge to upstream Storybook — comes down to one structural fact: **Storybook was designed before frames existed**. The whole Storybook architecture assumes that each story is a render fn, that state lives in component closures or context providers, and that `useState` is the cleanest available primitive for "this scenario has some local state." Storybook 9 added an interaction recorder and an Args API and a thousand other refinements on top of that foundation, but the foundation is still "render fn plus closure state."
 
-re-frame2's foundation is different. Frames *exist*. They're a first-class allocation primitive. So in Story, each variant *runs in its own frame* — fresh `app-db`, fresh queue, fresh sub-cache, fresh interceptor chain, fresh trace bus, the works. There's no "shared mutable state between stories" footgun because there's no shared state to begin with. The variant body is plain EDN data — no JSX-shaped DSL, no inline render fns, no closures except inside decorator registrations where they belong. Assertions ride the same `dispatch` pipeline as production events. Time-travel hands you Causa scoped to the variant's epoch buffer. When you scaffold a new component, you're not reaching for a separate `.stories.tsx` file — you're declaring `reg-story` and `reg-variant` in plain Clojure against the same component you're shipping.
+re-frame2's foundation is different. Frames *exist*. They're a first-class allocation primitive. So in Story, each variant *runs in its own frame* — fresh `app-db`, fresh queue, fresh sub-cache, fresh interceptor chain, fresh trace bus, the works. There's no "shared mutable state between stories" footgun because there's no shared state to begin with. The variant body is plain EDN data — no JSX-shaped DSL, no inline render fns, no closures except inside decorator registrations where they belong. Assertions ride the same `dispatch` pipeline as production events. Time-travel hands you Xray scoped to the variant's epoch buffer. When you scaffold a new component, you're not reaching for a separate `.stories.tsx` file — you're declaring `reg-story` and `reg-variant` in plain Clojure against the same component you're shipping.
 
 If you've used Storybook, the gestures will feel deeply familiar. We mean for them to. Most of what's in here is "Storybook patterns, but the substrate happens to be honest about state isolation."
 
 ![The Story shell with sidebar, canvas, and right-hand inspector visible.](../images/story/01-shell-overview.png)
 
-*(1) The sidebar tree showing parent stories and their variants. (2) The canvas with a variant rendering. (3) The right-pane Causa embed. (4) The mode-tab strip above the canvas. (5) The controls panel — Causa's chip row carries the args-editor, trace, and machines surfaces.*
+*(1) The sidebar tree showing parent stories and their variants. (2) The canvas with a variant rendering. (3) The right-pane Xray embed. (4) The mode-tab strip above the canvas. (5) The controls panel — Xray's chip row carries the args-editor, trace, and machines surfaces.*
 
 ## A scenario, to fix the picture
 
@@ -53,7 +53,7 @@ We'll walk through the surface roughly in the order you'd reach for it. First st
 - [3. Recorder + Test Codegen](03-recorder-codegen.md) — the hero chapter. Record an interaction, get an EDN `:play-script` body, paste it in.
 - [4. Workspaces + args editor](04-workspaces.md) — multiple variants on one page; modes; live arg overrides.
 - [5. Snapshot identity + QR sharing](05-snapshot-identity.md) — content-hashed snapshots that survive renames. The visual-regression integration story.
-- [6. Time-travel in Story](06-time-travel.md) — Causa embedded in the RHS, scoped per variant frame.
+- [6. Time-travel in Story](06-time-travel.md) — Xray embedded in the RHS, scoped per variant frame.
 - [7. Multi-substrate side-by-side](07-multi-substrate.md) — the same variant under Reagent, UIx, Helix. For adapter authors and component-library maintainers.
 
 ## Three load-bearing rules
@@ -116,6 +116,6 @@ Notice what's *not* in that boot snippet: there's no explicit `(story/install-ca
 
 Production builds — where `re-frame.story.config/enabled?` is `false` via `:closure-defines` — short-circuit at registration time, and `mount-shell!` short-circuits before any DOM call. The Story playground is a development-only artefact; it does not ship to your users.
 
-The shell is a three-pane Reagent component: a **left sidebar** (stories tree + tag filter + workspaces), the **main pane** (selected variant's canvas or selected workspace), and a **right panel** — Causa embedded as the primary inspector, plus controls, dispatch console, and any project-custom `reg-story-panel` placements.
+The shell is a three-pane Reagent component: a **left sidebar** (stories tree + tag filter + workspaces), the **main pane** (selected variant's canvas or selected workspace), and a **right panel** — Xray embedded as the primary inspector, plus controls, dispatch console, and any project-custom `reg-story-panel` placements.
 
 Ready? Start at [your first story](01-first-story.md).

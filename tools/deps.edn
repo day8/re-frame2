@@ -1,14 +1,14 @@
 ;; Top-level tools coordinator (rf2-nuuk3).
 ;;
 ;; The published artefacts are
-;;   - causa/       (day8/re-frame2-causa)
+;;   - xray/       (day8/re-frame2-xray)
 ;;   - mcp-base/    (day8/re-frame2-mcp-base)
 ;;   - re-frame2-pair-mcp/   (@day8/re-frame2-pair-mcp, npm only)
 ;;   - story/       (day8/re-frame2-story)
 ;;   - story-mcp/   (day8/re-frame2-story-mcp)
 ;;   - template/    (day8/re-frame2-template — git-coord, not Clojars
 ;;                   per rf2-dolpf §2.5)
-;; see tools/causa/deps.edn, tools/mcp-base/deps.edn,
+;; see tools/xray/deps.edn, tools/mcp-base/deps.edn,
 ;; tools/re-frame2-pair-mcp/deps.edn, tools/story/deps.edn,
 ;; tools/story-mcp/deps.edn, and tools/template/deps.edn.
 ;;
@@ -21,7 +21,7 @@
 ;;
 ;; (Per rf2-yamkm the `tools/machines-viz/` artefact was collapsed:
 ;; the pure Mermaid emitter relocated to `implementation/machines/`,
-;; and the live chart-component role was absorbed by Causa's Machine
+;; and the live chart-component role was absorbed by Xray's Machine
 ;; Inspector panel (PR #1400/#1402/#1407).)
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
@@ -49,7 +49,7 @@
 ;; the *coordinator's* classpath; nothing under implementation/ may
 ;; :require anything under tools/.
 {:paths []
- :deps  {day8/re-frame2-causa     {:local/root "causa"}
+ :deps  {day8/re-frame2-xray     {:local/root "xray"}
          day8/re-frame2-mcp-base  {:local/root "mcp-base"}
          day8/re-frame2-pair-mcp  {:local/root "re-frame2-pair-mcp"}
          day8/re-frame2-story     {:local/root "story"}
@@ -63,7 +63,7 @@
   ;; separately (per-tool gates).
   ;;
   ;; Note on coverage gaps:
-  ;;   - tools/causa/ — CLJS-side only (DOM + Reagent shell). Its tests
+  ;;   - tools/xray/ — CLJS-side only (DOM + Reagent shell). Its tests
   ;;     run under the implementation/shadow-cljs.edn :node-test build,
   ;;     not on the JVM.
   ;;   - tools/re-frame2-pair-mcp/ — CLJS Node-script. Its tests run under

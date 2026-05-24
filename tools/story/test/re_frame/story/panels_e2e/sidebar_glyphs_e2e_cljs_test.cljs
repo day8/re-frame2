@@ -163,7 +163,7 @@
             `[glyphs/story-glyph]` as its first iconographic prefix.
             Two stories registered → at least two story rows in the
             tree, each with exactly one story-role sentinel underneath."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (with-redefs [glyphs/story-glyph     story-glyph-stub
@@ -184,7 +184,7 @@
             prefix in the variant-glyph branch of `variant-row`. Both
             registered variants are non-testable (no `:test` tag, no
             `:play-script`), so both rows take this branch."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (with-redefs [glyphs/story-glyph     story-glyph-stub
@@ -205,7 +205,7 @@
             `[glyphs/workspace-glyph]` sentinel as the iconographic
             prefix. One workspace registered → one workspace row, with
             exactly one workspace-role sentinel underneath."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (with-redefs [glyphs/story-glyph     story-glyph-stub
@@ -226,7 +226,7 @@
             wires the wrong glyph fn into a row (variant-glyph in a
             workspace row, etc.) surfaces as a mismatched role count
             instead of silently passing the per-row checks above."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (with-redefs [glyphs/story-glyph     story-glyph-stub
@@ -257,7 +257,7 @@
             activate them. Without these, the sidebar's `<nav>` landmark
             is reachable but rows inside it aren't — keyboard users
             can't select a variant from the sidebar at all."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (with-redefs [glyphs/story-glyph     story-glyph-stub
@@ -290,7 +290,7 @@
             `<div>`s that must expose `role=\"button\"` + `tabindex=\"0\"`
             + a key handler. Without these the workspace section of the
             sidebar is unreachable from the keyboard."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (with-redefs [glyphs/story-glyph     story-glyph-stub

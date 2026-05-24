@@ -62,7 +62,7 @@ If you have an existing re-frame v1 app to bring across, [chapter 20](20-migrati
 
 ## Watch your app from the inside
 
-You've learned the framework; now meet the devtools. **Causa** is re-frame2's in-app inspection panel — the cascade you can see. It renders the framework's own trace bus and epoch buffer into a stack of live panels: every event, sub-run, effect, render, machine transition, app-db diff, and time-travel scrub, scoped per frame. It's a peer to this guide, with its own section in the top menu: start at [Causa — Welcome](../causa/index.md) and read top-to-bottom.
+You've learned the framework; now meet the devtools. **Xray** is re-frame2's in-app inspection panel — the cascade you can see. It renders the framework's own trace bus and epoch buffer into a stack of live panels: every event, sub-run, effect, render, machine transition, app-db diff, and time-travel scrub, scoped per frame. It's a peer to this guide, with its own section in the top menu: start at [Xray — Welcome](../xray/index.md) and read top-to-bottom.
 
 ## Where re-frame came from
 

@@ -66,7 +66,7 @@
                            (controls + dispatch-console); Stage 6
                            registers more via reg-story-panel.
                            Per rf2-sgdd3 the trace / scrubber / actions
-                           panels were retired in favour of Causa
+                           panels were retired in favour of Xray
                            mounted in the RHS by default.
   - `:active-mode-tab`   — {variant-id → :dev | :docs | :test}. Per-variant
                            mode-tab selection for the render-shell's top

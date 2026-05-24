@@ -39,7 +39,7 @@ tools_jvm=false
 template_expensive=false
 mcp_conformance=false
 mcp_live=false
-story_causa_browser=false
+story_xray_browser=false
 skills_structural=false
 playground=false
 
@@ -55,25 +55,25 @@ mark_all() {
   template_expensive=true
   mcp_conformance=true
   mcp_live=true
-  story_causa_browser=true
+  story_xray_browser=true
   skills_structural=true
   playground=true
 }
 
-# rf2-k9ekz — predicate: does `$1` look like a Story/Causa runtime
-# source file (CLJS/CLJC/JS/CSS extension under tools/{story,causa}/src/**
-# or tools/{story,causa}/testbeds/**)? Returns 0 (yes) / 1 (no). The
-# Story/Causa browser gate only fires on a runtime-relevant extension
+# rf2-k9ekz — predicate: does `$1` look like a Story/Xray runtime
+# source file (CLJS/CLJC/JS/CSS extension under tools/{story,xray}/src/**
+# or tools/{story,xray}/testbeds/**)? Returns 0 (yes) / 1 (no). The
+# Story/Xray browser gate only fires on a runtime-relevant extension
 # under one of those two trees — Markdown specs, EDN config, and JVM
-# unit tests under tools/{story,causa}/{spec,test,bench}/** do not
+# unit tests under tools/{story,xray}/{spec,test,bench}/** do not
 # affect chrome and so do not fire the gate. Testbeds under
-# tools/{story,causa}/testbeds/** legitimately drive the
-# story-feature-load + causa-feature-gate Playwright runners (their
+# tools/{story,xray}/testbeds/** legitimately drive the
+# story-feature-load + xray-feature-gate Playwright runners (their
 # variant graph IS what the gate exercises), so a runtime-extension
 # change there does fire the gate.
-is_story_causa_runtime_path() {
+is_story_xray_runtime_path() {
   case "$1" in
-    tools/story/src/*|tools/causa/src/*|tools/story/testbeds/*|tools/causa/testbeds/*)
+    tools/story/src/*|tools/xray/src/*|tools/story/testbeds/*|tools/xray/testbeds/*)
       case "$1" in
         *.cljs|*.cljc|*.js|*.cjs|*.css|*.scss)
           return 0 ;;
@@ -97,9 +97,9 @@ else
         ;;
       implementation/core/*)
         # rf2-8jz9t + rf2-k9ekz + rf2-t5slp — adapter_testbed_smokes
-        # and story_causa_browser are NOT fired here. The Playwright
+        # and story_xray_browser are NOT fired here. The Playwright
         # gates exist to catch surface-specific browser bugs (adapter
-        # mount lifecycle, Story variant boot, Causa panel layout) —
+        # mount lifecycle, Story variant boot, Xray panel layout) —
         # none of which are core regressions. Core renames are caught
         # by node-test (consolidated CLJS unit + browser-test) which
         # exercises every public re-frame.core fn, and by the always-on
@@ -186,11 +186,11 @@ else
         ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
         # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i + rf2-k9ekz + rf2-t5slp —
-        # adapter_testbed_smokes and story_causa_browser are NOT fired
+        # adapter_testbed_smokes and story_xray_browser are NOT fired
         # here. The Playwright gates are triggered ONLY by direct
         # source-tree changes (adapter source for adapter-testbed-
-        # smokes; tools/{story,causa}/{src,testbeds}/** for the Story/
-        # Causa browser gate). A shadow-cljs.edn or implementation/
+        # smokes; tools/{story,xray}/{src,testbeds}/** for the Story/
+        # Xray browser gate). A shadow-cljs.edn or implementation/
         # scripts/ change that breaks the build is caught by the
         # nightly cron + post-merge gate (both run the full matrix on
         # main).
@@ -209,7 +209,7 @@ else
         ;;
       testbeds/*)
         # rf2-7vsfm + rf2-t5slp — Top-level testbeds/* surfaces are
-        # retained as Causa observation targets but no longer have a
+        # retained as Xray observation targets but no longer have a
         # paired Playwright spec.cjs; all framework + top-level testbed
         # specs migrated to CLJS/JVM unit tests under the four
         # rf2-tglku waves and the split-out `framework-testbeds` gate
@@ -221,36 +221,36 @@ else
       tools/template/*)
         # rf2-os0c1 + rf2-40vmd — tools/template is a deps-new template
         # that scaffolds new projects (migrated from clj-new in rf2-dolpf
-        # §2); it does not share runtime with causa/story/story-mcp/
+        # §2); it does not share runtime with xray/story/story-mcp/
         # mcp-base. The template_expensive gate fires jvm-tools-template
         # (its only PR-time job); tools_jvm would unnecessarily fire the
         # four sibling jvm-tools-* probes.
         template_expensive=true
         ;;
-      tools/story/*|tools/causa/*)
-        # rf2-os0c1 + rf2-k9ekz + rf2-t5slp — Story / Causa changes
+      tools/story/*|tools/xray/*)
+        # rf2-os0c1 + rf2-k9ekz + rf2-t5slp — Story / Xray changes
         # legitimately fan out to tools_jvm (per-artefact JVM unit tests
         # + sibling story-mcp consumer) and mcp_conformance (the MCP
-        # wrappers consume these artefacts). story_causa_browser is
+        # wrappers consume these artefacts). story_xray_browser is
         # narrowed (rf2-k9ekz): it fires ONLY when the changed path is
-        # under tools/{story,causa}/{src,testbeds}/** AND the file has a
+        # under tools/{story,xray}/{src,testbeds}/** AND the file has a
         # runtime extension (.cljs/.cljc/.js/.cjs/.css/.scss). Markdown
-        # specs under tools/{story,causa}/spec/**, JVM unit tests under
-        # tools/{story,causa}/test/**, deps.edn, README.md, and *.txt
+        # specs under tools/{story,xray}/spec/**, JVM unit tests under
+        # tools/{story,xray}/test/**, deps.edn, README.md, and *.txt
         # do NOT fire it — they cannot affect chrome and so cannot
         # invalidate the Playwright gate. The split-out framework-
         # testbeds gate (formerly rf2-9grp6) was retired in rf2-t5slp
-        # after all four rf2-tglku migration waves moved every Causa-
+        # after all four rf2-tglku migration waves moved every Xray-
         # owned testbed assertion to CLJS/JVM unit tests.
         tools_jvm=true
         mcp_conformance=true
-        if is_story_causa_runtime_path "$file"; then
-          story_causa_browser=true
+        if is_story_xray_runtime_path "$file"; then
+          story_xray_browser=true
         fi
         ;;
       tools/story-mcp/*)
-        # rf2-os0c1 — MCP wrappers don't run in a browser; story-causa-browser
-        # exercises the Story/Causa CLJS runtimes via Playwright and is
+        # rf2-os0c1 — MCP wrappers don't run in a browser; story-xray-browser
+        # exercises the Story/Xray CLJS runtimes via Playwright and is
         # noise for an MCP-wrapper-only diff. tools_jvm + mcp_conformance
         # cover the actual JVM probes (jvm-tools-story-mcp / wire-vocab) and
         # node integration tests.
@@ -271,7 +271,7 @@ else
         # wire-vocab subdir. The wire-vocab JVM tests already run under
         # mcp-conformance-wire-vocab, which is gated by mcp_conformance.
         # Setting tools_jvm here would needlessly fire four unrelated
-        # jvm-tools-* probes (causa/story/story-mcp/mcp-base).
+        # jvm-tools-* probes (xray/story/story-mcp/mcp-base).
         mcp_conformance=true
         mcp_live=true
         ;;
@@ -319,6 +319,6 @@ emit tools_jvm "$tools_jvm"
 emit template_expensive "$template_expensive"
 emit mcp_conformance "$mcp_conformance"
 emit mcp_live "$mcp_live"
-emit story_causa_browser "$story_causa_browser"
+emit story_xray_browser "$story_xray_browser"
 emit skills_structural "$skills_structural"
 emit playground "$playground"

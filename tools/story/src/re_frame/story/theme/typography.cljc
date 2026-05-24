@@ -6,16 +6,16 @@
   variants in a controlled chrome. The aesthetic direction is
   **editorial-dark**: high-contrast, characterful type, generous
   letter-spacing on labels, a recognisable display voice that asserts
-  Story's identity while sitting cleanly next to Causa (the dev-time
+  Story's identity while sitting cleanly next to Xray (the dev-time
   diagnostic surface that already ships its own tokens at
-  `tools/causa/src/day8/re_frame2_causa/theme/tokens.cljc`).
+  `tools/xray/src/day8/re_frame2_xray/theme/tokens.cljc`).
 
   ## Why this font family
 
   **IBM Plex Sans + IBM Plex Mono** — chosen explicitly to satisfy the
   rubric's anti-generic posture:
 
-  - NOT `Inter` (Causa's pick — and the AI-slop default).
+  - NOT `Inter` (Xray's pick — and the AI-slop default).
   - NOT `system-ui` / `Roboto` / `Arial` (the cookie-cutter floor).
   - NOT `Space Grotesk` (the rubric's named convergence point).
 
@@ -24,7 +24,7 @@
   to the same proportions. The sans + mono pair share design DNA so
   chrome that mixes them (e.g. a variant id rendered next to its
   status text) holds together typographically. Distinguishes Story from
-  Causa's JetBrains Mono + Inter at a glance — both tools land in the
+  Xray's JetBrains Mono + Inter at a glance — both tools land in the
   RHS together; the type contrast signals 'two surfaces, two roles'.
 
   ## How call sites consume these tokens
@@ -71,7 +71,7 @@
 
 (def sans-stack
   "IBM Plex Sans stack — the chrome / labels / prose font. Distinctive
-  versus Causa's Inter, distinctive versus the AI-slop floor
+  versus Xray's Inter, distinctive versus the AI-slop floor
   (system-ui / Roboto / Arial), with characterful glyphs that hold up
   at small sizes (the 11px-and-down labels Story is full of).
 
@@ -82,7 +82,7 @@
 
 (def mono-stack
   "IBM Plex Mono stack — Story's code / EDN / variant-id font.
-  Deliberately NOT JetBrains Mono (Causa's pick) so the two surfaces
+  Deliberately NOT JetBrains Mono (Xray's pick) so the two surfaces
   read as distinct register at-a-glance when they live side-by-side
   in the RHS. Plex Mono pairs visually with Plex Sans (same family
   DNA) so a row mixing `:my.app/event` (mono) with `dispatched`
@@ -121,15 +121,15 @@
   surfaces into one viewport, so the scale runs tight (10–18 px) with
   display steps reserved for hero / welcome overlay titles.
 
-  Mirrors Causa's `type-scale` shape (`:display` / `:body` /
+  Mirrors Xray's `type-scale` shape (`:display` / `:body` /
   `:body-tight` / `:mono-body` / `:caption` / `:micro` plus
   `:line-height-*` tokens) so the two surfaces compose cleanly.
-  Differences vs Causa:
+  Differences vs Xray:
 
   - `:hero` (24px) is Story-only — the welcome overlay headline.
-  - `:display` runs 16 (vs Causa 14) — Story's mode-tab strip + section
+  - `:display` runs 16 (vs Xray 14) — Story's mode-tab strip + section
     headers carry a heading register the diagnostic surface doesn't need.
-  - `:body` runs 13 (matches Causa) — info density wins for the
+  - `:body` runs 13 (matches Xray) — info density wins for the
     info-dense chrome.
 
   Values are CSS strings so call sites drop them into inline `:style`

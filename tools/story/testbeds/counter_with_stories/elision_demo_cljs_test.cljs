@@ -4,7 +4,7 @@
 
   1. `:auth/sign-in` carries `:sensitive? true` in its registration
      metadata — `rf/handler-meta` returns the flag for trace-surface
-     consumers (Causa, error-monitor forwarders) to filter on.
+     consumers (Xray, error-monitor forwarders) to filter on.
   2. The handler runs cleanly under `dispatch-sync`; the password
      does NOT leak into app-db.
   3. The schema-driven `:large?` branch — `rf/elide-wire-value`
@@ -38,11 +38,11 @@
 
 (defn- before! []
   (reset! registrar-snapshot (test-support/snapshot-registrar))
-  ;; Causa's preload-time trace-cb registers its bookkeeping
+  ;; Xray's preload-time trace-cb registers its bookkeeping
   ;; handlers with `:rf.trace/no-emit? true`, so the framework
   ;; short-circuits emission for them and the collector never
   ;; re-enters itself. The previous workaround that wiped the
-  ;; trace-cb registry per fixture is obsolete — Causa's cb runs
+  ;; trace-cb registry per fixture is obsolete — Xray's cb runs
   ;; as production preload wires it.
   (reset! frame/frames {})
   ;; Clear cross-namespace schemas from the per-frame registry
@@ -86,7 +86,7 @@
 
 (deftest auth-sign-in-carries-sensitive-flag
   (testing "The :auth/sign-in handler registered by elision-demo carries
-            `:sensitive? true` in its registry-meta — Causa / re-frame2-pair /
+            `:sensitive? true` in its registry-meta — Xray / re-frame2-pair /
             error-monitor forwarders read this off `(rf/handler-meta
             :event :auth/sign-in)` and apply tool-side policy."
     (let [m (rf/handler-meta :event :auth/sign-in)]
@@ -134,7 +134,7 @@
             "marker carries a :bytes count")
         (is (= "Avatar PDF blob" (:hint marker))
             "the schema's :hint propagated verbatim into the marker
-             — AI consumers (re-frame2-pair-mcp, Causa) see this without
+             — AI consumers (re-frame2-pair-mcp, Xray) see this without
              drilling into the blob")))))
 
 ;; ---- 4. unschema'd inline event payloads are not size-elided -------------

@@ -20,7 +20,7 @@ over their work-in-progress variants in a controlled chrome. The
 chrome's job is to recede in service of the rendered variant **and**
 to assert a distinct identity that distinguishes Story from:
 
-1. **Causa** (re-frame2's diagnostic surface) — when both surfaces
+1. **Xray** (re-frame2's diagnostic surface) — when both surfaces
    land in the RHS together, the user must read "workshop" vs
    "diagnostic" without needing labels. Two surfaces, two roles.
 2. **Commodity component-explorer chrome** — Storybook 8 ships flat
@@ -69,7 +69,7 @@ key:
 The canonical sans + mono pair is **IBM Plex Sans + IBM Plex Mono**.
 Story does NOT use:
 
-- `Inter` (Causa's pick, the AI-slop default),
+- `Inter` (Xray's pick, the AI-slop default),
 - `system-ui` / `Roboto` / `Arial` (the cookie-cutter floor),
 - `Space Grotesk` (the rubric's named convergence point).
 
@@ -78,7 +78,7 @@ sterile, with characterful italics, a confident `g`, and a mono sibling
 tuned to the same proportions. The sans + mono pair share design DNA
 so chrome that mixes them (e.g. a variant id rendered next to its
 status text) holds together typographically. The pair distinguishes
-Story from Causa's Inter + JetBrains Mono at a glance.
+Story from Xray's Inter + JetBrains Mono at a glance.
 
 ### Stacks (public)
 
@@ -126,8 +126,8 @@ The type scale runs **tight (10–18 px)** because Story's chrome packs
 sidebar / toolbar / controls / inspector / canvas-title surfaces into
 one viewport — info density wins for the workshop UI. The shape
 (`:display` / `:body` / `:body-tight` / `:mono-body` / `:caption` /
-`:micro`) mirrors Causa's `type-scale` so the two surfaces compose
-cleanly; the values differ (Story's `:display` runs 16, Causa's 14;
+`:micro`) mirrors Xray's `type-scale` so the two surfaces compose
+cleanly; the values differ (Story's `:display` runs 16, Xray's 14;
 Story adds `:hero 24px` for the welcome overlay).
 
 ### Zero-raw contract
@@ -155,7 +155,7 @@ against drift.
 Story's palette is **warm-slate substrate + amber accent**:
 
 - Warm-slate grounds (`:bg-0` → `:bg-3` plus `:bg-canvas` / `:bg-overlay`
-  / `:bg-active` / `:bg-input`) — warmer than Causa's cool-grey
+  / `:bg-active` / `:bg-input`) — warmer than Xray's cool-grey
   substrate.
 - **Amber `#F5A524`** as the hero accent — Story's identity signal,
   the workshop / atelier metaphor: gold-amber reads as "spotlight" /
@@ -168,20 +168,20 @@ Story is **NOT**:
 - VS-Code Dark+ (the pre-rf2-i3i5j chrome literally adopted
   `#1e1e1e` / `#252526` / `#0e639c` / `#9cdcfe` / … — the
   cookie-cutter floor),
-- Cool-grey + violet (Causa's pick around `#7C5CFF`),
+- Cool-grey + violet (Xray's pick around `#7C5CFF`),
 - Cool-grey + brand pink (the Storybook commodity drift the
   [feature-set audit](./findings/re-frame-2-story-feature-set.md)
   anti-pattern #1 explicitly rejects).
 
 ### Rationale — two surfaces, two roles
 
-When Story (workshop) and Causa (diagnostic) both render in the RHS
+When Story (workshop) and Xray (diagnostic) both render in the RHS
 together, the user reads the role at a glance from temperature alone:
 
 - **Warm** ↔ workshop / construction / focus on work-in-progress.
 - **Cool** ↔ diagnostic / introspection / focus on what already ran.
 
-Amber `#F5A524` pairs with Causa's `#7C5CFF` violet on the colour
+Amber `#F5A524` pairs with Xray's `#7C5CFF` violet on the colour
 wheel as a near-complementary contrast (amber yellow ↔ violet purple)
 without landing on the AI-slop "purple gradient" floor. WCAG-AA
 contrast preserved across every foreground/background pairing per the
@@ -210,15 +210,15 @@ because the shell is laid out as CANVAS (focal, lifted) over an
 inspector/sidebar ground over a base — the extra `:bg-canvas` level
 is the variant render surface, visibly distinct so the user's eye
 snaps to the work-in-progress instead of the surrounding chrome.
-Causa's diagnostic single-pane only needs four levels.
+Xray's diagnostic single-pane only needs four levels.
 
 ### Naming-shape mirror
 
 The token shape (`:bg-0` / `:bg-1` / `:bg-2` / `:bg-3`,
 `:border-{subtle,default,strong}`, `:text-{primary,secondary,tertiary}`,
 `:accent-*` / `:success` / `:warning` / `:danger` / `:info`) mirrors
-Causa's
-[`tokens.cljc`](../../causa/src/day8/re_frame2_causa/theme/tokens.cljc).
+Xray's
+[`tokens.cljc`](../../xray/src/day8/re_frame2_xray/theme/tokens.cljc).
 **Same shape, different values** — surfaces compose cleanly via
 shared keys while asserting distinct palettes via differing hex
 resolutions.
@@ -452,8 +452,8 @@ deliberately small and identity-bearing:
 | `story-glyph`      | ◆ diamond (outline)  | Story (parent container) — sidebar row glyph, **amber-coloured** |
 | `variant-glyph`    | ● filled dot         | Variant (renderable unit) — sidebar row glyph, status-coloured or muted |
 | `workspace-glyph`  | ▦ 2×2 grid          | Workspace (multi-variant composition) — sidebar row glyph, **info-cyan-coloured** |
-| `chevron-right`    | → chevron            | Pop-out affordance on chips, links, Causa popout                 |
-| `external-link`    | ↗ external-link arrow| Causa pop-out chip, open-in-editor affordances                   |
+| `chevron-right`    | → chevron            | Pop-out affordance on chips, links, Xray popout                 |
+| `external-link`    | ↗ external-link arrow| Xray pop-out chip, open-in-editor affordances                   |
 
 Pre-rf2-p0wur the sidebar had **no per-row glyphs** — three different
 row types (story / variant / workspace) read identically. The
@@ -700,7 +700,7 @@ maps — and the injector functions self-elide via
 | Chrome surface| [`003-Render-Shell.md`](003-Render-Shell.md)                          | [`ui/shell.cljs`](../src/re_frame/story/ui/shell.cljs)              |
 | Chrome features| [`014-Chrome-Features.md`](014-Chrome-Features.md)                   | various                                                             |
 | SOTA features | [`005-SOTA-Features.md`](005-SOTA-Features.md)                        | various                                                             |
-| Causa tokens (peer) | [`tools/causa/`](../../causa/) — `theme/tokens.cljc`            | the cool-grey + violet counterpart Story contrasts against           |
+| Xray tokens (peer) | [`tools/xray/`](../../xray/) — `theme/tokens.cljc`            | the cool-grey + violet counterpart Story contrasts against           |
 
 The token spec is the canonical home; the surface specs reference
 back to the token section that owns each axis.

@@ -4,8 +4,8 @@ Build-time and content-generation helpers for the docs site.
 
 ## `generate-tutorial-screenshots.cjs`
 
-Drives Playwright through the Causa and Story testbeds and captures the
-annotated screenshots embedded in the [Causa](../causa/index.md) and
+Drives Playwright through the Xray and Story testbeds and captures the
+annotated screenshots embedded in the [Xray](../xray/index.md) and
 [Story](../story/index.md) tutorials.
 
 ### When to re-run
@@ -43,7 +43,7 @@ node docs/scripts/generate-tutorial-screenshots.cjs
 The script writes:
 
 ```
-docs/images/causa/*.png
+docs/images/xray/*.png
 docs/images/story/*.png
 ```
 
@@ -52,8 +52,8 @@ docs/images/story/*.png
 - Viewport pinned to **1280×800**.
 - The Story shell's first-visit help dialog is dismissed via
   `localStorage` seeding (`re-frame.story/seen-help-v1`).
-- Causa's first paint is gated by waiting for
-  `[data-testid="rf-causa-shell"]`.
+- Xray's first paint is gated by waiting for
+  `[data-testid="rf-xray-shell"]`.
 - The counter testbed seeds `:count` to a fixed value at boot.
 
 ### Annotations (data-driven)
@@ -72,7 +72,7 @@ Region shape:
 ```jsonc
 {
   // Either a CSS / [data-testid] selector resolved at runtime ...
-  "selector": "[data-testid=\"rf-causa-trace-counts\"]",
+  "selector": "[data-testid=\"rf-xray-trace-counts\"]",
   // ... or absolute xy box (no DOM anchor needed):
   "xy":       { "x": 1150, "y": 730, "w": 110, "h": 50 },
   // Optional adjustments:
@@ -94,20 +94,20 @@ arrowhead marker.
 1. Add the scene to `generate-tutorial-screenshots.cjs` `SCENES.push(...)`:
    ```js
    SCENES.push({
-     id: 'causa-my-new-panel',
-     out: path.join(OUT_CAUSA, '12-my-new-panel.png'),
+     id: 'xray-my-new-panel',
+     out: path.join(OUT_XRAY, '12-my-new-panel.png'),
      url: '/counter/',
      before: async (page) => {
        await page.locator('span').first().waitFor({ state: 'visible' });
-       await openCausa(page);
-       await navCausa(page, 'my-new-panel');
+       await openXray(page);
+       await navXray(page, 'my-new-panel');
      },
    });
    ```
 2. Add the matching annotation entry to `tutorial-annotation-spec.json`:
    ```json
-   "causa-my-new-panel": [
-     { "selector": "[data-testid=\"rf-causa-my-new-panel\"]",
+   "xray-my-new-panel": [
+     { "selector": "[data-testid=\"rf-xray-my-new-panel\"]",
        "inset": { "x": 8, "y": 8, "w": -16, "h": 48 },
        "colour": "#1976d2",
        "label": "thing to call out",

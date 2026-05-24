@@ -110,7 +110,7 @@
 
 (deftest empty-query-renders-every-variant
   (testing "with no search query, the sidebar renders all 4 variants"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[_ tree] (render-sidebar)
@@ -127,7 +127,7 @@
 (deftest typed-query-narrows-to-counter-rows
   (testing "typing `counter` narrows the tree to the counter parent +
             its variants only (login variants drop out)"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[render tree-before] (render-sidebar)]
@@ -144,7 +144,7 @@
 (deftest typed-query-narrows-by-variant-name
   (testing "typing `five` narrows to the single variant whose id
             contains the substring"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[render tree-before] (render-sidebar)]
@@ -156,7 +156,7 @@
 
 (deftest typed-query-clears-back-to-full-tree
   (testing "Clearing the search (back to empty) restores every variant"
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[render tree-before] (render-sidebar)]
@@ -178,7 +178,7 @@
             `filter-grouped-tree` returns when given the same registry
             + query. Pins the integration between the live sidebar and
             the pure helper so the two cannot drift."
-    (e2e/with-story-and-causa-frames
+    (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[render tree-0] (render-sidebar)]

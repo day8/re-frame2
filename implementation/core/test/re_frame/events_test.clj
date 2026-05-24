@@ -426,7 +426,7 @@
 ;; ids. Per rf2-twt7m Change 3 the auto-wrapper carries `:rf/default?
 ;; true` on the interceptor map itself; self-describing.
 ;;
-;; Causa, Story, and the Event lens redesign (rf2-zh2qc) read
+;; Xray, Story, and the Event lens redesign (rf2-zh2qc) read
 ;; `(rf/handler-meta :event id) :interceptors` and filter
 ;; `(remove :rf/default?)` to surface only the user's interceptor chain.
 

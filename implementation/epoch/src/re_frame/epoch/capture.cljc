@@ -227,7 +227,7 @@
 
 ;; ---- cascade-cause (for :rf.view/rendered attribution, rf2-25zo2) --------
 ;;
-;; The Causa Reactive panel needs to attribute each view re-render to the
+;; The Xray Reactive panel needs to attribute each view re-render to the
 ;; cascade that drove it: which event kicked off this cascade, and which
 ;; subs ran during it. The data is captured at trace-bus emission time
 ;; (the in-flight cascade buffer is walked at view-render-emit time), NOT
@@ -350,7 +350,7 @@
   Per rf2-l1jz8 the reactive recompute path enriches the `:sub/run` tag
   with value-change + cascade attribution (`:value-changed?` /
   `:prev-value` / `:value` / `:cascade?` / `:cause-sub`); they are
-  threaded onto the structured projection so Causa's Reactive panel reads
+  threaded onto the structured projection so Xray's Reactive panel reads
   them off the epoch record (not the raw trace). `compute-sub`'s base-
   shape emit omits them — the slots are simply absent there, which the
   panel's `sub-changed?` / `sub-cascaded?` predicates tolerate (false /
@@ -378,7 +378,7 @@
   Per rf2-8wrzz.1 the projection sources from the POST-render
   `:rf.view/rendered` op rather than the render-START `:rf.view/render`,
   because only the post-render op carries the per-view cause + timing the
-  Causa Views panel needs — `:triggered-by` (the sub-id that caused this
+  Xray Views panel needs — `:triggered-by` (the sub-id that caused this
   view to re-render) and `:elapsed-ms` (the render duration). Both ops
   fire once per render carrying the same `:rf.view/render-key`, so this is
   a 1:1 re-source, not a count change, for cascades under the 100-render
@@ -539,7 +539,7 @@
   cross-counter-space link to the raw trace stream's cascade list — and
   must NOT depend on `:trace-events` (which `:trace-events-keep` elides
   on older records and the post-settle reactive back-fill pads with
-  nil-`:dispatch-id` events). Causa's `:rf.causa/focus` epoch-id
+  nil-`:dispatch-id` events). Xray's `:rf.xray/focus` epoch-id
   correlation walks this slot; pre-rf2-rly4a it walked `:trace-events`
   tags, which returned nil whenever the focused cascade's epoch had its
   raw stream elided — starving the epoch-scoped Views + Trace panels.

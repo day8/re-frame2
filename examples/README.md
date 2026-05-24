@@ -51,13 +51,13 @@ examples/
     process_monitor_helix/
 ```
 
-> **The `examples/` tree is test-free (rf2-8cevm, Mike directive 2026-05-19).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at [`implementation/adapters/<name>/testbed/spec.cjs`](../implementation/adapters/). Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Causa feature-matrix gate (`npm run test:causa-feature-gate`), bundle-isolation (`npm run test:bundle-isolation`), the perf-bundle gate (`npm run test:perf-bundle`), and mcp-conformance. Framework testbeds at [`tools/causa/testbeds/`](../tools/causa/testbeds/) and the top-level [`testbeds/`](../testbeds/) stay in-tree as Causa observation targets but no longer carry paired Playwright `spec.cjs` files — the four rf2-tglku migration waves (rf2-4j0tb / rf2-lcg1z / rf2-pxb7t / rf2-e3j8l) moved their assertions to CLJS/JVM unit tests under `implementation/{core,epoch,flows,http,machines,ssr}/test/`, and rf2-t5slp retired the split-out framework-testbeds Playwright gate.
+> **The `examples/` tree is test-free (rf2-8cevm, Mike directive 2026-05-19).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at [`implementation/adapters/<name>/testbed/spec.cjs`](../implementation/adapters/). Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Xray feature-matrix gate (`npm run test:xray-feature-gate`), bundle-isolation (`npm run test:bundle-isolation`), the perf-bundle gate (`npm run test:perf-bundle`), and mcp-conformance. Framework testbeds at [`tools/xray/testbeds/`](../tools/xray/testbeds/) and the top-level [`testbeds/`](../testbeds/) stay in-tree as Xray observation targets but no longer carry paired Playwright `spec.cjs` files — the four rf2-tglku migration waves (rf2-4j0tb / rf2-lcg1z / rf2-pxb7t / rf2-e3j8l) moved their assertions to CLJS/JVM unit tests under `implementation/{core,epoch,flows,http,machines,ssr}/test/`, and rf2-t5slp retired the split-out framework-testbeds Playwright gate.
 
 The orchestrator and the runner consume `playwright` and `http-server` out of `implementation/node_modules/` — there is no separate `examples/package.json` by design; the implementation tree owns the npm dependency surface for the whole repo.
 
 ## Reagent
 
-The full set of worked examples — twenty-two in total (counting each 7GUIs task individually), each paired with a shadow-cljs build id. There is no per-example Playwright spec — adapter-level smoke coverage lives at [`implementation/adapters/reagent/testbed/spec.cjs`](../implementation/adapters/reagent/testbed/spec.cjs) and the broader contract coverage lives in `npm run test:cljs` / `test:causa-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`.
+The full set of worked examples — twenty-two in total (counting each 7GUIs task individually), each paired with a shadow-cljs build id. There is no per-example Playwright spec — adapter-level smoke coverage lives at [`implementation/adapters/reagent/testbed/spec.cjs`](../implementation/adapters/reagent/testbed/spec.cjs) and the broader contract coverage lives in `npm run test:cljs` / `test:xray-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`.
 
 Build any example directly via shadow-cljs:
 
@@ -91,7 +91,7 @@ shadow-cljs watch examples/counter
 | 21 | [`reagent/notebook/`](reagent/notebook/) | Design-led | `examples/notebook` | [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md) | Three-pane editorial layout (documents tree · markdown editor · live preview). The design-led Reagent counterpart to `uix/dashboard_uix/` and `helix/process_monitor_helix/` — all three substrates share the "Editorial Warm" identity from [`examples/_shared/css/style.css`](_shared/css/style.css). Tiny pure-CLJS markdown parser keeps the bundle small. |
 | 22 | [`reagent/flows/`](reagent/flows/) | Pedagogical sketch | `examples/flows` | [013 Flows](../spec/013-Flows.md) | The canonical Spec 013 Flows exemplar: a shopping cart whose subtotal + total are *materialised into app-db* by registered flows (not subs). Shows a flow-reads-flow topological cascade, reading a flow's output inside an event handler (`:checkout/place-order`), and a runtime-toggleable discount engaged/cleared via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`. Leads with the load-bearing "why a flow and not a sub?" framing. |
 
-> Story Stage 8 (`tools/story` end-to-end on the canonical counter — seven `reg-*` macros, four variants, two workspaces, plus the privacy + size elision demo) lives as a **tool-owned testbed** at [`tools/story/testbeds/counter_with_stories/`](../tools/story/testbeds/counter_with_stories/). It builds under `:examples/counter-with-stories` and is exercised by `npm run test:story-feature-load` — but it's catalogued with the tool that owns it rather than with the tutorial examples. Same for [`tools/causa/testbeds/`](../tools/causa/) (the canonical multi-frame `two_frame_isolation` demo, the deterministic `feature_matrix` sweep, the Panel-view `panel_gallery`, and the perf-instrumented `perf_counter`).
+> Story Stage 8 (`tools/story` end-to-end on the canonical counter — seven `reg-*` macros, four variants, two workspaces, plus the privacy + size elision demo) lives as a **tool-owned testbed** at [`tools/story/testbeds/counter_with_stories/`](../tools/story/testbeds/counter_with_stories/). It builds under `:examples/counter-with-stories` and is exercised by `npm run test:story-feature-load` — but it's catalogued with the tool that owns it rather than with the tutorial examples. Same for [`tools/xray/testbeds/`](../tools/xray/) (the canonical multi-frame `two_frame_isolation` demo, the deterministic `feature_matrix` sweep, the Panel-view `panel_gallery`, and the perf-instrumented `perf_counter`).
 
 For the 7GUIs cluster's own narrative (entries 13–18 above plus the counter from entry 1), see the cluster README at [`reagent/7Guis/README.md`](reagent/7Guis/README.md).
 
@@ -139,7 +139,7 @@ Per rf2-8cevm (Mike directive 2026-05-19) the `examples/` tree is **test-free** 
 
 - **`npm run test:cljs`** — substrate contract tests (events, subs, handlers, machines, schemas) across every artefact under `npm run test:cljs`'s node-runtime CLJS suite.
 - **`npm run test:examples`** — adapter-level smokes only. Compiles + serves the 3 adapter testbeds (`implementation/adapters/<name>/testbed/`) and runs their paired `spec.cjs`. Per rf2-t5slp the framework + top-level testbeds no longer carry Playwright specs (the rf2-tglku migration waves moved every assertion to CLJS/JVM unit tests).
-- **`npm run test:causa-feature-gate`** — 14-scenario Causa feature-matrix gate. The canonical browser sweep for cross-cutting feature regressions.
+- **`npm run test:xray-feature-gate`** — 14-scenario Xray feature-matrix gate. The canonical browser sweep for cross-cutting feature regressions.
 - **`npm run test:bundle-isolation`** — production bundle grep contract for the per-feature artefact split.
 - **`npm run test:perf-bundle`** — static perf-flag bundle-isolation grep (the live perf-API counterpart at `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` runs in the nightly CLJS suite).
 - **`npm run test:story-feature-load`** — Story tool feature/load gate (occasional).
@@ -161,7 +161,7 @@ Stage the `index.html` once (copy `examples/reagent/counter/index.html` next to 
 2. Add a shadow-cljs build target to `implementation/shadow-cljs.edn` under the existing `:examples/...` block.
 3. Update this catalogue and any per-Spec cross-references that the new example exercises.
 
-**Do NOT add a `*.spec.cjs` under `examples/`.** If the new example proves a new framework contract that isn't already covered by `test:cljs` / `test:causa-feature-gate` / bundle-isolation / perf-bundle, file a follow-up bead to extend the appropriate gate (or, for a genuinely new cross-cutting surface, add a top-level `testbeds/<surface>/` with its own `spec.cjs`).
+**Do NOT add a `*.spec.cjs` under `examples/`.** If the new example proves a new framework contract that isn't already covered by `test:cljs` / `test:xray-feature-gate` / bundle-isolation / perf-bundle, file a follow-up bead to extend the appropriate gate (or, for a genuinely new cross-cutting surface, add a top-level `testbeds/<surface>/` with its own `spec.cjs`).
 
 ## What examples are *not*
 

@@ -2,7 +2,7 @@
   "Six-domino cascade projection over the raw trace event stream.
 
   Per Spec 009 §Subscription / consumption, the trace stream is
-  event-at-a-time. Pair-shaped tools (Story's trace panel, Causa's
+  event-at-a-time. Pair-shaped tools (Story's trace panel, Xray's
   event-detail panel and causality graph, re-frame2-pair's
   `cascade-of`) all want the same higher-level shape — one row per
   cascade with the six-domino slots already populated. This namespace
@@ -48,7 +48,7 @@
 
   ## Future hooks
 
-  - Causa (rf2-5aw5v) will consume `group-cascades` in its event-detail
+  - Xray (rf2-5aw5v) will consume `group-cascades` in its event-detail
     panel and causality-graph node renderer; the `:ungrouped` slot covers
     free-floating traces (e.g. registry events emitted at app boot).
   - re-frame2-pair's `cascade-of` MCP op currently walks
@@ -112,7 +112,7 @@
 
   `:event` is the dispatched event VECTOR (the convenient
   slim form most consumers need). `:dispatched` is the full
-  `:rf.event/dispatched` trace EVENT — preserved so consumers (Causa's
+  `:rf.event/dispatched` trace EVENT — preserved so consumers (Xray's
   Event lens) can read top-level hoisted slots like
   `:rf.trace/call-site` (per rf2-twt7m Change 1) without reaching
   back into the raw trace buffer."
@@ -210,7 +210,7 @@
                        ;; dispatch, etc.). Under epoch-per-event every
                        ;; child event is its own cascade; this slot is
                        ;; the only edge linking a cascade to its spawning
-                       ;; cascade. Consumers (Causa typed pills, the
+                       ;; cascade. Consumers (Xray typed pills, the
                        ;; causality breadcrumb) walk it to relate a
                        ;; cascade to its causal ancestors. nil for a
                        ;; root cascade (a user / external dispatch).

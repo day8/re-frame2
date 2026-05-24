@@ -9,7 +9,7 @@
 ;; whole-drain rollback under per-event epochs — each settled event is
 ;; independently atomic. The depth limit stops the NEXT (halting) event;
 ;; the runtime commits a trailing :halted-depth :rf/epoch-record for it
-;; (rf2-v0jwt §Outcomes) so devtools (Causa, re-frame2-pair) get a clear
+;; (rf2-v0jwt §Outcomes) so devtools (Xray, re-frame2-pair) get a clear
 ;; "drain halted here" marker following the durable :ok epochs. The
 ;; halting event never ran, so its record's :db-before / :db-after both
 ;; equal the durable last-settled db.

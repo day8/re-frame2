@@ -392,17 +392,17 @@
 
 ;; ---- story-panel -------------------------------------------------------
 
-(deftest reg-story-panel-causa-shape
-  (testing "the canonical Causa embed registration (per 005-SOTA-Features.md §Causa epoch panel embed)"
-    (story/reg-story-panel :rf.story/causa-epoch
-      {:doc       "Causa's epoch buffer."
-       :title     "Epochs (Causa)"
+(deftest reg-story-panel-xray-shape
+  (testing "the canonical Xray embed registration (per 005-SOTA-Features.md §Xray epoch panel embed)"
+    (story/reg-story-panel :rf.story/xray-epoch
+      {:doc       "Xray's epoch buffer."
+       :title     "Epochs (Xray)"
        :placement :bottom
-       :render    :day8.re-frame2-causa.panels.time-travel/Panel})
-    (let [body (story/handler-meta :story-panel :rf.story/causa-epoch)]
-      (is (= "Epochs (Causa)" (:title body)))
+       :render    :day8.re-frame2-xray.panels.time-travel/Panel})
+    (let [body (story/handler-meta :story-panel :rf.story/xray-epoch)]
+      (is (= "Epochs (Xray)" (:title body)))
       (is (= :bottom (:placement body)))
-      (is (= :day8.re-frame2-causa.panels.time-travel/Panel (:render body))))))
+      (is (= :day8.re-frame2-xray.panels.time-travel/Panel (:render body))))))
 
 ;; ---- decorator (per-kind) ---------------------------------------------
 
