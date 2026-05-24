@@ -132,8 +132,8 @@
   {:doc "Inject the current wall-clock time (ms since epoch) into
          coeffects under `:realworld/now`. Use `(rf/inject-cofx
          :realworld/now)` on any handler that stamps `:loaded-at`."}
-  (fn cofx-realworld-now [coeffects]
-    (assoc coeffects :realworld/now (.getTime (js/Date.)))))
+  (fn cofx-realworld-now [ctx]
+    (rf/assoc-coeffect ctx :realworld/now (.getTime (js/Date.)))))
 
 ;; ============================================================================
 ;; FAILURE PROJECTION

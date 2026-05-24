@@ -41,7 +41,9 @@
   (testing "login happy path drives the auth machine to :authed and back"
     (auth-t/login-happy-path-test))
   (testing "login failure surfaces error and dismiss returns to :idle"
-    (auth-t/login-failure-test)))
+    (auth-t/login-failure-test))
+  (testing ":auth.session/token cofx assoc-shape regression guard (rf2-gg4dz)"
+    (auth-t/session-token-cofx-shape-test)))
 
 (deftest realworld-articles-feed
   (testing "global feed loads and re-loads bumping :attempt"
