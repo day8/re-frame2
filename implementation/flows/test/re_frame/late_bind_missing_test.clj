@@ -96,7 +96,7 @@
 ;; Framework-internal hooks (rf2-g9t87)
 ;;
 ;; The four hooks below are framework-internal: their consumers are
-;; `re-frame.router/flows-after-interceptor` (innermost `:after` flow
+;; `re-frame.router/flows-after-interceptor` (outermost `:after` flow
 ;; transform), `re-frame.frame/destroy-frame!` (per-frame teardown
 ;; cascade), and `re-frame.test-support/make-reset-runtime-fixture`
 ;; (test-fixture reset bracket). None of
@@ -116,7 +116,7 @@
     ;; reach via the user-visible drain). Drive a dispatch through the
     ;; router — the absent-flows-artefact branch is the steady-state for
     ;; apps that never registered any flows. With the hook nil, the
-    ;; innermost flow-transform `:after` collapses to a single nil-check
+    ;; outermost flow-transform `:after` collapses to a single nil-check
     ;; no-op and the drain completes.
     (with-hook-as-nil :flows/run-flows-on-db
       (fn []
@@ -125,7 +125,7 @@
         (is (do (rf/dispatch-sync [:flows-absent/init]) :ok)
             "dispatch completes without throwing when the run-flows! hook is absent")
         (is (= {:probe :ok} (rf/get-frame-db :rf/default))
-            ":db commit lands even though the post-commit flow walker is a no-op")))))
+            ":db commit lands even though the outermost-`:after` flow walker is a no-op")))))
 
 (deftest reset-last-inputs!-no-ops-when-flows-artefact-missing
   (testing "test-support's reset-runtime fixture no-ops when :flows/reset-last-inputs! hook is nil"

@@ -4,7 +4,7 @@
   runtime — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` /
   `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the
   topological sort, the dirty-check `last-inputs` map, the
-  innermost-`:after` `run-flows-on-db` walker, and the `:rf.flow/*`
+  outermost-`:after` `run-flows-on-db` walker, and the `:rf.flow/*`
   trace vocabulary — and
   asserts the conformance-corpus's recorded outcome against what the
   artefact actually produces.
@@ -51,8 +51,9 @@
     5. Drives `:fixture/dispatches` through `rf/dispatch-sync`. Dispatches
        are either bare event vectors or envelope maps `{:event [...]
        :frame <id> ...}` (the multi-frame shape per
-       `frame-multi-instance.edn`). The flow walker fires post-drain
-       per Spec 013 §Drain integration.
+       `frame-multi-instance.edn`). The flow walker fires inside the
+       handler's interceptor chain as the outermost `:after` — before the
+       `:db` install — per Spec 013 §Drain integration.
     6. Asserts each of:
        - `:final-app-db` — submap match against `rf/get-frame-db`
          (single-frame; reads `:rf/default`).

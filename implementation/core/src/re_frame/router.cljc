@@ -425,7 +425,7 @@
   rf2-wkxng / rf2-6m0se).
 
   Per Spec 013 §Drain integration (rf2-u0zz5): `(:db effects)` here is
-  the FLOW-AUGMENTED value — the innermost flows-after-interceptor has
+  the FLOW-AUGMENTED value — the OUTERMOST flows-after-interceptor has
   already rewritten the pending `:db` effect by the time the chain
   returns. So `:event/db-changed` reflects the flow-derived db and fires
   AFTER `:rf.flow/computed` (per Spec 009 §Canonical per-event trace
@@ -669,7 +669,7 @@
 ;;                               Lives in re-frame.router.diagnostics per
 ;;                               rf2-0ytl4 seam R-B.
 ;;   prepare-handler-ctx         build the full interceptor chain (incl. the
-;;                               innermost flows-after-interceptor) + initial
+;;                               outermost flows-after-interceptor) + initial
 ;;                               context and the effective fx-overrides map;
 ;;                               returns a tight map consumed by run-chain
 ;;                               and commit-and-flow!
@@ -677,7 +677,7 @@
 ;;                               performance marks; skipped when event-payload
 ;;                               validation fails (per Spec 010 §Per-step
 ;;                               recovery step 1). Flows run HERE, inside the
-;;                               chain, as the innermost :after (rf2-u0zz5).
+;;                               chain, as the outermost :after (rf2-u0zz5).
 ;;   commit-and-flow!            handler-exception emit (if any), flow-eval
 ;;                               error emit (if any), :db commit (of the
 ;;                               flow-augmented db), then walk :fx in source

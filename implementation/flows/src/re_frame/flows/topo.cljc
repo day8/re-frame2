@@ -9,7 +9,7 @@
   of the original monolith so the algorithm is unit-testable in
   isolation. The registry calls `topo-sort` up-front on a prospective
   flow map to spot cycles before mutating state (rf2-7csri); the
-  innermost-`:after` walker (`re-frame.flows/run-flows-on-db`) calls it
+  outermost-`:after` walker (`re-frame.flows/run-flows-on-db`) calls it
   on every drain to fix evaluation order.
 
   Per Spec 013 §Topological sort the rule is: flow B depends on flow
