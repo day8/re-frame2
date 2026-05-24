@@ -43,10 +43,10 @@
 
 (rf/reg-cofx :auth.session/token
   {:doc "Inject the saved token (or nil) from localStorage into coeffects."}
-  (fn cofx-auth-session-token [coeffects _]
-    (assoc coeffects :auth.session/token
-           (some-> (.-localStorage js/globalThis)
-                   (.getItem "conduit/jwt")))))
+  (fn cofx-auth-session-token [ctx _]
+    (rf/assoc-coeffect ctx :auth.session/token
+                       (some-> (.-localStorage js/globalThis)
+                               (.getItem "conduit/jwt")))))
 
 ;; ============================================================================
 ;; SUPPORT EVENTS

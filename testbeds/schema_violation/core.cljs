@@ -91,10 +91,10 @@
 
 (rf/reg-cofx ::bad-counter
   {:schema pos-int?}
-  (fn [coeffects _]
+  (fn [ctx _]
     ;; HOT PATH — the injection site for :where :cofx.
     ;; Returns a value that the registered :schema will reject.
-    (assoc coeffects ::bad-counter -1)))
+    (rf/assoc-coeffect ctx ::bad-counter -1)))
 
 (rf/reg-event-fx ::violate-cofx
   [(rf/inject-cofx ::bad-counter)]

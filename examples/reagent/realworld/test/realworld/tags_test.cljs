@@ -64,6 +64,12 @@
       (assert (= ["intro" "demo" "clojure"]
                  (get-in snap [:data :tags])))
       (assert (= 1 (get-in snap [:data :attempt])))
+      ;; rf2-gg4dz regression guard — `:loaded-at` carries the
+      ;; `:realworld/now` cofx value into `:set-tags`. If the cofx body
+      ;; ever regresses to the wrong shape (assoc-at-top-level of ctx
+      ;; rather than into :coeffects), `now` reaches the action as nil
+      ;; and this assertion fails.
+      (assert (number? (get-in snap [:data :loaded-at])))
       ;; tag-shaped queries — these replace the slice's `:tags/loading?`
       ;; / `:tags/fetching?` derived boolean subs.
       (assert (true?  (machine-has-tag? f :tags/loaded)))
