@@ -69,25 +69,36 @@
 
 ;; ---- section chrome -----------------------------------------------------
 
-(def ^:private section-label-style
-  "Uppercase muted caption preceding each section (REACTIVE FLOW /
-  UNMOUNTED VIEWS / DESTROYED SUBSCRIPTIONS), echoing the Figma
-  `devtools-caption uppercase tracking-wide` heading."
-  {:padding        "0 0 8px 0"
-   :font-family    sans-stack
-   :font-size      "10px"
-   :font-weight    600
-   :letter-spacing "0.6px"
-   :text-transform "uppercase"
-   :color          (:text-tertiary tokens)})
+(defn- section-label-style
+  "Muted caption preceding each section, echoing the Figma
+  `devtools-caption tracking-wide` heading.
+
+  rf2-tha26 — the PRIMARY `Reactive Flow` heading renders in TITLE CASE
+  (`:title-case?`), not the all-caps the secondary teardown captions
+  (`Unmounted Views` / `Destroyed Subscriptions`) keep. The Figma
+  reference uppercases every caption via CSS, but the title-case
+  `Reactive Flow` reads as the panel's headline rather than a shout —
+  the all-caps render flattened it into the same register as the
+  smaller teardown sections."
+  [title-case?]
+  (cond-> {:padding        "0 0 8px 0"
+           :font-family    sans-stack
+           :font-size      "10px"
+           :font-weight    600
+           :letter-spacing "0.6px"
+           :color          (:text-tertiary tokens)}
+    (not title-case?) (assoc :text-transform "uppercase")))
 
 (defn- section-label
-  "Uppercase section caption. testid:
-  `rf-causa-reactive-section-<id>-label`."
-  [id title]
-  [:div {:data-testid (str "rf-causa-reactive-section-" id "-label")
-         :style       section-label-style}
-   title])
+  "Section caption. testid: `rf-causa-reactive-section-<id>-label`.
+  `:title-case?` (rf2-tha26) renders the literal title without the
+  CSS uppercase transform — used for the primary `Reactive Flow`
+  heading."
+  ([id title] (section-label id title nil))
+  ([id title {:keys [title-case?]}]
+   [:div {:data-testid (str "rf-causa-reactive-section-" id "-label")
+          :style       (section-label-style title-case?)}
+    title]))
 
 ;; ---- pure formatters ---------------------------------------------------
 
@@ -289,7 +300,12 @@
                      :font-family sans-stack :font-size "12px"}}
        "No subs subscribed to changed paths · no views re-rendered."]
       [:div {:data-testid "rf-causa-reactive-graph-card"
-             :style {:border (str "1px solid " (:border-default tokens))
+             ;; rf2-tha26 — the card edge reads as a real rounded-lg
+             ;; card frame. The plain `:border-default` (#373737) hairline
+             ;; was near-invisible against the card's `:bg-1` fill on the
+             ;; dark theme; a `:dim`-tinted edge gives the SVG canvas a
+             ;; clearly-bounded card the operator can read at a glance.
+             :style {:border (str "1px solid " (tk/with-alpha :dim 45))
                      :border-radius "8px"
                      :padding "16px"
                      :background (:bg-1 tokens)
@@ -451,7 +467,7 @@
         [:div {:data-testid "rf-causa-reactive-pipeline"
                :style {:padding "16px"}}
          [:section {:data-testid "rf-causa-reactive-flow-section"}
-          (section-label "flow" "Reactive Flow")
+          (section-label "flow" "Reactive Flow" {:title-case? true})
           (flow-graph data)]
          (unmounted-views-section data)
          (destroyed-subs-section data)

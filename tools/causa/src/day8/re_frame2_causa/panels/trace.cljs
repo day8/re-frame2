@@ -222,8 +222,19 @@
                         :align-items    "stretch"
                         ;; op-family colour band as a 3px LEFT-BORDER.
                         :border-left    (str "3px solid " band-colour)
-                        :border-bottom  (str "1px solid "
-                                             (:border-subtle tokens))
+                        ;; rf2-tha26 — Figma rounded hover-pill rows
+                        ;; (`design-reference/components/TracePanel.tsx`):
+                        ;; rows are discrete pills (`rounded` +
+                        ;; `space-y-0.5`) lit by a `hover:bg` fill rather
+                        ;; than flat rows divided by hairlines. Inline
+                        ;; styles can't carry a `:hover` pseudo-class, so
+                        ;; the hover fill is a scoped CSS rule in
+                        ;; theme/global-styles keyed off the row testid;
+                        ;; here we round the corners + add the 2px inter-
+                        ;; row rhythm. An expanded row keeps its tinted
+                        ;; fill so the open payload reads as one unit.
+                        :border-radius  "4px"
+                        :margin-bottom  "2px"
                         :background     (when expanded? (:bg-1 tokens))
                         ;; Causal-nesting indent (cascade tree).
                         :margin-left    (str (* depth* indent-px) "px")
@@ -306,7 +317,10 @@
                                       {:frame :rf/causa}))
           :style       {:display       "block"
                         :border-left   (str "3px solid " band-colour)
-                        :border-bottom (str "1px solid " (:border-subtle tokens))
+                        ;; rf2-tha26 — rounded hover-pill rhythm matching
+                        ;; the op rows (the group is a trace row too).
+                        :border-radius "4px"
+                        :margin-bottom "2px"
                         :margin-left   (str (* depth* indent-px) "px")
                         :cursor        "pointer"
                         :color         (:text-secondary tokens)
@@ -353,6 +367,25 @@
     (trace-row node
                {:expanded? (contains? (or expanded-row-ids #{})
                                       (:id node))})))
+
+;; ---- footer legend ------------------------------------------------------
+
+(defn- footer-legend
+  "Reference footer legend (rf2-tha26 ·
+  `design-reference/components/TracePanel.tsx`). Names the two reading
+  conventions of the ribbon — rows are colour-banded by op-family
+  (the 3px left border), and clicking a row expands its raw
+  `:operation` + tags payload inline. Rendered below the feed (feed
+  branch only)."
+  []
+  [:div {:data-testid "rf-causa-trace-footer-legend"
+         :style       {:margin     "16px 16px 0 16px"
+                       :padding-top "16px"
+                       :border-top (str "1px solid " (:border-default tokens))
+                       :color      (:text-tertiary tokens)
+                       :font-family sans-stack
+                       :font-size  "11px"}}
+   "colour-banded by op-family · click a row → expand raw :operation + tags"])
 
 ;; ---- empty states -------------------------------------------------------
 
@@ -485,14 +518,16 @@
         :no-events     (empty-state-no-events)
         :no-focus      (empty-state-no-focus)
         :epoch-evicted (empty-state-epoch-evicted)
-        nil            (overflow/capped-list
-                         nodes
-                         {:panel-id "trace"
-                          :ul-attrs {:data-testid "rf-causa-trace-feed"
-                                     :style       {:list-style "none"
-                                                   :margin     0
-                                                   :padding    0}}
-                          :row-fn   node-with-state}))]]))
+        nil            [:<>
+                        (overflow/capped-list
+                          nodes
+                          {:panel-id "trace"
+                           :ul-attrs {:data-testid "rf-causa-trace-feed"
+                                      :style       {:list-style "none"
+                                                    :margin     0
+                                                    :padding    "8px 16px 0 16px"}}
+                           :row-fn   node-with-state})
+                        (footer-legend)])]]))
 
 ;; ---- registration entry --------------------------------------------------
 

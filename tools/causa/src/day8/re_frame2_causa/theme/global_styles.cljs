@@ -805,6 +805,24 @@
     "[data-testid^=\"rf-causa-tab-\"][aria-selected=\"false\"]:hover {\n"
     "  background-color: " (:hover tokens/tokens) ";\n"
     "  color: " (:text-primary tokens/tokens) ";\n"
+    "}\n"
+    ;; rf2-tha26 — Trace-panel rounded hover-pill rows. The Figma
+    ;; `design-reference/components/TracePanel.tsx` renders each trace
+    ;; row as a discrete `rounded` pill lit by a
+    ;; `hover:bg-[var(--devtools-hover)]` fill (no flat hairline
+    ;; dividers). Inline styles can't carry a `:hover` pseudo-class
+    ;; (mirrors the L3 tab-bar + EDN-copy hover handling above), so the
+    ;; hover fill is a scoped CSS rule keyed off the row `<li>`'s testid.
+    ;; The `li` qualifier scopes the rule to the ROW pills only — the
+    ;; per-row inner cells share the `rf-causa-trace-row-` testid prefix
+    ;; (e.g. `…-summary`, `…-time`) so an unqualified prefix selector
+    ;; would tint them too. The reactive-aftermath collapse GROUP
+    ;; (`rf-causa-trace-group-`) is a trace row too, so it lights the
+    ;; same way. The op-family 3px left-border + the rounded corners are
+    ;; the per-row inline styles; this rule only adds the hover fill.
+    "li[data-testid^=\"rf-causa-trace-row-\"]:hover,\n"
+    "li[data-testid^=\"rf-causa-trace-group-\"]:hover {\n"
+    "  background-color: " (:hover tokens/tokens) ";\n"
     "}\n"))
 
 (defn- inject-motion-style!
