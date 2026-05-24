@@ -146,16 +146,30 @@ process-event! (with flows as the outermost :after):
          For each flow in this frame's slot:
            new-inputs ← read input paths from pending-db
            if new-inputs ≠ last-inputs[[frame-id flow-id]]:
-             new-output ← (apply :output new-inputs)
+             new-output ← (apply :output new-inputs)   ;; MAY throw
              pending-db ← (assoc-in pending-db (:path flow) new-output)
              last-inputs[[frame-id flow-id]] ← new-inputs
          (:effects ctx) ← assoc :db pending-db   ;; flow-augmented :db effect
 
-  3. Install :db (the flow-augmented value). Sub-cache invalidates.
-     `:rf.event/db-changed` fires HERE — after flows (per [009
-     §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)).
+         ;; FAILURE — a flow's :output threw (atomicity contract):
+         ;; DISCARD the pending :db effect (drop it from (:effects ctx))
+         ;; and stash the throw under :rf/flow-error. The event ABORTS:
+         ;; the single deferred install at step 3 installs nothing, so
+         ;; no :rf.event/db-changed fires and :fx is skipped. NO partial
+         ;; commit — neither the handler's :db nor any prior flow's write
+         ;; lands. (See §Failure semantics.)
+
+  3. Install :db (the flow-augmented value) — ONLY when a :db effect is
+     present. Sub-cache invalidates. `:rf.event/db-changed` fires HERE —
+     after flows (per [009 §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)).
+     On any pre-install throw (handler / interceptor :after / flow), no
+     :db effect is present (the flow-throw path discarded it; a handler /
+     interceptor throw never produced one), so this step installs nothing
+     and emits no :rf.event/db-changed.
   4. Walk :fx in source order — every `:fx` entry reads the
-     flow-augmented app-db.
+     flow-augmented app-db. SKIPPED when the event aborted (any
+     pre-install throw). :fx is the only post-install stage; an fx throw
+     does NOT wind back the installed :db.
 ```
 
 Five properties this gives:
@@ -172,15 +186,15 @@ Five properties this gives:
 
 ### Trace stream ordering on a flow throw
 
-When a flow's `:output` fn throws during the flow-transform `:after` (step 2 of the drain integration pseudocode above), the runtime emits a strict trace sequence — observable contract for off-box monitors, Causa, Story, and any consumer that lifts a flow failure off the trace stream. Because flows now run **before** `:db` install (innermost `:after`), the failure window opens **before** `:rf.event/db-changed`, not after. A conformant port MUST emit these events in this order:
+When a flow's `:output` fn throws during the flow-transform `:after` (step 2 of the drain integration pseudocode above), the runtime emits a strict trace sequence — observable contract for off-box monitors, Causa, Story, and any consumer that lifts a flow failure off the trace stream. A flow throw is a **pre-install throw**: the event ABORTS before the `:db` install, so the failure stream carries **NO `:rf.event/db-changed`** (per [§Failure semantics](#failure-semantics) — the atomicity contract). A conformant port MUST emit these events in this order:
 
-1. **`:rf.flow/computed`** for each flow that successfully computed before the throwing one — fires per prior flow as it rewrites the pending `:db` effect. (See §Failure semantics for the per-flow detail; these may be absent when the first flow throws.)
+1. **`:rf.flow/computed`** for each flow that successfully computed before the throwing one — fires per prior flow as it rewrites the pending `:db` effect. (See §Failure semantics for the per-flow detail; these may be absent when the first flow throws.) Note: these traces fire even though the prior flows' writes are ultimately **discarded** by the abort — the trace records that the `:output` ran, not that the write was committed.
 2. **`:rf.flow/failed`** — the per-flow failure trace for the throwing flow, carrying `:flow-id`, `:ex`, and the elided `:inputs` read just before the throw. Rides the dev-only trace surface; DCEs in CLJS production.
-3. **`:rf.error/flow-eval-exception`** — the cascade-level error, emitted onto the **always-on production error-emit substrate** per [§Failure semantics rule 4](#failure-semantics). Carries `:where :flow-eval` (distinguishing this path from `:rf.error/handler-exception`), the originating event under `:rf.event/v`, and `:flow-id` attribution stamped from the throwing flow's wrapped `ex-data`. Attribution is the flow id alone — there is no real flow *value* to carry, so the contract carries `:flow-id` and nothing more. The dev-only trace surface emits the same op concurrently; the production-substrate path survives CLJS `:advanced` + `goog.DEBUG=false` elision.
-4. **`:rf.event/db-changed`** (install of the prior-flow-augmented db) — fires only when prior flows produced dirty writes that must be preserved (per [§Failure semantics rule 1](#failure-semantics)). The cascade installs the db carrying the prior successful flows' outputs (and the handler's `:db`), so the `:rf.event/db-changed` snapshot reflects those preserved writes — NOT the failing flow's never-applied output. When no prior flow wrote and the handler returned no `:db` effect, no `:rf.event/db-changed` fires.
-5. **`:fx` is skipped — no further `:rf.fx/handled` from this drain.** The cascade halts at the failing flow (per [§Failure semantics rule 3](#failure-semantics)); no `:fx` entry runs, no `:dispatch`-issued child events queue. The drain proceeds to the **next** event in the router queue on its normal cycle.
+3. **`:rf.error/flow-eval-exception`** — the cascade-level error, emitted onto the **always-on production error-emit substrate** per [§Failure semantics](#failure-semantics). Carries `:where :flow-eval` (distinguishing this path from `:rf.error/handler-exception`), the originating event under `:rf.event/v`, and `:flow-id` attribution stamped from the throwing flow's wrapped `ex-data`. Attribution is the flow id alone — there is no real flow *value* to carry, so the contract carries `:flow-id` and nothing more. The dev-only trace surface emits the same op concurrently; the production-substrate path survives CLJS `:advanced` + `goog.DEBUG=false` elision.
+4. **NO `:rf.event/db-changed`.** The event aborted before the install — neither the handler's `:db` nor any prior flow's write committed (no partial commit). `app-db` is unchanged, and the trace stream carries no `:rf.event/db-changed` for this event. This is the same abort signature every other pre-install throw (cofx / handler / interceptor `:after`) produces.
+5. **`:fx` is skipped — no `:rf.fx/handled` from this drain.** The event aborted (per [§Failure semantics](#failure-semantics)); no `:fx` entry runs, no `:dispatch`-issued child events queue. The drain proceeds to the **next** event in the router queue on its normal cycle.
 
-The contract is the ordering AND the gap — consumers can rely on "the flow failure (`:rf.flow/failed` → `:rf.error/flow-eval-exception`) fires BEFORE the `:rf.event/db-changed` install, and that install (when it fires) carries the prior-flow-preserved db; no `:fx` of this drain reached the outside world." Cascading work that *would* have run via `:fx` re-attempts naturally on a later drain.
+The contract is the ordering AND the gap — consumers can rely on "the flow failure (`:rf.flow/failed` → `:rf.error/flow-eval-exception`) fires, and NO `:rf.event/db-changed` follows: the event aborted, `app-db` is unchanged, and no `:fx` of this drain reached the outside world." Cascading work that *would* have run via `:fx` re-attempts naturally on a later drain — once a drain completes without the flow throwing.
 
 ## Topological sort and cycle detection
 
@@ -227,23 +241,22 @@ Three implications:
 
 ## Failure semantics
 
-When a flow's `:output` fn throws during the flow-transform `:after`, the runtime applies these four rules atomically (rf2-wyt97 / rf2-hrqvg):
+**The event-handling pipeline is atomic up to and including the `:db` install.** The `:db` install is the single, deferred, all-or-nothing commit boundary. ANY throw *before* it — in cofx, the handler body, an interceptor `:after`, or the flow transform — aborts the **entire** event: the pending `:db` effect does NOT install, `app-db` is left **unchanged**, **no `:rf.event/db-changed`** is emitted, and **no `:fx`** run. A flow throw is just one of these pre-install throws, and behaves identically to every other. `:fx` is the only post-install stage; an fx throw surfaces an error but does NOT wind back the installed `:db` (its side effects — http / nav / dispatch — may already have fired and are irreversible).
 
-1. **Prior-flow writes are preserved.** Flows scheduled earlier in the same drain that successfully computed and produced dirty writes have their outputs retained in the pending `:db` effect BEFORE the exception propagates — so the cascade still installs them (per [§Drain integration](#drain-integration), the db install at step 3 carries the prior-flow-augmented value). Earlier flows' work is never silently lost.
-2. **The failing flow's own output is not written.** The exception happened during `:output`; there is no usable new-output to assoc-in. Its `last-inputs` slot is NOT advanced, so the flow re-attempts on the next drain.
-3. **The cascade halts at the failing flow.** Downstream flows scheduled later in topo order do NOT run on this drain. They re-attempt naturally on the next drain (with whatever inputs the prior writes left in `app-db`). The rest of the `:after` chain, the `:db` install of the prior-flow-augmented db, and the `:fx` walk also do NOT run for this drain (the chain records the throw and the router skips `:fx` per rule 4) — except that the prior-flow writes ARE still installed so rule 1 holds.
+When a flow's `:output` fn throws during the flow-transform `:after`, the runtime applies these rules atomically:
+
+1. **No install — `app-db` is unchanged.** There is **no partial commit**. The pending `:db` effect (the handler's write plus any prior successful flows' writes) is **discarded**: the flow-transform `:after` drops the `:db` effect from the chain context, so the single deferred install installs nothing. Neither the handler's `:db` nor any earlier flow's output lands. The atomicity is **free**: because install was already deferred to one write, "wind back on a pre-install throw" is just "don't perform the one write" — no rollback machinery.
+2. **The failing flow's own output is not written, and `last-inputs` is rolled back.** The exception happened during `:output`; there is no usable new-output. The whole drain's dirty-check bookkeeping rolls back too: the `last-inputs` snapshot taken before the walk is restored, so **every** flow — prior-successful and failing alike — re-attempts on the next drain. (Without this, a prior flow whose `last-inputs` advanced would wrongly suppress its recompute next drain even though its output never reached `app-db` — silently losing the write.)
+3. **The cascade halts.** Downstream flows scheduled later in topo order do NOT run on this drain. They re-attempt naturally on a later drain — one that completes without the flow throwing. The `:db` install and the `:fx` walk do NOT run for this drain.
 4. **The exception surfaces at the router as** `:rf.error/flow-eval-exception` (per [009 §Error contract](009-Instrumentation.md#error-contract)). The cascade-level error is emitted onto the **always-on production error-emit substrate** ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)) — the per-frame `:on-error` policy fn fires, every `register-error-listener!` callback fires, and both fan-out paths are mutually isolated. The substrate is NOT gated by `re-frame.interop/debug-enabled?`, so `:rf.error/flow-eval-exception` survives CLJS `:advanced` + `goog.DEBUG=false` elision: a flow-eval failure in a production build reaches every registered off-box error monitor (Sentry / Honeybadger / Rollbar / hosted observability) at full fidelity. The per-flow `:rf.flow/failed` trace event ALSO fires first with the flow-attributed detail, but that trace rides the dev-only trace surface and DCEs in production — production attribution is preserved on the always-on path via the `:flow-id` slot stamped onto the cascade-level error's `:tags`. There is no real flow *value* to carry, so the prod-surviving attribution tag is `:flow-id` alone.
 
 Worked example. Three flows in topo order — `:A`, `:B`, `:C`. Inputs change for all three. `:B` throws. After the drain:
 
-- `:A`'s output is written to `app-db` at its `:path` (rule 1 — installed as part of the prior-flow-augmented `:db` effect).
-- `:A`'s `last-inputs` is advanced (rule 1 — `:A` computed successfully).
-- `:B`'s `:path` is unchanged from before the drain (rule 2).
-- `:B`'s `last-inputs` is unchanged (rule 2).
-- `:C` did not run; its `:path` is unchanged and its `last-inputs` is unchanged (rule 3).
-- Two trace events fired in order: `:rf.flow/computed` for `:A`, then `:rf.flow/failed` for `:B`. Then the router emitted `:rf.error/flow-eval-exception` (rule 4). These all fire BEFORE the `:rf.event/db-changed` install of `:A`'s preserved write (per [§Trace stream ordering on a flow throw](#trace-stream-ordering-on-a-flow-throw)).
+- `app-db` is **unchanged** — `:A`'s output is NOT written (rule 1, no partial commit), the handler's `:db` did NOT land, `:B`'s `:path` is unchanged, `:C` did not run.
+- **All** `last-inputs` are unchanged from before the drain (rule 2): `:A`'s advance was rolled back, `:B`'s never advanced (it threw), `:C` never ran. All three re-attempt next drain.
+- Two flow traces fired in order: `:rf.flow/computed` for `:A` (it *ran* — the trace records the `:output` call, not a committed write), then `:rf.flow/failed` for `:B`. Then the router emitted `:rf.error/flow-eval-exception` (rule 4). **No `:rf.event/db-changed` fired** (rule 1 — the event aborted before install; per [§Trace stream ordering on a flow throw](#trace-stream-ordering-on-a-flow-throw)).
 
-**Rationale.** This is the strongest 'no work is silently lost' guarantee compatible with surfacing flow failures as cascade-level errors. The alternative (per-flow isolation: `:C` runs anyway) would prevent the cascade halt that downstream `:fx` and tooling rely on to skip work that depended on a now-invalid derived state. The opposite alternative (discard prior writes too) would silently drop `:A`'s output while its `:rf.flow/computed` trace claimed the write happened — an observability lie. Preserving prior writes and halting the cascade keeps both 'completed work is visible in app-db' and 'failures surface as errors' true at once.
+**Rationale.** The `:db` install is the atomic commit boundary, and atomicity must be uniform: a flow throw can no more leave a half-committed `app-db` than a handler throw or an interceptor-`:after` throw can. The earlier "preserve prior-flow writes" design committed a partial `app-db` on a flow throw — but that made flow throws behave *differently* from every other pre-install throw, and committed state from an event that the runtime simultaneously reported as failed. Discarding the whole pending write keeps one invariant true everywhere: **an event either commits in full or not at all.** Work that *would* have completed re-attempts on a later, clean drain; nothing half-done is ever observable in `app-db`.
 
 ## Flow tracing
 
@@ -255,7 +268,7 @@ Every flow lifecycle event emits a structured trace event under op-type `:flow`.
 | `:rf.flow/computed` | A flow's `:output` fn ran and the result was written to `:path` (dirty-check observed input value-difference). Carries `:before` (the value at `:path` immediately before this drain's write — `nil` when the slot had never been written) alongside `:result`, so consumers render the wrote-line "wrote `[:path]` `<before>` → `<after>`" without walking the surrounding epoch's `:db-before` snapshot. Both ride through `elide-wire-value` against the flow's `:path` (rf2-qlzh4). |
 | `:rf.flow/skip` | The dirty-check found inputs `=`-equal to the previous run; the recompute was suppressed (§[Dirty-check semantics](#dirty-check-semantics) above; rf2-719e value-equal recompute suppression). |
 | `:rf.flow/cleared` | `clear-flow` (or `:rf.fx/clear-flow`) removed the flow from the per-frame registry and dissoc-in'd its output path. |
-| `:rf.flow/failed` | A flow's `:output` fn threw during recompute. The exception is re-thrown after the trace fires; see [§Failure semantics](#failure-semantics) for the four-rule contract (prior writes preserved, failing-flow's `last-inputs` not advanced, cascade halts, router emits `:rf.error/flow-eval-exception` per [009 §Error contract](009-Instrumentation.md#error-contract)). |
+| `:rf.flow/failed` | A flow's `:output` fn threw during recompute. The exception is re-thrown after the trace fires; see [§Failure semantics](#failure-semantics) for the atomicity contract (the event aborts — no install, `app-db` unchanged, no `:rf.event/db-changed`, `:fx` skipped; `last-inputs` rolled back so every flow re-attempts; router emits `:rf.error/flow-eval-exception` per [009 §Error contract](009-Instrumentation.md#error-contract)). |
 
 Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, Causa's flow panel, and custom dashboards filter `op-type :flow` to subscribe to the whole flow stream — see [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) and [009 §Flow trace events](009-Instrumentation.md#flow-trace-events) for the consumer-side pattern.
 
@@ -267,7 +280,7 @@ The whole flow trace surface, like the rest of trace, is compile-time eliminated
 
 A flow's optional `:schema` key (per [§The registration shape](#the-registration-shape)) declares a Malli schema for the **output value**. When present, the runtime validates the flow's computed `:output` against it on every recompute, during the flow-transform `:after` (after the handler body, before the `:db` install — per [§Drain integration](#drain-integration)). This is the same dev-time, pluggable-validator mechanism the rest of [010 §Schemas](010-Schemas.md) uses; the flows artefact reaches the registered validator/explainer through the `:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn` late-bind hooks, so an app that omits the schemas artefact (or registers no validator) pays nothing and the check soft-passes.
 
-**Observational, not a rollback.** Unlike the `app-db`-path schema (which rolls back the `:db` effect on failure), a flow `:schema` violation does **not** unwind the write. A flow's output is materialised state — by the time a violation could be observed, downstream flows / handlers / subs in the same drain may already have read the value, and [§Failure semantics](#failure-semantics) rule 1 (prior writes preserved) forbids retroactively unwinding a flow write mid-cascade. So the output **is** written and the cascade proceeds; the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event with `:where :flow-output` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), carrying the failing `:rf.flow/id`, the flow's `:path`, the failing `:value` (size/sensitivity-elided like every wire-bearing trace slot), and the registered explainer's `:explain` output. `:recovery` is `:no-recovery`, matching the category's documented disposition — the check exists to surface a producer bug early, not to repair state.
+**Observational, not a rollback.** A flow `:schema` violation does **not** throw and does **not** unwind the write. This is distinct from a flow `:output` *throw* (which aborts the whole event — [§Failure semantics](#failure-semantics)): a schema violation is a soft, dev-time diagnostic. The flow computed a value successfully; the value simply fails its declared shape. By the time a violation could be observed, downstream flows in the same drain may already have read the value as their input, so retroactively unwinding one flow's write mid-walk would leave an inconsistent pending `:db` effect. So the output **is** written into the pending effect and the cascade proceeds normally (the event still commits if no flow throws); the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event with `:where :flow-output` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), carrying the failing `:rf.flow/id`, the flow's `:path`, the failing `:value` (size/sensitivity-elided like every wire-bearing trace slot), and the registered explainer's `:explain` output. `:recovery` is `:no-recovery`, matching the category's documented disposition — the check exists to surface a producer bug early, not to repair state.
 
 ```clojure
 (rf/reg-flow
@@ -440,6 +453,12 @@ The flow walk runs **immediately after the handler's interceptor chain — as th
 The change makes three things true that the post-install design could not: (a) the cascade performs exactly one `app-db` install — of the flow-augmented value — rather than a handler commit followed by a separate flow mutation; (b) the `:rf.event/db-changed` trace fires AFTER flows, so it reflects the flow-augmented db, and `:rf.flow/computed` precedes `:rf.event/db-changed` on the trace stream (per [009 §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)) — making the flow position observable for Causa's Trace panel; (c) flows transform the *pending effect* rather than the live container, so the write is part of the cascade's single install. The `:fx`-sees-flow-output guarantee is **preserved** — `:fx` still walks after the install, so it reads the flow-derived `app-db`.
 
 **Outermost, not innermost.** Flows run as the *outermost* `:after` (fired last) — NOT the innermost — because the `path` std-interceptor's `:after` reshapes the `:db` effect (splicing a slice back into the full db), and flows read full-`app-db` `:inputs` paths, so they must run after that reshape. The consequence is that user `:after` interceptors run before the flow transform and see the handler's pre-flow `:db` effect; observational interceptors that need flow output read it from `app-db` post-install (sub / follow-up event), as `:fx` does. This is the pre-alpha masterpiece choice: no back-compat shim, the prior post-install drain step is removed outright; correctness (flows read the full db) is the load-bearing constraint that fixes the placement.
+
+### A flow throw aborts the event — atomic commit boundary (RESOLVED rf2-u0zz5, Mike 2026-05-24)
+
+The `:db` install is the single, deferred, **all-or-nothing** commit boundary. ANY throw before it — cofx, handler, interceptor `:after`, or the flow transform — aborts the entire event: no install, `app-db` unchanged, no `:rf.event/db-changed`, no `:fx`. A flow throw is just one such pre-install throw and MUST behave identically to a handler / interceptor-`:after` throw. `:fx` is the only post-install stage; an fx throw does NOT wind back the installed `:db` (side effects may already have fired).
+
+This **replaces** the earlier "prior-flow writes still commit on a flow throw" rule. That rule committed a partial `app-db` — making flow throws behave differently from every other pre-install throw, and committing state from an event the runtime simultaneously reported as failed. The atomicity rule is also **free**: because the install is already deferred to a single write, winding back on a pre-install throw is just *not performing that write* (the flow-transform `:after` discards the pending `:db` effect) — there is no rollback machinery, no partial-commit special-case. The dirty-check bookkeeping rolls back in lockstep: the `last-inputs` snapshot is restored on a throw so every flow re-attempts cleanly on a later, clean drain. The invariant the whole design now upholds: **an event either commits in full or not at all.** Per [§Failure semantics](#failure-semantics).
 
 ### `:rf.error/flow-eval-exception` rides the always-on error substrate (RESOLVED rf2-0q0du)
 

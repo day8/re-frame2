@@ -5,9 +5,11 @@ topology, with a configurable mid-flow failure injection. The
 single Start click produces a visible ~5-second stream of
 `:rf.flow/computed` / `:rf.flow/failed` / `:rf.error/flow-eval-exception`
 traces that a consumer (Causa, Story, re-frame2-pair-mcp) reads to verify the
-four-rule flow-failure contract from
+flow-failure **atomicity** contract from
 [`spec/013-Flows.md` §Failure semantics](../../spec/013-Flows.md)
-(rf2-hrqvg).
+(rf2-u0zz5): a flow throw is a pre-install throw, so it **aborts the
+whole event** — no `:db` install, `app-db` unchanged, no
+`:rf.event/db-changed`, `:fx` skipped, **no partial commit**.
 
 ## The cascade
 
@@ -26,24 +28,27 @@ recomputes all three flows in topo order. Total cascade time =
 §Topological sort uses path-prefix overlap to fix evaluation order,
 so the declaration forces `:flow-a → :flow-b`. Without it the two
 flows are independent (both read `[:input]`, write disjoint paths)
-and Kahn's algorithm picks an unspecified order between them —
-which would void Rule 1's "prior-flow writes preserved" guarantee
-when `:flow-b` happens to run first. `:flow-b`'s `:output` ignores
-the `a-result` value; its math is still `(* 3 input)`.
+and Kahn's algorithm picks an unspecified order between them. Pinning
+the order makes `:flow-a` the demonstrable "ran-then-discarded" prior
+flow (its `:rf.flow/computed` trace fires before the throw, but its
+write is discarded by the abort) and `:flow-c` the "never-ran"
+downstream flow. `:flow-b`'s `:output` ignores the `a-result` value;
+its math is still `(* 3 input)`.
 
-## The four-rule contract this surface exercises
+## The atomicity contract this surface exercises
 
 Per [spec/013 §Failure semantics](../../spec/013-Flows.md), when
-`:flow-b`'s `:output` throws on a recompute, the runtime applies
-four rules atomically. The DOM mirror at the bottom of the surface
-makes each rule's effect human-readable:
+`:flow-b`'s `:output` throws on a recompute, the whole event aborts.
+The DOM mirror at the bottom of the surface makes the effect
+human-readable:
 
-| Rule | What it says | Where to look |
+| Behaviour | What it says | Where to look |
 |---|---|---|
-| 1 — prior writes preserved | `:flow-a` computes first; its output IS flushed to `[:a-result]` BEFORE `:flow-b`'s throw propagates. | `a-result` advances on every tick, including the failing one. |
-| 2 — failing flow's output is not written | `:flow-b`'s recompute throws; `:b-result` is not updated; `:flow-b`'s `last-inputs` is NOT advanced — the flow re-attempts on the next tick. | `b-result` stops advancing at `(* 3 (dec :fail-at))`; subsequent ticks re-throw without writing. |
-| 3 — cascade halts at the failing flow | `:flow-c` does NOT run on the drain where `:flow-b` throws. | `c-result` stops advancing at the tick that lands `:input == :fail-at`. |
-| 4 — exception surfaces as `:rf.error/flow-eval-exception` | The per-flow `:rf.flow/failed` trace fires first (with `:flow-id ::flow-b` under `:tags`); the cascade-level `:rf.error/flow-eval-exception` fires when the router catches the propagated throw. | The trace stream after `:fail-at` shows pairs of `[:rf.flow/failed, :rf.error/flow-eval-exception]` on every subsequent tick. |
+| No install — `app-db` unchanged | The pending `:db` effect (the handler's `:input` bump AND `:flow-a`'s `:a-result` write) is discarded; nothing commits on the failing tick. No partial commit. | `input`, `a-result`, `b-result`, `c-result` all FREEZE at the last clean tick (tick `:fail-at − 1`). |
+| `:flow-a` ran but its write was discarded | `:flow-a` computes first and emits `:rf.flow/computed` — but because a LATER flow throws, the event aborts and `:a-result` never lands. | `a-result` does NOT advance on the failing tick; the trace stream still shows `:rf.flow/computed` for `::flow-a`. |
+| Failing flow's output is not written; `last-inputs` rolled back | `:flow-b`'s recompute throws; `:b-result` is not updated; `last-inputs` is rolled back so every flow re-attempts next drain. | `b-result` frozen; subsequent ticks re-throw. |
+| Cascade halts at the failing flow | `:flow-c` does NOT run on the drain where `:flow-b` throws. | `c-result` frozen from the tick that lands `:input == :fail-at`. |
+| No `:rf.event/db-changed`; exception surfaces as `:rf.error/flow-eval-exception` | The aborted tick emits NO `:rf.event/db-changed`. The per-flow `:rf.flow/failed` trace fires first (`:flow-id ::flow-b` under `:tags`); the cascade-level `:rf.error/flow-eval-exception` fires when the router catches the throw. | The trace stream after `:fail-at` shows `[:rf.flow/failed, :rf.error/flow-eval-exception]` pairs and NO `:rf.event/db-changed` on every subsequent tick. |
 
 ## Controls
 
@@ -56,29 +61,36 @@ makes each rule's effect human-readable:
 
 ## DOM mirrors
 
-The surface mirrors `:a-result` / `:b-result` / `:c-result` in the
-DOM so a Playwright spec can assert against the rules without
+The surface mirrors `:input` / `:a-result` / `:b-result` / `:c-result`
+in the DOM so a consumer can assert against the contract without
 needing a recorder. After Start with defaults (fail-at=5,
 total-ticks=20):
 
-- `a-result`: keeps advancing 0, 2, 4, 6, … 40. (Rule 1.)
-- `b-result`: advances 0, 3, 6, 9, 12, then stops. (Rule 2.)
-- `c-result`: advances 0, 5, 10, 15, 20, then stops. (Rule 3.)
+- `input`: advances 1, 2, 3, 4, then FREEZES at 4 (ticks 5..20 abort
+  before install).
+- `a-result`: advances 0, 2, 4, 6, 8, then FREEZES at 8. (No install
+  on the failing tick — even `:flow-a`'s prior write is discarded.)
+- `b-result`: advances 0, 3, 6, 9, 12, then FREEZES at 12.
+- `c-result`: advances 0, 5, 10, 15, 20, then FREEZES at 20.
 
 A consumer that reads the trace stream can assert:
-- 20 `:rf.flow/computed` traces for `::flow-a` (one per tick).
+- 4 committed ticks → 4 `:rf.event/db-changed` (ticks 1..4); NONE for
+  ticks 5..20 (each aborts).
+- `:rf.flow/computed` traces for `::flow-a` on every tick it RUNS
+  (ticks 1..20 — it runs even on aborted ticks; only its WRITE is
+  discarded).
 - 4 `:rf.flow/computed` traces for `::flow-b` (ticks 1..4).
 - 16 `:rf.flow/failed` traces for `::flow-b` (ticks 5..20).
 - 16 `:rf.error/flow-eval-exception` traces (one per `:rf.flow/failed`).
-- 4 `:rf.flow/computed` traces for `::flow-c` (ticks 1..4).
-- 0 `:rf.flow/computed` traces for `::flow-c` after tick 5.
+- 4 `:rf.flow/computed` traces for `::flow-c` (ticks 1..4); 0 after.
 
-The exact trace order per drain: `:flow-a` computed → `:flow-b`
-failed → `:flow-error/flow-eval-exception`.
+The exact trace order per failing drain: `:flow-a` computed →
+`:flow-b` failed → `:rf.error/flow-eval-exception`, with NO
+`:rf.event/db-changed`.
 
 ## Why a multi-second window
 
-The four-rule contract is a per-drain property — observable on any
+The atomicity contract is a per-drain property — observable on any
 single throw. But a consumer's UI (trace panel, recorder, MCP wire)
 under stress tests differently when 60+ flow traces stream past in
 five seconds vs. when one click produces 3 traces. The default
@@ -86,20 +98,20 @@ total-ticks=20 keeps the trace volume realistic without blowing
 ring-buffer budgets (the Spec 009 200-row default holds 60 per-tick
 traces fine).
 
-A consumer that tests the rules at minimum cost dials total-ticks
+A consumer that tests the contract at minimum cost dials total-ticks
 down to 6 and fail-at to 4 — the cascade completes in 1.5 seconds
-and produces enough trace shape to assert every rule.
+and produces enough trace shape to assert the whole abort signature.
 
 ## What's deliberately *missing*
 
-- **No `:on-error` policy.** The four-rule contract is what the
+- **No `:on-error` policy.** The atomicity contract is what the
   default recovery does; an `:on-error` override would mask it.
 - **No `:rf.fx/clear-flow` on the failing flow.** Clearing
   `::flow-b` mid-cascade is a separate contract; this surface
   stays on the canonical "let it keep re-throwing" path so the
-  rule-2 evidence accumulates over multiple ticks.
+  abort evidence accumulates over multiple ticks.
 - **No retry logic on `:tick`.** Every tick fires unconditionally;
-  the failing flow's re-throw is what produces rule 2's
+  the failing flow's re-throw is what produces the abort
   evidence — not retry orchestration in user code.
 - **No `:flow-b` recovery on `Fail at tick > total-ticks`.** Setting
   fail-at to a value higher than total-ticks gives a clean cascade
@@ -118,11 +130,12 @@ and produces enough trace shape to assert every rule.
   one cascade; verify ring-buffer truncation against the budget.
 
 **Cross-cutting (6)**:
-- **Flow `:rf.flow/failed` shows four-rule failure semantics
-  (rf2-hrqvg)** — the load-bearing scenario this surface unblocks.
-  Each of the four rules has a DOM mirror + a deterministic trace
-  shape a spec can assert against; the 5-second cascade gives the
-  rules time to accumulate evidence beyond a single drain.
+- **Flow `:rf.flow/failed` shows atomicity failure semantics
+  (rf2-u0zz5)** — the load-bearing scenario this surface unblocks.
+  The abort signature (no install, frozen `app-db`, no
+  `:rf.event/db-changed`, `:fx` skipped) has a DOM mirror + a
+  deterministic trace shape a spec can assert against; the 5-second
+  cascade gives it time to accumulate evidence beyond a single drain.
 
 **Story (18)**:
 - Recorder captures click → records `:play` → replays identically —
@@ -145,7 +158,7 @@ lands in `implementation/out/testbeds/long-flow-w-failure/`.
 
 ## Cross-references
 
-- [`spec/013-Flows.md` §Failure semantics](../../spec/013-Flows.md) — the four-rule contract this surface exists to exercise.
+- [`spec/013-Flows.md` §Failure semantics](../../spec/013-Flows.md) — the atomicity contract this surface exists to exercise.
 - [`spec/013-Flows.md` §Flow tracing](../../spec/013-Flows.md) — the `:rf.flow/*` op taxonomy a consumer's trace panel filters against.
-- [`spec/009-Instrumentation.md` §Error contract](../../spec/009-Instrumentation.md) — the `:rf.error/flow-eval-exception` shape rule 4 produces.
+- [`spec/009-Instrumentation.md` §Error contract](../../spec/009-Instrumentation.md) — the `:rf.error/flow-eval-exception` shape a flow throw produces.
 - [`spec/002-Frames.md` §Cascade propagation](../../spec/002-Frames.md) — the `:dispatch-later` frame-capture contract every scheduled tick relies on.

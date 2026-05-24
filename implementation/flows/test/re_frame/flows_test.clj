@@ -149,40 +149,30 @@
   ;; no-op — the flow's `:path` never materialised, so there's nothing
   ;; to clear.
   (testing "clear-flow on a flow whose intermediate path step holds a scalar is a no-op (no throw)"
-    (rf/reg-event-db :seed-scalar (fn [_ _] {:step-2 1 :foo 3 :bar 4}))
+    ;; Seed a scalar at the parent slot. NO flow is active during this
+    ;; drain — a flow whose `:path` is `[:step-2 :result]` would
+    ;; `assoc-in` over the scalar (which throws on the JVM) and, per the
+    ;; atomicity contract (rf2-u0zz5), abort the whole drain. The scalar-
+    ;; intermediate case is about `clear-flow` robustness, not flow
+    ;; evaluation, so we register the flow AFTER seeding and never drain
+    ;; it — its `:path` stays un-materialised, which is exactly the
+    ;; non-map-intermediate case `clear-flow` must treat as a no-op.
+    (rf/reg-event-db :stamp-non-map (fn [_ _] {:step-2 1 :foo 3 :bar 4}))
+    (rf/dispatch-sync [:stamp-non-map])
+    ;; Register the flow (never drained) so the per-frame registry has the
+    ;; entry to clear; its `:path` [:step-2 :result] never materialised.
     (rf/reg-flow {:id     :pending
                   :inputs [[:foo]]
-                  :output (fn [_] "never-stored-because-:step-2-is-a-scalar")
+                  :output (fn [_] "never-stored")
                   :path   [:step-2 :result]})
-    (rf/dispatch-sync [:seed-scalar])
-    ;; At this point the flow tried to write at `[:step-2 :result]` —
-    ;; `assoc-in` on a scalar parent actually replaces the scalar with a
-    ;; map. So the flow's first drain materialises the path, and a
-    ;; subsequent clear would hit the normal path. To exercise the
-    ;; never-materialised non-map-intermediate case directly, we reset
-    ;; last-inputs and re-seed AFTER reg-flow but BEFORE any drain.
-    (when-let [li-var (resolve 're-frame.flows/last-inputs)]
-      (reset! (deref li-var) {}))
-    (let [db-before (rf/get-frame-db :rf/default)]
-      ;; Stamp a non-map at the parent slot via direct app-db write so
-      ;; the next clear hits the non-map-intermediate branch.
-      (rf/reg-event-db :stamp-non-map (fn [db _] (assoc db :step-2 1)))
-      (rf/dispatch-sync [:stamp-non-map])
-      ;; Re-register the flow so the per-frame registry has the entry
-      ;; (re-stamping app-db dropped the flow's output via the value-
-      ;; equal check path).
-      (rf/reg-flow {:id     :pending
-                    :inputs [[:foo]]
-                    :output (fn [_] "never-stored")
-                    :path   [:step-2 :result]})
-      ;; Clear must NOT throw, and must leave the scalar parent intact.
-      (is (nil? (rf/clear-flow :pending))
-          "clear-flow returns nil (no throw) when the intermediate is a non-map")
-      (is (= 1 (:step-2 (rf/get-frame-db :rf/default)))
-          ":step-2 is preserved as its scalar value — clear-flow did not corrupt it")
-      ;; Sanity: siblings untouched.
-      (is (= 3 (:foo (rf/get-frame-db :rf/default))))
-      (is (= 4 (:bar (rf/get-frame-db :rf/default)))))))
+    ;; Clear must NOT throw, and must leave the scalar parent intact.
+    (is (nil? (rf/clear-flow :pending))
+        "clear-flow returns nil (no throw) when the intermediate is a non-map")
+    (is (= 1 (:step-2 (rf/get-frame-db :rf/default)))
+        ":step-2 is preserved as its scalar value — clear-flow did not corrupt it")
+    ;; Sanity: siblings untouched.
+    (is (= 3 (:foo (rf/get-frame-db :rf/default))))
+    (is (= 4 (:bar (rf/get-frame-db :rf/default))))))
 
 (deftest clear-flow-handles-single-element-path
   (testing "rf2-aqt7: clear-flow with a single-element :path dissocs the top-level key"

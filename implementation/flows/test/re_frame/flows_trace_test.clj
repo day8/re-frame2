@@ -647,25 +647,26 @@
           "the elided input-value is substituted with the wire marker"))))
 
 ;; ---------------------------------------------------------------------------
-;; 7b. Failed-flow cascade behaviour (rf2-wyt97).
+;; 7b. Failed-flow cascade behaviour — atomicity contract (Mike 2026-05-24).
 ;;
-;; The pre-rf2-wyt97 `evaluate-flow!` docstring claimed `[db false]` was
-;; returned on failure and downstream flows still walked. The impl
-;; actually `(throw e)`s after emitting `:rf.flow/failed`, which exited
-;; `run-flows!`'s loop — and pre-fix, the early exit bypassed
-;; `replace-container!`, so prior successful flows' dirty writes were
-;; SILENTLY DROPPED even though their `:rf.flow/computed` traces had
-;; already claimed the write. This deftest pins the corrected contract
-;; (per Spec 013 §Failure semantics): prior writes are flushed before
-;; the throw propagates; downstream flows do not run.
+;; A flow throw is a PRE-INSTALL throw: it aborts the WHOLE event. There
+;; is NO partial commit. The router's `flows-after-interceptor` DISCARDS
+;; the pending `:db` effect on the throw, so app-db is left UNCHANGED —
+;; neither the handler's write nor any prior successful flows' writes
+;; land, no `:rf.event/db-changed` is emitted, and `:fx` is skipped. This
+;; deftest pins that contract: nothing the flow drain (or its handler)
+;; produced survives the throw; downstream flows do not run.
 ;; ---------------------------------------------------------------------------
 
-(deftest failed-cascade-preserves-prior-flow-writes
-  (testing "when a downstream flow throws, prior flow writes are flushed; the cascade halts"
+(deftest failed-cascade-aborts-event-app-db-unchanged
+  (testing "when a downstream flow throws, the event aborts: app-db is unchanged (no install); the cascade halts"
     ;; :A reads [:n], writes [:a-out]. :B reads [:a-out], throws.
     ;; :C reads [:b-out]. The path-prefix dependency edges
     ;; (A.path → B.input, B.path → C.input) pin topo order A → B → C.
-    (rf/reg-event-db :init (fn [_ _] {:n 5}))
+    ;; Seed :n via a FIRST clean drain so we can prove the SECOND
+    ;; (throwing) drain installs nothing on top of it.
+    (rf/reg-event-db :seed (fn [_ _] {:n 5}))
+    (rf/reg-event-db :touch (fn [db _] (assoc db :touched true)))
     (rf/reg-flow {:id     :A
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -678,18 +679,25 @@
                   :inputs [[:b-out]]
                   :output (fn [b] (str "C-saw-" b))
                   :path   [:c-out]})
+    ;; First drain seeds :n. :A computes [:a-out]; :B throws → that whole
+    ;; drain aborts, so even :n does not land. Re-seed cleanly is not
+    ;; possible while :B throws, so capture app-db right after the
+    ;; throwing drain and assert nothing landed.
     (reset! *captured* [])
-    (rf/dispatch-sync [:init])
+    (rf/dispatch-sync [:seed])
     (let [db (rf/get-frame-db :rf/default)]
-      ;; Rule 1: :A's write IS in app-db.
-      (is (= 10 (:a-out db))
-          ":A's output (5 * 2 = 10) is in app-db — prior-flow writes preserved")
-      ;; Rule 2: failing :B did not write.
+      ;; Atomicity: the handler's own write does NOT land.
+      (is (not (contains? db :n))
+          ":n absent — the handler's :db write was discarded (no install)")
+      ;; Prior flow :A's write does NOT land (no partial commit).
+      (is (not (contains? db :a-out))
+          ":a-out absent — prior-flow writes are NOT committed on a flow throw")
+      ;; Failing :B did not write.
       (is (not (contains? db :b-out))
-          ":B's :path absent — the failing flow's own write is not applied")
-      ;; Rule 3: downstream :C did not run.
+          ":b-out absent — the failing flow's own write is not applied")
+      ;; Downstream :C did not run.
       (is (not (contains? db :c-out))
-          ":C's :path absent — downstream flows do not run on the failing drain"))
+          ":c-out absent — downstream flows do not run on the failing drain"))
     ;; Trace stream pin: :A's :rf.flow/computed fired; :B's
     ;; :rf.flow/failed fired; :C emitted no drain trace.
     (let [drain-evs (filterv #(#{:rf.flow/computed :rf.flow/failed
@@ -707,24 +715,25 @@
           ":C emitted no drain trace — did not run after :B threw"))))
 
 ;; ---------------------------------------------------------------------------
-;; 7c. Failed-flow contract pin (rf2-hrqvg).
+;; 7c. Failed-flow bookkeeping pin — atomicity contract (Mike 2026-05-24).
 ;;
-;; Companion to 7b: explicitly pin the per-flow `last-inputs` non-advance
-;; on failure and the prior-flow `last-inputs` advance on success. The
-;; failed-cascade test above asserts the OBSERVABLE outcome (which
-;; :path slots survive); this asserts the dirty-check bookkeeping that
-;; makes retry-on-next-drain work correctly.
-;;
-;; This is the contract decision documented in the cluster's PR body
-;; (decision-flagged bead rf2-hrqvg): preserve prior writes AND halt
-;; the cascade — the strongest no-silent-loss guarantee compatible
-;; with surfacing failures as cascade-level errors.
+;; Atomicity extends to the dirty-check bookkeeping. `evaluate-flow!`
+;; advances the global `last-inputs` atom for each flow it computes, but
+;; a flow throw aborts the WHOLE event — nothing is installed. So a prior
+;; flow's `last-inputs` advance MUST be rolled back: otherwise its
+;; recompute would be suppressed next drain even though its output never
+;; reached app-db, silently losing the write forever. `run-flows-on-db`
+;; snapshots `last-inputs` before the walk and restores it on a throw, so
+;; EVERY flow (prior-successful and failing alike) re-attempts cleanly on
+;; the next drain — matching the all-or-nothing `:db` install.
 ;; ---------------------------------------------------------------------------
 
-(deftest failed-flow-contract-last-inputs-bookkeeping
-  (testing "failing flow's last-inputs is NOT advanced; prior flow's last-inputs IS advanced"
+(deftest failed-flow-rolls-back-last-inputs-so-prior-flows-retry
+  (testing "on a flow throw, the prior flow's last-inputs is rolled back — it recomputes every drain (not suppressed)"
+    ;; :init writes the SAME db each drain, so absent rollback :A's
+    ;; dirty-check would suppress its recompute on the 2nd+ drain. Because
+    ;; the throw rolls back last-inputs, :A recomputes on EVERY drain.
     (rf/reg-event-db :init (fn [_ _] {:n 5}))
-    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
     (let [a-calls (atom 0)
           b-calls (atom 0)]
       (rf/reg-flow {:id     :A
@@ -741,23 +750,18 @@
       (is (= 1 @a-calls) ":A computed once on the first drain")
       (is (= 1 @b-calls) ":B threw once on the first drain")
 
-      ;; Bump :n — :A's input changed (5 → 6).
-      ;; - :A's last-inputs WAS advanced to [5] on the first drain, so a
-      ;;   new dirty-check at [6] triggers recompute. (@a-calls should
-      ;;   reach 2.)
-      ;; - :A's new output (12) is different from the prior (10) it
-      ;;   wrote on the first drain, so :B's input [:a-out] is now [12].
-      ;;   :B's last-inputs was NOT advanced (still nil/empty from the
-      ;;   failure), so :B retries. (@b-calls should reach 2.)
-      (rf/dispatch-sync [:bump])
+      ;; Second :init with IDENTICAL inputs. Absent rollback, :A's
+      ;; last-inputs (advanced to [5] during the first, aborted drain)
+      ;; would suppress recompute. Because the throw rolled last-inputs
+      ;; back, :A re-attempts — and so does :B.
+      (rf/dispatch-sync [:init])
       (is (= 2 @a-calls)
-          ":A re-fired because its last-inputs advanced and inputs changed (prior write succeeded)")
+          ":A re-fired on the second drain — its last-inputs advance was rolled back by the throw")
       (is (= 2 @b-calls)
-          ":B re-fired because its last-inputs was NOT advanced on the prior failure"))))
+          ":B re-fired — its last-inputs was never advanced (it threw)"))))
 
-(deftest failed-flow-contract-app-db-shape-after-multiple-failing-drains
-  (testing "across multiple failing drains, prior flow's writes keep landing; failing flow's slot stays absent"
-    (rf/reg-event-db :init (fn [_ _] {:n 5}))
+(deftest failed-flow-app-db-unchanged-across-multiple-failing-drains
+  (testing "across multiple failing drains, NOTHING lands — app-db stays unchanged (no partial commit)"
     (rf/reg-event-db :n!   (fn [db [_ v]] (assoc db :n v)))
     (rf/reg-flow {:id     :A
                   :inputs [[:n]]
@@ -767,73 +771,69 @@
                   :inputs [[:a-out]]
                   :output (fn [_] (throw (ex-info "boom" {})))
                   :path   [:b-out]})
-    (rf/dispatch-sync [:init])
-    (is (= 50 (:a-out (rf/get-frame-db :rf/default))))
-    (is (not (contains? (rf/get-frame-db :rf/default) :b-out)))
+    (rf/dispatch-sync [:n! 5])
+    (let [db (rf/get-frame-db :rf/default)]
+      (is (not (contains? db :n))
+          ":n absent — the handler's write was discarded on the flow throw")
+      (is (not (contains? db :a-out))
+          ":a-out absent — prior-flow writes are NOT committed (no partial commit)")
+      (is (not (contains? db :b-out))
+          ":b-out absent — the failing flow's slot is never written"))
 
     (rf/dispatch-sync [:n! 7])
-    (is (= 70 (:a-out (rf/get-frame-db :rf/default)))
-        ":A's write landed again after the second failing drain (5 → 7 → 70)")
-    (is (not (contains? (rf/get-frame-db :rf/default) :b-out))
-        ":b-out still absent across drains — failing flow's slot remains vacated")
+    (let [db (rf/get-frame-db :rf/default)]
+      (is (not (contains? db :a-out))
+          ":a-out still absent after a second failing drain — every drain aborts wholesale")
+      (is (not (contains? db :b-out))
+          ":b-out still absent across drains"))
 
     (rf/dispatch-sync [:n! 11])
-    (is (= 110 (:a-out (rf/get-frame-db :rf/default)))
-        ":A's write landed a third time (7 → 11 → 110)")
-    (is (not (contains? (rf/get-frame-db :rf/default) :b-out)))))
+    (let [db (rf/get-frame-db :rf/default)]
+      (is (= {} db)
+          "app-db remains the empty initial value — no failing drain ever committed anything"))))
 
 ;; ---------------------------------------------------------------------------
-;; 7d. :fx must not run after a flow throws (rf2-fslx0).
+;; 7d. A flow throw aborts the event — atomicity contract (Mike 2026-05-24).
 ;;
-;; Spec 013 §Failure semantics rule 3 + §rationale (line 202) state the
-;; cascade halts at a failing flow — downstream `:fx` does NOT run on
-;; the failing drain because the rationale for halting is "downstream
-;; `:fx` and tooling rely on to skip work that depended on a now-
-;; invalid derived state."
+;; A flow throw is a PRE-INSTALL throw: the event aborts wholesale. The
+;; router's `flows-after-interceptor` DISCARDS the pending `:db` effect
+;; (no install, app-db unchanged, no `:rf.event/db-changed`) and
+;; `commit-and-flow!` skips `:fx`. So when a handler emits
+;; `[:dispatch [:react-to-area-change]]` from `:fx` and the flow throws,
+;; the child dispatch must NOT fire (its side effects — HTTP, navigation,
+;; analytics — would escape) AND the handler's own `:db` write must NOT
+;; land (no partial commit).
 ;;
-;; A handler emitting `[:dispatch [:react-to-area-change]]` from `:fx`
-;; must not fire the child dispatch when the source flow threw — child
-;; handler would run on stale derived state; side effects (HTTP,
-;; navigation, analytics) would escape.
-;;
-;; Per rf2-u0zz5: the flow transform is the innermost `:after`; on a
-;; throw it stashes `:rf/flow-error` on the context, and
-;; `commit-and-flow!` skips `run-fx-effects!` when that key is set
-;; (after committing the prior-flow-preserved db).
+;; Per rf2-u0zz5: the flow transform is the outermost `:after`; on a
+;; throw it `dissoc`-es the pending `:db` effect and stashes
+;; `:rf/flow-error` on the context, so the install is a no-op and
+;; `commit-and-flow!` skips `run-fx-effects!`.
 ;; ---------------------------------------------------------------------------
 
 (deftest fx-does-not-run-after-flow-throws
-  (testing "Per rf2-fslx0: when a flow's :output throws, the handler's :fx is skipped"
+  (testing "when a flow's :output throws, the handler's :fx is skipped AND its :db does NOT land"
     (let [child-fired? (atom false)]
-      (rf/reg-event-db :init   (fn [_ _] {:n 1}))
       (rf/reg-event-db :after-throw
                        (fn [db _] (reset! child-fired? true) db))
       (rf/reg-event-fx :run-with-throwing-flow
                        (fn [_ _]
                          {:db {:n 2}
                           :fx [[:dispatch [:after-throw]]]}))
-      ;; Register a flow that throws. The flow runs as the innermost
+      ;; Register a flow that throws. The flow runs as the outermost
       ;; :after — after the handler, BEFORE :db install and BEFORE :fx
-      ;; walks (rf2-u0zz5); a throw halts the cascade so :after-throw
-      ;; must NOT dispatch.
+      ;; walks (rf2-u0zz5); a throw aborts the event, so :after-throw
+      ;; must NOT dispatch and the handler's :db must NOT install.
       (rf/reg-flow {:id     :boom
                     :inputs [[:n]]
                     :output (fn [_] (throw (ex-info "boom" {:why :test})))
                     :path   [:doomed]})
-      ;; First drain: :init seeds :n; the flow throws but the cascade
-      ;; halts before any of :init's :fx would have run (and :init has
-      ;; none anyway). Drain the dispatch the test is actually
-      ;; interested in.
-      (rf/dispatch-sync [:init])
-      (reset! child-fired? false)
       (rf/dispatch-sync [:run-with-throwing-flow])
       (is (false? @child-fired?)
-          "`:after-throw` did NOT dispatch — :fx was skipped because the flow threw (rf2-fslx0)")
-      ;; :db commit still happened (rule 1 of Spec 013 §Failure
-      ;; semantics: prior successful writes are preserved); only :fx
-      ;; was skipped.
-      (is (= 2 (:n (rf/get-frame-db :rf/default)))
-          ":db commit landed (rule 1) — only the post-commit :fx walk was skipped"))))
+          "`:after-throw` did NOT dispatch — :fx was skipped because the flow threw")
+      ;; Atomicity contract: the handler's :db write was DISCARDED — the
+      ;; event aborted with no install (app-db unchanged).
+      (is (not (contains? (rf/get-frame-db :rf/default) :n))
+          ":n absent — the handler's :db did NOT land; a flow throw aborts the event with no install"))))
 
 (deftest fx-after-successful-flow-still-runs
   (testing "Per rf2-fslx0: when flows succeed, :fx still walks normally (negative control)"
@@ -1090,32 +1090,28 @@
           "the sensitive input value is redacted on the wire too"))))
 
 ;; ---------------------------------------------------------------------------
-;; 8b. Strict trace-stream ordering on a flow throw (Spec 013 §Failure
-;;     semantics / §Trace stream ordering; rf2-u0zz5 NEW ordering).
+;; 8b. Strict trace-stream ordering on a flow throw — atomicity contract
+;;     (Spec 013 §Failure semantics / §Trace stream ordering on a flow
+;;     throw; rf2-u0zz5, Mike 2026-05-24).
 ;;
-;; Per rf2-u0zz5 the flow walk is now the INNERMOST `:after` — it runs
-;; BEFORE `:db` install, so the failure window opens BEFORE
-;; `:rf.event/db-changed`, not after. The contract: on a flow throw the
-;; stream carries, in order, `:rf.flow/failed` → `:rf.error/flow-eval-
-;; exception` → `:rf.event/db-changed` (install of the prior-flow-
-;; preserved db), and NO further `:rf.fx/handled` trace fires this drain
-;; (the cascade halts; pinned for the :fx GAP by
-;; `fx-does-not-run-after-flow-throws` above). This inverts the prior
-;; design where `:rf.event/db-changed` fired before flows.
+;; A flow throw is a PRE-INSTALL throw: the event aborts. The router
+;; DISCARDS the pending `:db` effect, so NO `:rf.event/db-changed` is
+;; emitted and app-db is UNCHANGED. The throw stream carries, in order,
+;; `:rf.flow/failed` → `:rf.error/flow-eval-exception` and STOPS — no
+;; `:rf.event/db-changed`, no `:rf.fx/handled` (the cascade halts; the
+;; :fx GAP is pinned by `fx-does-not-run-after-flow-throws` above).
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-throw-trace-stream-is-strictly-ordered
-  (testing "rf2-u0zz5 — flow/failed → flow-eval-exception → db-changed
-            in order; db-changed (install) fires AFTER the flow failure,
-            carrying the prior-flow-preserved db"
+  (testing "rf2-u0zz5 atomicity — flow/failed → flow-eval-exception, and
+            NO db-changed in the throw stream; app-db unchanged after the
+            throw"
     (let [evs (record-all-traces
                 (fn []
-                  ;; :seed-write writes :n via the handler AND :a-out via
-                  ;; prior flow :ok, so a :db effect + a prior-flow write
-                  ;; both exist when :boom throws — guaranteeing the
-                  ;; install of the prior-flow-preserved db fires.
-                  (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-                  (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+                  ;; The handler writes :n AND prior flow :ok writes :a-out,
+                  ;; so a :db effect + a prior-flow write both exist when
+                  ;; :boom throws — proving that EVEN THEN nothing installs.
+                  (rf/reg-event-db :bump (fn [db _] (update db :n (fnil inc 0))))
                   (rf/reg-flow {:id     :ok
                                 :inputs [[:n]]
                                 :output (fn [n] (* 10 n))
@@ -1124,10 +1120,6 @@
                                 :inputs [[:a-out]]
                                 :output (fn [_] (throw (ex-info "boom" {})))
                                 :path   [:doomed]})
-                  ;; Seed first so :n exists; the flow throws on this drain
-                  ;; too, but we re-drain with :bump to assert the ordered
-                  ;; stream against a known post-handler db value.
-                  (rf/dispatch-sync [:seed])
                   (rf/dispatch-sync [:bump])))
           ;; Restrict to the :bump cascade. Take everything from the
           ;; :bump :run-start trace to the end.
@@ -1140,27 +1132,28 @@
                            last)
           tail        (subvec evs-v bump-start)
           ops         (mapv :operation tail)
-          db-changed  (first (filterv #(= :rf.event/db-changed (:operation %)) tail))
           ;; positions within the bump cascade
           pos         (fn [op] (.indexOf ^java.util.List ops op))
           p-failed    (pos :rf.flow/failed)
-          p-error     (pos :rf.error/flow-eval-exception)
-          p-changed   (pos :rf.event/db-changed)]
-      (is (some? db-changed)
-          ":rf.event/db-changed fired on the bump cascade (prior-flow-preserved install)")
-      (is (= :bump (get-in db-changed [:tags :rf.event/v 0]))
-          ":rf.event/db-changed is for the :bump event")
-      ;; NEW ordering (rf2-u0zz5): flow failure precedes db-changed.
-      (is (and (<= 0 p-failed) (< p-failed p-error) (< p-error p-changed))
+          p-error     (pos :rf.error/flow-eval-exception)]
+      ;; NO db-changed in the throw stream — the event aborted before install.
+      (is (not-any? #(= :rf.event/db-changed %) ops)
+          "NO :rf.event/db-changed in the throw stream — the event aborted before install")
+      ;; Ordered: flow failure precedes the cascade-level error.
+      (is (and (<= 0 p-failed) (< p-failed p-error))
           (str "ordered: :rf.flow/failed (" p-failed ") < :rf.error/flow-eval-exception ("
-               p-error ") < :rf.event/db-changed (" p-changed ")"))
-      ;; The prior flow :ok's write IS installed (rule 1): :a-out = 10.
-      (is (= 10 (:a-out (rf/get-frame-db :rf/default)))
-          "the prior flow's write was preserved and installed (Spec 013 §Failure semantics rule 1)")
-      (is (not (contains? (rf/get-frame-db :rf/default) :doomed))
-          "the failing flow's own output is NOT written")
-      ;; The db-changed is the LAST relevant trace — no :rf.fx/handled
-      ;; fires after it this drain (cascade halt).
-      (let [after-error (subvec (vec ops) (inc p-error))]
+               p-error ")"))
+      ;; app-db is UNCHANGED — nothing the aborted drain produced landed.
+      (let [db (rf/get-frame-db :rf/default)]
+        (is (= {} db)
+            "app-db is unchanged (empty initial value) — no install on a flow throw")
+        (is (not (contains? db :n))
+            "the handler's :n write did NOT land")
+        (is (not (contains? db :a-out))
+            "the prior flow's :a-out write did NOT land (no partial commit)")
+        (is (not (contains? db :doomed))
+            "the failing flow's own output is NOT written"))
+      ;; No :rf.fx/handled fires after the flow-eval-exception (cascade halt).
+      (let [after-error (subvec ops (inc p-error))]
         (is (not-any? #(= :rf.fx/handled %) after-error)
             "no :rf.fx/handled trace fires after the flow-eval-exception — cascade halts")))))

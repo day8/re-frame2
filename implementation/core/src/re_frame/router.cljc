@@ -497,15 +497,20 @@
   When the flows artefact is absent (`:flows/run-flows-on-db` hook nil)
   the `:after` is a single nil-check no-op.
 
-  Failure (Spec 013 §Failure semantics): `run-flows-on-db` re-throws an
-  ex-info carrying `:rf.flow/partial-db` (prior successful flows' writes,
-  rule 1) and `:rf.flow/failed-id`. The `:after` catches it, installs the
-  partial db into `(:effects ctx :db)` so the prior writes still commit,
-  and stashes the throw under `:rf/flow-error` so `commit-and-flow!` can
-  emit `:rf.error/flow-eval-exception` and skip `:fx` (rule 3). The throw
-  is NOT recorded into `:rf/interceptor-error` — a flow-eval failure is a
-  distinct error category from a handler/interceptor exception, with its
-  own substrate routing and `:where :flow-eval` discriminator.
+  Failure (Spec 013 §Failure semantics — atomicity contract, Mike
+  2026-05-24): a flow throw is a PRE-INSTALL throw, so it aborts the whole
+  event exactly like a handler / interceptor-`:after` throw. The `:after`
+  catches the ex-info, DISCARDS the pending `:db` effect (`dissoc`-ing it
+  from `(:effects ctx)`) so the single deferred install installs NOTHING —
+  app-db is left UNCHANGED, NO `:rf.event/db-changed` is emitted, and NO
+  `:fx` run. There is no partial commit: prior successful flows' writes do
+  NOT land either (they were only ever in the pending `:db` effect, never
+  installed). The throw is stashed under `:rf/flow-error` so
+  `commit-and-flow!` can emit `:rf.error/flow-eval-exception` and skip the
+  install + `:fx`. It is NOT recorded into `:rf/interceptor-error` — a
+  flow-eval failure is a distinct error category from a handler/interceptor
+  exception, with its own substrate routing and `:where :flow-eval`
+  discriminator.
 
   Frame-agnostic: a single shared interceptor value (no per-dispatch
   allocation). The dispatching frame is read from the context coeffects
@@ -533,20 +538,19 @@
                 (interceptor/assoc-effect ctx :db new-db)
                 ctx))
             (catch #?(:clj Throwable :cljs :default) e
-              ;; Rule 1: install the prior-flow-augmented db (carried on
-              ;; the ex-info) so prior successful flows' writes commit
-              ;; even as the cascade halts. Only publish a `:db` effect
-              ;; when the handler already had one OR a prior flow actually
-              ;; wrote (partial-db diverged from the pending value) — a
-              ;; first-flow throw on a no-`:db` event must not synthesise
-              ;; a spurious `:db` install + db-changed trace.
-              (let [partial-db (:rf.flow/partial-db (ex-data e))
-                    wrote?     (and (some? partial-db)
-                                    (not (identical? partial-db pending-db)))]
-                (-> (cond-> ctx
-                      (or has-db? wrote?)
-                      (interceptor/assoc-effect :db (or partial-db pending-db)))
-                    (assoc :rf/flow-error e))))))
+              ;; Atomicity contract (Spec 013 §Failure semantics, Mike
+              ;; 2026-05-24): a flow throw is a PRE-INSTALL throw, so it
+              ;; aborts the whole event. DISCARD any pending `:db` effect
+              ;; (the handler's and any prior flows' writes) so the single
+              ;; deferred install installs NOTHING — app-db stays unchanged,
+              ;; no `:rf.event/db-changed`, no `:fx`. No partial commit.
+              ;; Stash the throw under `:rf/flow-error` so `commit-and-flow!`
+              ;; surfaces `:rf.error/flow-eval-exception` and skips install +
+              ;; `:fx`. `dissoc`-ing `:db` is the whole mechanism — winding
+              ;; back on a pre-install throw is FREE because the install was
+              ;; already deferred to one write.
+              (-> (update ctx :effects dissoc :db)
+                  (assoc :rf/flow-error e)))))
         ;; No flows artefact loaded — short-circuit (steady state for
         ;; apps that never registered any flow).
         ctx))))
@@ -805,10 +809,12 @@
       (interceptor/execute-chain full-chain ctx))))
 
 (defn- commit-and-flow!
-  "Settle the cascade: surface any chain exception, commit :db, run
-  flows, then walk :fx in source order. Per Spec 002 §Drain-loop
-  pseudocode. Trace ordering is load-bearing — :event/db-changed
-  precedes flow evaluation, which precedes :fx walking.
+  "Settle the cascade: surface any chain / flow exception, commit the
+  (flow-augmented) :db, then walk :fx in source order. Per Spec 002
+  §Drain-loop pseudocode. Flows have already run as the outermost
+  `:after` inside the chain (rf2-u0zz5), so by the time this fn executes
+  the pending `:db` effect is the flow-augmented value; the install here
+  is the single deferred commit, and `:fx` walks after it.
 
   Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se): a
   post-commit `:db` schema-validation failure rolls the container
@@ -823,17 +829,23 @@
   inheritable keys onto child dispatches.
 
   Per Spec 013 §Drain integration (rf2-u0zz5): flows have ALREADY run
-  by the time this fn executes — the framework's innermost `:after`
+  by the time this fn executes — the framework's OUTERMOST `:after`
   interceptor (`flows-after-interceptor`) transformed the pending `:db`
   effect inside the chain. So `(:db effects)` here is the FLOW-AUGMENTED
   value, and a flow throw is signalled by `(:rf/flow-error final-ctx)`
-  rather than an inline `run-flows!` call. On a flow throw the prior
-  successful flows' writes are already in `(:db effects)` (the `:after`
-  installed the partial db), so the commit STILL fires (rule 1 — prior
-  writes preserved) but `:fx` is SKIPPED (rule 3). The error trace is
-  emitted BEFORE the commit so the stream carries
-  `:rf.flow/failed → :rf.error/flow-eval-exception → :rf.event/db-changed`
-  (per Spec 013 §Trace stream ordering on a flow throw).
+  rather than an inline `run-flows!` call.
+
+  Atomicity contract (Spec 013 §Failure semantics, Mike 2026-05-24): the
+  `:db` install is the single, deferred, all-or-nothing commit boundary.
+  ANY pre-install throw — handler, interceptor `:after`, or the flow
+  transform — aborts the event: NO install, app-db UNCHANGED, NO
+  `:rf.event/db-changed`, NO `:fx`. This is uniform and FREE: the
+  handler / interceptor-error path returns `:error` WITHOUT calling
+  `commit-db-effect!`, and the flow-throw path's `:after` already
+  `dissoc`-ed the pending `:db` effect — so even if the commit ran it
+  would install nothing (`commit-db-effect!` is a no-op when no `:db`
+  effect is present). `:fx` is the ONLY post-install stage; an fx throw
+  does NOT wind back app-db (its side effects may already have fired).
 
   Returns the dispatch OUTCOME keyword for the always-on event-emit
   record (Spec 009 §Event-emit listener §Record shape):
@@ -841,20 +853,20 @@
     :ok          — clean settle (db committed, flows ran, :fx walked).
     :error       — the interceptor chain (handler or interceptor)
                    threw; `emit-handler-exception!` has already fired.
+                   No install, app-db unchanged, :fx skipped.
     :rolled-back — post-commit `:db` schema validation rejected the
                    new state and the container was restored to its
                    pre-handler value (Spec 010 row 4); :fx was skipped.
     :flow-error  — a flow's `:output` threw (Spec 013 §Failure
-                   semantics rule 3); prior-flow writes committed, :fx
-                   was skipped.
+                   semantics); the event aborted — no install, app-db
+                   unchanged, no db-changed, :fx skipped.
 
   All three non-`:ok` values surface to off-box observability shippers
   (Datadog / Sentry / Honeycomb) so a dispatch that rolled back its
   whole `:db` write or aborted on a flow throw is NOT mis-reported as
   a clean `:ok`. A chain exception is reported as `:error` regardless
   of any downstream rollback — it is the proximate, most-actionable
-  signal, and `commit-db-effect!` short-circuits the schema commit
-  when the handler errored (no `:db` effect to validate)."
+  signal."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
   (let [effects    (:effects final-ctx)
         coeffects  (:coeffects final-ctx)
@@ -865,18 +877,19 @@
       (emit-handler-exception! error event-id event frame final-ctx start-ms))
     (cond
       error :error
-      ;; Per Spec 013 §Failure semantics: a flow's `:output` threw during
-      ;; the innermost `:after` flow transform. The transform already
-      ;; installed the prior-flow-augmented `:db` effect (rule 1), so we
-      ;; STILL commit (preserving prior writes) but SKIP `:fx` (rule 3) —
-      ;; an `:fx [[:dispatch [:react-to-area-change]]]` must not fire on
-      ;; a halted cascade. Emit the cascade-level
-      ;; `:rf.error/flow-eval-exception` BEFORE the commit so the trace
-      ;; stream is `flow/failed → flow-eval-exception → db-changed`.
+      ;; Per Spec 013 §Failure semantics (atomicity contract, Mike
+      ;; 2026-05-24): a flow's `:output` threw during the outermost
+      ;; `:after` flow transform. A flow throw is a PRE-INSTALL throw, so
+      ;; the event ABORTS — no install, app-db unchanged, no
+      ;; `:rf.event/db-changed`, no `:fx`. The `:after` already `dissoc`-ed
+      ;; the pending `:db` effect, so we do NOT call `commit-db-effect!`
+      ;; here at all: the only post-install stage (`:fx`) is skipped and
+      ;; nothing is committed. Surface the cascade-level
+      ;; `:rf.error/flow-eval-exception`; the trace stream is therefore
+      ;; `flow/failed → flow-eval-exception` with NO `db-changed`.
       flow-error
       (do
         (emit-flow-eval-exception! flow-error event event-id frame start-ms)
-        (commit-db-effect! effects event-id event frame final-ctx db-before)
         :flow-error)
       ;; Per Spec 010 §Per-step recovery row 4: `commit-db-effect!`
       ;; returns false when post-commit schema validation rejected the

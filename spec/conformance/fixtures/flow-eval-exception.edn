@@ -1,23 +1,23 @@
 ;; Conformance fixture: flow/eval-exception
-;; Per Spec 013 §Failure semantics — when a flow's :output fn throws:
+;; Per Spec 013 §Failure semantics — atomicity contract (Mike 2026-05-24):
+;; a flow throw is a PRE-INSTALL throw, so it aborts the WHOLE event.
 ;;
-;;   1. Prior successful flows' writes are PRESERVED.
-;;   2. The failing flow's own output is NOT written; its last-inputs
-;;      is NOT advanced (re-attempts next drain).
-;;   3. Downstream flows scheduled later in topo order do NOT run.
+;;   1. NO partial commit — the pending :db effect (the handler's write
+;;      plus any prior successful flows' writes) is DISCARDED. app-db is
+;;      left UNCHANGED.
+;;   2. NO :rf.event/db-changed is emitted (the install never happened).
+;;   3. NO :fx run — an :fx [[:dispatch [:should-not-fire]]] entry on the
+;;      failing handler does NOT run (the cascade halts).
 ;;   4. The exception surfaces from the router's flows-after-interceptor
 ;;      as `:rf.error/flow-eval-exception` on BOTH the dev-only trace
 ;;      surface AND the always-on error-emit substrate (per Spec 013
 ;;      §Resolved decisions §`:rf.error/flow-eval-exception` rides the
 ;;      always-on error substrate, rf2-0q0du).
 ;;
-;; The fixture also asserts the cascade halt: an
-;; :fx [[:dispatch [:should-not-fire]]] entry on the failing handler
-;; does NOT run. Per Spec 013 §Drain integration (rf2-u0zz5) the flow
-;; walk is the innermost `:after` — it throws AFTER the handler body but
-;; BEFORE :db install and BEFORE :fx walks; the prior-flow-preserved db
-;; (incl. the handler's own :db) still installs (rule 1) while :fx is
-;; skipped (rule 3).
+;; The `:db` install is the single, deferred, all-or-nothing commit
+;; boundary; ANY pre-install throw (cofx / handler / interceptor :after /
+;; flow) aborts the event identically. `:fx` is the only post-install
+;; stage; an fx throw does NOT wind back app-db.
 ;;
 ;; ONE flow keeps the topo order deterministic across hosts: the
 ;; flow throws iff its input is a string. The conformance DSL's
@@ -28,11 +28,11 @@
 {:fixture/id           :flow/eval-exception
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace :flow/basic :flow/trace}
- :fixture/doc          "A flow's :output throws. The runtime halts the cascade at the failing flow, fires the per-flow :rf.flow/failed trace, and surfaces the cascade-level :rf.error/flow-eval-exception on the always-on production error-emit substrate (per Spec 013 §Failure semantics rule 4 / Resolved decisions §:rf.error/flow-eval-exception rides the always-on error substrate, rf2-0q0du). The failing handler's :fx [[:dispatch [:should-not-fire]]] entry MUST NOT run — Spec 013 §Drain integration rule 3 cascade halt."
+ :fixture/doc          "A flow's :output throws. Per the atomicity contract (Spec 013 §Failure semantics, rf2-u0zz5) the event ABORTS: the pending :db effect is discarded (app-db unchanged), NO :rf.event/db-changed is emitted, and :fx does not run. The runtime fires the per-flow :rf.flow/failed trace and surfaces the cascade-level :rf.error/flow-eval-exception on the always-on production error-emit substrate (Resolved decisions §:rf.error/flow-eval-exception rides the always-on error substrate, rf2-0q0du). The failing handler's :fx [[:dispatch [:should-not-fire]]] entry MUST NOT run."
 
  :fixture/registry
  {:event {:flow/init       {:doc "Seed :token to a non-string vector — first drain computes :tries without throwing."}
-          :flow/bad-input  {:doc "Replace :token with a string; the :tries flow's [:fn :count] throws. The handler ALSO emits :fx [:dispatch [:should-not-fire]] which Spec 013 §Drain integration rule 3 says must NOT run."}
+          :flow/bad-input  {:doc "Replace :token with a string; the :tries flow's [:fn :count] throws. The handler ALSO emits :fx [:dispatch [:should-not-fire]] which the atomicity contract says must NOT run. The whole drain aborts — none of the handler's :db write lands."}
           :should-not-fire {:doc "If the cascade-halt contract holds, this never fires."}}
   :flow  {:tries
           {:doc    "Materialised :tries — counts :token. The conformance :count builtin throws if :token is a string."
@@ -43,9 +43,9 @@
  {:event {:flow/init       [[:set [:token] [1 2 3]]
                             [:set [:fired] []]]
           :flow/bad-input  [[:set [:token] "this-is-a-string"]
-                            ;; Spec 013 §Drain integration rule 3:
-                            ;; this :fx MUST NOT run because the flow
-                            ;; walk halts the cascade.
+                            ;; Atomicity contract: this :fx MUST NOT run —
+                            ;; the flow throw aborts the event before the
+                            ;; post-install :fx stage.
                             [:fx :dispatch [:should-not-fire]]]
           :should-not-fire [[:update [:fired] [:fn :conj :should-not-fire]]]}}
 
@@ -70,26 +70,23 @@
   [:flow/bad-input]]
 
  :fixture/expect
- ;; After the failing drain:
- ;;   :token is "this-is-a-string"  (the :db commit landed)
- ;;   :tries is 3                    (preserved from the first drain
- ;;                                    when :token was [1 2 3]; the
- ;;                                    failing :output left the slot
- ;;                                    untouched — Spec 013 §Failure
- ;;                                    semantics rule 2)
- ;;   :fired is []                   (cascade halt — :should-not-fire
- ;;                                    never ran)
+ ;; After the failing drain the event ABORTED — app-db is UNCHANGED from
+ ;; the prior (clean) :flow/init drain:
+ ;;   :token is [1 2 3]   (the handler's :db write was DISCARDED — no
+ ;;                         partial commit; :token is NOT "this-is-a-string")
+ ;;   :tries is 3         (computed on the first clean drain; the failing
+ ;;                         drain installed nothing)
+ ;;   :fired is []        (cascade halt — :should-not-fire never ran)
  {:final-app-db
-  {:token "this-is-a-string"
+  {:token [1 2 3]
    :tries 3
    :fired []}
 
   ;; Trace stream: per-flow :rf.flow/failed first (with flow
   ;; attribution), then the cascade-level :rf.error/flow-eval-exception.
   ;; The router emits the cascade-level trace with :frame / :event /
-  ;; :exception in tags (per router.cljc:577-578); :where :flow-eval
-  ;; rides on the always-on substrate record only (asserted via
-  ;; :error-emit-records below).
+  ;; :exception in tags (per router.cljc); :where :flow-eval rides on the
+  ;; always-on substrate record only (asserted via :error-emit-records).
   :trace-emissions
   [{:op-type   :flow
     :operation :rf.flow/failed
@@ -98,6 +95,15 @@
    {:op-type   :error
     :operation :rf.error/flow-eval-exception
     :tags      {:frame :rf/default}}]
+
+  ;; Atomicity contract: the aborted :flow/bad-input drain emits NO
+  ;; :rf.event/db-changed — the install never happened (rf2-u0zz5).
+  ;; (The first clean :flow/init drain DID emit db-changed; this matcher
+  ;; targets the :flow/bad-input event specifically via the :event-id tag
+  ;; so it cannot false-match the earlier successful install.)
+  :trace-absent
+  [{:operation :rf.event/db-changed
+    :tags      {:rf.trace/event-id :flow/bad-input}}]
 
   ;; Production-survivable always-on substrate (Spec 013 §Resolved
   ;; decisions §`:rf.error/flow-eval-exception` rides the always-on

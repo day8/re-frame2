@@ -114,13 +114,13 @@ Flow evaluation happens **after `:db` commits and before `:fx` walks**, once per
 - **One-drain registration lag.** A flow registered via `:rf.fx/reg-flow` first runs on the *next* drain — its initial output appears one event after registration. Dispatch a synthetic nudge event if you need the value immediately (the cart example dispatches `:cart/touch`).
 - **Cycles throw at registration.** If A depends on B and B on A, `reg-flow` throws `:rf.error/flow-cycle` with `:cycle` (an ordered vector with a closing repeat, e.g. `[:a :b :a]`).
 - **`clear-flow` vacates the path.** It `dissoc-in`s the `:path` (no opt-out). Copy the value elsewhere first if you need to keep it.
-- **`:output` must be pure and deterministic.** Same inputs → same output. A throw surfaces as `:rf.error/flow-eval-exception`; prior flows' writes are preserved, the failing flow's output is not written, and the cascade halts.
+- **`:output` must be pure and deterministic.** Same inputs → same output. A throw is a pre-install throw, so it **aborts the whole event** (atomicity contract): no `:db` install, `app-db` unchanged, no `:rf.event/db-changed`, `:fx` skipped — no partial commit (neither the handler's `:db` nor any prior flow's write lands). The throw surfaces as `:rf.error/flow-eval-exception`; every flow re-attempts on the next clean drain.
 - **Feature-prefix the `:id` and `:path`.** Never `:rf/*` (reserved). The two fx-ids `:rf.fx/reg-flow` / `:rf.fx/clear-flow` are the framework's; your flow's id is yours.
 - **Frame-scoped.** A flow belongs to one frame; the same id can register against two frames with different `:output`/`:path`. `clear-flow` and `destroy-frame!` teardown are frame-local.
 
 ## Deeper material
 
-Per-frame topsort + cycle-detection contract, the four-rule failure semantics, the `:rf.flow/*` trace taxonomy, `:sensitive?` inheritance, frame-destroy teardown, and the v1-alpha-flows migration table: `SKILL-REDIRECT.md` → **EP — Flows (013)**, **EP — Instrumentation (009)**. The managed-external-effects umbrella `:rf.flow/*` belongs to: [`spec/Managed-Effects.md`](../../../../spec/Managed-Effects.md).
+Per-frame topsort + cycle-detection contract, the atomicity failure semantics (a flow throw aborts the whole event — no partial commit), the `:rf.flow/*` trace taxonomy, `:sensitive?` inheritance, frame-destroy teardown, and the v1-alpha-flows migration table: `SKILL-REDIRECT.md` → **EP — Flows (013)**, **EP — Instrumentation (009)**. The managed-external-effects umbrella `:rf.flow/*` belongs to: [`spec/Managed-Effects.md`](../../../../spec/Managed-Effects.md).
 
 ---
 

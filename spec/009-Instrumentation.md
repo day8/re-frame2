@@ -266,7 +266,20 @@ A single event's cascade emits a **canonical, ordered trace sequence**. The orde
 
 `:rf.event/run-end` marks completion of the interceptor chain (handler + the full `:after` cascade, including the outermost flow transform); it therefore falls **after** the `:rf.flow/*` traces and **before** `:rf.event/db-changed`. The relative order that consumers depend on is **`:rf.flow/computed` → `:rf.event/db-changed` → `:rf.fx/handled`**.
 
-On a flow throw the tail truncates per [013 §Trace stream ordering on a flow throw](013-Flows.md#trace-stream-ordering-on-a-flow-throw): the `:rf.flow/failed` → `:rf.error/flow-eval-exception` pair fires, prior-flow writes still install via `:rf.event/db-changed`, and no `:rf.fx/handled` fires for the halted cascade.
+**Throw variant — the event aborts at the commit boundary.** A flow throw is a **pre-install throw**, so the event aborts before the `:db` install (the atomicity contract — per [013 §Failure semantics](013-Flows.md#failure-semantics) and [002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode)). The canonical sequence truncates: the `:rf.flow/*` phase ends at `:rf.flow/failed`, the router emits the cascade-level `:rf.error/flow-eval-exception`, and the cascade STOPS — **NO `:rf.event/db-changed`**, no `:rf.sub/run`, no `:rf.fx/*`:
+
+```
+:rf.event/run-start
+  … handler body + the rest of the :after chain run …
+:rf.flow/computed                       ;; per prior flow that ran (its WRITE is
+                                        ;; discarded — the trace records the run only)
+:rf.flow/failed                         ;; the throwing flow
+:rf.event/run-end                       ;; chain completed (with the recorded throw)
+:rf.error/flow-eval-exception           ;; cascade-level error (always-on substrate)
+;; — sequence ends — NO :rf.event/db-changed, NO :rf.fx/handled —
+```
+
+`:rf.event/db-changed` does NOT fire because the pending `:db` effect was discarded (no install, app-db unchanged, no partial commit); `:rf.fx/handled` does NOT fire because `:fx` is the post-install stage and the event aborted before it. This is the **same** truncated signature every other pre-install throw produces — a handler throw or an interceptor-`:after` throw also ends at `:rf.event/run-end` → `:rf.error/handler-exception` with no `:rf.event/db-changed` and no `:rf.fx/handled`.
 
 ### Flow trace events
 
@@ -275,10 +288,10 @@ Five trace events constitute the flow lifecycle stream (per [013 §Flow tracing]
 | `:operation` | When it fires | `:tags` payload (in addition to `:flow-id` and `:frame`) |
 |---|---|---|
 | `:rf.flow/registered` | After `reg-flow` (or `:rf.fx/reg-flow`) successfully registers a flow against a frame, including post-cycle-detection. | `:inputs` (the flow's input paths), `:path` (the flow's output path) |
-| `:rf.flow/computed` | A flow's `:output` fn ran and the result was assoc-in'd into the **pending `:db` effect** at `:path` (the innermost-`:after` flow transform — before `:db` installs). Fires only when the dirty-check observed an input value-difference, and BEFORE `:rf.event/db-changed` (per [§Canonical per-event trace sequence](#canonical-per-event-trace-sequence)). | `:input-values` (raw values read from the input paths), `:result` (the new output value), `:path` |
+| `:rf.flow/computed` | A flow's `:output` fn ran and the result was assoc-in'd into the **pending `:db` effect** at `:path` (the outermost-`:after` flow transform — before `:db` installs). Fires only when the dirty-check observed an input value-difference, and BEFORE `:rf.event/db-changed` (per [§Canonical per-event trace sequence](#canonical-per-event-trace-sequence)). Note: the trace records that the `:output` ran — if a LATER flow in the same drain throws, this write is discarded by the event abort (the trace is observational, not a commit guarantee). | `:input-values` (raw values read from the input paths), `:result` (the new output value), `:path` |
 | `:rf.flow/skip` | The dirty-check found inputs `=`-equal to the previous run; the recompute was suppressed (per [013 §Dirty-check semantics](013-Flows.md#dirty-check-semantics) and rf2-719e value-equal recompute suppression). | `:reason` (currently `:inputs-value-equal`; the keyword is open for future skip reasons), `:input-paths-unchanged` (the flow's input db-paths whose values were stable — for a value-equal skip every input is stable by definition, so this names the full input set; consumed by the cascade-DAG aggregator per rf2-931pm). |
 | `:rf.flow/cleared` | After `clear-flow` (or `:rf.fx/clear-flow`) removes the flow from the per-frame registry and dissoc-in's its output path. | `:path` (the path that was vacated) |
-| `:rf.flow/failed` | The flow's `:output` fn threw during recompute. The exception is re-thrown after this trace fires so the router's outer catch emits the cascade-level `:rf.error/flow-eval-exception` (per [§Error contract](#error-contract)); tools see the per-flow detail here and the cascade halt there. Per [013 §Failure semantics](013-Flows.md#failure-semantics), prior successful flows' writes in the same drain are flushed to `app-db` before the throw propagates; the failing flow's own `:path` is not written and its `last-inputs` is not advanced; downstream flows do not run on this drain. | `:ex` (the exception), `:inputs` (the input values that were read just before the throw) |
+| `:rf.flow/failed` | The flow's `:output` fn threw during recompute. The exception is re-thrown after this trace fires so the router's outer catch emits the cascade-level `:rf.error/flow-eval-exception` (per [§Error contract](#error-contract)); tools see the per-flow detail here and the cascade abort there. Per [013 §Failure semantics](013-Flows.md#failure-semantics) (the atomicity contract), a flow throw is a pre-install throw: the event ABORTS — the pending `:db` effect is discarded (no install, app-db unchanged, no `:rf.event/db-changed`), `:fx` is skipped, and `last-inputs` is rolled back so every flow re-attempts next drain. No partial commit — neither the handler's `:db` nor any prior flow's write lands. | `:ex` (the exception), `:inputs` (the input values that were read just before the throw) |
 
 Payload-shape decisions:
 

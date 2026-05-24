@@ -394,6 +394,21 @@
           (recur actual (rest expected)
                  (conj failures (str "expected trace not seen: " (pr-str exp)))))))))
 
+(defn- check-trace-absent
+  "Absence match — every pattern in `forbidden` must NOT appear anywhere
+  in `actual`. Each pattern partial-matches like `check-trace-stream`'s
+  expected entries (`trace-matches?`). Returns a vector of failure
+  strings (empty ⇒ all absent). Powers the `:trace-absent` matcher used
+  to pin, e.g., that a flow throw emits NO `:rf.event/db-changed` (the
+  event aborted before the install — atomicity contract, rf2-u0zz5)."
+  [actual forbidden]
+  (reduce (fn [failures pat]
+            (if (some #(trace-matches? pat %) actual)
+              (conj failures (str "forbidden trace WAS seen: " (pr-str pat)))
+              failures))
+          []
+          forbidden))
+
 ;; ---- flow-specific aggregators -------------------------------------------
 
 (defn- recompute-counts
@@ -559,6 +574,13 @@
             expected-emits   (:trace-emissions expect)
             emit-failures    (when expected-emits
                                (check-trace-stream @traces expected-emits))
+            ;; `:trace-absent` — a vector of trace patterns that MUST NOT
+            ;; appear anywhere in the captured stream (no op-type filter).
+            ;; Powers the atomicity-contract assertion that a flow throw
+            ;; emits NO `:rf.event/db-changed` (rf2-u0zz5).
+            forbidden-emits  (:trace-absent expect)
+            absent-failures  (when forbidden-emits
+                               (check-trace-absent @traces forbidden-emits))
             ;; `:flow-recompute-counts` — strict {flow-id n} match.
             expected-counts  (:flow-recompute-counts expect)
             actual-counts    (when expected-counts (recompute-counts @traces))
@@ -619,6 +641,7 @@
                                  (every? #(= (:expected %) (:actual %)) sub-checks)
                                  (or (nil? stream-failures) (empty? stream-failures))
                                  (or (nil? emit-failures)   (empty? emit-failures))
+                                 (or (nil? absent-failures) (empty? absent-failures))
                                  (or (nil? expected-counts) (= expected-counts actual-counts))
                                  (or (nil? expected-topo)   (= expected-topo actual-topo))
                                  (or (nil? expected-after)  (= expected-after actual-after))
@@ -632,6 +655,7 @@
          :sub-checks        sub-checks
          :stream-failures   stream-failures
          :emit-failures     emit-failures
+         :absent-failures   absent-failures
          :expected-counts   expected-counts
          :actual-counts     actual-counts
          :expected-topo     expected-topo
@@ -727,6 +751,8 @@
             (println "    flow-trace:" tf))
           (doseq [ef (:emit-failures f)]
             (println "    trace-emit:" ef))
+          (doseq [af (:absent-failures f)]
+            (println "    trace-absent:" af))
           (when-let [ec (:expected-counts f)]
             (when (not= ec (:actual-counts f))
               (println "    recompute-counts expected:" ec)

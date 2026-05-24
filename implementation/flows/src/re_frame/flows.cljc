@@ -122,19 +122,19 @@
   successful evaluation (skip or recompute); on the failure path the
   exception re-throws after the `:rf.flow/failed` trace fires.
 
-  Failed-flow contract (rf2-wyt97 / rf2-hrqvg, Spec 013 §Failure
-  semantics): the failing flow's own output is NOT written (the throw
-  happened during `:output`; there is no usable new-output). Its
-  `last-inputs` slot is NOT advanced so the flow re-attempts on the
-  next drain. `run-flows-on-db` catches the propagated throw and
-  re-throws an ex-info carrying `:rf.flow/partial-db` — the
-  loop accumulator holding prior successful flows' dirty writes
-  (rule 1 of the contract) — so the router's flows-after-interceptor
-  installs those prior writes even as the cascade halts, and the
-  router emits the cascade-level `:rf.error/flow-eval-exception` per
-  Spec 009 §Error contract. The cascade halts at the failing flow —
-  downstream flows scheduled later in topo order do NOT run on this
-  drain (rule 3); they re-attempt naturally on the next drain.
+  Failed-flow contract (Spec 013 §Failure semantics — atomicity
+  contract, Mike 2026-05-24): the failing flow's own output is NOT
+  written (the throw happened during `:output`; there is no usable
+  new-output). This fn re-throws an ex-info carrying `:rf.flow/failed-id`
+  so the router can attribute the cascade-level
+  `:rf.error/flow-eval-exception` (Spec 009 §Error contract) to this
+  flow; the throw propagates straight out of `run-flows-on-db`. A flow
+  throw is a PRE-INSTALL throw: the router's flows-after-interceptor
+  DISCARDS the pending `:db` effect, so app-db is left UNCHANGED — no
+  partial commit, no prior-flow writes installed, no `:rf.event/db-changed`.
+  The cascade halts at the failing flow — downstream flows scheduled
+  later in topo order do NOT run on this drain; they re-attempt naturally
+  on the next drain.
 
   Hot path — runs after every event drain for every registered flow.
   Trace payload construction sits inside an `interop/debug-enabled?`
@@ -247,13 +247,12 @@
           ;; Per Spec 009 §:op-type vocabulary: :rf.flow/failed fires
           ;; when the flow's :output fn throws. last-inputs is NOT
           ;; advanced — so the flow will retry on the next drain rather
-          ;; than silently caching a stale-or-missing output. We re-
-          ;; throw so `run-flows-on-db` can re-wrap the throw with the
-          ;; accumulated dirty writes from PRIOR successful flows in the
-          ;; same drain (rf2-wyt97 / rf2-hrqvg, Spec 013 §Failure
-          ;; semantics rule 1) under `:rf.flow/partial-db`, and then
-          ;; propagate to the router's flows-after-interceptor which
-          ;; installs that partial db and emits the cascade-level
+          ;; than silently caching a stale-or-missing output. We re-throw
+          ;; an ex-info carrying `:rf.flow/failed-id` (Spec 013 §Failure
+          ;; semantics — atomicity contract); it propagates through
+          ;; `run-flows-on-db` to the router's flows-after-interceptor,
+          ;; which DISCARDS the pending `:db` effect (no partial commit —
+          ;; app-db unchanged) and emits the cascade-level
           ;; :rf.error/flow-eval-exception per Spec 009 §Error contract.
           ;; The per-flow `:rf.flow/failed` trace emitted here adds the
           ;; flow-attributed detail tools (10x flow panel) consume.
@@ -317,59 +316,55 @@
   Flows are frame-scoped — only flows registered against frame-id run
   here, leaving sibling frames' flows untouched.
 
-  Failed-flow contract (rf2-wyt97 / rf2-hrqvg, Spec 013 §Failure
-  semantics): when a flow's `:output` throws, prior successful flows'
-  dirty writes in the same drain are PRESERVED — the loop accumulator
-  already carries them, and on the throw we re-throw an ex-info whose
-  `ex-data` carries the prior-flow-augmented db under
-  `:rf.flow/partial-db` so the router can STILL install it (rule 1) even
-  though the cascade halts. The cascade then halts: flows scheduled
-  later in topo order do not run on this drain, and the router surfaces
-  the cascade-level `:rf.error/flow-eval-exception`. The failing flow's
-  own `last-inputs` is NOT advanced (so it re-attempts next drain);
-  prior flows' `last-inputs` ARE advanced (they computed successfully
-  and their outputs are now in the returned db). This is the strongest
-  'no work is silently lost' guarantee compatible with cascade-level
-  error surfacing. The `:rf.flow/failed-id` slot (stamped by
-  `evaluate-flow!`) is preserved on the re-thrown ex-info so the router
-  can attribute the cascade-level error to the failing flow."
+  Failed-flow contract (Spec 013 §Failure semantics — atomicity
+  contract, Mike 2026-05-24): a flow throw is a PRE-INSTALL throw, so it
+  aborts the WHOLE event. There is NO partial commit — the pending `:db`
+  effect (the handler's write plus any prior successful flows' writes) is
+  DISCARDED by the router's `flows-after-interceptor` catch, so app-db is
+  left UNCHANGED. This fn therefore does NOT carry a partial-db on the
+  re-thrown ex-info: it would have no consumer. The cascade halts (flows
+  scheduled later in topo order do not run on this drain) and the router
+  surfaces the cascade-level `:rf.error/flow-eval-exception`.
+
+  Atomicity extends to the dirty-check bookkeeping: `evaluate-flow!`
+  advances the global `last-inputs` atom for each flow it computes, but
+  on a throw NOTHING is installed — so a prior flow's advanced
+  `last-inputs` would (wrongly) suppress its recompute next drain even
+  though its output never reached app-db, silently losing the write
+  forever. So we SNAPSHOT `last-inputs` before the walk and RESTORE it on
+  a throw: every flow — prior-successful and failing alike — re-attempts
+  cleanly on the next drain, matching the all-or-nothing `:db` install.
+  The `:rf.flow/failed-id` slot (stamped by `evaluate-flow!`) is
+  preserved on the re-thrown ex-info so the router can attribute the
+  cascade-level error to the failing flow."
   [frame-id db]
   (let [flow-map (get @flows frame-id)]
     (if-not (seq flow-map)
       db
-      (let [ordered (topo/topo-sort flow-map)]
-        (loop [remaining  ordered
-               db         db
-               any-dirty? false]
-          (if (empty? remaining)
-            db
-            (let [flow            (flow-map (first remaining))
-                  [new-db dirty?] (try
-                                    (evaluate-flow! frame-id db flow)
-                                    (catch #?(:clj Throwable :cljs :default) e
-                                      ;; Preserve prior successful flows'
-                                      ;; writes (Spec 013 §Failure
-                                      ;; semantics rule 1): they are
-                                      ;; already in `db` (the loop
-                                      ;; accumulator) with their
-                                      ;; `last-inputs` slots advanced (per
-                                      ;; evaluate-flow!'s success branch).
-                                      ;; Carry the accumulator on the
-                                      ;; re-thrown ex-info so the router
-                                      ;; installs it even as the cascade
-                                      ;; halts and `:fx` is skipped.
-                                      ;; Without this the prior flows'
-                                      ;; outputs would vanish while their
-                                      ;; `:rf.flow/computed` traces still
-                                      ;; claimed the write happened.
-                                      (throw
-                                        (ex-info (or #?(:clj (.getMessage ^Throwable e)
-                                                        :cljs (.-message e))
-                                                     ":rf.error/flow-eval-exception")
-                                                 (assoc (ex-data e)
-                                                        :rf.flow/partial-db db)
-                                                 e))))]
-              (recur (rest remaining) new-db (or any-dirty? dirty?)))))))))
+      (let [ordered (topo/topo-sort flow-map)
+            ;; Snapshot the dirty-check bookkeeping so a flow throw can
+            ;; roll it back wholesale — the event aborts, so prior flows'
+            ;; `last-inputs` advances must NOT survive (their outputs were
+            ;; never installed). Restored in the catch below.
+            last-inputs-before @last-inputs]
+        (try
+          (loop [remaining  ordered
+                 db         db
+                 any-dirty? false]
+            (if (empty? remaining)
+              db
+              (let [flow            (flow-map (first remaining))
+                    [new-db dirty?] (evaluate-flow! frame-id db flow)]
+                (recur (rest remaining) new-db (or any-dirty? dirty?)))))
+          (catch #?(:clj Throwable :cljs :default) e
+            ;; Atomicity contract: discard ALL flow side-effects of this
+            ;; aborted drain. The pending `:db` effect is dropped by the
+            ;; router; here we restore the pre-drain `last-inputs` so
+            ;; every flow re-attempts next drain. The throw (carrying
+            ;; `:rf.flow/failed-id` from `evaluate-flow!`) propagates
+            ;; unchanged for router attribution.
+            (reset! last-inputs last-inputs-before)
+            (throw e)))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;

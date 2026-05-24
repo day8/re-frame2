@@ -154,16 +154,27 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
 **Migrated subtotal: 18 of 18 observations = 100%. DROP this spec entirely.** Spec 014's eight `:rf.http/*` categories already deserve full CLJS unit coverage; this spec is observational scaffolding that should live in `implementation/http/test/`.
 
-### `testbeds/long_flow_w_failure/spec.cjs` (Spec 013 flow four-rule failure)
+### `testbeds/long_flow_w_failure/spec.cjs` (Spec 013 flow-failure atomicity)
+> **Contract update (rf2-u0zz5).** A flow throw now ABORTS the whole event
+> (atomicity contract — no install, `app-db` unchanged, no
+> `:rf.event/db-changed`, `:fx` skipped, no partial commit). The
+> "prior-flow preserved" assertions below (rows 4–6) are superseded: under
+> the new contract a failing tick freezes `app-db` at the last clean tick
+> — `a-result` / `b-result` / `c-result` stop at tick `:fail-at − 1`, and
+> no `:rf.event/db-changed` fires for any aborted tick. The migration
+> target (`flow_*_cljs_test.cljs`) should assert the abort signature
+> instead. (This audit table is preserved as a historical record of the
+> dropped browser spec.)
+
 | # | Assertion | Class | Rationale + target |
 |---:|---|:---:|---|
 | 1 | `expectVisible(long-flow-w-failure)` | C | Mount. → drop. |
-| 2 | `:input` mirror > 0 (cascade scheduled) | A | App-db readback under setTimeout-driven dispatch loop. → `implementation/flows/test/.../flow_four_rule_failure_cljs_test.cljs` (new file). The 250ms × 20-tick cascade is faster in CLJS — drive synchronously via direct `(dispatch-sync [::tick])` loop. |
-| 3 | Trace bus: `:rf.flow/failed` for `::flow-b` BEFORE `:rf.error/flow-eval-exception` | A | Rule 4 (per-flow before cascade-level). → same target. |
-| 4 | `a-result` ≥ 10 (Rule 1, prior-flow preserved) | A | Same target. |
-| 5 | `b-result` = '12' (Rule 2, failing flow's output not written) | A | Same target. |
-| 6 | `c-result` = '20' (Rule 3, cascade halts) | A | Same target. |
-| 7 | ≥3 `:rf.flow/failed` emits (Rule 2 re-attempt cardinality) | A | Same target. |
+| 2 | `:input` mirror > 0 (cascade scheduled) | A | App-db readback under setTimeout-driven dispatch loop. → `implementation/flows/test/.../flow_failure_atomicity_cljs_test.cljs` (new file). The 250ms × 20-tick cascade is faster in CLJS — drive synchronously via direct `(dispatch-sync [::tick])` loop. |
+| 3 | Trace bus: `:rf.flow/failed` for `::flow-b` BEFORE `:rf.error/flow-eval-exception` | A | Per-flow before cascade-level. → same target. |
+| 4 | `a-result` frozen at tick `:fail-at − 1` (atomicity — no install on the failing tick) | A | Same target. |
+| 5 | `b-result` frozen (failing flow's output not written) | A | Same target. |
+| 6 | `c-result` frozen (cascade halts) + NO `:rf.event/db-changed` on aborted ticks | A | Same target. |
+| 7 | ≥3 `:rf.flow/failed` emits (re-attempt cardinality) | A | Same target. |
 
 **Migrated subtotal: 6 of 6 = 100%. DROP this spec entirely.** Spec 013 has zero browser dimension — flows run on the spine, not in the DOM.
 
