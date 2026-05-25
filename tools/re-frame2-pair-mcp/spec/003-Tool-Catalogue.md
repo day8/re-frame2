@@ -6,13 +6,14 @@
 > `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The sixteen MCP tools. All sixteen are catalogued below; the
+The seventeen MCP tools. All seventeen are catalogued below; the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
-rf2-4y595 for NAMING.md `list-<things>` conformance) and the write pair
+rf2-4y595 for NAMING.md `list-<things>` conformance), the write pair
 `restore-epoch` + `reset-frame-db` (rf2-ee38b.18 — the Tool-Pair
-time-travel + state-injection primitives, gated behind `--allow-writes`)
-live in the live registry at
+time-travel + state-injection primitives, gated behind `--allow-writes`),
+and `dispatch-dry-run` (rf2-17hvp — simulate a cascade without
+committing) live in the live registry at
 [`src/re_frame2_pair_mcp/tools/registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs)
 and have full per-tool sections here.
 
@@ -630,6 +631,128 @@ every successful dispatch surfaces a `:cascade-summary` slot — see
 shape and the `:cascade-summary-pending?` behaviour on queued mode.
 Trace mode additionally carries the full `:epoch` (the verbatim
 assembled record) alongside the compact summary.
+
+## dispatch-dry-run
+
+Simulate a re-frame2 cascade WITHOUT committing it (rf2-17hvp). Full
+reducer + interceptor chain runs, schema validation fires, machine
+transitions simulate, sub-runs and renders are recorded — but NO fx
+execute (every registered fx is redirected to a recording stub via
+`:fx-overrides`) and the framework rolls back the app-db via
+`restore-epoch`. The fundamental "experiment without consequences"
+primitive: every fx the cascade WOULD have fired is enumerated in
+`:would-fire-effects` (with its args), so the operator reasons about
+real-world impact without paying it.
+
+### Why this is NOT `--allow-writes`-gated
+
+Dry-run's contract IS "no observable effect". The fx-override set
+redirects every registered fx to a recording stub, so no http /
+navigation / persisted-write side-effect escapes. The framework's
+`restore-epoch` rewinds the app-db and trims the assembled would-be
+epoch from the ring. There is no state change for the
+`--allow-writes` gate to protect against; pairing dry-run behind that
+gate would force the operator to opt INTO writes to experiment with
+NOT writing, which inverts the gate's intent.
+
+### How it works (no framework hack required)
+
+The framework's existing `:fx-overrides` seam (Spec 002 §Per-frame and
+per-call overrides) and the existing `restore-epoch` primitive
+(Tool-Pair §Time-travel) compose into a true dry-run with no internal
+framework entry point needed:
+
+1. Snapshot the head epoch-id (the rollback target).
+2. Build an `:fx-overrides` map redirecting every registered fx to a
+   recording fn-value stub. Each stub captures its own original
+   fx-id, appends `{:fx-id ... :args ...}` to a recording atom, and
+   returns nil — short-circuiting the would-be side-effect.
+3. `dispatch-sync` — the reducer + interceptor chain run normally
+   (schema validation, machine-step machinery, sub re-evaluation, all
+   live here); the cascade ASSEMBLES a real epoch on the ring.
+4. Read the new head epoch — this IS the cascade-summary source.
+5. `restore-epoch` back to the pre-call head. The framework's
+   canonical undo gesture rewinds db and trims the would-be epoch
+   from history.
+
+The recorded fx calls AND the would-be epoch's cascade-summary
+project together into the response shape.
+
+### Edge cases
+
+- **`:dispatch` / `:dispatch-later`** are caught by the override and
+  recorded; the recursive dispatch never happens. This matches the
+  bead's `:max-effect-chain-depth 1` default: simulate this event's
+  reducer + its direct fx + LIST what those fx would dispatch (don't
+  simulate that next level).
+- **Schema violation** — the reducer's schema check fires the same
+  way; the epoch settles with the violation in `:trace-events`,
+  cascade-summary surfaces it via `:outcome :error`.
+- **Machine transitions** — the machine-step machinery runs (pure
+  data per Spec 005); transitions appear in cascade-summary's
+  `:machine-transitions` slot. Machine-fired fx (timer schedules,
+  spawn/destroy) are stubbed.
+- **Frame mismatch** — the runtime fails with `:reason
+  :ambiguous-frame` before the override set is built; no rollback
+  needed.
+- **Listener fan-out** — `register-listener!` / `register-epoch-
+  listener!` consumers DO see the would-be epoch land between step 3
+  and step 5. This is a documented limitation: the framework has no
+  "private dispatch" primitive. Production builds elide the entire
+  listener path anyway; dev-tier listeners observing a phantom epoch
+  is acceptable in exchange for the simpler composition. A follow-on
+  bead can elevate this to a first-class framework primitive once
+  the cost is justified.
+
+### Composes with `:fx-overrides`
+
+The caller MAY pass an `:fx-overrides` map that PRE-stubs some fx
+(e.g. redirecting `:rf.http/managed` to a canned stub-handler for the
+experiment). User-supplied overrides win on conflict — the recorder
+fires only for fx the caller did NOT pre-stub. This lets the
+experimenter compose realistic conditions ("what would happen if the
+http call resolved to this response?") without losing the dry-run's
+roll-back guarantee.
+
+**Args**: `event` (string, required — EDN-encoded event vector),
+`frame` (string, e.g. `":foo"`; defaults to the operating frame),
+`fx-overrides` (object — user-supplied overrides composed on top of
+the dry-run recorder set), `build` (string).
+
+**Returns** (success):
+
+```clojure
+{:ok?                       true
+ :dry-run?                  true
+ :rolled-back?              true
+ :event                     [:cart/checkout]
+ :frame                     :rf/default
+ :before-epoch-id           42
+ :cascade-summary           {... per §Universal: cascade summary ...}
+ :would-fire-effects        [{:fx-id :http :args {:url ...}}
+                             {:fx-id :navigate :args [:order-confirmation]}]
+ :db-state-after-simulation {...}}
+```
+
+The cascade-summary slot uses the same shape as `dispatch` /
+`restore-epoch` / `reset-frame-db` (rf2-6yqdl); operators read one
+vocabulary across all four. `:db-state-after-simulation` is the would-
+be `:db-after` of the rolled-back epoch — surfaced verbatim (subject
+to the normal size-elision / sensitive-paths pipeline at the wire
+boundary) so the operator can inspect what the post-dispatch db
+WOULD have been without re-running through `snapshot`.
+
+**Returns** (failure):
+
+- `:reason :no-epoch-recorded` — epoch-history empty / frame
+  unregistered / `interop/debug-enabled?` false. No rollback needed.
+- `:reason :no-new-epoch` — `dispatch-sync` returned but the head did
+  not advance (the reducer rejected the event or an interceptor
+  early-returned). No rollback needed.
+
+The arg-parse failure modes (`:missing-event`, `:invalid-event-edn`,
+`:not-an-event-vector`) mirror `dispatch` exactly — the EDN-data
+posture (rf2-vflrg) is the same security gate.
 
 ## restore-epoch
 

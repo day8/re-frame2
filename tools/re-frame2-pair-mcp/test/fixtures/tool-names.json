@@ -3,6 +3,7 @@
   "names": [
     "discover-app",
     "dispatch",
+    "dispatch-dry-run",
     "eval-cljs",
     "get-path",
     "get-re-frame2-pair-instructions",

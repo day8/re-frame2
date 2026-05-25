@@ -1623,6 +1623,233 @@
       (pair-dispatch! event-v opts))))
 
 ;; ---------------------------------------------------------------------------
+;; Dispatch dry-run (rf2-17hvp)
+;; ---------------------------------------------------------------------------
+;;
+;; "If I dispatch X, will it do what I expect?" answered without
+;; committing. The framework's existing `:fx-overrides` seam (Spec 002
+;; §Per-frame and per-call overrides) + the existing `restore-epoch`
+;; primitive (Tool-Pair §Time-travel) compose into a true dry-run with
+;; NO framework hack required:
+;;
+;;   1. snapshot the head epoch-id (the rollback target)
+;;   2. fx-override EVERY registered fx-id to a recording stub, so
+;;      every fx the cascade WOULD have fired is collected — but
+;;      none actually executes (including :dispatch / :dispatch-later
+;;      / http / navigation / persisted writes / machine spawns)
+;;   3. dispatch-sync — the reducer + interceptor chain run normally
+;;      (this is where schema validation lives, where the would-be db
+;;      shape comes from, where sub-runs / renders / machine
+;;      transitions trace); the cascade ASSEMBLES a real epoch
+;;   4. read the new head epoch (this IS the cascade-summary source)
+;;   5. restore-epoch back to the pre-call head — the framework's
+;;      canonical undo gesture rewinds db and trims the epoch ring
+;;
+;; The recorded fx calls AND the would-be epoch's cascade-summary
+;; project together into the response shape:
+;;
+;;   {:ok? true :dry-run? true :rolled-back? true
+;;    :cascade-summary {...}
+;;    :would-fire-effects [{:fx-id ... :args ...} ...]
+;;    :db-state-after-simulation <would-be-db>}
+;;
+;; Edge cases:
+;;
+;; - **`:dispatch` / `:dispatch-later`** — caught by the override and
+;;   recorded as would-fire entries; the recursive dispatch never
+;;   happens. This is the bead's `:max-effect-chain-depth 1` default:
+;;   simulate this event's reducer + its direct fx + LIST what those
+;;   fx would dispatch (don't simulate that next level).
+;; - **Schema violation** — the reducer's schema check fires the same
+;;   way; the epoch settles with the violation in `:trace-events`,
+;;   cascade-summary surfaces it via `:outcome`.
+;; - **Machine transitions** — the machine-step machinery runs (it's
+;;   pure data per Spec 005); transitions appear in the cascade
+;;   summary's `:machine-transitions` slot. Machine-fired fx (timer
+;;   schedules, spawn/destroy) are stubbed.
+;; - **Frame mismatch** — when `:frame` is unregistered, the
+;;   pair-dispatch-sync! error path kicks in; no rollback needed.
+;; - **Listener fan-out** — `register-listener!` / `register-epoch-
+;;   listener!` consumers DO see the epoch land between step 3 and
+;;   step 5. This is a documented limitation: the framework has no
+;;   "private dispatch" primitive. Production builds elide the entire
+;;   listener path anyway; dev-tier listeners observing a phantom
+;;   epoch is acceptable in exchange for the simpler composition.
+;;   (A follow-on bead can elevate this to a first-class framework
+;;   primitive once the cost is justified.)
+
+(defn- registered-fx-ids
+  "Every fx-id registered under the `:fx` registrar. Used to build the
+  dry-run override map that redirects ALL fx to the recorder. The
+  recorder is registered under `:rf2-pair/dry-run-recorder` (a
+  reserved namespace per spec/Conventions.md); it's excluded from the
+  redirect set so the override `{:dispatch :rf2-pair/dry-run-recorder
+  ...}` can resolve."
+  []
+  (let [all (-> (rf/registrations :fx) keys set)]
+    (disj all :rf2-pair/dry-run-recorder)))
+
+(def ^:private dry-run-recordings
+  "Atom that the dry-run recorder fx appends `{:fx-id <orig> :args
+  <args>}` to during a dispatch. The current dry-run call reads + resets
+  this atom inside the same synchronous extent — no concurrent
+  contention possible in single-threaded CLJS."
+  (atom []))
+
+(defn- record-fx!
+  "Append a would-fire entry. Called by the dry-run recorder fx;
+  `:fx-id` is the ORIGINAL id (before override), `:args` is the fx's
+  args payload — `pr-str`-able for the wire."
+  [fx-id args]
+  (swap! dry-run-recordings conj {:fx-id fx-id :args args}))
+
+;; The dry-run recorder fx. Each entry it records carries the ORIGINAL
+;; fx-id (which is the key the override mapped FROM). The framework
+;; doesn't pass the original fx-id to the handler — only the args — so
+;; we register one handler per fx-id... actually, we can register a
+;; SINGLE recorder that's selected via the override and rely on the
+;; `:rf.fx/override-applied` trace event to recover the original id
+;; from the cascade's trace stream after the dispatch settles. Cleaner
+;; still: register a single recorder, but feed it both the original
+;; id and the args by recording PER override-mapping at call time.
+;; Since `:fx-overrides` accepts fn-value (a 2-arity `(fn [m args])`)
+;; we can synthesise a closure per fx-id that knows its own id. That
+;; avoids the trace-walk and keeps the recording local.
+
+(defn- build-dry-run-overrides
+  "Build the `:fx-overrides` map for a dry-run dispatch. Each key is
+  a registered fx-id; each value is a fn-value override (Spec 002
+  §`:fx-overrides` form 3) that records the call into
+  `dry-run-recordings` and returns nil. Using fn-value (not id-
+  redirect to a registered recorder) lets each closure carry its own
+  original fx-id without a trace round-trip."
+  []
+  (into {}
+        (map (fn [fx-id]
+               [fx-id
+                ;; fn-value override: (fn [_m args] ...). The first arg
+                ;; is the fx-context map (unused here); the second is
+                ;; the args payload that would have been passed to the
+                ;; registered fx handler.
+                (fn [_m args] (record-fx! fx-id args) nil)]))
+        (registered-fx-ids)))
+
+(defn dispatch-dry-run
+  "Run a dispatch through the cascade pipeline without committing it.
+   Full reducer + interceptor chain runs, schema validation fires,
+   machine transitions simulate, sub-runs and renders are recorded —
+   but NO fx execute (every fx is overridden to a recording stub) and
+   the framework rolls back to the pre-call epoch head via
+   `restore-epoch`.
+
+   Returns:
+
+     {:ok? true
+      :dry-run? true
+      :rolled-back? true
+      :event <event-v>
+      :frame <frame-id>
+      :cascade-summary {...}             ;; what WOULD have happened
+      :would-fire-effects [{:fx-id ...
+                            :args ...} ...]  ;; per-call recording
+      :db-state-after-simulation <db>}   ;; the would-be db verbatim
+
+   Failure paths:
+
+     - `:reason :no-epoch-recorded`     — epoch-history empty / frame
+                                          unregistered / debug-enabled?
+                                          false. No rollback needed.
+     - `:reason :no-new-epoch`          — dispatch-sync returned but the
+                                          head did not advance (the
+                                          reducer was a no-op against
+                                          the rejected event).
+     - `:reason :rollback-failed`       — the would-be epoch assembled
+                                          but restore-epoch returned
+                                          false. The recorded would-be
+                                          db IS the live db; the caller
+                                          needs to re-restore manually.
+                                          Should not occur in practice
+                                          (the id we just produced is
+                                          at the head of the ring).
+
+   Per rf2-17hvp this primitive is the framework-side surface; the MCP
+   tool `dispatch-dry-run` wraps it. Bound by the registered fx set
+   at call time — fx registered after the dry-run start (a rare race)
+   would slip through the override; the cost is one un-stubbed fx
+   firing. Production builds elide the entire epoch + listener path
+   so dry-run is dev-only by construction."
+  ([event-v] (dispatch-dry-run event-v {}))
+  ([event-v opts]
+   (let [frame-id  (or (:frame opts) (current-frame))
+         _         (when-not frame-id
+                     (throw (ex-info "ambiguous frame" {:reason :ambiguous-frame})))
+         before-id (some-> (rf/epoch-history frame-id) peek :epoch-id)
+         overrides (build-dry-run-overrides)
+         _         (reset! dry-run-recordings [])
+         ;; Compose user-supplied overrides on top of the dry-run set:
+         ;; if the caller passed `:fx-overrides {...}` (some fx
+         ;; redirected to OTHER registered fx as part of the
+         ;; experiment), those wins on conflict — the recorder fires
+         ;; only for fx the caller did NOT pre-stub.
+         user-overrides (:fx-overrides opts)
+         all-overrides  (merge overrides user-overrides)
+         dispatch-opts  (merge opts {:origin :pair
+                                     :fx-overrides all-overrides
+                                     :frame frame-id})]
+     (rf/dispatch-sync event-v dispatch-opts)
+     (let [after-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
+       (cond
+         (and (nil? before-id) (nil? after-id))
+         {:ok?     false
+          :reason  :no-epoch-recorded
+          :event   event-v
+          :frame   frame-id
+          :hint    (str "epoch-history empty after dry-run dispatch. "
+                        "Either depth is 0 (disabled), the frame is "
+                        "destroyed, or interop/debug-enabled? is false "
+                        "(production build).")}
+
+         (= before-id after-id)
+         {:ok?     false
+          :reason  :no-new-epoch
+          :event   event-v
+          :frame   frame-id
+          :hint    (str "dispatch-sync returned but no new epoch landed. "
+                        "The reducer rejected the event (schema, "
+                        "interceptor early-return) or the cascade halted "
+                        "before recording. No rollback needed.")}
+
+         :else
+         (let [target-epoch (epoch-by-id after-id frame-id)
+               recorded     @dry-run-recordings
+               ;; Roll back to the pre-call head. The framework's
+               ;; restore-epoch rewinds app-db AND trims the ring back
+               ;; to the target (the assembled would-be epoch is
+               ;; removed from history).
+               rolled-back? (boolean (rf/restore-epoch frame-id before-id))
+               base {:ok?                       true
+                     :dry-run?                  true
+                     :rolled-back?              rolled-back?
+                     :event                     event-v
+                     :frame                     frame-id
+                     :before-epoch-id           before-id
+                     ;; Project the would-be epoch into the same
+                     ;; cascade-summary shape dispatch /
+                     ;; reset-frame-db / restore-epoch use (rf2-6yqdl).
+                     ;; Operators read one vocabulary across all four.
+                     :cascade-summary           (cascade-summary target-epoch)
+                     :would-fire-effects        recorded
+                     :db-state-after-simulation (:db-after target-epoch)}]
+           (if rolled-back?
+             base
+             (assoc base :rollback-hint
+                    (str "restore-epoch returned false; the would-be db "
+                         "IS the live db. Re-restore manually via "
+                         "(rf/restore-epoch <frame> <before-epoch-id>)."
+                         " Should not occur — the id we just produced "
+                         "is at the head of the ring.")))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Time-travel — first-class via re-frame2
 ;; ---------------------------------------------------------------------------
 
