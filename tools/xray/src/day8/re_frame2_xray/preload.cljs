@@ -8,7 +8,7 @@
   1. Registers Xray's :rf.xray/* handlers (subs/events/fxs) — see
      `re-frame2-xray.registry`.
   2. Registers the trace collector callback under
-     `:rf.xray/trace-collector` — see `re-frame2-xray.trace-bus`.
+     `:rf.xray/trace-collector` — see `re-frame2-xray.trace-collector`.
   3. Attaches a global Ctrl+Shift+C keydown listener — see
      `re-frame2-xray.keybinding`.
   4. Auto-opens the full shell into the host app's normal-flow
@@ -87,7 +87,7 @@
             ;; Xray-the-panel's preload, so no separate `:preloads`
             ;; entry is required on the consumer side.
             [day8.re-frame2-xray.runtime]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- registrations -------------------------------------------------------
 
@@ -116,7 +116,7 @@
   []
   (when (compare-and-set! trace-cb-registered? false true)
     (trace-tooling/register-listener! :rf.xray/trace-collector
-                                      trace-bus/collect-trace!))
+                                      trace-collector/collect-trace!))
   nil)
 
 (defn register-epoch-collector!

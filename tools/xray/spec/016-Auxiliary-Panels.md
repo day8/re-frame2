@@ -109,7 +109,7 @@ All tab content shares the cross-panel substrate:
   test target. View files only render.
 - **Trace-bus consumer** — every panel filters the
   `:rf.xray/trace-buffer` ring (per
-  [`013-Trace-Bus.md`](./013-Trace-Bus.md)) to its slice; nothing here
+  [`013-Trace-Consumer.md`](./013-Trace-Consumer.md)) to its slice; nothing here
   reads framework-level state directly.
 - **Spine binding** — per-tab content reads
   `:rf.xray/focus` (see [`018-Event-Spine.md`](./018-Event-Spine.md)
@@ -127,7 +127,7 @@ user sees on opening Xray.
 ### Inputs
 
 - `:rf.xray/trace-buffer` — the ring of `:rf/trace-event` records
-  (per [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Consumer contract).
+  (per [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Consumer contract).
 - `:rf.xray/selected-dispatch-id` — keyword dispatch-id or `nil`.
 - `:rf.xray/event-detail` — composite sub merging the two above
   ([`014`](./014-Registry-Catalogue.md) §Event-detail panel).
@@ -735,7 +735,7 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
   Settings popup, data-classification rendering contract.
 - [`012-Views.md`](./012-Views.md) — Views tab content (where Flows
   surface).
-- [`013-Trace-Bus.md`](./013-Trace-Bus.md) — the trace ring every tab
+- [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) — the trace ring every tab
   filters from.
 - [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) — the
   exhaustive `:rf.xray/*` subs + events + fxs each tab registers.

@@ -394,7 +394,7 @@
   Figma authority's `external-link` lucide SVG glyph (13px, currentColor
   stroke, inline with the surrounding link text); nothing when `coord`
   has no `:file`. Dispatches `:rf.xray/open-in-editor` with the
-  structured coord; the trace-bus thereby records the click + the
+  structured coord; the trace collector thereby records the click + the
   editor handler resolves the URI through the rf2-cm93v allowlist.
 
   Per rf2-xw7mj the glyph is unified across every click-to-source site

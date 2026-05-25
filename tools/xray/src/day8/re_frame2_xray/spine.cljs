@@ -53,7 +53,7 @@
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.panels.common-helpers :as common]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- pure helpers --------------------------------------------------------
 
@@ -611,17 +611,19 @@
 
 (defn db->cascades
   "Read the cascade vector by re-running the projection against the
-  Xray app-db's `:trace-buffer` slot (falling back to the trace-bus
-  atom for pre-mount callers). Used by the step events that need to
-  walk the cascade list inside an event-db handler — the equivalent
-  reactive path inside the `:rf.xray/focus` sub uses the
-  `:rf.xray/cascades` chain.
+  Xray app-db's `:trace-buffer` slot (falling back to a fresh
+  framework-ring snapshot via `trace-collector/snapshot-from-rings`
+  for pre-mount callers — the slot is absent until the first refresh
+  microtask drains). Used by the step events that need to walk the
+  cascade list inside an event-db handler — the equivalent reactive
+  path inside the `:rf.xray/focus` sub uses the `:rf.xray/cascades`
+  chain.
 
   Public so legacy spine-shim events (e.g. `:rf.xray/select-
   dispatch-id` in event_detail.cljs) can reuse the same projection
   when they need head-id (rf2-xzzih)."
   [db]
-  (let [buffer (or (get db :trace-buffer) (trace-bus/buffer))]
+  (let [buffer (or (get db :trace-buffer) (trace-collector/snapshot-from-rings))]
     (projection/group-cascades buffer)))
 
 (defn- db->epoch-history

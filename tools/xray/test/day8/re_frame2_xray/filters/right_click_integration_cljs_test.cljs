@@ -18,11 +18,11 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!))
+  (trace-collector/reset-for-test!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -88,7 +88,7 @@
             click coords. The browser context menu is suppressed via
             preventDefault."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 7 [:user/mouse-move {:x 1}]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 7 [:user/mouse-move {:x 1}]))
     (let [dispatches      (atom [])
           {:keys [event called]} (mk-context-event)]
       (with-redefs [rf/dispatch* (fn
@@ -147,9 +147,9 @@
 
 (deftest out-pill-removes-matching-row-from-event-list
   (xray-setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:auth/login]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 2 [:mouse-move]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 3 [:order/submit]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:auth/login]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:mouse-move]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:order/submit]))
   (rf/with-frame :rf/xray
     ;; Sanity — all three rows present pre-filter.
     (let [tree (shell/shell-view)]

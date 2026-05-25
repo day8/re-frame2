@@ -213,7 +213,7 @@ is also carried by the dot appearing on the track and by the row's
 **Clearing.** The cue clears with the animation; there is no
 sticky "recently flashed" decoration on the label after the 600ms
 elapses. Clearing the trace buffer (per
-[`013-Trace-Bus.md`](./013-Trace-Bus.md) §Lifecycle operations)
+[`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Lifecycle operations)
 drops every row's in-window violations, returning every row to the
 empty state; the next violation against any schema will fire its
 flash again. Scrubbing the time-axis window so that all of a row's

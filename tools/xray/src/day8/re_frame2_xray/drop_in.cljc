@@ -4,8 +4,9 @@
   Xray's primary integration is as a dev-tool inside a re-frame2 app:
   the host's `re-frame.trace/emit!` calls fan trace events out to
   Xray's collector via `register-listener!` (see
-  `tools/xray/spec/013-Trace-Bus.md`). Every panel reads from the
-  ring buffer those events land in.
+  `tools/xray/spec/013-Trace-Consumer.md`). Every panel reads from
+  the per-frame trace rings + the frameless secondary ring those
+  events land in.
 
   This namespace lets a host that is NOT a re-frame2 app reach the
   same buffer. Concretely: an XState app, a Redux app with a logger
@@ -19,7 +20,7 @@
 
   ## What the host MUST supply
 
-  Per [`tools/xray/spec/013-Trace-Bus.md` §Inputs](../spec/013-Trace-Bus.md)
+  Per [`tools/xray/spec/013-Trace-Consumer.md` §Inputs](../spec/013-Trace-Consumer.md)
   the buffer holds canonical `:rf/trace-event` maps. The minimum
   field set the drop-in accepts:
 
@@ -36,8 +37,8 @@
                    `:frame`, `:event-id`, `:dispatch-id`, `:source`,
                    `:origin`, `:handler-id`)
 
-  Hosts MAY add additional fields; Xray's filter vocabulary
-  (`trace-bus/filter-events`) reads only what it knows about.
+  Hosts MAY add additional fields; the framework's filter vocabulary
+  on `(rf/trace-buffer fid opts)` reads only what it knows about.
 
   ## The three attach modes
 
@@ -90,13 +91,14 @@
   modes (binary trace decoders, transit-over-websocket, etc.) add
   keys here additively."
   (:require [re-frame.interop :as interop]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
 ;; ---- internal counter for auto-`:id` ------------------------------------
 ;;
 ;; Hosts that don't number their own events still want cursor-based
-;; filtering (the `:since` axis on `trace-bus/filter-events`) to work
-;; — otherwise the L2 event list, the `:rf.xray/event-detail` hero,
+;; filtering (the `:since` axis the framework's filter vocabulary
+;; honours on `(rf/trace-buffer fid {:since N})`) to work — otherwise
+;; the L2 event list, the `:rf.xray/event-detail` hero,
 ;; and every other panel that diffs the buffer by id would lose its
 ;; ability to point at a specific event. The drop-in keeps its own
 ;; monotonic counter, namespaced under `:rf.xray.drop-in/id-counter`
@@ -143,8 +145,8 @@
   silently swallows host input, so the bar is deliberately low — we
   drop nils and non-maps; anything else flows through to the buffer
   and the panel-side filters cope with shape mismatches gracefully
-  (an event missing `:operation` reads as nil through `trace-bus/
-  filter-events`).
+  (an event missing `:operation` reads as nil through the framework's
+  filter vocabulary on `(rf/trace-buffer fid opts)`).
 
   Per [`spec/Spec-Schemas.md` §`:rf/trace-event`](../../../../spec/Spec-Schemas.md#rftrace-event)
   the canonical shape is a map; non-maps cannot satisfy the schema
@@ -157,19 +159,29 @@
 (defn collect-from-host!
   "Normalise + push one host-supplied trace event into Xray's buffer.
 
-  Goes through `trace-bus/collect-trace!` (the public ingest path) so
-  the privacy gate, the coalesced mirror dispatch, and the
-  debug-enabled? gate all apply uniformly. The `:rf/xray` self-noise
-  filter in `collect-trace!` is a true predicate — Xray-internal
-  events carry `:frame :rf/xray`; host events cannot — so the filter
-  is structurally a pass-through on this code path.
+  Routes through `trace-collector/collect-trace!` (the public ingest
+  path) so the self-noise drop, the privacy gate, the
+  coalesced mirror dispatch, and the debug-enabled? gate all apply
+  uniformly. The `:rf/xray` self-noise filter is a true predicate —
+  Xray-internal events carry `:frame :rf/xray`; host events cannot —
+  so the filter is structurally a pass-through on this code path.
+  Drop-in events carry no `:frame` so the trace collector routes them
+  to the frameless secondary ring (per the rf2-3g9nw D2=a ruling), the
+  same place the framework's frameless emits land.
 
   Returns nothing. No-op when `event` is not a map (see
   `valid-event?`) or when the build is production (the `collect-
-  trace!` body short-circuits on `interop/debug-enabled?` false)."
+  trace!` body short-circuits on `interop/debug-enabled?` false).
+
+  CLJS-only side effect: the JVM target's `collect-trace!` short-
+  circuits on `interop/debug-enabled?` false, matching the production
+  CLJS posture. The normalise-event arity remains JVM-runnable so the
+  fill algebra is testable without a CLJS runtime."
   [event]
   (when (valid-event? event)
-    (trace-bus/collect-trace! (normalise-event event)))
+    (let [normalised (normalise-event event)]
+      #?(:cljs (trace-collector/collect-trace! normalised)
+         :clj  normalised)))
   nil)
 
 ;; ---- attach-state --------------------------------------------------------
@@ -257,9 +269,9 @@
        ;; Pump the atom's CURRENT contents on attach so the host
        ;; doesn't lose the events that landed before the watch fired.
        ;; Mirror of `mount.cljs/ensure-xray-frame!` seeding from
-       ;; the trace-bus atom; the principle is the same — at first
-       ;; consumer-side attachment, project the producer's current
-       ;; snapshot.
+       ;; the framework's per-frame rings + the frameless secondary
+       ;; ring; the principle is the same — at first consumer-side
+       ;; attachment, project the producer's current snapshot.
        (doseq [ev (atom-tail-since nil @host-atom)]
          (collect-from-host! ev))
        {:mode      :atom

@@ -43,7 +43,7 @@
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -51,7 +51,7 @@
 (def ^:private frame-below :below)
 
 (defn- install-xray! []
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (xray-test-support/reset-all!)
   (registry/register-xray-handlers!)
   (preload/register-trace-collector!)
@@ -64,7 +64,7 @@
 
 (defn- mount-xray-with-target! [target]
   (frame/reg-frame :rf/xray {})
-  (let [buffer (trace-bus/buffer)]
+  (let [buffer (trace-collector/buffer-for-test)]
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer])
       (rf/dispatch-sync [:rf.xray/set-target-frame target])))
@@ -76,7 +76,7 @@
 (defn- dispatch-host-frame [event frame-id]
   (rf/dispatch-sync event {:frame frame-id})
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/sync-trace-buffer (trace-bus/buffer)])
+    (rf/dispatch-sync [:rf.xray/sync-trace-buffer (trace-collector/buffer-for-test)])
     (rf/dispatch-sync [:rf.xray/set-target-frame frame-id])))
 
 (defn- focus-cascade! [dispatch-id frame-id]

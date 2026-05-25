@@ -76,7 +76,7 @@
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- per-test reset -----------------------------------------------------
 
@@ -90,7 +90,7 @@
   one canonical reset shape."
   []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!))
+  (trace-collector/reset-for-test!))
 
 (def fixture
   "`use-fixtures :each` value for sub-reactivity tests. Wires

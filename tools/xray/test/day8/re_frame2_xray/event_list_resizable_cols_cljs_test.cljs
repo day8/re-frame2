@@ -25,13 +25,13 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixture ------------------------------------------------------------
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/reset-settings!)
   ;; Force-cleanup any stale drag-state from a previous test (the
   ;; module-level defonce atom survives fixture reset).
@@ -108,7 +108,7 @@
   (testing "rf2-6ni62 — the L2 column header carries one divider per
             user-resizable column (source, timestamp, duration)"
     (setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree     (shell/shell-view)
             dividers (find-all-by-testid-prefix
@@ -142,7 +142,7 @@
             the full drag; assert the rendered widths match the
             settings."
     (setup!)
-    (trace-bus/collect-trace! (timer-cascade-trace-ev 1 [:poll/tick]))
+    (trace-collector/seed-trace-for-test! (timer-cascade-trace-ev 1 [:poll/tick]))
     ;; Set a non-default width via the production event surface.
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-event-list-col-width :timestamp 120]))
@@ -163,7 +163,7 @@
             read identical widths (the alignment guarantee on the
             silent default path)"
     (setup!)
-    (trace-bus/collect-trace! (timer-cascade-trace-ev 1 [:poll/tick]))
+    (trace-collector/seed-trace-for-test! (timer-cascade-trace-ev 1 [:poll/tick]))
     (rf/with-frame :rf/xray
       (let [tree     (shell/shell-view)
             h-source (find-by-testid tree "rf-xray-event-list-col-source")
@@ -347,7 +347,7 @@
 
 (deftest divider-double-click-handler-dispatches-reset
   (setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
   (let [dispatches (atom [])]
     (with-redefs [rf/dispatch* (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
@@ -371,7 +371,7 @@
             role + orientation + valuemin/max/now so screenreaders + the
             host's a11y tree announce the resize affordance correctly"
     (setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree    (shell/shell-view)
             divider (find-by-testid

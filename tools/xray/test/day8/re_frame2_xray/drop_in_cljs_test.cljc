@@ -14,16 +14,16 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
             [day8.re-frame2-xray.drop-in :as drop-in]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn- reset-each [test-fn]
-  (trace-bus/clear-buffer!)
+  #?(:cljs (trace-collector/reset-for-test!))
   (drop-in/reset-for-test!)
   (test-fn)
   (drop-in/reset-for-test!)
-  (trace-bus/clear-buffer!))
+  #?(:cljs (trace-collector/reset-for-test!)))
 
 (use-fixtures :each reset-each)
 
@@ -61,44 +61,48 @@
 
 ;; ---- push mode ----------------------------------------------------------
 
-(deftest emit!-pushes-into-xray-buffer
-  (testing "emit! lands a host event in the Xray trace buffer"
-    (drop-in/attach! {:mode :push})
-    (drop-in/emit! {:operation :host/login
-                    :op-type   :rf.event
-                    :tags      {:rf.trace/event-id :user/login}})
-    (let [buf (trace-bus/buffer)]
-      (is (= 1 (count buf)) "one event in the buffer after one emit!")
-      (is (= :host/login (:operation (first buf))))
-      (is (= :rf.event   (:op-type   (first buf))))
-      (is (number?       (:id        (first buf))) ":id filled by drop-in")
-      (is (number?       (:time      (first buf))) ":time filled by drop-in"))))
+#?(:cljs
+   (deftest emit!-pushes-into-xray-buffer
+     (testing "emit! lands a host event in the Xray frameless secondary ring"
+       (drop-in/attach! {:mode :push})
+       (drop-in/emit! {:operation :host/login
+                       :op-type   :rf.event
+                       :tags      {:rf.trace/event-id :user/login}})
+       (let [buf (trace-collector/buffer-for-test)]
+         (is (= 1 (count buf)) "one event in the buffer after one emit!")
+         (is (= :host/login (:operation (first buf))))
+         (is (= :rf.event   (:op-type   (first buf))))
+         (is (number?       (:id        (first buf))) ":id filled by drop-in")
+         (is (number?       (:time      (first buf))) ":time filled by drop-in")))))
 
-(deftest emit!-without-attach-still-pushes
-  (testing "push-mode emit! does NOT require a prior attach! (per ns docstring)"
-    (drop-in/emit! {:operation :host/foo :op-type :rf.event})
-    (is (= 1 (count (trace-bus/buffer)))
-        "emit! is callable independently of attach! — push mode has no subscription to gate on")))
+#?(:cljs
+   (deftest emit!-without-attach-still-pushes
+     (testing "push-mode emit! does NOT require a prior attach! (per ns docstring)"
+       (drop-in/emit! {:operation :host/foo :op-type :rf.event})
+       (is (= 1 (count (trace-collector/buffer-for-test)))
+           "emit! is callable independently of attach! — push mode has no subscription to gate on"))))
 
-(deftest emit!-drops-non-map-events
-  (testing "non-map events are silently dropped (cf. valid-event?)"
-    (drop-in/attach! {:mode :push})
-    (drop-in/emit! "not-a-map")
-    (drop-in/emit! nil)
-    (drop-in/emit! 42)
-    (drop-in/emit! [:vector :is :not :a :map])
-    (is (= 0 (count (trace-bus/buffer)))
-        "every non-map emit was dropped at valid-event?")))
+#?(:cljs
+   (deftest emit!-drops-non-map-events
+     (testing "non-map events are silently dropped (cf. valid-event?)"
+       (drop-in/attach! {:mode :push})
+       (drop-in/emit! "not-a-map")
+       (drop-in/emit! nil)
+       (drop-in/emit! 42)
+       (drop-in/emit! [:vector :is :not :a :map])
+       (is (= 0 (count (trace-collector/buffer-for-test)))
+           "every non-map emit was dropped at valid-event?"))))
 
-(deftest multiple-emits-preserve-order
-  (testing "buffer ordering tracks emit order"
-    (drop-in/attach! {:mode :push})
-    (drop-in/emit! {:operation :host/a :op-type :rf.event})
-    (drop-in/emit! {:operation :host/b :op-type :rf.event})
-    (drop-in/emit! {:operation :host/c :op-type :rf.event})
-    (let [ops (mapv :operation (trace-bus/buffer))]
-      (is (= [:host/a :host/b :host/c] ops)
-          "events land in the buffer in the order emit! was called"))))
+#?(:cljs
+   (deftest multiple-emits-preserve-order
+     (testing "buffer ordering tracks emit order"
+       (drop-in/attach! {:mode :push})
+       (drop-in/emit! {:operation :host/a :op-type :rf.event})
+       (drop-in/emit! {:operation :host/b :op-type :rf.event})
+       (drop-in/emit! {:operation :host/c :op-type :rf.event})
+       (let [ops (mapv :operation (trace-collector/buffer-for-test))]
+         (is (= [:host/a :host/b :host/c] ops)
+             "events land in the buffer in the order emit! was called")))))
 
 ;; ---- attach! / detach! lifecycle ----------------------------------------
 
@@ -133,21 +137,22 @@
 
 ;; ---- subscribe mode -----------------------------------------------------
 
-(deftest sub-mode-fans-events-through-register-fn
-  (testing ":sub mode: register-fn is called with our emit-cb; cb pushes into buffer"
-    (let [captured-cb (atom nil)]
-      (drop-in/attach!
-        {:mode :sub
-         :trace-source (fn [emit-cb]
-                         (reset! captured-cb emit-cb)
-                         ;; unregister fn — no-op for this test
-                         (fn []))})
-      (is (fn? @captured-cb)
-          "register-fn received the drop-in's collector callback")
-      ;; Host fires the cb as if its source had emitted an event.
-      (@captured-cb {:operation :sub-mode/event :op-type :rf.event})
-      (is (= 1 (count (trace-bus/buffer))))
-      (is (= :sub-mode/event (:operation (first (trace-bus/buffer))))))))
+#?(:cljs
+   (deftest sub-mode-fans-events-through-register-fn
+     (testing ":sub mode: register-fn is called with our emit-cb; cb pushes into buffer"
+       (let [captured-cb (atom nil)]
+         (drop-in/attach!
+           {:mode :sub
+            :trace-source (fn [emit-cb]
+                            (reset! captured-cb emit-cb)
+                            ;; unregister fn — no-op for this test
+                            (fn []))})
+         (is (fn? @captured-cb)
+             "register-fn received the drop-in's collector callback")
+         ;; Host fires the cb as if its source had emitted an event.
+         (@captured-cb {:operation :sub-mode/event :op-type :rf.event})
+         (is (= 1 (count (trace-collector/buffer-for-test))))
+         (is (= :sub-mode/event (:operation (first (trace-collector/buffer-for-test)))))))))
 
 (deftest sub-mode-detach-invokes-host-unregister
   (testing ":sub mode: detach! invokes the host's unregister fn"
@@ -181,7 +186,7 @@
                              {:operation :seed/b :op-type :rf.event}])]
          (drop-in/attach! {:mode :atom :trace-source host-log})
          (is (= [:seed/a :seed/b]
-                (mapv :operation (trace-bus/buffer)))
+                (mapv :operation (trace-collector/buffer-for-test)))
              "atom contents at attach time landed in the buffer")))))
 
 #?(:cljs
@@ -193,7 +198,7 @@
          (swap! host-log conj {:operation :tick/two :op-type :rf.event})
          (swap! host-log conj {:operation :tick/three :op-type :rf.event})
          (is (= [:tick/one :tick/two :tick/three]
-                (mapv :operation (trace-bus/buffer)))
+                (mapv :operation (trace-collector/buffer-for-test)))
              "every conj appended one event to the buffer")))))
 
 #?(:cljs
@@ -204,7 +209,7 @@
          (swap! host-log conj {:operation :before-detach :op-type :rf.event})
          (drop-in/detach!)
          (swap! host-log conj {:operation :after-detach :op-type :rf.event})
-         (let [ops (mapv :operation (trace-bus/buffer))]
+         (let [ops (mapv :operation (trace-collector/buffer-for-test))]
            (is (= [:before-detach] ops)
                "only the pre-detach event reached the buffer"))))))
 
@@ -216,29 +221,16 @@
          (swap! host-log into [{:operation :batch/a :op-type :rf.event}
                                {:operation :batch/b :op-type :rf.event}
                                {:operation :batch/c :op-type :rf.event}])
-         (is (= 3 (count (trace-bus/buffer)))
+         (is (= 3 (count (trace-collector/buffer-for-test)))
              "all three events pumped from the batch swap!")))))
 
 ;; ---- shape contract ----------------------------------------------------
-
-(deftest pushed-events-survive-filter-vocab
-  (testing "host events are filterable by the same vocabulary the framework uses"
-    (drop-in/attach! {:mode :push})
-    (drop-in/emit! {:operation :host/login
-                    :op-type   :rf.event
-                    :tags      {:frame :host/main :rf.trace/event-id :user/login}})
-    (drop-in/emit! {:operation :host/transition
-                    :op-type   :rf.machine
-                    :tags      {:frame :host/main :rf.trace/event-id :state/changed}})
-    (let [evs-by-event-type   (trace-bus/filter-events (trace-bus/buffer)
-                                                        {:op-type :rf.event})
-          evs-by-machine-type (trace-bus/filter-events (trace-bus/buffer)
-                                                        {:op-type :rf.machine})
-          evs-by-event-id     (trace-bus/filter-events (trace-bus/buffer)
-                                                        {:event-id :user/login})]
-      (is (= 1 (count evs-by-event-type)))
-      (is (= :host/login (:operation (first evs-by-event-type))))
-      (is (= 1 (count evs-by-machine-type)))
-      (is (= :host/transition (:operation (first evs-by-machine-type))))
-      (is (= 1 (count evs-by-event-id)))
-      (is (= :host/login (:operation (first evs-by-event-id)))))))
+;;
+;; Post-rf2-43koh: the consumer-side filter vocabulary
+;; (`trace-bus/filter-events`) is retired alongside the rest of the
+;; separate Xray ring. The framework's `(rf/trace-buffer fid opts)`
+;; exposes the same 13-axis filter vocabulary directly; the framework's
+;; own `re-frame.trace-buffer-test` covers every axis. Drop-in's
+;; contract is that host events ARE valid `:rf/trace-event` shapes —
+;; that contract is covered by the push / atom / sub mode tests above
+;; plus the framework's own filter coverage.

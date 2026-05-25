@@ -38,15 +38,15 @@ async function readTraceEventsAsEdn(page) {
     const bus =
       window.day8 &&
       window.day8.re_frame2_xray &&
-      window.day8.re_frame2_xray.trace_bus;
-    if (!cljs || !bus || typeof bus.buffer !== 'function') {
+      window.day8.re_frame2_xray.trace_collector;
+    if (!cljs || !bus || typeof bus.buffer_for_test !== 'function') {
       return {
         ok: false,
-        reason: 'cljs.core / day8.re_frame2_xray.trace_bus.buffer not on window',
+        reason: 'cljs.core / day8.re_frame2_xray.trace_collector.buffer_for_test not on window',
       };
     }
     const events = [];
-    let s = cljs.seq(bus.buffer());
+    let s = cljs.seq(bus.buffer_for_test());
     while (s) {
       const ev = cljs.first(s);
       events.push(cljs.pr_str ? cljs.pr_str(ev) : String(ev));
@@ -57,25 +57,27 @@ async function readTraceEventsAsEdn(page) {
 }
 
 /**
- * Clear the Xray trace bus. Useful between sub-scenarios in one
- * spec to keep `events.find(...)` scoped to the events under test
- * without earlier `:counter/initialise` / lifecycle emits in the way.
+ * Clear Xray's trace surface — framework's per-frame rings + Xray's
+ * frameless secondary ring + Xray's app-db trace-buffer slot + the
+ * redaction counter (per rf2-43koh + the rf2-3g9nw D5=a ruling).
+ * Useful between sub-scenarios in one spec to keep `events.find(...)`
+ * scoped to the events under test without earlier `:counter/initialise`
+ * / lifecycle emits in the way.
  *
- * Per `day8.re-frame2-xray.trace-bus/clear-buffer!`: this empties
- * Xray's own buffer; the framework's `re-frame.trace/trace-buffer`
- * is untouched (the two are independent ring buffers per Spec 009
- * §Retain-N trace ring buffer).
+ * Calls `day8.re-frame2-xray.trace-collector/retroactive-scrub!` —
+ * the same wholesale-clear path the privacy toggle-off transition and
+ * the Settings "Clear buffer now" button use.
  */
 async function clearTraceBus(page) {
   return page.evaluate(() => {
     const bus =
       window.day8 &&
       window.day8.re_frame2_xray &&
-      window.day8.re_frame2_xray.trace_bus;
-    if (!bus || typeof bus.clear_buffer_BANG_ !== 'function') {
-      return { ok: false, reason: 'trace_bus.clear_buffer_BANG_ not on window' };
+      window.day8.re_frame2_xray.trace_collector;
+    if (!bus || typeof bus.retroactive_scrub_BANG_ !== 'function') {
+      return { ok: false, reason: 'trace_collector.retroactive_scrub_BANG_ not on window' };
     }
-    bus.clear_buffer_BANG_();
+    bus.retroactive_scrub_BANG_();
     return { ok: true };
   });
 }

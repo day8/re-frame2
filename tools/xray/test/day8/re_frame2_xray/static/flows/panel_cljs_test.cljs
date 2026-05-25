@@ -24,14 +24,14 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.flows.panel :as panel]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.views.data-display :as dd]))
 
 ;; ---- fixture ------------------------------------------------------------
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!))
+  (trace-collector/reset-for-test!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture

@@ -41,13 +41,13 @@
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.static.shell :as static-shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixture ------------------------------------------------------------
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/reset-settings!))
 
 (use-fixtures :each
@@ -273,7 +273,7 @@
   ;; Mirrors `frame_switcher_cljs_test/dispatch-trace` — seed the
   ;; trace-bus directly so the cascades sub composes a list with the
   ;; right frame ids without dispatching real events.
-  (trace-bus/collect-trace!
+  (trace-collector/seed-trace-for-test!
     {:id          dispatch-id
      :op-type     :rf.event
      :operation   :rf.event/dispatched

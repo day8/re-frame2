@@ -61,7 +61,7 @@
   - **Sensitive data.** This ns is pure projection over the cascade
     record + the trace events the buffer holds; redaction lives
     upstream (Spec 009 §Privacy — `:sensitive?` events are stripped
-    at ingest by `trace-bus/collect-trace!`). An exported cascade is
+    at ingest by `trace-collector/collect-trace!`). An exported cascade is
     no more sensitive than what Xray already shows on screen.
 
   - **Cross-cascade context.** The export is INTENTIONALLY narrow —

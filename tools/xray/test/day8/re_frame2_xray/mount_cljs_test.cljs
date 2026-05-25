@@ -57,7 +57,7 @@
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- private-state accessors --------------------------------------------
 ;;
@@ -246,7 +246,7 @@
   ;; event handlers installed.
   (registry/register-xray-handlers!)
   (config/set-auto-open! true)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (reset-mount-state!))
 
 (use-fixtures :each
@@ -869,9 +869,9 @@
             ;; first open!. The frame doesn't exist yet, so the
             ;; `mirror-into-xray!` guard skips the dispatch — atom
             ;; still accumulates.
-            (trace-bus/collect-trace!
+            (trace-collector/seed-trace-for-test!
               {:id 1 :op-type :rf.event :operation :rf.test/pre-mount :tags {}})
-            (trace-bus/collect-trace!
+            (trace-collector/seed-trace-for-test!
               {:id 2 :op-type :rf.event :operation :rf.test/pre-mount :tags {}})
             (mount/open!)
             ;; After open! the slot reflects the pre-mount atom contents.
@@ -949,9 +949,9 @@
             ;; while Xray was unmounted. The trace-bus atom accumulates
             ;; the trace events; the framework's epoch ring (stubbed
             ;; above) carries the corresponding :rf/epoch-record values.
-            (trace-bus/collect-trace!
+            (trace-collector/seed-trace-for-test!
               (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
-            (trace-bus/collect-trace!
+            (trace-collector/seed-trace-for-test!
               (pre-mount-dispatch-event 2 101 :cart-frame :cart/checkout))
             (mount/open!)
             (rf/with-frame :rf/xray
@@ -1008,9 +1008,9 @@
             ;; Xray-internal cascade (filtered from L2). Without the
             ;; internal filter the latter would sort as head and the
             ;; seed-frame would be wrong.
-            (trace-bus/collect-trace!
+            (trace-collector/seed-trace-for-test!
               (pre-mount-dispatch-event 1 200 :cart-frame :cart/add))
-            (trace-bus/collect-trace!
+            (trace-collector/seed-trace-for-test!
               (pre-mount-dispatch-event 2 201 :rf/xray
                                         :rf.xray/select-tab))
             (mount/open!)

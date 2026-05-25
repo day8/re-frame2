@@ -82,7 +82,7 @@ the time-travel scrubber, and the per-frame target selection.
 
 | Sub | Inputs | Returns | When recomputes |
 |---|---|---|---|
-| `:rf.xray/trace-buffer` | thunks `trace-bus/buffer` (the process-global ring atom) | Vector of `:rf/trace-event` records, oldest-first (per [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Consumer contract). | Layer-1 sub re-fires on every app-db change of the resolved frame; under Xray's normal usage (panels rendered inside a host app) the host's next dispatch dirties the frame's db and the sub picks up whatever the trace-cb has accumulated in the atom since the previous recompute (rf2-e9s81 — supersedes rf2-iw5ym's app-db-mirror path; see [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Reactivity for the trade-off). |
+| `:rf.xray/trace-buffer` | reads `(get db :trace-buffer [])` (populated by the coalesced microtask mirror sync) | Vector of `:rf/trace-event` records, oldest-first (per [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Consumer contract) — the merged snapshot across every registered host frame's ring + Xray's frameless secondary ring. | Layer-1 sub re-fires on every app-db write to `:trace-buffer`. The slot is populated by `trace-collector/refresh-trace-rings!` — production drives via microtask-coalesced mirror sync (one dispatch per JS tick regardless of trace volume); tests drive synchronously via the same entrypoint (per the rf2-3g9nw D3=b ruling). Per rf2-43koh — supersedes the rf2-e9s81 atom-thunk fall-through; the framework's per-frame rings own the data plane now. |
 | `:rf.xray/suppressed-sensitive-count` | `db` (reads `:suppressed-counters`) | Integer — total suppressed `:sensitive? true` events under the current `:rf.privacy/show-sensitive?` setting. | On `db` write to `:suppressed-counters` (rf2-0vxdn — reactive immediate update of the `[● REDACTED N]` bottom-rail indicator). |
 | `:rf.xray/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.xray/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.xray/epoch-recorded` dispatch. |
@@ -94,11 +94,10 @@ the time-travel scrubber, and the per-frame target selection.
 | Event | Vector shape | Returns | Notes |
 |---|---|---|---|
 | `:rf.xray/epoch-recorded` | `[_ frame-id]` | `{:db ...}` | Pumped from the epoch-cb registered in `preload.cljs` on every settled epoch. Re-reads `rf/epoch-history` to keep the cached snapshot consistent. No-ops when `frame-id` ≠ the current target. |
-| `:rf.xray/note-sensitive-suppressed` | `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — bumps `[:suppressed-counters (or frame-id :global)]` in Xray's app-db. Dispatched from `trace-bus/collect-trace!` (CLJS) when the privacy gate drops a `:sensitive? true` event. Drives the `:rf.xray/suppressed-sensitive-count` sub reactively. |
-| `:rf.xray/reset-suppressed-counters` | `[_]` or `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — clears all buckets (no arg) or just the named bucket. Dispatched from `trace-bus/clear-buffer!` (CLJS) — clearing the trace ring buffer also drops the `[● REDACTED N]` indicator state. |
-| `:rf.xray/note-trace-event` | `[_ event]` | `{:db ...}` | Carries `{:rf.trace/no-emit? true}` per rf2-qsjda — the dispatch must not itself emit a trace event (the trace-cb appends straight onto the buffer slot in arrival order via `mirror-into-xray!`). Pumped from `trace-bus/collect-trace!` to keep Xray's app-db `:trace-buffer` in lockstep with the process-global ring. |
-| `:rf.xray/clear-trace-buffer` | `[_]` | `{:db ...}` | `:rf.trace/no-emit? true`. Drops the `:trace-buffer` slot. Dispatched from `trace-bus/clear-buffer!` (CLJS) when the user clears the ring. Same loop-avoidance rationale as `:rf.xray/note-trace-event`. |
-| `:rf.xray/sync-trace-buffer` | `[_ buffer]` | `{:db ...}` | `:rf.trace/no-emit? true`. Replaces the `:trace-buffer` slot with the supplied buffer vector. Dispatched from the depth-shrink path so the mirror reflects post-shrink contents. |
+| `:rf.xray/note-sensitive-suppressed` | `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — bumps `[:suppressed-counters (or frame-id :global)]` in Xray's app-db. Dispatched from `trace-collector/collect-trace!` (CLJS) when the privacy gate drops a `:sensitive? true` event. Drives the `:rf.xray/suppressed-sensitive-count` sub reactively. |
+| `:rf.xray/reset-suppressed-counters` | `[_]` or `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — clears all buckets (no arg) or just the named bucket. Dispatched from `trace-collector/retroactive-scrub!` (CLJS) — the wholesale clear (privacy toggle-off, Settings clear, palette clear) drops the `[● REDACTED N]` indicator state alongside the rings. |
+| `:rf.xray/clear-trace-buffer` | `[_]` | `{:db ...}` | `:rf.trace/no-emit? true`. Drops the `:trace-buffer` slot. Dispatched from `trace-collector/retroactive-scrub!` (CLJS) when the user clears the rings or the privacy gate transitions true → false. |
+| `:rf.xray/sync-trace-buffer` | `[_ buffer]` | `{:db ...}` | `:rf.trace/no-emit? true`. Wholly replaces the `:trace-buffer` slot with the supplied buffer vector. Dispatched from `trace-collector/refresh-trace-rings!` — the microtask-coalesced production path snapshots the framework's per-frame rings + Xray's frameless secondary ring on every tick; tests drive the same entrypoint synchronously for deterministic ordering. |
 
 ### Callback identifiers
 
@@ -109,7 +108,7 @@ discipline as the rest of the registry.
 
 | Id | Surface | Behaviour |
 |---|---|---|
-| `:rf.xray/trace-collector` | `rf/register-listener!` | Xray's trace-bus collector. Mirrors every emitted trace event into the process-global ring atom (`trace-bus/buffer`) and pumps `:rf.xray/note-trace-event` into the target frame's app-db. Idempotent per preload installation. |
+| `:rf.xray/trace-collector` | `rf/register-listener!` | Xray's trace consumer listener. Drops self-noise (`:frame :rf/xray`), applies the privacy gate, pushes frameless events into Xray's secondary ring, and requests a coalesced microtask sync into `:rf/xray`'s `:trace-buffer` slot — the framework's per-frame rings own the frame-bound data plane (per rf2-43koh). Idempotent per preload installation. |
 | `:rf.xray/epoch-collector` | `rf/register-epoch-listener!` | Xray's epoch-settle pump. Dispatches `:rf.xray/epoch-recorded` per settled epoch so the cached `:rf.xray/epoch-history` snapshot stays consistent with `(rf/epoch-history target)`. Short-circuits when Xray is not mounted. |
 
 ## Event-detail panel
@@ -524,7 +523,7 @@ localStorage).
 | `:toggle-theme` | `#{:dynamic :static}` | Flips the Settings `:theme` slot between `:dark` and `:light` via `:rf.xray/settings-update`. |
 | `:toggle-reduced-motion` | `#{:dynamic :static}` | Flips the user-override reduced-motion axis (rides the axis-3 of theme/density/motion in §Settings). |
 | `:snapshot-db` | `#{:dynamic}` | Pins the current target-frame's app-db snapshot via `:rf.xray/pin-current`. |
-| `:clear-epoch` | `#{:dynamic}` | Clears the trace ring + epoch history via `trace-bus/clear-buffer!`. |
+| `:clear-epoch` | `#{:dynamic}` | Clears the framework's per-frame rings + Xray's frameless secondary ring + the epoch history via `trace-collector/retroactive-scrub!`. |
 | `:mode-toggle` | `#{:dynamic :static}` | Dispatches `:rf.xray/toggle-mode` (the Cmd-Shift-M chord's verb form, surfaced as a palette entry for discoverability). |
 | `:jump-to-settings` | `#{:dynamic :static}` | Opens the Settings popup. |
 
@@ -553,7 +552,7 @@ The naming convention itself is owned by
 this doc enumerates what sits inside the namespace.
 
 For consumers reading the buffer (the substrate every composite sub
-projects from), see [`013-Trace-Bus.md`](./013-Trace-Bus.md).
+projects from), see [`013-Trace-Consumer.md`](./013-Trace-Consumer.md).
 
 For the API surface this catalogue describes from the *outside*
 (the consolidated user-facing reference), see

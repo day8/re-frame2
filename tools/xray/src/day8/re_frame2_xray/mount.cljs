@@ -56,8 +56,9 @@
             [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
+            [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.theme.tokens :as tokens]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- mount state ---------------------------------------------------------
 
@@ -365,10 +366,14 @@
   Two slots seed on first open so the panels render against history
   the user has already produced before opening Xray:
 
-  - `:trace-buffer` — seeded from the trace-bus atom (rf2-in6l2). The
-    atom collects pre-mount traces; the seed lifts them into the
-    reactive slot at first Ctrl+Shift+C. Subsequent
-    `trace-bus/collect-trace!` calls request a coalesced
+  - `:trace-buffer` — seeded from the framework's per-frame trace
+    rings + Xray's frameless secondary ring (per rf2-43koh). The
+    framework's rings retain pre-mount cascades cascade-keyed; the
+    secondary ring captures frameless emits the per-frame rings skip
+    (per the B3 ruling, rf2-g1b2m). The seed lifts both surfaces into
+    the reactive slot at first Ctrl+Shift+C via
+    `trace-collector/refresh-trace-rings!`; subsequent
+    `trace-collector/collect-trace!` calls request a coalesced
     `:rf.xray/sync-trace-buffer` (rf2-wq6gx) so the sub fires on every
     push without one dispatch per trace event.
 
@@ -421,19 +426,28 @@
 
 (register-first-mount-hook!
   ::seed-trace-and-target-frame
-  ;; Seed the frame's app-db with whatever the trace-bus atom + the
-  ;; framework's epoch ring buffer have accumulated so far. The host
-  ;; may have driven dispatches before the user opened Xray.
-  ;; (rf2-in6l2 :trace-buffer + rf2-boyc2 :epoch-history + :target-frame.)
+  ;; Seed the frame's app-db with whatever the framework's per-frame
+  ;; trace rings + Xray's frameless secondary ring + the framework's
+  ;; epoch ring buffer have accumulated so far. The host may have
+  ;; driven dispatches before the user opened Xray (rf2-43koh consumer
+  ;; substrate; rf2-boyc2 :epoch-history + :target-frame).
+  ;;
+  ;; The snapshot comes from `trace-collector/refresh-trace-rings!` —
+  ;; the same path the production microtask coalescer uses. After the
+  ;; snapshot lands in `:trace-buffer`, project the buffer through the
+  ;; same pipeline the `:rf.xray/cascades` sub uses (projection +
+  ;; Xray-internal hard-filter) to derive the seed-frame. Without the
+  ;; internal filter a tool-frame cascade could be chosen as the head,
+  ;; which the user never sees in the L2 list.
   (fn []
-    (let [buffer     (trace-bus/buffer)
-          ;; Project the pre-mount trace buffer through the same
-          ;; pipeline the `:rf.xray/cascades` sub uses — projection +
-          ;; Xray-internal hard-filter — so the seed-frame matches
-          ;; what `compose-focus` will resolve on first paint. Without
-          ;; the internal filter a tool-frame cascade could be chosen
-          ;; as the head, which the user never sees in the L2 list.
-          cascades   (into [] (remove trace-bus/xray-internal-cascade?)
+    ;; `refresh-trace-rings!` is async via dispatch in production but
+    ;; safe to call here even though `:rf/xray` was just registered —
+    ;; the dispatch lands in the queue; we follow up with a sync
+    ;; dispatch through `:rf.xray/sync-trace-buffer` carrying the same
+    ;; snapshot so the first-mount render reads against pre-mount
+    ;; events deterministically.
+    (let [buffer     (trace-collector/snapshot-from-rings)
+          cascades   (into [] (remove self-noise/xray-internal-cascade?)
                            (projection/group-cascades buffer))
           seed-frame (or (spine/focusable-head-frame-id cascades)
                          defaults/default-target-frame)]

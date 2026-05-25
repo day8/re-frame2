@@ -48,7 +48,7 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.popup :as popup]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixture (map shape per cljs.test/async requirement) ---------------
 
@@ -56,7 +56,7 @@
 
 (defn- setup-runtime! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/reset-settings!)
   ;; Capture the framework registrar so we can restore it post-test,
   ;; matching the body of `test-support/make-reset-runtime-fixture`.

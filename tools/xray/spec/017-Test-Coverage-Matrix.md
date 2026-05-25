@@ -167,7 +167,7 @@ the question the user came in with?).
 - [`019-Cross-Cutting-Insight.md`](./019-Cross-Cutting-Insight.md) - the bug-class catalogue this matrix must cover.
 - [`007-UX-IA.md`](./007-UX-IA.md) - chrome, keyboard, source-coordinate, redaction, launch, and production posture.
 - [`011-Launch-Modes.md`](./011-Launch-Modes.md) - true-inline host default, optional overlay/debug chrome, pop-out, MCP coexistence, preload, and mount lifecycle.
-- [`013-Trace-Bus.md`](./013-Trace-Bus.md) - trace buffer, filter vocabulary, privacy gate, lifecycle, and production elision.
+- [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) - trace buffer, filter vocabulary, privacy gate, lifecycle, and production elision.
 - [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) - owning `:rf.xray/*` ids for panel subscriptions/events/effects.
 - [`015-Configuration.md`](./015-Configuration.md) - host-visible configuration keys and defaults.
 - [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) - per-tab content contracts (Event tab fattened with fx-handlers-ran, Issues tab content, Routes content folded into App-db + Trace, Flows content folded into Views).

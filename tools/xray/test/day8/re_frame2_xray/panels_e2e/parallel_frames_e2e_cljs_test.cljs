@@ -70,7 +70,7 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -88,16 +88,18 @@
     (fn [db _] (:counter/value db))))
 
 (defn- install-xray-handlers-and-collector!
-  "Pre-mount Xray surface — registers handlers and the trace-bus
-  collector. Idempotent. Called BEFORE the host dispatches so the
-  trace-bus accumulates cascades the same way production does (the
-  preload registers the collector before any host event fires).
+  "Pre-mount Xray surface — registers handlers and the trace collector
+  listener. Idempotent. Called BEFORE the host dispatches so the
+  framework's per-frame rings + Xray's frameless secondary ring
+  accumulate cascades the same way production does (the preload
+  registers the listener before any host event fires).
 
-  Also clears the trace-bus ring at the start so cross-test bleed
-  (test-suite-global atom) doesn't pollute the assertion surface
-  with cascades from prior tests."
+  Resets the rings + frameless secondary ring + framework dedup
+  table at the start so cross-test bleed (test-suite-global atoms)
+  doesn't pollute the assertion surface with cascades from prior
+  tests."
   []
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (xray-test-support/reset-all!)
   (registry/register-xray-handlers!)
   (preload/register-trace-collector!)
@@ -105,15 +107,22 @@
 
 (defn- mount-xray-with-target!
   "Mirror of `mount.cljs/ensure-xray-frame!` — registers the
-  `:rf/xray` frame, seeds `:trace-buffer` from the bus, and forces
-  the seed frame so the test exercises the picker-aligned-on-install
-  invariant rather than relying on whatever the head walk picks."
+  `:rf/xray` frame, seeds `:trace-buffer` from the framework's
+  per-frame rings + Xray's frameless secondary ring via the
+  `refresh-trace-rings!` sync entrypoint (per the rf2-3g9nw D3=b
+  ruling), and forces the seed frame so the test exercises the
+  picker-aligned-on-install invariant rather than relying on whatever
+  the head walk picks."
   [target]
   (frame/reg-frame :rf/xray {})
-  (let [buffer (trace-bus/buffer)]
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer])
-      (rf/dispatch-sync [:rf.xray/set-target-frame target])))
+  ;; D3=b sync entrypoint — snapshot every registered host frame's
+  ;; per-frame ring + the frameless secondary ring into Xray's
+  ;; `:trace-buffer` slot so the cascade subs read the pre-mount
+  ;; events on the next subscribe. Bypasses the production microtask
+  ;; coalescer for deterministic test ordering.
+  (trace-collector/refresh-trace-rings!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/set-target-frame target]))
   nil)
 
 (defn- sub-xray [query]
@@ -121,12 +130,15 @@
 
 (defn- dispatch-host-frame [event frame-id]
   (rf/dispatch-sync event {:frame frame-id})
+  ;; D3=b sync entrypoint — refresh Xray's app-db slot from the
+  ;; framework's per-frame rings + Xray's secondary ring deterministically
+  ;; after each host dispatch, bypassing the microtask coalescer.
+  (trace-collector/refresh-trace-rings!)
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/sync-trace-buffer (trace-bus/buffer)])
-    ;; rf2-jio48 — Issues panel now reads the focused epoch's
-    ;; :trace-events (not the global trace bus). Mirror Xray's
-    ;; :epoch-history slot off the framework's per-frame ring buffer
-    ;; so the panel sub sees the records.
+    ;; rf2-jio48 — Issues panel reads the focused epoch's
+    ;; :trace-events (not the global trace bus). Re-target so Xray's
+    ;; :epoch-history slot mirrors the framework's per-frame ring for
+    ;; the host frame the test is observing.
     (rf/dispatch-sync [:rf.xray/set-target-frame frame-id])))
 
 (deftest rf2-ulpp8-l2-list-scoped-to-target-frame-on-initial-mount

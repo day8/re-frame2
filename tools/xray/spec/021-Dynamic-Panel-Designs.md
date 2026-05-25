@@ -16,7 +16,7 @@ synthesis — the super-prompt remains the authoritative statement of intent.
 Cross-refs:
 - [`000-Vision.md`](000-Vision.md) — the five canonical questions
 - [`007-UX-IA.md`](007-UX-IA.md) — chrome, palette, density (still load-bearing)
-- [`013-Trace-Bus.md`](013-Trace-Bus.md) — substrate the panels read
+- [`013-Trace-Consumer.md`](013-Trace-Consumer.md) — substrate the panels read
 - [`018-Event-Spine.md`](018-Event-Spine.md) — `:rf.xray/focus` contract
 - [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) — 5 idioms × 4 areas
 
@@ -1817,7 +1817,7 @@ h1/h2 face.
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — App-db diff (§4 extends with overlay)
 - [`007-UX-IA.md`](007-UX-IA.md) — palette tokens, spacing, density (§10 + §17.1 reuse and extend)
 - [`012-Views.md`](012-Views.md) — Views panel current behaviour (§3 rebuilds as Reactive)
-- [`013-Trace-Bus.md`](013-Trace-Bus.md) — trace-op contract (§12 extends)
+- [`013-Trace-Consumer.md`](013-Trace-Consumer.md) — trace-op contract (§12 extends)
 - [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md) — `:rf.xray/*` ids; new ids implied by §13 + §17.5 land here
 - [`018-Event-Spine.md`](018-Event-Spine.md) — `:rf.xray/focus` (every §-scoped panel binds to this)
 - [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) — 5×4 matrix; §6 / §7 are matrix entries

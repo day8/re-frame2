@@ -65,7 +65,7 @@
             [day8.re-frame2-xray.static.routes.panel :as static-routes-panel]
             [day8.re-frame2-xray.static.schemas.panel :as static-schemas-panel]
             [day8.re-frame2-xray.static.shell :as static-shell]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]
+            [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.app-db-segment-inspector
              :as app-db-segment-inspector]
@@ -106,31 +106,30 @@
   (when (compare-and-set! registered? false true)
     ;; ---- cross-panel primitives ---------------------------------
 
-    ;; Xray's trace-buffer sub returns the Xray-side ring buffer
-    ;; contents (NOT the framework's `(rf/trace-buffer)`). Per
-    ;; rf2-in6l2 + rf2-wq6gx the slot lives in Xray's app-db at
-    ;; `:trace-buffer`; `trace-bus/request-mirror-sync!` coalesces
-    ;; every same-tick mirror request into ONE
-    ;; `:rf.xray/sync-trace-buffer` dispatch into `:rf/xray` that
-    ;; writes the atom's current snapshot — the sub re-fires on the
-    ;; standard app-db-write reactive path so panels re-render on the
-    ;; next microtask after a flush. The coalesced design caps the
-    ;; cascade depth at 1 regardless of host trace-event volume,
-    ;; structurally eliminating the drain-depth saturation that the
-    ;; original per-event mirror exhibited under a synthetic 1000-
-    ;; event flood (rf2-wq6gx). The prior rf2-e9s81 shape thunked
-    ;; `trace-bus/buffer` directly so visible delay was bounded by
-    ;; the host's next dispatch.
+    ;; Xray's trace-buffer sub returns a flat snapshot of every
+    ;; registered frame's per-frame trace ring + the small frameless
+    ;; secondary ring (per rf2-43koh + the rf2-3g9nw D2=a ruling).
+    ;; The slot lives in Xray's app-db at `:trace-buffer` and is
+    ;; populated by `trace-collector/refresh-trace-rings!` — a
+    ;; microtask-coalesced snapshot from the framework's per-frame
+    ;; rings (`(re-frame.trace.tooling/trace-buffer fid {:flat true})`)
+    ;; merged across `(rf/frame-ids)` and concatenated with the Xray-
+    ;; side frameless secondary ring's contents, sorted by `:id`.
     ;;
-    ;; The pre-mount fallback `(trace-bus/buffer)` keeps the sub useful
-    ;; if a consumer reaches in before `mount.cljs/open!` has registered
-    ;; the `:rf/xray` frame + seeded the slot (e.g. headless tests
-    ;; that drive `collect-trace!` without opening the shell). In a
-    ;; live session the seed lands at first Ctrl+Shift+C and the
-    ;; app-db slot is the authoritative reactive source from there on.
+    ;; The sub re-fires on the standard app-db-write reactive path so
+    ;; panels re-render on the next microtask after each refresh. The
+    ;; coalescer caps the mirror cascade at depth 1 regardless of host
+    ;; trace-event volume; the router's drain-depth headroom cannot
+    ;; gate the mirror under saturation.
+    ;;
+    ;; Returns the empty vector pre-mount (the slot is absent until
+    ;; the first refresh microtask drains). Panel-side composites that
+    ;; want richer projection (`group-cascades`, the L2 event list)
+    ;; chain off `:rf.xray/cascades` rather than reading this slot
+    ;; directly.
     (rf/reg-sub :rf.xray/trace-buffer
       (fn [db _query]
-        (or (get db :trace-buffer) (trace-bus/buffer))))
+        (get db :trace-buffer [])))
 
     ;; Total count of :sensitive? trace events the collector has
     ;; suppressed under the current `:rf.privacy/show-sensitive?` setting
@@ -145,9 +144,10 @@
     ;; reactive path and the bottom-rail re-renders IMMEDIATELY —
     ;; no dependency on sibling subs recomputing. The plain
     ;; `config/suppressed-counters` atom remains as the JVM-runnable
-    ;; data primitive (sensitive_trace CLJC tests + trace-bus' JVM
-    ;; data-shape coverage); the CLJS path dual-writes via dispatch
-    ;; so the reactive surface stays consistent.
+    ;; data primitive (sensitive_trace CLJC tests + the JVM-runnable
+    ;; consumer surface in self_noise.cljc); the CLJS path
+    ;; dual-writes via dispatch so the reactive surface stays
+    ;; consistent.
     (rf/reg-sub :rf.xray/suppressed-sensitive-count
       (fn [db _query]
         (reduce + 0 (vals (get db :suppressed-counters {})))))
@@ -327,7 +327,7 @@
     ;; namespace) at this single point so every downstream consumer
     ;; — `:rf.xray/filtered-cascades`, the L2 event list, the spine,
     ;; the Trace / Issues / Event / Views tabs — inherits the filter
-    ;; automatically. The ingest-side `trace-bus/xray-internal-event?`
+    ;; automatically. The ingest-side `self-noise/xray-internal-event?`
     ;; guard (rf2-xs8vu) catches self-emitted sub-reads + view-renders
     ;; inside Xray's frame scope, but `:rf.xray/*` events dispatched
     ;; WITHOUT a `{:frame :rf/xray}` option (palette quick-actions,
@@ -339,7 +339,7 @@
       :<- [:rf.xray/trace-buffer]
       (fn [buffer _query]
         (let [cascades (projection/group-cascades buffer)]
-          (into [] (remove trace-bus/xray-internal-cascade?) cascades))))
+          (into [] (remove self-noise/xray-internal-cascade?) cascades))))
 
     ;; ---- L2 relative-time anchor (rf2-vbbq0 / rf2-0s2at) ----------
     ;;
@@ -498,36 +498,28 @@
     ;; ---- trace-buffer mirror events -------------------------------
     ;;
     ;; The reactive surface for the layer-1 `:rf.xray/trace-buffer`
-    ;; sub is Xray's `:rf/xray` app-db `:trace-buffer` slot. Three
-    ;; events drive that slot, all flagged `:rf.trace/no-emit? true`
+    ;; sub is Xray's `:rf/xray` app-db `:trace-buffer` slot. Two
+    ;; events drive that slot, both flagged `:rf.trace/no-emit? true`
     ;; (rf2-qsjda) so the mirror dispatch does not re-enter the trace
     ;; fan-out and loop:
     ;;
     ;;   `:rf.xray/sync-trace-buffer` — wholesale overwrite with a
-    ;;     full buffer vector. The PRODUCTION write path:
-    ;;     `trace-bus/request-mirror-sync!` coalesces every same-tick
-    ;;     mirror request into ONE dispatch carrying the atom snapshot,
-    ;;     capping the cascade at depth 1 regardless of trace volume.
-    ;;     Also seeds the slot at first mount.
-    ;;
-    ;;   `:rf.xray/note-trace-event` — single-event append with
-    ;;     capped-vector eviction. No production caller (the coalesced
-    ;;     sync above owns the live path); retained as a directly-callable
-    ;;     append helper for the test surface.
+    ;;     fresh snapshot drawn from every registered frame's
+    ;;     per-frame ring + the frameless secondary ring. Dispatched
+    ;;     by `trace-collector/refresh-trace-rings!` (production
+    ;;     microtask-coalesced via `request-mirror-sync!`; tests call
+    ;;     `refresh-trace-rings!` directly per the rf2-3g9nw D3=b
+    ;;     ruling). Also seeds the slot at first mount.
     ;;
     ;;   `:rf.xray/clear-trace-buffer` — drop the slot entirely.
-    (rf/reg-event-db :rf.xray/note-trace-event
-      {:rf.trace/no-emit? true}
-      (fn [db [_ event]]
-        (assoc db :trace-buffer
-               (trace-bus/push (get db :trace-buffer [])
-                               (trace-bus/current-depth)
-                               event))))
+    ;;     Dispatched by `trace-collector/retroactive-scrub!` on the
+    ;;     `:rf.privacy/show-sensitive?` true → false transition, and
+    ;;     from the Settings popup's "Clear buffer now" affordance.
 
-    ;; Clear the mirrored slot in lockstep with the trace-bus atom
-    ;; (dispatched from `trace-bus/clear-buffer!` in CLJS). Per
-    ;; rf2-qsjda the `:rf.trace/no-emit?` flag applies for the same
-    ;; loop-avoidance reason as `:rf.xray/note-trace-event`.
+    ;; Clear the mirrored slot in lockstep with the framework's
+    ;; per-frame rings + Xray's frameless secondary ring (dispatched
+    ;; from `trace-collector/retroactive-scrub!`). Per rf2-qsjda the
+    ;; `:rf.trace/no-emit?` flag avoids re-entering the trace fan-out.
     (rf/reg-event-db :rf.xray/clear-trace-buffer
       {:rf.trace/no-emit? true}
       (fn [db _event]
@@ -535,18 +527,18 @@
 
     ;; Wholesale overwrite of the mirrored slot. Dispatched from
     ;; `mount.cljs/open!` on first Ctrl+Shift+C to seed `:rf/xray`'s
-    ;; app-db with whatever the trace-bus atom has accumulated before
-    ;; the shell was opened, and from `trace-bus/set-buffer-depth!`
-    ;; when the depth shrinks so the mirror reflects the post-shrink
-    ;; contents. Per rf2-qsjda `:rf.trace/no-emit? true` for the same
-    ;; loop-avoidance reason.
+    ;; app-db with whatever the framework's per-frame rings + Xray's
+    ;; frameless secondary ring have accumulated before the shell was
+    ;; opened, and from `trace-collector/refresh-trace-rings!` /
+    ;; `request-mirror-sync!` on every microtask. Per rf2-qsjda
+    ;; `:rf.trace/no-emit? true` for the same loop-avoidance reason.
     (rf/reg-event-db :rf.xray/sync-trace-buffer
       {:rf.trace/no-emit? true}
       (fn [db [_ buffer]]
         (assoc db :trace-buffer (vec buffer))))
 
     ;; Bump the per-frame suppressed-events counter (rf2-0vxdn).
-    ;; Dispatched from `trace-bus/collect-trace!` (CLJS) under
+    ;; Dispatched from `trace-collector/collect-trace!` (CLJS) under
     ;; `:rf/xray` whenever the privacy gate drops a `:sensitive? true`
     ;; trace event. `frame-id` is the event's `:tags :frame` (the host
     ;; frame the trace targeted); `nil` falls under `:global`. Drives
@@ -555,8 +547,9 @@
     ;;
     ;; Per rf2-qsjda: `:rf.trace/no-emit? true` opts the handler out of
     ;; framework trace emission. Without this, the dispatch fired by
-    ;; `trace-bus/collect-trace!` would itself emit `:rf.event/dispatched`
-    ;; etc. back through the trace-cb fan-out, the collector would see
+    ;; `trace-collector/collect-trace!` would itself emit
+    ;; `:rf.event/dispatched` etc. back through the trace-cb fan-out,
+    ;; the collector would see
     ;; its own self-emit, and the cascade would loop until
     ;; `drain-depth-default` terminated it. The framework now
     ;; short-circuits emission at the `emit!` / `emit-error!` /
@@ -570,10 +563,10 @@
 
     ;; Reset the suppressed-events counter (rf2-0vxdn). With no arg,
     ;; clears every bucket; with a `frame-id`, drops just that bucket.
-    ;; Dispatched from `trace-bus/clear-buffer!` (CLJS) — clearing the
-    ;; trace ring buffer also drops the REDACTED indicator state (the
-    ;; "you missed N events" overhang disappears alongside the events
-    ;; that produced it).
+    ;; Dispatched from `trace-collector/retroactive-scrub!` (CLJS) —
+    ;; clearing the trace ring buffer also drops the REDACTED
+    ;; indicator state (the "you missed N events" overhang disappears
+    ;; alongside the events that produced it).
     ;;
     ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
     ;; `:rf.xray/note-sensitive-suppressed` above for the rationale).

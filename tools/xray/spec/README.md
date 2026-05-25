@@ -66,10 +66,16 @@ main read**.
   (rf2-ee38b.2)._ The shipped Views panel is 021 §3's lean three-stacked-tables
   design; 012's richer three-temporal-group surface is unimplemented historical
   design exploration. Read **021 §3** for the normative Views design.
-- **[013-Trace-Bus.md](013-Trace-Bus.md)** — The trace-bus + collector
-  contract: the ring-buffer data plane every panel reads from, the
-  consumer-side filter algebra, the `:sensitive?` privacy gate. Future:
-  trace fattening to enable context-at-position (Phase 5 prereq for
+- **[013-Trace-Consumer.md](013-Trace-Consumer.md)** — Xray's
+  consumer-side contract on top of the framework's per-frame trace
+  rings (Spec 009 §Per-frame trace rings): the self-noise filter,
+  the privacy gate + suppressed-events counter, the small
+  frameless secondary ring backing `:show-ungrouped?`, the
+  microtask-coalesced mirror sync, and the retroactive-scrub-on-
+  toggle-off behaviour. Renamed from `013-Trace-Bus.md` at
+  rf2-43koh when the separate Xray ring was retired in favour of
+  the framework's per-frame cascade-keyed rings. Future: trace
+  fattening to enable context-at-position (Phase 5 prereq for
   per-instance replay).
 - **[014-Registry-Catalogue.md](014-Registry-Catalogue.md)** — Normative
   enumeration of every `:rf.xray/*` subscription, event, effect, and

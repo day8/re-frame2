@@ -35,7 +35,7 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.app-db-diff-subs :as app-db-diff-subs]
             [day8.re-frame2-xray.panels.event-detail :as event-detail]))
 
@@ -43,7 +43,7 @@
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/set-show-sensitive! false)
   (config/reset-suppressed-count!)
   ;; rf2-mn3gt — the DB CHANGES section consumes the cached
@@ -130,7 +130,7 @@
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {})
   (doseq [ev evs]
-    (trace-bus/collect-trace! ev)))
+    (trace-collector/seed-trace-for-test! ev)))
 
 ;; rf2-mn3gt — seed the Xray frame's `:epoch-history` slot so the DB
 ;; CHANGES section's `:rf.xray/selected-epoch-diff` sub resolves to a

@@ -4,7 +4,7 @@
 
   ## Why this file exists
 
-  Xray registers `trace-bus/collect-trace!` as the
+  Xray registers `trace-collector/seed-trace-for-test!` as the
   `:rf.xray/trace-collector` callback at preload time. Whenever a
   `:sensitive?` trace event arrives, `collect-trace!` calls
   `config/note-suppressed!`, which itself dispatches
@@ -42,7 +42,7 @@
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
@@ -62,7 +62,7 @@
   (frame/reg-frame :rf/xray {})
   ;; Re-install the trace collector. The fixture above cleared it.
   (preload/register-trace-collector!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/reset-suppressed-count!)
   (config/set-show-sensitive! false))
 
@@ -85,7 +85,7 @@
   []
   (boolean
     (some (fn [ev] (= :rf.error/drain-depth-exceeded (:operation ev)))
-          (trace-bus/buffer))))
+          (trace-collector/buffer-for-test))))
 
 ;; ---- (1) + (2) removed --------------------------------------------------
 ;;
@@ -114,7 +114,7 @@
     ;; dispatched, event/handled, event/db-changed, event/do-fx, ...)
     ;; — we don't assert an exact count, just that the runtime
     ;; survived all 200 dispatches.
-    (is (pos? (count (trace-bus/buffer)))
+    (is (pos? (count (trace-collector/buffer-for-test)))
         "buffer received the trace events from 200 plain dispatches")))
 
 ;; ---- (4) removed ---------------------------------------------------------

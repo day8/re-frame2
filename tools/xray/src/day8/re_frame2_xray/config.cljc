@@ -422,19 +422,21 @@
 ;; rationale block). Clearing the whole buffer is the simplest correct
 ;; semantic.
 ;;
-;; The hook design avoids a circular require — `trace-bus.cljc`
+;; The hook design avoids a circular require — `trace_collector.cljs`
 ;; depends on `config.cljc` to read the flag and bump the counter, so
-;; `config.cljc` cannot directly invoke `trace-bus/clear-buffer!`.
-;; Instead, `trace-bus.cljc` registers its clear-buffer fn into this
-;; atom at load time; `set-show-sensitive!` walks the atom on every
-;; true → false transition. CLJC-pure so the registration shape is
-;; testable under the JVM target.
+;; `config.cljc` cannot directly invoke
+;; `trace-collector/retroactive-scrub!`. Instead,
+;; `trace_collector.cljs` registers its scrub fn into this atom at
+;; load time; `set-show-sensitive!` walks the atom on every true →
+;; false transition. CLJC-pure so the registration shape is testable
+;; under the JVM target.
 
 (defonce
   ^{:doc "Atom holding `{id → (fn [] ...)}` callbacks invoked when
          `set-show-sensitive!` transitions the flag from true → false.
-         `trace-bus.cljc` registers its `clear-buffer!` at load time.
-         Internal — host applications should not register here."}
+         `trace_collector.cljs` registers its `retroactive-scrub!` at
+         load time. Internal — host applications should not register
+         here."}
   toggle-off-callbacks
   (atom {}))
 
@@ -598,7 +600,7 @@
 (defn reset-suppressed-count!
   "Reset the suppressed-events counter. With no arg, clears all.
   With a `frame-id`, clears just that bucket. Called from
-  `trace-bus/clear-buffer!` and from test fixtures.
+  `trace-collector/retroactive-scrub!` and from test fixtures.
 
   In CLJS, also dispatches `:rf.xray/reset-suppressed-counters`
   into `:rf/xray` so the reactive copy in Xray's app-db drops in
@@ -732,13 +734,20 @@
   ## :buffer section (rf2-ttnst — Settings popup v1 expansion)
 
   Buffer-depth tunables surfaced in the Buffer tab. All three are
-  numbers; runtime consumption lives in trace-bus + the diff/
-  inspector helpers and may be plumbed incrementally.
+  numbers; runtime consumption lives in the framework's per-frame
+  rings + the diff / inspector helpers and may be plumbed incrementally.
 
   - `:retained-epochs` (default 200) — count of epochs to retain
     in the xray epoch buffer.
-  - `:trace-buffer/keep` (default 1000) — count of raw trace events
-    to retain (mirrors `trace-bus/default-buffer-depth`).
+  - `:cascades-retained` (default 50) — count of cascades retained
+    in each frame's trace ring. Mirrors
+    `re-frame.trace.tooling/default-cascades-retained` and writes
+    through to `(rf/configure :trace-buffer {:cascades-retained N})`
+    when the Settings UX wires the runtime knob (per rf2-43koh).
+    Renamed from `:trace-buffer/keep` per the rf2-3g9nw D1=a ruling:
+    the unit changed from events (1000) to cascades (50) when
+    Xray's separate ring was retired in favour of the framework's
+    per-frame cascade-keyed rings.
   - `:app-db/inspector-collapse-threshold` (default 50) — branch
     factor above which the App-db inspector collapses by default.
 
@@ -801,7 +810,7 @@
    :theme     :light                                 ; :light | :dark (rf2-3f2di — light default per the authority reference)
    :diff      {:highlight-fn-ref-changes? false}
    :buffer    {:retained-epochs                    200
-               :trace-buffer/keep                  1000
+               :cascades-retained                   50
                :app-db/inspector-collapse-threshold 50}})
 
 (defn clamp-panel-width-px

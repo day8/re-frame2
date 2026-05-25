@@ -513,7 +513,7 @@ The foundation phase's third step registers an
 [`rf/register-epoch-listener!`](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)
 callback under the key `:rf.xray/epoch-collector`. Where the trace
 collector buffers raw events for panel-side projections (per
-[`013-Trace-Bus.md`](./013-Trace-Bus.md)), the epoch-collector serves
+[`013-Trace-Consumer.md`](./013-Trace-Consumer.md)), the epoch-collector serves
 a different job: it is the **reactive pump** that keeps Xray's
 cached epoch-history snapshot consistent with the framework's. Xray
 cannot subscribe directly against `(rf/epoch-history target)` —
@@ -599,7 +599,7 @@ back-pressure attempt would violate
 runtime surfaces.
 
 **No drop semantics.** Unlike the trace bus's bounded ring (per
-[`013-Trace-Bus.md`](./013-Trace-Bus.md) §Eviction policy), the
+[`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Eviction policy), the
 epoch pump does **not** drop callbacks under load. Every settle
 fires the callback; every callback dispatches into `:rf/xray`.
 The framework's own `epoch-history` ring buffer is the only

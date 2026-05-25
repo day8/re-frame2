@@ -140,7 +140,7 @@
   would register the frame but skip the hook table, leaving Xray's
   trace-buffer slot empty + `:target-frame` pinned to
   `defaults/default-target-frame` regardless of what's already in the
-  trace-bus and the host's epoch ring. That misalignment is the
+  framework's per-frame rings and the host's epoch ring. That misalignment is the
   empty-Xray-on-Story-RHS class of bug — Story embeds a panel via
   `mount-<panel>!`, the panel renders against a frame the hooks never
   populated, and the user sees blank inputs even though the host has

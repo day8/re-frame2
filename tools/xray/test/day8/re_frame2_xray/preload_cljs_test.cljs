@@ -41,7 +41,7 @@
             [re-frame.trace :as trace]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
@@ -61,7 +61,7 @@
 (defn- xray-init! []
   (preload/reset-for-test!)
   (registry/reset-for-test!)
-  (trace-bus/clear-buffer!))
+  (trace-collector/reset-for-test!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -79,9 +79,9 @@
     ;; append, even after a second registration call.
     (preload/register-trace-collector!)
     (preload/register-trace-collector!)
-    (trace-bus/clear-buffer!)
+    (trace-collector/reset-for-test!)
     (trace/emit! :info :rf.test/idempotency-check {:source :test})
-    (is (= 1 (count (trace-bus/buffer)))
+    (is (= 1 (count (trace-collector/buffer-for-test)))
         "duplicate registrations must not deliver the same event twice")))
 
 (deftest registry-handlers-are-idempotent
@@ -142,7 +142,7 @@
     (trace/emit! :info :rf.test/synthetic-event
                  {:source :test
                   :hint   "Phase 1 trace-collector smoke"})
-    (let [buf (trace-bus/buffer)]
+    (let [buf (trace-collector/buffer-for-test)]
       (is (= 1 (count buf))
           "Xray's buffer receives the synthetic emit")
       (let [ev (first buf)]
@@ -154,17 +154,23 @@
             ":source hoisted to top level per Spec 009")))))
 
 (deftest xray-buffer-evicts-oldest-on-overflow
-  (testing "the Xray buffer respects its configured depth"
+  (testing "the Xray frameless secondary ring respects its configured depth"
+    ;; Frameless emits (no `:rf.trace/dispatch-id` / no `:frame`) land
+    ;; in Xray's secondary ring per the rf2-3g9nw D2=a ruling — the
+    ;; framework's per-frame rings skip them per B3 (rf2-g1b2m). This
+    ;; test exercises that overflow algebra without spinning a full
+    ;; framework dispatch path.
     (preload/register-trace-collector!)
-    (trace-bus/set-buffer-depth! 3)
+    (trace-collector/set-frameless-ring-depth! 3)
     (try
       (dotimes [i 5]
         (trace/emit! :info :rf.test/synthetic-overflow
                      {:n i :source :test}))
-      (let [buf (trace-bus/buffer)]
+      (let [buf (trace-collector/buffer-for-test)]
         (is (= 3 (count buf))
-            "buffer caps at the configured depth")
+            "secondary ring caps at the configured depth")
         (is (= [2 3 4] (mapv #(get-in % [:tags :n]) buf))
             "oldest entries evicted; newest retained in order"))
       (finally
-        (trace-bus/set-buffer-depth! 1000)))))
+        (trace-collector/set-frameless-ring-depth!
+          trace-collector/default-frameless-ring-depth)))))

@@ -14,7 +14,7 @@ the devtools reference `tools/xray/design-reference/xray_devtools_reference.cljs
 Cross-refs:
 - [`000-Vision.md`](./000-Vision.md) — the five canonical questions; the 7-tab inventory
 - [`007-UX-IA.md`](./007-UX-IA.md) — typography, density, keyboard maps (still load-bearing)
-- [`013-Trace-Bus.md`](./013-Trace-Bus.md) — the trace-bus + collector contract this panel reads
+- [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) — the trace-bus + collector contract this panel reads
 - [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) — the sibling per-tab content contracts (Issues, Routing, Flows)
 - [`018-Event-Spine.md`](./018-Event-Spine.md) — the `:rf.xray/focus` spine contract + 4-layer chrome
 - [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) — §3 Views · §5 implemented Trace · §10 shared data-display renderer
