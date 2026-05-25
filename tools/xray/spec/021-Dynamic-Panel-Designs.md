@@ -1388,7 +1388,8 @@ Phases 2-5 file as separate beads chained off rf2-oqa60:
 - Phase 4 — Machine snapshot drill-in integration
 - Phase 5 — Diff renderer subsumption (D5=a; replaces
   `data-display/render-tree` and deletes `theme.data-inspector`)
-- Phase 6 (deferred) — Popup overlay infra (D6=a)
+- Phase 6 (rf2-s0x6x) — Popup overlay infra (D6=a · D8=a) —
+  see §10.0.7
 - Phase 7 (rf2-0qrcr) — `IXrayDataDisplay` custom-formatters
   protocol (D7=a) — see §10.0.6
 
@@ -1483,6 +1484,89 @@ the protocol path and the consumer's hiccup appears verbatim,
 (c) header-nil falls through, (d) body-nil renders header-only,
 (e) broken consumer impl falls through safely, (f) expansion-map
 overrides still apply to protocol nodes.
+#### §10.0.7 Popup overlay infra (rf2-oqa60 phase 6 · D6=a · D8=a)
+
+Phase 6 ships the **popup overlay** that floats over an Xray panel
+and inspects a CLJS value at depth via `[data-display value opts]`.
+Locked decisions:
+
+- **D6=a — Xray-internal anchor scope.** The backdrop spans the
+  Xray shell only (or the Story cell when
+  `:rf.xray/modal-positioning` resolves to `:absolute`). The popup
+  never anchors to the debugged application's DOM — the right-click
+  surface lives over Xray-internal data-display nodes only.
+- **D8=a — auto-generated UUID per popup mount.** Each
+  `[data-display-popup value opts]` mount allocates a fresh
+  `mount-id` (UUID, captured in form-2 closure) on first render.
+  Two side-by-side mounts get independent expansion state — the
+  popup's `:panel-id` is namespaced by `mount-id`, so the embedded
+  widget's per-path expansion entries cannot collide with sibling
+  popups or with the panel underneath.
+
+Public API at
+`tools/xray/src/day8/re_frame2_xray/views/data_display_popup.cljs`:
+
+```clj
+[data-display-popup value]
+[data-display-popup value opts]
+
+;; programmatic — opens via the stack slot:
+(rf/dispatch [:rf.xray.data-display-popup/open
+              mount-id {:value v :opts opts}]
+             {:frame :rf/xray})
+```
+
+`opts` keys (all optional):
+
+- `:title` — header label. Defaults `"Inspect"`.
+- `:panel-id` / `:default-expanded-depth` / `:max-inline-width` /
+  `:max-depth` — forwarded to the wrapped data-display widget. The
+  `:panel-id` is namespaced by the popup's `mount-id` before
+  reaching the widget so per-mount isolation holds without caller
+  effort.
+- `:on-close` — optional 0-arg fn; overrides the default close
+  dispatch (for parent components that manage their own
+  open/closed flag).
+
+State model (slots under `:rf/xray` frame's db):
+
+- `:rf.xray.data-display-popup/stack` — vector of `mount-id`s, top
+  of stack = last entry. Esc closes only the top entry, so layered
+  popups beneath survive.
+- `:rf.xray.data-display-popup/entries` — `{mount-id {:value …
+  :opts …}}` payload map; survives shadow-cljs `:after-load`
+  reloads. Re-opening a popup with the same `mount-id` raises it
+  to the top of the stack and replaces its payload (window-manager
+  raise semantics).
+
+Close affordances (per the bead's scope):
+
+1. **Esc** — handled by the popup's `:on-key-down`; dispatches
+   `:rf.xray.data-display-popup/close-top` so layered popups
+   close one at a time.
+2. **Click backdrop** — closes that specific popup (matches the
+   segment-inspector's click-outside-closes contract).
+3. **✕ button** — explicit close in the dialog header.
+
+Z-index layering: the popup paints **above the active Xray
+panel** but below app-modals (palette / settings). Base layer
+`2147483640` (one tier below the segment-inspector at
+`2147483645`); stacking popups within this surface get
+sequential z-indexes derived from their stack position so the
+topmost popup wins click + focus.
+
+The `data-display-popup-stack` view is the entry point for
+programmatic opens (a context-menu handler dispatches `:open`
+and the stack view picks the entry up); the
+`[data-display-popup value opts]` component is the entry point
+for inline opens (a panel that wants to control the popup
+imperatively from its own view tree). Both compose through
+`popup-chrome` so the chrome shape is identical.
+
+Wire-up follow-on: mounting `data-display-popup-stack` into the
+shell's overlay container is a follow-on bead that touches
+`mount.cljs` + `registry.cljs`; the install! fn here is
+idempotent so that wire-up is a one-call addition.
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
