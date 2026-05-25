@@ -426,8 +426,43 @@ Evaluate a CLJS form in the connected browser runtime via
 |--------------|----------|----------|---------|-------|
 | `form`       | string   | yes      | —       | The CLJS form to evaluate. |
 | `build`      | string   | no       | env / `:app` | shadow-cljs build id. |
+| `frame`      | string   | no       | ambient (`:rf/default`) | rf2-ntuzf: operating frame for the form's lexical scope. Wraps the form in `(re-frame.core/with-frame <frame> <form>)` so `(rf/subscribe ...)` / `(rf/dispatch ...)` inside the form resolve against the named frame. Joins the family of frame-aware ops (`dispatch`, `snapshot`, `get-path`, …). |
 | `await`      | boolean  | no       | `false` | Opt-in (rf2-xn4f9): if the form returns a thenable, await it server-side instead of `pr-str`'ing the Promise object. |
 | `timeout-ms` | integer  | no       | `5000`  | Maximum ms to wait when `:await true`. Ignored when `:await false`. Caller-controlled because async form costs vary widely. |
+
+### Frame targeting (rf2-ntuzf)
+
+Every other structured op (`dispatch`, `snapshot`, `get-path`,
+`trace-window`, `watch-epochs`, `subscribe`, `reset-frame-db`) accepts
+a `:frame` arg that targets a named frame. Pre-rf2-ntuzf `eval-cljs`
+did NOT — its form ran against the MCP server's ambient frame
+context (`:rf/default`), so `(rf/subscribe ...)` / `(rf/dispatch ...)`
+inside the supplied form silently targeted `:rf/default` even in a
+multi-frame app. The workaround was wrapping the form by hand
+(`(re-frame.core/with-frame :rf/xray (rf/subscribe ...))`), easy to
+forget; when forgotten the probe read the wrong frame's state and
+reported wrong data.
+
+The `:frame` arg closes that footgun. The server wraps the supplied
+form in `(re-frame.core/with-frame <frame> <user-form>)` before
+sending it over nREPL. `with-frame` is the framework's lexical frame-
+binding macro (Spec 002 §with-frame); `*current-frame*` is bound to
+the named frame for the form's dynamic extent, so any
+`(rf/subscribe ...)` / `(rf/dispatch ...)` / `(rf/current-frame)`
+inside the form resolves against the requested frame.
+
+**Composes with `:await`.** The `with-frame` wrap is the outer-most
+form; the await mailbox sentinel rides through the wrap unchanged.
+Note that `with-frame`'s lexical binding only lasts for the form's
+SYNCHRONOUS evaluation — once a Promise resolves on a later tick, the
+binding is gone (Spec 002 §with-frame: async closures must capture via
+`bound-fn` / `dispatcher` / `subscriber`). Most ad-hoc probes don't
+hit this; long-running async forms that need to dispatch in a `.then`
+callback should capture the frame explicitly.
+
+**Returns**: success envelope additionally carries `:frame <frame-kw>`
+when `:frame` was supplied, mirroring how `dispatch` echoes its
+frame-id.
 
 **Launch-flag gate**: `--no-eval` (rf2-a0z0h; inverts the prior
 rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is
