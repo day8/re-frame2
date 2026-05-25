@@ -130,6 +130,10 @@
                        :border-radius "0 0 4px 4px"}}
    [dd/data-display raw
     {:panel-id (keyword "rf.xray.trace" (str "row-" id))
+     ;; rf2-pvsxs — trace rows survive tab leave-and-return because
+     ;; the trace event-id is itself stable; the `:site-id` reuses it
+     ;; so the operator's expansion choices persist across tab churn.
+     :site-id  [:rf.xray.trace/row id]
      :default-expanded-depth 1
      ;; rf2-l4625 — trace rows expand within the row's narrow column;
      ;; tags + payload maps are routinely cramped. Popup gives the

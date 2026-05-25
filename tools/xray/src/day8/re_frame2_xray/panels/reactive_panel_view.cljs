@@ -486,6 +486,11 @@
        [:div {:data-testid (str row-testid "-value")
               :style {:padding-left "4px"}}
         [dd/data-display value {:panel-id (sub-value-panel-id sub-id)
+                                ;; rf2-pvsxs — sub-id is stable across
+                                ;; cascades; the operator's expansion
+                                ;; choices survive a tab leave-and-
+                                ;; return round-trip.
+                                :site-id  [:rf.xray.reactive/sub sub-id]
                                 :default-expanded-depth 2
                                 ;; rf2-l4625 — sub values can be the
                                 ;; full domain projection (cart, users,

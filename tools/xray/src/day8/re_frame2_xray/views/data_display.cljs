@@ -40,6 +40,14 @@
 
   - `:panel-id`     (optional, default `:rf.xray.data-display/anon`)
                     distinguishes per-panel expansion state.
+  - `:site-id`      (optional, rf2-pvsxs) — when supplied, becomes the
+                    second component of the per-node expansion key
+                    INSTEAD of the auto-generated mount-id. Lets the
+                    same logical call site survive a panel-leave-and-
+                    return round-trip (auto-mount-id changes on remount;
+                    a stable site-id does not). Omit to keep the per-
+                    call-site isolation default (two `[data-display]`
+                    mounts side-by-side stay independent).
   - `:default-expanded-depth` (optional, default 2) — first-render
                     expansion depth before operator clicks.
   - `:max-inline-width` (optional, default 60) — character budget
@@ -71,12 +79,20 @@
   Drop the `:render-id` arg from the old facade — mount-id is now
   auto-generated internally per D4=a (rf2-sndui).
 
-  ## Per-call-site isolation
+  ## Per-call-site isolation (rf2-sndui D4=a · rf2-pvsxs opt-out)
 
   Each `[data-display …]` mount auto-assigns a UUID `mount-id` on
   first render (captured in a form-2 outer `let`). Two mounts side-
   by-side in the same panel get independent expansion state. The
-  expansion key is `[panel-id mount-id path]`.
+  expansion key is `[panel-id mount-id path]` by default.
+
+  When the same logical call site needs to SURVIVE a remount (e.g.
+  the App-DB tab unmounts on tab-switch and re-mounts on return),
+  pass a stable `:site-id` in `opts`. The expansion key becomes
+  `[panel-id site-id path]` — independent of remount cadence. The
+  cost is opt-in: a consumer that passes the SAME `:site-id` from
+  two mount sites would have them share expansion state. Per-call-
+  site isolation is the default; persistence-across-unmount is opt-in.
 
   ## Why pure hiccup + no Reagent direct
 
@@ -1461,7 +1477,7 @@
     (fn render-data-display
       [value & rest-args]
       (let [opts          (first rest-args)
-            {:keys [panel-id default-expanded-depth max-inline-width
+            {:keys [panel-id site-id default-expanded-depth max-inline-width
                     max-depth before popup-affordance?]
              :or   {panel-id :rf.xray.data-display/anon
                     default-expanded-depth 2
@@ -1469,6 +1485,21 @@
                     max-depth 16
                     popup-affordance? false}} opts
             diff?         (contains? opts :before)
+            ;; rf2-pvsxs — `site-id` (when supplied) opt-out of the
+            ;; per-call-site mount-id isolation. The expansion-key's
+            ;; second slot reads `site-id` instead of the auto-mount-
+            ;; id, so a panel that leaves AND returns to the same
+            ;; surface (e.g. App-DB tab switching) finds its prior
+            ;; overrides under a stable key. When omitted, behaviour
+            ;; is unchanged — auto-mount-id keeps per-call-site
+            ;; isolation for naive callers (two `[data-display]`
+            ;; mounts side-by-side toggle independently).
+            ;;
+            ;; The choice is per-consumer-panel: App-DB / Handler /
+            ;; Trace pass a stable :site-id derived from their
+            ;; cascade epoch + slot role; throw-away surfaces (popup
+            ;; previews, table-cell minis) omit it.
+            effective-id  (or site-id mount-id)
             ;; `subscribe` is the lexical frame-aware closure
             ;; injected by `reg-view` — reads the expansion-slot
             ;; from the surrounding frame's app-db (e.g. `:rf/xray`).
@@ -1482,6 +1513,7 @@
             popup-mount-id (str "ddp-" mount-id)]
         [:div {:data-testid     container-id
                :data-rf-mount-id mount-id
+               :data-rf-site-id  (when site-id (pr-str site-id))
                :data-rf-mode    (if diff? "diff" "browse")
                :data-rf-popup-affordance? (when popup-affordance? "1")
                :style {:font-family mono-stack
@@ -1499,7 +1531,13 @@
                        :before (if diff? before ::missing)
                        :diff? diff?
                        :panel-id panel-id
-                       :mount-id mount-id
+                       ;; rf2-pvsxs — `mount-id` slot in render-node's
+                       ;; key carries the EFFECTIVE id (site-id if
+                       ;; supplied; auto-mount-id otherwise). Callbacks
+                       ;; deep in the recursion thread the same value,
+                       ;; so toggle dispatches store + read overrides
+                       ;; under the persistence-friendly key.
+                       :mount-id effective-id
                        :path []
                        :depth 0
                        :expansion-map expansion-map
