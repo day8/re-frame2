@@ -340,6 +340,44 @@ Or, with the re-frame2-pair skill loaded, just describe the task — the skill's
 SKILL.md teaches the agent which tool to call. See
 [`../../skills/re-frame2-pair/SKILL.md`](../../skills/re-frame2-pair/SKILL.md).
 
+### eval-cljs and Promise-returning forms (rf2-xn4f9)
+
+By default, `eval-cljs` captures the form's **synchronous** return
+value and `pr-str`'s it. When the form returns a JS Promise — any
+async work (`fetch`, `.layout()`, an `async` fn, anything chained
+with `.then`) — the synchronous return IS the Promise object, and
+`pr-str` produces `"#object[Promise [object Promise]]"`: a string
+saying "I'm a Promise" with no access to the eventually-resolved value:
+
+```text
+Agent: tools/call eval-cljs {form: "(-> (js/Promise.resolve {:hello \"world\"}) (.then identity))"}
+Server: {:ok? true :value "#object[Promise [object Promise]]"}   ; lost the resolved value
+```
+
+Pass `:await true` (opt-in) to have the server await the Promise and
+return the resolved value as `:value`. The caller picks the deadline
+via `:timeout-ms` (default 5000):
+
+```text
+Agent: tools/call eval-cljs {form: "(-> (js/Promise.resolve {:hello \"world\"}) (.then identity))", await: true}
+Server: {:ok? true :value {:hello "world"} :build :app}
+```
+
+Rejections and timeouts surface as structured `:rf.error/*` failures:
+
+```text
+Agent: tools/call eval-cljs {form: "(js/Promise.reject (ex-info \"nope\" {}))", await: true}
+Server: {:ok? false :reason :rf.error/eval-cljs-rejected :rejection "..." :build :app}
+
+Agent: tools/call eval-cljs {form: "(js/Promise. (fn [_ _]))", await: true, timeout-ms: 500}
+Server: {:ok? false :reason :rf.error/eval-cljs-timeout :timeout-ms 500 :build :app}
+```
+
+The default `:await false` preserves the pass-through semantic for
+forms that intentionally hand a Promise object to other code. See
+[`spec/003-Tool-Catalogue.md` §eval-cljs](./spec/003-Tool-Catalogue.md#eval-cljs)
+for the full contract including the await wrapper's mailbox protocol.
+
 ### Snapshot — one call instead of five
 
 For investigate-X workflows (post-mortems, "what state is the app in
