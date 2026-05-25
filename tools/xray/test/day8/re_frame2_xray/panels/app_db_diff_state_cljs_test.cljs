@@ -238,37 +238,76 @@
 ;; ---- inline diff annotation (spec/021 §4.3 · rf2-ad7zx.11) ---------------
 ;;
 ;; When a section's `:before` pre-image differs from its `:value`, the
-;; value body routes through the shared §10 diff renderer (`edn/diff`),
-;; which carries the inline `← changed from X` annotation in place. With
-;; no pre-image (the no-diff sentinel) the body stays on the plain
-;; current-state inspect path (no annotation).
+;; value body routes through the data-display widget's DIFF mode
+;; (rf2-q3dzw phase 5) — passing `:before` paints the inline
+;; `← changed from X` annotation in place. With no pre-image (the
+;; no-diff sentinel) the body stays in BROWSE mode (no annotation).
+;;
+;; The widget itself is exercised by
+;; `tools/xray/test/day8/re_frame2_xray/views/data_display_cljs_test.cljs`
+;; (and the diff-mode tests below). These section-level tests assert
+;; the section CALLS the widget in the right mode — i.e. with `:before`
+;; threaded through when the pre-image differs, omitted when not.
+
+(defn- find-data-display-mounts
+  "Walk the hiccup tree and collect every `[dd/data-display value opts]`
+  mount. Returns a vec of `{:value :opts}` maps so tests can assert
+  against the threaded opts (in particular `:before`)."
+  [tree]
+  (let [out (atom [])]
+    (letfn [(walk [n]
+              (cond
+                (vector? n)
+                (do (when (and (fn? (first n)))
+                      (let [a (when (>= (count n) 2) (nth n 1))
+                            b (when (>= (count n) 3) (nth n 2))]
+                        (swap! out conj {:value a :opts b})))
+                    (doseq [c (rest n)] (walk c)))
+                (seq? n) (doseq [c n] (walk c))))]
+      (walk tree))
+    @out))
 
 (deftest changed-value-carries-inline-changed-annotation
-  (testing "a changed user-domain value renders the inline
-            `← changed from <prior>` annotation in the TOP section"
-    (let [model (h/current-state-sections {:counter 2} {:counter 1})
-          tree  (state/state-body model)
-          top   (find-by-testid tree "rf-xray-app-db-state-top")]
-      (is (re-find #"← changed from 1" (pr-str top))
-          "the inline diff annotation surfaces the prior value"))))
+  (testing "a changed user-domain value renders in DIFF mode — the
+            section threads `:before` into the data-display widget so
+            it paints the inline `← changed from <prior>` annotation"
+    (let [model    (h/current-state-sections {:counter 2} {:counter 1})
+          tree     (state/state-body model)
+          top      (find-by-testid tree "rf-xray-app-db-state-top")
+          mounts   (find-data-display-mounts top)
+          diff-mts (filter #(contains? (:opts %) :before) mounts)]
+      (is (seq mounts) "top section mounts the data-display widget")
+      (is (seq diff-mts)
+          "the mount carries a `:before` opt — i.e. the widget renders
+           in DIFF mode for the changed value")
+      (is (= {:counter 1} (-> diff-mts first :opts :before))
+          "the threaded `:before` is the prior value"))))
 
 (deftest changed-machine-snapshot-carries-annotation
-  (testing "a changed machine snapshot diff-annotates in its instance
-            section (ancestor chain force-expanded so the change shows)"
-    (let [before {:rf/machines {:title/flow {:state :idle}}}
-          after  {:rf/machines {:title/flow {:state :loaded}}}
-          model  (h/current-state-sections after before)
-          tree   (state/state-body model)
-          flow   (find-by-testid
-                   tree "rf-xray-app-db-state-instance-:rf/machines-:title/flow")]
-      (is (re-find #"← changed from :idle" (pr-str flow))
-          "the machine's :state change annotates inline"))))
+  (testing "a changed machine snapshot renders in DIFF mode in its
+            instance section — the section threads the prior instance
+            map as `:before` so the widget annotates the change"
+    (let [before   {:rf/machines {:title/flow {:state :idle}}}
+          after    {:rf/machines {:title/flow {:state :loaded}}}
+          model    (h/current-state-sections after before)
+          tree     (state/state-body model)
+          flow     (find-by-testid
+                     tree "rf-xray-app-db-state-instance-:rf/machines-:title/flow")
+          mounts   (find-data-display-mounts flow)
+          diff-mts (filter #(contains? (:opts %) :before) mounts)]
+      (is (seq diff-mts) "the instance section renders in DIFF mode")
+      (is (= {:state :idle} (-> diff-mts first :opts :before))
+          "the threaded `:before` is the prior instance snapshot"))))
 
 (deftest no-diff-model-renders-current-state-no-annotation
-  (testing "the 1-arity (no pre-image) model renders plain current-state —
-            no `← changed` annotation anywhere"
-    (let [model (h/current-state-sections
-                  {:counter 2 :rf/route {:id :home}})
-          tree  (state/state-body model)]
-      (is (not (re-find #"← changed" (pr-str tree)))
-          "no diff annotation without a pre-image"))))
+  (testing "the 1-arity (no pre-image) model renders plain current-state
+            — every mount is BROWSE mode (no `:before` opt) so the
+            widget renders no `← changed` annotation"
+    (let [model  (h/current-state-sections
+                   {:counter 2 :rf/route {:id :home}})
+          tree   (state/state-body model)
+          mounts (find-data-display-mounts tree)]
+      (is (seq mounts) "the panel mounts data-display widget instances")
+      (is (every? #(not (contains? (:opts %) :before)) mounts)
+          "no mount carries a `:before` opt — no diff annotation
+           without a pre-image"))))

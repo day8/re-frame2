@@ -1260,19 +1260,25 @@ everywhere.
 Per Mike-direction 2026-05-25 (rf2-sndui ratification `b a a a a a a a`)
 the renderer is the **first-class data-display widget** at
 `day8.re-frame2-xray.views.data-display`. It is a roll-your-own
-CLJS-value-to-hiccup tree walker (~700 LoC) that classifies every
-CLJS type natively, owns its own sticky-expansion app-db slot, and
-ships first-class chrome for the spec/015 sentinels. The cljs-
-devtools dep is dropped (rf2-oqa60). The legacy EDN-widget facade at
-`views.edn-widget.widget` is retained as a thin delegate so existing
-call sites compile; phases 2-5 migrate call sites onto the direct
-`[data-display value opts]` API.
+CLJS-value-to-hiccup tree walker (~900 LoC after phase 5) that
+owns the WHOLE contract — **browse + diff + mini** — as a single
+source of truth: classifies every CLJS type natively, owns its own
+sticky-expansion app-db slot, ships first-class chrome for the
+spec/015 sentinels, and renders inline diff annotations when a
+`:before` opt is supplied. The cljs-devtools dep is dropped
+(rf2-oqa60); the legacy `data-display.render` engine +
+`theme.data-inspector` chrome ns are deleted in phase 5 (rf2-q3dzw).
+The EDN-widget facade at `views.edn-widget.widget` is retained as a
+thin delegate so existing call sites compile; new call sites should
+reach for `[data-display value opts]` directly.
 
 #### §10.0.1 Public API
 
 ```clj
-[data-display value]
-[data-display value opts]
+[data-display value]                         ;; browse mode
+[data-display value opts]                    ;; browse / diff per opts
+[data-display-diff before after]             ;; diff convenience
+[data-display-diff before after opts]
 ```
 
 `opts` keys (all optional):
@@ -1285,6 +1291,14 @@ call sites compile; phases 2-5 migrate call sites onto the direct
   layout. Defaults `60`.
 - `:max-depth` — hard cap on recursion depth; deeper levels render
   `{…}` collapsed and click expands one level. Defaults `16`.
+- `:before` — when supplied, the widget renders in **DIFF mode**.
+  The `value` arg is treated as the AFTER side and the supplied
+  `:before` is the prior value. Gutter glyphs (`+` added · `-`
+  removed · `~` modified · `◴` children-changed) paint per node;
+  modified leaves get an inline `← changed from <prior>`
+  annotation; ancestor chain force-expands over any changed
+  descendant. Omit `:before` for plain BROWSE mode. See §10.0.8
+  for the full diff contract.
 
 The widget is a **Reagent form-2 component** — the outer fn captures
 a stable `mount-id` (auto-generated UUID, per D4=a — no public
@@ -1354,13 +1368,14 @@ the renderer, not separate chrome wrappers:
 - `:rf/redacted` (bare keyword) — magenta chip with `●` indicator;
   never expandable.
 - `{:rf/large {:bytes N :head s}}` — yellow chip showing bytes;
-  click-to-reveal is deferred (was in `theme.data-inspector`; the
-  popup phase D6=a returns it).
+  click-to-reveal is deferred (was in the now-deleted
+  `theme.data-inspector` ns; the popup phase D6=a returns it).
 - `{:rf/redacted {:bytes N}}` — combined sensitive+size; magenta
   chip with size annotation.
 
-The legacy `theme.data-inspector` ns is retained for the diff path
-(`edn/diff`) until phase 5 (D5=a) subsumes diff into the new widget.
+The legacy `theme.data-inspector` ns is **deleted** in phase 5
+(rf2-q3dzw, D5=a) — sentinel chrome lives entirely inside the
+data-display widget now.
 
 #### §10.0.4 Phased rollout
 
@@ -1386,8 +1401,13 @@ Phases 2-5 file as separate beads chained off rf2-oqa60:
   (`:recomputed?` false) are omitted from the inspector; only RUN
   subs surface.
 - Phase 4 — Machine snapshot drill-in integration
-- Phase 5 — Diff renderer subsumption (D5=a; replaces
-  `data-display/render-tree` and deletes `theme.data-inspector`)
+- Phase 5 (rf2-q3dzw) — **Diff renderer subsumption (D5=a per
+  rf2-sndui).** Diff is now an opt-in MODE on the same widget —
+  pass `:before` in opts. The legacy
+  `data-display.render` engine (`render-tree`) and the
+  `theme.data-inspector` chrome ns are DELETED with this phase.
+  The widget owns the whole `browse + diff + mini` contract as a
+  single source of truth — see §10.0.8 for the full diff contract.
 - Phase 6 (rf2-s0x6x) — Popup overlay infra (D6=a · D8=a) —
   see §10.0.7
 - Phase 7 (rf2-0qrcr) — `IXrayDataDisplay` custom-formatters
@@ -1568,6 +1588,85 @@ shell's overlay container is a follow-on bead that touches
 `mount.cljs` + `registry.cljs`; the install! fn here is
 idempotent so that wire-up is a one-call addition.
 
+#### §10.0.8 Diff mode (phase 5 · D5=a · rf2-q3dzw)
+
+Phase 5 closes the "diff renderer as separate engine" pattern. The
+pre-rf2-q3dzw shape composed two separate engines:
+`data-display.render` walked before/after pairs to paint gutter rows,
+delegating leaf-value rendering to `theme.data-inspector/inspect`.
+That seam left two ns'es to keep in sync — every time the inspector
+gained a new type classification (sentinel chrome, type colours,
+bracket styling) the diff engine had to mirror it, or risk diverging
+visual contracts between current-state browse and diff renders.
+
+Post-rf2-q3dzw the diff path is an **opt-in mode on the same widget**.
+A single hiccup walker classifies types, paints sentinels, decides
+expand/collapse, AND applies diff annotations — one source of truth.
+
+**Surface**:
+
+```clj
+[data-display value {:before before-value …}]
+[data-display-diff before after opts]
+```
+
+**Diff ops**:
+
+| op          | trigger                                   | glyph | colour token   |
+|-------------|-------------------------------------------|-------|----------------|
+| `:added`    | `:before` is `::missing`                  | `+`   | `:green`       |
+| `:removed`  | `:value`  is `::missing`                  | `-`   | `:red`         |
+| `:modified` | both exist; differ (leaf-level)           | `~`   | `:yellow`      |
+| `:children` | container with changed descendant         | `◴`   | `:accent`      |
+| `:same`     | values equal                              | ` `   | `:text-tertiary` |
+
+The op classification is pure data via `dd/diff-op` (public for
+tests). The `::missing` marker (`dd/missing-sentinel`) distinguishes
+"slot absent on this side of the diff" from a real `nil` value.
+
+**Gutter row**: each diff'd node renders inside a `gutter-row`
+wrapper — a 3px left border in the op's colour + a glyph span +
+the rendered hiccup. `:same` rows render with a transparent border
++ blank glyph so non-diff renders share the same shape (no layout
+jitter between modes).
+
+**Change annotation**: modified leaves carry an inline
+`← changed from <prior>` chip rendered in `:text-secondary` /
+`sans-stack` / italic. Pure hiccup; sits to the right of the
+rendered value.
+
+**Ancestor force-open**: in diff mode, a container with a changed
+descendant ignores the default-expand depth heuristic — it always
+opens so the operator never has to drill to find the change.
+Implementation: `default-expanded?` takes a `:has-changed-descendant?`
+flag (derived from `changed-descendant?`) which wins over the
+depth/size table.
+
+**Map / sequential alignment**: in diff mode the children loop walks
+the UNION of keys (for maps) or the index range (for sequentials)
+so removed slots surface as struck-through rows. Sets render as
+plain browse — set-element diff is structurally ambiguous without a
+key contract.
+
+**Sentinels in diff mode**: the spec/015 sentinels keep their chip
+chrome regardless of mode. A modified `:rf/redacted` slot still
+renders as the magenta chip + `← changed from <prior>` annotation;
+no chip-reveal leakage.
+
+**Test pins** — `tools/xray/test/day8/re_frame2_xray/views/data_display_cljs_test.cljs`:
+
+1. `diff-op` classifies the canonical 4 ops + `:same`.
+2. `changed-descendant?` walks maps + sequentials + returns
+   primitive boolean.
+3. Gutter glyph + tone-key mappings are stable
+   (`op->gutter-glyph`, `op->gutter-tone-key`).
+4. Modified leaves carry the `← changed from <prior>` annotation
+   chip.
+5. Deep modified leaves force the ancestor chain open
+   (`diff-forces-ancestor-chain-open-over-changed-descendant`).
+6. The public widget's outer container carries `data-rf-mode
+   "diff"` when `:before` is supplied; `"browse"` otherwise.
+
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
 1. **Lazy collapsible tree** — hierarchical EDN with expand/collapse.
@@ -1720,9 +1819,11 @@ Phase 1 wires the App-DB panel through the new widget directly; the
 remaining surfaces (Trace, Sub, Machine, Issues) reach through the
 legacy `views.edn-widget.widget` facade for now, which delegates to
 the new widget. Phases 2-4 migrate each surface to call
-`[data-display …]` directly. Phase 5 subsumes the diff path (D5=a)
-and deletes the legacy `data-display/render` engine + the
-`theme.data-inspector` chrome ns.
+`[data-display …]` directly. Phase 5 (rf2-q3dzw) **completes** the
+subsumption: diff is now an opt-in mode on the same widget
+(`:before` opt) and the legacy `data-display.render` engine +
+`theme.data-inspector` chrome ns are DELETED. The widget owns the
+whole `browse + diff + mini` contract as one source of truth.
 
 ### §10.7 Evicted-epoch placeholder
 

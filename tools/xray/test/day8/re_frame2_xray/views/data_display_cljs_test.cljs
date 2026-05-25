@@ -487,3 +487,163 @@
         title (-> h second :title)]
     ;; Title carries the full pr-str; visible content is truncated.
     (is (some? title) "title attribute carries full value")))
+
+;; =========================================================================
+;; Diff mode (rf2-q3dzw phase 5 · D5=a per rf2-sndui)
+;; =========================================================================
+;;
+;; The diff path subsumes the legacy `data-display.render` engine —
+;; passing `:before` switches the widget into diff mode where each
+;; node renders with a left-gutter glyph + colour and `:modified`
+;; leaves carry a `← changed from <prior>` annotation. Ancestor chain
+;; force-opens over any changed descendant.
+
+;; ---- pure helpers --------------------------------------------------------
+
+(deftest diff-op-classification
+  (is (= :same     (dd/diff-op 1 1)))
+  (is (= :same     (dd/diff-op nil nil)))
+  (is (= :modified (dd/diff-op 1 2)))
+  (is (= :modified (dd/diff-op :a :b)))
+  (is (= :added    (dd/diff-op dd/missing-sentinel 1)))
+  (is (= :removed  (dd/diff-op 1 dd/missing-sentinel)))
+  (is (= :same     (dd/diff-op dd/missing-sentinel dd/missing-sentinel))))
+
+(deftest changed-descendant?-walks-maps
+  (is (false? (dd/changed-descendant? {:a 1 :b 2} {:a 1 :b 2})))
+  (is (true?  (dd/changed-descendant? {:a 1 :b 2} {:a 1 :b 3})))
+  (is (true?  (dd/changed-descendant? {:a {:x 1}} {:a {:x 2}}))
+      "deep change propagates to root")
+  (is (true?  (dd/changed-descendant? {:a 1} {:a 1 :b 2}))
+      "key added"))
+
+(deftest changed-descendant?-walks-sequentials
+  (is (false? (dd/changed-descendant? [1 2 3] [1 2 3])))
+  (is (true?  (dd/changed-descendant? [1 2 3] [1 2 4])))
+  (is (true?  (dd/changed-descendant? [1 2] [1 2 3]))))
+
+(deftest gutter-glyph-mapping
+  (is (= "+" (dd/op->gutter-glyph :added)))
+  (is (= "-" (dd/op->gutter-glyph :removed)))
+  (is (= "~" (dd/op->gutter-glyph :modified)))
+  (is (= "◴" (dd/op->gutter-glyph :children)))
+  (is (= " " (dd/op->gutter-glyph :same))))
+
+(deftest gutter-tone-mapping
+  (is (= :green     (dd/op->gutter-tone-key :added)))
+  (is (= :red       (dd/op->gutter-tone-key :removed)))
+  (is (= :yellow    (dd/op->gutter-tone-key :modified)))
+  (is (= :accent    (dd/op->gutter-tone-key :children)))
+  (is (= :text-tertiary (dd/op->gutter-tone-key :same))))
+
+;; ---- diff mode — modified-leaf annotation --------------------------------
+
+(deftest diff-modified-leaf-emits-changed-from-annotation
+  (let [h (dd/render-node {:value 2
+                           :before 1
+                           :diff? true
+                           :panel-id :p :mount-id "m" :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 2}})
+        all (collect-text h)]
+    (is (re-find #"← changed from 1" all)
+        "modified scalar leaf carries the annotation chip")))
+
+(deftest diff-modified-nested-leaf-annotates
+  (let [v {:cart {:items {:total 71.00}}}
+        b {:cart {:items {:total 48.00}}}
+        h (dd/render-node {:value v
+                           :before b
+                           :diff? true
+                           :panel-id :p :mount-id "m" :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 5}})
+        all (collect-text h)]
+    (is (re-find #"← changed from 48" all)
+        "deep modified leaf carries the annotation chip")))
+
+;; ---- diff mode — added / removed -----------------------------------------
+
+(deftest diff-added-leaf-renders-in-green
+  (let [h (dd/render-node {:value 2
+                           :before dd/missing-sentinel
+                           :diff? true
+                           :panel-id :p :mount-id "m" :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 2}})]
+    (is (re-find #"data-rf-diff-op"
+                 (try (pr-str h) (catch :default _ "")))
+        "added leaf carries the diff-op marker")))
+
+(deftest diff-removed-leaf-shows-prior-value
+  (let [h (dd/render-node {:value dd/missing-sentinel
+                           :before 1
+                           :diff? true
+                           :panel-id :p :mount-id "m" :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 2}})
+        all (collect-text h)]
+    (is (re-find #"1" all)
+        "removed leaf still renders the prior value (struck-through)")))
+
+;; ---- diff mode — ancestor chain force-open -------------------------------
+
+(deftest diff-forces-ancestor-chain-open-over-changed-descendant
+  ;; A deep `:e` change should be visible even when the depth heuristic
+  ;; would normally collapse the parents — force-expand wins.
+  (let [v {:a {:b {:c {:d {:e 2}}}}}
+        b {:a {:b {:c {:d {:e 1}}}}}
+        h (dd/render-node {:value v
+                           :before b
+                           :diff? true
+                           :panel-id :p :mount-id "m" :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 1}})
+        all (collect-text h)]
+    (is (re-find #":e" all) "deep changed leaf appears in the rendered text")
+    (is (re-find #"← changed from 1" all) "with its annotation")))
+
+;; ---- diff mode — same nodes dim ------------------------------------------
+
+(deftest diff-same-leaf-uses-text-tertiary
+  (let [h (dd/render-node {:value 1
+                           :before 1
+                           :diff? true
+                           :panel-id :p :mount-id "m" :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 2}})
+        ;; The leaf wrapping span uses the :same gutter row + a span
+        ;; with text-tertiary colour.
+        s (pr-str h)]
+    (is (re-find #"text-tertiary" s)
+        "same leaf in diff mode renders via the text-tertiary token")))
+
+;; ---- diff mode — public widget exposes mode marker -----------------------
+
+(deftest data-display-diff-mode-marker-on-container
+  ;; The public widget's outer container carries `data-rf-mode` =
+  ;; "diff" when `:before` is supplied so panels / tests can target
+  ;; the diff variant.
+  (let [outer (dd/data-display {:a 2} {:before {:a 1}})
+        ;; outer is the form-2 closure that returns a fn — call it
+        ;; with the same args to get the inner hiccup.
+        inner (outer {:a 2} {:before {:a 1}})]
+    (is (= "diff" (get (second inner) :data-rf-mode))
+        "diff-mode marker present when :before is supplied")
+    (is (some? (get (second inner) :data-rf-mount-id))
+        "mount-id still auto-generated")))
+
+(deftest data-display-browse-mode-marker-on-container
+  (let [outer (dd/data-display {:a 1})
+        inner (outer {:a 1} nil)]
+    (is (= "browse" (get (second inner) :data-rf-mode))
+        "browse-mode marker present without :before")))
+
+(deftest data-display-diff-convenience-threads-before
+  ;; The `[data-display-diff before after]` form-2 wrapper should
+  ;; produce the same shape as `[data-display after {:before before}]`.
+  (let [h (dd/data-display-diff {:a 1} {:a 2})]
+    (is (vector? h))
+    (is (fn? (first h)))
+    (is (= {:a 2} (nth h 1)))
+    (is (= {:a 1} (:before (nth h 2))))))

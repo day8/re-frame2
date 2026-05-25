@@ -280,7 +280,15 @@
                        :after     {:a 2}
                        :panel-id  :test
                        :render-id "dispatch-2"})]
-    (is (= :div (first out)))))
+    ;; Post-rf2-q3dzw: diff delegates to dd/data-display with a
+    ;; `:before` opt. The dispatcher returns the same shape as
+    ;; `diff` — a [function value opts] Reagent form. Assert the
+    ;; threaded `:before` lands on the opts so we don't regress the
+    ;; diff-routing contract.
+    (is (vector? out))
+    (is (fn? (first out)))
+    (is (contains? (last out) :before))
+    (is (= {:a 1} (:before (last out))))))
 
 (deftest render-routes-to-mini-when-variant-mini
   (let [out (w/render {:variant :mini

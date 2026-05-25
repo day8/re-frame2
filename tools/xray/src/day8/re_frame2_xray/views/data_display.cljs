@@ -19,15 +19,19 @@
   - `theme/data-inspector` — sentinels (`:rf/redacted`, `:rf/large`)
     become first-class types INSIDE this widget; the chrome wrapper
     goes away (D3=a per rf2-sndui).
-  - `data-display/render` — diff renderer subsumed in phase 5
-    (D5=a per rf2-sndui).
+  - `data-display/render` — diff renderer subsumed (phase 5; D5=a per
+    rf2-sndui). The diff path is now an opt-in mode on this same
+    widget — pass `:before` to render with gutter glyphs +
+    `← changed from <prior>` annotations.
   - `binaryage/cljs-devtools` dep — dropped from the project; this
     widget renders CLJS values natively from CLJS itself (rf2-oqa60).
 
   ## Public API
 
-      [data-display value]
-      [data-display value opts]
+      [data-display value]                ;; browse (no diff)
+      [data-display value opts]           ;; browse / diff
+      [data-display-diff before after]    ;; diff convenience
+      [data-display-diff before after opts]
 
       [mini value]              ;; one-line inline (no expansion)
       [mini value max-len]      ;; with width cap
@@ -42,6 +46,15 @@
                     before forced-vertical layout.
   - `:max-depth` (optional, default 16) — hard cap on recursion
                     depth; deeper levels render `{…}` collapsed.
+  - `:before` (optional) — when supplied, the widget renders in DIFF
+                    mode. The `value` arg is treated as the `after`
+                    side; the supplied `:before` is the prior value.
+                    Gutter glyphs + colours paint per node
+                    (`+` added · `-` removed · `~` modified ·
+                    `◴` children-changed); modified leaves get an
+                    inline `← changed from <prior>` annotation;
+                    ancestors of any changed descendant force open
+                    regardless of the default-expand heuristic.
 
   Drop the `:render-id` arg from the old facade — mount-id is now
   auto-generated internally per D4=a (rf2-sndui).
@@ -91,7 +104,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens mono-stack]]
+             :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-xray.views.data-display-protocol :as ddp]))
 
 ;; =========================================================================
@@ -219,6 +232,160 @@
     (list? v)                      :list
     (seq? v)                       :seq
     :else                          :other))
+
+;; =========================================================================
+;; diff mode — pure helpers (op classification, gutter mapping)
+;; =========================================================================
+;;
+;; Phase 5 (rf2-q3dzw, D5=a per rf2-sndui) subsumes the legacy
+;; `data-display.render` diff engine into this widget. Diff is an
+;; opt-in MODE on the same renderer: when the caller passes `:before`
+;; the widget paints gutter glyphs + `← changed from <prior>`
+;; annotations in place, force-expands the ancestor chain over any
+;; changed descendant, and dims `:same` rows so the eye lands on the
+;; change.
+
+(def missing-sentinel
+  "Marker for a `:before` / `:after` slot that does not exist in its
+  side of the diff (e.g. an added key has `::missing` for `:before`).
+  Distinct from `nil` (which is a real CLJS value). Public so tests
+  can assert the diff-op classification against it."
+  ::missing)
+
+(defn diff-op
+  "Classify a (before, after) pair into a diff op keyword:
+
+    :added    — before is `::missing`, after exists
+    :removed  — before exists, after is `::missing`
+    :modified — both exist and differ (leaf-level)
+    :same     — both exist and are equal
+
+  Pure data; JVM-portable."
+  [before after]
+  (cond
+    (= before ::missing) (if (= after ::missing) :same :added)
+    (= after  ::missing) :removed
+    (= before after)     :same
+    :else                :modified))
+
+(declare changed-descendant?*)
+
+(defn changed-descendant?
+  "True when at least one descendant in (before, after) differs.
+  Walks maps + sequentials + sets; pure. Returns true for primitive
+  mismatches at the root too — so a caller can use this to drive
+  ancestor-open.
+
+  Always returns a primitive boolean (never nil) so callers can
+  dispatch on `true?` / `false?` without nil-coercion."
+  [before after]
+  (boolean (changed-descendant?* before after)))
+
+(defn- changed-descendant?*
+  [before after]
+  (cond
+    ;; Either side missing → caller treats this as added / removed,
+    ;; which is itself a change.
+    (or (= before ::missing) (= after ::missing))
+    (not (and (= before ::missing) (= after ::missing)))
+
+    (and (map? before) (map? after))
+    (or (not= (set (keys before)) (set (keys after)))
+        (some (fn [k] (changed-descendant?* (get before k ::missing)
+                                            (get after  k ::missing)))
+              (into (set (keys before)) (keys after))))
+
+    (and (sequential? before) (sequential? after))
+    (let [a-vec (vec after)
+          b-vec (vec before)
+          n     (max (count a-vec) (count b-vec))]
+      (or (not= (count a-vec) (count b-vec))
+          (boolean
+            (some true?
+                  (for [i (range n)]
+                    (changed-descendant?*
+                      (if (< i (count b-vec)) (nth b-vec i) ::missing)
+                      (if (< i (count a-vec)) (nth a-vec i) ::missing)))))))
+
+    (and (set? before) (set? after))
+    (not= before after)
+
+    :else (not= before after)))
+
+(def op->gutter-glyph
+  "Per-op gutter glyph (§10.3 cascade-gutter mapping). Public so tests
+  can assert the mapping without re-deriving."
+  {:added    "+"
+   :removed  "-"
+   :modified "~"
+   :children "◴"
+   :same     " "})
+
+(def op->gutter-tone-key
+  "Per-op token-key for the gutter glyph + 3px left border colour."
+  {:added    :green
+   :removed  :red
+   :modified :yellow
+   :children :accent
+   :same     :text-tertiary})
+
+(defn- gutter-colour
+  "Resolve the gutter colour for an op via the token table."
+  [op]
+  (get tokens (op->gutter-tone-key op) (:text-tertiary tokens)))
+
+(defn- container-op
+  "Classify a container's diff op given (before, after). Returns
+  `:added`/`:removed`/`:children`/`:same` (containers never report
+  `:modified` directly — a per-leaf modification surfaces as
+  `:modified` on the leaf row, with `:children` on the ancestor)."
+  [before after]
+  (cond
+    (= before ::missing)                       :added
+    (= after  ::missing)                       :removed
+    (changed-descendant? before after)         :children
+    :else                                      :same))
+
+(defn- gutter-row
+  "Wrap `body` with the diff gutter (3px left border + glyph). When
+  the op is `:same` the wrapper is invisible (transparent border, blank
+  glyph) so non-diff renders share the same hiccup shape as diff
+  renders.
+
+  Returns a `[:div ...]` hiccup; embed directly in flex parents."
+  [op body]
+  (let [active? (not= :same op)]
+    [:div {:data-rf-diff-op (name op)
+           :style {:display      "flex"
+                   :align-items  "flex-start"
+                   :gap          "4px"
+                   :padding-left "6px"
+                   :border-left  (str "3px solid "
+                                      (if active?
+                                        (gutter-colour op)
+                                        "transparent"))}}
+     [:span {:style {:flex          "0 0 12px"
+                     :color         (gutter-colour op)
+                     :font-family   mono-stack
+                     :font-size     "11px"
+                     :font-weight   700
+                     :text-align    "center"
+                     :user-select   "none"}}
+      (op->gutter-glyph op)]
+     [:div {:style {:flex 1 :min-width 0}} body]]))
+
+(defn- change-annotation
+  "Inline `← changed from <prior>` chip rendered to the right of a
+  diff'd leaf. Pure hiccup."
+  [before]
+  [:span {:data-rf-diff-annotation "1"
+          :style {:margin-left "8px"
+                  :color       (:text-secondary tokens)
+                  :font-family sans-stack
+                  :font-size   "11px"
+                  :font-style  "italic"}}
+   (str "← changed from " (try (pr-str before)
+                               (catch :default _ (str before))))])
 
 ;; =========================================================================
 ;; scalar rendering (no expansion)
@@ -516,10 +683,16 @@
 (defn- default-expanded?
   "Pure depth/size heuristic — shallow nodes expand, deep + wide
   nodes collapse. The operator's sticky override wins via
-  `resolve-expanded?`."
-  [{:keys [depth child-count default-expanded-depth]
+  `resolve-expanded?`.
+
+  In diff mode, a container with a changed descendant force-expands
+  regardless of depth — operator never has to drill to find the
+  change (spec/021 §10.4)."
+  [{:keys [depth child-count default-expanded-depth
+           has-changed-descendant?]
     :or   {default-expanded-depth 2}}]
   (cond
+    has-changed-descendant?                 true
     (<= depth (dec default-expanded-depth)) true
     (= depth default-expanded-depth)        (<= (or child-count 0) 10)
     :else                                   false))
@@ -563,21 +736,34 @@
    - path — vector of segments from root
    - depth — for the default-expand heuristic
    - expansion-map — snapshot from the expansion-slot subscription
-   - opts — `:default-expanded-depth`, `:max-depth`, `:max-inline-width`"
-  [{:keys [value kind panel-id mount-id path depth expansion-map opts]}]
+   - opts — `:default-expanded-depth`, `:max-depth`, `:max-inline-width`
+   - diff? / before — when diff? true the renderer paints gutter rows,
+                      annotates changed leaves, and force-expands the
+                      ancestor chain over any changed descendant."
+  [{:keys [value kind panel-id mount-id path depth expansion-map opts
+           diff? before]}]
   (let [{:keys [default-expanded-depth max-depth max-inline-width]
          :or {default-expanded-depth 2 max-depth 16 max-inline-width 60}} opts
         cnt           (child-count value kind)
         empty?        (zero? cnt)
         depth-capped? (>= depth max-depth)
+        ;; Diff: classify this container's op vs `before`. Only
+        ;; meaningful when diff? is true; otherwise everything is
+        ;; `:same` and the gutter rows collapse to a transparent
+        ;; left border.
+        op            (if diff? (container-op before value) :same)
+        has-change?   (and diff? (not= op :same))
         default?      (and (not depth-capped?)
-                           (default-expanded? {:depth depth
-                                               :child-count cnt
-                                               :default-expanded-depth default-expanded-depth}))
+                           (default-expanded?
+                             {:depth                   depth
+                              :child-count             cnt
+                              :default-expanded-depth  default-expanded-depth
+                              :has-changed-descendant? has-change?}))
         expanded?     (and (not empty?)
                            (not depth-capped?)
                            (resolve-expanded? expansion-map panel-id mount-id path default?))
         inline-fit?   (and (not empty?)
+                           (not has-change?) ; never inline-fit a changed container
                            (<= cnt 3)
                            (every? (fn [[_ cv]]
                                      (not (container? (collection-kind cv))))
@@ -590,6 +776,7 @@
     [:div {:data-testid (testid-for panel-id mount-id path)
            :data-rf-kind (name kind)
            :data-rf-expanded (if expanded? "1" "0")
+           :data-rf-diff-op (when diff? (name op))
            :style {:font-family mono-stack
                    :line-height 1.4}}
      ;; ---- header row ---------------------------------------------------
@@ -677,41 +864,76 @@
          (collapsed-summary value kind)])]
 
      ;; ---- body — children rendered indented -----------------------------
+     ;;
+     ;; Diff threading: for each child we compute the matching `:before`
+     ;; slice (or `::missing` if the slot didn't exist pre-diff). This
+     ;; lets the child's recursion render its own gutter row / inline
+     ;; `← changed from <prior>` annotation; the parent's `:children`
+     ;; row supplies the ancestor-open + ◴ glyph context.
      (when (seq children)
        [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
               :style {:padding-left "14px"
                       :margin-left  "5px"
                       :border-left  (str "1px solid " (:border-subtle tokens))}}
-        (into [:<>]
-              (map
-                (fn [[k cv]]
-                  (let [child-path (conj (vec path) k)
-                        ;; For maps we tag the child as a map-entry so
-                        ;; the renderer can pick the map-entry bracket.
-                        ;; For sets the child is rendered without a key.
-                        labelled?  (and (not (#{:set :seq :list :vector} kind))
-                                        ;; sets / sequentials don't carry labelled keys
-                                        (#{:map :record :map-entry} kind))]
-                    [:div {:key (pr-str k)
-                           :style {:display "flex"
-                                   :align-items "baseline"
-                                   :gap "6px"
-                                   :flex-wrap "wrap"
-                                   :padding "0px 0"}}
-                     (when labelled?
-                       (list
-                         (with-meta (key-segment k)            {:key (str "k-" (pr-str k))})
-                         (with-meta [:span {:style (token-style :text-tertiary)} " "]
-                           {:key (str "s-" (pr-str k))})))
-                     (with-meta (render-node {:value cv
-                                              :panel-id panel-id
-                                              :mount-id mount-id
-                                              :path child-path
-                                              :depth (inc depth)
-                                              :expansion-map expansion-map
-                                              :opts opts})
-                                {:key (str "v-" (pr-str k))})]))
-                children))])
+        ;; In diff mode, also surface keys that exist ONLY in `before`
+        ;; (i.e. removed slots) as struck-through rows. We do that by
+        ;; iterating a unified key set when the kind is :map (the
+        ;; common app-db case); sequentials use index alignment.
+        (let [child-pairs
+              (cond
+                (and diff? (= kind :map) (map? before))
+                ;; Map: walk union of keys; carry both v and b per key.
+                (let [all-keys (vec (into (set (keys value)) (keys before)))]
+                  (for [k all-keys]
+                    [k (get value k ::missing) (get before k ::missing)]))
+
+                (and diff? (#{:vector :list :seq} kind) (sequential? before))
+                ;; Sequential: index-align; treat extra trailing items.
+                (let [a-vec (vec value)
+                      b-vec (vec before)
+                      n     (max (count a-vec) (count b-vec))]
+                  (for [i (range n)]
+                    [i
+                     (if (< i (count a-vec)) (nth a-vec i) ::missing)
+                     (if (< i (count b-vec)) (nth b-vec i) ::missing)]))
+
+                :else
+                ;; Non-diff path, or diff with no comparable structure
+                ;; on the `before` side — render the present children as-is.
+                (for [[k cv] children]
+                  [k cv (if diff? ::missing ::missing)]))]
+          (into [:<>]
+                (map
+                  (fn [[k cv cb]]
+                    (let [child-path (conj (vec path) k)
+                          ;; For maps we tag the child as a map-entry so
+                          ;; the renderer can pick the map-entry bracket.
+                          ;; For sets the child is rendered without a key.
+                          labelled?  (and (not (#{:set :seq :list :vector} kind))
+                                          ;; sets / sequentials don't carry labelled keys
+                                          (#{:map :record :map-entry} kind))]
+                      [:div {:key (pr-str k)
+                             :style {:display "flex"
+                                     :align-items "baseline"
+                                     :gap "6px"
+                                     :flex-wrap "wrap"
+                                     :padding "0px 0"}}
+                       (when labelled?
+                         (list
+                           (with-meta (key-segment k)            {:key (str "k-" (pr-str k))})
+                           (with-meta [:span {:style (token-style :text-tertiary)} " "]
+                             {:key (str "s-" (pr-str k))})))
+                       (with-meta (render-node {:value cv
+                                                :before cb
+                                                :diff? diff?
+                                                :panel-id panel-id
+                                                :mount-id mount-id
+                                                :path child-path
+                                                :depth (inc depth)
+                                                :expansion-map expansion-map
+                                                :opts opts})
+                                  {:key (str "v-" (pr-str k))})]))
+                  child-pairs)))])
 
      ;; ---- close bracket (only when expanded + body present) -------------
      (when (and expanded? (not empty?) (not depth-capped?) (not inline-fit?))
@@ -757,6 +979,54 @@
                           :border-left  (str "1px solid " (:border-subtle tokens))}}
             body])]))))
 
+(defn- render-leaf-with-diff
+  "Render a scalar leaf, wrapped in the diff gutter when `diff?` is
+  truthy. Returns hiccup `[:div ...]` for diff renders (so the gutter
+  row can layout) or the bare `[:span ...]` for non-diff (so inline
+  composition continues to work).
+
+  - `:added`    — render `value`   in green, gutter `+`
+  - `:removed`  — render `before`  in red, strike-through, gutter `-`
+  - `:modified` — render `value`   in yellow + `← changed from <prior>`
+                  chip, gutter `~`
+  - `:same`     — render `value` (dimmed when `diff?` is true so the
+                  eye lands on the changes)"
+  [{:keys [value before diff?]}]
+  (if-not diff?
+    (render-scalar value)
+    (let [op (diff-op before value)]
+      (case op
+        :added
+        (gutter-row :added
+                    [:span {:data-rf-diff-op "added"
+                            :style {:color (:green tokens)
+                                    :font-family mono-stack}}
+                     (render-scalar value)])
+        :removed
+        (gutter-row :removed
+                    [:span {:data-rf-diff-op "removed"
+                            :style {:color (:red tokens)
+                                    :font-family mono-stack
+                                    :text-decoration "line-through"}}
+                     (render-scalar before)])
+        :modified
+        (gutter-row :modified
+                    [:span {:data-rf-diff-op "modified"
+                            :style {:display "inline-flex"
+                                    :align-items "baseline"
+                                    :flex-wrap "wrap"
+                                    :gap "4px"}}
+                     [:span {:style {:color (:yellow tokens)
+                                     :font-family mono-stack}}
+                      (render-scalar value)]
+                     (change-annotation before)])
+        :same
+        (gutter-row :same
+                    [:span {:data-rf-diff-op "same"
+                            :style {:color (:text-tertiary tokens)
+                                    :font-family mono-stack}}
+                     (render-scalar value)])))))
+
 (defn render-node
   "Recursive entry. Picks container vs scalar; threads the
   expansion-map snapshot down. Returns hiccup. Pure projection of
@@ -767,14 +1037,20 @@
   hiccup, the protocol path wins. Otherwise falls through to the
   built-in container / scalar dispatch (phase 7 / rf2-0qrcr).
 
+  Diff mode: when `:diff?` is true the renderer paints gutter rows +
+  `← changed from <prior>` annotations; when `:before` is
+  `::missing`, the node is rendered as `:added`; when `value` is
+  `::missing`, as `:removed`.
+
   Public so unit tests can drive the renderer without mounting."
-  [{:keys [value panel-id mount-id path depth expansion-map opts]
+  [{:keys [value before diff? panel-id mount-id path depth expansion-map opts]
     :or   {depth 0 path []}}]
   (or
     ;; Protocol seam (rf2-0qrcr) — light-touch satisfies? gate; nil
     ;; result falls through to built-ins. Bound to the same testid
     ;; contract as the built-in renderer so panel chrome doesn't shift.
-    (when (ddp/satisfies-xray-data-display? value)
+    (when (and (not= value ::missing)
+               (ddp/satisfies-xray-data-display? value))
       (render-protocol-node {:value value
                              :panel-id panel-id
                              :mount-id mount-id
@@ -782,17 +1058,49 @@
                              :depth depth
                              :expansion-map expansion-map
                              :opts opts}))
-    (let [kind (collection-kind value)]
-      (if (container? kind)
-        (render-container {:value value
-                           :kind kind
-                           :panel-id panel-id
-                           :mount-id mount-id
-                           :path path
-                           :depth depth
-                           :expansion-map expansion-map
-                           :opts opts})
-        (render-scalar value)))))
+    (cond
+      ;; Diff mode: removed slot — render the prior value struck-through.
+      ;; The `value` side is `::missing` but `before` carries the slot
+      ;; that's being removed. Always a leaf-shaped row (containers
+      ;; collapse to one removed line — operator follows the gutter, not
+      ;; the structure, for deletions).
+      (and diff? (= value ::missing))
+      (render-leaf-with-diff {:value ::missing :before before :diff? true})
+
+      ;; Diff mode: added slot at a container → render the new
+      ;; container in green via the normal recursive path with `op
+      ;; :added` threaded; for a scalar leaf, paint the `+` row.
+      (and diff? (= before ::missing))
+      (let [kind (collection-kind value)]
+        (if (container? kind)
+          (render-container {:value value
+                             :kind kind
+                             :panel-id panel-id
+                             :mount-id mount-id
+                             :path path
+                             :depth depth
+                             :expansion-map expansion-map
+                             :opts opts
+                             :diff? true
+                             :before ::missing})
+          (render-leaf-with-diff {:value value :before ::missing :diff? true})))
+
+      :else
+      (let [kind (collection-kind value)]
+        (if (container? kind)
+          (render-container {:value value
+                             :kind kind
+                             :panel-id panel-id
+                             :mount-id mount-id
+                             :path path
+                             :depth depth
+                             :expansion-map expansion-map
+                             :opts opts
+                             :diff? (boolean diff?)
+                             :before before})
+          (render-leaf-with-diff {:value value
+                                  :before before
+                                  :diff? (boolean diff?)}))))))
 
 ;; =========================================================================
 ;; mount-id generator + public entry — data-display (form-2 component)
@@ -807,15 +1115,27 @@
   (str (random-uuid)))
 
 (defn data-display
-  "First-class data-display widget — Phase 1 entry point. Form-2
-  Reagent component: the outer fn allocates a stable `mount-id` in
-  closure; the inner fn subscribes to the expansion slot, threads
-  the snapshot through the recursive renderer, and returns hiccup.
+  "First-class data-display widget — single source of truth for
+  browse + diff + mini.
 
   Pass `[data-display value]` or `[data-display value opts]`. The
   `opts` map carries `:panel-id`, `:default-expanded-depth`,
-  `:max-inline-width`, `:max-depth` — see the ns docstring for the
-  full key inventory.
+  `:max-inline-width`, `:max-depth`, `:before` — see the ns
+  docstring for the full key inventory.
+
+  - Browse mode (default): no `:before` opt; the widget renders
+    `value` with expand/collapse + sticky operator overrides.
+  - Diff mode: pass `:before` in `opts` (or use the
+    `data-display-diff` 3-arg convenience). The widget renders
+    `value` as the AFTER side with gutter glyphs +
+    `← changed from <prior>` annotations, force-expands the
+    ancestor chain over any changed descendant, and dims `:same`
+    rows.
+
+  Form-2 Reagent component: the outer fn allocates a stable
+  `mount-id` in closure; the inner fn subscribes to the expansion
+  slot, threads the snapshot through the recursive renderer, and
+  returns hiccup.
 
   Per D4=a (rf2-sndui) the public API does NOT take a `:render-id` —
   mount-id is generated internally. Two simultaneous mounts get
@@ -829,21 +1149,26 @@
   ([_value _opts]
    (let [mount-id (gen-mount-id)]
      (fn [value opts]
-       (let [{:keys [panel-id default-expanded-depth max-inline-width max-depth]
+       (let [{:keys [panel-id default-expanded-depth max-inline-width
+                     max-depth before]
               :or   {panel-id :rf.xray.data-display/anon
                      default-expanded-depth 2
                      max-inline-width 60
                      max-depth 16}} opts
+             diff?         (contains? opts :before)
              expansion-map @(rf/subscribe [expansion-slot])
              container-id  (str "rf-xray-data-display-"
                                 (name panel-id) "-" mount-id)]
-         [:div {:data-testid  container-id
+         [:div {:data-testid     container-id
                 :data-rf-mount-id mount-id
+                :data-rf-mode    (if diff? "diff" "browse")
                 :style {:font-family mono-stack
                         :font-size   "12px"
                         :color       (:text-primary tokens)
                         :line-height 1.4}}
           (render-node {:value value
+                        :before (if diff? before ::missing)
+                        :diff? diff?
                         :panel-id panel-id
                         :mount-id mount-id
                         :path []
@@ -852,6 +1177,16 @@
                         :opts {:default-expanded-depth default-expanded-depth
                                :max-inline-width max-inline-width
                                :max-depth max-depth}})])))))
+
+(defn data-display-diff
+  "Diff convenience — `[data-display-diff before after]` or
+  `[data-display-diff before after opts]`. Equivalent to
+  `[data-display after (assoc opts :before before)]`. Use when the
+  call site reads more naturally with both halves of the diff at the
+  callsite head."
+  ([before after] (data-display-diff before after nil))
+  ([before after opts]
+   [data-display after (assoc (or opts {}) :before before)]))
 
 ;; =========================================================================
 ;; mini — one-line inline rendering (D2=a: 2-arg overload, sentinel-aware)
