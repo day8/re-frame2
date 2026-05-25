@@ -619,6 +619,35 @@ it (the function that decides "should layout re-run?" — the
 `this-key`/`layout-key` guard in `chart.cljs`). The comment MUST cite
 this section and DESIGN-RATIONALE Lock #9 and Lock #11.
 
+### Auto-fit on async layout settle
+
+`MachineChart` MUST re-fit the xyflow viewport **once** after each
+successful elkjs layout settle whose layout-key (the
+`[:definition :direction :layout-options]` tuple above) differs from
+the last key that was fit. xyflow's `:fitView true` prop fires only
+on the initial mount, but mount happens BEFORE the async elk pass
+resolves — every node sits at the default `{x 0 y 0}` and the
+one-shot fitView would frame the operator on a degenerate cluster
+near the origin (rf2-set3x). Implementations MUST capture the xyflow
+ReactFlowInstance via `:onInit` and call `.fitView` from the
+`compute-layout!` settle (and the symmetric onInit-after-settle race
+branch).
+
+The auto-fit MUST be gated:
+
+- It runs **once** per layout-key change. A manual operator zoom/pan
+  survives every non-layout re-render (highlight changes, overlay
+  ticks, fired-edge sets) — these do not invalidate the
+  `layout-key`, so they do not refit.
+- It does NOT run on a `:layout-error` settle (positions are empty;
+  the error banner paints instead).
+- The xyflow Controls' built-in `Fit` button remains the manual
+  re-fit escape hatch.
+
+A layout invalidation (any of the four triggers above) implicitly
+re-fits, by design — the topology shape has changed and the
+operator's prior framing is no longer meaningful.
+
 ### One chart-level, visibility-gated animation clock
 
 `:after` countdown rings and any continuous animation in the chart
