@@ -225,7 +225,7 @@ boolean GitHub-Actions outputs per surface:
 | `mcp_live` | re-frame2-pair-mcp / mcp-base / mcp-conformance changed; gates the live MCP coverage. |
 | `story_xray_browser` | Story / Xray runtime source changed under `tools/{story,xray}/{src,testbeds}/**` AND the changed file has a runtime extension (`.cljs`, `.cljc`, `.js`, `.cjs`, `.css`, `.scss`). Per rf2-k9ekz the trigger is narrowed: Markdown specs under `tools/{story,xray}/spec/**`, JVM unit tests under `tools/{story,xray}/test/**`, `deps.edn`, `README.md`, and `*.txt` do NOT fire it — they cannot affect chrome and so cannot invalidate the Playwright gate. Not set by the `-mcp` wrappers (they don't run in a browser). |
 | `skills_structural` | `skills/re-frame2-pair/*` or `skills/shared/*` changed. |
-| `playground` | `tools/playground/*` changed, OR one of the three committed bundles (`docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js`) was hand-edited; gates `tools-playground` (smoke + bundle-drift). |
+| `playground` | `docs/tools/playground/*` changed, OR one of the three committed bundles (`docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js`) was hand-edited; gates `tools-playground` (smoke + bundle-drift). |
 
 A few "blast-radius" inputs force the full sweep:
 
@@ -323,7 +323,7 @@ must re-run the matrix).
 | S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |   |
 | S15 | `skills/re-frame2-pair/tests/fixture/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |   |
 | S16 | `skills/re-frame2-pair/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |   |
-| S17 | `tools/playground/*`, `docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js` (rf2-ee38b.22) |   |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
+| S17 | `docs/tools/playground/*`, `docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js` (rf2-ee38b.22) |   |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
 
 **Output → jobs** — read this to answer "if this output is `true`, what
 runs?" Job counts are grouped (the matrix expands to 30+ leaf jobs at

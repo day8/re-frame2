@@ -3,7 +3,7 @@
 ;;
 ;; Produces docs/cljs/playground-rf2.js — an :advanced-compiled IIFE-ish
 ;; browser bundle that installs `window.rf2sci.renderLast`.
-;; The playground bootstrap (tools/playground/src/playground.mjs) loads
+;; The playground bootstrap (docs/tools/playground/src/playground.mjs) loads
 ;; it as a classic <script> ONLY on pages that have a ```cljs-rf2 cell,
 ;; the same guarded on-demand pattern the bootstrap uses for the Scittle
 ;; plain-cell engine.
@@ -16,7 +16,7 @@
 ;; implementation pins) — so docs/cljs/playground-rf2.js is fully
 ;; self-contained: one <script>, no external React, no version-mismatch
 ;; risk. shadow-cljs resolves "react"/"react-dom" via node_modules
-;; (tools/playground/sci/package.json).
+;; (docs/tools/playground/sci/package.json).
 {:deps {:aliases []}
 
  :builds

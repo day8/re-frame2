@@ -5,9 +5,9 @@ import { copyFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const here = dirname(fileURLToPath(import.meta.url)); // tools/playground/sci/scripts
+const here = dirname(fileURLToPath(import.meta.url)); // docs/tools/playground/sci/scripts
 const src = join(here, "..", "out", "playground-rf2.js");
-const destDir = join(here, "..", "..", "..", "..", "docs", "cljs");
+const destDir = join(here, "..", "..", "..", "..", "cljs");
 const dest = join(destDir, "playground-rf2.js");
 
 if (!existsSync(src)) {

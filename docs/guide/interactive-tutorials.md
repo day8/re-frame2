@@ -6,7 +6,7 @@
 
 The guide's prose teaches by reading. Static code blocks show the shape; the surrounding sentences explain *why it's shaped that way*. That's enough for most chapters and it's the right default — a reader skimming on a phone shouldn't need a JavaScript runtime to follow the argument.
 
-But some ideas land harder when the reader can *change them and see what happens*. "Dispatch increments the counter" is a sentence. A live counter the reader clicks — then edits the handler to add two instead of one, re-evaluates, and clicks again — is an experience. The playground ([built under `tools/playground`](https://github.com/day8/re-frame2/tree/main/tools/playground)) makes that possible inside an ordinary mkdocs page: fenced code blocks become editable CodeMirror editors that evaluate in the browser.
+But some ideas land harder when the reader can *change them and see what happens*. "Dispatch increments the counter" is a sentence. A live counter the reader clicks — then edits the handler to add two instead of one, re-evaluates, and clicks again — is an experience. The playground ([built under `docs/tools/playground`](https://github.com/day8/re-frame2/tree/main/docs/tools/playground)) makes that possible inside an ordinary mkdocs page: fenced code blocks become editable CodeMirror editors that evaluate in the browser.
 
 This page is the **foundation** for that track. The [counter tutorial](interactive-counter.md) is the **template** the first interactive chapter follows. More interactive tutorials will follow the same shape; extend or redirect from here.
 

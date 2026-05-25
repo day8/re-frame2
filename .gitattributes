@@ -11,4 +11,4 @@ docs/cljs/playground.css text eol=lf
 # Pin the source CSS to LF too: `copy-css.mjs` copies it byte-for-byte to the
 # committed docs/cljs/playground.css, so a CRLF source would yield a CRLF
 # output and trip the drift gate.
-tools/playground/src/playground.css text eol=lf
+docs/tools/playground/src/playground.css text eol=lf

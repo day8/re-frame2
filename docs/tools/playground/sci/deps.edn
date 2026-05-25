@@ -26,5 +26,5 @@
  :deps  {thheller/shadow-cljs {:mvn/version "3.4.10"}
          org.babashka/sci {:git/url "https://github.com/babashka/sci"
                            :git/sha "44ce05e3af3d4b7731ae776b85c3af491019ff16"}
-         day8/re-frame2    {:local/root "../../../implementation/core"}
-         day8/reagent-slim {:local/root "../../../implementation/adapters/reagent-slim"}}}
+         day8/re-frame2    {:local/root "../../../../implementation/core"}
+         day8/reagent-slim {:local/root "../../../../implementation/adapters/reagent-slim"}}}

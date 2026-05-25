@@ -36,8 +36,8 @@ import { extname, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
-const here = dirname(fileURLToPath(import.meta.url)); // tools/playground/test
-const repoRoot = join(here, "..", "..", "..");
+const here = dirname(fileURLToPath(import.meta.url)); // docs/tools/playground/test
+const repoRoot = join(here, "..", "..", "..", "..");
 const bundlePath = join(repoRoot, "docs", "cljs", "playground.js");
 const rf2BundlePath = join(repoRoot, "docs", "cljs", "playground-rf2.js");
 
@@ -50,7 +50,7 @@ if (!existsSync(bundlePath)) {
 if (!existsSync(rf2BundlePath)) {
   console.error(
     "FAIL: docs/cljs/playground-rf2.js not found — run `npm run build` in" +
-      " tools/playground/sci first."
+      " docs/tools/playground/sci first."
   );
   process.exit(1);
 }

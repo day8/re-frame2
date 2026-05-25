@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "npm run build:bootstrap && npm run build:rf2",
-    "build:bootstrap": "esbuild src/playground.mjs --bundle --minify --format=iife --outfile=../../docs/cljs/playground.js && node scripts/copy-css.mjs",
-    "build:dev": "esbuild src/playground.mjs --bundle --format=iife --outfile=../../docs/cljs/playground.js && node scripts/copy-css.mjs",
+    "build:bootstrap": "esbuild src/playground.mjs --bundle --minify --format=iife --outfile=../../cljs/playground.js && node scripts/copy-css.mjs",
+    "build:dev": "esbuild src/playground.mjs --bundle --format=iife --outfile=../../cljs/playground.js && node scripts/copy-css.mjs",
     "build:rf2": "cd sci && npm install && npm run build",
     "smoke": "node test/smoke.test.mjs",
     "browsers": "playwright install chromium"

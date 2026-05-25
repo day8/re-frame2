@@ -19,7 +19,7 @@
  *                       re-frame.core / reagent2.core and call re-frame2's
  *                       reg-event-db / reg-sub / dispatch / subscribe. Backed by
  *                       a self-contained SCI bundle (cljs/playground-rf2.js,
- *                       built by tools/playground/sci) — NOT Scittle: there is
+ *                       built by docs/tools/playground/sci) — NOT Scittle: there is
  *                       no published scittle.core artefact to build a plugin
  *                       against, and Scittle ships STOCK libs. The bundle
  *                       bundles re-frame2 core + reagent2 + React 19 (React 19
@@ -42,7 +42,7 @@
  *     engine, loaded on demand only on pages with a ```cljs-rf2 cell.
  *
  * This module is bundled by esbuild into an IIFE at docs/cljs/playground.js
- * and wired via mkdocs `extra_javascript`. See tools/playground/README.md.
+ * and wired via mkdocs `extra_javascript`. See docs/tools/playground/README.md.
  */
 
 import { EditorState, Prec } from "@codemirror/state";
@@ -61,12 +61,12 @@ const SCITTLE_VERSION = "0.8.31";
 const SCITTLE_BASE = `https://cdn.jsdelivr.net/npm/scittle@${SCITTLE_VERSION}/dist`;
 const SCITTLE_SRC = `${SCITTLE_BASE}/scittle.js`;
 
-// This file's deployed name (esbuild --outfile=../../docs/cljs/playground.js).
+// This file's deployed name (esbuild --outfile=../../cljs/playground.js).
 // Used by the selfUrl fallback below to locate the bootstrap's own <script>.
 const SELF_BUNDLE_NAME = "playground.js";
 
 // The re-frame2 SCI bundle (Phase 3) — a self-contained shadow-cljs build
-// (tools/playground/sci) that bundles re-frame2 core + reagent2 + React 19 and
+// (docs/tools/playground/sci) that bundles re-frame2 core + reagent2 + React 19 and
 // installs window.rf2sci.renderLast. Sibling of this file under docs/cljs/, so
 // it is resolved relative to this file's own URL (see selfUrl below) for
 // /re-frame2/ sub-path safety. Loaded as a classic <script> on demand, only on

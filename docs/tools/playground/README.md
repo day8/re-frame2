@@ -106,7 +106,7 @@ The Phase-3 re-frame2 eval bundle (`sci/`) pins:
 ## Build
 
 ```bash
-cd tools/playground
+cd docs/tools/playground
 npm install
 npm run build          # builds BOTH bundles (bootstrap + re-frame2 SCI)
 # npm run build:bootstrap   # just the esbuild bootstrap

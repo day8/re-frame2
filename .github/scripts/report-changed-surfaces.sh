@@ -340,15 +340,15 @@ else
       skills/re-frame2-pair/*|skills/shared/*)
         skills_structural=true
         ;;
-      tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|docs/cljs/playground-rf2.js)
+      docs/tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|docs/cljs/playground-rf2.js)
         # rf2-ee38b.22 — the docs/cljs live-cell playground (CM6 + Scittle
         # bootstrap + the re-frame2 SCI bundle). The tools-playground job
         # rebuilds both bundles, runs the headless-Chromium smoke against
         # them, and `git diff --exit-code`s the committed
         # docs/cljs/playground*.{js,css} so a stale vendored bundle (the
         # deploy artefact is committed verbatim, never rebuilt by docs.yml)
-        # fails the PR. Fired by any tools/playground/** change OR by a
-        # hand-edit of one of the three committed bundles.
+        # fails the PR. Fired by any docs/tools/playground/** change OR by
+        # a hand-edit of one of the three committed bundles.
         playground=true
         ;;
     esac
