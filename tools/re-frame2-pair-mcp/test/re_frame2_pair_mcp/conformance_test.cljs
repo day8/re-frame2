@@ -346,14 +346,16 @@
     {:edn-submap {:ok? false :reason :runtime-loaded-but-preload-missing}}}
 
    ;; ---------- eval-cljs --------------------------------------------------
-   ;; The launch-flag gate (rf2-cxx5s, cascade from rf2-czv3p) ships
-   ;; DEFAULT-OFF in published builds — the operator passes `--allow-eval`
-   ;; to opt in. Fixtures that drive the post-gate logical paths
-   ;; (`:happy`, `:missing-form`) set `:fixture/allow-eval? true`; the
-   ;; `:disabled` fixture pins the default-off envelope.
-   {:fixture/id    :eval-cljs/disabled-default
-    :fixture/doc   "eval-cljs with the launch-flag OFF returns :rf.error/eval-cljs-disabled."
+   ;; The launch-flag gate (rf2-a0z0h; inverts the prior rf2-cxx5s
+   ;; default) ships DEFAULT-ON in published builds — the operator
+   ;; passes `--no-eval` to opt OUT. Fixtures that drive the post-gate
+   ;; logical paths (`:happy`, `:missing-form`, `:no-runtime-for-build`)
+   ;; rely on the default ON state; the `:disabled-via-no-eval` fixture
+   ;; pins the opt-out envelope via `:fixture/eval-allowed? false`.
+   {:fixture/id    :eval-cljs/disabled-via-no-eval
+    :fixture/doc   "eval-cljs with --no-eval (gate flipped OFF) returns :rf.error/eval-cljs-disabled."
     :fixture/tool  "eval-cljs"
+    :fixture/eval-allowed? false
     :fixture/args  {:form "(+ 1 2)"}
     :fixture/eval-script
     [[:default nil]]
@@ -362,9 +364,8 @@
      :reason :rf.error/eval-cljs-disabled}}
 
    {:fixture/id    :eval-cljs/happy
-    :fixture/doc   "eval-cljs with --allow-eval + explicit :build returns {:ok? true :value v} on a successful runtime eval."
+    :fixture/doc   "eval-cljs (gate at default ON) with explicit :build returns {:ok? true :value v} on a successful runtime eval."
     :fixture/tool  "eval-cljs"
-    :fixture/allow-eval? true
     ;; Explicit :build short-circuits the rf2-ivlb3 auto-detect (which
     ;; would jvm-eval `active-builds` — not stubbed by this cljs-eval-only
     ;; harness). The runtime-sentinel preflight still runs.
@@ -380,7 +381,6 @@
    {:fixture/id    :eval-cljs/no-runtime-for-build
     :fixture/doc   "eval-cljs against a build with no live runtime fails loud (:no-runtime-for-build), never :ok? true :value nil (rf2-ivlb3)."
     :fixture/tool  "eval-cljs"
-    :fixture/allow-eval? true
     ;; Explicit :build so the path is deterministic against the
     ;; cljs-eval-only stub; sentinel probe returns false → fail loud.
     :fixture/args  {:form "(count [1 2 3])" :build "app"}
@@ -392,9 +392,8 @@
      :edn-submap {:ok? false :reason :no-runtime-for-build}}}
 
    {:fixture/id    :eval-cljs/missing-form
-    :fixture/doc   "eval-cljs with --allow-eval but without :form surfaces :missing-form."
+    :fixture/doc   "eval-cljs without :form surfaces :missing-form."
     :fixture/tool  "eval-cljs"
-    :fixture/allow-eval? true
     :fixture/args  {}
     :fixture/eval-script
     [[:default nil]]
@@ -853,25 +852,32 @@
   Returns a Promise resolving to `{:fixture-id ... :passed? bool
   :failure ...}`.
 
-  Honors `:fixture/allow-eval?` — flips the eval-cljs launch-flag gate
-  (rf2-cxx5s) for this fixture's invocation and restores it afterward.
-  Default OFF mirrors the published-build posture; opt-in fixtures
-  exercise the post-gate paths.
+  Honors `:fixture/eval-allowed?` — flips the eval-cljs launch-flag gate
+  (rf2-a0z0h; inverts the prior rf2-cxx5s default) for this fixture's
+  invocation and restores it afterward. Default ON mirrors the
+  published-build posture (eval-cljs is the REPL primitive); opt-out
+  fixtures (`:disabled-via-no-eval`) explicitly set `false` to exercise
+  the gate-closed envelope. When the key is absent, the fixture inherits
+  the default-ON state.
 
-  Honors `:fixture/allow-raw-state?` (rf2-c2dtu) symmetrically — flips
-  the raw-state boot gate. Default OFF mirrors the published-build
-  posture; opt-in fixtures verify that an operator who passed
-  `--allow-sensitive-reads` gets the legacy per-call-arg-wins behaviour."
-  [{:fixture/keys [id tool args eval-script expect allow-eval? allow-raw-state?
-                    allow-writes?
+  Honors `:fixture/allow-raw-state?` (rf2-c2dtu) — flips the raw-state
+  boot gate. Default OFF mirrors the published-build posture; opt-in
+  fixtures verify that an operator who passed `--allow-sensitive-reads`
+  gets the legacy per-call-arg-wins behaviour."
+  [{:fixture/keys [id tool args eval-script expect eval-allowed?
+                    allow-raw-state? allow-writes?
                     eval-form-must-contain eval-form-must-not-contain]}]
   (cache/clear!)
-  (let [js-args         (args->js args)
+  (let [;; eval-allowed? defaults true (mirrors the published-build gate
+        ;; state post-rf2-a0z0h); a fixture sets `false` to exercise
+        ;; the --no-eval opt-out path.
+        eval-allowed?-effective (if (nil? eval-allowed?) true (boolean eval-allowed?))
+        js-args         (args->js args)
         forms-seen      (atom [])
-        prev-eval-gate  (eval-cljs/allow-eval-enabled?)
+        prev-eval-gate  (eval-cljs/eval-allowed-enabled?)
         prev-raw-gate   (raw-state/allow-raw-state-enabled?)
         prev-write-gate (writes/allow-writes-enabled?)]
-    (eval-cljs/set-allow-eval! (boolean allow-eval?))
+    (eval-cljs/set-eval-allowed! eval-allowed?-effective)
     (raw-state/set-allow-raw-state! (boolean allow-raw-state?))
     (writes/set-allow-writes! (boolean allow-writes?))
     ;; Reset the per-build runtime-signal cache so each fixture exercises
@@ -919,7 +925,7 @@
                        :failure    (str "invoke threw: " (.-message err))
                        :exception  err}))
             (.finally (fn []
-                        (eval-cljs/set-allow-eval! prev-eval-gate)
+                        (eval-cljs/set-eval-allowed! prev-eval-gate)
                         (raw-state/set-allow-raw-state! prev-raw-gate)
                         (writes/set-allow-writes! prev-write-gate))))))))
 

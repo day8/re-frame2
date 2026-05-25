@@ -180,9 +180,9 @@ your editor is the source of truth.
 
 | Flag                        | Default | What it does                                                                         |
 |-----------------------------|---------|--------------------------------------------------------------------------------------|
-| `--allow-eval`              | OFF     | Enable the `eval-cljs` tool. Default-OFF gate (rf2-cxx5s); see "eval-cljs gate" below. |
+| `--no-eval`                 | absent (eval-cljs ON) | Opt OUT of the `eval-cljs` tool. Default is eval-cljs ENABLED (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). See "eval-cljs gate" below. |
 | `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
-| `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. See "writes gate" below. |
+| `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval can express the same writes), so for a true read-only posture compose with `--no-eval`. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
 | `--http-port <n>`           | `9630`  | Shadow's web-server port for the auto-discovery probe (rf2-umoz2). Only consulted at port-discovery step 3; setting it has no effect when `--port-file` or `SHADOW_CLJS_NREPL_PORT` is present. |
 
@@ -209,27 +209,53 @@ env var or `--port-file` resolve a port. `--port-file` takes an
 
 It is the cwd-independent escape hatch when port auto-discovery fails.
 
-#### eval-cljs gate (rf2-cxx5s)
+#### eval-cljs gate (rf2-a0z0h — default ON; inverts rf2-cxx5s)
 
-`eval-cljs` executes arbitrary CLJS / Clojure source against the live
-runtime — qualitatively different authority from the named-mutation
-tools (`dispatch`, etc.) which mirror in-panel affordances. Published
-builds ship the tool DISABLED; the operator opts in at server launch:
+`eval-cljs` evaluates arbitrary CLJS / Clojure source against the live
+runtime — it is the REPL primitive of a pair-debug session. Published
+builds ship the tool **ENABLED**. The operator opts OUT at server
+launch with `--no-eval` for the rare paranoid case (CI runs, shared
+dev environments where multiple humans share a single MCP process):
 
 ```json
 {
   "mcpServers": {
     "re-frame2-pair": {
       "command": "re-frame2-pair-mcp",
-      "args": ["--allow-eval"]
+      "args": ["--no-eval"]
     }
   }
 }
 ```
 
-Without the flag, calls to `eval-cljs` return the structured error
+With `--no-eval`, calls to `eval-cljs` return the structured error
 `{:ok? false :reason :rf.error/eval-cljs-disabled ...}` without
 touching the nREPL socket.
+
+##### Threat-model rationale (rf2-a0z0h)
+
+The prior default-OFF posture (rf2-cxx5s) parallelled `--allow-writes`
+in shape but not in effect. `--allow-writes` is load-bearing because
+pair-tool writes can confuse the debug audit trail ("did my app
+produce this state change, or did the pair tool?"). A default-OFF
+`--allow-eval` did NOT parallel that protection because eval-cljs can
+express any write the writes-gate would block — the two gates are not
+independent. Once eval is on, writes are de-facto on. So default-OFF
+eval added friction (every operator had to edit `~/.claude.json` and
+restart Claude Code to access the REPL surface) without adding a
+separable protection.
+
+The real defence is **don't expose this MCP to untrusted callers**.
+Once an operator has installed re-frame2-pair-mcp and wired it into
+`~/.claude.json`, they have already declared trust in the surface.
+
+##### Migration
+
+Operators with `--allow-eval` in their `~/.claude.json` from the
+prior rf2-cxx5s era can leave it — the parser silently ignores
+unrecognised flags (no warning is printed because there's no harm
+done; the surface the legacy flag would have opened is now on by
+default anyway). Removing it is recommended for clarity.
 
 #### sensitive-reads gate (rf2-c2dtu)
 
@@ -260,9 +286,11 @@ Operators who need raw state for offline debug opt in at server launch:
 
 With the flag, the per-call args win again — `:include-sensitive true`
 and `:elision false` ride through to the walker unchanged. Same
-architecture as `--allow-eval` (rf2-zyoj2) and story-mcp's
-`--allow-sensitive-reads` (rf2-uaymx / rf2-g9fje) — the latter shares
-the canonical cross-MCP flag name (rf2-2x3ql).
+architecture as story-mcp's `--allow-sensitive-reads` (rf2-uaymx /
+rf2-g9fje) — they share the canonical cross-MCP flag name (rf2-2x3ql).
+The sibling `--no-eval` opt-out (rf2-a0z0h) keeps the inverse posture:
+default ON, explicit opt-out, because eval-cljs is the REPL primitive
+of a pair-debug session.
 
 #### writes gate (rf2-ee38b.18)
 
@@ -288,11 +316,18 @@ builds ship them **DISABLED**; the operator opts in at launch with
 Without the flag, both tools return
 `{:ok? false :reason :rf.error/writes-disabled}` without touching the
 nREPL socket — a stock install cannot rewind history or inject state
-over the MCP socket. The two tools still appear in `tools/list`
-(descriptors are unconditional); the gate is enforced at `tools/call`
-time. Same default-OFF architecture as `--allow-eval`. The tools also
-carry the `:destructiveHint` annotation so agent hosts gate them behind
-a confirmation prompt even when the flag is on.
+over the MCP **named-write** surface. The two tools still appear in
+`tools/list` (descriptors are unconditional); the gate is enforced at
+`tools/call` time. The tools also carry the `:destructiveHint`
+annotation so agent hosts gate them behind a confirmation prompt even
+when the flag is on.
+
+> **Note on composition with `eval-cljs`.** This gate protects the
+> named-write audit trail. It does NOT defend against eval-driven
+> writes — `eval-cljs` (enabled by default post-rf2-a0z0h) can express
+> any write `--allow-writes` would block. For a true read-only debug
+> session (no app-db mutation through this MCP at all), compose with
+> `--no-eval`.
 
 ### First call
 

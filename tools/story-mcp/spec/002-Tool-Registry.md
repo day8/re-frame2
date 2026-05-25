@@ -210,9 +210,12 @@ transport re-frame2-pair-mcp uses today. The same posture:
 - Bounded — `max-tokens` cap, no `:tools/list` discoverability of
   the escape hatch in production deploys (gate on
   `:rf.story/expert-mode? true` in `config.cljc`).
-- Opt-in — explicit `--allow-evaluate-cljs` CLI flag mirroring
-  the existing `--allow-writes` posture for write tools (per
-  IMPL-SPEC §7.3 / `003-Write-Surface-Gating.md`).
+- Posture TBD when implemented — re-frame2-pair-mcp's eval-cljs gate
+  flipped to default-ON in rf2-a0z0h (the threat-model rationale: a
+  default-OFF eval gate did not add a protection separable from
+  `--allow-writes`, because eval expresses every write the writes-gate
+  blocks). A future story-mcp `evaluate-cljs` should evaluate the same
+  trade-off rather than auto-inheriting the older default-OFF stance.
 - Tagged — every fired event / fx carries `:origin :story-mcp`
   so the runtime distinguishes agent-driven slices from user-driven
   ones.
@@ -290,8 +293,14 @@ The three tools that surface live frame state (`preview-variant`,
 `:include-sensitive` boolean to opt out of the default redaction
 posture (see [`tools/Tool-Pair.md`](../../../spec/Tool-Pair.md)
 §Direct-read privacy posture). Per the rf2-uaymx (b) decision that
-opt-in is itself gated by a server-side boot flag, mirroring the
-`--allow-eval` posture re-frame2-pair-mcp uses for `eval-cljs` (rf2-zyoj2):
+opt-in is itself gated by a server-side boot flag — the default-OFF
+posture is the cross-MCP convention for privacy gates (raw reads can
+pour the entire app-db into a wire log without the operator ever
+typing the secret). (Cross-MCP note: re-frame2-pair-mcp's eval-cljs
+gate took the opposite path in rf2-a0z0h — default ON with `--no-eval`
+as the opt-out — because eval is the REPL primitive of a pair-debug
+session and a default-OFF eval gate did not add a protection separable
+from `--allow-writes`. Sensitive-reads here are NOT in that position.)
 
 The wire-key shape (`:include-sensitive`, no `?`) is the form the
 host accepts: the Anthropic Messages API enforces

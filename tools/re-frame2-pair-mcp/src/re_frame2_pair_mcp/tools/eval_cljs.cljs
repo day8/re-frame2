@@ -1,53 +1,72 @@
 (ns re-frame2-pair-mcp.tools.eval-cljs
   "Tool: eval-cljs — evaluate one CLJS form.
 
-  ## Launch-flag gate (rf2-cxx5s, cascade from rf2-czv3p)
+  ## Launch-flag gate (rf2-a0z0h; inverts the prior rf2-cxx5s default)
 
-  Arbitrary code execution is qualitatively different from named
-  mutations (`dispatch`, etc.) — the programmer must opt in explicitly
-  at server launch. Published builds default to OFF; the operator
-  passes `--allow-eval` on the re-frame2-pair-mcp server command line to enable.
+  The eval-cljs tool is the REPL primitive of a pair-debug session —
+  arbitrary form evaluation against the live re-frame2 runtime is the
+  whole reason an operator installs re-frame2-pair-mcp. Published
+  builds default this surface **ON**; the operator opts OUT via
+  `--no-eval` at server launch for the rare paranoid case (CI runs,
+  shared dev environments where multiple humans share a single MCP
+  process).
 
-  The gate is a single atom (`allow-eval?`) set by `server.cljs/main`
-  from `process.argv` before the dispatcher starts handling tools/call
-  requests. When OFF, `eval-cljs-tool` returns the structured error
-  `{:ok? false :reason :rf.error/eval-cljs-disabled ...}` without
-  touching the nREPL socket.
+  ### Threat-model rationale
 
-  Tests flip the atom directly via `set-allow-eval!`."
+  The prior rf2-cxx5s gate (default OFF) parallelled `--allow-writes`
+  in shape but not in effect. `--allow-writes` is load-bearing because
+  pair-tool writes can confuse the debug audit trail (\"did my app
+  produce this state change, or did the pair tool?\"). `--allow-eval`
+  did NOT parallel that protection: eval-cljs can express any write
+  the writes-gate would block. The two gates are not independent —
+  once eval is on, writes are de-facto on. So a default-OFF eval
+  surface added friction without adding a separable protection.
+
+  The real defence is **don't expose this MCP to untrusted callers**.
+  Once an operator has installed re-frame2-pair-mcp and wired it into
+  `~/.claude.json`, they've already declared trust in the surface.
+
+  ### Implementation
+
+  The gate is a single atom (`eval-allowed?`) set by
+  `server.cljs/main` from `process.argv` before the dispatcher starts
+  handling tools/call requests. The atom defaults to `true`; passing
+  `--no-eval` flips it to `false`. Tests flip the atom directly via
+  `set-eval-allowed!`."
   (:require [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
-(defonce ^:private allow-eval?
-  ;; Default OFF in published builds. `server.cljs/main` flips this to
-  ;; `true` when `--allow-eval` is present in `process.argv`.
-  (atom false))
+(defonce ^:private eval-allowed?
+  ;; Default ON in published builds. `server.cljs/main` flips this to
+  ;; `false` when `--no-eval` is present in `process.argv`.
+  (atom true))
 
-(defn set-allow-eval!
+(defn set-eval-allowed!
   "Set the eval-cljs launch-flag gate. Called once by `server.cljs/main`
   during boot; called by tests to flip the gate."
   [enabled?]
-  (reset! allow-eval? (boolean enabled?)))
+  (reset! eval-allowed? (boolean enabled?)))
 
-(defn allow-eval-enabled?
+(defn eval-allowed-enabled?
   "Read the current gate state. Exposed for tests + server-side logging."
   []
-  @allow-eval?)
+  @eval-allowed?)
 
 (defn eval-cljs-tool [conn args]
   (let [form      (wire/arg args :form)
         build-id  (wire/arg-build conn args)
         explicit? (wire/arg-build-explicit? conn args)]
     (cond
-      (not @allow-eval?)
+      (not @eval-allowed?)
       (js/Promise.resolve
         (wire/err-text
           {:ok?    false
            :reason :rf.error/eval-cljs-disabled
-           :hint   (str "eval-cljs is disabled by default for security; "
-                        "pass --allow-eval at server launch to opt in")}))
+           :hint   (str "eval-cljs has been disabled for this server "
+                        "instance via --no-eval; relaunch without that "
+                        "flag to enable.")}))
 
       (or (nil? form) (str/blank? form))
       (js/Promise.resolve

@@ -94,9 +94,10 @@ on the server side surfaces as an SDK parse-error.
   hard-rename-rejection rule (an unrecognised flag must NOT open the
   gate) over the MCP wire — the NAMING.md §"Operator-opt-in CLI flag
   vocabulary" contract. Needs `clojure` (the JVM story-mcp server). The
-  pair-mcp `--allow-eval` default-OFF wire counterpart rides the live
+  pair-mcp eval-cljs gate flipped to default-ON in rf2-a0z0h; its
+  disabled-envelope wire counterpart now rides the live
   `live-re-frame2-pair-subscribe.cjs` path (the one boot config where
-  pair-mcp's eval gate is observable — non-degraded, no `--allow-eval`).
+  the gate is observable — non-degraded, WITH `--no-eval`).
 
 ## How to run
 
@@ -266,8 +267,8 @@ The `mcp-conformance-re-frame2-pair` job runs three steps in sequence:
    payloads, and SDK strict-schema rejection of cap-marker shapes
    under CI's clean ephemeral runtime — not just on Mike's machine. The
    hermetic suite also runs `live-re-frame2-pair-subscribe.cjs`, which
-   (booting non-degraded WITHOUT `--allow-eval`) pins pair-mcp's
-   `--allow-eval` default-OFF wire envelope (`:rf.error/eval-cljs-disabled`).
+   (booting non-degraded WITH `--no-eval`) pins pair-mcp's eval-cljs
+   opt-out wire envelope (`:rf.error/eval-cljs-disabled`) post-rf2-a0z0h.
 
 The `mcp-conformance-story` job runs two steps: **`test:story`** (the
 write-loop + read-path conformance) and **`test:flag-gates`** (the

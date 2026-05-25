@@ -22,10 +22,9 @@ const PORT = process.env.NREPL_TEST_PORT || '17778';
 function run() {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, SHADOW_CLJS_NREPL_PORT: PORT };
-    // Pass `--allow-eval` to opt in to the eval-cljs tool (rf2-cxx5s
-    // launch-flag gate, default OFF). This live-nrepl probe is
-    // specifically exercising the eval surface.
-    const child = spawn(process.execPath, [SERVER, '--allow-eval'], {
+    // eval-cljs is ON by default post-rf2-a0z0h — no opt-in flag needed.
+    // This live-nrepl probe is specifically exercising the eval surface.
+    const child = spawn(process.execPath, [SERVER], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
     });

@@ -59,7 +59,7 @@ Every numeric default the reference ships, with its config slot, its purpose, an
 | `re-frame.debug` system property (JVM) | unset → gate `true` | JVM-side dev-flag override; SSR / long-running JVMs set `false` | n/a (gate) |
 | `RE_FRAME_DEBUG` environment variable (JVM) | unset → gate `true` | Equivalent to `re-frame.debug` for env-var-driven deployments | n/a (gate) |
 | `goog.DEBUG` (CLJS) | `true` in dev, `false` in `:advanced` | Closure-constant gate for the trace surface; DCE folds gated branches in production | n/a (gate) |
-| `--allow-eval` MCP launch flag (re-frame2-pair-mcp) | absent → `eval-cljs` DISABLED | One-time opt-in for the arbitrary-code-execution authority class | n/a (gate; tool unavailable until launch-flag set) |
+| `--no-eval` MCP launch flag (re-frame2-pair-mcp) | absent → `eval-cljs` ENABLED (rf2-a0z0h; inverts prior rf2-cxx5s default-OFF) | One-time opt-OUT for the arbitrary-code-execution surface. Default ON because eval is the REPL primitive of a pair-debug session and a default-OFF gate did not add a protection separable from `--allow-writes` (eval expresses every write the writes-gate blocks); the load-bearing remote-attack protection is the localhost-bind. | n/a (gate; tool refusal envelope returned when launch-flag set) |
 | MCP server bind address | `127.0.0.1` (localhost) | Default-localhost-bind for published MCP servers | n/a (gate; remote access requires explicit launch flag) |
 
 The Conventions doc carries the reserved-config-slot table ([Conventions.md](../spec/Conventions.md)); this table cross-references it with the *concrete numeric* the reference ships.
@@ -178,7 +178,8 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 | Bead | Call | Rationale |
 |---|---|---|
 | rf2-czv3p (part 1) | Named-mutation tools ungated; `eval-cljs` separate authority class | Programmer-friction matters; named mutations are the debugging primitive. `eval-cljs` is qualitatively different — arbitrary code execution. |
-| rf2-cxx5s | re-frame2-pair-mcp `eval-cljs` ships disabled; `--allow-eval` (or similar) launch-flag opt-in | Published servers default-safe. One-time per server launch, transparent, documented. |
+| rf2-cxx5s (superseded by rf2-a0z0h) | re-frame2-pair-mcp `eval-cljs` originally shipped DISABLED with `--allow-eval` opt-in | The original published-default-safe stance. Reversed by rf2-a0z0h after the friction was measured against the threat-model gain (zero — `--allow-writes` does not become more secure when `--allow-eval` is off, because eval expresses every write the writes-gate would block). |
+| rf2-a0z0h | re-frame2-pair-mcp `eval-cljs` now defaults ENABLED; `--no-eval` is the opt-out | Eval-cljs is the REPL primitive of a pair-debug session; defaulting it off forced every operator to edit `~/.claude.json` and restart Claude Code to access the surface their MCP install was for. The gate did not add a protection separable from `--allow-writes`. The load-bearing remote-attack protection is the localhost-bind (rf2-hpkkx); per-operator trust is the install decision. |
 | rf2-hpkkx | MCP servers default localhost-bind | Remote access is explicit opt-in; rules out the casual cross-network reach. |
 | rf2-3rt1f | Per-session app-db cache keyed on root hash | Cache invalidation is keyed on the actual app-db identity — cache poisoning by mismatched session is structurally impossible. |
 

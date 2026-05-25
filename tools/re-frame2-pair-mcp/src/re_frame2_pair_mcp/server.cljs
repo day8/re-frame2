@@ -460,8 +460,14 @@
 (defn parse-launch-flags
   "Pluck the named launch flags out of the raw process argv. Flags today:
 
-    --allow-eval             — opt-in to the `eval-cljs` tool (rf2-cxx5s
-                               cascade from rf2-czv3p). Default OFF.
+    --no-eval                — opt OUT of the `eval-cljs` tool (rf2-a0z0h;
+                               inverts the prior rf2-cxx5s default). Default
+                               is eval-cljs ENABLED — it is the REPL primitive
+                               of a pair-debug session. The threat-model
+                               rationale (eval expresses every write the
+                               --allow-writes gate would block, so the two
+                               gates are not independent protections) lives
+                               in `tools/eval_cljs.cljs`.
     --allow-sensitive-reads  — opt-in to raw state on snapshot / get-path /
                                subscribe AND raw-value `tap>` emissions from
                                the preload's `app-db-reset!` (rf2-c2dtu).
@@ -475,7 +481,10 @@
                                `{:ok? false :reason :rf.error/writes-disabled}`
                                without touching the nREPL socket. `dispatch`
                                (which drives the app's own handlers) is
-                               unaffected.
+                               unaffected. NOTE: this gate protects the audit
+                               trail of named writes; it is NOT a defence
+                               against eval-driven writes (eval-cljs can
+                               express the same writes).
     --port-file <path>       — explicit, cwd-independent nREPL port-file
                                path (rf2-3dbwh). Highest precedence in the
                                port-discovery chain — see
@@ -489,15 +498,14 @@
                                --port-file or SHADOW_CLJS_NREPL_PORT is
                                present.
 
-  Returns `{:allow-eval? bool :allow-raw-state? bool :allow-writes? bool
+  Returns `{:eval-allowed? bool :allow-raw-state? bool :allow-writes? bool
   :port-file str-or-nil :http-port int-or-nil}`.
-  The internal keyword `:allow-raw-state?` is the pair-mcp
-  implementation-side identifier for the gate's state; the CLI flag is the
-  operator-facing name. Unknown flags are ignored — node's shadow-cljs
-  entry passes its own argv prelude (script path), and future flags can
-  land here without breaking older invocations."
+  `:eval-allowed?` is true by default (the published-build posture);
+  passing `--no-eval` flips it false. Unknown flags are ignored —
+  node's shadow-cljs entry passes its own argv prelude (script path),
+  and future flags can land here without breaking older invocations."
   [argv]
-  {:allow-eval?      (boolean (some #{"--allow-eval"} argv))
+  {:eval-allowed?    (not (boolean (some #{"--no-eval"} argv)))
    :allow-raw-state? (boolean (some #{"--allow-sensitive-reads"} argv))
    :allow-writes?    (boolean (some #{"--allow-writes"} argv))
    :port-file        (parse-port-file-flag argv)
@@ -506,21 +514,21 @@
 (defn- apply-launch-flags!
   "Wire launch-flag state into the relevant tool gates. Called once
   before the dispatcher accepts requests."
-  [{:keys [allow-eval? allow-raw-state? allow-writes?]}]
-  (eval-cljs/set-allow-eval! allow-eval?)
+  [{:keys [eval-allowed? allow-raw-state? allow-writes?]}]
+  (eval-cljs/set-eval-allowed! eval-allowed?)
   (raw-state/set-allow-raw-state! allow-raw-state?)
   (writes/set-allow-writes! allow-writes?)
-  (log! "eval-cljs:" (if allow-eval? "ENABLED (--allow-eval)" "disabled (default; pass --allow-eval to opt in)"))
-  ;; Symmetric with rf2-zyoj2 `--allow-eval` boot-gate logging. The
-  ;; "allowed" / "gated" wording matches the rf2-uaymx (b) story-mcp
+  (log! "eval-cljs:" (if eval-allowed? "enabled (default; pass --no-eval to opt out)" "DISABLED (--no-eval)"))
+  ;; The "allowed" / "gated" wording matches the rf2-uaymx (b) story-mcp
   ;; `--allow-sensitive-reads` shape (rf2-g9fje); rf2-2x3ql aligns
   ;; pair-mcp on the same canonical CLI-flag name so operators reading
   ;; multi-MCP logs see one vocabulary.
   (log! "Sensitive reads:" (if allow-raw-state? "allowed (--allow-sensitive-reads)" "gated (default; pass --allow-sensitive-reads to opt in)"))
-  ;; rf2-ee38b.18 — the state-mutating tool gate. Same default-OFF
-  ;; posture as --allow-eval; restore-epoch / reset-frame-db are
-  ;; qualitatively more powerful than dispatch (they replace app-db
-  ;; wholesale).
+  ;; rf2-ee38b.18 — the state-mutating tool gate. Default OFF;
+  ;; restore-epoch / reset-frame-db replace app-db wholesale and the
+  ;; gate keeps the named-write audit trail clean. Note: this gate
+  ;; does NOT defend against eval-driven writes (eval-cljs can
+  ;; express the same writes); see rf2-a0z0h for the rationale.
   (log! "Writes:" (if allow-writes? "ENABLED (--allow-writes)" "disabled (default; pass --allow-writes to opt in)")))
 
 (defn- apply-resource-controls!

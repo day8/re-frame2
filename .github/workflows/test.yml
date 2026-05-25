@@ -1961,8 +1961,9 @@ jobs:
       # `--allow-writes` spelling and asserts the default-OFF write gate +
       # the hard-rename-rejection rule over the MCP wire. Lives in this
       # job because it needs `clojure` (the JVM story-mcp server), same as
-      # `test:story`. The pair-mcp `--allow-eval` wire counterpart rides
-      # the hermetic live-subscribe path in `mcp-conformance-re-frame2-pair`.
+      # `test:story`. The pair-mcp eval-cljs gate wire counterpart
+      # (now `--no-eval` opt-out post-rf2-a0z0h) rides the hermetic
+      # live-subscribe path in `mcp-conformance-re-frame2-pair`.
       - name: Run cross-MCP CLI flag-vocabulary conformance
         run: npm run test:flag-gates
 

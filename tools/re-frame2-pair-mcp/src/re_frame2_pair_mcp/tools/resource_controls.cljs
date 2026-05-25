@@ -73,7 +73,8 @@
   ## Symmetry with sibling gates
 
   Pre-existing re-frame2-pair-mcp gates:
-    - `eval-cljs/allow-eval?` (`--allow-eval`) — rf2-cxx5s
+    - `eval-cljs/eval-allowed?` (`--no-eval` opt-out) — rf2-a0z0h
+      (inverts the prior rf2-cxx5s default-OFF posture)
     - `raw-state/allow-raw-state?` (`--allow-sensitive-reads`) — rf2-c2dtu
 
   This namespace adds:

@@ -8,11 +8,11 @@
 //     trio + handler-meta + list-handlers registrar-introspection pair (rf2-cibp8 /
 //     rf2-pctf8; renamed from subscription-info / registry-list per rf2-4y595) +
 //     get-re-frame2-pair-instructions agent-onboarding (rf2-fnpqg))
-//   - tools/call eval-cljs against an absent nREPL — with `--allow-eval`
-//     passed below, expects graceful :nrepl-port-not-found degraded mode.
-//     The default-off gate (rf2-cxx5s) is exercised by the conformance
-//     `:eval-cljs/disabled-default` fixture; this test passes the flag
-//     so the existing degraded-path coverage remains intact.
+//   - tools/call eval-cljs against an absent nREPL — eval-cljs is ON by
+//     default post-rf2-a0z0h, so this test simply expects the graceful
+//     :nrepl-port-not-found degraded envelope. The disabled-gate envelope
+//     (`--no-eval` opt-out) is exercised by the conformance
+//     `:eval-cljs/disabled-via-no-eval` fixture.
 //   - tools/call snapshot against an absent nREPL (same degraded mode —
 //     proves the new tool is wired into the dispatch table)
 //   - tools/call get-path against an absent nREPL (same degraded mode —
@@ -45,14 +45,14 @@ function run() {
     const env = { ...process.env, SHADOW_CLJS_NREPL_PORT: '' };
     delete env.SHADOW_CLJS_NREPL_PORT;
     // Boot from a tmp dir so port-file probing misses.
-    // Pass `--allow-eval` to opt in to the eval-cljs tool (rf2-cxx5s
-    // launch-flag gate, default OFF). The roundtrip relies on
-    // eval-cljs to surface the no-nREPL degraded envelope.
+    // eval-cljs is ON by default post-rf2-a0z0h — no opt-in flag needed.
+    // The roundtrip relies on eval-cljs to surface the no-nREPL
+    // degraded envelope.
     // Pin --http-port to a port that is always closed (port 1, IANA-
     // reserved) so the rf2-umoz2 shadow HTTP probe gets a deterministic
     // ECONNREFUSED rather than picking up shadow if it happens to be
     // running on the test host at 9630.
-    const child = spawn(process.execPath, [SERVER, '--allow-eval', '--http-port', '1'], {
+    const child = spawn(process.execPath, [SERVER, '--http-port', '1'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: require('node:os').tmpdir(),
       env,

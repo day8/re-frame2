@@ -48,8 +48,14 @@
   trace through (see rf2-p1qli / audit Finding #2).
 
   Symmetric with:
-    - rf2-zyoj2 `--allow-eval`  (eval-cljs in re-frame2-pair-mcp; tools/eval-cljs.cljs)
     - rf2-uaymx (b) / rf2-g9fje `--allow-sensitive-reads` (story-mcp)
+
+  Note: re-frame2-pair-mcp's `eval-cljs` gate was inverted in rf2-a0z0h
+  — eval-cljs now defaults ON, with `--no-eval` as the opt-out. The
+  raw-state gate keeps its default-OFF posture because privacy elision
+  IS a separable protection (eval-cljs surfaces what an operator asked
+  for; raw reads can pour the entire app-db into the wire log without
+  the operator ever typing the secret).
 
   Per rf2-2x3ql the pair-mcp CLI flag is `--allow-sensitive-reads`
   (canonical cross-MCP name). The internal Clojure identifiers below
