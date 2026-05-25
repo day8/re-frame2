@@ -75,6 +75,20 @@
                     call-site; panels enable the affordance where the
                     inline widget is genuinely cramped (App-DB whole-
                     tree, machine snapshots, sub values).
+  - `:card?`         (optional, default false) — rf2-63ie5; when true
+                    the widget's outer container carries the inspector-
+                    card chrome (background `:bg-1`, 1px `:border-
+                    default` border, `8px` radius, `8px 10px` padding,
+                    `8px` margin-bottom) so multiple top-level mounts
+                    in the same panel read as DISTINCT cards rather
+                    than blending into one continuous block. Theme-
+                    aware via tokens — both light + dark resolve at
+                    paint time. Opt-in per call-site: inline mounts
+                    (table cells, popup contents that already carry
+                    modal chrome, diff sub-renderers) leave it off;
+                    panels with multiple top-level inspector mounts
+                    (App-DB's TOP + per-`:rf/*` sections; Handler's
+                    side-by-side event-detail mounts) opt in.
 
   Drop the `:render-id` arg from the old facade — mount-id is now
   auto-generated internally per D4=a (rf2-sndui).
@@ -1490,12 +1504,13 @@
       [value & rest-args]
       (let [opts          (first rest-args)
             {:keys [panel-id site-id default-expanded-depth max-inline-width
-                    max-depth before popup-affordance?]
+                    max-depth before popup-affordance? card?]
              :or   {panel-id :rf.xray.data-display/anon
                     default-expanded-depth 2
                     max-inline-width 60
                     max-depth 16
-                    popup-affordance? false}} opts
+                    popup-affordance? false
+                    card? false}} opts
             diff?         (contains? opts :before)
             ;; rf2-pvsxs — `site-id` (when supplied) opt-out of the
             ;; per-call-site mount-id isolation. The expansion-key's
@@ -1528,15 +1543,32 @@
                :data-rf-site-id  (when site-id (pr-str site-id))
                :data-rf-mode    (if diff? "diff" "browse")
                :data-rf-popup-affordance? (when popup-affordance? "1")
-               :style {:font-family mono-stack
-                       :font-size   "12px"
-                       :color       (:text-primary tokens)
-                       :line-height 1.4
-                       ;; Position context for the absolute-positioned
-                       ;; affordance button. Harmless when the
-                       ;; affordance is off — no descendant uses
-                       ;; absolute positioning otherwise.
-                       :position    (when popup-affordance? "relative")}}
+               :data-rf-card     (when card? "1")
+               :style (cond-> {:font-family mono-stack
+                               :font-size   "12px"
+                               :color       (:text-primary tokens)
+                               :line-height 1.4
+                               ;; Position context for the absolute-
+                               ;; positioned affordance button. Harmless
+                               ;; when the affordance is off — no
+                               ;; descendant uses absolute positioning
+                               ;; otherwise.
+                               :position    (when popup-affordance? "relative")}
+                        ;; rf2-63ie5 — inspector-card chrome on
+                        ;; top-level mounts. Theme-aware via tokens so
+                        ;; both light + dark resolve at paint time. The
+                        ;; opt-in (`:card? true`) keeps inline / nested
+                        ;; mounts unchrromed; panels with multiple top-
+                        ;; level inspector mounts (App-DB, Handler)
+                        ;; pass `:card? true` so the eye reads each
+                        ;; mount as a discrete card rather than one
+                        ;; continuous block.
+                        card? (assoc :background-color (:bg-1 tokens)
+                                     :border           (str "1px solid "
+                                                            (:border-default tokens))
+                                     :border-radius    "8px"
+                                     :padding          "8px 10px"
+                                     :margin-bottom    "8px"))}
          (when popup-affordance?
            (popup-affordance-button dispatch-fn popup-mount-id value opts))
          (render-node {:value value

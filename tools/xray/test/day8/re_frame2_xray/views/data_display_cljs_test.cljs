@@ -1297,3 +1297,78 @@
     (is (= false (get-in @(rf/subscribe [dd/expansion-slot]) [k :expanded?]))
         "third click inverts stored override → false")
     (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+
+;; ---- rf2-63ie5 — inspector card chrome on top-level mounts ---------------
+;;
+;; `:card? true` opts the widget's outer container into the inspector-card
+;; chrome (background, border, radius, padding, margin) so panels with
+;; multiple top-level mounts (App-DB's TOP + per-`:rf/*` areas) read as
+;; distinct cards. Default off preserves inline / nested behaviour.
+
+(defn- invoke-data-display
+  "Form-2 unrolling — run the outer fn, then the inner fn with the same
+  args to get the rendered hiccup."
+  [value opts]
+  (let [outer (dd/data-display value opts)]
+    (outer value opts)))
+
+(deftest card-opt-off-by-default
+  (testing "rf2-63ie5 — without `:card?` (or with `false`) the outer
+            container carries NO card chrome (background, border,
+            radius, padding, margin all absent)"
+    (let [h-default (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db})
+          style-default (-> h-default second :style)
+          h-false   (invoke-data-display {:a 1}
+                                          {:panel-id :rf.xray/app-db
+                                           :card? false})
+          style-false (-> h-false second :style)]
+      (doseq [[label style] [["default" style-default] ["explicit false" style-false]]]
+        (is (nil? (:background-color style))
+            (str label ": no background"))
+        (is (nil? (:border style))
+            (str label ": no border"))
+        (is (nil? (:border-radius style))
+            (str label ": no border-radius"))
+        (is (nil? (:margin-bottom style))
+            (str label ": no margin-bottom"))))))
+
+(deftest card-opt-applies-card-chrome
+  (testing "rf2-63ie5 — `:card? true` adds background/border/radius/
+            padding/margin to the outer container so the mount reads
+            as a distinct inspector card"
+    (let [h (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db
+                                          :card? true})
+          style (-> h second :style)]
+      (is (= (:bg-1 tokens) (:background-color style))
+          "background reads `:bg-1` (theme-aware)")
+      (is (= (str "1px solid " (:border-default tokens)) (:border style))
+          "1px border in `:border-default` (theme-aware)")
+      (is (= "8px" (:border-radius style)) "radius 8px")
+      (is (= "8px 10px" (:padding style)) "padding 8px 10px")
+      (is (= "8px" (:margin-bottom style))
+          "margin-bottom 8px gaps adjacent cards"))))
+
+(deftest card-opt-carries-data-attr
+  (testing "rf2-63ie5 — the outer container publishes `:data-rf-card`
+            when card chrome is on; absent when off"
+    (let [h-on  (invoke-data-display {:a 1}
+                                      {:panel-id :rf.xray/app-db :card? true})
+          h-off (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db})]
+      (is (= "1" (:data-rf-card (second h-on)))
+          "card-on publishes :data-rf-card=1 for testbed assertion")
+      (is (nil? (:data-rf-card (second h-off)))
+          "card-off omits the attribute"))))
+
+(deftest card-opt-theme-aware-via-tokens
+  (testing "rf2-63ie5 — the card chrome reads from the live `tokens`
+            map (a CSS-variable shim per `theme/tokens.cljc`) so both
+            light + dark themes resolve at paint time without a re-
+            render. This test pins the inline-style values to the
+            same token-keyed map the rest of the widget consumes."
+    (let [h (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db
+                                          :card? true})
+          style (-> h second :style)]
+      (is (= (:bg-1 tokens) (:background-color style))
+          "background reads through `:bg-1` (CSS-var or hex per theme)")
+      (is (= (str "1px solid " (:border-default tokens)) (:border style))
+          "border reads through `:border-default` (CSS-var or hex per theme)"))))

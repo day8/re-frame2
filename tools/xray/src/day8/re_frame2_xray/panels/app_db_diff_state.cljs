@@ -154,14 +154,22 @@
         ;; rf2-l4625 — the App-DB whole-tree is the canonical "cramped
         ;; in the side panel" case; the popup gives the operator a
         ;; full-modal inspection surface for deeply-nested state.
-        :popup-affordance? true}]
+        :popup-affordance? true
+        ;; rf2-63ie5 — App-DB renders the user-domain TOP + every
+        ;; reserved `:rf/*` area as top-level mounts in the same panel.
+        ;; Without card chrome the mounts blend into one continuous
+        ;; block; the opt-in chrome gives each mount a distinct card
+        ;; affordance so the operator sees them as discrete inspector
+        ;; cards.
+        :card? true}]
       [dd/data-display
        (f/display-value value)
        {:panel-id :rf.xray/app-db
         :site-id  site-id
         :default-expanded-depth 3
         :before (f/display-value before)
-        :popup-affordance? true}])))
+        :popup-affordance? true
+        :card? true}])))
 
 ;; ---- top (user-domain) section ------------------------------------------
 
