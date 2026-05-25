@@ -112,9 +112,29 @@
 ;; ---- helpers -------------------------------------------------------------
 
 (defn- invoke
-  "Invoke a tool by name. Returns the result map (success or error)."
+  "Invoke a tool by name. Returns the result map (success or error).
+
+  ## Why `:dedup false` is the test-helper default
+
+  The three dedup-eligible tools (`preview-variant`, `run-variant`,
+  `record-as-variant`, per rf2-90eft) wrap their `:structuredContent`
+  under `{:rf.mcp/dedup-table <cache>}` at the wire boundary when
+  `:dedup` defaults to `true`. The tests in this corpus assert against
+  the raw structured shape (`(:variant-id (:structuredContent r))`,
+  etc.) — adding a dedup-expand step on every assertion would burn
+  signal-to-noise.
+
+  The wire-boundary transform is covered exhaustively by
+  `re-frame.story-mcp.tools.dedup-test` (round-trip property,
+  reduction-ratio sanity, `apply-dedup` envelope shape, descriptor
+  eligibility gate). With that coverage the per-tool tests are free to
+  exercise their domain semantics against the unwrapped payload.
+
+  Callers that want to exercise the live-on-the-wire shape (default
+  posture) should call `cap/invoke-tool` directly and use
+  `dedup/dedup-expand` to unwrap before asserting."
   [tool-name args]
-  (cap/invoke-tool tool-name args))
+  (cap/invoke-tool tool-name (merge {:dedup false} args)))
 
 (defn- success? [result]
   (and (map? result)

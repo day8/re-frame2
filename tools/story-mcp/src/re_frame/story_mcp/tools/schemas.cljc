@@ -18,6 +18,33 @@
   {:type "integer" :minimum 0
    :description "Per-call wire-boundary token cap. 0 disables; default 5000 (per `spec/Cross-Cutting-Designs.md §3`)."})
 
+(def dedup-schema
+  "Recurring fragment — every tool accepts a per-call `:dedup` opt-out
+  of the wire-boundary structural-dedup transform (rf2-90eft, mirroring
+  re-frame2-pair-mcp's rf2-obpa9). Default `true`.
+
+  When deduped, the response's `:structuredContent` slot is wrapped as
+  `{:rf.mcp/dedup-table <cache-map>}` and the agent host reconstructs
+  via `(de-dupe.core/expand cache-map)`. Pass `false` to skip dedup —
+  useful for ad-hoc reads when the agent host hasn't been taught to
+  call `expand`.
+
+  Cross-MCP convention with re-frame2-pair-mcp's `:dedup` arg (same
+  default, same wire shape, same opt-out semantics). The key is
+  `:dedup` (no `?`) per the Anthropic
+  `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex
+  (rf2-pmwgn)."
+  {:type "boolean"
+   :description (str "Apply structural dedup (day8/de-dupe) to the "
+                     "response payload before the wire-cap check. "
+                     "Default true. When deduped, the structuredContent "
+                     "slot is wrapped as `{:rf.mcp/dedup-table "
+                     "<cache-map>}` and the agent host reconstructs via "
+                     "`(de-dupe.core/expand cache-map)`. Pass false to "
+                     "skip dedup — useful for ad-hoc reads when the "
+                     "agent host hasn't been taught to call `expand`. "
+                     "Cross-MCP shape with re-frame2-pair-mcp's `:dedup` arg.")})
+
 (def include-sensitive-schema
   "Recurring fragment — every tool that surfaces a live `:app-db`
   slice or assertion accumulator accepts the cross-MCP
@@ -61,6 +88,21 @@
   tool inherits the slot so the cap is uniformly overrideable per call."
   [props]
   (assoc props :max-tokens max-tokens-schema))
+
+(defn with-dedup
+  "Inject the `:dedup` slot into a tool's `:properties` map. Applied
+  only to tools whose descriptor carries `:dedup-eligible? true` —
+  the surfaces where repeated subtrees dominate the wire cost
+  (`preview-variant`, `run-variant`, `record-as-variant`). Per
+  rf2-90eft and mirroring pair-mcp's selective `dedup-property`
+  assignment in `descriptors_data.cljs`.
+
+  Tools that don't carry the slot ignore any caller-supplied
+  `:dedup` value at the dispatch boundary
+  (`cap/invoke-tool` gates dedup on the descriptor's
+  `:dedup-eligible?` flag)."
+  [props]
+  (assoc props :dedup dedup-schema))
 
 ;; ---------------------------------------------------------------------------
 ;; Pagination schema fragments (rf2-76sf6)

@@ -239,6 +239,88 @@ agent-host workflow: keep the per-op cost predictable, push
 the agent to ask for what it actually needs, and never let a
 single op blow the session.
 
+## Structural dedup at the wire boundary
+
+Three tools — `preview-variant`, `run-variant`, `record-as-variant` —
+pass their `:structuredContent` payload through `day8/de-dupe` BEFORE
+the wire-boundary token-cap check (rf2-90eft, mirroring
+re-frame2-pair-mcp's rf2-obpa9). Repeated subtrees in the payload —
+the same `:app-db` slice reappearing in `:rendered-hiccup` and
+`:snapshot`, the same argument map repeating across recorder captures
+— collapse into a flat cache map keyed by `de-dupe.cache/cache-N`
+namespaced symbols.
+
+### Selective by design
+
+Dedup is applied only where it pays for itself. The eligibility
+contract is the descriptor flag `:dedup-eligible? true`, asserted at
+load time by `tools/story-mcp/test/re_frame/story_mcp/tools/dedup_test.clj`'s
+`descriptor-dedup-eligibility-matches-the-documented-set`. Adding a
+fourth eligible tool requires updating both the descriptor AND that
+test's canonical set; the friction is deliberate (mirrors pair-mcp's
+selective `dedup-property` assignment in `descriptors_data.cljs`).
+
+The other sixteen tools ship small, bespoke shapes — `list-stories`,
+`get-story`, `register-variant`, the docs / read-failures family —
+where the cache-of-one wrap would add bytes for zero compression. They
+emit raw `:structuredContent` and carry no `:dedup` slot in their
+input schema.
+
+### Wire shape
+
+A deduped payload is wrapped in the cross-MCP marker:
+`{:rf.mcp/dedup-table <cache-map>}`. The key is sourced from
+`re-frame.mcp-base.vocab/dedup-table-key` — byte-identical with
+re-frame2-pair-mcp's emissions, so an agent host that learned the
+slot on either server reconstructs the payload uniformly via
+`(de-dupe.core/expand cache-map)`. Per `tools/mcp-conformance/wire-vocab/`
+the marker key is a cross-MCP reserved literal under the `:rf.mcp/*`
+single-root scheme (Conventions §Reserved namespaces).
+
+### When dedup runs
+
+At the dispatch boundary (`re-frame.story-mcp.tools.cap/invoke-tool`),
+after the handler emits its result map and before
+`re-frame.mcp-base.cap/apply-cap` measures it. The ordering is
+load-bearing: dedup shrinks first so the cap sees the post-dedup
+size; running the cap first would replace a payload with an overflow
+marker that dedup would have brought under-budget. Same invariant as
+re-frame2-pair-mcp's wire-pipeline.
+
+### Opt-out
+
+The `:dedup` MCP arg (boolean, default `true`) skips dedup when
+`false`. Useful for ad-hoc reads when the agent host hasn't been
+taught to call `expand`. Lives on dedup-eligible tools' `:inputSchema`
+via `schemas/with-dedup`. Cross-MCP shape with re-frame2-pair-mcp's
+arg — same name, same default, same semantics; an agent that learned
+the arg on either server uses it uniformly here.
+
+### Why `de-dupe-eq` not `de-dupe`
+
+Most subtrees the story-mcp surface emits are equality-shared rather
+than identity-shared — assertion records and rendered hiccup are
+synthesised fresh per run, not interned. `de-dupe-eq` is the
+equality-based variant that actually fires on these cross-record
+duplicates. Same rationale as re-frame2-pair-mcp's choice;
+documented identically at the call site.
+
+### Idempotence on no-dedup-opportunity
+
+A payload with no repeated subtrees deduplicates to a one-entry
+cache (`{:de-dupe.cache/cache-0 <root>}`) whose wire shape is
+slightly larger than the input. The encoder short-circuits the wrap
+in that case via an `empty-payload?` guard — empty collections,
+scalars, and nil pass through unchanged.
+
+### Error envelopes skip dedup
+
+Tool-execution errors (`{:isError true ...}`) carry small bespoke
+structuredContent payloads — `:rf.error` plus `:tool` /
+`:exception` / `:data`. Wrapping that under `:rf.mcp/dedup-table`
+loses the friendly inspection shape for zero compression win, so
+`invoke-tool` skips dedup on error results.
+
 ## Tool verbs follow the cross-MCP convention
 
 Tool names in story-mcp's catalogue pick from the verb table at

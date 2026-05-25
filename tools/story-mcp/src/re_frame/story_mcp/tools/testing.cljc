@@ -171,20 +171,27 @@
                          "2. Red run: {:variant-id \":story.cart/bad\"} -> {:assertions [{:assertion :rf.assert/sub-equals :passed? false :actual nil :expected 3}] :passing? false}. "
                          "3. Clamped timeout: {:variant-id \":story.slow/loader\" :timeout-ms 60000} -> runs with timeout clamped to 30000ms (max-timeout-ms ceiling); on overrun returns {:lifecycle :error :assertions [{:assertion :rf.error/run-failed ...}]}.")
     :typicalTokens  2000
+    ;; rf2-90eft — `run-variant` ships the variant's `:app-db` re-keyed
+    ;; into `:rendered-hiccup` and `:snapshot`; structural dedup
+    ;; collapses those three references into one cache slot at the wire
+    ;; boundary. Mirrors pair-mcp's selective `:dedup` knob on
+    ;; `snapshot` / `trace-window` (descriptors_data.cljs).
+    :dedup-eligible? true
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
-                                (s/with-include-sensitive
-                                  {:variant-id s/kw-or-string
-                                   :substrate s/kw-or-string
-                                   :active-modes {:type "array" :items s/kw-or-string}
-                                   :cell-overrides {:type "object"}
-                                   :timeout-ms {:type "integer" :minimum 1 :maximum max-timeout-ms
-                                                :description (str "JVM blocking timeout. Default "
-                                                                  default-timeout-ms "ms. Hard ceiling "
-                                                                  max-timeout-ms "ms — values above clamp DOWN "
-                                                                  "rather than reject; the MCP server's request "
-                                                                  "loop is single-threaded so an unbounded "
-                                                                  "timeout would park unrelated calls (rf2-g9fje).")}}))
+                                (s/with-dedup
+                                  (s/with-include-sensitive
+                                    {:variant-id s/kw-or-string
+                                     :substrate s/kw-or-string
+                                     :active-modes {:type "array" :items s/kw-or-string}
+                                     :cell-overrides {:type "object"}
+                                     :timeout-ms {:type "integer" :minimum 1 :maximum max-timeout-ms
+                                                  :description (str "JVM blocking timeout. Default "
+                                                                    default-timeout-ms "ms. Hard ceiling "
+                                                                    max-timeout-ms "ms — values above clamp DOWN "
+                                                                    "rather than reject; the MCP server's request "
+                                                                    "loop is single-threaded so an unbounded "
+                                                                    "timeout would park unrelated calls (rf2-g9fje).")}})))
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
