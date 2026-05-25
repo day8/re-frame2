@@ -637,6 +637,38 @@
         (is (not= (first row-41-hits) (first row-42-hits))
             "the two rows mount distinct data-display containers")))))
 
+(deftest expanded-row-data-display-carries-popup-affordance
+  (testing "rf2-l4625 — the expanded-row payload mount passes
+            `:popup-affordance? true` to the data-display widget so
+            the operator can pop a trace event's full EDN into the
+            popup overlay (trace rows are narrow column space). After
+            `expand-tree` the data-display widget's outer `:div` carries
+            `:data-rf-popup-affordance? \"1\"` when the opt is set."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 51 :op-type :rf.event
+                               :operation :rf.event/dispatched
+                               :dispatch-id 1 :source :ui :origin :app})])])
+      (focus! 1)
+      (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 51])
+      (let [tree     (trace/Panel)
+            payload  (find-by-testid tree "rf-xray-trace-row-51-payload")
+            ;; Walk the payload subtree (which is itself the result of
+            ;; `expand-tree`-ing) and find the data-display widget's
+            ;; outer container — it carries the `data-rf-popup-affordance?`
+            ;; attribute when the opt is enabled.
+            dd-containers
+            (filter (fn [n]
+                      (and (vector? n) (map? (second n))
+                           (= "1" (:data-rf-popup-affordance?
+                                    (second n)))))
+                    (hiccup-seq payload))]
+        (is (some? payload) "expanded-row payload renders")
+        (is (seq dd-containers)
+            "data-display container surfaces the popup-affordance attr")))))
+
 (deftest source-coord-click-fires-open-in-editor
   (testing "clicking the source-coord ↗ fires :rf.xray/open-in-editor;
             stopPropagation prevents the row's expand-toggle from firing"

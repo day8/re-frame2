@@ -466,6 +466,26 @@
           "panel-id is namespaced under :rf.xray.reactive-sub-value")
       (is (= "rf.xray.reactive-sub-value" (namespace pid-b))))))
 
+(deftest sub-values-row-data-display-carries-popup-affordance
+  (testing "rf2-l4625 — each sub-value row's data-display mount carries
+            `:popup-affordance? true` so the operator can pop a sub's
+            value into the popup overlay (sub values are commonly the
+            full domain projection — cart, route tree, …)"
+    (facade/install!)
+    (frame/reg-frame :rf/xray {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :sub-values [{:sub-id :cart/state :slug "_cart_state"
+                     :changed? true :has-value? true
+                     :value {:items [1 2 3]}}]})
+    (let [tree (view/reactive-panel)
+          dd   (raw-find-dd-mount
+                 tree "rf-xray-reactive-sub-value-row-_cart_state-value")
+          opts (nth dd 2 nil)]
+      (is (true? (:popup-affordance? opts))
+          "row mount opts in to the popup affordance"))))
+
 (deftest sub-values-row-no-value-renders-placeholder
   (testing "rf2-e46qs — a sub-run without a `:value` key (redaction /
             pre-attribution) renders the muted no-value placeholder; no

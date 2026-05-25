@@ -344,7 +344,11 @@
       label]
      [dd/data-display snapshot
       {:panel-id (snapshot-panel-id machine-id phase)
-       :default-expanded-depth 2}]]))
+       :default-expanded-depth 2
+       ;; rf2-l4625 — machine snapshots routinely carry deeply-nested
+       ;; `:data` maps; the popup gives the operator a full-modal
+       ;; inspection surface alongside the per-machine drill-in.
+       :popup-affordance? true}]]))
 
 (defn- snapshot-drill-in
   "Snapshot drill-in section beneath the focused-event chart. Renders

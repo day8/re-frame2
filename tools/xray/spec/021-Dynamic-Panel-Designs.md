@@ -1600,10 +1600,76 @@ for inline opens (a panel that wants to control the popup
 imperatively from its own view tree). Both compose through
 `popup-chrome` so the chrome shape is identical.
 
-Wire-up follow-on: mounting `data-display-popup-stack` into the
-shell's overlay container is a follow-on bead that touches
-`mount.cljs` + `registry.cljs`; the install! fn here is
-idempotent so that wire-up is a one-call addition.
+##### §10.0.7.1 Shell mount (rf2-l4625)
+
+The `data-display-popup-stack` view mounts **once** at the Xray
+shell root, alongside the other modal stacks (palette, settings,
+segment-inspector, …). The stack view reads
+`:rf.xray.data-display-popup/stack` + `:rf.xray.data-display-popup/entries`
+and renders the popup chrome for every active mount-id in z-index
+order; it short-circuits to `nil` when the stack is empty (closed-
+state cost: one subscribe + a `when`-gate).
+
+Registration is a single line in `registry.cljs`:
+
+```clj
+(data-display-popup/install!)
+```
+
+…idempotent per the orchestrator's `compare-and-set!` sentinel.
+The shell-side mount sits alongside `[app-db-segment-inspector/Popup]`
+in `shell.cljs`'s overlay block, INSIDE the `rf/frame-provider
+{:frame :rf/xray}` wrapper so subscribes resolve to Xray's frame.
+
+##### §10.0.7.2 Per-panel "open in popup" affordance (rf2-l4625)
+
+Each `[dd/data-display value opts]` call site **opts in** to a
+top-right ⊕ icon button by passing `:popup-affordance? true` in
+`opts`. Default is **off** — scalar / tiny-value mounts don't
+benefit from a larger inspection surface, and the silent default
+keeps simple call sites quiet.
+
+Mechanics:
+
+- The affordance renders a `:button` positioned absolutely at
+  the top-right of the data-display widget's outer container
+  (the container gets `position: relative` when the affordance
+  is enabled).
+- Click dispatches
+  `[:rf.xray.data-display-popup/open popup-mount-id {:value v :opts o}]`
+  through the lexically-captured frame-aware dispatcher (so the
+  event lands on the surrounding `:rf/xray` frame, matching
+  every other Xray dispatch).
+- `popup-mount-id` is derived from the data-display's own
+  mount-id (`"ddp-" + mount-id`) — stable per call-site mount,
+  so re-clicking the affordance **raises** the existing popup
+  rather than spawning a duplicate (matches
+  `data-display-popup/push-entry` window-manager semantics).
+- The opts forwarded to the popup carry
+  `:popup-affordance? false` so the popup's embedded
+  data-display does not recurse the affordance inside itself.
+
+Stable testid: `"rf-xray-data-display-popup-affordance-" +
+popup-mount-id`. The button carries
+`:data-rf-affordance "popup"` for hover-style hooks +
+`:aria-label "Open in popup"` for assistive tech.
+
+Initial enabled call sites (panels where the inline widget is
+genuinely cramped):
+
+| Panel                                  | Site                                              | Rationale                                                                            |
+|----------------------------------------|---------------------------------------------------|--------------------------------------------------------------------------------------|
+| `panels/app_db_diff_state.cljs`        | `value-body` (whole user-domain + reserved areas) | App-DB whole-tree is the canonical cramped-in-side-panel case                        |
+| `panels/machine_canvas.cljs`           | snapshot drill-in                                 | Machine snapshots carry deeply-nested `:data` maps                                   |
+| `panels/machine_inspector.cljs`        | per-phase snapshot block                          | Same as canvas — per-machine `:data` maps                                            |
+| `panels/reactive_panel_view.cljs`      | per-sub value row                                 | Sub values can be the full domain projection (cart, users, route tree, …)            |
+| `panels/trace.cljs`                    | per-row payload expand                            | Trace rows expand within the row's narrow column; tags + payload maps are cramped    |
+
+Diff renderers' internal `inspect-value` leaves (`diff/render.cljs`,
+`diff/hiccup_render.cljs`) intentionally **do not** carry the
+affordance — they're inner mini-renderers inside a larger diff tree
+chrome, not user-facing leaf inspect mounts; an inline ⊕ per inner
+leaf would clutter the diff display.
 
 #### §10.0.8 Diff mode (phase 5 · D5=a · rf2-q3dzw)
 

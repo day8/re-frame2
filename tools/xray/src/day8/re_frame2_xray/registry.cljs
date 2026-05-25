@@ -41,6 +41,16 @@
             ;; (rf2-q3dzw phase 5; legacy `data-display.render` +
             ;; `theme.data-inspector` ns'es are deleted).
             [day8.re-frame2-xray.views.data-display]
+            ;; rf2-l4625 — popup overlay infra. `install!` registers
+            ;; the stack/entries subs + open/close/close-top/close-all
+            ;; events at orchestrator-load time. The stack VIEW mount
+            ;; lives in `shell.cljs`; per-panel "open in popup"
+            ;; affordances flow through `[dd/data-display value
+            ;; {:popup-affordance? true …}]` and dispatch
+            ;; `:rf.xray.data-display-popup/open` against the surrounding
+            ;; `:rf/xray` frame.
+            [day8.re-frame2-xray.views.data-display-popup
+             :as data-display-popup]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.epoch :as epoch]
             [day8.re-frame2-xray.filters :as filters]
@@ -596,6 +606,13 @@
     (open-in-editor/install!)
     (palette/install!)
     (settings-popup/install!)
+    ;; rf2-l4625 — data-display popup overlay (subs + events). The
+    ;; stack view is mounted in `shell.cljs` alongside the other modal
+    ;; mounts; per-panel "open in popup" affordances pass through
+    ;; `[dd/data-display value {:popup-affordance? true …}]` and
+    ;; dispatch the `:rf.xray.data-display-popup/open` event registered
+    ;; here.
+    (data-display-popup/install!)
     ;; Filters install AFTER `:rf.xray/active-filters` + the
     ;; add-filter / remove-filter events above are registered (the
     ;; filters facade adds `:rf.xray/filtered-cascades` + the edit-

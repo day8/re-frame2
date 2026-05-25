@@ -587,6 +587,47 @@
         (is (= "after" (:data-phase (second after)))
             "AFTER block carries the :after phase tag")))))
 
+(defn- find-popup-affordance-containers
+  "Walk hiccup (already expand-tree'd by the find-by-testid helper) and
+  collect every data-display container that carries
+  `:data-rf-popup-affordance? \"1\"` (the widget surfaces the opt as a
+  data-attr on its outer `:div`)."
+  [tree]
+  (filter (fn [n]
+            (and (vector? n) (map? (second n))
+                 (= "1" (:data-rf-popup-affordance? (second n)))))
+          (tree-seq (some-fn vector? seq?) seq tree)))
+
+(deftest snapshot-drill-in-data-display-carries-popup-affordance
+  (testing "rf2-l4625 — every snapshot drill-in data-display mount in
+            the Machine Inspector panel passes
+            `:popup-affordance? true` so the operator can pop the
+            snapshot into the popup overlay. After expansion the widget's
+            outer `:div` surfaces the opt as a `data-rf-popup-affordance?`
+            attribute."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle
+                                :data  {:user nil :retries 0}}
+                   :after      {:state :authing
+                                :data  {:user "alice" :retries 1}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree       (machine-inspector/Panel)
+            drill      (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
+            containers (find-popup-affordance-containers drill)]
+        (is (some? drill) "drill-in section mounts")
+        (is (seq containers)
+            "drill-in surfaces the popup-affordance attr on its
+             data-display containers")))))
+
 (deftest snapshot-drill-in-suppressed-when-legacy-trace-lacks-snapshots
   (testing "legacy trace fixtures that pre-date the commit-or-finalize
             snapshot pair (only `:from`/`:to` keys, no `:before`/`:after`

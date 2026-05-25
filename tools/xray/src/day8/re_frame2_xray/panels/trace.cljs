@@ -130,7 +130,11 @@
                        :border-radius "0 0 4px 4px"}}
    [dd/data-display raw
     {:panel-id (keyword "rf.xray.trace" (str "row-" id))
-     :default-expanded-depth 1}]])
+     :default-expanded-depth 1
+     ;; rf2-l4625 — trace rows expand within the row's narrow column;
+     ;; tags + payload maps are routinely cramped. Popup gives the
+     ;; operator a full-modal inspection surface.
+     :popup-affordance? true}]])
 
 ;; ---- per-path db-changed diff rows (spec/023 §APP-DB CHANGES) -----------
 ;;

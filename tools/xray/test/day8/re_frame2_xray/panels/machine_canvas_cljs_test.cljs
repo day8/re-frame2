@@ -188,3 +188,41 @@
         (is (= "false" (:data-has-snapshot (second host))))
         (is (some? empty)
             "empty-state chip mounts when snapshot is nil")))))
+
+;; ---- (5) popup affordance (rf2-l4625) ----------------------------------
+;;
+;; Machine snapshots routinely carry deeply-nested `:data` maps; the
+;; popup gives the operator a full-modal inspection surface alongside
+;; the per-machine drill-in. The canvas-side SnapshotDrillIn mount
+;; passes `:popup-affordance? true` through to `[dd/data-display]`.
+
+(defn- find-data-display-mounts
+  "Walk hiccup, collect every `[fn ...]` mount whose 3rd-arg looks like
+  a data-display opts map. Returns `{:value :opts}` maps."
+  [tree]
+  (let [out (atom [])]
+    (letfn [(walk [n]
+              (cond
+                (vector? n)
+                (do (when (and (fn? (first n)) (>= (count n) 3)
+                               (map? (nth n 2))
+                               (contains? (nth n 2) :panel-id))
+                      (swap! out conj {:value (nth n 1) :opts (nth n 2)}))
+                    (doseq [c (rest n)] (walk c)))
+                (seq? n) (doseq [c n] (walk c))))]
+      (walk tree))
+    @out))
+
+(deftest snapshot-drill-in-data-display-carries-popup-affordance
+  (testing "rf2-l4625 — the canvas-side SnapshotDrillIn passes
+            `:popup-affordance? true` to the embedded data-display so
+            the operator can pop the snapshot into the popup overlay"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (let [snapshot {:state :authing :data {:user "alice" :retries 1}}
+            tree     (mc/SnapshotDrillIn {:machine-id :auth/login
+                                          :snapshot   snapshot})
+            mounts   (find-data-display-mounts tree)]
+        (is (seq mounts) "data-display widget mounted")
+        (is (every? #(true? (:popup-affordance? (:opts %))) mounts)
+            "every mount opts in to the popup affordance")))))

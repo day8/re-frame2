@@ -125,6 +125,13 @@
    ;; deleted with the legacy `data-display.render` +
    ;; `theme.data-inspector` engines.
    :rf.xray.data-display/expansion
+   ;; rf2-l4625 — data-display popup overlay subs (stack + entries +
+   ;; projection subs for open? / top / per-mount-id entry).
+   :rf.xray.data-display-popup/stack
+   :rf.xray.data-display-popup/entries
+   :rf.xray.data-display-popup/open?
+   :rf.xray.data-display-popup/top
+   :rf.xray.data-display-popup/entry
    ;; rf2-59e7k — Cancellation-cascade visualiser subs (Machines
    ;; tab side-panel + Trace popover). Per
    ;; `tools/xray/spec/019-Cross-Cutting-Insight.md` §M.3.
@@ -397,6 +404,12 @@
    :rf.xray.data-display/reset-expansion
    :rf.xray.data-display/set-node
    :rf.xray.data-display/toggle-node
+   ;; rf2-l4625 — data-display popup overlay events (open / close /
+   ;; close-top / close-all).
+   :rf.xray.data-display-popup/open
+   :rf.xray.data-display-popup/close
+   :rf.xray.data-display-popup/close-top
+   :rf.xray.data-display-popup/close-all
    :rf.xray/delete-edit-popup
    :rf.xray/edit-popup-set-mode
    :rf.xray/edit-popup-set-pattern
