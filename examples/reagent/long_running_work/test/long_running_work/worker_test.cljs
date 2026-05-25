@@ -27,8 +27,7 @@
         :cancel event arrives via the view's r/with-let cleanup
         rather than the user clicking Cancel. The headless test
         synthesises the same dispatch and asserts the same
-        cascade. The view-level wiring is exercised by the
-        Playwright smoke (long_running_work.spec.cjs)."
+        cascade."
   (:require [cljs.test :refer-macros [is]]
             [re-frame.core :as rf]
             [long-running-work.worker])
@@ -183,11 +182,10 @@
 ;; The view's r/with-let cleanup dispatches [:work/flow [:cancel]]
 ;; on component unmount. From the parent machine's perspective this
 ;; is identical to a user-driven Cancel button click — the headless
-;; test exercises that contract by dispatching the same event.
-;;
-;; The Playwright spec (long_running_work.spec.cjs) exercises the
-;; *actual* React unmount path against a live browser; this test
-;; pins the machine-side invariant.
+;; test exercises that contract by dispatching the same event. This
+;; test pins the machine-side invariant; the React-side wiring is
+;; covered by the view code itself (`r/with-let` cleanup is a
+;; Reagent idiom, not a re-frame2 contract).
 
 (defn test-parent-unmount-cascade []
   (with-frame [f (new-frame)]
