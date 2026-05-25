@@ -259,25 +259,43 @@
 ;; render the body.
 
 (deftest toggle-event-flips-expansion-state
+  ;; rf2-y59tb — the toggle reducer now inverts from the
+  ;; current rendered-expanded? state (passed in the dispatch
+  ;; payload) when no override is stored, then inverts the stored
+  ;; override on subsequent clicks. This is the load-bearing
+  ;; correctness contract: first click MUST invert the visible
+  ;; state, not jump to a hard-coded "first click opens" value.
   (let [panel-id :test
         mount-id "m-1"
         path     [:a]]
-    ;; Drive the reducer via re-frame's dispatch-sync against the
-    ;; runtime fixture set up at the top of the ns. The first toggle
-    ;; opens the node (no override → fresh `true`); the second toggle
-    ;; inverts to `false`. `reset-expansion` clears the slot.
+    ;; Case A — default-collapsed (e.g. deep path). Visible state
+    ;; is collapsed → dispatch carries `false` → first click stores
+    ;; `:expanded? true` (opens). Second click inverts to `false`.
     (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path])
+    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path false])
     (let [snapshot @(rf/subscribe [dd/expansion-slot])
           k         (dd/expansion-key panel-id mount-id path)]
       (is (= true (get-in snapshot [k :expanded?]))
-          "first toggle on a fresh slot opens the node"))
-    ;; Second toggle inverts.
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path])
+          "default-collapsed: first click stores :expanded? true (opens)"))
+    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path true])
     (let [snapshot @(rf/subscribe [dd/expansion-slot])
           k         (dd/expansion-key panel-id mount-id path)]
       (is (= false (get-in snapshot [k :expanded?]))
-          "second toggle inverts to closed"))
+          "second toggle inverts the stored override to false"))
+
+    ;; Case B — default-expanded (e.g. top-level path). Visible
+    ;; state is expanded → dispatch carries `true` → first click
+    ;; stores `:expanded? false` (collapses). This is the
+    ;; regression the bug fixed; before the fix the reducer would
+    ;; emit `{:expanded? true}` — same as the rendered state —
+    ;; producing a silent no-op on the first click.
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
+    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path true])
+    (let [snapshot @(rf/subscribe [dd/expansion-slot])
+          k         (dd/expansion-key panel-id mount-id path)]
+      (is (= false (get-in snapshot [k :expanded?]))
+          "default-expanded: first click stores :expanded? false (collapses)"))
+
     ;; Reset cleans the slot.
     (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
     (is (nil? @(rf/subscribe [dd/expansion-slot])))))
@@ -408,28 +426,65 @@
 ;; ---- toggle handler shape ------------------------------------------------
 
 (deftest toggle-handler-dispatches-canonical-event
-  (let [captured (atom nil)]
-    ;; rf/dispatch expands through `dispatch*`; intercept at the
-    ;; lower-level fn the same way the legacy data-display tests do.
-    (with-redefs [rf/dispatch* (fn [event-v & _]
-                                 (reset! captured event-v))]
-      ;; Force a non-inline-fit collection so the toggle glyph is rendered.
-      (let [v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-            h   (dd/render-node {:value v
-                                 :panel-id :test
-                                 :mount-id "m1"
-                                 :path [:x]
-                                 :depth 0
-                                 :expansion-map {}
-                                 :opts {:default-expanded-depth 0}})
-            ;; Find the toggle span by data-testid suffix.
-            tog (find-attr h :data-testid
-                           "rf-xray-data-display-test-m1-:x-toggle")
-            on-click (-> tog second :on-click)]
-        (is (fn? on-click) "toggle glyph must carry an :on-click")
-        (when on-click (on-click nil))
-        (is (= [:rf.xray.data-display/toggle-node :test "m1" [:x]]
-               @captured))))))
+  ;; rf2-y59tb — the dispatch payload threads the rendered-
+  ;; expanded? state as a fifth slot so the reducer can invert
+  ;; from the user's visible state on the first click.
+  (testing "default-collapsed path: dispatched event carries rendered? false"
+    (let [captured (atom nil)
+          ;; render-node accepts an explicit dispatch-fn so tests
+          ;; can intercept the toggle dispatch without redef'ing
+          ;; the global rf/dispatch* (which is what the prior shape
+          ;; did before the reg-view fix). The :dispatch-fn slot is
+          ;; the same closure the reg-view'd outer body threads to
+          ;; carry frame context.
+          ;;
+          ;; default-expanded-depth=1, depth=5 → both depth-band
+          ;; checks fail (`(<= 5 0)` false; `(= 5 1)` false) → the
+          ;; heuristic returns false → path renders ▸ (collapsed).
+          v   {:a 1 :b 2 :c 3 :d 4 :e 5}
+          h   (dd/render-node {:value v
+                               :panel-id :test
+                               :mount-id "m1"
+                               :path [:x]
+                               :depth 5
+                               :expansion-map {}
+                               :dispatch-fn (fn [event-v]
+                                              (reset! captured event-v))
+                               :opts {:default-expanded-depth 1}})
+          ;; Find the toggle span by data-testid suffix.
+          tog (find-attr h :data-testid
+                         "rf-xray-data-display-test-m1-:x-toggle")
+          on-click (-> tog second :on-click)]
+      (is (fn? on-click) "toggle glyph must carry an :on-click")
+      (when on-click (on-click nil))
+      (is (= [:rf.xray.data-display/toggle-node :test "m1" [:x] false]
+             @captured)
+          "default-collapsed render → payload carries rendered? false")))
+
+  (testing "default-expanded path: dispatched event carries rendered? true"
+    (let [captured (atom nil)
+          ;; A >3-key map at depth 0 with default-expanded-depth 2:
+          ;; - inline-fit gate fails (cnt > 3 → not inline)
+          ;; - `(<= 0 (dec 2))` true → default-expanded? returns true
+          ;; - path renders ▾, toggle dispatches rendered? true.
+          v   {:a 1 :b 2 :c 3 :d 4 :e 5}
+          h   (dd/render-node {:value v
+                               :panel-id :test
+                               :mount-id "m2"
+                               :path []
+                               :depth 0
+                               :expansion-map {}
+                               :dispatch-fn (fn [event-v]
+                                              (reset! captured event-v))
+                               :opts {:default-expanded-depth 2}})
+          tog (find-attr h :data-testid
+                         "rf-xray-data-display-test-m2-toggle")
+          on-click (-> tog second :on-click)]
+      (is (fn? on-click) "toggle glyph must carry an :on-click")
+      (when on-click (on-click nil))
+      (is (= [:rf.xray.data-display/toggle-node :test "m2" [] true]
+             @captured)
+          "default-expanded render → payload carries rendered? true"))))
 
 ;; ---- per-call-site isolation ---------------------------------------------
 
@@ -647,3 +702,121 @@
     (is (fn? (first h)))
     (is (= {:a 2} (nth h 1)))
     (is (= {:a 1} (:before (nth h 2))))))
+
+;; =========================================================================
+;; rf2-y59tb — frame-leak + first-click regression guards
+;; =========================================================================
+;;
+;; Two independent bugs covered here:
+;;
+;;   Bug A — `data-display` was a plain `defn`, so dispatches from
+;;     its click handlers did NOT carry the surrounding frame; toggle
+;;     events landed on `:rf/default` while the App-DB panel mounted
+;;     the widget under `:rf/xray`. The expansion-slot mutation ended
+;;     up in the wrong frame's app-db, invisible to the surrounding
+;;     subscribe.
+;;
+;;   Bug B — the reducer's "no override → first click opens" logic
+;;     was wrong for paths the widget renders as default-expanded
+;;     (top-level triangles, depth ≤ default-expanded-depth). The
+;;     first click stored `:expanded? true` — the same value the path
+;;     already rendered with — producing a silent no-op.
+
+(deftest data-display-is-reg-view-registered
+  (testing "rf2-y59tb Bug A — the public widget is registered via
+            `reg-view` so dispatches + subscribes inherit the
+            surrounding frame from React context. Without this the
+            App-DB panel's `:rf/xray` mount routes toggle dispatches
+            to `:rf/default`. The registration is present in the
+            view registry under the auto-derived namespaced id."
+    (is (some? (rf/view :day8.re-frame2-xray.views.data-display/data-display))
+        "data-display is registered under its ns/sym id")))
+
+(deftest data-display-toggle-dispatches-to-mount-frame
+  ;; rf2-y59tb Bug A regression guard — the click handler dispatches
+  ;; through the lexically-injected frame-aware dispatcher. We
+  ;; simulate the inner render by calling `render-node` with a
+  ;; `dispatch-fn` (which is what the reg-view body threads from its
+  ;; outer-scope `dispatch` lexical binding); the handler MUST call
+  ;; our supplied dispatch-fn rather than `rf/dispatch` (which would
+  ;; route to `:rf/default`).
+  (let [captured (atom nil)
+        v       {:a 1 :b 2 :c 3 :d 4 :e 5}
+        h       (dd/render-node {:value v
+                                 :panel-id :app-db
+                                 :mount-id "m"
+                                 :path []
+                                 :depth 0
+                                 :expansion-map {}
+                                 :dispatch-fn (fn [event-v]
+                                                (reset! captured event-v))
+                                 :opts {:default-expanded-depth 0}})
+        tog     (find-attr h :data-testid
+                           "rf-xray-data-display-app-db-m-toggle")
+        on-click (-> tog second :on-click)]
+    (is (fn? on-click))
+    (when on-click (on-click nil))
+    (is (some? @captured)
+        "toggle handler invoked the threaded dispatch-fn (not rf/dispatch)")
+    (is (= :rf.xray.data-display/toggle-node (first @captured))
+        "canonical event id")))
+
+(deftest first-click-collapses-default-expanded-path
+  ;; rf2-y59tb Bug B regression guard — driven through dispatch-sync
+  ;; against the registered toggle reducer with the rendered-
+  ;; expanded? payload threaded. A default-expanded path passes
+  ;; `true` as the rendered state; the reducer must store
+  ;; `:expanded? false` (the inverted visible state), NOT
+  ;; `:expanded? true` (the prior "first click opens" no-op bug).
+  (let [panel-id :rf.xray/app-db
+        mount-id "m1"
+        path     [:top-level]]
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
+    (rf/dispatch-sync [:rf.xray.data-display/toggle-node
+                       panel-id mount-id path true])
+    (let [snapshot @(rf/subscribe [dd/expansion-slot])
+          k         (dd/expansion-key panel-id mount-id path)]
+      (is (= false (get-in snapshot [k :expanded?]))
+          "default-expanded → first click collapses (rendered? true → stored false)"))
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+
+(deftest first-click-expands-default-collapsed-path
+  ;; rf2-y59tb Bug B regression guard — the symmetric case. A deep
+  ;; path (past default-expanded-depth) renders collapsed by default.
+  ;; The toggle dispatch carries `false`; the reducer must store
+  ;; `:expanded? true` (opens the node) on the first click.
+  (let [panel-id :rf.xray/app-db
+        mount-id "m1"
+        path     [:deep :nested :node]]
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
+    (rf/dispatch-sync [:rf.xray.data-display/toggle-node
+                       panel-id mount-id path false])
+    (let [snapshot @(rf/subscribe [dd/expansion-slot])
+          k         (dd/expansion-key panel-id mount-id path)]
+      (is (= true (get-in snapshot [k :expanded?]))
+          "default-collapsed → first click expands (rendered? false → stored true)"))
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+
+(deftest second-click-inverts-stored-override
+  ;; Once an override is stored the reducer ignores the rendered?
+  ;; payload (the override IS the visible state) and inverts the
+  ;; stored boolean. This is the canonical toggle behaviour for
+  ;; clicks 2+ on the same path.
+  (let [panel-id :rf.xray/app-db
+        mount-id "m1"
+        path     [:x]
+        k         (dd/expansion-key panel-id mount-id path)]
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
+    ;; First click on default-expanded → stored false.
+    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path true])
+    (is (= false (get-in @(rf/subscribe [dd/expansion-slot]) [k :expanded?])))
+    ;; Second click — the rendered? slot is now `false` (override is
+    ;; false) but the reducer flips the OVERRIDE, not the payload.
+    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path false])
+    (is (= true (get-in @(rf/subscribe [dd/expansion-slot]) [k :expanded?]))
+        "second click inverts stored override → true")
+    ;; Third click flips again.
+    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path true])
+    (is (= false (get-in @(rf/subscribe [dd/expansion-slot]) [k :expanded?]))
+        "third click inverts stored override → false")
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
