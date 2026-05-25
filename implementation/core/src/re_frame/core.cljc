@@ -1115,16 +1115,31 @@
 
 #?(:clj
    (do
-     (def ^{:doc "Return the trace ring buffer's current contents,
-       oldest-first. Opts filter the result; the buffer is the substrate
-       behind `re-frame-10x` and other dev tools. JVM-only alias —
-       CLJS callers use `re-frame.trace.tooling/trace-buffer` directly.
-       Per Spec 009 §Retain-N trace ring buffer."}
+     (def ^{:doc "Return the named frame's cascade-keyed trace ring,
+       oldest-first. Two arities:
+
+         (rf/trace-buffer frame-id)
+           Returns cascade bundles by default — one entry per retained
+           cascade with the cascade's `:dispatch-id`, raw `:trace-events`,
+           and the projected six-domino slots (`:event`, `:dispatched`,
+           `:handler`, `:fx`, `:effects`, `:subs`, `:renders`, `:other`).
+
+         (rf/trace-buffer frame-id opts)
+           `opts` is a filter map. `{:flat true}` returns raw trace
+           events instead of cascade bundles. The full filter
+           vocabulary lives in Spec 009 §Filter vocabulary.
+
+       Returns `[]` for a destroyed or never-registered frame, and `[]`
+       in production (the ring is never allocated under
+       `goog.DEBUG=false`). JVM-only alias — CLJS callers use
+       `re-frame.trace.tooling/trace-buffer` directly. Per Spec 009
+       §Per-frame trace rings (cascade-keyed, dev-only)."}
        trace-buffer           trace/trace-buffer)
-     (def ^{:doc "Empty the trace ring buffer. Tooling uses this between
-       sessions. No-op in production. JVM-only alias — CLJS callers use
-       `re-frame.trace.tooling/clear-trace-buffer!` directly. Per Spec 009
-       §Retain-N trace ring buffer."}
+     (def ^{:doc "Empty the named frame's cascade-keyed trace ring.
+       Tooling uses this between sessions. No-op for an unknown frame,
+       no-op in production. JVM-only alias — CLJS callers use
+       `re-frame.trace.tooling/clear-trace-buffer!` directly. Per Spec
+       009 §`trace-buffer` API."}
        clear-trace-buffer!    trace/clear-trace-buffer!)))
 
 (def ^{:doc "Register an always-on event-emit listener `f` under `id`.
@@ -1300,7 +1315,12 @@
 (defn configure
   "Configure a process-level runtime knob. v1 keys:
     :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
-    :trace-buffer  {:depth N}                       ring depth (default 200; 0 disables)
+    :trace-buffer  {:cascades-retained N}           per-frame trace-ring cascade count
+                                                    (default 50; 0 disables retention).
+                                                    Applied to `:rf/default` and to every
+                                                    frame that did not set its own
+                                                    `:rf.trace/cascades-retained` metadata.
+                                                    Per Spec 009 §Per-frame trace rings.
     :sub-cache     {:grace-period-ms N}             dispose grace (default 50ms)
     :elision       {:rf.size/threshold-bytes N}     wire-elision size threshold
                                                     (default 16384; 0 disables runtime
@@ -1311,8 +1331,8 @@
 
   `:trace-buffer` routes through the `re-frame.trace.tooling` sibling
   ns (per rf2-qwm0a). Production builds that never load the tooling
-  sibling silently no-op on this key — the buffer + listener
-  machinery is DCE'd anyway."
+  sibling silently no-op on this key — the ring + listener machinery
+  is DCE'd anyway."
   [knob opts]
   (case knob
     :epoch-history (when-let [f (late-bind/get-fn :epoch/configure!)]

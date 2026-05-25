@@ -124,8 +124,8 @@
             top-level `:sensitive?` field. Now that the handler-meta
             annotation has been removed, the stamp is schema-derived
             only: a sensitive app-schema slot drives it."
-  (rf/clear-trace-buffer!)
-  (rf/configure :trace-buffer {:depth 100})
+  (rf/clear-trace-buffer! :rf/default)
+  (rf/configure :trace-buffer {:cascades-retained 100})
   (rf/reg-app-schema [:auth]
                      [:map [:password {:sensitive? true} :string]])
   (rf/reg-event-db :sensitive/buf
@@ -135,9 +135,9 @@
                    (fn [db _] db))
   (rf/dispatch-sync [:sensitive/buf {:password "x"}])
   (rf/dispatch-sync [:plain/buf])
-  (let [all   (rf/trace-buffer)
-        sens  (rf/trace-buffer {:sensitive? true})
-        plain (rf/trace-buffer {:sensitive? false})]
+  (let [all   (rf/trace-buffer :rf/default {:flat true})
+        sens  (rf/trace-buffer :rf/default {:flat true :sensitive? true})
+        plain (rf/trace-buffer :rf/default {:flat true :sensitive? false})]
     (is (pos? (count sens)) "schema-driven sensitive events present in the buffer")
     (is (pos? (count plain)))
     (is (= (count all) (+ (count sens) (count plain))))
