@@ -1299,6 +1299,25 @@ reach for `[data-display value opts]` directly.
   annotation; ancestor chain force-expands over any changed
   descendant. Omit `:before` for plain BROWSE mode. See §10.0.8
   for the full diff contract.
+- `:popup-affordance?` — when `true`, renders a top-right ↗ icon
+  button that pops the value into a modal overlay (§10.0.7.2).
+  Defaults `false`.
+- `:card?` (rf2-63ie5) — when `true`, the widget's outer container
+  carries the inspector-card chrome (background `:bg-1`, 1px
+  `:border-default` border, `8px` radius, `8px 10px` padding,
+  `8px` margin-bottom) so multiple top-level mounts in the same
+  panel read as DISTINCT cards rather than blending into one
+  continuous block. Theme-aware via tokens. Opt-in per call-site:
+  inline mounts (table cells, popup contents that already carry
+  modal chrome, diff sub-renderers) leave it off; panels with
+  multiple top-level inspector mounts (App-DB's TOP + per-`:rf/*`
+  sections) opt in. Defaults `false`.
+- `:site-id` (rf2-pvsxs) — when supplied, becomes the second
+  component of the per-node expansion key INSTEAD of the auto-
+  generated mount-id. Lets the same logical call site survive a
+  panel-leave-and-return round-trip (auto-mount-id changes on
+  remount; a stable site-id does not). Omit to keep the per-call-
+  site isolation default.
 
 The widget is a **Reagent form-2 component** — the outer fn captures
 a stable `mount-id` (auto-generated UUID, per D4=a — no public
@@ -1623,13 +1642,18 @@ The shell-side mount sits alongside `[app-db-segment-inspector/Popup]`
 in `shell.cljs`'s overlay block, INSIDE the `rf/frame-provider
 {:frame :rf/xray}` wrapper so subscribes resolve to Xray's frame.
 
-##### §10.0.7.2 Per-panel "open in popup" affordance (rf2-l4625)
+##### §10.0.7.2 Per-panel "open in popup" affordance (rf2-l4625 · rf2-7sdja)
 
 Each `[dd/data-display value opts]` call site **opts in** to a
-top-right ⊕ icon button by passing `:popup-affordance? true` in
+top-right ↗ icon button by passing `:popup-affordance? true` in
 `opts`. Default is **off** — scalar / tiny-value mounts don't
 benefit from a larger inspection surface, and the silent default
 keeps simple call sites quiet.
+
+Glyph is `↗` (north-east arrow) — rf2-7sdja replaced the original
+`⊕`. The arrow reads as "open in new pane / navigate outward"
+which matches the popup's window-manager semantics better than
+the circled plus (which read as "expand" / "add").
 
 Mechanics:
 
@@ -1639,9 +1663,13 @@ Mechanics:
   is enabled).
 - Click dispatches
   `[:rf.xray.data-display-popup/open popup-mount-id {:value v :opts o}]`
-  through the lexically-captured frame-aware dispatcher (so the
-  event lands on the surrounding `:rf/xray` frame, matching
-  every other Xray dispatch).
+  against `:rf/xray` **explicitly** via the established
+  `(rf/dispatch event {:frame :rf/xray})` pattern (rf2-7sdja).
+  This pins the dispatch frame regardless of where the widget
+  mounts — popup state is Xray-global (the popup-stack-view
+  subscribes only against `:rf/xray`), unlike expansion state
+  which is per-frame and uses the lexically-captured frame-
+  aware dispatcher.
 - `popup-mount-id` is derived from the data-display's own
   mount-id (`"ddp-" + mount-id`) — stable per call-site mount,
   so re-clicking the affordance **raises** the existing popup
@@ -1656,21 +1684,25 @@ popup-mount-id`. The button carries
 `:data-rf-affordance "popup"` for hover-style hooks +
 `:aria-label "Open in popup"` for assistive tech.
 
-Initial enabled call sites (panels where the inline widget is
-genuinely cramped):
+Enabled call sites (panels where the inline widget is genuinely
+cramped):
 
 | Panel                                  | Site                                              | Rationale                                                                            |
 |----------------------------------------|---------------------------------------------------|--------------------------------------------------------------------------------------|
-| `panels/app_db_diff_state.cljs`        | `value-body` (whole user-domain + reserved areas) | App-DB whole-tree is the canonical cramped-in-side-panel case                        |
 | `panels/machine_canvas.cljs`           | snapshot drill-in                                 | Machine snapshots carry deeply-nested `:data` maps                                   |
 | `panels/machine_inspector.cljs`        | per-phase snapshot block                          | Same as canvas — per-machine `:data` maps                                            |
 | `panels/reactive_panel_view.cljs`      | per-sub value row                                 | Sub values can be the full domain projection (cart, users, route tree, …)            |
 | `panels/trace.cljs`                    | per-row payload expand                            | Trace rows expand within the row's narrow column; tags + payload maps are cramped    |
 
+App-DB does NOT use the affordance (rf2-7sdja — Mike's live-testing
+call 2026-05-26). The side panel has plenty of horizontal room; the
+whole-tree inspector reads comfortably in-place. Earlier framing of
+App-DB as "the canonical cramped in the side panel case" was wrong.
+
 Diff renderers' internal `inspect-value` leaves (`diff/render.cljs`,
 `diff/hiccup_render.cljs`) intentionally **do not** carry the
 affordance — they're inner mini-renderers inside a larger diff tree
-chrome, not user-facing leaf inspect mounts; an inline ⊕ per inner
+chrome, not user-facing leaf inspect mounts; an inline ↗ per inner
 leaf would clutter the diff display.
 
 #### §10.0.8 Diff mode (phase 5 · D5=a · rf2-q3dzw)

@@ -79,7 +79,8 @@
 
 (deftest popup-affordance-opt-in-renders-button
   (testing "rf2-l4625 — `[dd/data-display value {:popup-affordance? true}]`
-            renders a top-right ⊕ button"
+            renders a top-right ↗ icon button (rf2-7sdja — glyph was
+            ⊕; ↗ reads as 'open in new pane')"
     (let [h (invoke-data-display
               {:cart [1 2 3]}
               {:panel-id :rf.xray/app-db :popup-affordance? true})
@@ -89,7 +90,9 @@
       (is (= "Open in popup" (:aria-label (second btn)))
           "button carries the canonical aria-label")
       (is (fn? (:on-click (second btn)))
-          "button carries an on-click handler"))))
+          "button carries an on-click handler")
+      (is (= "↗" (last btn))
+          "rf2-7sdja — glyph is ↗ (north-east arrow), not ⊕"))))
 
 (deftest popup-affordance-default-off
   (testing "rf2-l4625 — without `:popup-affordance?` (or with `false`)
@@ -143,50 +146,68 @@
 ;; widget-level affordance — on-click dispatch contract via stub
 ;; =========================================================================
 
-(deftest popup-affordance-button-onclick-dispatches-canonical-event
-  (testing "rf2-l4625 — clicking the affordance dispatches
+(defn- with-rf-dispatch-spy
+  "Drive a click against a stubbed `rf/dispatch*` (the fn-form the
+  `dispatch` macro expands to) so the test can inspect the dispatched
+  event vector + opts WITHOUT spinning up the router. Returns
+  `{:event ... :opts ...}` captured at click. Per rf2-7sdja — the
+  post-fix `popup-affordance-button` calls `rf/dispatch` directly with
+  `{:frame :rf/xray}` opts (not the lexically-captured dispatch-fn)."
+  [on-click]
+  (let [captured (atom nil)]
+    (with-redefs [rf/dispatch* (fn
+                                 ([ev]      (reset! captured {:event ev :opts nil}))
+                                 ([ev opts] (reset! captured {:event ev :opts opts})))]
+      (on-click nil))
+    @captured))
+
+(deftest popup-affordance-button-onclick-dispatches-against-xray-frame
+  (testing "rf2-7sdja — clicking the affordance dispatches
             `[:rf.xray.data-display-popup/open popup-mount-id payload]`
-            through the supplied dispatch-fn"
-    (let [captured (atom nil)
-          stub-dispatch (fn [event-v] (reset! captured event-v))
-          btn (dd/popup-affordance-button
-                stub-dispatch
+            against `:rf/xray` EXPLICITLY (popup state is Xray-global,
+            not per-frame — pinned via `{:frame :rf/xray}` opts)"
+    (let [btn (dd/popup-affordance-button
+                ;; `dispatch-fn` parameter is a no-op post rf2-7sdja —
+                ;; pass nil to make the new contract obvious.
+                nil
                 "ddp-abc"
                 {:cart [1 2 3]}
                 {:panel-id :rf.xray/app-db :default-expanded-depth 3
                  :popup-affordance? true})
-          on-click (:on-click (second btn))]
-      ;; Simulate click — pass nil event so the handler skips the
-      ;; preventDefault/stopPropagation guarded by `(when e …)`.
-      (on-click nil)
-      (let [[event-id mount-id payload] @captured]
-        (is (= :rf.xray.data-display-popup/open event-id)
-            "canonical event id")
-        (is (= "ddp-abc" mount-id)
-            "popup-mount-id flows through as second positional arg")
-        (is (= {:cart [1 2 3]} (:value payload))
-            "value flows through as `:value`")
-        (is (false? (:popup-affordance? (:opts payload)))
-            "the popup's embedded data-display does NOT re-enable the
-             affordance (no recursion)")
-        (is (= :rf.xray/app-db (:panel-id (:opts payload)))
-            "other opts (`:panel-id`, `:default-expanded-depth`) survive")
-        (is (= 3 (:default-expanded-depth (:opts payload))))))))
+          on-click (:on-click (second btn))
+          {:keys [event opts]} (with-rf-dispatch-spy on-click)
+          [event-id mount-id payload] event]
+      (is (= :rf.xray.data-display-popup/open event-id)
+          "canonical event id")
+      (is (= "ddp-abc" mount-id)
+          "popup-mount-id flows through as second positional arg")
+      (is (= {:cart [1 2 3]} (:value payload))
+          "value flows through as `:value`")
+      (is (false? (:popup-affordance? (:opts payload)))
+          "the popup's embedded data-display does NOT re-enable the
+           affordance (no recursion)")
+      (is (= :rf.xray/app-db (:panel-id (:opts payload)))
+          "other opts (`:panel-id`, `:default-expanded-depth`) survive")
+      (is (= 3 (:default-expanded-depth (:opts payload))))
+      (is (= :rf/xray (:frame opts))
+          "rf2-7sdja — popup dispatch pins frame to `:rf/xray`
+           explicitly so the popup-stack-view (which only subscribes
+           against `:rf/xray`) sees the write regardless of which
+           frame the widget is mounted under"))))
 
 (deftest popup-affordance-button-onclick-preserves-nil-opts
   (testing "rf2-l4625 — when the caller supplies no opts, the affordance
             still produces a sane payload (just `:popup-affordance? false`
             in the popup's downstream opts map)"
-    (let [captured (atom nil)
-          stub-dispatch (fn [event-v] (reset! captured event-v))
-          btn (dd/popup-affordance-button stub-dispatch "ddp-x"
-                                          {:k :v} nil)
-          on-click (:on-click (second btn))]
-      (on-click nil)
-      (let [payload (nth @captured 2)]
-        (is (= {:k :v} (:value payload)))
-        (is (false? (:popup-affordance? (:opts payload)))
-            "even with nil opts the recursion guard fires")))))
+    (let [btn (dd/popup-affordance-button nil "ddp-x" {:k :v} nil)
+          on-click (:on-click (second btn))
+          {:keys [event opts]} (with-rf-dispatch-spy on-click)
+          payload (nth event 2)]
+      (is (= {:k :v} (:value payload)))
+      (is (false? (:popup-affordance? (:opts payload)))
+          "even with nil opts the recursion guard fires")
+      (is (= :rf/xray (:frame opts))
+          "rf2-7sdja — `:rf/xray` frame still pinned even with nil opts"))))
 
 ;; =========================================================================
 ;; shell mount — `data-display-popup-stack` view

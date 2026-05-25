@@ -64,17 +64,21 @@
                     ancestors of any changed descendant force open
                     regardless of the default-expand heuristic.
   - `:popup-affordance?` (optional, default false) — rf2-l4625; when
-                    true the widget renders a top-right ⊕ icon button
+                    true the widget renders a top-right ↗ icon button
+                    (rf2-7sdja — was ⊕; ↗ reads as 'open in new pane')
                     that dispatches
                     `[:rf.xray.data-display-popup/open mount-id payload]`
-                    (the open event registered by
-                    `views.data-display-popup/install-events!`). The
-                    popup-mount-id is derived from this widget's own
-                    mount-id, so re-clicking raises the existing popup
-                    rather than spawning a duplicate. Opt-in per
-                    call-site; panels enable the affordance where the
-                    inline widget is genuinely cramped (App-DB whole-
-                    tree, machine snapshots, sub values).
+                    against `:rf/xray` explicitly (popup state is
+                    Xray-global, not per-frame — rf2-7sdja). The popup-
+                    mount-id is derived from this widget's own mount-
+                    id, so re-clicking raises the existing popup rather
+                    than spawning a duplicate. Opt-in per call-site;
+                    panels enable the affordance where the inline
+                    widget is genuinely cramped (machine snapshots,
+                    sub values, trace payloads). App-DB does NOT use
+                    the affordance (rf2-7sdja — App-DB has plenty of
+                    horizontal room; the popup would be unnecessary
+                    affordance noise).
   - `:card?`         (optional, default false) — rf2-63ie5; when true
                     the widget's outer container carries the inspector-
                     card chrome (background `:bg-1`, 1px `:border-
@@ -1406,8 +1410,14 @@
 ;;
 ;; Opt-in (not always-on): scalar / tiny-value mounts don't benefit from
 ;; a larger inspection surface. Panels enable the affordance where the
-;; inline widget is genuinely cramped (App-DB whole-tree, machine
-;; snapshots, sub values). Default off keeps simple call sites quiet.
+;; inline widget is genuinely cramped (machine snapshots, sub values,
+;; trace payloads). Default off keeps simple call sites quiet.
+;;
+;; App-DB does NOT use the affordance (rf2-7sdja — Mike's call after
+;; live testing 2026-05-26): the App-DB panel has plenty of horizontal
+;; room; the side panel is wide enough for the whole tree without a
+;; pop-out. Earlier framing of App-DB as "the canonical cramped in the
+;; side panel case" was wrong.
 ;;
 ;; The affordance dispatches the OPEN event id literally — no `require`
 ;; on the popup ns from here, which would form a cycle (the popup ns
@@ -1434,13 +1444,40 @@
 
 (defn popup-affordance-button
   "Render the 'open in popup' icon button. `dispatch-fn` is the
-  lexically-captured frame-aware dispatcher; `popup-mount-id` is the
-  stable id keyed to the data-display's own mount-id; `value` + `opts`
-  are the popup's payload.
+  lexically-captured frame-aware dispatcher reserved for the
+  PER-FRAME paths (legacy parameter — see dispatch-asymmetry note
+  below); `popup-mount-id` is the stable id keyed to the data-
+  display's own mount-id; `value` + `opts` are the popup's payload.
+
+  ## Dispatch asymmetry (rf2-7sdja)
+
+  The popup OPEN event dispatches against `:rf/xray` EXPLICITLY via
+  the established `(rf/dispatch event {:frame :rf/xray})` pattern
+  (matches `settings/view.cljs` + `app_db_segment_inspector.cljs`).
+  Other data-display dispatches (`:rf.xray.data-display/toggle-node`)
+  use the lexically-captured `dispatch-fn` because expansion state is
+  per-frame — the widget can be mounted in any frame and the toggle
+  dispatch must land in the SURROUNDING frame's app-db so the
+  expansion-slot subscription sees the write.
+
+  Popup state is different: the popup stack-view (`data-display-popup-
+  stack` in `shell.cljs`) is mounted inside `[rf/frame-provider
+  {:frame :rf/xray}]` and subscribes ONLY against `:rf/xray`'s
+  app-db. If a popup-open dispatch leaks to `:rf/default` (or any
+  non-Xray frame), the mutation lands on the wrong app-db and the
+  stack-view never renders the popup — the canonical bug Mike
+  reproduced live (pair-debug 2026-05-26). The fix pins the popup
+  dispatch to `:rf/xray` REGARDLESS of where the widget mounts:
+  expansion state stays per-frame; popup state stays Xray-global.
+
+  The `dispatch-fn` parameter is retained as a no-op for back-compat
+  with the existing test surface (some tests pass a stub to capture
+  the event vector). Production callers should pass `nil` —
+  `popup-affordance-button` ignores it and dispatches directly.
 
   Public so unit tests can drive the button without spinning up the
-  router (pass a stub `dispatch-fn` that captures the event vector)."
-  [dispatch-fn popup-mount-id value opts]
+  router."
+  [_dispatch-fn popup-mount-id value opts]
   [:button
    {:data-testid             (str "rf-xray-data-display-popup-affordance-"
                                   popup-mount-id)
@@ -1452,7 +1489,14 @@
                                (when e
                                  (.preventDefault e)
                                  (.stopPropagation e))
-                               (dispatch-fn
+                               ;; rf2-7sdja — popup state is Xray-
+                               ;; global. Pin the dispatch frame to
+                               ;; `:rf/xray` regardless of the
+                               ;; surrounding mount frame so the
+                               ;; popup-stack-view (which only
+                               ;; subscribes against `:rf/xray`)
+                               ;; sees the write.
+                               (rf/dispatch
                                  [:rf.xray.data-display-popup/open
                                   popup-mount-id
                                   {:value value
@@ -1461,10 +1505,14 @@
                                               ;; affordance inside the
                                               ;; popup's embedded
                                               ;; data-display.
-                                              (assoc :popup-affordance? false))}]))
+                                              (assoc :popup-affordance? false))}]
+                                 {:frame :rf/xray}))
     :style                   popup-affordance-button-style}
-   ;; ⊕ glyph reads as "open" without the language baggage of e.g. 🔍
-   "⊕"])
+   ;; rf2-7sdja — ↗ (north-east arrow) reads as "open in new pane /
+   ;; navigate outward" which matches the popup's window-manager
+   ;; semantics better than ⊕ (which read as "expand" / "add"). Same
+   ;; aria-label / title — the glyph swap is visual only.
+   "↗"])
 
 (rf/reg-view data-display
   "First-class data-display widget — single source of truth for

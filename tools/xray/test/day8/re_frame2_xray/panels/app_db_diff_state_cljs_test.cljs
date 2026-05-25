@@ -312,37 +312,38 @@
           "no mount carries a `:before` opt — no diff annotation
            without a pre-image"))))
 
-;; ---- popup affordance (rf2-l4625) ---------------------------------------
+;; ---- popup affordance (rf2-7sdja) ---------------------------------------
 ;;
-;; The App-DB tab is the canonical cramped-in-side-panel inspection
-;; surface; every data-display mount carries `:popup-affordance? true`
-;; so the operator can pop the whole tree into the modal popup overlay.
-;; These tests assert the opt rides every mount the value-body produces.
+;; App-DB does NOT use `:popup-affordance?` (Mike's call 2026-05-26 from
+;; live testing). The side panel has plenty of horizontal room; the
+;; whole-tree inspector reads comfortably in place. These tests pin the
+;; absence of the opt so a stray re-introduction trips the gate.
 
-(deftest data-display-mounts-carry-popup-affordance-opt
-  (testing "rf2-l4625 — every `[dd/data-display ...]` mount the App-DB
-            panel produces carries `:popup-affordance? true` so the
-            operator can open the value in the popup overlay"
+(deftest data-display-mounts-omit-popup-affordance-opt
+  (testing "rf2-7sdja — no `[dd/data-display ...]` mount the App-DB
+            panel produces carries `:popup-affordance? true`; the App-
+            DB tree renders comfortably in-place and the affordance
+            would be unnecessary noise (Mike's live-testing call
+            2026-05-26)"
     (let [model  (h/current-state-sections
                    {:counter 2 :rf/route {:id :home}
                     :rf/machines {:auth {:state :idle}}})
           tree   (state/state-body model)
           mounts (find-data-display-mounts tree)]
       (is (seq mounts) "the panel mounts data-display widget instances")
-      (is (every? #(true? (:popup-affordance? (:opts %))) mounts)
-          "every mount opts in to the popup affordance"))))
+      (is (not-any? #(true? (:popup-affordance? (:opts %))) mounts)
+          "no mount opts in to the popup affordance"))))
 
-(deftest diff-mode-mounts-also-carry-popup-affordance-opt
-  (testing "rf2-l4625 — DIFF-mode mounts (when a pre-image is supplied)
-            ALSO carry the popup affordance opt; the operator can pop
-            either current-state OR diff trees"
+(deftest diff-mode-mounts-also-omit-popup-affordance-opt
+  (testing "rf2-7sdja — DIFF-mode mounts (when a pre-image is supplied)
+            ALSO omit the popup affordance opt"
     (let [model  (h/current-state-sections {:counter 2} {:counter 1})
           tree   (state/state-body model)
           mounts (find-data-display-mounts tree)
           diff-mts (filter #(contains? (:opts %) :before) mounts)]
       (is (seq diff-mts) "diff-mode mounts present")
-      (is (every? #(true? (:popup-affordance? (:opts %))) diff-mts)
-          "diff-mode mounts also opt in to the popup affordance"))))
+      (is (not-any? #(true? (:popup-affordance? (:opts %))) diff-mts)
+          "diff-mode mounts also omit the popup affordance"))))
 
 ;; ---- card chrome (rf2-63ie5) --------------------------------------------
 ;;
