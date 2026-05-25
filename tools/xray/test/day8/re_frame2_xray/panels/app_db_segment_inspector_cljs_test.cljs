@@ -58,8 +58,24 @@
 
 ;; ---- hiccup walk helpers ------------------------------------------------
 
+(declare expand-tree)
+(defn- expand-tree [tree]
+  (cond
+    (and (vector? tree) (fn? (first tree)))
+    (let [result (apply (first tree) (rest tree))]
+      ;; Form-2 Reagent components return an inner fn; re-call with
+      ;; the same args (Reagent's re-render contract). rf2-oqa60 —
+      ;; the data-display widget is form-2 to stabilise mount-id.
+      (expand-tree
+        (if (fn? result)
+          (apply result (rest tree))
+          result)))
+    (vector? tree) (mapv expand-tree tree)
+    (seq? tree)    (map expand-tree tree)
+    :else          tree))
+
 (defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq tree))
+  (tree-seq (some-fn vector? seq?) seq (expand-tree tree)))
 
 (defn- find-by-testid [tree testid]
   (some (fn [node]

@@ -28,7 +28,14 @@
 (defn- expand-tree [tree]
   (cond
     (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
+    (let [result (apply (first tree) (rest tree))]
+      ;; Form-2 Reagent components return an inner fn; re-call with
+      ;; the same args (Reagent's re-render contract). rf2-oqa60 —
+      ;; data-display is form-2 to stabilise mount-id.
+      (expand-tree
+        (if (fn? result)
+          (apply result (rest tree))
+          result)))
     (vector? tree) (mapv expand-tree tree)
     (seq? tree)    (map expand-tree tree)
     :else          tree))
@@ -284,8 +291,11 @@
 ;; -------------------------------------------------------------------------
 
 (deftest schema-edn-renders-through-widget-with-copy
-  (testing "rf2-2kwhw + rf2-f026h — the Malli schema renders via the shared
-            cljs-devtools EDN widget and carries the universal copy button"
+  (testing "rf2-2kwhw + rf2-oqa60 — the Malli schema renders via the
+            shared EDN widget; phase 1 delegates to the first-class
+            data-display widget. The copy affordance is deferred to
+            the popup phase (D6=a) — phase 1 has no copy chrome on
+            the new widget."
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
@@ -293,12 +303,5 @@
          sample-registry])
       (let [tree (panel/Panel)
             widget (find-all-by-testid-prefix
-                     tree "rf-xray-edn-widget-browse-")
-            copy   (filterv (fn [node]
-                              (and (vector? node)
-                                   (map? (second node))
-                                   (= "rf-xray-edn-widget-copy"
-                                      (:class (second node)))))
-                            (hiccup-seq tree))]
-        (is (seq widget) "schema values render through the browse widget")
-        (is (seq copy) "each schema value carries the copy affordance")))))
+                     tree "rf-xray-data-display-")]
+        (is (seq widget) "schema values render through the data-display widget")))))

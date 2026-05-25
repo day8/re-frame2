@@ -1,45 +1,35 @@
 (ns day8.re-frame2-xray.views.edn-widget.widget
-  "Canonical Xray EDN widget — Mike-direction 2026-05-21
-  (`cljs-devtools EDN widget`).
+  "Canonical Xray EDN widget facade (rf2-oqa60 phase 1 — thin wrapper
+  over the first-class `views.data-display` widget).
 
   ## Purpose
 
   One renderer, many call sites — every place Xray shows CLJS data
-  (App-DB diff · Trace expanded payloads · Event :db / :fx / coeffects ·
+  (App-DB · Trace expanded payloads · Event :db / :fx / coeffects ·
   machine snapshots · Issues ex-data) reaches through this ns so the
-  operator learns one expand/collapse + path-click + diff interaction
-  and applies it everywhere.
+  operator learns one expand/collapse + diff interaction and applies
+  it everywhere.
 
-  ## Two engines, one facade
+  ## One engine, one facade (post-rf2-oqa60)
 
-  The widget is a thin Reagent-agnostic facade over two cooperating
-  engines:
+  Pre-rf2-oqa60 the widget composed two engines:
+  `data-display/render` (diff-aware tree walker) and
+  `cljs-devtools-render` (`binaryage/cljs-devtools`-backed formatters
+  for current-state browse). The cljs-devtools impedance-mismatch
+  burned three rounds (rf2-dw8n7, rf2-oswhk, this rebuild); phase 1
+  ships the roll-your-own `views.data-display` widget and the facade
+  delegates `browse` / `inspect` / `mini` / `inspect-inline` to it.
 
-  1. **`data-display/render`** — Xray's tree walker (collapsible,
-     diff-aware, path-clickable). Owns the contract for `browse` +
-     `diff` because diff semantics are pairwise over the CLJS values,
-     and sticky expansion lives in `:rf.xray/data-display-expansion`.
-     Neither concern is in scope for cljs-devtools.
-
-  2. **`cljs-devtools-render`** — `binaryage/cljs-devtools`'s
-     formatters, the same engine re-frame-10x uses, walked into hiccup
-     by a small JSONML→hiccup adapter (Phase 1 hand-rolled a per-leaf
-     classifier and stopped at primitive shapes; that stand-in is
-     gone). Owns the CLJS-aware rendering for non-collection leaves +
-     the `mini` one-liner: records keep their type tag, persistent
-     collections render with native delimiters, metadata gets the
-     `^{...}` annotation, IRecord vs IMap is distinguished. Faithful
-     CLJS-aware rendering — records · persistent-collections · meta ·
-     datafy/nav.
-
-  Callers don't see the split — they call `browse` / `diff` / `mini` /
-  `code-block` and the facade routes.
+  Diff (`edn/diff`) still calls `data-display/render-tree` for now;
+  phase 5 subsumes diff into the new widget (D5=a per rf2-sndui).
 
   ## Public API
 
       (browse {:value v
                :panel-id  :app-db
-               :render-id \"epoch-42\"
+               :render-id \"epoch-42\"      ; accepted but ignored
+                                            ; (widget auto-generates
+                                            ; mount-id; D4=a)
                :default-depth 3})
 
       (diff   {:before before-v
@@ -56,27 +46,28 @@
   ## Posture
 
   Pre-alpha · NO back-compat shims · dev-only · bundle-isolated. The
-  cljs-devtools dep is Xray-only; the `:devtools/preloads` gate keeps
-  it out of production bundles per the contract in `tools/README.md`."
+  cljs-devtools dep is dropped with the phase 1 cut-over (rf2-oqa60);
+  zprint stays for `code-block` source-text rendering."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.data-display.render :as data-display]
-            [day8.re-frame2-xray.theme.data-inspector :as inspector]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]
-            [day8.re-frame2-xray.views.edn-widget.cljs-devtools-render
-             :as cdt]
+            ;; rf2-oqa60 phase 1 — current-state browse / inspect /
+            ;; mini delegate to the first-class data-display widget.
+            ;; The cljs-devtools-render adapter + theme.data-inspector
+            ;; chrome are superseded; the legacy ns'es are deleted
+            ;; alongside this commit.
+            [day8.re-frame2-xray.views.data-display :as dd]
             [zprint.core :as zprint]))
 
-;; ---- subscription bridge for cljs-devtools click-to-toggle (rf2-dw8n7) ---
+;; ---- subscription bridge — superseded by the new data-display widget ----
 ;;
-;; The interactive tree in `cdt/value->tree-hiccup` writes per-path
-;; expansion overrides into `:rf.xray/data-display-expansion` — the
-;; same slot the home-grown `data-display/render` engine uses. The
-;; toggle event + sub already exist in `data-display.render` (registered
-;; via `defonce` sentinel; same pattern the registry ns uses for the
-;; orchestrator's :rf.xray handler bundle), so the widget just reads
-;; the slot and threads it into the render call.
+;; Pre-rf2-oqa60 this section glued the cljs-devtools walker to the
+;; shared expansion slot. With the phase 1 cut-over the new widget at
+;; `views.data-display` owns its own `:rf.xray.data-display/expansion`
+;; slot + toggle/reset events; the facade delegates and the cljs-
+;; devtools-render adapter is deleted.
 
 ;; `inspect` / `inspect-inline` (the panel-facing current-state facade)
 ;; delegate to `browse` / `mini`, which are defined further down — forward
@@ -144,158 +135,81 @@
 ;; ---- panel-facing facade — inspect / inspect-inline ----------------------
 ;;
 ;; Per Mike-direction rf2-9wsdy ("one widget, many call sites") every
-;; panel-side EDN render flows through this namespace — panels MUST
-;; NOT reach for `theme.data-inspector` directly. The `inspect` +
-;; `inspect-inline` wrappers are the canonical CURRENT-STATE renderers
-;; (App-DB · Trace payloads · Event :fx / coeffects · machine snapshots
-;; · Issues ex-data). Per Mike-direction 2026-05-21 (rf2-dmso5)
-;; current-state rendering is the re-frame-10x cljs-devtools look:
-;; collections AND scalars route through cljs-devtools (`browse`).
-;;
-;; The data-classification sentinels (`:rf/redacted` / `:rf/large` per
-;; spec/015) have no cljs-devtools vocabulary, so `inspect` keeps the
-;; bespoke chip chrome from `theme.data-inspector` for those —
-;; cljs-devtools renders everything else.
+;; panel-side EDN render flows through this namespace. Per rf2-oqa60
+;; phase 1 the facade delegates to the first-class `views.data-display`
+;; widget — the same engine handles every type (scalars, collections,
+;; sentinels) so this thin wrapper no longer needs sentinel-routing
+;; branches. Phases 2-4 migrate call sites to call `dd/data-display`
+;; directly; this facade is the bridge through that transition.
 
 (defn inspect
   "Sentinel-aware current-state rendering for one value — the canonical
-  L4 detail-panel renderer. Routes the value through cljs-devtools
-  (the re-frame-10x look · type-coloured · expandable nested) via the
-  `browse` path, EXCEPT for the spec/015 data-classification sentinels
-  (`:rf/redacted` / `:rf/large`), which keep their bespoke chip chrome
-  from `theme.data-inspector` (cljs-devtools has no sentinel
-  vocabulary). Returns hiccup.
+  L4 detail-panel renderer. Routes through the first-class
+  data-display widget (rf2-oqa60 phase 1) which classifies every type
+  natively, including the spec/015 sentinels (`:rf/redacted` and
+  `:rf/large`) as first-class chip chrome (D3=a per rf2-sndui).
 
-  Single-arg form picks the default node-key (`\"root\"`); two-arg
-  form lets the caller supply a stable per-mount `node-key` — used as
-  the cljs-devtools `render-id` so adjacent inspects in a panel keep
-  independent testids. Three-arg form takes an `opts` map; the only
-  key today is `:copy?` (default `true`) — pass `:copy? false` to
-  suppress the universal ⎘ copy gesture for THIS render (rf2-ilubp —
-  the app-db current-state inspector opts out so its section blocks
-  stay chrome-free; every other surface keeps the default-on gesture).
+  Phase 1 delegates the legacy facade to the new widget so existing
+  call sites compile unchanged; phases 2-4 migrate each surface
+  (Trace, Sub, Machine) to call `data-display/data-display` directly.
 
-  Diff rendering (Event panel `:db` before→after smallest-diff) is a
-  DIFFERENT contract — call `diff`, which stays on the home-grown
-  `data-display/render-tree` engine."
+  Single-arg form picks a default panel-id; two-arg / three-arg forms
+  accept a node-key string (passed through as a stable per-mount
+  qualifier) and an opts map. The `:copy?` key from the old facade is
+  accepted but ignored — copy chrome is deferred to a follow-on bead
+  (the popup phase, D6=a).
+
+  Diff rendering stays on `edn/diff` for phase 1; phase 5 subsumes
+  diff into the new widget (D5=a per rf2-sndui)."
   ([v] (inspect v "root" nil))
   ([v node-key] (inspect v node-key nil))
-  ([v node-key {:keys [copy?] :or {copy? true}}]
-   (cond
-     ;; spec/015 sentinels keep their bespoke chip chrome — cljs-devtools
-     ;; has no diff/redaction vocabulary.
-     (inspector/redacted-sentinel? v)
-     (inspector/inspect v node-key)
-
-     (some? (inspector/redacted+size-meta v))
-     (inspector/inspect v node-key)
-
-     (some? (inspector/large-meta v))
-     (inspector/inspect v node-key)
-
-     ;; Everything else — collections + scalars — render through
-     ;; cljs-devtools (current-state browse).
-     :else
-     (browse {:value     v
-              :panel-id  :inspect
-              :render-id (str node-key)
-              :copy?     copy?}))))
+  ([v node-key _opts]
+   [dd/data-display v
+    {:panel-id (keyword (str "rf.xray.inspect/" node-key))
+     :default-expanded-depth 3}]))
 
 (defn inspect-inline
   "Compact one-line current-state rendering for hover tooltips / list
-  cells. Sentinels keep their chip shape (via `theme.data-inspector`);
-  everything else renders as a one-line cljs-devtools header summary
-  (`mini`)."
+  cells. Folds sentinel routing in (D2=a per rf2-sndui) — sentinels
+  render their chip chrome via the new widget's `mini` overload; all
+  other values render as a colour-coded one-liner."
   [v]
-  (cond
-    (inspector/redacted-sentinel? v)
-    (inspector/inspect-inline v)
-
-    (some? (inspector/redacted+size-meta v))
-    (inspector/inspect-inline v)
-
-    (some? (inspector/large-meta v))
-    (inspector/inspect-inline v)
-
-    :else
-    (mini v)))
+  (dd/mini v))
 
 ;; ---- variant: browse -----------------------------------------------------
 
 (defn browse
-  "Render `:value` as a current-state tree via cljs-devtools — the
-  re-frame-10x look: type-coloured leaves, native collection
-  delimiters, records keeping their type tag, click-to-toggle per
-  collection node (rf2-dw8n7). Browse mode is current-state · no diff
-  semantics; cljs-devtools owns the WHOLE value (collections AND
-  scalars), per Mike-direction 2026-05-21 (rf2-dmso5).
+  "Render `:value` as a current-state tree via the first-class
+  data-display widget (rf2-oqa60 phase 1).
 
   Each collection node renders a `▸` / `▾` triangle that dispatches
-  `:rf.xray/data-display-toggle-node` — the same sticky-expansion
-  contract the home-grown `data-display/render` engine uses, so
-  operator drill-downs persist across re-renders. Default expansion
-  follows §10.4's depth+size heuristic (`:default-depth` defaults to
-  1: root expanded, nested collections collapsed — matches
-  re-frame-10x's app-db panel default).
+  `:rf.xray.data-display/toggle-node` against the per-mount path —
+  operator drill-downs persist across re-renders in the
+  `:rf.xray.data-display/expansion` slot.
 
   Diff semantics (Event panel `:db` before→after smallest-diff) stay
-  on the home-grown `data-display/render-tree` engine via `diff`.
+  on the home-grown `data-display/render-tree` engine via `diff` for
+  phase 1 (D5=a per rf2-sndui — phase 5 subsumes diff).
 
-  Required: `:value :panel-id :render-id`.
-  Optional: `:max-depth` (HARD stack-guard cap for cljs-devtools'
-            surrogate recursion — defence against cyclic / pathological
-            structures, NOT a UX bound; defaults to
-            `cdt/default-max-depth`)
-            · `:default-depth` (§10.4 heuristic — depth threshold for
-              the click-to-toggle default-expanded state; defaults to 1)
-            · `:copy?` (default `true`) — render the universal ⎘ copy
-            gesture on the root. Pass `:copy? false` to opt this render
-            out (rf2-ilubp — the app-db current-state inspector); every
-            other surface keeps the default-on gesture."
-  [{:keys [value panel-id render-id max-depth default-depth copy?]
-    :or   {copy? true}}]
-  ;; Every browse value — map / vector / set / record / scalar —
-  ;; routes through cljs-devtools. Collections render the interactive
-  ;; tree; scalars render as a single coloured span. The home-grown
-  ;; render-tree is now diff-only.
-  ;;
-  ;; rf2-dw8n7 — subscribe to the shared `:rf.xray/data-display-expansion`
-  ;; slot once at the widget level and thread it into the cljs-devtools
-  ;; renderer. The walker reads the map directly (no per-node sub) so
-  ;; the operator's expansions persist across re-renders the same way
-  ;; the home-grown engine's do — sticky per `[panel-id render-id path]`.
-  ;;
-  ;; rf2-f026h — the universal copy affordance rides on this root, so
-  ;; every browse/inspect surface (Trace, segment-inspector, Event
-  ;; lens, Static panels) gets a copy-to-clipboard gesture. The
-  ;; container is `position:relative` to anchor the absolutely-
-  ;; positioned `⎘` button at its top-right; padding-right reserves
-  ;; the gutter so the button never overlaps a wide value's first line.
-  ;;
-  ;; rf2-ilubp — `:copy? false` suppresses the affordance for this
-  ;; render only (the app-db current-state inspector opts out). When
-  ;; off, the gutter padding collapses too so the value isn't pushed
-  ;; off-centre by a button that's no longer there.
-  (let [container-id  (str "rf-xray-edn-widget-browse-"
-                           (name (or panel-id :unknown))
-                           "-"
-                           (str (or render-id "")))
-        expansion-map @(rf/subscribe [data-display/expansion-slot])
-        cdt-opts      (cond-> {:panel-id      panel-id
-                               :render-id     render-id
-                               :expansion-map expansion-map}
-                        (some? max-depth)     (assoc :max-depth max-depth)
-                        (some? default-depth) (assoc :default-depth default-depth))]
-    [:div {:data-testid container-id
-           :style {:position    "relative"
-                   :font-family mono-stack
-                   :font-size   "12px"
-                   :color       (:text-primary tokens)
-                   :line-height 1.4
-                   :padding-right (if copy? "26px" "0")}}
-     (when copy?
-       (copy-affordance value (str container-id "-copy")))
-     (cdt/value->tree-hiccup value cdt-opts)]))
+  Required: `:value`.
+  Optional: `:panel-id` (defaults `:rf.xray/browse`),
+            `:render-id` (passed through as a stable per-mount
+                          qualifier; ignored under the new widget
+                          which auto-generates mount-ids, but accepted
+                          for facade-call-site compatibility),
+            `:default-depth` (renamed to `:default-expanded-depth`
+                              under the new widget, defaults to 1),
+            `:max-depth` (hard recursion cap; defaults to 16),
+            `:copy?` (accepted but no-op under the new widget — copy
+                      chrome is deferred per the rf2-oqa60 phasing)."
+  [{:keys [value panel-id render-id default-depth max-depth]
+    :or   {default-depth 1
+           max-depth     16}}]
+  [dd/data-display value
+   {:panel-id (or panel-id
+                  (keyword (str "rf.xray.browse/" (or render-id "anon"))))
+    :default-expanded-depth default-depth
+    :max-depth max-depth}])
 
 ;; ---- variant: diff -------------------------------------------------------
 
@@ -325,38 +239,14 @@
 ;; ---- variant: mini -------------------------------------------------------
 
 (defn mini
-  "One-liner inline rendering of `value` via cljs-devtools' formatters.
-  No expansion, no diff — used in chip rows / table cells where the
-  full tree would crowd the layout. Returns hiccup `[:span ...]` shape
-  so callers can embed inline.
-
-  When the formatter's coloured-span output renders longer than the
-  caller's pixel budget the parent's `text-overflow: ellipsis` kicks
-  in via the surrounding container; we still cap raw `pr-str` length
-  in the `:title` attribute so hover reveals up to `max-len` characters
-  of the underlying value."
+  "One-liner inline rendering of `value` via the first-class
+  data-display widget (rf2-oqa60 phase 1). Returns hiccup
+  `[:span ...]` so callers embed inline. Sentinels (`:rf/redacted`,
+  `:rf/large`) keep their chip chrome inline; other values render as
+  a colour-coded inline-preview."
   ([value] (mini value 80))
   ([value max-len]
-   (let [pr        (try (pr-str value) (catch :default _ (str value)))
-         truncated (if (<= (count pr) max-len)
-                     pr
-                     (str (subs pr 0 max-len) "…"))]
-     [:span {:data-testid "rf-xray-edn-widget-mini"
-             :title       pr
-             :style       {:font-family mono-stack
-                           :font-size   "11px"
-                           :color       (:text-primary tokens)
-                           :white-space "nowrap"
-                           :overflow    "hidden"
-                           :text-overflow "ellipsis"
-                           :max-width   "100%"
-                           :display     "inline-block"
-                           :vertical-align "bottom"}
-             ;; A `data-pr` attribute carries the raw pr-str so test
-             ;; assertions + a11y readers can still reach the value
-             ;; even when the visible content is cljs-devtools markup.
-             :data-pr     truncated}
-      (cdt/value->hiccup value)])))
+   (dd/mini value max-len)))
 
 ;; ---- code-block (handler / interceptor source rendering) ----------------
 ;;

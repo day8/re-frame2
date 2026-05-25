@@ -131,25 +131,13 @@
          ;; carries an adapter on the consumer side.
          day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
 
-         ;; binaryage/devtools — Chrome custom-formatters library that
-         ;; the EDN widget's value-rendering layer adopts (see
-         ;; views/edn_widget/cljs_devtools_render.cljs). Xray wraps
-         ;; `devtools.formatters.core/header-api-call` on a CLJS value
-         ;; to obtain the same coloured, structure-aware JSONML the
-         ;; Chrome DevTools console renders, then walks it into hiccup
-         ;; via a small adapter (modelled on re-frame-10x's same-named
-         ;; component). Faithful CLJS-aware rendering: records keep
-         ;; their type tag, persistent collections render with their
-         ;; native delimiters, metadata is annotated, and datafy/nav
-         ;; flows through `devtools.formatters` when applicable.
-         ;;
-         ;; Xray is dev-only (gated by `:devtools/preloads` in
-         ;; shadow-cljs) so this dep does NOT land in production
-         ;; bundles. The bundle-isolation gate
-         ;; (scripts/check-bundle-isolation.cjs) verifies the
-         ;; `devtools.formatters` ns body does not appear in the counter
-         ;; example's :advanced release bundle.
-         binaryage/devtools {:mvn/version "1.0.7"}
+         ;; rf2-oqa60 phase 1 — binaryage/devtools dep dropped. The
+         ;; first-class `views/data-display` widget replaces the
+         ;; cljs-devtools-backed renderer with a roll-your-own CLJS
+         ;; tree walker. The impedance-mismatch bug class (rf2-dw8n7,
+         ;; rf2-oswhk) goes away with the dep. The bundle-isolation
+         ;; gate's `cljs-devtools` checks still run as defence-in-depth
+         ;; (a stray re-introduction would re-fail the gate).
 
          ;; zprint — canonical pretty-printer for the EDN widget's
          ;; `code-block` rendering of handler-source strings. The Event

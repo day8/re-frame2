@@ -177,12 +177,12 @@
                 [com.pitch/uix.core "1.4.4"]
                 [com.pitch/uix.dom  "1.4.4"]
                 [lilactown/helix   "0.2.2"]
-                ;; binaryage/devtools — Xray's EDN widget value-rendering
-                ;; layer (rf2-gycfj). Dev-only; the bundle-isolation gate
-                ;; verifies `devtools.formatters` does not reach production
-                ;; bundles. See tools/xray/deps.edn for the artefact-side
-                ;; rationale.
-                [binaryage/devtools "1.0.7"]
+                ;; rf2-oqa60 phase 1 — binaryage/devtools dep dropped.
+                ;; Xray's first-class data-display widget
+                ;; (`views/data-display`) replaces the cljs-devtools-
+                ;; backed value renderer with a roll-your-own CLJS
+                ;; tree walker; the impedance-mismatch bug class
+                ;; (rf2-dw8n7, rf2-oswhk) goes away with the dep.
                 ;; zprint — Xray's EDN widget `code-block` pre-formatter
                 ;; (rf2-6snc8). Dev-only; the bundle-isolation gate
                 ;; verifies `zprint.core` does not reach production

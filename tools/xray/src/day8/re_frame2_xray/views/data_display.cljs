@@ -1,0 +1,844 @@
+(ns day8.re-frame2-xray.views.data-display
+  "Xray's first-class data-display widget — roll-your-own CLJS-value
+  renderer (rf2-oqa60 phase 1).
+
+  ## What this is
+
+  ONE renderer for every Xray surface that shows a CLJS value:
+  App-db, Trace per-event payload, Sub value inspector, Machine
+  snapshot drill-in. The widget produces pure hiccup, owns its
+  expansion state in re-frame app-db, and reads colour through CSS
+  token variables so light + dark themes resolve at paint time
+  without a re-render.
+
+  ## What replaces what
+
+  - `views/edn-widget/widget` — superseded for current-state browse
+    (phase 1 wires the App-DB panel here directly; phases 2-5 migrate
+    the remaining call sites).
+  - `theme/data-inspector` — sentinels (`:rf/redacted`, `:rf/large`)
+    become first-class types INSIDE this widget; the chrome wrapper
+    goes away (D3=a per rf2-sndui).
+  - `data-display/render` — diff renderer subsumed in phase 5
+    (D5=a per rf2-sndui).
+  - `binaryage/cljs-devtools` dep — dropped from the project; this
+    widget renders CLJS values natively from CLJS itself (rf2-oqa60).
+
+  ## Public API
+
+      [data-display value]
+      [data-display value opts]
+
+      [mini value]              ;; one-line inline (no expansion)
+      [mini value max-len]      ;; with width cap
+
+  `opts` keys:
+
+  - `:panel-id`     (optional, default `:rf.xray.data-display/anon`)
+                    distinguishes per-panel expansion state.
+  - `:default-expanded-depth` (optional, default 2) — first-render
+                    expansion depth before operator clicks.
+  - `:max-inline-width` (optional, default 60) — character budget
+                    before forced-vertical layout.
+  - `:max-depth` (optional, default 16) — hard cap on recursion
+                    depth; deeper levels render `{…}` collapsed.
+
+  Drop the `:render-id` arg from the old facade — mount-id is now
+  auto-generated internally per D4=a (rf2-sndui).
+
+  ## Per-call-site isolation
+
+  Each `[data-display …]` mount auto-assigns a UUID `mount-id` on
+  first render (captured in a form-2 outer `let`). Two mounts side-
+  by-side in the same panel get independent expansion state. The
+  expansion key is `[panel-id mount-id path]`.
+
+  ## Why pure hiccup + no Reagent direct
+
+  Substrate-agnostic — downstream adapters (Reagent, UIx, Helix) all
+  see the same hiccup. The mount-id capture uses Reagent form-2
+  semantics in `data-display` itself (rf2 substrate is currently
+  Reagent in tools); the rest of the renderer is pure data
+  transformations + `rf/subscribe` reads.
+
+  ## CSS token classes
+
+  The widget paints via CSS-variable strings from `theme.tokens` — no
+  per-theme code path. The class table maps each leaf type to its
+  token; the active theme class scope on the shell root decides which
+  hex resolves.
+
+  | Leaf type        | Token              | Bracket style            |
+  |------------------|--------------------|--------------------------|
+  | nil              | `:text-tertiary`   | n/a                      |
+  | boolean          | `:syntax-keyword`  | n/a                      |
+  | integer / float  | `:syntax-number`   | n/a                      |
+  | string           | `:syntax-string`   | n/a                      |
+  | keyword          | `:accent`          | n/a                      |
+  | symbol           | `:magenta`         | n/a                      |
+  | uuid / regex     | `:info`            | n/a                      |
+  | inst / date      | `:info`            | n/a                      |
+  | fn               | `:text-tertiary`   | (italic)                 |
+  | :rf/redacted     | `:magenta`         | (chip)                   |
+  | :rf.size/elided  | `:yellow`          | (chip)                   |
+  | map              | `:text-tertiary`   | `{` `}`                  |
+  | vector           | `:text-secondary`  | `[` `]`                  |
+  | list / seq       | `:text-secondary`  | `(` `)`                  |
+  | set              | `:text-secondary`  | `#{` `}`                 |
+  | map-entry        | `:accent`          | `[` `]` (accent tone)    |
+  | record           | `:info`            | `#user.Rec{` `}`         |
+  | js object        | `:text-tertiary`   | `#object[` `]`           |"
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
+            [day8.re-frame2-xray.theme.tokens
+             :refer [tokens mono-stack]]))
+
+;; =========================================================================
+;; expansion state — lives in :rf.xray.data-display/expansion under :rf/xray
+;; =========================================================================
+
+(def expansion-slot
+  "App-db slot holding the per-node expansion overrides. Public so
+  the consuming panel's reset affordance can clear it.
+
+  Distinct from the legacy `:rf.xray/data-display-expansion` slot
+  used by `data-display/render` — keeping them separate lets the old
+  engine and the new widget coexist during the phased rollout."
+  :rf.xray.data-display/expansion)
+
+(defn expansion-key
+  "Compose the per-node expansion key. Pure data, JVM-portable."
+  [panel-id mount-id path]
+  [panel-id mount-id (vec path)])
+
+(rf/reg-sub expansion-slot
+  (fn [db _] (get db expansion-slot)))
+
+(rf/reg-event-db :rf.xray.data-display/toggle-node
+  (fn [db [_ panel-id mount-id path]]
+    (let [k       (expansion-key panel-id mount-id path)
+          ;; current is either nil (default — no override) or
+          ;; {:expanded? bool}. Toggle inverts whatever is stored;
+          ;; when nothing's stored we flip from the SUPPLIED default
+          ;; (passed via the dispatch payload) so the first click on
+          ;; a collapsed default opens it, and on an expanded
+          ;; default closes it.
+          current (get-in db [expansion-slot k])
+          next?   (if (contains? current :expanded?)
+                    (not (boolean (:expanded? current)))
+                    true)] ;; first click opens — common case
+      (assoc-in db [expansion-slot k] {:expanded? next?}))))
+
+(rf/reg-event-db :rf.xray.data-display/set-node
+  (fn [db [_ panel-id mount-id path expanded?]]
+    (assoc-in db [expansion-slot (expansion-key panel-id mount-id path)]
+              {:expanded? (boolean expanded?)})))
+
+(rf/reg-event-db :rf.xray.data-display/reset-expansion
+  (fn [db _]
+    (dissoc db expansion-slot)))
+
+(defn resolve-expanded?
+  "Pure projection — given the per-render expansion map, the path,
+  and the default-heuristic result, return whether THIS node renders
+  expanded. The operator's sticky override (if present) wins."
+  [expansion-map panel-id mount-id path default?]
+  (let [k        (expansion-key panel-id mount-id path)
+        override (get expansion-map k)]
+    (if (contains? override :expanded?)
+      (boolean (:expanded? override))
+      (boolean default?))))
+
+;; =========================================================================
+;; type classification — sentinels recognised as first-class types
+;; =========================================================================
+
+(defn redacted-sentinel?
+  "`:rf/redacted` bare keyword — spec/015 primary opaque sentinel."
+  [v]
+  (= :rf/redacted v))
+
+(defn large-sentinel?
+  "`{:rf/large {:bytes N :head s}}` size-elision sentinel."
+  [v]
+  (and (map? v)
+       (= 1 (count v))
+       (let [[k m] (first v)]
+         (and (= :rf/large k) (map? m)))))
+
+(defn redacted+size-sentinel?
+  "Combined `{:rf/redacted {:bytes N}}` — sensitive + size-aware."
+  [v]
+  (and (map? v)
+       (= 1 (count v))
+       (let [[k m] (first v)]
+         (and (= :rf/redacted k) (map? m)))))
+
+(defn map-entry?*
+  "True for clojure.lang.MapEntry — distinct from a 2-vector.
+  ClojureScript's `MapEntry` shows up as a 2-element vector with
+  identical print but distinct nominal type. The `*` suffix avoids
+  shadowing `cljs.core/map-entry?` for callers that `:refer` it."
+  [v]
+  (instance? cljs.core/MapEntry v))
+
+(defn record?*
+  "True for a defrecord instance. CLJS records carry the
+  `cljs$lang$type` static field."
+  [v]
+  (and (map? v)
+       (try (some? (.-cljs$lang$type v))
+            (catch :default _ false))))
+
+(defn collection-kind
+  "Classify a value into one of #{:map :vector :list :set :map-entry
+  :record :seq :scalar :sentinel-redacted :sentinel-large :nil
+  :string :number :keyword :symbol :boolean :uuid :regex :fn :other}.
+
+  Pure function; no rendering."
+  [v]
+  (cond
+    (nil? v)                       :nil
+    (redacted-sentinel? v)         :sentinel-redacted
+    (large-sentinel? v)            :sentinel-large
+    (redacted+size-sentinel? v)    :sentinel-redacted-size
+    (boolean? v)                   :boolean
+    (keyword? v)                   :keyword
+    (symbol? v)                    :symbol
+    (string? v)                    :string
+    (number? v)                    :number
+    (uuid? v)                      :uuid
+    (regexp? v)                    :regex
+    (fn? v)                        :fn
+    (map-entry?* v)                 :map-entry
+    (record?* v)                   :record
+    (map? v)                       :map
+    (vector? v)                    :vector
+    (set? v)                       :set
+    (list? v)                      :list
+    (seq? v)                       :seq
+    :else                          :other))
+
+;; =========================================================================
+;; scalar rendering (no expansion)
+;; =========================================================================
+
+(defn- str-pad-quote
+  "Render a string with surrounding quotes; preserve newlines as `\\n`
+  for inline rendering."
+  [s]
+  (try
+    (pr-str s)
+    (catch :default _ (str "\"" s "\""))))
+
+(defn- token-style
+  [token-key]
+  {:color       (get tokens token-key)
+   :font-family mono-stack})
+
+(defn render-scalar
+  "Render a single non-collection value as `[:span ...]` hiccup. Pure
+  function — no expansion state, no rf reads."
+  [v]
+  (case (collection-kind v)
+    :nil      [:span {:data-rf-type "nil"
+                      :style (token-style :text-tertiary)} "nil"]
+    :boolean  [:span {:data-rf-type "boolean"
+                      :style (token-style :syntax-keyword)} (str v)]
+    :keyword  [:span {:data-rf-type "keyword"
+                      :style (token-style :accent)} (str v)]
+    :symbol   [:span {:data-rf-type "symbol"
+                      :style (token-style :magenta)} (str v)]
+    :string   [:span {:data-rf-type "string"
+                      :style (token-style :syntax-string)} (str-pad-quote v)]
+    :number   [:span {:data-rf-type "number"
+                      :style (token-style :syntax-number)} (str v)]
+    :uuid     [:span {:data-rf-type "uuid"
+                      :style (token-style :info)} (str "#uuid \"" v "\"")]
+    :regex    [:span {:data-rf-type "regex"
+                      :style (token-style :info)} (str v)]
+    :fn       [:span {:data-rf-type "fn"
+                      :style (merge (token-style :text-tertiary)
+                                    {:font-style "italic"})}
+               (let [nm (try (some-> v meta :name str)
+                             (catch :default _ nil))]
+                 (if (and nm (seq nm)) (str "#fn[" nm "]") "#fn"))]
+    :sentinel-redacted
+    [:span {:data-rf-type "rf-redacted"
+            :data-testid  "rf-xray-data-display-redacted"
+            :title        "Redacted — not revealable (spec/015)"
+            :style {:display       "inline-flex"
+                    :align-items   "center"
+                    :gap           "4px"
+                    :padding       "0 6px"
+                    :border-radius "3px"
+                    :background    "color-mix(in srgb, var(--rf-xray-magenta) 12%, transparent)"
+                    :color         (:magenta tokens)
+                    :font-family   mono-stack
+                    :font-size     "11px"
+                    :font-style    "italic"
+                    :text-transform "lowercase"
+                    :letter-spacing "0.5px"
+                    :user-select   "none"}}
+     [:span {:style {:font-size "10px"}} "●"]
+     "redacted"]
+    :sentinel-redacted-size
+    (let [{:keys [bytes]} (val (first v))]
+      [:span {:data-rf-type "rf-redacted-size"
+              :data-testid  "rf-xray-data-display-redacted-size"
+              :title        "Redacted with size — not revealable (spec/015)"
+              :style {:display       "inline-flex"
+                      :align-items   "center"
+                      :gap           "4px"
+                      :padding       "0 6px"
+                      :border-radius "3px"
+                      :background    "color-mix(in srgb, var(--rf-xray-magenta) 12%, transparent)"
+                      :color         (:magenta tokens)
+                      :font-family   mono-stack
+                      :font-size     "11px"
+                      :font-style    "italic"
+                      :user-select   "none"}}
+       [:span {:style {:font-size "10px"}} "●"]
+       "redacted"
+       (when (and bytes (pos? bytes))
+         [:span {:style {:color (:text-tertiary tokens)
+                         :font-style "normal"
+                         :margin-left "4px"}}
+          (str "· " bytes " bytes")])])
+    :sentinel-large
+    (let [{:keys [bytes head]} (val (first v))]
+      [:span {:data-rf-type "rf-large"
+              :data-testid  "rf-xray-data-display-large"
+              :title        (when head (str "Head preview: " head))
+              :style {:display       "inline-flex"
+                      :align-items   "center"
+                      :gap           "4px"
+                      :padding       "0 6px"
+                      :border-radius "3px"
+                      :background    "color-mix(in srgb, var(--rf-xray-yellow) 12%, transparent)"
+                      :color         (:yellow tokens)
+                      :font-family   mono-stack
+                      :font-size     "11px"
+                      :user-select   "none"}}
+       [:span {:style {:font-size "10px"}} "●"]
+       "large"
+       (when bytes
+         [:span {:style {:color (:text-tertiary tokens) :margin-left "4px"}}
+          (str "· " bytes " bytes")])])
+    ;; Fallback for unknown shapes — pr-str.
+    [:span {:data-rf-type "other"
+            :style (token-style :text-primary)}
+     (try (pr-str v) (catch :default _ (str v)))]))
+
+;; =========================================================================
+;; delimiters — bracket characters + style per collection kind
+;; =========================================================================
+
+(def delim
+  "Per-collection-kind opener/closer/style key map. Bracket COLOUR
+  differs per kind so map-entry vs 2-vector is visually distinct.
+
+  - `:open`/`:close` are the bracket characters
+  - `:tone-key` is the token key used to colour the brackets
+
+  Public so tests can assert the bracket characters + tone-keys are
+  stable across the test surface."
+  {:map        {:open "{"  :close "}"  :tone-key :text-tertiary}
+   :vector     {:open "["  :close "]"  :tone-key :text-secondary}
+   :list       {:open "("  :close ")"  :tone-key :text-secondary}
+   :set        {:open "#{" :close "}"  :tone-key :text-secondary}
+   :seq        {:open "("  :close ")"  :tone-key :text-secondary}
+   :map-entry  {:open "["  :close "]"  :tone-key :accent}
+   :record     {:open "{"  :close "}"  :tone-key :info}})
+
+(defn- record-tag
+  "Render `#user.MyRec` prefix for a defrecord instance. CLJS records
+  expose the constructor's name via `(.-name (type v))`."
+  [v]
+  (try
+    (let [nm (.-name (type v))]
+      (str "#" nm))
+    (catch :default _ "#record")))
+
+(defn- bracket
+  "Single bracket character with the kind's delimiter colour. The
+  `:edge` arg is `:open` or `:close`."
+  [kind edge value]
+  (let [{:keys [tone-key] :as d} (delim kind)
+        ch (or (d edge) "?")
+        text (cond
+               (and (= kind :record) (= edge :open)) (str (record-tag value) ch)
+               :else ch)]
+    [:span {:style       {:color       (get tokens tone-key)
+                          :font-family mono-stack}
+            :data-rf-bracket (name edge)}
+     text]))
+
+;; =========================================================================
+;; inline preview — `▸ {:a 1, :b 2, …}` etc.
+;; =========================================================================
+
+(declare inline-preview-string)
+
+(defn- inline-scalar-str
+  "Compact one-line string preview of a single value. Containers
+  render as their `{…N keys}` / `[…N items]` placeholder — we never
+  recurse into a child container's contents from inside the preview
+  (one-level only). That keeps a `:deeply {:nested {:secret 1}}`
+  preview from leaking `:secret` into a collapsed-collection summary."
+  [v]
+  (case (collection-kind v)
+    :nil        "nil"
+    :boolean    (str v)
+    :keyword    (str v)
+    :symbol     (str v)
+    :string     (str-pad-quote v)
+    :number     (str v)
+    :uuid       (str "#uuid \"" v "\"")
+    :regex      (str v)
+    :fn         "#fn"
+    :sentinel-redacted        "redacted"
+    :sentinel-redacted-size   "redacted"
+    :sentinel-large           "large"
+    (:map :vector :list :seq :set :map-entry :record)
+    (let [{:keys [open close]} (delim (collection-kind v))
+          n (try (count v) (catch :default _ 0))
+          noun (case (collection-kind v)
+                 :map " keys"
+                 :record " keys"
+                 " items")]
+      (str open "…" n noun close))
+    (try (pr-str v) (catch :default _ (str v)))))
+
+(defn inline-preview-string
+  "Build a one-line preview of a collection. Returns a string; not
+  hiccup. Used for collapsed-collection summaries.
+
+  Pure function; safe to call on the JVM (`pr-str` portable). Caller
+  decides max-elements and max-chars.
+
+  Strategy: try first N elements; if the joined string fits within
+  `max-chars`, return `\"{ :a 1, :b 2, :c 3 }\"`; if some fit, return
+  `\"{:a 1, :b 2, …}\"`; if none fit, return the fallback
+  `\"{…3 keys}\"` / `\"[…5 items]\"`."
+  [v max-elements max-chars]
+  (let [kind (collection-kind v)
+        {:keys [open close]} (delim kind)
+        fallback-n  (cond
+                      (= kind :map) (count v)
+                      (coll? v)     (try (count v) (catch :default _ 0))
+                      :else         0)
+        fallback-noun (case kind
+                        :map     " keys"
+                        :set     " items"
+                        " items")
+        fallback    (str open "…" fallback-n fallback-noun close)
+        ;; Take up to max-elements + 1 to detect "more remaining".
+        head-seq    (try (cond
+                           (map? v)        (take (inc max-elements) v)
+                           (set? v)        (take (inc max-elements) v)
+                           (sequential? v) (take (inc max-elements) v)
+                           :else           [])
+                         (catch :default _ []))
+        head        (take max-elements head-seq)
+        more?       (> (count head-seq) max-elements)
+        item-str    (fn [el]
+                      (cond
+                        (and (= kind :map)
+                             (or (map-entry? el)
+                                 (and (vector? el) (= 2 (count el)))))
+                        (str (inline-scalar-str (first el))
+                             " " (inline-scalar-str (second el)))
+                        :else
+                        (inline-scalar-str el)))
+        joined      (str/join ", " (map item-str head))
+        with-more   (str joined (when more? (if (seq joined) ", …" "…")))
+        result      (str open with-more close)]
+    (if (<= (count result) max-chars)
+      result
+      ;; Try one-element preview as a middle ground.
+      (let [one  (when (seq head) (item-str (first head)))
+            mid  (str open one (when (or more? (> (count head) 1)) ", …") close)]
+        (if (and one (<= (count mid) max-chars))
+          mid
+          fallback)))))
+
+;; =========================================================================
+;; recursive renderer — produces hiccup
+;; =========================================================================
+
+(declare render-node)
+
+(defn- children-of
+  "Return a seq of `[child-key child-value]` pairs for a collection.
+  Returns `nil` for non-collections. `child-key` is the path segment
+  to use; for sets it's the value itself."
+  [v]
+  (case (collection-kind v)
+    :map       (try (seq v) (catch :default _ nil))
+    :map-entry (list [0 (first v)] [1 (second v)])
+    :record    (try (seq v) (catch :default _ nil))
+    :vector    (map-indexed (fn [i x] [i x]) v)
+    :list      (map-indexed (fn [i x] [i x]) v)
+    :seq       (map-indexed (fn [i x] [i x]) v)
+    :set       (map (fn [x] [x x]) v)
+    nil))
+
+(defn- container? [kind]
+  (contains? #{:map :vector :list :set :seq :map-entry :record} kind))
+
+(defn- child-count
+  "Count children safely (don't realise lazy infinite seqs)."
+  [v kind]
+  (case kind
+    :map        (count v)
+    :record     (count v)
+    :vector     (count v)
+    :set        (count v)
+    :map-entry  2
+    (:list :seq) (try (count (take 1001 v)) (catch :default _ 0))
+    0))
+
+(defn- key-segment
+  "Render a single map/vector key/index segment. Returns hiccup.
+  Used to label children inside a container."
+  [k]
+  (cond
+    (keyword? k) [:span {:style (token-style :accent)} (str k)]
+    (string? k)  [:span {:style (token-style :syntax-string)} (str-pad-quote k)]
+    (number? k)  [:span {:style (token-style :syntax-number)} (str k)]
+    (symbol? k)  [:span {:style (token-style :magenta)} (str k)]
+    (nil? k)     [:span {:style (token-style :text-tertiary)} "nil"]
+    :else        [:span {:style (token-style :text-primary)}
+                  (try (pr-str k) (catch :default _ (str k)))]))
+
+(defn- default-expanded?
+  "Pure depth/size heuristic — shallow nodes expand, deep + wide
+  nodes collapse. The operator's sticky override wins via
+  `resolve-expanded?`."
+  [{:keys [depth child-count default-expanded-depth]
+    :or   {default-expanded-depth 2}}]
+  (cond
+    (<= depth (dec default-expanded-depth)) true
+    (= depth default-expanded-depth)        (<= (or child-count 0) 10)
+    :else                                   false))
+
+(defn- testid-for
+  "Compose a stable data-testid for a node — `[panel-id mount-id path]`."
+  [panel-id mount-id path]
+  (str "rf-xray-data-display-"
+       (name (or panel-id :anon))
+       "-" mount-id
+       (when (seq path) (str "-" (str/join "/" (map pr-str path))))))
+
+(defn- on-toggle
+  "Build the click handler for a node's `▸`/`▾` glyph. Dispatches the
+  toggle event WITH the frame envelope so the event lands on `:rf/xray`
+  not `:rf/default` (React click pops the frame context)."
+  [panel-id mount-id path]
+  (fn [^js e]
+    (when e
+      (.preventDefault e)
+      (.stopPropagation e))
+    (rf/dispatch [:rf.xray.data-display/toggle-node panel-id mount-id path]
+                 {:frame :rf/xray})))
+
+(defn- collapsed-summary
+  "Right-of-triangle summary for a collapsed collection. Shows an
+  inline preview if any first elements fit; falls back to the
+  `{…N keys}` shape."
+  [v kind]
+  (let [preview (inline-preview-string v 3 60)]
+    [:span {:style       {:color       (get tokens (:tone-key (delim kind)))
+                          :font-family mono-stack}
+            :data-rf-preview "1"}
+     preview]))
+
+(defn- render-container
+  "Render a map / vector / list / set / record / map-entry container.
+
+  Returns a hiccup node. Threads:
+   - panel-id / mount-id — for testid + dispatch
+   - path — vector of segments from root
+   - depth — for the default-expand heuristic
+   - expansion-map — snapshot from the expansion-slot subscription
+   - opts — `:default-expanded-depth`, `:max-depth`, `:max-inline-width`"
+  [{:keys [value kind panel-id mount-id path depth expansion-map opts]}]
+  (let [{:keys [default-expanded-depth max-depth max-inline-width]
+         :or {default-expanded-depth 2 max-depth 16 max-inline-width 60}} opts
+        cnt           (child-count value kind)
+        empty?        (zero? cnt)
+        depth-capped? (>= depth max-depth)
+        default?      (and (not depth-capped?)
+                           (default-expanded? {:depth depth
+                                               :child-count cnt
+                                               :default-expanded-depth default-expanded-depth}))
+        expanded?     (and (not empty?)
+                           (not depth-capped?)
+                           (resolve-expanded? expansion-map panel-id mount-id path default?))
+        inline-fit?   (and (not empty?)
+                           (<= cnt 3)
+                           (every? (fn [[_ cv]]
+                                     (not (container? (collection-kind cv))))
+                                   (children-of value))
+                           (<= (count (inline-preview-string value 5 max-inline-width))
+                               max-inline-width))
+        toggle-fn     (on-toggle panel-id mount-id path)
+        children      (when (and (not empty?) (not depth-capped?) expanded? (not inline-fit?))
+                        (children-of value))]
+    [:div {:data-testid (testid-for panel-id mount-id path)
+           :data-rf-kind (name kind)
+           :data-rf-expanded (if expanded? "1" "0")
+           :style {:font-family mono-stack
+                   :line-height 1.4}}
+     ;; ---- header row ---------------------------------------------------
+     [:div {:style {:display "flex"
+                    :align-items "baseline"
+                    :gap "4px"
+                    :flex-wrap "wrap"}}
+      (cond
+        ;; Empty collection — show bracket pair flat, no toggle.
+        empty?
+        [:span {:style {:display "inline-flex" :align-items "baseline"}}
+         (bracket kind :open value)
+         (bracket kind :close value)]
+
+        ;; Depth-capped — render the placeholder ellipsis, click expands one level.
+        depth-capped?
+        [:span {:style {:display "inline-flex" :align-items "baseline" :gap "4px"}}
+         [:span {:on-click   toggle-fn
+                 :role       "button"
+                 :tabindex   0
+                 :aria-expanded false
+                 :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                 :style {:cursor "pointer"
+                         :user-select "none"
+                         :color (:text-secondary tokens)}}
+          "▸"]
+         (bracket kind :open value)
+         [:span {:style (token-style :text-tertiary)} "…"]
+         (bracket kind :close value)]
+
+        ;; Small enough to render inline — open bracket + items + close
+        ;; bracket on one row, NO toggle (already exposed). Maps /
+        ;; records render `key value` pairs; sequentials render values
+        ;; only; sets render values only (no labelled key).
+        inline-fit?
+        (let [labelled? (#{:map :record :map-entry} kind)
+              pairs     (children-of value)]
+          (into [:span {:style {:display "inline-flex"
+                                :align-items "baseline"
+                                :flex-wrap "wrap"
+                                :gap "4px"}}
+                 (bracket kind :open value)]
+                (concat
+                  (apply concat
+                         (map-indexed
+                           (fn [i [k cv]]
+                             (let [sep (when (pos? i)
+                                         [:span {:style (token-style :text-tertiary)} ", "])
+                                   ks  (when labelled? (key-segment k))
+                                   sp  (when labelled?
+                                         [:span {:style (token-style :text-tertiary)} " "])]
+                               (cond-> []
+                                 sep (conj sep)
+                                 ks  (conj ks)
+                                 sp  (conj sp)
+                                 true (conj (render-scalar cv)))))
+                           pairs))
+                  [(bracket kind :close value)])))
+
+        ;; Default — toggle glyph + open bracket (when expanded) OR summary.
+        expanded?
+        [:span {:style {:display "inline-flex" :align-items "baseline" :gap "4px"}}
+         [:span {:on-click   toggle-fn
+                 :role       "button"
+                 :tabindex   0
+                 :aria-expanded true
+                 :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                 :style {:cursor "pointer"
+                         :user-select "none"
+                         :color (:text-secondary tokens)}}
+          "▾"]
+         (bracket kind :open value)]
+
+        :else
+        [:span {:style {:display "inline-flex" :align-items "baseline" :gap "6px"}}
+         [:span {:on-click   toggle-fn
+                 :role       "button"
+                 :tabindex   0
+                 :aria-expanded false
+                 :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                 :style {:cursor "pointer"
+                         :user-select "none"
+                         :color (:text-secondary tokens)}}
+          "▸"]
+         (collapsed-summary value kind)])]
+
+     ;; ---- body — children rendered indented -----------------------------
+     (when (seq children)
+       [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
+              :style {:padding-left "14px"
+                      :margin-left  "5px"
+                      :border-left  (str "1px solid " (:border-subtle tokens))}}
+        (into [:<>]
+              (map
+                (fn [[k cv]]
+                  (let [child-path (conj (vec path) k)
+                        ;; For maps we tag the child as a map-entry so
+                        ;; the renderer can pick the map-entry bracket.
+                        ;; For sets the child is rendered without a key.
+                        labelled?  (and (not (#{:set :seq :list :vector} kind))
+                                        ;; sets / sequentials don't carry labelled keys
+                                        (#{:map :record :map-entry} kind))]
+                    [:div {:key (pr-str k)
+                           :style {:display "flex"
+                                   :align-items "baseline"
+                                   :gap "6px"
+                                   :flex-wrap "wrap"
+                                   :padding "0px 0"}}
+                     (when labelled?
+                       (list
+                         (with-meta (key-segment k)            {:key (str "k-" (pr-str k))})
+                         (with-meta [:span {:style (token-style :text-tertiary)} " "]
+                           {:key (str "s-" (pr-str k))})))
+                     (with-meta (render-node {:value cv
+                                              :panel-id panel-id
+                                              :mount-id mount-id
+                                              :path child-path
+                                              :depth (inc depth)
+                                              :expansion-map expansion-map
+                                              :opts opts})
+                                {:key (str "v-" (pr-str k))})]))
+                children))])
+
+     ;; ---- close bracket (only when expanded + body present) -------------
+     (when (and expanded? (not empty?) (not depth-capped?) (not inline-fit?))
+       [:div {:style {:color (get tokens (:tone-key (delim kind)))
+                      :font-family mono-stack}}
+        (let [{:keys [close]} (delim kind)] close)])]))
+
+(defn render-node
+  "Recursive entry. Picks container vs scalar; threads the
+  expansion-map snapshot down. Returns hiccup. Pure projection of
+  (value, expansion-map, opts) — no `rf/subscribe` calls in here.
+
+  Public so unit tests can drive the renderer without mounting."
+  [{:keys [value panel-id mount-id path depth expansion-map opts]
+    :or   {depth 0 path []}}]
+  (let [kind (collection-kind value)]
+    (if (container? kind)
+      (render-container {:value value
+                         :kind kind
+                         :panel-id panel-id
+                         :mount-id mount-id
+                         :path path
+                         :depth depth
+                         :expansion-map expansion-map
+                         :opts opts})
+      (render-scalar value))))
+
+;; =========================================================================
+;; mount-id generator + public entry — data-display (form-2 component)
+;; =========================================================================
+
+(defn- gen-mount-id
+  "Generate a stable per-mount id. Form-2 closure captures it once,
+  so re-renders preserve it; an actual unmount/remount allocates a
+  fresh id (which is the contract — independent expansion per
+  call-site mount)."
+  []
+  (str (random-uuid)))
+
+(defn data-display
+  "First-class data-display widget — Phase 1 entry point. Form-2
+  Reagent component: the outer fn allocates a stable `mount-id` in
+  closure; the inner fn subscribes to the expansion slot, threads
+  the snapshot through the recursive renderer, and returns hiccup.
+
+  Pass `[data-display value]` or `[data-display value opts]`. The
+  `opts` map carries `:panel-id`, `:default-expanded-depth`,
+  `:max-inline-width`, `:max-depth` — see the ns docstring for the
+  full key inventory.
+
+  Per D4=a (rf2-sndui) the public API does NOT take a `:render-id` —
+  mount-id is generated internally. Two simultaneous mounts get
+  independent expansion state via the auto-id.
+
+  Per-call-site isolation is the key correctness property here: two
+  `[data-display value]` mounts in the same panel must NOT share
+  expansion state. The form-2 closure delivers that — the outer fn
+  runs once per mount."
+  ([value] (data-display value nil))
+  ([_value _opts]
+   (let [mount-id (gen-mount-id)]
+     (fn [value opts]
+       (let [{:keys [panel-id default-expanded-depth max-inline-width max-depth]
+              :or   {panel-id :rf.xray.data-display/anon
+                     default-expanded-depth 2
+                     max-inline-width 60
+                     max-depth 16}} opts
+             expansion-map @(rf/subscribe [expansion-slot])
+             container-id  (str "rf-xray-data-display-"
+                                (name panel-id) "-" mount-id)]
+         [:div {:data-testid  container-id
+                :data-rf-mount-id mount-id
+                :style {:font-family mono-stack
+                        :font-size   "12px"
+                        :color       (:text-primary tokens)
+                        :line-height 1.4}}
+          (render-node {:value value
+                        :panel-id panel-id
+                        :mount-id mount-id
+                        :path []
+                        :depth 0
+                        :expansion-map expansion-map
+                        :opts {:default-expanded-depth default-expanded-depth
+                               :max-inline-width max-inline-width
+                               :max-depth max-depth}})])))))
+
+;; =========================================================================
+;; mini — one-line inline rendering (D2=a: 2-arg overload, sentinel-aware)
+;; =========================================================================
+
+(defn mini
+  "One-line inline rendering of `value`. No expansion, no toggle —
+  used in chip rows, table cells, hover tooltips where a full tree
+  would crowd the layout.
+
+  Per D2=a (rf2-sndui) the 2-arg overload keeps a `max-len` cap and
+  sentinels route through here too (no separate `inspect-inline`).
+
+  Returns hiccup `[:span ...]` so callers embed inline."
+  ([value] (mini value 80))
+  ([value max-len]
+   (let [kind (collection-kind value)
+         pr-text (try (pr-str value) (catch :default _ (str value)))
+         truncated (if (<= (count pr-text) max-len)
+                     pr-text
+                     (str (subs pr-text 0 max-len) "…"))]
+     [:span {:data-testid "rf-xray-data-display-mini"
+             :data-rf-mini "1"
+             :title pr-text
+             :style {:font-family mono-stack
+                     :font-size   "11px"
+                     :white-space "nowrap"
+                     :overflow    "hidden"
+                     :text-overflow "ellipsis"
+                     :max-width   "100%"
+                     :display     "inline-block"
+                     :vertical-align "bottom"}}
+      (cond
+        ;; Sentinels keep their chip chrome inline.
+        (#{:sentinel-redacted :sentinel-redacted-size :sentinel-large} kind)
+        (render-scalar value)
+
+        ;; Scalar — colour-coded mini.
+        (not (container? kind))
+        (render-scalar value)
+
+        :else
+        ;; Container — one-line preview string in the kind's bracket colour.
+        [:span {:style (token-style :text-secondary)
+                :data-rf-mini-text truncated}
+         (inline-preview-string value 3 max-len)])])))

@@ -1249,79 +1249,140 @@ effects, the View panel's sub values, Trace ops' expanded payloads,
 Issues `ex-data`. Operator learns one interaction pattern; applies it
 everywhere.
 
-### §10.0 EDN widget facade (rf2-9wsdy)
+### §10.0 First-class data-display widget (rf2-oqa60 phase 1)
 
-Per Mike-direction 2026-05-21 (rf2-9wsdy) the renderer is addressed
-by every call site through the canonical **EDN widget facade** at
-`day8.re-frame2-xray.views.edn-widget.widget`. The facade is a thin
-Reagent-agnostic shell over the `data-display/render` engine
-(retained because it already implements the path-aware tree + diff +
-sticky-expansion semantics described in §10.1-§10.7); it exposes
-three variants:
+Per Mike-direction 2026-05-25 (rf2-sndui ratification `b a a a a a a a`)
+the renderer is the **first-class data-display widget** at
+`day8.re-frame2-xray.views.data-display`. It is a roll-your-own
+CLJS-value-to-hiccup tree walker (~700 LoC) that classifies every
+CLJS type natively, owns its own sticky-expansion app-db slot, and
+ships first-class chrome for the spec/015 sentinels. The cljs-
+devtools dep is dropped (rf2-oqa60). The legacy EDN-widget facade at
+`views.edn-widget.widget` is retained as a thin delegate so existing
+call sites compile; phases 2-5 migrate call sites onto the direct
+`[data-display value opts]` API.
 
-  - `browse {:value v :panel-id … :render-id …}` — single-value tree
-    (default).
-  - `diff   {:before x :after y :panel-id … :render-id …}` — diff
-    tree with gutter glyphs (`+ added`, `- removed`, `~ modified`,
-    `◴ has changed descendant`) and `← changed from <prior>` chips.
-  - `mini value [max-len]` — one-liner inline rendering for chip rows.
+#### §10.0.1 Public API
 
-The facade also ships `code-block {:source src :lang :clojure}` —
-a lightweight Clojure-token highlighter used by the Event panel's
-HANDLER source slot. Token colours follow the Figma export's syntax theme
-(the `.syntax-*` rules in the `devtools-css` block of
-`design-reference/xray_devtools_reference.cljs`): **keywords red**
-(`#cf222e` light / `#ff7b72` dark), **strings** blue/green, **numbers** blue,
-**comments** muted-italic. (This is the code surface — distinct from the
-data-value keyword accent in §10.3, which is the mode accent.)
+```clj
+[data-display value]
+[data-display value opts]
+```
 
-cljs-devtools formatter installation (Chrome console custom
-formatters) is a complementary follow-on bead. In-DOM widget
-rendering — the contract Xray cares about — flows through the
-facade today.
+`opts` keys (all optional):
 
-The cljs-devtools-backed `browse` path (current-state rendering
-through `views.edn-widget.cljs-devtools-render`, per rf2-dmso5) is
-**fully interactive**: every collection surrogate renders a `▸` / `▾`
-triangle wrapped in a clickable `[:span]` with `role="button"`,
-`cursor: pointer`, `tabindex=0`, and an `aria-label`. Click (or
-Enter / Space on a focused triangle) dispatches
-`:rf.xray/data-display-toggle-node` against the per-render walker
-path — **the same sticky-expansion contract** the home-grown
-`data-display/render` engine uses (§10.4), backed by the shared
-`:rf.xray/data-display-expansion` slot. The operator's per-path
-drill-downs persist across re-renders + epoch navigation per
-§10.4. Default expansion follows §10.4's depth+size heuristic;
-`browse` callers may override via `:default-depth N` (the App-db
-panel defaults to `:default-depth 3` for the diff render path,
-matching the re-frame-10x look).
+- `:panel-id` — distinguishes per-panel expansion state. Defaults
+  `:rf.xray.data-display/anon`.
+- `:default-expanded-depth` — first-render expansion depth before
+  operator clicks. Defaults `2`.
+- `:max-inline-width` — character budget before forced-vertical
+  layout. Defaults `60`.
+- `:max-depth` — hard cap on recursion depth; deeper levels render
+  `{…}` collapsed and click expands one level. Defaults `16`.
 
-#### §10.0a Acceptance contract for the cljs-devtools walker (rf2-oswhk)
+The widget is a **Reagent form-2 component** — the outer fn captures
+a stable `mount-id` (auto-generated UUID, per D4=a — no public
+`render-id` arg) in closure; the inner fn subscribes to the
+expansion slot and renders. Two `[data-display v opts]` mounts in
+the same panel each receive a distinct `mount-id`, so their
+expansion state is independent.
 
-Three properties the unit gate pins so a future renderer change can't
-re-break what rf2-oswhk repaired:
+`mini` is the one-line inline overload (D2=a per rf2-sndui — folds
+sentinel routing in; the legacy `inspect-inline` is dropped):
 
-1. **Per-token cljs-devtools palette preserved end-to-end.** The walker
-   keeps cljs-devtools' templated leaf-markup driving each scalar's
-   colour: keyword `rgba(136,19,145,1)` (magenta), integer
-   `rgba(28,0,207,1)` (blue), string `rgba(196,26,22,1)` (red), nil
-   `rgba(128,128,128,1)` (gray), boolean `rgba(0,153,153,1)` (teal).
-   Never replace cljs-devtools' header / body markup with a custom
-   per-leaf renderer — wrap surrogate refs only.
-2. **Click actually toggles.** Each surrogate's walker path is unique
-   across sibling surrogates (positional path-segment per descent —
-   matching re-frame-10x's `(conj indexed-path i)` walk). A click on
-   one triangle MUST toggle that triangle only; siblings stay put.
-3. **Expanded renders BODY, not HEADER + BODY.** When a surrogate is
-   expanded the triangle is followed by cljs-devtools' `body-api-call`
-   output (the `[:standard-ol [:standard-li ...]]` rows). The
-   collapsed-shape's `{…}` ellipsis must NOT survive next to the body.
-   re-frame-10x's `data-structure` is the reference (`src/day8/
-   re_frame_10x/components/cljs_devtools.cljs`).
+```clj
+[mini value]              ;; default max-len 80
+[mini value max-len]      ;; with width cap
+```
 
-Unit tests pinning each property live in
-`tools/xray/test/day8/re_frame2_xray/views/edn_widget/cljs_devtools_render_cljs_test.cljs`
-+ `widget_cljs_test.cljs`.
+#### §10.0.2 Acceptance properties (rf2-oqa60)
+
+Five properties the unit gate pins so a future renderer change can't
+re-break what phase 1 lands. All five are tested in
+`tools/xray/test/day8/re_frame2_xray/views/data_display_cljs_test.cljs`.
+
+1. **Per-type colours via CSS variables.** Each leaf type maps to a
+   distinct token (keyword `:accent`, string `:syntax-string`,
+   number `:syntax-number`, boolean `:syntax-keyword`, nil
+   `:text-tertiary`, symbol `:magenta`, uuid/regex `:info`, fn
+   `:text-tertiary italic`). Theme-aware via CSS variables — no
+   per-theme code path, no re-render needed for theme switch.
+
+2. **Distinct bracket styling per collection kind.** Map `{…}` /
+   vector `[…]` / list `(…)` / set `#{…}` / map-entry `[…]` /
+   record `#tag{…}` — characters AND colour tokens differ per kind.
+   Map-entry brackets share the chars of a 2-vector but read in the
+   `:accent` colour, so the operator can visually distinguish
+   `(MapEntry. :k :v)` from `[:k :v]`.
+
+3. **Inline preview for collapsed collections.** Collapsed
+   collections show `▸ {:a 1, :b 2, :c 3}` (first 3 fit), or
+   `▸ {:a 1, …}` (partial fit), or `▸ {…3 keys}` (fallback). Never
+   recurses into a child container's contents — one-level only — so
+   nothing sensitive leaks from inside a collapsed parent.
+
+4. **Click-to-toggle actually toggles.** Each node carries a stable
+   `data-testid` derived from `[panel-id mount-id path]`; the `▸`
+   span's `:on-click` dispatches
+   `[:rf.xray.data-display/toggle-node panel-id mount-id path]`
+   (with the `{:frame :rf/xray}` envelope because React's click
+   handler fires after the frame context pops). The reducer writes
+   `{:expanded? bool}` into the per-node entry in
+   `:rf.xray.data-display/expansion`. Next render reads the slot via
+   `:rf.xray.data-display/expansion` subscription, the path's
+   entry exists, the renderer picks `:expanded?` over the default
+   heuristic, the triangle swaps `▸` → `▾`, and the body becomes
+   visible. This is the property rf2-dw8n7 / rf2-oswhk failed to
+   deliver under the cljs-devtools-layered approach.
+
+5. **Per-call-site isolation.** Two `[data-display]` mounts in the
+   same panel receive distinct `mount-id`s (auto-generated UUID per
+   mount; captured in form-2 closure). Toggling a path under
+   mount-A leaves the identical path under mount-B untouched.
+
+#### §10.0.3 Sentinels as first-class types (D3=a per rf2-sndui)
+
+The spec/015 sentinels are first-class type-classifications inside
+the renderer, not separate chrome wrappers:
+
+- `:rf/redacted` (bare keyword) — magenta chip with `●` indicator;
+  never expandable.
+- `{:rf/large {:bytes N :head s}}` — yellow chip showing bytes;
+  click-to-reveal is deferred (was in `theme.data-inspector`; the
+  popup phase D6=a returns it).
+- `{:rf/redacted {:bytes N}}` — combined sensitive+size; magenta
+  chip with size annotation.
+
+The legacy `theme.data-inspector` ns is retained for the diff path
+(`edn/diff`) until phase 5 (D5=a) subsumes diff into the new widget.
+
+#### §10.0.4 Phased rollout
+
+Phase 1 (rf2-oqa60, this commit): core renderer + App-DB panel
+integration. The EDN-widget facade delegates `browse` / `inspect` /
+`mini` / `inspect-inline` to the new widget; the cljs-devtools
+adapter + dep are dropped.
+
+Phases 2-5 file as separate beads chained off rf2-oqa60:
+
+- Phase 2 — Trace per-event detail integration
+- Phase 3 — Sub value inspector integration
+- Phase 4 — Machine snapshot drill-in integration
+- Phase 5 — Diff renderer subsumption (D5=a; replaces
+  `data-display/render-tree` and deletes `theme.data-inspector`)
+- Phase 6 (deferred) — Popup overlay infra (D6=a)
+- Phase 7 (optional) — `IXrayDataDisplay` custom-formatters
+  protocol (D7=a)
+
+#### §10.0.5 Code-block (separate surface)
+
+`views.edn-widget.widget/code-block {:source src :lang :clojure}`
+is the in-bundle Clojure source-text highlighter for the Event
+panel's HANDLER slot — distinct from the value renderer (cljs-
+devtools never owned this, and the in-bundle tokenizer + zprint
+pre-format pipeline survives the rf2-oqa60 cut-over unchanged).
+Token colours follow the Figma `.syntax-*` block: keywords red,
+strings blue/green, numbers blue, comments muted-italic.
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
@@ -1462,10 +1523,22 @@ re-propose them must re-open the B.9 lock with the mayor first.
 ### §10.6 Cross-panel data-display consistency
 
 All panels use the same renderer. Implementations MUST go through
-`tools/xray/src/day8/re_frame2_xray/data_display/render.cljs` (new
-shared ns implied by this design); per-panel renderers are wrappers that
-configure depth / scope / diff-mode. Operator's expansion / pinning
-state lives in one app-db slot keyed by panel-id + path.
+`tools/xray/src/day8/re_frame2_xray/views/data_display.cljs` (the
+first-class widget — rf2-oqa60 phase 1). Per-panel renderers are
+`[data-display value opts]` invocations that configure
+`:default-expanded-depth` / `:panel-id` / `:max-inline-width`. The
+operator's expansion state lives in one app-db slot
+(`:rf.xray.data-display/expansion`) keyed by
+`[panel-id mount-id path]` — the mount-id auto-generated per
+component instance so two mounts in the same panel are isolated.
+
+Phase 1 wires the App-DB panel through the new widget directly; the
+remaining surfaces (Trace, Sub, Machine, Issues) reach through the
+legacy `views.edn-widget.widget` facade for now, which delegates to
+the new widget. Phases 2-4 migrate each surface to call
+`[data-display …]` directly. Phase 5 subsumes the diff path (D5=a)
+and deletes the legacy `data-display/render` engine + the
+`theme.data-inspector` chrome ns.
 
 ### §10.7 Evicted-epoch placeholder
 

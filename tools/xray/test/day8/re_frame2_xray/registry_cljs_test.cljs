@@ -123,6 +123,11 @@
    ;; sibling :rf.xray.data-inspector/* subs follow).
    :rf.xray/data-display-expansion
    :rf.xray/data-display-node-state
+   ;; rf2-oqa60 phase 1 — first-class data-display widget owns
+   ;; `:rf.xray.data-display/expansion` (its own slot, distinct from
+   ;; the legacy `:rf.xray/data-display-expansion` slot above which
+   ;; the diff renderer still uses).
+   :rf.xray.data-display/expansion
    ;; rf2-39n8h discovered — App-DB diff data-inspector expansion slots
    ;; (per-row + bulk expand-all). Lives under :rf.xray.data-inspector/*.
    :rf.xray.data-inspector/all-expansion
@@ -399,6 +404,13 @@
    :rf.xray/data-display-reset-expansion
    :rf.xray/data-display-set-expanded
    :rf.xray/data-display-toggle-node
+   ;; rf2-oqa60 phase 1 — first-class data-display widget events.
+   ;; Distinct keyword family (`:rf.xray.data-display/*`) from the
+   ;; legacy diff renderer's `:rf.xray/data-display-*` flat shape
+   ;; above, so the two engines coexist during the phased rollout.
+   :rf.xray.data-display/reset-expansion
+   :rf.xray.data-display/set-node
+   :rf.xray.data-display/toggle-node
    :rf.xray/delete-edit-popup
    :rf.xray/edit-popup-set-mode
    :rf.xray/edit-popup-set-pattern
