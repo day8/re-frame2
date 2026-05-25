@@ -125,6 +125,10 @@
    ;; deleted with the legacy `data-display.render` +
    ;; `theme.data-inspector` engines.
    :rf.xray.data-display/expansion
+   ;; rf2-kbdk8 — per-mount measured container widths for the width-aware
+   ;; expansion heuristic. Keyed by mount-id; updated via ResizeObserver
+   ;; in the widget's ref callback.
+   :rf.xray.data-display/widths
    ;; rf2-l4625 — data-display popup overlay subs (stack + entries +
    ;; projection subs for open? / top / per-mount-id entry).
    :rf.xray.data-display-popup/stack
@@ -404,6 +408,10 @@
    :rf.xray.data-display/reset-expansion
    :rf.xray.data-display/set-node
    :rf.xray.data-display/toggle-node
+   ;; rf2-kbdk8 — width-aware heuristic events. set-width records the
+   ;; ResizeObserver measurement; clear-width is dispatched on unmount.
+   :rf.xray.data-display/set-width
+   :rf.xray.data-display/clear-width
    ;; rf2-l4625 — data-display popup overlay events (open / close /
    ;; close-top / close-all).
    :rf.xray.data-display-popup/open
