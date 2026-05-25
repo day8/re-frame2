@@ -91,7 +91,8 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens mono-stack]]))
+             :refer [tokens mono-stack]]
+            [day8.re-frame2-xray.views.data-display-protocol :as ddp]))
 
 ;; =========================================================================
 ;; expansion state — lives in :rf.xray.data-display/expansion under :rf/xray
@@ -718,25 +719,80 @@
                       :font-family mono-stack}}
         (let [{:keys [close]} (delim kind)] close)])]))
 
+(defn- render-protocol-node
+  "Render a value that satisfies `IXrayDataDisplay` via the consumer's
+  protocol methods. Returns hiccup wrapping the consumer's header
+  (and optional body) in the standard widget chrome — same testid
+  + container-shape contract as the built-in renderer so panel
+  layout doesn't shift between protocol + built-in nodes.
+
+  Returns `nil` if the consumer's `-xray-render-header` returns
+  `nil` — the caller treats that as a fall-through to the built-in
+  renderer (header-nil means \"I don't actually want to customise
+  this node\")."
+  [{:keys [value panel-id mount-id path expansion-map] :as node-opts}]
+  (let [proto-opts (assoc node-opts :node-opts node-opts)
+        header     (ddp/xray-render-header value proto-opts)]
+    (when (some? header)
+      (let [body          (ddp/xray-render-body value proto-opts)
+            default?      true
+            expanded?     (and (some? body)
+                               (resolve-expanded? expansion-map panel-id
+                                                  mount-id path default?))]
+        [:div {:data-testid      (testid-for panel-id mount-id path)
+               :data-rf-kind     "protocol"
+               :data-rf-protocol "1"
+               :data-rf-expanded (if expanded? "1" "0")
+               :style {:font-family mono-stack
+                       :line-height 1.4}}
+         [:div {:style {:display "flex"
+                        :align-items "baseline"
+                        :gap "4px"
+                        :flex-wrap "wrap"}}
+          header]
+         (when (and expanded? (some? body))
+           [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
+                  :style {:padding-left "14px"
+                          :margin-left  "5px"
+                          :border-left  (str "1px solid " (:border-subtle tokens))}}
+            body])]))))
+
 (defn render-node
   "Recursive entry. Picks container vs scalar; threads the
   expansion-map snapshot down. Returns hiccup. Pure projection of
   (value, expansion-map, opts) — no `rf/subscribe` calls in here.
 
+  Consults `IXrayDataDisplay` at the head — if `value` satisfies the
+  protocol AND the consumer's `-xray-render-header` returns non-nil
+  hiccup, the protocol path wins. Otherwise falls through to the
+  built-in container / scalar dispatch (phase 7 / rf2-0qrcr).
+
   Public so unit tests can drive the renderer without mounting."
   [{:keys [value panel-id mount-id path depth expansion-map opts]
     :or   {depth 0 path []}}]
-  (let [kind (collection-kind value)]
-    (if (container? kind)
-      (render-container {:value value
-                         :kind kind
-                         :panel-id panel-id
-                         :mount-id mount-id
-                         :path path
-                         :depth depth
-                         :expansion-map expansion-map
-                         :opts opts})
-      (render-scalar value))))
+  (or
+    ;; Protocol seam (rf2-0qrcr) — light-touch satisfies? gate; nil
+    ;; result falls through to built-ins. Bound to the same testid
+    ;; contract as the built-in renderer so panel chrome doesn't shift.
+    (when (ddp/satisfies-xray-data-display? value)
+      (render-protocol-node {:value value
+                             :panel-id panel-id
+                             :mount-id mount-id
+                             :path path
+                             :depth depth
+                             :expansion-map expansion-map
+                             :opts opts}))
+    (let [kind (collection-kind value)]
+      (if (container? kind)
+        (render-container {:value value
+                           :kind kind
+                           :panel-id panel-id
+                           :mount-id mount-id
+                           :path path
+                           :depth depth
+                           :expansion-map expansion-map
+                           :opts opts})
+        (render-scalar value)))))
 
 ;; =========================================================================
 ;; mount-id generator + public entry — data-display (form-2 component)
