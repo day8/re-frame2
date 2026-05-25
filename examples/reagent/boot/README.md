@@ -68,17 +68,19 @@ initialisation graph. The boot sequence is:
 
 ## Running it
 
-The example is wired into the standard shadow-cljs and Playwright
-infrastructure:
+The example builds via shadow-cljs:
 
 ```sh
 # From the implementation directory:
 npx shadow-cljs compile examples/boot
 
 # Then from the repo root:
-npm run test:examples       # Playwright smoke
 npm run test:cljs           # Headless boot machine tests
 ```
+
+Per the test-free examples policy (rf2-8cevm) there is no per-example
+Playwright spec; real-regression coverage lives in `npm run test:cljs`
+and the framework gates (see [`examples/README.md`](../../README.md)).
 
 ## Files
 
@@ -90,7 +92,6 @@ schema.cljs             — Malli schemas (BootSnapshot, Config, Flags, ...)
 test/boot/boot_test.cljs — headless tests (machine progression, deps
                           resolution, failure path)
 index.html
-boot.spec.cjs           — Playwright smoke
 ```
 
 ## Cross-references
