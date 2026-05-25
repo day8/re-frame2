@@ -87,6 +87,18 @@ below; the three render states are:
     - Guards list (when the trace carried guard-evaluated events for
       this transition).
     - Actions list (when the trace carried action-ran events).
+    - **Snapshot drill-in** (rf2-lxvn6 · phase 4 of rf2-oqa60). The
+      BEFORE / AFTER snapshot maps (`{:state X :data Y}`) for the
+      focused transition render via the first-class data-display
+      widget. Per-machine `:panel-id` qualifier keeps two machines'
+      expansion state independent; the `:before` / `:after` phase
+      suffix scopes the two sibling mounts on the same machine. See
+      [`021-Dynamic-Panel-Designs.md` §10](021-Dynamic-Panel-Designs.md#10-shared-data-display-renderer)
+      for the widget contract — distinct per-type colours, distinct
+      brackets per collection kind, inline preview of collapsed
+      collections, click-to-toggle, per-call-site isolation. The
+      block renders nothing when the trace tags lack the
+      commit-or-finalize snapshot pair (legacy fixtures).
     - Cancellation cascade (inline, via the existing
       `[cancellation-cascade/SidePanel]` reg-view — dormant when no
       cancellation lands in the trace window).
@@ -1428,6 +1440,16 @@ per slot (`:data.retry-count incremented from 2 → 3 by action
 
 **Affordance:** Snapshot diff visualisation (M-C10). Phase 5. Needs
 per-action attribution.
+
+**Phase 4 — snapshot drill-in (rf2-lxvn6 · landed).** The
+visibility-only half of M.10 lands first: the BEFORE / AFTER snapshot
+maps for the focused transition render as collapsible trees via the
+first-class data-display widget (see
+[`021-Dynamic-Panel-Designs.md` §10](021-Dynamic-Panel-Designs.md#10-shared-data-display-renderer)).
+The operator can drill into `:data` either side of the transition
+without leaving the Machines tab. Phase 5 (D5=a, rf2-oqa60 phase 5)
+adds the diff overlay on top of the same widget for the
+action-attribution half.
 
 ## Cross-references
 

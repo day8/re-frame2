@@ -130,3 +130,61 @@
             "canvas host still mounts")
         (is (nil? (find-by-testid tree "rf-xray-machine-canvas-view-mode-toggle"))
             "view-mode toggle is suppressed")))))
+
+;; ---- 4. SnapshotDrillIn view (rf2-lxvn6 · spec/021 §10) --------------
+
+(deftest snapshot-drill-in-mounts-data-display-widget
+  (testing "the canvas-side SnapshotDrillIn view mounts the first-class
+            data-display widget against the supplied snapshot. The host
+            carries per-machine + per-phase data attributes so panel-
+            level tests can target the surface without reaching into the
+            inner widget."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (let [snapshot {:state :authing :data {:user "alice" :retries 1}}
+            tree     (mc/SnapshotDrillIn {:machine-id :auth/login
+                                          :snapshot   snapshot})
+            host     (find-by-testid tree "rf-xray-machine-canvas-snapshot-drill-in")]
+        (is (some? host) "drill-in host mounts")
+        (is (= ":auth/login" (:data-machine-id (second host))))
+        (is (= "current" (:data-phase (second host)))
+            "defaults to :current phase")
+        (is (= "true" (:data-has-snapshot (second host))))))))
+
+(deftest snapshot-drill-in-supports-phase-arg
+  (testing "the :phase arg lets callers scope the per-machine `:panel-id`
+            qualifier — `:before` / `:after` mounts on the same machine
+            stay independent, the rule per spec/021 §10.0.2 property 5
+            (per-call-site isolation)."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (let [snapshot {:state :idle :data {}}
+            before-tree (mc/SnapshotDrillIn {:machine-id :auth/login
+                                             :snapshot   snapshot
+                                             :phase      :before})
+            after-tree  (mc/SnapshotDrillIn {:machine-id :auth/login
+                                             :snapshot   snapshot
+                                             :phase      :after})
+            before-host (find-by-testid before-tree
+                                        "rf-xray-machine-canvas-snapshot-drill-in")
+            after-host  (find-by-testid after-tree
+                                        "rf-xray-machine-canvas-snapshot-drill-in")]
+        (is (= "before" (:data-phase (second before-host))))
+        (is (= "after"  (:data-phase (second after-host))))))))
+
+(deftest snapshot-drill-in-renders-empty-state-when-snapshot-nil
+  (testing "callers can pass nil — the surface still mounts but the body
+            renders the uninitialised-machine empty-state chip rather
+            than the widget. Keeps callers from gating the mount
+            themselves."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (let [tree (mc/SnapshotDrillIn {:machine-id :auth/login
+                                      :snapshot   nil})
+            host (find-by-testid tree "rf-xray-machine-canvas-snapshot-drill-in")
+            empty (find-by-testid tree
+                    "rf-xray-machine-canvas-snapshot-drill-in-empty")]
+        (is (some? host))
+        (is (= "false" (:data-has-snapshot (second host))))
+        (is (some? empty)
+            "empty-state chip mounts when snapshot is nil")))))
