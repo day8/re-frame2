@@ -142,12 +142,17 @@
       [dd/data-display
        (f/display-value value)
        {:panel-id :rf.xray/app-db
-        :default-expanded-depth 3}]
+        :default-expanded-depth 3
+        ;; rf2-l4625 — the App-DB whole-tree is the canonical "cramped
+        ;; in the side panel" case; the popup gives the operator a
+        ;; full-modal inspection surface for deeply-nested state.
+        :popup-affordance? true}]
       [dd/data-display
        (f/display-value value)
        {:panel-id :rf.xray/app-db
         :default-expanded-depth 3
-        :before (f/display-value before)}])))
+        :before (f/display-value before)
+        :popup-affordance? true}])))
 
 ;; ---- top (user-domain) section ------------------------------------------
 

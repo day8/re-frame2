@@ -486,7 +486,13 @@
        [:div {:data-testid (str row-testid "-value")
               :style {:padding-left "4px"}}
         [dd/data-display value {:panel-id (sub-value-panel-id sub-id)
-                                :default-expanded-depth 2}]]
+                                :default-expanded-depth 2
+                                ;; rf2-l4625 — sub values can be the
+                                ;; full domain projection (cart, users,
+                                ;; route tree, …); the popup gives the
+                                ;; operator a full-modal inspection
+                                ;; surface for cramped values.
+                                :popup-affordance? true}]]
        [:div {:data-testid (str row-testid "-no-value")
               :style {:padding-left "4px"
                       :color (:text-tertiary tokens)

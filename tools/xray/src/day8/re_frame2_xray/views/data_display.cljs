@@ -55,6 +55,18 @@
                     inline `← changed from <prior>` annotation;
                     ancestors of any changed descendant force open
                     regardless of the default-expand heuristic.
+  - `:popup-affordance?` (optional, default false) — rf2-l4625; when
+                    true the widget renders a top-right ⊕ icon button
+                    that dispatches
+                    `[:rf.xray.data-display-popup/open mount-id payload]`
+                    (the open event registered by
+                    `views.data-display-popup/install-events!`). The
+                    popup-mount-id is derived from this widget's own
+                    mount-id, so re-clicking raises the existing popup
+                    rather than spawning a duplicate. Opt-in per
+                    call-site; panels enable the affordance where the
+                    inline widget is genuinely cramped (App-DB whole-
+                    tree, machine snapshots, sub values).
 
   Drop the `:render-id` arg from the old facade — mount-id is now
   auto-generated internally per D4=a (rf2-sndui).
@@ -1157,6 +1169,80 @@
   []
   (str (random-uuid)))
 
+;; =========================================================================
+;; popup affordance — opt-in "open in popup" control (rf2-l4625)
+;; =========================================================================
+;;
+;; When a `[data-display value opts]` call site passes
+;; `:popup-affordance? true` in `opts`, the widget renders a small icon
+;; button positioned at the top-right of the container. Click dispatches
+;; the popup's `:open` event with a stable popup-mount-id derived from
+;; the data-display's own mount-id — so re-clicking just raises the
+;; existing popup (window-manager "raise" semantics matching
+;; `data-display-popup/push-entry`).
+;;
+;; Opt-in (not always-on): scalar / tiny-value mounts don't benefit from
+;; a larger inspection surface. Panels enable the affordance where the
+;; inline widget is genuinely cramped (App-DB whole-tree, machine
+;; snapshots, sub values). Default off keeps simple call sites quiet.
+;;
+;; The affordance dispatches the OPEN event id literally — no `require`
+;; on the popup ns from here, which would form a cycle (the popup ns
+;; requires data-display). The event id keyword is the public contract.
+
+(def ^:private popup-affordance-button-style
+  {:position      "absolute"
+   :top           "2px"
+   :right         "2px"
+   :background    "transparent"
+   :border        "none"
+   :color         (:text-tertiary tokens)
+   :font-size     "12px"
+   :line-height   1
+   :cursor        "pointer"
+   :padding       "2px 6px"
+   :border-radius "3px"
+   ;; Subtle by default — hover bumps colour up to text-secondary via
+   ;; the data-rf-affordance="popup" hook in the global stylesheet
+   ;; (theme/global-styles.cljs reads the attribute selector). Keeping
+   ;; the colour change off the inline style avoids paint thrash on
+   ;; every render.
+   :opacity       0.6})
+
+(defn popup-affordance-button
+  "Render the 'open in popup' icon button. `dispatch-fn` is the
+  lexically-captured frame-aware dispatcher; `popup-mount-id` is the
+  stable id keyed to the data-display's own mount-id; `value` + `opts`
+  are the popup's payload.
+
+  Public so unit tests can drive the button without spinning up the
+  router (pass a stub `dispatch-fn` that captures the event vector)."
+  [dispatch-fn popup-mount-id value opts]
+  [:button
+   {:data-testid             (str "rf-xray-data-display-popup-affordance-"
+                                  popup-mount-id)
+    :data-rf-affordance      "popup"
+    :data-rf-popup-mount-id  popup-mount-id
+    :aria-label              "Open in popup"
+    :title                   "Open in popup"
+    :on-click                (fn [^js e]
+                               (when e
+                                 (.preventDefault e)
+                                 (.stopPropagation e))
+                               (dispatch-fn
+                                 [:rf.xray.data-display-popup/open
+                                  popup-mount-id
+                                  {:value value
+                                   :opts  (-> (or opts {})
+                                              ;; Don't recurse the
+                                              ;; affordance inside the
+                                              ;; popup's embedded
+                                              ;; data-display.
+                                              (assoc :popup-affordance? false))}]))
+    :style                   popup-affordance-button-style}
+   ;; ⊕ glyph reads as "open" without the language baggage of e.g. 🔍
+   "⊕"])
+
 (rf/reg-view data-display
   "First-class data-display widget — single source of truth for
   browse + diff + mini.
@@ -1226,25 +1312,39 @@
       [value & rest-args]
       (let [opts          (first rest-args)
             {:keys [panel-id default-expanded-depth max-inline-width
-                    max-depth before]
+                    max-depth before popup-affordance?]
              :or   {panel-id :rf.xray.data-display/anon
                     default-expanded-depth 2
                     max-inline-width 60
-                    max-depth 16}} opts
+                    max-depth 16
+                    popup-affordance? false}} opts
             diff?         (contains? opts :before)
             ;; `subscribe` is the lexical frame-aware closure
             ;; injected by `reg-view` — reads the expansion-slot
             ;; from the surrounding frame's app-db (e.g. `:rf/xray`).
             expansion-map @(subscribe [expansion-slot])
             container-id  (str "rf-xray-data-display-"
-                               (name panel-id) "-" mount-id)]
+                               (name panel-id) "-" mount-id)
+            ;; Stable popup-mount-id derived from THIS data-display's
+            ;; own mount-id so re-clicking the affordance "raises" the
+            ;; existing popup rather than spawning a duplicate
+            ;; (matches `data-display-popup/push-entry` semantics).
+            popup-mount-id (str "ddp-" mount-id)]
         [:div {:data-testid     container-id
                :data-rf-mount-id mount-id
                :data-rf-mode    (if diff? "diff" "browse")
+               :data-rf-popup-affordance? (when popup-affordance? "1")
                :style {:font-family mono-stack
                        :font-size   "12px"
                        :color       (:text-primary tokens)
-                       :line-height 1.4}}
+                       :line-height 1.4
+                       ;; Position context for the absolute-positioned
+                       ;; affordance button. Harmless when the
+                       ;; affordance is off — no descendant uses
+                       ;; absolute positioning otherwise.
+                       :position    (when popup-affordance? "relative")}}
+         (when popup-affordance?
+           (popup-affordance-button dispatch-fn popup-mount-id value opts))
          (render-node {:value value
                        :before (if diff? before ::missing)
                        :diff? diff?
