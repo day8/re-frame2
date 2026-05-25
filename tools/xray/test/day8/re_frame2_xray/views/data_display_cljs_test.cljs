@@ -608,6 +608,168 @@
       (is (= dd/triangle-style s)
           "depth-capped triangle uses the shared triangle-style"))))
 
+;; ---- rf2-1bra5 — map body layout: column-align + inline scalars ---------
+;;
+;; Two related bugs in the live App-DB panel:
+;;
+;;   Bug 1 — some scalar rows wrapped (`:show-parity?` + newline + `true`)
+;;     while sibling scalar rows on the same map rendered inline. The
+;;     wrapped rows measured 28.79px; the inline rows 17.79px. The
+;;     render-path divergence was the `gutter-row` wrapping diff'd
+;;     leaves in a BLOCK div (`display: flex`) inside a `flex-wrap:
+;;     wrap` per-row container — the wide div wrapped below the key.
+;;
+;;   Bug 2 — values don't column-align across rows of the same map. Each
+;;     row was its own `display: flex` so the value followed whatever
+;;     gap landed after the key — different keys produced different
+;;     value x-coordinates, a ragged value-column left edge.
+;;
+;; Fix: CSS Grid (`max-content 1fr`) for the body container, with key +
+;; value emitted as direct grid children. The `gutter-row` wrapper
+;; switches from block-level `flex` to `inline-flex` so a diff'd leaf
+;; composes inline with its preceding key.
+
+(deftest map-body-uses-css-grid-layout
+  (testing "rf2-1bra5 — labelled-kind bodies use grid with
+            max-content+1fr columns so values column-align across rows"
+    ;; Map MUST be too big to inline-fit (cnt > 3) so the body
+    ;; container renders.
+    (let [v {:short 1 :very-very-long-key 2 :third 3 :fourth 4}
+          k0 (dd/expansion-key :p "m" [])
+          h  (dd/render-node {:value v
+                              :panel-id :p :mount-id "m"
+                              :path [] :depth 0
+                              :expansion-map {k0 {:expanded? true}}
+                              :opts {:default-expanded-depth 0}})
+          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")]
+      (is (some? body) "expanded map renders a body container")
+      (let [s (-> body second :style)]
+        (is (= "grid" (:display s))
+            "labelled-kind body uses CSS grid")
+        (is (re-find #"max-content" (str (:grid-template-columns s)))
+            "grid template uses max-content for the key column")
+        (is (re-find #"1fr" (str (:grid-template-columns s)))
+            "grid template uses 1fr for the value column")
+        (is (= "8px" (:column-gap s))
+            "key→value separation is the canonical 8px (gap-2 step)")
+        (is (= "baseline" (:align-items s))
+            "key + value baselines align per row")))))
+
+(deftest map-body-row-emits-key-and-value-as-direct-grid-children
+  (testing "rf2-1bra5 — each row contributes two direct grid children
+            (key cell + value cell) so the grid resolves columns
+            across rows. NOT wrapped in a per-row flex container."
+    (let [;; >3 keys so inline-fit gate fails and the body emits.
+          v {:a 1 :b 2 :c 3 :d 4}
+          k0 (dd/expansion-key :p "m" [])
+          h  (dd/render-node {:value v
+                              :panel-id :p :mount-id "m"
+                              :path [] :depth 0
+                              :expansion-map {k0 {:expanded? true}}
+                              :opts {:default-expanded-depth 0}})
+          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")
+          key-cells   (->> (walk-hiccup body)
+                           (filter #(= "key"   (get (second %) :data-rf-cell))))
+          value-cells (->> (walk-hiccup body)
+                           (filter #(= "value" (get (second %) :data-rf-cell))))]
+      (is (= 4 (count key-cells))   "four map rows → four key cells")
+      (is (= 4 (count value-cells)) "four map rows → four value cells"))))
+
+(deftest sequential-body-still-uses-block-layout
+  (testing "rf2-1bra5 — sequentials (vectors / lists / sets / seqs)
+            keep block layout. Grid only applies to labelled-key kinds
+            (map / record / map-entry); sequentials have no key column."
+    ;; >3 items so inline-fit gate fails and the body emits.
+    (let [v [10 20 30 40]
+          k0 (dd/expansion-key :p "m" [])
+          h  (dd/render-node {:value v
+                              :panel-id :p :mount-id "m"
+                              :path [] :depth 0
+                              :expansion-map {k0 {:expanded? true}}
+                              :opts {:default-expanded-depth 0}})
+          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")]
+      (is (some? body) "expanded vector renders a body container")
+      (let [s (-> body second :style)]
+        (is (not= "grid" (:display s))
+            "sequentials do not use grid layout (no key column)")
+        (is (= "block" (or (:data-rf-body-layout (second body))
+                            "block"))
+            "vector body is the block-layout variant")))))
+
+(deftest gutter-row-is-inline-flex-not-block
+  (testing "rf2-1bra5 root-cause fix — gutter-row wraps diff'd leaves
+            in inline-flex SPAN (not block-level DIV with display: flex).
+            Pre-fix the block wrapper inside the per-row flex container
+            forced the value below the key (wrap → two-line rows)."
+    (let [;; Force a :same diff row — both sides equal scalars.
+          h (dd/render-node {:value 1
+                             :before 1
+                             :diff? true
+                             :panel-id :p :mount-id "m" :path [] :depth 0
+                             :expansion-map {} :opts {}})
+          ;; The gutter wrapper carries the data-rf-diff-op attr.
+          row (->> (walk-hiccup h)
+                   (filter #(some? (get (second %) :data-rf-diff-op)))
+                   first)]
+      (is (some? row) "diff render emits the gutter wrapper")
+      (is (= :span (first row))
+          "gutter wrapper is a SPAN (inline element), not a DIV")
+      (is (= "inline-flex" (-> row second :style :display))
+          "gutter wrapper is inline-flex so it composes inline with
+           a preceding key"))))
+
+(deftest scalar-leaves-render-as-inline-spans-in-non-diff-mode
+  (testing "rf2-1bra5 Bug 1 — plain scalars (numbers, booleans, etc.)
+            render as inline spans, never as a block element that
+            would push the value below its key."
+    (doseq [v [42 true false "hello" :foo 'sym nil]]
+      (let [h (dd/render-node {:value v
+                               :panel-id :p :mount-id "m"
+                               :path [] :depth 0
+                               :expansion-map {} :opts {}})]
+        (is (= :span (first h))
+            (str "scalar " (pr-str v) " renders as a [:span] inline"))))))
+
+(deftest map-with-mixed-scalar-and-container-values-grid-layout
+  (testing "rf2-1bra5 — mixed-kind map (some scalars, some nested
+            containers) renders the body as ONE grid where every key
+            sits in column 1 and every value (scalar OR nested) sits in
+            column 2. The nested container's own expanded body is its
+            own (independent) grid inside the parent's value cell."
+    (let [v {:scalar-1 1
+             :scalar-2 "two"
+             :nested   {:inner 99}}
+          k0 (dd/expansion-key :p "m" [])
+          h  (dd/render-node {:value v
+                              :panel-id :p :mount-id "m"
+                              :path [] :depth 0
+                              :expansion-map {k0 {:expanded? true}}
+                              :opts {:default-expanded-depth 0}})
+          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")
+          ;; Filter ONLY this body's direct cells, not the nested
+          ;; map's cells.
+          direct-children (rest (rest body))]
+      (is (= "grid" (-> body second :style :display))
+          "outer body uses grid")
+      ;; 3 rows × 2 cells = 6 direct grid children.
+      (is (= 6 (count direct-children))
+          "3 rows × (key + value) = 6 direct grid cells"))))
+
+(deftest map-body-row-gap-is-zero-for-density
+  (testing "rf2-1bra5 — row-gap stays 0 so the inspector keeps the
+            workstation-dense layout it ships today. The fix is the
+            column-alignment + inline-composition; vertical density is
+            unchanged."
+    (let [v {:a 1 :b 2 :c 3 :d 4}
+          k0 (dd/expansion-key :p "m" [])
+          h  (dd/render-node {:value v
+                              :panel-id :p :mount-id "m"
+                              :path [] :depth 0
+                              :expansion-map {k0 {:expanded? true}}
+                              :opts {:default-expanded-depth 0}})
+          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")]
+      (is (= "0" (-> body second :style :row-gap))))))
+
 ;; ---- toggle handler shape ------------------------------------------------
 
 (deftest toggle-handler-dispatches-canonical-event

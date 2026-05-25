@@ -383,18 +383,29 @@
   glyph) so non-diff renders share the same hiccup shape as diff
   renders.
 
-  Returns a `[:div ...]` hiccup; embed directly in flex parents."
+  ## rf2-1bra5 — inline-flex, not flex
+
+  Switched from `display: flex` (block-level) to `inline-flex` so a
+  diff'd scalar leaf composes inline with its preceding key inside a
+  map-row grid. Pre-fix the block-level `<div>` forced the leaf onto
+  its own line (the per-row flex container couldn't keep the key+value
+  on one line — `flex-wrap: wrap` pushed the wide block-div below the
+  key, producing the `:show-parity?` / `:threshold` two-line rows Mike
+  measured at ~28.79px against the inline ~17.79px sibling rows).
+
+  Returns an `[:span ...]` (display: inline-flex) so it nests inside a
+  grid cell without breaking the row."
   [op body]
   (let [active? (not= :same op)]
-    [:div {:data-rf-diff-op (name op)
-           :style {:display      "flex"
-                   :align-items  "flex-start"
-                   :gap          "4px"
-                   :padding-left "6px"
-                   :border-left  (str "3px solid "
-                                      (if active?
-                                        (gutter-colour op)
-                                        "transparent"))}}
+    [:span {:data-rf-diff-op (name op)
+            :style {:display      "inline-flex"
+                    :align-items  "baseline"
+                    :gap          "4px"
+                    :padding-left "6px"
+                    :border-left  (str "3px solid "
+                                       (if active?
+                                         (gutter-colour op)
+                                         "transparent"))}}
      [:span {:style {:flex          "0 0 12px"
                      :color         (gutter-colour op)
                      :font-family   mono-stack
@@ -403,7 +414,7 @@
                      :text-align    "center"
                      :user-select   "none"}}
       (op->gutter-glyph op)]
-     [:div {:style {:flex 1 :min-width 0}} body]]))
+     [:span {:style {:flex 1 :min-width 0}} body]]))
 
 (defn- change-annotation
   "Inline `← changed from <prior>` chip rendered to the right of a
@@ -993,71 +1004,132 @@
      ;; lets the child's recursion render its own gutter row / inline
      ;; `← changed from <prior>` annotation; the parent's `:children`
      ;; row supplies the ancestor-open + ◴ glyph context.
+     ;;
+     ;; rf2-1bra5 — map / record bodies use CSS Grid (max-content 1fr) so
+     ;; values column-align across rows. Pre-fix each row was its own
+     ;; flex container with key + value sized independently → ragged
+     ;; value column. With grid every row's key sits in column 1 (sized
+     ;; to the widest key in THIS map; nested maps compute their own
+     ;; column-1 width independently) and every row's value sits at the
+     ;; single column-2 left edge.
+     ;;
+     ;; Sequentials (vectors / lists / sets / seqs) keep the per-row
+     ;; block flow — values are emitted bare (no key column), so a
+     ;; grid template wouldn't add anything.
      (when (seq children)
-       [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
-              :style {:padding-left "14px"
-                      :margin-left  "5px"
-                      :border-left  (str "1px solid " (:border-subtle tokens))}}
-        ;; In diff mode, also surface keys that exist ONLY in `before`
-        ;; (i.e. removed slots) as struck-through rows. We do that by
-        ;; iterating a unified key set when the kind is :map (the
-        ;; common app-db case); sequentials use index alignment.
-        (let [child-pairs
-              (cond
-                (and diff? (= kind :map) (map? before))
-                ;; Map: walk union of keys; carry both v and b per key.
-                (let [all-keys (vec (into (set (keys value)) (keys before)))]
-                  (for [k all-keys]
-                    [k (get value k ::missing) (get before k ::missing)]))
+       (let [labelled?    (#{:map :record :map-entry} kind)
+             child-pairs
+             (cond
+               (and diff? (= kind :map) (map? before))
+               ;; Map: walk union of keys; carry both v and b per key.
+               (let [all-keys (vec (into (set (keys value)) (keys before)))]
+                 (for [k all-keys]
+                   [k (get value k ::missing) (get before k ::missing)]))
 
-                (and diff? (#{:vector :list :seq} kind) (sequential? before))
-                ;; Sequential: index-align; treat extra trailing items.
-                (let [a-vec (vec value)
-                      b-vec (vec before)
-                      n     (max (count a-vec) (count b-vec))]
-                  (for [i (range n)]
-                    [i
-                     (if (< i (count a-vec)) (nth a-vec i) ::missing)
-                     (if (< i (count b-vec)) (nth b-vec i) ::missing)]))
+               (and diff? (#{:vector :list :seq} kind) (sequential? before))
+               ;; Sequential: index-align; treat extra trailing items.
+               (let [a-vec (vec value)
+                     b-vec (vec before)
+                     n     (max (count a-vec) (count b-vec))]
+                 (for [i (range n)]
+                   [i
+                    (if (< i (count a-vec)) (nth a-vec i) ::missing)
+                    (if (< i (count b-vec)) (nth b-vec i) ::missing)]))
 
-                :else
-                ;; Non-diff path, or diff with no comparable structure
-                ;; on the `before` side — render the present children as-is.
-                (for [[k cv] children]
-                  [k cv (if diff? ::missing ::missing)]))]
-          (into [:<>]
-                (map
-                  (fn [[k cv cb]]
-                    (let [child-path (conj (vec path) k)
-                          ;; For maps we tag the child as a map-entry so
-                          ;; the renderer can pick the map-entry bracket.
-                          ;; For sets the child is rendered without a key.
-                          labelled?  (and (not (#{:set :seq :list :vector} kind))
-                                          ;; sets / sequentials don't carry labelled keys
-                                          (#{:map :record :map-entry} kind))]
-                      [:div {:key (pr-str k)
-                             :style {:display "flex"
-                                     :align-items "baseline"
-                                     :gap "6px"
-                                     :flex-wrap "wrap"
-                                     :padding "0px 0"}}
-                       (when labelled?
-                         (list
-                           (with-meta (key-segment k)            {:key (str "k-" (pr-str k))})
-                           (with-meta [:span {:style (token-style :text-tertiary)} " "]
-                             {:key (str "s-" (pr-str k))})))
-                       (with-meta (render-node {:value cv
-                                                :before cb
-                                                :diff? diff?
-                                                :panel-id panel-id
-                                                :mount-id mount-id
-                                                :path child-path
-                                                :depth (inc depth)
-                                                :expansion-map expansion-map
-                                                :dispatch-fn dispatch-fn
-                                                :opts opts})
-                                  {:key (str "v-" (pr-str k))})]))
-                  child-pairs)))])
+               :else
+               ;; Non-diff path, or diff with no comparable structure
+               ;; on the `before` side — render the present children as-is.
+               (for [[k cv] children]
+                 [k cv (if diff? ::missing ::missing)]))]
+         (if labelled?
+           ;; --- CSS Grid body for labelled-key kinds ---
+           ;; Each row contributes key (col 1) + value (col 2) as direct
+           ;; grid children. `column-gap` provides the key-to-value
+           ;; spacing (8px = old per-row :gap "6px" rounded to a 4-step).
+           ;; `row-gap 0` keeps rows tight against the canvas density.
+           ;;
+           ;; `align-items: baseline` aligns the key and value text
+           ;; baselines per row — short keys with tall values (e.g. a
+           ;; nested map's bracket) hang on the same baseline as the
+           ;; key. Falls back gracefully when a value is a multi-line
+           ;; container — the value cell grows down, the key stays
+           ;; baseline-aligned to the value's first line.
+           (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
+                        :data-rf-body-layout "grid"
+                        :style {:padding-left         "14px"
+                                :margin-left          "5px"
+                                :border-left          (str "1px solid "
+                                                           (:border-subtle tokens))
+                                :display              "grid"
+                                :grid-template-columns "max-content 1fr"
+                                :column-gap           "8px"
+                                :row-gap              "0"
+                                :align-items          "baseline"}}]
+                 (mapcat
+                   (fn [[k cv cb]]
+                     (let [child-path (conj (vec path) k)
+                           value-node (render-node
+                                        {:value cv
+                                         :before cb
+                                         :diff? diff?
+                                         :panel-id panel-id
+                                         :mount-id mount-id
+                                         :path child-path
+                                         :depth (inc depth)
+                                         :expansion-map expansion-map
+                                         :dispatch-fn dispatch-fn
+                                         :opts opts})]
+                       [(with-meta
+                          ;; Key cell — uses `div` so the grid baseline
+                          ;; aligns predictably across rows. `white-
+                          ;; space: nowrap` prevents long keys (e.g. a
+                          ;; deeply-namespaced `:rf.x.with.many.parts/k`)
+                          ;; from wrapping inside the key column.
+                          [:div {:data-rf-cell "key"
+                                 :style {:white-space "nowrap"}}
+                           (key-segment k)]
+                          {:key (str "k-" (pr-str k))})
+                        (with-meta
+                          ;; Value cell — `div` so nested containers
+                          ;; (their own block-level expanded body)
+                          ;; place inside this cell without span-vs-
+                          ;; block validation issues. `min-width 0`
+                          ;; protects against overflow when the value
+                          ;; is wider than the grid column allotment
+                          ;; (the `1fr` track stretches but won't
+                          ;; shrink below the value's intrinsic width
+                          ;; without this).
+                          [:div {:data-rf-cell "value"
+                                 :style {:min-width 0}}
+                           value-node]
+                          {:key (str "v-" (pr-str k))})]))
+                   child-pairs))
+           ;; --- Block body for sequentials (vector / list / set / seq) ---
+           ;; Each child renders bare (no key column). Per-row block flow
+           ;; — each entry sits below the previous; nested containers
+           ;; recurse with their own grid/block decision.
+           (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
+                        :data-rf-body-layout "block"
+                        :style {:padding-left "14px"
+                                :margin-left  "5px"
+                                :border-left  (str "1px solid "
+                                                   (:border-subtle tokens))}}]
+                 (map
+                   (fn [[k cv cb]]
+                     (let [child-path (conj (vec path) k)]
+                       (with-meta
+                         (render-node {:value cv
+                                       :before cb
+                                       :diff? diff?
+                                       :panel-id panel-id
+                                       :mount-id mount-id
+                                       :path child-path
+                                       :depth (inc depth)
+                                       :expansion-map expansion-map
+                                       :dispatch-fn dispatch-fn
+                                       :opts opts})
+                         {:key (str "v-" (pr-str k))})))
+                   child-pairs)))))
 
      ;; ---- close bracket (only when expanded + body present) -------------
      (when (and expanded? (not empty?) (not depth-capped?) (not inline-fit?))
