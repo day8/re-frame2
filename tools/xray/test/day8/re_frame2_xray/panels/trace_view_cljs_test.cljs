@@ -566,7 +566,9 @@
 
 (deftest expanded-row-renders-raw-edn-payload
   (testing "spec/023 §3 — when a row's :id is in the expanded set, the
-            raw trace-event EDN renders below the row via cljs-devtools"
+            raw trace-event EDN renders below the row via the first-class
+            data-display widget (rf2-hhtbl phase 2: direct
+            `[dd/data-display value opts]`, no facade hop)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -581,18 +583,59 @@
       (let [tree (trace/Panel)]
         (is (some? (find-by-testid tree "rf-xray-trace-row-13-payload"))
             "payload renders when row expanded")
-        ;; rf2-oqa60 phase 1 — the EDN widget facade delegates to the
-        ;; first-class data-display widget; the browse container now
-        ;; carries a `rf-xray-data-display-*` testid (the per-mount
-        ;; mount-id is auto-generated UUID, so we assert by prefix).
+        ;; rf2-hhtbl phase 2 — the per-row payload renders the widget
+        ;; with a per-row panel-id qualifier (`:rf.xray.trace/row-<id>`)
+        ;; so two simultaneously-expanded rows can't share expansion
+        ;; state. The widget's `testid-for` uses `(name panel-id)`, so
+        ;; the container testid resolves to `rf-xray-data-display-row-13-<uuid>`.
         (let [dd-nodes (filter (fn [n]
                                  (and (vector? n)
                                       (map? (second n))
                                       (some-> (:data-testid (second n))
-                                              (.startsWith "rf-xray-data-display-"))))
+                                              (.startsWith "rf-xray-data-display-row-13-"))))
                                (hiccup-seq tree))]
           (is (seq dd-nodes)
-              "data-display widget mounted for the expanded row"))))))
+              "data-display widget mounted for the expanded row with the per-row panel-id qualifier"))))))
+
+(deftest expanded-row-uses-per-row-panel-id-qualifier
+  (testing "rf2-hhtbl phase 2 — two simultaneously-expanded rows each
+            mount the data-display widget with a DISTINCT per-row
+            panel-id qualifier (`:rf.xray.trace/row-<id>` rendered as
+            `row-<id>` in the testid via `(name ...)`) so their
+            expansion state can't collide. Combined with the widget's
+            auto-generated per-mount UUID this gives belt-and-braces
+            isolation."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 41 :op-type :rf.event :operation :rf.event/dispatched
+                               :time 100 :dispatch-id 1 :source :ui})
+                    (mk-trace {:id 42 :op-type :rf.fx :operation :rf.fx/handled
+                               :time 110 :dispatch-id 1})])])
+      (focus! 1)
+      ;; Expand both rows at once.
+      (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 41])
+      (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 42])
+      (let [tree         (trace/Panel)
+            dd-testids   (->> (hiccup-seq tree)
+                              (keep (fn [n]
+                                      (when (and (vector? n) (map? (second n)))
+                                        (:data-testid (second n)))))
+                              (filter #(and (string? %)
+                                            (.startsWith ^String %
+                                                         "rf-xray-data-display-row-")))
+                              (into #{}))
+            row-41-hits  (filter #(.startsWith ^String % "rf-xray-data-display-row-41-")
+                                 dd-testids)
+            row-42-hits  (filter #(.startsWith ^String % "rf-xray-data-display-row-42-")
+                                 dd-testids)]
+        (is (seq row-41-hits)
+            "row 41's data-display container carries the :rf.xray.trace/row-41 qualifier")
+        (is (seq row-42-hits)
+            "row 42's data-display container carries the :rf.xray.trace/row-42 qualifier")
+        (is (not= (first row-41-hits) (first row-42-hits))
+            "the two rows mount distinct data-display containers")))))
 
 (deftest source-coord-click-fires-open-in-editor
   (testing "clicking the source-coord ↗ fires :rf.xray/open-in-editor;
