@@ -35,7 +35,7 @@
 
   - **SUB VALUES** (rf2-e46qs phase 3 of rf2-oqa60) — one row per RUN
     sub this cascade; each row's value renders through the first-class
-    data-display widget (`views.data-display`, spec/021 §10) DIRECTLY
+    edn-inspector widget (`views.edn-inspector`, spec/021 §10) DIRECTLY
     — no `edn/inspect` / `edn/browse` facade hop. Per-row stable
     `:panel-id` (`:rf.xray.reactive-sub-value/<sub-id>`) so two sub-row
     expansions never share state.
@@ -73,11 +73,11 @@
             [day8.re-frame2-xray.theme.tokens :as tk
              :refer [tokens mono-stack sans-stack]]
             ;; rf2-e46qs phase 3 — per-sub value inspector renders
-            ;; through the first-class data-display widget (spec/021
+            ;; through the first-class edn-inspector widget (spec/021
             ;; §10) directly. Each sub-value mount gets its own stable
             ;; per-sub `:panel-id` so two sub-row expansions are
             ;; independent (acceptance #2).
-            [day8.re-frame2-xray.views.data-display :as dd]))
+            [day8.re-frame2-xray.views.edn-inspector :as ei]))
 
 ;; ---- section chrome -----------------------------------------------------
 
@@ -416,8 +416,8 @@
 ;; ---- SUB VALUES inspector section (rf2-e46qs phase 3 of rf2-oqa60) -----
 ;;
 ;; One row per RUN sub this cascade, surfacing the sub's current value
-;; through the first-class data-display widget (`views.data-display`,
-;; spec/021 §10). Each row mounts `[dd/data-display value opts]`
+;; through the first-class edn-inspector widget (`views.edn-inspector`,
+;; spec/021 §10). Each row mounts `[ei/edn-inspector value opts]`
 ;; directly — no `edn/inspect` / `edn/browse` facade hop.
 ;;
 ;; Per-row `:panel-id` (acceptance #2) is a STABLE per-sub keyword built
@@ -426,7 +426,7 @@
 ;; rf2-sndui), so a re-render preserves the operator's drill-downs.
 
 (defn- sub-value-panel-id
-  "Stable per-sub `:panel-id` for the data-display mount. The sub-id
+  "Stable per-sub `:panel-id` for the edn-inspector mount. The sub-id
   (a keyword in the standard case) is folded into a namespaced kw under
   `:rf.xray.reactive-sub-value` so its expansion slot is isolated from
   every other panel-id in the app-db expansion map. Acceptance #2 —
@@ -444,7 +444,7 @@
 
 (defn- sub-value-row
   "Render one SUB VALUES row — the sub's id + its current value through
-  `[dd/data-display]`. Changed subs read in the accent tone; unchanged
+  `[ei/edn-inspector]`. Changed subs read in the accent tone; unchanged
   subs read dimmed (consistent with the flow-graph node encoding).
 
   `:has-value?` false → the sub-run carried no `:value` slot (privacy
@@ -485,7 +485,7 @@
      (if has-value?
        [:div {:data-testid (str row-testid "-value")
               :style {:padding-left "4px"}}
-        [dd/data-display value {:panel-id (sub-value-panel-id sub-id)
+        [ei/edn-inspector value {:panel-id (sub-value-panel-id sub-id)
                                 ;; rf2-pvsxs — sub-id is stable across
                                 ;; cascades; the operator's expansion
                                 ;; choices survive a tab leave-and-
@@ -508,14 +508,14 @@
 
 (defn- sub-values-section
   "Render the SUB VALUES inspector section beneath the flow graph. One
-  row per RUN sub; rows render their value through `[dd/data-display]`
+  row per RUN sub; rows render their value through `[ei/edn-inspector]`
   directly (rf2-e46qs phase 3 of rf2-oqa60). The section is omitted
   entirely when the cascade ran no subs — the flow graph's empty
   placeholder already covers the no-cascade case.
 
   Row hiccup is produced by INLINING `sub-value-row` (function call,
   not a `[sub-value-row …]` Reagent component form) so the
-  `[dd/data-display value opts]` mount surfaces in the panel's hiccup
+  `[ei/edn-inspector value opts]` mount surfaces in the panel's hiccup
   tree directly — testable without a React render — and the React
   reconciler still keys each row via the `^{:key …}` metadata on the
   inlined `[:div …]`."
@@ -599,7 +599,7 @@
           (section-label "flow" "Reactive Flow" {:title-case? true})
           (flow-graph data)]
          ;; rf2-e46qs phase 3 — SUB VALUES inspector (per-sub
-         ;; value rendered through the first-class data-display
+         ;; value rendered through the first-class edn-inspector
          ;; widget; spec/021 §10).
          (sub-values-section data)
          (unmounted-views-section data)

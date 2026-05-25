@@ -17,15 +17,15 @@
   Every reserved area renders even when absent/empty — an empty-state
   placeholder — so the developer sees the full reserved inventory.
 
-  ## Current-state render — first-class data-display widget (rf2-oqa60)
+  ## Current-state render — first-class edn-inspector widget (rf2-oqa60)
 
-  Values render through the first-class `views/data-display` widget.
+  Values render through the first-class `views/edn-inspector` widget.
   The new widget owns the WHOLE contract — browse + diff + mini —
   CLJS-aware type detection, distinct bracket styling per collection
   kind, click-to-toggle expansion stored in re-frame app-db, first-
   class sentinel chrome (`:rf/redacted`, `:rf/large`). After phase 5
   (rf2-q3dzw, D5=a per rf2-sndui) diff also routes through this same
-  widget via the `:before` opt — the legacy `data-display.render`
+  widget via the `:before` opt — the legacy `edn-inspector.render`
   engine is gone.
 
   The widget has NO ⎘ copy affordance (deferred to follow-on beads —
@@ -48,7 +48,7 @@
   Each section carries a `:before` slice (from the cascade's `db-before`,
   threaded by `app-db-diff-helpers/current-state-sections`'s 2-arity).
   When a pre-image is present and differs, the value body routes
-  through the data-display widget's DIFF mode (rf2-q3dzw phase 5,
+  through the edn-inspector widget's DIFF mode (rf2-q3dzw phase 5,
   D5=a) — passing `:before` paints inline `← changed from X`
   annotations in place on changed nodes and force-expands the
   ancestor chain so the operator never expands to find a change. When
@@ -61,10 +61,10 @@
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
-            ;; The first-class data-display widget owns the WHOLE
+            ;; The first-class edn-inspector widget owns the WHOLE
             ;; contract — browse + diff — as a single source of truth
             ;; (rf2-q3dzw phase 5, D5=a per rf2-sndui).
-            [day8.re-frame2-xray.views.data-display :as dd]))
+            [day8.re-frame2-xray.views.edn-inspector :as ei]))
 
 ;; ---- shared section chrome ----------------------------------------------
 
@@ -127,7 +127,7 @@
 
   When `before` is the `h/no-diff` sentinel (no pre-image threaded —
   LIVE at boot / 1-arity model) the value renders in BROWSE mode via
-  the first-class data-display widget — a plain current-state tree.
+  the first-class edn-inspector widget — a plain current-state tree.
 
   When a real pre-image is present the value renders in DIFF mode via
   the SAME widget (rf2-q3dzw phase 5), passing `:before` so the
@@ -152,7 +152,7 @@
     ;; keep the affordance where the inline widget is genuinely
     ;; cramped.
     (if (= h/no-diff before)
-      [dd/data-display
+      [ei/edn-inspector
        (f/display-value value)
        {:panel-id :rf.xray/app-db
         :site-id  site-id
@@ -164,7 +164,7 @@
         ;; affordance so the operator sees them as discrete inspector
         ;; cards.
         :card? true}]
-      [dd/data-display
+      [ei/edn-inspector
        (f/display-value value)
        {:panel-id :rf.xray/app-db
         :site-id  site-id

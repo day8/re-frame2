@@ -31,9 +31,9 @@
             [day8.re-frame2-xray.diff.hiccup :as hd]
             [day8.re-frame2-xray.panels.app-db-diff-format :as f]
             ;; rf2-q3dzw phase 5 — leaf values route through the
-            ;; first-class data-display widget. The legacy
+            ;; first-class edn-inspector widget. The legacy
             ;; `theme.data-inspector` ns is deleted.
-            [day8.re-frame2-xray.views.data-display :as dd]
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -70,7 +70,7 @@
   (let [pid (keyword "rf.xray.diff-section"
                      (-> node-key
                          (string/replace #"[^A-Za-z0-9._-]+" "_")))]
-    [dd/data-display (f/display-value v)
+    [ei/edn-inspector (f/display-value v)
      {:panel-id pid
       :default-expanded-depth 1}]))
 

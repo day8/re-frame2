@@ -1,5 +1,5 @@
-(ns day8.re-frame2-xray.views.data-display-protocol
-  "Custom-formatters protocol for the Xray data-display widget
+(ns day8.re-frame2-xray.views.edn-inspector-protocol
+  "Custom-formatters protocol for the Xray edn-inspector widget
   (rf2-oqa60 phase 7 · rf2-0qrcr · D7=a per rf2-sndui ruling).
 
   ## Why this exists
@@ -14,7 +14,7 @@
 
   This protocol opens an extension seam *without* opening the
   internals of the renderer. A consuming type implements
-  `IXrayDataDisplay`; the widget checks `satisfies?` at the top of
+  `IXrayEdnInspector`; the widget checks `satisfies?` at the top of
   every `render-node` call and, if true, defers to the consumer's
   two methods. Otherwise the closed renderer's built-in dispatch
   runs unchanged.
@@ -41,11 +41,11 @@
   ignore everything they don't need; they SHOULD honour `:path` /
   `:panel-id` / `:mount-id` if they want their own toggle behaviour
   to compose with the widget's expansion slot (`expansion-key`
-  in `data-display.cljs` is the public composer).
+  in `edn-inspector.cljs` is the public composer).
 
   ## Fall-through
 
-  - `(satisfies? IXrayDataDisplay v)` false → built-in renderer.
+  - `(satisfies? IXrayEdnInspector v)` false → built-in renderer.
   - `render-header` returns `nil` → built-in renderer for this
     node (skips the protocol entirely for the node, including
     the body).
@@ -59,7 +59,7 @@
 
   ## Boundary
 
-  The protocol is the ONLY public extension seam in the data-display
+  The protocol is the ONLY public extension seam in the edn-inspector
   widget. Per the locked B.9 / rf2-sndui interaction model the
   widget itself ships exactly one path-click interaction; consumers
   do NOT extend interactions through this protocol — only the
@@ -71,8 +71,8 @@
   the normative description + a worked example."
   )
 
-(defprotocol IXrayDataDisplay
-  "Custom-formatters protocol for the Xray data-display widget.
+(defprotocol IXrayEdnInspector
+  "Custom-formatters protocol for the Xray edn-inspector widget.
   Consumers implement this on their domain types to override how
   the widget renders them. See the ns docstring for the contract.
 
@@ -92,20 +92,20 @@
   arbitrary errors from consumer impls so a broken third-party
   formatter can never blank the whole inspector."
   [v opts]
-  (when (satisfies? IXrayDataDisplay v)
+  (when (satisfies? IXrayEdnInspector v)
     (try (-xray-render-header v opts)
          (catch :default _ nil))))
 
 (defn xray-render-body
   "Safe accessor — see `xray-render-header`."
   [v opts]
-  (when (satisfies? IXrayDataDisplay v)
+  (when (satisfies? IXrayEdnInspector v)
     (try (-xray-render-body v opts)
          (catch :default _ nil))))
 
-(defn satisfies-xray-data-display?
-  "Predicate convenience — true iff `v` satisfies `IXrayDataDisplay`.
+(defn satisfies-xray-edn-inspector?
+  "Predicate convenience — true iff `v` satisfies `IXrayEdnInspector`.
   Exists so callers don't need to `:refer` the protocol symbol when
   all they need is the gate."
   [v]
-  (satisfies? IXrayDataDisplay v))
+  (satisfies? IXrayEdnInspector v))

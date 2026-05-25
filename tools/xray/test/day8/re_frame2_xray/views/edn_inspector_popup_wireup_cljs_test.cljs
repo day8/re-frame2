@@ -1,25 +1,25 @@
-(ns day8.re-frame2-xray.views.data-display-popup-wireup-cljs-test
-  "Wire-up tests for the data-display popup affordance + shell mount
+(ns day8.re-frame2-xray.views.edn-inspector-popup-wireup-cljs-test
+  "Wire-up tests for the edn-inspector popup affordance + shell mount
   (rf2-l4625, follow-on from phase 6 / rf2-s0x6x).
 
   ## What's under test
 
-  1. **Widget-level affordance** — when `[dd/data-display value
+  1. **Widget-level affordance** — when `[ei/edn-inspector value
      {:popup-affordance? true …}]` is mounted, the rendered hiccup
      carries a `:button` node with the canonical testid
-     `rf-xray-data-display-popup-affordance-ddp-<mount-id>`. The
+     `rf-xray-edn-inspector-popup-affordance-ddp-<mount-id>`. The
      button's on-click dispatches
-     `[:rf.xray.data-display-popup/open …]` through the supplied
+     `[:rf.xray.edn-inspector-popup/open …]` through the supplied
      dispatch-fn with the widget's value + a sanitised opts map
-     (re-entry into the popup's own data-display does NOT re-enable
+     (re-entry into the popup's own edn-inspector does NOT re-enable
      the affordance).
   2. **Opt-in default off** — without `:popup-affordance?` (or with
      `false`) the widget renders NO affordance button.
-  3. **Shell mount** — `data-display-popup-stack` short-circuits to
+  3. **Shell mount** — `edn-inspector-popup-stack` short-circuits to
      nil when the stack is empty and renders the chrome for every
      active mount-id when the stack is non-empty.
   4. **Registry install** — `registry.cljs` calls
-     `data-display-popup/install!` so the open/close events resolve
+     `edn-inspector-popup/install!` so the open/close events resolve
      through `rf/dispatch-sync` post-registration.
 
   Driving the on-click through a captured dispatch-fn stub avoids the
@@ -34,8 +34,8 @@
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.views.data-display :as dd]
-            [day8.re-frame2-xray.views.data-display-popup :as ddp]))
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
+            [day8.re-frame2-xray.views.edn-inspector-popup :as ddp]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -66,11 +66,11 @@
             node))
         (hiccup-seq tree)))
 
-(defn- invoke-data-display
+(defn- invoke-edn-inspector
   "Form-2 unrolling — call the outer fn, then call the inner fn with
   the same args to get the rendered hiccup."
   [value opts]
-  (let [outer (dd/data-display value opts)]
+  (let [outer (ei/edn-inspector value opts)]
     (outer value opts)))
 
 ;; =========================================================================
@@ -78,10 +78,10 @@
 ;; =========================================================================
 
 (deftest popup-affordance-opt-in-renders-button
-  (testing "rf2-l4625 — `[dd/data-display value {:popup-affordance? true}]`
+  (testing "rf2-l4625 — `[ei/edn-inspector value {:popup-affordance? true}]`
             renders a top-right ↗ icon button (rf2-7sdja — glyph was
             ⊕; ↗ reads as 'open in new pane')"
-    (let [h (invoke-data-display
+    (let [h (invoke-edn-inspector
               {:cart [1 2 3]}
               {:panel-id :rf.xray/app-db :popup-affordance? true})
           btn (find-affordance h)]
@@ -97,10 +97,10 @@
 (deftest popup-affordance-default-off
   (testing "rf2-l4625 — without `:popup-affordance?` (or with `false`)
             the widget renders NO affordance button"
-    (let [h-default (invoke-data-display
+    (let [h-default (invoke-edn-inspector
                      {:cart [1 2 3]}
                      {:panel-id :rf.xray/app-db})
-          h-false   (invoke-data-display
+          h-false   (invoke-edn-inspector
                      {:cart [1 2 3]}
                      {:panel-id :rf.xray/app-db
                       :popup-affordance? false})]
@@ -112,7 +112,7 @@
 (deftest popup-affordance-button-carries-stable-testid
   (testing "rf2-l4625 — the button testid includes the per-mount popup
             id (`ddp-<mount-id>`) so panel-level tests can target it"
-    (let [outer (dd/data-display {:a 1}
+    (let [outer (ei/edn-inspector {:a 1}
                                  {:panel-id :rf.xray/app-db
                                   :popup-affordance? true})
           inner-h (outer {:a 1} {:panel-id :rf.xray/app-db
@@ -120,7 +120,7 @@
           container (second inner-h)
           mount-id  (:data-rf-mount-id container)
           expected-testid
-          (str "rf-xray-data-display-popup-affordance-ddp-" mount-id)
+          (str "rf-xray-edn-inspector-popup-affordance-ddp-" mount-id)
           btn (find-by-testid inner-h expected-testid)]
       (is (some? mount-id) "container has a mount-id")
       (is (some? btn) "button found by the expected testid")
@@ -132,10 +132,10 @@
   (testing "rf2-l4625 — when the affordance is enabled the outer
             container carries `position: relative` so the absolute-
             positioned button anchors correctly"
-    (let [h-on  (invoke-data-display
+    (let [h-on  (invoke-edn-inspector
                   {:a 1} {:panel-id :rf.xray/app-db
                           :popup-affordance? true})
-          h-off (invoke-data-display
+          h-off (invoke-edn-inspector
                   {:a 1} {:panel-id :rf.xray/app-db})]
       (is (= "relative" (-> h-on second :style :position))
           "affordance-on → outer container is position: relative")
@@ -163,10 +163,10 @@
 
 (deftest popup-affordance-button-onclick-dispatches-against-xray-frame
   (testing "rf2-7sdja — clicking the affordance dispatches
-            `[:rf.xray.data-display-popup/open popup-mount-id payload]`
+            `[:rf.xray.edn-inspector-popup/open popup-mount-id payload]`
             against `:rf/xray` EXPLICITLY (popup state is Xray-global,
             not per-frame — pinned via `{:frame :rf/xray}` opts)"
-    (let [btn (dd/popup-affordance-button
+    (let [btn (ei/popup-affordance-button
                 ;; `dispatch-fn` parameter is a no-op post rf2-7sdja —
                 ;; pass nil to make the new contract obvious.
                 nil
@@ -177,14 +177,14 @@
           on-click (:on-click (second btn))
           {:keys [event opts]} (with-rf-dispatch-spy on-click)
           [event-id mount-id payload] event]
-      (is (= :rf.xray.data-display-popup/open event-id)
+      (is (= :rf.xray.edn-inspector-popup/open event-id)
           "canonical event id")
       (is (= "ddp-abc" mount-id)
           "popup-mount-id flows through as second positional arg")
       (is (= {:cart [1 2 3]} (:value payload))
           "value flows through as `:value`")
       (is (false? (:popup-affordance? (:opts payload)))
-          "the popup's embedded data-display does NOT re-enable the
+          "the popup's embedded edn-inspector does NOT re-enable the
            affordance (no recursion)")
       (is (= :rf.xray/app-db (:panel-id (:opts payload)))
           "other opts (`:panel-id`, `:default-expanded-depth`) survive")
@@ -199,7 +199,7 @@
   (testing "rf2-l4625 — when the caller supplies no opts, the affordance
             still produces a sane payload (just `:popup-affordance? false`
             in the popup's downstream opts map)"
-    (let [btn (dd/popup-affordance-button nil "ddp-x" {:k :v} nil)
+    (let [btn (ei/popup-affordance-button nil "ddp-x" {:k :v} nil)
           on-click (:on-click (second btn))
           {:keys [event opts]} (with-rf-dispatch-spy on-click)
           payload (nth event 2)]
@@ -210,7 +210,7 @@
           "rf2-7sdja — `:rf/xray` frame still pinned even with nil opts"))))
 
 ;; =========================================================================
-;; shell mount — `data-display-popup-stack` view
+;; shell mount — `edn-inspector-popup-stack` view
 ;; =========================================================================
 
 (defn- setup-xray-frame! []
@@ -220,7 +220,7 @@
 (deftest popup-stack-view-empty-when-stack-empty
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
-    (let [tree (ddp/data-display-popup-stack)]
+    (let [tree (ddp/edn-inspector-popup-stack)]
       (is (nil? tree)
           "stack view returns nil when no popups are open (closed-state
            cost is one subscribe + a when-gate)"))))
@@ -231,30 +231,30 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
-        [:rf.xray.data-display-popup/open
+        [:rf.xray.edn-inspector-popup/open
          "m1" {:value {:foo :bar}
                :opts  {:title "Inspect cart"}}])
-      (let [tree (ddp/data-display-popup-stack)]
+      (let [tree (ddp/edn-inspector-popup-stack)]
         (is (some? tree) "stack view returns hiccup when stack non-empty")
-        (is (some? (find-by-testid tree "rf-xray-data-display-popup-stack"))
+        (is (some? (find-by-testid tree "rf-xray-edn-inspector-popup-stack"))
             "outer stack container present")
         (is (some? (find-by-testid tree
-                                   "rf-xray-data-display-popup-backdrop-m1"))
+                                   "rf-xray-edn-inspector-popup-backdrop-m1"))
             "popup chrome rendered for m1")))))
 
 (deftest popup-stack-view-renders-each-active-mount
   (testing "rf2-l4625 — every mount-id on the stack gets a chrome"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.data-display-popup/open
+      (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                          "m1" {:value 1 :opts {}}])
-      (rf/dispatch-sync [:rf.xray.data-display-popup/open
+      (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                          "m2" {:value 2 :opts {}}])
-      (let [tree (ddp/data-display-popup-stack)]
+      (let [tree (ddp/edn-inspector-popup-stack)]
         (is (some? (find-by-testid tree
-                                   "rf-xray-data-display-popup-backdrop-m1")))
+                                   "rf-xray-edn-inspector-popup-backdrop-m1")))
         (is (some? (find-by-testid tree
-                                   "rf-xray-data-display-popup-backdrop-m2")))))))
+                                   "rf-xray-edn-inspector-popup-backdrop-m2")))))))
 
 ;; =========================================================================
 ;; registry wiring
@@ -267,7 +267,7 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
-        [:rf.xray.data-display-popup/open
+        [:rf.xray.edn-inspector-popup/open
          "smoke" {:value :hi :opts {:title "Smoke"}}])
       (let [stack @(rf/subscribe [ddp/stack-slot])]
         (is (= ["smoke"] stack)

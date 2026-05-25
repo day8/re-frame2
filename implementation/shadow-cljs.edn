@@ -178,8 +178,8 @@
                 [com.pitch/uix.dom  "1.4.4"]
                 [lilactown/helix   "0.2.2"]
                 ;; rf2-oqa60 phase 1 — binaryage/devtools dep dropped.
-                ;; Xray's first-class data-display widget
-                ;; (`views/data-display`) replaces the cljs-devtools-
+                ;; Xray's first-class edn-inspector widget
+                ;; (`views/edn-inspector`) replaces the cljs-devtools-
                 ;; backed value renderer with a roll-your-own CLJS
                 ;; tree walker; the impedance-mismatch bug class
                 ;; (rf2-dw8n7, rf2-oswhk) goes away with the dep.

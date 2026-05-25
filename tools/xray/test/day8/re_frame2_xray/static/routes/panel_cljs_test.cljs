@@ -70,7 +70,7 @@
     (let [result (apply (first node) (rest node))]
       ;; Form-2 Reagent components return an inner fn; re-call with
       ;; the same args (per Reagent's re-render contract) to obtain
-      ;; the rendered hiccup. rf2-oqa60 — the data-display widget is
+      ;; the rendered hiccup. rf2-oqa60 — the edn-inspector widget is
       ;; form-2 so the mount-id stays stable across re-renders.
       (expand-children
         (if (fn? result)
@@ -436,7 +436,7 @@
 (deftest expand-meta-renders-through-edn-widget-with-copy
   (testing "rf2-2kwhw + rf2-oqa60 — the registrar-meta block routes
             through the shared EDN widget; phase 1 delegates to the
-            first-class data-display widget. The copy affordance is
+            first-class edn-inspector widget. The copy affordance is
             deferred to the popup phase (D6=a) — phase 1 has no copy
             chrome on the new widget, so this test now smokes the
             widget wiring only."
@@ -448,8 +448,8 @@
                         {:frame :rf/xray})
       (let [tree (panel/Panel)
             widget (find-all-by-testid-prefix
-                     tree "rf-xray-data-display-")]
+                     tree "rf-xray-edn-inspector-")]
         (is (some? (find-by-testid tree "rf-xray-static-routes-meta-route/cart"))
             "meta block wrapper preserved")
         (is (seq widget)
-            "registrar meta renders through the data-display widget")))))
+            "registrar meta renders through the edn-inspector widget")))))

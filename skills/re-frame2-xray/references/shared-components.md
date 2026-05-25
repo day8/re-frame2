@@ -8,11 +8,11 @@ each panel's perspective.
 
 Three components are consumed by every (or nearly every) L4 panel.
 
-### `data_display/render`
+### `edn_inspector/render`
 
 The single canonical data renderer — lazy collapsible tree + inline
 diff highlighting + keyword accent + clickable paths. Lives at
-[`tools/xray/src/day8/re_frame2_xray/data_display/render.cljs`](../../../tools/xray/src/day8/re_frame2_xray/data_display/render.cljs)
+[`tools/xray/src/day8/re_frame2_xray/edn_inspector/render.cljs`](../../../tools/xray/src/day8/re_frame2_xray/edn_inspector/render.cljs)
 per §021 §10. Every panel that shows data — app-db, Event coeffects /
 returned effects, Views sub values, Issues `ex-data` — goes through this
 renderer (§021 §10.6 — binding).
@@ -29,7 +29,7 @@ force ancestor chain open · per-panel `:default-depth` override (app-db
 defaults depth-3-collapsed; Event payload defaults depth-2-expanded).
 
 Operator expansion state persists in app-db
-(`:rf.xray.data-display/expansion {<path>}`) per epoch + path.
+(`:rf.xray.edn-inspector/expansion {<path>}`) per epoch + path.
 
 ### `film_strip/header`
 

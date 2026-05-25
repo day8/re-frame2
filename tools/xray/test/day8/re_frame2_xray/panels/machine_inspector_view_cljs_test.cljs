@@ -544,7 +544,7 @@
 (deftest snapshot-drill-in-renders-before-and-after-snapshots
   (testing "the focused-event section's snapshot drill-in surface mounts
             the BEFORE and AFTER snapshots through the first-class
-            data-display widget (rf2-oqa60 phase 1 · rf2-lxvn6 phase 4).
+            edn-inspector widget (rf2-oqa60 phase 1 · rf2-lxvn6 phase 4).
             Per spec/021 §10 the per-machine `:panel-id` qualifier keeps
             two machines' expansion state independent; the `:before` /
             `:after` phase suffix scopes the two sibling mounts on the
@@ -589,7 +589,7 @@
 
 (defn- find-popup-affordance-containers
   "Walk hiccup (already expand-tree'd by the find-by-testid helper) and
-  collect every data-display container that carries
+  collect every edn-inspector container that carries
   `:data-rf-popup-affordance? \"1\"` (the widget surfaces the opt as a
   data-attr on its outer `:div`)."
   [tree]
@@ -598,8 +598,8 @@
                  (= "1" (:data-rf-popup-affordance? (second n)))))
           (tree-seq (some-fn vector? seq?) seq tree)))
 
-(deftest snapshot-drill-in-data-display-carries-popup-affordance
-  (testing "rf2-l4625 — every snapshot drill-in data-display mount in
+(deftest snapshot-drill-in-edn-inspector-carries-popup-affordance
+  (testing "rf2-l4625 — every snapshot drill-in edn-inspector mount in
             the Machine Inspector panel passes
             `:popup-affordance? true` so the operator can pop the
             snapshot into the popup overlay. After expansion the widget's
@@ -626,7 +626,7 @@
         (is (some? drill) "drill-in section mounts")
         (is (seq containers)
             "drill-in surfaces the popup-affordance attr on its
-             data-display containers")))))
+             edn-inspector containers")))))
 
 (deftest snapshot-drill-in-suppressed-when-legacy-trace-lacks-snapshots
   (testing "legacy trace fixtures that pre-date the commit-or-finalize

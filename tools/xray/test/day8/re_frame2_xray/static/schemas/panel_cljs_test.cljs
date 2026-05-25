@@ -31,7 +31,7 @@
     (let [result (apply (first tree) (rest tree))]
       ;; Form-2 Reagent components return an inner fn; re-call with
       ;; the same args (Reagent's re-render contract). rf2-oqa60 —
-      ;; data-display is form-2 to stabilise mount-id.
+      ;; edn-inspector is form-2 to stabilise mount-id.
       (expand-tree
         (if (fn? result)
           (apply result (rest tree))
@@ -293,7 +293,7 @@
 (deftest schema-edn-renders-through-widget-with-copy
   (testing "rf2-2kwhw + rf2-oqa60 — the Malli schema renders via the
             shared EDN widget; phase 1 delegates to the first-class
-            data-display widget. The copy affordance is deferred to
+            edn-inspector widget. The copy affordance is deferred to
             the popup phase (D6=a) — phase 1 has no copy chrome on
             the new widget."
     (setup-xray!)
@@ -303,5 +303,5 @@
          sample-registry])
       (let [tree (panel/Panel)
             widget (find-all-by-testid-prefix
-                     tree "rf-xray-data-display-")]
-        (is (seq widget) "schema values render through the data-display widget")))))
+                     tree "rf-xray-edn-inspector-")]
+        (is (seq widget) "schema values render through the edn-inspector widget")))))

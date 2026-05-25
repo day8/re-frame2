@@ -567,8 +567,8 @@
 (deftest expanded-row-renders-raw-edn-payload
   (testing "spec/023 §3 — when a row's :id is in the expanded set, the
             raw trace-event EDN renders below the row via the first-class
-            data-display widget (rf2-hhtbl phase 2: direct
-            `[dd/data-display value opts]`, no facade hop)"
+            edn-inspector widget (rf2-hhtbl phase 2: direct
+            `[ei/edn-inspector value opts]`, no facade hop)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -587,19 +587,19 @@
         ;; with a per-row panel-id qualifier (`:rf.xray.trace/row-<id>`)
         ;; so two simultaneously-expanded rows can't share expansion
         ;; state. The widget's `testid-for` uses `(name panel-id)`, so
-        ;; the container testid resolves to `rf-xray-data-display-row-13-<uuid>`.
+        ;; the container testid resolves to `rf-xray-edn-inspector-row-13-<uuid>`.
         (let [dd-nodes (filter (fn [n]
                                  (and (vector? n)
                                       (map? (second n))
                                       (some-> (:data-testid (second n))
-                                              (.startsWith "rf-xray-data-display-row-13-"))))
+                                              (.startsWith "rf-xray-edn-inspector-row-13-"))))
                                (hiccup-seq tree))]
           (is (seq dd-nodes)
-              "data-display widget mounted for the expanded row with the per-row panel-id qualifier"))))))
+              "edn-inspector widget mounted for the expanded row with the per-row panel-id qualifier"))))))
 
 (deftest expanded-row-uses-per-row-panel-id-qualifier
   (testing "rf2-hhtbl phase 2 — two simultaneously-expanded rows each
-            mount the data-display widget with a DISTINCT per-row
+            mount the edn-inspector widget with a DISTINCT per-row
             panel-id qualifier (`:rf.xray.trace/row-<id>` rendered as
             `row-<id>` in the testid via `(name ...)`) so their
             expansion state can't collide. Combined with the widget's
@@ -624,25 +624,25 @@
                                         (:data-testid (second n)))))
                               (filter #(and (string? %)
                                             (.startsWith ^String %
-                                                         "rf-xray-data-display-row-")))
+                                                         "rf-xray-edn-inspector-row-")))
                               (into #{}))
-            row-41-hits  (filter #(.startsWith ^String % "rf-xray-data-display-row-41-")
+            row-41-hits  (filter #(.startsWith ^String % "rf-xray-edn-inspector-row-41-")
                                  dd-testids)
-            row-42-hits  (filter #(.startsWith ^String % "rf-xray-data-display-row-42-")
+            row-42-hits  (filter #(.startsWith ^String % "rf-xray-edn-inspector-row-42-")
                                  dd-testids)]
         (is (seq row-41-hits)
-            "row 41's data-display container carries the :rf.xray.trace/row-41 qualifier")
+            "row 41's edn-inspector container carries the :rf.xray.trace/row-41 qualifier")
         (is (seq row-42-hits)
-            "row 42's data-display container carries the :rf.xray.trace/row-42 qualifier")
+            "row 42's edn-inspector container carries the :rf.xray.trace/row-42 qualifier")
         (is (not= (first row-41-hits) (first row-42-hits))
-            "the two rows mount distinct data-display containers")))))
+            "the two rows mount distinct edn-inspector containers")))))
 
-(deftest expanded-row-data-display-carries-popup-affordance
+(deftest expanded-row-edn-inspector-carries-popup-affordance
   (testing "rf2-l4625 — the expanded-row payload mount passes
-            `:popup-affordance? true` to the data-display widget so
+            `:popup-affordance? true` to the edn-inspector widget so
             the operator can pop a trace event's full EDN into the
             popup overlay (trace rows are narrow column space). After
-            `expand-tree` the data-display widget's outer `:div` carries
+            `expand-tree` the edn-inspector widget's outer `:div` carries
             `:data-rf-popup-affordance? \"1\"` when the opt is set."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -656,7 +656,7 @@
       (let [tree     (trace/Panel)
             payload  (find-by-testid tree "rf-xray-trace-row-51-payload")
             ;; Walk the payload subtree (which is itself the result of
-            ;; `expand-tree`-ing) and find the data-display widget's
+            ;; `expand-tree`-ing) and find the edn-inspector widget's
             ;; outer container — it carries the `data-rf-popup-affordance?`
             ;; attribute when the opt is enabled.
             dd-containers
@@ -667,7 +667,7 @@
                     (hiccup-seq payload))]
         (is (some? payload) "expanded-row payload renders")
         (is (seq dd-containers)
-            "data-display container surfaces the popup-affordance attr")))))
+            "edn-inspector container surfaces the popup-affordance attr")))))
 
 (deftest source-coord-click-fires-open-in-editor
   (testing "clicking the source-coord ↗ fires :rf.xray/open-in-editor;

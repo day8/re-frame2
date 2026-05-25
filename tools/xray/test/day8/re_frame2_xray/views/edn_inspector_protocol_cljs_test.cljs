@@ -1,5 +1,5 @@
-(ns day8.re-frame2-xray.views.data-display-protocol-cljs-test
-  "Unit tests for the IXrayDataDisplay custom-formatters protocol
+(ns day8.re-frame2-xray.views.edn-inspector-protocol-cljs-test
+  "Unit tests for the IXrayEdnInspector custom-formatters protocol
   (rf2-oqa60 phase 7 · rf2-0qrcr).
 
   ## What's under test
@@ -9,7 +9,7 @@
      path — `:data-rf-protocol` is absent.
 
   2. **Protocol-implementing types use the protocol methods.** A
-     deftype that implements `IXrayDataDisplay` short-circuits the
+     deftype that implements `IXrayEdnInspector` short-circuits the
      built-in dispatch; the consumer's `-xray-render-header` output
      appears verbatim in the rendered hiccup.
 
@@ -29,9 +29,9 @@
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [day8.re-frame2-xray.views.data-display :as dd]
-            [day8.re-frame2-xray.views.data-display-protocol :as ddp
-             :refer [IXrayDataDisplay]]))
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
+            [day8.re-frame2-xray.views.edn-inspector-protocol :as ddp
+             :refer [IXrayEdnInspector]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -75,7 +75,7 @@
 
 ;; A type that satisfies the protocol with both header + body.
 (deftype FullCustom [tag payload]
-  IXrayDataDisplay
+  IXrayEdnInspector
   (-xray-render-header [_ _opts]
     [:span {:data-testid "custom-header"
             :data-custom-tag (str tag)} (str "#" tag)])
@@ -84,27 +84,27 @@
 
 ;; A type that only customises the header.
 (deftype HeaderOnly [label]
-  IXrayDataDisplay
+  IXrayEdnInspector
   (-xray-render-header [_ _opts]
     [:span {:data-testid "header-only"} (str "h:" label)])
   (-xray-render-body [_ _opts] nil))
 
 ;; A type that opts-out by returning nil header.
 (deftype OptsOut [inner]
-  IXrayDataDisplay
+  IXrayEdnInspector
   (-xray-render-header [_ _opts] nil)
   (-xray-render-body [_ _opts] [:span "ignored body"]))
 
 ;; A consumer impl that THROWS — the safe accessor must catch.
 (deftype Broken []
-  IXrayDataDisplay
+  IXrayEdnInspector
   (-xray-render-header [_ _opts] (throw (ex-info "boom" {})))
   (-xray-render-body [_ _opts] (throw (ex-info "boom" {}))))
 
 ;; ---- 1. built-in dispatch untouched -------------------------------------
 
 (deftest plain-map-does-not-pick-up-protocol-path
-  (let [h (dd/render-node {:value {:a 1 :b 2}
+  (let [h (ei/render-node {:value {:a 1 :b 2}
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -117,7 +117,7 @@
         "plain map renders via built-in :map dispatch")))
 
 (deftest plain-vector-does-not-pick-up-protocol-path
-  (let [h (dd/render-node {:value [1 2 3]
+  (let [h (ei/render-node {:value [1 2 3]
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -128,7 +128,7 @@
     (is (some? (find-attr h :data-rf-kind "vector")))))
 
 (deftest plain-scalar-does-not-pick-up-protocol-path
-  (let [h (dd/render-node {:value 42
+  (let [h (ei/render-node {:value 42
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -140,7 +140,7 @@
 (deftest sentinel-does-not-pick-up-protocol-path
   ;; Sentinels are first-class types — they must stay on the built-in
   ;; dispatch, not be accidentally diverted by the protocol seam.
-  (let [h (dd/render-node {:value :rf/redacted
+  (let [h (ei/render-node {:value :rf/redacted
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -154,7 +154,7 @@
 
 (deftest full-custom-renders-via-protocol-header-and-body
   (let [v (FullCustom. "Account" "data-here")
-        h (dd/render-node {:value v
+        h (ei/render-node {:value v
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -174,7 +174,7 @@
 
 (deftest protocol-node-carries-stable-testid
   (let [v (FullCustom. "Account" "data")
-        h (dd/render-node {:value v
+        h (ei/render-node {:value v
                            :panel-id :test
                            :mount-id "m99"
                            :path [:k]
@@ -182,7 +182,7 @@
                            :expansion-map {}
                            :opts {}})]
     (is (some? (find-attr h :data-testid
-                          "rf-xray-data-display-test-m99-:k"))
+                          "rf-xray-edn-inspector-test-m99-:k"))
         "protocol node carries the same `[panel-id mount-id path]` testid as built-in nodes")))
 
 ;; ---- 3. header-nil fall-through to built-ins ----------------------------
@@ -194,7 +194,7 @@
   ;; the right outcome — the consumer explicitly opted out, the
   ;; widget shouldn't second-guess.
   (let [v (OptsOut. "inner")
-        h (dd/render-node {:value v
+        h (ei/render-node {:value v
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -210,7 +210,7 @@
 
 (deftest body-nil-renders-header-only
   (let [v (HeaderOnly. "tag")
-        h (dd/render-node {:value v
+        h (ei/render-node {:value v
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -223,7 +223,7 @@
         "consumer header rendered")
     ;; No body container — the testid suffix `-body` is absent.
     (is (nil? (find-attr h :data-testid
-                         "rf-xray-data-display-test-m1--body"))
+                         "rf-xray-edn-inspector-test-m1--body"))
         "no body container rendered when body-fn returns nil")))
 
 ;; ---- 5. broken consumer impl: safe catch --------------------------------
@@ -234,7 +234,7 @@
   ;; falls through to built-ins (which renders the deftype via
   ;; the :other / pr-str fallback).
   (let [v (Broken.)
-        h (dd/render-node {:value v
+        h (ei/render-node {:value v
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -251,8 +251,8 @@
 (deftest expansion-map-collapses-protocol-body
   (let [v (FullCustom. "Account" "data")
         ;; Force-collapsed via the expansion-map override.
-        k (dd/expansion-key :test "m1" [])
-        h (dd/render-node {:value v
+        k (ei/expansion-key :test "m1" [])
+        h (ei/render-node {:value v
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -268,7 +268,7 @@
 ;; ---- 7. predicate convenience -------------------------------------------
 
 (deftest satisfies-predicate
-  (is (true?  (ddp/satisfies-xray-data-display? (FullCustom. "x" "y"))))
-  (is (false? (ddp/satisfies-xray-data-display? {:a 1})))
-  (is (false? (ddp/satisfies-xray-data-display? 42)))
-  (is (false? (ddp/satisfies-xray-data-display? nil))))
+  (is (true?  (ddp/satisfies-xray-edn-inspector? (FullCustom. "x" "y"))))
+  (is (false? (ddp/satisfies-xray-edn-inspector? {:a 1})))
+  (is (false? (ddp/satisfies-xray-edn-inspector? 42)))
+  (is (false? (ddp/satisfies-xray-edn-inspector? nil))))

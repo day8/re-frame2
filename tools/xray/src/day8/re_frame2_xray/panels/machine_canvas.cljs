@@ -60,10 +60,10 @@
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the canvas-side
             ;; snapshot drill-in surface mounts the first-class
-            ;; data-display widget directly. Per spec/021 §10 widget
+            ;; edn-inspector widget directly. Per spec/021 §10 widget
             ;; contract; every call site qualifies with a per-machine
             ;; `:panel-id`.
-            [day8.re-frame2-xray.views.data-display :as dd]
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
              :as t
              :refer [tokens sans-stack mono-stack]]))
@@ -358,7 +358,7 @@
 ;;
 ;; The canvas-side companion to `machine_inspector/snapshot-drill-in`.
 ;; Mounts a single machine snapshot map (`{:state X :data Y}`) through
-;; the first-class data-display widget. Callers that already have a
+;; the first-class edn-inspector widget. Callers that already have a
 ;; snapshot in hand (e.g. the Chart's `:current-state` source: a
 ;; topology fallback, a static-mode reader, a future hover/popup)
 ;; embed this view to surface the full structure without re-implementing
@@ -378,7 +378,7 @@
 
 (defn SnapshotDrillIn
   "Render `snapshot` (typically `{:state X :data Y}`) via the first-class
-  data-display widget. Pure hiccup — no rf reads.
+  edn-inspector widget. Pure hiccup — no rf reads.
 
   Args (map):
 
@@ -419,7 +419,7 @@
                     :font-style "italic"
                     :color (:text-tertiary tokens)}}
       "(no snapshot — machine uninitialised or trace pre-snapshot-tagging)"]
-     [dd/data-display snapshot
+     [ei/edn-inspector snapshot
       {:panel-id (snapshot-panel-id machine-id phase)
        ;; rf2-pvsxs — machine + phase are stable identifiers; the
        ;; operator's drill-into-data choices survive a Machines tab

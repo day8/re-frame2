@@ -1,25 +1,25 @@
-(ns day8.re-frame2-xray.views.data-display-popup
+(ns day8.re-frame2-xray.views.edn-inspector-popup
   "Data-display popup overlay infra — phase 6 of rf2-oqa60 (D6=a per
   rf2-sndui).
 
   ## What this is
 
   A drill-in surface that **floats over an Xray panel** and inspects
-  a CLJS value at depth via the first-class data-display widget
-  (`views.data-display`). Anchor scope is Xray-internal only — the
+  a CLJS value at depth via the first-class edn-inspector widget
+  (`views.edn-inspector`). Anchor scope is Xray-internal only — the
   popup overlays the Xray DOM; it never anchors to the debugged
   application's DOM (locked per D6=a).
 
   ## Public API
 
-      [data-display-popup value]
-      [data-display-popup value opts]
+      [edn-inspector-popup value]
+      [edn-inspector-popup value opts]
 
   `opts` keys (all optional):
 
   - `:title`             — header label. Defaults `\"Inspect\"`.
   - `:panel-id`          — passed straight through to the embedded
-                           `[data-display value …]` so the popup's
+                           `[edn-inspector value …]` so the popup's
                            expansion state is keyed under its own
                            `panel-id` (defaults to `:rf.xray.data-
                            display-popup/anon`).
@@ -28,20 +28,20 @@
   - `:on-close`          — optional 0-arg fn called when the popup
                            closes (X / Esc / backdrop). The default
                            `:on-close` dispatches
-                           `[:rf.xray.data-display-popup/close mount-id]`
+                           `[:rf.xray.edn-inspector-popup/close mount-id]`
                            against the `:rf/xray` frame so the popup
                            closes itself via the registered handler.
 
-  Two-arg overload matches `[data-display value opts]` (D2=a) so the
+  Two-arg overload matches `[edn-inspector value opts]` (D2=a) so the
   popup's call shape is the same as the widget it wraps.
 
   ## Per-mount UUID (D8=a per rf2-sndui)
 
-  Each `[data-display-popup …]` mount allocates a fresh UUID
+  Each `[edn-inspector-popup …]` mount allocates a fresh UUID
   `mount-id` on first render via the form-2 outer fn. The `mount-id`:
 
   - identifies this popup's entry in the open-popups stack slot at
-    `:rf.xray.data-display-popup/stack`, so multiple popups stack
+    `:rf.xray.edn-inspector-popup/stack`, so multiple popups stack
     without colliding,
   - composes the embedded widget's `:panel-id` —
     `[<panel-id-opt> mount-id]`-style namespacing — so the popup's
@@ -52,26 +52,26 @@
 
   ## State model
 
-  - `:rf.xray.data-display-popup/stack` (vector of `mount-id`s) holds
+  - `:rf.xray.edn-inspector-popup/stack` (vector of `mount-id`s) holds
     the open-popups stack. Top-of-stack is the topmost popup; it
     owns the Esc keystroke (the global Esc handler closes only the
     top entry, leaving any popups beneath it open).
   - Per-popup payload (the rendered value + opts snapshot) is held
-    in app-db at `[:rf.xray.data-display-popup/entries mount-id]`
+    in app-db at `[:rf.xray.edn-inspector-popup/entries mount-id]`
     so a programmatic open call (e.g. from a context-menu handler
     in a future bead) survives shadow-cljs `:after-load` reloads
     and re-opening with the same id restores its expansion state
-    (the underlying data-display expansion slot is keyed on
+    (the underlying edn-inspector expansion slot is keyed on
     `[panel-id mount-id path]`, so the popup's contents survive
     unmount/remount when the same id is reused).
 
   ## Why this lives in NEW files only
 
-  The umbrella widget at `views.data-display.cljs` is phase 1's
+  The umbrella widget at `views.edn-inspector.cljs` is phase 1's
   surface and just landed in #2143. Phase 6's overlay infra is an
   additive surface — a wrapper component + its own state slot — so
   the phase-1 file stays untouched and the popup's lifecycle is
-  self-contained. The shell wires the `data-display-popup-stack`
+  self-contained. The shell wires the `edn-inspector-popup-stack`
   view into its overlay container in a follow-on bead; the install!
   fn here makes the registrations idempotent so that wire-up is a
   one-call addition.
@@ -88,7 +88,7 @@
             [day8.re-frame2-xray.theme.a11y :as a11y]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack type-scale]]
-            [day8.re-frame2-xray.views.data-display :as dd]))
+            [day8.re-frame2-xray.views.edn-inspector :as ei]))
 
 ;; =========================================================================
 ;; state slots — public so tests + consumers can read/write them.
@@ -99,21 +99,21 @@
   oldest first; top-of-stack = last). Public so the Esc handler can
   peek the topmost entry and a consuming panel's 'close all' action
   can clear it."
-  :rf.xray.data-display-popup/stack)
+  :rf.xray.edn-inspector-popup/stack)
 
 (def entries-slot
   "App-db slot holding per-popup payload maps, keyed by `mount-id`.
   Each entry shape: `{:value <any> :opts <map>}`. Public so tests
   can assert the open-popup contract end-to-end without going
   through the view layer."
-  :rf.xray.data-display-popup/entries)
+  :rf.xray.edn-inspector-popup/entries)
 
 (def default-panel-id
-  "Default `:panel-id` the embedded data-display widget reads when
+  "Default `:panel-id` the embedded edn-inspector widget reads when
   the caller doesn't pass one. Distinct keyword (not reusing
-  `:rf.xray.data-display/anon`) so popup-vs-panel expansion state
+  `:rf.xray.edn-inspector/anon`) so popup-vs-panel expansion state
   never collide on a coincidental empty path."
-  :rf.xray.data-display-popup/anon)
+  :rf.xray.edn-inspector-popup/anon)
 
 ;; =========================================================================
 ;; pure helpers — JVM-portable so the state math has a unit-test surface
@@ -161,11 +161,11 @@
 (defn install-subs!
   "Register the popup's subscription surface.
 
-  - `:rf.xray.data-display-popup/stack`   — the open-popups stack vector
-  - `:rf.xray.data-display-popup/entries` — the per-popup payload map
-  - `:rf.xray.data-display-popup/open?`   — boolean; true when stack non-empty
-  - `:rf.xray.data-display-popup/top`     — top-of-stack mount-id or nil
-  - `:rf.xray.data-display-popup/entry`   — `[mount-id]` → that entry
+  - `:rf.xray.edn-inspector-popup/stack`   — the open-popups stack vector
+  - `:rf.xray.edn-inspector-popup/entries` — the per-popup payload map
+  - `:rf.xray.edn-inspector-popup/open?`   — boolean; true when stack non-empty
+  - `:rf.xray.edn-inspector-popup/top`     — top-of-stack mount-id or nil
+  - `:rf.xray.edn-inspector-popup/entry`   — `[mount-id]` → that entry
                                             (so a view can pick the
                                             value + opts for its own
                                             mount without reading
@@ -177,17 +177,17 @@
   (rf/reg-sub entries-slot
     (fn [db _] (get db entries-slot)))
 
-  (rf/reg-sub :rf.xray.data-display-popup/open?
+  (rf/reg-sub :rf.xray.edn-inspector-popup/open?
     :<- [stack-slot]
     (fn [stack _]
       (boolean (seq stack))))
 
-  (rf/reg-sub :rf.xray.data-display-popup/top
+  (rf/reg-sub :rf.xray.edn-inspector-popup/top
     :<- [stack-slot]
     (fn [stack _]
       (top-entry stack)))
 
-  (rf/reg-sub :rf.xray.data-display-popup/entry
+  (rf/reg-sub :rf.xray.edn-inspector-popup/entry
     :<- [entries-slot]
     (fn [entries [_ mount-id]]
       (get entries mount-id))))
@@ -198,20 +198,20 @@
   click/keydown context pop doesn't leak the event to `:rf/default`
   (same fix as the App-DB segment-inspector + settings popup)."
   []
-  (rf/reg-event-db :rf.xray.data-display-popup/open
+  (rf/reg-event-db :rf.xray.edn-inspector-popup/open
     (fn [db [_ mount-id payload]]
       ;; payload shape: {:value <any> :opts <map>}
       (-> db
           (update stack-slot push-entry mount-id)
           (assoc-in [entries-slot mount-id] payload))))
 
-  (rf/reg-event-db :rf.xray.data-display-popup/close
+  (rf/reg-event-db :rf.xray.edn-inspector-popup/close
     (fn [db [_ mount-id]]
       (-> db
           (update stack-slot pop-entry mount-id)
           (update entries-slot dissoc mount-id))))
 
-  (rf/reg-event-db :rf.xray.data-display-popup/close-top
+  (rf/reg-event-db :rf.xray.edn-inspector-popup/close-top
     ;; Esc handler — close the topmost popup only. No-op when stack
     ;; is empty.
     (fn [db _]
@@ -222,7 +222,7 @@
               (update entries-slot dissoc top))
           db))))
 
-  (rf/reg-event-db :rf.xray.data-display-popup/close-all
+  (rf/reg-event-db :rf.xray.edn-inspector-popup/close-all
     (fn [db _]
       (-> db
           (assoc stack-slot [])
@@ -334,7 +334,7 @@
   (fn []
     (if on-close
       (on-close)
-      (rf/dispatch [:rf.xray.data-display-popup/close mount-id]
+      (rf/dispatch [:rf.xray.edn-inspector-popup/close mount-id]
                    {:frame :rf/xray}))))
 
 (defn handle-keydown
@@ -346,7 +346,7 @@
   (when (= "Escape" (.-key e))
     (.preventDefault e)
     (.stopPropagation e)
-    (rf/dispatch [:rf.xray.data-display-popup/close-top]
+    (rf/dispatch [:rf.xray.edn-inspector-popup/close-top]
                  {:frame :rf/xray})))
 
 ;; =========================================================================
@@ -359,8 +359,8 @@
   at the standard dialog title weight so popup chrome matches the
   rest of the Xray modal family."
   [mount-id title]
-  [:span {:id          (str "rf-xray-data-display-popup-title-" mount-id)
-          :data-testid (str "rf-xray-data-display-popup-title-" mount-id)
+  [:span {:id          (str "rf-xray-edn-inspector-popup-title-" mount-id)
+          :data-testid (str "rf-xray-edn-inspector-popup-title-" mount-id)
           :style {:color       (:text-primary tokens)
                   :font-weight 600
                   :font-size   (:body type-scale)
@@ -392,7 +392,7 @@
         ;; The shared backdrop owns z-index for position 0; dialogs
         ;; ride on top of their own backdrop tier.
         dialog-z      (z-index-for (inc (or stack-pos 0)))]
-    [:div {:data-testid (str "rf-xray-data-display-popup-backdrop-" mount-id)
+    [:div {:data-testid (str "rf-xray-edn-inspector-popup-backdrop-" mount-id)
            :data-rf-xray-modal-positioning (name (or positioning :fixed))
            :data-rf-mount-id mount-id
            :on-click    (fn [^js e]
@@ -404,9 +404,9 @@
                                :z-index dialog-z)}
      [:div (merge
              (a11y/dialog-attrs
-               {:labelled-by (str "rf-xray-data-display-popup-title-"
+               {:labelled-by (str "rf-xray-edn-inspector-popup-title-"
                                   mount-id)})
-             {:data-testid (str "rf-xray-data-display-popup-dialog-" mount-id)
+             {:data-testid (str "rf-xray-edn-inspector-popup-dialog-" mount-id)
               :data-rf-mount-id mount-id
               :ref         (a11y/dialog-ref)
               :on-click    #(.stopPropagation %)
@@ -415,7 +415,7 @@
               :style       (dialog-style)})
       [:div {:style (header-style)}
        (header-title mount-id title)
-       [:button {:data-testid (str "rf-xray-data-display-popup-close-" mount-id)
+       [:button {:data-testid (str "rf-xray-edn-inspector-popup-close-" mount-id)
                  :aria-label  "Close popup"
                  :title       "Close (Esc)"
                  :on-click    (fn [^js e]
@@ -423,27 +423,27 @@
                                 (close-handler))
                  :style       (close-button-style)}
         "✕"]]
-      [:div {:data-testid (str "rf-xray-data-display-popup-body-" mount-id)
+      [:div {:data-testid (str "rf-xray-edn-inspector-popup-body-" mount-id)
              :style       (body-style)}
-       ;; Embed the first-class data-display widget. We thread the
+       ;; Embed the first-class edn-inspector widget. We thread the
        ;; mount-id into the embedded widget's :panel-id so the
        ;; popup's expansion state is isolated from any other
-       ;; data-display mount on the page (the panel underneath
+       ;; edn-inspector mount on the page (the panel underneath
        ;; almost certainly already mounts the same value at the
        ;; same path).
-       [dd/data-display value
-        {:panel-id (keyword "rf.xray.data-display-popup"
+       [ei/edn-inspector value
+        {:panel-id (keyword "rf.xray.edn-inspector-popup"
                             (str (name panel-id) "-" mount-id))
          :default-expanded-depth default-expanded-depth
          :max-inline-width       max-inline-width
          :max-depth              max-depth}]]]]))
 
 ;; =========================================================================
-;; public component — `data-display-popup`
+;; public component — `edn-inspector-popup`
 ;; =========================================================================
 
-(defn data-display-popup
-  "Floating popup overlay that wraps `[dd/data-display value opts]`.
+(defn edn-inspector-popup
+  "Floating popup overlay that wraps `[ei/edn-inspector value opts]`.
   Form-2 Reagent component: the outer fn allocates a stable
   `mount-id` (UUID, D8=a per rf2-sndui) in closure; the inner fn
   reads the popup's stack position from app-db (so multiple popups
@@ -455,13 +455,13 @@
   application's DOM.
 
   Per D8=a the auto-generated UUID on mount lives until unmount; two
-  side-by-side `[data-display-popup …]` mounts get independent
+  side-by-side `[edn-inspector-popup …]` mounts get independent
   expansion state.
 
   Usage:
 
-      [data-display-popup value]
-      [data-display-popup value {:title \"Sub :app/cart\"
+      [edn-inspector-popup value]
+      [edn-inspector-popup value {:title \"Sub :app/cart\"
                                  :panel-id :rf.xray.sub-detail
                                  :default-expanded-depth 3}]
 
@@ -470,7 +470,7 @@
   caller can pass an explicit `:on-close` to override the default
   rf-dispatch (e.g. for a parent component that controls its own
   open/closed flag)."
-  ([value] (data-display-popup value nil))
+  ([value] (edn-inspector-popup value nil))
   ([_value _opts]
    (let [mount-id (gen-mount-id)]
      (fn [value opts]
@@ -489,7 +489,7 @@
 ;; stack view — renders every open popup over the active panel
 ;; =========================================================================
 
-(defn data-display-popup-stack
+(defn edn-inspector-popup-stack
   "Stack view that renders every open popup in z-index order. Mount
   this once at the shell's overlay container (follow-on bead wires
   it into `mount.cljs`); each entry's payload is the value + opts
@@ -500,9 +500,9 @@
 
   This view is the entry point for **programmatic** opens — a
   context-menu handler dispatches
-  `[:rf.xray.data-display-popup/open mount-id {:value v :opts o}]`
+  `[:rf.xray.edn-inspector-popup/open mount-id {:value v :opts o}]`
   and this view picks the entry up and renders it. The plain
-  `[data-display-popup v opts]` component is the entry point for
+  `[edn-inspector-popup v opts]` component is the entry point for
   **inline** opens (a panel that wants to control the popup
   imperatively from its own view tree)."
   []
@@ -510,7 +510,7 @@
         entries @(rf/subscribe [entries-slot])
         positioning @(rf/subscribe [:rf.xray/modal-positioning])]
     (when (seq stack)
-      (into [:div {:data-testid "rf-xray-data-display-popup-stack"
+      (into [:div {:data-testid "rf-xray-edn-inspector-popup-stack"
                    :data-rf-popup-count (count stack)}]
             (map-indexed
               (fn [idx mount-id]

@@ -54,10 +54,10 @@
             [day8.re-frame2-xray.share :as share]
             ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the per-machine
             ;; snapshot drill-in surface mounts the first-class
-            ;; data-display widget directly. Each machine gets its own
+            ;; edn-inspector widget directly. Each machine gets its own
             ;; `:panel-id` qualifier so two machines' expansion state
             ;; stays independent. See spec/021 §10 widget contract.
-            [day8.re-frame2-xray.views.data-display :as dd]
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
              :as t
              :refer [tokens mono-stack sans-stack display-stack]]))
@@ -271,8 +271,8 @@
 ;; ---- snapshot drill-in (rf2-lxvn6 · spec/021 §10 widget contract) -----
 ;;
 ;; Phase 4 of rf2-oqa60 wires the per-machine snapshot value through
-;; the first-class data-display widget at
-;; `day8.re-frame2-xray.views.data-display`. Each call site qualifies
+;; the first-class edn-inspector widget at
+;; `day8.re-frame2-xray.views.edn-inspector`. Each call site qualifies
 ;; with a per-machine `:panel-id` so two machines' (or before/after's
 ;; on the same machine) expansion state stays independent — the rule
 ;; per spec/021 §10.0.2 acceptance property 5 (per-call-site isolation
@@ -290,7 +290,7 @@
 (defn- snapshot-panel-id
   "Compose a per-machine `:panel-id` qualifier for the snapshot
   drill-in mount. Each machine gets a distinct namespaced keyword so
-  the widget's `:rf.xray.data-display/expansion` slot scopes by
+  the widget's `:rf.xray.edn-inspector/expansion` slot scopes by
   machine-id; expansion under `:auth/login` doesn't bleed into
   expansion under `:checkout/flow`.
 
@@ -318,7 +318,7 @@
 
 (defn- snapshot-block
   "Render one machine snapshot map (`{:state X :data Y}`) via the
-  first-class data-display widget (rf2-oqa60 phase 1, rf2-lxvn6 phase
+  first-class edn-inspector widget (rf2-oqa60 phase 1, rf2-lxvn6 phase
   4). Tagged with a section heading + the per-mount testid so panel-
   level tests can assert presence per (machine-id, phase) pair.
 
@@ -342,7 +342,7 @@
                     :font-family sans-stack
                     :margin-bottom "4px"}}
       label]
-     [dd/data-display snapshot
+     [ei/edn-inspector snapshot
       {:panel-id (snapshot-panel-id machine-id phase)
        ;; rf2-pvsxs — machine + phase are stable identifiers; the
        ;; operator's drill-into-data choices survive a Machines tab
@@ -357,7 +357,7 @@
 (defn- snapshot-drill-in
   "Snapshot drill-in section beneath the focused-event chart. Renders
   the BEFORE and AFTER snapshot maps for the focused transition via
-  the first-class data-display widget so the operator can inspect
+  the first-class edn-inspector widget so the operator can inspect
   what `:data` carried on either side of the transition (spec/003
   §M.10 bug class — `:data` mutations invisible without app-db diff).
 
@@ -571,7 +571,7 @@
               :show-after-rings?  true}]])))
      ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — snapshot drill-in. Each
      ;; per-machine section renders the BEFORE / AFTER snapshot maps
-     ;; through the first-class data-display widget (spec/021 §10).
+     ;; through the first-class edn-inspector widget (spec/021 §10).
      ;; Per-machine `:panel-id` qualifier keeps two machines' expansion
      ;; state independent; the `:before` / `:after` phase suffix scopes
      ;; the two sibling mounts on the same machine. The whole block

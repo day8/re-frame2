@@ -121,7 +121,7 @@
    ;; syntax-highlighter palette (rf2-79ojx · One Dark / Atom One Dark)
    ;; mirrored from Xray's dark-palette so the `xray-and-machines-viz-
    ;; dark-palettes-match-key-set` drift gate stays green. Tokens are
-   ;; Xray-source-highlighter + data-display surface; the chart itself
+   ;; Xray-source-highlighter + edn-inspector surface; the chart itself
    ;; does not read them. See Xray's `tokens.cljc` for the palette
    ;; rationale (CLJS-editor-syntax-highlight scheme — keyword magenta /
    ;; string green / number orange / boolean gold / nil grey).

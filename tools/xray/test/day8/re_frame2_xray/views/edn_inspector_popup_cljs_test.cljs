@@ -1,5 +1,5 @@
-(ns day8.re-frame2-xray.views.data-display-popup-cljs-test
-  "Unit tests for the data-display popup overlay (rf2-s0x6x — phase
+(ns day8.re-frame2-xray.views.edn-inspector-popup-cljs-test
+  "Unit tests for the edn-inspector popup overlay (rf2-s0x6x — phase
   6 of rf2-oqa60).
 
   ## What's under test
@@ -13,7 +13,7 @@
      project `open?`, `top`, `entry` correctly.
   3. **Chrome rendering** — `popup-chrome` emits the canonical
      hiccup shape: backdrop / dialog / header (with close ✕) /
-     body containing the wrapped data-display widget.
+     body containing the wrapped edn-inspector widget.
   4. **Per-mount isolation** — two popup mounts get distinct
      UUIDs; the embedded widget's `:panel-id` is derived from the
      popup's mount-id so two popups inspecting the same value
@@ -30,7 +30,7 @@
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [day8.re-frame2-xray.views.data-display-popup :as ddp]))
+            [day8.re-frame2-xray.views.edn-inspector-popup :as ddp]))
 
 ;; Fresh re-frame runtime per test so dispatch-sync against the
 ;; registered popup handlers lands on a clean slot every time.
@@ -109,9 +109,9 @@
 ;; =========================================================================
 
 (deftest state-slot-keywords-stable
-  (is (= :rf.xray.data-display-popup/stack   ddp/stack-slot))
-  (is (= :rf.xray.data-display-popup/entries ddp/entries-slot))
-  (is (= :rf.xray.data-display-popup/anon    ddp/default-panel-id)))
+  (is (= :rf.xray.edn-inspector-popup/stack   ddp/stack-slot))
+  (is (= :rf.xray.edn-inspector-popup/entries ddp/entries-slot))
+  (is (= :rf.xray.edn-inspector-popup/anon    ddp/default-panel-id)))
 
 ;; =========================================================================
 ;; install! + reducers + subs
@@ -124,7 +124,7 @@
 
 (deftest open-event-pushes-stack-and-stores-payload
   (ddp/install!)
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value {:a 1} :opts {:title "First"}}])
   (let [stack   @(rf/subscribe [ddp/stack-slot])
         entries @(rf/subscribe [ddp/entries-slot])]
@@ -133,11 +133,11 @@
 
 (deftest open-event-stacks-multiple
   (ddp/install!)
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value 1 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m2" {:value 2 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m3" {:value 3 :opts {}}])
   (let [stack @(rf/subscribe [ddp/stack-slot])]
     (is (= ["m1" "m2" "m3"] stack)
@@ -145,11 +145,11 @@
 
 (deftest close-event-removes-specific-id
   (ddp/install!)
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value 1 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m2" {:value 2 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/close "m1"])
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/close "m1"])
   (let [stack   @(rf/subscribe [ddp/stack-slot])
         entries @(rf/subscribe [ddp/entries-slot])]
     (is (= ["m2"] stack) "m1 removed from stack")
@@ -158,11 +158,11 @@
 
 (deftest close-top-removes-topmost-only
   (ddp/install!)
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value 1 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m2" {:value 2 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/close-top])
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/close-top])
   (let [stack @(rf/subscribe [ddp/stack-slot])]
     (is (= ["m1"] stack)
         "close-top removed the topmost (m2); m1 still standing")))
@@ -170,16 +170,16 @@
 (deftest close-top-noop-on-empty-stack
   (ddp/install!)
   ;; No popups open — close-top must not throw.
-  (rf/dispatch-sync [:rf.xray.data-display-popup/close-top])
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/close-top])
   (is (empty? (or @(rf/subscribe [ddp/stack-slot]) []))))
 
 (deftest close-all-clears-state
   (ddp/install!)
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value 1 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m2" {:value 2 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/close-all])
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/close-all])
   (let [stack   @(rf/subscribe [ddp/stack-slot])
         entries @(rf/subscribe [ddp/entries-slot])]
     (is (= [] stack))
@@ -187,42 +187,42 @@
 
 (deftest open-sub-projects-correctly
   (ddp/install!)
-  (is (false? @(rf/subscribe [:rf.xray.data-display-popup/open?]))
+  (is (false? @(rf/subscribe [:rf.xray.edn-inspector-popup/open?]))
       "no popups → :open? false")
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value 1 :opts {}}])
-  (is (true? @(rf/subscribe [:rf.xray.data-display-popup/open?]))
+  (is (true? @(rf/subscribe [:rf.xray.edn-inspector-popup/open?]))
       "one popup → :open? true"))
 
 (deftest top-sub-tracks-topmost-mount-id
   (ddp/install!)
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value 1 :opts {}}])
-  (is (= "m1" @(rf/subscribe [:rf.xray.data-display-popup/top])))
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (is (= "m1" @(rf/subscribe [:rf.xray.edn-inspector-popup/top])))
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m2" {:value 2 :opts {}}])
-  (is (= "m2" @(rf/subscribe [:rf.xray.data-display-popup/top]))
+  (is (= "m2" @(rf/subscribe [:rf.xray.edn-inspector-popup/top]))
       "second open promotes m2 to topmost"))
 
 (deftest entry-sub-returns-specific-payload
   (ddp/install!)
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value {:cart 1} :opts {:title "A"}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m2" {:value {:user 2} :opts {:title "B"}}])
   (is (= {:value {:cart 1} :opts {:title "A"}}
-         @(rf/subscribe [:rf.xray.data-display-popup/entry "m1"])))
+         @(rf/subscribe [:rf.xray.edn-inspector-popup/entry "m1"])))
   (is (= {:value {:user 2} :opts {:title "B"}}
-         @(rf/subscribe [:rf.xray.data-display-popup/entry "m2"]))))
+         @(rf/subscribe [:rf.xray.edn-inspector-popup/entry "m2"]))))
 
 (deftest reopen-with-same-id-preserves-position-and-replaces-payload
   (testing "re-opening m1 raises it to top AND replaces its payload"
     (ddp/install!)
-    (rf/dispatch-sync [:rf.xray.data-display-popup/open
+    (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                        "m1" {:value 1 :opts {}}])
-    (rf/dispatch-sync [:rf.xray.data-display-popup/open
+    (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                        "m2" {:value 2 :opts {}}])
-    (rf/dispatch-sync [:rf.xray.data-display-popup/open
+    (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                        "m1" {:value 99 :opts {:title "raised"}}])
     (let [stack   @(rf/subscribe [ddp/stack-slot])
           entries @(rf/subscribe [ddp/entries-slot])]
@@ -243,16 +243,16 @@
              :positioning :fixed
              :stack-pos   0})]
     (is (some? (find-attr h :data-testid
-                          "rf-xray-data-display-popup-backdrop-m1"))
+                          "rf-xray-edn-inspector-popup-backdrop-m1"))
         "backdrop node carries mount-id-suffixed testid")
     (is (some? (find-attr h :data-testid
-                          "rf-xray-data-display-popup-dialog-m1"))
+                          "rf-xray-edn-inspector-popup-dialog-m1"))
         "dialog node carries mount-id-suffixed testid")
     (is (some? (find-attr h :data-testid
-                          "rf-xray-data-display-popup-body-m1"))
+                          "rf-xray-edn-inspector-popup-body-m1"))
         "body node carries mount-id-suffixed testid")
     (is (some? (find-attr h :data-testid
-                          "rf-xray-data-display-popup-close-m1"))
+                          "rf-xray-edn-inspector-popup-close-m1"))
         "close button carries mount-id-suffixed testid")))
 
 (deftest popup-chrome-emits-title-node-with-caller-title
@@ -263,7 +263,7 @@
              :positioning :fixed
              :stack-pos   0})
         title-node (find-attr h :data-testid
-                              "rf-xray-data-display-popup-title-m1")]
+                              "rf-xray-edn-inspector-popup-title-m1")]
     (is (some? title-node) "title node renders")
     ;; The title text is the third element (after the tag + attrs).
     (is (some #{"Custom title"} (flatten title-node))
@@ -277,11 +277,11 @@
              :positioning :fixed
              :stack-pos   0})
         title-node (find-attr h :data-testid
-                              "rf-xray-data-display-popup-title-m1")]
+                              "rf-xray-edn-inspector-popup-title-m1")]
     (is (some #{"Inspect"} (flatten title-node))
         "no :title → default 'Inspect' label")))
 
-(deftest popup-chrome-embeds-data-display-widget
+(deftest popup-chrome-embeds-edn-inspector-widget
   (let [h    (ddp/popup-chrome
                {:mount-id    "m1"
                 :value       {:foo :bar}
@@ -289,11 +289,11 @@
                 :positioning :fixed
                 :stack-pos   0})
         body (find-attr h :data-testid
-                        "rf-xray-data-display-popup-body-m1")]
+                        "rf-xray-edn-inspector-popup-body-m1")]
     (is (some? body) "body node renders")
-    ;; The body's child is `[dd/data-display value opts]` — find the
-    ;; data-display fn reference in the body subtree.
-    (let [data-display-call?
+    ;; The body's child is `[ei/edn-inspector value opts]` — find the
+    ;; edn-inspector fn reference in the body subtree.
+    (let [edn-inspector-call?
           (some (fn [node]
                   (and (vector? node)
                        (fn? (first node))
@@ -301,8 +301,8 @@
                        ;; value (or a wrapper around it).
                        (= (count node) 3)))
                 (walk-hiccup body))]
-      (is data-display-call?
-          "body embeds a fn-as-component call (the data-display widget)"))))
+      (is edn-inspector-call?
+          "body embeds a fn-as-component call (the edn-inspector widget)"))))
 
 (deftest popup-chrome-uses-aria-dialog-attrs
   (let [h      (ddp/popup-chrome
@@ -312,12 +312,12 @@
                   :positioning :fixed
                   :stack-pos   0})
         dialog (find-attr h :data-testid
-                          "rf-xray-data-display-popup-dialog-m1")]
+                          "rf-xray-edn-inspector-popup-dialog-m1")]
     (is (= "dialog" (-> dialog second :role))
         "dialog carries WAI-ARIA role")
     (is (= "true" (-> dialog second :aria-modal))
         "dialog is aria-modal")
-    (is (= "rf-xray-data-display-popup-title-m1"
+    (is (= "rf-xray-edn-inspector-popup-title-m1"
            (-> dialog second :aria-labelledby))
         "dialog labelled by the title node id")))
 
@@ -329,7 +329,7 @@
              :positioning :absolute
              :stack-pos   0})
         backdrop (find-attr h :data-testid
-                            "rf-xray-data-display-popup-backdrop-m1")]
+                            "rf-xray-edn-inspector-popup-backdrop-m1")]
     (is (= "absolute"
            (-> backdrop second :style :position))
         ":absolute positioning confines backdrop to parent cell")
@@ -345,7 +345,7 @@
              :positioning :fixed
              :stack-pos   0})
         backdrop (find-attr h :data-testid
-                            "rf-xray-data-display-popup-backdrop-m1")]
+                            "rf-xray-edn-inspector-popup-backdrop-m1")]
     (is (= "fixed"
            (-> backdrop second :style :position))
         ":fixed positioning spans viewport (production default)")))
@@ -360,7 +360,7 @@
                                  (reset! captured event-v))]
       (let [f (ddp/close-fn "m1" {})]
         (f)
-        (is (= [:rf.xray.data-display-popup/close "m1"] @captured)
+        (is (= [:rf.xray.edn-inspector-popup/close "m1"] @captured)
             "default close-fn dispatches the :close event for this id")))))
 
 (deftest close-fn-uses-caller-on-close-when-supplied
@@ -383,7 +383,7 @@
                  :positioning :fixed
                  :stack-pos   0})
         close (find-attr h :data-testid
-                         "rf-xray-data-display-popup-close-m1")]
+                         "rf-xray-edn-inspector-popup-close-m1")]
     (is (fn? (-> close second :on-click))
         "close button carries an :on-click handler")))
 
@@ -397,13 +397,13 @@
                     :positioning :fixed
                     :stack-pos   0})
         backdrop (find-attr h :data-testid
-                            "rf-xray-data-display-popup-backdrop-m1")
+                            "rf-xray-edn-inspector-popup-backdrop-m1")
         on-click (-> backdrop second :on-click)]
     (is (fn? on-click) "backdrop carries an :on-click handler")
     (with-redefs [rf/dispatch* (fn [event-v & _]
                                  (reset! captured event-v))]
       (on-click #js {:stopPropagation (fn [])})
-      (is (= [:rf.xray.data-display-popup/close "m1"] @captured)
+      (is (= [:rf.xray.edn-inspector-popup/close "m1"] @captured)
           "backdrop click dispatches :close for this popup"))))
 
 (deftest handle-keydown-escape-dispatches-close-top
@@ -416,7 +416,7 @@
         #js {:key "Escape"
              :preventDefault  (fn [])
              :stopPropagation (fn [])})
-      (is (= [:rf.xray.data-display-popup/close-top] @captured)
+      (is (= [:rf.xray.edn-inspector-popup/close-top] @captured)
           "Esc dispatches :close-top"))))
 
 (deftest handle-keydown-other-keys-bubble
@@ -433,15 +433,15 @@
           "Enter does not dispatch any popup event"))))
 
 ;; =========================================================================
-;; data-display-popup (form-2 component) — per-mount UUID
+;; edn-inspector-popup (form-2 component) — per-mount UUID
 ;; =========================================================================
 
-(deftest data-display-popup-allocates-mount-id-per-mount
+(deftest edn-inspector-popup-allocates-mount-id-per-mount
   ;; Two outer calls to the form-2 component (each modelling a
   ;; separate mount) should produce DISTINCT inner fns with distinct
   ;; mount-ids in closure.
-  (let [outer-1 (ddp/data-display-popup {:a 1})
-        outer-2 (ddp/data-display-popup {:a 1})]
+  (let [outer-1 (ddp/edn-inspector-popup {:a 1})
+        outer-2 (ddp/edn-inspector-popup {:a 1})]
     (is (fn? outer-1) "form-2 outer returns an inner fn")
     (is (fn? outer-2))
     ;; Distinct closures imply distinct mount-ids; we can't peek into
@@ -450,21 +450,21 @@
     (is (not= outer-1 outer-2)
         "two outer calls produce distinct inner fns")))
 
-(deftest data-display-popup-two-arity-overload
-  (testing "[data-display-popup value opts] arity is accepted (D2=a
+(deftest edn-inspector-popup-two-arity-overload
+  (testing "[edn-inspector-popup value opts] arity is accepted (D2=a
             two-arg overload convention)"
-    (is (fn? (ddp/data-display-popup {:a 1} {:title "Cart"})))))
+    (is (fn? (ddp/edn-inspector-popup {:a 1} {:title "Cart"})))))
 
-(deftest data-display-popup-default-arity
-  (testing "[data-display-popup value] single-arg arity works"
-    (is (fn? (ddp/data-display-popup {:a 1})))))
+(deftest edn-inspector-popup-default-arity
+  (testing "[edn-inspector-popup value] single-arg arity works"
+    (is (fn? (ddp/edn-inspector-popup {:a 1})))))
 
 ;; =========================================================================
 ;; per-mount isolation — embedded widget panel-id is mount-scoped
 ;; =========================================================================
 
 (deftest popup-chrome-derives-embedded-panel-id-from-mount-id
-  ;; The embedded data-display widget should receive a :panel-id that
+  ;; The embedded edn-inspector widget should receive a :panel-id that
   ;; incorporates the popup's mount-id so two popups inspecting the
   ;; same value never collide on expansion state.
   (let [h    (ddp/popup-chrome
@@ -474,9 +474,9 @@
                 :positioning :fixed
                 :stack-pos   0})
         body (find-attr h :data-testid
-                        "rf-xray-data-display-popup-body-m-abc")
+                        "rf-xray-edn-inspector-popup-body-m-abc")
         ;; Walk into the body subtree and find the embedded
-        ;; data-display call's opts map (third element of the
+        ;; edn-inspector call's opts map (third element of the
         ;; `[fn value opts]` form).
         embedded-call
         (some (fn [node]
@@ -488,7 +488,7 @@
                   node))
               (walk-hiccup body))]
     (is (some? embedded-call)
-        "embedded data-display call resolved with a :panel-id opt")
+        "embedded edn-inspector call resolved with a :panel-id opt")
     (let [embedded-panel-id (:panel-id (nth embedded-call 2))]
       (is (keyword? embedded-panel-id)
           "embedded panel-id is a keyword")
@@ -505,7 +505,7 @@
                 :positioning :fixed
                 :stack-pos   0})
         body (find-attr h :data-testid
-                        "rf-xray-data-display-popup-body-m-xyz")
+                        "rf-xray-edn-inspector-popup-body-m-xyz")
         embedded-call
         (some (fn [node]
                 (when (and (vector? node)
@@ -528,37 +528,37 @@
   (ddp/install!)
   ;; Register the modal-positioning sub the stack view subscribes to.
   (rf/reg-sub :rf.xray/modal-positioning (fn [_ _] :fixed))
-  (is (nil? (ddp/data-display-popup-stack))
+  (is (nil? (ddp/edn-inspector-popup-stack))
       "closed stack short-circuits to nil"))
 
 (deftest stack-view-renders-one-entry-per-open-popup
   (ddp/install!)
   (rf/reg-sub :rf.xray/modal-positioning (fn [_ _] :fixed))
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value 1 :opts {:title "A"}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m2" {:value 2 :opts {:title "B"}}])
-  (let [tree (ddp/data-display-popup-stack)]
+  (let [tree (ddp/edn-inspector-popup-stack)]
     (is (some? tree) "stack view renders when at least one popup is open")
     (is (some? (find-attr tree :data-testid
-                          "rf-xray-data-display-popup-stack"))
+                          "rf-xray-edn-inspector-popup-stack"))
         "container carries the stack testid")
     (is (some? (find-attr tree :data-testid
-                          "rf-xray-data-display-popup-backdrop-m1"))
+                          "rf-xray-edn-inspector-popup-backdrop-m1"))
         "m1 chrome present")
     (is (some? (find-attr tree :data-testid
-                          "rf-xray-data-display-popup-backdrop-m2"))
+                          "rf-xray-edn-inspector-popup-backdrop-m2"))
         "m2 chrome present")))
 
 (deftest stack-view-marks-popup-count
   (ddp/install!)
   (rf/reg-sub :rf.xray/modal-positioning (fn [_ _] :fixed))
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m1" {:value 1 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m2" {:value 2 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.data-display-popup/open
+  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m3" {:value 3 :opts {}}])
-  (let [tree (ddp/data-display-popup-stack)]
+  (let [tree (ddp/edn-inspector-popup-stack)]
     (is (= 3 (-> tree second :data-rf-popup-count))
         "popup-count attribute reflects stack depth")))

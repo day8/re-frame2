@@ -1,5 +1,5 @@
-(ns day8.re-frame2-xray.views.data-display
-  "Xray's first-class data-display widget — roll-your-own CLJS-value
+(ns day8.re-frame2-xray.views.edn-inspector
+  "Xray's first-class edn-inspector widget — roll-your-own CLJS-value
   renderer (rf2-oqa60 phase 1).
 
   ## What this is
@@ -19,7 +19,7 @@
   - `theme/data-inspector` — sentinels (`:rf/redacted`, `:rf/large`)
     become first-class types INSIDE this widget; the chrome wrapper
     goes away (D3=a per rf2-sndui).
-  - `data-display/render` — diff renderer subsumed (phase 5; D5=a per
+  - `edn-inspector/render` — diff renderer subsumed (phase 5; D5=a per
     rf2-sndui). The diff path is now an opt-in mode on this same
     widget — pass `:before` to render with gutter glyphs +
     `← changed from <prior>` annotations.
@@ -28,17 +28,17 @@
 
   ## Public API
 
-      [data-display value]                ;; browse (no diff)
-      [data-display value opts]           ;; browse / diff
-      [data-display-diff before after]    ;; diff convenience
-      [data-display-diff before after opts]
+      [edn-inspector value]                ;; browse (no diff)
+      [edn-inspector value opts]           ;; browse / diff
+      [edn-inspector-diff before after]    ;; diff convenience
+      [edn-inspector-diff before after opts]
 
       [mini value]              ;; one-line inline (no expansion)
       [mini value max-len]      ;; with width cap
 
   `opts` keys:
 
-  - `:panel-id`     (optional, default `:rf.xray.data-display/anon`)
+  - `:panel-id`     (optional, default `:rf.xray.edn-inspector/anon`)
                     distinguishes per-panel expansion state.
   - `:site-id`      (optional, rf2-pvsxs) — when supplied, becomes the
                     second component of the per-node expansion key
@@ -46,7 +46,7 @@
                     same logical call site survive a panel-leave-and-
                     return round-trip (auto-mount-id changes on remount;
                     a stable site-id does not). Omit to keep the per-
-                    call-site isolation default (two `[data-display]`
+                    call-site isolation default (two `[edn-inspector]`
                     mounts side-by-side stay independent).
   - `:default-expanded-depth` (optional, default 8) — rf2-kbdk8: now an
                     EXPAND CEILING rather than a trigger. The widget
@@ -81,7 +81,7 @@
                     true the widget renders a top-right ↗ icon button
                     (rf2-7sdja — was ⊕; ↗ reads as 'open in new pane')
                     that dispatches
-                    `[:rf.xray.data-display-popup/open mount-id payload]`
+                    `[:rf.xray.edn-inspector-popup/open mount-id payload]`
                     against `:rf/xray` explicitly (popup state is
                     Xray-global, not per-frame — rf2-7sdja). The popup-
                     mount-id is derived from this widget's own mount-
@@ -113,7 +113,7 @@
 
   ## Per-call-site isolation (rf2-sndui D4=a · rf2-pvsxs opt-out)
 
-  Each `[data-display …]` mount auto-assigns a UUID `mount-id` on
+  Each `[edn-inspector …]` mount auto-assigns a UUID `mount-id` on
   first render (captured in a form-2 outer `let`). Two mounts side-
   by-side in the same panel get independent expansion state. The
   expansion key is `[panel-id mount-id path]` by default.
@@ -130,7 +130,7 @@
 
   Substrate-agnostic — downstream adapters (Reagent, UIx, Helix) all
   see the same hiccup. The mount-id capture uses Reagent form-2
-  semantics in `data-display` itself (rf2 substrate is currently
+  semantics in `edn-inspector` itself (rf2 substrate is currently
   Reagent in tools); the rest of the renderer is pure data
   transformations + `rf/subscribe` reads.
 
@@ -170,25 +170,25 @@
             [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
-            [day8.re-frame2-xray.views.data-display-protocol :as ddp]
-            ;; rf2-x16b1 — load default IXrayDataDisplay formatters
+            [day8.re-frame2-xray.views.edn-inspector-protocol :as ddp]
+            ;; rf2-x16b1 — load default IXrayEdnInspector formatters
             ;; for uuid + inst. Requiring for side-effect (extend-type).
             ;; Consumers that extend the same types win — `extend-type`
             ;; installs the most-recently-loaded impl.
-            [day8.re-frame2-xray.views.data-display-default-formatters]))
+            [day8.re-frame2-xray.views.edn-inspector-default-formatters]))
 
 ;; =========================================================================
-;; expansion state — lives in :rf.xray.data-display/expansion under :rf/xray
+;; expansion state — lives in :rf.xray.edn-inspector/expansion under :rf/xray
 ;; =========================================================================
 
 (def expansion-slot
   "App-db slot holding the per-node expansion overrides. Public so
   the consuming panel's reset affordance can clear it.
 
-  Distinct from the legacy `:rf.xray/data-display-expansion` slot
-  used by `data-display/render` — keeping them separate lets the old
+  Distinct from the legacy `:rf.xray/edn-inspector-expansion` slot
+  used by `edn-inspector/render` — keeping them separate lets the old
   engine and the new widget coexist during the phased rollout."
-  :rf.xray.data-display/expansion)
+  :rf.xray.edn-inspector/expansion)
 
 (defn expansion-key
   "Compose the per-node expansion key. Pure data, JVM-portable."
@@ -198,7 +198,7 @@
 (rf/reg-sub expansion-slot
   (fn [db _] (get db expansion-slot)))
 
-(rf/reg-event-db :rf.xray.data-display/toggle-node
+(rf/reg-event-db :rf.xray.edn-inspector/toggle-node
   (fn [db [_ panel-id mount-id path rendered-expanded?]]
     ;; rf2-y59tb — first click MUST invert the currently-visible state.
     ;;
@@ -222,12 +222,12 @@
                     (not (boolean rendered-expanded?)))]
       (assoc-in db [expansion-slot k] {:expanded? next?}))))
 
-(rf/reg-event-db :rf.xray.data-display/set-node
+(rf/reg-event-db :rf.xray.edn-inspector/set-node
   (fn [db [_ panel-id mount-id path expanded?]]
     (assoc-in db [expansion-slot (expansion-key panel-id mount-id path)]
               {:expanded? (boolean expanded?)})))
 
-(rf/reg-event-db :rf.xray.data-display/reset-expansion
+(rf/reg-event-db :rf.xray.edn-inspector/reset-expansion
   (fn [db _]
     (dissoc db expansion-slot)))
 
@@ -256,18 +256,18 @@
   pixels (map of `mount-id` → integer). Public so tests + consuming
   panels can drive measurements deterministically without spinning up a
   real DOM."
-  :rf.xray.data-display/widths)
+  :rf.xray.edn-inspector/widths)
 
 (rf/reg-sub widths-slot
   (fn [db _] (get db widths-slot)))
 
-(rf/reg-event-db :rf.xray.data-display/set-width
+(rf/reg-event-db :rf.xray.edn-inspector/set-width
   (fn [db [_ mount-id width-px]]
     (if (and (string? mount-id) (number? width-px) (pos? width-px))
       (assoc-in db [widths-slot mount-id] (long width-px))
       db)))
 
-(rf/reg-event-db :rf.xray.data-display/clear-width
+(rf/reg-event-db :rf.xray.edn-inspector/clear-width
   (fn [db [_ mount-id]]
     (if (and (string? mount-id) (some-> db (get widths-slot) (contains? mount-id)))
       (update db widths-slot dissoc mount-id)
@@ -359,7 +359,7 @@
 ;; =========================================================================
 ;;
 ;; Phase 5 (rf2-q3dzw, D5=a per rf2-sndui) subsumes the legacy
-;; `data-display.render` diff engine into this widget. Diff is an
+;; `edn-inspector.render` diff engine into this widget. Diff is an
 ;; opt-in MODE on the same renderer: when the caller passes `:before`
 ;; the widget paints gutter glyphs + `← changed from <prior>`
 ;; annotations in place, force-expands the ancestor chain over any
@@ -652,7 +652,7 @@
                  (if (and nm (seq nm)) (str "#fn[" nm "]") "#fn"))]
     :sentinel-redacted
     [:span {:data-rf-type "rf-redacted"
-            :data-testid  "rf-xray-data-display-redacted"
+            :data-testid  "rf-xray-edn-inspector-redacted"
             :title        "Redacted — not revealable (spec/015)"
             :style {:display       "inline-flex"
                     :align-items   "center"
@@ -672,7 +672,7 @@
     :sentinel-redacted-size
     (let [{:keys [bytes]} (val (first v))]
       [:span {:data-rf-type "rf-redacted-size"
-              :data-testid  "rf-xray-data-display-redacted-size"
+              :data-testid  "rf-xray-edn-inspector-redacted-size"
               :title        "Redacted with size — not revealable (spec/015)"
               :style {:display       "inline-flex"
                       :align-items   "center"
@@ -695,7 +695,7 @@
     :sentinel-large
     (let [{:keys [bytes head]} (val (first v))]
       [:span {:data-rf-type "rf-large"
-              :data-testid  "rf-xray-data-display-large"
+              :data-testid  "rf-xray-edn-inspector-large"
               :title        (when head (str "Head preview: " head))
               :style {:display       "inline-flex"
                       :align-items   "center"
@@ -1033,7 +1033,7 @@
 (defn- testid-for
   "Compose a stable data-testid for a node — `[panel-id mount-id path]`."
   [panel-id mount-id path]
-  (str "rf-xray-data-display-"
+  (str "rf-xray-edn-inspector-"
        (name (or panel-id :anon))
        "-" mount-id
        (when (seq path) (str "-" (str/join "/" (map pr-str path))))))
@@ -1078,7 +1078,7 @@
 
 (def triangle-style
   "Inline-style map applied to every expand/collapse triangle (`▸`
-  / `▾`) the data-display widget renders (rf2-tzvk9). One source of
+  / `▾`) the edn-inspector widget renders (rf2-tzvk9). One source of
   truth so every triangle gets the SAME hit-box — three call sites
   (depth-capped, expanded ▾, collapsed ▸) and one diff-mode variant
   share this.
@@ -1135,7 +1135,7 @@
     (when e
       (.preventDefault e)
       (.stopPropagation e))
-    (dispatch-fn [:rf.xray.data-display/toggle-node
+    (dispatch-fn [:rf.xray.edn-inspector/toggle-node
                   panel-id mount-id path rendered-expanded?])))
 
 (defn- collapsed-summary
@@ -1580,7 +1580,7 @@
         (let [{:keys [close]} (delim kind)] close)])]))
 
 (defn- render-protocol-node
-  "Render a value that satisfies `IXrayDataDisplay` via the consumer's
+  "Render a value that satisfies `IXrayEdnInspector` via the consumer's
   protocol methods. Returns hiccup wrapping the consumer's header
   (and optional body) in the standard widget chrome — same testid
   + container-shape contract as the built-in renderer so panel
@@ -1703,7 +1703,7 @@
   expansion-map snapshot down. Returns hiccup. Pure projection of
   (value, expansion-map, opts) — no `rf/subscribe` calls in here.
 
-  Consults `IXrayDataDisplay` at the head — if `value` satisfies the
+  Consults `IXrayEdnInspector` at the head — if `value` satisfies the
   protocol AND the consumer's `-xray-render-header` returns non-nil
   hiccup, the protocol path wins. Otherwise falls through to the
   built-in container / scalar dispatch (phase 7 / rf2-0qrcr).
@@ -1728,7 +1728,7 @@
     ;; result falls through to built-ins. Bound to the same testid
     ;; contract as the built-in renderer so panel chrome doesn't shift.
     (when (and (not= value ::missing)
-               (ddp/satisfies-xray-data-display? value))
+               (ddp/satisfies-xray-edn-inspector? value))
       (render-protocol-node {:value value
                              :panel-id panel-id
                              :mount-id mount-id
@@ -1783,7 +1783,7 @@
                                   :diff? (boolean diff?)}))))))
 
 ;; =========================================================================
-;; mount-id generator + public entry — data-display (form-2 component)
+;; mount-id generator + public entry — edn-inspector (form-2 component)
 ;; =========================================================================
 
 (defn- gen-mount-id
@@ -1798,13 +1798,13 @@
 ;; popup affordance — opt-in "open in popup" control (rf2-l4625)
 ;; =========================================================================
 ;;
-;; When a `[data-display value opts]` call site passes
+;; When a `[edn-inspector value opts]` call site passes
 ;; `:popup-affordance? true` in `opts`, the widget renders a small icon
 ;; button positioned at the top-right of the container. Click dispatches
 ;; the popup's `:open` event with a stable popup-mount-id derived from
-;; the data-display's own mount-id — so re-clicking just raises the
+;; the edn-inspector's own mount-id — so re-clicking just raises the
 ;; existing popup (window-manager "raise" semantics matching
-;; `data-display-popup/push-entry`).
+;; `edn-inspector-popup/push-entry`).
 ;;
 ;; Opt-in (not always-on): scalar / tiny-value mounts don't benefit from
 ;; a larger inspection surface. Panels enable the affordance where the
@@ -1819,7 +1819,7 @@
 ;;
 ;; The affordance dispatches the OPEN event id literally — no `require`
 ;; on the popup ns from here, which would form a cycle (the popup ns
-;; requires data-display). The event id keyword is the public contract.
+;; requires edn-inspector). The event id keyword is the public contract.
 
 (def ^:private popup-affordance-button-style
   {:position      "absolute"
@@ -1852,13 +1852,13 @@
   The popup OPEN event dispatches against `:rf/xray` EXPLICITLY via
   the established `(rf/dispatch event {:frame :rf/xray})` pattern
   (matches `settings/view.cljs` + `app_db_segment_inspector.cljs`).
-  Other data-display dispatches (`:rf.xray.data-display/toggle-node`)
+  Other edn-inspector dispatches (`:rf.xray.edn-inspector/toggle-node`)
   use the lexically-captured `dispatch-fn` because expansion state is
   per-frame — the widget can be mounted in any frame and the toggle
   dispatch must land in the SURROUNDING frame's app-db so the
   expansion-slot subscription sees the write.
 
-  Popup state is different: the popup stack-view (`data-display-popup-
+  Popup state is different: the popup stack-view (`edn-inspector-popup-
   stack` in `shell.cljs`) is mounted inside `[rf/frame-provider
   {:frame :rf/xray}]` and subscribes ONLY against `:rf/xray`'s
   app-db. If a popup-open dispatch leaks to `:rf/default` (or any
@@ -1877,7 +1877,7 @@
   router."
   [_dispatch-fn popup-mount-id value opts]
   [:button
-   {:data-testid             (str "rf-xray-data-display-popup-affordance-"
+   {:data-testid             (str "rf-xray-edn-inspector-popup-affordance-"
                                   popup-mount-id)
     :data-rf-affordance      "popup"
     :data-rf-popup-mount-id  popup-mount-id
@@ -1895,14 +1895,14 @@
                                ;; subscribes against `:rf/xray`)
                                ;; sees the write.
                                (rf/dispatch
-                                 [:rf.xray.data-display-popup/open
+                                 [:rf.xray.edn-inspector-popup/open
                                   popup-mount-id
                                   {:value value
                                    :opts  (-> (or opts {})
                                               ;; Don't recurse the
                                               ;; affordance inside the
                                               ;; popup's embedded
-                                              ;; data-display.
+                                              ;; edn-inspector.
                                               (assoc :popup-affordance? false))}]
                                  {:frame :rf/xray}))
     :style                   popup-affordance-button-style}
@@ -1912,11 +1912,11 @@
    ;; aria-label / title — the glyph swap is visual only.
    "↗"])
 
-(rf/reg-view data-display
-  "First-class data-display widget — single source of truth for
+(rf/reg-view edn-inspector
+  "First-class edn-inspector widget — single source of truth for
   browse + diff + mini.
 
-  Pass `[data-display value]` or `[data-display value opts]`. The
+  Pass `[edn-inspector value]` or `[edn-inspector value opts]`. The
   `opts` map carries `:panel-id`, `:default-expanded-depth`,
   `:max-inline-width`, `:max-depth`, `:before` — see the ns
   docstring for the full key inventory.
@@ -1924,7 +1924,7 @@
   - Browse mode (default): no `:before` opt; the widget renders
     `value` with expand/collapse + sticky operator overrides.
   - Diff mode: pass `:before` in `opts` (or use the
-    `data-display-diff` 3-arg convenience). The widget renders
+    `edn-inspector-diff` 3-arg convenience). The widget renders
     `value` as the AFTER side with gutter glyphs +
     `← changed from <prior>` annotations, force-expands the
     ancestor chain over any changed descendant, and dims `:same`
@@ -1940,14 +1940,14 @@
   independent expansion state via the auto-id.
 
   Per-call-site isolation is the key correctness property here: two
-  `[data-display value]` mounts in the same panel must NOT share
+  `[edn-inspector value]` mounts in the same panel must NOT share
   expansion state. The form-2 closure delivers that — the outer body
   runs once per mount.
 
   ## rf2-y59tb — `reg-view`-registered so dispatch / subscribe inherit
   the surrounding frame
 
-  Before this fix `data-display` was a plain `defn`. Plain Reagent fns
+  Before this fix `edn-inspector` was a plain `defn`. Plain Reagent fns
   do not consult the `frame-provider` React context, so when the
   widget mounted under `:rf/xray` (App-DB panel) toggle dispatches and
   expansion-slot subscribes routed to `:rf/default` instead — the
@@ -1961,10 +1961,10 @@
   through `render-node` opts so callbacks deep in the recursion
   carry the same frame.
 
-  Call sites continue to read `[dd/data-display value opts]` — the
-  macro defs the `data-display` Var to the registered render fn, so
+  Call sites continue to read `[ei/edn-inspector value opts]` — the
+  macro defs the `edn-inspector` Var to the registered render fn, so
   the public API is unchanged. Call sites that omit `opts`
-  (`[dd/data-display value]`) flow the same way; Reagent passes the
+  (`[ei/edn-inspector value]`) flow the same way; Reagent passes the
   positional args from the hiccup vector to both the outer and inner
   fn, and the inner fn tolerates `opts=nil` via the destructure's
   `:or` defaults."
@@ -1994,7 +1994,7 @@
               (when (and (number? w) (pos? w) (not= @last-width w))
                 (reset! last-width w)
                 (dispatch-fn
-                  [:rf.xray.data-display/set-width mount-id w])))))
+                  [:rf.xray.edn-inspector/set-width mount-id w])))))
         container-ref
         (fn [^js el]
           (cond
@@ -2020,13 +2020,13 @@
               (reset! observer nil)
               (reset! last-width nil)
               (dispatch-fn
-                [:rf.xray.data-display/clear-width mount-id]))))]
-    (fn render-data-display
+                [:rf.xray.edn-inspector/clear-width mount-id]))))]
+    (fn render-edn-inspector
       [value & rest-args]
       (let [opts          (first rest-args)
             {:keys [panel-id site-id default-expanded-depth max-inline-width
                     max-depth before popup-affordance? card?]
-             :or   {panel-id :rf.xray.data-display/anon
+             :or   {panel-id :rf.xray.edn-inspector/anon
                     ;; rf2-kbdk8 — default raised from 2 → 8. Under the
                     ;; width-aware heuristic this opt is a CEILING (never
                     ;; auto-expand past depth N), not a TRIGGER. The
@@ -2046,7 +2046,7 @@
             ;; surface (e.g. App-DB tab switching) finds its prior
             ;; overrides under a stable key. When omitted, behaviour
             ;; is unchanged — auto-mount-id keeps per-call-site
-            ;; isolation for naive callers (two `[data-display]`
+            ;; isolation for naive callers (two `[edn-inspector]`
             ;; mounts side-by-side toggle independently).
             ;;
             ;; The choice is per-consumer-panel: App-DB / Handler /
@@ -2065,12 +2065,12 @@
             ;; slot live across panel resizes.
             widths        @(subscribe [widths-slot])
             available-width-px (get widths mount-id)
-            container-id  (str "rf-xray-data-display-"
+            container-id  (str "rf-xray-edn-inspector-"
                                (name panel-id) "-" mount-id)
-            ;; Stable popup-mount-id derived from THIS data-display's
+            ;; Stable popup-mount-id derived from THIS edn-inspector's
             ;; own mount-id so re-clicking the affordance "raises" the
             ;; existing popup rather than spawning a duplicate
-            ;; (matches `data-display-popup/push-entry` semantics).
+            ;; (matches `edn-inspector-popup/push-entry` semantics).
             popup-mount-id (str "ddp-" mount-id)]
         [:div {:data-testid     container-id
                :data-rf-mount-id mount-id
@@ -2137,15 +2137,15 @@
                               ;; ResizeObserver keeps it live.
                               :available-width-px available-width-px}})]))))
 
-(defn data-display-diff
-  "Diff convenience — `[data-display-diff before after]` or
-  `[data-display-diff before after opts]`. Equivalent to
-  `[data-display after (assoc opts :before before)]`. Use when the
+(defn edn-inspector-diff
+  "Diff convenience — `[edn-inspector-diff before after]` or
+  `[edn-inspector-diff before after opts]`. Equivalent to
+  `[edn-inspector after (assoc opts :before before)]`. Use when the
   call site reads more naturally with both halves of the diff at the
   callsite head."
-  ([before after] (data-display-diff before after nil))
+  ([before after] (edn-inspector-diff before after nil))
   ([before after opts]
-   [data-display after (assoc (or opts {}) :before before)]))
+   [edn-inspector after (assoc (or opts {}) :before before)]))
 
 ;; =========================================================================
 ;; mini — one-line inline rendering (D2=a: 2-arg overload, sentinel-aware)
@@ -2167,7 +2167,7 @@
          truncated (if (<= (count pr-text) max-len)
                      pr-text
                      (str (subs pr-text 0 max-len) "…"))]
-     [:span {:data-testid "rf-xray-data-display-mini"
+     [:span {:data-testid "rf-xray-edn-inspector-mini"
              :data-rf-mini "1"
              :title pr-text
              :style {:font-family mono-stack

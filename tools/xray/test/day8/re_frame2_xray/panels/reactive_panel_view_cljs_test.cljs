@@ -21,8 +21,8 @@
             [day8.re-frame2-xray.panels.reactive-panel :as facade]
             [day8.re-frame2-xray.panels.reactive-panel-view :as view]
             ;; rf2-e46qs phase 3 — assert the SUB VALUES row mounts
-            ;; `[dd/data-display value opts]` directly (no facade hop).
-            [day8.re-frame2-xray.views.data-display :as dd]))
+            ;; `[ei/edn-inspector value opts]` directly (no facade hop).
+            [day8.re-frame2-xray.views.edn-inspector :as ei]))
 
 (defn- has-testid? [tree testid]
   (some? (th/find-by-testid tree testid)))
@@ -331,18 +331,18 @@
 ;; ---- SUB VALUES inspector (rf2-e46qs phase 3 of rf2-oqa60) -----------
 ;;
 ;; Each ran sub renders its current cascade value through the
-;; first-class `[dd/data-display value opts]` widget DIRECTLY (no
+;; first-class `[ei/edn-inspector value opts]` widget DIRECTLY (no
 ;; `edn/inspect` / `edn/browse` facade hop). Acceptance:
 ;;
-;;   1. Each sub's value renders via `[dd/data-display]` directly.
+;;   1. Each sub's value renders via `[ei/edn-inspector]` directly.
 ;;   2. Stable per-sub `:panel-id` qualifier so two sub-row expansions
 ;;      are independent.
-;;   3. Existing rf2-oqa60 phase 1 data-display testid contract holds
-;;      (`rf-xray-data-display-<panel-id>-<mount-id>...`).
+;;   3. Existing rf2-oqa60 phase 1 edn-inspector testid contract holds
+;;      (`rf-xray-edn-inspector-<panel-id>-<mount-id>...`).
 
 (deftest sub-values-section-renders-with-row-per-ran-sub
   (testing "rf2-e46qs — the SUB VALUES section lists one row per ran sub
-            and surfaces the data-display widget per row."
+            and surfaces the edn-inspector widget per row."
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
@@ -370,28 +370,28 @@
 ;; ---- raw hiccup helpers (rf2-e46qs) -----------------------------------
 ;;
 ;; `re-frame.test-helpers/find-by-testid` walks via `expand-tree`, which
-;; AUTO-INVOKES every function component (including `dd/data-display`'s
+;; AUTO-INVOKES every function component (including `ei/edn-inspector`'s
 ;; form-2 outer fn → inner fn). That's the right default for assertions
 ;; about WHAT renders — but here we need to assert WHAT IS MOUNTED, not
-;; the expansion: the data-display literal `[dd/data-display value
+;; the expansion: the edn-inspector literal `[ei/edn-inspector value
 ;; opts]` is the contract surface we're locking. So we walk the raw,
 ;; un-expanded hiccup.
 
 (defn- raw-find-dd-mount
   "Walk the raw hiccup tree (no function-component expansion) and
-  return the first `[dd/data-display value opts]` vector under a node
+  return the first `[ei/edn-inspector value opts]` vector under a node
   with `data-testid == testid`, or nil. Mirrors `find-by-testid` for
   the gate node; under the gate node we look at unexpanded children
-  (the literal data-display form survives because we never call the
+  (the literal edn-inspector form survives because we never call the
   walker that would invoke it)."
   [tree testid]
   (letfn [(walk [node]
             (cond
               (and (vector? node)
-                   (or (= dd/data-display (first node))
+                   (or (= ei/edn-inspector (first node))
                        ;; symbol-bound name preserves identity in some
                        ;; advanced builds
-                       (= 'day8.re-frame2-xray.views.data-display/data-display
+                       (= 'day8.re-frame2-xray.views.edn-inspector/edn-inspector
                           (first node))))
               node
 
@@ -411,10 +411,10 @@
               :else          nil))]
     (gate tree)))
 
-(deftest sub-values-row-mounts-data-display-widget-directly
+(deftest sub-values-row-mounts-edn-inspector-widget-directly
   (testing "rf2-e46qs acceptance #1 — each row mounts the first-class
-            `[dd/data-display value opts]` widget DIRECTLY (no `edn/`
-            facade hop). The literal data-display form lives in the
+            `[ei/edn-inspector value opts]` widget DIRECTLY (no `edn/`
+            facade hop). The literal edn-inspector form lives in the
             unexpanded panel hiccup — the contract surface."
     (facade/install!)
     (frame/reg-frame :rf/xray {})
@@ -428,14 +428,14 @@
           dd   (raw-find-dd-mount
                  tree "rf-xray-reactive-sub-value-row-_cart_state-value")]
       (is (some? dd)
-          "the row mounts [dd/data-display value opts] directly")
+          "the row mounts [ei/edn-inspector value opts] directly")
       (is (= {:items [1 2 3]} (nth dd 1 nil))
           "value flows through as the second arg")
       (is (map? (nth dd 2 nil))
           "opts map rides the third arg"))))
 
 (deftest sub-values-row-uses-stable-per-sub-panel-id
-  (testing "rf2-e46qs acceptance #2 — each row's data-display mount
+  (testing "rf2-e46qs acceptance #2 — each row's edn-inspector mount
             carries a STABLE per-sub `:panel-id` so two sub-row
             expansions are independent. The panel-id is namespaced
             under `:rf.xray.reactive-sub-value` and folds the sub-id."
@@ -466,8 +466,8 @@
           "panel-id is namespaced under :rf.xray.reactive-sub-value")
       (is (= "rf.xray.reactive-sub-value" (namespace pid-b))))))
 
-(deftest sub-values-row-data-display-carries-popup-affordance
-  (testing "rf2-l4625 — each sub-value row's data-display mount carries
+(deftest sub-values-row-edn-inspector-carries-popup-affordance
+  (testing "rf2-l4625 — each sub-value row's edn-inspector mount carries
             `:popup-affordance? true` so the operator can pop a sub's
             value into the popup overlay (sub values are commonly the
             full domain projection — cart, route tree, …)"
@@ -489,7 +489,7 @@
 (deftest sub-values-row-no-value-renders-placeholder
   (testing "rf2-e46qs — a sub-run without a `:value` key (redaction /
             pre-attribution) renders the muted no-value placeholder; no
-            data-display widget mount (rather than mounting with `nil`,
+            edn-inspector widget mount (rather than mounting with `nil`,
             which would be indistinguishable from a sub whose actual
             value IS nil)."
     (facade/install!)
@@ -505,7 +505,7 @@
           "the no-value placeholder renders for redacted/absent")
       (is (nil? (th/find-by-testid
                   tree "rf-xray-reactive-sub-value-row-_cart_secret-value"))
-          "no data-display mount when the value is absent"))))
+          "no edn-inspector mount when the value is absent"))))
 
 (deftest sub-values-section-omitted-when-no-ran-subs
   (testing "rf2-e46qs — empty `:sub-values` → the SUB VALUES section is

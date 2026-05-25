@@ -128,8 +128,8 @@
    :info           "#79c0ff"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
    ;; ── syntax-highlighter palette (rf2-79ojx · One Dark / Calva default) ──
-   ;; Dedicated tokens for CLJS-value rendering in the data-display widget
-   ;; (`views/data_display.cljs`) AND the in-bundle Clojure source-text
+   ;; Dedicated tokens for CLJS-value rendering in the edn-inspector widget
+   ;; (`views/edn_inspector.cljs`) AND the in-bundle Clojure source-text
    ;; highlighter (`views/edn_widget/widget.cljs`). One palette, shared by
    ;; both surfaces, so a `:foo` keyword in the source-text panel paints
    ;; the same hue as `:foo` rendered as a value in the App-DB panel.

@@ -1,10 +1,10 @@
-(ns day8.re-frame2-xray.views.data-display-default-formatters
-  "Default `IXrayDataDisplay` formatters for common CLJS types
+(ns day8.re-frame2-xray.views.edn-inspector-default-formatters
+  "Default `IXrayEdnInspector` formatters for common CLJS types
   (rf2-x16b1 · follow-on to rf2-0qrcr phase 7).
 
   ## Why this exists
 
-  Phase 7 of rf2-oqa60 shipped the `IXrayDataDisplay` protocol as the
+  Phase 7 of rf2-oqa60 shipped the `IXrayEdnInspector` protocol as the
   single extension seam for the closed phase-1 renderer. The widget
   ships ZERO default protocol implementations — consuming apps must
   opt in per domain type via `extend-type`.
@@ -41,13 +41,13 @@
 
   ## Loading
 
-  This namespace is `:require`d by `views.data-display` itself —
+  This namespace is `:require`d by `views.edn-inspector` itself —
   loading the renderer also loads the defaults. No call-site
   registration needed.
 
   ## Precedence
 
-  Consumers who extend `IXrayDataDisplay` on the same types (e.g. a
+  Consumers who extend `IXrayEdnInspector` on the same types (e.g. a
   project that wants its own uuid rendering) **win** — `extend-type`
   installs the most-recently-loaded impl. The bundled defaults are
   inert if a consumer has already extended the type. (CLJS protocol
@@ -56,7 +56,7 @@
 
   ## Why not extend in the protocol ns
 
-  The protocol ns (`data-display-protocol`) stays a pure contract
+  The protocol ns (`edn-inspector-protocol`) stays a pure contract
   surface — defprotocol + safe accessors + nothing else. Default
   formatters are a separate concern: opinionated UI choices that
   could plausibly be swapped out by a consumer's preferred
@@ -65,8 +65,8 @@
   artefact."
   (:require [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]
-            [day8.re-frame2-xray.views.data-display-protocol
-             :refer [IXrayDataDisplay]]))
+            [day8.re-frame2-xray.views.edn-inspector-protocol
+             :refer [IXrayEdnInspector]]))
 
 ;; =========================================================================
 ;; styles — read CSS-variable tokens so light/dark themes resolve at paint
@@ -107,7 +107,7 @@
    (str "#uuid \"" v "\"")])
 
 (extend-type cljs.core/UUID
-  IXrayDataDisplay
+  IXrayEdnInspector
   (-xray-render-header [v _opts] (render-uuid-header v))
   (-xray-render-body   [v _opts] (render-uuid-body v)))
 
@@ -210,6 +210,6 @@
    (str "#inst \"" (iso-string v) "\"")])
 
 (extend-type js/Date
-  IXrayDataDisplay
+  IXrayEdnInspector
   (-xray-render-header [v _opts] (render-inst-header v))
   (-xray-render-body   [v _opts] (render-inst-body v)))

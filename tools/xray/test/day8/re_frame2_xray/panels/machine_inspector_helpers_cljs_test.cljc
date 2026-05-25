@@ -447,7 +447,7 @@
   ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the per-transition record
   ;; carries the full `:before` / `:after` snapshot maps so the panel's
   ;; snapshot drill-in surface (spec/021 §10 widget contract) can
-  ;; render them via the first-class data-display widget. The two
+  ;; render them via the first-class edn-inspector widget. The two
   ;; slots are nil when the trace tags lack the commit-or-finalize
   ;; snapshot pair (legacy fixtures).
   (testing "the record exposes :before and :after snapshot maps when

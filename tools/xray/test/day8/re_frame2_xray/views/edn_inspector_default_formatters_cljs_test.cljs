@@ -1,5 +1,5 @@
-(ns day8.re-frame2-xray.views.data-display-default-formatters-cljs-test
-  "Unit tests for the default `IXrayDataDisplay` formatters
+(ns day8.re-frame2-xray.views.edn-inspector-default-formatters-cljs-test
+  "Unit tests for the default `IXrayEdnInspector` formatters
   (rf2-x16b1 · follow-on to rf2-0qrcr phase 7).
 
   ## What's under test
@@ -12,7 +12,7 @@
      form so hover reveals the long uuid.
   3. **Inst (js/Date) header + body** — relative-time header against
      a pinned `now`, ISO body, title carries the full ISO.
-  4. **Render-node integration** — mounting `[data-display some-uuid]`
+  4. **Render-node integration** — mounting `[edn-inspector some-uuid]`
      routes through the protocol path (asserted via
      `:data-rf-protocol \"1\"`); same for inst.
   5. **Consumer override wins** — a consumer's `extend-type` against
@@ -24,11 +24,11 @@
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [day8.re-frame2-xray.views.data-display :as dd]
-            [day8.re-frame2-xray.views.data-display-default-formatters
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
+            [day8.re-frame2-xray.views.edn-inspector-default-formatters
              :as ddf]
-            [day8.re-frame2-xray.views.data-display-protocol
-             :refer [IXrayDataDisplay]]))
+            [day8.re-frame2-xray.views.edn-inspector-protocol
+             :refer [IXrayEdnInspector]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -136,7 +136,7 @@
         "expanded body shows the full canonical uuid")))
 
 (deftest uuid-renders-through-protocol-path-when-mounted
-  (let [h (dd/render-node {:value sample-uuid
+  (let [h (ei/render-node {:value sample-uuid
                            :panel-id :test
                            :mount-id "m1"
                            :path []
@@ -153,7 +153,7 @@
 (deftest uuid-body-rendered-when-expanded
   ;; Default-expanded? on protocol nodes is true (see render-protocol-node),
   ;; so the body container appears without operator interaction.
-  (let [h (dd/render-node {:value sample-uuid
+  (let [h (ei/render-node {:value sample-uuid
                            :panel-id :test
                            :mount-id "m2"
                            :path []
@@ -191,7 +191,7 @@
 
 (deftest inst-renders-through-protocol-path-when-mounted
   (let [d (js/Date. epoch-2026)
-        h (dd/render-node {:value d
+        h (ei/render-node {:value d
                            :panel-id :test
                            :mount-id "m3"
                            :path []
@@ -205,7 +205,7 @@
 
 (deftest inst-body-rendered-when-expanded
   (let [d (js/Date. epoch-2026)
-        h (dd/render-node {:value d
+        h (ei/render-node {:value d
                            :panel-id :test
                            :mount-id "m4"
                            :path []
@@ -222,7 +222,7 @@
 ;; =========================================================================
 
 (deftype MyWrappedUUID [uuid]
-  IXrayDataDisplay
+  IXrayEdnInspector
   (-xray-render-header [_ _opts]
     [:span {:data-testid "custom-uuid-header"} "custom-uuid"])
   (-xray-render-body [_ _opts]
@@ -234,7 +234,7 @@
   ;; the contract: defaults are inert when a consumer takes the seam
   ;; for a type they own.
   (let [v (MyWrappedUUID. (random-uuid))
-        h (dd/render-node {:value v
+        h (ei/render-node {:value v
                            :panel-id :test
                            :mount-id "m5"
                            :path []
