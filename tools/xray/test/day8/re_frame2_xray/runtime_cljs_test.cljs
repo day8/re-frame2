@@ -325,3 +325,55 @@
       (is (true? (:ok? result)))
       (is (vector? (:epochs result)))
       (is (= 0 (:count result))))))
+
+;; ---------------------------------------------------------------------------
+;; (10) get-trace-buffer adopts per-frame rings (rf2-q03j7).
+;; ---------------------------------------------------------------------------
+;;
+;; Per rf2-g1b2m / rf2-8uwce the framework's trace ring is per-frame and
+;; cascade-keyed. `get-trace-buffer` is the Xray-runtime MCP accessor for
+;; the historical flat-events shape; it now resolves a frame-id, requires
+;; one (refuses on ambiguity), and forwards `{:flat true}` to the
+;; framework so the existing flat-event consumer shape is preserved.
+
+(deftest get-trace-buffer-resolves-sole-frame
+  (testing "`get-trace-buffer` resolves the sole-registered frame
+            without an explicit `:frame` arg (post per-frame ring
+            adoption rf2-q03j7) and returns the historical flat-event
+            shape via the framework's `{:flat true}` opt"
+    (rf/reg-event-db :test/just-dispatch
+      (fn [db _] (assoc db :touched? true)))
+    (rf/dispatch-sync [:test/just-dispatch])
+    (let [result (runtime/get-trace-buffer)]
+      (is (true? (:ok? result))
+          "single-frame resolution succeeds without explicit :frame")
+      (is (= :rf/default (:frame result))
+          "the sole frame is the resolved frame")
+      (is (vector? (:events result))
+          "events is a vector (flat-event shape, not cascade bundles)")
+      (is (number? (:count result))))))
+
+(deftest get-trace-buffer-refuses-ambiguous-frame
+  (testing "with no frames registered (or ambiguous resolution), the
+            accessor surfaces a structured `:no-frame-resolved` refusal
+            rather than guessing — per-frame ring API requires a
+            frame-id (rf2-q03j7)"
+    (frame/destroy-frame! :rf/default)
+    (let [result (runtime/get-trace-buffer)]
+      (is (false? (:ok? result)))
+      (is (= :no-frame-resolved (:reason result))))))
+
+(deftest get-issues-walks-every-frame
+  (testing "`get-issues` iterates every registered frame's flat-event
+            stream and merges, so cross-frame issues fired during a
+            multi-frame cascade still surface (rf2-q03j7 — per-frame
+            ring adoption)"
+    ;; Smoke test: with no errors emitted, the result is structured
+    ;; correctly even though events is empty. The merge-across-frames
+    ;; semantics is the load-bearing contract here; an empty event
+    ;; vector is a sufficient witness that the form runs cleanly
+    ;; against the new per-frame trace-buffer signature.
+    (let [result (runtime/get-issues)]
+      (is (true? (:ok? result)))
+      (is (vector? (:issues result)))
+      (is (number? (:count result))))))

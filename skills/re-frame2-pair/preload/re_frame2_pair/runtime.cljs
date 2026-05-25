@@ -1136,14 +1136,25 @@
 
 (defn cascade-of
   "Reconstruct the cascade tree from a root `:dispatch-id` by walking
-   `:rf.event/dispatched` traces in the buffer for matching :parent links.
-   Returns a tree of {:dispatch-id <id> :event <ev> :children [...]}.
+   `:rf.event/dispatched` traces in the per-frame trace rings for
+   matching :parent links. Returns a tree of
+   `{:dispatch-id <id> :event <ev> :children [...]}`.
 
-   Note: this walks the in-memory trace buffer (default depth 200 events
-   per `(rf/configure :trace-buffer {:depth N})`). For long cascades use
-   `(rf/configure :trace-buffer {:depth ...})` to widen the window."
+   Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame and
+   cascade-keyed. A single cascade can fan out across frames (per
+   Spec 002 §Cross-frame dispatch) — every emit on every frame
+   shares the same `:rf.trace/dispatch-id`, so cross-frame
+   reconstruction iterates every registered frame's flat-event
+   stream and merges. Per-frame depth is configurable via
+   `(rf/configure :trace-buffer {:cascades-retained N})`."
   [root-dispatch-id]
-  (let [events     (trace-tooling/trace-buffer {:operation :rf.event/dispatched})
+  (let [;; Per-frame rings, flat-event escape hatch — merge across
+        ;; frames so cross-frame cascades reconstruct correctly.
+        events     (into []
+                         (mapcat #(trace-tooling/trace-buffer
+                                    %
+                                    {:operation :rf.event/dispatched :flat true}))
+                         (rf/frame-ids))
         by-parent  (group-by #(get-in % [:tags :rf.trace/parent-dispatch-id]) events)
         node       (fn node [did]
                      (let [ev (some (fn [e] (when (= did (get-in e [:tags :rf.trace/dispatch-id])) e))
@@ -1654,8 +1665,10 @@
                                 {})]
                   {:ids ids :state state})
     :epochs     (vec (rf/epoch-history frame-id))
-    ;; The retain-N trace ring buffer is global; filter by frame.
-    :traces     (vec (trace-tooling/trace-buffer {:frame frame-id}))
+    ;; Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame; the
+    ;; first arg IS the frame-id and `{:flat true}` returns raw events
+    ;; (the legacy flat-stream shape this slot has always emitted).
+    :traces     (vec (trace-tooling/trace-buffer frame-id {:flat true}))
     nil))
 
 (defn- snapshot-frame

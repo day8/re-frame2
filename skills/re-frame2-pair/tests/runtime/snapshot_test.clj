@@ -52,9 +52,15 @@
 (defn stub-sub-cache [fid] (get-in fixture-frames [fid :sub-cache]))
 (defn stub-epoch-history [fid] (get-in fixture-frames [fid :epochs]))
 (defn stub-machines [] [:auth :session]) ;; global registrar surface
-(defn stub-trace-buffer [opts]
- (let [fid (:frame opts)]
- (filter #(= fid (get-in % [:tags :frame]))
+(defn stub-trace-buffer
+ "Per rf2-g1b2m / rf2-8uwce the framework's `trace-buffer` is now
+ per-frame and cascade-keyed; the frame-id is the required first arg
+ and `{:flat true}` selects the legacy flat-event shape. This stub
+ mirrors the new signature so the snapshot slice's KEEP-IN-SYNC
+ parallel-impl stays accurate."
+ ([frame-id] (stub-trace-buffer frame-id {}))
+ ([frame-id _opts]
+ (filter #(= frame-id (get-in % [:tags :frame]))
  (mapcat (fn [[_ slices]] (:traces slices)) fixture-frames))))
 
 ;; Mirror of preload/re_frame2_pair/runtime.cljs §Coarse-grained snapshot.
@@ -70,7 +76,11 @@
  :machines {:ids (vec (stub-machines))
  :state (or (get (stub-get-frame-db frame-id) :rf/machines) {})}
  :epochs (vec (stub-epoch-history frame-id))
- :traces (vec (stub-trace-buffer {:frame frame-id}))
+ ;; Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame; the
+ ;; first arg IS the frame-id and `{:flat true}` returns raw
+ ;; events (the legacy flat-stream shape this slot has always
+ ;; emitted).
+ :traces (vec (stub-trace-buffer frame-id {:flat true}))
  nil))
 
 (defn- snapshot-frame [frame-id slices]
