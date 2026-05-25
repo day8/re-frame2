@@ -76,37 +76,54 @@
   ([dispatch-id event-vec id-base]
    (cascade-evs dispatch-id event-vec id-base nil))
   ([dispatch-id event-vec id-base {:keys [frame-id call-site source origin fx db-present?
-                                          coeffects after-deltas]
+                                          coeffects after-deltas
+                                          db-pending db-pending-post-flow]
                                     :or   {fx          [[:db nil] [:dispatch [:bar]]]
                                            db-present? true
                                            source      :ui
                                            origin      :app}}]
-   [(cond-> {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
-             :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.event/v event-vec}
+   ;; Per rf2-ta0y7: the substrate stamps `:rf.event/db-pending` (t1)
+   ;; when the handler returned `:db`, and `:rf.event/db-pending-post-
+   ;; flow` (t2) when a flow transformed it. Tests opt into the pair
+   ;; via `:db-pending` / `:db-pending-post-flow` map args; the value
+   ;; is the full `:db` value to stamp under `:tags :rf.event/db`. The
+   ;; emits land in the projection's `:other` bucket (the `:rf.event`
+   ;; case in `domino-bucket` only special-cases dispatched / run-
+   ;; start / run-end).
+   (cond-> [(cond-> {:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+                     :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.event/v event-vec}
+                             frame-id (assoc :frame frame-id))}
+              call-site (assoc :rf.trace/call-site call-site)
+              source    (assoc :source source)
+              origin    (assoc :origin origin))
+            {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
+             :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-start}
                      frame-id (assoc :frame frame-id))}
-      call-site (assoc :rf.trace/call-site call-site)
-      source    (assoc :source source)
-      origin    (assoc :origin origin))
-    {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
-     :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-start}
-             frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
-     :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-end :duration-ms 11}
-             frame-id        (assoc :frame frame-id)
-             (seq coeffects) (assoc :rf.event/coeffects coeffects)
-             (seq after-deltas) (assoc :rf.event/after-deltas after-deltas))}
-    {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
-     :tags (cond-> {:rf.trace/dispatch-id dispatch-id}
-             frame-id    (assoc :frame frame-id)
-             fx          (assoc :rf.event/fx fx)
-             db-present? (assoc :rf.event/db-present? true))}
-    {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
-     :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.fx/id :db :duration-ms 1}
-             frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
-     :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.fx/id :dispatch :rf.fx/args [[:bar]]
-                    :duration-ms 0}
-             frame-id (assoc :frame frame-id))}]))
+            {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
+             :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.trace/phase :run-end :duration-ms 11}
+                     frame-id        (assoc :frame frame-id)
+                     (seq coeffects) (assoc :rf.event/coeffects coeffects)
+                     (seq after-deltas) (assoc :rf.event/after-deltas after-deltas))}
+            {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
+             :tags (cond-> {:rf.trace/dispatch-id dispatch-id}
+                     frame-id    (assoc :frame frame-id)
+                     fx          (assoc :rf.event/fx fx)
+                     db-present? (assoc :rf.event/db-present? true))}
+            {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
+             :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.fx/id :db :duration-ms 1}
+                     frame-id (assoc :frame frame-id))}
+            {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
+             :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.fx/id :dispatch :rf.fx/args [[:bar]]
+                            :duration-ms 0}
+                     frame-id (assoc :frame frame-id))}]
+     (some? db-pending)
+     (conj {:id (+ id-base 7) :op-type :rf.event :operation :rf.event/db-pending
+            :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.event/db db-pending}
+                    frame-id (assoc :frame frame-id))})
+     (some? db-pending-post-flow)
+     (conj {:id (+ id-base 8) :op-type :rf.event :operation :rf.event/db-pending-post-flow
+            :tags (cond-> {:rf.trace/dispatch-id dispatch-id :rf.event/db db-pending-post-flow}
+                    frame-id (assoc :frame frame-id))}))))
 
 (defn- seed-buffer!
   [evs]
@@ -1048,6 +1065,115 @@
         (is (nil? (find-by-testid tree
                                    "rf-xray-event-detail-handler-returned-effects"))
             "returned-effects sub-block omitted on noop handler")))))
+
+;; ---- rf2-ta0y7 — t1 pending :db value + t1→t2 flow reshape -------------
+
+(deftest handler-returned-db-value-renders-from-t1-trace
+  (testing "rf2-ta0y7 — when the cascade carries a `:rf.event/db-pending`
+            trace (t1), the returned-effects sub-block renders the FULL
+            pending :db value (not the presence-only placeholder). Mike's
+            ruling: full value, no diff, PDS structural-sharing keeps the
+            cost negligible."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :counter/seed (fn [_ _] {})))
+    (seed-buffer!
+      (cascade-evs 100 [:counter/seed] 0
+                   {:fx          []
+                    :db-present? true
+                    :db-pending  {:counter 7 :seeded? true}}))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree
+                                    "rf-xray-event-detail-handler-returned-db-value"))
+            "the t1 pending-:db VALUE block renders (inspectable EDN tree)")
+        (is (nil? (find-by-testid tree
+                                   "rf-xray-event-detail-handler-returned-db-absent"))
+            "the legacy presence-only placeholder is NOT shown when t1 is present")))))
+
+(deftest handler-returned-db-falls-back-when-t1-absent
+  (testing "rf2-ta0y7 — graceful degrade: when the cascade has
+            `:db-present?` true on do-fx but NO `:rf.event/db-pending`
+            trace (older runtime / fixture recorded before rf2-ta0y7), the
+            block falls back to the presence-only placeholder pointing at
+            APP-DB CHANGES for the committed diff."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :counter/seed (fn [_ _] {})))
+    (seed-buffer!
+      (cascade-evs 100 [:counter/seed] 0
+                   {:fx          []
+                    :db-present? true}))      ; no :db-pending opt -> no t1 trace
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree
+                                   "rf-xray-event-detail-handler-returned-db-value"))
+            "value block omitted when no t1 trace is on the stream")
+        (is (some? (find-by-testid tree
+                                    "rf-xray-event-detail-handler-returned-db-absent"))
+            "legacy placeholder shows so the user still knows :db was returned")))))
+
+(deftest flows-reshape-summary-renders-when-t2-present
+  (testing "rf2-ta0y7 — when the cascade carries a `:rf.event/db-pending-
+            post-flow` trace (t2), FLOWS gets a trailing reshape-summary
+            sub-block showing the FULL post-flow :db value. Together with
+            the t1 value under EVENT HANDLER above, this is the t1→t2
+            reshape (the panel does NOT precompute a diff — the values
+            are full both ends per Mike's ruling)."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :items/seed (fn [_ _] {})))
+    (let [flow-trace {:id 99 :op-type :flow :operation :rf.flow/computed
+                      :tags {:rf.trace/dispatch-id 100
+                             :flow-id              :item-count
+                             :path                 [:item-count]
+                             :result               3
+                             :before               nil
+                             :input-values         [[:a :b :c]]}}]
+      (seed-buffer!
+        (concat (cascade-evs 100 [:items/seed] 0
+                             {:fx                  []
+                              :db-present?         true
+                              :db-pending          {:items [:a :b :c]}
+                              :db-pending-post-flow {:items [:a :b :c]
+                                                     :item-count 3}})
+                [flow-trace])))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree
+                                    "rf-xray-event-detail-flows-reshape-summary"))
+            "FLOWS carries a trailing reshape-summary block when t2 is present")
+        (is (some? (find-by-testid tree
+                                    "rf-xray-event-detail-flows-reshape-summary-value"))
+            "the post-flow :db value renders as an EDN tree")))))
+
+(deftest flows-reshape-summary-absent-when-t2-absent
+  (testing "rf2-ta0y7 — when no t2 was emitted (flows ran but value-equal-
+            skipped, or no flow touched :db) the reshape summary is
+            OMITTED. Per the substrate's emit gate, no t2 means t1 == t2 —
+            the per-flow rows above carry the per-flow `wrote/read` story;
+            no full-value summary is needed."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :items/seed (fn [_ _] {})))
+    (let [flow-trace {:id 99 :op-type :flow :operation :rf.flow/computed
+                      :tags {:rf.trace/dispatch-id 100
+                             :flow-id              :nope
+                             :path                 [:nope]
+                             :result               nil
+                             :before               nil
+                             :input-values         [nil]}}]
+      (seed-buffer!
+        (concat (cascade-evs 100 [:items/seed] 0
+                             {:fx          []
+                              :db-present? true
+                              :db-pending  {:items []}})  ; no :db-pending-post-flow
+                [flow-trace])))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree
+                                   "rf-xray-event-detail-flows-reshape-summary"))
+            "reshape summary omitted when no t2 trace is on the stream")))))
 
 (deftest db-changes-step-carries-committed-diff-caption
   (testing "rf2-ynnre — the APP-DB CHANGES section's body carries the

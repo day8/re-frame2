@@ -514,21 +514,105 @@
 
   Frame-agnostic: a single shared interceptor value (no per-dispatch
   allocation). The dispatching frame is read from the context coeffects
-  (`assemble-initial-ctx` stamps `:frame`)."
+  (`assemble-initial-ctx` stamps `:frame`).
+
+  Per rf2-ta0y7 (Mike 2026-05-25): this interceptor is also the emit
+  point for the t1 / t2 pending-`:db` snapshot pair on the trace
+  stream. The handler returned its `:db` effect; the rest of the
+  `:after` chain reshaped it (e.g. `path`-interceptor splice) and the
+  flow transform may (or may not) reshape it further before the single
+  deferred install. The pair stamps the full value at two endpoints:
+
+    t1 `:rf.event/db-pending`            — POST-handler-chain,
+                                            PRE-flow-transform (the
+                                            value the handler chain
+                                            returned, before any flow
+                                            could touch it).
+    t2 `:rf.event/db-pending-post-flow`  — POST-flow-transform, PRE-
+                                            commit (the value flows
+                                            reshaped, when they did).
+
+  Mike's ruling stores the full value plain — same posture as
+  `:rf.event/fx` on `:rf.fx/do-fx`. Persistent data structures make
+  the cost a pointer per emit (structural sharing with app-db); no
+  copy, no diff, no DEBUG conditional. `day8/de-dupe` at the pair-mcp
+  wire boundary (rf2-obpa9) collapses the repeated subtrees on
+  egress. The Xray Handler panel reads t1 to render the returned
+  `:db` value under EVENT HANDLER and (t1, t2) together to render
+  the t1→t2 reshape under FLOWS — the framework does NOT precompute
+  a diff.
+
+  Emit gating:
+  - t1 fires when `has-db?` is true (the handler returned a `:db`
+    slot — mirrors how `:rf.event/fx` only carries data when there
+    is `:fx`). Fires regardless of whether the flows artefact is
+    loaded — apps that never registered a flow still get t1.
+  - t2 fires only when flows actually transformed the pending value
+    (`(not (identical? new-db pending-db))`). If no flow's `:after`
+    touched `:db`, t2 == t1 and the second emit is omitted (no
+    information). Implies: no-flows-artefact apps never emit t2.
+
+  Both emits sit inside `trace/emit!` which is DCE-gated by
+  `interop/debug-enabled?` — production CLJS bundles fold both away.
+  An aborted-by-flow-throw event (the catch arm) does NOT emit t2:
+  the partial-cascade `:db` was discarded along with all flow side
+  effects (no `:rf.event/db-changed` will fire either)."
   (interceptor/->interceptor
     :id          :rf/flows
     :rf/default? true
     :after
     (fn [ctx]
-      (if-let [run-on-db (late-bind/get-fn-cached :flows/run-flows-on-db)]
-        (let [frame      (:frame (:coeffects ctx))
-              effects    (:effects ctx)
-              has-db?     (contains? effects :db)
-              pending-db  (if has-db?
-                            (:db effects)
-                            (frame/frame-app-db-value frame))]
+      (let [frame       (:frame (:coeffects ctx))
+            effects     (:effects ctx)
+            has-db?     (contains? effects :db)
+            run-on-db   (late-bind/get-fn-cached :flows/run-flows-on-db)
+            pending-db  (if has-db?
+                          (:db effects)
+                          (when run-on-db (frame/frame-app-db-value frame)))
+            ;; Per rf2-ta0y7: stamp `:rf.event/v` + `:rf.trace/event-id`
+            ;; on the t1 / t2 trace events so they carry the same
+            ;; per-event attribution every other `:op-type :rf.event`
+            ;; emit carries (parity with `:rf.event/run-start` /
+            ;; `:rf.event/run-end` / `:rf.event/db-changed`; tests like
+            ;; `inv-6-frame-created-not-folded-into-next-epoch` assert
+            ;; every event-family trace in an epoch carries the
+            ;; epoch's `:rf.event/v`). Read the redacted event from
+            ;; ctx so schema-sensitive event payloads ride the same
+            ;; scrubbed value the rest of the family does.
+            emit-event  (when has-db? (privacy/redacted-event-from-ctx ctx))
+            event-id    (when has-db? (some-> emit-event first))]
+        ;; t1 — stamp the handler-returned (post-`:after`-chain, pre-
+        ;; flow-transform) `:db` value. Always fires when the handler
+        ;; returned `:db`, whether or not the flows artefact is loaded.
+        ;; The value is the persistent reference; structural sharing
+        ;; with app-db means the emit cost is pointer-sized.
+        (when has-db?
+          (trace/emit! :rf.event :rf.event/db-pending
+                       {:rf.trace/event-id event-id
+                        :rf.event/v        emit-event
+                        :frame             frame
+                        :rf.event/db       pending-db}))
+        (if run-on-db
           (try
             (let [new-db (run-on-db frame pending-db)]
+              ;; t2 — flows transformed the pending `:db`. Stamp the
+              ;; flow-augmented value so the Xray panel can render the
+              ;; t1→t2 reshape. The dirty-check below is the same
+              ;; identical-by-reference guard the effect-publish below
+              ;; uses; t2 fires on the same condition that a `:db`
+              ;; effect survives to `commit-db-effect!`. Per
+              ;; rf2-ta0y7 t2 may fire even when the handler returned
+              ;; no `:db` (flows synthesised one from app-db); resolve
+              ;; the attribution-event lazily so the no-handler-`:db`
+              ;; case still carries it.
+              (when (not (identical? new-db pending-db))
+                (let [t2-event   (or emit-event (privacy/redacted-event-from-ctx ctx))
+                      t2-evt-id  (or event-id (some-> t2-event first))]
+                  (trace/emit! :rf.event :rf.event/db-pending-post-flow
+                               {:rf.trace/event-id t2-evt-id
+                                :rf.event/v        t2-event
+                                :frame             frame
+                                :rf.event/db       new-db})))
               ;; Only publish a `:db` effect when flows actually changed
               ;; the value OR the handler already had one — a no-flow /
               ;; no-write event must not synthesise a spurious `:db`
@@ -549,11 +633,18 @@
               ;; `:fx`. `dissoc`-ing `:db` is the whole mechanism — winding
               ;; back on a pre-install throw is FREE because the install was
               ;; already deferred to one write.
+              ;;
+              ;; No t2 emit on the throw arm: the partial cascade `:db` was
+              ;; discarded (no install, no db-changed). The t1 emit above
+              ;; already fired with the handler-returned value; consumers
+              ;; that pair t1 with an event abort see no t2.
               (-> (update ctx :effects dissoc :db)
-                  (assoc :rf/flow-error e)))))
-        ;; No flows artefact loaded — short-circuit (steady state for
-        ;; apps that never registered any flow).
-        ctx))))
+                  (assoc :rf/flow-error e))))
+          ;; No flows artefact loaded — short-circuit (steady state for
+          ;; apps that never registered any flow). t1 above already fired
+          ;; when the handler returned `:db`; t2 is by definition
+          ;; impossible here (no flow could have transformed the value).
+          ctx)))))
 
 (defn- emit-flow-eval-exception!
   "Surface a flow-eval throw (stashed by `flows-after-interceptor` under

@@ -408,6 +408,67 @@
   (when (some? v)
     (elision/elide-wire-value v {:frame frame-id})))
 
+(defn- reroot-trace-event-db-slots
+  "Per rf2-ta0y7: the `:rf.event/db-pending` (t1) and
+  `:rf.event/db-pending-post-flow` (t2) trace events each carry the
+  FULL pending `:db` value under `:tags :rf.event/db`. The bulk
+  `elide-payload-slot` above walks `:trace-events` as a single root —
+  its path tracker treats the nested `:db` value as `[<i> :tags
+  :rf.event/db :a :b …]`, so schema-declared sensitive paths like
+  `[:auth :password]` do NOT match (the walker expects them rooted at
+  the frame's app-db).
+
+  This helper performs the per-event re-root: it walks each trace
+  event whose `:operation` is in #{`:rf.event/db-pending`
+  `:rf.event/db-pending-post-flow`}, then calls `elide-wire-value`
+  on the inner `:db` value with `{:path []}` — re-rooting the walk at
+  the frame's app-db so the sensitive / large declarations match
+  natively. Symmetric with how `flows.cljc` elides `:rf.flow/computed`'s
+  `:result` / `:before` at emit-time using the flow's `:path`; here we
+  do it at egress because the t1/t2 stamps are stored raw on the
+  ring (Mike's ruling — store the value plain, PDS keeps the cost
+  pointer-sized; the egress projection is the privacy boundary).
+
+  Returns the trace-events vector with the inner `:rf.event/db` slots
+  re-elided; non-t1/t2 events pass through untouched, and events
+  lacking the `:rf.event/db` slot pass through too. Idempotent: a
+  second pass against an already-redacted value just walks scalars
+  that no longer match any declaration.
+
+  A user-supplied `:redact-fn` may have already replaced the whole
+  `:trace-events` slot with a scalar sentinel (`:rf/redacted`) — the
+  fn returns it untouched in that case (no descend into a non-
+  vector)."
+  [trace-events frame-id]
+  (if-not (sequential? trace-events)
+    trace-events
+    (mapv (fn [ev]
+            (if-not (map? ev)
+              ev
+              (let [op (:operation ev)]
+                (if (and (or (= op :rf.event/db-pending)
+                             (= op :rf.event/db-pending-post-flow))
+                         (some? (get-in ev [:tags :rf.event/db])))
+                  (update-in ev [:tags :rf.event/db]
+                             elision/elide-wire-value
+                             {:frame frame-id :path []})
+                  ev))))
+          trace-events)))
+
+(defn- elide-trace-events-slot
+  "The `:trace-events` projection chain (rf2-ta0y7): first re-root the
+  per-event `:rf.event/db` slots on the t1 / t2 trace events so the
+  sensitive / large declarations match natively, then run the bulk
+  `elide-wire-value` walk over the whole vector to handle the other
+  payload-bearing tag values (`:rf.event/v`, `:rf.cofx/value`, etc.)
+  with their own per-tag paths. Idempotent (a second pass walks
+  already-redacted scalars). Nil-preserving."
+  [v frame-id]
+  (when (some? v)
+    (-> v
+        (reroot-trace-event-db-slots frame-id)
+        (elision/elide-wire-value {:frame frame-id}))))
+
 (defn projected-record
   "Project an `:rf/epoch-record` for off-box egress. Routes the four
   payload-bearing slots (`:db-before`, `:db-after`, `:trigger-event`,
@@ -450,7 +511,7 @@
         (update :trigger-event elide-payload-slot frame-id)
 
         (contains? record :trace-events)
-        (update :trace-events  elide-payload-slot frame-id)))))
+        (update :trace-events  elide-trace-events-slot frame-id)))))
 
 (defn projected-history
   "Convenience: return the projected vector of records for a frame.
