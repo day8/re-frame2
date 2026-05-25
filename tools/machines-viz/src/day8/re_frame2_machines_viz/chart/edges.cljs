@@ -478,6 +478,18 @@
                ;; (sibling-count > 1).
                :data-sibling-index (str sibling-index)
                :data-sibling-count (str sibling-count)
+               ;; rf2-r7vsr (Phase 3) — post-render label-collision
+               ;; avoidance threads the painted SVG path string + the
+               ;; geometric label anchor (BEFORE the per-sibling y-row
+               ;; offset) here. The `chart.overlays.label_collisions`
+               ;; sibling overlay reads them via querySelectorAll +
+               ;; data-attr, runs the pure resolver, and overrides
+               ;; `style.transform` to slide colliding labels along the
+               ;; edge's path until they sit clear of every node body.
+               ;; Pure DOM-driven post-pass — no React-state coupling.
+               :data-edge-path-d   path
+               :data-label-anchor-x (str label-x)
+               :data-label-anchor-y (str (+ label-y label-y-offset))
                :data-machine-level (str (boolean (.-machineLevel d)))
                ;; rf2-u422r — clickable edges surface their fireable
                ;; event-id so a host (Xray on-chart sim) + tests can
