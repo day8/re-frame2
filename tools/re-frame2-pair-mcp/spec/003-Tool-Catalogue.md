@@ -889,6 +889,45 @@ see §Structural dedup at the top of this catalogue), `build` (string).
 
 **Returns**: `{:ok? true :window-ms N :until-ms T :count K :limit L :epochs-mode :diff|:full :epochs [...] :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
 
+When the window surfaces zero matches but the per-frame epoch-history
+is non-empty, the envelope additionally carries an `:advisory` slot —
+see §Empty-result advisory below.
+
+### Empty-result advisory (rf2-fb4hn)
+
+When the response would carry `:count 0` but the operating frame's
+per-frame epoch-history is non-empty, the envelope carries an
+`:advisory` slot distinguishing "nothing happened" from "events exist
+but fell outside the time window" (impl:
+[`src/re_frame2_pair_mcp/tools/trace_window.cljs`](../src/re_frame2_pair_mcp/tools/trace_window.cljs)
+lines 130-142):
+
+```clojure
+{:advisory {:reason            :window-excludes-history
+            :frame             <frame-id>
+            :epochs-in-history N
+            :window-ms         N
+            :hint              "N epochs exist in the per-frame history
+                                but none fell inside the last <window>ms
+                                window. Widen :ms (e.g. 60000), or use
+                                `snapshot :include [:epochs]` to inspect
+                                the full history."}}
+```
+
+The advisory fires when **both** ratchets hold: `:count` is zero (the
+slot operators read to decide "nothing happened") and the per-frame
+ring depth is positive (events exist). Without it the operator
+routinely misread an empty window as "the MCP isn't capturing my
+events" — the 2026-05-25 pair-debug session referenced in PR #2120
+named the misread cost. With it, the operator either widens `:ms` or
+pivots to `snapshot :include [:epochs]` for unbounded historical
+inspection.
+
+The slot is omitted when matches exist or when the frame's history is
+genuinely empty (a fresh runtime with no dispatches). Agents
+pattern-match presence to decide whether the empty result needs a
+follow-up call.
+
 ### Diff-encoded `:db-after` (rf2-1wdzp + rf2-qeous)
 
 By default (`epochs-mode "diff"`), each epoch's `:db-after` is replaced
@@ -960,10 +999,62 @@ threshold.
 
 **Returns**: `{:ok? true :matches [...] :limit L :count K :head-id "..." :id-aged-out? bool :epochs-mode :diff|:full :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
 
+When the call surfaces zero matches but the per-frame epoch-history is
+non-empty, the envelope additionally carries an `:advisory` slot —
+see §Empty-result advisory below.
+
 Each match has its `:db-after` diff-encoded against its own
 `:db-before` by default (rf2-1wdzp); pass `epochs-mode "full"` for
 the legacy full-pair shape. See `trace-window` above for the wire
 shape and rationale.
+
+### Empty-result advisory (rf2-fb4hn)
+
+When the response would carry `:count 0` but the operating frame's
+per-frame epoch-history is non-empty, the envelope carries an
+`:advisory` slot distinguishing two distinct empty-result causes
+(impl: [`src/re_frame2_pair_mcp/tools/watch_epochs.cljs`](../src/re_frame2_pair_mcp/tools/watch_epochs.cljs)
+lines 139-165):
+
+**Case A — `:no-events-since-id`** (zero `:count`, zero new epochs
+since `:since-id`, non-empty history). The caller's `:since-id` sits
+at or past the head; no events have landed since.
+
+```clojure
+{:advisory {:reason            :no-events-since-id
+            :frame             <frame-id>
+            :epochs-in-history N
+            :requested-id      <since-id>
+            :hint              "Per-frame history holds N epochs but
+                                none have landed since the supplied
+                                :since-id. Dispatch an event to advance
+                                the head, or omit :since-id to see the
+                                full ring."}}
+```
+
+**Case B — `:pred-excludes-history`** (zero `:count`, positive new
+epochs since `:since-id`). Events landed but `:pred` filtered them
+all out.
+
+```clojure
+{:advisory {:reason            :pred-excludes-history
+            :frame             <frame-id>
+            :epochs-in-history N
+            :epochs-since-id   N
+            :hint              "N epochs landed since the requested id
+                                but the :pred filter excluded all of
+                                them. Drop / widen :pred, or use
+                                trace-window for an unfiltered view."}}
+```
+
+The two cases share the impl's pattern: ratchet on `:count 0` first,
+then pick the explainer from runtime-side `:since-count` /
+`:history-count` counts so the tool body picks the right advisory from
+one nREPL round-trip. The advisory is omitted when matches exist or
+when the frame's history is genuinely empty. Agents pattern-match on
+`:reason` inside the advisory to choose the next step — restart with
+no `:since-id`, widen the `:pred`, or pivot to `trace-window` for an
+unfiltered view.
 
 ## tail-build
 
