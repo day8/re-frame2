@@ -597,7 +597,7 @@ The MCP-server surfaces that stream the per-frame ring to off-box agents (`re-fr
 
 The cascade-bundle wire shape DIFFERS from the in-process `:flat true` opt-in by intent: in-process callers may need raw events for fine-grained per-emit logic; off-box agents need atomic cascade context per stream tick to stay within token budgets and to reason about cause→effect at a granularity that matches `:dispatch-id`. The bundle is the better default for LLM-shaped consumers; the `:flat` form is the escape hatch for in-process callers that already grouped raw streams themselves.
 
-Per cursor-pagination (rf2-kbqq3) and per-session cache (rf2-3rt1f) conventions in [§Wire-protocol mechanisms](#wire-protocol-mechanisms-mcp-tool-layer-not-framework) compose unchanged: a `:dispatch-id`-keyed cursor identifies the next cascade slot; a `:rf.mcp/cursor-stale` marker fires when the cursor's cascade has aged out of the ring; per-session response cache keys on app-db identity, not on cascade-id, so the cascade-bundle shape doesn't change its hit semantics.
+Per cursor-pagination (rf2-kbqq3) and per-session cache (rf2-3rt1f) conventions in [§Wire-protocol mechanisms](#wire-protocol-mechanisms-mcp-tool-layer-not-framework) compose unchanged: a `:epoch-id`-keyed cursor identifies the next epoch slot in `epoch-history`; a `:rf.mcp/cursor-stale` marker fires when the cursor's `:epoch-id` has aged out of `epoch-history`; per-session response cache keys on app-db root identity, so the cascade-bundle shape doesn't change its hit semantics.
 
 #### Frameless trace events — live channel only (rf2-g1b2m B3 ruling)
 
