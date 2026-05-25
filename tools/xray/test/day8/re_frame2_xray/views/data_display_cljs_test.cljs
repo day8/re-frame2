@@ -1359,6 +1359,103 @@
       (is (nil? (:data-rf-card (second h-off)))
           "card-off omits the attribute"))))
 
+;; ---- rf2-726ol — map column alignment (triangle / line / keys / close) --
+;;
+;; The map body's left padding + margin position the vertical guide line
+;; at the triangle's visual centre (~16px from the row's left edge at
+;; the 22px glyph metric — rf2-4aiaq). Keys sit 6px past the line. The
+;; closing brace sits at the same `padding-left 16px` so the triangle /
+;; line / keys / closing-brace converge on one column structure.
+
+(defn- find-body-divs
+  "Return every body-div the renderer emits (every node whose
+  `:data-rf-body-layout` is non-nil)."
+  [tree]
+  (filter (fn [node]
+            (and (vector? node)
+                 (map? (second node))
+                 (some? (:data-rf-body-layout (second node)))))
+          (walk-hiccup tree)))
+
+(defn- find-close-divs
+  "Return every closing-bracket div (cells with `data-rf-cell \"close\"`)."
+  [tree]
+  (filter (fn [node]
+            (and (vector? node)
+                 (map? (second node))
+                 (= "close" (:data-rf-cell (second node)))))
+          (walk-hiccup tree)))
+
+(deftest map-body-guide-line-at-triangle-center
+  (testing "rf2-726ol — the body div's `margin-left 16px` + `border-left
+            1px` puts the vertical guide line at x=16px from the row's
+            left edge, which is approximately the centre of the 22px
+            triangle box (~31-34px wide, centre at ~16px)"
+    (let [v   {:counter 1 :async nil :machine-ui {:open? true}}
+          k0  (dd/expansion-key :test "m" [])
+          h   (dd/render-node {:value v
+                               :panel-id :test :mount-id "m"
+                               :path [] :depth 0
+                               :expansion-map {k0 {:expanded? true}}
+                               :opts {:default-expanded-depth 0}})
+          bodies (find-body-divs h)]
+      (is (seq bodies) "expanded map renders body div(s)")
+      (doseq [body bodies]
+        (let [style (:style (second body))]
+          (is (= "16px" (:margin-left style))
+              "body's margin-left puts the 1px border at x=16 (= triangle centre)")
+          (is (= "6px" (:padding-left style))
+              "keys sit 6px past the line for a small breath"))))))
+
+(deftest closing-brace-aligns-with-guide-line
+  (testing "rf2-726ol — the closing-bracket div sits at `padding-left
+            16px`, the same x-position as the vertical guide line, so
+            the bracket pair `▾ { … }` reads as a coherent vertical
+            column at every nesting depth"
+    (let [;; 4+ keys in each map defeats inline-fit (which requires
+          ;; ≤3 children) so both outer + inner expand-render.
+          v   {:a 1 :b 2 :c 3 :d 4
+               :nested {:x 1 :y 2 :z 3 :w 4}}
+          k0  (dd/expansion-key :test "m" [])
+          k1  (dd/expansion-key :test "m" [:nested])
+          h   (dd/render-node
+                {:value v
+                 :panel-id :test :mount-id "m"
+                 :path [] :depth 0
+                 :expansion-map {k0 {:expanded? true}
+                                 k1 {:expanded? true}}
+                 :opts {:default-expanded-depth 0}})
+          closes (find-close-divs h)]
+      (is (= 2 (count closes))
+          "outer + inner expanded maps each contribute a close-brace cell")
+      (doseq [c closes]
+        (let [style (:style (second c))]
+          (is (= "16px" (:padding-left style))
+              "close-brace `padding-left 16px` matches the guide-line x"))))))
+
+(deftest block-body-shares-alignment-with-grid-body
+  (testing "rf2-726ol — sequential (vector / list / set) bodies use the
+            same `margin-left 16px` + `padding-left 6px` as map bodies
+            so a vector's guide line / first item / closing bracket all
+            converge on the same column structure"
+    (let [;; 4 elements + a nested container defeats inline-fit so the
+          ;; block body actually renders.
+          v   [1 2 3 4 {:x :y}]
+          k0  (dd/expansion-key :test "m" [])
+          h   (dd/render-node {:value v
+                               :panel-id :test :mount-id "m"
+                               :path [] :depth 0
+                               :expansion-map {k0 {:expanded? true}}
+                               :opts {:default-expanded-depth 0}})
+          bodies (find-body-divs h)
+          block-bodies (filter #(= "block" (:data-rf-body-layout (second %)))
+                               bodies)]
+      (is (seq block-bodies)
+          "vector container emits a block-layout body when expanded")
+      (let [style (:style (second (first block-bodies)))]
+        (is (= "16px" (:margin-left style)) "same 16px margin as grid body")
+        (is (= "6px"  (:padding-left style)) "same 6px padding as grid body")))))
+
 (deftest card-opt-theme-aware-via-tokens
   (testing "rf2-63ie5 — the card chrome reads from the live `tokens`
             map (a CSS-variable shim per `theme/tokens.cljc`) so both

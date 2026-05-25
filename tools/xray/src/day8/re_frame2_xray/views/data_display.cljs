@@ -1096,10 +1096,20 @@
            ;; key. Falls back gracefully when a value is a multi-line
            ;; container — the value cell grows down, the key stays
            ;; baseline-aligned to the value's first line.
+           ;; rf2-726ol — `margin-left 16px` puts the 1px guide line at
+           ;; the triangle's visual center (the 22px glyph + 8px-side
+           ;; padding renders the triangle box ~31-34px wide; centre
+           ;; lands at ~16px from the row's left edge). `padding-left
+           ;; 6px` gives the key a small breath beyond the line so the
+           ;; line + key column read as a discrete bracket pair instead
+           ;; of fused text. The closing brace below sits at the same
+           ;; `padding-left 16px` — line + first-key column + closing-
+           ;; brace column all converge on one vertical column, so the
+           ;; tree reads as `▾ { │ keys │ }` recursively at every depth.
            (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
                         :data-rf-body-layout "grid"
-                        :style {:padding-left         "14px"
-                                :margin-left          "5px"
+                        :style {:padding-left         "6px"
+                                :margin-left          "16px"
                                 :border-left          (str "1px solid "
                                                            (:border-subtle tokens))
                                 :display              "grid"
@@ -1150,10 +1160,16 @@
            ;; Each child renders bare (no key column). Per-row block flow
            ;; — each entry sits below the previous; nested containers
            ;; recurse with their own grid/block decision.
+           ;;
+           ;; rf2-726ol — same `margin-left 16px` + `padding-left 6px` as
+           ;; the grid body so the vertical guide line sits at the
+           ;; triangle's visual centre (~16px from row left at the 22px
+           ;; glyph metric). Closing bracket below shares the same `16px`
+           ;; padding-left.
            (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
                         :data-rf-body-layout "block"
-                        :style {:padding-left "14px"
-                                :margin-left  "5px"
+                        :style {:padding-left "6px"
+                                :margin-left  "16px"
                                 :border-left  (str "1px solid "
                                                    (:border-subtle tokens))}}]
                  (map
@@ -1174,8 +1190,19 @@
                    child-pairs)))))
 
      ;; ---- close bracket (only when expanded + body present) -------------
+     ;; rf2-726ol — closing bracket sits at `padding-left 16px` so it
+     ;; column-aligns with the vertical guide line above (the body div's
+     ;; 16px margin + 1px border puts the line at x=16). The bracket
+     ;; pair `▾ { … }` reads as a coherent vertical column at every
+     ;; nesting depth.
+     ;;
+     ;; `data-rf-cell "close"` exposes the close-bracket cell for
+     ;; testbed assertions (column-alignment regression tests probe
+     ;; this attr).
      (when (and expanded? (not empty?) (not depth-capped?) (not inline-fit?))
-       [:div {:style {:color (get tokens (:tone-key (delim kind)))
+       [:div {:data-rf-cell "close"
+              :style {:padding-left "16px"
+                      :color (get tokens (:tone-key (delim kind)))
                       :font-family mono-stack}}
         (let [{:keys [close]} (delim kind)] close)])]))
 
@@ -1211,9 +1238,13 @@
                         :flex-wrap "wrap"}}
           header]
          (when (and expanded? (some? body))
+           ;; rf2-726ol — protocol-node body shares the same alignment
+           ;; rule as built-in container bodies: line at the triangle's
+           ;; visual centre (~16px from row left), body content with a
+           ;; 6px breath beyond the line.
            [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
-                  :style {:padding-left "14px"
-                          :margin-left  "5px"
+                  :style {:padding-left "6px"
+                          :margin-left  "16px"
                           :border-left  (str "1px solid " (:border-subtle tokens))}}
             body])]))))
 
