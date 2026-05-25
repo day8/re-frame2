@@ -164,15 +164,22 @@
                          "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
                          "3. Not registered: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  2000
+    ;; rf2-90eft — `preview-variant` ships the variant's `:app-db`
+    ;; re-keyed into `:rendered-hiccup` / `:effective-args` /
+    ;; `:snapshot`; structural dedup collapses those four references
+    ;; into one cache slot at the wire boundary. Mirrors pair-mcp's
+    ;; selective `:dedup` knob on `snapshot` (descriptors_data.cljs).
+    :dedup-eligible? true
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
-                                (s/with-include-sensitive
-                                  {:variant-id s/kw-or-string
-                                   :substrate s/kw-or-string
-                                   :active-modes {:type "array" :items s/kw-or-string}
-                                   :cell-overrides {:type "object"}
-                                   :base-url {:type "string"
-                                              :description "Optional base URL for the share link (no default)."}}))
+                                (s/with-dedup
+                                  (s/with-include-sensitive
+                                    {:variant-id s/kw-or-string
+                                     :substrate s/kw-or-string
+                                     :active-modes {:type "array" :items s/kw-or-string}
+                                     :cell-overrides {:type "object"}
+                                     :base-url {:type "string"
+                                                :description "Optional base URL for the share link (no default)."}})))
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema

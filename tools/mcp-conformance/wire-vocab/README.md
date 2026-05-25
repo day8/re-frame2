@@ -54,12 +54,14 @@ This test is the conformance gate. It asserts:
    (`re-frame2-pair-mcp/src/`) asserts the canonical literal appears,
    and asserts that no near-miss spelling (snake_case, pluralised,
    namespace-with-underscores) appears.
-4. **story-mcp absence tripwire.** story-mcp does NOT currently emit
-   any of the cross-MCP markers — it uses its own `:rf.story/*` /
-   `:rf.assert/*` / `:rf.error/*` vocabularies. A test asserts that
-   absence so that the day story-mcp adopts a marker, the test fails
-   loud and forces the reviewer to register a fixture and a source
-   file (rather than diverge silently).
+4. **story-mcp uncontracted-marker tripwire.** story-mcp emits one
+   cross-MCP marker today — `:rf.mcp/dedup-table` (rf2-90eft, mirror
+   of pair-mcp's rf2-obpa9 wire-boundary structural dedup) — and
+   otherwise uses its own `:rf.story/*` / `:rf.assert/*` /
+   `:rf.error/*` vocabularies. A test asserts that NO UNCONTRACTED
+   cross-MCP marker leaks into story-mcp source, so the day it adopts
+   another marker the test fails loud and forces the reviewer to
+   register a fixture and a source file (rather than diverge silently).
 
 ## Files
 
@@ -104,4 +106,4 @@ actual source/spec text. Two complementary gates; one wire.
 | Fixture doesn't validate against schema | Server (or spec) changed the marker body shape | Update both the schema AND the relevant fixture; the divergence is the bug |
 | Literal missing from server source | Marker was renamed in one server | Pick the canonical form, rename the other server, update the schema |
 | Near-miss variant present | Vocabulary drift (snake_case spelling crept in) | Rename back to the canonical form |
-| story-mcp absence tripwire fires | story-mcp now emits a cross-MCP marker | Add story-mcp to the marker's `:servers` set, add a fixture, extend `server-source-files` |
+| story-mcp uncontracted-marker tripwire fires | story-mcp now emits a NEW cross-MCP marker | Add story-mcp to the marker's `:servers` set, add a fixture, extend `server-source-files` |

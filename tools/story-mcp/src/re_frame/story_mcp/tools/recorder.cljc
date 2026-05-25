@@ -269,24 +269,32 @@
                          "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "
                          "3. Duration too long: {:variant-id \":story.cart/full\" :duration-ms 60000} -> {:isError true :content [{:text \":duration-ms 60000 exceeds ceiling 30000ms...\"}] :structuredContent {:rf.error :rf.story-mcp/duration-ms-too-large :duration-ms 60000 :max-allowed 30000}}.")
     :typicalTokens  1500
+    ;; rf2-90eft — `record-as-variant` ships a `:captured` vector of
+    ;; event tuples; when an agent records a repetitive interaction
+    ;; (e.g. ten `:cart/add` events with the same SKU payload) the
+    ;; argument maps repeat across records, and structural dedup
+    ;; collapses them. Mirrors pair-mcp's selective `:dedup` knob on
+    ;; epoch-vector surfaces (descriptors_data.cljs).
+    :dedup-eligible? true
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
-                                {:variant-id     s/kw-or-string
-                                 :duration-ms    {:type "integer" :minimum 0 :maximum max-duration-ms
-                                                  :description (str "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op). "
-                                                                    "Hard ceiling " max-duration-ms "ms — the MCP server's request loop is single-threaded so "
-                                                                    "this call blocks unrelated tools for the full window; abusive durations are rejected (rf2-4yuhi).")}
-                                 :new-variant-id (assoc s/kw-or-string
-                                                   :description "When `:write-back` is true, register the captured recording (translated to a live `:play-script` body) under this id. Defaults to the source `:variant-id` (overwrites in place).")
-                                 :doc            {:type "string"
-                                                  :description "Optional docstring embedded in the rendered snippet."}
-                                 :extends        (assoc s/kw-or-string
-                                                   :description "Variant id embedded as `:extends` in the snippet. Defaults to the source `:variant-id`.")
-                                 :alias          {:type "string"
-                                                  :description "Short ns alias for the rendered form (default \"story\")."}
-                                 :write-back     {:type "boolean"
-                                                  :description (str "When true, also re-register the variant with the captured recording as a live `:play-script` body. Requires `allow-writes?`. "
-                                                                    "Wire-key shape: no `?` per Anthropic's `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex (rf2-pmwgn).")}})
+                                (s/with-dedup
+                                  {:variant-id     s/kw-or-string
+                                   :duration-ms    {:type "integer" :minimum 0 :maximum max-duration-ms
+                                                    :description (str "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op). "
+                                                                      "Hard ceiling " max-duration-ms "ms — the MCP server's request loop is single-threaded so "
+                                                                      "this call blocks unrelated tools for the full window; abusive durations are rejected (rf2-4yuhi).")}
+                                   :new-variant-id (assoc s/kw-or-string
+                                                     :description "When `:write-back` is true, register the captured recording (translated to a live `:play-script` body) under this id. Defaults to the source `:variant-id` (overwrites in place).")
+                                   :doc            {:type "string"
+                                                    :description "Optional docstring embedded in the rendered snippet."}
+                                   :extends        (assoc s/kw-or-string
+                                                     :description "Variant id embedded as `:extends` in the snippet. Defaults to the source `:variant-id`.")
+                                   :alias          {:type "string"
+                                                    :description "Short ns alias for the rendered form (default \"story\")."}
+                                   :write-back     {:type "boolean"
+                                                    :description (str "When true, also re-register the variant with the captured recording as a live `:play-script` body. Requires `allow-writes?`. "
+                                                                      "Wire-key shape: no `?` per Anthropic's `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex (rf2-pmwgn).")}}))
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/write-gated-output-schema

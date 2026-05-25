@@ -437,7 +437,13 @@
 
    {:key      :rf.mcp/dedup-table
     :schema   DedupTable
-    :servers  #{:re-frame2-pair-mcp}
+    ;; Multi-server marker as of rf2-90eft — story-mcp adopted the
+    ;; same wire-boundary structural-dedup transform (mirror of pair-
+    ;; mcp's rf2-obpa9). Both servers source the marker key from
+    ;; `re-frame.mcp-base.vocab/dedup-table-key` so the literal stays
+    ;; byte-identical; an agent that learned the slot on either server
+    ;; reconstructs identically via `de-dupe.core/expand`.
+    :servers  #{:re-frame2-pair-mcp :story-mcp}
     :fixtures {:re-frame2-pair-mcp         {:rf.mcp/dedup-table
                                    {:de-dupe.cache/cache-0 [:de-dupe.cache/cache-1 :de-dupe.cache/cache-1]
                                     :de-dupe.cache/cache-1 {:event-id :foo :handler-id :bar}}}
@@ -446,7 +452,20 @@
                ;; keying schema-validated even without a second server.
                :re-frame2-pair-mcp-integer {:rf.mcp/dedup-table
                                    {1 {:event-id :foo :handler-id :bar}
-                                    2 {:event-id :baz}}}}}
+                                    2 {:event-id :baz}}}
+               ;; story-mcp emission (rf2-90eft) — the `run-variant`
+               ;; payload re-keys the same `:app-db` value into
+               ;; `:rendered-hiccup` and `:snapshot`; dedup collapses
+               ;; those into a single cache slot referenced thrice. The
+               ;; fixture pins that exact shape so a regression in the
+               ;; cap-pipeline wiring (`tools/story-mcp/src/.../cap.cljc
+               ;; apply-dedup`) trips this gate.
+               :story-mcp        {:rf.mcp/dedup-table
+                                   {:de-dupe.cache/cache-0 {:frame :story.cart/full
+                                                            :app-db :de-dupe.cache/cache-1
+                                                            :rendered-hiccup [:div.cart {:data-state :de-dupe.cache/cache-1}]
+                                                            :snapshot {:body :de-dupe.cache/cache-1}}
+                                    :de-dupe.cache/cache-1 {:cart {:items [] :total 0}}}}}}
 
    {:key      :rf.mcp/diff-from
     :schema   [:map [:rf.mcp/diff-from [:enum :db-before]] [:sections :any]]
@@ -725,11 +744,12 @@
   is the right invariant; emit-sites that import from vocab.cljc
   cannot drift independently of the canonical declaration.
 
-  story-mcp does not emit any cross-MCP markers today — its
-  `:servers` membership is empty in `canonical-markers`, so its
-  emit-source set is empty by construction."
+  As of rf2-90eft story-mcp also consumes from `mcp-base/vocab.cljc`
+  (the `dedup-table-key` symbol — `tools/story-mcp/src/re_frame/
+  story_mcp/tools/dedup.cljc` `:require`s it). Same single-source-of-
+  truth posture as pair-mcp; the emit-source path is the same file."
   {:re-frame2-pair-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]
-   :story-mcp []})
+   :story-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]})
 
 (def ^:private doc-source-files
   "Per-server prose-y sources where the marker literal SHOULD appear
@@ -974,13 +994,20 @@
           (str "Unknown server in :servers for " key ": "
                (remove fx/known-servers servers))))))
 
-(deftest story-mcp-still-emits-zero-cross-mcp-markers
-  ;; Self-documenting tripwire: the day story-mcp adopts ANY of the
-  ;; cross-MCP markers as an INLINE EMISSION, this test flips RED —
-  ;; at which point the reviewer adds story-mcp to the `:servers` set
-  ;; on the affected marker, adds a fixture, and extends
-  ;; `server-source-files`. That's the right friction; conformance is
-  ;; not free.
+(deftest story-mcp-still-emits-zero-uncontracted-cross-mcp-markers
+  ;; Self-documenting tripwire: the day story-mcp adopts a NEW
+  ;; cross-MCP marker as an INLINE EMISSION (i.e. one it is NOT
+  ;; already contracted for in `canonical-markers/:servers`), this
+  ;; test flips RED — at which point the reviewer adds story-mcp to
+  ;; the `:servers` set on the affected marker, adds a fixture, and
+  ;; extends `server-source-files`. That's the right friction;
+  ;; conformance is not free.
+  ;;
+  ;; Markers story-mcp is ALREADY contracted to emit are skipped — the
+  ;; contract IS the green-state.  As of rf2-90eft that set is
+  ;; `#{:rf.mcp/dedup-table}` (story-mcp adopted pair-mcp's structural-
+  ;; dedup wire-boundary transform); the gate continues to fire on
+  ;; every OTHER marker.
   ;;
   ;; Comment- and docstring-only mentions are stripped before the
   ;; check (via `strip-comments-and-strings`). story-mcp re-uses
@@ -989,9 +1016,12 @@
   ;; docstrings without inline-emitting either. Documentation is not
   ;; an emission — this tripwire fires only on bare-code occurrences
   ;; (rf2-xx42k).
-  (let [story-files fx/story-mcp-source-files]
-    (doseq [{:keys [key]} canonical-markers
-            rel           story-files]
+  (let [story-files       fx/story-mcp-source-files
+        uncontracted-keys (for [{:keys [key servers]} canonical-markers
+                                :when (not (contains? servers :story-mcp))]
+                            key)]
+    (doseq [key uncontracted-keys
+            rel story-files]
       (testing (str "story-mcp source " rel " — " key " absence")
         (let [stripped (fx/strip-comments-and-strings (fx/read-source rel))]
           (is (not (str/includes? stripped (marker-key->literal key)))

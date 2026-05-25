@@ -44,6 +44,21 @@
          ;; the overflow-marker shape. Per rf2-vw4sq.
          day8/re-frame2-mcp-base {:local/root "../mcp-base"}
 
+         ;; day8/de-dupe — structural dedup of persistent data structures
+         ;; (rf2-90eft, mirroring pair-mcp's rf2-obpa9 wire-boundary
+         ;; integration). The library substitutes repeated subtrees with
+         ;; namespaced-symbol references (`de-dupe.cache/cache-N`); the
+         ;; flat cache map round-trips back through `expand` on the
+         ;; agent host. Applied at the wire boundary BEFORE the wire-cap
+         ;; check (rf2-rvyzy) so dedup gets to shrink first. JVM-side
+         ;; reach is unlocked by the `.cljc` port (rf2-nw6sj →
+         ;; day8/de-dupe#3, merged 2026-05-13). The pair and story-mcp
+         ;; lockstep on the same tag (`v0.3.0`) so the two servers
+         ;; can't drift on a dedup-algorithm change.
+         day8/de-dupe            {:git/url "https://github.com/day8/de-dupe.git"
+                                  :git/tag "v0.3.0"
+                                  :git/sha "367de784faf13c710a895bed867f36a36e594a2a"}
+
          ;; JSON wire format. Cheshire is the project's existing JSON
          ;; library (implementation/http uses it via requiring-resolve);
          ;; we declare it as a direct runtime dep here because every
