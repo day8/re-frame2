@@ -708,8 +708,9 @@
 
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
-  / per-call overrides take effect. Per-frame :platform overrides
-  interop/platform when set.
+  / per-call overrides take effect. Per-frame :platform overrides the
+  host-wide platform marker (`interop/active-platform`, toggled via
+  `re-frame.core/init-platform`) when set.
 
   Per Spec 002 §The binary fx-handler signature (line 603) and §Cascade
   propagation (line 1162): the originating dispatch envelope is
@@ -738,7 +739,7 @@
   [effects frame frame-record fx-overrides envelope]
   (when-let [fx-vec (:fx effects)]
     (let [active-platform (or (-> frame-record :config :platform)
-                              interop/platform)
+                              (interop/active-platform))
           event           (:event envelope)]
       (fx/do-fx frame fx-vec active-platform
                 {:overrides       fx-overrides

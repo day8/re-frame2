@@ -1092,7 +1092,7 @@ rf/trace-api-version                             ;; version slot, never wired
 
 **Why:** each of these v1 surfaces had a v2-canonical equivalent that subsumed the use case (trace listeners, point-event tracing, fx-shaped lifecycle, run-to-completion drain, frame-level error policy, epoch-based capture/restore). Carrying the v1 names as separate documented entries created drift between the API table and the actual v2 surfaces.
 
-For `init-platform` and the SSR-head trio (`reg-head` / `render-head` / `active-head`) — these were also flagged in the same triage but carry post-v1 ergonomic value; they are deferred (not dropped). Migration tooling should not attempt to rewrite these. (`sub-topology` was flagged the same way and has since been implemented as part of the v1-✓ public registrar query API — see [O-12](#o-12-introspect-the-static-sub-graph-via-rfsub-topology) for opt-in adoption.)
+For the SSR-head trio (`reg-head` / `render-head` / `active-head`) — these were also flagged in the same triage but carry post-v1 ergonomic value; they are deferred (not dropped). Migration tooling should not attempt to rewrite these. (`sub-topology` was flagged the same way and has since been implemented as part of the v1-✓ public registrar query API — see [O-12](#o-12-introspect-the-static-sub-graph-via-rfsub-topology) for opt-in adoption; `init-platform` has likewise landed as a v1 surface — see [API.md `init-platform`](../../spec/API.md) and Spec 011 §Effect handling on the server.)
 
 ---
 

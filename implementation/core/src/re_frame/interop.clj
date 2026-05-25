@@ -108,8 +108,34 @@
 (def empty-queue clojure.lang.PersistentQueue/EMPTY)
 
 ;; ---- platform marker ------------------------------------------------------
+;;
+;; Per Spec 011 §Effect handling on the server, the runtime tracks the
+;; active platform (`:server` or `:client`) so `reg-fx`/`reg-cofx`
+;; `:platforms` metadata can gate execution. JVM hosts default to
+;; `:server`; the public setter `re-frame.core/init-platform` swaps it
+;; at boot for the rare reverse case (CLJS-on-Node SSR runtime that wants
+;; `:server` semantics, or JVM-runnable tests that simulate `:client`).
+;;
+;; Per-frame `:config :platform` (set by the `:ssr-server` preset, or any
+;; user-supplied frame config) still wins over this host-wide marker —
+;; see `re-frame.cofx/active-platform-for-frame` and
+;; `re-frame.router/run-fx-effects!`.
 
-(def platform :server)
+(defonce ^:private platform-state (atom :server))
+
+(defn active-platform
+  "Return the active platform marker (`:server` on JVM, `:client` on
+  CLJS by default). Override at boot with
+  `(re-frame.core/init-platform :server)` / `(... :client)` per
+  Spec 011 §Effect handling on the server."
+  []
+  @platform-state)
+
+(defn set-platform!
+  "Internal setter. Public callers should use
+  `(re-frame.core/init-platform p)` which validates the argument."
+  [p]
+  (reset! platform-state p))
 
 ;; ---- compile-time constants -----------------------------------------------
 ;;

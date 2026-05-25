@@ -119,8 +119,31 @@
 (def empty-queue #queue [])
 
 ;; ---- platform marker ------------------------------------------------------
+;;
+;; Per Spec 011 §Effect handling on the server, the runtime tracks the
+;; active platform (`:server` or `:client`) so `reg-fx`/`reg-cofx`
+;; `:platforms` metadata can gate execution. CLJS hosts default to
+;; `:client`; the public setter `re-frame.core/init-platform` swaps it
+;; at boot for the CLJS-on-Node SSR case (a CLJS bundle whose `:target`
+;; isn't `:browser` and that wants `:server` fx semantics).
+;;
+;; Per-frame `:config :platform` (set by the `:ssr-server` preset, or any
+;; user-supplied frame config) still wins over this host-wide marker.
 
-(def platform :client)
+(defonce ^:private platform-state (atom :client))
+
+(defn active-platform
+  "Return the active platform marker (`:client` on CLJS by default).
+  Override at boot with `(re-frame.core/init-platform :server)` per
+  Spec 011 §Effect handling on the server."
+  []
+  @platform-state)
+
+(defn set-platform!
+  "Internal setter. Public callers should use
+  `(re-frame.core/init-platform p)` which validates the argument."
+  [p]
+  (reset! platform-state p))
 
 ;; ---- compile-time constants -----------------------------------------------
 

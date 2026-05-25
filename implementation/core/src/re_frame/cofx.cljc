@@ -63,11 +63,12 @@
   "Resolve the active platform for a cofx injection. Mirrors the resolution
   in `router/run-fx-effects!`: the frame's `:config :platform` override (set
   by the `:ssr-server` preset, or any user-supplied frame config) takes
-  precedence over the host-wide `interop/platform` marker."
+  precedence over the host-wide platform marker (`interop/active-platform`,
+  toggled via `re-frame.core/init-platform`)."
   [frame-id]
   (or (when frame-id
         (-> (frame/frame frame-id) :config :platform))
-      interop/platform))
+      (interop/active-platform)))
 
 (defn- maybe-validate-cofx!
   "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
