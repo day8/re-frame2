@@ -1,8 +1,10 @@
-;; rf2-j3dlc — live-SSR browser smoke test harness.
+;; rf2-j3dlc — live-SSR Ring harness deps (Jetty + ssr-handler).
 ;;
-;; This deps.edn is consumed ONLY by examples/scripts/serve-and-run-examples-tests.cjs
-;; via `clojure -X:live-ssr-server` to spin up a real Jetty + ssr-handler
-;; for the browser-driven live-SSR Playwright spec (ssr-live.spec.cjs).
+;; Stands up a real Jetty + ssr-handler via `clojure -X:live-ssr-server`
+;; for ad-hoc local exploration of the live-SSR path. Per the test-free
+;; examples policy (rf2-8cevm) there is no per-example Playwright spec
+;; consuming this harness; the SSR + ssr-ring contracts are exercised
+;; by their JVM unit tests under `implementation/ssr-ring/test/...`.
 ;;
 ;; Pulls in the SSR + ssr-ring artefacts via :local/root so the published-
 ;; artefact coordinate graph (implementation/deps.edn) is untouched (that
