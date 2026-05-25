@@ -19,11 +19,11 @@
 > [`VERSION`](./VERSION) carries the template's own version sequence
 > (independent of the framework-wide repo-root `VERSION`).
 >
-> **Repo home:** the template's permanent home is
-> [`github.com/day8/re-frame2-template`](https://github.com/day8/re-frame2-template).
-> It lives under `tools/template/` in the re-frame2 monorepo while the
-> rebuild settles (rf2-dolpf §4); the split out to the external repo is
-> a Mike-operator handoff. The deps-new coord shifts from
+> **Repo home:** the template currently lives in-tree at
+> [`tools/template/`](./) in the re-frame2 monorepo while the rebuild
+> settles (rf2-dolpf §4). Its planned permanent home is the external
+> repo `github.com/day8/re-frame2-template`; the split out to that
+> external repo is a Mike-operator handoff. The deps-new coord shifts from
 > `day8/re-frame2-template` (current `:local/root` shape, monorepo) to
 > `io.github.day8/re-frame2-template` (git-coord, external repo) once
 > the split completes — see [`spec/005-Repo-Split.md`](./spec/005-Repo-Split.md)

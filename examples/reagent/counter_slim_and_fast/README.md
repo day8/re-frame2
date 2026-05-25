@@ -1,9 +1,9 @@
 # counter-slim-and-fast — slim-substrate counter
 
 The canonical counter (`examples/reagent/counter/`) re-mounted on the
-[`day8/reagent-slim`](https://github.com/day8/reagent-slim) rewrite
-rather than stock `day8/re-frame2-reagent` (the thin bridge over
-stock Reagent). The user-visible behaviour is identical to the
+[`day8/reagent-slim`](../../../implementation/adapters/reagent-slim/)
+rewrite rather than stock `day8/re-frame2-reagent` (the thin bridge
+over stock Reagent). The user-visible behaviour is identical to the
 canonical counter; the difference is the substrate beneath.
 
 Every user-facing Reagent import points at `reagent2.*` instead of
