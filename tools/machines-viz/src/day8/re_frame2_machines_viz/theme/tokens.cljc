@@ -118,13 +118,21 @@
    :magenta        "#E879F9"
    :info           "#79c0ff"
 
-   ;; syntax-highlighter palette (rf2-93jp0) — mirrored from Xray's
-   ;; dark-palette so the `xray-and-machines-viz-dark-palettes-match-
-   ;; key-set` drift gate stays green. Tokens are Xray-source-highlighter
-   ;; surface; the chart itself does not read them.
-   :syntax-keyword "#ff7b72"
-   :syntax-string  "#a5d6ff"
-   :syntax-number  "#79c0ff"
+   ;; syntax-highlighter palette (rf2-79ojx · One Dark / Atom One Dark)
+   ;; mirrored from Xray's dark-palette so the `xray-and-machines-viz-
+   ;; dark-palettes-match-key-set` drift gate stays green. Tokens are
+   ;; Xray-source-highlighter + data-display surface; the chart itself
+   ;; does not read them. See Xray's `tokens.cljc` for the palette
+   ;; rationale (CLJS-editor-syntax-highlight scheme — keyword magenta /
+   ;; string green / number orange / boolean gold / nil grey).
+   :syntax-keyword     "#c678dd"
+   :syntax-string      "#98c379"
+   :syntax-number      "#d19a66"
+   :syntax-boolean     "#e5c07b"
+   :syntax-nil         "#7f848e"
+   :syntax-symbol      "#61afef"
+   :syntax-builtin     "#61afef"
+   :syntax-punctuation "#abb2bf"
 
    :red-deep       "#a83a3a"
    :white          "#ffffff"})
@@ -187,15 +195,18 @@
    :magenta        "#B146C2"
    :info           "#0550ae"
 
-   ;; syntax-highlighter palette (rf2-93jp0) — light-palette mirror of
-   ;; Xray's syntax tokens. The light drift gate (`xray-and-machines-
-   ;; viz-light-palettes-match-values`) is shared-key equality, so
-   ;; mirroring keeps the two palettes symmetric and lets a future
-   ;; embed of machines-viz that DOES want to colour code surfaces find
-   ;; the same Figma palette under the same token name.
-   :syntax-keyword "#cf222e"
-   :syntax-string  "#0a3069"
-   :syntax-number  "#0550ae"
+   ;; syntax-highlighter palette (rf2-79ojx · One Light / Atom One Light)
+   ;; mirrored from Xray's light-palette so the light drift gate
+   ;; (`xray-and-machines-viz-light-palettes-match-values`) stays green.
+   ;; See Xray's `tokens.cljc` for the palette rationale.
+   :syntax-keyword     "#a626a4"
+   :syntax-string      "#50a14f"
+   :syntax-number      "#986801"
+   :syntax-boolean     "#c18401"
+   :syntax-nil         "#a0a1a7"
+   :syntax-symbol      "#4078f2"
+   :syntax-builtin     "#4078f2"
+   :syntax-punctuation "#383a42"
 
    :red-deep       "#9A3030"
    :white          "#ffffff"})

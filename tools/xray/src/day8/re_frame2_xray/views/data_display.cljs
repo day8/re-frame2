@@ -95,12 +95,12 @@
 
   | Leaf type        | Token              | Bracket style            |
   |------------------|--------------------|--------------------------|
-  | nil              | `:text-tertiary`   | n/a                      |
-  | boolean          | `:syntax-keyword`  | n/a                      |
+  | nil              | `:syntax-nil`      | n/a                      |
+  | boolean          | `:syntax-boolean`  | n/a                      |
   | integer / float  | `:syntax-number`   | n/a                      |
   | string           | `:syntax-string`   | n/a                      |
-  | keyword          | `:accent`          | n/a                      |
-  | symbol           | `:magenta`         | n/a                      |
+  | keyword          | `:syntax-keyword`  | n/a                      |
+  | symbol           | `:syntax-symbol`   | n/a                      |
   | uuid / regex     | `:info`            | n/a                      |
   | inst / date      | `:info`            | n/a                      |
   | fn               | `:text-tertiary`   | (italic)                 |
@@ -112,7 +112,12 @@
   | set              | `:text-secondary`  | `#{` `}`                 |
   | map-entry        | `:accent`          | `[` `]` (accent tone)    |
   | record           | `:info`            | `#user.Rec{` `}`         |
-  | js object        | `:text-tertiary`   | `#object[` `]`           |"
+  | js object        | `:text-tertiary`   | `#object[` `]`           |
+
+  Per rf2-79ojx the per-type tokens were renamed + the palette retuned
+  to an editor-syntax-highlight scheme (One Dark / One Light). Five
+  scalar types now span four hue families: keyword magenta, string
+  green, number orange, boolean gold, nil grey."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
@@ -436,13 +441,13 @@
   [v]
   (case (collection-kind v)
     :nil      [:span {:data-rf-type "nil"
-                      :style (token-style :text-tertiary)} "nil"]
+                      :style (token-style :syntax-nil)} "nil"]
     :boolean  [:span {:data-rf-type "boolean"
-                      :style (token-style :syntax-keyword)} (str v)]
+                      :style (token-style :syntax-boolean)} (str v)]
     :keyword  [:span {:data-rf-type "keyword"
-                      :style (token-style :accent)} (str v)]
+                      :style (token-style :syntax-keyword)} (str v)]
     :symbol   [:span {:data-rf-type "symbol"
-                      :style (token-style :magenta)} (str v)]
+                      :style (token-style :syntax-symbol)} (str v)]
     :string   [:span {:data-rf-type "string"
                       :style (token-style :syntax-string)} (str-pad-quote v)]
     :number   [:span {:data-rf-type "number"
@@ -698,11 +703,11 @@
   Used to label children inside a container."
   [k]
   (cond
-    (keyword? k) [:span {:style (token-style :accent)} (str k)]
+    (keyword? k) [:span {:style (token-style :syntax-keyword)} (str k)]
     (string? k)  [:span {:style (token-style :syntax-string)} (str-pad-quote k)]
     (number? k)  [:span {:style (token-style :syntax-number)} (str k)]
-    (symbol? k)  [:span {:style (token-style :magenta)} (str k)]
-    (nil? k)     [:span {:style (token-style :text-tertiary)} "nil"]
+    (symbol? k)  [:span {:style (token-style :syntax-symbol)} (str k)]
+    (nil? k)     [:span {:style (token-style :syntax-nil)} "nil"]
     :else        [:span {:style (token-style :text-primary)}
                   (try (pr-str k) (catch :default _ (str k)))]))
 
