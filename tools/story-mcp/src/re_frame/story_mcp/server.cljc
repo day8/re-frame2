@@ -217,11 +217,10 @@
     `apply-config!` only when the absent default was already
     `false`).
   - `--allow-sensitive-reads` — presence opens the sensitive-read gate
-    (rf2-g9fje). Symmetric with `--allow-writes` and with re-frame2-pair-mcp's
-    `--allow-eval`: operator-only opt-in, no `=value` variant. Default
-    off; when off, the wire-egress scrubbers silently ignore any
-    `:include-sensitive true` per-call arg and `tools/list` omits the
-    slot from advertised input schemas.
+    (rf2-g9fje). Symmetric with `--allow-writes`: operator-only opt-in,
+    no `=value` variant. Default off; when off, the wire-egress
+    scrubbers silently ignore any `:include-sensitive true` per-call
+    arg and `tools/list` omits the slot from advertised input schemas.
 
   Unknown flags are logged and ignored — the MCP spec doesn't define
   CLI conventions, so being permissive here is correct.

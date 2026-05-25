@@ -19,10 +19,12 @@
 // This harness drives the contract through the official MCP SDK client —
 // the same path a real consumer (Claude Code, Continue, …) takes — for
 // the flag whose gated posture is observable WITHOUT a live runtime:
-// story-mcp's `--allow-writes`. (The pair-mcp `--allow-eval` gate is also
-// observable, but only against a live nREPL — see "Coverage boundary"
-// below; that wire check lives in `live-re-frame2-pair-subscribe.cjs`,
-// which boots a non-degraded server without `--allow-eval`.)
+// story-mcp's `--allow-writes`. (The pair-mcp eval-cljs gate flipped
+// to default-ON per rf2-a0z0h; the disabled envelope is reachable only
+// with the `--no-eval` opt-out against a live nREPL — see "Coverage
+// boundary" below; that wire check lives in
+// `live-re-frame2-pair-subscribe.cjs`, which boots a non-degraded
+// server with `--no-eval`.)
 //
 // ### story-mcp `--allow-writes` (default OFF, hard-rename rejection)
 //
@@ -49,12 +51,13 @@
 // without a resolvable nREPL port pair-mcp boots in DEGRADED mode
 // (`server.cljs` `degraded-handler`), where EVERY `tools/call` short-
 // circuits to `:nrepl-port-not-found` before reaching the tool body — so
-// `eval-cljs` never reaches its `--allow-eval` gate and the
+// `eval-cljs` never reaches its `--no-eval` gate and the
 // `:rf.error/eval-cljs-disabled` envelope is unreachable degraded. The
 // honest home for the pair-mcp eval-gate WIRE check is therefore the
 // live path: `live-re-frame2-pair-subscribe.cjs` already boots a
-// non-degraded server WITHOUT `--allow-eval`, so it observes the disabled
-// envelope over the wire when a runtime is attached. The pair-mcp parser
+// non-degraded server WITH `--no-eval` (the opt-out post-rf2-a0z0h),
+// so it observes the disabled envelope over the wire when a runtime is
+// attached. The pair-mcp parser
 // rename-rejection itself (`--allow-raw-state` legacy spelling ⇒ gate
 // stays closed) is pinned at the unit layer by
 // `re-frame2-pair-mcp/test/.../raw_state_test.cljs`

@@ -204,10 +204,11 @@
 (def eval-cljs
   {:name "eval-cljs"
    :description (str "Evaluate a ClojureScript form in the connected browser runtime via shadow-cljs's cljs-eval. Returns the EDN value. "
+                     "Enabled by default (rf2-a0z0h); the operator opts OUT via --no-eval at server launch. "
                      "Examples: "
                      "1. Read a sub: {:form \"@(re-frame.core/subscribe [:current-user])\"} -> {:ok? true :value {:id 42 :name \"Ada\"}}. "
                      "2. Inspect a global: {:form \"(keys js/window)\"} -> {:ok? true :value [\"document\" ...]}. "
-                     "3. Gate closed: any args -> {:ok? false :reason :rf.error/eval-cljs-disabled} when launched without --allow-eval.")
+                     "3. Gate closed: any args -> {:ok? false :reason :rf.error/eval-cljs-disabled} when launched with --no-eval.")
    :typicalTokens 500
    :annotations destructive-annotations
    :outputSchema envelope-or-marker

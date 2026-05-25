@@ -238,7 +238,7 @@
 
 (deftest parse-resource-flags-empty-argv
   (is (empty? (resource/parse-resource-flags [])))
-  (is (empty? (resource/parse-resource-flags ["--allow-eval" "--allow-sensitive-reads"]))
+  (is (empty? (resource/parse-resource-flags ["--no-eval" "--allow-sensitive-reads"]))
       "Boolean launch flags (other-ns) pass through unmolested"))
 
 (deftest read-resource-env-parses-each-var

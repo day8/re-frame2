@@ -137,8 +137,8 @@
   ## Boot-time gate (rf2-g9fje)
 
   The operator-only gate `config/sensitive-reads-allowed?` (set by
-  `--allow-sensitive-reads`, mirroring re-frame2-pair-mcp's `--allow-eval`) is
-  the outer check: when it is `false`, this fn always returns `false`,
+  `--allow-sensitive-reads`) is the outer check: when it is `false`,
+  this fn always returns `false`,
   the per-call `:include-sensitive` arg is silently ignored, and
   declared-sensitive `:app-db` slots / assertion records remain
   redacted regardless of what the caller asked for. The MCP caller

@@ -20,9 +20,16 @@
   - `allow-sensitive-reads?` — atom holding the sensitive-read gate. Read
     by the wire-egress scrubbers (`helpers/include-sensitive?`); a `false`
     value forces redaction regardless of any per-call `:include-sensitive`
-    arg. Symmetric with `--allow-eval` in re-frame2-pair-mcp (rf2-zyoj2): arbitrary
-    code execution + raw sensitive-state reads are operator-only opt-ins,
-    not caller-controlled toggles.
+    arg. The default-OFF posture matches the cross-MCP convention for
+    privacy gates: an operator who genuinely needs raw sensitive state
+    opts in explicitly. (Note: re-frame2-pair-mcp's eval-cljs gate took
+    the opposite path in rf2-a0z0h — default ON with `--no-eval` as the
+    opt-out — because eval is the REPL primitive of a pair-debug
+    session and a default-OFF eval gate did not add a protection
+    separable from `--allow-writes`. Sensitive-reads here are NOT in
+    that position: raw reads can pour the entire app-db into a wire log
+    without the operator ever typing the secret, so the privacy gate
+    stays default-OFF.)
   - `set-allow-sensitive-reads!` — write helper. Same three input paths
     as `allow-writes?`: `--allow-sensitive-reads` CLI flag, JVM property
     `-Drf.story-mcp.allow-sensitive-reads=true`, or env var
@@ -121,21 +128,28 @@
 
 ;; ---- sensitive-read gate (rf2-g9fje) --------------------------------------
 ;;
-;; Per the rf2-uaymx (b) decision and rf2-zyoj2's `--allow-eval` precedent,
-;; raw sensitive-state reads are an operator-only opt-in. The wire-egress
-;; helpers (`helpers/include-sensitive?`) defer to this atom — when it is
+;; Per the rf2-uaymx (b) decision, raw sensitive-state reads are an
+;; operator-only opt-in. The wire-egress helpers
+;; (`helpers/include-sensitive?`) defer to this atom — when it is
 ;; `false` the per-call `:include-sensitive` arg is silently treated as
 ;; `false`, so a hostile or careless caller cannot exfiltrate declared-
 ;; sensitive `:app-db` slots / assertion records by flipping a JSON
 ;; boolean. Closed-by-default; opened by `--allow-sensitive-reads` CLI
 ;; flag, JVM sysprop `rf.story-mcp.allow-sensitive-reads=true`, or env
 ;; var `RF_STORY_MCP_ALLOW_SENSITIVE_READS=true`.
+;;
+;; (Cross-MCP note: re-frame2-pair-mcp's eval-cljs gate flipped to
+;; default-ON in rf2-a0z0h — eval is the REPL primitive of a pair-debug
+;; session and a default-OFF eval gate did not add a protection
+;; separable from `--allow-writes`. The sensitive-reads gate here is
+;; NOT in that position: raw reads can pour the entire app-db into a
+;; wire log without the operator ever typing the secret, so this gate
+;; keeps the default-OFF posture.)
 
 (defonce
   ^{:doc "Atom holding the sensitive-read gate. Defaults to `false`. Per
          the rf2-uaymx (b) decision the per-call `:include-sensitive`
-         arg is honoured ONLY when this atom is also `true`. Symmetric
-         with `allow-eval?` in re-frame2-pair-mcp."}
+         arg is honoured ONLY when this atom is also `true`."}
   allow-sensitive-reads?
   (atom false))
 

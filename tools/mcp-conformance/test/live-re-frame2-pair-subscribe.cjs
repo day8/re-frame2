@@ -170,11 +170,14 @@ runWithWatchdog(
     clientName: 'mcp-conformance-re-frame2-pair-live-subscribe',
     transportSpec: {
       command: process.execPath,
-      // re-frame2-pair-mcp's subscribe tool itself is not gated behind
-      // `--allow-eval`; we boot without that flag because the dispatch
-      // event we fire below does NOT exercise the eval surface. The
-      // streaming bus surface is the load-bearing test target.
-      args: [SERVER],
+      // re-frame2-pair-mcp's subscribe tool is unaffected by the eval
+      // gate. We boot with `--no-eval` (the opt-out post-rf2-a0z0h)
+      // because the eval-cljs WIRE check below asserts the
+      // disabled-envelope crosses the wire when eval has been opted
+      // OUT — that is the only configuration where the disabled gate
+      // is reachable post-default-flip. The streaming bus surface is
+      // the load-bearing test target; the eval probe rides alongside.
+      args: [SERVER, '--no-eval'],
       cwd: os.tmpdir(),
       env: { ...process.env },
     },
@@ -289,43 +292,44 @@ runWithWatchdog(
       'OK   every frame validates against ReFrame2PairProgressNotificationParams',
     );
 
-    // ---- Operator-opt-in flag-gate WIRE conformance (rf2-ee38b.20) ----
+    // ---- Operator-opt-out flag-gate WIRE conformance (rf2-a0z0h) ----
     //
-    // This server booted WITHOUT `--allow-eval` (see transportSpec
-    // above) AND has a live runtime attached — so it is NOT in degraded
-    // mode. That is the one configuration where pair-mcp's `eval-cljs`
-    // disabled-default gate is observable over the wire: the call reaches
-    // the tool body, the `--allow-eval` gate (default OFF) short-circuits
-    // BEFORE touching nREPL, and the canonical
-    // `:rf.error/eval-cljs-disabled` envelope crosses the wire. (In
-    // degraded mode the server's `degraded-handler` short-circuits every
-    // tool to `:nrepl-port-not-found` before the gate runs, so the
-    // disabled envelope is unreachable there — see end-to-end-flag-gates
-    // .cjs "Coverage boundary" for why the pair-mcp wire check lives
-    // here, not in the no-runtime degraded harness.) This pins the
-    // cross-MCP NAMING.md §"Operator-opt-in CLI flag vocabulary"
-    // contract: `--allow-eval` default OFF ⇒ documented refusal reason.
+    // This server booted WITH `--no-eval` (see transportSpec above) AND
+    // has a live runtime attached — so it is NOT in degraded mode. The
+    // eval-cljs gate flipped to default-ON in rf2-a0z0h; the disabled
+    // envelope is now reachable only when the operator explicitly opts
+    // OUT. The call reaches the tool body, the gate (flipped OFF by
+    // --no-eval) short-circuits BEFORE touching nREPL, and the
+    // canonical `:rf.error/eval-cljs-disabled` envelope crosses the
+    // wire. (In degraded mode the server's `degraded-handler`
+    // short-circuits every tool to `:nrepl-port-not-found` before the
+    // gate runs, so the disabled envelope is unreachable there — see
+    // end-to-end-flag-gates.cjs "Coverage boundary" for why the
+    // pair-mcp wire check lives here, not in the no-runtime degraded
+    // harness.) This pins the cross-MCP NAMING.md §"Operator-opt-in
+    // CLI flag vocabulary" contract for the inverted gate: `--no-eval`
+    // ⇒ documented refusal reason.
     const evalResp = await client.callTool({
       name: 'eval-cljs',
       arguments: { form: '(+ 1 2)' },
     });
     if (!evalResp.isError) {
       throw new Error(
-        'eval-cljs MUST isError when the server booted WITHOUT ' +
-          '--allow-eval (default-OFF gate per NAMING.md); got: ' +
+        'eval-cljs MUST isError when the server booted WITH ' +
+          '--no-eval (opt-out post-rf2-a0z0h); got: ' +
           JSON.stringify(evalResp).slice(0, 300),
       );
     }
     const evalText = evalResp.content?.[0]?.text || '';
     if (!evalText.includes(':rf.error/eval-cljs-disabled')) {
       throw new Error(
-        'eval-cljs default-OFF envelope MUST carry ' +
+        'eval-cljs --no-eval envelope MUST carry ' +
           ':rf.error/eval-cljs-disabled (NAMING.md flag-vocabulary ' +
           'contract); got: ' + evalText.slice(0, 300),
       );
     }
     console.log(
-      'OK   eval-cljs --allow-eval default-OFF -> isError + ' +
+      'OK   eval-cljs --no-eval -> isError + ' +
         ':rf.error/eval-cljs-disabled (live, non-degraded)',
     );
 

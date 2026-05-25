@@ -239,13 +239,14 @@ load-bearing: each carries different recovery semantics.
 
 **Why `:rf.error/*` and not bare for operator-gated denials?** The
 `:rf.error/*` namespace carries a distinct recovery shape: the operator
-must add a server-launch flag (`--allow-eval`) or raise an integer cap
-(`--max-concurrent-streams`) before the call will succeed. Bare reasons
-are recoverable by adjusting per-call args; `:rf.error/*` reasons are
-recoverable only by adjusting server configuration. An agent host that
-sees `:rf.error/eval-cljs-disabled` knows to surface a setup hint
-("ask the operator to relaunch with `--allow-eval`") rather than retry
-with different args.
+must change a server-launch flag (`--allow-sensitive-reads`,
+`--allow-writes`, or remove a `--no-eval` opt-out) or raise an integer
+cap (`--max-concurrent-streams`) before the call will succeed. Bare
+reasons are recoverable by adjusting per-call args; `:rf.error/*`
+reasons are recoverable only by adjusting server configuration. An
+agent host that sees `:rf.error/eval-cljs-disabled` knows to surface a
+setup hint ("ask the operator to relaunch without `--no-eval`") rather
+than retry with different args.
 
 **Why `:rf.mcp/cursor-stale` and not `:rf.error/cursor-stale`?**
 `:rf.mcp/*` is the wire-vocabulary family — every other `:rf.mcp/*`
@@ -295,14 +296,16 @@ two-line preload entry.
 
 ## Universal: server launch flags
 
-Three default-OFF boot gates control authority surfaces (rf2-cxx5s,
-rf2-c2dtu, rf2-ee38b.18). Operators pass them as MCP-server CLI flags:
+Three boot gates control authority surfaces. Two are default-OFF
+opt-ins (`--allow-sensitive-reads`, `--allow-writes`); one is a
+default-ON opt-out (`--no-eval`). Operators pass them as MCP-server
+CLI flags:
 
-| Flag                      | Default | Effect when ON |
-|---------------------------|---------|----------------|
-| `--allow-eval`            | OFF     | Enables `eval-cljs`. Without the flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-sensitive-reads` | OFF     | Honours caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`). Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
-| `--allow-writes`          | OFF     | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Same default-OFF posture as `--allow-eval`. |
+| Flag                      | Default       | Effect when set |
+|---------------------------|---------------|------------------|
+| `--no-eval`               | absent (eval-cljs ON) | Disables `eval-cljs` (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
+| `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`). Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
+| `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
 
 When `--allow-sensitive-reads` is OFF (the published-build default), the
 direct-read tools above:
@@ -419,9 +422,11 @@ Evaluate a CLJS form in the connected browser runtime via
 
 **Args**: `form` (string, required), `build` (string, optional).
 
-**Launch-flag gate**: `--allow-eval` (rf2-cxx5s). Default OFF; calls
-return `{:ok? false :reason :rf.error/eval-cljs-disabled ...}` without
-touching the nREPL socket. See §Universal: server launch flags.
+**Launch-flag gate**: `--no-eval` (rf2-a0z0h; inverts the prior
+rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is
+the REPL primitive of a pair-debug session. With the `--no-eval`
+opt-out, calls return `{:ok? false :reason :rf.error/eval-cljs-disabled ...}`
+without touching the nREPL socket. See §Universal: server launch flags.
 
 **Returns**: `{:ok? true :value <edn-value>}` on success;
 `{:ok? false :reason :eval-error :message "..."}` on failure.

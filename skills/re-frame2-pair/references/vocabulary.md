@@ -133,7 +133,9 @@ flag name `--allow-sensitive-reads` is the canonical cross-MCP
 vocabulary; both pair-mcp and story-mcp expose their sensitive-read
 opt-in under the same flag name.
 
-- re-frame2-pair-mcp `--allow-eval` — gates the `eval-cljs` tool.
+- re-frame2-pair-mcp `--no-eval` — opt-out for the `eval-cljs` tool
+  (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture — eval
+  is the REPL primitive of a pair-debug session and ships ENABLED).
 - re-frame2-pair-mcp `--allow-sensitive-reads` — this gate.
 - story-mcp `--allow-sensitive-reads` — the parallel story-side gate
   under the same CLI flag name.

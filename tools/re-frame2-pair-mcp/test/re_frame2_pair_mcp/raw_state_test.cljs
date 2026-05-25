@@ -14,8 +14,8 @@
        regardless of per-call args.
     2. Opt-in state — flipping the gate flips the predicate so the
        per-call args win again (pre-rf2-c2dtu posture).
-    3. `parse-launch-flags` parses `--allow-sensitive-reads` and stays
-       symmetric with `--allow-eval`.
+    3. `parse-launch-flags` parses `--allow-sensitive-reads` and rides
+       alongside `--no-eval` without interference.
 
   End-to-end MCP-wire shape coverage lives in
   `re-frame2-pair-mcp.conformance-test` (the corpus has dedicated
@@ -29,8 +29,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest default-gate-is-off
-  ;; Pre-boot / freshly-loaded ns: the gate is OFF, mirroring the
-  ;; `--allow-eval` default (rf2-cxx5s).
+  ;; Pre-boot / freshly-loaded ns: the raw-state gate is OFF (default).
+  ;; The sibling eval-cljs gate defaults ON post-rf2-a0z0h; this test
+  ;; asserts only the raw-state surface.
   (raw-state/set-allow-raw-state! false)
   (is (false? (raw-state/allow-raw-state-enabled?)))
   (is (false? (raw-state/raw-state-allowed?))
@@ -93,19 +94,23 @@
   (let [flags (server/parse-launch-flags ["--allow-sensitive-reads"])]
     (is (true? (:allow-raw-state? flags))
         "--allow-sensitive-reads ⇒ :allow-raw-state? true (internal key)")
-    (is (false? (:allow-eval? flags))
-        "Other flags stay at their defaults")))
+    (is (true? (:eval-allowed? flags))
+        "eval-cljs gate stays at its default ON (rf2-a0z0h)")))
 
-(deftest parse-launch-flags-symmetric-with-allow-eval
-  ;; Both flags can ride together — the two gates are independent.
-  (let [flags (server/parse-launch-flags ["--allow-eval" "--allow-sensitive-reads"])]
-    (is (true? (:allow-eval? flags)))
+(deftest parse-launch-flags-rides-alongside-no-eval
+  ;; The two flags are independent — passing --no-eval (eval opt-out)
+  ;; alongside --allow-sensitive-reads (sensitive opt-in) lands both.
+  (let [flags (server/parse-launch-flags ["--no-eval" "--allow-sensitive-reads"])]
+    (is (false? (:eval-allowed? flags)))
     (is (true? (:allow-raw-state? flags)))))
 
-(deftest parse-launch-flags-defaults-both-off
+(deftest parse-launch-flags-defaults
+  ;; Post-rf2-a0z0h: eval-cljs defaults ON; raw-state defaults OFF.
   (let [flags (server/parse-launch-flags [])]
-    (is (false? (:allow-eval? flags)))
-    (is (false? (:allow-raw-state? flags)))))
+    (is (true? (:eval-allowed? flags))
+        "eval-cljs gate defaults ON (rf2-a0z0h)")
+    (is (false? (:allow-raw-state? flags))
+        "raw-state gate defaults OFF (rf2-c2dtu)")))
 
 (deftest parse-launch-flags-ignores-unknown
   ;; Future flags must not break older invocations.
@@ -120,6 +125,18 @@
     (is (false? (:allow-raw-state? flags))
         "Legacy --allow-raw-state must not enable the gate post-rename")))
 
+(deftest parse-launch-flags-legacy-allow-eval-is-noop
+  ;; Hard removal (rf2-a0z0h, pre-alpha): the legacy `--allow-eval`
+  ;; opt-in flag is no longer recognised because the default flipped to
+  ;; ON. No back-compat shim — passing it MUST be silently ignored (the
+  ;; gate is on regardless), and the new `--no-eval` opt-out is the
+  ;; only flag the parser reads. An operator with a stale
+  ;; `~/.claude.json` carrying `--allow-eval` keeps a working server;
+  ;; the flag just doesn't do anything anymore.
+  (let [flags (server/parse-launch-flags ["--allow-eval"])]
+    (is (true? (:eval-allowed? flags))
+        "Legacy --allow-eval must NOT disable the gate (silent no-op; gate stays at default ON)")))
+
 ;; ---------------------------------------------------------------------------
 ;; --port-file launch flag (rf2-3dbwh) — explicit, cwd-independent port file.
 ;; ---------------------------------------------------------------------------
@@ -133,7 +150,7 @@
   (testing "--port-file <path> reads the value from the next argv element"
     (let [flags (server/parse-launch-flags ["--port-file" "/abs/path/nrepl.port"])]
       (is (= "/abs/path/nrepl.port" (:port-file flags)))
-      (is (false? (:allow-eval? flags)) "other flags stay at defaults"))))
+      (is (true? (:eval-allowed? flags)) "other flags stay at defaults (eval-allowed? defaults true)"))))
 
 (deftest parse-launch-flags-port-file-equals-form
   (testing "--port-file=<path> reads the inline value"
@@ -142,16 +159,16 @@
 
 (deftest parse-launch-flags-port-file-rides-with-other-flags
   (let [flags (server/parse-launch-flags
-                ["--allow-eval" "--port-file" "/p/nrepl.port" "--allow-sensitive-reads"])]
+                ["--no-eval" "--port-file" "/p/nrepl.port" "--allow-sensitive-reads"])]
     (is (= "/p/nrepl.port" (:port-file flags)))
-    (is (true? (:allow-eval? flags)))
+    (is (false? (:eval-allowed? flags)))
     (is (true? (:allow-raw-state? flags)))))
 
 (deftest parse-launch-flags-port-file-missing-value-is-nil
   (testing "a trailing --port-file with no value (or followed by a flag) yields nil"
     (is (nil? (:port-file (server/parse-launch-flags ["--port-file"])))
         "trailing --port-file with no value")
-    (is (nil? (:port-file (server/parse-launch-flags ["--port-file" "--allow-eval"])))
+    (is (nil? (:port-file (server/parse-launch-flags ["--port-file" "--no-eval"])))
         "--port-file immediately followed by another flag is not a value")))
 
 (deftest parse-launch-flags-port-file-last-occurrence-wins
@@ -191,11 +208,11 @@
 
 (deftest parse-launch-flags-http-port-rides-with-other-flags
   (let [flags (server/parse-launch-flags
-                ["--allow-eval" "--http-port" "9702"
+                ["--no-eval" "--http-port" "9702"
                  "--port-file" "/p/nrepl.port"])]
     (is (= 9702 (:http-port flags)))
     (is (= "/p/nrepl.port" (:port-file flags)))
-    (is (true? (:allow-eval? flags)))))
+    (is (false? (:eval-allowed? flags)))))
 
 ;; ---------------------------------------------------------------------------
 ;; signal-runtime! cache — fires once per (build-id, server-lifetime).

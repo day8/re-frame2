@@ -20,22 +20,30 @@
   exactly the kind of destructive surprise the gate model exists to
   forbid by default.
 
-  ## Default-safe (mirrors `--allow-eval`, rf2-cxx5s)
+  ## Default-safe
 
   Published builds ship these two tools **DISABLED**. The operator opts
   in at server launch via `--allow-writes`. When OFF (the default), the
   `restore-epoch` and `reset-frame-db` tools return a structured
   `{:ok? false :reason :rf.error/writes-disabled ...}` WITHOUT touching
   the nREPL socket — a stock install cannot rewind history or inject
-  state over the MCP socket.
+  state over the MCP **named-write** surface.
 
   The gate is a single atom (`allow-writes?`) set by `server.cljs/main`
   from `process.argv` before the dispatcher starts handling tools/call
   requests. Tests flip the atom directly via `set-allow-writes!`.
 
   Symmetric with:
-    - rf2-cxx5s `--allow-eval`             (eval-cljs; tools/eval_cljs.cljs)
-    - rf2-c2dtu `--allow-sensitive-reads`  (raw reads; tools/raw_state.cljs)"
+    - rf2-c2dtu `--allow-sensitive-reads`  (raw reads; tools/raw_state.cljs)
+
+  ## Composition with eval-cljs (rf2-a0z0h)
+
+  This gate protects the named-write audit trail (\"did my app produce
+  this state change, or did the pair tool?\"). It is NOT a defence
+  against eval-driven writes — `eval-cljs` (default ON post-rf2-a0z0h)
+  can express any write `--allow-writes` would block. For a true
+  read-only debug session compose `--no-eval` with `--allow-writes`
+  absent."
   (:require [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (defonce ^:private allow-writes?

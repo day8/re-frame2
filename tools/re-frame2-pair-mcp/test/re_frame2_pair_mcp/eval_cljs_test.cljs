@@ -25,12 +25,14 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]))
 
-;; eval-cljs is gated behind --allow-eval; flip it ON for the suite and
-;; restore the default OFF afterwards so we test the resolution path,
-;; not the gate (the gate has its own coverage in conformance_test).
+;; eval-cljs defaults ON post-rf2-a0z0h (the operator opts OUT via
+;; --no-eval). The suite leaves the gate at its default so we test the
+;; resolution path, not the gate (the gate's disabled-state coverage
+;; lives in conformance_test + `gate-closed-rejects-before-touching-nrepl`
+;; below).
 (use-fixtures :each
-  {:before (fn [] (eval-cljs/set-allow-eval! true))
-   :after  (fn [] (eval-cljs/set-allow-eval! false))})
+  {:before (fn [] (eval-cljs/set-eval-allowed! true))
+   :after  (fn [] (eval-cljs/set-eval-allowed! true))})
 
 (def ^:private read-edn tu/extract-edn)
 (def ^:private err? tu/error?)
@@ -188,14 +190,17 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest gate-closed-rejects-before-touching-nrepl
+  ;; Default ON post-rf2-a0z0h. To exercise the disabled envelope we
+  ;; flip the gate OFF (mimics `--no-eval` at launch), then restore the
+  ;; default ON for downstream tests.
   (async done
-    (eval-cljs/set-allow-eval! false)
+    (eval-cljs/set-eval-allowed! false)
     (-> (eval-cljs/eval-cljs-tool (fresh-conn) #js {:form "(+ 1 2)"})
         (.then (fn [r]
                  (is (err? r))
                  (let [edn (read-edn r)]
                    (is (= :rf.error/eval-cljs-disabled (:reason edn))))
-                 (eval-cljs/set-allow-eval! true)
+                 (eval-cljs/set-eval-allowed! true)
                  (done))))))
 
 (deftest missing-form-rejected
