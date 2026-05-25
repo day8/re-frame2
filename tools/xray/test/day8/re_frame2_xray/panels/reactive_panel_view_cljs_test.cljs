@@ -19,7 +19,10 @@
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.reactive-panel :as facade]
-            [day8.re-frame2-xray.panels.reactive-panel-view :as view]))
+            [day8.re-frame2-xray.panels.reactive-panel-view :as view]
+            ;; rf2-e46qs phase 3 — assert the SUB VALUES row mounts
+            ;; `[dd/data-display value opts]` directly (no facade hop).
+            [day8.re-frame2-xray.views.data-display :as dd]))
 
 (defn- has-testid? [tree testid]
   (some? (th/find-by-testid tree testid)))
@@ -324,3 +327,196 @@
       (is (re-find #"changed \(propagates" legend-text) "changed swatch labelled")
       (is (re-find #"no change \(short-circuits" legend-text) "no-change swatch labelled")
       (is (re-find #"unmounted / destroyed" legend-text) "teardown swatch labelled"))))
+
+;; ---- SUB VALUES inspector (rf2-e46qs phase 3 of rf2-oqa60) -----------
+;;
+;; Each ran sub renders its current cascade value through the
+;; first-class `[dd/data-display value opts]` widget DIRECTLY (no
+;; `edn/inspect` / `edn/browse` facade hop). Acceptance:
+;;
+;;   1. Each sub's value renders via `[dd/data-display]` directly.
+;;   2. Stable per-sub `:panel-id` qualifier so two sub-row expansions
+;;      are independent.
+;;   3. Existing rf2-oqa60 phase 1 data-display testid contract holds
+;;      (`rf-xray-data-display-<panel-id>-<mount-id>...`).
+
+(deftest sub-values-section-renders-with-row-per-ran-sub
+  (testing "rf2-e46qs — the SUB VALUES section lists one row per ran sub
+            and surfaces the data-display widget per row."
+    (facade/install!)
+    (frame/reg-frame :rf/xray {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :sub-values [{:sub-id :cart/state :slug "_cart_state"
+                     :changed? true :has-value? true
+                     :value {:items [{:id 1} {:id 2}]}}
+                    {:sub-id :cart/total :slug "_cart_total"
+                     :changed? false :has-value? true
+                     :value 42}]})
+    (let [tree (view/reactive-panel)]
+      (is (has-testid? tree "rf-xray-reactive-sub-values-section")
+          "the SUB VALUES section renders")
+      (is (= "Sub Values"
+             (text-of tree "rf-xray-reactive-section-sub-values-label"))
+          "the section heading renders 'Sub Values'")
+      (is (has-testid? tree "rf-xray-reactive-sub-values-list")
+          "the list card renders")
+      (is (has-testid? tree "rf-xray-reactive-sub-value-row-_cart_state")
+          "row renders for :cart/state")
+      (is (has-testid? tree "rf-xray-reactive-sub-value-row-_cart_total")
+          "row renders for :cart/total"))))
+
+;; ---- raw hiccup helpers (rf2-e46qs) -----------------------------------
+;;
+;; `re-frame.test-helpers/find-by-testid` walks via `expand-tree`, which
+;; AUTO-INVOKES every function component (including `dd/data-display`'s
+;; form-2 outer fn → inner fn). That's the right default for assertions
+;; about WHAT renders — but here we need to assert WHAT IS MOUNTED, not
+;; the expansion: the data-display literal `[dd/data-display value
+;; opts]` is the contract surface we're locking. So we walk the raw,
+;; un-expanded hiccup.
+
+(defn- raw-find-dd-mount
+  "Walk the raw hiccup tree (no function-component expansion) and
+  return the first `[dd/data-display value opts]` vector under a node
+  with `data-testid == testid`, or nil. Mirrors `find-by-testid` for
+  the gate node; under the gate node we look at unexpanded children
+  (the literal data-display form survives because we never call the
+  walker that would invoke it)."
+  [tree testid]
+  (letfn [(walk [node]
+            (cond
+              (and (vector? node)
+                   (or (= dd/data-display (first node))
+                       ;; symbol-bound name preserves identity in some
+                       ;; advanced builds
+                       (= 'day8.re-frame2-xray.views.data-display/data-display
+                          (first node))))
+              node
+
+              (vector? node) (some walk node)
+              (seq? node)    (some walk node)
+              :else          nil))
+
+          (gate [node]
+            (cond
+              (and (vector? node)
+                   (map? (second node))
+                   (= testid (:data-testid (second node))))
+              (walk node)
+
+              (vector? node) (some gate node)
+              (seq? node)    (some gate node)
+              :else          nil))]
+    (gate tree)))
+
+(deftest sub-values-row-mounts-data-display-widget-directly
+  (testing "rf2-e46qs acceptance #1 — each row mounts the first-class
+            `[dd/data-display value opts]` widget DIRECTLY (no `edn/`
+            facade hop). The literal data-display form lives in the
+            unexpanded panel hiccup — the contract surface."
+    (facade/install!)
+    (frame/reg-frame :rf/xray {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :sub-values [{:sub-id :cart/state :slug "_cart_state"
+                     :changed? true :has-value? true
+                     :value {:items [1 2 3]}}]})
+    (let [tree (view/reactive-panel)
+          dd   (raw-find-dd-mount
+                 tree "rf-xray-reactive-sub-value-row-_cart_state-value")]
+      (is (some? dd)
+          "the row mounts [dd/data-display value opts] directly")
+      (is (= {:items [1 2 3]} (nth dd 1 nil))
+          "value flows through as the second arg")
+      (is (map? (nth dd 2 nil))
+          "opts map rides the third arg"))))
+
+(deftest sub-values-row-uses-stable-per-sub-panel-id
+  (testing "rf2-e46qs acceptance #2 — each row's data-display mount
+            carries a STABLE per-sub `:panel-id` so two sub-row
+            expansions are independent. The panel-id is namespaced
+            under `:rf.xray.reactive-sub-value` and folds the sub-id."
+    (facade/install!)
+    (frame/reg-frame :rf/xray {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :sub-values [{:sub-id :cart/state :slug "_cart_state"
+                     :changed? true :has-value? true :value 1}
+                    {:sub-id :cart/total :slug "_cart_total"
+                     :changed? true :has-value? true :value 2}]})
+    (let [tree (view/reactive-panel)
+          extract-panel-id
+          (fn [slug]
+            (-> (raw-find-dd-mount
+                  tree (str "rf-xray-reactive-sub-value-row-"
+                            slug "-value"))
+                (nth 2 nil)
+                :panel-id))
+          pid-a (extract-panel-id "_cart_state")
+          pid-b (extract-panel-id "_cart_total")]
+      (is (keyword? pid-a) "panel-id is a keyword")
+      (is (keyword? pid-b))
+      (is (not= pid-a pid-b)
+          "two sub-rows get distinct panel-ids (independent expansion)")
+      (is (= "rf.xray.reactive-sub-value" (namespace pid-a))
+          "panel-id is namespaced under :rf.xray.reactive-sub-value")
+      (is (= "rf.xray.reactive-sub-value" (namespace pid-b))))))
+
+(deftest sub-values-row-no-value-renders-placeholder
+  (testing "rf2-e46qs — a sub-run without a `:value` key (redaction /
+            pre-attribution) renders the muted no-value placeholder; no
+            data-display widget mount (rather than mounting with `nil`,
+            which would be indistinguishable from a sub whose actual
+            value IS nil)."
+    (facade/install!)
+    (frame/reg-frame :rf/xray {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :sub-values [{:sub-id :cart/secret :slug "_cart_secret"
+                     :changed? true :has-value? false}]})
+    (let [tree (view/reactive-panel)]
+      (is (has-testid?
+            tree "rf-xray-reactive-sub-value-row-_cart_secret-no-value")
+          "the no-value placeholder renders for redacted/absent")
+      (is (nil? (th/find-by-testid
+                  tree "rf-xray-reactive-sub-value-row-_cart_secret-value"))
+          "no data-display mount when the value is absent"))))
+
+(deftest sub-values-section-omitted-when-no-ran-subs
+  (testing "rf2-e46qs — empty `:sub-values` → the SUB VALUES section is
+            entirely omitted (the flow-graph empty placeholder already
+            covers the no-cascade case; no need for a second empty)."
+    (facade/install!)
+    (frame/reg-frame :rf/xray {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :sub-values []})
+    (let [tree (view/reactive-panel)]
+      (is (nil? (th/find-by-testid tree "rf-xray-reactive-sub-values-section"))
+          "section is omitted when no ran subs"))))
+
+(deftest sub-values-row-tags-changed-state
+  (testing "rf2-e46qs — each row carries `data-sub-changed` so tests +
+            CSS can target changed vs unchanged sub-value rows."
+    (facade/install!)
+    (frame/reg-frame :rf/xray {})
+    (seed-reactive-data!
+      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :sub-values [{:sub-id :s/changed :slug "_s_changed"
+                     :changed? true :has-value? true :value 1}
+                    {:sub-id :s/unchanged :slug "_s_unchanged"
+                     :changed? false :has-value? true :value 2}]})
+    (let [tree (view/reactive-panel)
+          changed (th/find-by-testid
+                    tree "rf-xray-reactive-sub-value-row-_s_changed")
+          unchanged (th/find-by-testid
+                      tree "rf-xray-reactive-sub-value-row-_s_unchanged")]
+      (is (= "true"  (get-in changed   [1 :data-sub-changed])))
+      (is (= "false" (get-in unchanged [1 :data-sub-changed]))))))
