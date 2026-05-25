@@ -247,3 +247,150 @@
       (is (str/includes? d "C") "the self-loop is a cubic loop")
       (is (not (str/includes? d "Q"))
           "the self-loop is NOT the routed poly-path"))))
+
+;; ---- self-loop fan (rf2-shv82, Issue 2) --------------------------------
+;;
+;; Multiple self-loops on one node fan around the perimeter so each
+;; label gets its own slot (the bug: 3 self-loops on `:disconnected` in
+;; the testdeck rendered overlapping garbled text). The projector
+;; assigns each a per-source `loop-index` (0..N-1); `edge-path` rotates
+;; the loop's anchor + label to a distinct slot per ordinal.
+
+(deftest edge-path-self-loop-zero-index-is-historical-slot
+  (testing "rf2-shv82 — loop-index 0 (the single-self-loop case) renders
+            in the historical top-right slot: same start point, label
+            roughly to the right of the source handle"
+    (let [{:keys [d label-x label-y routed?]}
+          (edges/edge-path (assoc base-coords
+                                  :self-loop? true
+                                  :loop-index 0))]
+      (is (false? routed?))
+      (is (str/starts-with? d "M 0,0"))
+      ;; slot 0 is top-right (angle = -π/4) — label has positive x, negative y
+      (is (pos? label-x) "slot 0 label sits to the right of the source")
+      (is (neg? label-y) "slot 0 label sits above the source (top-right)"))))
+
+(deftest edge-path-multi-self-loops-fan-to-distinct-slots
+  (testing "rf2-shv82 (Issue 2) — three self-loops on the same source
+            (loop-indexes 0/1/2) get DISTINCT label positions so their
+            labels don't stack and garble"
+    (let [labels-at (fn [i]
+                     (-> (edges/edge-path (assoc base-coords
+                                                 :self-loop? true
+                                                 :loop-index i))
+                         (select-keys [:label-x :label-y])))
+          slot-0 (labels-at 0)
+          slot-1 (labels-at 1)
+          slot-2 (labels-at 2)]
+      (is (not= slot-0 slot-1) "slot 0 != slot 1")
+      (is (not= slot-1 slot-2) "slot 1 != slot 2")
+      (is (not= slot-0 slot-2) "slot 0 != slot 2 (no collision)"))))
+
+(deftest edge-path-self-loop-fan-label-separation
+  (testing "rf2-shv82 (Issue 2) — adjacent fan slots have non-trivial
+            Euclidean separation so labels DO NOT overlap (catches a
+            regression to a tiny offset that would still read garbled)"
+    (let [d-of (fn [a b]
+                 (js/Math.hypot (- (:label-x a) (:label-x b))
+                                (- (:label-y a) (:label-y b))))
+          slot (fn [i] (edges/edge-path (assoc base-coords
+                                               :self-loop? true
+                                               :loop-index i)))
+          ;; The minimum label-anchor separation: ~radius worth of motion
+          ;; between adjacent slots. 24px is generous enough for the
+          ;; backplate width (~one event-label segment).
+          min-sep 24]
+      (is (> (d-of (slot 0) (slot 1)) min-sep))
+      (is (> (d-of (slot 1) (slot 2)) min-sep))
+      (is (> (d-of (slot 0) (slot 2)) min-sep)))))
+
+(deftest edge-path-self-loop-fan-wraps-past-eight-slots
+  (testing "rf2-shv82 (Issue 2) — > 8 self-loops on one node (rare; >8
+            distinct events on a single state is a code-smell the user
+            owns) wraps via mod, so an out-of-range index does not crash"
+    (let [{:keys [routed?]}
+          (edges/edge-path (assoc base-coords :self-loop? true :loop-index 9))]
+      (is (false? routed?))
+      ;; If the slot lookup blew up the test would throw before this.
+      (is true "loop-index past the slot count wraps cleanly"))))
+
+(deftest edge-path-self-loop-nil-index-treated-as-zero
+  (testing "rf2-shv82 (Issue 2) — a nil loop-index (a non-self-loop
+            edge accidentally going down the self-loop branch, or pre-
+            projector callers) treats it as slot 0 so behaviour stays
+            historical"
+    (let [a (edges/edge-path (assoc base-coords :self-loop? true :loop-index nil))
+          b (edges/edge-path (assoc base-coords :self-loop? true :loop-index 0))]
+      (is (= (:label-x a) (:label-x b)))
+      (is (= (:label-y a) (:label-y b))))))
+
+;; ---- cross-hierarchy label placement (rf2-shv82, Issue 3) --------------
+
+(deftest edge-path-cross-hierarchy-label-near-source-bend
+  (testing "rf2-shv82 (Issue 3) — when a cross-hierarchy edge has a
+            routed path, the label anchors NEAR the first bend after
+            the source handle (Stately convention), NOT at the routed
+            midpoint (which can land far from the visual origin)"
+    (let [;; L-shaped path: (0,0) → (0,120) → (160,120) → (160,200).
+          ;; midpoint of the middle segment is (80, 120); the source-
+          ;; side bend is at (0, 120). The cross-hierarchy label MUST
+          ;; sit near (0, 120), NOT (80, 120).
+          points (array (pt 0 0) (pt 0 120) (pt 160 120) (pt 160 200))
+          plain  (edges/edge-path (assoc base-coords
+                                         :self-loop? false
+                                         :points points))
+          xhier  (edges/edge-path (assoc base-coords
+                                         :self-loop? false
+                                         :points points
+                                         :cross-hierarchy? true))]
+      (is (true? (:routed? plain)))
+      (is (true? (:routed? xhier)))
+      ;; non-cross-hierarchy edge: midpoint of middle segment
+      (is (= 80 (:label-x plain)) "plain routed label at middle-segment midpoint")
+      (is (= 120 (:label-y plain)))
+      ;; cross-hierarchy edge: near the first bend (0, 120) — within 10px
+      (is (< (js/Math.abs (- (:label-x xhier) 0)) 10)
+          "cross-hierarchy label hugs the source-side bend's x")
+      (is (< (js/Math.abs (- (:label-y xhier) 120)) 10)
+          "cross-hierarchy label hugs the source-side bend's y"))))
+
+(deftest edge-path-cross-hierarchy-flag-does-not-affect-self-loop
+  (testing "rf2-shv82 (Issue 3) — :cross-hierarchy? on a self-loop is a
+            no-op (a self-loop is never cross-hierarchy per the
+            projector); the self-loop branch still wins"
+    (let [a (edges/edge-path (assoc base-coords :self-loop? true))
+          b (edges/edge-path (assoc base-coords :self-loop? true
+                                    :cross-hierarchy? true))]
+      (is (= (:d a) (:d b)) "self-loop path is identical")
+      (is (= (:label-x a) (:label-x b))
+          "self-loop label is identical (cross-hierarchy is ignored)"))))
+
+(deftest edge-path-cross-hierarchy-two-point-route-falls-back-to-mid
+  (testing "rf2-shv82 (Issue 3) — a routed cross-hierarchy edge with a
+            degenerate two-point route (no interior bend to anchor on)
+            falls back to the segment midpoint so the label still
+            renders SOMEWHERE on the path"
+    (let [points (array (pt 10 10) (pt 90 90))
+          {:keys [label-x label-y routed?]}
+          (edges/edge-path (assoc base-coords
+                                  :self-loop? false
+                                  :points points
+                                  :cross-hierarchy? true))]
+      (is (true? routed?))
+      (is (= 50 label-x) "midpoint x")
+      (is (= 50 label-y) "midpoint y"))))
+
+(deftest edge-path-cross-hierarchy-bezier-fallback-unchanged
+  (testing "rf2-shv82 (Issue 3) — a cross-hierarchy edge with NO route
+            (the bezier fallback before elk resolves) takes the same
+            bezier path as a same-parent edge — cross-hierarchy only
+            matters for the routed label anchor"
+    (let [plain (edges/edge-path (assoc base-coords :self-loop? false
+                                        :points nil))
+          xhier (edges/edge-path (assoc base-coords :self-loop? false
+                                        :points nil
+                                        :cross-hierarchy? true))]
+      (is (false? (:routed? plain)))
+      (is (false? (:routed? xhier)))
+      (is (= (:d plain) (:d xhier))
+          "bezier fallback is identical regardless of cross-hierarchy"))))

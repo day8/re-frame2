@@ -144,6 +144,83 @@ asserts the `:parentNode` key MUST NOT appear on any projected node —
 catching a re-introduction at the projector level rather than waiting
 for a downstream visual-regression catch.
 
+### Container handles — compound + region nodes carry `<Handle>` (rf2-shv82)
+
+Container nodes (`chart.nodes/compound-node` +
+`chart.nodes.parallel-region-node`) MUST render invisible source +
+target `<Handle>` elements on all four sides. xyflow's edge-render
+pipeline calls `getHandleBounds`, which `querySelectorAll`s the node
+DOM for `.source` / `.target` classes; absent any handle the call
+returns `null` → `isNodeInitialized` returns false → `getEdgePosition`
+returns null → **xyflow silently drops the edge from the DOM** — no
+warning, no error, no `:layout-error` slot. Every edge whose source or
+target is a container (a parent-level transition like
+`:active → :disconnected` declared on the compound; an inbound
+`:failed → :active`; a `:active` self-loop) vanishes before render,
+even though the projector emitted it and ELK routed it (the 5-layer
+probe in rf2-shv82 traced 4 surviving edges through parser → projector
+→ ELK-in → ELK-out, then 0 in the DOM).
+
+The fix is small: invisible handles (`{:opacity 0}`) on the four
+sides, matching `chart.nodes/state-node`'s shape. xstate/Stately
+Studio paints parent-level transitions as edges anchored to the
+compound's BORDER (their `toXYFlow` converter exposes containers as
+edge-able for the same reason); with handles attached, ELK's routed
+bend-points anchor on the compound's perimeter the way Stately does
+and the parent-level intent is preserved verbatim (no projection-time
+rewrite to leaf-to-leaf form, no synthetic ghost nodes).
+
+The chart root surfaces `data-edge-count-projected` (the projector's
+edge-array length) alongside the existing `data-edge-count` (the
+parser's transition count) so a visual-regression test can pin
+parity at every stage of the parser → projector → DOM chain — the
+silent-drop bug cannot recur at any layer without failing the gate.
+
+### Self-loop fan — multiple self-loops on one node (rf2-shv82, Issue 2)
+
+A state with N self-loops (e.g. `:disconnected` with `:ws/arm-fail`,
+`:ws/disarm-fail`, `:ws/clear` in the testdeck) renders each loop in a
+DISTINCT perimeter slot so their labels do not stack and garble.
+
+The convention follows xstate/Stately Studio's multi-event fan: each
+self-loop gets a stable per-source ordinal (`:loopIndex` 0..N-1, in
+emission order); `chart.edges/edge-path` rotates the loop's anchor
+direction + the label's anchor position to a different cardinal /
+inter-cardinal slot per ordinal (8 slots before wrapping via mod —
+8+ self-loops on one state is a code-smell the user owns). The
+single-self-loop case (`:loopIndex 0`) renders pixel-identical to
+pre-rf2-shv82 — `loop-index nil` is treated as `0`, so historical
+callers stay unchanged.
+
+The chart surfaces `data-loop-index` on each self-loop edge label so
+DOM tests + hosts can pin the per-source slotting. A non-self-loop
+edge carries no `data-loop-index`.
+
+### Cross-hierarchy label placement (rf2-shv82, Issue 3)
+
+A cross-hierarchy edge — one whose source and target sit in different
+parent containers (e.g. testdeck `:active.authenticating → :failed`)
+— has an ELK-routed midpoint that can land far from where the user
+perceives the edge to originate (the bug: the label sat at the
+canvas bottom-left, nowhere near `:authenticating`). xstate/Stately
+Studio's convention is to anchor the label NEAR the source-side bend
+point (just outside the container the edge exits), so the label
+visually tracks the edge's origin.
+
+The projector flags an edge `:crossHierarchy true` when its source
+and target have different `:parent-id`s (computed from the parsed
+nodes' parent-id map; self-loops are never cross-hierarchy
+regardless of nesting). `chart.edges/edge-path`, when given a routed
+multi-point path with `cross-hierarchy?` true, anchors the label
+near the first bend after the source handle (with a small back-bias
+along the incoming segment so the label sits in the routed channel,
+not on top of the bend itself). A degenerate two-point route falls
+back to the segment midpoint (no bend to anchor on); the bezier
+fallback is unchanged.
+
+The chart surfaces `data-cross-hierarchy` on each transition edge
+label so DOM tests + hosts can pin the convention.
+
 ### Parallel multi-active highlight (rf2-yoe6e, rf2-g2svr)
 
 > Closes parity gap **G1** in

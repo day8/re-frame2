@@ -655,6 +655,15 @@
                    :data-node-count (str n-states)
                    :data-region-count (str n-regions)
                    :data-edge-count (str n-trans)
+                   ;; rf2-shv82 — `data-edge-count-projected` exposes the
+                   ;; xyflow-graph projector's edge-array length AFTER
+                   ;; entry edges + parent-level adjustments. Pairs with
+                   ;; the existing `data-edge-count` (parsed-transition
+                   ;; count) so visual-regression tests can pin the
+                   ;; parser→projector→DOM chain end to end and catch
+                   ;; silent drops (like the rf2-shv82 compound-endpoint
+                   ;; bug) at any layer.
+                   :data-edge-count-projected (str (count edges))
                    ;; rf2-8d7w1 — stash the export/share-relevant chart
                    ;; state on the root DOM node as a JS property so the
                    ;; `export` namespace can derive a share-URL / alt-text

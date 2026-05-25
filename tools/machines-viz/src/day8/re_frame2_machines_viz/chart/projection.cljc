@@ -344,6 +344,35 @@
                            :extent   "parent"))))
               (sort-by #(if (or (:region? %) (:compound? %)) 0 1) nodes))
 
+        ;; rf2-shv82 (Issue 2) — fan multiple self-loops on the same
+        ;; source so each gets a unique perimeter slot + label position
+        ;; instead of stacking at the same coords (the bug: 3 self-loops
+        ;; on `:disconnected` rendered overlapping garbled text). We
+        ;; assign each self-loop a STABLE per-source ordinal (0..N-1) in
+        ;; emission order; `edge-path` uses the ordinal to rotate the
+        ;; loop's angular slot around the node's perimeter, the
+        ;; xstate/Stately "fan multiple events on one transition" read.
+        self-loop-index-of
+        (let [seen (volatile! {})]
+          (fn [e]
+            (when (= (:source e) (:target e))
+              (let [src (:source e)
+                    n   (get @seen src 0)]
+                (vswap! seen assoc src (inc n))
+                n))))
+        ;; rf2-shv82 (Issue 3) — flag cross-hierarchy edges (source and
+        ;; target sit in different parent containers). The label-
+        ;; positioning logic uses this to anchor the label near the
+        ;; SOURCE-SIDE first bend point (just outside the container the
+        ;; edge exits) instead of at the routed midpoint, which can land
+        ;; far from the visual origin for a deeply-nested cross-hierarchy
+        ;; edge (Stately Studio's convention).
+        cross-hierarchy?-of
+        (fn [e]
+          (let [src-parent (get parent-of (:source e))
+                tgt-parent (get parent-of (:target e))]
+            (and (not= (:source e) (:target e))
+                 (not= src-parent tgt-parent))))
         proj-edges
         (mapv (fn [e]
                 (let [from-active? (or (contains? active-ids (:source e))
@@ -362,6 +391,14 @@
                       ;; loop, not a degenerate near-zero bezier; the edge
                       ;; component reads the `:selfLoop` flag.
                       self-loop?   (= (:source e) (:target e))
+                      ;; rf2-shv82 (Issue 2) — ordinal among self-loops on
+                      ;; this source (0 for the first, 1 for the next, …);
+                      ;; nil when not a self-loop. Drives the perimeter
+                      ;; rotation in `edge-path`.
+                      loop-index   (self-loop-index-of e)
+                      ;; rf2-shv82 (Issue 3) — cross-hierarchy flag for the
+                      ;; label-placement adjustment in `edge-path`.
+                      cross-hier?  (cross-hierarchy?-of e)
                       ;; rf2-qeemm (G3) — the fired-this-epoch arrowhead reads
                       ;; in the FIRED hue (`:accent`, distinct from the
                       ;; focused/active `:info`); fired wins over focused/active
@@ -407,6 +444,14 @@
                             :guard      (layout/name-of (:guard e))
                             :action     (layout/name-of (:action e))
                             :selfLoop   self-loop?
+                            ;; rf2-shv82 (Issue 2) — fan ordinal for the
+                            ;; self-loop perimeter rotation in `edge-path`.
+                            ;; Nil for non-self-loops.
+                            :loopIndex  loop-index
+                            ;; rf2-shv82 (Issue 3) — cross-hierarchy flag
+                            ;; for the label-position shift in `edge-path`
+                            ;; (source-side bend point instead of midpoint).
+                            :crossHierarchy cross-hier?
                             ;; rf2-cz8v6 (G2) — elk's routed bend-points
                             ;; (a `[{:x :y} …]` vector in absolute /
                             ;; flow coords) when elk computed a route;
@@ -471,6 +516,12 @@
                                :active false :focused false :fired false
                                :afterMs nil
                                :guard nil :action nil :selfLoop false
+                               ;; rf2-shv82 — entry edges are never self-
+                               ;; loops nor cross-hierarchy (a marker→leaf
+                               ;; hop inside one container); nil/false so
+                               ;; the every-edge :data shape stays whole.
+                               :loopIndex nil
+                               :crossHierarchy false
                                ;; rf2-cz8v6 (G2) — entry edges keep the
                                ;; bezier (a short marker→state hop never
                                ;; crosses a container); :points nil so

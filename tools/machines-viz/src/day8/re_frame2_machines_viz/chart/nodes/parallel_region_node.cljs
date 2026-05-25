@@ -36,11 +36,31 @@
 
   All colours read from `theme/tokens`; no hex literals. The dashed
   boundary uses the region's rotation colour; the body uses a faint
-  tint of the same so the zone reads as a unit."
-  (:require [reagent.core :as r]
+  tint of the same so the zone reads as a unit.
+
+  ## Border handles (rf2-shv82)
+
+  Invisible source + target `<Handle>` elements sit on all four
+  sides so xstate/Stately-style edges incident on the region
+  CONTAINER (parent-level inherited transitions, region-level fanouts)
+  render through xyflow normally. Without them xyflow's
+  `getHandleBounds` returns null, `isNodeInitialized` returns false,
+  and `getEdgePosition` returns null — every edge whose endpoint is a
+  region container is SILENTLY DROPPED from the DOM. The same
+  mechanic the compound-node fix uses; the region-node mirrors it for
+  consistency."
+  (:require ["@xyflow/react" :as xyflow]
+            [reagent.core :as r]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
              :refer [sans-stack]]))
+
+(def ^:private Handle (.-Handle xyflow))
+(def ^:private Position (.-Position xyflow))
+(def ^:private pos-top    (.-Top Position))
+(def ^:private pos-right  (.-Right Position))
+(def ^:private pos-bottom (.-Bottom Position))
+(def ^:private pos-left   (.-Left Position))
 
 ;; ---- region boundary palette --------------------------------------------
 
@@ -145,4 +165,14 @@
                         :opacity 0.85
                         :font-family tokens/mono-stack}}
          "∥"]
-        label]])))
+        label]
+       ;; rf2-shv82 — invisible xyflow attachment points so an edge
+       ;; whose endpoint is a region container has a handle to anchor
+       ;; to. Without them xyflow silently drops the edge (same
+       ;; mechanic as the compound-node fix).
+       [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
+       [:> Handle {:type "source" :position pos-bottom :style {:opacity 0}}]
+       [:> Handle {:type "target" :position pos-left   :id "left"
+                   :style {:opacity 0}}]
+       [:> Handle {:type "source" :position pos-right  :id "right"
+                   :style {:opacity 0}}]])))

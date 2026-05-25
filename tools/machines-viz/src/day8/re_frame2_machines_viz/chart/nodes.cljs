@@ -21,7 +21,14 @@
     - `compound-node` — compound parent with a header strip and a
       large body containing nested children (xyflow's `parentId`
       mechanic handles the hierarchical layout; this node renders
-      the outer container chrome).
+      the outer container chrome). Carries invisible source+target
+      `Handle`s on all four sides (rf2-shv82) so xstate/Stately-style
+      PARENT-LEVEL TRANSITIONS (`:active → :disconnected`, `:active`
+      self-loop, `:failed → :active`) render as edges anchored to the
+      compound's BORDER. Without handles `getEdgePosition` returns
+      nil for any edge whose endpoint is a compound, and xyflow
+      silently drops the edge from the DOM — the gap rf2-shv82
+      closes.
     - `initial-marker` — a small glyph node paired with the initial
       state to mark the machine's entry transition. (Final states paint
       a doubled ring + ✓ glyph inline on `state-node`; there is no
@@ -303,7 +310,24 @@
 
   xyflow's `parentId` mechanic places child state nodes inside
   this container; this component only renders the surrounding
-  chrome."
+  chrome.
+
+  ## Border handles (rf2-shv82)
+
+  Invisible source + target `<Handle>` elements sit on all four
+  sides so xstate/Stately-style PARENT-LEVEL TRANSITIONS (an edge
+  whose source or target is a compound: `:active → :disconnected`,
+  `:active` self-loop, `:failed → :active`, …) render normally
+  through xyflow's pipeline. Without these handles xyflow's
+  `getHandleBounds` returns null for the compound node, `isNodeInitialized`
+  returns false, `getEdgePosition` returns null, and xyflow SILENTLY
+  DROPS every edge incident on a compound from the DOM — even though
+  the projector emitted them and elk routed them (the 5-layer probe
+  trace in the rf2-shv82 bead proves this). Adding handles makes the
+  compound an edge endpoint xstate-style (the edge anchors to the
+  compound's BORDER, the way Stately Studio paints parent-level
+  arrows). Handles are visually-hidden (`opacity: 0`) so they don't
+  add chrome; xyflow still measures them for `handleBounds`."
   [^js props]
   (let [d     (.-data props)
         vc    (chart-constants d)
@@ -336,6 +360,10 @@
                      :box-shadow       (when active?
                                          (str "0 0 0 2px "
                                               (tokens/with-alpha :info 0.18)))
+                     ;; rf2-shv82 — `pointer-events: auto` only on the
+                     ;; handles (set per-handle below). The body stays
+                     ;; pointer-events-transparent so clicks pass through to
+                     ;; nested leaves.
                      :pointer-events   "none"}}
        [:div {:style {:position    "absolute"
                      :top         "4px"
@@ -344,7 +372,16 @@
                      :font-size   (str compound-title-px "px")
                      :font-weight 600
                      :color       (:accent tokens/tokens)}}
-        label]])))
+        label]
+       ;; rf2-shv82 — invisible xyflow attachment points. Edges with a
+       ;; compound endpoint anchor to one of these; without them xyflow
+       ;; silently drops the edge (the bug rf2-shv82 closes).
+       [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
+       [:> Handle {:type "source" :position pos-bottom :style {:opacity 0}}]
+       [:> Handle {:type "target" :position pos-left   :id "left"
+                   :style {:opacity 0}}]
+       [:> Handle {:type "source" :position pos-right  :id "right"
+                   :style {:opacity 0}}]])))
 
 ;; ---- initial marker node ------------------------------------------------
 

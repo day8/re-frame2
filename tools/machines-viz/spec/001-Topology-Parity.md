@@ -196,9 +196,13 @@ low-severity ELK cross-hierarchy-routing assertion (G5) is now
 **closed** (rf2-gpa9k) — the cross-hierarchy switch
 (`elk.hierarchyHandling INCLUDE_CHILDREN`, set on the root
 `layoutOptions` whenever the graph nests/parallels) rode in with G2 and
-is now regression-guarded by test. **The machine-topology parity
-roadmap is COMPLETE (G1 / G2 / G3 / G4 / G5 all
-✅).**
+is now regression-guarded by test. The three **compound-endpoint
+rendering gaps** surfaced post-rf2-xh1lm are now also **closed**
+(rf2-shv82): compound-endpoint edges no longer silently drop (G6
+below), multi-self-loop labels fan to distinct perimeter slots (G7),
+cross-hierarchy labels anchor at the source-side bend point (G8).
+**The machine-topology parity roadmap is COMPLETE (G1 / G2 / G3 / G4 /
+G5 / G6 / G7 / G8 all ✅).**
 
 ## §3 — Gap analysis + deliberate divergences
 
@@ -214,6 +218,9 @@ new), and the parity-bar row it serves.
 | **G3** | ✅ **CLOSED (rf2-8jzm1 + rf2-qeemm).** Was: to highlight "the edge that fired this epoch" on the live chart, the host's trace→edge-id mapping had to mint the **same** `edge-id` `chart.layout` mints, and the ids weren't wired through to the canvas. Now: `extract-fired-edge-ids` (rf2-8jzm1) projects the definition through the public `parse-definition` and reads ids off the projected edges — they agree with the live chart **by construction**; rf2-qeemm threads them as `:fired-edge-ids` (set) into `MachineChart`, the projector marks each matching edge `:fired`, and `transition-edge` paints the FIRED treatment (emphasised + animated stroke + `data-fired`) on the live canvas. Matches the EDGE directly so every traversed arm (microsteps, guard-fork candidates) lights up. **Palette delegated to Figma.** | **Medium** | §1.3, §1.8 | **helpers:** rf2-8jzm1 ✅ · **wire:** rf2-qeemm ✅ |
 | **G4** | ✅ **CLOSED (rf2-80rm2).** Was: once G1 lit N region LEAVES, the **region CONTAINER** still read structural-only — an active region was indistinguishable from an inactive one at the zone level. Now: `xyflow-graph` folds a container (region OR compound) into `:active` when any descendant leaf is active — walked UP the `:parent-id` chain every node already carries (reuses the G1 active set; no path-prefix reimplementation). `parallel-region-node` / `compound-node` paint active chrome (solid emphasised boundary + the `:info` active-token glow ring, the same affordance state nodes use), so each active region reads as active at a glance and the N active regions read as a set. **Palette delegated to Figma.** | **Low–Medium** | §1.2 | **impl:** rf2-80rm2 ✅ |
 | **G5** | ✅ **CLOSED (rf2-gpa9k).** Was: elk routes cross-hierarchy edges only when the switch is activated on the top level (§1.7), and while `->elk-input` already set it, **nothing asserted it** — drop the line and no test would catch the regression. Now: the cross-hierarchy switch is `elk.hierarchyHandling INCLUDE_CHILDREN` on the root `layoutOptions`, set by the pure `chart.cljs/elk-layout-options` whenever the graph nests (`:parallel?` OR some node has a `:parent-id` — compound substate or parallel-region leaf); it is what lets the Layered algorithm route edges ACROSS nesting levels (its default `SEPARATE_CHILDREN` lays each level out independently and never routes cross-hierarchy edges). So an edge from a deeply-nested leaf to a top-level state routes cleanly, and G2's bend-points (rf2-cz8v6) come back as legible absolute coords. The capability rode in with G2; rf2-gpa9k extracted the option-computation into the assertable `elk-layout-options` and added the regression guard (nested/parallel ⇒ switch present, flat ⇒ absent, G2 routing keys pinned). | **Low** | §1.7 | **impl:** rf2-cz8v6 ✅ (capability) · **assert:** rf2-gpa9k ✅ |
+| **G6** | ✅ **CLOSED (rf2-shv82).** Was: any edge whose source or target was a compound (a parent-level transition like `:active → :disconnected`, a compound self-loop, an inbound `:failed → :active`) was SILENTLY DROPPED from the DOM. The projector emitted it, ELK routed it, but xyflow's `getHandleBounds` returned null for the compound (no `<Handle>` children) → `isNodeInitialized` returned false → `getEdgePosition` returned null → the edge never reached the DOM. No warning. The 5-layer probe trace in the bead proved 4 such edges survived to ELK's output then 0 in the DOM. Now: `compound-node` + `parallel-region-node` render invisible source + target `<Handle>` elements on all four sides; xyflow accepts the compound as an edge endpoint and ELK's routed bend-points anchor on its BORDER the way xstate/Stately Studio paints parent-level transitions. The chart root surfaces `data-edge-count-projected` alongside `data-edge-count` so the parser → projector → DOM parity is regression-guarded end to end. | **High** | §1.3, §1.7 | **impl:** rf2-shv82 ✅ |
+| **G7** | ✅ **CLOSED (rf2-shv82).** Was: N self-loops on the same node (e.g. testdeck `:disconnected` carries 3: `:ws/arm-fail`, `:ws/disarm-fail`, `:ws/clear`) all rendered at the same loop anchor → their label texts overlapped into garbled glyph soup. Now: the projector assigns each self-loop on a source a stable per-source ordinal (`:loopIndex` 0..N-1 in emission order); `chart.edges/edge-path` rotates the loop's perimeter slot + label anchor per ordinal across 8 cardinal / inter-cardinal slots (the xstate/Stately multi-event fan). Slot 0 is the historical top-right so the single-self-loop case stays pixel-identical. Surfaces `data-loop-index` on each self-loop edge label for DOM-test pinning. | **Medium** | §1.3, §1.9 | **impl:** rf2-shv82 ✅ |
+| **G8** | ✅ **CLOSED (rf2-shv82).** Was: a cross-hierarchy edge (source and target in different parent containers — e.g. testdeck `:active.authenticating → :failed`) routed via ELK's bend-points had a midpoint that landed far from its visual origin (the label sat at the canvas bottom-left). Now: the projector flags the edge `:crossHierarchy true` when the source's `:parent-id` ≠ the target's (self-loops are never cross-hierarchy regardless of nesting); `chart.edges/edge-path` anchors the label NEAR the source-side first bend point (xstate/Stately convention — the label hugs the bend just outside the container the edge exits, with a small back-bias along the incoming segment so it sits in the routed channel). Degenerate two-point routes fall back to the segment midpoint; the bezier-fallback path is unchanged. Surfaces `data-cross-hierarchy` on each transition edge label. | **Medium** | §1.5, §1.9 | **impl:** rf2-shv82 ✅ |
 
 ### 3.2 Deliberate non-parity divergences (intentional, NOT gaps)
 
@@ -383,6 +390,17 @@ project dispatch rules): `tools/xray/spec/003-Machine-Inspector.md`.
 | Step | Bead | New? | Hot-zone | Notes |
 |---|---|---|---|---|
 | D1 | **rf2-3f03c** — `001-Rendering.md` capability doc | existing (optional) | isolated | **Re-scope / fold into THIS doc** — `001-Topology-Parity.md` now claims the next numbered slot and carries the per-concern capability detail. rf2-3f03c can close as folded-in, or re-aim at a narrower "rendering pipeline internals" reference (`002-Rendering.md`) if a distinct surface emerges. Mayor to decide. |
+
+### Phase E — compound-endpoint rendering (the post-rf2-xh1lm tail)
+
+After rf2-xh1lm landed compound CONTAINMENT (substates nest inside
+the parent's box), three rendering gaps around compound EDGES
+surfaced in the 2026-05-25 pair-debug session and were closed
+together in rf2-shv82.
+
+| Step | Bead | New? | Hot-zone | Notes |
+|---|---|---|---|---|
+| E1 | **rf2-shv82** ✅ — `fix(machines-viz): compound-endpoint edges + self-loop label fan + cross-hierarchy label placement` | existing | isolated (`chart/nodes.cljs`, `chart/nodes/parallel_region_node.cljs`, `chart/projection.cljc`, `chart/edges.cljs`, `chart.cljs`, + JVM/CLJS/DOM tests + this doc + `API.md`) | **Closes G6 / G7 / G8.** Three independent fixes around one investigation context: (G6) container nodes carry invisible `<Handle>`s so compound-endpoint edges survive xyflow's `getEdgePosition` (which previously returned null for unhandled compounds and silently dropped the edge); (G7) self-loops fan to distinct perimeter slots per source via a `:loopIndex` ordinal; (G8) cross-hierarchy edge labels anchor at the source-side bend point rather than the routed midpoint. End-to-end parity gate `data-edge-count == data-edge-count-projected` is now pinned on every machine. |
 
 ### Proposed NEW beads (for the mayor to file)
 

@@ -119,6 +119,120 @@
     [(/ (+ (.-x a) (.-x b)) 2)
      (/ (+ (.-y a) (.-y b)) 2)]))
 
+;; ---- self-loop fan geometry (rf2-shv82, Issue 2) -----------------------
+;;
+;; Multiple self-loops on the same node (e.g. `:disconnected` has 3:
+;; `:ws/arm-fail`, `:ws/disarm-fail`, `:ws/clear`) all anchored at the
+;; same `(src-x, src-y)` would stack the loop AND its label at one point,
+;; producing the garbled overlap rf2-shv82 reports. The fix: each
+;; self-loop on a source gets a stable per-source ordinal (`loop-index`,
+;; computed in the projector) which rotates the loop's anchor + label
+;; around the source's perimeter, the xstate/Stately fan convention.
+;;
+;; Eight slots is enough headroom for any realistic per-node self-loop
+;; count (>8 self-loops on one state is a code-smell the user owns); the
+;; angles spread the loops on alternating sides of the cardinal
+;; (top-right / top-left / right-low / left-low / bottom-right /
+;; bottom-left / right-high / left-high) so the next slot is always
+;; visually distinct from its predecessor.
+
+(def ^:private self-loop-radius
+  "Outer radius of one self-loop arc (px). Kept at the historical 30px
+  so a SINGLE self-loop on a node renders pixel-identical to pre-
+  rf2-shv82 (when loop-index 0 + the canonical top-right slot)."
+  30)
+
+(def ^:private self-loop-fan-angles
+  "Per-slot (angle-radians, label-side) pairs for the self-loop fan.
+  The angle picks the loop's centre direction off the source node; the
+  label-side picks which side of the loop the label anchors on (so two
+  adjacent slots' labels don't crowd one another).
+
+  Slot 0 is the historical top-right (angle = -π/4, label right): a
+  single self-loop renders identically to pre-rf2-shv82."
+  [{:angle (* -1 (/ js/Math.PI 4))   :label-side :right}   ;; 0: top-right
+   {:angle (* -3 (/ js/Math.PI 4))   :label-side :left}    ;; 1: top-left
+   {:angle (/ js/Math.PI 4)          :label-side :right}   ;; 2: bottom-right
+   {:angle (* 3 (/ js/Math.PI 4))    :label-side :left}    ;; 3: bottom-left
+   {:angle 0                         :label-side :right}   ;; 4: right
+   {:angle js/Math.PI                :label-side :left}    ;; 5: left
+   {:angle (* -1 (/ js/Math.PI 2))   :label-side :right}   ;; 6: top
+   {:angle (/ js/Math.PI 2)          :label-side :right}]) ;; 7: bottom
+
+(defn- self-loop-geometry
+  "For a self-loop with the given `loop-index` (0 ≡ historical slot)
+  anchored at `(sx, sy)`, return `{:d :label-x :label-y}`. Each loop is
+  a small cubic-bezier oval offset from the source in the slot's
+  direction; the label anchors just past the loop on the slot's
+  designated side."
+  [sx sy loop-index]
+  (let [slot   (nth self-loop-fan-angles
+                    (mod (or loop-index 0) (count self-loop-fan-angles)))
+        angle  (:angle slot)
+        side   (:label-side slot)
+        cos-a  (js/Math.cos angle)
+        sin-a  (js/Math.sin angle)
+        r      self-loop-radius
+        ;; Two control points offset along the slot's angle and one
+        ;; perpendicular spread so the loop arcs around (not back onto
+        ;; itself). The perpendicular is (-sin-a, cos-a).
+        c1x (+ sx (* r cos-a) (* r (- sin-a)))
+        c1y (+ sy (* r sin-a) (* r cos-a))
+        c2x (+ sx (* r cos-a) (* r sin-a))
+        c2y (+ sy (* r sin-a) (* r (- cos-a)))
+        ;; Label sits just past the loop along the slot's angle, with a
+        ;; small bias on the label-side so adjacent slots don't crowd.
+        label-r (+ r 8)
+        bias-x  (if (= side :right) 4 -4)
+        lx      (+ sx (* label-r cos-a) bias-x)
+        ly      (+ sy (* label-r sin-a))]
+    {:d (str "M " sx "," sy
+             " C " c1x "," c1y
+             " "  c2x "," c2y
+             " "  sx  "," sy)
+     :label-x lx
+     :label-y ly}))
+
+;; ---- cross-hierarchy label placement (rf2-shv82, Issue 3) --------------
+;;
+;; A cross-hierarchy edge (source and target in different parent
+;; containers) routed via elk's bend-points has a midpoint that can land
+;; in unexpected absolute coords — e.g. the bottom-left corner of the
+;; canvas — far from where the user perceives the edge to originate.
+;; Stately Studio's convention: place the label near the SOURCE-SIDE
+;; first bend point (just outside the container the edge exits), so the
+;; label visually tracks its origin. We use the second point on the
+;; route (the first bend after the source handle) as the anchor; for a
+;; pure two-point route we fall back to the segment midpoint (no bend
+;; to anchor on).
+
+(defn- cross-hierarchy-label-anchor
+  "Return `[lx ly]` for a cross-hierarchy edge's label, anchored near
+  the source-side bend point of the routed path. `pts` is the JS points
+  array (≥ 2). Falls back to the midpoint of the first segment for
+  degenerate two-point routes (no bend to anchor on)."
+  [pts]
+  (let [n (alength pts)]
+    (if (< n 3)
+      ;; No interior bend — anchor on the midpoint of the only segment.
+      (let [a (aget pts 0) b (aget pts (dec n))]
+        [(/ (+ (.-x a) (.-x b)) 2)
+         (/ (+ (.-y a) (.-y b)) 2)])
+      ;; Anchor at the first bend after the source handle. With a slight
+      ;; bias along the incoming segment so the label sits just past the
+      ;; corner, not on top of it.
+      (let [a    (aget pts 0)
+            b    (aget pts 1)
+            dx   (- (.-x b) (.-x a))
+            dy   (- (.-y b) (.-y a))
+            len  (js/Math.hypot dx dy)
+            bias 6
+            ;; Step `bias` px back from the bend along the incoming
+            ;; segment so the label sits in the routed channel.
+            bx   (if (pos? len) (- (.-x b) (* (/ dx len) bias)) (.-x b))
+            by   (if (pos? len) (- (.-y b) (* (/ dy len) bias)) (.-y b))]
+        [bx by]))))
+
 (defn edge-path
   "Pure path-selection for a transition edge — the single source of
   truth `transition-edge` renders + the test suite pins (rf2-cz8v6).
@@ -128,28 +242,35 @@
 
     1. `self-loop?`  → a small loop off the node's edge (NOT routed —
        self-loops keep their dedicated path even if elk emitted bends).
+       rf2-shv82 (Issue 2): when `loop-index` > 0 the loop rotates to
+       a distinct perimeter slot so multiple self-loops on one node fan
+       out (xstate/Stately convention). `loop-index` nil / 0 keeps the
+       historical top-right slot pixel-identical.
     2. elk route     → when `points` is a JS array of ≥ 2 `#js {:x :y}`,
        a smooth poly-path THROUGH the bends so the edge goes AROUND
        nested containers (`:routed? true`).
+       rf2-shv82 (Issue 3): when `cross-hierarchy?` is true the label
+       anchors near the SOURCE-SIDE first bend point (just outside the
+       container the edge exits) instead of the routed midpoint — the
+       Stately Studio convention for cross-hierarchy edges (whose
+       midpoint can land far from the visual origin).
     3. bezier        → `getBezierPath` between the handles (`:routed?
        false`) — the no-bend-point fallback."
-  [{:keys [src-x src-y tgt-x tgt-y src-pos tgt-pos self-loop? points]}]
+  [{:keys [src-x src-y tgt-x tgt-y src-pos tgt-pos
+           self-loop? points loop-index cross-hierarchy?]}]
   (let [routed? (and (not self-loop?)
                      (some? points)
                      (> (alength points) 1))]
     (cond
       self-loop?
-      (let [r 30]
-        {:d (str "M " src-x "," src-y
-                 " C " (+ src-x r) "," (- src-y r)
-                 " "  (+ src-x r) "," (+ src-y r)
-                 " "  src-x       "," src-y)
-         :label-x (+ src-x r 4)
-         :label-y src-y
-         :routed? false})
+      (let [{:keys [d label-x label-y]}
+            (self-loop-geometry src-x src-y loop-index)]
+        {:d d :label-x label-x :label-y label-y :routed? false})
 
       routed?
-      (let [[lx ly] (path-midpoint points)]
+      (let [[lx ly] (if cross-hierarchy?
+                      (cross-hierarchy-label-anchor points)
+                      (path-midpoint points))]
         {:d (poly-path points) :label-x lx :label-y ly :routed? true})
 
       :else
@@ -246,6 +367,15 @@
         to-path    (.-toPath d)
         clickable? (and (fn? on-click) (some? event-id))
         self-loop? (boolean (.-selfLoop d))
+        ;; rf2-shv82 (Issue 2) — per-source self-loop ordinal so multiple
+        ;; self-loops on one node fan around the perimeter (instead of
+        ;; stacking at the same coords). nil for non-self-loops.
+        loop-index (.-loopIndex d)
+        ;; rf2-shv82 (Issue 3) — cross-hierarchy edge flag. When true +
+        ;; routed, `edge-path` anchors the label near the source-side
+        ;; first bend point (Stately convention) instead of the routed
+        ;; midpoint.
+        cross-hierarchy? (boolean (.-crossHierarchy d))
         ;; rf2-ee38b.21 — an INTERNAL self-transition (Spec 005:
         ;; omit :target) runs only :action; :exit / :entry do NOT fire.
         ;; Render it WITHOUT the re-entry arrowhead + with a dashed loop
@@ -264,7 +394,10 @@
         (edge-path {:src-x src-x :src-y src-y
                     :tgt-x tgt-x :tgt-y tgt-y
                     :src-pos src-pos :tgt-pos tgt-pos
-                    :self-loop? self-loop? :points points})
+                    :self-loop? self-loop?
+                    :points points
+                    :loop-index loop-index
+                    :cross-hierarchy? cross-hierarchy?})
         stroke  (edge-stroke {:active? active? :focused? focused? :fired? fired?})
         stroke-w (edge-stroke-width {:active? active? :focused? focused?
                                      :fired? fired? :chart vc})]
@@ -302,6 +435,14 @@
                ;; along elk's bend-point route (true) or fell back to
                ;; the bezier (false), so the DOM suite can pin routing.
                :data-routed (str routed?)
+               ;; rf2-shv82 (Issue 2) — fan ordinal for the self-loop
+               ;; perimeter slot; surfaced so the DOM suite can pin
+               ;; multi-self-loop slotting per source node.
+               :data-loop-index (when (some? loop-index) (str loop-index))
+               ;; rf2-shv82 (Issue 3) — cross-hierarchy flag the label-
+               ;; placement adjustment reads; surfaced so the DOM suite
+               ;; can pin label-anchor-near-source-bend behaviour.
+               :data-cross-hierarchy (str cross-hierarchy?)
                :data-machine-level (str (boolean (.-machineLevel d)))
                ;; rf2-u422r — clickable edges surface their fireable
                ;; event-id so a host (Xray on-chart sim) + tests can
