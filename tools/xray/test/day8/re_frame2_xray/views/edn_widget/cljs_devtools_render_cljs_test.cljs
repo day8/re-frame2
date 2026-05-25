@@ -169,12 +169,21 @@
     (let [out (cdt/value->hiccup (fn [_]))]
       (is (vector? out)))))
 
-;; ---- value->tree-hiccup (full current-state expansion, rf2-dmso5) --------
+;; ---- value->tree-hiccup (click-to-toggle current-state, rf2-dw8n7) -------
 ;;
-;; `value->tree-hiccup` is the re-frame-10x current-state look: a
-;; collection expands into a nested, indented tree rather than the
-;; one-line `▸ {…}` summary `value->hiccup` produces. These assert the
-;; whole value renders — every key + value surfaces in the tree.
+;; `value->tree-hiccup` is the re-frame-10x current-state look — type-
+;; coloured leaves, native collection delimiters, INTERACTIVE click-to-
+;; toggle per collection node. Default expansion follows §10.4's
+;; depth+size heuristic (`:default-depth 1` by default: root expanded,
+;; nested collections collapsed). The hard `:max-depth` is a stack
+;; guard, not a UX bound.
+;;
+;; These assert:
+;; - root expansion shows top-level keys
+;; - nested collections render as `▸ {…}` summaries by default
+;; - explicit `:default-depth N` opens N levels
+;; - the toggle wrapper carries `role="button"` + `cursor:pointer`
+;;   when `:panel-id` + `:render-id` are supplied (click wiring)
 
 (deftest tree-hiccup-scalar-matches-header
   (testing "a scalar (no body) renders as hiccup carrying the value"
@@ -182,8 +191,8 @@
       (is (vector? out))
       (is (contains-text? out ":foo/bar")))))
 
-(deftest tree-hiccup-map-expands-keys-and-values
-  (testing "a top-level map expands: every key + value renders"
+(deftest tree-hiccup-map-shows-top-level-keys
+  (testing "a top-level map renders with its keys visible (root expanded)"
     (let [out (cdt/value->tree-hiccup {:alpha 1 :beta 2 :gamma 3})]
       (is (vector? out))
       (is (contains-text? out ":alpha"))
@@ -193,59 +202,85 @@
       (is (contains-text? out "2"))
       (is (contains-text? out "3")))))
 
-(deftest tree-hiccup-large-map-expands-all-entries
+(deftest tree-hiccup-large-map-renders-all-keys
   (testing "a map with more than the cljs-devtools preview cap still
-            expands every entry (no collapsed-by-default)"
+            renders every key (root expansion shows all entries; values
+            are scalars so they inline)"
     (let [m   (zipmap (map #(keyword (str "k" %)) (range 12)) (range 12))
           out (cdt/value->tree-hiccup m)]
       (is (contains-text? out ":k0"))
       (is (contains-text? out ":k11")))))
 
-(deftest tree-hiccup-nested-map-expands-recursively
-  (testing "nested collections expand recursively — inner keys/values render"
-    (let [out (cdt/value->tree-hiccup {:outer {:inner {:deep 99}}})]
+(deftest tree-hiccup-nested-map-collapses-wide-children-by-default
+  (testing "rf2-dw8n7 — at the §10.4 depth boundary (default-depth=1)
+            a NESTED collection that exceeds the children-threshold
+            (10) collapses to a ▸ {…} summary; the user clicks to
+            expand. Small single-entry nested maps stay expanded
+            (consistent with the home-grown engine's same heuristic)."
+    (let [wide (zipmap (map #(keyword (str "k" %)) (range 20)) (range 20))
+          out  (cdt/value->tree-hiccup {:outer wide})]
+      (is (contains-text? out ":outer")
+          "root expansion shows the top-level key")
+      (is (contains-text? out "▸")
+          "the wide nested map renders as a ▸ summary")
+      (is (not (contains-text? out ":k0"))
+          "the wide nested map's keys are hidden under the default-collapse"))))
+
+(deftest tree-hiccup-small-nested-map-still-expands-by-default
+  (testing "rf2-dw8n7 — a single-entry nested map at the default-depth
+            boundary stays expanded (≤ threshold heuristic) — matches
+            `data-display/default-expanded?` semantics; gives the
+            operator a cheap quick peek at small structures"
+    (let [out (cdt/value->tree-hiccup {:outer {:inner 99}})]
+      (is (contains-text? out ":outer"))
+      (is (contains-text? out ":inner")))))
+
+(deftest tree-hiccup-explicit-default-depth-expands-deeper
+  (testing "passing :default-depth deeper opens nested levels eagerly —
+            the §10.4 heuristic uses default-depth as the expanded-by-
+            default boundary"
+    (let [out (cdt/value->tree-hiccup {:outer {:inner {:deep 99}}}
+                                      {:default-depth 4})]
       (is (contains-text? out ":outer"))
       (is (contains-text? out ":inner"))
       (is (contains-text? out ":deep"))
       (is (contains-text? out "99")))))
 
-(deftest tree-hiccup-vector-of-maps-expands
-  (testing "a vector of maps expands each element"
-    (let [out (cdt/value->tree-hiccup [{:a 1} {:b 2}])]
-      (is (contains-text? out ":a"))
-      (is (contains-text? out ":b"))
-      (is (contains-text? out "1"))
-      (is (contains-text? out "2")))))
+(deftest tree-hiccup-vector-of-wide-maps-shows-collapsed-summaries
+  (testing "rf2-dw8n7 — at the §10.4 boundary (default-depth=1) wide
+            nested maps inside a vector collapse to ▸ {…} summaries;
+            single-key inner maps stay expanded (threshold heuristic)"
+    (let [wide-a (zipmap (map #(keyword (str "a" %)) (range 20)) (range 20))
+          wide-b (zipmap (map #(keyword (str "b" %)) (range 20)) (range 20))
+          out    (cdt/value->tree-hiccup [wide-a wide-b])]
+      (is (contains-text? out "▸")
+          "wide inner maps collapse to ▸ summaries")
+      (is (not (contains-text? out ":a0"))
+          "wide inner map's keys are hidden under the default-collapse")
+      (is (not (contains-text? out ":b0"))))))
 
 (deftest tree-hiccup-deeply-nested-renders-without-blowing-up
   (testing "a structure deeper than the inline print-level budget still
-            renders (the body-recursion depth cap is a stack guard, not
-            a crash) — the outermost keys surface and the deep tail
-            degrades to a ▸ summary somewhere"
-    ;; Build a 20-deep nest — past the inline print-level (10) so the
-    ;; deep tail must fall through to the body-recursion summary path.
+            renders — the outermost key surfaces and the deep tail
+            degrades to a ▸ summary (click-to-expand from there)"
     (let [deep (reduce (fn [acc i] {(keyword (str "lvl" i)) acc})
                        {:bottom 1}
                        (range 20))
           out  (cdt/value->tree-hiccup deep)]
       (is (vector? out))
-      ;; The outermost key still renders.
       (is (contains-text? out ":lvl19"))
-      ;; Somewhere down the tail, a collapsed ▸ summary appears (the
-      ;; structure exceeds the inline budget).
       (is (contains-text? out "▸")))))
 
-(deftest tree-hiccup-body-recursion-cap-summarises
-  (testing "an explicit small max-depth caps the BODY recursion: a wide
-            map (forces a body, since >5 entries) whose values are
-            themselves wide maps collapses the nested level to ▸"
-    ;; A map of 8 entries forces a body (header caps at the preview
-    ;; size for the body path); each value is another 8-entry map. With
-    ;; max-depth 1 the body's nested maps hit the cap → ▸ summary.
+(deftest tree-hiccup-max-depth-hard-cap-summarises
+  (testing "explicit small :max-depth caps the BODY recursion: even when
+            the operator expands every node, the walker degrades to ▸
+            past max-depth (defence against cyclic/pathological values)"
     (let [wide  (zipmap (map #(keyword (str "k" %)) (range 8))
                         (range 8))
           outer (zipmap (map #(keyword (str "g" %)) (range 8))
                         (repeat wide))
+          ;; max-depth 1 + default-depth 1 — root expands; the nested
+          ;; wide maps hit the hard cap and collapse to ▸.
           out   (cdt/value->tree-hiccup outer 1)]
       (is (vector? out))
       (is (contains-text? out ":g0"))
@@ -265,3 +300,81 @@
   (testing "JS object / function degrade gracefully (no throw, hiccup out)"
     (is (vector? (cdt/value->tree-hiccup #js {:foo 1})))
     (is (vector? (cdt/value->tree-hiccup (fn [_]))))))
+
+;; ---- click-to-toggle wiring (rf2-dw8n7) ----------------------------------
+;;
+;; When the caller supplies `:panel-id` + `:render-id`, every collection
+;; surrogate's triangle becomes a clickable [:span] with role="button",
+;; cursor:pointer, and tabindex=0. Without those keys the triangle
+;; renders without a click handler (pure-data tests / non-interactive
+;; surfaces). These assert the wrapper shape carries the expected
+;; affordances.
+
+(defn- find-spans-with-role-button
+  [tree]
+  (->> (walk-hiccup tree)
+       (filter (fn [n]
+                 (and (vector? n)
+                      (= :span (first n))
+                      (map? (second n))
+                      (= "button" (:role (second n))))))))
+
+(deftest tree-hiccup-without-panel-id-has-no-click-wrapper
+  (testing "without :panel-id + :render-id the triangle has NO role=button
+            wrapper (non-interactive surfaces opt out of the toggle UI)"
+    (let [out (cdt/value->tree-hiccup {:a {:b 1}})]
+      (is (vector? out))
+      (is (empty? (find-spans-with-role-button out))))))
+
+(deftest tree-hiccup-with-panel-id-wraps-triangle-as-button
+  (testing "with :panel-id + :render-id the triangle wraps as a
+            role=\"button\" [:span] with cursor:pointer + on-click +
+            tabindex (rf2-dw8n7 acceptance)"
+    (let [out  (cdt/value->tree-hiccup {:a {:b 1}}
+                                       {:panel-id  :test
+                                        :render-id "wire-1"})
+          btns (find-spans-with-role-button out)]
+      (is (seq btns) "at least one clickable triangle wrapper")
+      (let [{:keys [on-click on-key-down role tab-index aria-label style]}
+            (second (first btns))]
+        (is (fn? on-click)    ":on-click is wired")
+        (is (fn? on-key-down) ":on-key-down handles Enter/Space")
+        (is (= "button" role))
+        (is (= 0 tab-index))
+        (is (string? aria-label))
+        (is (= "pointer" (:cursor style)))))))
+
+(deftest tree-hiccup-default-collapsed-glyph-is-right-triangle
+  (testing "a default-collapsed nested node renders the ▸ glyph; a
+            default-expanded node renders ▾. Use a WIDE inner map so
+            the §10.4 threshold pushes it past 'expanded' to 'collapsed'
+            at the depth boundary.
+
+            cljs-devtools' `has-body-api-call` returns false for raw
+            CLJS values (only surrogates carry bodies), so the ROOT
+            triangle is rendered only at the surrogate level — the
+            nested wide map IS a surrogate, so its ▸ wrapper is present
+            and interactive."
+    (let [wide-inner (zipmap (map #(keyword (str "k" %)) (range 20))
+                             (range 20))
+          out        (cdt/value->tree-hiccup {:outer wide-inner}
+                                             {:panel-id  :test
+                                              :render-id "glyph-1"
+                                              :default-depth 1})
+          btns       (find-spans-with-role-button out)
+          glyphs     (map #(last %) btns)]
+      (is (seq btns) "the nested surrogate carries a clickable triangle")
+      (is (some #{"▸"} glyphs) "wide nested collapsed glyph"))))
+
+(deftest tree-hiccup-with-panel-id-renders-expanded-glyph-when-default-deep
+  (testing ":default-depth deeper than the surrogate's depth makes its
+            triangle render the ▾ (expanded) glyph"
+    (let [out    (cdt/value->tree-hiccup {:outer (zipmap (map #(keyword (str "k" %)) (range 20))
+                                                         (range 20))}
+                                         {:panel-id  :test
+                                          :render-id "glyph-deep"
+                                          :default-depth 5})
+          btns   (find-spans-with-role-button out)
+          glyphs (map #(last %) btns)]
+      (is (some #{"▾"} glyphs)
+          "with default-depth deeper than the surrogate, ▾ appears"))))

@@ -1280,6 +1280,22 @@ formatters) is a complementary follow-on bead. In-DOM widget
 rendering — the contract Xray cares about — flows through the
 facade today.
 
+The cljs-devtools-backed `browse` path (current-state rendering
+through `views.edn-widget.cljs-devtools-render`, per rf2-dmso5) is
+**fully interactive**: every collection surrogate renders a `▸` / `▾`
+triangle wrapped in a clickable `[:span]` with `role="button"`,
+`cursor: pointer`, `tabindex=0`, and an `aria-label`. Click (or
+Enter / Space on a focused triangle) dispatches
+`:rf.xray/data-display-toggle-node` against the per-render walker
+path — **the same sticky-expansion contract** the home-grown
+`data-display/render` engine uses (§10.4), backed by the shared
+`:rf.xray/data-display-expansion` slot. The operator's per-path
+drill-downs persist across re-renders + epoch navigation per
+§10.4. Default expansion follows §10.4's depth+size heuristic;
+`browse` callers may override via `:default-depth N` (the App-db
+panel defaults to `:default-depth 3` for the diff render path,
+matching the re-frame-10x look).
+
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
 1. **Lazy collapsible tree** — hierarchical EDN with expand/collapse.
