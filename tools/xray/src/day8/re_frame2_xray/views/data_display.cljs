@@ -736,6 +736,73 @@
        "-" mount-id
        (when (seq path) (str "-" (str/join "/" (map pr-str path))))))
 
+;; rf2-tzvk9 — triangle expand/collapse glyph carries an explicit
+;; ≥24×24 click target. The glyph itself stays visually subordinate
+;; (font-size 14px, dimmed `:text-secondary`); padding inside the
+;; existing key-column gutter grows the hit-box without shifting the
+;; surrounding layout. Public via the value so tests can assert the
+;; computed-width contract without re-deriving the magic numbers.
+;;
+;; Why these numbers — getBoundingClientRect on `inline-flex` + the
+;; padding/font-size below resolves to approximately 26×24px in
+;; Chromium at the shell's default 13px root font-size:
+;;
+;;   width  ≈ font-size(14) * glyph-advance(~0.7) + padding-l(4) +
+;;            padding-r(4)                                ≈ 26px
+;;   height ≈ font-size(14) * line-height(1.4)            ≈ 19.6px
+;;            + padding-t(4) + padding-b(4)               ≈ 27.6px
+;;
+;; Both axes clear the 24px WCAG-2.2-flavour comfortable-mouse-target
+;; threshold called out in the bead.
+
+(def triangle-min-target-px
+  "Minimum click-target width/height the triangle must register
+  (rf2-tzvk9). The CLJS-unit-test surface asserts the padding +
+  font-size combination resolves to at least this many CSS pixels
+  along both axes.
+
+  Public so external surfaces (regression tests, design audits) can
+  read the contract without re-deriving the number."
+  24)
+
+(def triangle-style
+  "Inline-style map applied to every expand/collapse triangle (`▸`
+  / `▾`) the data-display widget renders (rf2-tzvk9). One source of
+  truth so every triangle gets the SAME hit-box — three call sites
+  (depth-capped, expanded ▾, collapsed ▸) and one diff-mode variant
+  share this.
+
+  Layout rationale:
+
+  - `inline-flex` + `align-items center` + `justify-content center`
+    centres the glyph inside the padded box so the click target is
+    visually balanced.
+  - `min-width` + `min-height` pin the hit-box to ≥24px in both axes
+    even if the glyph's natural metrics fall short (Chromium renders
+    `▸` slightly narrower than `▾`).
+  - `padding 4px 8px` grows the hit-box WITHOUT pushing the key
+    column right — the padding sits inside the existing 4-6px gap
+    between the triangle and the first key.
+  - `font-size 14px` overrides the widget's inherited 12px so the
+    glyph is more visible AND the natural metrics grow the hit-box.
+    Bumping by ~2px keeps the glyph subordinate to surrounding data.
+  - `line-height 1` collapses inline leading so the height comes
+    purely from font + padding, not from inherited 1.4 leading.
+
+  The colour stays on the subdued `:text-secondary` token — the
+  glyph's job is to be *findable*, not loud."
+  {:cursor          "pointer"
+   :user-select     "none"
+   :display         "inline-flex"
+   :align-items     "center"
+   :justify-content "center"
+   :min-width       (str triangle-min-target-px "px")
+   :min-height      (str triangle-min-target-px "px")
+   :padding         "4px 8px"
+   :font-size       "14px"
+   :line-height     1
+   :color           (:text-secondary tokens)})
+
 (defn- on-toggle
   "Build the click handler for a node's `▸`/`▾` glyph.
   Dispatches the toggle event via `dispatch-fn` — the lexically-
@@ -848,15 +915,16 @@
 
         ;; Depth-capped — render the placeholder ellipsis, click expands one level.
         depth-capped?
-        [:span {:style {:display "inline-flex" :align-items "baseline" :gap "4px"}}
+        [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
          [:span {:on-click   toggle-fn
                  :role       "button"
                  :tabindex   0
                  :aria-expanded false
                  :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                 :style {:cursor "pointer"
-                         :user-select "none"
-                         :color (:text-secondary tokens)}}
+                 ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                 ;; `triangle-style` (padding + font-size + min-width/
+                 ;; -height).
+                 :style triangle-style}
           "▸"]
          (bracket kind :open value)
          [:span {:style (token-style :text-tertiary)} "…"]
@@ -893,28 +961,28 @@
 
         ;; Default — toggle glyph + open bracket (when expanded) OR summary.
         expanded?
-        [:span {:style {:display "inline-flex" :align-items "baseline" :gap "4px"}}
+        [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
          [:span {:on-click   toggle-fn
                  :role       "button"
                  :tabindex   0
                  :aria-expanded true
                  :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                 :style {:cursor "pointer"
-                         :user-select "none"
-                         :color (:text-secondary tokens)}}
+                 ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                 ;; `triangle-style`.
+                 :style triangle-style}
           "▾"]
          (bracket kind :open value)]
 
         :else
-        [:span {:style {:display "inline-flex" :align-items "baseline" :gap "6px"}}
+        [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
          [:span {:on-click   toggle-fn
                  :role       "button"
                  :tabindex   0
                  :aria-expanded false
                  :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                 :style {:cursor "pointer"
-                         :user-select "none"
-                         :color (:text-secondary tokens)}}
+                 ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                 ;; `triangle-style`.
+                 :style triangle-style}
           "▸"]
          (collapsed-summary value kind)])]
 
