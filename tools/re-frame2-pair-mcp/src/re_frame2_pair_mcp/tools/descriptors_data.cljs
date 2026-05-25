@@ -564,8 +564,16 @@
                      "Long-running tools/call — emits each batch of matching events as a notifications/progress notification "
                      "(correlated via the call's progressToken), and resolves with a summary when the client cancels or an "
                      "unsubscribe op fires. Topics: 'trace' (raw trace stream), 'epoch' (assembled :rf/epoch-records), "
-                     "'fx' (trace stream filtered to :op-type :rf.fx), 'error' (trace stream filtered to :op-type :error). "
-                     "Filter vocab depends on topic — :trace/:fx/:error accept the (rf/trace-buffer) filter map "
+                     "'fx' (trace stream filtered to :op-type :rf.fx), 'error' (trace stream filtered to :op-type :error), "
+                     "'frameless' (trace events with no :rf.trace/dispatch-id — registration emits, REPL evals, lifecycle "
+                     "outside any cascade; per Tool-Pair §Frameless trace events). "
+                     "Cascade-bundle delivery (rf2-mscih): :trace / :fx / :error ship each tick's matched events grouped "
+                     "by :rf.trace/dispatch-id into cascade bundles matching `(rf/trace-buffer frame-id)` shape "
+                     "(:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events "
+                     ":parent-dispatch-id). The progress payload's load slot is `:cascades` on these topics. Frameless "
+                     "events NEVER ride these topics — opt into the `:frameless` topic explicitly. :epoch and :frameless "
+                     "ship as `:events` (flat). "
+                     "Filter vocab depends on topic — :trace/:fx/:error/:frameless accept the (rf/trace-buffer) filter map "
                      "(:operation :op-type :frame :severity :event-id :handler-id :source :origin :dispatch-id :since-ms :between); "
                      ":epoch accepts the epoch-matches? predicate map (:event-id :event-id-prefix :effects :touches-path "
                      ":sub-ran :render :origin :frame :timing-ms). :timing-ms (rf2-r3azh) is a server-side wall-clock "
@@ -574,22 +582,23 @@
                      "Per spec/009 §Privacy this forwarder default-drops events carrying `:sensitive? true` at the top "
                      "level; opt back in with `include-sensitive true`. Dropped count surfaces as `:dropped-sensitive` "
                      "on each progress payload (when non-zero) and the final summary. "
-                     "Each progress payload's `:events` vector is structurally deduped by default (rf2-obpa9) — "
+                     "Each progress payload's payload-slot is structurally deduped by default (rf2-obpa9) — "
                      "shared subtrees across the tick collapse to a `{:rf.mcp/dedup-table ...}` wrapper; "
                      "agent host reconstructs via `(de-dupe.core/expand cache-map)`. Dedup is per-tick, not "
                      "per-stream — each notifications/progress frame carries its own cache, no cross-tick "
                      "references. Pass `dedup false` to skip. "
                      "Examples: "
                      "1. Stream every epoch: {:topic \"epoch\"} -> progress ticks {:sub-id \"<uuid>\" :events [...]} until cancel; final summary {:ok? true :sub-id \"<uuid>\" :delivered N :ticks K :reason :aborted}. "
-                     "2. Filtered fx stream: {:topic \"fx\" :filter {:event-id :cart/checkout}} -> ticks only for checkout-driven fx; ends with {:ok? true :delivered N :reason :aborted}. "
-                     "3. Time-bounded probe: {:topic \"error\" :max-ms 30000 :max-events 100} -> closes after 30s or 100 errors, whichever first; {:ok? true :delivered K :reason :max-ms-reached}.")
+                     "2. Filtered fx-cascade stream: {:topic \"fx\" :filter {:event-id :cart/checkout}} -> ticks {:sub-id \"...\" :cascades [{:dispatch-id ... :event ... :fx ... :effects [...] :trace-events [...]}]}; ends with {:ok? true :delivered N :reason :aborted}. "
+                     "3. Time-bounded error probe: {:topic \"error\" :max-ms 30000 :max-events 100} -> closes after 30s or 100 errors; cascade bundles only. "
+                     "4. Frameless live channel: {:topic \"frameless\"} -> ticks {:sub-id \"...\" :events [<registration / REPL emits>]}.")
    :typicalTokens 1000
    :annotations streaming-subscribe-annotations
    :outputSchema streaming-final-summary
    :inputSchema {:type "object"
                  :properties {:topic   {:type "string"
                                         :description "Topic name. Required."
-                                        :enum ["trace" "epoch" "fx" "error"]}
+                                        :enum ["trace" "epoch" "fx" "error" "frameless"]}
                               :filter  {:description "Filter map (JSON object) or EDN string. Vocab depends on topic."
                                         :oneOf [{:type "object"}
                                                 {:type "string"}]}
@@ -636,7 +645,7 @@
                      "Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes "
                      ":dropped-events :dropped-bytes :overflow-reason :created-at}]}` — one entry per "
                      "currently-registered subscription. Empty `:subs` vector when no streams are open. "
-                     "Optional filters: `topic` (one of `:trace` / `:epoch` / `:fx` / `:error`) narrows to "
+                     "Optional filters: `topic` (one of `:trace` / `:epoch` / `:fx` / `:error` / `:frameless`) narrows to "
                      "a single topic; `sub-id` returns only the matching sub. A non-nil `:overflow-reason` "
                      "indicates the queue has been evicting older events to stay inside its budget — tune "
                      "`max-buffered-events` / `max-buffered-bytes` on the next `subscribe` call. "
@@ -649,8 +658,8 @@
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:topic  {:type "string"
-                                       :description "Optional filter — only return subs on this topic. One of trace, epoch, fx, error."
-                                       :enum ["trace" "epoch" "fx" "error"]}
+                                       :description "Optional filter — only return subs on this topic. One of trace, epoch, fx, error, frameless."
+                                       :enum ["trace" "epoch" "fx" "error" "frameless"]}
                               :sub-id {:type "string"
                                        :description "Optional filter — only return the sub with this uuid."}
                               :build  {:type "string"}}

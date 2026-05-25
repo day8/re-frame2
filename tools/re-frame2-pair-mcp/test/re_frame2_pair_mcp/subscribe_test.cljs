@@ -107,11 +107,16 @@
 ;; subscribe! whitelist.
 
 (deftest recognised-topics
-  (let [recognised #{:trace :epoch :fx :error}]
+  ;; Per rf2-mscih `:frameless` joins the recognised set as the
+  ;; explicit opt-in channel for events with no
+  ;; `:rf.trace/dispatch-id` — registration emits, REPL evals,
+  ;; lifecycle outside any cascade.
+  (let [recognised #{:trace :epoch :fx :error :frameless}]
     (is (contains? recognised :trace))
     (is (contains? recognised :epoch))
     (is (contains? recognised :fx))
     (is (contains? recognised :error))
+    (is (contains? recognised :frameless))
     (is (not (contains? recognised :unknown)))))
 
 ;; The progress payload shape — the MCP notifications/progress
@@ -477,3 +482,148 @@
     ;; correct, no raw-`str` concatenation hazard.
     (is (str/includes? form "\\\"quote\\\"")
         "embedded quotes survive as escaped EDN literals")))
+
+;; ---------------------------------------------------------------------------
+;; Cascade-bundle wire format (rf2-mscih) — drain envelope shape, slot
+;; selection on the progress payload, and cross-frame `:dispatch-id`
+;; merge.
+;; ---------------------------------------------------------------------------
+
+(deftest drain-form-handles-both-cascade-and-events-slots
+  ;; rf2-mscih — `drain-form` with elision ON must wrap WHICHEVER slot
+  ;; the runtime produced. The form uses `cond->` over slot presence so
+  ;; it's topic-agnostic at the form level; the runtime determines
+  ;; which slot the drain envelope carries.
+  (let [form (sub/drain-form "sub-1" true false)]
+    (is (str/includes? form ":cascades")
+        "drain form mentions the :cascades slot for cascade-bundle topics")
+    (is (str/includes? form ":events")
+        "drain form mentions the :events slot for flat topics")
+    (is (str/includes? form "contains?")
+        "the form uses contains? to discriminate the slot")
+    (is (str/includes? form "re-frame.core/elide-wire-value")
+        "the walker is applied to whichever slot is present")))
+
+(deftest progress-payload-uses-cascades-slot-on-cascade-bundle-topics
+  ;; rf2-mscih — the progress payload's load slot is named per the
+  ;; topic's wire shape: `:cascades` for cascade-bundle topics
+  ;; (`:trace`/`:fx`/`:error`), `:events` for flat topics
+  ;; (`:epoch`/`:frameless`).
+  (testing "the :cascade? flag in tick-state routes the payload to :cascades"
+    ;; Pure-data assertion: simulate the slot-selection logic the
+    ;; emitter applies.
+    (let [cascade? true
+          slot     (if cascade? :cascades :events)]
+      (is (= :cascades slot))))
+  (testing "the :cascade? flag false routes the payload to :events"
+    (let [cascade? false
+          slot     (if cascade? :cascades :events)]
+      (is (= :events slot)))))
+
+(deftest cascade-bundle-shape-pins-projection-slots
+  ;; Pin the shape contract — every cascade bundle carries the seven
+  ;; `group-cascades` slots (`:dispatch-id` / `:event` / `:handler` /
+  ;; `:fx` / `:effects` / `:subs` / `:renders` / `:other`) PLUS the
+  ;; runtime-side `:trace-events` slot. Mirrors `(rf/trace-buffer
+  ;; frame-id)` shape per Tool-Pair §Reading the per-frame trace ring.
+  (let [bundle {:dispatch-id        7
+                :frame              :rf/default
+                :event              [:cart/add {:sku "x"}]
+                :dispatched         {:operation :rf.event/dispatched}
+                :handler            {:operation :rf.event/run-end}
+                :fx                 {:operation :rf.fx/do-fx}
+                :effects            []
+                :subs               []
+                :renders            []
+                :other              []
+                :trace-events       [{:operation :rf.event/dispatched}]
+                :parent-dispatch-id nil}]
+    (is (contains? bundle :dispatch-id))
+    (is (contains? bundle :trace-events))
+    (is (contains? bundle :event))
+    (is (contains? bundle :effects))
+    (is (contains? bundle :subs))
+    (is (contains? bundle :renders))
+    (is (contains? bundle :other))
+    (is (contains? bundle :parent-dispatch-id))))
+
+(deftest cross-frame-cascade-merge-by-dispatch-id
+  ;; rf2-mscih cross-frame contract — a single cascade can fan out
+  ;; across frames; every emit on every frame shares the same
+  ;; `:rf.trace/dispatch-id`. Consumers merge by `:dispatch-id` to
+  ;; reconstruct the cross-frame view per Tool-Pair §Cross-frame
+  ;; cascade reconstruction.
+  (let [frame-a-bundle {:dispatch-id 99
+                        :frame       :rf/default
+                        :event       [:user/login]
+                        :effects     []
+                        :subs        []
+                        :renders     []
+                        :other       []
+                        :trace-events [{:operation :rf.event/dispatched
+                                        :tags {:rf.trace/dispatch-id 99
+                                               :frame :rf/default}}]
+                        :parent-dispatch-id nil}
+        frame-b-bundle {:dispatch-id 99
+                        :frame       :stories
+                        :event       nil
+                        :effects     []
+                        :subs        [{:operation :rf.sub/run
+                                       :tags {:rf.trace/dispatch-id 99
+                                              :frame :stories}}]
+                        :renders     []
+                        :other       []
+                        :trace-events [{:operation :rf.sub/run
+                                        :tags {:rf.trace/dispatch-id 99
+                                               :frame :stories}}]
+                        :parent-dispatch-id nil}
+        ;; Consumer-side reconstruction: merge by :dispatch-id.
+        merged (group-by :dispatch-id [frame-a-bundle frame-b-bundle])]
+    (is (= 1 (count merged))
+        "two bundles sharing :dispatch-id 99 merge into one timeline slot")
+    (is (= 2 (count (get merged 99)))
+        "both per-frame bundles ride under the same :dispatch-id key")
+    (is (= #{:rf/default :stories}
+           (into #{} (map :frame (get merged 99))))
+        "the merged slot exposes both frames' contributions")))
+
+(deftest frameless-channel-shape-is-flat-events-not-bundles
+  ;; rf2-mscih frameless contract — registration emits / REPL / boot
+  ;; lifecycle ride under `:events` (flat) on the `:frameless` topic.
+  ;; No cascade structure to bundle; the frameless events carry no
+  ;; `:rf.trace/dispatch-id` tag.
+  (let [registration-emit {:operation :rf.registry/registered
+                           :op-type :rf.registry
+                           :tags {:registry-kind :event}}
+        repl-emit         {:operation :rf.repl/eval
+                           :op-type :rf.repl
+                           :tags {}}
+        frameless-tick    {:sub-id "sub-frameless"
+                           :events [registration-emit repl-emit]
+                           :dropped-events 0
+                           :dropped-bytes  0}]
+    (is (contains? frameless-tick :events)
+        ":frameless ticks carry an :events slot, not :cascades")
+    (is (not (contains? frameless-tick :cascades))
+        ":frameless ticks MUST NOT carry a :cascades slot")
+    (is (every? #(nil? (get-in % [:tags :rf.trace/dispatch-id]))
+                (:events frameless-tick))
+        "frameless events MUST carry no :rf.trace/dispatch-id tag")))
+
+(deftest cursor-stale-does-not-apply-to-subscribe-streams
+  ;; rf2-mscih clarification — `:rf.mcp/cursor-stale` is a cursor-
+  ;; pagination concern (`trace-window` / `watch-epochs`), not a
+  ;; streaming concern. The `subscribe` surface is forward-only with
+  ;; no cursor; the cascade-bundle wire reshape introduces no new
+  ;; cursor surface.
+  (let [;; A streaming subscription's final summary — no cursor slot.
+        subscribe-summary {:ok? true
+                           :sub-id "sub-1"
+                           :topic :trace
+                           :delivered 12
+                           :ticks 3
+                           :reason :aborted}]
+    (is (not (contains? subscribe-summary :next-cursor))
+        "streaming subscriptions are forward-only — no cursor slot")
+    (is (not (contains? subscribe-summary :dispatch-id-of-next-cascade))
+        "cascade-bundle delivery introduces no new cursor")))

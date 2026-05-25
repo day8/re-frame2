@@ -950,17 +950,98 @@ summary `{:ok? true :sub-id :delivered N :dropped-events N
 
 ### Topics
 
-| Topic    | What gets pushed                                                  |
-|----------|-------------------------------------------------------------------|
-| `trace`  | Every raw trace event matching `filter`.                          |
-| `epoch`  | Every assembled `:rf/epoch-record` matching `filter`.             |
-| `fx`     | Sugar — `topic :trace` with base filter `{:op-type :rf.fx}`.      |
-| `error`  | Sugar — `topic :trace` with base filter `{:op-type :error}`.      |
+| Topic       | What gets pushed                                                                                                |
+|-------------|-----------------------------------------------------------------------------------------------------------------|
+| `trace`     | Every raw trace event matching `filter` — grouped into cascade bundles by `:rf.trace/dispatch-id` (rf2-mscih).  |
+| `epoch`     | Every assembled `:rf/epoch-record` matching `filter`. Already cascade-shaped by construction.                   |
+| `fx`        | Sugar — `topic :trace` with base filter `{:op-type :rf.fx}`. Cascade-bundle delivery as for `:trace`.            |
+| `error`     | Sugar — `topic :trace` with base filter `{:op-type :error}`. Cascade-bundle delivery as for `:trace`.            |
+| `frameless` | Every trace event matching `filter` whose `:rf.trace/dispatch-id` tag is absent — registration emits, REPL evals, lifecycle outside any cascade (per [Tool-Pair.md §Frameless trace events — live channel only](../../../spec/Tool-Pair.md#frameless-trace-events--live-channel-only-rf2-g1b2m-b3-ruling)). Single-event delivery. |
 
 User-supplied filter keys win over the topic's base filter on conflict
 — the topic is a default, not a lock. So `subscribe {:topic :fx
 :filter {:op-type :info}}` actually streams `:info` traces (the user
 filter wins). Don't do this — but the substrate doesn't refuse it.
+
+### Cascade-bundle wire format (rf2-mscih)
+
+On the cascade-bundle topics (`:trace`, `:fx`, `:error`) every
+progress payload's `:cascades` slot is a vector of cascade bundles
+keyed by `:dispatch-id`. Each bundle matches the framework's
+`(rf/trace-buffer frame-id)` shape per [spec/009 §Cascade projection](../../../spec/009-Instrumentation.md#cascade-projection-group-cascades--domino-bucket)
+and [Tool-Pair.md §Reading the per-frame trace ring](../../../spec/Tool-Pair.md#reading-the-per-frame-trace-ring--cascade-bundles--flat-opt-in-rf2-g1b2m):
+
+```clojure
+{:dispatch-id        <id>                  ; cascade id
+ :frame              <frame-id or nil>
+ :event              <event-vector or nil> ; from :rf.event/dispatched :tags
+ :dispatched         <trace-event or nil>  ; full :rf.event/dispatched event
+ :handler            <trace-event or nil>  ; :rf.event/run-end emit (last wins)
+ :fx                 <trace-event or nil>  ; :rf.fx/do-fx
+ :effects            [<trace-event> ...]   ; :op-type :rf.fx (other operations)
+ :subs               [<trace-event> ...]   ; :rf.sub/run + :rf.sub/skip + :rf.sub/create
+ :renders            [<trace-event> ...]   ; :rf.view/render
+ :other              [<trace-event> ...]   ; everything else (errors, machine, …)
+ :trace-events       [<trace-event> ...]   ; raw events for the cascade
+ :parent-dispatch-id <id or nil>}          ; causal-parent link
+```
+
+One tick = one drain's worth of cascade bundles. A cascade is the
+"atomic" delivery unit — consumers can reason about cause→effect at
+the granularity of `:dispatch-id` without re-folding flat-event
+streams (the pre-rf2-mscih posture).
+
+Events with no `:rf.trace/dispatch-id` tag (registration emits, REPL
+evals, lifecycle outside any cascade) NEVER ride the cascade-bundle
+topics; the framework filters them at the dispatch gate. Consumers
+that need them subscribe to `:frameless` explicitly.
+
+The `:dropped-events` / `:dropped-bytes` / `:overflow-reason`
+counters on the progress payload count the raw queued events that
+were EVICTED by the byte+event budget — not cascades. A non-zero
+`:dropped-events` means consumers reconstructing a cascade should
+tolerate partially-truncated bundles (some of the cascade's
+constituent events may have aged out).
+
+### Cross-frame cascade reconstruction
+
+A cascade can fan out across frames per [spec/002 §Cross-frame
+dispatch](../../../spec/002-Frames.md). Every emit on every frame
+shares the same `:rf.trace/dispatch-id`, so the runtime emits one
+bundle per `(frame, dispatch-id)` pair per drain. Consumers that
+watch multiple frames merge by `:dispatch-id` to reconstruct the
+cross-frame view (per [Tool-Pair.md §Cross-frame cascade
+reconstruction](../../../spec/Tool-Pair.md#cross-frame-cascade-reconstruction--merge-by-dispatch-id)).
+In practice, each cascade lives in exactly one frame (re-frame2 does
+not route a single dispatch across multiple frames per [Spec 002
+§Routing](../../../spec/002-Frames.md#routing-the-dispatch-envelope)),
+so the multi-frame view is interleaved rather than overlapping;
+`dispatch-id` ordering renders the correct turn-by-turn timeline.
+
+### Frameless channel
+
+The `:frameless` topic delivers events whose `:rf.trace/dispatch-id`
+tag is absent — registration / hot-reload / REPL emits that never
+rode a dispatch cascade. The progress payload's load slot is
+`:events` (flat); the cascade-bundle shape doesn't apply (there is
+no cascade to bundle).
+
+Frameless events bypass every ring per [Tool-Pair.md §Frameless
+trace events](../../../spec/Tool-Pair.md#frameless-trace-events--live-channel-only-rf2-g1b2m-b3-ruling)
+— they stream live to listeners only. The `:frameless` topic is the
+MCP-side surface for that live channel; consumers MUST opt in
+explicitly per the framework's "separate channel" ruling
+(rf2-g1b2m-B3).
+
+### Cursor staleness on cascade-bundle streams
+
+Streaming subscriptions are forward-only — there is no cursor to
+become stale. The `:rf.mcp/cursor-stale` reason value applies to
+the cursor-paginated tools (`trace-window`, `watch-epochs`) whose
+cursors key on `:epoch-id` in `epoch-history`. The cascade-bundle
+wire format reshape (rf2-mscih) does NOT introduce a new cursor
+surface; it changes the unit of streaming delivery and the
+per-tick payload slot.
 
 ### Filter vocabulary
 
@@ -1053,7 +1134,7 @@ While the subscription is open, each non-empty batch tick emits
   "params": {
     "progressToken": "<token>",  // echoed from the call's _meta
     "progress": <tick-number>,   // monotonic, 1-based
-    "message": "{:sub-id \"...\" :events [...] :dropped-events 0 :dropped-bytes 0}",
+    "message": "{:sub-id \"...\" :cascades [...] :dropped-events 0 :dropped-bytes 0}",
     "_meta": {
       "data": {
         "dropped-events": 0,                    // events evicted this tick
@@ -1066,12 +1147,19 @@ While the subscription is open, each non-empty batch tick emits
 ```
 
 `message` is an EDN-printed string carrying the event batch — the
-same shape the runtime's `drain-subscription!` returns. Capable MCP
-clients can also inspect the `_meta.data` slot for the structured drop
-counts. `_meta` is used because the official MCP SDK preserves it in
-progress callbacks while stripping unknown top-level progress fields.
-`overflow-reason` carries the stringified EDN keyword of the
-budget that tripped LAST (`":max-buffered-events"` or
+same shape the runtime's `drain-subscription!` returns. The
+payload-slot name reflects the topic's wire shape (rf2-mscih):
+
+- `:cascades` — vector of cascade bundles, on cascade-bundle topics
+  (`:trace` / `:fx` / `:error`). See §Cascade-bundle wire format above.
+- `:events` — flat vector, on `:epoch` (one `:rf/epoch-record` per
+  entry) and `:frameless` (one trace event per entry).
+
+Capable MCP clients can also inspect the `_meta.data` slot for the
+structured drop counts. `_meta` is used because the official MCP SDK
+preserves it in progress callbacks while stripping unknown top-level
+progress fields. `overflow-reason` carries the stringified EDN
+keyword of the budget that tripped LAST (`":max-buffered-events"` or
 `":max-buffered-bytes"` — see [`Principles.md` §Streaming subscribe
 byte+event budget](Principles.md#streaming-subscribe-byteevent-budget-rf2-ho4ve)
 for the policy). `null` when no eviction happened on this tick.

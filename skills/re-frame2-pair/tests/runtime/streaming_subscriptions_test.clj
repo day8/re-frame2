@@ -173,15 +173,37 @@
  (update :queue-bytes (fnil + 0) ev-bytes))]
  (evict-oldest sub' max-events max-bytes)))
 
+(defn frameless-event?
+ "Mirror of `runtime/frameless-event?` (rf2-mscih) — true when the event
+ carries no `:rf.trace/dispatch-id` tag. The cascade-bundle topics
+ filter these out at the dispatch gate; the `:frameless` topic accepts
+ only these."
+ [ev]
+ (nil? (get-in ev [:tags :rf.trace/dispatch-id])))
+
 (defn dispatch-trace-to-subs!
  [subs ev]
+ (let [frameless? (frameless-event? ev)]
  (reduce-kv
  (fn [acc sub-id sub]
- (if (and (contains? #{:trace :fx :error} (:topic sub))
+ (let [topic (:topic sub)
+ routes? (cond
+ (contains? #{:trace :fx :error} topic)
+ ;; Cascade-bundle topics — never deliver frameless events.
+ (and (not frameless?)
  (trace-matches? (:compiled-filter sub) ev))
+
+ (= :frameless topic)
+ ;; The frameless channel — only frameless events.
+ (and frameless?
+ (trace-matches? (:compiled-filter sub) ev))
+
+ :else
+ false)]
+ (if routes?
  (update acc sub-id enqueue! ev)
- acc))
- subs subs))
+ acc)))
+ subs subs)))
 
 ;; ---------------------------------------------------------------------------
 ;; Privacy posture — mirror of the runtime guard.
@@ -368,14 +390,24 @@
  (let [subs (-> {} (subscribe! "s1" {:topic :trace :filter {:op-type :error}}))]
  (is (contains? subs "s1"))
  (is (= :trace (get-in subs ["s1" :topic])))
- (let [;; Three events, only one matches.
- ev1 {:op-type :error :tags {:rf.trace/event-id :user/login}}
- ev2 {:op-type :info :tags {:rf.trace/event-id :user/login}}
- ev3 {:op-type :error :tags {:rf.trace/event-id :user/logout}}
+ (let [;; Three events, only one matches. Per rf2-mscih cascade-bundle
+ ;; topics require `:rf.trace/dispatch-id` (frameless events get
+ ;; routed to the `:frameless` channel instead).
+ ev1 {:op-type :error :tags {:rf.trace/event-id :user/login
+ :rf.trace/dispatch-id 1}}
+ ev2 {:op-type :info :tags {:rf.trace/event-id :user/login
+ :rf.trace/dispatch-id 1}}
+ ev3 {:op-type :error :tags {:rf.trace/event-id :user/logout
+ :rf.trace/dispatch-id 2}}
  subs (-> subs
  (dispatch-trace-to-subs! ev1)
  (dispatch-trace-to-subs! ev2)
  (dispatch-trace-to-subs! ev3))]
+ ;; Per rf2-mscih the drain returns `:queue` raw; the MCP-server
+ ;; layer projects them into `:cascades` for cascade-bundle
+ ;; topics. The bb-runnable mirror exposes the queue directly so
+ ;; the contract under test is "what landed in the queue after
+ ;; filtering" rather than the post-projection wire shape.
  (let [[drain1 subs] (drain-subscription! subs "s1")]
  (is (= 2 (count (:events drain1))))
  (is (= ev1 (first (:events drain1))))
@@ -406,12 +438,15 @@
 (deftest epoch-subscription-only-receives-epoch-events
  ;; An :epoch sub should NOT be fed trace events; a :trace sub should
  ;; NOT be fed epoch records. Verifies the topic gating in the
- ;; dispatchers.
+ ;; dispatchers. Per rf2-mscih the trace event carries a dispatch-id
+ ;; so it routes to the cascade-bundle topic; a frameless event would
+ ;; route to `:frameless` instead.
  (let [subs (-> {}
  (subscribe! "epoch-sub" {:topic :epoch :filter {:event-id :cart/add}})
  (subscribe! "trace-sub" {:topic :trace}))
  ;; A trace event flows only to the trace sub.
- subs (dispatch-trace-to-subs! subs {:op-type :info :tags {}})
+ subs (dispatch-trace-to-subs! subs {:op-type :info
+ :tags {:rf.trace/dispatch-id 1}})
  ;; An epoch record flows only to the epoch sub (matching filter).
  subs (dispatch-epoch-to-subs! subs {:event-id :cart/add :effects []})]
  (is (= 1 (count (get-in subs ["trace-sub" :queue]))))
@@ -419,18 +454,19 @@
 
 (deftest fx-topic-defaults-op-type-but-respects-overrides
  (let [;; :fx sub with no extra filter matches any trace event with
- ;; :op-type :rf.fx.
+ ;; :op-type :rf.fx. Per rf2-mscih cascade-bundle topics require
+ ;; `:rf.trace/dispatch-id`.
  subs (-> {} (subscribe! "fx-sub" {:topic :fx}))
- ev {:op-type :rf.fx :tags {:fx-id :http}}
- ev2 {:op-type :info :tags {}}
+ ev {:op-type :rf.fx :tags {:fx-id :http :rf.trace/dispatch-id 1}}
+ ev2 {:op-type :info :tags {:rf.trace/dispatch-id 1}}
  subs (-> subs
  (dispatch-trace-to-subs! ev)
  (dispatch-trace-to-subs! ev2))]
  (is (= [ev] (get-in subs ["fx-sub" :queue]))))
  (testing "user filter can override the topic's base op-type"
  (let [subs (-> {} (subscribe! "fx-sub" {:topic :fx :filter {:op-type :info}}))
- ev {:op-type :rf.fx :tags {}}
- ev2 {:op-type :info :tags {}}
+ ev {:op-type :rf.fx :tags {:rf.trace/dispatch-id 1}}
+ ev2 {:op-type :info :tags {:rf.trace/dispatch-id 1}}
  subs (-> subs
  (dispatch-trace-to-subs! ev)
  (dispatch-trace-to-subs! ev2))]
@@ -438,8 +474,9 @@
 
 (deftest error-topic-matches-error-traces
  (let [subs (-> {} (subscribe! "err-sub" {:topic :error}))
- err {:op-type :error :tags {:handler-id :user/login}}
- ok {:op-type :info :tags {}}
+ err {:op-type :error :tags {:handler-id :user/login
+ :rf.trace/dispatch-id 1}}
+ ok {:op-type :info :tags {:rf.trace/dispatch-id 1}}
  subs (-> subs
  (dispatch-trace-to-subs! err)
  (dispatch-trace-to-subs! ok))]
@@ -458,13 +495,14 @@
 
 (deftest overflow-count-only-trip-drops-oldest-and-reports-events-reason
  ;; bytes budget set generously so it can't trip — count budget = 2.
+ ;; Per rf2-mscih cascade-bundle topics require `:rf.trace/dispatch-id`.
  (let [subs (-> {} (subscribe! "s" {:topic :trace
  :max-buffered-events 2
  :max-buffered-bytes 100000000}))
- e1 {:op-type :info :id 1}
- e2 {:op-type :info :id 2}
- e3 {:op-type :info :id 3}
- e4 {:op-type :info :id 4}
+ e1 {:op-type :info :id 1 :tags {:rf.trace/dispatch-id 1}}
+ e2 {:op-type :info :id 2 :tags {:rf.trace/dispatch-id 2}}
+ e3 {:op-type :info :id 3 :tags {:rf.trace/dispatch-id 3}}
+ e4 {:op-type :info :id 4 :tags {:rf.trace/dispatch-id 4}}
  subs (-> subs
  (dispatch-trace-to-subs! e1)
  (dispatch-trace-to-subs! e2)
@@ -487,11 +525,12 @@
 
 (deftest overflow-bytes-only-trip-drops-oldest-and-reports-bytes-reason
  ;; event budget set generously — fat events trip the byte budget.
+ ;; Per rf2-mscih cascade-bundle topics require `:rf.trace/dispatch-id`.
  (let [;; Each event's pr-str is dominated by :payload's length.
  fat (apply str (repeat 300 "x"))
- e1 {:op-type :info :id 1 :payload fat}
- e2 {:op-type :info :id 2 :payload fat}
- e3 {:op-type :info :id 3 :payload fat}
+ e1 {:op-type :info :id 1 :payload fat :tags {:rf.trace/dispatch-id 1}}
+ e2 {:op-type :info :id 2 :payload fat :tags {:rf.trace/dispatch-id 2}}
+ e3 {:op-type :info :id 3 :payload fat :tags {:rf.trace/dispatch-id 3}}
  one-size (event-byte-size e1)
  ;; Cap that fits ~2 events.
  byte-cap (int (* one-size 2.5))
@@ -515,8 +554,9 @@
  ;; Small events + tight count cap + roomy byte cap = count trips first.
  ;; The reason MUST be :max-buffered-events when only the event budget
  ;; was exceeded on the tripping enqueue (bytes are still under cap).
- (let [tiny {:id 1} ;; pr-str ~= 7 chars
- events (map #(assoc tiny :id %) (range 1 11)) ;; 10 events
+ ;; Per rf2-mscih cascade-bundle topics require `:rf.trace/dispatch-id`.
+ (let [events (mapv #(hash-map :id % :tags {:rf.trace/dispatch-id %})
+ (range 1 11)) ;; 10 events
  byte-cap 1000000 ;; never trips
  subs (-> {} (subscribe! "s" {:topic :trace
  :max-buffered-events 3
@@ -532,10 +572,11 @@
  ;; Fat events + roomy count cap + tight byte cap = bytes trip first.
  ;; The reason MUST be :max-buffered-bytes since the byte budget is
  ;; what's forcing eviction.
+ ;; Per rf2-mscih cascade-bundle topics require `:rf.trace/dispatch-id`.
  (let [fat (apply str (repeat 1000 "y"))
- e1 {:id 1 :payload fat}
- e2 {:id 2 :payload fat}
- e3 {:id 3 :payload fat}
+ e1 {:id 1 :payload fat :tags {:rf.trace/dispatch-id 1}}
+ e2 {:id 2 :payload fat :tags {:rf.trace/dispatch-id 2}}
+ e3 {:id 3 :payload fat :tags {:rf.trace/dispatch-id 3}}
  one-size (event-byte-size e1)
  ;; cap fits ONE event; byte budget trips on the second enqueue.
  byte-cap (int (* one-size 1.2))
@@ -556,12 +597,15 @@
 (deftest overflow-defaults-honour-runtime-defaults
  ;; Subscribe with neither budget specified — defaults populate from
  ;; the runtime constants. A queue under both caps takes no eviction.
+ ;; Per rf2-mscih cascade-bundle topics require `:rf.trace/dispatch-id`.
  (let [subs (-> {} (subscribe! "s" {:topic :trace}))
  sub (get subs "s")]
  (is (= default-max-buffered-events (:max-buffered-events sub)))
  (is (= default-max-buffered-bytes (:max-buffered-bytes sub)))
  (let [subs (reduce dispatch-trace-to-subs! subs
- (map #(assoc {:id %} :ix %) (range 100)))]
+ (map #(hash-map :id % :ix %
+ :tags {:rf.trace/dispatch-id %})
+ (range 100)))]
  (is (= 100 (count (get-in subs ["s" :queue]))))
  (is (zero? (get-in subs ["s" :dropped-events])))
  (is (nil? (get-in subs ["s" :overflow-reason]))))))
@@ -569,9 +613,11 @@
 (deftest unknown-topic-rejected-at-subscribe-level
  ;; The runtime's `subscribe!` returns {:ok? false :reason :unknown-topic}
  ;; — mirrored here as the dispatcher refusing to fan to an unknown topic.
- (let [recognised #{:trace :epoch :fx :error}]
+ ;; Per rf2-mscih `:frameless` joins the recognised set as the explicit
+ ;; opt-in channel for events with no `:rf.trace/dispatch-id`.
+ (let [recognised #{:trace :epoch :fx :error :frameless}]
  (is (not (contains? recognised :other)))
- (is (every? recognised [:trace :epoch :fx :error]))))
+ (is (every? recognised [:trace :epoch :fx :error :frameless]))))
 
 ;; ---------------------------------------------------------------------------
 ;; Privacy posture
@@ -599,14 +645,18 @@
  ;; Spec 009 §Privacy default contract: a `:sensitive? true` trace
  ;; event registered against a matching subscription MUST NOT be
  ;; enqueued under the default privacy posture.
+ ;; Per rf2-mscih cascade-bundle topics require `:rf.trace/dispatch-id`.
  (let [default-cfg {:include-sensitive? false}
  subs (-> {} (subscribe! "s1" {:topic :trace}))
  sensitive-ev {:op-type :rf.event :sensitive? true
- :tags {:rf.trace/event-id :auth/sign-in}}
+ :tags {:rf.trace/event-id :auth/sign-in
+ :rf.trace/dispatch-id 1}}
  ordinary-ev {:op-type :rf.event :sensitive? false
- :tags {:rf.trace/event-id :cart/add}}
+ :tags {:rf.trace/event-id :cart/add
+ :rf.trace/dispatch-id 2}}
  absent-flag-ev {:op-type :rf.event ;; no :sensitive? at all
- :tags {:rf.trace/event-id :route/change}}
+ :tags {:rf.trace/event-id :route/change
+ :rf.trace/dispatch-id 3}}
  subs (-> subs
  (on-trace-streaming default-cfg sensitive-ev)
  (on-trace-streaming default-cfg ordinary-ev)
@@ -622,12 +672,15 @@
  ;; The opt-in path is the escape hatch for apps where re-frame2-pair itself is
  ;; the trust boundary. With `:include-sensitive? true` the streaming
  ;; surface forwards every event regardless of the flag.
+ ;; Per rf2-mscih cascade-bundle topics require `:rf.trace/dispatch-id`.
  (let [opt-in-cfg {:include-sensitive? true}
  subs (-> {} (subscribe! "s1" {:topic :trace}))
  sensitive-ev {:op-type :rf.event :sensitive? true
- :tags {:rf.trace/event-id :auth/sign-in}}
+ :tags {:rf.trace/event-id :auth/sign-in
+ :rf.trace/dispatch-id 1}}
  ordinary-ev {:op-type :rf.event :sensitive? false
- :tags {:rf.trace/event-id :cart/add}}
+ :tags {:rf.trace/event-id :cart/add
+ :rf.trace/dispatch-id 2}}
  subs (-> subs
  (on-trace-streaming opt-in-cfg sensitive-ev)
  (on-trace-streaming opt-in-cfg ordinary-ev))]
@@ -638,15 +691,89 @@
  ;; The privacy guard runs *before* the per-subscription filter, so
  ;; even a subscription whose filter would otherwise match a sensitive
  ;; event sees nothing under the default policy.
+ ;; Per rf2-mscih cascade-bundle topics require `:rf.trace/dispatch-id`.
  (let [default-cfg {:include-sensitive? false}
  subs (-> {} (subscribe! "auth-events"
  {:topic :trace
  :filter {:event-id :auth/sign-in}}))
  sensitive-ev {:op-type :rf.event :sensitive? true
- :tags {:rf.trace/event-id :auth/sign-in}}
+ :tags {:rf.trace/event-id :auth/sign-in
+ :rf.trace/dispatch-id 1}}
  subs (on-trace-streaming subs default-cfg sensitive-ev)]
  (is (empty? (get-in subs ["auth-events" :queue]))
  "even a filter that *names* the sensitive event must not pull it through")))
+
+;; ---------------------------------------------------------------------------
+;; Cascade-bundle topic routing (rf2-mscih)
+;; ---------------------------------------------------------------------------
+
+(deftest cascade-bundle-topics-reject-frameless-events
+ ;; The cascade-bundle topics (`:trace`/`:fx`/`:error`) ONLY accept
+ ;; events with a `:rf.trace/dispatch-id` tag — frameless events
+ ;; (registration emits, REPL evals) belong on the `:frameless` channel.
+ (let [subs (-> {} (subscribe! "trace-sub" {:topic :trace}))
+ cascade-ev {:op-type :rf.event
+ :tags {:rf.trace/dispatch-id 1
+ :rf.trace/event-id :user/login}}
+ frameless-ev {:op-type :rf.registry
+ :operation :rf.registry/registered
+ :tags {:registry-kind :event}}
+ subs (-> subs
+ (dispatch-trace-to-subs! cascade-ev)
+ (dispatch-trace-to-subs! frameless-ev))]
+ (testing "the cascade-bundle event lands; the frameless event does not"
+ (is (= 1 (count (get-in subs ["trace-sub" :queue]))))
+ (is (= cascade-ev (first (get-in subs ["trace-sub" :queue])))))))
+
+(deftest frameless-topic-accepts-only-frameless-events
+ ;; The `:frameless` topic is the inverse — only events with no
+ ;; `:rf.trace/dispatch-id` tag flow through.
+ (let [subs (-> {} (subscribe! "frameless-sub" {:topic :frameless}))
+ cascade-ev {:op-type :rf.event
+ :tags {:rf.trace/dispatch-id 1
+ :rf.trace/event-id :user/login}}
+ reg-ev {:op-type :rf.registry
+ :operation :rf.registry/registered
+ :tags {:registry-kind :event}}
+ repl-ev {:op-type :rf.repl
+ :operation :rf.repl/eval
+ :tags {}}
+ subs (-> subs
+ (dispatch-trace-to-subs! cascade-ev)
+ (dispatch-trace-to-subs! reg-ev)
+ (dispatch-trace-to-subs! repl-ev))]
+ (testing "the cascade event is filtered out; both frameless events land"
+ (is (= 2 (count (get-in subs ["frameless-sub" :queue]))))
+ (is (= [reg-ev repl-ev] (get-in subs ["frameless-sub" :queue]))))))
+
+(deftest cross-frame-dispatch-id-merge-contract
+ ;; rf2-mscih cross-frame contract — a single cascade can fan out
+ ;; across frames; every emit on every frame shares the same
+ ;; `:rf.trace/dispatch-id`. The runtime queues events per
+ ;; subscription; the consumer reconstructs the cross-frame timeline
+ ;; by merging post-projection bundles via `:dispatch-id`.
+ (let [subs (-> {} (subscribe! "all-frames" {:topic :trace}))
+ frame-a-ev {:op-type :rf.event
+ :operation :rf.event/dispatched
+ :tags {:rf.trace/dispatch-id 100
+ :frame :rf/default
+ :rf.event/v [:user/login]}}
+ frame-b-ev {:op-type :rf.sub
+ :operation :rf.sub/run
+ :tags {:rf.trace/dispatch-id 100
+ :frame :stories}}
+ subs (-> subs
+ (dispatch-trace-to-subs! frame-a-ev)
+ (dispatch-trace-to-subs! frame-b-ev))
+ queue (get-in subs ["all-frames" :queue])]
+ (testing "both events ride the queue under the same :dispatch-id"
+ (is (= 2 (count queue)))
+ (is (= [frame-a-ev frame-b-ev] queue))
+ (is (every? #(= 100 (get-in % [:tags :rf.trace/dispatch-id])) queue)))
+ (testing "consumer can group-by :dispatch-id to merge across frames"
+ (let [merged (group-by #(get-in % [:tags :rf.trace/dispatch-id]) queue)]
+ (is (= 1 (count merged)))
+ (is (= 2 (count (get merged 100))))))))
 
 (let [{:keys [fail error]} (run-tests 'streaming-subscriptions-test)]
  (when (or (pos? fail) (pos? error))

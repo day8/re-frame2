@@ -54,10 +54,13 @@
 (defn stub-machines [] [:auth :session]) ;; global registrar surface
 (defn stub-trace-buffer
  "Per rf2-g1b2m / rf2-8uwce the framework's `trace-buffer` is now
- per-frame and cascade-keyed; the frame-id is the required first arg
- and `{:flat true}` selects the legacy flat-event shape. This stub
- mirrors the new signature so the snapshot slice's KEEP-IN-SYNC
- parallel-impl stays accurate."
+ per-frame and cascade-keyed; the frame-id is the required first arg.
+ Per rf2-mscih the snapshot `:traces` slice now ships cascade-bundles
+ by default (the framework's storage unit), matching the streaming
+ subscribe wire shape. This stub returns the fixture's `:traces`
+ vector directly — the loosely-typed stub is shape-agnostic; the
+ production snapshot slice calls `(trace-tooling/trace-buffer
+ frame-id)` (zero-arg opts) for the cascade-bundle default."
  ([frame-id] (stub-trace-buffer frame-id {}))
  ([frame-id _opts]
  (filter #(= frame-id (get-in % [:tags :frame]))
@@ -76,11 +79,13 @@
  :machines {:ids (vec (stub-machines))
  :state (or (get (stub-get-frame-db frame-id) :rf/machines) {})}
  :epochs (vec (stub-epoch-history frame-id))
- ;; Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame; the
- ;; first arg IS the frame-id and `{:flat true}` returns raw
- ;; events (the legacy flat-stream shape this slot has always
- ;; emitted).
- :traces (vec (stub-trace-buffer frame-id {:flat true}))
+ ;; Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame; per
+ ;; rf2-mscih the snapshot `:traces` slice ships cascade-bundles
+ ;; by default (the framework's storage unit, matching the
+ ;; streaming subscribe wire shape per Tool-Pair §Reading the
+ ;; per-frame trace ring). Production runtime calls
+ ;; `(trace-tooling/trace-buffer frame-id)` (zero-arg opts).
+ :traces (vec (stub-trace-buffer frame-id))
  nil))
 
 (defn- snapshot-frame [frame-id slices]
