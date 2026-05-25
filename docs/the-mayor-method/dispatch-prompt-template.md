@@ -113,7 +113,7 @@ in the mayor checkout — worker worktrees see a no-op because their
 per-worktree git dir has no marker. Install with
 `sh scripts/install-git-hooks.sh` or
 `pwsh -ExecutionPolicy Bypass -File scripts/install-git-hooks.ps1`. See
-[`scripts/git-hooks/README.md`](../../scripts/git-hooks/README.md) for
+[`scripts/git-hooks/README.md`](https://github.com/day8/re-frame2/blob/main/scripts/git-hooks/README.md) for
 the marker pattern, permitted/refused surfaces, and the
 `--no-verify`/disable escape hatches. This is a commit-time
 complement to the edit-time guard at
