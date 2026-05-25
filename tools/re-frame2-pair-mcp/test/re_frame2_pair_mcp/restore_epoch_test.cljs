@@ -151,3 +151,65 @@
                      (is (= :restore-rejected (:reason edn)))
                      (is (= 999 (:epoch-id edn))))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Cascade summary (rf2-6yqdl) — the runtime's restore-epoch helper now
+;; returns a structured envelope on success carrying :cascade-summary +
+;; :unreplayable-effects. The tool passes the runtime map through
+;; unchanged when the runtime returned a map; falls back to the legacy
+;; envelope when the runtime returned plain `true` (pre-rf2-6yqdl
+;; runtimes).
+;; ---------------------------------------------------------------------------
+
+(deftest cascade-summary-passes-through-on-success
+  (async done
+    (let [canned-cascade {:epoch-id 7
+                          :event-id :cart/add
+                          :event-vector [:cart/add {:sku "x"}]
+                          :frame :rf/default
+                          :outcome :ok
+                          :db-diff {:changed-paths [[:cart]]
+                                    :added-paths [] :removed-paths []}
+                          :fx-fired [:http]
+                          :subs-recomputed 2
+                          :renders 1
+                          :restore? true}
+          runtime-envelope {:ok? true :restored? true :epoch-id 7
+                            :frame :rf/default
+                            :cascade-summary canned-cascade
+                            :unreplayable-effects [{:fx-id :http :coord [:my.app.cart 42 4]}]}]
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-eval! (atom nil) runtime-envelope
+                (fn []
+                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-result-text r)]
+                     (is (true? (:ok? edn)))
+                     (is (true? (:restored? edn)))
+                     (is (= canned-cascade (:cascade-summary edn))
+                         "cascade-summary rides through verbatim")
+                     (is (= [{:fx-id :http :coord [:my.app.cart 42 4]}]
+                            (:unreplayable-effects edn))
+                         "unreplayable-effects rides through verbatim"))
+                   (done)))))))
+
+(deftest legacy-true-runtime-falls-back-to-stub-envelope
+  ;; A pre-rf2-6yqdl runtime returns plain `true` on success. The tool
+  ;; falls back to the historical synthesised envelope so the wire
+  ;; stays sane even against an out-of-date preload.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-eval! captured true
+                (fn []
+                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-result-text r)]
+                     (is (true? (:ok? edn)))
+                     (is (true? (:restored? edn)))
+                     (is (= 7 (:epoch-id edn))))
+                   (done)))))))

@@ -247,9 +247,17 @@
                      "`:reason :not-an-event-vector`; unreadable input returns `:reason :invalid-event-edn`. "
                      "Host-form source (e.g. `(println :x)`) is rejected — use `eval-cljs` for arbitrary "
                      "evaluation. "
+                     "Cascade summary (rf2-6yqdl): every successful dispatch surfaces a `:cascade-summary` "
+                     "slot projecting the resulting :rf/epoch-record — `:epoch-id`, `:event-id`, "
+                     "`:event-vector`, `:frame`, `:outcome` (:ok / :blocked / :error), `:db-diff` "
+                     "(depth-1 path summary), `:fx-fired` (vector of distinct fx-ids), `:subs-recomputed` / "
+                     "`:renders` (counts), `:machine-transitions`, `:elapsed-ms`. Queued mode (the default) "
+                     "additionally carries `:cascade-summary-pending? true` when the cascade hasn't drained "
+                     "yet — poll `watch-epochs` for the eventual settlement. See the §Cascade Summary "
+                     "subsection in spec/003-Tool-Catalogue.md for the full shape. "
                      "Examples: "
-                     "1. Fire-and-forget: {:event \"[:cart/checkout]\"} -> {:ok? true :mode :queued}. "
-                     "2. Trace mode (get the assembled epoch back): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {:rf/epoch-id ... :event-id :cart/add :db-after ... :effects [...]}}. "
+                     "1. Fire-and-forget (drained synchronously): {:event \"[:cart/checkout]\"} -> {:ok? true :mode :queued :epoch-id 7 :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart]] :added-paths [] :removed-paths []} :fx-fired [:dispatch] :subs-recomputed 3 :renders 1 :outcome :ok :elapsed-ms 4}}. "
+                     "2. Trace mode (get the assembled epoch back): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {...} :cascade-summary {...}}. "
                      "3. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
    :typicalTokens 300
    :annotations destructive-annotations
@@ -275,11 +283,17 @@
                      "INTEGERS), so pass an integer id as \"7\" and it reads as the number 7. "
                      "Returns false (`:reason :restore-rejected`) when the id is not in the ring or a drain is "
                      "in flight (the documented `:rf.epoch/*` failure modes); the app-db is unchanged on failure. "
+                     "Cascade summary (rf2-6yqdl): a successful restore surfaces `:cascade-summary` projecting "
+                     "the TARGET epoch (`:event-id`, `:event-vector`, `:db-diff` from the pre-restore live db "
+                     "to the target's `:db-after`, `:fx-fired` from the original cascade, `:restore? true`). "
+                     "Additionally `:unreplayable-effects` enumerates fx the original cascade fired that the "
+                     "restore CANNOT undo (http requests, navigation, persisted writes). See the §Cascade "
+                     "Summary subsection in spec/003-Tool-Catalogue.md. "
                      "GATED behind `--allow-writes` (default OFF) — without the flag returns "
                      "`{:ok? false :reason :rf.error/writes-disabled}` without touching the runtime. "
                      "Examples: "
-                     "1. Rewind to epoch 7: {:epoch-id \"7\"} -> {:ok? true :restored? true :epoch-id 7}. "
-                     "2. Named frame: {:epoch-id \"12\" :frame \":stories\"} -> {:ok? true :restored? true :epoch-id 12 :frame :stories}. "
+                     "1. Rewind to epoch 7: {:epoch-id \"7\"} -> {:ok? true :restored? true :epoch-id 7 :cascade-summary {:event-id :cart/add :db-diff {...} :fx-fired [:http] :restore? true} :unreplayable-effects [{:fx-id :http}]}. "
+                     "2. Named frame: {:epoch-id \"12\" :frame \":stories\"} -> {:ok? true :restored? true :epoch-id 12 :frame :stories :cascade-summary {...}}. "
                      "3. Aged-out id: {:epoch-id \"999\"} -> {:ok? false :restored? false :reason :restore-rejected}.")
    :typicalTokens 150
    :annotations destructive-annotations
@@ -303,11 +317,15 @@
                      "The `db` arg is parsed as EDN DATA (not host source — same injection-closing posture as "
                      "`dispatch`, rf2-vflrg). Fails (`:reason :reset-rejected`) on no-such-frame, drain-in-flight, "
                      "or app-schema mismatch; the app-db is unchanged on failure. "
+                     "Cascade summary (rf2-6yqdl): a successful reset surfaces `:cascade-summary` projecting "
+                     "the synthetic `:rf.epoch/db-replaced` epoch — `:event-id :rf.epoch/db-replaced`, `:db-diff` "
+                     "summarising before-vs-after at depth 1, `:fx-fired []` (state injection bypasses fx). "
+                     "See the §Cascade Summary subsection in spec/003-Tool-Catalogue.md. "
                      "GATED behind `--allow-writes` (default OFF) — without the flag returns "
                      "`{:ok? false :reason :rf.error/writes-disabled}` without touching the runtime. "
                      "Examples: "
-                     "1. Inject a repro state: {:db \"{:cart {:items []} :user nil}\"} -> {:ok? true :frame :rf/default}. "
-                     "2. Named frame: {:db \"{:count 0}\" :frame \":stories\"} -> {:ok? true :frame :stories}. "
+                     "1. Inject a repro state: {:db \"{:cart {:items []} :user nil}\"} -> {:ok? true :frame :rf/default :epoch-id 42 :cascade-summary {:event-id :rf.epoch/db-replaced :db-diff {:added-paths [[:cart] [:user]] :removed-paths [] :changed-paths []} :fx-fired [] :subs-recomputed 0 :renders 0 :outcome :ok}}. "
+                     "2. Named frame: {:db \"{:count 0}\" :frame \":stories\"} -> {:ok? true :frame :stories :cascade-summary {...}}. "
                      "3. Schema mismatch: {:db \"{:bad :shape}\"} -> {:ok? false :reason :reset-rejected :frame :rf/default}.")
    :typicalTokens 150
    :annotations destructive-annotations

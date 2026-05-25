@@ -68,6 +68,7 @@
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.interop :as interop]
             [clojure.data :as data]
+            [clojure.set :as set]
             [clojure.string :as str]))
 
 ;; ---------------------------------------------------------------------------
@@ -258,6 +259,8 @@
     v
     (rf/elide-wire-value v {:frame frame-id})))
 
+(declare attach-cascade db-diff-summary machine-transitions-summary cascade-summary)
+
 (defn app-db-reset!
   "Replace the operating frame's app-db with v. Logged explicitly via
    `tap>` so the human sees what the agent changed.
@@ -277,7 +280,12 @@
    `:rf.size/large-elided` markers, sensitive slots to `:rf/redacted`.
    Operators who passed `--allow-sensitive-reads` see verbatim payloads.
 
-   Returns `{:ok? true :frame frame-id}` on success.
+   Returns `{:ok? true :frame frame-id :cascade-summary {...}}` on
+   success. The cascade-summary slot (rf2-6yqdl) projects the synthetic
+   `:rf.epoch/db-replaced` epoch the framework just recorded — the
+   `:event-id` is `:rf.epoch/db-replaced`, `:db-diff` summarises the
+   before-vs-after delta at depth 1, and `:fx-fired` is empty (state
+   injection bypasses fx).
 
    Failure modes (each is a no-op on app-db; corresponding
    `:rf.epoch/*` or `:rf.error/*` trace fires per Spec 009):
@@ -294,7 +302,13 @@
           :t                  (js/Date.now)})
    (try
      (if (rf/reset-frame-db! frame-id v)
-       {:ok? true :frame frame-id}
+       ;; Per rf2-6yqdl: surface the synthetic `:rf.epoch/db-replaced`
+       ;; epoch the framework just appended (Tool-Pair §Pair-tool writes).
+       ;; The new head IS this epoch by construction; reading the
+       ;; history head is the canonical way to project it.
+       (let [head-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
+         (attach-cascade {:ok? true :frame frame-id :epoch-id head-id}
+                         frame-id head-id))
        ;; reset-frame-db! returns false on the soft-failure modes
        ;; (unknown frame, in-drain, schema-mismatch). The structured
        ;; reason is in the trace stream (`:rf.error/no-such-handler`,
@@ -1341,6 +1355,166 @@
                                            (get by-parent did []))}))]
     (node root-dispatch-id)))
 
+(declare epoch-elapsed-ms)
+
+;; ---------------------------------------------------------------------------
+;; Cascade summary (rf2-6yqdl)
+;; ---------------------------------------------------------------------------
+;;
+;; A compact projection of the framework's `:rf/epoch-record` that answers
+;; the universal "what did my dispatch do?" question in one call. Surfaced
+;; by `pair-dispatch!` / `pair-dispatch-sync!` / `dispatch-and-collect` /
+;; `app-db-reset!` / `restore-epoch` / `dispatch-dry-run` whenever a new
+;; epoch settled as a consequence of the call.
+;;
+;; The shape MIRRORS the assembled-epoch projection that
+;; `register-epoch-listener!` consumers already know (Spec 009 §Epoch
+;; records) — operators familiar with `watch-epochs` see the same
+;; vocabulary in dispatch responses. The mirror is intentionally LOSSY
+;; (counts instead of full vectors, db-diff path-only summary instead of
+;; the raw `:db-before`/`:db-after` pair) so the cascade-summary rides
+;; under the 5K-token wire-cap without further elision; an operator who
+;; wants the full epoch reads `(rf/epoch-history)` or runs `trace-window`
+;; / `watch-epochs` for the same id.
+;;
+;; Slot inventory (every slot is optional — absent on epochs that lack
+;; that signal; e.g. synthetic `:rf.epoch/db-replaced` epochs have no
+;; `:event-id`):
+;;
+;;   :epoch-id            — the assembled epoch's id (`:any` per Spec-
+;;                          Schemas; integer in the reference runtime)
+;;   :event-id            — the triggering event-id keyword (absent on
+;;                          synthetic / halted-trigger-less paths)
+;;   :event-vector        — the original dispatch vector (absent on the
+;;                          same paths as :event-id)
+;;   :frame               — the frame-id the cascade settled in
+;;   :outcome             — the consumer-facing tier (`:ok` / `:blocked`
+;;                          / `:error`, per `outcome->consumer-facing`)
+;;   :db-diff             — {:changed-paths [...] :added-paths [...]
+;;                           :removed-paths [...]} — top-level depth-1
+;;                          summary computed from `:db-before` /
+;;                          `:db-after`. NO raw values cross the wire
+;;                          here; an operator inspects the addressed
+;;                          subtree via `get-path` or `snapshot {:path
+;;                          ...}` on demand.
+;;   :fx-fired            — vector of distinct fx-ids that fired
+;;                          (`(:fx-id %)` over the epoch's `:effects`
+;;                          projection); duplicates collapsed
+;;   :subs-recomputed     — count of unique sub-runs in this cascade
+;;   :renders             — count of render emits in this cascade
+;;   :machine-transitions — vector of `{:machine-id :from :to :phase}`
+;;                          projections (absent on cascades without
+;;                          machine activity)
+;;   :elapsed-ms          — wall-clock elapsed-ms (`epoch-elapsed-ms`)
+;;   :sensitive?          — the record's `:rf.epoch/sensitive?` rollup;
+;;                          when true, consumers branch on the absent-
+;;                          slot pattern in `:db-diff` (sensitive paths
+;;                          are dropped from the projection by the
+;;                          framework's redact-fn before we read it)
+;;
+;; Production builds elide the entire epoch-record path under
+;; `interop/debug-enabled? false`; cascade-summary inherits that —
+;; the projection is dev-only by construction. The :elision /
+;; :sensitive-paths machinery upstream of us already ran by the time
+;; we read :db-before / :db-after, so we never see raw sensitive values.
+
+(defn- db-diff-summary
+  "Top-level (depth-1) path summary of the db-before -> db-after delta.
+  Returns `{:changed-paths [...] :added-paths [...] :removed-paths [...]}`.
+  Each path is a one-key vector (e.g. `[:cart]`) — operators drill in
+  via `get-path` for the full subtree. Bounded by the depth-1 walk so
+  cascade-summary stays under the wire cap regardless of db size."
+  [db-before db-after]
+  (cond
+    (and (map? db-before) (map? db-after))
+    (let [ks-b   (set (keys db-before))
+          ks-a   (set (keys db-after))
+          common (set/intersection ks-b ks-a)]
+      {:added-paths   (vec (sort (map vector (set/difference ks-a ks-b))))
+       :removed-paths (vec (sort (map vector (set/difference ks-b ks-a))))
+       :changed-paths (vec (sort (for [k common
+                                       :when (not= (get db-before k) (get db-after k))]
+                                   [k])))})
+
+    (= db-before db-after)
+    {:added-paths [] :removed-paths [] :changed-paths []}
+
+    :else
+    {:added-paths [] :removed-paths [] :changed-paths [[]]}))
+
+(defn- machine-transitions-summary
+  "Project machine-transition trace events out of an epoch's
+  `:trace-events`. Returns a vector of compact `{:machine-id :from :to
+  :phase}` maps, or nil when no machine activity. Per Spec 005 the
+  machine-step trace stream uses `:rf.machine/transition` ops with
+  `:tags {:machine-id :from :to :phase}`."
+  [trace-events]
+  (let [picks (->> trace-events
+                   (filter (fn [ev] (= :rf.machine/transition (:operation ev))))
+                   (mapv (fn [ev]
+                           (let [t (:tags ev)]
+                             (cond-> {}
+                               (:machine-id t) (assoc :machine-id (:machine-id t))
+                               (:from t)       (assoc :from (:from t))
+                               (:to t)         (assoc :to (:to t))
+                               (:phase t)      (assoc :phase (:phase t)))))))]
+    (when (seq picks) picks)))
+
+(defn- outcome-tier
+  "Project the epoch's detailed `:outcome` cause onto the consumer-
+  facing three-tier summary (`:ok` / `:blocked` / `:error`). Mirrors
+  `re-frame.epoch.assembly/outcome->consumer-facing` (the same projection
+  pinned in the framework). When `:outcome` is absent (older epoch
+  shapes), defaults to `:ok`."
+  [outcome]
+  (case outcome
+    :ok                       :ok
+    :halted-depth             :blocked
+    :halted-destroy           :blocked
+    :halted-handler-exception :error
+    :ok))
+
+(defn cascade-summary
+  "Project an assembled `:rf/epoch-record` into the compact wire shape
+  surfaced by dispatch / reset-frame-db / restore-epoch / dispatch-dry-
+  run (rf2-6yqdl). See the §Cascade summary section header above for
+  the slot inventory.
+
+  Pure data — `(epoch-record) -> cascade-summary-map`. Returns nil for a
+  nil record so callers can `(when summary ...)` without an explicit
+  nil-check at each call site."
+  [{:keys [epoch-id event-id trigger-event frame outcome
+           db-before db-after effects sub-runs renders trace-events]
+    :as record}]
+  (when record
+    (let [diff       (db-diff-summary db-before db-after)
+          fx-fired   (->> effects (map :fx-id) distinct vec)
+          transitions (machine-transitions-summary trace-events)
+          elapsed    (epoch-elapsed-ms record)
+          sensitive? (:rf.epoch/sensitive? record)]
+      (cond-> {:epoch-id        epoch-id
+               :frame           frame
+               :outcome         (outcome-tier outcome)
+               :db-diff         diff
+               :fx-fired        fx-fired
+               :subs-recomputed (count (or sub-runs []))
+               :renders         (count (or renders []))}
+        event-id      (assoc :event-id event-id)
+        trigger-event (assoc :event-vector trigger-event)
+        transitions   (assoc :machine-transitions transitions)
+        elapsed       (assoc :elapsed-ms elapsed)
+        sensitive?    (assoc :sensitive? true)))))
+
+(defn- attach-cascade
+  "Attach a `:cascade-summary` slot to `result` when `epoch-id` resolves
+  to a record in the operating frame's history. No-op when the head did
+  not advance (queued dispatch that hasn't drained yet, dispatch-sync
+  whose cascade settled without a recorded epoch)."
+  [result frame-id epoch-id]
+  (if-let [record (epoch-by-id epoch-id frame-id)]
+    (assoc result :cascade-summary (cascade-summary record))
+    result))
+
 ;; ---------------------------------------------------------------------------
 ;; Pair-tagged dispatch
 ;; ---------------------------------------------------------------------------
@@ -1356,21 +1530,53 @@
 (defn pair-dispatch!
   "Queued dispatch with `:origin :pair`. Returns
    `{:ok? true :queued? true :event ...}`. The epoch-id appears once
-   the cascade settles; callers can read it via `last-pair-epoch`."
+   the cascade settles; callers can read it via `last-pair-epoch`.
+
+   Per rf2-6yqdl the response carries a `:cascade-summary` slot when
+   the runtime drained the queue synchronously (the typical CLJS
+   single-threaded case — `rf/dispatch` enqueues, the goog.async tick
+   drains, and by the time our `(rf/epoch-history)` read fires the
+   head has advanced). When the head did NOT advance (the cascade is
+   still pending), the response omits `:cascade-summary` and ships
+   `:cascade-summary-pending? true :before-epoch-id <prior-head>` so
+   the caller can poll `watch-epochs` for the eventual settlement.
+
+   No back-compat shim — `:queued? true` is preserved (the pre-rf2-6yqdl
+   contract) but the cascade slot is the canonical 'what happened?'
+   surface for new code."
   ([event-v] (pair-dispatch! event-v {}))
   ([event-v opts]
-   (rf/dispatch event-v (merge {:origin :pair} opts))
-   {:ok? true :queued? true :event event-v :opts opts}))
+   (let [frame-id  (or (:frame opts) (current-frame))
+         before-id (when frame-id (some-> (rf/epoch-history frame-id) peek :epoch-id))]
+     (rf/dispatch event-v (merge {:origin :pair} opts))
+     (let [after-id (when frame-id (some-> (rf/epoch-history frame-id) peek :epoch-id))
+           base     {:ok? true :queued? true :event event-v :opts opts}]
+       (cond
+         (and after-id (not= before-id after-id))
+         (do (mark-pair! after-id)
+             (attach-cascade (assoc base :epoch-id after-id :frame frame-id)
+                             frame-id after-id))
+
+         :else
+         (assoc base
+                :frame frame-id
+                :cascade-summary-pending? true
+                :before-epoch-id before-id
+                :hint (str "rf/dispatch enqueued; head did not advance synchronously. "
+                           "Poll watch-epochs (since-id before-epoch-id) for the "
+                           "eventual cascade.")))))))
 
 (defn pair-dispatch-sync!
   "Synchronous dispatch with `:origin :pair`. Reads the operating
    frame's epoch-history before and after; the new head is reported
    as the pair-attributed epoch.
 
-   On real success returns {:ok? true :epoch-id <id> :event ...}.
-   When epoch-history depth is 0 (recording disabled) or the frame
-   isn't registered, reports the failure mode rather than claiming
-   success."
+   On real success returns {:ok? true :epoch-id <id> :event ...
+   :cascade-summary {...}} — per rf2-6yqdl the cascade summary rides
+   under `:cascade-summary` (the compact projection defined above; see
+   §Cascade summary). When epoch-history depth is 0 (recording
+   disabled) or the frame isn't registered, reports the failure mode
+   rather than claiming success."
   ([event-v] (pair-dispatch-sync! event-v {}))
   ([event-v opts]
    (let [frame-id  (or (:frame opts) (current-frame))
@@ -1382,7 +1588,8 @@
        (cond
          (and after-id (not= before-id after-id))
          (do (mark-pair! after-id)
-             {:ok? true :epoch-id after-id :event event-v :frame frame-id})
+             (attach-cascade {:ok? true :epoch-id after-id :event event-v :frame frame-id}
+                             frame-id after-id))
 
          (and (nil? before-id) (nil? after-id))
          {:ok? false
@@ -1419,38 +1626,121 @@
 ;; Time-travel — first-class via re-frame2
 ;; ---------------------------------------------------------------------------
 
+(defn- restore-cascade-summary
+  "Build a cascade-summary projection for a successful `restore-epoch`
+   call (rf2-6yqdl). A restore is NOT a real cascade — the framework
+   rewinds the app-db in-place without recording a new epoch — so the
+   normal `epoch-by-id` lookup wouldn't surface anything. Instead we
+   project against the TARGET epoch (the one we restored TO) and
+   compute the `:db-diff` from `pre-db` (the db state immediately
+   before the restore) to the target's `:db-after`. That answers the
+   programmer's actual question — 'what is now different from where I
+   was?' — using the cascade-summary vocabulary everyone already knows.
+
+   Returns nil if the target epoch isn't in the ring (defensive — a
+   successful restore implies the id is in the ring, but the read may
+   race against a ring rotation in a heavy concurrent setting).
+
+   Additionally returns the `:unreplayable-effects` slot per the bead
+   spec: every fx that the ORIGINAL cascade fired and that the restore
+   cannot undo (http requests already sent, navigation already pushed,
+   storage already written). Programmers reading 'I just rewound' need
+   to know which side-effects already escaped the framework."
+  [pre-db frame-id target-epoch-id]
+  (when-let [target (epoch-by-id target-epoch-id frame-id)]
+    (let [diff       (db-diff-summary pre-db (:db-after target))
+          fx-fired   (->> (:effects target) (map :fx-id) distinct vec)
+          transitions (machine-transitions-summary (:trace-events target))
+          ;; Every fx in the target's :effects fired BEFORE the restore;
+          ;; the restore rewinds db only. They are unreplayable by
+          ;; construction.
+          unreplayable (mapv (fn [eff]
+                               (cond-> {:fx-id (:fx-id eff)}
+                                 (:coord eff) (assoc :coord (:coord eff))))
+                             (:effects target))]
+      {:cascade-summary
+       (cond-> {:epoch-id       target-epoch-id
+                :frame          frame-id
+                :outcome        :ok
+                :db-diff        diff
+                :fx-fired       fx-fired
+                :subs-recomputed (count (or (:sub-runs target) []))
+                :renders         (count (or (:renders target) []))
+                :restore?       true}
+         (:event-id target)      (assoc :event-id (:event-id target))
+         (:trigger-event target) (assoc :event-vector (:trigger-event target))
+         transitions             (assoc :machine-transitions transitions))
+       :unreplayable-effects unreplayable})))
+
 (defn restore-epoch
-  "(rf/restore-epoch frame-id epoch-id). Returns true on success, false
-   on any failure mode. Failure traces fire under :rf.epoch/* — read
-   them with `(re-frame.trace.tooling/trace-buffer {:op-type :error})`."
+  "(rf/restore-epoch frame-id epoch-id). Returns a structured envelope
+   per rf2-6yqdl:
+
+     - `{:ok? true :restored? true :epoch-id <id> :frame <id>
+         :cascade-summary {...} :unreplayable-effects [...]}` on success.
+       The cascade-summary projects the TARGET epoch's shape; the
+       `:db-diff` slot is computed from the live db at restore-time to
+       the target's `:db-after`. `:unreplayable-effects` enumerates the
+       fx the original cascade fired that the restore cannot undo.
+     - `false` on any failure mode. Failure traces fire under
+       `:rf.epoch/*` — read them with
+       `(re-frame.trace.tooling/trace-buffer {:op-type :error})`.
+
+   The two arities mirror `pair-dispatch-sync!`'s shape — 1-arity reads
+   `(current-frame)`, 2-arity is explicit."
   ([epoch-id] (restore-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
-   (rf/restore-epoch frame-id epoch-id)))
+   (let [pre-db (rf/get-frame-db frame-id)
+         ok?    (rf/restore-epoch frame-id epoch-id)]
+     (if ok?
+       (let [extras (restore-cascade-summary pre-db frame-id epoch-id)]
+         (merge {:ok? true :restored? true :epoch-id epoch-id :frame frame-id}
+                extras))
+       ;; Preserve the legacy `false` return on failure — the MCP
+       ;; restore-epoch tool turns that into a structured envelope at
+       ;; the wire boundary (the pre-rf2-6yqdl behaviour). Mirrors how
+       ;; reset-frame-db! returns a soft-failure envelope on the runtime
+       ;; side but the tool can elide the framework's `false`.
+       false))))
 
 (defn undo-step-back
   "Restore the previous epoch in the operating frame. Returns
-   {:ok? true :epoch-id <previous> :restored? true|false} or
-   {:ok? false :reason :no-prior-epoch} when there is no previous
-   record."
+   `{:ok? true :epoch-id <previous> :restored? true :cascade-summary
+   {...} :unreplayable-effects [...]}` on success or
+   `{:ok? false :reason :no-prior-epoch}` when there is no previous
+   record. Cascade-summary slot per rf2-6yqdl."
   ([] (undo-step-back (current-frame)))
   ([frame-id]
    (let [history (vec (rf/epoch-history frame-id))
          n       (count history)]
      (if (< n 2)
        {:ok? false :reason :no-prior-epoch :history-size n :frame frame-id}
-       (let [prior (nth history (- n 2))
-             epoch-id (:epoch-id prior)
-             ok?   (rf/restore-epoch frame-id epoch-id)]
-         {:ok? true :epoch-id epoch-id :restored? ok? :frame frame-id})))))
+       (let [prior     (nth history (- n 2))
+             epoch-id  (:epoch-id prior)
+             pre-db    (rf/get-frame-db frame-id)
+             ok?       (rf/restore-epoch frame-id epoch-id)]
+         (if ok?
+           (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
+                  (restore-cascade-summary pre-db frame-id epoch-id))
+           {:ok? false :epoch-id epoch-id :restored? false :frame frame-id
+            :reason :restore-rejected}))))))
 
 (defn undo-to-epoch
-  "Restore a specific epoch by id."
+  "Restore a specific epoch by id. Returns the same shape as
+   `restore-epoch`'s success envelope. Cascade-summary slot per
+   rf2-6yqdl."
   ([epoch-id] (undo-to-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
-   {:ok? true
-    :epoch-id epoch-id
-    :restored? (rf/restore-epoch frame-id epoch-id)
-    :frame frame-id}))
+   (let [pre-db (rf/get-frame-db frame-id)
+         ok?    (rf/restore-epoch frame-id epoch-id)]
+     (if ok?
+       (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
+              (restore-cascade-summary pre-db frame-id epoch-id))
+       {:ok?       true
+        :epoch-id  epoch-id
+        :restored? false
+        :frame     frame-id
+        :reason    :restore-rejected}))))
 
 ;; ---------------------------------------------------------------------------
 ;; DOM ↔ source bridge
@@ -1785,7 +2075,13 @@
   "Synchronously dispatch (origin :pair) and return the resulting
    epoch record. Drain-settle is synchronous in re-frame2's
    `dispatch-sync`, so the new epoch is in the frame's history by the
-   time this call returns."
+   time this call returns.
+
+   The response carries BOTH the full `:epoch` (the verbatim assembled
+   record — the trace mode's historical payload) AND a `:cascade-summary`
+   slot per rf2-6yqdl. Callers that only need the headline 'what
+   happened' read the compact summary; callers that need the raw
+   trace-events / db-before / db-after pair read `:epoch`."
   ([event-v] (dispatch-and-collect event-v {}))
   ([event-v opts]
    (let [result (pair-dispatch-sync! event-v opts)]

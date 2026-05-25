@@ -500,6 +500,81 @@ deadline.
     Indicates a regression in the wrap-form emitter. Should not occur
     in practice.
 
+## Universal: cascade summary on state-mutating tools (rf2-6yqdl)
+
+`dispatch`, `reset-frame-db`, and `restore-epoch` each surface a
+`:cascade-summary` slot in their success response — a compact
+projection of the assembled `:rf/epoch-record` answering the universal
+"what did my call just do?" question in one round-trip, with no
+follow-on `watch-epochs` / `trace-window` correlation needed.
+
+The shape MIRRORS the assembled-epoch projection that
+`register-epoch-listener!` consumers already know (Spec 009 §Epoch
+records) — operators familiar with `watch-epochs` see the same
+vocabulary in dispatch responses. The projection is intentionally
+LOSSY (counts instead of full vectors, depth-1 path summary instead of
+the raw `:db-before`/`:db-after` pair) so the cascade-summary rides
+under the 5K-token wire-cap without further elision. Operators who
+want the full epoch read `(rf/epoch-history)` or run `trace-window` /
+`watch-epochs` for the same id.
+
+### Slot inventory
+
+Every slot is optional — absent when the underlying signal is empty.
+For example, synthetic `:rf.epoch/db-replaced` epochs from
+`reset-frame-db` carry no `:event-vector` (no dispatch happened); a
+restore's `:cascade-summary` carries an additional `:restore? true`
+marker so consumers can branch.
+
+| Slot                  | Type                              | Notes |
+|-----------------------|-----------------------------------|-------|
+| `:epoch-id`           | `:any` (integer in ref runtime)   | The assembled epoch's id. |
+| `:event-id`           | keyword                           | The triggering event-id. Absent on synthetic / halted-trigger-less paths. |
+| `:event-vector`       | vector                            | The original dispatch vector. Absent on synthetic paths. |
+| `:frame`              | keyword                           | The frame-id the cascade settled in. |
+| `:outcome`            | `:ok` / `:blocked` / `:error`     | The consumer-facing tier per `outcome->consumer-facing`. |
+| `:db-diff`            | `{:changed-paths [...] :added-paths [...] :removed-paths [...]}` | Depth-1 path summary of the db delta. Each path is a one-key vector (e.g. `[:cart]`); drill in via `get-path`. |
+| `:fx-fired`           | vector of fx-ids                  | Distinct fx-ids fired this cascade. Duplicates collapsed. |
+| `:subs-recomputed`    | integer                           | Count of unique sub-runs in this cascade. |
+| `:renders`            | integer                           | Count of render emits in this cascade. |
+| `:machine-transitions`| vector of `{:machine-id :from :to :phase}` | Absent when no machine activity. |
+| `:elapsed-ms`         | number                            | Wall-clock elapsed-ms from `:rf.event/run-start` to `:rf.event/run-end`. |
+| `:sensitive?`         | `true`                            | Present only when the epoch's `:rf.epoch/sensitive?` rollup is true. Consumers branch on absent-slot patterns in `:db-diff`. |
+| `:restore?`           | `true`                            | Present only on `restore-epoch` responses. Signals the summary projects the TARGET epoch, with `:db-diff` computed from the pre-restore live db. |
+
+### `:unreplayable-effects` (restore-epoch only)
+
+A successful `restore-epoch` additionally surfaces an
+`:unreplayable-effects` vector — every fx the ORIGINAL cascade fired
+that the restore cannot undo (http requests already sent, navigation
+already pushed, storage already written). Programmers reading "I just
+rewound" need to know which side-effects already escaped the framework.
+
+```clojure
+{:ok? true :restored? true :epoch-id 7
+ :cascade-summary {... :restore? true}
+ :unreplayable-effects [{:fx-id :http :coord [:my.app.cart 87 4]}
+                        {:fx-id :navigate}]}
+```
+
+### Pending cascades (queued dispatch)
+
+Queued `dispatch` (the default `sync? false` `trace? false` mode) may
+return BEFORE the cascade drains — the goog.async tick fires later.
+When the operating frame's epoch-history head did NOT advance during
+the call, the response carries `:cascade-summary-pending? true` and
+`:before-epoch-id <prior-head>` instead of `:cascade-summary`. Pollers
+read `watch-epochs {:since-id <before-epoch-id>}` for the eventual
+settlement. Sync / trace modes never see this — `dispatch-sync` drains
+in line.
+
+### Production builds
+
+The entire epoch-record path elides under
+`re-frame.interop/debug-enabled? false`; cascade-summary inherits that
+elision by construction. Production deploys see neither cascade nor
+the trace stream — the dev/prod boundary is the same as `watch-epochs`.
+
 ## dispatch
 
 Fire a re-frame2 event tagged with `:origin :pair`. Three modes:
@@ -514,7 +589,12 @@ Fire a re-frame2 event tagged with `:origin :pair`. Three modes:
 `sync` (bool), `trace` (bool), `frame` (string, e.g. `":foo"`),
 `fx-overrides` (object, e.g. `{:http :stub-http}`), `build` (string).
 
-**Returns**: the runtime's response, merged with `:mode`.
+**Returns**: the runtime's response, merged with `:mode`. Per rf2-6yqdl
+every successful dispatch surfaces a `:cascade-summary` slot — see
+§Universal: cascade summary on state-mutating tools above for the
+shape and the `:cascade-summary-pending?` behaviour on queued mode.
+Trace mode additionally carries the full `:epoch` (the verbatim
+assembled record) alongside the compact summary.
 
 ## restore-epoch
 
@@ -541,10 +621,16 @@ drives the cursor-pagination fix.
 **Args**: `epoch-id` (string, required — EDN id), `frame` (string,
 e.g. `":foo"`; defaults to the operating frame), `build` (string).
 
-**Returns**: `{:ok? true :restored? true :epoch-id <id> :frame <id>}`
-on success, or `{:ok? false :restored? false :reason :restore-rejected
-...}` when the id is not in the ring or a drain is in flight (the
-documented `:rf.epoch/*` failure modes per
+**Returns**: `{:ok? true :restored? true :epoch-id <id> :frame <id>
+:cascade-summary {... :restore? true} :unreplayable-effects [...]}`
+on success — per rf2-6yqdl the cascade-summary projects the TARGET
+epoch with `:db-diff` computed from the pre-restore live db; the
+`:unreplayable-effects` vector enumerates fx the original cascade
+fired that the restore cannot undo. See §Universal: cascade summary
+on state-mutating tools for the shape. Returns
+`{:ok? false :restored? false :reason :restore-rejected ...}` when
+the id is not in the ring or a drain is in flight (the documented
+`:rf.epoch/*` failure modes per
 [`Tool-Pair.md` §Restore failure modes](../../../spec/Tool-Pair.md#time-travel)).
 The `app-db` is unchanged on failure.
 
@@ -573,10 +659,16 @@ never executed.
 e.g. `":foo"`; defaults to the operating frame), `build` (string).
 
 **Returns**: the runtime's `app-db-reset!` envelope —
-`{:ok? true :frame <id>}` on success, or `{:ok? false :reason
-:reset-rejected ...}` on no-such-frame / drain-in-flight / app-schema
-mismatch (the documented `:rf.epoch/*` failure modes). The `app-db` is
-unchanged on failure.
+`{:ok? true :frame <id> :epoch-id <synthetic-id> :cascade-summary
+{:event-id :rf.epoch/db-replaced :db-diff {...} :fx-fired [] ...}}`
+on success. Per rf2-6yqdl the cascade-summary projects the synthetic
+`:rf.epoch/db-replaced` epoch the framework just recorded (Tool-Pair
+§Pair-tool writes); `:fx-fired` is empty because state injection
+bypasses the dispatch loop entirely. See §Universal: cascade summary
+on state-mutating tools for the full shape. Returns `{:ok? false
+:reason :reset-rejected ...}` on no-such-frame / drain-in-flight /
+app-schema mismatch (the documented `:rf.epoch/*` failure modes). The
+`app-db` is unchanged on failure.
 
 ## Universal: cursor pagination on epoch slices
 

@@ -197,3 +197,69 @@
           (.then (fn [_]
                    (is (re-find #"dispatch-and-collect" @captured))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Cascade summary (rf2-6yqdl) — the runtime's `:cascade-summary` slot
+;; rides through the dispatch tool unchanged.
+;; ---------------------------------------------------------------------------
+
+(deftest cascade-summary-passes-through-on-sync-mode
+  ;; The runtime now returns a structured envelope including
+  ;; `:cascade-summary`. The dispatch tool's merge path
+  ;; `(merge {:mode mode} (when (map? v) v))` must thread the slot
+  ;; through to the wire envelope unchanged.
+  (async done
+    (let [canned-cascade {:epoch-id 7
+                          :event-id :cart/checkout
+                          :event-vector [:cart/checkout]
+                          :frame :rf/default
+                          :outcome :ok
+                          :db-diff {:changed-paths [[:cart]]
+                                    :added-paths [] :removed-paths []}
+                          :fx-fired [:dispatch]
+                          :subs-recomputed 3
+                          :renders 1
+                          :elapsed-ms 4}
+          runtime-result {:ok? true
+                          :epoch-id 7
+                          :event [:cart/checkout]
+                          :frame :rf/default
+                          :cascade-summary canned-cascade}]
+      (-> (with-captured-eval! (atom nil) runtime-result
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:cart/checkout]" :sync true})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-result-text r)]
+                     (is (true? (:ok? edn)))
+                     (is (= :sync (:mode edn)))
+                     (is (map? (:cascade-summary edn))
+                         "cascade-summary slot rides through")
+                     (is (= canned-cascade (:cascade-summary edn))
+                         "cascade-summary contents unchanged"))
+                   (done)))))))
+
+(deftest cascade-summary-pending-passes-through-on-queued-mode
+  ;; Queued dispatch may return BEFORE the cascade drains. The runtime
+  ;; reports `:cascade-summary-pending? true` and `:before-epoch-id`
+  ;; in that case; the tool surfaces them verbatim so callers can poll
+  ;; watch-epochs from the recorded pre-dispatch head.
+  (async done
+    (let [runtime-result {:ok? true :queued? true
+                          :frame :rf/default
+                          :cascade-summary-pending? true
+                          :before-epoch-id 12
+                          :hint "..."}]
+      (-> (with-captured-eval! (atom nil) runtime-result
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:cart/checkout]"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-result-text r)]
+                     (is (true? (:ok? edn)))
+                     (is (= :queued (:mode edn)))
+                     (is (true? (:cascade-summary-pending? edn)))
+                     (is (= 12 (:before-epoch-id edn))))
+                   (done)))))))
