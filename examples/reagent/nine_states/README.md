@@ -100,7 +100,7 @@ The example is wired into the canonical examples harness. From `implementation/`
 npm run test:examples
 ```
 
-That compiles every example (this one builds under shadow-cljs id `examples/nine-states`), stages its `index.html` into `out/examples/nine-states/`, serves the lot, and runs the Playwright smoke spec at [`nine_states.spec.cjs`](nine_states.spec.cjs).
+That compiles every example (this one builds under shadow-cljs id `examples/nine-states`), stages its `index.html` into `out/examples/nine-states/`, and serves the lot.
 
 To iterate on the source alone, watch the build directly from `implementation/`:
 
