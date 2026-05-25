@@ -450,3 +450,160 @@
                    (set! nrepl/cljs-eval-value orig-cljs)
                    (set! nrepl/jvm-eval orig-jvm)
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Frame targeting (rf2-ntuzf) — `:frame` arg wraps the supplied form
+;; in `(re-frame.core/with-frame <frame> <user-form>)` so subscribe /
+;; dispatch inside the form target the named frame instead of the MCP
+;; server's ambient :rf/default context.
+;; ---------------------------------------------------------------------------
+
+(defn- with-form-recorder!
+  "Stub harness that records every form sent over nREPL. Promise-
+  resolves the eval to `eval-value` (or `runtime?` for the sentinel
+  probe). Restores in .finally so cleanup outlives async resolution."
+  [{:keys [runtime? eval-value forms-atom]} body-fn]
+  (let [orig-jvm  nrepl/jvm-eval
+        orig-cljs nrepl/cljs-eval-value
+        jvm-stub  (fn
+                    ([_ _] (js/Promise.resolve {:value "[:app]"}))
+                    ([_ _ _] (js/Promise.resolve {:value "[:app]"})))
+        cljs-stub (fn
+                    ([_conn _build form-str]
+                     (swap! forms-atom conj form-str)
+                     (js/Promise.resolve
+                       (if (sentinel-probe? form-str) runtime? eval-value)))
+                    ([_conn _build form-str _opts]
+                     (swap! forms-atom conj form-str)
+                     (js/Promise.resolve
+                       (if (sentinel-probe? form-str) runtime? eval-value))))]
+    (set! nrepl/jvm-eval jvm-stub)
+    (set! nrepl/cljs-eval-value cljs-stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn []
+                    (set! nrepl/jvm-eval orig-jvm)
+                    (set! nrepl/cljs-eval-value orig-cljs))))))
+
+(deftest frame-arg-wraps-form-in-with-frame
+  ;; The headline rf2-ntuzf assertion: with :frame :rf/xray the user
+  ;; form is sent inside (re-frame.core/with-frame :rf/xray <form>),
+  ;; so subscribe / dispatch inside resolve to :rf/xray.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-form-recorder! {:runtime? true :eval-value 42 :forms-atom forms}
+            (fn []
+              (eval-cljs/eval-cljs-tool
+                (fresh-conn)
+                #js {:form "@(re-frame.core/subscribe [:state])"
+                     :frame ":rf/xray"
+                     :build "app"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-edn r)]
+                     (is (true? (:ok? edn)))
+                     (is (= 42 (:value edn)))
+                     (is (= :rf/xray (:frame edn))
+                         "frame echoed back on the envelope"))
+                   (let [non-probe-forms (->> @forms
+                                              (remove sentinel-probe?))]
+                     (is (some #(re-find #"re-frame\.core/with-frame :rf/xray" %)
+                               non-probe-forms)
+                         "user form is wrapped in with-frame :rf/xray")
+                     (is (some #(re-find #"re-frame\.core/subscribe \[:state\]" %)
+                               non-probe-forms)
+                         "original user form rides inside the wrap"))
+                   (done)))))))
+
+(deftest frame-arg-omitted-leaves-form-unwrapped
+  ;; Without :frame the form crosses the wire verbatim — no with-
+  ;; frame wrap. Pins the no-regression contract.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-form-recorder! {:runtime? true :eval-value 99 :forms-atom forms}
+            (fn []
+              (eval-cljs/eval-cljs-tool
+                (fresh-conn)
+                #js {:form "(+ 90 9)" :build "app"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-edn r)]
+                     (is (true? (:ok? edn)))
+                     (is (= 99 (:value edn)))
+                     (is (not (contains? edn :frame))
+                         "no :frame slot in the envelope when arg omitted"))
+                   (let [non-probe-forms (->> @forms
+                                              (remove sentinel-probe?))]
+                     (is (not-any? #(re-find #"re-frame\.core/with-frame" %)
+                                   non-probe-forms)
+                         "omitted :frame MUST NOT wrap the form"))
+                   (done)))))))
+
+(deftest frame-arg-accepts-bare-name-and-edn-shape
+  ;; `args/->frame-keyword` accepts both bare names ("rf/xray") and
+  ;; EDN-shaped strings (":rf/xray"). Either should produce the same
+  ;; with-frame wrap.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-form-recorder! {:runtime? true :eval-value 1 :forms-atom forms}
+            (fn []
+              (eval-cljs/eval-cljs-tool
+                (fresh-conn)
+                #js {:form "(+ 1 0)" :frame "rf/xray" :build "app"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-edn r)]
+                     (is (= :rf/xray (:frame edn))
+                         "bare name coerced to keyword"))
+                   (let [non-probe-forms (->> @forms (remove sentinel-probe?))]
+                     (is (some #(re-find #"with-frame :rf/xray" %)
+                               non-probe-forms)
+                         "wrap uses the coerced keyword"))
+                   (done)))))))
+
+(deftest frame-arg-composes-with-await
+  ;; :frame and :await compose orthogonally — the with-frame wrap is
+  ;; the outer-most form, the await wrapper rides inside (the
+  ;; mailbox sentinel survives the with-frame). Tests that BOTH the
+  ;; mailbox sentinel keyword AND the with-frame wrap appear in the
+  ;; first form sent over nREPL.
+  (async done
+    (let [forms     (atom [])
+          orig-jvm  nrepl/jvm-eval
+          orig-cljs nrepl/cljs-eval-value]
+      (set! nrepl/jvm-eval
+            (fn
+              ([_ _] (js/Promise.resolve {:value "[:app]"}))
+              ([_ _ _] (js/Promise.resolve {:value "[:app]"}))))
+      (set! nrepl/cljs-eval-value
+            (fn
+              ([_conn _build form-str]
+               (swap! forms conj form-str)
+               (js/Promise.resolve
+                 (cond
+                   (sentinel-probe? form-str)    true
+                   (await-wrap-form? form-str)   {:rf.mcp/await-direct 7}
+                   :else                          nil)))
+              ([_conn _build form-str _opts]
+               (swap! forms conj form-str)
+               (js/Promise.resolve
+                 (cond
+                   (sentinel-probe? form-str)    true
+                   (await-wrap-form? form-str)   {:rf.mcp/await-direct 7}
+                   :else                          nil)))))
+      (-> (eval-cljs/eval-cljs-tool
+            (fresh-conn)
+            #js {:form "(+ 3 4)" :await true :frame ":rf/xray" :build "app"})
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-edn r)]
+                     (is (true? (:ok? edn)))
+                     (is (= 7 (:value edn))))
+                   (let [wrap (first (filter await-wrap-form? @forms))]
+                     (is (string? wrap) "await wrap form was emitted")
+                     (is (re-find #"with-frame :rf/xray" wrap)
+                         "with-frame wraps the await wrapper too — both
+                          surfaces appear in the same emitted form"))
+                   (set! nrepl/cljs-eval-value orig-cljs)
+                   (set! nrepl/jvm-eval orig-jvm)
+                   (done)))))))

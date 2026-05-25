@@ -84,9 +84,37 @@
   The default `:await false` preserves today's semantics — the form's
   synchronous return is `pr-str`'d and returned verbatim. Callers
   who DO want to wait on a Promise opt in explicitly and pick the
-  deadline."
+  deadline.
+
+  ## Frame targeting (rf2-ntuzf)
+
+  Every other structured op (`dispatch`, `snapshot`, `get-path`,
+  `trace-window`, `watch-epochs`, `subscribe`, `reset-frame-db`)
+  accepts an optional `:frame` arg targeting a named frame. Pre-
+  rf2-ntuzf `eval-cljs` did NOT — the form ran against whatever
+  ambient frame context existed at the call site (the MCP server's
+  context is `:rf/default`), so `(rf/subscribe ...)` /
+  `(rf/dispatch ...)` inside an `eval-cljs` form silently targeted
+  `:rf/default` even in a multi-frame app.
+
+  When `:frame :rf/xray` is supplied, the form is wrapped server-side
+  in `(re-frame.core/with-frame :rf/xray <user-form>)` before being
+  sent over nREPL. `with-frame` is the framework's lexical frame-
+  binding macro (per Spec 002 §with-frame) — `*current-frame*` is
+  bound to the named frame for the form's dynamic extent, so any
+  `(rf/subscribe ...)` / `(rf/dispatch ...)` / `(rf/current-frame)`
+  inside the form resolves against the requested frame.
+
+  The wrap composes orthogonally with `:await true`: a Promise-
+  returning form wrapped in `with-frame` is still a Promise; the
+  await mailbox dance proceeds normally. Frame binding only lasts
+  for the form's synchronous evaluation — once the Promise resolves
+  on a later tick, the original lexical frame is gone (this matches
+  the macro's contract per Spec 002, where async closures must
+  capture via `bound-fn` / `dispatcher` / `subscriber`)."
   (:require [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
@@ -324,12 +352,33 @@
 ;; Tool entry point.
 ;; ---------------------------------------------------------------------------
 
+(defn- wrap-in-frame
+  "Wrap `form-str` in `(re-frame.core/with-frame <frame-kw> <form>)`
+  per rf2-ntuzf. Returns the wrapped source verbatim — callers feed
+  this into the await wrapper or send it straight over nREPL.
+
+  `frame-kw` is emitted as an EDN literal via `pr-str` so a kebab-case
+  / namespaced keyword survives the round-trip without quoting
+  surprises. `with-frame` is the framework's lexical frame-binding
+  macro (Spec 002 §with-frame); per its contract, async closures
+  inside the form must capture via `bound-fn` / `dispatcher` /
+  `subscriber` for the binding to survive later ticks. We document
+  that asymmetry in the ns docstring rather than enforcing it here —
+  the body is opaque user-supplied source."
+  [form-str frame-kw]
+  (str "(re-frame.core/with-frame " (pr-str frame-kw) " " form-str ")"))
+
 (defn eval-cljs-tool [conn args]
   (let [form       (wire/arg args :form)
         build-id   (wire/arg-build conn args)
         explicit?  (wire/arg-build-explicit? conn args)
         await?     (boolean (wire/arg args :await))
-        timeout-ms (or (wire/arg args :timeout-ms) default-await-timeout-ms)]
+        timeout-ms (or (wire/arg args :timeout-ms) default-await-timeout-ms)
+        ;; rf2-ntuzf — optional `:frame` arg targets a named frame for
+        ;; the form's lexical scope. Same coercion as dispatch/
+        ;; snapshot/get-path: bare names (\"rf/default\") and EDN-
+        ;; shaped strings (\":rf/default\") both accepted.
+        frame      (some-> (wire/arg args :frame) args/->frame-keyword)]
     (cond
       (not @eval-allowed?)
       (js/Promise.resolve
@@ -343,26 +392,34 @@
       (or (nil? form) (str/blank? form))
       (js/Promise.resolve
         (wire/err-text {:ok? false :reason :missing-form
-                        :hint "usage: eval-cljs {form '<cljs-form>' [build :app] [await true] [timeout-ms 5000]}"}))
+                        :hint "usage: eval-cljs {form '<cljs-form>' [build :app] [await true] [timeout-ms 5000] [frame :rf/xray]}"}))
 
       :else
       ;; rf2-ivlb3: resolve the build (auto-detect the single running one
       ;; when no explicit :build was passed) and confirm a live runtime
       ;; BEFORE eval'ing. Never emit `:ok? true :value nil` for a build
       ;; with no runtime — that's indistinguishable from a genuine nil.
-      (-> (probe/resolve-and-preflight! conn build-id explicit?)
-          (.then (fn [resolved-build]
-                   (if-not await?
-                     ;; Default path — today's semantics: pr-str the
-                     ;; synchronous return verbatim, Promises included.
-                     (-> (nrepl/cljs-eval-value conn resolved-build form)
-                         (.then (fn [v] (wire/ok-text {:ok?   true
-                                                       :value v
-                                                       :build resolved-build}))))
-                     ;; Await path (rf2-xn4f9) — wrap the form, dispatch
-                     ;; on the sentinel, poll the mailbox if needed.
-                     (let [mailbox-id (await-mailbox-key)
-                           wrapped    (await-wrap-form form mailbox-id)]
-                       (-> (nrepl/cljs-eval-value conn resolved-build wrapped)
-                           (.then (partial handle-sentinel conn resolved-build timeout-ms)))))))
-          (.catch (fn [err] (probe/err->result :eval-error err)))))))
+      (let [;; rf2-ntuzf: apply the with-frame wrap before await
+            ;; wrapping. The await wrap operates on whatever source
+            ;; we send over the wire; with-frame is just additional
+            ;; outer-CLJS so it composes orthogonally with await.
+            user-form (if frame (wrap-in-frame form frame) form)]
+        (-> (probe/resolve-and-preflight! conn build-id explicit?)
+            (.then (fn [resolved-build]
+                     (if-not await?
+                       ;; Default path — today's semantics: pr-str the
+                       ;; synchronous return verbatim, Promises included.
+                       (-> (nrepl/cljs-eval-value conn resolved-build user-form)
+                           (.then (fn [v]
+                                    (wire/ok-text
+                                      (cond-> {:ok?   true
+                                               :value v
+                                               :build resolved-build}
+                                        frame (assoc :frame frame))))))
+                       ;; Await path (rf2-xn4f9) — wrap the form, dispatch
+                       ;; on the sentinel, poll the mailbox if needed.
+                       (let [mailbox-id (await-mailbox-key)
+                             wrapped    (await-wrap-form user-form mailbox-id)]
+                         (-> (nrepl/cljs-eval-value conn resolved-build wrapped)
+                             (.then (partial handle-sentinel conn resolved-build timeout-ms)))))))
+            (.catch (fn [err] (probe/err->result :eval-error err))))))))
