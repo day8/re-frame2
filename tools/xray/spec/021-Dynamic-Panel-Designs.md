@@ -1296,6 +1296,33 @@ drill-downs persist across re-renders + epoch navigation per
 panel defaults to `:default-depth 3` for the diff render path,
 matching the re-frame-10x look).
 
+#### §10.0a Acceptance contract for the cljs-devtools walker (rf2-oswhk)
+
+Three properties the unit gate pins so a future renderer change can't
+re-break what rf2-oswhk repaired:
+
+1. **Per-token cljs-devtools palette preserved end-to-end.** The walker
+   keeps cljs-devtools' templated leaf-markup driving each scalar's
+   colour: keyword `rgba(136,19,145,1)` (magenta), integer
+   `rgba(28,0,207,1)` (blue), string `rgba(196,26,22,1)` (red), nil
+   `rgba(128,128,128,1)` (gray), boolean `rgba(0,153,153,1)` (teal).
+   Never replace cljs-devtools' header / body markup with a custom
+   per-leaf renderer — wrap surrogate refs only.
+2. **Click actually toggles.** Each surrogate's walker path is unique
+   across sibling surrogates (positional path-segment per descent —
+   matching re-frame-10x's `(conj indexed-path i)` walk). A click on
+   one triangle MUST toggle that triangle only; siblings stay put.
+3. **Expanded renders BODY, not HEADER + BODY.** When a surrogate is
+   expanded the triangle is followed by cljs-devtools' `body-api-call`
+   output (the `[:standard-ol [:standard-li ...]]` rows). The
+   collapsed-shape's `{…}` ellipsis must NOT survive next to the body.
+   re-frame-10x's `data-structure` is the reference (`src/day8/
+   re_frame_10x/components/cljs_devtools.cljs`).
+
+Unit tests pinning each property live in
+`tools/xray/test/day8/re_frame2_xray/views/edn_widget/cljs_devtools_render_cljs_test.cljs`
++ `widget_cljs_test.cljs`.
+
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
 1. **Lazy collapsible tree** — hierarchical EDN with expand/collapse.
