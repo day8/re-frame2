@@ -522,6 +522,92 @@
     (is (some? (find-attr h :data-testid
                           "rf-xray-data-display-app-db-m-42")))))
 
+;; ---- rf2-tzvk9 — triangle hit-box ≥24×24 ---------------------------------
+;;
+;; The expand/collapse triangles (▾ / ▸) measured ~6.6×16.8px in the live
+;; widget — far below Fitts's-Law-friendly mouse-target sizing. Mike's
+;; live measurement on http://localhost:8031/counter App-DB panel.
+;; The fix uses a shared `triangle-style` with padding + font-size +
+;; min-width/min-height so every triangle on every code path gets the
+;; same ≥24×24 hit-box.
+
+(defn- parse-px
+  "Parse `'24px'` → 24. Returns nil for non-px strings."
+  [s]
+  (when (and (string? s) (re-find #"^\d+(\.\d+)?px$" s))
+    (js/parseFloat s)))
+
+(deftest triangle-style-pins-min-target-to-24px-in-both-axes
+  (testing "rf2-tzvk9 — the shared triangle-style declares ≥24px min-
+            width AND min-height so the computed hit-box meets the
+            comfortable-mouse-target threshold"
+    (is (>= (parse-px (:min-width  dd/triangle-style)) 24)
+        ":min-width ≥24px")
+    (is (>= (parse-px (:min-height dd/triangle-style)) 24)
+        ":min-height ≥24px")
+    (is (= "pointer" (:cursor dd/triangle-style))
+        "still registers as clickable")
+    (is (= "none"    (:user-select dd/triangle-style))
+        "no accidental text selection on the glyph")
+    (is (= "inline-flex" (:display dd/triangle-style))
+        "inline-flex so min-width/min-height are honoured")
+    (is (= "center"  (:align-items     dd/triangle-style))
+        "glyph centred vertically inside the hit-box")
+    (is (= "center"  (:justify-content dd/triangle-style))
+        "glyph centred horizontally inside the hit-box")))
+
+(deftest triangle-min-target-px-is-24
+  (is (= 24 dd/triangle-min-target-px)
+      "the public contract pin: 24px in both axes"))
+
+(deftest collapsed-triangle-uses-shared-triangle-style
+  ;; Force a default-collapsed render (large map at depth past
+  ;; default-expanded-depth) and verify the ▸ toggle span carries
+  ;; the shared `triangle-style`.
+  (let [v   {:a 1 :b 2 :c 3 :d 4 :e 5}
+        h   (dd/render-node {:value v
+                             :panel-id :test :mount-id "m"
+                             :path [] :depth 5
+                             :expansion-map {}
+                             :opts {:default-expanded-depth 1}})
+        tog (find-attr h :data-testid
+                       "rf-xray-data-display-test-m-toggle")]
+    (is (some? tog) "collapsed renders carry a toggle span")
+    (let [s (-> tog second :style)]
+      (is (= dd/triangle-style s)
+          "collapsed ▸ uses the shared triangle-style verbatim"))))
+
+(deftest expanded-triangle-uses-shared-triangle-style
+  (let [v   {:a 1 :b 2 :c 3 :d 4 :e 5}
+        k0  (dd/expansion-key :test "m" [])
+        h   (dd/render-node {:value v
+                             :panel-id :test :mount-id "m"
+                             :path [] :depth 0
+                             :expansion-map {k0 {:expanded? true}}
+                             :opts {:default-expanded-depth 0}})
+        tog (find-attr h :data-testid
+                       "rf-xray-data-display-test-m-toggle")]
+    (is (some? tog) "expanded renders carry a toggle span")
+    (let [s (-> tog second :style)]
+      (is (= dd/triangle-style s)
+          "expanded ▾ uses the shared triangle-style verbatim"))))
+
+(deftest depth-capped-triangle-uses-shared-triangle-style
+  ;; A node past :max-depth renders as `▸ {…}` with the same triangle.
+  (let [;; nesting depth past max-depth=1 → depth-capped path.
+        v   {:a {:b {:c {:d 1}}}}
+        h   (dd/render-node {:value v
+                             :panel-id :test :mount-id "m"
+                             :path [] :depth 0
+                             :expansion-map {}
+                             :opts {:default-expanded-depth 5 :max-depth 1}})
+        tog (find-attr h :data-testid
+                       "rf-xray-data-display-test-m-toggle")]
+    (is (some? tog) "depth-capped renders still carry a toggle span")
+    (let [s (-> tog second :style)]
+      (is (= dd/triangle-style s)
+          "depth-capped triangle uses the shared triangle-style"))))
+
 ;; ---- toggle handler shape ------------------------------------------------
 
 (deftest toggle-handler-dispatches-canonical-event
