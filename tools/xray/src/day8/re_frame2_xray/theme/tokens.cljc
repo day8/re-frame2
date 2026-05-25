@@ -127,25 +127,49 @@
    :magenta        "#E879F9"
    :info           "#79c0ff"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
-   ;; ── syntax-highlighter palette (rf2-93jp0 · Figma `.syntax-*` block) ──
-   ;; Dedicated tokens for the in-bundle Clojure source-text highlighter
-   ;; (`views/edn_widget/widget.cljs`), mirrored 1:1 from the Figma
-   ;; authority's `.syntax-keyword` / `.syntax-string` / `.syntax-number`
-   ;; CSS classes. Catalogued as their own token family (rather than
-   ;; reusing semantic `:red`/`:green`/`:info`) so syntax hues can evolve
-   ;; independently of the semantic palette — a future "function-name"
-   ;; or "macro" hue lands here without rippling through error/success
-   ;; surfaces.
+   ;; ── syntax-highlighter palette (rf2-79ojx · One Dark / Calva default) ──
+   ;; Dedicated tokens for CLJS-value rendering in the data-display widget
+   ;; (`views/data_display.cljs`) AND the in-bundle Clojure source-text
+   ;; highlighter (`views/edn_widget/widget.cljs`). One palette, shared by
+   ;; both surfaces, so a `:foo` keyword in the source-text panel paints
+   ;; the same hue as `:foo` rendered as a value in the App-DB panel.
    ;;
-   ;; The pre-rf2-93jp0 mapping reused `:accent` for BOTH `:keyword` and
-   ;; `:builtin`, so `:foo` and `reg-event-db` painted identically — a
-   ;; monochromatic look against a real editor. Splitting `:syntax-
-   ;; keyword` off (red family, per Figma) gives keywords vs builtins a
-   ;; first-class visual distinction; the builtin highlight stays on
-   ;; `:accent` (the chrome blue) and now reads as macro-call emphasis.
-   :syntax-keyword "#ff7b72"   ; Figma .dark .syntax-keyword (salmon-red)
-   :syntax-string  "#a5d6ff"   ; Figma .dark .syntax-string  (sky-blue)
-   :syntax-number  "#79c0ff"   ; Figma .dark .syntax-number  (cool-blue, = :info)
+   ;; ## Palette base (rf2-79ojx)
+   ;;
+   ;; Derives from the **One Dark / Atom One Dark** palette — the lineage
+   ;; behind Calva's default theme + Cursive's Material/One Dark + the
+   ;; VS Code "Atom One" family. CLJS programmers' eyes are trained on
+   ;; this hue family (keywords magenta, strings green, numbers orange,
+   ;; constants gold), so the inspector reads as syntax-highlighted at a
+   ;; glance instead of demanding the eye decode a hue-distinct scheme.
+   ;;
+   ;; The pre-rf2-79ojx mapping inherited GitHub Primer's blue-heavy
+   ;; `.syntax-*` palette — keywords salmon-red (an outlier), strings AND
+   ;; numbers both in the blue family. Three of five scalar types painted
+   ;; in the same hue with only luminance varying; the inspector looked
+   ;; monochrome to a programmer whose eye expects keyword magenta + number
+   ;; orange + string green.
+   ;;
+   ;; ## Hue families — the five scalar types MUST span at least four
+   ;;
+   ;; - keyword  → magenta (purple family) — `:foo` keyword tokens
+   ;; - string   → green                   — `"hello"` strings
+   ;; - number   → orange                  — `42`, `3.14`
+   ;; - boolean  → gold (yellow family)    — `true`/`false` (constants)
+   ;; - nil      → grey (neutral)          — deliberately muted (absence)
+   ;;
+   ;; Three additional tokens carry editor-convention hues for surfaces
+   ;; that need them: `:syntax-symbol` (blue — identifiers / `'sym`),
+   ;; `:syntax-builtin` (blue, slightly distinct — macro-call emphasis),
+   ;; and `:syntax-punctuation` (muted near-text — brackets, commas).
+   :syntax-keyword "#c678dd"   ; One Dark .keyword (magenta)
+   :syntax-string  "#98c379"   ; One Dark .string  (green)
+   :syntax-number  "#d19a66"   ; One Dark .number  (orange)
+   :syntax-boolean "#e5c07b"   ; One Dark .constant (gold; "constants" family)
+   :syntax-nil     "#7f848e"   ; One Dark .comment-ish dim (grey, AAA on bg-1)
+   :syntax-symbol  "#61afef"   ; One Dark .function/variable (blue)
+   :syntax-builtin "#61afef"   ; One Dark .function/variable (blue) — macro emphasis
+   :syntax-punctuation "#abb2bf" ; One Dark .text (near-foreground; subtle)
 
    ;; ── deep variants (rf2-5kfxe.4) ──
    ;; Darker variant of `:red` used as a danger-button background. The
@@ -226,21 +250,25 @@
    :magenta        "#B146C2"
    :info           "#0550ae"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
-   ;; ── syntax-highlighter palette (rf2-93jp0 · Figma `.syntax-*` block) ──
-   ;; Light-theme mirror of the dark-palette `:syntax-*` family. Each
-   ;; hex is taken 1:1 from the Figma authority's CSS string:
+   ;; ── syntax-highlighter palette (rf2-79ojx · One Light / Atom-One-Light) ──
+   ;; Light-theme mirror of the dark-palette `:syntax-*` family, taken
+   ;; from the **Atom One Light** companion to One Dark (Calva's default
+   ;; light theme inherits the same family). Each hex is darkness-shifted
+   ;; to clear WCAG AA on the white canvas while keeping the same hue
+   ;; family as the dark variant so a user toggling themes sees the
+   ;; SAME semantic colour assignment (magenta keywords / green strings /
+   ;; orange numbers / gold booleans / grey nil).
    ;;
-   ;;     .syntax-keyword { color: #cf222e; }
-   ;;     .syntax-string  { color: #0a3069; }
-   ;;     .syntax-number  { color: #0550ae; }
-   ;;
-   ;; (See `dark-palette` `:syntax-*` for the rationale — the rf2-93jp0
-   ;; split exists so keywords and builtins paint distinct hues; this
-   ;; block holds the LIGHT-theme half of that contract so the class
-   ;; toggle on the shell root resolves either palette at paint time.)
-   :syntax-keyword "#cf222e"   ; Figma .syntax-keyword (deep red)
-   :syntax-string  "#0a3069"   ; Figma .syntax-string  (deep navy)
-   :syntax-number  "#0550ae"   ; Figma .syntax-number  (Github blue, = :info)
+   ;; See `dark-palette` `:syntax-*` for the rationale + the hue-family
+   ;; contract (the five scalar types must span at least four families).
+   :syntax-keyword "#a626a4"   ; One Light .keyword (magenta)
+   :syntax-string  "#50a14f"   ; One Light .string  (green)
+   :syntax-number  "#986801"   ; One Light .number  (orange, AA on white)
+   :syntax-boolean "#c18401"   ; One Light .constant (gold; "constants" family)
+   :syntax-nil     "#a0a1a7"   ; One Light .comment-ish dim (grey)
+   :syntax-symbol  "#4078f2"   ; One Light .function/variable (blue)
+   :syntax-builtin "#4078f2"   ; One Light .function/variable (blue)
+   :syntax-punctuation "#383a42" ; One Light .text (near-foreground; subtle)
 
    ;; ── deep variants ──
    ;; On the light canvas the danger button stays close to the

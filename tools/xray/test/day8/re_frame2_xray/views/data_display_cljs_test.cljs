@@ -28,7 +28,8 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.views.data-display :as dd]
-            [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
+            [day8.re-frame2-xray.theme.tokens
+             :refer [tokens dark-palette light-palette]]))
 
 ;; Fresh re-frame runtime per test so the click-to-toggle integration
 ;; test can fire `dispatch-sync` against the registered event handlers
@@ -110,10 +111,13 @@
 
 ;; ---- scalar rendering ----------------------------------------------------
 
-(deftest scalar-keyword-uses-accent
+(deftest scalar-keyword-uses-syntax-keyword
+  ;; rf2-79ojx — keywords paint via `:syntax-keyword` (magenta), NOT
+  ;; `:accent` (chrome blue). The previous mapping put 3 of 5 scalar
+  ;; types in the same blue family.
   (let [h (dd/render-scalar :foo)]
     (is (= :span (first h)))
-    (is (= (:accent tokens) (-> h second :style :color)))
+    (is (= (:syntax-keyword tokens) (-> h second :style :color)))
     (is (= ":foo" (collect-text h)))))
 
 (deftest scalar-string-uses-syntax-string-and-quotes
@@ -134,19 +138,114 @@
               (-> h-num  second :style :color))
         "boolean and number must use DIFFERENT theme tokens")))
 
-(deftest scalar-nil-uses-text-tertiary
+(deftest scalar-nil-uses-syntax-nil
+  ;; rf2-79ojx — nil paints via its own dedicated `:syntax-nil` token
+  ;; (deliberately muted grey, "absence" reads as faded).
   (let [h (dd/render-scalar nil)]
-    (is (= (:text-tertiary tokens) (-> h second :style :color)))
+    (is (= (:syntax-nil tokens) (-> h second :style :color)))
     (is (= "nil" (collect-text h)))))
 
-(deftest scalar-symbol-uses-magenta
+(deftest scalar-symbol-uses-syntax-symbol
+  ;; rf2-79ojx — symbols paint via `:syntax-symbol` (blue), distinct
+  ;; from the magenta now used for keywords.
   (let [h (dd/render-scalar 'sym)]
-    (is (= (:magenta tokens) (-> h second :style :color)))))
+    (is (= (:syntax-symbol tokens) (-> h second :style :color)))))
 
 (deftest scalar-fn-renders-with-italic
   (let [h (dd/render-scalar (fn [x] x))]
     (is (re-find #"^#fn" (collect-text h)))
     (is (= "italic" (-> h second :style :font-style)))))
+
+;; ---- rf2-79ojx — scalar hue-family contract ------------------------------
+;;
+;; The five scalar types (keyword / string / number / boolean / nil) MUST
+;; span at least four hue families. CLJS programmers' eyes are trained on
+;; editor syntax-highlight palettes (One Dark / Calva / Cursive default),
+;; where keywords + strings + numbers paint in clearly distinct hues. The
+;; pre-rf2-79ojx mapping put 3 of 5 in the blue family with only luminance
+;; varying — the inspector looked monochrome.
+;;
+;; "Hue family" here is the dominant RGB channel of the hex (whichever of
+;; R/G/B has the largest value, with a tie tolerance for grey). The
+;; contract holds in BOTH dark + light palettes.
+
+(defn- hex->rgb
+  "Parse a `#rrggbb` hex string into a `[r g b]` int triple. Cljs-only."
+  [hex]
+  (let [s (subs hex 1)]
+    [(js/parseInt (subs s 0 2) 16)
+     (js/parseInt (subs s 2 4) 16)
+     (js/parseInt (subs s 4 6) 16)]))
+
+(defn- dominant-channel
+  "Classify a hex into a hue family: :red / :green / :blue / :yellow /
+  :magenta / :cyan / :orange / :grey. Approximation good enough to
+  separate 5 distinct CLJS-editor hues. Grey when max-min < 28 (very
+  desaturated)."
+  [hex]
+  (let [[r g b] (hex->rgb hex)
+        mx (max r g b)
+        mn (min r g b)]
+    (cond
+      (< (- mx mn) 28) :grey
+      (and (= mx r) (>= g (* 0.6 r)) (< b (* 0.5 r))) :orange ; warm red+green
+      (and (= mx r) (>= b (* 0.55 r)))                :magenta ; red + blue
+      (and (= mx g) (>= r (* 0.75 g)))                :yellow  ; red ≈ green
+      (= mx r)                                        :red
+      (= mx g)                                        :green
+      (= mx b)                                        :blue
+      :else                                           :grey)))
+
+(deftest scalar-hue-families-span-at-least-four-dark
+  ;; rf2-79ojx acceptance #2 — five scalar tokens span ≥4 hue families
+  ;; in the dark palette. Renames are token-keyword level; this asserts
+  ;; the actual hex values.
+  (let [families (set (map #(dominant-channel (get dark-palette %))
+                           [:syntax-keyword :syntax-string :syntax-number
+                            :syntax-boolean :syntax-nil]))]
+    (is (>= (count families) 4)
+        (str "5 scalar types must span ≥4 hue families; got " families))
+    (is (not= families #{:blue})
+        "no monochrome blue palette")
+    (is (contains? families :grey)
+        "nil reads as deliberately muted grey")))
+
+(deftest scalar-hue-families-span-at-least-four-light
+  ;; Light-theme mirror. Same contract.
+  (let [families (set (map #(dominant-channel (get light-palette %))
+                           [:syntax-keyword :syntax-string :syntax-number
+                            :syntax-boolean :syntax-nil]))]
+    (is (>= (count families) 4)
+        (str "5 scalar types must span ≥4 hue families; got " families))
+    (is (not= families #{:blue})
+        "no monochrome blue palette")))
+
+(deftest no-two-scalar-tokens-share-the-same-blue-family
+  ;; The specific regression: pre-rf2-79ojx had keyword(:accent) +
+  ;; number(:syntax-number) + string(:syntax-string) all in the blue
+  ;; family. Guard against re-introducing the collision.
+  (let [scalar-keys [:syntax-keyword :syntax-string :syntax-number
+                     :syntax-boolean :syntax-nil]
+        dark-blues  (filter #(= :blue (dominant-channel (get dark-palette %)))
+                            scalar-keys)
+        light-blues (filter #(= :blue (dominant-channel (get light-palette %)))
+                            scalar-keys)]
+    (is (<= (count dark-blues) 1)
+        (str "≤1 dark-palette scalar may be in the blue family; got "
+             (vec dark-blues)))
+    (is (<= (count light-blues) 1)
+        (str "≤1 light-palette scalar may be in the blue family; got "
+             (vec light-blues)))))
+
+(deftest scalar-tokens-are-defined-in-both-palettes
+  ;; Every scalar token must exist in both palettes — the theme toggle
+  ;; can't fall back to undefined.
+  (doseq [k [:syntax-keyword :syntax-string :syntax-number
+             :syntax-boolean :syntax-nil :syntax-symbol]]
+    (is (re-find #"^#[0-9a-fA-F]{6}$" (get dark-palette k))
+        (str k " defined in dark-palette as a 6-digit hex"))
+    (is (re-find #"^#[0-9a-fA-F]{6}$" (get light-palette k))
+        (str k " defined in light-palette as a 6-digit hex"))))
 
 ;; ---- sentinel rendering --------------------------------------------------
 
