@@ -513,6 +513,60 @@
     :fixture/expect
     {:edn-submap {:ok? false :reason :runtime-loaded-but-preload-missing}}}
 
+   ;; ---------- dispatch-dry-run (rf2-17hvp) ------------------------------
+   ;; Dry-run is NOT --allow-writes-gated: the override-set ensures no
+   ;; observable effect escapes, and restore-epoch rewinds the would-be
+   ;; epoch. No gate needed because the contract IS "no state change".
+   {:fixture/id    :dispatch-dry-run/happy
+    :fixture/doc   "dispatch-dry-run wraps the runtime's dispatch-dry-run envelope through unchanged — :cascade-summary + :would-fire-effects + :db-state-after-simulation."
+    :fixture/tool  "dispatch-dry-run"
+    :fixture/args  {:event "[:cart/checkout]"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["dispatch-dry-run"          {:ok? true :dry-run? true :rolled-back? true
+                                   :event [:cart/checkout]
+                                   :frame :rf/default
+                                   :before-epoch-id 41
+                                   :cascade-summary {:epoch-id 42
+                                                     :event-id :cart/checkout
+                                                     :event-vector [:cart/checkout]
+                                                     :frame :rf/default
+                                                     :outcome :ok
+                                                     :db-diff {:changed-paths [[:cart]]
+                                                               :added-paths []
+                                                               :removed-paths []}
+                                                     :fx-fired [:http]
+                                                     :subs-recomputed 2
+                                                     :renders 1}
+                                   :would-fire-effects [{:fx-id :http :args {:url "/checkout"}}]
+                                   :db-state-after-simulation {:cart {} :order {:id 1}}}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["dispatch-dry-run [:cart/checkout]"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :dry-run? true :rolled-back? true}}}
+
+   {:fixture/id    :dispatch-dry-run/missing-event
+    :fixture/doc   "dispatch-dry-run without :event surfaces :missing-event (mirrors dispatch's arg-parse gate)."
+    :fixture/tool  "dispatch-dry-run"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :missing-event}}
+
+   {:fixture/id    :dispatch-dry-run/rejects-host-form
+    :fixture/doc   "dispatch-dry-run rejects host-form source (rf2-vflrg posture inherited from dispatch)."
+    :fixture/tool  "dispatch-dry-run"
+    :fixture/args  {:event "(println :pwn)"}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :not-an-event-vector}}
+
    ;; ---------- restore-epoch (rf2-ee38b.18 — gated write) ----------------
    ;; The --allow-writes gate ships DEFAULT-OFF. The disabled fixture pins
    ;; the gate-closed envelope (no nREPL round-trip); the happy fixture

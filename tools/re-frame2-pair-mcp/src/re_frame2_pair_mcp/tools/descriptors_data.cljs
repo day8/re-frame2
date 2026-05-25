@@ -290,6 +290,42 @@
                  :required ["event"]
                  :additionalProperties false}})
 
+(def dispatch-dry-run
+  {:name "dispatch-dry-run"
+   :description (str "Simulate a re-frame2 cascade WITHOUT committing (rf2-17hvp). Full reducer + interceptor "
+                     "chain runs, schema validation fires, machine transitions simulate, sub-runs and renders "
+                     "are recorded — but NO fx execute (every registered fx is redirected to a recording "
+                     "stub via :fx-overrides) and the framework rolls back the app-db via restore-epoch. "
+                     "True 'experiment without consequences' — every fx that WOULD have fired is enumerated "
+                     "in :would-fire-effects (with args), so the operator reasons about real-world impact "
+                     "without paying it. NOT --allow-writes-gated: dry-run's contract IS 'no observable "
+                     "effect'. "
+                     "Returns the same :cascade-summary shape as dispatch (rf2-6yqdl) — operators read one "
+                     "vocabulary for both. Composes with :fx-overrides — user-supplied overrides win on "
+                     "conflict so an experimenter can compose realistic conditions (a canned http stub "
+                     "response, say) without losing the rollback guarantee. "
+                     "Examples: "
+                     "1. Probe a write: {:event \"[:cart/checkout]\"} -> {:ok? true :dry-run? true :rolled-back? true :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart] [:order]]} :fx-fired [:dispatch :http :navigate] ...} :would-fire-effects [{:fx-id :http :args {:url ...}} {:fx-id :navigate :args [:order-confirmation]}] :db-state-after-simulation {...}}. "
+                     "2. Frame-targeted: {:event \"[:state/transition :paying]\" :frame \":checkout\"} -> dry-run against :checkout's app-db. "
+                     "3. Schema violation: {:event \"[:cart/add {:bad :shape}]\"} -> {:ok? true :dry-run? true :cascade-summary {:outcome :error ...}} — the violation surfaces in cascade-summary; the rollback still fires. "
+                     "4. No-op event: {:event \"[:noop]\"} -> {:ok? false :reason :no-new-epoch :hint \"...\"}.")
+   :typicalTokens 800
+   :annotations idempotent-read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:event {:type "string"
+                                      :description "The event vector as EDN, e.g. \"[:cart/checkout]\". MUST be a vector — same EDN-data posture as dispatch (rf2-vflrg)."}
+                              :frame {:type "string" :description "Operating frame (e.g. \":checkout\"). Defaults to the operating frame."}
+                              :fx-overrides {:type "object"
+                                             :description (str "Optional pre-stub map (Spec 002 §:fx-overrides). User-supplied "
+                                                               "overrides win on conflict — the dry-run recorder fires only for "
+                                                               "fx the caller did NOT pre-stub. Use this to compose realistic "
+                                                               "conditions (canned http stub, navigation redirect, etc.) without "
+                                                               "losing the dry-run's roll-back guarantee.")}
+                              :build {:type "string"}}
+                 :required ["event"]
+                 :additionalProperties false}})
+
 (def restore-epoch
   {:name "restore-epoch"
    :description (str "Time-travel undo (rf2-ee38b.18): rewind a frame's app-db to a recorded prior epoch. "

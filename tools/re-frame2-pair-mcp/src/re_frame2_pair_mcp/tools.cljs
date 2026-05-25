@@ -33,16 +33,16 @@
   ## Per-tool / per-concern layout (rf2-vrbwx, rf2-47g8l)
 
   This namespace is the public façade — `invoke` glue, internal
-  dispatch, and re-exported descriptor surface. The sixteen tool
+  dispatch, and re-exported descriptor surface. The seventeen tool
   bodies and the cross-cutting concerns each live in
   `tools/<concern>` or `tools/<tool>` files:
 
   - Concerns: `wire`, `probe`, `cap`, `dedup`, `elision`, `sensitive`,
     `cursor`, `args`, `summary`, `snapshot-pipeline`, `boundary-step`,
     `writes` (the --allow-writes gate, rf2-ee38b.18).
-  - Tools: `discover-app`, `eval-cljs`, `dispatch`, `restore-epoch`,
-    `reset-frame-db`, `trace-window`, `watch-epochs`, `tail-build`,
-    `snapshot`, `get-path`, `subscribe`, `unsubscribe`,
+  - Tools: `discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`,
+    `restore-epoch`, `reset-frame-db`, `trace-window`, `watch-epochs`,
+    `tail-build`, `snapshot`, `get-path`, `subscribe`, `unsubscribe`,
     `list-subscriptions`, `handler-meta`, `list-handlers`,
     `get-re-frame2-pair-instructions`.
   - Descriptors: `descriptors-knobs` (universal knob property data),

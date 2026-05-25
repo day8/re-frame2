@@ -65,6 +65,7 @@
   (:require [re-frame2-pair-mcp.tools.discover-app :as discover-app]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.dispatch :as dispatch]
+            [re-frame2-pair-mcp.tools.dispatch-dry-run :as dispatch-dry-run]
             [re-frame2-pair-mcp.tools.restore-epoch :as restore-epoch]
             [re-frame2-pair-mcp.tools.reset-frame-db :as reset-frame-db]
             [re-frame2-pair-mcp.tools.trace-window :as trace-window]
@@ -96,8 +97,8 @@
 
 (defn- ignoring-extra
   "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
-  3-arity convention `(fn [conn args _extra])`. Fifteen of the
-  sixteen registered tools ignore `extra` (only `subscribe`
+  3-arity convention `(fn [conn args _extra])`. Sixteen of the
+  seventeen registered tools ignore `extra` (only `subscribe`
   consults it);
   this adapter collapses the verbatim `(fn [conn args _extra]
   (per-tool-fn conn args))` boilerplate at the call sites.
@@ -119,12 +120,12 @@
 ;; ---------------------------------------------------------------------------
 
 (def tools
-  "The sixteen-tool catalogue. Single source of truth for the
+  "The seventeen-tool catalogue. Single source of truth for the
   `tools/list` descriptors, the `tools/call` dispatcher, and the
   per-tool cache opt-in. See ns docstring for the entry shape.
 
   Each `:handler` is a thin late-binding wrapper around the per-tool
-  fn — `ignoring-extra` for the thirteen tools that ignore `extra`,
+  fn — `ignoring-extra` for the sixteen tools that ignore `extra`,
   or an inline `(fn [conn args extra] ...)` for `subscribe` (which
   uses `extra` for its progress-callback plumbing). Both shapes
   resolve the underlying fn per-call so test seams that `set!` the
@@ -141,6 +142,10 @@
     :handler    (ignoring-extra #(dispatch/dispatch-tool %1 %2))
     :cacheable? false
     :descriptor data/dispatch}
+   {:name       "dispatch-dry-run"
+    :handler    (ignoring-extra #(dispatch-dry-run/dispatch-dry-run-tool %1 %2))
+    :cacheable? false
+    :descriptor data/dispatch-dry-run}
    {:name       "restore-epoch"
     :handler    (ignoring-extra #(restore-epoch/restore-epoch-tool %1 %2))
     :cacheable? false
