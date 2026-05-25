@@ -232,7 +232,7 @@ load-bearing: each carries different recovery semantics.
 
 | Dialect       | Meaning                                                            | Example reasons                                                                              |
 |---------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:unknown-tool`, `:runtime-not-preloaded`, `:eval-error`, `:timed-out`, `:probe-errored`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
+| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:unknown-tool`, `:runtime-not-preloaded`, `:nrepl-unreachable`, `:build-not-running`, `:no-runtime-connected`, `:runtime-loaded-but-preload-missing`, `:eval-error`, `:timed-out`, `:probe-errored`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
 | `:rf.error/*` | Operator-gated denial OR shared cross-MCP error vocabulary — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran, OR the call ran but failed in a way that warrants the shared cross-MCP error vocabulary (rf2-xn4f9: `:rf.error/eval-cljs-rejected` + `:rf.error/eval-cljs-timeout` are bare-shaped per-call failures but adopt the namespace so an agent host can pattern-match the eval-cljs error cluster as one family) | `:rf.error/eval-cljs-disabled`, `:rf.error/eval-cljs-rejected`, `:rf.error/eval-cljs-timeout`, `:rf.error/concurrent-stream-limit`, `:rf.error/stream-abuse-detected` |
 | `:rf.mcp/*`   | Wire-replacement-marker family (otherwise reserved for substitution markers like `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/cache-hit`, `:rf.mcp/summary`, `:rf.mcp/diff-from`). One carve-out as a `:reason` value: `:rf.mcp/cursor-stale` — cursor-staleness is detected at the wire boundary itself (the cursor envelope), not via tool body or boot gate, so it shares the `:rf.mcp/*` prefix with the rest of the wire-boundary vocabulary | `:rf.mcp/cursor-stale` (the only `:rf.mcp/*` `:reason` value) |
 
@@ -285,15 +285,50 @@ first every session.
 **Args**: `build` (string, optional, default `"app"`).
 
 **Returns**: an `:ok? true` map with `:debug-enabled?`, `:frames`,
-`:coord-annotation-enabled?`, `:build-id`. Or `:ok? false` with a
-`:reason` keyword if a precondition fails. The most common
-precondition failure on a fresh app is
-`:reason :runtime-not-preloaded` — the runtime ships into the app
-via shadow-cljs `:preloads`; the server probes
+`:coord-annotation-enabled?`, `:build-id`. On success the resolved
+build-id is cached on the conn-atom (`:resolved-build-id`, rf2-l9ixp);
+subsequent tool calls may omit the `:build` arg — see
+[`API.md` §Build-id resolution](./API.md#build-id-resolution).
+
+On a precondition failure the response is `:ok? false` with a
+`:reason` keyword. The runtime ships into the app via shadow-cljs
+`:preloads`; the server probes
 `js/globalThis.__re_frame2_pair_runtime` (the load-time mirror the
-preload installs) and refuses with a setup hint when missing. There
-is no fallback inject path; see the skill's SKILL.md §Setup for the
-two-line preload entry.
+preload installs). When the marker is missing the failure-path
+diagnostic ladder (rf2-7tgfk; impl:
+[`src/re_frame2_pair_mcp/tools/probe.cljs`](../src/re_frame2_pair_mcp/tools/probe.cljs)
+`diagnose-preload-failure!`, lines 181-271) walks four rungs to name
+the underlying cause rather than always blaming the preload:
+
+### Failure-path diagnostic ladder (rf2-7tgfk)
+
+| `:reason` | Fires when | Hint shape |
+|---|---|---|
+| `:nrepl-unreachable` | JVM `jvm-eval` round-trip fails — the nREPL socket is dead even though the MCP server is up. Most often: the shadow-cljs JVM stopped, or restarted and left the MCP server holding a stale socket. (probe.cljs lines 207-210) | "Restart `shadow-cljs watch` and retry; the MCP server reconnects on the next tool call." |
+| `:build-not-running` | nREPL is reachable but shadow's `active-builds` doesn't include the targeted build. Carries `:running-builds` enumerating what IS up. Almost always a `--build` typo or operator targeted the wrong dev build. (probe.cljs lines 215-219) | "shadow-cljs is running `[<other-build>]` but not `<target>`. Pass `--build=<other-build>` (or set `SHADOW_CLJS_BUILD_ID`)…" |
+| `:no-runtime-connected` | Build IS running but the cljs-eval round-trip returns blank — no browser tab has connected, or the tab's WebSocket has dropped. Carries `:running-builds`. (probe.cljs lines 233-237) | "build `<id>` is running but no CLJS runtime is currently connected… Open the app in a browser tab — or if a tab IS open, reload the page so the runtime reconnects." |
+| `:runtime-loaded-but-preload-missing` | A CLJS runtime is alive but the `__re_frame2_pair_runtime` marker is absent. The original meaning of the legacy `:runtime-not-preloaded` reason — the preload entry IS what to add. (probe.cljs lines 242-245) | "re-frame2-pair.runtime is not loaded into this build. Add the preload entry to your shadow-cljs.edn… See skills/re-frame2-pair/SKILL.md (§Setup)." |
+
+Each rung carries `:build` (the targeted id) plus a targeted
+`:hint`; `:build-not-running` and `:no-runtime-connected` also carry
+`:running-builds` so the operator's next move is one keystroke
+away.
+
+The ladder costs one extra JVM round-trip (active-builds
+enumeration) plus a CLJS-eval discriminator on the failure path —
+~50ms total. The probe cache (rf2-sjpx0) means a healthy session pays
+nothing.
+
+### Fallback: `:runtime-not-preloaded`
+
+When the ladder itself errors (e.g. a transient nREPL failure mid-
+diagnosis), the response degrades to the original blanket
+`:reason :runtime-not-preloaded` with the generic preload hint
+(probe.cljs lines 266-271). Reserved as the degradation case; the
+ladder's four named reasons cover the common path.
+
+There is no fallback inject path; see the skill's SKILL.md §Setup for
+the two-line preload entry.
 
 ## Universal: server launch flags
 
