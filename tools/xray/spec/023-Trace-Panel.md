@@ -53,7 +53,7 @@ Columns: **Δt · area badge · what-happened · target/detail · duration**.
 - **what-happened** — the per-area verb (§5).
 - **target/detail** — the op's subject: event vector, `fx-id → arg`, `sub-id  old→new`, `view-id ← cause-sub`, route id, path, etc.
 - **duration** — a number in **ms**, or `—` when the substrate supplies no timing (§6).
-- **Row click → expand** the full raw trace-event EDN inline (`:op-type` · `:operation` · `:tags` · timing · `:rf.trace/dispatch-id` …) via Xray's existing expandable data-inspector (the shared data-display renderer — [`021`](./021-Dynamic-Panel-Designs.md) §10). Each row independently collapsible.
+- **Row click → expand** the full raw trace-event EDN inline (`:op-type` · `:operation` · `:tags` · timing · `:rf.trace/dispatch-id` …) via the first-class data-display widget — the canonical CLJS-value renderer (the shared widget contract — [`021`](./021-Dynamic-Panel-Designs.md) §10, in particular §10.0 + §10.0.2 acceptance properties). The trace panel calls `[dd/data-display value {:panel-id :rf.xray.trace/row-<id> …}]` directly (no facade hop); each row independently collapsible (the per-row `panel-id` qualifier scopes expansion state to that row, on top of the widget's own per-mount UUID).
 
 ## §4 Phase → op-family placement
 

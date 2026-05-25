@@ -39,8 +39,8 @@
   Errors / warnings are cross-cutting (spec/023 §7) — they render inline
   at their chronological point within whatever band they occurred,
   emphasised so failures stand out. Clicking any row expands its raw
-  trace-event EDN inline (spec/023 §3) via the shared cljs-devtools
-  browse renderer.
+  trace-event EDN inline (spec/023 §3) via the first-class data-display
+  widget (spec/021 §10 / `views.data-display`).
 
   ## Design system (PR #2089 · Handler panel idiom)
 
@@ -90,6 +90,7 @@
             [day8.re-frame2-xray.panels.trace-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-xray.views.data-display :as dd]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
 
 ;; ---- row grid template (spec/023 §3 · §14) -----------------------------
@@ -105,24 +106,31 @@
 
 ;; ---- payload renderer (spec/023 §3) -------------------------------------
 ;;
-;; Row click → expand the full raw trace-event EDN inline via Xray's
-;; existing expandable data-inspector (the shared cljs-devtools browse
-;; renderer). Each row gets its own `:render-id` so the rendered
-;; container's testid is unique per row.
+;; Row click → expand the full raw trace-event EDN inline via the
+;; first-class data-display widget (spec/021 §10 widget contract /
+;; spec/023 §3 row click → expand). The widget owns its own per-mount
+;; expansion state keyed by `[panel-id mount-id path]`, so two rows
+;; expanded simultaneously each keep an independent expansion tree.
+;;
+;; Per rf2-hhtbl (rf2-oqa60 phase 2) this call site invokes
+;; `[dd/data-display value opts]` directly — no facade hop through
+;; `edn/browse`. The per-row `panel-id` qualifier embeds the row id so
+;; two simultaneously-expanded rows can't collide on expansion state
+;; even if their mount-ids alias (and the auto-id guarantees they
+;; won't — this is belt-and-braces).
 
 (defn- render-payload
   "Per-row payload renderer — the raw `:operation` · `:tags` · timing ·
-  `:rf.trace/dispatch-id` trace-event EDN (spec/023 §3), wired through
-  the EDN widget's current-state `browse` (cljs-devtools)."
+  `:rf.trace/dispatch-id` trace-event EDN (spec/023 §3), rendered via
+  the first-class data-display widget."
   [{:keys [id raw] :as _row}]
   [:div {:data-testid (str "rf-xray-trace-row-" id "-payload")
          :style       {:padding       "6px 16px 10px 56px"
                        :background    (:bg-1 tokens)
                        :border-radius "0 0 4px 4px"}}
-   (edn/browse
-     {:value     raw
-      :panel-id  :trace
-      :render-id (str "trace-row-" id)})])
+   [dd/data-display raw
+    {:panel-id (keyword "rf.xray.trace" (str "row-" id))
+     :default-expanded-depth 1}]])
 
 ;; ---- per-path db-changed diff rows (spec/023 §APP-DB CHANGES) -----------
 ;;
