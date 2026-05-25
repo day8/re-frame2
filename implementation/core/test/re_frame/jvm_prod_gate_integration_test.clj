@@ -32,7 +32,7 @@
       (rf/reg-event-db :prod-gate/inc
                        (fn [db _] (update db :n (fnil inc 0))))
       (rf/dispatch-sync [:prod-gate/inc])
-      (is (empty? (trace/trace-buffer))
+      (is (empty? (trace/trace-buffer :rf/default))
           "trace buffer is empty under disabled gate — no event
            landed despite dispatch firing"))))
 

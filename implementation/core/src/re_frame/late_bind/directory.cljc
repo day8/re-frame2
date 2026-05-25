@@ -619,6 +619,36 @@
     :design-bead "rf2-r1ciy"
     :description "Drop a trace listener. Sibling of `:trace.tooling/register-listener!` — same rf2-r1ciy seam."}
 
+   ;; ---- re-frame.trace.tooling — per-frame trace rings (rf2-g1b2m / rf2-8uwce) ----
+   ;;
+   ;; The four hooks below carry the per-frame ring + B4 dedup machinery
+   ;; introduced by rf2-g1b2m / rf2-8uwce. They're consulted from
+   ;; `re-frame.frame/reg-frame` + `destroy-frame!` (lifecycle) and
+   ;; `re-frame.registrar/register!` / `unregister!` / `clear-kind!`
+   ;; (B4 dedup). All routed via late-bind so production CLJS bundles
+   ;; that never load `re-frame.trace.tooling` short-circuit cleanly
+   ;; — the ring + dedup machinery is dev-only and DCEs out wholesale.
+   {:key         :trace.tooling/dedup-allow?
+    :producer-ns 're-frame.trace.tooling
+    :design-bead "rf2-g1b2m"
+    :description "B4 hot-reload dedup-by-shape gate. Registrar emits consult this to suppress unchanged re-emits (`(operation, kind, id, meta) -> allow?`). Identical shape on re-register → false; changed shape or no prior entry → true."}
+   {:key         :trace.tooling/clear-dedup-table!
+    :producer-ns 're-frame.trace.tooling
+    :design-bead "rf2-g1b2m"
+    :description "Reset the B4 dedup table. `re-frame.registrar/clear-all!` calls this so test fixtures start from a clean slate. Production builds (no tooling sibling) no-op."}
+   {:key         :trace.tooling/release-frame-ring!
+    :producer-ns 're-frame.trace.tooling
+    :design-bead "rf2-g1b2m"
+    :description "Frame-destroy ring cleanup. `re-frame.frame/destroy-frame!` invokes this once the destroyed-trace has fired so the destroyed frame leaves no residual ring state in memory."}
+   {:key         :trace.tooling/set-frame-cascades-retained!
+    :producer-ns 're-frame.trace.tooling
+    :design-bead "rf2-g1b2m"
+    :description "Apply a per-frame `:rf.trace/cascades-retained` override. `re-frame.frame/reg-frame` invokes this when the config carries the key; raises / lowers the ring's slot cap, trimming evictions in-place when lowering."}
+   {:key         :frame/current-frame-id
+    :producer-ns 're-frame.frame
+    :design-bead "rf2-g1b2m"
+    :description "Read the currently-bound frame id from `re-frame.frame/*current-frame*`. Consulted by `re-frame.trace.tooling/push-to-ring!` as the routing fallback when the trace event itself does not carry a `:frame` tag (e.g. sub recompute / view render emits inside an in-flight cascade)."}
+
    ;; ---- re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG aggregator) ----
    ;;
    ;; The three hooks let `re-frame.epoch/settle!` reach the aggregator

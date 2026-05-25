@@ -50,8 +50,8 @@
     (rf/dispatch-sync [:prod-bus/inc])
     (rf/dispatch-sync [:prod-bus/inc])
     ;; trace-buffer's body is gated; under prod it returns nil.
-    (is (or (nil? (trace-tooling/trace-buffer))
-            (empty? (trace-tooling/trace-buffer)))
+    (is (or (nil? (trace-tooling/trace-buffer :rf/default))
+            (empty? (trace-tooling/trace-buffer :rf/default)))
         "trace-buffer is nil or empty under :advanced + goog.DEBUG=false
          — buffer surface elides while the handler still runs")
     ;; Cross-check: the handler DID run — only the trace surface elided.
@@ -65,13 +65,13 @@
             returns nil silently — apps that boot with a
             configure-trace-buffer call do not crash under :advanced,
             but the requested depth has no effect."
-    (is (nil? (trace-tooling/configure-trace-buffer! {:depth 256}))
+    (is (nil? (trace-tooling/configure-trace-buffer! {:cascades-retained 256}))
         "configure-trace-buffer! returns nil consistently under prod")
     ;; Subsequent dispatches still do not push to the buffer.
     (rf/reg-event-db :prod-bus/touch (fn [db _] db))
     (rf/dispatch-sync [:prod-bus/touch])
-    (is (or (nil? (trace-tooling/trace-buffer))
-            (empty? (trace-tooling/trace-buffer)))
+    (is (or (nil? (trace-tooling/trace-buffer :rf/default))
+            (empty? (trace-tooling/trace-buffer :rf/default)))
         "buffer remains empty after configure + dispatch under prod")))
 
 (deftest clear-trace-buffer-is-noop-under-prod
@@ -80,7 +80,7 @@
             a session-reset (re-frame-10x's `Clear` button) do not
             crash on a production bundle that happens to load
             re-frame.trace.tooling for non-buffer surfaces."
-    (is (nil? (trace-tooling/clear-trace-buffer!))
+    (is (nil? (trace-tooling/clear-trace-buffer! :rf/default))
         "clear-trace-buffer! returns nil under prod")))
 
 (deftest trace-emit-direct-call-does-not-populate-buffer-under-prod
@@ -89,8 +89,8 @@
             elides before any deliver-to-buffer call site is reached."
     (trace/emit! :info :rf.prod-bus/direct {:should "never appear"})
     (trace/emit! :event :rf.prod-bus/sample {:also "never appear"})
-    (is (or (nil? (trace-tooling/trace-buffer))
-            (empty? (trace-tooling/trace-buffer)))
+    (is (or (nil? (trace-tooling/trace-buffer :rf/default))
+            (empty? (trace-tooling/trace-buffer :rf/default)))
         "buffer remains empty after direct emit calls under prod")))
 
 (deftest trace-configure-is-noop-under-prod
@@ -99,5 +99,5 @@
             that boot via `(re-frame.core/configure :trace-buffer ...)`
             do not crash under :advanced; the requested config is
             silently dropped."
-    (is (nil? (rf/configure :trace-buffer {:depth 64}))
+    (is (nil? (rf/configure :trace-buffer {:cascades-retained 64}))
         "configure :trace-buffer returns nil under prod")))

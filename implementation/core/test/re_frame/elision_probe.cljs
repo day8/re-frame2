@@ -59,12 +59,12 @@
   (trace-tooling/register-listener! ::probe (fn [_ev] nil))
   (rf/emit-trace-event! :event :rf.probe/touched {:source :probe})
   (trace-tooling/unregister-listener! ::probe)
-  ;; rf2-smee — trace ring buffer (Spec 009 §Retain-N).  These public
-  ;; entry points must elide their bodies in production.
-  (trace-tooling/configure-trace-buffer! {:depth 50})
-  (let [_buf (trace-tooling/trace-buffer {:op-type :event})]
+  ;; rf2-g1b2m / rf2-8uwce — per-frame cascade-keyed trace rings (Spec 009).
+  ;; These public entry points must elide their bodies in production.
+  (trace-tooling/configure-trace-buffer! {:cascades-retained 50})
+  (let [_buf (trace-tooling/trace-buffer :rf/default {:op-type :rf.event :flat true})]
     nil)
-  (trace-tooling/clear-trace-buffer!))
+  (trace-tooling/clear-trace-buffer! :rf/default))
 
 ;; ---- schemas surface ------------------------------------------------------
 

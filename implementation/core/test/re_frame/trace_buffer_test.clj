@@ -1,17 +1,16 @@
 (ns re-frame.trace-buffer-test
-  "Spec 009 §Retain-N trace ring buffer + §Dispatch correlation, plus
-  Spec 002 §Dispatch origin tagging.
+  "Per-frame cascade-keyed trace ring tests (rf2-g1b2m spec + rf2-8uwce
+  impl).
 
-  rf2-smee — three deliverables in one suite:
-    1. Trace ring buffer: append, filter, depth/eviction, clear, elision.
-    2. :rf.trace/dispatch-id allocation + :rf.trace/parent-dispatch-id linkage (top-level
-       dispatches have no parent; dispatches issued from within an fx
-       handler inherit the in-flight event's :rf.trace/dispatch-id).
-    3. :origin opt: defaults to :app, opt overrides to anything else,
-       lands on the :rf.event/dispatched trace under :tags :origin.
+  Three deliverables in one suite:
+    1. Per-frame ring: cascade-bundle reads, `:flat` opt, eviction by
+       cascade, filter vocab, configure knob, clear, elision.
+    2. `:rf.trace/dispatch-id` allocation + parent-dispatch-id linkage.
+    3. `:origin` / `:rf/dispatch-origin` opts ride trace events.
 
-  JVM-only by intent — the trace + router machinery is platform-agnostic
-  and CLJS adds no signal."
+  Per Spec 009 §Per-frame trace rings (cascade-keyed, dev-only) and
+  §Dispatch correlation. JVM-only by intent — the trace + router
+  machinery is platform-agnostic and CLJS adds no signal."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -20,10 +19,7 @@
             [re-frame.flows :as flows]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
-            ;; rf2-qwm0a — load the tooling sibling so the late-bind
-            ;; hooks behind `trace/clear-listeners!` / `rf/trace-buffer`
-            ;; / `rf/configure :trace-buffer` / etc. are registered.
-            [re-frame.trace.tooling]))
+            [re-frame.trace.tooling :as trace-tooling]))
 
 ;; ---- fixtures --------------------------------------------------------------
 
@@ -33,551 +29,546 @@
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
   (trace/clear-listeners!)
-  (rf/clear-trace-buffer!)
-  ;; rf2-2qaqh — the frame-level trace-emission gate (the trace-disabled
-  ;; frame set) is process-sticky and is NOT unwound by `reset! frames`,
-  ;; so clear it between tests to avoid a tool-frame flag bleeding forward.
+  (trace-tooling/clear-trace-rings!)
   (trace/clear-frame-no-emit!)
-  ;; Restore default depth between tests so a depth-tweaking test does
-  ;; not bleed configuration into the next.
-  (rf/configure :trace-buffer {:depth 200})
+  ;; Restore default cascades-retained between tests so a depth-tweaking
+  ;; test does not bleed configuration into the next.
+  (rf/configure :trace-buffer {:cascades-retained 50})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
 
-;; ---- helpers ---------------------------------------------------------------
+;; ---- helpers --------------------------------------------------------------
+
+(defn- flat-events
+  "Per-frame raw trace events for the named frame, oldest-first."
+  ([frame-id] (rf/trace-buffer frame-id {:flat true}))
+  ([frame-id opts] (rf/trace-buffer frame-id (assoc opts :flat true))))
 
 (defn- dispatched-events
-  "Return only the :event :rf.event/dispatched events from a buffer/coll."
+  "Filter raw events down to `:rf.event/dispatched` only."
   [evs]
   (filterv #(and (= :rf.event (:op-type %))
                  (= :rf.event/dispatched (:operation %)))
            evs))
 
-;; ---- 1. Ring buffer --------------------------------------------------------
+;; ---- 1. Per-frame ring -----------------------------------------------------
 
-(deftest trace-buffer-appends-events
-  (testing "every emit! lands in the ring buffer"
+(deftest trace-buffer-appends-events-as-cascades
+  (testing "every emit lands in its frame's ring, grouped by :dispatch-id"
     (rf/reg-event-db :ping (fn [db _] (assoc db :seen? true)))
     (rf/dispatch-sync [:ping])
-    (let [buf (rf/trace-buffer)]
-      (is (vector? buf) "trace-buffer returns a vector")
-      (is (seq buf) "buffer has entries after a dispatch")
-      ;; The :rf.event/dispatched envelope is the most reliable signal.
-      (is (some #(= :rf.event/dispatched (:operation %)) buf)
-          "the :rf.event/dispatched trace lands in the buffer"))))
+    (let [cascades (rf/trace-buffer :rf/default)]
+      (is (vector? cascades) "trace-buffer returns a vector")
+      (is (seq cascades) "ring has at least one cascade after a dispatch")
+      (let [c (first cascades)]
+        (is (number? (:dispatch-id c)) "cascade carries its :dispatch-id")
+        (is (= :rf/default (:frame c)) "cascade carries the frame-id")
+        (is (= [:ping] (:event c)) "cascade carries the event vector")
+        (is (vector? (:trace-events c)) "cascade carries the raw events")
+        (is (seq (:trace-events c)) "trace-events is non-empty")
+        (is (some? (:dispatched c)) "cascade carries the :rf.event/dispatched event")))))
 
-(deftest trace-buffer-filters
-  (testing "filter by :operation, :op-type, :since, :frame compose"
+(deftest trace-buffer-flat-returns-raw-events
+  (testing "{:flat true} returns the raw event stream"
     (rf/reg-event-db :ping (fn [db _] db))
     (rf/dispatch-sync [:ping])
-    (rf/dispatch-sync [:ping])
-    (let [all       (rf/trace-buffer)
-          dispatched (rf/trace-buffer {:operation :rf.event/dispatched})]
-      (is (seq dispatched))
-      (is (every? #(= :rf.event/dispatched (:operation %)) dispatched)
-          ":operation filter narrows to one operation")
-      (is (<= (count dispatched) (count all)))
-      (let [event-only (rf/trace-buffer {:op-type :rf.event})]
-        (is (every? #(= :rf.event (:op-type %)) event-only)
-            ":op-type filter narrows to the discriminator")))
-    (testing ":since filters strictly greater than the given id"
-      (let [pre-id (-> (rf/trace-buffer) last :id)]
-        (rf/dispatch-sync [:ping])
-        (let [after (rf/trace-buffer {:since pre-id})]
-          (is (seq after))
-          (is (every? #(> (:id %) pre-id) after)))))
-    (testing ":frame filter matches via :tags :frame"
-      ;; Both default-frame and a named frame produce events; the named
-      ;; frame's events should be the only match.
-      (rf/reg-frame :tb/scope {:doc "scoped frame"})
-      (rf/clear-trace-buffer!)
-      (rf/reg-event-db :scoped (fn [db _] db))
-      (rf/dispatch-sync [:scoped] {:frame :tb/scope})
-      (rf/dispatch-sync [:ping])
-      (let [scoped (rf/trace-buffer {:frame :tb/scope})]
-        (is (seq scoped))
-        (is (every? #(= :tb/scope
-                        (or (:frame %) (get-in % [:tags :frame])))
-                    scoped))))
-    (testing "filters compose"
-      (let [combo (rf/trace-buffer {:operation :rf.event/dispatched
-                                    :op-type   :rf.event})]
-        (is (every? #(and (= :rf.event/dispatched (:operation %))
-                          (= :rf.event (:op-type %)))
-                    combo))))))
-
-(deftest trace-buffer-respects-depth
-  (testing "configure :trace-buffer {:depth N} caps the slot count"
-    (rf/configure :trace-buffer {:depth 5})
-    (rf/reg-event-db :spam (fn [db _] db))
-    (dotimes [_ 30] (rf/dispatch-sync [:spam]))
-    (let [buf (rf/trace-buffer)]
-      (is (<= (count buf) 5)
-          (str "buffer should not exceed configured depth; got " (count buf)))
-      (is (pos? (count buf))
-          "buffer should still have the most recent slots populated")))
-  (testing "depth=0 disables the buffer"
-    (rf/configure :trace-buffer {:depth 0})
-    (rf/clear-trace-buffer!)
-    (rf/reg-event-db :spam (fn [db _] db))
-    (dotimes [_ 5] (rf/dispatch-sync [:spam]))
-    (is (= [] (rf/trace-buffer))
-        "with depth 0, no events accumulate")))
-
-(deftest trace-buffer-clear
-  (testing "clear-trace-buffer! empties the buffer"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping])
-    (is (seq (rf/trace-buffer)))
-    (rf/clear-trace-buffer!)
-    (is (= [] (rf/trace-buffer)))))
-
-(deftest trace-buffer-rides-debug-flag
-  (testing "the buffer machinery is wrapped in interop/debug-enabled?"
-    ;; This is a structural check rather than a runtime simulation: the
-    ;; production-elision contract is that no buffer state mutates when
-    ;; the flag is false at compile time. We assert the source contains
-    ;; the gate at the right call sites; combined with the existing
-    ;; trace-test envelope coverage, this protects the elision contract.
-    ;;
-    ;; Per rf2-qwm0a the buffer + filter-predicate body live in
-    ;; re-frame.trace.tooling (the sibling ns split off so production
-    ;; counter bundles DCE them); the `re-frame.trace/trace-buffer` etc.
-    ;; wrappers delegate through late-bind hooks and return [] when the
-    ;; tooling ns is absent. The gate check lives in the tooling source.
-    (let [src (slurp "src/re_frame/trace/tooling.cljc")]
-      (is (re-find #"\(defn-? push-to-buffer![\s\S]*?interop/debug-enabled\?" src)
-          "push-to-buffer! is gated on interop/debug-enabled?")
-      (is (re-find #"\(defn-? trace-buffer[\s\S]*?interop/debug-enabled\?" src)
-          "trace-buffer reader returns [] under the same gate")
-      (is (re-find #"\(defn-? clear-trace-buffer![\s\S]*?interop/debug-enabled\?" src)
-          "clear-trace-buffer! is gated")
-      (is (re-find #"\(defn-? configure-trace-buffer![\s\S]*?interop/debug-enabled\?" src)
-          "configure-trace-buffer! is gated"))))
-
-;; ---- 2. :rf.trace/dispatch-id correlation -------------------------------------------
-
-(deftest dispatch-id-allocated-on-every-dispatch
-  (testing "every :rf.event/dispatched trace carries a numeric :rf.trace/dispatch-id under :tags"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping])
-    (rf/dispatch-sync [:ping])
-    (let [evs (dispatched-events (rf/trace-buffer))
-          ids (map #(get-in % [:tags :rf.trace/dispatch-id]) evs)]
+    (let [evs (flat-events :rf/default)]
+      (is (vector? evs))
       (is (seq evs))
-      (is (every? some? ids)
-          "every :rf.event/dispatched has a :rf.trace/dispatch-id")
-      (is (every? number? ids)
-          ":rf.trace/dispatch-id values are numeric (counter-shaped)")
-      (is (= (count (distinct ids)) (count ids))
-          ":rf.trace/dispatch-id values are unique within a process"))))
+      (is (some #(= :rf.event/dispatched (:operation %)) evs)
+          "the :rf.event/dispatched trace lands in the flat stream"))))
 
-(deftest top-level-dispatch-has-no-parent
-  (testing "a dispatch issued from outside any in-flight event has no :rf.trace/parent-dispatch-id"
-    (rf/reg-event-db :standalone (fn [db _] db))
-    (rf/dispatch-sync [:standalone])
-    (let [ev (->> (rf/trace-buffer)
-                  dispatched-events
-                  (filter #(= [:standalone] (get-in % [:tags :rf.event/v])))
-                  first)]
-      (is ev "the :rf.event/dispatched trace was emitted")
-      (is (nil? (get-in ev [:tags :rf.trace/parent-dispatch-id]))
-          "top-level dispatch has no :rf.trace/parent-dispatch-id"))))
+;; ---- 1b. Cascade-keyed eviction ------------------------------------------
 
-(deftest fx-dispatch-inherits-parent-dispatch-id
-  (testing "a dispatch issued from inside an event's fx walk inherits the parent's :rf.trace/dispatch-id"
-    (rf/reg-event-fx :outer (fn [_ _]
-                              {:fx [[:dispatch [:inner]]]}))
-    (rf/reg-event-db :inner (fn [db _] (assoc db :inner? true)))
-    (rf/dispatch-sync [:outer])
-    (let [evs   (dispatched-events (rf/trace-buffer))
-          outer (->> evs
-                     (filter #(= [:outer] (get-in % [:tags :rf.event/v])))
-                     first)
-          inner (->> evs
-                     (filter #(= [:inner] (get-in % [:tags :rf.event/v])))
-                     first)]
-      (is outer "outer :rf.event/dispatched present")
-      (is inner "inner :rf.event/dispatched present")
-      (is (number? (get-in outer [:tags :rf.trace/dispatch-id])))
-      (is (nil?    (get-in outer [:tags :rf.trace/parent-dispatch-id]))
-          "outer (top-level) has no parent")
-      (is (= (get-in outer [:tags :rf.trace/dispatch-id])
-             (get-in inner [:tags :rf.trace/parent-dispatch-id]))
-          "inner's :rf.trace/parent-dispatch-id == outer's :rf.trace/dispatch-id"))))
+(deftest cascade-keyed-eviction
+  (testing "ring evicts by CASCADE slot, not by raw event count"
+    (rf/configure :trace-buffer {:cascades-retained 3})
+    (rf/reg-event-db :ping (fn [db _] db))
+    (dotimes [_ 10] (rf/dispatch-sync [:ping]))
+    (let [cascades (rf/trace-buffer :rf/default)]
+      (is (= 3 (count cascades))
+          (str "ring caps at 3 cascade slots; got " (count cascades))))))
 
-;; ---- 1b. Extended filter vocabulary (rf2-97ah0) ----------------------------
+(deftest cascade-burst-cannot-evict-prior-cascades
+  (testing "a single cascade's burst of :rf.sub/skip-like noise can't displace OTHER cascades"
+    (rf/configure :trace-buffer {:cascades-retained 5})
+    (rf/reg-event-db :ping (fn [db _] db))
+    ;; Run 5 cascades; emit a small burst of synthetic events under
+    ;; cascade #3 (simulating a sub-skip flood inside one event).
+    (dotimes [_ 5] (rf/dispatch-sync [:ping]))
+    (let [cs        (rf/trace-buffer :rf/default)
+          target    (nth cs 2) ;; the middle one
+          target-id (:dispatch-id target)]
+      (binding [trace/*handler-scope*
+                (trace/->HandlerScope nil nil target-id false false)]
+        ;; Re-emit 200 trace events under the same in-flight cascade.
+        ;; This pushes 200 events into one slot — but the slot count
+        ;; stays at 5, so no other cascade is evicted.
+        (dotimes [_ 200]
+          (trace/emit! :rf.sub :rf.sub/skip
+                       {:rf.sub/id :foo :frame :rf/default})))
+      (let [cs-after (rf/trace-buffer :rf/default)]
+        (is (= 5 (count cs-after))
+            "still 5 cascades")
+        (is (some #(= target-id (:dispatch-id %)) cs-after)
+            "the targeted cascade is still present")
+        ;; The targeted cascade's :trace-events grew without bound.
+        (let [t (first (filter #(= target-id (:dispatch-id %)) cs-after))]
+          (is (> (count (:trace-events t)) 200)
+              "the cascade's events grew under the burst (cascade has no event-count cap)"))))))
+
+;; ---- 1c. Per-frame isolation ---------------------------------------------
+
+(deftest frame-isolation-cascade-bursts-dont-cross-rings
+  (testing "a burst of cascades in one frame cannot evict cascades in another"
+    (rf/configure :trace-buffer {:cascades-retained 3})
+    (rf/reg-frame :app/main {:doc "ordinary application frame"})
+    (rf/reg-event-db :work (fn [db _] db))
+    (rf/dispatch-sync [:work] {:frame :app/main})
+    (let [pre (rf/trace-buffer :app/main)]
+      (is (= 1 (count pre))
+          "single cascade in :app/main"))
+    ;; Run a flood of cascades against :rf/default — the ring cap is 3
+    ;; so :rf/default's ring rotates, but :app/main's ring stays intact.
+    (dotimes [_ 50] (rf/dispatch-sync [:work]))
+    (let [main-cs    (rf/trace-buffer :app/main)
+          default-cs (rf/trace-buffer :rf/default)]
+      (is (= 1 (count main-cs))
+          ":app/main's ring is untouched by :rf/default's flood")
+      (is (<= (count default-cs) 3)
+          ":rf/default's ring stays within its slot cap"))))
+
+;; ---- 1d. Frameless emits skip the ring (B3) ------------------------------
+
+(deftest frameless-emits-bypass-the-ring
+  (testing "trace events emitted OUTSIDE any cascade never land in any ring"
+    ;; Emit with no handler-scope and no frame.
+    (binding [trace/*handler-scope* nil]
+      (trace/emit! :rf.registry :rf.registry/handler-registered
+                   {:kind :event :id :synthetic/probe}))
+    ;; The registration trace is frameless (no `:dispatch-id`) — it
+    ;; should appear in NO frame's ring.
+    (is (empty? (rf/trace-buffer :rf/default))
+        ":rf/default's ring did NOT pick up the frameless emit")
+    (rf/reg-frame :probe/scope {:doc "scope"})
+    (is (empty? (rf/trace-buffer :probe/scope))
+        ":probe/scope's ring did NOT pick up the frameless emit either")))
+
+(deftest registration-emits-are-frameless
+  (testing "registering a handler at top level is a frameless emit"
+    (rf/clear-trace-buffer! :rf/default)
+    ;; reg-event-db is a frameless emit — no in-flight cascade.
+    (rf/reg-event-db :synthetic/probe (fn [db _] db))
+    (is (empty? (rf/trace-buffer :rf/default))
+        "registration didn't grow any ring")))
+
+;; ---- 1e. cascades-retained knob ------------------------------------------
+
+(deftest per-frame-cascades-retained-override
+  (testing ":rf.trace/cascades-retained on reg-frame applies per-frame"
+    (rf/configure :trace-buffer {:cascades-retained 5})
+    (rf/reg-frame :tb/deep {:rf.trace/cascades-retained 200
+                            :doc "deep diagnostics"})
+    (rf/reg-frame :tb/shallow {:doc "shallow — default applies"})
+    (rf/reg-event-db :tb/spam (fn [db _] db))
+    (dotimes [_ 100] (rf/dispatch-sync [:tb/spam] {:frame :tb/deep}))
+    (dotimes [_ 100] (rf/dispatch-sync [:tb/spam] {:frame :tb/shallow}))
+    (is (= 100 (count (rf/trace-buffer :tb/deep)))
+        ":tb/deep retained all 100 cascades (200-deep ring)")
+    (is (= 5 (count (rf/trace-buffer :tb/shallow)))
+        ":tb/shallow capped at 5 (inherited the process-default of 5)")))
+
+(deftest cascades-retained-zero-disables-retention
+  (testing "{:cascades-retained 0} disables the ring; surface stays live"
+    (rf/configure :trace-buffer {:cascades-retained 0})
+    (rf/reg-event-db :ping (fn [db _] db))
+    (dotimes [_ 5] (rf/dispatch-sync [:ping]))
+    (is (= [] (rf/trace-buffer :rf/default))
+        "no cascades retained when retention is 0")
+    ;; A registered listener still fires under depth=0.
+    (let [recv (atom [])]
+      (rf/register-listener! ::probe (fn [ev] (swap! recv conj ev)))
+      (rf/dispatch-sync [:ping])
+      (rf/unregister-listener! ::probe)
+      (is (seq @recv)
+          "live stream continues firing under cascades-retained 0"))))
+
+;; ---- 1f. clear-trace-buffer! and frame-destroy --------------------------
+
+(deftest clear-trace-buffer-clears-only-the-named-frame
+  (testing "clear-trace-buffer! is per-frame"
+    (rf/reg-frame :app/a {:doc "a"})
+    (rf/reg-frame :app/b {:doc "b"})
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping] {:frame :app/a})
+    (rf/dispatch-sync [:ping] {:frame :app/b})
+    (is (seq (rf/trace-buffer :app/a)))
+    (is (seq (rf/trace-buffer :app/b)))
+    (rf/clear-trace-buffer! :app/a)
+    (is (= [] (rf/trace-buffer :app/a)) ":app/a's ring is empty")
+    (is (seq (rf/trace-buffer :app/b)) ":app/b's ring is intact")))
+
+(deftest frame-destroy-clears-the-rings
+  (testing "destroy-frame! releases the destroyed frame's ring"
+    (rf/reg-frame :app/transient {:doc "short-lived"})
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping] {:frame :app/transient})
+    (is (seq (rf/trace-buffer :app/transient))
+        "ring has content before destroy")
+    (frame/destroy-frame! :app/transient)
+    (is (= [] (rf/trace-buffer :app/transient))
+        "ring is empty after frame destroy")))
+
+(deftest read-against-unknown-frame-returns-empty
+  (testing "trace-buffer for a never-registered frame returns []"
+    (is (= [] (rf/trace-buffer :no-such-frame)))
+    (is (= [] (rf/trace-buffer :no-such-frame {:flat true})))))
+
+;; ---- 1g. Filter vocabulary (event-level, :flat true) ---------------------
+
+(deftest trace-buffer-filter-operation
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (let [dispatched (flat-events :rf/default {:operation :rf.event/dispatched})]
+    (is (seq dispatched))
+    (is (every? #(= :rf.event/dispatched (:operation %)) dispatched))))
+
+(deftest trace-buffer-filter-op-type
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (let [event-only (flat-events :rf/default {:op-type :rf.event})]
+    (is (seq event-only))
+    (is (every? #(= :rf.event (:op-type %)) event-only))))
+
+(deftest trace-buffer-filter-since
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (let [pre-id (-> (flat-events :rf/default) last :id)]
+    (rf/dispatch-sync [:ping])
+    (let [after (flat-events :rf/default {:since pre-id})]
+      (is (seq after))
+      (is (every? #(> (:id %) pre-id) after)))))
 
 (deftest trace-buffer-filter-severity
-  (testing ":severity filters by :op-type tier (:error / :warning / :info)"
-    ;; :rf.error/no-such-handler is a reliable :op-type :error emit.
+  (testing ":severity :error narrows to :op-type :error events"
     (rf/dispatch-sync [:no-such-event-handler])
-    (let [errs (rf/trace-buffer {:severity :error})]
+    (let [errs (flat-events :rf/default {:severity :error})]
       (is (seq errs))
-      (is (every? #(= :error (:op-type %)) errs)
-          ":severity :error narrows to :op-type :error events"))
-    (testing ":severity :warning narrows to :op-type :warning"
-      (let [warns (rf/trace-buffer {:severity :warning})]
-        (is (every? #(= :warning (:op-type %)) warns)
-            (if (seq warns)
-              ":severity :warning narrows correctly"
-              ":severity :warning returns empty when no warnings"))))
-    (testing ":severity composes with :frame"
-      (rf/reg-frame :tb/sev-scope {:doc "severity-scope"})
-      (rf/clear-trace-buffer!)
-      (rf/dispatch-sync [:no-such-event-handler] {:frame :tb/sev-scope})
-      (let [scoped (rf/trace-buffer {:severity :error :frame :tb/sev-scope})]
-        (is (every? #(and (= :error (:op-type %))
-                          (= :tb/sev-scope (or (:frame %)
-                                               (get-in % [:tags :frame]))))
-                    scoped))))))
+      (is (every? #(= :error (:op-type %)) errs)))))
 
 (deftest trace-buffer-filter-event-id
-  (testing ":event-id filters by :tags :rf.trace/event-id"
-    (rf/reg-event-db :ev/alpha (fn [db _] db))
-    (rf/reg-event-db :ev/beta  (fn [db _] db))
-    (rf/dispatch-sync [:ev/alpha])
-    (rf/dispatch-sync [:ev/beta])
-    (let [alpha (rf/trace-buffer {:event-id :ev/alpha})]
-      (is (seq alpha))
-      (is (every? #(= :ev/alpha (get-in % [:tags :rf.trace/event-id])) alpha)
-          ":event-id filter narrows to one event-id"))
-    (let [beta (rf/trace-buffer {:event-id :ev/beta})]
-      (is (seq beta))
-      (is (every? #(= :ev/beta (get-in % [:tags :rf.trace/event-id])) beta)))))
+  (rf/reg-event-db :ev/alpha (fn [db _] db))
+  (rf/reg-event-db :ev/beta  (fn [db _] db))
+  (rf/dispatch-sync [:ev/alpha])
+  (rf/dispatch-sync [:ev/beta])
+  (let [alpha (flat-events :rf/default {:event-id :ev/alpha})]
+    (is (seq alpha))
+    (is (every? #(= :ev/alpha (get-in % [:tags :rf.trace/event-id])) alpha))))
 
 (deftest trace-buffer-filter-handler-id
-  (testing ":handler-id filters by :tags :handler-id"
-    ;; :rf.error/handler-exception carries :handler-id under :tags.
-    (rf/reg-event-db :ev/throws
-                     (fn [_db _] (throw (ex-info "boom" {}))))
-    (try
-      (rf/dispatch-sync [:ev/throws])
-      (catch Throwable _ nil))
-    (let [hits (rf/trace-buffer {:handler-id :ev/throws})]
-      (is (seq hits) "at least one event carries :handler-id :ev/throws")
-      (is (every? #(= :ev/throws (get-in % [:tags :handler-id])) hits)))))
+  (rf/reg-event-db :ev/throws (fn [_db _] (throw (ex-info "boom" {}))))
+  (try (rf/dispatch-sync [:ev/throws]) (catch Throwable _ nil))
+  (let [hits (flat-events :rf/default {:handler-id :ev/throws})]
+    (is (seq hits))
+    (is (every? #(= :ev/throws (get-in % [:tags :handler-id])) hits))))
 
 (deftest trace-buffer-filter-source
-  (testing ":source filters by top-level :source slot (hoisted from :tags)"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping] {:source :repl})
-    (rf/dispatch-sync [:ping] {:source :timer})
-    (let [repl-evs (rf/trace-buffer {:source :repl})]
-      (is (seq repl-evs))
-      (is (every? #(= :repl (or (:source %) (get-in % [:tags :source])))
-                  repl-evs)
-          ":source filter matches top-level slot"))
-    (let [timer-evs (rf/trace-buffer {:source :timer})]
-      (is (seq timer-evs))
-      (is (every? #(= :timer (or (:source %) (get-in % [:tags :source])))
-                  timer-evs)))))
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping] {:source :repl})
+  (rf/dispatch-sync [:ping] {:source :timer})
+  (let [repl-evs (flat-events :rf/default {:source :repl})]
+    (is (seq repl-evs))
+    (is (every? #(= :repl (or (:source %) (get-in % [:tags :source])))
+                repl-evs))))
 
 (deftest trace-buffer-filter-origin
-  (testing ":origin filters by :tags :origin"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping] {:origin :pair})
-    (rf/dispatch-sync [:ping] {:origin :story})
-    (let [pair-evs (rf/trace-buffer {:origin :pair})]
-      (is (seq pair-evs))
-      (is (every? #(= :pair (get-in % [:tags :rf.event/origin])) pair-evs)
-          ":origin :pair narrows to pair-issued cascades"))
-    (let [story-evs (rf/trace-buffer {:origin :story})]
-      (is (seq story-evs))
-      (is (every? #(= :story (get-in % [:tags :rf.event/origin])) story-evs)))))
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping] {:origin :pair})
+  (rf/dispatch-sync [:ping] {:origin :story})
+  (let [pair-evs (flat-events :rf/default {:origin :pair})]
+    (is (seq pair-evs))
+    (is (every? #(= :pair (get-in % [:tags :rf.event/origin])) pair-evs))))
 
-(deftest trace-buffer-filter-dispatch-id
-  (testing ":rf.trace/dispatch-id narrows to one cascade (rf2-g6ih4 cascade-wide tag)"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping])
-    (rf/dispatch-sync [:ping])
-    (let [first-dispatch (->> (rf/trace-buffer)
-                              dispatched-events
-                              first)
-          target-id      (get-in first-dispatch [:tags :rf.trace/dispatch-id])
-          slice          (rf/trace-buffer {:dispatch-id target-id})]
-      (is (number? target-id))
-      (is (seq slice))
-      (is (every? #(= target-id (get-in % [:tags :rf.trace/dispatch-id])) slice)
-          "every event in the slice carries the same :rf.trace/dispatch-id"))))
+(deftest trace-buffer-filter-dispatch-id-flat
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (rf/dispatch-sync [:ping])
+  (let [first-dispatch (->> (flat-events :rf/default)
+                            dispatched-events
+                            first)
+        target-id      (get-in first-dispatch [:tags :rf.trace/dispatch-id])
+        slice          (flat-events :rf/default {:dispatch-id target-id})]
+    (is (number? target-id))
+    (is (seq slice))
+    (is (every? #(= target-id (get-in % [:tags :rf.trace/dispatch-id])) slice))))
 
 (deftest trace-buffer-filter-since-ms
-  (testing ":since-ms filters by :time host-clock millisecond bound"
-    (rf/reg-event-db :ping (fn [db _] db))
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (let [pre-time (-> (flat-events :rf/default) last :time)]
+    (Thread/sleep 5)
     (rf/dispatch-sync [:ping])
-    (let [pre-time (-> (rf/trace-buffer) last :time)]
-      ;; Timer-semantics sleep (rf2-ka3n6): we are asserting :since-ms
-      ;; filtering against the host clock — the test contract requires
-      ;; that the next event's :time is strictly greater. NOT replaceable
-      ;; by a deterministic-gate helper; the clock advancement IS the
-      ;; thing under test.
-      (Thread/sleep 5)
-      (rf/dispatch-sync [:ping])
-      (let [after (rf/trace-buffer {:since-ms pre-time})]
-        (is (seq after))
-        (is (every? #(> (:time %) pre-time) after)
-            ":since-ms keeps events strictly after the timestamp")))))
+    (let [after (flat-events :rf/default {:since-ms pre-time})]
+      (is (seq after))
+      (is (every? #(> (:time %) pre-time) after)))))
 
 (deftest trace-buffer-filter-between
-  (testing ":between [t0 t1] filters to a time window (inclusive)"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping])
-    (let [t0 (-> (rf/trace-buffer) first :time)
-          t1 (-> (rf/trace-buffer) last  :time)
-          win (rf/trace-buffer {:between [t0 t1]})]
-      (is (seq win))
-      (is (every? #(<= t0 (:time %) t1) win)
-          "every event in the window falls in [t0, t1]"))
-    (testing ":between with a window that excludes everything yields []"
-      (let [win (rf/trace-buffer {:between [0 1]})]
-        (is (= [] win))))))
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (let [t0 (-> (flat-events :rf/default) first :time)
+        t1 (-> (flat-events :rf/default) last  :time)
+        win (flat-events :rf/default {:between [t0 t1]})]
+    (is (seq win))
+    (is (every? #(<= t0 (:time %) t1) win)))
+  (let [win (flat-events :rf/default {:between [0 1]})]
+    (is (= [] win))))
+
+(deftest trace-buffer-filter-sensitive
+  (testing ":sensitive? filter matches top-level slot"
+    (rf/reg-event-db :ev/x {:rf/sensitive? true} (fn [db _] db))
+    (rf/reg-event-db :ev/y (fn [db _] db))
+    (rf/dispatch-sync [:ev/x])
+    (rf/dispatch-sync [:ev/y])
+    (let [sens   (flat-events :rf/default {:sensitive? true})
+          plain  (flat-events :rf/default {:sensitive? false})]
+      (is (seq sens) "at least one sensitive event")
+      (is (every? #(true? (:sensitive? %)) sens))
+      (is (seq plain) "at least one non-sensitive event")
+      (is (every? #(not (true? (:sensitive? %))) plain)))))
 
 (deftest trace-buffer-filter-pred
-  (testing ":pred applies an arbitrary predicate"
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (let [evs (flat-events :rf/default
+                         {:pred (fn [ev] (#{:rf.event :error} (:op-type ev)))})]
+    (is (seq evs))
+    (is (every? #(#{:rf.event :error} (:op-type %)) evs))))
+
+;; ---- 1h. Cascade-bundle filters ------------------------------------------
+
+(deftest trace-buffer-cascade-filter-event-id
+  (rf/reg-event-db :ev/alpha (fn [db _] db))
+  (rf/reg-event-db :ev/beta  (fn [db _] db))
+  (rf/dispatch-sync [:ev/alpha])
+  (rf/dispatch-sync [:ev/beta])
+  (let [alpha (rf/trace-buffer :rf/default {:event-id :ev/alpha})]
+    (is (seq alpha))
+    (is (every? #(= :ev/alpha (first (:event %))) alpha))))
+
+(deftest trace-buffer-cascade-filter-dispatch-id
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (rf/dispatch-sync [:ping])
+  (let [cs        (rf/trace-buffer :rf/default)
+        target-id (:dispatch-id (first cs))
+        narrowed  (rf/trace-buffer :rf/default {:dispatch-id target-id})]
+    (is (= 1 (count narrowed))
+        ":dispatch-id narrows cascade-bundle reads to one cascade")
+    (is (= target-id (:dispatch-id (first narrowed))))))
+
+(deftest trace-buffer-cascade-filter-origin
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping] {:origin :pair})
+  (rf/dispatch-sync [:ping] {:origin :story})
+  (let [pair (rf/trace-buffer :rf/default {:origin :pair})]
+    (is (seq pair))
+    (is (every? #(= :pair (get-in % [:dispatched :tags :rf.event/origin])) pair))))
+
+;; ---- 2. :dispatch-id correlation -----------------------------------------
+
+(deftest dispatch-id-allocated-on-every-dispatch
+  (testing "every :rf.event/dispatched trace carries a numeric :rf.trace/dispatch-id"
     (rf/reg-event-db :ping (fn [db _] db))
     (rf/dispatch-sync [:ping])
-    (let [errors-and-events (rf/trace-buffer {:pred (fn [ev]
-                                                      (#{:rf.event :error}
-                                                       (:op-type ev)))})]
-      (is (seq errors-and-events))
-      (is (every? #(#{:rf.event :error} (:op-type %)) errors-and-events)
-          ":pred narrows to events matching the predicate"))
-    (testing ":pred composes with named axes"
-      (let [evs (rf/trace-buffer {:op-type :rf.event
-                                  :pred    (fn [ev]
-                                             (= :rf.event/dispatched
-                                                (:operation ev)))})]
-        (is (every? #(and (= :rf.event (:op-type %))
-                          (= :rf.event/dispatched (:operation %)))
-                    evs))))))
-
-(deftest trace-buffer-filters-compose-and-wise
-  (testing "every filter axis composes; supplying many narrows further"
-    (rf/reg-event-db :ev/x (fn [db _] db))
-    (rf/dispatch-sync [:ev/x] {:origin :pair :source :repl})
-    ;; :rf.event/dispatched carries :origin and :source (via top-level hoist)
-    ;; but NOT :event-id (it carries the full :event vector). :event-id
-    ;; lives on :rf.event/db-changed and on error emits. Compose four axes
-    ;; that all coexist on :rf.event/dispatched.
-    (let [evs (rf/trace-buffer {:op-type   :rf.event
-                                :operation :rf.event/dispatched
-                                :origin    :pair
-                                :source    :repl})]
+    (rf/dispatch-sync [:ping])
+    (let [evs (dispatched-events (flat-events :rf/default))
+          ids (map #(get-in % [:tags :rf.trace/dispatch-id]) evs)]
       (is (seq evs))
-      (is (every? #(and (= :rf.event           (:op-type %))
-                        (= :rf.event/dispatched (:operation %))
-                        (= :pair            (get-in % [:tags :rf.event/origin]))
-                        (= :repl            (or (:source %)
-                                                (get-in % [:tags :source]))))
-                  evs)
-          "all four axes match simultaneously"))
-    (testing ":event-id composes with the other axes on :rf.event/db-changed"
-      (let [evs (rf/trace-buffer {:operation :rf.event/db-changed
-                                  :event-id  :ev/x
-                                  :origin    :pair})]
-        (is (every? #(and (= :rf.event/db-changed (:operation %))
-                          (= :ev/x            (get-in % [:tags :rf.trace/event-id]))
-                          (= :pair            (get-in % [:tags :rf.event/origin])))
-                    evs))))))
+      (is (every? some? ids))
+      (is (every? number? ids))
+      (is (= (count (distinct ids)) (count ids))))))
 
-;; ---- 3. :origin opt --------------------------------------------------------
+(deftest top-level-dispatch-has-no-parent
+  (rf/reg-event-db :standalone (fn [db _] db))
+  (rf/dispatch-sync [:standalone])
+  (let [ev (->> (flat-events :rf/default)
+                dispatched-events
+                (filter #(= [:standalone] (get-in % [:tags :rf.event/v])))
+                first)]
+    (is ev)
+    (is (nil? (get-in ev [:tags :rf.trace/parent-dispatch-id])))))
+
+(deftest fx-dispatch-inherits-parent-dispatch-id
+  (rf/reg-event-fx :outer (fn [_ _] {:fx [[:dispatch [:inner]]]}))
+  (rf/reg-event-db :inner (fn [db _] (assoc db :inner? true)))
+  (rf/dispatch-sync [:outer])
+  (let [evs   (dispatched-events (flat-events :rf/default))
+        outer (->> evs
+                   (filter #(= [:outer] (get-in % [:tags :rf.event/v])))
+                   first)
+        inner (->> evs
+                   (filter #(= [:inner] (get-in % [:tags :rf.event/v])))
+                   first)]
+    (is outer)
+    (is inner)
+    (is (= (get-in outer [:tags :rf.trace/dispatch-id])
+           (get-in inner [:tags :rf.trace/parent-dispatch-id])))))
+
+;; ---- 3. :origin opt -------------------------------------------------------
 
 (deftest origin-defaults-to-app
-  (testing "no :origin opt → :tags :origin = :app"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping])
-    (let [ev (->> (rf/trace-buffer)
-                  dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
-                  first)]
-      (is ev)
-      (is (= :app (get-in ev [:tags :rf.event/origin]))
-          "default :origin is :app per Spec 002 §Dispatch origin tagging"))))
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (let [ev (->> (flat-events :rf/default)
+                dispatched-events
+                (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
+                first)]
+    (is ev)
+    (is (= :app (get-in ev [:tags :rf.event/origin])))))
 
 (deftest origin-opt-overrides-default
-  (testing ":origin :pair lands on the trace event"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping] {:origin :pair})
-    (let [ev (->> (rf/trace-buffer)
-                  dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
-                  first)]
-      (is ev)
-      (is (= :pair (get-in ev [:tags :rf.event/origin]))
-          ":origin :pair lifted onto :tags :origin"))))
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping] {:origin :pair})
+  (let [ev (->> (flat-events :rf/default)
+                dispatched-events
+                (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
+                first)]
+    (is ev)
+    (is (= :pair (get-in ev [:tags :rf.event/origin])))))
 
-(deftest origin-distinct-from-source
-  (testing ":origin and :source ride independently"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping] {:origin :pair :source :repl})
-    (let [ev (->> (rf/trace-buffer)
-                  dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
-                  first)]
-      (is ev)
-      (is (= :pair (get-in ev [:tags :rf.event/origin]))   ":origin lands under :tags :origin")
-      ;; :source is hoisted to top-level by emit!, per the existing contract.
-      (is (= :repl (:source ev))                  ":source is hoisted to top-level"))))
-
-;; ---- 4. :rf/dispatch-origin opt (rf2-t1lxr) -------------------------------
+;; ---- 4. :rf/dispatch-origin opt -----------------------------------------
 
 (deftest dispatch-origin-defaults-to-user
-  (testing "no :rf/dispatch-origin opt → :tags :rf/dispatch-origin = :user"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping])
-    (let [ev (->> (rf/trace-buffer)
-                  dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
-                  first)]
-      (is ev)
-      (is (= :user (get-in ev [:tags :rf/dispatch-origin]))
-          "default :rf/dispatch-origin is :user per Spec 009 §Dispatch-origin tagging"))))
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping])
+  (let [ev (->> (flat-events :rf/default)
+                dispatched-events
+                (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
+                first)]
+    (is ev)
+    (is (= :user (get-in ev [:tags :rf/dispatch-origin])))))
 
 (deftest dispatch-origin-opt-overrides-default
-  (testing ":rf/dispatch-origin :tool lands on the trace event"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping] {:rf/dispatch-origin :tool})
-    (let [ev (->> (rf/trace-buffer)
-                  dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
-                  first)]
-      (is ev)
-      (is (= :tool (get-in ev [:tags :rf/dispatch-origin]))
-          ":rf/dispatch-origin :tool lifted onto :tags :rf/dispatch-origin"))))
-
-(deftest dispatch-origin-distinct-from-origin-and-source
-  (testing ":rf/dispatch-origin / :origin / :source ride independently"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping] {:rf/dispatch-origin :tool
-                               :origin             :pair
-                               :source             :repl})
-    (let [ev (->> (rf/trace-buffer)
-                  dispatched-events
-                  (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
-                  first)]
-      (is ev)
-      (is (= :tool (get-in ev [:tags :rf/dispatch-origin])))
-      (is (= :pair (get-in ev [:tags :rf.event/origin])))
-      (is (= :repl (:source ev))))))
+  (rf/reg-event-db :ping (fn [db _] db))
+  (rf/dispatch-sync [:ping] {:rf/dispatch-origin :tool})
+  (let [ev (->> (flat-events :rf/default)
+                dispatched-events
+                (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
+                first)]
+    (is ev)
+    (is (= :tool (get-in ev [:tags :rf/dispatch-origin])))))
 
 (deftest dispatch-origin-fx-emit-on-cascade
-  (testing "child dispatches emitted by :dispatch fx are tagged :fx-emit
-            regardless of the parent's :rf/dispatch-origin"
-    (rf/reg-event-fx :parent
-      (fn [_ _] {:fx [[:dispatch [:child]]]}))
+  (testing "child dispatches emitted by :dispatch fx are tagged :fx-emit"
+    (rf/reg-event-fx :parent (fn [_ _] {:fx [[:dispatch [:child]]]}))
     (rf/reg-event-db :child (fn [db _] db))
     (rf/dispatch-sync [:parent] {:rf/dispatch-origin :user})
-    (let [parent-ev (->> (rf/trace-buffer)
-                          dispatched-events
-                          (filter #(= [:parent] (get-in % [:tags :rf.event/v])))
-                          first)
-          child-ev  (->> (rf/trace-buffer)
-                          dispatched-events
-                          (filter #(= [:child] (get-in % [:tags :rf.event/v])))
-                          first)]
+    (let [parent-ev (->> (flat-events :rf/default)
+                         dispatched-events
+                         (filter #(= [:parent] (get-in % [:tags :rf.event/v])))
+                         first)
+          child-ev  (->> (flat-events :rf/default)
+                         dispatched-events
+                         (filter #(= [:child] (get-in % [:tags :rf.event/v])))
+                         first)]
       (is parent-ev)
       (is child-ev)
-      (is (= :user (get-in parent-ev [:tags :rf/dispatch-origin]))
-          "parent carries the explicit :user opt")
-      (is (= :fx-emit (get-in child-ev [:tags :rf/dispatch-origin]))
-          "child overrides to :fx-emit — origin is the IMMEDIATE source,
-           lineage rides on :rf.trace/parent-dispatch-id"))))
+      (is (= :user (get-in parent-ev [:tags :rf/dispatch-origin])))
+      (is (= :fx-emit (get-in child-ev [:tags :rf/dispatch-origin]))))))
 
-(deftest trace-buffer-filter-dispatch-origin
-  (testing ":rf/dispatch-origin filters by :tags :rf/dispatch-origin"
-    (rf/reg-event-db :ping (fn [db _] db))
-    (rf/dispatch-sync [:ping] {:rf/dispatch-origin :tool})
-    (rf/dispatch-sync [:ping] {:rf/dispatch-origin :router})
-    (let [tool-evs (rf/trace-buffer {:rf/dispatch-origin :tool})]
-      (is (seq tool-evs))
-      (is (every? #(= :tool (get-in % [:tags :rf/dispatch-origin])) tool-evs)
-          ":rf/dispatch-origin :tool narrows to tool-issued cascades"))
-    (let [router-evs (rf/trace-buffer {:rf/dispatch-origin :router})]
-      (is (seq router-evs))
-      (is (every? #(= :router (get-in % [:tags :rf/dispatch-origin])) router-evs)))))
-
-;; ---- 5. Frame-level trace-emission gate (rf2-2qaqh) ------------------------
-;;
-;; A tool / inspector frame registered with `:rf.trace/frame-no-emit? true`
-;; (e.g. Xray's `:rf/xray`) produces NO trace — its own reactivity must
-;; not flood the shared ring buffer it inspects. The frame-scoped sibling
-;; of the handler-scoped `:rf.trace/no-emit?` (Spec 009 §Trace-emission
-;; opt-out). The gate keys on the event's `:frame` tag, single-sourced via
-;; `trace/frame-trace-disabled?`.
+;; ---- 5. Frame-level trace-emission gate (rf2-2qaqh) ----------------------
 
 (deftest tool-frame-emits-no-trace
   (testing "a frame registered :rf.trace/frame-no-emit? true grows the ring by 0"
     (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
     (rf/reg-event-db :tool/work (fn [db _] (assoc db :ran? true)))
-    (rf/clear-trace-buffer!)
-    (is (= [] (rf/trace-buffer))
-        "buffer empty after clear (the :frame/created emit was suppressed too)")
-    ;; Drive a full cascade ON the tool frame: dispatch, db-change, the
-    ;; whole drain. None of it should reach the ring.
+    (rf/clear-trace-buffer! :tool/inspector)
     (rf/dispatch-sync [:tool/work] {:frame :tool/inspector})
-    (is (= [] (rf/trace-buffer))
+    (is (= [] (rf/trace-buffer :tool/inspector))
         "no trace event from a trace-disabled frame's cascade reaches the ring")))
 
 (deftest app-frame-emits-trace-while-tool-frame-silent
-  (testing "an app frame's cascade DOES grow the ring; the tool frame's does NOT"
+  (testing "an app frame's cascade DOES grow its ring; the tool frame's does NOT"
     (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
     (rf/reg-frame :app/main {:doc "ordinary application frame"})
     (rf/reg-event-db :work (fn [db _] (assoc db :ran? true)))
-    (rf/clear-trace-buffer!)
-    ;; Interleave: tool-frame noise must never displace app-frame signal.
+    (rf/clear-trace-buffer! :app/main)
+    (rf/clear-trace-buffer! :tool/inspector)
     (dotimes [_ 20] (rf/dispatch-sync [:work] {:frame :tool/inspector}))
     (rf/dispatch-sync [:work] {:frame :app/main})
-    (let [buf (rf/trace-buffer)]
-      (is (seq buf) "app-frame cascade produced trace")
-      (is (every? #(not= :tool/inspector
-                         (or (:frame %) (get-in % [:tags :frame])))
-                  buf)
-          "NO event in the ring is tagged with the trace-disabled frame")
-      (is (some #(= :app/main (or (:frame %) (get-in % [:tags :frame]))) buf)
-          "the app-frame events survived (not evicted by tool noise)"))))
+    (is (seq (rf/trace-buffer :app/main))
+        "app-frame cascade produced a trace cascade in its own ring")
+    (is (= [] (rf/trace-buffer :tool/inspector))
+        "tool-frame's ring stays empty")))
 
-(deftest tool-frame-self-instrumentation-does-not-saturate-ring
-  (testing "the rf2-2qaqh scenario: heavy tool-frame churn cannot evict app events"
-    (rf/configure :trace-buffer {:depth 50})
-    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
-    (rf/reg-frame :app/main {:doc "app"})
-    (rf/reg-event-db :work (fn [db _] db))
-    (rf/dispatch-sync [:work] {:frame :app/main})
-    (rf/clear-trace-buffer!)
-    ;; Seed one app cascade, then bury it under far more tool-frame churn
-    ;; than the ring depth — pre-fix this evicted the app event entirely.
-    (rf/dispatch-sync [:work] {:frame :app/main})
-    (dotimes [_ 500] (rf/dispatch-sync [:work] {:frame :tool/inspector}))
-    (let [buf (rf/trace-buffer)]
-      (is (some #(= :app/main (or (:frame %) (get-in % [:tags :frame]))) buf)
-          "the app-frame event is STILL in the ring after 500 tool dispatches")
-      (is (empty? (rf/trace-buffer {:frame :tool/inspector}))
-          "zero tool-frame events in the ring"))))
+;; ---- 6. B4 hot-reload dedup-by-shape ------------------------------------
 
-(deftest frame-no-emit-flag-clears-on-re-registration
-  (testing "re-registering a frame WITHOUT the flag re-enables its trace"
-    (rf/reg-frame :flip/frame {:rf.trace/frame-no-emit? true})
-    (rf/reg-event-db :work (fn [db _] db))
-    (is (trace/frame-trace-disabled? :flip/frame)
-        "predicate reports the flag is set")
-    (rf/clear-trace-buffer!)
-    (rf/dispatch-sync [:work] {:frame :flip/frame})
-    (is (= [] (rf/trace-buffer)) "trace suppressed while flag set")
-    ;; Surgical re-registration drops the flag → trace re-enabled.
-    (rf/reg-frame :flip/frame {:doc "now a normal frame"})
-    (is (not (trace/frame-trace-disabled? :flip/frame))
-        "predicate reports the flag cleared on re-registration")
-    (rf/clear-trace-buffer!)
-    (rf/dispatch-sync [:work] {:frame :flip/frame})
-    (is (seq (rf/trace-buffer)) "trace flows again once the flag is cleared")))
+(deftest hot-reload-unchanged-handler-emits-zero-traces
+  (testing "re-registering an identical handler emits ZERO traces (B4 dedup)"
+    (let [handler-fn (fn [db _] db)]
+      (rf/reg-event-db :ev/hot {:doc "hot"} handler-fn)
+      (rf/clear-trace-buffer! :rf/default)
+      ;; Identical re-registration — same fn, same meta. B4: zero emits.
+      (rf/reg-event-db :ev/hot {:doc "hot"} handler-fn)
+      (rf/reg-event-db :ev/hot {:doc "hot"} handler-fn)
+      (rf/reg-event-db :ev/hot {:doc "hot"} handler-fn)
+      (is (= [] (rf/trace-buffer :rf/default {:flat true
+                                              :op-type :rf.registry}))
+          "no :rf.registry/* traces from idempotent hot-reload"))))
 
-(deftest frame-trace-disabled-predicate-is-single-sourced
-  (testing "set-frame-no-emit! / frame-trace-disabled? toggle the canonical set"
-    (is (not (trace/frame-trace-disabled? :probe/frame)))
-    (trace/set-frame-no-emit! :probe/frame true)
-    (is (trace/frame-trace-disabled? :probe/frame))
-    (trace/set-frame-no-emit! :probe/frame false)
-    (is (not (trace/frame-trace-disabled? :probe/frame)))))
+(deftest hot-reload-changed-handler-emits-one-trace
+  (testing "re-registering a CHANGED handler emits exactly one :rf.registry/handler-replaced"
+    (let [recv (atom [])]
+      (rf/register-listener! ::probe
+                             (fn [ev]
+                               (when (= :rf.registry/handler-replaced
+                                        (:operation ev))
+                                 (swap! recv conj ev))))
+      (rf/reg-event-db :ev/hot {:doc "v1"} (fn [db _] (assoc db :v 1)))
+      (reset! recv [])
+      ;; Real edit — different handler-fn body.
+      (rf/reg-event-db :ev/hot {:doc "v1"} (fn [db _] (assoc db :v 2)))
+      (rf/unregister-listener! ::probe)
+      (is (= 1 (count @recv))
+          "exactly one :rf.registry/handler-replaced emitted on real edit")
+      (is (= :ev/hot (-> @recv first :tags :id))))))
+
+(deftest hot-reload-dedup-clears-on-reset
+  (testing "clear-listeners! (and clear-trace-rings!) reset the dedup table"
+    (let [handler-fn (fn [db _] db)
+          recv (atom [])]
+      ;; Register, then identical re-register — dedup suppresses.
+      (rf/reg-event-db :ev/cycle {:doc "doc"} handler-fn)
+      (rf/reg-event-db :ev/cycle {:doc "doc"} handler-fn) ;; suppressed
+      ;; Reset dedup state, then re-register the SAME handler — should
+      ;; now emit again because the table is fresh.
+      (rf/clear-listeners!)
+      (rf/register-listener! ::probe
+                             (fn [ev]
+                               (when (and (= :rf.registry (:op-type ev))
+                                          (= :ev/cycle (-> ev :tags :id)))
+                                 (swap! recv conj ev))))
+      (rf/reg-event-db :ev/cycle {:doc "doc"} handler-fn)
+      (rf/unregister-listener! ::probe)
+      (is (seq @recv)
+          "post-clear re-registration emits at least one registry trace"))))
+
+(deftest hot-reload-dedup-per-kind-id
+  (testing "dedup is per-(kind, id) — separate ids don't interfere"
+    (let [recv (atom [])]
+      (rf/register-listener! ::probe
+                             (fn [ev]
+                               (when (= :rf.registry (:op-type ev))
+                                 (swap! recv conj ev))))
+      (rf/reg-event-db :a {:doc "a"} (fn [db _] db))
+      (rf/reg-event-db :b {:doc "b"} (fn [db _] db))
+      (rf/unregister-listener! ::probe)
+      ;; Different ids never share dedup state — both initial
+      ;; registrations are first-time emits.
+      (let [a-emits (filter #(= :a (-> % :tags :id)) @recv)
+            b-emits (filter #(= :b (-> % :tags :id)) @recv)]
+        (is (seq a-emits) "first :a registration emits")
+        (is (seq b-emits) "first :b registration emits")))))

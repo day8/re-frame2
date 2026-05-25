@@ -128,6 +128,22 @@
   (when-let [f (late-bind/get-fn-cached :trace/emit!)]
     (f :rf.registry operation tags)))
 
+(defn- dedup-allow?
+  "Consult the B4 hot-reload dedup-by-shape table (per Spec 009
+  §Hot-reload dedup — re-emits suppressed by shape, rf2-g1b2m). Returns
+  true if the emit should proceed; false if the prior emit for this
+  `(kind, id)` already carried an identical shape (so this re-emit
+  carries no new signal).
+
+  When the trace.tooling sibling is not loaded (production CLJS counter
+  bundle), the late-bind lookup returns nil and we allow-by-default —
+  the surrounding `interop/debug-enabled?` gate elides the whole branch
+  anyway in :advanced + goog.DEBUG=false builds."
+  [operation kind id meta]
+  (if-let [f (late-bind/get-fn-cached :trace.tooling/dedup-allow?)]
+    (f operation kind id meta)
+    true))
+
 (defn- emit-warning!
   "Invoke `:trace/emit!` with the `:warning` op-type. Sibling to
   `emit!` (which uses `:rf.registry`). Callers MUST wrap invocations in
@@ -305,21 +321,36 @@
         ;; The `interop/debug-enabled?` gate stays OUTERMOST so
         ;; `:advanced + goog.DEBUG=false` constant-folds the entire
         ;; branch (per Spec 009 §Production builds).
+        ;;
+        ;; Per Spec 009 §Hot-reload dedup — re-emits suppressed by shape
+        ;; (B4 ruling, rf2-g1b2m): consult the dedup table. Identical
+        ;; shape on re-register (a hot-reload that didn't actually
+        ;; change the handler) emits ZERO trace events; a real edit
+        ;; emits exactly one `:rf.registry/handler-replaced`. The
+        ;; sibling collision-warning is gated on the same allow signal
+        ;; — a suppressed hot-reload re-emit must not surface the
+        ;; collision warning either.
         (when interop/debug-enabled?
-          (emit! :rf.registry/handler-replaced
-                 {:kind kind :id id :different-fn? different?})
-          ;; Per Spec 001 §Re-registration of a different function —
-          ;; collision warning (rf2-45kaz). Fires alongside
-          ;; handler-replaced when the fn-identity actually changed,
-          ;; with the same per-(kind, id) suppression discipline so
-          ;; the dev stream stays readable across hot-reload churn.
-          (maybe-emit-collision! kind id previous metadata)))
+          (when (dedup-allow? :rf.registry/handler-replaced kind id metadata)
+            (emit! :rf.registry/handler-replaced
+                   {:kind kind :id id :different-fn? different?})
+            ;; Per Spec 001 §Re-registration of a different function —
+            ;; collision warning (rf2-45kaz). Fires alongside
+            ;; handler-replaced when the fn-identity actually changed,
+            ;; with the same per-(kind, id) suppression discipline so
+            ;; the dev stream stays readable across hot-reload churn.
+            (maybe-emit-collision! kind id previous metadata))))
       ;; First-time registration — emit handler-registered per Spec 009
       ;; §:op-type vocabulary. Hot-reload tools (10x, re-frame-pair) use
-      ;; this to track when fresh ids appear in the registry.
+      ;; this to track when fresh ids appear in the registry. The B4
+      ;; dedup table is also consulted here so the FIRST emit per
+      ;; (kind, id) records the baseline shape for subsequent re-emit
+      ;; suppression (rf2-g1b2m). A first registration always allows
+      ;; (no prior entry to compare against).
       :else
       (when interop/debug-enabled?
-        (emit! :rf.registry/handler-registered {:kind kind :id id})))
+        (when (dedup-allow? :rf.registry/handler-registered kind id metadata)
+          (emit! :rf.registry/handler-registered {:kind kind :id id}))))
     ;; Per Spec 001 §`:doc` is dev-warned when absent (rf2-45kaz). Fires
     ;; on every reg-* call whose final metadata-map carries no usable
     ;; `:doc`, once per (kind, id) within the runtime process. Production
@@ -350,9 +381,15 @@
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires on explicit removal so hot-reload tools can update their
     ;; views. Only emit when something was actually present.
+    ;;
+    ;; Per Spec 009 §Hot-reload dedup (B4 ruling, rf2-g1b2m): a clear
+    ;; of an id the dedup table thinks is already absent (a double-
+    ;; clear) is suppressed. The first clear records the `::cleared`
+    ;; sentinel; subsequent re-clears emit nothing.
     (when interop/debug-enabled?
       (when previous
-        (emit! :rf.registry/handler-cleared {:kind kind :id id}))))
+        (when (dedup-allow? :rf.registry/handler-cleared kind id nil)
+          (emit! :rf.registry/handler-cleared {:kind kind :id id})))))
   nil)
 
 (defn clear-kind!
@@ -371,10 +408,13 @@
     (swap! collision-warned   clear-kind)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires for each id so consumers see consistent registry transitions.
+    ;; B4 dedup (rf2-g1b2m): a clear-of-a-cleared id is suppressed; the
+    ;; first clear records the `::cleared` sentinel.
     (when interop/debug-enabled?
       (when (seq previous-ids)
         (doseq [id previous-ids]
-          (emit! :rf.registry/handler-cleared {:kind kind :id id})))))
+          (when (dedup-allow? :rf.registry/handler-cleared kind id nil)
+            (emit! :rf.registry/handler-cleared {:kind kind :id id}))))))
   nil)
 
 (defn clear-all!
@@ -384,7 +424,14 @@
   `:rf.warning/missing-doc` and `:rf.warning/registration-collision`
   so each test case starts from a clean diagnostic state — without
   this, a test that re-registers an already-warned (kind, id) pair
-  would silently miss the warning under suppression."
+  would silently miss the warning under suppression.
+
+  Per Spec 009 §Hot-reload dedup (B4 ruling, rf2-g1b2m): also clears
+  the dev-only `:rf.registry/*` dedup-by-shape table via the
+  trace.tooling sibling's clearance hook — a test fixture targeting
+  the registry must start each case from a clean dedup slate so the
+  first emit for any `(kind, id)` proceeds (otherwise the table from
+  the prior test would silently suppress the new test's first emit)."
   []
   (reset! kind->id->metadata {})
   (reset! missing-doc-warned #{})
@@ -392,6 +439,13 @@
   ;; Also clear the always-on error-coord parallel registry (rf2-3un2g)
   ;; so test cases start from a clean state on both surfaces.
   (source-coords/forget-error-coords!)
+  ;; Clear the B4 dedup table when the trace.tooling sibling is loaded.
+  ;; Production CLJS bundles that never load trace.tooling silently
+  ;; no-op here — the dedup hook is unbound and there's no table to
+  ;; clear anyway.
+  (when interop/debug-enabled?
+    (when-let [clear! (late-bind/get-fn-cached :trace.tooling/clear-dedup-table!)]
+      (clear!)))
   nil)
 
 ;; ---- lookup ---------------------------------------------------------------

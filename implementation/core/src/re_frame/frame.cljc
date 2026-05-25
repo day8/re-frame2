@@ -66,6 +66,13 @@
   []
   (or *current-frame* :rf/default))
 
+;; Per Spec 009 §Per-frame trace rings (rf2-g1b2m / rf2-8uwce): publish
+;; the in-flight frame-id through `late-bind` so the trace tooling
+;; sibling can route emit-site trace events to their owning frame's
+;; ring. Returns nil when no cascade is in flight (frameless emits).
+;; The hook is sticky (rf2-f72pd) and read on every push-to-ring!.
+(late-bind/set-fn! :frame/current-frame-id (fn [] *current-frame*))
+
 (defn resolve-current-frame
   "Resolve the active frame at a no-explicit-frame call site. The
   3-tier resolution chain — dynamic var → React context → `:rf/default` —
@@ -304,6 +311,18 @@
     ;; registration and re-registration so a hot-reload can flip it
     ;; either way; `trace.cljc` owns the canonical set + predicate.
     (trace/set-frame-no-emit! id (true? (:rf.trace/frame-no-emit? config)))
+    ;; Per Spec 009 §Retention contract (rf2-g1b2m / rf2-8uwce): apply
+    ;; the per-frame `:rf.trace/cascades-retained` override at
+    ;; registration time. Honoured on BOTH first registration and re-
+    ;; registration so a hot-reload can flip it either way. When the
+    ;; key is absent the frame inherits the process-default. Routed via
+    ;; late-bind so production CLJS bundles (where trace.tooling is
+    ;; not loaded) short-circuit cleanly — the trace-ring machinery is
+    ;; dev-only and there's nothing to configure in prod.
+    (when (contains? config :rf.trace/cascades-retained)
+      (when-let [set-retained! (late-bind/get-fn-cached
+                                :trace.tooling/set-frame-cascades-retained!)]
+        (set-retained! id (:rf.trace/cascades-retained config))))
     (let [existing (get @frames id)]
       (cond
         ;; First registration: create everything.
@@ -600,6 +619,14 @@
         ;; per rf2-tfw3).
         (safe-call-hook! :flows/teardown-on-frame-destroy! id)
         (emit-frame-destroyed-trace! id)
+        ;; Per Spec 009 §Per-frame trace rings (rf2-g1b2m / rf2-8uwce):
+        ;; release the destroyed frame's cascade-keyed ring so no
+        ;; residual trace events leak across the frame lifecycle. Fired
+        ;; AFTER `:rf.frame/destroyed` emits so the destroyed trace
+        ;; itself (which is frameless and bypasses the ring anyway)
+        ;; still flows through the live stream cleanly. Routed via
+        ;; late-bind so production CLJS bundles (no trace.tooling) no-op.
+        (safe-call-hook! :trace.tooling/release-frame-ring! id)
         (dissoc-frame! id)
         (unregister-frame! id)
         (notify-epoch-listeners! id)

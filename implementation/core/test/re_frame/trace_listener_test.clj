@@ -48,7 +48,7 @@
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
   (trace/clear-listeners!)
-  (rf/clear-trace-buffer!)
+  (re-frame.trace.tooling/clear-trace-rings!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -105,24 +105,47 @@
 
 (deftest one-call-per-emitted-event
   (testing "the listener is invoked once per emitted event — no batching, no debounce"
-    (let [calls (atom 0)]
+    (let [calls (atom 0)
+          seen  (atom [])]
       (rf/reg-event-db :ping (fn [db _] db))
-      ;; Register the listener and clear the buffer in the same window so
-      ;; we measure only the events emitted AFTER both are in place. The
-      ;; contract is "one listener call per emitted event from this point".
-      (rf/clear-trace-buffer!)
-      (rf/register-listener! ::counter (fn [_ev] (swap! calls inc)))
+      (rf/clear-trace-buffer! :rf/default)
+      (rf/register-listener! ::counter (fn [ev]
+                                         (swap! calls inc)
+                                         (swap! seen conj (:id ev))))
       ;; A single dispatch produces multiple trace events (run-start,
       ;; run-end, dispatched, do-fx, ...). Each must be delivered in its
       ;; own listener call.
       (rf/dispatch-sync [:ping])
-      (let [n @calls
-            buf-count (count (rf/trace-buffer))]
-        (is (pos? n))
-        (is (= n buf-count)
-            (str "listener call count (" n ") must equal emitted-event count ("
-                 buf-count ") — the listener fires once per event")))
+      (let [n   @calls
+            ids @seen]
+        (is (pos? n)
+            "listener fired at least once during the cascade")
+        (is (= n (count ids))
+            "every invocation carried a distinct event (no duplicate calls)")
+        (is (= (count ids) (count (distinct ids)))
+            "each event was delivered exactly once — no batching, no dedup-by-listener"))
       (rf/unregister-listener! ::counter))))
+
+(deftest in-cascade-emits-land-in-the-ring
+  (testing "every IN-CASCADE listener event also appears in the frame's ring
+            (frameless emits ride the live stream only — per B3 ruling rf2-g1b2m).
+            For a pure dispatch-sync where all emits carry the cascade's
+            `:dispatch-id`, the ring should mirror the listener stream."
+    (let [seen (atom [])]
+      (rf/reg-event-db :ping (fn [db _] db))
+      (rf/clear-trace-buffer! :rf/default)
+      (rf/register-listener! ::record (fn [ev] (swap! seen conj ev)))
+      (rf/dispatch-sync [:ping])
+      (rf/unregister-listener! ::record)
+      ;; Partition the listener stream by in-cascade-ness — events with
+      ;; a `:rf.trace/dispatch-id` should land in the ring; others
+      ;; (e.g. post-cascade epoch emits, registration emits) skip it.
+      (let [in-cascade  (filter #(get-in % [:tags :rf.trace/dispatch-id]) @seen)
+            ring-events (rf/trace-buffer :rf/default {:flat true})]
+        (is (seq in-cascade)
+            "at least one in-cascade emit was delivered")
+        (is (= (count in-cascade) (count ring-events))
+            "ring holds exactly the in-cascade events — no more, no less")))))
 
 ;; ---- 3. Event-emission order ---------------------------------------------
 
