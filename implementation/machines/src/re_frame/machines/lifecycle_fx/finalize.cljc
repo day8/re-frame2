@@ -37,6 +37,7 @@
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.result :as result]
+            [re-frame.machines.timer :as timer]
             [re-frame.machines.transition :as transition]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
@@ -240,9 +241,11 @@
                                    :parent-id parent-id
                                    :spawn-id invoke-id
                                    :reason    :rf.machine/finished})]
-    ;; (6) Synchronous side effects: abort in-flight HTTP, emit
+    ;; (6) Synchronous side effects: abort in-flight HTTP, cancel
+    ;; armed `:after` timers (rf2-82a0u — `:reason :on-destroy`), emit
     ;; system-id-released trace (when applicable), unregister handler.
     (abort-actor-in-flight-http! machine-id)
+    (timer/cancel-actor-timers! frame-id machine-id)
     (traces/emit-system-id-released! frame-id released-sid machine-id)
     (registrar/unregister! :event machine-id)
     {:db db-after-destroy

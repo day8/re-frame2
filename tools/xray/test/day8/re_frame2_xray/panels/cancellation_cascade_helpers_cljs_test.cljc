@@ -87,16 +87,18 @@
                 :rf.trace/dispatch-id dispatch-id}})
 
 (defn- timer-cancel-ev
-  [{:keys [timer-id dispatch-id time id]
+  [{:keys [timer-id dispatch-id time id reason]
     :or {timer-id    :debounce
          dispatch-id 1
          time        1024
-         id          500}}]
+         id          500
+         reason      :on-resolution}}]
   {:id         id
-   :operation  :rf.machine.timer/cancelled-on-resolution
+   :operation  :rf.machine.timer/cancelled
    :op-type    :rf.machine.timer
    :time       time
-   :tags       {:timer-id    timer-id
+   :tags       {:timer-id             timer-id
+                :reason               reason
                 :rf.trace/dispatch-id dispatch-id}})
 
 (defn- invoke-cancel-ev
@@ -160,7 +162,17 @@
 (deftest cancel-cause-defaults-by-operation
   (is (= :actor-destroyed (h/cancel-cause (http-abort-ev {}))))
   (is (= :actor-destroyed (h/cancel-cause (ws-abort-ev {}))))
-  (is (= :join-resolved   (h/cancel-cause (timer-cancel-ev {}))))
+  ;; Per rf2-82a0u — `:rf.machine.timer/cancelled` carries `:reason`
+  ;; on every emit; the helper lifts that off `:tags :reason` before
+  ;; falling through to the per-op default. The fixture event uses
+  ;; the canonical `:on-resolution` reason for the
+  ;; subscription-restart case.
+  (is (= :on-resolution   (h/cancel-cause (timer-cancel-ev {}))))
+  ;; A timer-cancel-ev WITHOUT a `:reason` tag (legacy/stripped trace
+  ;; replay) still falls through to the per-op default.
+  (is (= :join-resolved
+         (h/cancel-cause (update (timer-cancel-ev {})
+                                 :tags dissoc :reason))))
   (is (= :join-resolved   (h/cancel-cause (invoke-cancel-ev {})))))
 
 ;; ---- (2) extract-cascade: single abort ---------------------------------

@@ -133,25 +133,49 @@
   `:rf.machine/guard-evaluated` for cascade-discoverability. Returns the
   guard's boolean outcome. When `guard-ref` is nil the guard is the
   synthesised always-true — skip the trace (it is not a user-declared
-  evaluation) and return true."
+  evaluation) and return true.
+
+  Per rf2-82a0u: when the guard fn throws, emit
+  `:rf.machine/guard-evaluated` with `:outcome :threw` and the
+  `:exception` slot, then treat the guard as failed (return `false`)
+  so the candidate-walk continues evaluating siblings — Spec 005
+  §Guards is silent on throw semantics; the engine's existing
+  implicit behaviour (let it propagate) hides the failure entirely
+  from the trace stream. Treating throw as `:fail` matches the
+  documented `:action`-threw convention (the action that throws emits
+  one trace and the cascade halts; for guards the cascade should walk
+  past the throwing candidate to the next one, which is the
+  `:rf/transition` candidate-walk semantic — \"this candidate
+  declined; try the next\")."
   [machine guard-ref snapshot event]
   (if (nil? guard-ref)
     true
-    (let [g       (resolve-guard machine guard-ref)
-          outcome (boolean (call-guard g snapshot event))]
-      (trace/emit! :rf.machine :rf.machine/guard-evaluated
-                   {:machine-id (or (:rf/parent-id machine) (:id machine))
-                    :guard-id   guard-ref
-                    :input      {:data  (:data snapshot)
-                                 :event event}
-                    :outcome    (if outcome :pass :fail)
-                    ;; Per rf2-ko8jb: epoch-capture admission requires
-                    ;; `:frame`. `(:rf/frame machine)` is stamped by
-                    ;; `prepare-machine-ctx` (registration.cljc) before
-                    ;; the engine is invoked; nil-safe for pure-function
-                    ;; callers (conformance corpus, JVM fixtures).
-                    :frame      (:rf/frame machine)})
-      outcome)))
+    (let [g          (resolve-guard machine guard-ref)
+          machine-id (or (:rf/parent-id machine) (:id machine))
+          ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
+          ;; `(:rf/frame machine)` is stamped by `prepare-machine-ctx`
+          ;; (registration.cljc) before the engine is invoked; nil-safe
+          ;; for pure-function callers (conformance corpus, JVM fixtures).
+          frame-id   (:rf/frame machine)
+          input      {:data (:data snapshot) :event event}]
+      (try
+        (let [outcome (boolean (call-guard g snapshot event))]
+          (trace/emit! :rf.machine :rf.machine/guard-evaluated
+                       {:machine-id machine-id
+                        :guard-id   guard-ref
+                        :input      input
+                        :outcome    (if outcome :pass :fail)
+                        :frame      frame-id})
+          outcome)
+        (catch #?(:clj Throwable :cljs :default) e
+          (trace/emit! :rf.machine :rf.machine/guard-evaluated
+                       {:machine-id machine-id
+                        :guard-id   guard-ref
+                        :input      input
+                        :outcome    :threw
+                        :exception  e
+                        :frame      frame-id})
+          false)))))
 
 ;; ---- spawn-id allocator (in-snapshot) -------------------------------------
 ;;
@@ -646,8 +670,14 @@
   `{:data :event}`, and an outcome — the action's return value on
   success (or `:ok` when the action returned nil), or
   `:rf.error/action-threw` on the exceptional path. The synthesised
-  no-op for `nil` action-ref is not user-declared — skip the trace."
-  [machine snap action-ref event]
+  no-op for `nil` action-ref is not user-declared — skip the trace.
+
+  Per rf2-82a0u every emit also carries `:phase` from the closed set
+  `:exit / :transition / :entry / :always / :after-action /
+  :initial-entry / :destroy-exit` so the Xray Handler section's
+  LIFECYCLE rendering can group rows by phase without spec-walking
+  at render time."
+  [machine snap action-ref event phase]
   (if action-ref
     (let [f         (resolve-action machine action-ref)
           parent-id (or (:rf/parent-id machine) (:id machine))
@@ -658,6 +688,7 @@
           (trace/emit! :rf.machine :rf.machine/action-ran
                        {:machine-id parent-id
                         :action-id  action-ref
+                        :phase      phase
                         :input      {:data  (:data snap)
                                      :event event}
                         :outcome    (if (nil? r) :ok r)
@@ -667,6 +698,7 @@
           (trace/emit! :rf.machine :rf.machine/action-ran
                        {:machine-id parent-id
                         :action-id  action-ref
+                        :phase      phase
                         :input      {:data  (:data snap)
                                      :event event}
                         :outcome    :rf.error/action-threw
@@ -677,18 +709,25 @@
     {}))
 
 (defn- collect-actions
-  "Walk action-refs in order, calling each with snap+event and threading
-  the resulting :data updates forward (so each action sees the previous
-  one's data). Returns a `result/ok` carrying `[final-snapshot fx-vec]`,
-  or the `result/fail` Result the first throwing action produced — per
-  Spec 005 §Errors, the cascade halts on the first throw and the
-  snapshot does not commit."
-  [machine snap event action-refs]
+  "Walk `[phase action-ref]` pairs in order, calling each with
+  snap+event and threading the resulting :data updates forward (so
+  each action sees the previous one's data). Returns a `result/ok`
+  carrying `[final-snapshot fx-vec]`, or the `result/fail` Result the
+  first throwing action produced — per Spec 005 §Errors, the cascade
+  halts on the first throw and the snapshot does not commit.
+
+  Per rf2-82a0u the input is a vec of `[phase action-ref]` pairs;
+  `phase` is the closed-set keyword stamped on each emit
+  (`:exit / :transition / :entry / :always / :after-action /
+  :initial-entry / :destroy-exit`). `action-ref` may be nil — the
+  iteration skips, matching the prior single-arg signature where a
+  bare nil ref was a no-op."
+  [machine snap event phased-refs]
   (reduce
-    (fn [acc aref]
+    (fn [acc [phase aref]]
       (if aref
         (result/with-ok [snap fx] acc
-          (let [r (run-action machine snap aref event)]
+          (let [r (run-action machine snap aref event phase)]
             (if (result/fail? r)
               (reduced r)
               (do
@@ -721,7 +760,7 @@
                   (result/ok new-snap new-fx))))))
         acc))
     (result/ok snap [])
-    action-refs))
+    phased-refs))
 
 ;; ---- apply-transition-once helpers (extracted per rf2-g1s1) ---------------
 ;;
@@ -1103,8 +1142,12 @@
         ;; Leaf→root: exit cascade reverses `nodes-along-path` (which
         ;; returns shallowest-first), matching `compute-cascade-paths`'s
         ;; `(map ... (reverse exited-pairs))` ordering.
-        exit-refs   (keep (fn [[_ n]] (:exit n)) (reverse active-pairs))]
-    (collect-actions machine snapshot [:rf.machine/destroy-exit] (vec exit-refs))))
+        ;; Per rf2-82a0u every action-ran emit carries `:phase`; destroy-
+        ;; time exit cascades stamp `:destroy-exit` so the Xray Handler
+        ;; section can attribute the action to the actor-teardown cause.
+        exit-refs   (keep (fn [[_ n]] (:exit n)) (reverse active-pairs))
+        phased      (mapv (fn [r] [:destroy-exit r]) exit-refs)]
+    (collect-actions machine snapshot [:rf.machine/destroy-exit] phased)))
 
 ;; ---- apply-transition-once: cascade phases --------------------------------
 ;;
@@ -1139,8 +1182,14 @@
     :exit-refs      — `:exit` action-refs, leaf→LCA (reverse order).
     :entry-refs     — `:entry` action-refs, LCA→leaf.
     :action-refs    — single-element vec carrying the transition's `:action`.
-    :all-refs       — `(concat exit-refs action-refs entry-refs)` — the
-                      ordered cascade ref-vec fed to `collect-actions`.
+    :phased-refs    — vec of `[phase action-ref]` pairs in cascade order
+                      (`:exit` × N → caller-supplied transition-phase →
+                      `:entry` × N) — the input to `collect-actions`.
+                      Per rf2-82a0u every `action-ran` emit carries
+                      `:phase`; the caller (`apply-transition-once`)
+                      stamps the middle phase per cascade-driver
+                      (`:transition` / `:always` / `:after-action` /
+                      `:initial-entry`).
     :exited-pairs   — `[[prefix node] ...]` for states being exited (in
                       cascade order — leaf→LCA reversed gives shallowest-
                       first; this slot is unreversed for spawn/destroy
@@ -1154,7 +1203,7 @@
                       thus its live timer). Per Spec 005 §Hierarchy
                       interaction (the per-level tracking the normative
                       external contract requires)."
-  [machine snapshot transition]
+  [machine snapshot transition transition-phase]
   (let [src-path      (state-path (:state snapshot))
         decl-path     (:decl-path transition (vec (take 1 src-path)))
         raw-target    (:target transition)
@@ -1182,6 +1231,14 @@
         entry-refs    (when-not internal?
                         (map (fn [[_ n]] (:entry n)) entered-pairs))
         action-refs   [(:action transition)]
+        ;; Per rf2-82a0u: phase per cascade-slot per `transition-phase`.
+        ;; Bootstrap entries collapse to `:initial-entry` — the bead's
+        ;; closed set distinguishes "entry from the bootstrap cascade"
+        ;; from "entry from a regular `:on`-driven transition".
+        entry-phase   (if (= :initial-entry transition-phase) :initial-entry :entry)
+        phased-refs   (vec (concat (map (fn [r] [:exit r]) exit-refs)
+                                   (map (fn [r] [transition-phase r]) action-refs)
+                                   (map (fn [r] [entry-phase r]) entry-refs)))
         ;; Per Spec 005 §Hierarchy interaction: bump the per-path epoch
         ;; ONLY for the `:after`-bearing nodes that are actually exited or
         ;; entered by this transition. A still-active parent above the LCA
@@ -1203,7 +1260,7 @@
      :exit-refs     exit-refs
      :entry-refs    entry-refs
      :action-refs   action-refs
-     :all-refs      (concat exit-refs action-refs entry-refs)
+     :phased-refs   phased-refs
      :after-bump-paths after-bump-paths}))
 
 (defn- run-cascade
@@ -1213,7 +1270,7 @@
   snapshot + accumulated fx, or a `result/fail` carrying the throwing
   action's diagnostic map."
   [machine snapshot event cascade]
-  (collect-actions machine snapshot event (:all-refs cascade)))
+  (collect-actions machine snapshot event (:phased-refs cascade)))
 
 (defn- bump-after-epochs
   "Bump the per-path `:after` epoch for each decl-path in `bump-paths`
@@ -1316,9 +1373,20 @@
   `run-spawn-phase`. Each phase is a pure helper above.
 
   `transition` is the transition map with a synthetic :decl-path key
-  recording where in the state-path tree the transition was declared."
-  [machine snapshot event transition]
-  (let [cascade  (compute-cascade-paths machine snapshot transition)
+  recording where in the state-path tree the transition was declared.
+
+  Per rf2-82a0u `transition-phase` is the closed-set keyword stamped
+  on the transition's `:action` `action-ran` emit — one of
+  `:transition` (regular `:on` match), `:always` (eventless step),
+  `:after-action` (timer-driven), `:initial-entry` (bootstrap cascade).
+  Exit / entry actions stamp `:exit` / `:entry` regardless of the
+  driver. The 4-arity defaults to `:transition` for the conformance-
+  corpus / JVM-fixture callers that exercise `apply-transition-once`
+  directly (pure-fn tests of the geometry, not the live engine)."
+  ([machine snapshot event transition]
+   (apply-transition-once machine snapshot event transition :transition))
+  ([machine snapshot event transition transition-phase]
+  (let [cascade  (compute-cascade-paths machine snapshot transition transition-phase)
         cascade-r (run-cascade machine snapshot event cascade)]
     (if (result/fail? cascade-r)
       (result/fail-with cascade-r {:decl-path  (:decl-path cascade)
@@ -1344,7 +1412,7 @@
                                         (or destroy-fx [])
                                         spawn-fx
                                         (or after-fx [])))]
-                (result/ok snap-after-spawns all-fx)))))))))
+                (result/ok snap-after-spawns all-fx))))))))))
 
 (defn- pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root for
@@ -1557,9 +1625,14 @@
           (result/ok snapshot [])
 
           match
+          ;; Per rf2-82a0u: the transition's `:action` `action-ran` emit
+          ;; carries `:phase :after-action` when the match came from a
+          ;; firing `:after` timer (the synthetic `:rf.machine.timer/
+          ;; after-elapsed` event), `:transition` otherwise.
           (apply-transition-once
             machine snapshot event
-            (assoc (:transition match) :decl-path (:decl-path match)))
+            (assoc (:transition match) :decl-path (:decl-path match))
+            (if (:delay match) :after-action :transition))
 
           :else
           (do
@@ -1637,8 +1710,14 @@
                       (result/with-microsteps
                         (result/ok (commit-tags machine snap) fx)
                         depth)
+                      ;; Per rf2-82a0u: `:always` microstep's transition
+                      ;; `:action` `action-ran` emit carries `:phase
+                      ;; :always` so the Handler section can group
+                      ;; eventless cascades distinctly from `:on`-driven
+                      ;; transitions.
                       (let [step-result (apply-transition-once machine snap nil
-                                                                (:transition always-m))]
+                                                                (:transition always-m)
+                                                                :always)]
                         (if (result/fail? step-result)
                           step-result
                           (result/with-ok [snap2 fx2] step-result

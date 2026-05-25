@@ -242,7 +242,7 @@
     :rf.machine.timer/scheduled
     :rf.machine.timer/fired
     :rf.machine.timer/stale-after
-    :rf.machine.timer/cancelled-on-resolution
+    :rf.machine.timer/cancelled
     :rf.machine/snapshot-version-mismatch})
 
 (def ssr-fx-trace-operations

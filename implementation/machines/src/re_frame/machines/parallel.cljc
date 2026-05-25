@@ -207,7 +207,12 @@
 (defn- bootstrap-step
   "Single bootstrap step for one (flat or per-region) machine. Returns
   a `result/ok` Result carrying the post-cascade snapshot + fx, or a
-  `result/fail` Result if any `:entry` action threw."
+  `result/fail` Result if any `:entry` action threw.
+
+  Per rf2-82a0u: every initial-entry cascade action carries `:phase
+  :initial-entry` on its `:rf.machine/action-ran` emit so the Handler
+  section's LIFECYCLE rendering distinguishes the bootstrap entry
+  burst from a later `:on`-driven entry-cascade."
   [machine initial-snapshot]
   (let [original-state (:state initial-snapshot)
         boot-target    (if (keyword? original-state)
@@ -218,7 +223,8 @@
       (assoc initial-snapshot :state [])
       [:rf.machine/bootstrap]
       {:target    boot-target
-       :decl-path []})))
+       :decl-path []}
+      :initial-entry)))
 
 ;; ---- parallel-region broadcast invariant (rf2-vqubp) ----------------------
 ;;
