@@ -1,0 +1,5 @@
+# Self-test fixture marker.
+#
+# MkDocs disambiguates duplicate slugs with `_N` (underscore-N).  GitHub
+# uses `-N` (hyphen-N).  A link to a second `#errors` heading must use
+# `#errors_1` under MkDocs.  Expected: 0 findings.

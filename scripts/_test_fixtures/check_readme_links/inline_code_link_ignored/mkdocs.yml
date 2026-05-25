@@ -1,0 +1,5 @@
+# Self-test fixture marker.
+#
+# Links inside fenced code blocks AND inline-code spans must be skipped
+# (matches check_doc_slugs.py).  This fixture has a broken-looking link
+# in BOTH locations — neither should be flagged.  Expected: 0 findings.

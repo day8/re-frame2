@@ -1,0 +1,6 @@
+# Self-test fixture marker.
+#
+# tools/template/resources/.../README.md uses Mustache placeholders
+# `{{some.variable}}` inside markdown link destinations — these are
+# render-time substitutions, not real links.  The validator must skip
+# them.  Expected: 0 findings.
