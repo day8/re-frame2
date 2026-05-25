@@ -202,7 +202,11 @@
 
   Mirrors what Reagent's renderer does at mount time:
 
-    - `[component-fn & args]` — invoke `component-fn` with `args`.
+    - `[component-fn & args]` — invoke `component-fn` with `args`. If
+      the invocation returns ANOTHER fn (Reagent form-2 component
+      pattern — outer fn closes over per-mount state, inner fn does
+      the actual render), call the inner fn with the same args and
+      use ITS result.
     - `[reagent-class & args]` — pluck the class's `:reagent-render`
       slot (stashed at create-class time) and invoke with `args`. The
       class is NOT instantiated and lifecycle methods do NOT run —
@@ -230,9 +234,19 @@
         #_:clj-kondo/ignore
         (expand-tree (apply render-fn (rest tree)))
 
-        ;; Plain function component — invoke as Reagent would.
+        ;; Plain function component — invoke as Reagent would. If the
+        ;; first call returns a fn (Reagent form-2 — outer fn captures
+        ;; per-mount state, inner fn does the render) call again with
+        ;; the same args to reach the rendered hiccup. Form-2 is the
+        ;; canonical pattern for stabilising per-mount ids; without
+        ;; this branch the walker stops at the inner fn and tests
+        ;; can't see the rendered children.
         :else
-        (expand-tree (apply head (rest tree)))))
+        (let [result (apply head (rest tree))]
+          (expand-tree
+            (if (fn? result)
+              (apply result (rest tree))
+              result)))))
 
     (vector? tree)
     (mapv expand-tree tree)

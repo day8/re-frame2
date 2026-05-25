@@ -24,7 +24,8 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.flows.panel :as panel]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-bus :as trace-bus]
+            [day8.re-frame2-xray.views.data-display :as dd]))
 
 ;; ---- fixture ------------------------------------------------------------
 
@@ -43,7 +44,15 @@
 (defn- expand-tree [tree]
   (cond
     (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
+    (let [result (apply (first tree) (rest tree))]
+      ;; Form-2 Reagent components return an inner fn; call it with
+      ;; the same args (per Reagent's re-render contract) to obtain
+      ;; the rendered hiccup. rf2-oqa60 — the data-display widget is
+      ;; form-2 so the mount-id stays stable across re-renders.
+      (expand-tree
+        (if (fn? result)
+          (apply result (rest tree))
+          result)))
     (vector? tree) (mapv expand-tree tree)
     (seq? tree)    (map expand-tree tree)
     :else          tree))
@@ -299,8 +308,10 @@
 ;; -------------------------------------------------------------------------
 
 (deftest input-output-render-through-edn-widget
-  (testing "rf2-2kwhw — input + output paths render via the shared EDN
-            widget (cljs-devtools browse container), not raw pr-str"
+  (testing "rf2-2kwhw + rf2-oqa60 — input + output paths render via the
+            shared EDN widget, which post-rf2-oqa60 phase 1 delegates
+            to the first-class data-display widget. The rendered tree
+            contains `rf-xray-data-display-*` container testids."
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
@@ -308,25 +319,6 @@
          sample-flows])
       (let [tree (panel/Panel)
             widget-nodes (find-all-by-testid-prefix
-                           tree "rf-xray-edn-widget-browse-inspect-")]
+                           tree "rf-xray-data-display-")]
         (is (seq widget-nodes)
-            "at least one cljs-devtools browse container present")))))
-
-(deftest edn-widget-values-carry-copy-affordance
-  (testing "rf2-f026h — the universal copy button rides on the Static
-            flows EDN renders"
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.flows/set-registered-flows-override-for-test
-         sample-flows])
-      (let [tree (panel/Panel)
-            copy-buttons (filterv
-                           (fn [node]
-                             (and (vector? node)
-                                  (map? (second node))
-                                  (= "rf-xray-edn-widget-copy"
-                                     (:class (second node)))))
-                           (hiccup-seq tree))]
-        (is (seq copy-buttons)
-            "copy affordance present on the widget-rendered values")))))
+            "at least one data-display widget container present")))))

@@ -40,6 +40,13 @@
             ;; transitively via the diff renderer). Per
             ;; `tools/xray/spec/021-Dynamic-Panel-Designs.md` §10.
             [day8.re-frame2-xray.data-display.render]
+            ;; rf2-oqa60 phase 1 — load the first-class data-display
+            ;; widget ns so its top-level `reg-sub` /
+            ;; `reg-event-db` calls land in the registrar at
+            ;; orchestrator-load time, same posture as the legacy
+            ;; `data-display.render` engine above. The new widget
+            ;; owns `:rf.xray.data-display/*` events/subs.
+            [day8.re-frame2-xray.views.data-display]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.epoch :as epoch]
             [day8.re-frame2-xray.filters :as filters]

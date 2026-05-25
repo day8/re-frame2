@@ -17,19 +17,21 @@
   Every reserved area renders even when absent/empty — an empty-state
   placeholder — so the developer sees the full reserved inventory.
 
-  ## cljs-devtools current-state render
+  ## Current-state render — first-class data-display widget (rf2-oqa60)
 
-  Values render through the canonical EDN widget's `inspect` (the
-  cljs-devtools / re-frame-10x current-state path), the same engine the
-  Trace / Event-coeffects / machine-snapshot surfaces use. NOT the
-  home-grown diff engine — this view carries no diff / value-changed
-  affordances.
+  Values render through the first-class `views/data-display` widget
+  (Phase 1 of the rf2-oqa60 rebuild). The new widget owns the WHOLE
+  contract — CLJS-aware type detection, distinct bracket styling per
+  collection kind, click-to-toggle expansion stored in re-frame
+  app-db, first-class sentinel chrome (`:rf/redacted`, `:rf/large`).
+  Diff renders still flow through the legacy `edn/diff` engine; phase
+  5 subsumes diff into the new widget (D5=a per rf2-sndui).
 
-  The inspect call opts OUT of the EDN widget's universal ⎘ copy gesture
-  (`:copy? false`, rf2-ilubp) — the app-db tab is a clean current-state
-  view, not a per-block toolbox. Every other EDN-widget surface (Trace,
-  segment-inspector, Event lens, Static panels) keeps the default-on
-  copy gesture.
+  The Phase 1 widget has NO ⎘ copy affordance (deferred to follow-on
+  beads — the popup phase, D6=a). The old EDN widget's copy gesture
+  is unaffected on surfaces still wired to it (Trace, segment-
+  inspector, Event lens, Static panels) until phases 2-4 migrate
+  them.
 
   ## Flat-hairline layout (spec/021 §4.2-4.3, Figma · rf2-ad7zx.11)
 
@@ -59,6 +61,11 @@
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
+            ;; rf2-oqa60 phase 1 — current-state inspect path moves
+            ;; off the cljs-devtools-backed `edn/inspect` onto the
+            ;; first-class data-display widget. Diff path stays on
+            ;; `edn/diff` for now (phase 5 subsumes diff per D5=a).
+            [day8.re-frame2-xray.views.data-display :as dd]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
 
 ;; ---- shared section chrome ----------------------------------------------
@@ -136,9 +143,14 @@
   [value before render-id]
   (let [node-key (str "app-db-state/" render-id)]
     (if (= h/no-diff before)
-      (edn/inspect (f/display-value value)
-                   node-key
-                   {:copy? false})
+      ;; rf2-oqa60 phase 1 — current-state path uses the new
+      ;; first-class data-display widget. Mount-id is auto-generated
+      ;; internally (D4=a per rf2-sndui); the panel-id qualifier
+      ;; alone is enough to scope expansion state.
+      [dd/data-display
+       (f/display-value value)
+       {:panel-id :rf.xray/app-db
+        :default-expanded-depth 3}]
       (edn/diff {:before        (f/display-value before)
                  :after         (f/display-value value)
                  :panel-id      :app-db

@@ -67,7 +67,15 @@
 
 (defn- expand-fn-component [node]
   (if (and (vector? node) (fn? (first node)))
-    (expand-children (apply (first node) (rest node)))
+    (let [result (apply (first node) (rest node))]
+      ;; Form-2 Reagent components return an inner fn; re-call with
+      ;; the same args (per Reagent's re-render contract) to obtain
+      ;; the rendered hiccup. rf2-oqa60 — the data-display widget is
+      ;; form-2 so the mount-id stays stable across re-renders.
+      (expand-children
+        (if (fn? result)
+          (apply result (rest node))
+          result)))
     (expand-children node)))
 
 (defn- hiccup-seq [tree]
@@ -426,8 +434,12 @@
 ;; ---- (11) expand-surface EDN renders via the shared widget (2kwhw+f026h) --
 
 (deftest expand-meta-renders-through-edn-widget-with-copy
-  (testing "rf2-2kwhw + rf2-f026h — the registrar-meta block routes through
-            the shared cljs-devtools EDN widget and carries a copy button"
+  (testing "rf2-2kwhw + rf2-oqa60 — the registrar-meta block routes
+            through the shared EDN widget; phase 1 delegates to the
+            first-class data-display widget. The copy affordance is
+            deferred to the popup phase (D6=a) — phase 1 has no copy
+            chrome on the new widget, so this test now smokes the
+            widget wiring only."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
@@ -435,19 +447,9 @@
       (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart]
                         {:frame :rf/xray})
       (let [tree (panel/Panel)
-            ;; the meta block wrapper still carries its legacy testid;
-            ;; inside it the widget's browse container + copy button ride.
             widget (find-all-by-testid-prefix
-                     tree "rf-xray-edn-widget-browse-")
-            copy   (filter (fn [node]
-                             (and (vector? node)
-                                  (map? (second node))
-                                  (= "rf-xray-edn-widget-copy"
-                                     (:class (second node)))))
-                           (hiccup-seq tree))]
+                     tree "rf-xray-data-display-")]
         (is (some? (find-by-testid tree "rf-xray-static-routes-meta-route/cart"))
             "meta block wrapper preserved")
         (is (seq widget)
-            "registrar meta renders through the cljs-devtools browse widget")
-        (is (seq copy)
-            "the meta value carries the universal copy affordance")))))
+            "registrar meta renders through the data-display widget")))))

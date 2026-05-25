@@ -581,9 +581,18 @@
       (let [tree (trace/Panel)]
         (is (some? (find-by-testid tree "rf-xray-trace-row-13-payload"))
             "payload renders when row expanded")
-        (is (some? (find-by-testid tree
-                                   "rf-xray-edn-widget-browse-trace-trace-row-13"))
-            "cljs-devtools browse mounted with per-row render-id")))))
+        ;; rf2-oqa60 phase 1 — the EDN widget facade delegates to the
+        ;; first-class data-display widget; the browse container now
+        ;; carries a `rf-xray-data-display-*` testid (the per-mount
+        ;; mount-id is auto-generated UUID, so we assert by prefix).
+        (let [dd-nodes (filter (fn [n]
+                                 (and (vector? n)
+                                      (map? (second n))
+                                      (some-> (:data-testid (second n))
+                                              (.startsWith "rf-xray-data-display-"))))
+                               (hiccup-seq tree))]
+          (is (seq dd-nodes)
+              "data-display widget mounted for the expanded row"))))))
 
 (deftest source-coord-click-fires-open-in-editor
   (testing "clicking the source-coord ↗ fires :rf.xray/open-in-editor;
