@@ -23,7 +23,8 @@
 
   Pure-data unit tests; no DOM mount. Default for new Causa/Story
   tests per `feedback-causa-story-cljs-unit-tests-not-playwright`."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -1567,6 +1568,207 @@
           "background reads through `:bg-1` (CSS-var or hex per theme)")
       (is (= (str "1px solid " (:border-default tokens)) (:border style))
           "border reads through `:border-default` (CSS-var or hex per theme)"))))
+
+;; ---- rf2-okq7p — :header opt + three-shade card chrome -------------------
+;;
+;; `:header` opts the widget into the Machine-panel-aesthetic three-shade
+;; card chrome: outer `<section>` (background `:bg-2`, 1px border, 4px
+;; radius) + `<header>` ribbon (`:bg-3`, padding 10px 12px) + body sleeve
+;; (`:bg-1`, padding 12px). Consumer panels mounting multiple inspectors
+;; side-by-side (App-DB 3 mounts; Handler event/before/after/fx/coeffects)
+;; pass a per-mount header so the eye reads each as a discrete labelled
+;; card rather than blending into one continuous block.
+;;
+;; Default (`:header` nil) — no `<section>` wrapper, single-div render
+;; (unchanged from rf2-63ie5's `:card?` semantics).
+
+(defn- find-tag
+  "Return the first hiccup vector in `tree` whose tag is `tag`."
+  [tree tag]
+  (->> (walk-hiccup tree)
+       (filter (fn [n] (and (vector? n) (= tag (first n)))))
+       first))
+
+(deftest header-opt-omitted-renders-no-section-wrapper
+  (testing "rf2-okq7p — without `:header` the widget emits a single
+            `<div>` root, with no `<section>` wrapper and no
+            `<header>` ribbon (back-compat with pre-rf2-okq7p mounts)"
+    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})]
+      (is (= :div (first h)) "root tag is `<div>`, not `<section>`")
+      (is (nil? (find-tag h :section)) "no `<section>` anywhere in tree")
+      (is (nil? (find-tag h :header)) "no `<header>` ribbon")
+      (is (nil? (:data-rf-header (second h)))
+          "outer div omits the `data-rf-header` flag"))))
+
+(deftest header-opt-explicit-nil-renders-no-section-wrapper
+  (testing "rf2-okq7p — `:header nil` is equivalent to omitting the opt
+            (no section wrapper)"
+    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
+                                          :header nil})]
+      (is (= :div (first h)) "root tag is `<div>`")
+      (is (nil? (find-tag h :section)) "no `<section>` wrapper"))))
+
+(deftest header-opt-string-renders-section-and-ribbon
+  (testing "rf2-okq7p — `:header \"label\"` wraps the render in a
+            `<section>` with a `<header>` ribbon containing the supplied
+            string"
+    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
+                                          :header "Counter app · :rf/default"})]
+      (is (= :section (first h)) "root tag is `<section>`")
+      (is (= "1" (:data-rf-header (second h)))
+          "section publishes `data-rf-header=1` for testbed assertion")
+      (let [hdr (find-tag h :header)]
+        (is (some? hdr) "section contains a `<header>` ribbon")
+        (is (= "ribbon" (:data-rf-header-role (second hdr)))
+            "header ribbon publishes its role for selectors")
+        (is (some #{"Counter app · :rf/default"} (rest hdr))
+            "header ribbon contains the supplied string verbatim")))))
+
+(deftest header-opt-hiccup-passes-through-opaquely
+  (testing "rf2-okq7p — `:header [hiccup]` renders the supplied vector as
+            the ribbon content unchanged (the widget treats hiccup as
+            opaque — no parsing, no required shape)"
+    (let [header-hiccup [:span
+                         [:strong "Counter app"]
+                         " · "
+                         [:code ":rf/default"]]
+          h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
+                                          :header header-hiccup})
+          hdr (find-tag h :header)]
+      (is (= :section (first h)) "root tag is `<section>`")
+      (is (some? hdr) "section contains a `<header>` ribbon")
+      (is (some #(= header-hiccup %) (rest hdr))
+          "header ribbon embeds the hiccup vector verbatim"))))
+
+(deftest header-opt-composite-hiccup-with-children
+  (testing "rf2-okq7p — composite hiccup with label + code + button
+            children flows through the ribbon unchanged. Mike's bead
+            spec called out this composability — header carries label +
+            chips + per-inspector affordances"
+    (let [clicked (atom 0)
+          header-hiccup [:span
+                         [:strong "machine-app"]
+                         " · "
+                         [:code ":step-deck"]
+                         [:button {:on-click (fn [_] (swap! clicked inc))}
+                          "reset"]]
+          h (invoke-edn-inspector {:counter 1}
+                                  {:panel-id :rf.xray/app-db
+                                   :header header-hiccup})
+          hdr (find-tag h :header)
+          ;; Hunt the button down inside the ribbon.
+          btn (->> (walk-hiccup hdr)
+                   (filter (fn [n] (and (vector? n) (= :button (first n)))))
+                   first)]
+      (is (some? btn) "composite header retains the embedded `<button>`")
+      ;; Pull the on-click handler off the button and exercise it —
+      ;; pass-through is genuine, not a structural diff in disguise.
+      (when btn
+        ((:on-click (second btn)) {})
+        (is (= 1 @clicked)
+            "the supplied on-click handler fires when the ribbon button
+             is clicked")))))
+
+(deftest header-opt-three-shade-chrome-via-tokens
+  (testing "rf2-okq7p — the section + header + body each read a distinct
+            shade from the live `tokens` map (`:bg-2` outer, `:bg-3`
+            header, `:bg-1` body). Theme-aware via CSS variables — both
+            light + dark resolve at paint time."
+    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
+                                          :header "Counter"})
+          section-style (-> h second :style)
+          hdr           (find-tag h :header)
+          hdr-style     (-> hdr second :style)
+          ;; Body div is the LAST top-level child of the section (the
+          ;; affordance + header come before it).
+          body          (->> (rest h)
+                             (filter (fn [n]
+                                       (and (vector? n)
+                                            (= :div (first n))
+                                            (= "card-body"
+                                               (:data-rf-body-role (second n))))))
+                             first)
+          body-style    (-> body second :style)]
+      (is (= (:bg-2 tokens) (:background-color section-style))
+          "outer section reads `:bg-2` (light: #ffffff / dark: bg-2 token)")
+      (is (= (str "1px solid " (:border-default tokens))
+             (:border section-style))
+          "outer border reads `:border-default`")
+      (is (= "4px" (:border-radius section-style))
+          "outer corner radius 4px (matches Machine panel)")
+      (is (= (:bg-3 tokens) (:background hdr-style))
+          "header ribbon reads `:bg-3` (light: #e8e8e8)")
+      (is (= "10px 12px" (:padding hdr-style))
+          "header ribbon padding 10px 12px (matches Machine panel)")
+      (is (= (str "1px solid " (:border-subtle tokens))
+             (:border-bottom hdr-style))
+          "header ribbon carries a `:border-subtle` bottom rule")
+      (is (= (:bg-1 tokens) (:background body-style))
+          "body sleeve reads `:bg-1` (light: #f5f5f5)")
+      (is (= "12px" (:padding body-style))
+          "body sleeve padding 12px"))))
+
+(deftest header-opt-preserves-mount-id-and-testid-on-section
+  (testing "rf2-okq7p — when the widget chromes itself, the mount-id +
+            container testid + ref + data-rf-mode flag move to the
+            section so existing test selectors keep working. The body's
+            edn-inspector tree still renders inside the body div."
+    (let [h (invoke-edn-inspector {:a 1 :b 2}
+                                  {:panel-id :rf.xray/app-db
+                                   :header "Counter"})
+          attrs (second h)]
+      (is (= :section (first h)) "root tag is `<section>`")
+      (is (some? (:data-testid attrs))
+          "section carries the container `data-testid` (same id contract)")
+      (is (some? (:data-rf-mount-id attrs))
+          "section carries the auto-generated `mount-id`")
+      (is (= "browse" (:data-rf-mode attrs))
+          "section carries the mode flag")
+      (is (fn? (:ref attrs))
+          "section carries the measurement ref callback"))))
+
+(deftest header-opt-renders-body-content-inside-body-sleeve
+  (testing "rf2-okq7p — the actual edn-inspector tree (collection-kind
+            scalars + brackets + body) lives inside the body sleeve, not
+            inside the header ribbon"
+    (let [h (invoke-edn-inspector {:counter 7}
+                                  {:panel-id :rf.xray/app-db
+                                   :header "Counter"})
+          body (->> (walk-hiccup h)
+                    (filter (fn [n]
+                              (and (vector? n)
+                                   (map? (second n))
+                                   (= "card-body"
+                                      (:data-rf-body-role (second n))))))
+                    first)]
+      (is (some? body) "section contains a body sleeve")
+      ;; The body should contain a representation of the `:counter` key
+      ;; somewhere in its subtree (collected as text leaves).
+      (is (str/includes? (collect-text body) ":counter")
+          "body sleeve renders the `:counter` key from the value")
+      (is (str/includes? (collect-text body) "7")
+          "body sleeve renders the numeric `7`"))))
+
+(deftest header-opt-keeps-popup-affordance-on-section
+  (testing "rf2-okq7p — when `:popup-affordance?` is on alongside
+            `:header`, the icon button still renders inside the section
+            (positioned at the section's top-right corner via the
+            outer `position: relative`)"
+    (let [h (invoke-edn-inspector {:a 1}
+                                  {:panel-id :rf.xray/app-db
+                                   :header "Counter"
+                                   :popup-affordance? true})
+          attrs (second h)
+          ;; Affordance button lives as a direct child of the section.
+          button (->> (rest h)
+                      (filter (fn [n] (and (vector? n) (= :button (first n)))))
+                      first)]
+      (is (= "relative" (:position (:style attrs)))
+          "section establishes positioning context for the absolute button")
+      (is (= "1" (:data-rf-popup-affordance? attrs))
+          "section publishes the affordance flag")
+      (is (some? button)
+          "section contains the popup affordance button as a direct child"))))
 
 ;; =========================================================================
 ;; rf2-kbdk8 — width-aware expansion heuristic

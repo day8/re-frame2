@@ -1312,6 +1312,14 @@ reach for `[edn-inspector value opts]` directly.
   modal chrome, diff sub-renderers) leave it off; panels with
   multiple top-level inspector mounts (App-DB's TOP + per-`:rf/*`
   sections) opt in. Defaults `false`.
+- `:header` (rf2-okq7p) — when supplied (string or hiccup), the
+  widget renders the three-shade card chrome from §10.0.10
+  (outer `<section>` + `<header>` ribbon + body sleeve) modelled on
+  the Machine panel's `focused-event-section`. `nil` (default)
+  renders inline with no section wrapper. Consumers supply a label
+  string for simple cases or hiccup for composite headers (label +
+  code chip + per-inspector affordances). See §10.0.10 for the
+  three-shade ramp + composition rules.
 - `:site-id` (rf2-pvsxs) — when supplied, becomes the second
   component of the per-node expansion key INSTEAD of the auto-
   generated mount-id. Lets the same logical call site survive a
@@ -1841,6 +1849,106 @@ Public for tests + reference:
 
 The ns is required for side-effect (the `extend-type` forms) from
 `views.edn-inspector` itself — no call-site registration needed.
+
+#### §10.0.10 `:header` opt — three-shade card chrome (rf2-okq7p)
+
+Consumer panels routinely mount multiple top-level `edn-inspector`s
+side by side: App-DB has three (counter-app db, machine-app db, route
+params); Handler/Event has up to five per epoch (event vector, db-
+before, db-after, fx, coeffects). Without per-mount labelling the eye
+has to *read the value* to figure out which inspector is which. The
+Machine panel already solves the same problem via a card aesthetic —
+white-bordered `<section>` + darker-grey `<header>` ribbon labelling
+the section + lighter-grey body containing the content — and the
+operator likes that pattern. `:header` lifts the aesthetic into the
+widget so any consumer panel can opt in per mount.
+
+**Surface** — one new opt on the existing `[edn-inspector value opts]`:
+
+| `:header` value     | Behaviour                                                          |
+|---------------------|--------------------------------------------------------------------|
+| `nil` (default)     | No section wrapper — single-div render (back-compat).              |
+| string              | `<section>` + `<header>` ribbon containing the string.             |
+| hiccup vector       | `<section>` + `<header>` ribbon containing the hiccup verbatim.    |
+
+The widget treats the hiccup as opaque — no parsing, no required shape.
+Consumer panels supply whatever they want (label + code chip + per-
+inspector affordances):
+
+```clj
+[ei/edn-inspector counter-db
+ {:panel-id :rf.xray/app-db
+  :site-id  :app-db/counter
+  :header   [:span
+             [:strong "Counter app"]
+             " · "
+             [:code ":rf/default"]
+             [:button {:on-click reset-counter!} "reset"]]}]
+```
+
+**Three-shade structure** — measured live against the Machine panel's
+`focused-event-section` (pair-debug 2026-05-26) and codified through
+the existing token table — no new tokens introduced:
+
+```
+<section> :bg-2 (light: #ffffff)
+          1px solid :border-default
+          4px border-radius
+          margin-bottom 8px
+  <header> :bg-3 (light: #e8e8e8)
+           padding 10px 12px
+           border-bottom 1px solid :border-subtle
+    <!-- the :header value renders here -->
+  <div>   :bg-1 (light: #f5f5f5)
+          padding 12px
+    <!-- the actual edn-inspector tree renders here -->
+```
+
+The three-shade ramp (`:bg-2` outer / `:bg-3` header / `:bg-1` body)
+reads as a single card with a distinct label band rather than one
+continuous block. Theme-aware via the existing `tokens` map — both
+light and dark resolve at paint time without a re-render.
+
+**Composition with other opts** —
+
+- **`:popup-affordance?`** — the affordance icon button stays at the
+  section's top-right corner. The section establishes the positioning
+  context (`position: relative`).
+- **`:card?`** (rf2-63ie5) — `:header` provides its own surface chrome,
+  so `:card?` is usually redundant when `:header` is present.
+  Independent for back-compat; consumers normally pick one.
+- **Width measurement / `:ref` / mount-id testid** — when `:header`
+  fires, the measurement ref + container testid + `data-rf-mount-id`
+  + `data-rf-mode` all migrate to the section so existing DOM-level
+  consumers (tests, panel-gallery selectors) keep their selectors
+  working against `data-testid container-id` regardless of which
+  shape rendered.
+
+**Where to opt in** — per the bead's audit, panels with multiple top-
+level inspector mounts that benefit from labelling:
+
+- **App-DB** — counter-app db / machine-app db / routes (three labels).
+- **Handler/Event** — event vector / db-before / db-after / fx /
+  coeffects (per-slot labels).
+- **Issues** — ex-data inspector (when present alongside other
+  inspectors in the same panel).
+- **Routes** — per top-level slot.
+
+**Where NOT to opt in** — the inspector is already nested in a
+labelled container or the mount is inline / table-cell / popup-
+internal:
+
+- **Machines panel** — sub-panels already carry the header+body
+  pattern; nesting would be card-in-card.
+- **Views panel** — already wrapped in its own card chrome.
+- **Trace panel** — expanded payloads sit inside a trace row that
+  already carries chrome.
+- **Popup contents** — the popup overlay supplies modal chrome; the
+  inner `edn-inspector` recurses with `:popup-affordance? false`
+  (§10.0.7.2) and would equally suppress its own card.
+
+Consumer adoption is per-panel and case-by-case; this section
+documents the contract, not a blanket migration.
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
