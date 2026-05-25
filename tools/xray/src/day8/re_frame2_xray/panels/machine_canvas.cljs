@@ -53,13 +53,20 @@
                                      per-machine mode at the panel
                                      level.
     :testid                 \"rf-xray-static-machines-topology\""
-  (:require [cljs.reader :as reader]
+  (:require [clojure.string :as str]
+            [cljs.reader :as reader]
             [re-frame.core :as rf]
             [day8.re-frame2-machines-viz.chart :as mv-chart]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
+            ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the canvas-side
+            ;; snapshot drill-in surface mounts the first-class
+            ;; data-display widget directly. Per spec/021 §10 widget
+            ;; contract; every call site qualifies with a per-machine
+            ;; `:panel-id`.
+            [day8.re-frame2-xray.views.data-display :as dd]
             [day8.re-frame2-xray.theme.tokens
              :as t
-             :refer [tokens sans-stack]]))
+             :refer [tokens sans-stack mono-stack]]))
 
 ;; ---- app-db slots -------------------------------------------------------
 
@@ -346,6 +353,75 @@
       (let [mode @(rf/subscribe
                     [:rf.xray.machine-canvas/view-mode-for machine-id])]
         (view-mode-toggle {:machine-id machine-id :mode mode}))])])
+
+;; ---- snapshot drill-in (rf2-lxvn6 · spec/021 §10 widget contract) -----
+;;
+;; The canvas-side companion to `machine_inspector/snapshot-drill-in`.
+;; Mounts a single machine snapshot map (`{:state X :data Y}`) through
+;; the first-class data-display widget. Callers that already have a
+;; snapshot in hand (e.g. the Chart's `:current-state` source: a
+;; topology fallback, a static-mode reader, a future hover/popup)
+;; embed this view to surface the full structure without re-implementing
+;; the widget contract. Per-machine `:panel-id` qualifier keeps two
+;; machines' expansion state independent.
+
+(defn- snapshot-panel-id
+  "Compose a per-machine `:panel-id` qualifier for a snapshot drill-in
+  mount. Returns a namespaced keyword shaped like
+  `:rf.xray.machine-snapshot/auth.login-current`. The phase suffix
+  (`:current`, `:before`, `:after`) scopes multiple sibling mounts on
+  the same machine so their expansion state doesn't bleed."
+  [machine-id phase]
+  (keyword "rf.xray.machine-snapshot"
+           (str (some-> machine-id str (subs 1) (str/replace "/" "."))
+                (when phase (str "-" (name phase))))))
+
+(defn SnapshotDrillIn
+  "Render `snapshot` (typically `{:state X :data Y}`) via the first-class
+  data-display widget. Pure hiccup — no rf reads.
+
+  Args (map):
+
+    :machine-id  — keyword; identifies the per-machine expansion-state
+                   scope. Required for the `:panel-id` qualifier.
+    :snapshot    — the snapshot map. nil renders an empty-state chip
+                   so callers don't have to gate the mount themselves.
+    :phase       — keyword used as the panel-id phase suffix (defaults
+                   `:current`). Use `:before` / `:after` when rendering
+                   transition snapshots so the two sibling mounts don't
+                   share expansion state.
+    :testid      — wrapper testid override (default
+                   `'rf-xray-machine-canvas-snapshot-drill-in'`).
+
+  Returns hiccup."
+  [{:keys [machine-id snapshot phase testid]
+    :or   {phase  :current
+           testid "rf-xray-machine-canvas-snapshot-drill-in"}}]
+  [:div {:data-testid     testid
+         :data-machine-id (str machine-id)
+         :data-phase      (name phase)
+         :data-has-snapshot (str (some? snapshot))
+         :style {:padding "8px 12px"
+                 :background (:bg-1 tokens)
+                 :border (str "1px solid " (:border-subtle tokens))
+                 :border-radius "4px"}}
+   [:div {:style {:color (:text-tertiary tokens)
+                  :text-transform "uppercase"
+                  :font-size "10px"
+                  :letter-spacing "0.5px"
+                  :font-family sans-stack
+                  :margin-bottom "4px"}}
+    (str "Snapshot · " (name phase))]
+   (if (nil? snapshot)
+     [:div {:data-testid (str testid "-empty")
+            :style {:font-family mono-stack
+                    :font-size "11px"
+                    :font-style "italic"
+                    :color (:text-tertiary tokens)}}
+      "(no snapshot — machine uninitialised or trace pre-snapshot-tagging)"]
+     [dd/data-display snapshot
+      {:panel-id (snapshot-panel-id machine-id phase)
+       :default-expanded-depth 2}])])
 
 ;; ---- install ------------------------------------------------------------
 

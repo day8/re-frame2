@@ -52,6 +52,12 @@
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             [day8.re-frame2-xray.share :as share]
+            ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the per-machine
+            ;; snapshot drill-in surface mounts the first-class
+            ;; data-display widget directly. Each machine gets its own
+            ;; `:panel-id` qualifier so two machines' expansion state
+            ;; stays independent. See spec/021 §10 widget contract.
+            [day8.re-frame2-xray.views.data-display :as dd]
             [day8.re-frame2-xray.theme.tokens
              :as t
              :refer [tokens mono-stack sans-stack display-stack]]))
@@ -262,15 +268,141 @@
               ^{:key (str (:action-id a))}
               (lens-action-block machine-id a)))])])
 
+;; ---- snapshot drill-in (rf2-lxvn6 · spec/021 §10 widget contract) -----
+;;
+;; Phase 4 of rf2-oqa60 wires the per-machine snapshot value through
+;; the first-class data-display widget at
+;; `day8.re-frame2-xray.views.data-display`. Each call site qualifies
+;; with a per-machine `:panel-id` so two machines' (or before/after's
+;; on the same machine) expansion state stays independent — the rule
+;; per spec/021 §10.0.2 acceptance property 5 (per-call-site isolation
+;; via mount-id) and property 1 (per-type colours via CSS variables).
+;;
+;; The drill-in shows the FULL `{:state X :data Y}` snapshot map so the
+;; operator can inspect what `:data` carried at the moment of
+;; transition — the bug class spec/003 §M.10 (Snapshot diff across
+;; transitions) calls out: today the chart highlights state changes;
+;; `:data` mutations are invisible unless the user opens the app-db
+;; diff. The drill-in is the snapshot-visibility primitive that closes
+;; that gap; phase 5 (D5=a) adds the diff overlay on top of the same
+;; widget.
+
+(defn- snapshot-panel-id
+  "Compose a per-machine `:panel-id` qualifier for the snapshot
+  drill-in mount. Each machine gets a distinct namespaced keyword so
+  the widget's `:rf.xray.data-display/expansion` slot scopes by
+  machine-id; expansion under `:auth/login` doesn't bleed into
+  expansion under `:checkout/flow`.
+
+  The `phase` suffix (`:before` / `:after` / `:current`) further
+  scopes a single machine's before vs after vs live-current snapshot
+  in the focused-event section so the operator can drill into both
+  without one toggle clobbering the other.
+
+  Returns a keyword shaped like `:rf.xray.machine-snapshot/auth.login-before`."
+  [machine-id phase]
+  (keyword "rf.xray.machine-snapshot"
+           (str (some-> machine-id str (subs 1) (str/replace "/" "."))
+                (when phase (str "-" (name phase))))))
+
+(defn- machine-id-suffix
+  "Render `machine-id` as a testid suffix that preserves the
+  namespaced portion (e.g. `:auth/login` → `\"auth/login\"`). Mirrors
+  the existing `focused-event-section-` testid convention so panel-
+  level tests can assert by the same shape."
+  [machine-id]
+  (cond
+    (nil? machine-id) ""
+    (keyword? machine-id) (subs (str machine-id) 1)
+    :else (str machine-id)))
+
+(defn- snapshot-block
+  "Render one machine snapshot map (`{:state X :data Y}`) via the
+  first-class data-display widget (rf2-oqa60 phase 1, rf2-lxvn6 phase
+  4). Tagged with a section heading + the per-mount testid so panel-
+  level tests can assert presence per (machine-id, phase) pair.
+
+  Returns `nil` when the snapshot is absent — the empty-state is
+  handled by the caller (a top-level placeholder is more legible than
+  a per-block nil chip)."
+  [{:keys [machine-id phase label snapshot]}]
+  (when (some? snapshot)
+    [:div {:data-testid    (str "rf-xray-machine-snapshot-block-"
+                                (machine-id-suffix machine-id)
+                                "-" (name phase))
+           :data-machine-id (str machine-id)
+           :data-phase      (name phase)
+           :style {:padding "8px 12px"
+                   :border-bottom (str "1px solid " (:border-subtle tokens))
+                   :background (:bg-1 tokens)}}
+     [:div {:style {:color (:text-tertiary tokens)
+                    :text-transform "uppercase"
+                    :font-size "10px"
+                    :letter-spacing "0.5px"
+                    :font-family sans-stack
+                    :margin-bottom "4px"}}
+      label]
+     [dd/data-display snapshot
+      {:panel-id (snapshot-panel-id machine-id phase)
+       :default-expanded-depth 2}]]))
+
+(defn- snapshot-drill-in
+  "Snapshot drill-in section beneath the focused-event chart. Renders
+  the BEFORE and AFTER snapshot maps for the focused transition via
+  the first-class data-display widget so the operator can inspect
+  what `:data` carried on either side of the transition (spec/003
+  §M.10 bug class — `:data` mutations invisible without app-db diff).
+
+  Per spec/021 §10 widget contract every call site qualifies with a
+  per-machine `:panel-id`; here the qualifier folds in the phase
+  (`:before` / `:after`) so the two sibling mounts don't share
+  expansion state on the same machine.
+
+  Renders nothing when both snapshots are nil (legacy trace fixtures
+  pre-dating the commit-or-finalize snapshot tagging — see
+  `transition-record-from-trace` docstring)."
+  [{:keys [machine-id before after]}]
+  (when (or (some? before) (some? after))
+    [:section
+     {:data-testid     "rf-xray-machine-snapshot-drill-in"
+      :data-machine-id (str machine-id)
+      :data-has-before (str (some? before))
+      :data-has-after  (str (some? after))
+      :style {:border-bottom (str "1px solid " (:border-subtle tokens))
+              :background (:bg-2 tokens)}}
+     [:header {:style {:padding "8px 12px"
+                       :background (:bg-3 tokens)
+                       :border-bottom (str "1px solid " (:border-subtle tokens))
+                       :font-family sans-stack
+                       :font-size "11px"
+                       :color (:text-secondary tokens)}}
+      [:span {:style {:color (:text-tertiary tokens)
+                      :text-transform "uppercase"
+                      :font-size "10px"
+                      :letter-spacing "0.5px"
+                      :margin-right "8px"}}
+       "Snapshot"]
+      [:span {:style {:color (:text-secondary tokens)}}
+       "transition · before / after"]]
+     (snapshot-block {:machine-id machine-id
+                      :phase :before
+                      :label "Before"
+                      :snapshot before})
+     (snapshot-block {:machine-id machine-id
+                      :phase :after
+                      :label "After"
+                      :snapshot after})]))
+
 ;; ---- per-machine focused-event section ---------------------------------
 
 (defn- focused-event-section
   "Render one section per transitioned machine. Lens (above the chart,
-  rf2-2n34o) → header → chart → cancellation cascade (inline) →
-  after-rings overlay (on the chart). Guards / actions detail lives
-  in the lens, not in a separate strip below the chart."
+  rf2-2n34o) → header → chart → snapshot drill-in (rf2-lxvn6) →
+  cancellation cascade (inline) → after-rings overlay (on the chart).
+  Guards / actions detail lives in the lens, not in a separate strip
+  below the chart."
   [{:keys [machine-id from-state to-state on-event event microstep?
-           definition fired-edge-ids]
+           definition fired-edge-ids before after]
     :as record}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance (layout-or-fallback / ensure-elk! / compute-layout!)
@@ -429,6 +561,15 @@
                                         :path       path}]
                                       {:frame :rf/xray}))
               :show-after-rings?  true}]])))
+     ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — snapshot drill-in. Each
+     ;; per-machine section renders the BEFORE / AFTER snapshot maps
+     ;; through the first-class data-display widget (spec/021 §10).
+     ;; Per-machine `:panel-id` qualifier keeps two machines' expansion
+     ;; state independent; the `:before` / `:after` phase suffix scopes
+     ;; the two sibling mounts on the same machine. The whole block
+     ;; renders nothing when the trace tags lack the
+     ;; commit-or-finalize snapshot pair (legacy fixtures).
+     (snapshot-drill-in record)
      ;; rf2-2n34o — guards/actions detail lives in the
      ;; `focused-transition-lens` ABOVE the chart (per spec/003
      ;; §Focused-transition lens). The redundant ✓/✗ status strips

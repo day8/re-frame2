@@ -443,6 +443,37 @@
         (is (= :issue-token (-> rec :actions first :action-id)))
         (is (= :ok          (-> rec :actions first :outcome)))))))
 
+(deftest project-focused-event-surfaces-before-and-after-snapshots
+  ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the per-transition record
+  ;; carries the full `:before` / `:after` snapshot maps so the panel's
+  ;; snapshot drill-in surface (spec/021 §10 widget contract) can
+  ;; render them via the first-class data-display widget. The two
+  ;; slots are nil when the trace tags lack the commit-or-finalize
+  ;; snapshot pair (legacy fixtures).
+  (testing "the record exposes :before and :after snapshot maps when
+            the trace tags carry them"
+    (let [events [(t-event 1 :auth/login :idle :authing [:auth/submit])]
+          rec    (-> (h/project-focused-event-transitions events) first)]
+      (is (= {:state :idle :data {}} (:before rec))
+          ":before snapshot threaded through")
+      (is (= {:state :authing :data {}} (:after rec))
+          ":after snapshot threaded through")))
+  (testing "the record's :before / :after slots are nil for legacy
+            traces that only carry the `:from`/`:to` tag slots"
+    (let [events [{:id 1 :time 1 :operation :rf.machine/transition
+                   :tags {:machine-id :auth/login
+                          :from       :idle
+                          :to         :authing
+                          :event      [:auth/submit]}}]
+          rec    (-> (h/project-focused-event-transitions events) first)]
+      (is (nil? (:before rec))
+          ":before is nil on legacy traces — drill-in suppresses the block")
+      (is (nil? (:after rec))
+          ":after is nil on legacy traces")
+      ;; The from/to-state fallback still resolves so the lens renders.
+      (is (= :idle (:from-state rec)))
+      (is (= :authing (:to-state rec))))))
+
 (deftest project-focused-event-coerces-fn-refs-to-renderable-ids
   ;; rf2-ujra6 — per spec/Spec-Schemas `:guard-id` / `:action-id` carry
   ;; the user-declared ref as-is, which is "keyword OR inline fn". The

@@ -438,7 +438,13 @@
   view-consumed record shape. The trace carries `:before` / `:after`
   snapshots (per registration.cljc's commit-or-finalize) so we can read
   the from-state / to-state directly off the snapshot pair. Falls back
-  to the legacy `:from`/`:to` tag slots when present (test fixtures)."
+  to the legacy `:from`/`:to` tag slots when present (test fixtures).
+
+  The full `:before` / `:after` snapshot maps (`{:state X :data Y}`) are
+  carried through on the record so the panel's snapshot drill-in
+  surface (rf2-lxvn6, spec/021 §10) can render them via the first-class
+  data-display widget. nil when the trace pre-dates the snapshot
+  tagging contract (legacy `:from`/`:to`-only fixtures)."
   [ev]
   (let [tags  (get ev :tags {})
         before (:before tags)
@@ -457,6 +463,11 @@
     {:machine-id   (machine-id-of ev)
      :from-state   from-state
      :to-state     to-state
+     ;; Full snapshot maps for the drill-in surface (rf2-lxvn6 — spec/021
+     ;; §10 widget contract). nil when the trace tags lack the
+     ;; commit-or-finalize snapshot pair (legacy fixtures).
+     :before       before
+     :after        after
      :on-event     on-event
      :event        event-v
      :time         (:time ev)
@@ -581,6 +592,8 @@
       {:machine-id   <kw>
        :from-state   <kw|vec|nil>
        :to-state     <kw|vec|nil>
+       :before       <snapshot-map|nil>   ;; full {:state :data} pre-transition
+       :after        <snapshot-map|nil>   ;; full {:state :data} post-transition
        :on-event     <kw|nil>
        :event        <event-vec|nil>
        :time         <int|nil>

@@ -539,6 +539,116 @@
         (is (str/includes? hiccup-strs "(fn source unavailable)")
             "muted fallback rendered when handler-meta is absent")))))
 
+;; ---- (4c) snapshot drill-in (rf2-lxvn6 · spec/021 §10 widget contract) ----
+
+(deftest snapshot-drill-in-renders-before-and-after-snapshots
+  (testing "the focused-event section's snapshot drill-in surface mounts
+            the BEFORE and AFTER snapshots through the first-class
+            data-display widget (rf2-oqa60 phase 1 · rf2-lxvn6 phase 4).
+            Per spec/021 §10 the per-machine `:panel-id` qualifier keeps
+            two machines' expansion state independent; the `:before` /
+            `:after` phase suffix scopes the two sibling mounts on the
+            same machine."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle
+                                :data  {:user nil :retries 0}}
+                   :after      {:state :authing
+                                :data  {:user "alice" :retries 1}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree   (machine-inspector/Panel)
+            drill  (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
+            before (find-by-testid
+                     tree "rf-xray-machine-snapshot-block-auth/login-before")
+            after  (find-by-testid
+                     tree "rf-xray-machine-snapshot-block-auth/login-after")]
+        (is (some? drill)
+            "drill-in section mounts when before/after snapshots are present")
+        (is (= ":auth/login" (:data-machine-id (second drill)))
+            "drill-in carries the per-machine id so tests can scope assertions")
+        (is (= "true" (:data-has-before (second drill)))
+            "before snapshot presence surfaced on the host")
+        (is (= "true" (:data-has-after (second drill)))
+            "after snapshot presence surfaced on the host")
+        (is (some? before)
+            "BEFORE snapshot block renders")
+        (is (some? after)
+            "AFTER snapshot block renders")
+        (is (= "before" (:data-phase (second before)))
+            "BEFORE block carries the :before phase tag")
+        (is (= "after" (:data-phase (second after)))
+            "AFTER block carries the :after phase tag")))))
+
+(deftest snapshot-drill-in-suppressed-when-legacy-trace-lacks-snapshots
+  (testing "legacy trace fixtures that pre-date the commit-or-finalize
+            snapshot pair (only `:from`/`:to` keys, no `:before`/`:after`
+            maps) suppress the drill-in entirely — the section renders
+            nothing rather than empty blocks. This keeps the M.10 surface
+            from showing 'snapshot · (uninitialised)' chrome on legacy
+            traces."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        ;; Only legacy `:from`/`:to` tags — no `:before`/`:after` snapshots.
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :from       :idle
+                   :to         :authing
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree (machine-inspector/Panel)]
+        ;; The focused-event surface still mounts (the lens uses the
+        ;; from/to legacy slots), but the snapshot drill-in is hidden.
+        (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
+            "focused-event surface still mounts on a legacy trace")
+        (is (nil? (find-by-testid tree "rf-xray-machine-snapshot-drill-in"))
+            "snapshot drill-in is suppressed when before/after snapshots
+             are absent")))))
+
+(deftest snapshot-drill-in-renders-when-only-after-snapshot-present
+  (testing "an epoch that carries only an `:after` snapshot (e.g. machine
+            initialisation events emit no `:before`) still surfaces the
+            drill-in — the surface degrades gracefully, rendering only
+            the present block."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :after      {:state :idle :data {}}
+                   :event      [:auth/init] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree  (machine-inspector/Panel)
+            drill (find-by-testid tree "rf-xray-machine-snapshot-drill-in")]
+        (is (some? drill)
+            "drill-in renders when at least one snapshot is present")
+        (is (= "false" (:data-has-before (second drill)))
+            "before-presence surface reflects the missing :before slot")
+        (is (= "true" (:data-has-after (second drill)))
+            "after-presence surface reflects the present :after slot")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-snapshot-block-auth/login-before"))
+            "BEFORE block is omitted when its snapshot is nil")
+        (is (some? (find-by-testid
+                     tree "rf-xray-machine-snapshot-block-auth/login-after"))
+            "AFTER block renders when its snapshot is present")))))
+
 ;; ---- (5) per-machine prev/next nav -------------------------------------
 
 (deftest prev-next-nav-renders-when-a-machine-is-in-scope
