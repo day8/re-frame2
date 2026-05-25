@@ -25,7 +25,6 @@
 | `views.cljs` | UI — status pill driven by tags, lifecycle buttons, send form, request/subscribe/server-push demo trio, inbox. |
 | `schema.cljs` | Malli schemas for the connection-machine snapshot, the `:data` slice, and the `[:messages]` slice. |
 | `index.html` | Minimal harness. |
-| `websocket.spec.cjs` | Playwright smoke — drives the connect / request-reply / server-push / drop-and-reconnect path. |
 | `test/websocket/connection_test.cljs` | Headless tests: initial state, happy-path lifecycle, offline-queue + drain, reconnect cascade, max-retries → `:failed`, connection-epoch staleness, `:ws/refresh-token`, clean `:ws/disconnect`. |
 | `test/websocket/messages_test.cljs` | Headless tests: request-reply correlation, server-push routing, subscription tracking, `[:messages :received]` newest-first invariant. |
 
@@ -58,7 +57,7 @@ The example is wired into the canonical examples harness. From `implementation/`
 npm run test:examples
 ```
 
-That compiles every example (this one builds under shadow-cljs id `examples/websocket`), stages its `index.html` into `out/examples/websocket/`, serves the lot on port 8030, and runs [`websocket.spec.cjs`](websocket.spec.cjs) against it.
+That compiles every example (this one builds under shadow-cljs id `examples/websocket`), stages its `index.html` into `out/examples/websocket/`, and serves the lot on port 8030.
 
 To iterate on the source alone, watch the build directly from `implementation/`:
 
