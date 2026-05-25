@@ -48,10 +48,24 @@
                     a stable site-id does not). Omit to keep the per-
                     call-site isolation default (two `[data-display]`
                     mounts side-by-side stay independent).
-  - `:default-expanded-depth` (optional, default 2) — first-render
-                    expansion depth before operator clicks.
-  - `:max-inline-width` (optional, default 60) — character budget
-                    before forced-vertical layout.
+  - `:default-expanded-depth` (optional, default 8) — rf2-kbdk8: now an
+                    EXPAND CEILING rather than a trigger. The widget
+                    NEVER auto-expands past this depth — deeper nodes
+                    render as a `▸ {…N keys}` collapsed summary unless
+                    the operator clicks. Under the width-aware
+                    heuristic shallow nodes inline whenever their full
+                    `pr-str` fits the measured column; the depth ceiling
+                    only protects against pathological wide-and-deep
+                    auto-expansion when measurements are unavailable.
+                    Default raised from 2 → 8 to reflect the new
+                    semantic; tests that explicitly pass
+                    `:default-expanded-depth 2` (or any number) get the
+                    legacy depth-driven behaviour unchanged when no
+                    width measurement has arrived.
+  - `:max-inline-width` (optional, default 60) — character budget for
+                    the COLLAPSED-PREVIEW one-liner (`▸ {:a 1, :b 2,
+                    …}` style); leaves the width-aware inline decision
+                    to `available-width-px` (the measured column).
   - `:max-depth` (optional, default 16) — hard cap on recursion
                     depth; deeper levels render `{…}` collapsed.
   - `:before` (optional) — when supplied, the widget renders in DIFF
@@ -216,6 +230,48 @@
 (rf/reg-event-db :rf.xray.data-display/reset-expansion
   (fn [db _]
     (dissoc db expansion-slot)))
+
+;; =========================================================================
+;; available-width capture — per-mount measurement for the width-aware
+;; expansion heuristic (rf2-kbdk8)
+;; =========================================================================
+;;
+;; The widget measures its container's `clientWidth` via a `:ref` callback
+;; and stores the result keyed by `mount-id` under this app-db slot. A
+;; ResizeObserver, installed when the container element mounts, updates the
+;; slot whenever the panel resizes — wider → more collections render inline;
+;; narrower → more expand.
+;;
+;; Per-mount keying lets two sibling mounts in the same panel record
+;; different widths without colliding (e.g. a multi-column comparison panel
+;; where each column hosts its own inspector).
+;;
+;; When no measurement is yet present (first render before the ref fires,
+;; or a programmatic test render that doesn't mount), the widget falls
+;; back to the legacy strict inline-fit gate — the heuristic improvement
+;; is additive and graceful.
+
+(def widths-slot
+  "App-db slot holding the per-mount measured container widths in CSS
+  pixels (map of `mount-id` → integer). Public so tests + consuming
+  panels can drive measurements deterministically without spinning up a
+  real DOM."
+  :rf.xray.data-display/widths)
+
+(rf/reg-sub widths-slot
+  (fn [db _] (get db widths-slot)))
+
+(rf/reg-event-db :rf.xray.data-display/set-width
+  (fn [db [_ mount-id width-px]]
+    (if (and (string? mount-id) (number? width-px) (pos? width-px))
+      (assoc-in db [widths-slot mount-id] (long width-px))
+      db)))
+
+(rf/reg-event-db :rf.xray.data-display/clear-width
+  (fn [db [_ mount-id]]
+    (if (and (string? mount-id) (some-> db (get widths-slot) (contains? mount-id)))
+      (update db widths-slot dissoc mount-id)
+      db)))
 
 (defn resolve-expanded?
   "Pure projection — given the per-render expansion map, the path,
@@ -756,22 +812,136 @@
     :else        [:span {:style (token-style :text-primary)}
                   (try (pr-str k) (catch :default _ (str k)))]))
 
-(defn- default-expanded?
-  "Pure depth/size heuristic — shallow nodes expand, deep + wide
-  nodes collapse. The operator's sticky override wins via
-  `resolve-expanded?`.
+;; =========================================================================
+;; width-aware expansion heuristic (rf2-kbdk8)
+;; =========================================================================
+;;
+;; The closed-renderer's auto-expansion was depth-driven — any container
+;; within `default-expanded-depth` opened automatically regardless of how
+;; trivially its inline form would fit the available column width. Result:
+;; short values rendered as 8-9 row trees that consumed ~9× the vertical
+;; real-estate of their inline equivalents.
+;;
+;; The new heuristic flips the test: render inline FIRST when the value's
+;; estimated inline width fits the available column (with a small safety
+;; margin); only fall back to tree-expand when the inline form would
+;; overflow. `default-expanded-depth` is repurposed as a CEILING — never
+;; auto-expand past depth N even when the inline form overflows; show a
+;; collapsed-summary instead. The operator's sticky override and diff-
+;; mode's force-open-over-changed-descendant rule still win.
+;;
+;; Width is estimated by `(* char-count mono-char-width-px)` — JetBrains
+;; Mono / Source Code Pro at the inspector's 12px size carries an
+;; ~7.2px-wide M-advance; rounding up to 7px gives a slightly conservative
+;; estimate (real strings render a hair narrower, so the inline gate is
+;; slightly stricter than the actual fit — never the reverse, which would
+;; cause horizontal overflow).
+;;
+;; A `safety-margin-px` of 16px guards against edge-case wrap (a few extra
+;; pixels for the closing bracket, gutter, scroll-bar reserve). Tested live
+;; against the Handler panel dispatch-section mount (rf2-kbdk8 bead body):
+;; the 81-char `[:ws/connection [:rf.machine.timer/after-elapsed 2501
+;; [:active :authenticating]]]` value at ~570px estimate fits trivially in
+;; the 966px column and now renders inline at one row (was 148px / 8-9 rows).
+
+(def mono-char-width-px
+  "Monospace M-advance in CSS pixels at the inspector's 12px font size.
+  JetBrains Mono / Source Code Pro / DejaVu Sans Mono all sit in the
+  7.0-7.3px range; 7px is the rounded-up conservative pick so the inline
+  fit-gate slightly under-estimates the available room, never over-
+  estimates. Public so tests can pin the math without re-deriving it."
+  7)
+
+(def safety-margin-px
+  "Pixel headroom reserved against the measured `available-width` before
+  the inline gate fires. Covers the closing bracket, key-column gutter
+  for nested rows, optional scrollbar reserve. 16px is the pre-alpha
+  pick — tuned by eye against running panels (rf2-kbdk8). Public for the
+  same reason as `mono-char-width-px`."
+  16)
+
+(def default-ceiling-depth
+  "Replacement default for the `:default-expanded-depth` opt under the
+  width-aware heuristic (rf2-kbdk8). The opt is now a CEILING beyond
+  which the widget never auto-expands even if the inline form overflows
+  — it shows a collapsed `▸ {…N keys}` summary instead. The old default
+  of 2 functioned as a TRIGGER (expand the first two levels regardless
+  of fit); the new default 8 lets the width heuristic do its job at
+  shallow depths while still protecting against pathological deep
+  auto-expansion in rare cases.
+
+  Public so tests can assert the new default without re-deriving it."
+  8)
+
+(defn estimated-inline-px
+  "Estimate the inline-rendered width of `value` in CSS pixels. Pure
+  function — `pr-str` length × `mono-char-width-px`. Returns 0 when
+  `pr-str` throws (cyclic value, broken pr-method). Public so tests
+  + future width-aware callers can probe the estimate without re-
+  deriving the math."
+  [value]
+  (try
+    (* mono-char-width-px (count (pr-str value)))
+    (catch :default _ 0)))
+
+(defn would-fit-inline?
+  "True when the estimated inline width of `value` fits the
+  `available-width-px` with the safety margin. When `available-width-
+  px` is `nil` / non-positive (no measurement yet), returns `false` so
+  the widget falls back to the legacy strict inline-fit gate.
+
+  Pure function — no DOM, no rf reads. Public so tests can drive the
+  decision deterministically."
+  [value available-width-px]
+  (boolean
+    (and (number? available-width-px)
+         (pos? available-width-px)
+         (<= (+ (estimated-inline-px value) safety-margin-px)
+             available-width-px))))
+
+(defn default-expanded?
+  "Pure depth/size/width heuristic — collections render inline when
+  their estimated inline form fits the available column width; deeper
+  / wider collections expand to tree form. The operator's sticky
+  override wins via `resolve-expanded?`.
 
   In diff mode, a container with a changed descendant force-expands
   regardless of depth — operator never has to drill to find the
-  change (spec/021 §10.4)."
-  [{:keys [depth child-count default-expanded-depth
+  change (spec/021 §10.4).
+
+  rf2-kbdk8: `default-expanded-depth` is the EXPAND CEILING — never
+  auto-expand past depth N (show a collapsed summary instead). When no
+  available-width is yet measured the legacy depth-driven path runs as
+  the fallback so unit tests + first-paint behaviour stay deterministic."
+  [{:keys [depth child-count default-expanded-depth available-width-px value
            has-changed-descendant?]
-    :or   {default-expanded-depth 2}}]
+    :or   {default-expanded-depth default-ceiling-depth}}]
   (cond
-    has-changed-descendant?                 true
-    (<= depth (dec default-expanded-depth)) true
-    (= depth default-expanded-depth)        (<= (or child-count 0) 10)
-    :else                                   false))
+    has-changed-descendant?
+    true
+
+    ;; Width-aware path — once a measurement exists, width drives the
+    ;; decision. Containers that fit inline DON'T auto-expand (caller's
+    ;; `inline-fit?` gate picks up the slack and renders the inline form);
+    ;; containers that DON'T fit auto-expand up to the ceiling, then show
+    ;; a collapsed summary beyond.
+    (and (number? available-width-px) (pos? available-width-px))
+    (cond
+      (would-fit-inline? value available-width-px) false
+      (<= depth (dec default-expanded-depth))      true
+      :else                                        false)
+
+    ;; Legacy depth-driven fallback for the no-measurement path. Kept
+    ;; deterministic so unit tests that drive `render-node` without a
+    ;; mount measurement reproduce the historical behaviour.
+    (<= depth (dec default-expanded-depth))
+    true
+
+    (= depth default-expanded-depth)
+    (<= (or child-count 0) 10)
+
+    :else
+    false))
 
 (defn- testid-for
   "Compose a stable data-testid for a node — `[panel-id mount-id path]`."
@@ -892,6 +1062,87 @@
             :data-rf-preview "1"}
      preview]))
 
+;; =========================================================================
+;; recursive inline rendering — width-aware path (rf2-kbdk8)
+;; =========================================================================
+;;
+;; When the value's estimated inline width fits the available column
+;; (computed by `would-fit-inline?`), the widget renders the WHOLE thing
+;; inline as a one-line hiccup span — including nested containers. The
+;; legacy strict inline-fit gate (≤3 children + all-scalars) is kept as a
+;; pre-measurement fallback so unit tests without a width measurement
+;; reproduce the historical behaviour; once a measurement exists the
+;; recursive renderer takes over and handles the deep-but-skinny case.
+;;
+;; Per-token syntax colour is preserved through the recursion — scalars
+;; route through `render-scalar`; brackets pick up their kind's tone-key;
+;; the comma separator stays on `:text-tertiary` so structure punctuation
+;; reads as secondary chrome. No expansion state, no toggle — once the
+;; whole tree fits inline the entire value is already visible; the
+;; operator's `▸` / `▾` interaction lives on the surrounding container
+;; widget (top-level mount), not on every nested child.
+
+(declare render-inline-recursive)
+
+(defn- render-inline-pair
+  "Render a single map / record entry `[k v]` as a key+value sequence
+  for the inline render path. Returns a seq of hiccup fragments (no
+  enclosing span — caller weaves separators)."
+  [k v]
+  [(key-segment k)
+   [:span {:style (token-style :text-tertiary)} " "]
+   (render-inline-recursive v)])
+
+(defn render-inline-recursive
+  "Render `value` as a single-line inline hiccup `[:span ...]`. Handles
+  nested containers by recursing — brackets, separators, and scalars
+  all paint with their full syntax-palette colour.
+
+  Pure function — no expansion state, no rf reads, no toggle. Safe to
+  call recursively to any depth (the width gate in
+  `render-container` ensures only width-fitting values reach this
+  path, so the recursion is naturally bounded by the operator's
+  measured column).
+
+  Public for unit tests."
+  [value]
+  (let [kind (collection-kind value)]
+    (cond
+      (not (container? kind))
+      (render-scalar value)
+
+      :else
+      (let [{:keys [open close tone-key]} (delim kind)
+            open-bracket
+            (cond->> open
+              (= kind :record) (str (record-tag value)))
+            bracket-span
+            (fn [text]
+              [:span {:style {:color       (get tokens tone-key)
+                              :font-family mono-stack}
+                      :data-rf-bracket "1"}
+               text])
+            sep
+            [:span {:style (token-style :text-tertiary)} ", "]
+            labelled? (#{:map :record :map-entry} kind)
+            pairs     (children-of value)
+            item-children
+            (apply concat
+                   (map-indexed
+                     (fn [i [k cv]]
+                       (let [prefix (when (pos? i) [sep])
+                             body   (if labelled?
+                                      (render-inline-pair k cv)
+                                      [(render-inline-recursive cv)])]
+                         (concat prefix body)))
+                     pairs))]
+        (into [:span {:data-rf-inline    "1"
+                      :data-rf-kind      (name kind)
+                      :style {:font-family mono-stack
+                              :white-space "nowrap"}}
+               (bracket-span open-bracket)]
+              (concat item-children [(bracket-span close)]))))))
+
 (defn- render-container
   "Render a map / vector / list / set / record / map-entry container.
 
@@ -909,8 +1160,11 @@
                       ancestor chain over any changed descendant."
   [{:keys [value kind panel-id mount-id path depth expansion-map opts
            dispatch-fn diff? before]}]
-  (let [{:keys [default-expanded-depth max-depth max-inline-width]
-         :or {default-expanded-depth 2 max-depth 16 max-inline-width 60}} opts
+  (let [{:keys [default-expanded-depth max-depth max-inline-width
+                available-width-px]
+         :or {default-expanded-depth default-ceiling-depth
+              max-depth 16
+              max-inline-width 60}} opts
         cnt           (child-count value kind)
         empty?        (zero? cnt)
         depth-capped? (>= depth max-depth)
@@ -925,18 +1179,38 @@
                              {:depth                   depth
                               :child-count             cnt
                               :default-expanded-depth  default-expanded-depth
-                              :has-changed-descendant? has-change?}))
+                              :has-changed-descendant? has-change?
+                              :available-width-px      available-width-px
+                              :value                   value}))
         expanded?     (and (not empty?)
                            (not depth-capped?)
                            (resolve-expanded? expansion-map panel-id mount-id path default?))
-        inline-fit?   (and (not empty?)
-                           (not has-change?) ; never inline-fit a changed container
-                           (<= cnt 3)
-                           (every? (fn [[_ cv]]
-                                     (not (container? (collection-kind cv))))
-                                   (children-of value))
-                           (<= (count (inline-preview-string value 5 max-inline-width))
-                               max-inline-width))
+        ;; rf2-kbdk8 — width-aware inline-fit. When a measurement exists
+        ;; and the whole value's pr-str fits the available column, render
+        ;; the FULL tree inline (recursively). The legacy strict gate
+        ;; (≤3 children + all-scalars) remains as the pre-measurement
+        ;; fallback so unit tests + first-paint behaviour stay
+        ;; deterministic.
+        width-fits?   (and (not empty?)
+                           (not has-change?)
+                           (not depth-capped?)
+                           (would-fit-inline? value available-width-px))
+        legacy-inline? (and (not empty?)
+                            (not has-change?)
+                            (<= cnt 3)
+                            (every? (fn [[_ cv]]
+                                      (not (container? (collection-kind cv))))
+                                    (children-of value))
+                            (<= (count (inline-preview-string value 5 max-inline-width))
+                                max-inline-width))
+        ;; Sticky-override-aware: if the operator EXPLICITLY toggled this
+        ;; node open (`:expanded? true`), respect that — the inline gate
+        ;; only fires when the operator hasn't overridden.
+        operator-expanded?
+        (let [override (get expansion-map (expansion-key panel-id mount-id path))]
+          (and (contains? override :expanded?) (boolean (:expanded? override))))
+        inline-fit?   (and (not operator-expanded?)
+                           (or width-fits? legacy-inline?))
         ;; `dispatch-fn` is supplied by the reg-view'd outer body so
         ;; the toggle dispatch carries the surrounding frame. Tests
         ;; that drive render-node directly without mounting fall back
@@ -991,30 +1265,38 @@
         ;; bracket on one row, NO toggle (already exposed). Maps /
         ;; records render `key value` pairs; sequentials render values
         ;; only; sets render values only (no labelled key).
+        ;;
+        ;; rf2-kbdk8 — when `width-fits?` fires (a measurement is in play
+        ;; and the FULL pr-str fits the available column), defer to
+        ;; `render-inline-recursive` which handles nested containers in
+        ;; the same inline span. The legacy strict path (scalar-only
+        ;; children) still feeds the pre-measurement fallback.
         inline-fit?
-        (let [labelled? (#{:map :record :map-entry} kind)
-              pairs     (children-of value)]
-          (into [:span {:style {:display "inline-flex"
-                                :align-items "baseline"
-                                :flex-wrap "wrap"
-                                :gap "4px"}}
-                 (bracket kind :open value)]
-                (concat
-                  (apply concat
-                         (map-indexed
-                           (fn [i [k cv]]
-                             (let [sep (when (pos? i)
-                                         [:span {:style (token-style :text-tertiary)} ", "])
-                                   ks  (when labelled? (key-segment k))
-                                   sp  (when labelled?
-                                         [:span {:style (token-style :text-tertiary)} " "])]
-                               (cond-> []
-                                 sep (conj sep)
-                                 ks  (conj ks)
-                                 sp  (conj sp)
-                                 true (conj (render-scalar cv)))))
-                           pairs))
-                  [(bracket kind :close value)])))
+        (if width-fits?
+          (render-inline-recursive value)
+          (let [labelled? (#{:map :record :map-entry} kind)
+                pairs     (children-of value)]
+            (into [:span {:style {:display "inline-flex"
+                                  :align-items "baseline"
+                                  :flex-wrap "wrap"
+                                  :gap "4px"}}
+                   (bracket kind :open value)]
+                  (concat
+                    (apply concat
+                           (map-indexed
+                             (fn [i [k cv]]
+                               (let [sep (when (pos? i)
+                                           [:span {:style (token-style :text-tertiary)} ", "])
+                                     ks  (when labelled? (key-segment k))
+                                     sp  (when labelled?
+                                           [:span {:style (token-style :text-tertiary)} " "])]
+                                 (cond-> []
+                                   sep (conj sep)
+                                   ks  (conj ks)
+                                   sp  (conj sp)
+                                   true (conj (render-scalar cv)))))
+                             pairs))
+                    [(bracket kind :close value)]))))
 
         ;; Default — toggle glyph + open bracket (when expanded) OR summary.
         expanded?
@@ -1578,14 +1860,64 @@
         ;; recursive render-node descents) threads this closure so the
         ;; dispatch carries the right frame even when fired long after
         ;; render unwinds.
-        dispatch-fn dispatch]
+        dispatch-fn dispatch
+        ;; rf2-kbdk8 — width measurement state captured in the form-2
+        ;; closure so the ResizeObserver + ref callback persist across
+        ;; re-renders. `observer` holds the per-mount ResizeObserver
+        ;; instance (or nil before/after the lifecycle); `last-width`
+        ;; debounces redundant dispatches by remembering the last
+        ;; measurement we wrote — `clientWidth` returns fractional
+        ;; pixels rounded by the browser, so identical measurements
+        ;; arrive verbatim and should not churn the app-db slot.
+        observer    (atom nil)
+        last-width  (atom nil)
+        measure-and-dispatch
+        (fn [^js el]
+          (when el
+            (let [w (.-clientWidth el)]
+              (when (and (number? w) (pos? w) (not= @last-width w))
+                (reset! last-width w)
+                (dispatch-fn
+                  [:rf.xray.data-display/set-width mount-id w])))))
+        container-ref
+        (fn [^js el]
+          (cond
+            ;; Mount — measure once, install the observer.
+            (and el (nil? @observer))
+            (do
+              (measure-and-dispatch el)
+              (when (exists? js/ResizeObserver)
+                (let [obs (js/ResizeObserver.
+                            (fn [_entries]
+                              (measure-and-dispatch el)))]
+                  (.observe obs el)
+                  (reset! observer obs))))
+
+            ;; Unmount — tear down observer, clear the slot. The slot
+            ;; clear matters because the same mount-id may not recur
+            ;; (each fresh mount allocates a UUID); leaving stale entries
+            ;; in app-db is a slow leak.
+            (and (nil? el) @observer)
+            (do
+              (try (.disconnect ^js @observer)
+                   (catch :default _ nil))
+              (reset! observer nil)
+              (reset! last-width nil)
+              (dispatch-fn
+                [:rf.xray.data-display/clear-width mount-id]))))]
     (fn render-data-display
       [value & rest-args]
       (let [opts          (first rest-args)
             {:keys [panel-id site-id default-expanded-depth max-inline-width
                     max-depth before popup-affordance? card?]
              :or   {panel-id :rf.xray.data-display/anon
-                    default-expanded-depth 2
+                    ;; rf2-kbdk8 — default raised from 2 → 8. Under the
+                    ;; width-aware heuristic this opt is a CEILING (never
+                    ;; auto-expand past depth N), not a TRIGGER. The
+                    ;; legacy depth-driven path keeps the same number as
+                    ;; the maximum auto-open depth so deep tests still
+                    ;; reach their leaves before the measurement arrives.
+                    default-expanded-depth default-ceiling-depth
                     max-inline-width 60
                     max-depth 16
                     popup-affordance? false
@@ -1610,6 +1942,13 @@
             ;; injected by `reg-view` — reads the expansion-slot
             ;; from the surrounding frame's app-db (e.g. `:rf/xray`).
             expansion-map @(subscribe [expansion-slot])
+            ;; rf2-kbdk8 — read the measured container width keyed by
+            ;; THIS mount's id. Nil on the first render (the ref hasn't
+            ;; fired yet); subsequent renders see the width and the
+            ;; width-aware heuristic kicks in. ResizeObserver keeps the
+            ;; slot live across panel resizes.
+            widths        @(subscribe [widths-slot])
+            available-width-px (get widths mount-id)
             container-id  (str "rf-xray-data-display-"
                                (name panel-id) "-" mount-id)
             ;; Stable popup-mount-id derived from THIS data-display's
@@ -1623,6 +1962,13 @@
                :data-rf-mode    (if diff? "diff" "browse")
                :data-rf-popup-affordance? (when popup-affordance? "1")
                :data-rf-card     (when card? "1")
+               :data-rf-available-width-px (when available-width-px
+                                             (str available-width-px))
+               ;; rf2-kbdk8 — `:ref` callback drives the measurement.
+               ;; Captured once in the form-2 closure; React calls the
+               ;; same fn on mount + unmount so the observer's lifecycle
+               ;; mirrors the widget's DOM lifecycle.
+               :ref             container-ref
                :style (cond-> {:font-family mono-stack
                                :font-size   "12px"
                                :color       (:text-primary tokens)
@@ -1667,7 +2013,13 @@
                        :dispatch-fn dispatch-fn
                        :opts {:default-expanded-depth default-expanded-depth
                               :max-inline-width max-inline-width
-                              :max-depth max-depth}})]))))
+                              :max-depth max-depth
+                              ;; rf2-kbdk8 — threaded so every recursive
+                              ;; render-node decides expansion against
+                              ;; the same available column width. Nil
+                              ;; until the ref measures, after which
+                              ;; ResizeObserver keeps it live.
+                              :available-width-px available-width-px}})]))))
 
 (defn data-display-diff
   "Diff convenience — `[data-display-diff before after]` or

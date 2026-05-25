@@ -1469,3 +1469,220 @@
           "background reads through `:bg-1` (CSS-var or hex per theme)")
       (is (= (str "1px solid " (:border-default tokens)) (:border style))
           "border reads through `:border-default` (CSS-var or hex per theme)"))))
+
+;; =========================================================================
+;; rf2-kbdk8 — width-aware expansion heuristic
+;; =========================================================================
+;;
+;; The heuristic flips the auto-expand decision: render inline when the
+;; value's estimated pr-str width fits the measured column with a small
+;; safety margin; otherwise expand to tree. `default-expanded-depth` is
+;; repurposed as a CEILING beyond which the widget never auto-expands.
+;;
+;; These tests pin the pure decision functions (estimated-inline-px,
+;; would-fit-inline?, default-expanded? width-aware branch) and the
+;; render-container integration:
+;;
+;;   - width-aware default? returns false when value fits the column;
+;;     true (within ceiling) when it doesn't.
+;;   - operator's sticky override still wins (a width-fitting node the
+;;     operator explicitly opened renders expanded, not inline).
+;;   - diff mode's force-open over changed descendants still fires.
+;;   - the recursive inline renderer paints nested containers in one
+;;     line with full syntax-palette colour.
+
+(deftest mono-char-width-and-safety-margin-are-stable
+  (testing "rf2-kbdk8 — width-estimation constants exposed for tests"
+    (is (= 7 dd/mono-char-width-px)
+        "7px M-advance is the conservative pick for JetBrains Mono 12px")
+    (is (= 16 dd/safety-margin-px)
+        "16px safety margin covers closing bracket + gutter")
+    (is (= 8 dd/default-ceiling-depth)
+        "new default `:default-expanded-depth` is 8 (CEILING, not trigger)")))
+
+(deftest estimated-inline-px-multiplies-pr-str-by-mono-advance
+  (testing "rf2-kbdk8 — char-count × 7px estimate"
+    (is (= (* 7 (count (pr-str {:a 1})))
+           (dd/estimated-inline-px {:a 1}))
+        "pure function — char count × mono-char-width-px")
+    (is (= (* 7 (count "nil"))
+           (dd/estimated-inline-px nil))
+        "scalars route through the same pr-str pathway")
+    ;; Long compound values get proportionally wider estimates — the
+    ;; bead's example (~81-char nested value) lands around ~570px.
+    (let [big-value [:ws/connection [:rf.machine.timer/after-elapsed
+                                     2501 [:active :authenticating]]]]
+      (is (= (* 7 (count (pr-str big-value)))
+             (dd/estimated-inline-px big-value))
+          "nested compound value estimate matches pr-str-length × 7"))))
+
+(deftest would-fit-inline-fits-when-estimate-plus-margin-le-available
+  (testing "rf2-kbdk8 — `would-fit-inline?` gate"
+    ;; A short value pr-strs to ~10 chars × 7px = 70px + 16px margin = 86px.
+    (let [v {:a 1}]
+      (is (dd/would-fit-inline? v 200)
+          "200px column trivially fits a 10-char value")
+      (is (not (dd/would-fit-inline? v 50))
+          "50px column rejects even short values"))
+    ;; The bead's worked example: ~81-char nested value in a 966px column.
+    (let [big-but-fitting (apply str (repeat 80 "x"))]
+      (is (dd/would-fit-inline? big-but-fitting 966)
+          "~570px estimate trivially fits 966px column"))
+    (is (not (dd/would-fit-inline? {:a 1} nil))
+        "nil available-width falls back to legacy strict gate")
+    (is (not (dd/would-fit-inline? {:a 1} 0))
+        "zero or negative width is treated as no measurement")))
+
+(deftest default-expanded-width-aware-branch
+  (testing "rf2-kbdk8 — width-aware `default-expanded?` flips the verdict"
+    ;; A 2-key map fits in 600px easily — should NOT auto-expand (the
+    ;; inline-fit gate picks it up instead).
+    (is (false? (dd/default-expanded?
+                  {:depth 0 :child-count 2 :value {:a 1 :b 2}
+                   :available-width-px 600})))
+    ;; A long string-keyed map that overflows 200px should auto-expand
+    ;; (within the ceiling).
+    (let [wide-v {:a "much-longer-than-the-budget"
+                  :b "another-overflowing-string"
+                  :c "and-yet-more-data"}]
+      (is (true? (dd/default-expanded?
+                   {:depth 0 :child-count 3 :value wide-v
+                    :available-width-px 100}))))
+    ;; Beyond the ceiling, the width-aware branch falls back to false
+    ;; (collapsed summary instead of auto-expanding pathologically deep).
+    (let [wide-v {:a "much-longer-than-the-budget"
+                  :b "another-overflowing-string"}]
+      (is (false? (dd/default-expanded?
+                    {:depth 9 :child-count 2 :value wide-v
+                     :default-expanded-depth 8
+                     :available-width-px 100}))))
+    ;; Diff mode's force-open over changed descendants still beats width
+    (let [v {:a "wide string that overflows"}]
+      (is (true? (dd/default-expanded?
+                   {:depth 0 :child-count 1 :value v
+                    :available-width-px 1000
+                    :has-changed-descendant? true}))
+          "changed-descendant rule beats width-fits for diff readability"))))
+
+(deftest default-expanded-no-measurement-fallback
+  (testing "rf2-kbdk8 — when no measurement yet (nil available-width-px)
+            the legacy depth-driven path runs unchanged so unit tests +
+            first-paint behaviour stay deterministic"
+    ;; depth 0, default-expanded-depth 2 → expanded (legacy behaviour).
+    (is (true? (dd/default-expanded?
+                 {:depth 0 :child-count 2 :value {:a 1 :b 2}
+                  :default-expanded-depth 2})))
+    ;; depth 5, default-expanded-depth 2 → collapsed (legacy behaviour).
+    (is (false? (dd/default-expanded?
+                  {:depth 5 :child-count 2 :value {:a 1 :b 2}
+                   :default-expanded-depth 2})))))
+
+(deftest render-container-width-fit-renders-inline-recursively
+  (testing "rf2-kbdk8 — when measured width fits the value's pr-str,
+            the renderer emits the FULL value (including nested
+            containers) on one inline span — no expand glyph, no
+            multi-row tree"
+    ;; ~60-char nested value vs 800px column.
+    (let [v {:tag :foo :payload [:active :authenticating]}
+          h (dd/render-node {:value v
+                             :panel-id :p :mount-id "m" :path []
+                             :depth 0 :expansion-map {}
+                             :opts {:default-expanded-depth 2
+                                    :available-width-px 800}})
+          text (collect-text h)]
+      ;; No toggle glyph — the whole thing is already visible.
+      (is (not (re-find #"▾|▸" text))
+          "width-fit inline render carries no expand/collapse glyph")
+      ;; All scalars present in the one-line render.
+      (is (re-find #":tag" text))
+      (is (re-find #":payload" text))
+      (is (re-find #":active" text))
+      (is (re-find #":authenticating" text)))))
+
+(deftest render-container-too-wide-expands-to-tree
+  (testing "rf2-kbdk8 — when measured width is too narrow for the
+            value's pr-str, the renderer falls back to the tree form
+            (▾ glyph + indented body)"
+    (let [v {:a "much-longer-than-the-budget"
+             :b "another-overflowing-string"
+             :c "and-yet-more-data"
+             :d "and-yet-still-more"
+             :e "the-final-overflow"}
+          h (dd/render-node {:value v
+                             :panel-id :p :mount-id "m" :path []
+                             :depth 0 :expansion-map {}
+                             :opts {:default-expanded-depth 8
+                                    :available-width-px 100}})
+          text (collect-text h)]
+      ;; Toggle glyph present — narrow column triggers tree form.
+      (is (re-find #"▾" text)
+          "narrow-column overflow renders expanded tree")
+      (is (re-find #":a" text))
+      (is (re-find #":e" text)))))
+
+(deftest render-container-respects-operator-override-over-width-fit
+  (testing "rf2-kbdk8 — operator's explicit expand override wins even
+            when the value would naturally render inline; the operator
+            sees what they clicked, not the heuristic's verdict"
+    (let [v {:tag :foo :n 1}
+          k0 (dd/expansion-key :p "m" [])
+          h (dd/render-node {:value v
+                             :panel-id :p :mount-id "m" :path []
+                             :depth 0
+                             :expansion-map {k0 {:expanded? true}}
+                             :opts {:default-expanded-depth 2
+                                    :available-width-px 800}})
+          text (collect-text h)]
+      ;; Operator clicked-open → expanded tree, not inline.
+      (is (re-find #"▾" text)
+          "operator override beats the width-fits inline path")
+      (is (re-find #":tag" text)))))
+
+(deftest render-inline-recursive-paints-nested-containers
+  (testing "rf2-kbdk8 — the recursive inline renderer emits one-line
+            hiccup that includes nested brackets, separators, scalars"
+    (let [v {:k1 1 :k2 [:a :b]}
+          h (dd/render-inline-recursive v)
+          text (collect-text h)]
+      (is (re-find #":k1" text))
+      (is (re-find #":k2" text))
+      ;; Nested vector's brackets present.
+      (is (re-find #"\[" text))
+      (is (re-find #"\]" text))
+      ;; Outer map brackets present.
+      (is (re-find #"\{" text))
+      (is (re-find #"\}" text))
+      ;; Scalars from the nested vector.
+      (is (re-find #":a" text))
+      (is (re-find #":b" text)))))
+
+(deftest width-slot-set-and-clear-events
+  (testing "rf2-kbdk8 — set-width / clear-width app-db reducers"
+    (rf/dispatch-sync [:rf.xray.data-display/set-width "m" 600])
+    (let [widths @(rf/subscribe [dd/widths-slot])]
+      (is (= 600 (get widths "m"))
+          "set-width writes a positive measurement to the slot"))
+    ;; Bad inputs are ignored (no app-db churn).
+    (rf/dispatch-sync [:rf.xray.data-display/set-width "m2" -5])
+    (rf/dispatch-sync [:rf.xray.data-display/set-width nil 100])
+    (let [widths @(rf/subscribe [dd/widths-slot])]
+      (is (nil? (get widths "m2")) "negative width is rejected")
+      (is (nil? (get widths nil))  "nil mount-id is rejected"))
+    ;; Cleanup
+    (rf/dispatch-sync [:rf.xray.data-display/clear-width "m"])
+    (let [after-clear @(rf/subscribe [dd/widths-slot])]
+      (is (nil? (get after-clear "m"))
+          "clear-width removes the entry"))))
+
+(deftest widget-emits-ref-callback-and-available-width-attr
+  (testing "rf2-kbdk8 — the outer container carries a `:ref` callback
+            (function) for the ResizeObserver lifecycle, plus a data-
+            attribute carrying the current measurement (or absent when
+            not yet measured)"
+    (let [h (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db})
+          attrs (-> h second)]
+      (is (fn? (:ref attrs))
+          "outer container carries a ref callback (mount/unmount hook)")
+      ;; No measurement yet → attribute absent / nil.
+      (is (nil? (:data-rf-available-width-px attrs))
+          "data-rf-available-width-px absent until the ref fires"))))
