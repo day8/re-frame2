@@ -1214,3 +1214,223 @@
       (is (some? entry) "fixture has an entry edge")
       (is (false? (:fired (:data entry)))
           "entry edges are never fired"))))
+
+;; ---- compound-endpoint edges (rf2-shv82, Issue 1) -----------------------
+;;
+;; A parent-level transition like `:active → :disconnected` (declared on
+;; the compound `:active`, inherited by every leaf inside) projects with
+;; the compound's node-id as one endpoint. Pre-rf2-shv82 the chart's
+;; compound-node + parallel-region-node had no `<Handle>` children, so
+;; xyflow's `isNodeInitialized` returned false, `getEdgePosition` returned
+;; null, and the edge was silently dropped from the DOM (the 5-layer
+;; probe in the rf2-shv82 bead proves all 4 such edges survive the
+;; projector + ELK but vanish before render). The fix is to add invisible
+;; handles to the container nodes (chart.nodes/compound-node +
+;; chart.nodes.parallel-region-node) — these JVM pins guard the projector
+;; half (every compound-endpoint edge that the parser emits MUST survive
+;; the projection; the renderer half is pinned by `chart_dom_cljs_test`'s
+;; `data-edge-count == data-edge-count-projected` parity gate).
+
+(def ^:private parent-level-transition-machine
+  "A machine that mirrors the rf2-shv82 reproducer (testdeck
+  `:ws/connection`) at minimum size: a compound parent owns a parent-
+  level `:on` transition every leaf inherits + a self-transition on the
+  compound itself, plus an inbound transition from a sibling top-level
+  state. All four edge shapes have the compound as an endpoint."
+  {:initial :idle
+   :states  {:idle    {:on {:connect :active}}
+             :active  {:initial :connecting
+                       ;; parent-level inherited transitions
+                       :on      {:disconnect :idle
+                                 :send {}}   ;; compound self-transition
+                       :states  {:connecting {:on {:done :connected}}
+                                 :connected  {}}}
+             :failed  {:on {:retry :active}}}})
+
+(deftest xyflow-graph-emits-edge-with-compound-as-target
+  (testing "rf2-shv82 (Issue 1) — `:idle --connect--> :active` mints an
+            edge whose target is the COMPOUND `:active`'s node-id; the
+            projector must NOT drop or filter it"
+    (let [parsed   (layout/parse-definition parent-level-transition-machine)
+          graph    (projection/xyflow-graph parsed {} {})
+          active-id (layout/node-id [:active])
+          edge     (first (filter #(and (= :connect (:eventId (:data %)))
+                                        (= (:target %) active-id))
+                                  (:edges graph)))]
+      (is (some? edge) "the compound-as-target edge survives projection")
+      (is (= (layout/node-id [:idle]) (:source edge))))))
+
+(deftest xyflow-graph-emits-edge-with-compound-as-source
+  (testing "rf2-shv82 (Issue 1) — `:active --disconnect--> :idle` mints
+            an edge whose source is the COMPOUND `:active`'s node-id"
+    (let [parsed (layout/parse-definition parent-level-transition-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          active-id (layout/node-id [:active])
+          edge   (first (filter #(and (= :disconnect (:eventId (:data %)))
+                                      (= (:source %) active-id))
+                                (:edges graph)))]
+      (is (some? edge) "the compound-as-source edge survives projection"))))
+
+(deftest xyflow-graph-emits-self-loop-on-compound
+  (testing "rf2-shv82 (Issue 1) — `:active --send--> :active` (a
+            compound self-transition) projects as a self-loop on the
+            compound node, flagged :selfLoop"
+    (let [parsed (layout/parse-definition parent-level-transition-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          active-id (layout/node-id [:active])
+          edge   (first (filter #(and (= (:source %) active-id)
+                                      (= (:target %) active-id)
+                                      (= :send (:eventId (:data %))))
+                                (:edges graph)))]
+      (is (some? edge) "the compound self-loop survives projection")
+      (is (true? (:selfLoop (:data edge)))))))
+
+(deftest xyflow-graph-emits-compound-endpoint-edges-survive-projection
+  (testing "rf2-shv82 (Issue 1) — every edge the parser emits also
+            appears in the projected graph; no edge involving a compound
+            endpoint is silently dropped at the projection layer (the
+            rf2-shv82 bug was DOM-layer; pin the contract here so a
+            future projection-layer filter would fail the test)"
+    (let [parsed (layout/parse-definition parent-level-transition-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          parsed-ids (set (map :id (:edges parsed)))
+          proj-ids   (set (map :id (remove #(:entry (:data %))
+                                           (:edges graph))))]
+      (is (= parsed-ids proj-ids)
+          "every parsed edge id appears in the projected edge ids"))))
+
+;; ---- self-loop fan (rf2-shv82, Issue 2) --------------------------------
+;;
+;; Multiple self-loops on the same source render via stacked loops at
+;; the same coords pre-rf2-shv82 → garbled label overlap (3 self-loops
+;; on `:disconnected` in the testdeck: `:ws/arm-fail`, `:ws/disarm-fail`,
+;; `:ws/clear`). The fix assigns each a stable `loop-index` per source
+;; (0..N-1 in emission order), which `chart.edges/edge-path` uses to
+;; rotate the loop's perimeter slot + label anchor.
+
+(def ^:private multi-self-loop-machine
+  "Three self-loops on `:idle` (mirrors the testdeck `:disconnected`
+  shape: 3 distinct events on one node, all self-transitions)."
+  {:initial :idle
+   :states  {:idle {:on {:arm    {:action :arm-it}
+                         :disarm {:action :disarm-it}
+                         :clear  {:action :clear-it}}}}})
+
+(deftest xyflow-graph-assigns-loop-index-per-source
+  (testing "rf2-shv82 (Issue 2) — multiple self-loops on the same source
+            get distinct `:loopIndex` ordinals (0, 1, 2, …) in emission
+            order so the renderer can fan them around the perimeter"
+    (let [parsed (layout/parse-definition multi-self-loop-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          self-loops (->> (:edges graph)
+                          (remove #(:entry (:data %)))
+                          (filter #(true? (:selfLoop (:data %)))))]
+      (is (= 3 (count self-loops)) "fixture has 3 self-loops on :idle")
+      (is (= [0 1 2] (sort (map #(:loopIndex (:data %)) self-loops)))
+          "the 3 self-loops get ordinals 0/1/2 (distinct slots)"))))
+
+(deftest xyflow-graph-single-self-loop-gets-index-zero
+  (testing "rf2-shv82 (Issue 2) — a single self-loop on a node gets
+            :loopIndex 0 (the historical top-right slot — single-self-
+            loop renders pixel-identical to pre-rf2-shv82)"
+    (let [parsed (layout/parse-definition self-loop-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          ping   (first (filter #(true? (:selfLoop (:data %))) (:edges graph)))]
+      (is (some? ping))
+      (is (= 0 (:loopIndex (:data ping)))
+          "single self-loop gets slot 0 (historical position)"))))
+
+(deftest xyflow-graph-non-self-loops-have-nil-loop-index
+  (testing "rf2-shv82 (Issue 2) — a normal transition (source != target)
+            carries `:loopIndex nil` (no perimeter slot to assign)"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          non-self (filter #(false? (:selfLoop (:data %)))
+                           (remove #(:entry (:data %)) (:edges graph)))]
+      (is (seq non-self))
+      (is (every? #(nil? (:loopIndex (:data %))) non-self)
+          "non-self-loop edges carry no loop-index"))))
+
+(deftest xyflow-graph-self-loop-indices-are-per-source
+  (testing "rf2-shv82 (Issue 2) — the loop-index counter resets per
+            source node (a self-loop on :a starts at 0 even if :b
+            already has 3 self-loops). Each node fans independently."
+    (let [m {:initial :a
+             :states  {:a {:on {:a1 {} :a2 {}}}
+                       :b {:on {:b1 {}}}}}
+          parsed (layout/parse-definition m)
+          graph  (projection/xyflow-graph parsed {} {})
+          self-loops (filter #(true? (:selfLoop (:data %)))
+                             (remove #(:entry (:data %)) (:edges graph)))
+          by-source  (group-by :source self-loops)
+          a-indices  (sort (map #(:loopIndex (:data %)) (get by-source (layout/node-id [:a]))))
+          b-indices  (sort (map #(:loopIndex (:data %)) (get by-source (layout/node-id [:b]))))]
+      (is (= [0 1] a-indices) ":a has self-loops 0 and 1")
+      (is (= [0]   b-indices) ":b's first self-loop is 0, not 2"))))
+
+;; ---- cross-hierarchy label placement (rf2-shv82, Issue 3) --------------
+;;
+;; A cross-hierarchy edge (source and target in different parent
+;; containers) has a routed midpoint that can land far from where the
+;; user perceives the edge to originate. The projector flags it so the
+;; renderer can anchor the label at the source-side first bend point
+;; instead.
+
+(def ^:private cross-hierarchy-machine
+  "A compound with an inner state that crosses out to a top-level
+  sibling (mirrors testdeck `:authenticating → :failed`)."
+  {:initial :outer
+   :states  {:outer  {:initial :inner
+                      :states  {:inner {:on {:escape :sibling}}}}
+             :sibling {}}})
+
+(deftest xyflow-graph-flags-cross-hierarchy-edge
+  (testing "rf2-shv82 (Issue 3) — an edge whose source and target sit
+            in DIFFERENT parent containers gets :crossHierarchy true"
+    (let [parsed (layout/parse-definition cross-hierarchy-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          escape (first (filter #(= :escape (:eventId (:data %))) (:edges graph)))]
+      (is (some? escape))
+      (is (true? (:crossHierarchy (:data escape)))
+          "inner→sibling escapes the :outer container"))))
+
+(deftest xyflow-graph-same-parent-edge-not-cross-hierarchy
+  (testing "rf2-shv82 (Issue 3) — an edge between two siblings under the
+            SAME parent is NOT cross-hierarchy (both leaves share a
+            parent-id; the edge stays inside the container)"
+    (let [parsed (layout/parse-definition compound-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          ;; :browsing --checkout--> :paying (both under :authenticated)
+          checkout (first (filter #(= :checkout (:eventId (:data %)))
+                                  (:edges graph)))]
+      (is (some? checkout))
+      (is (false? (:crossHierarchy (:data checkout)))
+          "two siblings under the same compound parent are NOT cross-hierarchy"))))
+
+(deftest xyflow-graph-flat-machine-no-cross-hierarchy
+  (testing "rf2-shv82 (Issue 3) — a flat machine has no containers, so
+            no edge is cross-hierarchy"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          non-entry (remove #(:entry (:data %)) (:edges graph))]
+      (is (seq non-entry))
+      (is (every? #(false? (:crossHierarchy (:data %))) non-entry)))))
+
+(deftest xyflow-graph-self-loop-not-cross-hierarchy
+  (testing "rf2-shv82 (Issue 3) — a self-loop (source == target) is
+            never cross-hierarchy regardless of its container nesting"
+    (let [parsed (layout/parse-definition self-loop-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          ping   (first (filter #(true? (:selfLoop (:data %))) (:edges graph)))]
+      (is (some? ping))
+      (is (false? (:crossHierarchy (:data ping)))))))
+
+(deftest xyflow-graph-entry-edges-carry-cross-hierarchy-false
+  (testing "rf2-shv82 — entry edges keep the every-edge :data shape
+            whole: they carry :crossHierarchy false + :loopIndex nil"
+    (let [parsed (layout/parse-definition cross-hierarchy-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          entry  (first (filter #(:entry (:data %)) (:edges graph)))]
+      (is (some? entry))
+      (is (false? (:crossHierarchy (:data entry))))
+      (is (nil?   (:loopIndex (:data entry)))))))

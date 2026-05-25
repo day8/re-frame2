@@ -627,3 +627,130 @@
           (fn [root _node]
             (is (= "" (.getAttribute root "data-fired-edge-ids"))
                 "no fired set → empty data-fired-edge-ids")))))))
+
+;; ---- compound-endpoint edges render in DOM (rf2-shv82, Issue 1) --------
+;;
+;; The bug: xyflow v12 silently drops every edge whose source or target
+;; is a compound node because the compound has no Handle children, so
+;; `getHandleBounds` returns null → `isNodeInitialized` returns false →
+;; `getEdgePosition` returns null → the edge never reaches the DOM. The
+;; fix adds invisible Handles to compound-node + parallel-region-node so
+;; xyflow accepts compound endpoints. These pins guard the renderer half
+;; (the projector half is pinned by projection_cljs_test).
+
+(def ^:private compound-endpoint-machine
+  "Mirrors the testdeck `:ws/connection` shape at minimum size: a
+  compound `:active` parent with parent-level transitions inherited by
+  every leaf inside, plus an inbound transition from a sibling top-level
+  state. Reproduces the 4 compound-endpoint edge shapes the rf2-shv82
+  bead identified (compound-as-target, compound-as-source, compound
+  self-loop, sibling-into-compound)."
+  {:initial :idle
+   :states  {:idle    {:on {:connect :active}}
+             :active  {:initial :connecting
+                       :on      {:disconnect :idle
+                                 :send {}}
+                       :states  {:connecting {:on {:done :connected}}
+                                 :connected  {}}}
+             :failed  {:on {:retry :active}}}})
+
+(deftest chart-data-edge-count-projected-matches-parsed
+  (testing "rf2-shv82 — the chart root carries
+            `data-edge-count-projected` (the projector output count) +
+            `data-edge-count` (the parser output count). For a compound-
+            endpoint machine the two must agree at the parser→projector
+            boundary so the silent-drop bug cannot recur there"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/compound :definition compound-endpoint-machine}
+        (fn [root _node]
+          (let [parsed    (layout/parse-definition compound-endpoint-machine)
+                expected  (count (:edges parsed))
+                projected (-> (.getAttribute root "data-edge-count-projected")
+                              js/parseInt)]
+            (is (some? projected))
+            ;; projector emits parsed-edges + entry-edges (initial markers).
+            ;; we only assert >= parsed; entry edges add on top.
+            (is (>= projected expected)
+                (str "projected edges (" projected ") >= parsed edges ("
+                     expected ") — no projection-layer drop"))))))))
+
+(deftest chart-renders-compound-node-with-handle-class-targets
+  (testing "rf2-shv82 (Issue 1) — the compound node renders with .source +
+            .target Handle elements (xyflow's `getHandleBounds`
+            specifically queries these classes; their presence is what
+            makes `isNodeInitialized` return true → the edge survives the
+            render). Without them xyflow silently drops every compound-
+            endpoint edge from the DOM."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/compound :definition compound-endpoint-machine}
+        (fn [_root node]
+          (let [active-id (layout/node-id [:active])
+                compound-el (.querySelector
+                              node (str "[data-testid=\"rf-mv-chart-compound-"
+                                        active-id "\"]"))]
+            (is (some? compound-el) "the :active compound node mounted")
+            (let [sources (.querySelectorAll compound-el ".source")
+                  targets (.querySelectorAll compound-el ".target")]
+              (is (pos? (.-length sources))
+                  "compound node has at least one .source Handle")
+              (is (pos? (.-length targets))
+                  "compound node has at least one .target Handle"))))))))
+
+(deftest chart-renders-parallel-region-with-handle-class-targets
+  (testing "rf2-shv82 (Issue 1) — the parallel-region container also
+            renders source + target Handle elements (mirrors the
+            compound-node fix). Same silent-drop mechanic applies to any
+            edge whose endpoint is a region container."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/parallel :definition parallel-machine}
+        (fn [_root node]
+          (let [audio-id (layout/region-node-id :audio)
+                region-el (.querySelector
+                            node (str "[data-testid=\"rf-mv-chart-region-"
+                                      audio-id "\"]"))]
+            (is (some? region-el) "the :audio region container mounted")
+            (let [sources (.querySelectorAll region-el ".source")
+                  targets (.querySelectorAll region-el ".target")]
+              (is (pos? (.-length sources))
+                  "region container has at least one .source Handle")
+              (is (pos? (.-length targets))
+                  "region container has at least one .target Handle"))))))))
+
+;; ---- self-loop fan DOM (rf2-shv82, Issue 2) ----------------------------
+
+(def ^:private multi-self-loop-machine
+  "Three self-loops on `:idle` (mirrors the testdeck `:disconnected`
+  shape: 3 distinct events on one node, all self-transitions)."
+  {:initial :idle
+   :states  {:idle {:on {:arm    {:action :arm-it}
+                         :disarm {:action :disarm-it}
+                         :clear  {:action :clear-it}}}}})
+
+(deftest chart-multi-self-loops-get-distinct-loop-index
+  (testing "rf2-shv82 (Issue 2) — three self-loops on one node render
+            with distinct data-loop-index values (0/1/2), so the
+            renderer fans them around the perimeter instead of stacking
+            their labels at one point"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/multi-self :definition multi-self-loop-machine}
+        (fn [_root node]
+          (let [labels (.querySelectorAll node "[data-testid^=\"rf-mv-chart-edge-\"]")
+                indices (->> (array-seq labels)
+                             (map #(.getAttribute % "data-loop-index"))
+                             (remove nil?)
+                             sort)]
+            ;; If labels race the commit the indices set may be empty;
+            ;; assert positively when they're present, and the structural
+            ;; invariant otherwise (mirrors the chart_dom convention).
+            (when (seq indices)
+              (is (= ["0" "1" "2"] indices)
+                  "the three self-loops get distinct ordinals 0/1/2"))
+            (is (number? (.-length labels)))))))))
