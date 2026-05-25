@@ -135,6 +135,81 @@
       (is (contains-text? out ":inner"))
       (is (contains-text? out "99")))))
 
+(deftest browse-toggle-event-flips-rerender-end-to-end
+  ;; rf2-oswhk regression — pre-fix the triangle's :on-click fired the
+  ;; dispatch fine, but TWO bugs meant the click had no visible effect:
+  ;;
+  ;;   1. every sibling surrogate walked with the same `:path []`, so
+  ;;      writing one slot in the expansion-map toggled *every* triangle
+  ;;      at that fake-empty path simultaneously — net "click → nothing
+  ;;      changes" feel because the operator was actually toggling many
+  ;;      slots and undoing them on the next click,
+  ;;   2. expanded rendering showed `▾{…}<body>` (both the cljs-devtools
+  ;;      header summary AND the body), so even when toggle worked the
+  ;;      visible text barely changed.
+  ;;
+  ;; This test pins the END-TO-END contract: render → extract the
+  ;; surrogate's actual walker-path from its `data-testid` →
+  ;; dispatch-sync the toggle event for THAT path (in the `:rf/xray`
+  ;; frame, matching what the click handler does) → re-render → assert
+  ;; the glyph flipped to ▾ AND the body keys surfaced.
+  (frame/reg-frame :rf/xray {})
+  (rf/with-frame :rf/xray
+    (let [wide        (zipmap (map #(keyword (str "k" %)) (range 20))
+                              (range 20))
+          v           {:outer wide}
+          out-1       (w/browse {:value     v
+                                 :panel-id  :test
+                                 :render-id "tflow"})
+          tris-1      (->> (walk-hiccup out-1)
+                           (filter (fn [n]
+                                     (and (vector? n)
+                                          (= :span (first n))
+                                          (= "button" (-> n second :role))))))
+          tri         (first tris-1)
+          glyph-1     (last tri)
+          ;; Pull the surrogate's actual path back out of the testid so
+          ;; the dispatched event lands on the SAME slot the renderer
+          ;; reads — this is exactly what the on-click does in practice.
+          testid-1    (-> tri second :data-testid)
+          path-suffix (subs testid-1
+                            (count "rf-xray-edn-widget-toggle-test-tflow-"))
+          path-vec    (mapv #(js/parseInt % 10) (str/split path-suffix #"/"))]
+      (testing "pre-toggle: wide nested collapses to ▸"
+        (is (= "▸" glyph-1)))
+      (rf/dispatch-sync [:rf.xray/data-display-toggle-node
+                         :test "tflow" path-vec])
+      ;; Re-render after the toggle.
+      (let [out-2    (w/browse {:value     v
+                                :panel-id  :test
+                                :render-id "tflow"})
+            tris-2   (->> (walk-hiccup out-2)
+                          (filter (fn [n]
+                                    (and (vector? n)
+                                         (= :span (first n))
+                                         (= "button" (-> n second :role))))))
+            glyphs-2 (map last tris-2)
+            txt-2    (let [out (atom "")]
+                       (letfn [(scan [n]
+                                 (cond
+                                   (string? n) (swap! out str n)
+                                   (number? n) (swap! out str n)
+                                   (vector? n) (doseq [c (rest n)] (scan c))
+                                   (seq? n)    (doseq [c n] (scan c))))]
+                         (scan out-2)
+                         @out))]
+        (testing "after toggle the surrogate flips to ▾"
+          (is (some #{"▾"} glyphs-2)
+              (str "expected ▾ after toggle; got " (pr-str glyphs-2))))
+        (testing "the body keys surface (rendering switched from header
+                  `{…}` to the body's `<li>` rows)"
+          (is (re-find #":k0" txt-2))
+          (is (re-find #":k1" txt-2)))
+        (testing "no redundant `{…}` ellipsis next to the body when expanded"
+          (is (not (re-find #"\{…\}" txt-2))
+              (str "expanded render should not carry the cljs-devtools "
+                   "header ellipsis; got " txt-2)))))))
+
 (deftest browse-of-non-collection-routes-through-cljs-devtools
   (let [out (w/browse {:value     :foo/bar
                        :panel-id  :test

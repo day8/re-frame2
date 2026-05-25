@@ -20,6 +20,7 @@
 
   Pure-data scope — no DOM mount; hiccup-shape assertions only."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [clojure.string :as str]
             [day8.re-frame2-xray.views.edn-widget.cljs-devtools-render
              :as cdt]))
 
@@ -378,3 +379,249 @@
           glyphs (map #(last %) btns)]
       (is (some #{"▾"} glyphs)
           "with default-depth deeper than the surrogate, ▾ appears"))))
+
+;; ---- regression tests (rf2-oswhk) ---------------------------------------
+;;
+;; rf2-dw8n7 (#2134) wired click-to-toggle but two visual regressions
+;; slipped past the unit gate:
+;;
+;;   1. SHARED PATHS — every sibling `["object" ...]` surrogate inside a
+;;      single map's HEADER (inline view) walked with `:path []` because
+;;      the walker only appended path-segments inside an `"ol"` body.
+;;      Two siblings hashed to the same expansion-map key and a click
+;;      on one toggled them all. Click-to-toggle appeared broken because
+;;      the next click immediately re-toggled the shared slot.
+;;   2. EXPANDED RENDER SHOWED HEADER + BODY — the prior render emitted
+;;      both cljs-devtools' header (the `{…}` inline summary, kept
+;;      inline by `:max-print-level 1`) AND the body rows recursively.
+;;      The effect was a visual `{:counter ▾{…}0[:value 0]1[...]...}`
+;;      rather than re-frame-10x's clean expanded shape (where the
+;;      body replaces the header under the ▾ triangle).
+;;
+;; The fix mirrors re-frame-10x's `data-structure` /
+;; `data-structure-with-path-annotations` shape: every walker child
+;; gets a positional path segment (so sibling surrogates have distinct
+;; keys); when EXPANDED render the BODY, when COLLAPSED render the
+;; HEADER — never both. The cljs-devtools JSONML walker keeps driving
+;; the leaf-token markup so the canonical Chrome-console palette
+;; (keyword magenta / integer blue / string red / nil gray / boolean
+;; teal) survives intact end-to-end.
+
+(defn- walk-styled-spans
+  "Return every `[:span attrs ...]` node whose `:style` map carries a
+  `:color`, paired with the concatenated text content of the span."
+  [tree]
+  (let [out (atom [])]
+    (letfn [(text-of [n]
+              (cond
+                (string? n) n
+                (number? n) (str n)
+                (vector? n) (apply str (map text-of (rest n)))
+                (seq? n)    (apply str (map text-of n))
+                :else       ""))
+            (walk [n]
+              (when (vector? n)
+                (let [attrs (second n)]
+                  (when (and (= :span (first n))
+                             (map? attrs)
+                             (some-> attrs :style :color))
+                    (swap! out conj
+                           {:color (-> attrs :style :color)
+                            :text  (apply str (map text-of (drop 2 n)))})))
+                (doseq [c (rest n)]
+                  (cond
+                    (vector? c) (walk c)
+                    (seq? c)    (doseq [x c] (walk x))))))]
+      (walk tree)
+      @out)))
+
+(defn- walk-leaf-strings
+  "Walk the tree, collecting every leaf-string (and number→string) in
+  order. Useful for asserting structural shape via a concatenated
+  string."
+  [tree]
+  (let [out (atom [])]
+    (letfn [(walk [n]
+              (cond
+                (string? n) (swap! out conj n)
+                (number? n) (swap! out conj (str n))
+                (vector? n) (doseq [c (rest n)] (walk c))
+                (seq? n)    (doseq [c n] (walk c))))]
+      (walk tree)
+      @out)))
+
+(defn- color-of-leaf
+  "Return the `:color` style of the span whose concatenated content
+  equals `target-text`. Used to assert per-token colour preservation."
+  [tree target-text]
+  (->> (walk-styled-spans tree)
+       (filter #(= target-text (:text %)))
+       first
+       :color))
+
+(defn- find-toggle-buttons
+  [tree]
+  (filter (fn [n]
+            (and (vector? n)
+                 (= :span (first n))
+                 (map? (second n))
+                 (= "button" (:role (second n)))))
+          (walk-hiccup tree)))
+
+(deftest scalar-tokens-keep-cljs-devtools-palette
+  ;; Regression 2 — pre-fix every scalar inside the app-db panel
+  ;; collapsed to `--rf-xray-text-primary` because the prior worker
+  ;; effectively replaced cljs-devtools' templated markup with a custom
+  ;; renderer. The fix keeps the JSONML walker driving cljs-devtools'
+  ;; templated body markup so each scalar inherits the canonical
+  ;; Chrome-console palette.
+  (let [v   {:k    :foo/bar
+             :n    42
+             :s    "hello"
+             :nl   nil
+             :b    true}
+        ;; Default-depth high so the body is rendered (where each
+        ;; scalar appears via cljs-devtools' body-line markup with the
+        ;; per-token style spans).
+        out (cdt/value->tree-hiccup
+              v {:panel-id      :app-db
+                 :render-id     "scalar-colours"
+                 :default-depth 4})]
+    (testing "keyword paints magenta (cljs-devtools :keyword-style)"
+      (is (= "rgba(136,19,145,1)" (color-of-leaf out ":foo/bar"))))
+    (testing "integer paints blue (cljs-devtools :integer-style)"
+      (is (= "rgba(28,0,207,1)"   (color-of-leaf out "42"))))
+    (testing "string paints red (cljs-devtools :string-style)"
+      (is (= "rgba(196,26,22,1)"  (color-of-leaf out "\"hello\""))))
+    (testing "nil paints gray (cljs-devtools :nil-style)"
+      (is (= "rgba(128,128,128,1)" (color-of-leaf out "nil"))))
+    (testing "boolean paints teal (cljs-devtools :bool-style)"
+      (is (= "rgba(0,153,153,1)"   (color-of-leaf out "true"))))))
+
+(deftest sibling-surrogates-resolve-to-distinct-paths
+  ;; Regression 1 — pre-fix, two sibling collections inside a single
+  ;; map (e.g. `{:outer {…large} :tail {…large}}`) both walked with
+  ;; `:path []` so a click on one triangle toggled both. The fix
+  ;; appends a positional child-index to the path for every walker
+  ;; descent so siblings disambiguate.
+  (let [v    {:outer (zipmap (map #(keyword (str "k" %)) (range 20))
+                             (range 20))
+              :tail  (zipmap (map #(keyword (str "t" %)) (range 20))
+                             (range 20))}
+        out  (cdt/value->tree-hiccup
+               v {:panel-id      :p
+                  :render-id     "siblings"
+                  :default-depth 1})
+        btns (find-toggle-buttons out)
+        ids  (map #(:data-testid (second %)) btns)]
+    (testing "two distinct toggle triangles for the two wide siblings"
+      (is (>= (count btns) 2)
+          (str "expected ≥2 toggle triangles, got " (count btns))))
+    (testing "every sibling triangle gets its own data-testid"
+      (is (= (count ids) (count (set ids)))
+          (str "duplicate toggle ids (siblings collide on path): "
+               (pr-str ids))))))
+
+(deftest expansion-map-override-flips-collapsed-to-expanded
+  ;; Regression 1 (consequence) — the toggle dispatches
+  ;; `[:rf.xray/data-display-toggle-node panel-id render-id path]` and
+  ;; the handler writes `{[panel-id render-id path] {:expanded? true}}`
+  ;; into the expansion slot. The re-render reads that map and flips
+  ;; the surrogate's glyph. Pre-fix the click landed on path `[]`
+  ;; which the walker never resolved consistently. This test
+  ;; round-trips: extract the surrogate's path from its data-testid,
+  ;; build an expansion-map override at THAT path, re-render — the
+  ;; same surrogate must flip from ▸ to ▾.
+  (let [wide  (zipmap (map #(keyword (str "k" %)) (range 20)) (range 20))
+        v     {:outer wide}
+        out-1 (cdt/value->tree-hiccup
+                v {:panel-id      :p
+                   :render-id     "override"
+                   :default-depth 1})
+        btns-1 (find-toggle-buttons out-1)
+        ;; data-testid format:
+        ;; `rf-xray-edn-widget-toggle-<panel>-<render-id>-<a>/<b>/...`
+        ;; — split off the path tail and parse each segment back to int.
+        testid-1     (-> btns-1 first second :data-testid)
+        path-prefix  "rf-xray-edn-widget-toggle-p-override-"
+        path-suffix  (subs testid-1 (count path-prefix))
+        path-vec     (mapv #(js/parseInt % 10)
+                           (str/split path-suffix #"/"))
+        out-2 (cdt/value->tree-hiccup
+                v {:panel-id      :p
+                   :render-id     "override"
+                   :default-depth 1
+                   :expansion-map {[:p "override" path-vec]
+                                   {:expanded? true}}})
+        btns-2 (find-toggle-buttons out-2)
+        glyphs-2 (map last btns-2)]
+    (testing "wide nested map collapses to ▸ by default"
+      (is (= ["▸"] (map last btns-1))))
+    (testing "the same surrogate flips to ▾ when its expansion-map slot is set"
+      (is (some #{"▾"} glyphs-2)
+          (str "expected ▾ in " (pr-str glyphs-2)
+               " for override path " (pr-str path-vec))))))
+
+(deftest expanded-render-shows-body-not-header
+  ;; Regression 2 — pre-fix, expanded rendered both the cljs-devtools
+  ;; HEADER (the `{…}` inline summary, kept inline by
+  ;; `:max-print-level 1`) AND the BODY rows. The fix renders body OR
+  ;; header — never both. With a small (≤ threshold) inner map at the
+  ;; default depth, the inner IS expanded; its rendered text MUST NOT
+  ;; contain `{…}` (the cljs-devtools clamped-header ellipsis — that
+  ;; was the pre-fix smoking gun).
+  (let [v   {:counter {:value 0 :last 1 :name "x"}}
+        out (cdt/value->tree-hiccup
+              v {:panel-id      :app-db
+                 :render-id     "expanded-shape"
+                 :default-depth 4})
+        joined (apply str (walk-leaf-strings out))]
+    (testing "the expanded body shows the actual keys/values"
+      (is (re-find #":value" joined))
+      (is (re-find #":last"  joined))
+      (is (re-find #":name"  joined)))
+    (testing "no redundant {…} header summary survives next to the body"
+      (is (not (re-find #"\{…\}" joined))
+          (str "expanded body should not carry the cljs-devtools "
+               "header ellipsis (`{…}`); got " joined)))))
+
+(deftest collapsed-render-shows-header-not-body
+  ;; The complement — when COLLAPSED, the body rows must not surface;
+  ;; we show only the cljs-devtools header summary (`▸ {…}`).
+  (let [wide (zipmap (map #(keyword (str "k" %)) (range 20)) (range 20))
+        v    {:outer wide}
+        out  (cdt/value->tree-hiccup
+               v {:panel-id      :app-db
+                  :render-id     "collapsed-shape"
+                  :default-depth 1})
+        joined (apply str (walk-leaf-strings out))]
+    (testing "collapsed nested map renders the ▸ summary header"
+      (is (re-find #"▸"     joined))
+      (is (re-find #"\{…\}" joined)))
+    (testing "no body keys leak through when collapsed"
+      (is (not (re-find #":k0" joined))
+          (str "collapsed view should not surface the body's keys; "
+               "got " joined)))))
+
+(deftest collapsed-inline-header-keeps-cljs-devtools-commas
+  ;; Regression 3 — cljs-devtools' inline header for a small map
+  ;; renders comma+space separators between key-value pairs
+  ;; (`{:a 1, :b 2, :c 3}`). The previous worker's REPLACEMENT
+  ;; renderer dropped these (operator saw `{:value 0:last-clicked
+  ;; nil...}` end-to-end). The fix keeps cljs-devtools driving the
+  ;; inline header so the commas survive.
+  (let [v   {:a 1 :b 2 :c 3}
+        out (cdt/value->tree-hiccup v {:panel-id      :app-db
+                                       :render-id     "commas"
+                                       :default-depth 4})
+        joined (apply str (walk-leaf-strings out))]
+    (testing "key+value pairs appear in the rendered text"
+      (is (re-find #":a"  joined))
+      (is (re-find #":b"  joined))
+      (is (re-find #":c"  joined)))
+    (testing "comma+space separators between key-value pairs"
+      (is (re-find #", :b" joined)
+          (str "expected comma between :a and :b; got " joined))
+      (is (re-find #", :c" joined)
+          (str "expected comma between :b and :c; got " joined)))))
+

@@ -242,10 +242,12 @@
 
   The triangle is a `[:span]` with `:on-click` dispatching
   `:rf.xray/data-display-toggle-node` against this surrogate's
-  walker-path. When expanded, the header line is followed by the
-  surrogate's body indented underneath (recursing through the walker
-  with a deeper path). When collapsed, only the one-line header
-  renders.
+  walker-path. When EXPANDED the triangle is followed by cljs-devtools'
+  BODY (the recursive child rows). When COLLAPSED the triangle is
+  followed by cljs-devtools' HEADER (the one-line `{…}` summary). Body
+  OR header — never both (rf2-oswhk). re-frame-10x's
+  `data-structure` / `data-structure-with-path-annotations` use the
+  same shape — see `src/day8/re_frame_10x/components/cljs_devtools.cljs`.
 
   Defaults: §10.4 heuristic — depth ≤ default-depth → expanded; below
   the body's child-count threshold at the boundary → still expanded;
@@ -259,7 +261,10 @@
   `cljs-devtools` models a value's expandable rows as a surrogate whose
   `body-api-call` returns an `[\"ol\" ...]` of `[\"li\" ...]` lines;
   each line embeds child values as further `object` references — so
-  recursing on `body-api-call` walks the whole structure."
+  recursing on `body-api-call` walks the whole structure with the
+  type-aware colour palette intact (keyword magenta, number blue,
+  string red, nil gray, boolean teal — cljs-devtools' canonical
+  Chrome-console scheme)."
   [obj {:keys [depth max-depth panel-id render-id path
                expansion-map default-depth]
         :as opts}]
@@ -341,30 +346,33 @@
                            [:span {:style {:color (:text-tertiary tokens)
                                            :margin-right "2px"}}
                             glyph])
-            ;; Surrogates inside the surrogate's header / body represent
-            ;; CHILDREN of this node — they live at depth+1 in the value
-            ;; tree, so the walker descends with the bumped depth (and
-            ;; the per-li path additions the walker layers on top). This
-            ;; is what keeps the default-expansion heuristic honest for
-            ;; deeply nested values — without the bump, inline surrogates
-            ;; in the parent's header all read as depth=parent and the
-            ;; heuristic over-expands.
+            ;; Surrogates inside the surrogate's body represent CHILDREN
+            ;; of this node — they live at depth+1 in the value tree, so
+            ;; the walker descends with the bumped depth. The path is
+            ;; reset for the inner walk: the body's own li-indices form
+            ;; the path segments inside, on top of THIS surrogate's path
+            ;; already in `:path`. The walker's :path → child-index
+            ;; tracking re-establishes uniqueness as we descend.
             inner-opts   (assoc opts :depth (inc depth))]
-        (if expanded?
+        (if (and expanded? (some? body))
+          ;; Expanded: triangle + BODY. cljs-devtools' body emits
+          ;; `[:standard-ol [:standard-li <name-tag> <value-markup>]
+          ;;                [:standard-li <name-tag> <value-markup>] ...]`
+          ;; — one row per child, with the value-markup carrying the
+          ;; per-token colour palette via the templating system. Per
+          ;; re-frame-10x: we render the body INSTEAD of the header
+          ;; under the triangle, so the visible content is the deeper
+          ;; structure rather than the redundant `{…}` summary.
           [:span {:style {:font-family mono-stack}}
-           [:span {:style {:display "block"}}
-            triangle
-            [:span (jsonml->hiccup header inner-opts)]]
-           (when (some? body)
-             [:div {:style {:padding-left "14px"
-                            :border-left  (str "1px solid " (:border-subtle tokens))
-                            :margin-left  "2px"}}
-              (jsonml->hiccup body inner-opts)])]
-          ;; Collapsed: triangle + one-line header summary side-by-side.
+           triangle
+           (jsonml->hiccup body inner-opts)]
+          ;; Collapsed: triangle + one-line header summary
+          ;; (`{…}` / `[…]` etc., emitted by `header-api-call` because
+          ;; `:max-print-level 1` clamps the inline depth).
           [:span {:style {:font-family mono-stack
                           :color       (:text-secondary tokens)}}
            triangle
-           [:span (jsonml->hiccup header inner-opts)]])))))
+           (jsonml->hiccup header inner-opts)])))))
 
 (defn- render-object
   "Route an `object` reference to the interactive expanding renderer
@@ -432,10 +440,14 @@
   collapsed to a one-line `▸ {…}` summary otherwise. `annotation`
   (cljs-devtools' path-marker) wraps its children in a bare `[:span]`.
 
-  When walking an `\"ol\"` body, each `\"li\"` child gets a per-row
-  path segment so nested object refs inside it can derive their own
-  walker path (used as the sticky-expansion key). Other container tags
-  (div / span / table / tr / td) just pass `opts` through verbatim.
+  Every child gets a per-position path segment so each nested `object`
+  reference resolves to a UNIQUE `[panel-id render-id path]` key for
+  the sticky-expansion map (rf2-oswhk). Pre-fix the walker only added
+  path segments inside `\"ol\"` containers — so the n sibling
+  surrogates inside a single map's header all hashed to the same key
+  and a click on one toggled them all. Now every descent appends a
+  positional index (the child's index in its parent JSONML array),
+  mirroring re-frame-10x's `(conj indexed-path i)` walk.
 
   Single-arg arity renders header-only (no expansion). The opts arity
   threads `{:expand? :depth :max-depth :panel-id :render-id
@@ -444,14 +456,37 @@
   ([jsonml] (jsonml->hiccup jsonml {:expand? false :depth 0 :max-depth 0
                                     :path []}))
   ([jsonml opts]
-   (let [walk-container
-         (fn walk-container [tag-name attrs children-fn]
+   (let [walk-known
+         (fn walk-known [tag-name attrs children-getter child-cnt]
+           ;; `children-getter` is a fn that returns the i-th child (JS
+           ;; array `aget` or CLJS-vector `nth` — abstracted so the same
+           ;; loop handles both wrappers). Path segment per child so
+           ;; sibling surrogates resolve to distinct expansion keys.
            (let [style (attrs-style->map attrs)
                  base  [(keyword tag-name)
-                        {:style (assoc style :font-family mono-stack)}]
-                 li?   (= tag-name "li")
-                 ol?   (or (= tag-name "ol") (= tag-name "ul"))]
-             (children-fn base li? ol?)))]
+                        {:style (assoc style :font-family mono-stack)}]]
+             (loop [i 2 acc base child-idx 0]
+               (if (>= i child-cnt)
+                 acc
+                 (let [c          (children-getter i)
+                       child-opts (assoc opts :path
+                                         (child-path (:path opts) child-idx))]
+                   (recur (inc i)
+                          (conj acc (jsonml->hiccup c child-opts))
+                          (inc child-idx)))))))
+         walk-fallback
+         (fn walk-fallback [children-getter child-cnt]
+           ;; Annotation + unknown tags: a bare `[:span]` wrapper, with
+           ;; path-segment indexing matching the known-tag walk.
+           (loop [i 2 acc [:span {}] child-idx 0]
+             (if (>= i child-cnt)
+               acc
+               (let [c          (children-getter i)
+                     child-opts (assoc opts :path
+                                       (child-path (:path opts) child-idx))]
+                 (recur (inc i)
+                        (conj acc (jsonml->hiccup c child-opts))
+                        (inc child-idx))))))]
      (cond
        (nil? jsonml)     nil
        (number? jsonml)  jsonml
@@ -460,68 +495,40 @@
        ;; JSONML is a JS array of [tag attrs ...children]. ClojureScript's
        ;; `array?` predicate identifies the JS array shape.
        (array? jsonml)
-       (let [tag-name   (aget jsonml 0)
-             attrs      (aget jsonml 1)
-             child-cnt  (.-length jsonml)]
+       (let [tag-name  (aget jsonml 0)
+             attrs     (aget jsonml 1)
+             child-cnt (.-length jsonml)
+             get-child (fn [i] (aget jsonml i))]
          (cond
            (contains? known-tags tag-name)
-           (walk-container
-             tag-name attrs
-             (fn [base _li? ol?]
-               (loop [i 2 acc base li-idx 0]
-                 (if (>= i child-cnt)
-                   acc
-                   (let [c           (aget jsonml i)
-                         child-opts  (if ol?
-                                       (assoc opts :path (child-path (:path opts) li-idx))
-                                       opts)
-                         next-li-idx (if ol? (inc li-idx) li-idx)]
-                     (recur (inc i)
-                            (conj acc (jsonml->hiccup c child-opts))
-                            next-li-idx))))))
+           (walk-known tag-name attrs get-child child-cnt)
 
            (= tag-name "object")
            (render-object attrs opts)
 
-           (= tag-name "annotation")
-           (loop [i 2 acc [:span {}]]
-             (if (>= i child-cnt)
-               acc
-               (recur (inc i) (conj acc (jsonml->hiccup (aget jsonml i) opts)))))
-
+           ;; annotation + unknown tags share the bare-span fallback.
            :else
-           ;; Unknown tag — fall back to a plain span so the markup
-           ;; doesn't disappear silently.
-           (loop [i 2 acc [:span {}]]
-             (if (>= i child-cnt)
-               acc
-               (recur (inc i) (conj acc (jsonml->hiccup (aget jsonml i) opts)))))))
+           (walk-fallback get-child child-cnt)))
 
        ;; Some JSONML producers wrap their content in a CLJS vector
        ;; instead of a JS array (e.g. when re-routed through edn->js).
        ;; Walk those too.
        (vector? jsonml)
-       (let [[tag-name attrs & children] jsonml]
+       (let [[tag-name attrs & children] jsonml
+             children-vec (vec children)
+             child-cnt    (+ 2 (count children-vec))
+             ;; Position 0=tag, 1=attrs, 2+ = children — match the JS
+             ;; array layout so `i` indexes the same positions.
+             get-child    (fn [i] (nth children-vec (- i 2) nil))]
          (cond
            (contains? known-tags tag-name)
-           (walk-container
-             tag-name attrs
-             (fn [base _li? ol?]
-               (loop [acc base remaining children li-idx 0]
-                 (if (empty? remaining)
-                   acc
-                   (let [c           (first remaining)
-                         child-opts  (if ol?
-                                       (assoc opts :path (child-path (:path opts) li-idx))
-                                       opts)
-                         next-li-idx (if ol? (inc li-idx) li-idx)]
-                     (recur (conj acc (jsonml->hiccup c child-opts))
-                            (rest remaining)
-                            next-li-idx))))))
+           (walk-known tag-name attrs get-child child-cnt)
 
-           (= tag-name "object") (render-object attrs opts)
+           (= tag-name "object")
+           (render-object attrs opts)
 
-           :else (into [:span {}] (map #(jsonml->hiccup % opts)) children)))
+           :else
+           (walk-fallback get-child child-cnt)))
 
        :else
        (try (pr-str jsonml) (catch :default _ (str jsonml)))))))
