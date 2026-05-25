@@ -443,17 +443,69 @@
    :same     " "})
 
 (def op->gutter-tone-key
-  "Per-op token-key for the gutter glyph + 3px left border colour."
-  {:added    :green
-   :removed  :red
-   :modified :yellow
-   :children :accent
+  "Per-op token-key for the gutter GLYPH colour.
+
+  rf2-awqts — every diff-active op now reads the SAME reserved
+  `:diff-gutter` token (cyan-teal in dark / darker-teal in light); the
+  glyph carries the per-op shape (`+ / - / ~ / ◴`) and the row wash
+  carries the per-op hue. Pre-fix the glyph colour mapped per-op to
+  `:green` / `:red` / `:yellow` / `:accent`, which collided with the
+  Calva-aligned `:syntax-*` palette (numbers orange ≡ modified yellow,
+  booleans gold ≡ modified yellow, etc.) — the operator could not
+  distinguish 'this is a number' from 'this is modified'. The reserved
+  diff-gutter hue sits outside every `:syntax-*` family by design.
+
+  `:same` keeps `:text-tertiary` so the transparent-border non-diff
+  shape composes unchanged."
+  {:added    :diff-gutter
+   :removed  :diff-gutter
+   :modified :diff-gutter
+   :children :diff-gutter
    :same     :text-tertiary})
 
+(def op->row-wash-key
+  "Per-op token-key for the row-background wash. rf2-awqts —
+  GitHub-style low-opacity tinge across the whole diff row, so the eye
+  reads diff state at row level while per-token text colour reads type
+  semantics. `:same` and `:children` get NO wash (`nil`) — the row sits
+  flush with the canvas. Public so tests can assert the mapping
+  without re-deriving."
+  {:added    :diff-added-wash
+   :removed  :diff-removed-wash
+   :modified :diff-modified-wash
+   :children nil
+   :same     nil})
+
+(def op->row-stripe-key
+  "Per-op token-key for the 2px left-edge stripe. Reinforces the row
+  wash at the column-1 anchor — same hue family, more saturated.
+  `:same` and `:children` produce a transparent stripe."
+  {:added    :diff-added-stripe
+   :removed  :diff-removed-stripe
+   :modified :diff-modified-stripe
+   :children nil
+   :same     nil})
+
 (defn- gutter-colour
-  "Resolve the gutter colour for an op via the token table."
+  "Resolve the gutter GLYPH colour for an op via the token table.
+  rf2-awqts — every active op reads `:diff-gutter`; `:same` reads
+  `:text-tertiary`."
   [op]
   (get tokens (op->gutter-tone-key op) (:text-tertiary tokens)))
+
+(defn- row-wash-bg
+  "Resolve the per-op row-background wash CSS string (or `nil` when no
+  wash applies). rf2-awqts."
+  [op]
+  (when-let [k (get op->row-wash-key op)]
+    (get tokens k)))
+
+(defn- row-stripe-colour
+  "Resolve the per-op 2px-stripe CSS string (or `nil` when no stripe
+  applies). rf2-awqts."
+  [op]
+  (when-let [k (get op->row-stripe-key op)]
+    (get tokens k)))
 
 (defn- container-op
   "Classify a container's diff op given (before, after). Returns
@@ -468,10 +520,31 @@
     :else                                      :same))
 
 (defn- gutter-row
-  "Wrap `body` with the diff gutter (3px left border + glyph). When
-  the op is `:same` the wrapper is invisible (transparent border, blank
-  glyph) so non-diff renders share the same hiccup shape as diff
-  renders.
+  "Wrap `body` with the diff row chrome: gutter glyph + low-opacity
+  row-background wash + 2px left-edge stripe (rf2-awqts).
+
+  ## What lives on what channel
+
+  - **Gutter glyph colour** (`:diff-gutter`, reserved cyan-teal) —
+    NEVER changes per op; carries 'this is a diff row' semantic.
+    Distinct from every `:syntax-*` family so per-token text colour
+    (`:syntax-number` orange, `:syntax-boolean` gold, `:syntax-
+    keyword` magenta, etc.) stays UNCONFLATED with diff state.
+  - **Gutter glyph shape** (`+ / - / ~ / ◴`) — per-op semantic.
+  - **Row wash** (low-alpha background tint per op) — added=green,
+    modified=amber, removed=red. ~10-12% opacity reads as
+    environmental, not obscuring.
+  - **Left-edge stripe** (2px saturated per-op accent) — reinforces
+    the row signal at the column-1 anchor without competing with text
+    colour.
+  - **Per-token text colour** — preserved as the `:syntax-*` palette
+    output; the diff path no longer overrides it.
+
+  When the op is `:same` the wrapper is invisible (transparent stripe,
+  no wash, blank glyph) so non-diff renders share the same hiccup
+  shape as diff renders. `:children` op (ancestor of a changed
+  descendant) gets the gutter glyph but NO wash + NO stripe — the
+  changed descendants below carry the colour-coded signal.
 
   ## rf2-1bra5 — inline-flex, not flex
 
@@ -486,16 +559,30 @@
   Returns an `[:span ...]` (display: inline-flex) so it nests inside a
   grid cell without breaking the row."
   [op body]
-  (let [active? (not= :same op)]
+  (let [active? (not= :same op)
+        wash    (row-wash-bg op)
+        stripe  (row-stripe-colour op)]
     [:span {:data-rf-diff-op (name op)
-            :style {:display      "inline-flex"
-                    :align-items  "baseline"
-                    :gap          "4px"
-                    :padding-left "6px"
-                    :border-left  (str "3px solid "
-                                       (if active?
-                                         (gutter-colour op)
-                                         "transparent"))}}
+            :data-rf-diff-wash (when wash "1")
+            :data-rf-diff-stripe (when stripe "1")
+            :style (cond-> {:display      "inline-flex"
+                            :align-items  "baseline"
+                            :gap          "4px"
+                            :padding-left "6px"
+                            ;; rf2-awqts — stripe colour comes from
+                            ;; `:diff-*-stripe`; on `:same` / `:children`
+                            ;; the border stays transparent so the row
+                            ;; chrome aligns column-wise without paint.
+                            :border-left  (str "2px solid "
+                                               (if (and active? stripe)
+                                                 stripe
+                                                 "transparent"))}
+                     ;; rf2-awqts — row wash applied as background on
+                     ;; the wrapping span so the tint extends behind
+                     ;; both gutter glyph + value. Opacity baked into
+                     ;; the token's rgba() string (~10-12%) so the
+                     ;; wash reads as environmental, not obscuring.
+                     wash (assoc :background wash))}
      [:span {:style {:flex          "0 0 12px"
                      :color         (gutter-colour op)
                      :font-family   mono-stack
@@ -1535,16 +1622,30 @@
             body])]))))
 
 (defn- render-leaf-with-diff
-  "Render a scalar leaf, wrapped in the diff gutter when `diff?` is
-  truthy. Returns hiccup `[:div ...]` for diff renders (so the gutter
-  row can layout) or the bare `[:span ...]` for non-diff (so inline
-  composition continues to work).
+  "Render a scalar leaf, wrapped in the diff row chrome when `diff?`
+  is truthy. Returns hiccup; the gutter-row wrapper paints wash +
+  stripe + glyph at the row level while the inner `render-scalar`
+  paints per-token syntax colour at the token level.
 
-  - `:added`    — render `value`   in green, gutter `+`
-  - `:removed`  — render `before`  in red, strike-through, gutter `-`
-  - `:modified` — render `value`   in yellow + `← changed from <prior>`
-                  chip, gutter `~`
-  - `:same`     — render `value` (dimmed when `diff?` is true so the
+  rf2-awqts — per-token text colour is PRESERVED across all diff ops.
+  Pre-fix `:added` overrode to `:green` text, `:removed` to `:red`,
+  `:modified` to `:yellow` — those clashed with the Calva-aligned
+  `:syntax-*` palette (numbers orange ≡ modified yellow, booleans
+  gold ≡ modified yellow). Now the row chrome (wash + stripe + glyph)
+  carries the diff signal; the scalar's `:syntax-*` colour reads
+  type semantics unchanged.
+
+  Op-specific text decorations (e.g. `:removed` strike-through, the
+  `← changed from <prior>` chip on `:modified`) survive because they
+  are non-colour signals — strike-through is a TEXT-DECORATION
+  channel; the chip is a separate inline element.
+
+  - `:added`    — render `value`,  gutter `+`, green wash + stripe
+  - `:removed`  — render `before` (strike-through), gutter `-`,
+                  red wash + stripe
+  - `:modified` — render `value` + `← changed from <prior>` chip,
+                  gutter `~`, amber wash + stripe
+  - `:same`     — render `value` (dimmed via `:text-tertiary` so the
                   eye lands on the changes)"
   [{:keys [value before diff?]}]
   (if-not diff?
@@ -1554,14 +1655,20 @@
         :added
         (gutter-row :added
                     [:span {:data-rf-diff-op "added"
-                            :style {:color (:green tokens)
-                                    :font-family mono-stack}}
+                            :style {:font-family mono-stack}}
+                     ;; rf2-awqts — render-scalar paints per-token
+                     ;; syntax colour; wash + stripe carry the diff
+                     ;; signal at the row level.
                      (render-scalar value)])
         :removed
         (gutter-row :removed
                     [:span {:data-rf-diff-op "removed"
-                            :style {:color (:red tokens)
-                                    :font-family mono-stack
+                            :style {:font-family mono-stack
+                                    ;; rf2-awqts — strike-through is a
+                                    ;; non-colour signal that survives
+                                    ;; the move to row chrome; keep it
+                                    ;; so a removed leaf still reads as
+                                    ;; deleted at the glyph level.
                                     :text-decoration "line-through"}}
                      (render-scalar before)])
         :modified
@@ -1570,14 +1677,23 @@
                             :style {:display "inline-flex"
                                     :align-items "baseline"
                                     :flex-wrap "wrap"
-                                    :gap "4px"}}
-                     [:span {:style {:color (:yellow tokens)
-                                     :font-family mono-stack}}
-                      (render-scalar value)]
+                                    :gap "4px"
+                                    :font-family mono-stack}}
+                     ;; rf2-awqts — drop the per-leaf colour override;
+                     ;; render-scalar emits the value with its
+                     ;; `:syntax-*` token colour intact.
+                     (render-scalar value)
                      (change-annotation before)])
         :same
         (gutter-row :same
                     [:span {:data-rf-diff-op "same"
+                            ;; rf2-awqts — `:same` keeps the dim
+                            ;; `:text-tertiary` override on purpose:
+                            ;; in a diff context the unchanged rows
+                            ;; SHOULD recede so the eye lands on the
+                            ;; changes. This is the only op where the
+                            ;; diff path still tints text colour, and
+                            ;; the choice is dimming-not-replacing.
                             :style {:color (:text-tertiary tokens)
                                     :font-family mono-stack}}
                      (render-scalar value)])))))

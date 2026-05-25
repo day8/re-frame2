@@ -1062,11 +1062,109 @@
   (is (= " " (dd/op->gutter-glyph :same))))
 
 (deftest gutter-tone-mapping
-  (is (= :green     (dd/op->gutter-tone-key :added)))
-  (is (= :red       (dd/op->gutter-tone-key :removed)))
-  (is (= :yellow    (dd/op->gutter-tone-key :modified)))
-  (is (= :accent    (dd/op->gutter-tone-key :children)))
-  (is (= :text-tertiary (dd/op->gutter-tone-key :same))))
+  (testing "rf2-awqts — every active diff op now reads the SAME
+            reserved `:diff-gutter` token; the glyph's hue is no longer
+            per-op (per-op signal lives in the wash + stripe + shape).
+            `:same` keeps `:text-tertiary` so the transparent non-diff
+            shape composes unchanged."
+    (is (= :diff-gutter   (dd/op->gutter-tone-key :added)))
+    (is (= :diff-gutter   (dd/op->gutter-tone-key :removed)))
+    (is (= :diff-gutter   (dd/op->gutter-tone-key :modified)))
+    (is (= :diff-gutter   (dd/op->gutter-tone-key :children)))
+    (is (= :text-tertiary (dd/op->gutter-tone-key :same)))))
+
+;; ---- rf2-awqts — row chrome (wash + stripe) -----------------------------
+
+(deftest row-wash-mapping
+  (testing "rf2-awqts — per-op row-background wash token-key mapping"
+    (is (= :diff-added-wash    (dd/op->row-wash-key :added)))
+    (is (= :diff-removed-wash  (dd/op->row-wash-key :removed)))
+    (is (= :diff-modified-wash (dd/op->row-wash-key :modified)))
+    (is (nil? (dd/op->row-wash-key :children))
+        "`:children` rows carry NO wash — the colour-coded descendants below do")
+    (is (nil? (dd/op->row-wash-key :same))
+        "`:same` rows sit flush with the canvas")))
+
+(deftest row-stripe-mapping
+  (testing "rf2-awqts — per-op 2px-stripe token-key mapping"
+    (is (= :diff-added-stripe    (dd/op->row-stripe-key :added)))
+    (is (= :diff-removed-stripe  (dd/op->row-stripe-key :removed)))
+    (is (= :diff-modified-stripe (dd/op->row-stripe-key :modified)))
+    (is (nil? (dd/op->row-stripe-key :children)))
+    (is (nil? (dd/op->row-stripe-key :same)))))
+
+(deftest gutter-glyph-colour-is-syntax-palette-disjoint
+  (testing "rf2-awqts — the reserved `:diff-gutter` hue must NOT match
+            any `:syntax-*` token. Pre-fix the per-op gutter colour
+            mapped through `:green` / `:red` / `:yellow` / `:accent`
+            which collided with `:syntax-string` / `:syntax-number` /
+            `:syntax-boolean` etc., conflating type semantics with
+            diff state. The new reserved hue (cyan-teal in dark,
+            darker-teal in light) sits outside every `:syntax-*`
+            family by design."
+    (doseq [palette [dark-palette light-palette]]
+      (let [gutter (:diff-gutter palette)
+            syntax-hexes #{(:syntax-keyword palette)
+                           (:syntax-string  palette)
+                           (:syntax-number  palette)
+                           (:syntax-boolean palette)
+                           (:syntax-nil     palette)
+                           (:syntax-symbol  palette)
+                           (:syntax-builtin palette)
+                           (:syntax-punctuation palette)}]
+        (is (not (contains? syntax-hexes gutter))
+            (str "diff-gutter " gutter " collides with a syntax-* token "
+                 "in palette " (if (= palette dark-palette) :dark :light)))))))
+
+(deftest diff-leaf-preserves-syntax-token-colour
+  (testing "rf2-awqts — per-token text colour PRESERVED across `:added`
+            and `:modified` ops. Pre-fix the diff path overrode to
+            `:green` / `:yellow` text colour which clashed with the
+            Calva-aligned syntax palette (numbers orange ≡ modified
+            yellow); now the row chrome (wash + stripe + glyph)
+            carries the diff signal."
+    ;; :added — number value keeps `:syntax-number` orange
+    (let [h (dd/render-node {:value 42 :before ::dd/missing :diff? true
+                             :panel-id :p :mount-id "m" :path [] :depth 0
+                             :expansion-map {} :opts {}})
+          node (find-attr h :data-rf-type "number")]
+      (is (some? node) "number scalar rendered inside the gutter row")
+      (is (= (:syntax-number tokens) (-> node second :style :color))
+          ":syntax-number token preserved on the added scalar"))
+    ;; :modified — boolean keeps `:syntax-boolean` gold
+    (let [h (dd/render-node {:value true :before false :diff? true
+                             :panel-id :p :mount-id "m" :path [] :depth 0
+                             :expansion-map {} :opts {}})
+          node (find-attr h :data-rf-type "boolean")]
+      (is (some? node) "boolean scalar rendered inside the gutter row")
+      (is (= (:syntax-boolean tokens) (-> node second :style :color))
+          ":syntax-boolean token preserved on the modified scalar"))))
+
+(deftest diff-row-wrapper-carries-wash-and-stripe-attrs
+  (testing "rf2-awqts — diff row wrapper carries data-attributes so
+            tests + DOM inspectors can confirm the wash + stripe are
+            applied per op"
+    (let [h (dd/render-node {:value 42 :before ::dd/missing :diff? true
+                             :panel-id :p :mount-id "m" :path [] :depth 0
+                             :expansion-map {} :opts {}})
+          wrapper (find-attr h :data-rf-diff-op "added")]
+      (is (some? wrapper))
+      (is (= "1" (:data-rf-diff-wash  (second wrapper)))
+          "added row carries wash attr")
+      (is (= "1" (:data-rf-diff-stripe (second wrapper)))
+          "added row carries stripe attr")
+      (is (= (:diff-added-wash tokens) (-> wrapper second :style :background))
+          "wash background reads through the diff-added-wash token"))
+    ;; :same — no wash, no stripe attrs
+    (let [h (dd/render-node {:value 42 :before 42 :diff? true
+                             :panel-id :p :mount-id "m" :path [] :depth 0
+                             :expansion-map {} :opts {}})
+          wrapper (find-attr h :data-rf-diff-op "same")]
+      (is (some? wrapper))
+      (is (nil? (:data-rf-diff-wash  (second wrapper)))
+          ":same row has no wash")
+      (is (nil? (:data-rf-diff-stripe (second wrapper)))
+          ":same row has no stripe"))))
 
 ;; ---- diff mode — modified-leaf annotation --------------------------------
 
