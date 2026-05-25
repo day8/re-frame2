@@ -5,9 +5,11 @@
 > previous-generation re-frame2 app via the retired
 > `clojure -X:project/new :template re-frame2` invocation
 > (`day8/clj-template.re-frame2` on Clojars). The current template
-> is `day8/re-frame2-template` — a deps-new template distributed as
-> a git-coord on
-> [`github.com/day8/re-frame2-template`](https://github.com/day8/re-frame2-template).
+> is `day8/re-frame2-template` — a deps-new template living in-tree
+> at [`tools/template/`](../../tools/template/) and distributed as
+> a git-coord (planned external repo
+> `github.com/day8/re-frame2-template` — see
+> [`tools/template/spec/005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md)).
 
 ## TL;DR
 
@@ -40,8 +42,9 @@ clj-new-era Mustache-only substitution shape.
 ### The distribution channel
 
 **Clojars → git-coord.** The published artefact is no longer
-`day8/clj-template.re-frame2` on Clojars; it is a tagged commit on
-[`github.com/day8/re-frame2-template`](https://github.com/day8/re-frame2-template).
+`day8/clj-template.re-frame2` on Clojars; it is a tagged commit of
+the [`tools/template/`](../../tools/template/) artefact (planned
+external repo `github.com/day8/re-frame2-template`).
 `clojure -Tnew create` resolves the template via deps-new's
 git-coord lookup (`io.github.*` triggers an auto-git-clone of the
 named GitHub repo).

@@ -16,8 +16,9 @@ Once the counter mounts, the author switches to the main `re-frame2` skill (for 
 re-frame2 also ships a one-command project generator —
 `day8/re-frame2-template`, a [deps-new](https://github.com/seancorfield/deps-new)
 template living under [`tools/template/`](../../tools/template/) in
-the monorepo today (final home:
-[`github.com/day8/re-frame2-template`](https://github.com/day8/re-frame2-template)).
+the monorepo today (planned external home
+`github.com/day8/re-frame2-template` — see
+[`tools/template/spec/005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md)).
 Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`.
 The two routes are complementary, not redundant:
 
