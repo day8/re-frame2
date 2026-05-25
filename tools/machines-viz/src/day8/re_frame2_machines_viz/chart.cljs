@@ -53,6 +53,8 @@
             [day8.re-frame2-machines-viz.chart.edges :as edges]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
              :as after-rings]
+            [day8.re-frame2-machines-viz.chart.overlays.label-collisions
+             :as label-collisions]
             [day8.re-frame2-machines-viz.chart.overlays.spawn-all-join
              :as overlay-spawn-all]
             [day8.re-frame2-machines-viz.chart.overlays.cancellation-cascade
@@ -888,6 +890,24 @@
                [overlay-cascade/CancellationCascadeOverlay
                 {:cascade-spec cancellation-cascade
                  :tick         overlay-tick}])
+             ;; rf2-r7vsr — post-render label-collision avoidance.
+             ;; Sibling overlay that walks the rendered DOM after
+             ;; xyflow paints, finds every label that intersects a
+             ;; node body (typically a cross-hierarchy edge whose
+             ;; routed path threads a label on top of a populated
+             ;; state's interior), slides the label along its edge's
+             ;; path until the conflict resolves, and stamps the
+             ;; residue count on this root as `data-label-collisions`.
+             ;; Pure post-process — does not change the projector or
+             ;; any React state. `transition-edge` emits the path
+             ;; string + geometric anchor on each label's data-attrs
+             ;; (`data-edge-path-d` + `data-label-anchor-x/y`) so the
+             ;; overlay is purely DOM-driven (no React-state
+             ;; coupling). Always-on: the chart always renders
+             ;; labels, and clean layouts measure zero collisions
+             ;; (the overlay is a no-op).
+             [label-collisions/LabelCollisionsOverlay
+              {:tick (or after-ring-tick overlay-tick)}]
              ;; rf2-4lyvh — ELK layout-failure indicator. When
              ;; `compute-layout!` surfaces a `:layout-error` slot the
              ;; chart would otherwise render every node stacked at

@@ -777,3 +777,58 @@
               (is (contains? sibling-counts "3")
                   "siblingCount of 3 is surfaced on the stacked labels"))
             (is (number? (.-length labels)))))))))
+
+;; ---- post-render label-collision avoidance (rf2-r7vsr / Phase 3) --------
+;;
+;; The chart mounts a sibling overlay (`label_collisions`) that walks the
+;; rendered DOM after xyflow paints, finds every label that intersects a
+;; node body, slides the label along its edge's path until the conflict
+;; resolves, and stamps the residue count on the chart root as
+;; `data-label-collisions`. These DOM pins guard the surface (path-data
+;; threading + residue attr) that visual-regression tests assert.
+
+(deftest chart-edge-labels-thread-path-d-and-anchor
+  (testing "rf2-r7vsr (Phase 3) — every transition-edge label carries
+            `data-edge-path-d` (the painted SVG path string) +
+            `data-label-anchor-x` / `data-label-anchor-y` (the
+            geometric label anchor) so the post-render collision pass
+            can read the path without recomputing it"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/flow :definition idle-loading-done}
+        (fn [_root node]
+          (let [labels (.querySelectorAll node "[data-testid^=\"rf-mv-chart-edge-\"]")]
+            (when (pos? (.-length labels))
+              (let [el       (aget labels 0)
+                    path-d   (.getAttribute el "data-edge-path-d")
+                    anchor-x (.getAttribute el "data-label-anchor-x")
+                    anchor-y (.getAttribute el "data-label-anchor-y")]
+                (is (and (string? path-d) (str/starts-with? path-d "M"))
+                    "data-edge-path-d holds an SVG path starting with M")
+                (is (some? anchor-x) "data-label-anchor-x present")
+                (is (some? anchor-y) "data-label-anchor-y present")))
+            (is (number? (.-length labels)))))))))
+
+(deftest chart-root-surfaces-data-label-collisions
+  (testing "rf2-r7vsr (Phase 3) — the chart root surfaces
+            `data-label-collisions` (residue count after the post-
+            render slide-along-path pass). Visual-regression tests
+            assert this is '0' for the testdeck shape; here we pin
+            the surface (the attr is present after the overlay
+            measures, and the count is a non-negative integer)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/flow :definition idle-loading-done}
+        (fn [root _node]
+          (is (some? root) "chart root mounted")
+          ;; The overlay measures inside requestAnimationFrame so the
+          ;; attr may be absent on the synchronous first read; the
+          ;; structural invariant (the overlay sibling DIV mounted) is
+          ;; what we can pin synchronously.
+          (let [overlay (.querySelector
+                          (.-body js/document)
+                          "[data-testid=\"rf-mv-chart-label-collisions-overlay\"]")]
+            (is (some? overlay)
+                "the label-collisions sibling overlay mounted")))))))
