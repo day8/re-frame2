@@ -135,6 +135,19 @@
    :syntax-punctuation "#abb2bf"
 
    :red-deep       "#a83a3a"
+
+   ;; diff row chrome (rf2-awqts) — mirrored from Xray's dark-palette
+   ;; so the key-set drift gate stays green. The chart doesn't read
+   ;; these tokens directly (diff signalling is Xray-specific), but
+   ;; mirroring keeps the two palette surfaces symmetric.
+   :diff-gutter          "#5fbcb6"
+   :diff-added-wash      "#3fb9501a"
+   :diff-modified-wash   "#d299221f"
+   :diff-removed-wash    "#f851491a"
+   :diff-added-stripe    "#3fb950"
+   :diff-modified-stripe "#d29922"
+   :diff-removed-stripe  "#f85149"
+
    :white          "#ffffff"})
 
 (def light-palette
@@ -209,6 +222,17 @@
    :syntax-punctuation "#383a42"
 
    :red-deep       "#9A3030"
+
+   ;; diff row chrome (rf2-awqts) — mirrored from Xray's light-palette
+   ;; per the dark-palette pattern above.
+   :diff-gutter          "#178f86"
+   :diff-added-wash      "#1a7f371a"
+   :diff-modified-wash   "#9a67001f"
+   :diff-removed-wash    "#c844441a"
+   :diff-added-stripe    "#1a7f37"
+   :diff-modified-stripe "#9a6700"
+   :diff-removed-stripe  "#cf222e"
+
    :white          "#ffffff"})
 
 (def palettes

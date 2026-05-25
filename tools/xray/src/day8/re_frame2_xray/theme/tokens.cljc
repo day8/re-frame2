@@ -179,6 +179,39 @@
    ;; stays AA-grade.
    :red-deep       "#a83a3a"
 
+   ;; ── diff row chrome (rf2-awqts) ──
+   ;; Diff signalling moved off the per-token text-colour channel so
+   ;; type semantics (`:syntax-*`) stay legible inside changed rows.
+   ;; Operator's eye reads diff at row-level (gutter glyph + wash +
+   ;; stripe); syntax at token-level (numbers orange, booleans gold,
+   ;; keywords magenta, etc.). Matches GitHub's diff convention:
+   ;; changed lines get a green/red wash; code inside keeps its
+   ;; syntax highlighting.
+   ;;
+   ;; `:diff-gutter` — single reserved hue for the `~/+/-/◴` gutter
+   ;; glyphs. Cyan-teal sits OUTSIDE every `:syntax-*` family (no
+   ;; magenta / green / orange / gold / blue collision) so the
+   ;; operator never confuses "this is a number" with "this changed".
+   ;;
+   ;; `:diff-*-wash` — low-opacity row backgrounds tinted per op.
+   ;; Stripe family carries the saturated 2px left-edge accent in the
+   ;; same hue family — reinforces the row-level signal at the
+   ;; column-1 anchor without competing with text colour.
+   ;; Wash values use 8-digit hex (#RRGGBBAA) so the palette-hex-map
+   ;; invariant holds — the var-resolution gate (rf2-on4cm) requires
+   ;; every value match `^#[0-9A-Fa-f]+$`. Alpha bytes:
+   ;;   `1a` = 26/255 ≈ 10%  (added / removed)
+   ;;   `1f` = 31/255 ≈ 12%  (modified — slightly stronger to clear
+   ;;                         the operator's foveal threshold on the
+   ;;                         most-common diff op)
+   :diff-gutter         "#5fbcb6"           ; cyan-teal (no syntax-* collision)
+   :diff-added-wash     "#3fb9501a"          ; :green   @ ~10%
+   :diff-modified-wash  "#d299221f"          ; :yellow  @ ~12%
+   :diff-removed-wash   "#f851491a"          ; :red     @ ~10%
+   :diff-added-stripe   "#3fb950"            ; :green   solid
+   :diff-modified-stripe "#d29922"           ; :yellow  solid
+   :diff-removed-stripe "#f85149"            ; :red     solid (= :error)
+
    ;; Universal white — readable on the brand/mode accent + the deep
    ;; reds. Catalogued here so the few "white text on coloured
    ;; surface" spots (primary / danger buttons) flow through tokens
@@ -274,6 +307,23 @@
    ;; On the light canvas the danger button stays close to the
    ;; semantic red — depth is signalled by saturation, not lightness.
    :red-deep       "#9A3030"
+
+   ;; ── diff row chrome (rf2-awqts) ──
+   ;; Light-theme mirror of the dark-palette diff tokens. See the dark
+   ;; palette's `:diff-*` block for the contract + rationale.
+   ;; `:diff-gutter` darkens to clear WCAG AA on the white canvas;
+   ;; wash opacities stay around 10-12% so the tinge reads as an
+   ;; environmental cue, not as obscuring the text.
+   ;; 8-digit hex (#RRGGBBAA) for the wash values per the dark-palette
+   ;; pattern; light-theme wash colours land 10-12% over a near-white
+   ;; canvas so even a 10% green reads with operator-noticeable tinge.
+   :diff-gutter         "#178f86"           ; teal (darker for AA on white)
+   :diff-added-wash     "#1a7f371a"          ; :green  @ ~10%
+   :diff-modified-wash  "#9a67001f"          ; :yellow @ ~12%
+   :diff-removed-wash   "#c844441a"          ; :red    @ ~10%
+   :diff-added-stripe   "#1a7f37"            ; :green  solid
+   :diff-modified-stripe "#9a6700"           ; :yellow solid
+   :diff-removed-stripe "#cf222e"            ; :red    solid (= :error)
 
    :white          "#ffffff"})
 
