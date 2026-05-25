@@ -1344,16 +1344,33 @@ re-break what phase 1 lands. All five are tested in
 4. **Click-to-toggle actually toggles.** Each node carries a stable
    `data-testid` derived from `[panel-id mount-id path]`; the `▸`
    span's `:on-click` dispatches
-   `[:rf.xray.data-display/toggle-node panel-id mount-id path]`
-   (with the `{:frame :rf/xray}` envelope because React's click
-   handler fires after the frame context pops). The reducer writes
-   `{:expanded? bool}` into the per-node entry in
+   `[:rf.xray.data-display/toggle-node panel-id mount-id path rendered-expanded?]`
+   via the **lexically-injected frame-aware dispatcher** — the widget
+   is `reg-view`-registered (per rf2-y59tb) so its body's `dispatch`
+   closure inherits the surrounding `frame-provider` from React
+   context. Mounted under `:rf/xray` (App-DB panel) the click lands
+   in `:rf/xray`'s app-db; under any other frame it lands in that
+   frame's app-db. No explicit `{:frame :rf/xray}` envelope — the
+   frame is captured by `reg-view` at mount.
+
+   The fifth payload slot — `rendered-expanded?` — is the visible
+   state at the click site (the value `resolve-expanded?` returned
+   for the path on the current render). The reducer inverts from it
+   when no override exists, so the FIRST click always flips what the
+   user sees. Without this the reducer's "no override → first click
+   opens" branch is a silent no-op on default-expanded paths
+   (top-level triangles render expanded BEFORE any click, so storing
+   `:expanded? true` repeats the rendered state — rf2-y59tb Bug B).
+
+   The reducer writes `{:expanded? bool}` into the per-node entry in
    `:rf.xray.data-display/expansion`. Next render reads the slot via
    `:rf.xray.data-display/expansion` subscription, the path's
    entry exists, the renderer picks `:expanded?` over the default
-   heuristic, the triangle swaps `▸` → `▾`, and the body becomes
-   visible. This is the property rf2-dw8n7 / rf2-oswhk failed to
-   deliver under the cljs-devtools-layered approach.
+   heuristic, the triangle swaps `▸` → `▾` (or vice versa), and the
+   body becomes visible (or hidden). This is the property rf2-dw8n7 /
+   rf2-oswhk failed to deliver under the cljs-devtools-layered
+   approach; rf2-y59tb closed the remaining frame-leak + first-click
+   gap on top of the rf2-oqa60 widget rebuild.
 
 5. **Per-call-site isolation.** Two `[data-display]` mounts in the
    same panel receive distinct `mount-id`s (auto-generated UUID per

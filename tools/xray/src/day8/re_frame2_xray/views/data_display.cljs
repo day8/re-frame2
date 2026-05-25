@@ -129,18 +129,27 @@
   (fn [db _] (get db expansion-slot)))
 
 (rf/reg-event-db :rf.xray.data-display/toggle-node
-  (fn [db [_ panel-id mount-id path]]
+  (fn [db [_ panel-id mount-id path rendered-expanded?]]
+    ;; rf2-y59tb — first click MUST invert the currently-visible state.
+    ;;
+    ;; The widget renders `default-expanded` paths (top-level nodes,
+    ;; depth ≤ `default-expanded-depth`) open BEFORE the user clicks,
+    ;; even though no override is stored. If the reducer flipped from
+    ;; a hard-coded assumption (e.g. "first click opens") it would
+    ;; emit the same state the user already sees — a silent no-op on
+    ;; the first click.
+    ;;
+    ;; The dispatch payload now carries `rendered-expanded?` — the
+    ;; value `resolve-expanded?` returned for this path on the last
+    ;; render (i.e. what the user currently sees). When no override
+    ;; is stored the reducer flips from that visible state; when an
+    ;; override IS stored it flips the override (idempotent given a
+    ;; consistent dispatcher).
     (let [k       (expansion-key panel-id mount-id path)
-          ;; current is either nil (default — no override) or
-          ;; {:expanded? bool}. Toggle inverts whatever is stored;
-          ;; when nothing's stored we flip from the SUPPLIED default
-          ;; (passed via the dispatch payload) so the first click on
-          ;; a collapsed default opens it, and on an expanded
-          ;; default closes it.
           current (get-in db [expansion-slot k])
           next?   (if (contains? current :expanded?)
                     (not (boolean (:expanded? current)))
-                    true)] ;; first click opens — common case
+                    (not (boolean rendered-expanded?)))]
       (assoc-in db [expansion-slot k] {:expanded? next?}))))
 
 (rf/reg-event-db :rf.xray.data-display/set-node
@@ -706,16 +715,25 @@
        (when (seq path) (str "-" (str/join "/" (map pr-str path))))))
 
 (defn- on-toggle
-  "Build the click handler for a node's `▸`/`▾` glyph. Dispatches the
-  toggle event WITH the frame envelope so the event lands on `:rf/xray`
-  not `:rf/default` (React click pops the frame context)."
-  [panel-id mount-id path]
+  "Build the click handler for a node's `▸`/`▾` glyph.
+  Dispatches the toggle event via `dispatch-fn` — the lexically-
+  injected frame-aware dispatcher that `reg-view` binds inside the
+  widget's render body. The dispatcher inherits the surrounding
+  frame from React context (rf2-y59tb), so the event lands on the
+  same frame the widget is mounted under (`:rf/xray` in the App-DB
+  panel, `:rf/default` in a standalone playground).
+
+  The payload carries `rendered-expanded?` — the current visible
+  state of this node — so the reducer can invert from what the user
+  sees on the first click (rf2-y59tb Bug B). Without it, default-
+  expanded paths would silently no-op on the first click."
+  [dispatch-fn panel-id mount-id path rendered-expanded?]
   (fn [^js e]
     (when e
       (.preventDefault e)
       (.stopPropagation e))
-    (rf/dispatch [:rf.xray.data-display/toggle-node panel-id mount-id path]
-                 {:frame :rf/xray})))
+    (dispatch-fn [:rf.xray.data-display/toggle-node
+                  panel-id mount-id path rendered-expanded?])))
 
 (defn- collapsed-summary
   "Right-of-triangle summary for a collapsed collection. Shows an
@@ -737,11 +755,14 @@
    - depth — for the default-expand heuristic
    - expansion-map — snapshot from the expansion-slot subscription
    - opts — `:default-expanded-depth`, `:max-depth`, `:max-inline-width`
+   - dispatch-fn — frame-aware dispatcher captured by the surrounding
+                   `reg-view` body (rf2-y59tb); falls back to `rf/dispatch`
+                   when called outside a registered view (test/REPL).
    - diff? / before — when diff? true the renderer paints gutter rows,
                       annotates changed leaves, and force-expands the
                       ancestor chain over any changed descendant."
   [{:keys [value kind panel-id mount-id path depth expansion-map opts
-           diff? before]}]
+           dispatch-fn diff? before]}]
   (let [{:keys [default-expanded-depth max-depth max-inline-width]
          :or {default-expanded-depth 2 max-depth 16 max-inline-width 60}} opts
         cnt           (child-count value kind)
@@ -770,7 +791,19 @@
                                    (children-of value))
                            (<= (count (inline-preview-string value 5 max-inline-width))
                                max-inline-width))
-        toggle-fn     (on-toggle panel-id mount-id path)
+        ;; `dispatch-fn` is supplied by the reg-view'd outer body so
+        ;; the toggle dispatch carries the surrounding frame. Tests
+        ;; that drive render-node directly without mounting fall back
+        ;; to the global dispatcher's fn form (`rf/dispatch` is a
+        ;; macro — use `rf/dispatch*` for HoF callers).
+        dispatch-fn   (or dispatch-fn rf/dispatch*)
+        ;; rendered-expanded? is the visible state at this node —
+        ;; the depth-capped placeholder is always shown collapsed
+        ;; (▸), and we use the computed `expanded?` for the rest.
+        ;; Threading it into `on-toggle` lets the reducer invert from
+        ;; the visible state on the first click.
+        toggle-fn     (on-toggle dispatch-fn panel-id mount-id path
+                                 (boolean (and expanded? (not depth-capped?))))
         children      (when (and (not empty?) (not depth-capped?) expanded? (not inline-fit?))
                         (children-of value))]
     [:div {:data-testid (testid-for panel-id mount-id path)
@@ -931,6 +964,7 @@
                                                 :path child-path
                                                 :depth (inc depth)
                                                 :expansion-map expansion-map
+                                                :dispatch-fn dispatch-fn
                                                 :opts opts})
                                   {:key (str "v-" (pr-str k))})]))
                   child-pairs)))])
@@ -1042,8 +1076,15 @@
   `::missing`, the node is rendered as `:added`; when `value` is
   `::missing`, as `:removed`.
 
+  `:dispatch-fn` (optional) is the frame-aware dispatcher captured by
+  the surrounding `reg-view` body (rf2-y59tb) so toggle clicks land on
+  the same frame the widget is mounted under. Tests / programmatic
+  callers that drive render-node without a mount can omit it — the
+  container-renderer falls back to the global `rf/dispatch`.
+
   Public so unit tests can drive the renderer without mounting."
-  [{:keys [value before diff? panel-id mount-id path depth expansion-map opts]
+  [{:keys [value before diff? panel-id mount-id path depth expansion-map
+           dispatch-fn opts]
     :or   {depth 0 path []}}]
   (or
     ;; Protocol seam (rf2-0qrcr) — light-touch satisfies? gate; nil
@@ -1080,6 +1121,7 @@
                              :path path
                              :depth depth
                              :expansion-map expansion-map
+                             :dispatch-fn dispatch-fn
                              :opts opts
                              :diff? true
                              :before ::missing})
@@ -1095,6 +1137,7 @@
                              :path path
                              :depth depth
                              :expansion-map expansion-map
+                             :dispatch-fn dispatch-fn
                              :opts opts
                              :diff? (boolean diff?)
                              :before before})
@@ -1114,7 +1157,7 @@
   []
   (str (random-uuid)))
 
-(defn data-display
+(rf/reg-view data-display
   "First-class data-display widget — single source of truth for
   browse + diff + mini.
 
@@ -1132,10 +1175,10 @@
     ancestor chain over any changed descendant, and dims `:same`
     rows.
 
-  Form-2 Reagent component: the outer fn allocates a stable
-  `mount-id` in closure; the inner fn subscribes to the expansion
-  slot, threads the snapshot through the recursive renderer, and
-  returns hiccup.
+  Form-2 component: the outer body allocates a stable `mount-id`
+  in closure; the inner fn subscribes to the expansion slot,
+  threads the snapshot through the recursive renderer, and returns
+  hiccup.
 
   Per D4=a (rf2-sndui) the public API does NOT take a `:render-id` —
   mount-id is generated internally. Two simultaneous mounts get
@@ -1143,40 +1186,77 @@
 
   Per-call-site isolation is the key correctness property here: two
   `[data-display value]` mounts in the same panel must NOT share
-  expansion state. The form-2 closure delivers that — the outer fn
-  runs once per mount."
-  ([value] (data-display value nil))
-  ([_value _opts]
-   (let [mount-id (gen-mount-id)]
-     (fn [value opts]
-       (let [{:keys [panel-id default-expanded-depth max-inline-width
-                     max-depth before]
-              :or   {panel-id :rf.xray.data-display/anon
-                     default-expanded-depth 2
-                     max-inline-width 60
-                     max-depth 16}} opts
-             diff?         (contains? opts :before)
-             expansion-map @(rf/subscribe [expansion-slot])
-             container-id  (str "rf-xray-data-display-"
-                                (name panel-id) "-" mount-id)]
-         [:div {:data-testid     container-id
-                :data-rf-mount-id mount-id
-                :data-rf-mode    (if diff? "diff" "browse")
-                :style {:font-family mono-stack
-                        :font-size   "12px"
-                        :color       (:text-primary tokens)
-                        :line-height 1.4}}
-          (render-node {:value value
-                        :before (if diff? before ::missing)
-                        :diff? diff?
-                        :panel-id panel-id
-                        :mount-id mount-id
-                        :path []
-                        :depth 0
-                        :expansion-map expansion-map
-                        :opts {:default-expanded-depth default-expanded-depth
-                               :max-inline-width max-inline-width
-                               :max-depth max-depth}})])))))
+  expansion state. The form-2 closure delivers that — the outer body
+  runs once per mount.
+
+  ## rf2-y59tb — `reg-view`-registered so dispatch / subscribe inherit
+  the surrounding frame
+
+  Before this fix `data-display` was a plain `defn`. Plain Reagent fns
+  do not consult the `frame-provider` React context, so when the
+  widget mounted under `:rf/xray` (App-DB panel) toggle dispatches and
+  expansion-slot subscribes routed to `:rf/default` instead — the
+  click landed in the wrong frame's app-db and the rendering sub
+  never saw it. Same root cause as `ribbon-theme-toggle` (rf2-uu3lp).
+
+  The `reg-view` registration makes the component
+  `:contextType frame-context`-aware: dispatch / subscribe both
+  resolve to whatever frame the enclosing `frame-provider` puts in
+  scope. The lexical `dispatch` injected by the macro is threaded
+  through `render-node` opts so callbacks deep in the recursion
+  carry the same frame.
+
+  Call sites continue to read `[dd/data-display value opts]` — the
+  macro defs the `data-display` Var to the registered render fn, so
+  the public API is unchanged. Call sites that omit `opts`
+  (`[dd/data-display value]`) flow the same way; Reagent passes the
+  positional args from the hiccup vector to both the outer and inner
+  fn, and the inner fn tolerates `opts=nil` via the destructure's
+  `:or` defaults."
+  [_value & _opts]
+  (let [mount-id    (gen-mount-id)
+        ;; Capture the frame-aware dispatcher lexically. The closure
+        ;; binds to the surrounding frame the outer body runs under;
+        ;; every callback the inner renderer creates (toggle handlers,
+        ;; recursive render-node descents) threads this closure so the
+        ;; dispatch carries the right frame even when fired long after
+        ;; render unwinds.
+        dispatch-fn dispatch]
+    (fn render-data-display
+      [value & rest-args]
+      (let [opts          (first rest-args)
+            {:keys [panel-id default-expanded-depth max-inline-width
+                    max-depth before]
+             :or   {panel-id :rf.xray.data-display/anon
+                    default-expanded-depth 2
+                    max-inline-width 60
+                    max-depth 16}} opts
+            diff?         (contains? opts :before)
+            ;; `subscribe` is the lexical frame-aware closure
+            ;; injected by `reg-view` — reads the expansion-slot
+            ;; from the surrounding frame's app-db (e.g. `:rf/xray`).
+            expansion-map @(subscribe [expansion-slot])
+            container-id  (str "rf-xray-data-display-"
+                               (name panel-id) "-" mount-id)]
+        [:div {:data-testid     container-id
+               :data-rf-mount-id mount-id
+               :data-rf-mode    (if diff? "diff" "browse")
+               :style {:font-family mono-stack
+                       :font-size   "12px"
+                       :color       (:text-primary tokens)
+                       :line-height 1.4}}
+         (render-node {:value value
+                       :before (if diff? before ::missing)
+                       :diff? diff?
+                       :panel-id panel-id
+                       :mount-id mount-id
+                       :path []
+                       :depth 0
+                       :expansion-map expansion-map
+                       :dispatch-fn dispatch-fn
+                       :opts {:default-expanded-depth default-expanded-depth
+                              :max-inline-width max-inline-width
+                              :max-depth max-depth}})]))))
 
 (defn data-display-diff
   "Diff convenience — `[data-display-diff before after]` or
