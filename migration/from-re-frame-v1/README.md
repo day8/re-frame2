@@ -1445,7 +1445,7 @@ The v2 spec corpus had drifted between two phrasings for the routing slot key �
 
 **Type A — note only** (no codebase rewrite needed; Maven artefact names are unchanged).
 
-The three adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/` (the directory was first introduced as `substrates/` and then renamed to `adapters/` — see the [§Adapter-canonical naming](#) decision). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §adapter API contract](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract); per-feature artefacts plug in via [`re-frame.late-bind`](../../spec/Conventions.md#independence-rule).
+The three adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/` (the directory was first introduced as `substrates/` and then renamed to `adapters/` — see [M-38](#m-38-cljs-namespace-rename--re-framesubstrate--re-frameadapter) for the companion namespace rename). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §adapter API contract](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract); per-feature artefacts plug in via [`re-frame.late-bind`](../../spec/Conventions.md#independence-rule).
 
 **No user-side migration.** Maven artefact names (`day8/re-frame2-reagent`, `day8/re-frame2-uix`, `day8/re-frame2-helix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. The on-disk move is a re-frame2 *repository* concern; consumers of the published jars are unaffected by the directory layout. The companion CLJS namespace rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) is documented separately as [M-38](#m-38-cljs-namespace-rename--re-framesubstrate--re-frameadapter).
 
@@ -1455,7 +1455,7 @@ The three adapters now live under a single `implementation/adapters/` directory:
 
 **Type A — fully mechanical.** Agent applies the rewrite without asking; the substring rename is unambiguous.
 
-Per the [§Adapter-canonical naming](#) decision, the four CLJS namespaces that name adapter implementations or adapter-shared utilities have been renamed under the canonical `re-frame.adapter.*` prefix. "**Substrate**" now refers exclusively to the abstract contract (Spec 006); "**adapter**" names each implementation:
+The four CLJS namespaces that name adapter implementations or adapter-shared utilities have been renamed under the canonical `re-frame.adapter.*` prefix. "**Substrate**" now refers exclusively to the abstract contract (Spec 006); "**adapter**" names each implementation:
 
 | Old (pre-rename) | New (canonical) |
 |---|---|
@@ -1634,7 +1634,7 @@ Per [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spaw
 
 **What to do.** Nothing for compatibility; this is purely additive. Apps wanting spawn-and-join sugar adopt `:spawn-all` per the Spec 005 worked example (auth + hydrate flow). The `:actor/spawn-and-join` capability in [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix) is claimed by the v1 CLJS reference; ports declaring a narrower capability list reject `:spawn-all` at registration with `:rf.error/machine-grammar-not-in-v1`.
 
-**Why:** the boot-as-state-machine pattern dominates real apps (Day8 Dashboard fans out 7 hydrate dispatches; rf8 fans out 4 inner asset loads). The substrate-level substitute (separate machines + cross-actor dispatch) was awkward-but-possible; every author writing a non-trivial boot reinvented the bucket-bookkeeping. `:spawn-all` removes the boilerplate. Per [findings/boot-as-statemachine-dash8-rf8.md §7 Recommendations](#) — top-priority readability win.
+**Why:** the boot-as-state-machine pattern dominates real apps (Day8 Dashboard fans out 7 hydrate dispatches; rf8 fans out 4 inner asset loads). The substrate-level substitute (separate machines + cross-actor dispatch) was awkward-but-possible; every author writing a non-trivial boot reinvented the bucket-bookkeeping. `:spawn-all` removes the boilerplate — a top-priority readability win.
 
 ---
 
