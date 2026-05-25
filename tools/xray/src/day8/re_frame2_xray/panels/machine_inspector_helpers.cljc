@@ -443,7 +443,7 @@
   The full `:before` / `:after` snapshot maps (`{:state X :data Y}`) are
   carried through on the record so the panel's snapshot drill-in
   surface (rf2-lxvn6, spec/021 §10) can render them via the first-class
-  data-display widget. nil when the trace pre-dates the snapshot
+  edn-inspector widget. nil when the trace pre-dates the snapshot
   tagging contract (legacy `:from`/`:to`-only fixtures)."
   [ev]
   (let [tags  (get ev :tags {})

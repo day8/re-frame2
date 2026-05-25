@@ -1,5 +1,5 @@
-(ns day8.re-frame2-xray.views.data-display-cljs-test
-  "Unit tests for the first-class data-display widget (rf2-oqa60
+(ns day8.re-frame2-xray.views.edn-inspector-cljs-test
+  "Unit tests for the first-class edn-inspector widget (rf2-oqa60
   phase 1).
 
   ## What's under test
@@ -15,7 +15,7 @@
   5. **Click-to-toggle** — toggle event flips the per-path expansion;
      dispatch carries the canonical event shape; expanded state
      swaps the glyph `▸` → `▾` and renders the body.
-  6. **Per-call-site isolation** — two `[data-display]` mounts get
+  6. **Per-call-site isolation** — two `[edn-inspector]` mounts get
      independent `mount-id`s; toggling one path in mount-A leaves
      mount-B's same path untouched.
   7. **Sentinels** (`:rf/redacted`, `:rf/large`, combined) render
@@ -27,7 +27,7 @@
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [day8.re-frame2-xray.views.data-display :as dd]
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens dark-palette light-palette]]))
 
@@ -77,37 +77,37 @@
 ;; ---- collection-kind classification -------------------------------------
 
 (deftest classify-scalars
-  (is (= :nil      (dd/collection-kind nil)))
-  (is (= :boolean  (dd/collection-kind true)))
-  (is (= :boolean  (dd/collection-kind false)))
-  (is (= :keyword  (dd/collection-kind :foo)))
-  (is (= :keyword  (dd/collection-kind :ns/foo)))
-  (is (= :symbol   (dd/collection-kind 'sym)))
-  (is (= :string   (dd/collection-kind "hi")))
-  (is (= :number   (dd/collection-kind 42)))
-  (is (= :number   (dd/collection-kind 3.14)))
-  (is (= :uuid     (dd/collection-kind (random-uuid))))
-  (is (= :regex    (dd/collection-kind #"abc")))
-  (is (= :fn       (dd/collection-kind (fn [x] x)))))
+  (is (= :nil      (ei/collection-kind nil)))
+  (is (= :boolean  (ei/collection-kind true)))
+  (is (= :boolean  (ei/collection-kind false)))
+  (is (= :keyword  (ei/collection-kind :foo)))
+  (is (= :keyword  (ei/collection-kind :ns/foo)))
+  (is (= :symbol   (ei/collection-kind 'sym)))
+  (is (= :string   (ei/collection-kind "hi")))
+  (is (= :number   (ei/collection-kind 42)))
+  (is (= :number   (ei/collection-kind 3.14)))
+  (is (= :uuid     (ei/collection-kind (random-uuid))))
+  (is (= :regex    (ei/collection-kind #"abc")))
+  (is (= :fn       (ei/collection-kind (fn [x] x)))))
 
 (deftest classify-collections
-  (is (= :map     (dd/collection-kind {:a 1})))
-  (is (= :vector  (dd/collection-kind [1 2 3])))
-  (is (= :list    (dd/collection-kind '(1 2 3))))
-  (is (= :set     (dd/collection-kind #{1 2 3})))
-  (is (= :seq     (dd/collection-kind (map inc [1 2 3]))))
-  (is (= :map     (dd/collection-kind {})))
-  (is (= :vector  (dd/collection-kind []))))
+  (is (= :map     (ei/collection-kind {:a 1})))
+  (is (= :vector  (ei/collection-kind [1 2 3])))
+  (is (= :list    (ei/collection-kind '(1 2 3))))
+  (is (= :set     (ei/collection-kind #{1 2 3})))
+  (is (= :seq     (ei/collection-kind (map inc [1 2 3]))))
+  (is (= :map     (ei/collection-kind {})))
+  (is (= :vector  (ei/collection-kind []))))
 
 (deftest classify-sentinels
   (testing "redacted bare keyword"
-    (is (= :sentinel-redacted (dd/collection-kind :rf/redacted))))
+    (is (= :sentinel-redacted (ei/collection-kind :rf/redacted))))
   (testing "large wrapper"
     (is (= :sentinel-large
-           (dd/collection-kind {:rf/large {:bytes 200 :head "abc"}}))))
+           (ei/collection-kind {:rf/large {:bytes 200 :head "abc"}}))))
   (testing "redacted-with-size wrapper"
     (is (= :sentinel-redacted-size
-           (dd/collection-kind {:rf/redacted {:bytes 200}})))))
+           (ei/collection-kind {:rf/redacted {:bytes 200}})))))
 
 ;; ---- scalar rendering ----------------------------------------------------
 
@@ -115,24 +115,24 @@
   ;; rf2-79ojx — keywords paint via `:syntax-keyword` (magenta), NOT
   ;; `:accent` (chrome blue). The previous mapping put 3 of 5 scalar
   ;; types in the same blue family.
-  (let [h (dd/render-scalar :foo)]
+  (let [h (ei/render-scalar :foo)]
     (is (= :span (first h)))
     (is (= (:syntax-keyword tokens) (-> h second :style :color)))
     (is (= ":foo" (collect-text h)))))
 
 (deftest scalar-string-uses-syntax-string-and-quotes
-  (let [h (dd/render-scalar "hello")]
+  (let [h (ei/render-scalar "hello")]
     (is (= (:syntax-string tokens) (-> h second :style :color)))
     (is (= "\"hello\"" (collect-text h)))))
 
 (deftest scalar-number-uses-syntax-number
-  (let [h (dd/render-scalar 42)]
+  (let [h (ei/render-scalar 42)]
     (is (= (:syntax-number tokens) (-> h second :style :color)))
     (is (= "42" (collect-text h)))))
 
 (deftest scalar-boolean-distinct-from-number
-  (let [h-true (dd/render-scalar true)
-        h-num  (dd/render-scalar 1)]
+  (let [h-true (ei/render-scalar true)
+        h-num  (ei/render-scalar 1)]
     (is (= "true" (collect-text h-true)))
     (is (not= (-> h-true second :style :color)
               (-> h-num  second :style :color))
@@ -141,18 +141,18 @@
 (deftest scalar-nil-uses-syntax-nil
   ;; rf2-79ojx — nil paints via its own dedicated `:syntax-nil` token
   ;; (deliberately muted grey, "absence" reads as faded).
-  (let [h (dd/render-scalar nil)]
+  (let [h (ei/render-scalar nil)]
     (is (= (:syntax-nil tokens) (-> h second :style :color)))
     (is (= "nil" (collect-text h)))))
 
 (deftest scalar-symbol-uses-syntax-symbol
   ;; rf2-79ojx — symbols paint via `:syntax-symbol` (blue), distinct
   ;; from the magenta now used for keywords.
-  (let [h (dd/render-scalar 'sym)]
+  (let [h (ei/render-scalar 'sym)]
     (is (= (:syntax-symbol tokens) (-> h second :style :color)))))
 
 (deftest scalar-fn-renders-with-italic
-  (let [h (dd/render-scalar (fn [x] x))]
+  (let [h (ei/render-scalar (fn [x] x))]
     (is (re-find #"^#fn" (collect-text h)))
     (is (= "italic" (-> h second :style :font-style)))))
 
@@ -250,24 +250,24 @@
 ;; ---- sentinel rendering --------------------------------------------------
 
 (deftest redacted-sentinel-chrome
-  (let [h (dd/render-scalar :rf/redacted)
+  (let [h (ei/render-scalar :rf/redacted)
         all (collect-text h)]
-    (is (some? (find-attr h :data-testid "rf-xray-data-display-redacted")))
+    (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-redacted")))
     (is (re-find #"redacted" all))
     (is (= (:magenta tokens) (-> h second :style :color)))))
 
 (deftest large-sentinel-chrome
-  (let [h (dd/render-scalar {:rf/large {:bytes 5000 :head "preview"}})
+  (let [h (ei/render-scalar {:rf/large {:bytes 5000 :head "preview"}})
         all (collect-text h)]
-    (is (some? (find-attr h :data-testid "rf-xray-data-display-large")))
+    (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-large")))
     (is (re-find #"large" all))
     (is (re-find #"5000" all))
     (is (= (:yellow tokens) (-> h second :style :color)))))
 
 (deftest redacted-size-sentinel-chrome
-  (let [h (dd/render-scalar {:rf/redacted {:bytes 200}})
+  (let [h (ei/render-scalar {:rf/redacted {:bytes 200}})
         all (collect-text h)]
-    (is (some? (find-attr h :data-testid "rf-xray-data-display-redacted-size")))
+    (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-redacted-size")))
     (is (re-find #"200" all))
     (is (= (:magenta tokens) (-> h second :style :color)))))
 
@@ -276,12 +276,12 @@
 (deftest inline-preview-map-all-fit
   (testing "small map fits inline as `{:a 1, :b 2}`"
     (is (= "{:a 1, :b 2}"
-           (dd/inline-preview-string {:a 1 :b 2} 3 80)))))
+           (ei/inline-preview-string {:a 1 :b 2} 3 80)))))
 
 (deftest inline-preview-map-overflow-fallback
   (testing "map that doesn't fit shows a partial OR `{…N keys}` fallback"
     (let [big (zipmap (map #(keyword (str "k" %)) (range 50)) (range 50))
-          s   (dd/inline-preview-string big 3 20)]
+          s   (ei/inline-preview-string big 3 20)]
       ;; Implementation may take any of: full first N (if fits),
       ;; partial preview with `…`, or the `{…50 keys}` fallback. ALL
       ;; outputs must:
@@ -294,66 +294,66 @@
 
 (deftest inline-preview-vector
   (is (= "[1, 2, 3]"
-         (dd/inline-preview-string [1 2 3] 3 80))))
+         (ei/inline-preview-string [1 2 3] 3 80))))
 
 (deftest inline-preview-set
-  (let [s   (dd/inline-preview-string #{:a :b} 3 80)]
+  (let [s   (ei/inline-preview-string #{:a :b} 3 80)]
     ;; Set iteration order is unspecified; assert shape.
     (is (re-find #"^#\{" s))
     (is (re-find #"\}$" s))))
 
 (deftest inline-preview-vector-with-more
   (testing "vector with more elements than max-elements gets `…`"
-    (let [s (dd/inline-preview-string [1 2 3 4 5] 3 80)]
+    (let [s (ei/inline-preview-string [1 2 3 4 5] 3 80)]
       (is (re-find #"…" s)))))
 
 ;; ---- bracket styling -----------------------------------------------------
 
 (deftest bracket-characters-per-kind
-  (is (= "{"  (-> dd/delim :map      :open)) "map opens with {")
-  (is (= "}"  (-> dd/delim :map      :close)))
-  (is (= "["  (-> dd/delim :vector   :open)) "vector opens with [")
-  (is (= "]"  (-> dd/delim :vector   :close)))
-  (is (= "#{" (-> dd/delim :set      :open)) "set opens with #{")
-  (is (= "("  (-> dd/delim :list     :open)) "list opens with (")
-  (is (= "["  (-> dd/delim :map-entry :open)) "map-entry uses [ chars")
+  (is (= "{"  (-> ei/delim :map      :open)) "map opens with {")
+  (is (= "}"  (-> ei/delim :map      :close)))
+  (is (= "["  (-> ei/delim :vector   :open)) "vector opens with [")
+  (is (= "]"  (-> ei/delim :vector   :close)))
+  (is (= "#{" (-> ei/delim :set      :open)) "set opens with #{")
+  (is (= "("  (-> ei/delim :list     :open)) "list opens with (")
+  (is (= "["  (-> ei/delim :map-entry :open)) "map-entry uses [ chars")
   (testing "map-entry brackets use a DIFFERENT colour token than vector"
-    (is (not= (-> dd/delim :vector :tone-key)
-              (-> dd/delim :map-entry :tone-key))
+    (is (not= (-> ei/delim :vector :tone-key)
+              (-> ei/delim :map-entry :tone-key))
         "map-entry and vector share chars but MUST use distinct colours")))
 
 ;; ---- expansion-key shape -------------------------------------------------
 
 (deftest expansion-key-shape
   (is (= [:app-db "mid-1" [:cart :items 0]]
-         (dd/expansion-key :app-db "mid-1" [:cart :items 0])))
+         (ei/expansion-key :app-db "mid-1" [:cart :items 0])))
   (is (= [:app-db "mid-1" [:a]]
-         (dd/expansion-key :app-db "mid-1" '(:a)))
+         (ei/expansion-key :app-db "mid-1" '(:a)))
       "path always coerced to a vector"))
 
 (deftest expansion-slot-keyword
   ;; The slot key is part of the public contract — keep it stable.
-  (is (= :rf.xray.data-display/expansion dd/expansion-slot)))
+  (is (= :rf.xray.edn-inspector/expansion ei/expansion-slot)))
 
 ;; ---- resolve-expanded? ---------------------------------------------------
 
 (deftest resolve-expanded-uses-override
   (let [path [:a :b]
-        k    (dd/expansion-key :p "m" path)]
+        k    (ei/expansion-key :p "m" path)]
     (testing "no override → default"
-      (is (true?  (dd/resolve-expanded? {} :p "m" path true)))
-      (is (false? (dd/resolve-expanded? {} :p "m" path false))))
+      (is (true?  (ei/resolve-expanded? {} :p "m" path true)))
+      (is (false? (ei/resolve-expanded? {} :p "m" path false))))
     (testing "override wins"
-      (is (true?  (dd/resolve-expanded? {k {:expanded? true}}
+      (is (true?  (ei/resolve-expanded? {k {:expanded? true}}
                                         :p "m" path false)))
-      (is (false? (dd/resolve-expanded? {k {:expanded? false}}
+      (is (false? (ei/resolve-expanded? {k {:expanded? false}}
                                         :p "m" path true))))))
 
 ;; ---- click-to-toggle integration -----------------------------------------
 ;;
 ;; The widget's toggle path: clicking the `▸` glyph dispatches
-;; `:rf.xray.data-display/toggle-node panel-id mount-id path`. The
-;; reducer flips the per-path entry under `:rf.xray.data-display/expansion`.
+;; `:rf.xray.edn-inspector/toggle-node panel-id mount-id path`. The
+;; reducer flips the per-path entry under `:rf.xray.edn-inspector/expansion`.
 ;; A subsequent render against the new app-db state must show `▾` and
 ;; render the body.
 
@@ -370,15 +370,15 @@
     ;; Case A — default-collapsed (e.g. deep path). Visible state
     ;; is collapsed → dispatch carries `false` → first click stores
     ;; `:expanded? true` (opens). Second click inverts to `false`.
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path false])
-    (let [snapshot @(rf/subscribe [dd/expansion-slot])
-          k         (dd/expansion-key panel-id mount-id path)]
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path false])
+    (let [snapshot @(rf/subscribe [ei/expansion-slot])
+          k         (ei/expansion-key panel-id mount-id path)]
       (is (= true (get-in snapshot [k :expanded?]))
           "default-collapsed: first click stores :expanded? true (opens)"))
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path true])
-    (let [snapshot @(rf/subscribe [dd/expansion-slot])
-          k         (dd/expansion-key panel-id mount-id path)]
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
+    (let [snapshot @(rf/subscribe [ei/expansion-slot])
+          k         (ei/expansion-key panel-id mount-id path)]
       (is (= false (get-in snapshot [k :expanded?]))
           "second toggle inverts the stored override to false"))
 
@@ -388,21 +388,21 @@
     ;; regression the bug fixed; before the fix the reducer would
     ;; emit `{:expanded? true}` — same as the rendered state —
     ;; producing a silent no-op on the first click.
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path true])
-    (let [snapshot @(rf/subscribe [dd/expansion-slot])
-          k         (dd/expansion-key panel-id mount-id path)]
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
+    (let [snapshot @(rf/subscribe [ei/expansion-slot])
+          k         (ei/expansion-key panel-id mount-id path)]
       (is (= false (get-in snapshot [k :expanded?]))
           "default-expanded: first click stores :expanded? false (collapses)"))
 
     ;; Reset cleans the slot.
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
-    (is (nil? @(rf/subscribe [dd/expansion-slot])))))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
+    (is (nil? @(rf/subscribe [ei/expansion-slot])))))
 
 ;; ---- render-node — container/scalar dispatch -----------------------------
 
 (deftest render-node-scalar-passes-through
-  (let [h (dd/render-node {:value 42
+  (let [h (ei/render-node {:value 42
                            :panel-id :p
                            :mount-id "m"
                            :path []
@@ -413,7 +413,7 @@
     (is (= "42" (collect-text h)))))
 
 (deftest render-node-empty-map-no-toggle
-  (let [h (dd/render-node {:value {}
+  (let [h (ei/render-node {:value {}
                            :panel-id :p
                            :mount-id "m"
                            :path []
@@ -428,7 +428,7 @@
 
 (deftest render-node-map-default-expanded
   ;; default-expanded-depth = 2 → depth 0 should be expanded.
-  (let [h (dd/render-node {:value {:a 1 :b 2}
+  (let [h (ei/render-node {:value {:a 1 :b 2}
                            :panel-id :p
                            :mount-id "m"
                            :path []
@@ -446,7 +446,7 @@
 
 (deftest render-node-deep-map-default-collapsed
   (let [v {:level1 {:level2 {:level3 {:level4 {:level5 42}}}}}
-        h (dd/render-node {:value v
+        h (ei/render-node {:value v
                            :panel-id :p
                            :mount-id "m"
                            :path []
@@ -465,8 +465,8 @@
   ;; A 5-entry map doesn't inline-fit, so the toggle ▾ + body are
   ;; both rendered.
   (let [v2 {:a 1 :b {:c 2} :d 3 :e 4 :f 5}
-        k0 (dd/expansion-key :p "m" [])
-        h  (dd/render-node {:value v2
+        k0 (ei/expansion-key :p "m" [])
+        h  (ei/render-node {:value v2
                             :panel-id :p
                             :mount-id "m"
                             :path []
@@ -479,9 +479,9 @@
 
 (deftest render-node-collapsed-shows-preview-not-body
   (let [v {:level1 {:level2 {:level3 {:deep 1}}}}
-        k0 (dd/expansion-key :p "m" [:level1 :level2])
+        k0 (ei/expansion-key :p "m" [:level1 :level2])
         ;; Force the nested map at [:level1 :level2] CLOSED.
-        h  (dd/render-node {:value v
+        h  (ei/render-node {:value v
                             :panel-id :p
                             :mount-id "m"
                             :path []
@@ -496,12 +496,12 @@
   ;; The header carries the toggle span; when expanded? we see ▾,
   ;; when collapsed we see ▸.
   (let [v   {:a 1 :b 2 :c 3 :d 4 :e 5}  ;; too big to inline-fit
-        k0  (dd/expansion-key :p "m" [])
-        h-expanded   (dd/render-node {:value v :panel-id :p :mount-id "m"
+        k0  (ei/expansion-key :p "m" [])
+        h-expanded   (ei/render-node {:value v :panel-id :p :mount-id "m"
                                       :path [] :depth 0
                                       :expansion-map {k0 {:expanded? true}}
                                       :opts {:default-expanded-depth 0}})
-        h-collapsed  (dd/render-node {:value v :panel-id :p :mount-id "m"
+        h-collapsed  (ei/render-node {:value v :panel-id :p :mount-id "m"
                                       :path [] :depth 0
                                       :expansion-map {k0 {:expanded? false}}
                                       :opts {:default-expanded-depth 0}})
@@ -512,7 +512,7 @@
     (is (not (re-find #"▾" text-collapsed)))))
 
 (deftest render-node-includes-data-testid
-  (let [h  (dd/render-node {:value {:a 1}
+  (let [h  (ei/render-node {:value {:a 1}
                             :panel-id :app-db
                             :mount-id "m-42"
                             :path []
@@ -520,7 +520,7 @@
                             :expansion-map {}
                             :opts {}})]
     (is (some? (find-attr h :data-testid
-                          "rf-xray-data-display-app-db-m-42")))))
+                          "rf-xray-edn-inspector-app-db-m-42")))))
 
 ;; ---- rf2-tzvk9 — triangle hit-box ≥24×24 ---------------------------------
 ;;
@@ -541,23 +541,23 @@
   (testing "rf2-tzvk9 — the shared triangle-style declares ≥24px min-
             width AND min-height so the computed hit-box meets the
             comfortable-mouse-target threshold"
-    (is (>= (parse-px (:min-width  dd/triangle-style)) 24)
+    (is (>= (parse-px (:min-width  ei/triangle-style)) 24)
         ":min-width ≥24px")
-    (is (>= (parse-px (:min-height dd/triangle-style)) 24)
+    (is (>= (parse-px (:min-height ei/triangle-style)) 24)
         ":min-height ≥24px")
-    (is (= "pointer" (:cursor dd/triangle-style))
+    (is (= "pointer" (:cursor ei/triangle-style))
         "still registers as clickable")
-    (is (= "none"    (:user-select dd/triangle-style))
+    (is (= "none"    (:user-select ei/triangle-style))
         "no accidental text selection on the glyph")
-    (is (= "inline-flex" (:display dd/triangle-style))
+    (is (= "inline-flex" (:display ei/triangle-style))
         "inline-flex so min-width/min-height are honoured")
-    (is (= "center"  (:align-items     dd/triangle-style))
+    (is (= "center"  (:align-items     ei/triangle-style))
         "glyph centred vertically inside the hit-box")
-    (is (= "center"  (:justify-content dd/triangle-style))
+    (is (= "center"  (:justify-content ei/triangle-style))
         "glyph centred horizontally inside the hit-box")))
 
 (deftest triangle-min-target-px-is-24
-  (is (= 24 dd/triangle-min-target-px)
+  (is (= 24 ei/triangle-min-target-px)
       "the public contract pin: 24px in both axes"))
 
 (deftest triangle-style-font-size-is-22px
@@ -565,7 +565,7 @@
             preferred 22-24px band per Mike's live A/B 2026-05-26).
             14px was hit-box-adequate but read as hairline against
             the inspector chrome."
-    (is (= "22px" (:font-size dd/triangle-style))
+    (is (= "22px" (:font-size ei/triangle-style))
         "triangle glyph renders at 22px so the eye registers it as the
          primary expand/collapse affordance, not a hairline accent")))
 
@@ -574,47 +574,47 @@
   ;; default-expanded-depth) and verify the ▸ toggle span carries
   ;; the shared `triangle-style`.
   (let [v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-        h   (dd/render-node {:value v
+        h   (ei/render-node {:value v
                              :panel-id :test :mount-id "m"
                              :path [] :depth 5
                              :expansion-map {}
                              :opts {:default-expanded-depth 1}})
         tog (find-attr h :data-testid
-                       "rf-xray-data-display-test-m-toggle")]
+                       "rf-xray-edn-inspector-test-m-toggle")]
     (is (some? tog) "collapsed renders carry a toggle span")
     (let [s (-> tog second :style)]
-      (is (= dd/triangle-style s)
+      (is (= ei/triangle-style s)
           "collapsed ▸ uses the shared triangle-style verbatim"))))
 
 (deftest expanded-triangle-uses-shared-triangle-style
   (let [v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-        k0  (dd/expansion-key :test "m" [])
-        h   (dd/render-node {:value v
+        k0  (ei/expansion-key :test "m" [])
+        h   (ei/render-node {:value v
                              :panel-id :test :mount-id "m"
                              :path [] :depth 0
                              :expansion-map {k0 {:expanded? true}}
                              :opts {:default-expanded-depth 0}})
         tog (find-attr h :data-testid
-                       "rf-xray-data-display-test-m-toggle")]
+                       "rf-xray-edn-inspector-test-m-toggle")]
     (is (some? tog) "expanded renders carry a toggle span")
     (let [s (-> tog second :style)]
-      (is (= dd/triangle-style s)
+      (is (= ei/triangle-style s)
           "expanded ▾ uses the shared triangle-style verbatim"))))
 
 (deftest depth-capped-triangle-uses-shared-triangle-style
   ;; A node past :max-depth renders as `▸ {…}` with the same triangle.
   (let [;; nesting depth past max-depth=1 → depth-capped path.
         v   {:a {:b {:c {:d 1}}}}
-        h   (dd/render-node {:value v
+        h   (ei/render-node {:value v
                              :panel-id :test :mount-id "m"
                              :path [] :depth 0
                              :expansion-map {}
                              :opts {:default-expanded-depth 5 :max-depth 1}})
         tog (find-attr h :data-testid
-                       "rf-xray-data-display-test-m-toggle")]
+                       "rf-xray-edn-inspector-test-m-toggle")]
     (is (some? tog) "depth-capped renders still carry a toggle span")
     (let [s (-> tog second :style)]
-      (is (= dd/triangle-style s)
+      (is (= ei/triangle-style s)
           "depth-capped triangle uses the shared triangle-style"))))
 
 ;; ---- rf2-1bra5 — map body layout: column-align + inline scalars ---------
@@ -644,13 +644,13 @@
     ;; Map MUST be too big to inline-fit (cnt > 3) so the body
     ;; container renders.
     (let [v {:short 1 :very-very-long-key 2 :third 3 :fourth 4}
-          k0 (dd/expansion-key :p "m" [])
-          h  (dd/render-node {:value v
+          k0 (ei/expansion-key :p "m" [])
+          h  (ei/render-node {:value v
                               :panel-id :p :mount-id "m"
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")]
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")]
       (is (some? body) "expanded map renders a body container")
       (let [s (-> body second :style)]
         (is (= "grid" (:display s))
@@ -670,13 +670,13 @@
             across rows. NOT wrapped in a per-row flex container."
     (let [;; >3 keys so inline-fit gate fails and the body emits.
           v {:a 1 :b 2 :c 3 :d 4}
-          k0 (dd/expansion-key :p "m" [])
-          h  (dd/render-node {:value v
+          k0 (ei/expansion-key :p "m" [])
+          h  (ei/render-node {:value v
                               :panel-id :p :mount-id "m"
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")
           key-cells   (->> (walk-hiccup body)
                            (filter #(= "key"   (get (second %) :data-rf-cell))))
           value-cells (->> (walk-hiccup body)
@@ -690,13 +690,13 @@
             (map / record / map-entry); sequentials have no key column."
     ;; >3 items so inline-fit gate fails and the body emits.
     (let [v [10 20 30 40]
-          k0 (dd/expansion-key :p "m" [])
-          h  (dd/render-node {:value v
+          k0 (ei/expansion-key :p "m" [])
+          h  (ei/render-node {:value v
                               :panel-id :p :mount-id "m"
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")]
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")]
       (is (some? body) "expanded vector renders a body container")
       (let [s (-> body second :style)]
         (is (not= "grid" (:display s))
@@ -711,7 +711,7 @@
             Pre-fix the block wrapper inside the per-row flex container
             forced the value below the key (wrap → two-line rows)."
     (let [;; Force a :same diff row — both sides equal scalars.
-          h (dd/render-node {:value 1
+          h (ei/render-node {:value 1
                              :before 1
                              :diff? true
                              :panel-id :p :mount-id "m" :path [] :depth 0
@@ -732,7 +732,7 @@
             render as inline spans, never as a block element that
             would push the value below its key."
     (doseq [v [42 true false "hello" :foo 'sym nil]]
-      (let [h (dd/render-node {:value v
+      (let [h (ei/render-node {:value v
                                :panel-id :p :mount-id "m"
                                :path [] :depth 0
                                :expansion-map {} :opts {}})]
@@ -748,13 +748,13 @@
     (let [v {:scalar-1 1
              :scalar-2 "two"
              :nested   {:inner 99}}
-          k0 (dd/expansion-key :p "m" [])
-          h  (dd/render-node {:value v
+          k0 (ei/expansion-key :p "m" [])
+          h  (ei/render-node {:value v
                               :panel-id :p :mount-id "m"
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")
           ;; Filter ONLY this body's direct cells, not the nested
           ;; map's cells.
           direct-children (rest (rest body))]
@@ -770,13 +770,13 @@
             column-alignment + inline-composition; vertical density is
             unchanged."
     (let [v {:a 1 :b 2 :c 3 :d 4}
-          k0 (dd/expansion-key :p "m" [])
-          h  (dd/render-node {:value v
+          k0 (ei/expansion-key :p "m" [])
+          h  (ei/render-node {:value v
                               :panel-id :p :mount-id "m"
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-data-display-p-m-body")]
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")]
       (is (= "0" (-> body second :style :row-gap))))))
 
 ;; ---- toggle handler shape ------------------------------------------------
@@ -798,7 +798,7 @@
           ;; checks fail (`(<= 5 0)` false; `(= 5 1)` false) → the
           ;; heuristic returns false → path renders ▸ (collapsed).
           v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-          h   (dd/render-node {:value v
+          h   (ei/render-node {:value v
                                :panel-id :test
                                :mount-id "m1"
                                :path [:x]
@@ -809,11 +809,11 @@
                                :opts {:default-expanded-depth 1}})
           ;; Find the toggle span by data-testid suffix.
           tog (find-attr h :data-testid
-                         "rf-xray-data-display-test-m1-:x-toggle")
+                         "rf-xray-edn-inspector-test-m1-:x-toggle")
           on-click (-> tog second :on-click)]
       (is (fn? on-click) "toggle glyph must carry an :on-click")
       (when on-click (on-click nil))
-      (is (= [:rf.xray.data-display/toggle-node :test "m1" [:x] false]
+      (is (= [:rf.xray.edn-inspector/toggle-node :test "m1" [:x] false]
              @captured)
           "default-collapsed render → payload carries rendered? false")))
 
@@ -824,7 +824,7 @@
           ;; - `(<= 0 (dec 2))` true → default-expanded? returns true
           ;; - path renders ▾, toggle dispatches rendered? true.
           v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-          h   (dd/render-node {:value v
+          h   (ei/render-node {:value v
                                :panel-id :test
                                :mount-id "m2"
                                :path []
@@ -834,17 +834,17 @@
                                               (reset! captured event-v))
                                :opts {:default-expanded-depth 2}})
           tog (find-attr h :data-testid
-                         "rf-xray-data-display-test-m2-toggle")
+                         "rf-xray-edn-inspector-test-m2-toggle")
           on-click (-> tog second :on-click)]
       (is (fn? on-click) "toggle glyph must carry an :on-click")
       (when on-click (on-click nil))
-      (is (= [:rf.xray.data-display/toggle-node :test "m2" [] true]
+      (is (= [:rf.xray.edn-inspector/toggle-node :test "m2" [] true]
              @captured)
           "default-expanded render → payload carries rendered? true"))))
 
 ;; ---- rf2-pvsxs — opt-in `:site-id` for cross-mount persistence ----------
 ;;
-;; By default, two `[data-display value]` mounts in the same panel get
+;; By default, two `[edn-inspector value]` mounts in the same panel get
 ;; independent expansion state via the auto-mount-id (rf2-sndui D4=a).
 ;; The cost — only visible in the panel-leave-and-return workflow —
 ;; is that the same logical site loses state on every unmount, because
@@ -856,7 +856,7 @@
 ;; `:site-id`. The expansion-key's second component reads `:site-id`
 ;; when supplied, falling back to auto-mount-id when omitted.
 
-(deftest data-display-uses-site-id-when-supplied-as-expansion-key-id
+(deftest edn-inspector-uses-site-id-when-supplied-as-expansion-key-id
   ;; Two mounts with the SAME `:site-id` and the SAME path must write
   ;; their override to the SAME expansion-key, so the second mount sees
   ;; the first mount's choice.
@@ -865,24 +865,24 @@
         path     [:cart :items]
         ;; First mount → simulate a toggle dispatch carrying rendered? true
         ;; (i.e. visible state is expanded; first click should collapse).
-        _        (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
-        _        (rf/dispatch-sync [:rf.xray.data-display/toggle-node
+        _        (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
+        _        (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node
                                     panel-id site-id path true])
-        k        (dd/expansion-key panel-id site-id path)
-        snapshot @(rf/subscribe [dd/expansion-slot])]
+        k        (ei/expansion-key panel-id site-id path)
+        snapshot @(rf/subscribe [ei/expansion-slot])]
     (is (= false (get-in snapshot [k :expanded?]))
         "override is stored under [panel-id site-id path], independent
          of any auto-generated mount-id")
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
-(deftest data-display-public-widget-routes-site-id-to-render-key
+(deftest edn-inspector-public-widget-routes-site-id-to-render-key
   ;; The public widget threads `:site-id` (when present) into the
   ;; `mount-id` slot of every render-node descent so the toggle handler
   ;; dispatches against the stable id, NOT the auto-mount-id. Verified
   ;; by mounting the widget twice with the SAME site-id and a value
   ;; that needs expansion; the testid carrying the stable id must
   ;; appear on both renders.
-  (let [outer (dd/data-display {:a 1 :b 2 :c 3 :d 4} {:panel-id :p
+  (let [outer (ei/edn-inspector {:a 1 :b 2 :c 3 :d 4} {:panel-id :p
                                                       :site-id  [:my-site "x"]
                                                       :default-expanded-depth 0})
         inner1 (outer {:a 1 :b 2 :c 3 :d 4} {:panel-id :p
@@ -896,12 +896,12 @@
     (is (= (pr-str [:my-site "x"]) (get attrs :data-rf-site-id))
         ":data-rf-site-id attribute carries the literal site-id")))
 
-(deftest data-display-without-site-id-keeps-per-call-site-isolation
+(deftest edn-inspector-without-site-id-keeps-per-call-site-isolation
   ;; The acceptance contract: when `:site-id` is omitted, behaviour is
   ;; UNCHANGED — auto-mount-id keeps two side-by-side mounts independent.
   ;; This guards the rf2-sndui D4=a default.
-  (let [outer1 (dd/data-display {:a 1} {:panel-id :p})
-        outer2 (dd/data-display {:a 1} {:panel-id :p})
+  (let [outer1 (ei/edn-inspector {:a 1} {:panel-id :p})
+        outer2 (ei/edn-inspector {:a 1} {:panel-id :p})
         inner1 (outer1 {:a 1} {:panel-id :p})
         inner2 (outer2 {:a 1} {:panel-id :p})
         m1     (get (second inner1) :data-rf-mount-id)
@@ -924,25 +924,25 @@
   (let [panel-id :rf.xray/app-db
         site-id  [:rf.xray/app-db "top"]
         path     [:nested :deep]
-        _        (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
+        _        (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
         ;; Step 1 — open the path (rendered? false → store true).
-        _        (rf/dispatch-sync [:rf.xray.data-display/toggle-node
+        _        (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node
                                     panel-id site-id path false])
-        k        (dd/expansion-key panel-id site-id path)
+        k        (ei/expansion-key panel-id site-id path)
         ;; "Unmount" — no state cleanup needed; the expansion slot
         ;; survives Reagent unmount because it's in app-db.
         ;; "Remount" — same site-id is passed at the new mount; the
         ;; renderer's resolve-expanded? reads the same key.
-        snapshot-after-remount @(rf/subscribe [dd/expansion-slot])]
+        snapshot-after-remount @(rf/subscribe [ei/expansion-slot])]
     (is (= true (get-in snapshot-after-remount [k :expanded?]))
         "expansion override survives the simulated unmount-and-remount cycle
          when the consumer passes a stable :site-id")
     ;; Per the resolve-expanded? helper, this should also yield true
     ;; regardless of the default-expanded heuristic.
-    (is (true? (dd/resolve-expanded? snapshot-after-remount
+    (is (true? (ei/resolve-expanded? snapshot-after-remount
                                      panel-id site-id path false))
         "resolve-expanded? honours the stored override at the site-id key")
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
 (deftest two-mounts-with-distinct-site-ids-still-isolate
   ;; Two consumers using DIFFERENT :site-ids must STILL isolate, even
@@ -952,16 +952,16 @@
         s1       [:site/a]
         s2       [:site/b]
         path     []
-        k1       (dd/expansion-key panel-id s1 path)
-        k2       (dd/expansion-key panel-id s2 path)]
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id s1 path true])
-    (let [snapshot @(rf/subscribe [dd/expansion-slot])]
+        k1       (ei/expansion-key panel-id s1 path)
+        k2       (ei/expansion-key panel-id s2 path)]
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id s1 path true])
+    (let [snapshot @(rf/subscribe [ei/expansion-slot])]
       (is (= false (get-in snapshot [k1 :expanded?]))
           "site/a's override is stored")
       (is (nil? (get snapshot k2))
           "site/b's slot is untouched — distinct :site-ids isolate"))
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
 ;; ---- per-call-site isolation ---------------------------------------------
 
@@ -969,16 +969,16 @@
   (let [v {:a 1 :b 2 :c 3 :d 4 :e 5}
         m1 "mount-1"
         m2 "mount-2"
-        k1 (dd/expansion-key :p m1 [])
-        k2 (dd/expansion-key :p m2 [])
+        k1 (ei/expansion-key :p m1 [])
+        k2 (ei/expansion-key :p m2 [])
         ;; mount-1 is force-expanded; mount-2 is force-collapsed.
         emap {k1 {:expanded? true}
               k2 {:expanded? false}}
-        h1 (dd/render-node {:value v :panel-id :p :mount-id m1
+        h1 (ei/render-node {:value v :panel-id :p :mount-id m1
                             :path [] :depth 0
                             :expansion-map emap
                             :opts {:default-expanded-depth 0}})
-        h2 (dd/render-node {:value v :panel-id :p :mount-id m2
+        h2 (ei/render-node {:value v :panel-id :p :mount-id m2
                             :path [] :depth 0
                             :expansion-map emap
                             :opts {:default-expanded-depth 0}})]
@@ -990,32 +990,32 @@
 
 (deftest map-entry-bracket-tone-distinct-from-vector
   (testing "map-entry uses :accent tone; vector uses :text-secondary"
-    (is (= :accent          (-> dd/delim :map-entry :tone-key)))
-    (is (= :text-secondary  (-> dd/delim :vector    :tone-key)))
-    (is (not= (-> dd/delim :vector :tone-key)
-              (-> dd/delim :map-entry :tone-key)))))
+    (is (= :accent          (-> ei/delim :map-entry :tone-key)))
+    (is (= :text-secondary  (-> ei/delim :vector    :tone-key)))
+    (is (not= (-> ei/delim :vector :tone-key)
+              (-> ei/delim :map-entry :tone-key)))))
 
 ;; ---- mini one-liner ------------------------------------------------------
 
 (deftest mini-scalar-keyword
-  (let [h (dd/mini :foo)
+  (let [h (ei/mini :foo)
         all (collect-text h)]
     (is (re-find #":foo" all))))
 
 (deftest mini-map-shows-inline-preview
-  (let [h (dd/mini {:a 1 :b 2} 80)
+  (let [h (ei/mini {:a 1 :b 2} 80)
         all (collect-text h)]
     (is (re-find #":a" all))
     (is (re-find #":b" all))))
 
 (deftest mini-sentinel-redacted
-  (let [h (dd/mini :rf/redacted)
+  (let [h (ei/mini :rf/redacted)
         all (collect-text h)]
     (is (re-find #"redacted" all))))
 
 (deftest mini-truncates-to-max-len
   (let [long-str (apply str (repeat 200 "x"))
-        h (dd/mini long-str 20)
+        h (ei/mini long-str 20)
         title (-> h second :title)]
     ;; Title carries the full pr-str; visible content is truncated.
     (is (some? title) "title attribute carries full value")))
@@ -1024,7 +1024,7 @@
 ;; Diff mode (rf2-q3dzw phase 5 · D5=a per rf2-sndui)
 ;; =========================================================================
 ;;
-;; The diff path subsumes the legacy `data-display.render` engine —
+;; The diff path subsumes the legacy `edn-inspector.render` engine —
 ;; passing `:before` switches the widget into diff mode where each
 ;; node renders with a left-gutter glyph + colour and `:modified`
 ;; leaves carry a `← changed from <prior>` annotation. Ancestor chain
@@ -1033,33 +1033,33 @@
 ;; ---- pure helpers --------------------------------------------------------
 
 (deftest diff-op-classification
-  (is (= :same     (dd/diff-op 1 1)))
-  (is (= :same     (dd/diff-op nil nil)))
-  (is (= :modified (dd/diff-op 1 2)))
-  (is (= :modified (dd/diff-op :a :b)))
-  (is (= :added    (dd/diff-op dd/missing-sentinel 1)))
-  (is (= :removed  (dd/diff-op 1 dd/missing-sentinel)))
-  (is (= :same     (dd/diff-op dd/missing-sentinel dd/missing-sentinel))))
+  (is (= :same     (ei/diff-op 1 1)))
+  (is (= :same     (ei/diff-op nil nil)))
+  (is (= :modified (ei/diff-op 1 2)))
+  (is (= :modified (ei/diff-op :a :b)))
+  (is (= :added    (ei/diff-op ei/missing-sentinel 1)))
+  (is (= :removed  (ei/diff-op 1 ei/missing-sentinel)))
+  (is (= :same     (ei/diff-op ei/missing-sentinel ei/missing-sentinel))))
 
 (deftest changed-descendant?-walks-maps
-  (is (false? (dd/changed-descendant? {:a 1 :b 2} {:a 1 :b 2})))
-  (is (true?  (dd/changed-descendant? {:a 1 :b 2} {:a 1 :b 3})))
-  (is (true?  (dd/changed-descendant? {:a {:x 1}} {:a {:x 2}}))
+  (is (false? (ei/changed-descendant? {:a 1 :b 2} {:a 1 :b 2})))
+  (is (true?  (ei/changed-descendant? {:a 1 :b 2} {:a 1 :b 3})))
+  (is (true?  (ei/changed-descendant? {:a {:x 1}} {:a {:x 2}}))
       "deep change propagates to root")
-  (is (true?  (dd/changed-descendant? {:a 1} {:a 1 :b 2}))
+  (is (true?  (ei/changed-descendant? {:a 1} {:a 1 :b 2}))
       "key added"))
 
 (deftest changed-descendant?-walks-sequentials
-  (is (false? (dd/changed-descendant? [1 2 3] [1 2 3])))
-  (is (true?  (dd/changed-descendant? [1 2 3] [1 2 4])))
-  (is (true?  (dd/changed-descendant? [1 2] [1 2 3]))))
+  (is (false? (ei/changed-descendant? [1 2 3] [1 2 3])))
+  (is (true?  (ei/changed-descendant? [1 2 3] [1 2 4])))
+  (is (true?  (ei/changed-descendant? [1 2] [1 2 3]))))
 
 (deftest gutter-glyph-mapping
-  (is (= "+" (dd/op->gutter-glyph :added)))
-  (is (= "-" (dd/op->gutter-glyph :removed)))
-  (is (= "~" (dd/op->gutter-glyph :modified)))
-  (is (= "◴" (dd/op->gutter-glyph :children)))
-  (is (= " " (dd/op->gutter-glyph :same))))
+  (is (= "+" (ei/op->gutter-glyph :added)))
+  (is (= "-" (ei/op->gutter-glyph :removed)))
+  (is (= "~" (ei/op->gutter-glyph :modified)))
+  (is (= "◴" (ei/op->gutter-glyph :children)))
+  (is (= " " (ei/op->gutter-glyph :same))))
 
 (deftest gutter-tone-mapping
   (testing "rf2-awqts — every active diff op now reads the SAME
@@ -1067,31 +1067,31 @@
             per-op (per-op signal lives in the wash + stripe + shape).
             `:same` keeps `:text-tertiary` so the transparent non-diff
             shape composes unchanged."
-    (is (= :diff-gutter   (dd/op->gutter-tone-key :added)))
-    (is (= :diff-gutter   (dd/op->gutter-tone-key :removed)))
-    (is (= :diff-gutter   (dd/op->gutter-tone-key :modified)))
-    (is (= :diff-gutter   (dd/op->gutter-tone-key :children)))
-    (is (= :text-tertiary (dd/op->gutter-tone-key :same)))))
+    (is (= :diff-gutter   (ei/op->gutter-tone-key :added)))
+    (is (= :diff-gutter   (ei/op->gutter-tone-key :removed)))
+    (is (= :diff-gutter   (ei/op->gutter-tone-key :modified)))
+    (is (= :diff-gutter   (ei/op->gutter-tone-key :children)))
+    (is (= :text-tertiary (ei/op->gutter-tone-key :same)))))
 
 ;; ---- rf2-awqts — row chrome (wash + stripe) -----------------------------
 
 (deftest row-wash-mapping
   (testing "rf2-awqts — per-op row-background wash token-key mapping"
-    (is (= :diff-added-wash    (dd/op->row-wash-key :added)))
-    (is (= :diff-removed-wash  (dd/op->row-wash-key :removed)))
-    (is (= :diff-modified-wash (dd/op->row-wash-key :modified)))
-    (is (nil? (dd/op->row-wash-key :children))
+    (is (= :diff-added-wash    (ei/op->row-wash-key :added)))
+    (is (= :diff-removed-wash  (ei/op->row-wash-key :removed)))
+    (is (= :diff-modified-wash (ei/op->row-wash-key :modified)))
+    (is (nil? (ei/op->row-wash-key :children))
         "`:children` rows carry NO wash — the colour-coded descendants below do")
-    (is (nil? (dd/op->row-wash-key :same))
+    (is (nil? (ei/op->row-wash-key :same))
         "`:same` rows sit flush with the canvas")))
 
 (deftest row-stripe-mapping
   (testing "rf2-awqts — per-op 2px-stripe token-key mapping"
-    (is (= :diff-added-stripe    (dd/op->row-stripe-key :added)))
-    (is (= :diff-removed-stripe  (dd/op->row-stripe-key :removed)))
-    (is (= :diff-modified-stripe (dd/op->row-stripe-key :modified)))
-    (is (nil? (dd/op->row-stripe-key :children)))
-    (is (nil? (dd/op->row-stripe-key :same)))))
+    (is (= :diff-added-stripe    (ei/op->row-stripe-key :added)))
+    (is (= :diff-removed-stripe  (ei/op->row-stripe-key :removed)))
+    (is (= :diff-modified-stripe (ei/op->row-stripe-key :modified)))
+    (is (nil? (ei/op->row-stripe-key :children)))
+    (is (nil? (ei/op->row-stripe-key :same)))))
 
 (deftest gutter-glyph-colour-is-syntax-palette-disjoint
   (testing "rf2-awqts — the reserved `:diff-gutter` hue must NOT match
@@ -1124,7 +1124,7 @@
             yellow); now the row chrome (wash + stripe + glyph)
             carries the diff signal."
     ;; :added — number value keeps `:syntax-number` orange
-    (let [h (dd/render-node {:value 42 :before ::dd/missing :diff? true
+    (let [h (ei/render-node {:value 42 :before ::ei/missing :diff? true
                              :panel-id :p :mount-id "m" :path [] :depth 0
                              :expansion-map {} :opts {}})
           node (find-attr h :data-rf-type "number")]
@@ -1132,7 +1132,7 @@
       (is (= (:syntax-number tokens) (-> node second :style :color))
           ":syntax-number token preserved on the added scalar"))
     ;; :modified — boolean keeps `:syntax-boolean` gold
-    (let [h (dd/render-node {:value true :before false :diff? true
+    (let [h (ei/render-node {:value true :before false :diff? true
                              :panel-id :p :mount-id "m" :path [] :depth 0
                              :expansion-map {} :opts {}})
           node (find-attr h :data-rf-type "boolean")]
@@ -1144,7 +1144,7 @@
   (testing "rf2-awqts — diff row wrapper carries data-attributes so
             tests + DOM inspectors can confirm the wash + stripe are
             applied per op"
-    (let [h (dd/render-node {:value 42 :before ::dd/missing :diff? true
+    (let [h (ei/render-node {:value 42 :before ::ei/missing :diff? true
                              :panel-id :p :mount-id "m" :path [] :depth 0
                              :expansion-map {} :opts {}})
           wrapper (find-attr h :data-rf-diff-op "added")]
@@ -1156,7 +1156,7 @@
       (is (= (:diff-added-wash tokens) (-> wrapper second :style :background))
           "wash background reads through the diff-added-wash token"))
     ;; :same — no wash, no stripe attrs
-    (let [h (dd/render-node {:value 42 :before 42 :diff? true
+    (let [h (ei/render-node {:value 42 :before 42 :diff? true
                              :panel-id :p :mount-id "m" :path [] :depth 0
                              :expansion-map {} :opts {}})
           wrapper (find-attr h :data-rf-diff-op "same")]
@@ -1169,7 +1169,7 @@
 ;; ---- diff mode — modified-leaf annotation --------------------------------
 
 (deftest diff-modified-leaf-emits-changed-from-annotation
-  (let [h (dd/render-node {:value 2
+  (let [h (ei/render-node {:value 2
                            :before 1
                            :diff? true
                            :panel-id :p :mount-id "m" :path [] :depth 0
@@ -1182,7 +1182,7 @@
 (deftest diff-modified-nested-leaf-annotates
   (let [v {:cart {:items {:total 71.00}}}
         b {:cart {:items {:total 48.00}}}
-        h (dd/render-node {:value v
+        h (ei/render-node {:value v
                            :before b
                            :diff? true
                            :panel-id :p :mount-id "m" :path [] :depth 0
@@ -1195,8 +1195,8 @@
 ;; ---- diff mode — added / removed -----------------------------------------
 
 (deftest diff-added-leaf-renders-in-green
-  (let [h (dd/render-node {:value 2
-                           :before dd/missing-sentinel
+  (let [h (ei/render-node {:value 2
+                           :before ei/missing-sentinel
                            :diff? true
                            :panel-id :p :mount-id "m" :path [] :depth 0
                            :expansion-map {}
@@ -1206,7 +1206,7 @@
         "added leaf carries the diff-op marker")))
 
 (deftest diff-removed-leaf-shows-prior-value
-  (let [h (dd/render-node {:value dd/missing-sentinel
+  (let [h (ei/render-node {:value ei/missing-sentinel
                            :before 1
                            :diff? true
                            :panel-id :p :mount-id "m" :path [] :depth 0
@@ -1223,7 +1223,7 @@
   ;; would normally collapse the parents — force-expand wins.
   (let [v {:a {:b {:c {:d {:e 2}}}}}
         b {:a {:b {:c {:d {:e 1}}}}}
-        h (dd/render-node {:value v
+        h (ei/render-node {:value v
                            :before b
                            :diff? true
                            :panel-id :p :mount-id "m" :path [] :depth 0
@@ -1236,7 +1236,7 @@
 ;; ---- diff mode — same nodes dim ------------------------------------------
 
 (deftest diff-same-leaf-uses-text-tertiary
-  (let [h (dd/render-node {:value 1
+  (let [h (ei/render-node {:value 1
                            :before 1
                            :diff? true
                            :panel-id :p :mount-id "m" :path [] :depth 0
@@ -1250,11 +1250,11 @@
 
 ;; ---- diff mode — public widget exposes mode marker -----------------------
 
-(deftest data-display-diff-mode-marker-on-container
+(deftest edn-inspector-diff-mode-marker-on-container
   ;; The public widget's outer container carries `data-rf-mode` =
   ;; "diff" when `:before` is supplied so panels / tests can target
   ;; the diff variant.
-  (let [outer (dd/data-display {:a 2} {:before {:a 1}})
+  (let [outer (ei/edn-inspector {:a 2} {:before {:a 1}})
         ;; outer is the form-2 closure that returns a fn — call it
         ;; with the same args to get the inner hiccup.
         inner (outer {:a 2} {:before {:a 1}})]
@@ -1263,16 +1263,16 @@
     (is (some? (get (second inner) :data-rf-mount-id))
         "mount-id still auto-generated")))
 
-(deftest data-display-browse-mode-marker-on-container
-  (let [outer (dd/data-display {:a 1})
+(deftest edn-inspector-browse-mode-marker-on-container
+  (let [outer (ei/edn-inspector {:a 1})
         inner (outer {:a 1} nil)]
     (is (= "browse" (get (second inner) :data-rf-mode))
         "browse-mode marker present without :before")))
 
-(deftest data-display-diff-convenience-threads-before
-  ;; The `[data-display-diff before after]` form-2 wrapper should
-  ;; produce the same shape as `[data-display after {:before before}]`.
-  (let [h (dd/data-display-diff {:a 1} {:a 2})]
+(deftest edn-inspector-diff-convenience-threads-before
+  ;; The `[edn-inspector-diff before after]` form-2 wrapper should
+  ;; produce the same shape as `[edn-inspector after {:before before}]`.
+  (let [h (ei/edn-inspector-diff {:a 1} {:a 2})]
     (is (vector? h))
     (is (fn? (first h)))
     (is (= {:a 2} (nth h 1)))
@@ -1284,7 +1284,7 @@
 ;;
 ;; Two independent bugs covered here:
 ;;
-;;   Bug A — `data-display` was a plain `defn`, so dispatches from
+;;   Bug A — `edn-inspector` was a plain `defn`, so dispatches from
 ;;     its click handlers did NOT carry the surrounding frame; toggle
 ;;     events landed on `:rf/default` while the App-DB panel mounted
 ;;     the widget under `:rf/xray`. The expansion-slot mutation ended
@@ -1297,17 +1297,17 @@
 ;;     first click stored `:expanded? true` — the same value the path
 ;;     already rendered with — producing a silent no-op.
 
-(deftest data-display-is-reg-view-registered
+(deftest edn-inspector-is-reg-view-registered
   (testing "rf2-y59tb Bug A — the public widget is registered via
             `reg-view` so dispatches + subscribes inherit the
             surrounding frame from React context. Without this the
             App-DB panel's `:rf/xray` mount routes toggle dispatches
             to `:rf/default`. The registration is present in the
             view registry under the auto-derived namespaced id."
-    (is (some? (rf/view :day8.re-frame2-xray.views.data-display/data-display))
-        "data-display is registered under its ns/sym id")))
+    (is (some? (rf/view :day8.re-frame2-xray.views.edn-inspector/edn-inspector))
+        "edn-inspector is registered under its ns/sym id")))
 
-(deftest data-display-toggle-dispatches-to-mount-frame
+(deftest edn-inspector-toggle-dispatches-to-mount-frame
   ;; rf2-y59tb Bug A regression guard — the click handler dispatches
   ;; through the lexically-injected frame-aware dispatcher. We
   ;; simulate the inner render by calling `render-node` with a
@@ -1317,7 +1317,7 @@
   ;; route to `:rf/default`).
   (let [captured (atom nil)
         v       {:a 1 :b 2 :c 3 :d 4 :e 5}
-        h       (dd/render-node {:value v
+        h       (ei/render-node {:value v
                                  :panel-id :app-db
                                  :mount-id "m"
                                  :path []
@@ -1327,13 +1327,13 @@
                                                 (reset! captured event-v))
                                  :opts {:default-expanded-depth 0}})
         tog     (find-attr h :data-testid
-                           "rf-xray-data-display-app-db-m-toggle")
+                           "rf-xray-edn-inspector-app-db-m-toggle")
         on-click (-> tog second :on-click)]
     (is (fn? on-click))
     (when on-click (on-click nil))
     (is (some? @captured)
         "toggle handler invoked the threaded dispatch-fn (not rf/dispatch)")
-    (is (= :rf.xray.data-display/toggle-node (first @captured))
+    (is (= :rf.xray.edn-inspector/toggle-node (first @captured))
         "canonical event id")))
 
 (deftest first-click-collapses-default-expanded-path
@@ -1346,14 +1346,14 @@
   (let [panel-id :rf.xray/app-db
         mount-id "m1"
         path     [:top-level]]
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node
                        panel-id mount-id path true])
-    (let [snapshot @(rf/subscribe [dd/expansion-slot])
-          k         (dd/expansion-key panel-id mount-id path)]
+    (let [snapshot @(rf/subscribe [ei/expansion-slot])
+          k         (ei/expansion-key panel-id mount-id path)]
       (is (= false (get-in snapshot [k :expanded?]))
           "default-expanded → first click collapses (rendered? true → stored false)"))
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
 (deftest first-click-expands-default-collapsed-path
   ;; rf2-y59tb Bug B regression guard — the symmetric case. A deep
@@ -1363,14 +1363,14 @@
   (let [panel-id :rf.xray/app-db
         mount-id "m1"
         path     [:deep :nested :node]]
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node
                        panel-id mount-id path false])
-    (let [snapshot @(rf/subscribe [dd/expansion-slot])
-          k         (dd/expansion-key panel-id mount-id path)]
+    (let [snapshot @(rf/subscribe [ei/expansion-slot])
+          k         (ei/expansion-key panel-id mount-id path)]
       (is (= true (get-in snapshot [k :expanded?]))
           "default-collapsed → first click expands (rendered? false → stored true)"))
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
 (deftest second-click-inverts-stored-override
   ;; Once an override is stored the reducer ignores the rendered?
@@ -1380,21 +1380,21 @@
   (let [panel-id :rf.xray/app-db
         mount-id "m1"
         path     [:x]
-        k         (dd/expansion-key panel-id mount-id path)]
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
+        k         (ei/expansion-key panel-id mount-id path)]
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
     ;; First click on default-expanded → stored false.
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path true])
-    (is (= false (get-in @(rf/subscribe [dd/expansion-slot]) [k :expanded?])))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
+    (is (= false (get-in @(rf/subscribe [ei/expansion-slot]) [k :expanded?])))
     ;; Second click — the rendered? slot is now `false` (override is
     ;; false) but the reducer flips the OVERRIDE, not the payload.
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path false])
-    (is (= true (get-in @(rf/subscribe [dd/expansion-slot]) [k :expanded?]))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path false])
+    (is (= true (get-in @(rf/subscribe [ei/expansion-slot]) [k :expanded?]))
         "second click inverts stored override → true")
     ;; Third click flips again.
-    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id mount-id path true])
-    (is (= false (get-in @(rf/subscribe [dd/expansion-slot]) [k :expanded?]))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
+    (is (= false (get-in @(rf/subscribe [ei/expansion-slot]) [k :expanded?]))
         "third click inverts stored override → false")
-    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
 ;; ---- rf2-63ie5 — inspector card chrome on top-level mounts ---------------
 ;;
@@ -1403,20 +1403,20 @@
 ;; multiple top-level mounts (App-DB's TOP + per-`:rf/*` areas) read as
 ;; distinct cards. Default off preserves inline / nested behaviour.
 
-(defn- invoke-data-display
+(defn- invoke-edn-inspector
   "Form-2 unrolling — run the outer fn, then the inner fn with the same
   args to get the rendered hiccup."
   [value opts]
-  (let [outer (dd/data-display value opts)]
+  (let [outer (ei/edn-inspector value opts)]
     (outer value opts)))
 
 (deftest card-opt-off-by-default
   (testing "rf2-63ie5 — without `:card?` (or with `false`) the outer
             container carries NO card chrome (background, border,
             radius, padding, margin all absent)"
-    (let [h-default (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db})
+    (let [h-default (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})
           style-default (-> h-default second :style)
-          h-false   (invoke-data-display {:a 1}
+          h-false   (invoke-edn-inspector {:a 1}
                                           {:panel-id :rf.xray/app-db
                                            :card? false})
           style-false (-> h-false second :style)]
@@ -1434,7 +1434,7 @@
   (testing "rf2-63ie5 — `:card? true` adds background/border/radius/
             padding/margin to the outer container so the mount reads
             as a distinct inspector card"
-    (let [h (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db
+    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
                                           :card? true})
           style (-> h second :style)]
       (is (= (:bg-1 tokens) (:background-color style))
@@ -1449,9 +1449,9 @@
 (deftest card-opt-carries-data-attr
   (testing "rf2-63ie5 — the outer container publishes `:data-rf-card`
             when card chrome is on; absent when off"
-    (let [h-on  (invoke-data-display {:a 1}
+    (let [h-on  (invoke-edn-inspector {:a 1}
                                       {:panel-id :rf.xray/app-db :card? true})
-          h-off (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db})]
+          h-off (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})]
       (is (= "1" (:data-rf-card (second h-on)))
           "card-on publishes :data-rf-card=1 for testbed assertion")
       (is (nil? (:data-rf-card (second h-off)))
@@ -1490,8 +1490,8 @@
             left edge, which is approximately the centre of the 22px
             triangle box (~31-34px wide, centre at ~16px)"
     (let [v   {:counter 1 :async nil :machine-ui {:open? true}}
-          k0  (dd/expansion-key :test "m" [])
-          h   (dd/render-node {:value v
+          k0  (ei/expansion-key :test "m" [])
+          h   (ei/render-node {:value v
                                :panel-id :test :mount-id "m"
                                :path [] :depth 0
                                :expansion-map {k0 {:expanded? true}}
@@ -1514,9 +1514,9 @@
           ;; ≤3 children) so both outer + inner expand-render.
           v   {:a 1 :b 2 :c 3 :d 4
                :nested {:x 1 :y 2 :z 3 :w 4}}
-          k0  (dd/expansion-key :test "m" [])
-          k1  (dd/expansion-key :test "m" [:nested])
-          h   (dd/render-node
+          k0  (ei/expansion-key :test "m" [])
+          k1  (ei/expansion-key :test "m" [:nested])
+          h   (ei/render-node
                 {:value v
                  :panel-id :test :mount-id "m"
                  :path [] :depth 0
@@ -1539,8 +1539,8 @@
     (let [;; 4 elements + a nested container defeats inline-fit so the
           ;; block body actually renders.
           v   [1 2 3 4 {:x :y}]
-          k0  (dd/expansion-key :test "m" [])
-          h   (dd/render-node {:value v
+          k0  (ei/expansion-key :test "m" [])
+          h   (ei/render-node {:value v
                                :panel-id :test :mount-id "m"
                                :path [] :depth 0
                                :expansion-map {k0 {:expanded? true}}
@@ -1560,7 +1560,7 @@
             light + dark themes resolve at paint time without a re-
             render. This test pins the inline-style values to the
             same token-keyed map the rest of the widget consumes."
-    (let [h (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db
+    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
                                           :card? true})
           style (-> h second :style)]
       (is (= (:bg-1 tokens) (:background-color style))
@@ -1591,51 +1591,51 @@
 
 (deftest mono-char-width-and-safety-margin-are-stable
   (testing "rf2-kbdk8 — width-estimation constants exposed for tests"
-    (is (= 7 dd/mono-char-width-px)
+    (is (= 7 ei/mono-char-width-px)
         "7px M-advance is the conservative pick for JetBrains Mono 12px")
-    (is (= 16 dd/safety-margin-px)
+    (is (= 16 ei/safety-margin-px)
         "16px safety margin covers closing bracket + gutter")
-    (is (= 8 dd/default-ceiling-depth)
+    (is (= 8 ei/default-ceiling-depth)
         "new default `:default-expanded-depth` is 8 (CEILING, not trigger)")))
 
 (deftest estimated-inline-px-multiplies-pr-str-by-mono-advance
   (testing "rf2-kbdk8 — char-count × 7px estimate"
     (is (= (* 7 (count (pr-str {:a 1})))
-           (dd/estimated-inline-px {:a 1}))
+           (ei/estimated-inline-px {:a 1}))
         "pure function — char count × mono-char-width-px")
     (is (= (* 7 (count "nil"))
-           (dd/estimated-inline-px nil))
+           (ei/estimated-inline-px nil))
         "scalars route through the same pr-str pathway")
     ;; Long compound values get proportionally wider estimates — the
     ;; bead's example (~81-char nested value) lands around ~570px.
     (let [big-value [:ws/connection [:rf.machine.timer/after-elapsed
                                      2501 [:active :authenticating]]]]
       (is (= (* 7 (count (pr-str big-value)))
-             (dd/estimated-inline-px big-value))
+             (ei/estimated-inline-px big-value))
           "nested compound value estimate matches pr-str-length × 7"))))
 
 (deftest would-fit-inline-fits-when-estimate-plus-margin-le-available
   (testing "rf2-kbdk8 — `would-fit-inline?` gate"
     ;; A short value pr-strs to ~10 chars × 7px = 70px + 16px margin = 86px.
     (let [v {:a 1}]
-      (is (dd/would-fit-inline? v 200)
+      (is (ei/would-fit-inline? v 200)
           "200px column trivially fits a 10-char value")
-      (is (not (dd/would-fit-inline? v 50))
+      (is (not (ei/would-fit-inline? v 50))
           "50px column rejects even short values"))
     ;; The bead's worked example: ~81-char nested value in a 966px column.
     (let [big-but-fitting (apply str (repeat 80 "x"))]
-      (is (dd/would-fit-inline? big-but-fitting 966)
+      (is (ei/would-fit-inline? big-but-fitting 966)
           "~570px estimate trivially fits 966px column"))
-    (is (not (dd/would-fit-inline? {:a 1} nil))
+    (is (not (ei/would-fit-inline? {:a 1} nil))
         "nil available-width falls back to legacy strict gate")
-    (is (not (dd/would-fit-inline? {:a 1} 0))
+    (is (not (ei/would-fit-inline? {:a 1} 0))
         "zero or negative width is treated as no measurement")))
 
 (deftest default-expanded-width-aware-branch
   (testing "rf2-kbdk8 — width-aware `default-expanded?` flips the verdict"
     ;; A 2-key map fits in 600px easily — should NOT auto-expand (the
     ;; inline-fit gate picks it up instead).
-    (is (false? (dd/default-expanded?
+    (is (false? (ei/default-expanded?
                   {:depth 0 :child-count 2 :value {:a 1 :b 2}
                    :available-width-px 600})))
     ;; A long string-keyed map that overflows 200px should auto-expand
@@ -1643,20 +1643,20 @@
     (let [wide-v {:a "much-longer-than-the-budget"
                   :b "another-overflowing-string"
                   :c "and-yet-more-data"}]
-      (is (true? (dd/default-expanded?
+      (is (true? (ei/default-expanded?
                    {:depth 0 :child-count 3 :value wide-v
                     :available-width-px 100}))))
     ;; Beyond the ceiling, the width-aware branch falls back to false
     ;; (collapsed summary instead of auto-expanding pathologically deep).
     (let [wide-v {:a "much-longer-than-the-budget"
                   :b "another-overflowing-string"}]
-      (is (false? (dd/default-expanded?
+      (is (false? (ei/default-expanded?
                     {:depth 9 :child-count 2 :value wide-v
                      :default-expanded-depth 8
                      :available-width-px 100}))))
     ;; Diff mode's force-open over changed descendants still beats width
     (let [v {:a "wide string that overflows"}]
-      (is (true? (dd/default-expanded?
+      (is (true? (ei/default-expanded?
                    {:depth 0 :child-count 1 :value v
                     :available-width-px 1000
                     :has-changed-descendant? true}))
@@ -1667,11 +1667,11 @@
             the legacy depth-driven path runs unchanged so unit tests +
             first-paint behaviour stay deterministic"
     ;; depth 0, default-expanded-depth 2 → expanded (legacy behaviour).
-    (is (true? (dd/default-expanded?
+    (is (true? (ei/default-expanded?
                  {:depth 0 :child-count 2 :value {:a 1 :b 2}
                   :default-expanded-depth 2})))
     ;; depth 5, default-expanded-depth 2 → collapsed (legacy behaviour).
-    (is (false? (dd/default-expanded?
+    (is (false? (ei/default-expanded?
                   {:depth 5 :child-count 2 :value {:a 1 :b 2}
                    :default-expanded-depth 2})))))
 
@@ -1682,7 +1682,7 @@
             multi-row tree"
     ;; ~60-char nested value vs 800px column.
     (let [v {:tag :foo :payload [:active :authenticating]}
-          h (dd/render-node {:value v
+          h (ei/render-node {:value v
                              :panel-id :p :mount-id "m" :path []
                              :depth 0 :expansion-map {}
                              :opts {:default-expanded-depth 2
@@ -1706,7 +1706,7 @@
              :c "and-yet-more-data"
              :d "and-yet-still-more"
              :e "the-final-overflow"}
-          h (dd/render-node {:value v
+          h (ei/render-node {:value v
                              :panel-id :p :mount-id "m" :path []
                              :depth 0 :expansion-map {}
                              :opts {:default-expanded-depth 8
@@ -1723,8 +1723,8 @@
             when the value would naturally render inline; the operator
             sees what they clicked, not the heuristic's verdict"
     (let [v {:tag :foo :n 1}
-          k0 (dd/expansion-key :p "m" [])
-          h (dd/render-node {:value v
+          k0 (ei/expansion-key :p "m" [])
+          h (ei/render-node {:value v
                              :panel-id :p :mount-id "m" :path []
                              :depth 0
                              :expansion-map {k0 {:expanded? true}}
@@ -1740,7 +1740,7 @@
   (testing "rf2-kbdk8 — the recursive inline renderer emits one-line
             hiccup that includes nested brackets, separators, scalars"
     (let [v {:k1 1 :k2 [:a :b]}
-          h (dd/render-inline-recursive v)
+          h (ei/render-inline-recursive v)
           text (collect-text h)]
       (is (re-find #":k1" text))
       (is (re-find #":k2" text))
@@ -1756,19 +1756,19 @@
 
 (deftest width-slot-set-and-clear-events
   (testing "rf2-kbdk8 — set-width / clear-width app-db reducers"
-    (rf/dispatch-sync [:rf.xray.data-display/set-width "m" 600])
-    (let [widths @(rf/subscribe [dd/widths-slot])]
+    (rf/dispatch-sync [:rf.xray.edn-inspector/set-width "m" 600])
+    (let [widths @(rf/subscribe [ei/widths-slot])]
       (is (= 600 (get widths "m"))
           "set-width writes a positive measurement to the slot"))
     ;; Bad inputs are ignored (no app-db churn).
-    (rf/dispatch-sync [:rf.xray.data-display/set-width "m2" -5])
-    (rf/dispatch-sync [:rf.xray.data-display/set-width nil 100])
-    (let [widths @(rf/subscribe [dd/widths-slot])]
+    (rf/dispatch-sync [:rf.xray.edn-inspector/set-width "m2" -5])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/set-width nil 100])
+    (let [widths @(rf/subscribe [ei/widths-slot])]
       (is (nil? (get widths "m2")) "negative width is rejected")
       (is (nil? (get widths nil))  "nil mount-id is rejected"))
     ;; Cleanup
-    (rf/dispatch-sync [:rf.xray.data-display/clear-width "m"])
-    (let [after-clear @(rf/subscribe [dd/widths-slot])]
+    (rf/dispatch-sync [:rf.xray.edn-inspector/clear-width "m"])
+    (let [after-clear @(rf/subscribe [ei/widths-slot])]
       (is (nil? (get after-clear "m"))
           "clear-width removes the entry"))))
 
@@ -1777,7 +1777,7 @@
             (function) for the ResizeObserver lifecycle, plus a data-
             attribute carrying the current measurement (or absent when
             not yet measured)"
-    (let [h (invoke-data-display {:a 1} {:panel-id :rf.xray/app-db})
+    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})
           attrs (-> h second)]
       (is (fn? (:ref attrs))
           "outer container carries a ref callback (mount/unmount hook)")

@@ -133,9 +133,9 @@
 
 ;; ---- 4. SnapshotDrillIn view (rf2-lxvn6 · spec/021 §10) --------------
 
-(deftest snapshot-drill-in-mounts-data-display-widget
+(deftest snapshot-drill-in-mounts-edn-inspector-widget
   (testing "the canvas-side SnapshotDrillIn view mounts the first-class
-            data-display widget against the supplied snapshot. The host
+            edn-inspector widget against the supplied snapshot. The host
             carries per-machine + per-phase data attributes so panel-
             level tests can target the surface without reaching into the
             inner widget."
@@ -194,11 +194,11 @@
 ;; Machine snapshots routinely carry deeply-nested `:data` maps; the
 ;; popup gives the operator a full-modal inspection surface alongside
 ;; the per-machine drill-in. The canvas-side SnapshotDrillIn mount
-;; passes `:popup-affordance? true` through to `[dd/data-display]`.
+;; passes `:popup-affordance? true` through to `[ei/edn-inspector]`.
 
-(defn- find-data-display-mounts
+(defn- find-edn-inspector-mounts
   "Walk hiccup, collect every `[fn ...]` mount whose 3rd-arg looks like
-  a data-display opts map. Returns `{:value :opts}` maps."
+  a edn-inspector opts map. Returns `{:value :opts}` maps."
   [tree]
   (let [out (atom [])]
     (letfn [(walk [n]
@@ -213,16 +213,16 @@
       (walk tree))
     @out))
 
-(deftest snapshot-drill-in-data-display-carries-popup-affordance
+(deftest snapshot-drill-in-edn-inspector-carries-popup-affordance
   (testing "rf2-l4625 — the canvas-side SnapshotDrillIn passes
-            `:popup-affordance? true` to the embedded data-display so
+            `:popup-affordance? true` to the embedded edn-inspector so
             the operator can pop the snapshot into the popup overlay"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [snapshot {:state :authing :data {:user "alice" :retries 1}}
             tree     (mc/SnapshotDrillIn {:machine-id :auth/login
                                           :snapshot   snapshot})
-            mounts   (find-data-display-mounts tree)]
-        (is (seq mounts) "data-display widget mounted")
+            mounts   (find-edn-inspector-mounts tree)]
+        (is (seq mounts) "edn-inspector widget mounted")
         (is (every? #(true? (:popup-affordance? (:opts %))) mounts)
             "every mount opts in to the popup affordance")))))

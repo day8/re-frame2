@@ -427,8 +427,8 @@
 ;; ===========================================================================
 ;;
 ;; The SUB VALUES section beneath the flow graph renders each RUN sub's
-;; current cascade value through the first-class data-display widget
-;; (`views.data-display`). The projection layer here surfaces a
+;; current cascade value through the first-class edn-inspector widget
+;; (`views.edn-inspector`). The projection layer here surfaces a
 ;; `:sub-values` slot — one row per RUN sub, carrying the sub-id, the
 ;; changed/unchanged flag, an explicit `:has-value?` presence flag (so a
 ;; redacted/absent value is distinguishable from an actual `nil`), the

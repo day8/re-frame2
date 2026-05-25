@@ -6,7 +6,7 @@ locked Static/Dynamic linguistic pairing per the polished super-prompt.
 "Dynamic" = what's happening across epochs; "Static" = what's registered
 before any event fires.)
 Co-drafted by Mike + mayor; this doc is the implementer's reference
-for the **per-panel content layout**, **shared data-display renderer**,
+for the **per-panel content layout**, **shared edn-inspector renderer**,
 **locked decisions**, and **substrate gaps** that the redesign implies.
 
 Canonical foundation: `ai/prompts/xray-interface-adjustments.md`
@@ -496,7 +496,7 @@ detail lives in Event panel step 4.
 Below the graph, three list sections complete the panel:
 
 - **SUB VALUES** (rf2-e46qs phase 3 of rf2-oqa60) — one row per RUN sub this cascade carrying
-  its current value through the first-class data-display widget (`[dd/data-display value opts]`,
+  its current value through the first-class edn-inspector widget (`[ei/edn-inspector value opts]`,
   §10). Each row uses a stable per-sub `:panel-id` qualifier under `:rf.xray.reactive-sub-value`
   so two sub-row expansions are independent. Subs whose value carries no `:value` slot (privacy
   redaction / pre-attribution) render a muted no-value placeholder rather than mounting the
@@ -795,7 +795,7 @@ that Event + Reactive summarise. NOT aggregate across epochs (per §1.2).
 **Density note** (per §0). Each op renders as a single mono row in **plain language**
 (`relative-timestamp · op-family colour-band · readable description · duration`) — so a
 30-op epoch reads as a 30-line scroll. The raw `:operation` + tag-map is **expandable detail**
-via click, reusing the shared data-display renderer's `browse` (cljs-devtools) variant (§10),
+via click, reusing the shared edn-inspector renderer's `browse` (cljs-devtools) variant (§10),
 not the default line. Lines-per-screen target ~30-60.
 
 ### §5.2 Scope + layout (reworked — rf2-o6yqq + rf2-td380 + rf2-gkczt)
@@ -863,7 +863,7 @@ with the focused cascade's lifecycle-status colour (settled-success /
 errored / stale / paused / in-flight), driven by the same
 `event-status-colour` fn the L2 rows + Event header dot consume — one
 lifecycle vocabulary across the whole devtool. Expanded payload uses the
-data-display renderer's `browse` variant (§10).
+edn-inspector renderer's `browse` variant (§10).
 
 **Empty states** (focus-resolver statuses + the empty-epoch case):
 `:no-events` ("No events.") · `:no-focus` ("No focused event.",
@@ -1247,7 +1247,7 @@ keeps the dogfood in Story.
 
 ---
 
-## §10 Shared data-display renderer
+## §10 Shared edn-inspector renderer
 
 The renderer is **ONE canonical component used everywhere data appears**
 — App-db's huge nested map, the Event panel's coeffects slice + returned
@@ -1255,36 +1255,36 @@ effects, the View panel's sub values, Trace ops' expanded payloads,
 Issues `ex-data`. Operator learns one interaction pattern; applies it
 everywhere.
 
-### §10.0 First-class data-display widget (rf2-oqa60 phase 1)
+### §10.0 First-class edn-inspector widget (rf2-oqa60 phase 1)
 
 Per Mike-direction 2026-05-25 (rf2-sndui ratification `b a a a a a a a`)
-the renderer is the **first-class data-display widget** at
-`day8.re-frame2-xray.views.data-display`. It is a roll-your-own
+the renderer is the **first-class edn-inspector widget** at
+`day8.re-frame2-xray.views.edn-inspector`. It is a roll-your-own
 CLJS-value-to-hiccup tree walker (~900 LoC after phase 5) that
 owns the WHOLE contract — **browse + diff + mini** — as a single
 source of truth: classifies every CLJS type natively, owns its own
 sticky-expansion app-db slot, ships first-class chrome for the
 spec/015 sentinels, and renders inline diff annotations when a
 `:before` opt is supplied. The cljs-devtools dep is dropped
-(rf2-oqa60); the legacy `data-display.render` engine +
+(rf2-oqa60); the legacy `edn-inspector.render` engine +
 `theme.data-inspector` chrome ns are deleted in phase 5 (rf2-q3dzw).
 The EDN-widget facade at `views.edn-widget.widget` is retained as a
 thin delegate so existing call sites compile; new call sites should
-reach for `[data-display value opts]` directly.
+reach for `[edn-inspector value opts]` directly.
 
 #### §10.0.1 Public API
 
 ```clj
-[data-display value]                         ;; browse mode
-[data-display value opts]                    ;; browse / diff per opts
-[data-display-diff before after]             ;; diff convenience
-[data-display-diff before after opts]
+[edn-inspector value]                         ;; browse mode
+[edn-inspector value opts]                    ;; browse / diff per opts
+[edn-inspector-diff before after]             ;; diff convenience
+[edn-inspector-diff before after opts]
 ```
 
 `opts` keys (all optional):
 
 - `:panel-id` — distinguishes per-panel expansion state. Defaults
-  `:rf.xray.data-display/anon`.
+  `:rf.xray.edn-inspector/anon`.
 - `:default-expanded-depth` — first-render expansion depth before
   operator clicks. Defaults `2`.
 - `:max-inline-width` — character budget before forced-vertical
@@ -1322,7 +1322,7 @@ reach for `[data-display value opts]` directly.
 The widget is a **Reagent form-2 component** — the outer fn captures
 a stable `mount-id` (auto-generated UUID, per D4=a — no public
 `render-id` arg) in closure; the inner fn subscribes to the
-expansion slot and renders. Two `[data-display v opts]` mounts in
+expansion slot and renders. Two `[edn-inspector v opts]` mounts in
 the same panel each receive a distinct `mount-id`, so their
 expansion state is independent.
 
@@ -1338,7 +1338,7 @@ sentinel routing in; the legacy `inspect-inline` is dropped):
 
 Five properties the unit gate pins so a future renderer change can't
 re-break what phase 1 lands. All five are tested in
-`tools/xray/test/day8/re_frame2_xray/views/data_display_cljs_test.cljs`.
+`tools/xray/test/day8/re_frame2_xray/views/edn_inspector_cljs_test.cljs`.
 
 1. **Per-type colours via CSS variables.** Each leaf type maps to a
    distinct token (keyword `:accent`, string `:syntax-string`,
@@ -1363,7 +1363,7 @@ re-break what phase 1 lands. All five are tested in
 4. **Click-to-toggle actually toggles.** Each node carries a stable
    `data-testid` derived from `[panel-id mount-id path]`; the `▸`
    span's `:on-click` dispatches
-   `[:rf.xray.data-display/toggle-node panel-id mount-id path rendered-expanded?]`
+   `[:rf.xray.edn-inspector/toggle-node panel-id mount-id path rendered-expanded?]`
    via the **lexically-injected frame-aware dispatcher** — the widget
    is `reg-view`-registered (per rf2-y59tb) so its body's `dispatch`
    closure inherits the surrounding `frame-provider` from React
@@ -1382,8 +1382,8 @@ re-break what phase 1 lands. All five are tested in
    `:expanded? true` repeats the rendered state — rf2-y59tb Bug B).
 
    The reducer writes `{:expanded? bool}` into the per-node entry in
-   `:rf.xray.data-display/expansion`. Next render reads the slot via
-   `:rf.xray.data-display/expansion` subscription, the path's
+   `:rf.xray.edn-inspector/expansion`. Next render reads the slot via
+   `:rf.xray.edn-inspector/expansion` subscription, the path's
    entry exists, the renderer picks `:expanded?` over the default
    heuristic, the triangle swaps `▸` → `▾` (or vice versa), and the
    body becomes visible (or hidden). This is the property rf2-dw8n7 /
@@ -1391,7 +1391,7 @@ re-break what phase 1 lands. All five are tested in
    approach; rf2-y59tb closed the remaining frame-leak + first-click
    gap on top of the rf2-oqa60 widget rebuild.
 
-5. **Per-call-site isolation.** Two `[data-display]` mounts in the
+5. **Per-call-site isolation.** Two `[edn-inspector]` mounts in the
    same panel receive distinct `mount-id`s (auto-generated UUID per
    mount; captured in form-2 closure). Toggling a path under
    mount-A leaves the identical path under mount-B untouched.
@@ -1411,7 +1411,7 @@ the renderer, not separate chrome wrappers:
 
 The legacy `theme.data-inspector` ns is **deleted** in phase 5
 (rf2-q3dzw, D5=a) — sentinel chrome lives entirely inside the
-data-display widget now.
+edn-inspector widget now.
 
 #### §10.0.4 Phased rollout
 
@@ -1426,7 +1426,7 @@ Phases 2-5 file as separate beads chained off rf2-oqa60:
 - Phase 3 (rf2-e46qs) — **Sub value inspector integration.** The
   Views panel (`reactive-panel-view`) renders a `SUB VALUES` section
   beneath the flow graph. Each RUN sub gets one row carrying its
-  current cascade value through `[dd/data-display value opts]`
+  current cascade value through `[ei/edn-inspector value opts]`
   DIRECTLY (no `edn/inspect` / `edn/browse` facade hop). Each row's
   `:panel-id` is a STABLE per-sub keyword namespaced under
   `:rf.xray.reactive-sub-value` (folded from the sub-id), so two
@@ -1440,13 +1440,13 @@ Phases 2-5 file as separate beads chained off rf2-oqa60:
 - Phase 5 (rf2-q3dzw) — **Diff renderer subsumption (D5=a per
   rf2-sndui).** Diff is now an opt-in MODE on the same widget —
   pass `:before` in opts. The legacy
-  `data-display.render` engine (`render-tree`) and the
+  `edn-inspector.render` engine (`render-tree`) and the
   `theme.data-inspector` chrome ns are DELETED with this phase.
   The widget owns the whole `browse + diff + mini` contract as a
   single source of truth — see §10.0.8 for the full diff contract.
 - Phase 6 (rf2-s0x6x) — Popup overlay infra (D6=a · D8=a) —
   see §10.0.7
-- Phase 7 (rf2-0qrcr) — `IXrayDataDisplay` custom-formatters
+- Phase 7 (rf2-0qrcr) — `IXrayEdnInspector` custom-formatters
   protocol (D7=a) — see §10.0.6
 - Phase 7 follow-on (rf2-x16b1) — curated default formatters
   for `uuid` + `inst` (uri deferred) — see §10.0.9
@@ -1461,16 +1461,16 @@ pre-format pipeline survives the rf2-oqa60 cut-over unchanged).
 Token colours follow the Figma `.syntax-*` block: keywords red,
 strings blue/green, numbers blue, comments muted-italic.
 
-#### §10.0.6 `IXrayDataDisplay` custom-formatters protocol (phase 7 · D7=a · rf2-0qrcr)
+#### §10.0.6 `IXrayEdnInspector` custom-formatters protocol (phase 7 · D7=a · rf2-0qrcr)
 
 Phase 7 of rf2-oqa60 opens a single extension seam on the closed
 phase-1 renderer for consuming applications that carry domain types
 the built-in classifier has no better fallback for than `pr-str`.
 
-**Surface** — `day8.re-frame2-xray.views.data-display-protocol`:
+**Surface** — `day8.re-frame2-xray.views.edn-inspector-protocol`:
 
 ```clj
-(defprotocol IXrayDataDisplay
+(defprotocol IXrayEdnInspector
   (-xray-render-header [v opts])
   (-xray-render-body   [v opts]))
 ```
@@ -1489,11 +1489,11 @@ sees — `:panel-id`, `:mount-id`, `:path`, `:depth`,
 `:expansion-map`, plus the per-widget `:default-expanded-depth` /
 `:max-inline-width` / `:max-depth`. The original argument map is
 also threaded under `:node-opts` for consumers that want to recurse
-the built-in renderer on sub-values via `data-display/render-node`.
+the built-in renderer on sub-values via `edn-inspector/render-node`.
 
 **Dispatch order** (in `render-node`):
 
-1. `(satisfies? IXrayDataDisplay v)` → consult the protocol.
+1. `(satisfies? IXrayEdnInspector v)` → consult the protocol.
 2. `-xray-render-header v opts` returns nil → fall through to the
    built-in container / scalar dispatch.
 3. Otherwise wrap the header (+ optional body) in the standard
@@ -1516,11 +1516,11 @@ the underlying ledger entries:
 
 ```clj
 (ns my-app.domain.money
-  (:require [day8.re-frame2-xray.views.data-display-protocol
-             :refer [IXrayDataDisplay]]))
+  (:require [day8.re-frame2-xray.views.edn-inspector-protocol
+             :refer [IXrayEdnInspector]]))
 
 (deftype Money [amount currency ledger]
-  IXrayDataDisplay
+  IXrayEdnInspector
   (-xray-render-header [_ _opts]
     [:span {:style {:color    "var(--rf-xray-syntax-number)"
                     :padding  "0 6px"
@@ -1528,14 +1528,14 @@ the underlying ledger entries:
                     :border-radius "3px"}}
      (str amount " " currency)])
   (-xray-render-body [_ opts]
-    [day8.re-frame2-xray.views.data-display/render-node
+    [day8.re-frame2-xray.views.edn-inspector/render-node
      (assoc opts :value ledger)]))
 ```
 
-Mounted via `[data-display some-money-instance]` — the chip shows
+Mounted via `[edn-inspector some-money-instance]` — the chip shows
 collapsed; click expands to the ledger as a normal map view.
 
-**Tests** — `tools/xray/test/day8/re_frame2_xray/views/data_display_protocol_cljs_test.cljs`
+**Tests** — `tools/xray/test/day8/re_frame2_xray/views/edn_inspector_protocol_cljs_test.cljs`
 pins: (a) built-in types still route through the built-in dispatch
 (no protocol path leakage), (b) protocol-implementing types take
 the protocol path and the consumer's hiccup appears verbatim,
@@ -1545,16 +1545,16 @@ overrides still apply to protocol nodes.
 #### §10.0.7 Popup overlay infra (rf2-oqa60 phase 6 · D6=a · D8=a)
 
 Phase 6 ships the **popup overlay** that floats over an Xray panel
-and inspects a CLJS value at depth via `[data-display value opts]`.
+and inspects a CLJS value at depth via `[edn-inspector value opts]`.
 Locked decisions:
 
 - **D6=a — Xray-internal anchor scope.** The backdrop spans the
   Xray shell only (or the Story cell when
   `:rf.xray/modal-positioning` resolves to `:absolute`). The popup
   never anchors to the debugged application's DOM — the right-click
-  surface lives over Xray-internal data-display nodes only.
+  surface lives over Xray-internal edn-inspector nodes only.
 - **D8=a — auto-generated UUID per popup mount.** Each
-  `[data-display-popup value opts]` mount allocates a fresh
+  `[edn-inspector-popup value opts]` mount allocates a fresh
   `mount-id` (UUID, captured in form-2 closure) on first render.
   Two side-by-side mounts get independent expansion state — the
   popup's `:panel-id` is namespaced by `mount-id`, so the embedded
@@ -1562,14 +1562,14 @@ Locked decisions:
   popups or with the panel underneath.
 
 Public API at
-`tools/xray/src/day8/re_frame2_xray/views/data_display_popup.cljs`:
+`tools/xray/src/day8/re_frame2_xray/views/edn_inspector_popup.cljs`:
 
 ```clj
-[data-display-popup value]
-[data-display-popup value opts]
+[edn-inspector-popup value]
+[edn-inspector-popup value opts]
 
 ;; programmatic — opens via the stack slot:
-(rf/dispatch [:rf.xray.data-display-popup/open
+(rf/dispatch [:rf.xray.edn-inspector-popup/open
               mount-id {:value v :opts opts}]
              {:frame :rf/xray})
 ```
@@ -1578,7 +1578,7 @@ Public API at
 
 - `:title` — header label. Defaults `"Inspect"`.
 - `:panel-id` / `:default-expanded-depth` / `:max-inline-width` /
-  `:max-depth` — forwarded to the wrapped data-display widget. The
+  `:max-depth` — forwarded to the wrapped edn-inspector widget. The
   `:panel-id` is namespaced by the popup's `mount-id` before
   reaching the widget so per-mount isolation holds without caller
   effort.
@@ -1588,10 +1588,10 @@ Public API at
 
 State model (slots under `:rf/xray` frame's db):
 
-- `:rf.xray.data-display-popup/stack` — vector of `mount-id`s, top
+- `:rf.xray.edn-inspector-popup/stack` — vector of `mount-id`s, top
   of stack = last entry. Esc closes only the top entry, so layered
   popups beneath survive.
-- `:rf.xray.data-display-popup/entries` — `{mount-id {:value …
+- `:rf.xray.edn-inspector-popup/entries` — `{mount-id {:value …
   :opts …}}` payload map; survives shadow-cljs `:after-load`
   reloads. Re-opening a popup with the same `mount-id` raises it
   to the top of the stack and replaces its payload (window-manager
@@ -1600,7 +1600,7 @@ State model (slots under `:rf/xray` frame's db):
 Close affordances (per the bead's scope):
 
 1. **Esc** — handled by the popup's `:on-key-down`; dispatches
-   `:rf.xray.data-display-popup/close-top` so layered popups
+   `:rf.xray.edn-inspector-popup/close-top` so layered popups
    close one at a time.
 2. **Click backdrop** — closes that specific popup (matches the
    segment-inspector's click-outside-closes contract).
@@ -1613,20 +1613,20 @@ panel** but below app-modals (palette / settings). Base layer
 sequential z-indexes derived from their stack position so the
 topmost popup wins click + focus.
 
-The `data-display-popup-stack` view is the entry point for
+The `edn-inspector-popup-stack` view is the entry point for
 programmatic opens (a context-menu handler dispatches `:open`
 and the stack view picks the entry up); the
-`[data-display-popup value opts]` component is the entry point
+`[edn-inspector-popup value opts]` component is the entry point
 for inline opens (a panel that wants to control the popup
 imperatively from its own view tree). Both compose through
 `popup-chrome` so the chrome shape is identical.
 
 ##### §10.0.7.1 Shell mount (rf2-l4625)
 
-The `data-display-popup-stack` view mounts **once** at the Xray
+The `edn-inspector-popup-stack` view mounts **once** at the Xray
 shell root, alongside the other modal stacks (palette, settings,
 segment-inspector, …). The stack view reads
-`:rf.xray.data-display-popup/stack` + `:rf.xray.data-display-popup/entries`
+`:rf.xray.edn-inspector-popup/stack` + `:rf.xray.edn-inspector-popup/entries`
 and renders the popup chrome for every active mount-id in z-index
 order; it short-circuits to `nil` when the stack is empty (closed-
 state cost: one subscribe + a `when`-gate).
@@ -1634,7 +1634,7 @@ state cost: one subscribe + a `when`-gate).
 Registration is a single line in `registry.cljs`:
 
 ```clj
-(data-display-popup/install!)
+(edn-inspector-popup/install!)
 ```
 
 …idempotent per the orchestrator's `compare-and-set!` sentinel.
@@ -1644,7 +1644,7 @@ in `shell.cljs`'s overlay block, INSIDE the `rf/frame-provider
 
 ##### §10.0.7.2 Per-panel "open in popup" affordance (rf2-l4625 · rf2-7sdja)
 
-Each `[dd/data-display value opts]` call site **opts in** to a
+Each `[ei/edn-inspector value opts]` call site **opts in** to a
 top-right ↗ icon button by passing `:popup-affordance? true` in
 `opts`. Default is **off** — scalar / tiny-value mounts don't
 benefit from a larger inspection surface, and the silent default
@@ -1658,11 +1658,11 @@ the circled plus (which read as "expand" / "add").
 Mechanics:
 
 - The affordance renders a `:button` positioned absolutely at
-  the top-right of the data-display widget's outer container
+  the top-right of the edn-inspector widget's outer container
   (the container gets `position: relative` when the affordance
   is enabled).
 - Click dispatches
-  `[:rf.xray.data-display-popup/open popup-mount-id {:value v :opts o}]`
+  `[:rf.xray.edn-inspector-popup/open popup-mount-id {:value v :opts o}]`
   against `:rf/xray` **explicitly** via the established
   `(rf/dispatch event {:frame :rf/xray})` pattern (rf2-7sdja).
   This pins the dispatch frame regardless of where the widget
@@ -1670,16 +1670,16 @@ Mechanics:
   subscribes only against `:rf/xray`), unlike expansion state
   which is per-frame and uses the lexically-captured frame-
   aware dispatcher.
-- `popup-mount-id` is derived from the data-display's own
+- `popup-mount-id` is derived from the edn-inspector's own
   mount-id (`"ddp-" + mount-id`) — stable per call-site mount,
   so re-clicking the affordance **raises** the existing popup
   rather than spawning a duplicate (matches
-  `data-display-popup/push-entry` window-manager semantics).
+  `edn-inspector-popup/push-entry` window-manager semantics).
 - The opts forwarded to the popup carry
   `:popup-affordance? false` so the popup's embedded
-  data-display does not recurse the affordance inside itself.
+  edn-inspector does not recurse the affordance inside itself.
 
-Stable testid: `"rf-xray-data-display-popup-affordance-" +
+Stable testid: `"rf-xray-edn-inspector-popup-affordance-" +
 popup-mount-id`. The button carries
 `:data-rf-affordance "popup"` for hover-style hooks +
 `:aria-label "Open in popup"` for assistive tech.
@@ -1709,7 +1709,7 @@ leaf would clutter the diff display.
 
 Phase 5 closes the "diff renderer as separate engine" pattern. The
 pre-rf2-q3dzw shape composed two separate engines:
-`data-display.render` walked before/after pairs to paint gutter rows,
+`edn-inspector.render` walked before/after pairs to paint gutter rows,
 delegating leaf-value rendering to `theme.data-inspector/inspect`.
 That seam left two ns'es to keep in sync — every time the inspector
 gained a new type classification (sentinel chrome, type colours,
@@ -1723,8 +1723,8 @@ expand/collapse, AND applies diff annotations — one source of truth.
 **Surface**:
 
 ```clj
-[data-display value {:before before-value …}]
-[data-display-diff before after opts]
+[edn-inspector value {:before before-value …}]
+[edn-inspector-diff before after opts]
 ```
 
 **Diff ops**:
@@ -1737,8 +1737,8 @@ expand/collapse, AND applies diff annotations — one source of truth.
 | `:children` | container with changed descendant         | `◴`   | `:accent`      |
 | `:same`     | values equal                              | ` `   | `:text-tertiary` |
 
-The op classification is pure data via `dd/diff-op` (public for
-tests). The `::missing` marker (`dd/missing-sentinel`) distinguishes
+The op classification is pure data via `ei/diff-op` (public for
+tests). The `::missing` marker (`ei/missing-sentinel`) distinguishes
 "slot absent on this side of the diff" from a real `nil` value.
 
 **Gutter row**: each diff'd node renders inside a `gutter-row`
@@ -1770,7 +1770,7 @@ chrome regardless of mode. A modified `:rf/redacted` slot still
 renders as the magenta chip + `← changed from <prior>` annotation;
 no chip-reveal leakage.
 
-**Test pins** — `tools/xray/test/day8/re_frame2_xray/views/data_display_cljs_test.cljs`:
+**Test pins** — `tools/xray/test/day8/re_frame2_xray/views/edn_inspector_cljs_test.cljs`:
 
 1. `diff-op` classifies the canonical 4 ops + `:same`.
 2. `changed-descendant?` walks maps + sequentials + returns
@@ -1784,13 +1784,13 @@ no chip-reveal leakage.
 6. The public widget's outer container carries `data-rf-mode
    "diff"` when `:before` is supplied; `"browse"` otherwise.
 
-#### §10.0.9 Default `IXrayDataDisplay` formatters (rf2-x16b1)
+#### §10.0.9 Default `IXrayEdnInspector` formatters (rf2-x16b1)
 
 The phase-7 protocol seam (§10.0.6) ships zero default impls — every
 consuming app would have to register the same boilerplate for the
 common types where the raw repr is genuinely cramped. rf2-x16b1
 ships a curated set of opinionated default formatters, loaded
-automatically when `views.data-display` is required.
+automatically when `views.edn-inspector` is required.
 
 **Coverage** — the curated set is deliberately small. Each type
 included carries a clear win over `pr-str`; the rest stay on the
@@ -1830,9 +1830,9 @@ the most-recently-loaded impl is the one that fires. The bundled
 defaults are inert when a consumer takes the seam for a type they
 own. Regression-anchored by
 `consumer-extension-wins-over-default-on-its-own-type` in
-`tools/xray/test/day8/re_frame2_xray/views/data_display_default_formatters_cljs_test.cljs`.
+`tools/xray/test/day8/re_frame2_xray/views/edn_inspector_default_formatters_cljs_test.cljs`.
 
-**Surface** — `day8.re-frame2-xray.views.data-display-default-formatters`.
+**Surface** — `day8.re-frame2-xray.views.edn-inspector-default-formatters`.
 Public for tests + reference:
 
 - `format-relative` — pure-data inst bucketing against a pinned `now`
@@ -1840,7 +1840,7 @@ Public for tests + reference:
 - `render-inst-header` / `render-inst-body`
 
 The ns is required for side-effect (the `extend-type` forms) from
-`views.data-display` itself — no call-site registration needed.
+`views.edn-inspector` itself — no call-site registration needed.
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
@@ -1944,7 +1944,7 @@ defaults to depth-3-collapsed; Event payload defaults to depth-2-expanded
 because event payloads are typically shallow + small).
 
 Per-node operator override (sticky): clicking expand/collapse persists
-to `:rf.xray.data-display/expansion {<path>}` so the operator's
+to `:rf.xray.edn-inspector/expansion {<path>}` so the operator's
 disclosure choices survive epoch navigation. **No right-click reset**
 (per §10.5 — right-click context menus are explicitly out). Reset by
 navigating to a new focused epoch (the sticky override is per-epoch +
@@ -1978,15 +1978,15 @@ menus are explicitly OUT. Operator learns one gesture; applies it everywhere.
 These were on earlier drafts and have been removed. Future beads that
 re-propose them must re-open the B.9 lock with the mayor first.
 
-### §10.6 Cross-panel data-display consistency
+### §10.6 Cross-panel edn-inspector consistency
 
 All panels use the same renderer. Implementations MUST go through
-`tools/xray/src/day8/re_frame2_xray/views/data_display.cljs` (the
+`tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs` (the
 first-class widget — rf2-oqa60 phase 1). Per-panel renderers are
-`[data-display value opts]` invocations that configure
+`[edn-inspector value opts]` invocations that configure
 `:default-expanded-depth` / `:panel-id` / `:max-inline-width`. The
 operator's expansion state lives in one app-db slot
-(`:rf.xray.data-display/expansion`) keyed by
+(`:rf.xray.edn-inspector/expansion`) keyed by
 `[panel-id mount-id path]` — the mount-id auto-generated per
 component instance so two mounts in the same panel are isolated.
 
@@ -1994,16 +1994,16 @@ Phase 1 wires the App-DB panel through the new widget directly; the
 remaining surfaces (Trace, Sub, Machine, Issues) reach through the
 legacy `views.edn-widget.widget` facade for now, which delegates to
 the new widget. Phases 2-4 migrate each surface to call
-`[data-display …]` directly. Phase 5 (rf2-q3dzw) **completes** the
+`[edn-inspector …]` directly. Phase 5 (rf2-q3dzw) **completes** the
 subsumption: diff is now an opt-in mode on the same widget
-(`:before` opt) and the legacy `data-display.render` engine +
+(`:before` opt) and the legacy `edn-inspector.render` engine +
 `theme.data-inspector` chrome ns are DELETED. The widget owns the
 whole `browse + diff + mini` contract as one source of truth.
 
 ### §10.7 Evicted-epoch placeholder
 
 When the operator scrubs onto an epoch evicted from the buffer, every
-data-display in every panel renders the same placeholder:
+edn-inspector in every panel renders the same placeholder:
 
 ```
 ┌─ epoch #12 ──────────────────────────────────────────────────────────┐
@@ -2159,8 +2159,8 @@ real beads after approving this doc.
 
 ### Xray panel beads
 
-- **rf2-?????** — *Xray: shared data-display renderer.* New ns
-  `data_display/render.cljs` per §10. Lazy tree, inline diff,
+- **rf2-?????** — *Xray: shared edn-inspector renderer.* New ns
+  `edn_inspector/render.cljs` per §10. Lazy tree, inline diff,
   keyword-accent, clickable-paths, expansion-state app-db slot. All
   panels rebind to this renderer. Includes evicted-epoch placeholder.
 
@@ -2182,7 +2182,7 @@ real beads after approving this doc.
 - **rf2-?????** — *Xray: Trace panel — focused-epoch scoping + film-
   strip.* Re-scope Trace panel to focused `:dispatch-id` (drop any
   aggregate-across-epochs view). Add `[◀ Prev] [Next ▶]` header. Reuse
-  data-display renderer for expanded payloads.
+  edn-inspector renderer for expanded payloads.
 
 - **rf2-?????** — *Xray: Machines panel — topology-always-visible
   empty-state.* When focused epoch has no machine transition, still
@@ -2398,7 +2398,7 @@ becoming a grid of boxes.
 |---|---|
 | Around the L4 panel itself (`:bg-2` on `:bg-1`, 1px `:border-default`) | Between sibling rows in a dense list (use `:gap-1` vertical rhythm only) |
 | Around each xyflow / SVG canvas (1px `:border-default`) | Between pipeline steps in §2.2 (the numbered rail IS the divider) |
-| Between reserved-area sections in App-db (1px `:border-subtle`, full width) | Inside the data-display tree (indentation IS the structure) |
+| Between reserved-area sections in App-db (1px `:border-subtle`, full width) | Inside the edn-inspector tree (indentation IS the structure) |
 | Around hover popovers (1px `:border-default` + 4px shadow) | Between cells of an inline KV row (whitespace alone) |
 | Around xyflow group/parent nodes (1px solid; 1px dashed for parallel-region containers) | Between L4 tabs (the L3 tab strip handles this) |
 
@@ -2461,7 +2461,7 @@ the panel itself.)
 - `→` (right arrow) — used as a transition glyph in machine-state
   rows (`:populated → :submitting`). `:text-primary`, mono inline.
 
-**Tree-disclosure glyphs** (data-display renderer · §10.2):
+**Tree-disclosure glyphs** (edn-inspector renderer · §10.2):
 
 - `▾` expanded · `▸` collapsed — both `:text-secondary`, 11px
 - `·` leaf-row indent — `:text-tertiary`, 11px
@@ -2733,9 +2733,9 @@ already drafted in §13.
   `package.json` (~50-80KB gzipped, MIT). Gates: Machines panel
   redesign (§6).
 
-- **rf2-?????** — *Xray: data-display renderer component — lazy tree
+- **rf2-?????** — *Xray: edn-inspector renderer component — lazy tree
   + inline diff + keyword accent + clickable paths.* New ns
-  `tools/xray/src/day8/re_frame2_xray/data_display/render.cljs` per
+  `tools/xray/src/day8/re_frame2_xray/edn_inspector/render.cljs` per
   §10 + §17.1.3 palette mapping + §17.2 interaction-state matrix. The
   only path-interaction is cross-panel propagation (§10.5). Gates: all
   Dynamic panels.

@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.views.edn-widget.widget
   "Canonical Xray EDN widget facade — thin wrapper over the first-
-  class `views.data-display` widget.
+  class `views.edn-inspector` widget.
 
   ## Purpose
 
@@ -13,17 +13,17 @@
   ## One engine, one facade (post-rf2-q3dzw)
 
   After phase 5 (D5=a per rf2-sndui, rf2-q3dzw) the WHOLE contract —
-  browse + diff + mini — lives in `views.data-display` as one
+  browse + diff + mini — lives in `views.edn-inspector` as one
   renderer. This facade is a thin delegate that the legacy `edn/*`
   call sites still reach through; new call sites should use
-  `[data-display value opts]` directly.
+  `[edn-inspector value opts]` directly.
 
   Previous shape (pre-rf2-oqa60) composed two engines:
-  `data-display.render` (diff-aware tree walker) and
+  `edn-inspector.render` (diff-aware tree walker) and
   `cljs-devtools-render` (binaryage/cljs-devtools-backed formatters).
   Phase 1 (rf2-oqa60) shipped the roll-your-own browse path; phase 5
   (rf2-q3dzw) subsumed the diff engine into the same widget and
-  deleted the legacy `data-display.render` + `theme.data-inspector`
+  deleted the legacy `edn-inspector.render` + `theme.data-inspector`
   ns'es.
 
   ## Public API
@@ -54,18 +54,18 @@
             [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]
-            ;; The first-class data-display widget owns the WHOLE
+            ;; The first-class edn-inspector widget owns the WHOLE
             ;; contract — browse, diff, mini, sentinel chrome — as a
             ;; single source of truth (phase 5 / rf2-q3dzw,
             ;; D5=a per rf2-sndui).
-            [day8.re-frame2-xray.views.data-display :as dd]
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
             [zprint.core :as zprint]))
 
-;; ---- subscription bridge — superseded by the new data-display widget ----
+;; ---- subscription bridge — superseded by the new edn-inspector widget ----
 ;;
 ;; Pre-rf2-oqa60 this section glued the cljs-devtools walker to the
 ;; shared expansion slot. With the phase 1 cut-over the new widget at
-;; `views.data-display` owns its own `:rf.xray.data-display/expansion`
+;; `views.edn-inspector` owns its own `:rf.xray.edn-inspector/expansion`
 ;; slot + toggle/reset events; the facade delegates and the cljs-
 ;; devtools-render adapter is deleted.
 
@@ -136,22 +136,22 @@
 ;;
 ;; Per Mike-direction rf2-9wsdy ("one widget, many call sites") every
 ;; panel-side EDN render flows through this namespace. Per rf2-oqa60
-;; phase 1 the facade delegates to the first-class `views.data-display`
+;; phase 1 the facade delegates to the first-class `views.edn-inspector`
 ;; widget — the same engine handles every type (scalars, collections,
 ;; sentinels) so this thin wrapper no longer needs sentinel-routing
-;; branches. Phases 2-4 migrate call sites to call `dd/data-display`
+;; branches. Phases 2-4 migrate call sites to call `ei/edn-inspector`
 ;; directly; this facade is the bridge through that transition.
 
 (defn inspect
   "Sentinel-aware current-state rendering for one value — the canonical
   L4 detail-panel renderer. Routes through the first-class
-  data-display widget (rf2-oqa60 phase 1) which classifies every type
+  edn-inspector widget (rf2-oqa60 phase 1) which classifies every type
   natively, including the spec/015 sentinels (`:rf/redacted` and
   `:rf/large`) as first-class chip chrome (D3=a per rf2-sndui).
 
   Phase 1 delegates the legacy facade to the new widget so existing
   call sites compile unchanged; phases 2-4 migrate each surface
-  (Trace, Sub, Machine) to call `data-display/data-display` directly.
+  (Trace, Sub, Machine) to call `edn-inspector/edn-inspector` directly.
 
   Single-arg form picks a default panel-id; two-arg / three-arg forms
   accept a node-key string (passed through as a stable per-mount
@@ -164,7 +164,7 @@
   ([v] (inspect v "root" nil))
   ([v node-key] (inspect v node-key nil))
   ([v node-key _opts]
-   [dd/data-display v
+   [ei/edn-inspector v
     {:panel-id (keyword (str "rf.xray.inspect/" node-key))
      :default-expanded-depth 3}]))
 
@@ -174,21 +174,21 @@
   render their chip chrome via the new widget's `mini` overload; all
   other values render as a colour-coded one-liner."
   [v]
-  (dd/mini v))
+  (ei/mini v))
 
 ;; ---- variant: browse -----------------------------------------------------
 
 (defn browse
   "Render `:value` as a current-state tree via the first-class
-  data-display widget.
+  edn-inspector widget.
 
   Each collection node renders a `▸` / `▾` triangle that dispatches
-  `:rf.xray.data-display/toggle-node` against the per-mount path —
+  `:rf.xray.edn-inspector/toggle-node` against the per-mount path —
   operator drill-downs persist across re-renders in the
-  `:rf.xray.data-display/expansion` slot.
+  `:rf.xray.edn-inspector/expansion` slot.
 
   Diff semantics are an opt-in mode on the SAME widget — call `diff`
-  below (or pass `:before` to `dd/data-display` directly).
+  below (or pass `:before` to `ei/edn-inspector` directly).
 
   Required: `:value`.
   Optional: `:panel-id` (defaults `:rf.xray/browse`),
@@ -204,7 +204,7 @@
   [{:keys [value panel-id render-id default-depth max-depth]
     :or   {default-depth 1
            max-depth     16}}]
-  [dd/data-display value
+  [ei/edn-inspector value
    {:panel-id (or panel-id
                   (keyword (str "rf.xray.browse/" (or render-id "anon"))))
     :default-expanded-depth default-depth
@@ -219,14 +219,14 @@
   leaves. Returns hiccup.
 
   After phase 5 (rf2-q3dzw, D5=a per rf2-sndui) diff is an opt-in
-  MODE on the same `views.data-display` widget — this facade just
+  MODE on the same `views.edn-inspector` widget — this facade just
   threads the `:before` opt through to the widget.
 
   Required: `:before :after :panel-id :render-id`.
   Optional: `:default-depth` (defaults to 2 per §10.4)."
   [{:keys [before after panel-id render-id default-depth]
     :or   {default-depth 2}}]
-  [dd/data-display after
+  [ei/edn-inspector after
    {:panel-id (or (when (keyword? panel-id) panel-id)
                   (keyword (str "rf.xray.diff/"
                                 (or (when panel-id (name panel-id))
@@ -239,13 +239,13 @@
 
 (defn mini
   "One-liner inline rendering of `value` via the first-class
-  data-display widget (rf2-oqa60 phase 1). Returns hiccup
+  edn-inspector widget (rf2-oqa60 phase 1). Returns hiccup
   `[:span ...]` so callers embed inline. Sentinels (`:rf/redacted`,
   `:rf/large`) keep their chip chrome inline; other values render as
   a colour-coded inline-preview."
   ([value] (mini value 80))
   ([value max-len]
-   (dd/mini value max-len)))
+   (ei/mini value max-len)))
 
 ;; ---- code-block (handler / interceptor source rendering) ----------------
 ;;

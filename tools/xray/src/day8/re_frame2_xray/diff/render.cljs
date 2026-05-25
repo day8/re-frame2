@@ -21,9 +21,9 @@
     - Collapse `:same` subtrees into `(N entries unchanged)` chips
     - `:modified` leaves render inline `before → after`
 
-  ## Reuses the data-display widget
+  ## Reuses the edn-inspector widget
 
-  Falls through to `views.data-display/data-display` for the value
+  Falls through to `views.edn-inspector/edn-inspector` for the value
   content of every annotated leaf (rf2-q3dzw phase 5 migration —
   pre-phase-5 this routed through `theme.data-inspector/inspect`).
   Just adds the dispatch wrapper: given an annotated node, dispatch
@@ -32,8 +32,8 @@
 
   ## Per-node expand-state
 
-  The data-display widget owns its own expansion slot
-  (`:rf.xray.data-display/expansion`) keyed by
+  The edn-inspector widget owns its own expansion slot
+  (`:rf.xray.edn-inspector/expansion`) keyed by
   `[panel-id mount-id path]`. Per-node `panel-id` for a diff render
   is a stable per-surface keyword namespaced under
   `:rf.xray.diff-section/` (folded from the surface + section path)
@@ -41,7 +41,7 @@
 
   ## Sentinel handling
 
-  Sentinels are first-class types INSIDE the data-display widget
+  Sentinels are first-class types INSIDE the edn-inspector widget
   (D3=a per rf2-sndui) — the diff layer never overrides them. The
   diff layer's chrome (gutter colour + glyph) wraps the rendered
   value without altering its sentinel chrome."
@@ -57,9 +57,9 @@
             [day8.re-frame2-xray.panels.app-db-diff-format :as f]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
             ;; rf2-q3dzw phase 5 — leaf values route through the
-            ;; first-class data-display widget. The legacy
+            ;; first-class edn-inspector widget. The legacy
             ;; `theme.data-inspector` ns is deleted.
-            [day8.re-frame2-xray.views.data-display :as dd]
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
              :as t
              :refer [tokens mono-stack sans-stack]]))
@@ -435,7 +435,7 @@
      (str (pr-str k) " ")]))
 
 (defn- inspect-value
-  "Render a value via the first-class data-display widget. Wraps the
+  "Render a value via the first-class edn-inspector widget. Wraps the
   invocation with a unique `:panel-id` so the expansion slot doesn't
   collide with sibling renders.
 
@@ -450,7 +450,7 @@
         pid (keyword "rf.xray.diff-section"
                      (-> node-key
                          (string/replace #"[^A-Za-z0-9._-]+" "_")))]
-    [dd/data-display (f/display-value v)
+    [ei/edn-inspector (f/display-value v)
      {:panel-id pid
       :default-expanded-depth 1}]))
 

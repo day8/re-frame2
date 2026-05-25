@@ -117,25 +117,25 @@
    ;; rf2-okvit — app-db tab current-state inspector section model.
    :rf.xray/app-db-state
    :rf.xray/cascades
-   ;; First-class data-display widget owns the WHOLE renderer contract
-   ;; — browse + diff + mini — via `:rf.xray.data-display/*` events &
+   ;; First-class edn-inspector widget owns the WHOLE renderer contract
+   ;; — browse + diff + mini — via `:rf.xray.edn-inspector/*` events &
    ;; subs (rf2-oqa60 phase 1 + rf2-q3dzw phase 5). The pre-rf2-q3dzw
-   ;; sibling slots (`:rf.xray/data-display-{expansion,node-state}`
+   ;; sibling slots (`:rf.xray/edn-inspector-{expansion,node-state}`
    ;; and `:rf.xray.data-inspector/{expansion,all-expansion}`) are
-   ;; deleted with the legacy `data-display.render` +
+   ;; deleted with the legacy `edn-inspector.render` +
    ;; `theme.data-inspector` engines.
-   :rf.xray.data-display/expansion
+   :rf.xray.edn-inspector/expansion
    ;; rf2-kbdk8 — per-mount measured container widths for the width-aware
    ;; expansion heuristic. Keyed by mount-id; updated via ResizeObserver
    ;; in the widget's ref callback.
-   :rf.xray.data-display/widths
-   ;; rf2-l4625 — data-display popup overlay subs (stack + entries +
+   :rf.xray.edn-inspector/widths
+   ;; rf2-l4625 — edn-inspector popup overlay subs (stack + entries +
    ;; projection subs for open? / top / per-mount-id entry).
-   :rf.xray.data-display-popup/stack
-   :rf.xray.data-display-popup/entries
-   :rf.xray.data-display-popup/open?
-   :rf.xray.data-display-popup/top
-   :rf.xray.data-display-popup/entry
+   :rf.xray.edn-inspector-popup/stack
+   :rf.xray.edn-inspector-popup/entries
+   :rf.xray.edn-inspector-popup/open?
+   :rf.xray.edn-inspector-popup/top
+   :rf.xray.edn-inspector-popup/entry
    ;; rf2-59e7k — Cancellation-cascade visualiser subs (Machines
    ;; tab side-panel + Trace popover). Per
    ;; `tools/xray/spec/019-Cross-Cutting-Insight.md` §M.3.
@@ -370,8 +370,8 @@
   (sorted-set
    ;; (Pre-rf2-q3dzw `:rf.xray.data-inspector/*` events covered per-
    ;; row toggle/set + large-value confirm flow; the ns is deleted
-   ;; with phase 5 and the data-display widget's
-   ;; `:rf.xray.data-display/*` events cover the same surface. Large-
+   ;; with phase 5 and the edn-inspector widget's
+   ;; `:rf.xray.edn-inspector/*` events cover the same surface. Large-
    ;; blob confirm chrome moves to the popup phase, D6=a.)
    ;; rf2-ad7zx.9 — the `:rf.xray.issues/toggle-severity` /
    ;; `toggle-prefix` / `clear-filters` events were dropped with the
@@ -400,24 +400,24 @@
    :rf.xray/copy-path-to-clipboard
    :rf.xray/copy-share-url-to-clipboard
    :rf.xray/copy-value-to-clipboard
-   ;; First-class data-display widget events (sticky-expansion +
+   ;; First-class edn-inspector widget events (sticky-expansion +
    ;; reset). Per `tools/xray/spec/021-Dynamic-Panel-Designs.md` §10.4.
    ;; The pre-rf2-q3dzw flat-shape sibling events
-   ;; (`:rf.xray/data-display-*`) are deleted with the legacy
-   ;; `data-display.render` engine in phase 5.
-   :rf.xray.data-display/reset-expansion
-   :rf.xray.data-display/set-node
-   :rf.xray.data-display/toggle-node
+   ;; (`:rf.xray/edn-inspector-*`) are deleted with the legacy
+   ;; `edn-inspector.render` engine in phase 5.
+   :rf.xray.edn-inspector/reset-expansion
+   :rf.xray.edn-inspector/set-node
+   :rf.xray.edn-inspector/toggle-node
    ;; rf2-kbdk8 — width-aware heuristic events. set-width records the
    ;; ResizeObserver measurement; clear-width is dispatched on unmount.
-   :rf.xray.data-display/set-width
-   :rf.xray.data-display/clear-width
-   ;; rf2-l4625 — data-display popup overlay events (open / close /
+   :rf.xray.edn-inspector/set-width
+   :rf.xray.edn-inspector/clear-width
+   ;; rf2-l4625 — edn-inspector popup overlay events (open / close /
    ;; close-top / close-all).
-   :rf.xray.data-display-popup/open
-   :rf.xray.data-display-popup/close
-   :rf.xray.data-display-popup/close-top
-   :rf.xray.data-display-popup/close-all
+   :rf.xray.edn-inspector-popup/open
+   :rf.xray.edn-inspector-popup/close
+   :rf.xray.edn-inspector-popup/close-top
+   :rf.xray.edn-inspector-popup/close-all
    :rf.xray/delete-edit-popup
    :rf.xray/edit-popup-set-mode
    :rf.xray/edit-popup-set-pattern
@@ -458,7 +458,7 @@
    ;; retired — xyflow owns zoom/pan/fit internally).
    :rf.xray.machine-canvas/hydrate-view-modes
    :rf.xray.machine-canvas/set-view-mode
-   ;; (Pre-rf2-q3dzw the legacy `data-display.render` engine emitted
+   ;; (Pre-rf2-q3dzw the legacy `edn-inspector.render` engine emitted
    ;; `:rf.xray/navigate-to-path` from its clickable-path glyphs and
    ;; registered a default no-op handler. The new widget ships ZERO
    ;; path-click interactions in phase 1 — the locked B.9 / rf2-sndui

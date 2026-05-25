@@ -25,7 +25,7 @@
             [day8.re-frame2-xray.static.flows.panel :as panel]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
-            [day8.re-frame2-xray.views.data-display :as dd]))
+            [day8.re-frame2-xray.views.edn-inspector :as ei]))
 
 ;; ---- fixture ------------------------------------------------------------
 
@@ -47,7 +47,7 @@
     (let [result (apply (first tree) (rest tree))]
       ;; Form-2 Reagent components return an inner fn; call it with
       ;; the same args (per Reagent's re-render contract) to obtain
-      ;; the rendered hiccup. rf2-oqa60 — the data-display widget is
+      ;; the rendered hiccup. rf2-oqa60 — the edn-inspector widget is
       ;; form-2 so the mount-id stays stable across re-renders.
       (expand-tree
         (if (fn? result)
@@ -310,8 +310,8 @@
 (deftest input-output-render-through-edn-widget
   (testing "rf2-2kwhw + rf2-oqa60 — input + output paths render via the
             shared EDN widget, which post-rf2-oqa60 phase 1 delegates
-            to the first-class data-display widget. The rendered tree
-            contains `rf-xray-data-display-*` container testids."
+            to the first-class edn-inspector widget. The rendered tree
+            contains `rf-xray-edn-inspector-*` container testids."
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
@@ -319,6 +319,6 @@
          sample-flows])
       (let [tree (panel/Panel)
             widget-nodes (find-all-by-testid-prefix
-                           tree "rf-xray-data-display-")]
+                           tree "rf-xray-edn-inspector-")]
         (is (seq widget-nodes)
-            "at least one data-display widget container present")))))
+            "at least one edn-inspector widget container present")))))

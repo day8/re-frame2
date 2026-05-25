@@ -238,19 +238,19 @@
 ;; ---- inline diff annotation (spec/021 §4.3 · rf2-ad7zx.11) ---------------
 ;;
 ;; When a section's `:before` pre-image differs from its `:value`, the
-;; value body routes through the data-display widget's DIFF mode
+;; value body routes through the edn-inspector widget's DIFF mode
 ;; (rf2-q3dzw phase 5) — passing `:before` paints the inline
 ;; `← changed from X` annotation in place. With no pre-image (the
 ;; no-diff sentinel) the body stays in BROWSE mode (no annotation).
 ;;
 ;; The widget itself is exercised by
-;; `tools/xray/test/day8/re_frame2_xray/views/data_display_cljs_test.cljs`
+;; `tools/xray/test/day8/re_frame2_xray/views/edn_inspector_cljs_test.cljs`
 ;; (and the diff-mode tests below). These section-level tests assert
 ;; the section CALLS the widget in the right mode — i.e. with `:before`
 ;; threaded through when the pre-image differs, omitted when not.
 
-(defn- find-data-display-mounts
-  "Walk the hiccup tree and collect every `[dd/data-display value opts]`
+(defn- find-edn-inspector-mounts
+  "Walk the hiccup tree and collect every `[ei/edn-inspector value opts]`
   mount. Returns a vec of `{:value :opts}` maps so tests can assert
   against the threaded opts (in particular `:before`)."
   [tree]
@@ -269,14 +269,14 @@
 
 (deftest changed-value-carries-inline-changed-annotation
   (testing "a changed user-domain value renders in DIFF mode — the
-            section threads `:before` into the data-display widget so
+            section threads `:before` into the edn-inspector widget so
             it paints the inline `← changed from <prior>` annotation"
     (let [model    (h/current-state-sections {:counter 2} {:counter 1})
           tree     (state/state-body model)
           top      (find-by-testid tree "rf-xray-app-db-state-top")
-          mounts   (find-data-display-mounts top)
+          mounts   (find-edn-inspector-mounts top)
           diff-mts (filter #(contains? (:opts %) :before) mounts)]
-      (is (seq mounts) "top section mounts the data-display widget")
+      (is (seq mounts) "top section mounts the edn-inspector widget")
       (is (seq diff-mts)
           "the mount carries a `:before` opt — i.e. the widget renders
            in DIFF mode for the changed value")
@@ -293,7 +293,7 @@
           tree     (state/state-body model)
           flow     (find-by-testid
                      tree "rf-xray-app-db-state-instance-:rf/machines-:title/flow")
-          mounts   (find-data-display-mounts flow)
+          mounts   (find-edn-inspector-mounts flow)
           diff-mts (filter #(contains? (:opts %) :before) mounts)]
       (is (seq diff-mts) "the instance section renders in DIFF mode")
       (is (= {:state :idle} (-> diff-mts first :opts :before))
@@ -306,8 +306,8 @@
     (let [model  (h/current-state-sections
                    {:counter 2 :rf/route {:id :home}})
           tree   (state/state-body model)
-          mounts (find-data-display-mounts tree)]
-      (is (seq mounts) "the panel mounts data-display widget instances")
+          mounts (find-edn-inspector-mounts tree)]
+      (is (seq mounts) "the panel mounts edn-inspector widget instances")
       (is (every? #(not (contains? (:opts %) :before)) mounts)
           "no mount carries a `:before` opt — no diff annotation
            without a pre-image"))))
@@ -319,8 +319,8 @@
 ;; whole-tree inspector reads comfortably in place. These tests pin the
 ;; absence of the opt so a stray re-introduction trips the gate.
 
-(deftest data-display-mounts-omit-popup-affordance-opt
-  (testing "rf2-7sdja — no `[dd/data-display ...]` mount the App-DB
+(deftest edn-inspector-mounts-omit-popup-affordance-opt
+  (testing "rf2-7sdja — no `[ei/edn-inspector ...]` mount the App-DB
             panel produces carries `:popup-affordance? true`; the App-
             DB tree renders comfortably in-place and the affordance
             would be unnecessary noise (Mike's live-testing call
@@ -329,8 +329,8 @@
                    {:counter 2 :rf/route {:id :home}
                     :rf/machines {:auth {:state :idle}}})
           tree   (state/state-body model)
-          mounts (find-data-display-mounts tree)]
-      (is (seq mounts) "the panel mounts data-display widget instances")
+          mounts (find-edn-inspector-mounts tree)]
+      (is (seq mounts) "the panel mounts edn-inspector widget instances")
       (is (not-any? #(true? (:popup-affordance? (:opts %))) mounts)
           "no mount opts in to the popup affordance"))))
 
@@ -339,7 +339,7 @@
             ALSO omit the popup affordance opt"
     (let [model  (h/current-state-sections {:counter 2} {:counter 1})
           tree   (state/state-body model)
-          mounts (find-data-display-mounts tree)
+          mounts (find-edn-inspector-mounts tree)
           diff-mts (filter #(contains? (:opts %) :before) mounts)]
       (is (seq diff-mts) "diff-mode mounts present")
       (is (not-any? #(true? (:popup-affordance? (:opts %))) diff-mts)
@@ -353,7 +353,7 @@
 ;; a distinct inspector-card affordance.
 
 (deftest browse-mode-mounts-carry-card-opt
-  (testing "rf2-63ie5 — every `[dd/data-display ...]` mount the App-DB
+  (testing "rf2-63ie5 — every `[ei/edn-inspector ...]` mount the App-DB
             panel produces (BROWSE mode, 1-arity / no-diff) carries
             `:card? true` so each top-level mount reads as a discrete
             inspector card"
@@ -361,8 +361,8 @@
                    {:counter 2 :rf/route {:id :home}
                     :rf/machines {:auth {:state :idle}}})
           tree   (state/state-body model)
-          mounts (find-data-display-mounts tree)]
-      (is (seq mounts) "the panel mounts data-display widget instances")
+          mounts (find-edn-inspector-mounts tree)]
+      (is (seq mounts) "the panel mounts edn-inspector widget instances")
       (is (every? #(true? (:card? (:opts %))) mounts)
           "every browse-mode mount opts in to the card chrome"))))
 
@@ -372,7 +372,7 @@
             diff mode and applies to every top-level App-DB mount"
     (let [model  (h/current-state-sections {:counter 2} {:counter 1})
           tree   (state/state-body model)
-          mounts (find-data-display-mounts tree)
+          mounts (find-edn-inspector-mounts tree)
           diff-mts (filter #(contains? (:opts %) :before) mounts)]
       (is (seq diff-mts) "diff-mode mounts present")
       (is (every? #(true? (:card? (:opts %))) diff-mts)

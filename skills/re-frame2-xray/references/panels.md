@@ -106,7 +106,7 @@ Two-zone layout (§021 §4.2):
 - **DIFF zone** — changed paths for the focused epoch (`← changed`,
  `← changed from <prior>`, `← added`). Narrow, dense, scannable.
 - **STATE zone** — the full db at end of epoch, rendered via the
- shared lazy-tree data-display (depth-3-collapsed default per §021
+ shared lazy-tree edn-inspector (depth-3-collapsed default per §021
  §10.4) with diff annotations inline.
 
 **Downstream-subs hover popover** (§021 §4.4) — hover any changed path
@@ -293,7 +293,7 @@ Per-epoch errors + warnings + schema violations + hydration mismatches +
 perf-budget overruns + app console errors/warns, unified.
 **Focused-epoch scoped** (§021 §8.1). Each issue renders as a 4-6 row
 block (severity · op-key · handler / schema · message · path / ex-data)
-with the ex-data laid out via the shared data-display renderer at
+with the ex-data laid out via the shared edn-inspector renderer at
 depth-2-expanded.
 
 **Head-fallback contract** — when the L2 spine is at head (no
@@ -357,7 +357,7 @@ than a single dispatch.
 
 ## Shared components + iconography
 
-The three components every L4 panel reuses (`data_display/render`,
+The three components every L4 panel reuses (`edn_inspector/render`,
 `film_strip/header`, `focus_resolver`) and the full tab-icon / L2-badge /
 cross-panel-arrow glyph reference live in
 [`shared-components.md`](shared-components.md).

@@ -49,7 +49,7 @@
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues-h]
             [day8.re-frame2-xray.panels.trace-helpers :as trace-h]
-            [day8.re-frame2-xray.views.data-display :as dd]
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.perf-tier :as perf-tier]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
@@ -262,9 +262,9 @@
   ;; of a `var(--rf-xray-…)` reference (no hex digits in the var name).
   #"#[0-9A-Fa-f]{3,8}\b")
 
-(deftest data-display-rendered-hiccup-has-no-palette-hex-literals
+(deftest edn-inspector-rendered-hiccup-has-no-palette-hex-literals
   (testing "rf2-on4cm — the canonical L4-panel value renderer
-            (`views/data-display/render-node`) emits hiccup whose
+            (`views/edn-inspector/render-node`) emits hiccup whose
             every `:style` colour value flows through a CSS variable.
             Walk the rendered tree across a representative mix of
             values (collection, keyword, string, number, nil,
@@ -273,7 +273,7 @@
             new inline-style site is added with a hardcoded hex.
 
             Migrated rf2-q3dzw phase 5: the legacy
-            `theme/data-inspector` is deleted; the data-display
+            `theme/data-inspector` is deleted; the edn-inspector
             widget is now the single source of truth."
     (doseq [v [{:a 1 :b 2 :c [1 2 3]}      ; map + nested vec
                [:foo :bar {:baz nil}]      ; vector with primitives + map
@@ -286,7 +286,7 @@
                :rf/redacted                ; redacted sentinel
                {:rf/large {:bytes 1234     ; large sentinel
                            :head "abc"}}]]
-      (let [tree (dd/render-node {:value v
+      (let [tree (ei/render-node {:value v
                                   :panel-id :rf.xray/var-resolution-test
                                   :mount-id "test"
                                   :path []

@@ -20,7 +20,7 @@ Xray is the **human-facing** panel; for an AI agent surface against the running 
 - `SKILL.md` — the skill itself
 - `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.xray/layout-host-selector`, host-CSS-variable resize, pop-out lifecycle, wired hotkeys)
 - `references/panels.md` — the full tab tour in depth (7 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance)
-- `references/shared-components.md` — the components every L4 panel reuses (`data_display/render`, `film_strip/header`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
+- `references/shared-components.md` — the components every L4 panel reuses (`edn_inspector/render`, `film_strip/header`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
 - `evals/evals.json` — trigger-eval fixtures (should-trigger + should-not-trigger entries, per skill-creator's description-optimisation contract)
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata
 - `package.json` — npm packaging metadata (skill is also distributable as an Agent Skill)

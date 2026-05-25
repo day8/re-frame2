@@ -132,7 +132,7 @@
          day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
 
          ;; rf2-oqa60 phase 1 — binaryage/devtools dep dropped. The
-         ;; first-class `views/data-display` widget replaces the
+         ;; first-class `views/edn-inspector` widget replaces the
          ;; cljs-devtools-backed renderer with a roll-your-own CLJS
          ;; tree walker. The impedance-mismatch bug class (rf2-dw8n7,
          ;; rf2-oswhk) goes away with the dep. The bundle-isolation

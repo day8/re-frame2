@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.views.edn-widget.widget-cljs-test
   "Tests for the Xray EDN widget facade — post-rf2-oqa60 phase 1.
 
-  After the data-display rebuild the facade is a thin delegate over
-  `views.data-display`; tests for the prior cljs-devtools routing /
+  After the edn-inspector rebuild the facade is a thin delegate over
+  `views.edn-inspector`; tests for the prior cljs-devtools routing /
   copy-affordance behaviour are deleted with the cljs-devtools cut-over.
 
   This file now exercises ONLY the surfaces the facade still owns
@@ -52,21 +52,21 @@
 ;; ---- facade delegation --------------------------------------------------
 ;;
 ;; Post-rf2-oqa60 the facade returns a Reagent component form 2:
-;; `[dd/data-display value opts]` for browse / inspect, and a hiccup
+;; `[ei/edn-inspector value opts]` for browse / inspect, and a hiccup
 ;; vector for mini. The dispatcher returns hiccup. The test surface
 ;; that mattered (sentinel chrome, type colours, click-to-toggle)
-;; lives in `views/data_display_cljs_test.cljs`.
+;; lives in `views/edn_inspector_cljs_test.cljs`.
 
-(deftest browse-returns-data-display-mount-form
+(deftest browse-returns-edn-inspector-mount-form
   (let [out (w/browse {:value     {:a 1 :b 2}
                        :panel-id  :test
                        :render-id "b1"})]
     (testing "browse returns a Reagent component invocation"
       (is (vector? out))
-      ;; First element is the data-display fn (a Var).
+      ;; First element is the edn-inspector fn (a Var).
       (is (fn? (first out)) "first element is a function ref"))))
 
-(deftest inspect-returns-data-display-mount-form
+(deftest inspect-returns-edn-inspector-mount-form
   (let [out (w/inspect :hello "node-key")]
     (is (vector? out))
     (is (fn? (first out)))))
@@ -74,7 +74,7 @@
 (deftest mini-returns-span-shape
   (let [out (w/mini :hello)]
     (is (= :span (first out)))
-    (is (= "rf-xray-data-display-mini" (get (second out) :data-testid)))))
+    (is (= "rf-xray-edn-inspector-mini" (get (second out) :data-testid)))))
 
 ;; ---- code-block tokenizer ------------------------------------------------
 
@@ -270,7 +270,7 @@
   (let [out (w/render {:value     {:a 1}
                        :panel-id  :test
                        :render-id "dispatch-1"})]
-    ;; browse delegates to dd/data-display; the dispatcher returns
+    ;; browse delegates to ei/edn-inspector; the dispatcher returns
     ;; the same shape as `browse` — a [function opts] reagent form.
     (is (vector? out))))
 
@@ -280,7 +280,7 @@
                        :after     {:a 2}
                        :panel-id  :test
                        :render-id "dispatch-2"})]
-    ;; Post-rf2-q3dzw: diff delegates to dd/data-display with a
+    ;; Post-rf2-q3dzw: diff delegates to ei/edn-inspector with a
     ;; `:before` opt. The dispatcher returns the same shape as
     ;; `diff` — a [function value opts] Reagent form. Assert the
     ;; threaded `:before` lands on the opts so we don't regress the

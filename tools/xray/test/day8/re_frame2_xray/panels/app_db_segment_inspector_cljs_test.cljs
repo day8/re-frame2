@@ -65,7 +65,7 @@
     (let [result (apply (first tree) (rest tree))]
       ;; Form-2 Reagent components return an inner fn; re-call with
       ;; the same args (Reagent's re-render contract). rf2-oqa60 —
-      ;; the data-display widget is form-2 to stabilise mount-id.
+      ;; the edn-inspector widget is form-2 to stabilise mount-id.
       (expand-tree
         (if (fn? result)
           (apply result (rest tree))

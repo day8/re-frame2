@@ -129,8 +129,8 @@
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.settings.popup :as settings-popup]
             [day8.re-frame2-xray.share-modal :as share-modal]
-            [day8.re-frame2-xray.views.data-display-popup
-             :as data-display-popup]
+            [day8.re-frame2-xray.views.edn-inspector-popup
+             :as edn-inspector-popup]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.static.mode-pill :as mode-pill]
             [day8.re-frame2-xray.static.shell :as static-shell]
@@ -2380,10 +2380,10 @@
     ;; gate.
     [app-db-segment-inspector/Popup]
     ;; Data-display popup stack (rf2-l4625) — overlay surface for the
-    ;; "open in popup" affordance on per-panel `[dd/data-display]`
-    ;; mounts. Reads `:rf.xray.data-display-popup/stack` + `/entries`;
+    ;; "open in popup" affordance on per-panel `[ei/edn-inspector]`
+    ;; mounts. Reads `:rf.xray.edn-inspector-popup/stack` + `/entries`;
     ;; renders nothing when the stack is empty (closed-state cost is
     ;; one subscribe + a when-gate). Mount discipline matches the
     ;; other modal stacks: shell-root mount so the stack's subscribes
     ;; resolve through the shell's `:rf/xray` frame-provider.
-    [data-display-popup/data-display-popup-stack]]]))
+    [edn-inspector-popup/edn-inspector-popup-stack]]]))

@@ -1818,7 +1818,7 @@
         (is (= "0" (min-width source-div))
             "the handler-source container keeps the shrink-permission to the pre")))))
 
-;; ---- (14) DB CHANGES step — app-db diff via data-display renderer -----
+;; ---- (14) DB CHANGES step — app-db diff via edn-inspector renderer -----
 
 (deftest db-changes-step-present-in-pipeline-no-committed-footer
   (testing "rf2-ad7zx.5 — the DB CHANGES step (spec/021 §2.2 step 4) is

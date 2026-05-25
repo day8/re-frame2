@@ -33,24 +33,24 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
-            ;; Load the first-class data-display widget ns so its
+            ;; Load the first-class edn-inspector widget ns so its
             ;; top-level `reg-sub` / `reg-event-db` calls land in
             ;; the registrar at orchestrator-load time. The widget
-            ;; owns `:rf.xray.data-display/*` events/subs and is the
+            ;; owns `:rf.xray.edn-inspector/*` events/subs and is the
             ;; SINGLE source of truth for browse + diff + mini
-            ;; (rf2-q3dzw phase 5; legacy `data-display.render` +
+            ;; (rf2-q3dzw phase 5; legacy `edn-inspector.render` +
             ;; `theme.data-inspector` ns'es are deleted).
-            [day8.re-frame2-xray.views.data-display]
+            [day8.re-frame2-xray.views.edn-inspector]
             ;; rf2-l4625 — popup overlay infra. `install!` registers
             ;; the stack/entries subs + open/close/close-top/close-all
             ;; events at orchestrator-load time. The stack VIEW mount
             ;; lives in `shell.cljs`; per-panel "open in popup"
-            ;; affordances flow through `[dd/data-display value
+            ;; affordances flow through `[ei/edn-inspector value
             ;; {:popup-affordance? true …}]` and dispatch
-            ;; `:rf.xray.data-display-popup/open` against the surrounding
+            ;; `:rf.xray.edn-inspector-popup/open` against the surrounding
             ;; `:rf/xray` frame.
-            [day8.re-frame2-xray.views.data-display-popup
-             :as data-display-popup]
+            [day8.re-frame2-xray.views.edn-inspector-popup
+             :as edn-inspector-popup]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.epoch :as epoch]
             [day8.re-frame2-xray.filters :as filters]
@@ -606,13 +606,13 @@
     (open-in-editor/install!)
     (palette/install!)
     (settings-popup/install!)
-    ;; rf2-l4625 — data-display popup overlay (subs + events). The
+    ;; rf2-l4625 — edn-inspector popup overlay (subs + events). The
     ;; stack view is mounted in `shell.cljs` alongside the other modal
     ;; mounts; per-panel "open in popup" affordances pass through
-    ;; `[dd/data-display value {:popup-affordance? true …}]` and
-    ;; dispatch the `:rf.xray.data-display-popup/open` event registered
+    ;; `[ei/edn-inspector value {:popup-affordance? true …}]` and
+    ;; dispatch the `:rf.xray.edn-inspector-popup/open` event registered
     ;; here.
-    (data-display-popup/install!)
+    (edn-inspector-popup/install!)
     ;; Filters install AFTER `:rf.xray/active-filters` + the
     ;; add-filter / remove-filter events above are registered (the
     ;; filters facade adds `:rf.xray/filtered-cascades` + the edit-

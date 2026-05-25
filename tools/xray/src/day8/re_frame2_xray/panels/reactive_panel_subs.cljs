@@ -82,7 +82,7 @@
 
   `:sub-values` (rf2-e46qs phase 3) drives the SUB VALUES inspector
   section beneath the flow graph — one row per RUN sub with its current
-  cascade value, surfaced through the first-class data-display widget
+  cascade value, surfaced through the first-class edn-inspector widget
   (spec/021 §10).
 
   `:sub-readers` (rf2-y23uw) is the shared-subscription edge map — for
