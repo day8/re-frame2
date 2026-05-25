@@ -171,3 +171,35 @@
                      (is (= false (:ok? edn)))
                      (is (= :reset-rejected (:reason edn))))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; Cascade summary (rf2-6yqdl) — successful reset surfaces the synthetic
+;; `:rf.epoch/db-replaced` epoch via :cascade-summary.
+;; ---------------------------------------------------------------------------
+
+(deftest cascade-summary-passes-through-on-success
+  (async done
+    (let [canned-cascade {:epoch-id 42
+                          :event-id :rf.epoch/db-replaced
+                          :frame :rf/default
+                          :outcome :ok
+                          :db-diff {:added-paths [[:counter]]
+                                    :removed-paths [] :changed-paths []}
+                          :fx-fired []
+                          :subs-recomputed 0
+                          :renders 0}
+          runtime-envelope {:ok? true :frame :rf/default :epoch-id 42
+                            :cascade-summary canned-cascade}]
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-eval! (atom nil) runtime-envelope
+                (fn []
+                  (reset-frame-db/reset-frame-db-tool (fresh-conn)
+                                                      #js {:db "{:counter 0}"})))))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-result-text r)]
+                     (is (true? (:ok? edn)))
+                     (is (= canned-cascade (:cascade-summary edn))
+                         "cascade-summary rides through verbatim"))
+                   (done)))))))

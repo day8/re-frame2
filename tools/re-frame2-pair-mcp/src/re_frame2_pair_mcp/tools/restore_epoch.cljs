@@ -80,13 +80,26 @@
               form (ef/emit call)]
           (-> (probe/ensure-runtime! conn build-id)
               (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-              (.then (fn [ok?]
+              (.then (fn [v]
+                       ;; Per rf2-6yqdl: the runtime now returns a
+                       ;; structured envelope on success carrying
+                       ;; `:ok? :restored? :epoch-id :frame
+                       ;; :cascade-summary :unreplayable-effects`.
+                       ;; Failure remains the legacy `false` so older
+                       ;; runtimes still surface as a clean reject
+                       ;; envelope here.
                        (wire/ok-text
-                         (if ok?
+                         (cond
+                           (map? v)
+                           v
+
+                           v
                            {:ok?       true
                             :restored? true
                             :epoch-id  epoch-id
                             :frame     frame}
+
+                           :else
                            {:ok?       false
                             :restored? false
                             :reason    :restore-rejected
