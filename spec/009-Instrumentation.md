@@ -128,6 +128,7 @@ Core values (the `:rf.<family>` discriminators): `:rf.event`, `:rf.sub`, `:rf.fx
 
 Additional values for re-frame2 concerns:
 
+- `:rf.event/db-pending` / `:rf.event/db-pending-post-flow` — the (t1, t2) pending-`:db` snapshot pair (rf2-ta0y7, Mike 2026-05-25). Both under op-type `:rf.event`. **t1 (`:rf.event/db-pending`)** fires inside the framework's outermost flows-after-interceptor BEFORE running flows, carrying the full pending `:db` the handler returned under `:tags :rf.event/db`. Fires whenever the handler returned a `:db` slot; suppressed otherwise (mirrors the `:rf.event/db-present?` gate on `:rf.fx/do-fx`). Fires regardless of whether the flows artefact is loaded. **t2 (`:rf.event/db-pending-post-flow`)** fires inside the same interceptor AFTER running flows, ONLY when the flow transform changed the value (`(not (identical? new-db pending-db))`); suppressed when t1 == t2 (no information). Both stamp the FULL value plain — same posture as `:rf.event/fx` on `:rf.fx/do-fx` per Mike's ruling; PDS structural sharing makes the cost pointer-sized and the `day8/de-dupe` wire layer (rf2-obpa9) collapses repeated subtrees on egress. Consumers (Xray's Handler panel, re-frame2-pair's `cascade-of`) read t1 to render the handler's returned `:db` value and read (t1, t2) together to render the t1→t2 reshape — the framework does NOT precompute a diff. On a flow-throw abort (Spec 013 §Failure semantics) t1 still fires (it ran before the throw) but t2 does NOT (the pending value was discarded). Both rides `interop/debug-enabled?` so production CLJS bundles DCE them.
 - `:rf.frame/created` / `:rf.frame/re-registered` / `:rf.frame/destroyed` — frame lifecycle (all under op-type `:rf.frame`).
 - `:rf.machine.lifecycle/created` / `:rf.machine.lifecycle/destroyed` — machine instance lifecycle.
 - `:rf.machine/event-received` / `:rf.machine/transition` / `:rf.machine/snapshot-updated` / `:rf.machine/done` — machine activity. (`-done` per rf2-gn80 — fires when the machine enters a `:final?` state, immediately before the auto-destroy synchronously tears the actor down.)
@@ -234,7 +235,7 @@ Variable per-event data goes in `:tags`. New tags can be added without breaking 
 |---|---|---|
 | `:frame` | universal routing | **Bare carve-out** (see below) |
 | `:rf.trace/dispatch-id`, `:rf.trace/parent-dispatch-id`, `:rf.trace/event-id`, `:rf.trace/trace-id`, `:rf.trace/phase` | cross-cutting correlation | Stamped across every domino family — the trace channel's own correlation spine; no single domino home, so they live under `:rf.trace/*` (per [Conventions §`:rf.trace/*`](Conventions.md#the-single-root-reserved-set)). |
-| `:rf.event/v` (the dispatched event vector), `:rf.event/origin`, `:rf.event/sync?`, `:rf.event/fx`, `:rf.event/db-present?`, `:rf.event/coeffects`, `:rf.event/elapsed-ms` | event | `:rf/dispatch-origin` keeps its existing `:rf/*` form (a stable hoisted slot, not churned here). `:rf.event/elapsed-ms` is the HANDLER-BODY-only wall-clock on `:rf.event/run-end` (rf2-hhh92). |
+| `:rf.event/v` (the dispatched event vector), `:rf.event/origin`, `:rf.event/sync?`, `:rf.event/fx`, `:rf.event/db-present?`, `:rf.event/db`, `:rf.event/coeffects`, `:rf.event/elapsed-ms` | event | `:rf/dispatch-origin` keeps its existing `:rf/*` form (a stable hoisted slot, not churned here). `:rf.event/elapsed-ms` is the HANDLER-BODY-only wall-clock on `:rf.event/run-end` (rf2-hhh92). `:rf.event/db` (rf2-ta0y7) is the FULL `:db` value stamped on the `:rf.event/db-pending` (t1) and `:rf.event/db-pending-post-flow` (t2) trace events; PDS structural sharing keeps the cost pointer-sized, the `day8/de-dupe` wire layer collapses repeated subtrees on egress. |
 | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/input-signals`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/reader-render-key`, `:rf.sub/input-paths-unchanged`, `:rf.sub/reason`, `:rf.sub/elapsed-ms` | sub | `:rf.sub/elapsed-ms` is the per-recompute wall-clock (rf2-hhh92). |
 | `:rf.view/render-key`, `:rf.view/id`, `:rf.view/mount?`, `:rf.view/deref-subs`, `:rf.view/triggered-by`, `:rf.view/elapsed-ms`, `:rf.view/cause-event-id`, `:rf.view/cause-subs`, `:rf.view/dropped-after` | view | |
 | `:rf.fx/id`, `:rf.fx/args`, `:rf.fx/from`, `:rf.fx/to`, `:rf.fx/platform`, `:rf.fx/registered-platforms`, `:rf.fx/elapsed-ms` | fx | `:rf.fx/elapsed-ms` is the per-fx-handler-invoke wall-clock on `:rf.fx/handled` (rf2-hhh92). |
@@ -265,11 +266,23 @@ A single event's cascade emits a **canonical, ordered trace sequence**. The orde
                              ;; :before-chain order (carries :rf.cofx/id + value +
                              ;; :rf.cofx/elapsed-ms); precedes the handler body
   … handler body + the rest of the :after chain run (reshaping the :db effect) …
+:rf.event/db-pending         ;; t1 (rf2-ta0y7) — the post-handler-chain / pre-flow-
+                             ;; transform pending :db. Carries the FULL value the
+                             ;; handler returned under :tags :rf.event/db (same
+                             ;; posture as :rf.event/fx on :rf.fx/do-fx — Mike
+                             ;; 2026-05-25). Fires ONLY when the handler returned
+                             ;; a :db slot; suppressed otherwise.
 :rf.flow/computed | :rf.flow/skip | :rf.flow/failed   ;; the OUTERMOST :after —
                              ;; the flow transform, per flow, in topological order.
                              ;; Fires after the rest of the :after chain (so it
                              ;; sees the fully-reshaped :db effect) and BEFORE
                              ;; :rf.event/db-changed (install).
+:rf.event/db-pending-post-flow ;; t2 (rf2-ta0y7) — the post-flow-transform / pre-
+                             ;; commit pending :db. Carries the FULL flow-
+                             ;; augmented value under :tags :rf.event/db. Fires
+                             ;; ONLY when flows actually transformed the value
+                             ;; (the substrate's identical?-by-reference guard);
+                             ;; omitted otherwise (t1 == t2 carries no info).
 :rf.event/db-changed         ;; the FLOW-AUGMENTED :db installs into app-db (the
                              ;; single deferred commit — the atomic boundary)
 :rf.sub/run | :rf.sub/skip   ;; sub-cache recompute on the new (flow-augmented) db
@@ -286,6 +299,10 @@ A single event's cascade emits a **canonical, ordered trace sequence**. The orde
                              ;; cascade) for the Trace panel's DURATION column.
 ```
 
+**The `:rf.event/db-pending` / `:rf.event/db-pending-post-flow` pair (t1 / t2, rf2-ta0y7).** Two trace events bracket the flow transform. **t1 (`:rf.event/db-pending`)** fires inside the framework's outermost `:after` (`flows-after-interceptor`) BEFORE running flows, when the handler returned a `:db` slot; **t2 (`:rf.event/db-pending-post-flow`)** fires inside the same interceptor AFTER running flows, when the flow transform actually changed the pending value (`(not (identical? new-db pending-db))`). Both carry the FULL `:db` value under `:tags :rf.event/db` — same payload-slot posture as `:rf.event/fx` on `:rf.fx/do-fx`, and same Mike-ruled posture (2026-05-25): full reference, no diff, no DEBUG gate. Persistent-data structural-sharing keeps the cost pointer-sized; the `day8/de-dupe` layer at the pair-mcp wire boundary (rf2-obpa9) collapses repeated subtrees on egress. Consumers (Xray's Handler panel, re-frame2-pair's `cascade-of`) read t1 to render the handler's returned `:db` value and read (t1, t2) together to render the t1→t2 flow reshape — the framework does NOT precompute a diff (the values are full both ends; client-side diff is cheap).
+
+t1 fires when the handler returned `:db`, regardless of whether the flows artefact is loaded (apps that never registered a flow still get t1). t2 is by definition impossible without the flows artefact (no flow could have transformed the pending value). On a flow-throw abort (Spec 013 §Failure semantics), t1 still fires (it ran before the throw) but t2 does NOT (the cascade aborted, the pending `:db` was discarded with no install — mirrors the absence of `:rf.event/db-changed`). Both emits sit inside the shared `interop/debug-enabled?` gate so production CLJS bundles DCE them along with the rest of the trace surface.
+
 **The flow position is the load-bearing change (rf2-u0zz5).** `:rf.flow/computed` is emitted **after the handler's `:after` chain** (the flow transform is the outermost `:after`, so it fires after the rest of the chain reshapes the `:db` effect) and **before `:rf.event/db-changed`**. This is the inversion from the prior design, where `:rf.event/db-changed` fired *before* flows (flows then mutated the already-installed db). Now `:rf.event/db-changed` reflects the **flow-augmented db** — the value installed already carries every flow's output. A consumer placing flows on the cascade timeline reads `:rf.flow/computed` between `:rf.event/run-start` and `:rf.event/db-changed`; the flow's write is visible in the `:rf.event/db-changed` snapshot, not applied after it.
 
 `:rf.event/run-end` is a **cascade-tail** trace: the router emits it in `emit-cascade-trailers!` *after* `commit-and-flow!` has run, so it falls **after** the deferred `:db` install (`:rf.event/db-changed`) and **after** the `:fx` walk — it is the **last** trace of a clean cascade. (It is not emitted at the close of the interceptor chain; the chain completes inside `run-chain`, the install and `:fx` walk follow in `commit-and-flow!`, and only then does the trailer fire.) The relative order that consumers depend on is **`:rf.flow/computed` → `:rf.event/db-changed` → `:rf.fx/handled`**.
@@ -297,6 +314,11 @@ A single event's cascade emits a **canonical, ordered trace sequence**. The orde
 ```
 :rf.event/run-start
   … handler body + the rest of the :after chain run …
+:rf.event/db-pending                    ;; t1 (rf2-ta0y7) — STILL fires when the
+                                        ;; handler returned :db; it ran BEFORE the
+                                        ;; throw. The trace records what the
+                                        ;; handler tried to write; the install
+                                        ;; never happened.
 :rf.flow/computed                       ;; per prior flow that ran (its WRITE is
                                         ;; discarded — the trace records the run only)
 :rf.flow/failed                         ;; the throwing flow
@@ -304,8 +326,9 @@ A single event's cascade emits a **canonical, ordered trace sequence**. The orde
 :rf.event/run-end                       ;; cascade-tail — fires LAST (the trailer is
                                         ;; emitted unconditionally after the aborted
                                         ;; commit, with :outcome :flow-error)
-;; — NO :rf.event/db-changed, NO :rf.sub/run, NO :rf.fx/* (the event
-;;   aborted before the deferred :db install) —
+;; — NO :rf.event/db-pending-post-flow, NO :rf.event/db-changed, NO
+;;   :rf.sub/run, NO :rf.fx/* (the event aborted before the deferred :db
+;;   install — t2 fires only on a successful post-flow path) —
 ```
 
 `:rf.event/db-changed` does NOT fire because the pending `:db` effect was discarded (no install, app-db unchanged, no partial commit); `:rf.fx/handled` does NOT fire because `:fx` is the post-install stage and the event aborted before it. This is the **same** truncated signature every other pre-install throw produces — a handler throw or an interceptor-`:after` throw emits `:rf.error/handler-exception` and then the `:rf.event/run-end` cascade-tail trailer, with no `:rf.event/db-changed` and no `:rf.fx/handled`. (As on the clean path, `:rf.event/run-end` is the **last** trace — the error event precedes the trailer.)

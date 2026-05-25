@@ -232,18 +232,26 @@ Section order (numbered; optional sections shown only when present):
      value it added to context (`+ [:now] #inst…`).
   3. **EVENT HANDLER** — the flavour (`reg-event-db` / `reg-event-fx`) as a click-to-source
      link + the **syntax-highlighted handler source** in a code block + a **returned
-     effects sub-block** (the t1 pre-commit observable: pending `:db` slot presence + each
-     entry of the returned `:fx` vector). The pending `:db` value itself is not yet on the
-     trace surface today — the row cross-refs APP-DB CHANGES below for the committed value
-     (which EQUALS the pending value when no flows fired). A CORE follow-on can later
-     capture the t1-pending-`:db` snapshot for the flow-having case so the full t1→t2
-     reshape renders inline under FLOWS.
+     effects sub-block** (the t1 pre-commit observable: the pending `:db` VALUE + each
+     entry of the returned `:fx` vector). Per rf2-ta0y7 (Mike 2026-05-25) the substrate
+     stamps the full pending `:db` value onto the `:rf.event/db-pending` (t1) trace event
+     under `:tags :rf.event/db`; the panel renders it as an inspectable EDN tree (same
+     posture as `:rf.event/fx` — full value, no diff, PDS structural-sharing keeps the
+     cost negligible). When the runtime is older than rf2-ta0y7 (no t1 on the stream)
+     the block falls back gracefully to a presence-only placeholder pointing at APP-DB
+     CHANGES for the committed diff.
   4. **FLOWS** *(optional)* — flows that recomputed + the db path they wrote (the t1→t2
      reshape · pre-commit). Flows fire at the outermost `:after` interceptor, right after
      the handler and any user `:after` interceptors — they reshape the pending `:db` BEFORE
      the single deferred install (the atomic commit), so they precede APP-DB CHANGES and run
      long before FX. **Hidden entirely when no flows fired this event** (the common case);
-     the flow-less panel reads as the simpler HANDLER → APP-DB CHANGES → FX shape.
+     the flow-less panel reads as the simpler HANDLER → APP-DB CHANGES → FX shape. Per
+     rf2-ta0y7, when t2 (`:rf.event/db-pending-post-flow`) is present the section ends with
+     a trailing **post-flow `:db` summary** rendering the full flow-augmented value — so
+     the t1→t2 reshape reads naturally as "what the handler returned" (under EVENT HANDLER
+     above) → "what flows reshaped" (the per-flow rows) → "the post-flow result" (the
+     trailing summary). The framework does NOT precompute a diff; the values are full at
+     both endpoints, and any client-side diff is cheap.
   5. **AFTER INTERCEPTORS** *(optional)* — non-standard after-interceptors: each id
      (click-to-source) + the effect it contributed (`+ [:fx :local-storage] {…}`).
   6. **APP-DB CHANGES** — the **COMMITTED diff at t4** (the atomic install boundary). Carries
@@ -353,7 +361,7 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 
 | From | Reads |
 |---|---|
-| Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.fx/do-fx` (step 3 — also feeds the returned-effects sub-block under the handler, via `:rf.event/fx` + `:rf.event/db-present?`), `:rf.flow/computed` (step 4 — flows reshape the pending `:db` at the outermost `:after`, before commit), `:rf.event/db-changed` (step 6 — the committed diff), `:rf.fx/handled` per fx-id (step 7 — effects applied) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
+| Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.event/db-pending` (step 3 — t1, the handler's pending `:db` VALUE feeds the returned-effects sub-block under EVENT HANDLER · rf2-ta0y7), `:rf.fx/do-fx` (step 3 — also feeds the returned-effects sub-block under the handler, via `:rf.event/fx` + `:rf.event/db-present?`), `:rf.flow/computed` (step 4 — flows reshape the pending `:db` at the outermost `:after`, before commit), `:rf.event/db-pending-post-flow` (step 4 — t2, the flow-augmented `:db` VALUE feeds the trailing post-flow summary under FLOWS when flows changed the value · rf2-ta0y7), `:rf.event/db-changed` (step 6 — the committed diff), `:rf.fx/handled` per fx-id (step 7 — effects applied) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
 | Registries | Handler metadata (`reg-event-*` form file:line, optional source string when DEBUG-gated) |
 | App-db panel (bridge) | Inline diff renderer for the committed `:db` — the APP-DB CHANGES section (reuses the shared renderer §10) |
 

@@ -150,6 +150,28 @@
   [{:keys [fx]}]
   fx)
 
+(defn- db-pending-trace
+  "The `:rf.event/db-pending` trace event for the cascade (rf2-ta0y7) —
+  carries the FULL pending `:db` value the handler returned
+  (post-handler-chain, pre-flow-transform) under `:tags :rf.event/db`.
+  Falls into the `:other` bucket per `group-cascades`' classification
+  (the projection's `:rf.event` case maps only `:dispatched` /
+  `:run-start` / `:run-end`; everything else is `:other`). Returns nil
+  when the handler returned no `:db` slot (the substrate suppresses
+  the emit in that case)."
+  [{:keys [other]}]
+  (some #(when (= :rf.event/db-pending (:operation %)) %) (or other [])))
+
+(defn- db-pending-post-flow-trace
+  "The `:rf.event/db-pending-post-flow` trace event for the cascade
+  (rf2-ta0y7) — carries the FULL flow-augmented `:db` value (post-
+  flow-transform, pre-commit) under `:tags :rf.event/db`. Returns nil
+  when no flow transformed `:db` (the substrate suppresses the emit
+  when `(identical? new-db pending-db)`); the Xray FLOWS section reads
+  it alongside `db-pending-trace` to render the t1→t2 reshape diff."
+  [{:keys [other]}]
+  (some #(when (= :rf.event/db-pending-post-flow (:operation %)) %) (or other [])))
+
 (defn- has-handler-exception?
   "True iff the cascade's `:other` bucket carries the specific
   `:rf.error/handler-exception` trace — the handler threw and never
@@ -779,15 +801,18 @@
   — what did the handler return, what did flows then reshape, what was
   ultimately committed.
 
-  Today the trace surface captures `:fx` (the returned fx vector, off
-  `:rf.fx/do-fx :tags :rf.event/fx`) and `:db-present?` (a boolean, off
-  the same trace's `:tags :rf.event/db-present?`), but NOT the pending
-  `:db` value itself. The pending `:db` is `nil` for handlers that
-  returned no `:db` slot; otherwise its committed value reads naturally
-  one step down in APP-DB CHANGES (when no flows fired the t4 committed
-  diff EQUALS the t1 pending diff). A CORE follow-on can later capture
-  the t1-pending-`:db` snapshot for the flow-having case — until then
-  this block shows what is observable.
+  Per rf2-ta0y7 (Mike 2026-05-25): the `:db` value renders as a full
+  inspectable EDN tree (via `edn/inspect`), not a presence-only
+  placeholder. The substrate stamps the pending-`:db` reference onto
+  the `:rf.event/db-pending` trace at the post-handler-chain /
+  pre-flow point; this block reads it directly. Persistent data
+  structures keep the cost negligible (structural sharing with the
+  underlying app-db value); the `day8/de-dupe` wire layer (rf2-obpa9)
+  collapses repeated subtrees at egress so the (t1, t2, committed-db)
+  triple is cheap in pair-mcp transport.
+
+  `:fx` rides as before from `:rf.fx/do-fx :tags :rf.event/fx`
+  (rf2-twt7m Change 2) — that contract is unchanged.
 
   Returns nil when neither `:db` was returned nor any `:fx` (the rare
   noop event); the absence-by-omission rule applies inside the section
@@ -795,7 +820,15 @@
   [cascade]
   (let [do-fx-tags (some-> (do-fx-trace cascade) :tags)
         db-pres?   (:rf.event/db-present? do-fx-tags)
-        fx-vec     (:rf.event/fx do-fx-tags)]
+        fx-vec     (:rf.event/fx do-fx-tags)
+        t1-trace   (db-pending-trace cascade)
+        t1-db      (some-> t1-trace :tags :rf.event/db)
+        ;; The substrate emits `:rf.event/db-pending` only when
+        ;; `:db-present?` is true — they ride the same condition. Keep
+        ;; the `db-pres?` boolean as the section-show predicate so the
+        ;; block still renders for the "older trace without t1" case
+        ;; (graceful degrade: shows the slot, omits the value).
+        cascade-id (:dispatch-id cascade)]
     (when (or db-pres? (seq fx-vec))
       [:div {:data-testid "rf-xray-event-detail-handler-returned-effects"
              :style {:margin-top "8px"
@@ -809,17 +842,29 @@
         "↳ returned effects (pre-commit)"]
        (when db-pres?
          [:div {:data-testid "rf-xray-event-detail-handler-returned-db"
-                :style {:display "flex"
-                        :align-items "baseline"
-                        :gap "8px"
-                        :padding "1px 0"
+                :style {:padding "1px 0"
                         :font-family mono-stack
                         :font-size "11px"}}
-          [:span {:style {:color (:accent tokens)
-                          :min-width "32px"}} ":db"]
-          [:span {:style {:color (:text-tertiary tokens)
-                          :font-style "italic"}}
-           "pending — see APP-DB CHANGES below for the committed diff"]])
+          [:div {:style {:display "flex"
+                         :align-items "baseline"
+                         :gap "8px"}}
+           [:span {:style {:color (:accent tokens)
+                           :min-width "32px"}} ":db"]
+           (if (some? t1-trace)
+             [:span {:data-testid "rf-xray-event-detail-handler-returned-db-value"
+                     :style {:color    (:text-primary tokens)
+                             :flex     1
+                             :min-width 0}}
+              (edn/inspect t1-db
+                           (str "event-detail/handler-returned-db/"
+                                (or cascade-id "x")))]
+             ;; Graceful degrade — t1 not on the stream (older runtime
+             ;; or a trace recorded pre-rf2-ta0y7). The committed value
+             ;; still reads naturally one step down under APP-DB CHANGES.
+             [:span {:data-testid "rf-xray-event-detail-handler-returned-db-absent"
+                     :style {:color (:text-tertiary tokens)
+                             :font-style "italic"}}
+              "pending — see APP-DB CHANGES below for the committed diff"])]])
        (when (seq fx-vec)
          (into [:div {:data-testid "rf-xray-event-detail-handler-returned-fx"
                       :style {:padding "1px 0"
@@ -1284,10 +1329,50 @@
                         :font-size   "11px"}}
          "input paths unavailable (flow may have been cleared)"])]]))
 
+(defn- flows-reshape-summary
+  "Post-flow reshape summary (rf2-ta0y7) — renders the `:db` value at
+  the (t1, t2) pair as an inspectable EDN tree so the operator can see
+  the FULL post-flow value alongside the per-flow `wrote / read` rows
+  above. Together with the t1 `:db` value under EVENT HANDLER above,
+  this is the t1→t2 reshape Xray surfaces; the framework does NOT
+  precompute a diff (Mike's ruling — full values both ends, the panel
+  computes the diff client-side if it wants one).
+
+  Suppressed when no flow transformed `:db` (the substrate emits no
+  t2 in that case — t1 == t2 carries no information). Also suppressed
+  on a flow-throw abort (the cascade aborted, no commit happened —
+  the per-flow rows above still show what ran before the throw)."
+  [cascade]
+  (when-let [t2 (db-pending-post-flow-trace cascade)]
+    (let [t2-db      (some-> t2 :tags :rf.event/db)
+          cascade-id (:dispatch-id cascade)]
+      [:div {:data-testid "rf-xray-event-detail-flows-reshape-summary"
+             :style {:margin-top "8px"
+                     :padding "6px 0 0 16px"
+                     :border-top (str "1px dashed " (:border-subtle tokens))}}
+       [:div {:data-testid "rf-xray-event-detail-flows-reshape-summary-caption"
+              :style {:color (:text-tertiary tokens)
+                      :font-family sans-stack
+                      :font-size "11px"
+                      :margin-bottom "4px"}}
+        "↳ post-flow :db (pre-commit) — t1→t2 reshape"]
+       [:div {:data-testid "rf-xray-event-detail-flows-reshape-summary-value"
+              :style {:padding "1px 0"
+                      :font-family mono-stack
+                      :font-size "11px"
+                      :color (:text-primary tokens)}}
+        (edn/inspect t2-db
+                     (str "event-detail/flows-reshape/"
+                          (or cascade-id "x")))]])))
+
 (defn- flows-body
   "Step FLOWS body — one row per `:rf.flow/computed` trace in cascade
   firing order. Chained flows (a downstream flow that reads from an
   upstream flow's write path) carry the `↳ via :upstream` indicator.
+  Per rf2-ta0y7 a trailing `flows-reshape-summary` sub-block renders
+  the post-flow `:db` value when t2 fired — the t1→t2 reshape Xray
+  exposes (the framework stamps full values at both ends; the diff
+  reads naturally client-side).
 
   OPTIONAL step (spec/021 §2.2): returns nil when the cascade carries NO
   flow firings, so the step is omitted entirely (absence by omission).
@@ -1295,13 +1380,16 @@
   [cascade]
   (let [rows (flows-with-chain-marks (flows-fired cascade))]
     (when (seq rows)
-      (into [:div]
-            (for [{:keys [trace-id flow-id] :as row} rows]
-              (with-meta
-                (flow-row row)
-                ;; Trace-id is the stable per-firing key. Fall back to
-                ;; flow-id when the trace lacks an :id (older fixtures).
-                {:key (or trace-id flow-id)}))))))
+      (let [row-div (into [:div]
+                          (for [{:keys [trace-id flow-id] :as row} rows]
+                            (with-meta
+                              (flow-row row)
+                              ;; Trace-id is the stable per-firing key. Fall back to
+                              ;; flow-id when the trace lacks an :id (older fixtures).
+                              {:key (or trace-id flow-id)})))]
+        (if-let [reshape (flows-reshape-summary cascade)]
+          [:div row-div reshape]
+          row-div)))))
 
 ;; ---- numbered vertical-flow pipeline chrome (spec/021 §2.2 · rf2-ad7zx) -
 ;;
