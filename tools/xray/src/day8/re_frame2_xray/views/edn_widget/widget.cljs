@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.views.edn-widget.widget
-  "Canonical Xray EDN widget facade (rf2-oqa60 phase 1 — thin wrapper
-  over the first-class `views.data-display` widget).
+  "Canonical Xray EDN widget facade — thin wrapper over the first-
+  class `views.data-display` widget.
 
   ## Purpose
 
@@ -10,18 +10,21 @@
   operator learns one expand/collapse + diff interaction and applies
   it everywhere.
 
-  ## One engine, one facade (post-rf2-oqa60)
+  ## One engine, one facade (post-rf2-q3dzw)
 
-  Pre-rf2-oqa60 the widget composed two engines:
-  `data-display/render` (diff-aware tree walker) and
-  `cljs-devtools-render` (`binaryage/cljs-devtools`-backed formatters
-  for current-state browse). The cljs-devtools impedance-mismatch
-  burned three rounds (rf2-dw8n7, rf2-oswhk, this rebuild); phase 1
-  ships the roll-your-own `views.data-display` widget and the facade
-  delegates `browse` / `inspect` / `mini` / `inspect-inline` to it.
+  After phase 5 (D5=a per rf2-sndui, rf2-q3dzw) the WHOLE contract —
+  browse + diff + mini — lives in `views.data-display` as one
+  renderer. This facade is a thin delegate that the legacy `edn/*`
+  call sites still reach through; new call sites should use
+  `[data-display value opts]` directly.
 
-  Diff (`edn/diff`) still calls `data-display/render-tree` for now;
-  phase 5 subsumes diff into the new widget (D5=a per rf2-sndui).
+  Previous shape (pre-rf2-oqa60) composed two engines:
+  `data-display.render` (diff-aware tree walker) and
+  `cljs-devtools-render` (binaryage/cljs-devtools-backed formatters).
+  Phase 1 (rf2-oqa60) shipped the roll-your-own browse path; phase 5
+  (rf2-q3dzw) subsumed the diff engine into the same widget and
+  deleted the legacy `data-display.render` + `theme.data-inspector`
+  ns'es.
 
   ## Public API
 
@@ -45,19 +48,16 @@
 
   ## Posture
 
-  Pre-alpha · NO back-compat shims · dev-only · bundle-isolated. The
-  cljs-devtools dep is dropped with the phase 1 cut-over (rf2-oqa60);
+  Pre-alpha · NO back-compat shims · dev-only · bundle-isolated.
   zprint stays for `code-block` source-text rendering."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [day8.re-frame2-xray.data-display.render :as data-display]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]
-            ;; rf2-oqa60 phase 1 — current-state browse / inspect /
-            ;; mini delegate to the first-class data-display widget.
-            ;; The cljs-devtools-render adapter + theme.data-inspector
-            ;; chrome are superseded; the legacy ns'es are deleted
-            ;; alongside this commit.
+            ;; The first-class data-display widget owns the WHOLE
+            ;; contract — browse, diff, mini, sentinel chrome — as a
+            ;; single source of truth (phase 5 / rf2-q3dzw,
+            ;; D5=a per rf2-sndui).
             [day8.re-frame2-xray.views.data-display :as dd]
             [zprint.core :as zprint]))
 
@@ -159,8 +159,8 @@
   accepted but ignored — copy chrome is deferred to a follow-on bead
   (the popup phase, D6=a).
 
-  Diff rendering stays on `edn/diff` for phase 1; phase 5 subsumes
-  diff into the new widget (D5=a per rf2-sndui)."
+  Diff rendering also routes through the new widget after phase 5
+  (rf2-q3dzw, D5=a per rf2-sndui) — see `diff` below."
   ([v] (inspect v "root" nil))
   ([v node-key] (inspect v node-key nil))
   ([v node-key _opts]
@@ -180,16 +180,15 @@
 
 (defn browse
   "Render `:value` as a current-state tree via the first-class
-  data-display widget (rf2-oqa60 phase 1).
+  data-display widget.
 
   Each collection node renders a `▸` / `▾` triangle that dispatches
   `:rf.xray.data-display/toggle-node` against the per-mount path —
   operator drill-downs persist across re-renders in the
   `:rf.xray.data-display/expansion` slot.
 
-  Diff semantics (Event panel `:db` before→after smallest-diff) stay
-  on the home-grown `data-display/render-tree` engine via `diff` for
-  phase 1 (D5=a per rf2-sndui — phase 5 subsumes diff).
+  Diff semantics are an opt-in mode on the SAME widget — call `diff`
+  below (or pass `:before` to `dd/data-display` directly).
 
   Required: `:value`.
   Optional: `:panel-id` (defaults `:rf.xray/browse`),
@@ -219,22 +218,22 @@
   changed descendant) and a `← changed from <prior>` chip on modified
   leaves. Returns hiccup.
 
-  Diff semantics live in `data-display/render-tree` — the engine walks
-  before/after pairwise and threads diff-op classification through the
-  tree. cljs-devtools doesn't know about diff (it operates on a single
-  value), so diff stays here.
+  After phase 5 (rf2-q3dzw, D5=a per rf2-sndui) diff is an opt-in
+  MODE on the same `views.data-display` widget — this facade just
+  threads the `:before` opt through to the widget.
 
   Required: `:before :after :panel-id :render-id`.
   Optional: `:default-depth` (defaults to 2 per §10.4)."
   [{:keys [before after panel-id render-id default-depth]
     :or   {default-depth 2}}]
-  (data-display/render-tree
-    {:value         after
-     :before        before
-     :diff?         true
-     :panel-id      panel-id
-     :render-id     render-id
-     :default-depth default-depth}))
+  [dd/data-display after
+   {:panel-id (or (when (keyword? panel-id) panel-id)
+                  (keyword (str "rf.xray.diff/"
+                                (or (when panel-id (name panel-id))
+                                    render-id
+                                    "anon"))))
+    :default-expanded-depth default-depth
+    :before before}])
 
 ;; ---- variant: mini -------------------------------------------------------
 

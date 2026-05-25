@@ -21,26 +21,30 @@
     - Collapse `:same` subtrees into `(N entries unchanged)` chips
     - `:modified` leaves render inline `before → after`
 
-  ## Reuses the data-inspector
+  ## Reuses the data-display widget
 
-  Falls through to `theme/data_inspector/render-value` for the value
-  content of every annotated leaf. Just adds the dispatch wrapper:
-  given an annotated node, dispatch on `::op` → render the appropriate
-  chrome around the leaf-content render.
+  Falls through to `views.data-display/data-display` for the value
+  content of every annotated leaf (rf2-q3dzw phase 5 migration —
+  pre-phase-5 this routed through `theme.data-inspector/inspect`).
+  Just adds the dispatch wrapper: given an annotated node, dispatch
+  on `::op` → render the appropriate gutter chrome around the leaf-
+  content render.
 
   ## Per-node expand-state
 
-  Reuses the inspector's `:rf/xray` `:data-inspector` slot. Per-node
-  `node-key` for a diff render combines the surface, the section path,
-  and the path within the local annotated subtree (per design §8 loose-
-  end note 3).
+  The data-display widget owns its own expansion slot
+  (`:rf.xray.data-display/expansion`) keyed by
+  `[panel-id mount-id path]`. Per-node `panel-id` for a diff render
+  is a stable per-surface keyword namespaced under
+  `:rf.xray.diff-section/` (folded from the surface + section path)
+  so two adjacent renders never collide.
 
   ## Sentinel handling
 
-  Sentinels are handled by the inspector's existing `redacted-chip` /
-  `large-chip` renderers — the diff layer never overrides them. The
-  diff layer's chrome (gutter colour + glyph) wraps the chip without
-  reveal."
+  Sentinels are first-class types INSIDE the data-display widget
+  (D3=a per rf2-sndui) — the diff layer never overrides them. The
+  diff layer's chrome (gutter colour + glyph) wraps the rendered
+  value without altering its sentinel chrome."
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.diff.annotated-tree :as at]
@@ -52,7 +56,10 @@
             [day8.re-frame2-xray.diff.hiccup-render :as hd-render]
             [day8.re-frame2-xray.panels.app-db-diff-format :as f]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
-            [day8.re-frame2-xray.theme.data-inspector :as inspector]
+            ;; rf2-q3dzw phase 5 — leaf values route through the
+            ;; first-class data-display widget. The legacy
+            ;; `theme.data-inspector` ns is deleted.
+            [day8.re-frame2-xray.views.data-display :as dd]
             [day8.re-frame2-xray.theme.tokens
              :as t
              :refer [tokens mono-stack sans-stack]]))
@@ -428,11 +435,24 @@
      (str (pr-str k) " ")]))
 
 (defn- inspect-value
-  "Render a value via the existing data-inspector. Wraps the inspector
-  invocation with a unique node-key so the expand-state slot doesn't
-  collide with sibling renders."
+  "Render a value via the first-class data-display widget. Wraps the
+  invocation with a unique `:panel-id` so the expansion slot doesn't
+  collide with sibling renders.
+
+  `node-key` is a stable per-render qualifier (typically the diff
+  surface + section path + sub-path); we fold it into a sanitised
+  panel-id keyword. The widget then auto-generates a `mount-id`
+  internally per call-site (per D4=a)."
   [v node-key]
-  (inspector/inspect (f/display-value v) node-key))
+  (let [;; Sanitise the node-key into something keyword-safe; spec/021
+        ;; allows the panel-id to be any keyword, so we just normalise
+        ;; the separators.
+        pid (keyword "rf.xray.diff-section"
+                     (-> node-key
+                         (string/replace #"[^A-Za-z0-9._-]+" "_")))]
+    [dd/data-display (f/display-value v)
+     {:panel-id pid
+      :default-expanded-depth 1}]))
 
 (defn- render-modified-leaf
   "Inline `before → after` rendering for a `:modified` scalar leaf

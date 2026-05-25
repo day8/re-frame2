@@ -117,22 +117,14 @@
    ;; rf2-okvit — app-db tab current-state inspector section model.
    :rf.xray/app-db-state
    :rf.xray/cascades
-   ;; rf2-jgip1 — shared L4 data-display renderer expansion-state subs.
-   ;; Per `tools/xray/spec/021-Dynamic-Panel-Designs.md` §10. The
-   ;; renderer is loaded as a shared theme-adjacent lib (registrations
-   ;; happen at ns-load via top-level `reg-sub`; same pattern the
-   ;; sibling :rf.xray.data-inspector/* subs follow).
-   :rf.xray/data-display-expansion
-   :rf.xray/data-display-node-state
-   ;; rf2-oqa60 phase 1 — first-class data-display widget owns
-   ;; `:rf.xray.data-display/expansion` (its own slot, distinct from
-   ;; the legacy `:rf.xray/data-display-expansion` slot above which
-   ;; the diff renderer still uses).
+   ;; First-class data-display widget owns the WHOLE renderer contract
+   ;; — browse + diff + mini — via `:rf.xray.data-display/*` events &
+   ;; subs (rf2-oqa60 phase 1 + rf2-q3dzw phase 5). The pre-rf2-q3dzw
+   ;; sibling slots (`:rf.xray/data-display-{expansion,node-state}`
+   ;; and `:rf.xray.data-inspector/{expansion,all-expansion}`) are
+   ;; deleted with the legacy `data-display.render` +
+   ;; `theme.data-inspector` engines.
    :rf.xray.data-display/expansion
-   ;; rf2-39n8h discovered — App-DB diff data-inspector expansion slots
-   ;; (per-row + bulk expand-all). Lives under :rf.xray.data-inspector/*.
-   :rf.xray.data-inspector/all-expansion
-   :rf.xray.data-inspector/expansion
    ;; rf2-59e7k — Cancellation-cascade visualiser subs (Machines
    ;; tab side-panel + Trace popover). Per
    ;; `tools/xray/spec/019-Cross-Cutting-Insight.md` §M.3.
@@ -365,13 +357,11 @@
   `:rf.xray.<panel>/*` convention codified in
   `tools/xray/spec/014-Registry-Catalogue.md` §Naming convention."
   (sorted-set
-   ;; rf2-39n8h discovered — App-DB diff data-inspector events:
-   ;; per-row toggle/set + large-value confirmation flow (request +
-   ;; confirm). Lives under :rf.xray.data-inspector/*.
-   :rf.xray.data-inspector/confirm-large
-   :rf.xray.data-inspector/request-large-confirm
-   :rf.xray.data-inspector/set-expanded
-   :rf.xray.data-inspector/toggle-expanded
+   ;; (Pre-rf2-q3dzw `:rf.xray.data-inspector/*` events covered per-
+   ;; row toggle/set + large-value confirm flow; the ns is deleted
+   ;; with phase 5 and the data-display widget's
+   ;; `:rf.xray.data-display/*` events cover the same surface. Large-
+   ;; blob confirm chrome moves to the popup phase, D6=a.)
    ;; rf2-ad7zx.9 — the `:rf.xray.issues/toggle-severity` /
    ;; `toggle-prefix` / `clear-filters` events were dropped with the
    ;; Issues panel's filter-chrome reconcile to the Figma design (pure
@@ -399,16 +389,11 @@
    :rf.xray/copy-path-to-clipboard
    :rf.xray/copy-share-url-to-clipboard
    :rf.xray/copy-value-to-clipboard
-   ;; rf2-jgip1 — shared L4 data-display renderer events
-   ;; (sticky-expansion + reset). Per
-   ;; `tools/xray/spec/021-Dynamic-Panel-Designs.md` §10.4.
-   :rf.xray/data-display-reset-expansion
-   :rf.xray/data-display-set-expanded
-   :rf.xray/data-display-toggle-node
-   ;; rf2-oqa60 phase 1 — first-class data-display widget events.
-   ;; Distinct keyword family (`:rf.xray.data-display/*`) from the
-   ;; legacy diff renderer's `:rf.xray/data-display-*` flat shape
-   ;; above, so the two engines coexist during the phased rollout.
+   ;; First-class data-display widget events (sticky-expansion +
+   ;; reset). Per `tools/xray/spec/021-Dynamic-Panel-Designs.md` §10.4.
+   ;; The pre-rf2-q3dzw flat-shape sibling events
+   ;; (`:rf.xray/data-display-*`) are deleted with the legacy
+   ;; `data-display.render` engine in phase 5.
    :rf.xray.data-display/reset-expansion
    :rf.xray.data-display/set-node
    :rf.xray.data-display/toggle-node
@@ -452,11 +437,13 @@
    ;; retired — xyflow owns zoom/pan/fit internally).
    :rf.xray.machine-canvas/hydrate-view-modes
    :rf.xray.machine-canvas/set-view-mode
-   ;; rf2-jgip1 — emitted by the shared L4 data-display renderer
-   ;; (clickable path → cross-panel propagation). The renderer
-   ;; ships a no-op default handler so consumer panels override via
-   ;; their own `reg-event-fx` — per spec/021 §10.5.
-   :rf.xray/navigate-to-path
+   ;; (Pre-rf2-q3dzw the legacy `data-display.render` engine emitted
+   ;; `:rf.xray/navigate-to-path` from its clickable-path glyphs and
+   ;; registered a default no-op handler. The new widget ships ZERO
+   ;; path-click interactions in phase 1 — the locked B.9 / rf2-sndui
+   ;; surface ships exactly one path-click semantic which is deferred
+   ;; to a follow-on. With the legacy engine deleted in phase 5 the
+   ;; default handler is gone too.)
    :rf.xray/note-sensitive-suppressed
    :rf.xray/open-edit-popup
    :rf.xray/open-in-editor

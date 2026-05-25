@@ -19,19 +19,19 @@
 
   ## Current-state render — first-class data-display widget (rf2-oqa60)
 
-  Values render through the first-class `views/data-display` widget
-  (Phase 1 of the rf2-oqa60 rebuild). The new widget owns the WHOLE
-  contract — CLJS-aware type detection, distinct bracket styling per
-  collection kind, click-to-toggle expansion stored in re-frame
-  app-db, first-class sentinel chrome (`:rf/redacted`, `:rf/large`).
-  Diff renders still flow through the legacy `edn/diff` engine; phase
-  5 subsumes diff into the new widget (D5=a per rf2-sndui).
+  Values render through the first-class `views/data-display` widget.
+  The new widget owns the WHOLE contract — browse + diff + mini —
+  CLJS-aware type detection, distinct bracket styling per collection
+  kind, click-to-toggle expansion stored in re-frame app-db, first-
+  class sentinel chrome (`:rf/redacted`, `:rf/large`). After phase 5
+  (rf2-q3dzw, D5=a per rf2-sndui) diff also routes through this same
+  widget via the `:before` opt — the legacy `data-display.render`
+  engine is gone.
 
-  The Phase 1 widget has NO ⎘ copy affordance (deferred to follow-on
-  beads — the popup phase, D6=a). The old EDN widget's copy gesture
-  is unaffected on surfaces still wired to it (Trace, segment-
-  inspector, Event lens, Static panels) until phases 2-4 migrate
-  them.
+  The widget has NO ⎘ copy affordance (deferred to follow-on beads —
+  the popup phase, D6=a). The old EDN widget's copy gesture is
+  unaffected on surfaces still wired to it (Trace, segment-inspector,
+  Event lens, Static panels) until phases 2-4 migrate them.
 
   ## Flat-hairline layout (spec/021 §4.2-4.3, Figma · rf2-ad7zx.11)
 
@@ -47,26 +47,24 @@
 
   Each section carries a `:before` slice (from the cascade's `db-before`,
   threaded by `app-db-diff-helpers/current-state-sections`'s 2-arity).
-  When a pre-image is present and differs, the value body routes through
-  the shared §10 diff renderer (`edn/diff`), which carries the inline
-  `← changed from X` annotation in place on the changed nodes and
-  force-expands the ancestor chain so the operator never expands to find
-  a change. When no pre-image is threaded (`no-diff` sentinel — LIVE at
-  boot, 1-arity model) the body falls back to the plain current-state
-  inspector (`edn/inspect`). The keyword-accent inside the diff renderer
-  is already orange (owned by rf2-ad7zx.3) — not touched here.
+  When a pre-image is present and differs, the value body routes
+  through the data-display widget's DIFF mode (rf2-q3dzw phase 5,
+  D5=a) — passing `:before` paints inline `← changed from X`
+  annotations in place on changed nodes and force-expands the
+  ancestor chain so the operator never expands to find a change. When
+  no pre-image is threaded (`no-diff` sentinel — LIVE at boot,
+  1-arity model) the body falls back to plain BROWSE mode on the same
+  widget. The keyword-accent is already orange (owned by rf2-ad7zx.3).
 
   Pure hiccup; reuses Xray's theme tokens so light/dark resolve."
   (:require [day8.re-frame2-xray.panels.app-db-diff-format :as f]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
-            ;; rf2-oqa60 phase 1 — current-state inspect path moves
-            ;; off the cljs-devtools-backed `edn/inspect` onto the
-            ;; first-class data-display widget. Diff path stays on
-            ;; `edn/diff` for now (phase 5 subsumes diff per D5=a).
-            [day8.re-frame2-xray.views.data-display :as dd]
-            [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
+            ;; The first-class data-display widget owns the WHOLE
+            ;; contract — browse + diff — as a single source of truth
+            ;; (rf2-q3dzw phase 5, D5=a per rf2-sndui).
+            [day8.re-frame2-xray.views.data-display :as dd]))
 
 ;; ---- shared section chrome ----------------------------------------------
 
@@ -128,34 +126,28 @@
   ## Diff vs current-state routing
 
   When `before` is the `h/no-diff` sentinel (no pre-image threaded —
-  LIVE at boot / 1-arity model) the value renders through the canonical
-  cljs-devtools current-state inspect path (`edn/inspect`,
-  re-frame-10x look), with `:copy? false` (rf2-ilubp) so the app-db tab
-  stays a clean current-state view with no per-block ⎘ copy gesture.
+  LIVE at boot / 1-arity model) the value renders in BROWSE mode via
+  the first-class data-display widget — a plain current-state tree.
 
-  When a real pre-image is present the value renders through the shared
-  §10 diff renderer (`edn/diff`), which carries the inline
-  `← changed from X` annotation in place on changed nodes and
-  force-expands the ancestor chain (spec/021 §4.3 + §10.4). App-db's
-  depth heuristic is depth-3-collapsed by default (§10.4). The
-  keyword-accent inside `edn/diff` is already orange (owned by
+  When a real pre-image is present the value renders in DIFF mode via
+  the SAME widget (rf2-q3dzw phase 5), passing `:before` so the
+  widget paints inline `← changed from X` annotations and force-
+  expands the ancestor chain over changed descendants (spec/021 §4.3 +
+  §10.4). App-db's depth heuristic is depth-3-collapsed by default
+  (§10.4). The keyword-accent is already orange (owned by
   rf2-ad7zx.3)."
   [value before render-id]
-  (let [node-key (str "app-db-state/" render-id)]
+  (let [_node-key (str "app-db-state/" render-id)]
     (if (= h/no-diff before)
-      ;; rf2-oqa60 phase 1 — current-state path uses the new
-      ;; first-class data-display widget. Mount-id is auto-generated
-      ;; internally (D4=a per rf2-sndui); the panel-id qualifier
-      ;; alone is enough to scope expansion state.
       [dd/data-display
        (f/display-value value)
        {:panel-id :rf.xray/app-db
         :default-expanded-depth 3}]
-      (edn/diff {:before        (f/display-value before)
-                 :after         (f/display-value value)
-                 :panel-id      :app-db
-                 :render-id     node-key
-                 :default-depth 3}))))
+      [dd/data-display
+       (f/display-value value)
+       {:panel-id :rf.xray/app-db
+        :default-expanded-depth 3
+        :before (f/display-value before)}])))
 
 ;; ---- top (user-domain) section ------------------------------------------
 

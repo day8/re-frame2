@@ -27,9 +27,13 @@
   Element-moved + fn-ref-changed both use the mode `:accent` (distinct
   from `:modified`'s `:yellow`) so the eye reads 'this is something
   other than a plain modification'."
-  (:require [day8.re-frame2-xray.diff.hiccup :as hd]
+  (:require [clojure.string :as string]
+            [day8.re-frame2-xray.diff.hiccup :as hd]
             [day8.re-frame2-xray.panels.app-db-diff-format :as f]
-            [day8.re-frame2-xray.theme.data-inspector :as inspector]
+            ;; rf2-q3dzw phase 5 — leaf values route through the
+            ;; first-class data-display widget. The legacy
+            ;; `theme.data-inspector` ns is deleted.
+            [day8.re-frame2-xray.views.data-display :as dd]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -63,7 +67,12 @@
 
 (defn- inspect-value
   [v node-key]
-  (inspector/inspect (f/display-value v) node-key))
+  (let [pid (keyword "rf.xray.diff-section"
+                     (-> node-key
+                         (string/replace #"[^A-Za-z0-9._-]+" "_")))]
+    [dd/data-display (f/display-value v)
+     {:panel-id pid
+      :default-expanded-depth 1}]))
 
 (defn- gutter
   "Coloured-glyph + left-border wrapper for an annotated row."

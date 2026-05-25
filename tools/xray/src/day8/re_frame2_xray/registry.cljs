@@ -33,19 +33,13 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
-            ;; rf2-jgip1 — load the shared data-display renderer ns so
-            ;; its top-level `reg-sub` / `reg-event-db` calls land in
-            ;; the registrar at orchestrator-load time (same posture as
-            ;; the existing `theme.data-inspector` ns which is loaded
-            ;; transitively via the diff renderer). Per
-            ;; `tools/xray/spec/021-Dynamic-Panel-Designs.md` §10.
-            [day8.re-frame2-xray.data-display.render]
-            ;; rf2-oqa60 phase 1 — load the first-class data-display
-            ;; widget ns so its top-level `reg-sub` /
-            ;; `reg-event-db` calls land in the registrar at
-            ;; orchestrator-load time, same posture as the legacy
-            ;; `data-display.render` engine above. The new widget
-            ;; owns `:rf.xray.data-display/*` events/subs.
+            ;; Load the first-class data-display widget ns so its
+            ;; top-level `reg-sub` / `reg-event-db` calls land in
+            ;; the registrar at orchestrator-load time. The widget
+            ;; owns `:rf.xray.data-display/*` events/subs and is the
+            ;; SINGLE source of truth for browse + diff + mini
+            ;; (rf2-q3dzw phase 5; legacy `data-display.render` +
+            ;; `theme.data-inspector` ns'es are deleted).
             [day8.re-frame2-xray.views.data-display]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.epoch :as epoch]
