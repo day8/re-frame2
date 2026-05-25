@@ -2054,7 +2054,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # docs/cljs live-cell playground (rf2-ee38b.22).
   #
-  # tools/playground is the roll-your-own CM6 + Scittle + re-frame2-SCI
+  # docs/tools/playground is the roll-your-own CM6 + Scittle + re-frame2-SCI
   # live-cell engine that backs the docs/cljs reading guide and the
   # interactive guide chapters. Its smoke (a real headless-Chromium run of
   # both PRODUCTION bundles) was previously wired to no CI gate, and the
@@ -2081,7 +2081,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: tools/playground
+        working-directory: docs/tools/playground
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -2112,7 +2112,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-playground-${{ hashFiles('tools/playground/sci/deps.edn', 'tools/playground/sci/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent-slim/deps.edn') }}
+          key: ${{ runner.os }}-playground-${{ hashFiles('docs/tools/playground/sci/deps.edn', 'docs/tools/playground/sci/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent-slim/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-playground-
             ${{ runner.os }}-cljs-
@@ -2149,7 +2149,7 @@ jobs:
         working-directory: .
         run: |
           if ! git diff --exit-code -- docs/cljs/playground.js docs/cljs/playground.css; then
-            echo "::error::Committed docs/cljs/playground.{js,css} are stale — run 'npm run build:bootstrap' in tools/playground and commit the rebuilt bundles."
+            echo "::error::Committed docs/cljs/playground.{js,css} are stale — run 'npm run build:bootstrap' in docs/tools/playground and commit the rebuilt bundles."
             exit 1
           fi
 
@@ -2174,7 +2174,7 @@ jobs:
         run: |
           f=docs/cljs/playground-rf2.js
           if [ ! -s "$f" ]; then
-            echo "::error::$f is missing or empty — run 'npm run build:rf2' in tools/playground and commit the bundle."
+            echo "::error::$f is missing or empty — run 'npm run build:rf2' in docs/tools/playground and commit the bundle."
             exit 1
           fi
           # An :advanced shadow-cljs browser bundle for this build always

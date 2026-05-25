@@ -5,9 +5,9 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const here = dirname(fileURLToPath(import.meta.url)); // tools/playground/scripts
+const here = dirname(fileURLToPath(import.meta.url)); // docs/tools/playground/scripts
 const src = join(here, "..", "src", "playground.css");
-const destDir = join(here, "..", "..", "..", "docs", "cljs");
+const destDir = join(here, "..", "..", "..", "cljs");
 const dest = join(destDir, "playground.css");
 
 mkdirSync(destDir, { recursive: true });
