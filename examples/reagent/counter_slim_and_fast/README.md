@@ -39,9 +39,7 @@ the changed-surface CI job is `cljs-reagent-slim-bundle-isolation` in
 `.github/workflows/test.yml`.
 
 The slim adapter is also a drop-in for the bridge at the
-behavioural level: same clicks, same counts. The Playwright spec
-runs the exact assertions as the canonical counter's spec —
-initial render shows 5, `+` → 6, two `-` → 4.
+behavioural level: same clicks, same counts.
 
 ## Files
 
@@ -49,26 +47,25 @@ initial render shows 5, `+` → 6, two `-` → 4.
 counter_slim_and_fast/
   core.cljs                          mount + events/subs/view + SSR exercise
   index.html                         minimal host page
-  counter_slim_and_fast.spec.cjs     Playwright smoke (drop-in parity with counter)
   README.md                          this file
 ```
 
 The bundle-isolation verifier is adapter-owned rather than a general
 human-facing example test and lives under `implementation/scripts/`.
 
+Per the test-free examples policy (rf2-8cevm) there is no per-example
+Playwright spec; real-regression coverage lives in the substrate
+contract tests (`npm run test:cljs`) and the framework gates (see
+[`examples/README.md`](../../README.md)).
+
 ## How to run
 
-The example is wired into the canonical examples harness. From
+To iterate against the source, watch the build directly from
 `implementation/`:
 
 ```bash
-npm run test:examples
+shadow-cljs watch examples/counter-slim-and-fast
 ```
-
-That compiles every example (this one builds under shadow-cljs id
-`examples/counter-slim-and-fast`), stages its `index.html` into
-`out/examples/counter-slim-and-fast/`, serves the lot on port 8030,
-and runs the Playwright smoke spec.
 
 The Reagent Slim bundle-isolation contract is exercised separately
 when slim-related paths change, and in the nightly/manual expensive
@@ -78,17 +75,6 @@ workflow. To run it locally:
 # From implementation/ — release both bundles, then grep.
 npm run test:reagent-slim:bundle-isolation
 ```
-
-To iterate on the source alone, watch the build directly from
-`implementation/`:
-
-```bash
-shadow-cljs watch examples/counter-slim-and-fast
-```
-
-(Run `npm run test:examples` once first so
-`out/examples/counter-slim-and-fast/index.html` is staged; subsequent
-watch builds reuse it.)
 
 ## Cross-references
 
