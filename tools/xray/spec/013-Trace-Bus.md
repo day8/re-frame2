@@ -2,7 +2,7 @@
 
 Xray's **trace bus** is the data plane every panel reads from. It is a
 ring buffer of `:rf/trace-event` records that Xray maintains alongside
-the framework's own [retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only),
+the framework's own [retain-N trace ring buffer](../../../spec/009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only),
 fed by a collector registered against the framework's
 [`register-listener!`](../../../spec/009-Instrumentation.md#user-side-listener-registration)
 listener API.
@@ -20,7 +20,7 @@ that reads trace data; those tabs project from this buffer.
 
 The framework already maintains a retain-N ring at
 `re-frame.trace/trace-buffer` (default depth 200; see
-[Spec 009 §Retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only)).
+[Spec 009 §Retain-N trace ring buffer](../../../spec/009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only)).
 Xray MUST NOT reuse that buffer as its primary store. Two reasons:
 
 1. **Depth independence.** The framework's depth is tuned for the
@@ -513,8 +513,8 @@ Trace → "Show wall-clock axis."
 
 - [Spec 009 §Listener registration](../../../spec/009-Instrumentation.md#user-side-listener-registration)
   — the upstream `register-listener!` API the collector consumes.
-- [Spec 009 §Retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only)
-  — the framework's own ring buffer the Xray bus runs alongside.
+- [Spec 009 §Per-frame trace rings](../../../spec/009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only)
+  — the framework's own per-frame cascade-keyed rings the Xray bus runs alongside (rf2-g1b2m).
 - [Spec 009 §Filter vocabulary](../../../spec/009-Instrumentation.md#filter-vocabulary)
   — the filter axes the consumer-side filter algebra MUST honour.
 - [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces) —
