@@ -343,3 +343,36 @@
       (is (seq diff-mts) "diff-mode mounts present")
       (is (every? #(true? (:popup-affordance? (:opts %))) diff-mts)
           "diff-mode mounts also opt in to the popup affordance"))))
+
+;; ---- card chrome (rf2-63ie5) --------------------------------------------
+;;
+;; The App-DB panel renders the user-domain TOP + every reserved `:rf/*`
+;; area as top-level mounts in the same panel. Without card chrome the
+;; mounts blend into one continuous block; `:card? true` gives each mount
+;; a distinct inspector-card affordance.
+
+(deftest browse-mode-mounts-carry-card-opt
+  (testing "rf2-63ie5 — every `[dd/data-display ...]` mount the App-DB
+            panel produces (BROWSE mode, 1-arity / no-diff) carries
+            `:card? true` so each top-level mount reads as a discrete
+            inspector card"
+    (let [model  (h/current-state-sections
+                   {:counter 2 :rf/route {:id :home}
+                    :rf/machines {:auth {:state :idle}}})
+          tree   (state/state-body model)
+          mounts (find-data-display-mounts tree)]
+      (is (seq mounts) "the panel mounts data-display widget instances")
+      (is (every? #(true? (:card? (:opts %))) mounts)
+          "every browse-mode mount opts in to the card chrome"))))
+
+(deftest diff-mode-mounts-also-carry-card-opt
+  (testing "rf2-63ie5 — DIFF-mode mounts (when a pre-image is supplied)
+            ALSO carry `:card? true`; card chrome is independent of
+            diff mode and applies to every top-level App-DB mount"
+    (let [model  (h/current-state-sections {:counter 2} {:counter 1})
+          tree   (state/state-body model)
+          mounts (find-data-display-mounts tree)
+          diff-mts (filter #(contains? (:opts %) :before) mounts)]
+      (is (seq diff-mts) "diff-mode mounts present")
+      (is (every? #(true? (:card? (:opts %))) diff-mts)
+          "diff-mode mounts also opt in to the card chrome"))))
