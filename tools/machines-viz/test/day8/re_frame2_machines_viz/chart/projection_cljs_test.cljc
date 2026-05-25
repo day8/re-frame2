@@ -1299,14 +1299,19 @@
       (is (= parsed-ids proj-ids)
           "every parsed edge id appears in the projected edge ids"))))
 
-;; ---- self-loop fan (rf2-shv82, Issue 2) --------------------------------
+;; ---- self-loop fan superseded by multi-event collapse (rf2-shv82 → rf2-j10sm)
 ;;
-;; Multiple self-loops on the same source render via stacked loops at
-;; the same coords pre-rf2-shv82 → garbled label overlap (3 self-loops
-;; on `:disconnected` in the testdeck: `:ws/arm-fail`, `:ws/disarm-fail`,
-;; `:ws/clear`). The fix assigns each a stable `loop-index` per source
-;; (0..N-1 in emission order), which `chart.edges/edge-path` uses to
-;; rotate the loop's perimeter slot + label anchor.
+;; rf2-shv82 (Issue 2) introduced a per-source self-loop perimeter fan:
+;; N self-loops on `:disconnected` rotated around the node's perimeter
+;; so their labels did not stack. rf2-j10sm (Phase 2, B) supersedes the
+;; fan with the xstate/Stately multi-event collapse: N self-loops share
+;; ONE loop arc with N vertically-stacked labels (one event per row).
+;; That collapse is the right convention; the fan is preserved in
+;; `chart.edges/edge-path` for direct callers / future explicit-fan
+;; affordances, but the projection layer no longer fans — every
+;; self-loop carries `:loopIndex 0` (the historical single-self-loop
+;; slot) and rides the multi-event sibling stack via `:siblingIndex` +
+;; `:siblingCount` instead.
 
 (def ^:private multi-self-loop-machine
   "Three self-loops on `:idle` (mirrors the testdeck `:disconnected`
@@ -1316,29 +1321,40 @@
                          :disarm {:action :disarm-it}
                          :clear  {:action :clear-it}}}}})
 
-(deftest xyflow-graph-assigns-loop-index-per-source
-  (testing "rf2-shv82 (Issue 2) — multiple self-loops on the same source
-            get distinct `:loopIndex` ordinals (0, 1, 2, …) in emission
-            order so the renderer can fan them around the perimeter"
+(deftest xyflow-graph-multi-self-loops-collapse-to-one-arc-with-stacked-labels
+  (testing "rf2-j10sm (Phase 2, B) — multiple self-loops on the same
+            source ALL share `:loopIndex 0` (one loop arc, not a fan of
+            N arcs); the per-event slot rides on `:siblingIndex`
+            (0..N-1) + `:siblingCount` N, so the renderer paints ONE
+            arc + N stacked event labels (xstate/Stately convention)"
     (let [parsed (layout/parse-definition multi-self-loop-machine)
           graph  (projection/xyflow-graph parsed {} {})
           self-loops (->> (:edges graph)
                           (remove #(:entry (:data %)))
                           (filter #(true? (:selfLoop (:data %)))))]
       (is (= 3 (count self-loops)) "fixture has 3 self-loops on :idle")
-      (is (= [0 1 2] (sort (map #(:loopIndex (:data %)) self-loops)))
-          "the 3 self-loops get ordinals 0/1/2 (distinct slots)"))))
+      (is (every? #(= 0 (:loopIndex (:data %))) self-loops)
+          "all 3 self-loops share loop-index 0 (one arc, no fan)")
+      (is (= [0 1 2] (sort (map #(:siblingIndex (:data %)) self-loops)))
+          "the 3 events get sibling slots 0/1/2 in the label stack")
+      (is (every? #(= 3 (:siblingCount (:data %))) self-loops)
+          "every sibling knows the group total"))))
 
 (deftest xyflow-graph-single-self-loop-gets-index-zero
   (testing "rf2-shv82 (Issue 2) — a single self-loop on a node gets
-            :loopIndex 0 (the historical top-right slot — single-self-
-            loop renders pixel-identical to pre-rf2-shv82)"
+            :loopIndex 0 (the historical top-right slot) AND siblingCount
+            1, so the single-self-loop case renders pixel-identical to
+            pre-collapse"
     (let [parsed (layout/parse-definition self-loop-machine)
           graph  (projection/xyflow-graph parsed {} {})
           ping   (first (filter #(true? (:selfLoop (:data %))) (:edges graph)))]
       (is (some? ping))
       (is (= 0 (:loopIndex (:data ping)))
-          "single self-loop gets slot 0 (historical position)"))))
+          "single self-loop gets slot 0 (historical position)")
+      (is (= 1 (:siblingCount (:data ping)))
+          "single-event case: siblingCount 1, no stacking")
+      (is (= 0 (:siblingIndex (:data ping)))
+          "the sole sibling is its own leader at slot 0"))))
 
 (deftest xyflow-graph-non-self-loops-have-nil-loop-index
   (testing "rf2-shv82 (Issue 2) — a normal transition (source != target)
@@ -1351,10 +1367,11 @@
       (is (every? #(nil? (:loopIndex (:data %))) non-self)
           "non-self-loop edges carry no loop-index"))))
 
-(deftest xyflow-graph-self-loop-indices-are-per-source
-  (testing "rf2-shv82 (Issue 2) — the loop-index counter resets per
-            source node (a self-loop on :a starts at 0 even if :b
-            already has 3 self-loops). Each node fans independently."
+(deftest xyflow-graph-self-loop-sibling-counter-is-per-source
+  (testing "rf2-j10sm (Phase 2, B) — the sibling counter resets per
+            `[source target]` pair. A node with 2 self-loops + another
+            with 1 self-loop reports independent sibling slots; the
+            second node's sibling starts at 0, not at 2."
     (let [m {:initial :a
              :states  {:a {:on {:a1 {} :a2 {}}}
                        :b {:on {:b1 {}}}}}
@@ -1363,10 +1380,43 @@
           self-loops (filter #(true? (:selfLoop (:data %)))
                              (remove #(:entry (:data %)) (:edges graph)))
           by-source  (group-by :source self-loops)
-          a-indices  (sort (map #(:loopIndex (:data %)) (get by-source (layout/node-id [:a]))))
-          b-indices  (sort (map #(:loopIndex (:data %)) (get by-source (layout/node-id [:b]))))]
-      (is (= [0 1] a-indices) ":a has self-loops 0 and 1")
-      (is (= [0]   b-indices) ":b's first self-loop is 0, not 2"))))
+          a-sib  (sort (map #(:siblingIndex (:data %))
+                            (get by-source (layout/node-id [:a]))))
+          b-sib  (sort (map #(:siblingIndex (:data %))
+                            (get by-source (layout/node-id [:b]))))]
+      (is (= [0 1] a-sib) ":a has 2 self-loops in sibling slots 0/1")
+      (is (= [0]   b-sib) ":b's lone self-loop is at slot 0"))))
+
+(deftest xyflow-graph-multi-event-collapse-same-source-target-non-self-loop
+  (testing "rf2-j10sm (Phase 2, B) — the collapse applies to ANY
+            same-`[source target]` pair, not just self-loops. Two events
+            both transitioning A → B render as one arrow with two
+            stacked labels."
+    (let [m {:initial :a
+             :states  {:a {:on {:go-fast :b :go-slow :b}}
+                       :b {}}}
+          parsed (layout/parse-definition m)
+          graph  (projection/xyflow-graph parsed {} {})
+          a-to-b (->> (:edges graph)
+                      (remove #(:entry (:data %)))
+                      (filter #(and (= (:source %) (layout/node-id [:a]))
+                                    (= (:target %) (layout/node-id [:b])))))]
+      (is (= 2 (count a-to-b)) "fixture has two A→B edges")
+      (is (every? #(= 2 (:siblingCount (:data %))) a-to-b)
+          "both A→B siblings know the group total")
+      (is (= [0 1] (sort (map #(:siblingIndex (:data %)) a-to-b)))
+          "the two events take sibling slots 0 and 1"))))
+
+(deftest xyflow-graph-unique-pair-edge-is-its-own-sibling-leader
+  (testing "rf2-j10sm (Phase 2, B) — a singleton edge (the only edge
+            between its source/target) is its own leader: siblingIndex 0
+            + siblingCount 1, identical to the single-self-loop case"
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          start  (first (filter #(= :start (:eventId (:data %))) (:edges graph)))]
+      (is (some? start) "fixture has the idle→loading edge")
+      (is (= 1 (:siblingCount (:data start))))
+      (is (= 0 (:siblingIndex (:data start)))))))
 
 ;; ---- cross-hierarchy label placement (rf2-shv82, Issue 3) --------------
 ;;
@@ -1433,4 +1483,9 @@
           entry  (first (filter #(:entry (:data %)) (:edges graph)))]
       (is (some? entry))
       (is (false? (:crossHierarchy (:data entry))))
-      (is (nil?   (:loopIndex (:data entry)))))))
+      (is (nil?   (:loopIndex (:data entry))))
+      ;; rf2-j10sm (Phase 2, B) — entry edges are always singleton
+      ;; (marker → state) so they ride the every-edge :data shape with
+      ;; siblingIndex 0 + siblingCount 1.
+      (is (= 0 (:siblingIndex (:data entry))))
+      (is (= 1 (:siblingCount (:data entry)))))))

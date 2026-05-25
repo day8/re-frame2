@@ -386,7 +386,28 @@
         ;; multi-point route; nil for a simple edge (bezier fallback)
         ;; and for self-loops (which keep their dedicated loop path).
         points     (.-points d)
+        ;; rf2-j10sm (Phase 2, B) — multi-event same-`[source target]`
+        ;; collapse. The projector groups edges by their `[source target]`
+        ;; pair and assigns each a `:siblingIndex` 0..N-1 + a
+        ;; `:siblingCount` N (in emission order). ONLY the leader
+        ;; (`:siblingIndex 0`) renders the SVG path + arrowhead; siblings
+        ;; suppress the path but render their OWN label, vertically
+        ;; stacked above/below the leader so adjacent event labels read as
+        ;; one xstate/Stately-style event-list on a single arrow rather
+        ;; than N overlapping arrows + N overlapping labels. nil / 1 keeps
+        ;; the single-event behaviour pixel-identical.
+        sibling-index   (or (.-siblingIndex d) 0)
+        sibling-count   (or (.-siblingCount d) 1)
+        sibling-leader? (zero? sibling-index)
         {:keys [edge-label-px edge-label-backplate-opacity]} vc
+        ;; rf2-j10sm (Phase 2, B) — per-sibling label-y offset. Vertical
+        ;; row pitch ≈ (label font-size + 6px padding) so adjacent labels
+        ;; touch without overlap. Centred on the geometric anchor
+        ;; (`label-y`) so a 3-event group reads as [−Δ, 0, +Δ]; a 2-event
+        ;; group as [−Δ/2, +Δ/2]; single-event group as [0].
+        row-pitch       (+ edge-label-px 6)
+        label-y-offset  (* row-pitch
+                           (- sibling-index (/ (dec sibling-count) 2.0)))
         ;; rf2-cz8v6 (G2) — path selection lives in the pure `edge-path`
         ;; helper (self-loop → elk route → bezier), so the test suite
         ;; pins the SAME geometry the renderer paints.
@@ -403,20 +424,27 @@
                                      :fired? fired? :chart vc})]
     (r/as-element
       [:<>
-       [:> BaseEdge {:id (.-id props)
-                     :path path
-                     ;; Internal self-transitions suppress the arrowhead
-                     ;; (no exit/entry re-trigger to point back at).
-                     :markerEnd (when-not internal? marker-end)
-                     :style #js {:stroke stroke
-                                 :strokeWidth stroke-w
-                                 :strokeDasharray (when internal? "4 3")
-                                 ;; rf2-qeemm (G3) — the fired-this-epoch edge
-                                 ;; animates the same glow as the focused lens
-                                 ;; (it traversed), so a fired arm that is NOT
-                                 ;; the focused FROM→TO still pulses.
-                                 :animation (when (or focused? fired?)
-                                              "mv-chart-transition-glow 720ms ease-out infinite")}}]
+       ;; rf2-j10sm (Phase 2, B) — non-leader siblings (same `[source
+       ;; target]` pair, siblingIndex > 0) suppress the SVG path so N
+       ;; events on one transition render as ONE arrow with N stacked
+       ;; labels (the xstate/Stately convention), not N overlapping
+       ;; arrows. Single-event edges (siblingCount 1) always render the
+       ;; path — leader == only sibling.
+       (when sibling-leader?
+         [:> BaseEdge {:id (.-id props)
+                       :path path
+                       ;; Internal self-transitions suppress the arrowhead
+                       ;; (no exit/entry re-trigger to point back at).
+                       :markerEnd (when-not internal? marker-end)
+                       :style #js {:stroke stroke
+                                   :strokeWidth stroke-w
+                                   :strokeDasharray (when internal? "4 3")
+                                   ;; rf2-qeemm (G3) — the fired-this-epoch edge
+                                   ;; animates the same glow as the focused lens
+                                   ;; (it traversed), so a fired arm that is NOT
+                                   ;; the focused FROM→TO still pulses.
+                                   :animation (when (or focused? fired?)
+                                                "mv-chart-transition-glow 720ms ease-out infinite")}}])
        (when (seq label)
        [:> EdgeLabelRenderer
         [:div {:data-testid (str "rf-mv-chart-edge-" (.-id props))
@@ -443,6 +471,13 @@
                ;; placement adjustment reads; surfaced so the DOM suite
                ;; can pin label-anchor-near-source-bend behaviour.
                :data-cross-hierarchy (str cross-hierarchy?)
+               ;; rf2-j10sm (Phase 2, B) — sibling slot in the merged
+               ;; multi-event group + per-group total. Surfaced so DOM
+               ;; tests + hosts can pin which event in a stacked label
+               ;; list this label is, and whether the edge collapsed
+               ;; (sibling-count > 1).
+               :data-sibling-index (str sibling-index)
+               :data-sibling-count (str sibling-count)
                :data-machine-level (str (boolean (.-machineLevel d)))
                ;; rf2-u422r — clickable edges surface their fireable
                ;; event-id so a host (Xray on-chart sim) + tests can
@@ -464,20 +499,41 @@
                                     :toPath   to-path})))
                :style {:position       "absolute"
                        :transform      (str "translate(-50%, -50%) translate("
-                                            label-x "px," label-y "px)")
+                                            label-x "px," (+ label-y label-y-offset) "px)")
                        :pointer-events "auto"
                        :cursor         (if clickable? "pointer" "default")
                        :font-family    mono-stack
                        :font-size      (str edge-label-px "px")
                        :font-weight    (if (and clickable? focused?) 600 400)
-                       :color          (:bg-0 tokens/tokens)
-                       :background     (tokens/with-alpha :white edge-label-backplate-opacity)
-                       :padding        "1px 5px"
-                       :border-radius  "3px"
+                       ;; rf2-j10sm (Phase 1, D) — padded label backgrounds.
+                       ;; Opaque chart-bg colour matching the canvas
+                       ;; (`:bg-1`, the colour the chart root paints), so
+                       ;; each label "punches through" overlapping nodes /
+                       ;; edges with the surrounding background. Light text
+                       ;; on the dark canvas instead of the previous
+                       ;; white-pill + dark-text chip. Rounded ~4px corners
+                       ;; + ~4px padding give the label breathing room. The
+                       ;; `:edge-label-backplate-opacity` knob is preserved
+                       ;; for hosts that want a semi-transparent backplate
+                       ;; (still applied as the bg alpha; the new default of
+                       ;; 0.94 is high enough to mask underlying ink while
+                       ;; admitting a hint of the canvas so adjacent labels
+                       ;; do not look like solid stacked tiles).
+                       :color          (:text-primary tokens/tokens)
+                       :background     (tokens/with-alpha :bg-1 edge-label-backplate-opacity)
+                       :padding        "2px 6px"
+                       :border-radius  "4px"
                        :border         (str "1px solid "
                                             (if clickable?
-                                              (tokens/with-alpha :yellow 0.55)
-                                              (tokens/with-alpha :border-subtle 0.4)))
+                                              (tokens/with-alpha :yellow 0.7)
+                                              (tokens/with-alpha :border-default 0.6)))
+                       ;; rf2-j10sm (Phase 1, D) — z-index bump. The edge
+                       ;; label sits above edges + node borders but below
+                       ;; interactive controls (xyflow's Controls render at
+                       ;; z 6+). A modest 5 reads as "label is the focus
+                       ;; you must be able to scan" without blocking the
+                       ;; built-in chrome.
+                       :z-index        5
                        :white-space    "nowrap"
                        :user-select    "none"}}
          label]])])))

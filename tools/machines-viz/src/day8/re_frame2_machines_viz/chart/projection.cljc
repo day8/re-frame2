@@ -344,22 +344,42 @@
                            :extent   "parent"))))
               (sort-by #(if (or (:region? %) (:compound? %)) 0 1) nodes))
 
-        ;; rf2-shv82 (Issue 2) — fan multiple self-loops on the same
-        ;; source so each gets a unique perimeter slot + label position
-        ;; instead of stacking at the same coords (the bug: 3 self-loops
-        ;; on `:disconnected` rendered overlapping garbled text). We
-        ;; assign each self-loop a STABLE per-source ordinal (0..N-1) in
-        ;; emission order; `edge-path` uses the ordinal to rotate the
-        ;; loop's angular slot around the node's perimeter, the
-        ;; xstate/Stately "fan multiple events on one transition" read.
-        self-loop-index-of
+        ;; rf2-j10sm (Phase 2, B) — multi-event same-`[source target]`
+        ;; collapse (the xstate/Stately convention). N edges with the
+        ;; same source + target (e.g. 3 self-loops on `:disconnected`,
+        ;; or 2 parallel transitions A→B on different events) render as
+        ;; ONE arrow with N stacked event labels rather than N
+        ;; overlapping arrows + N overlapping labels.
+        ;;
+        ;; Compute, in two passes:
+        ;;
+        ;;   sibling-counts — `{[source target] N}` for every pair the
+        ;;     projection emits. Read by the edge renderer to space the
+        ;;     stacked labels (and by `:data-sibling-count`).
+        ;;   sibling-index-of — per-pair monotone counter (0..N-1) that
+        ;;     hands each edge its slot in the stack in emission order.
+        ;;     Only the leader (`:siblingIndex 0`) paints the SVG path +
+        ;;     arrowhead; siblings render just their label, vertically
+        ;;     offset.
+        ;;
+        ;; This SUPERSEDES the rf2-shv82 self-loop perimeter fan: a
+        ;; self-loop is just a same-pair case (source == target), and
+        ;; stacked labels on ONE loop arc are visually cleaner than N
+        ;; loops fanned around the perimeter. `loop-index` collapses to
+        ;; 0 for every self-loop now (no fan); the fan slots are
+        ;; reserved for a future "explicit fan" affordance that doesn't
+        ;; collapse labels (none planned). The historical single-self-
+        ;; loop case (one loop on a node) is unchanged: siblingCount 1,
+        ;; loop-index 0, leader paints the loop in slot 0.
+        sibling-key       (juxt :source :target)
+        sibling-counts    (frequencies (map sibling-key edges))
+        sibling-index-of
         (let [seen (volatile! {})]
           (fn [e]
-            (when (= (:source e) (:target e))
-              (let [src (:source e)
-                    n   (get @seen src 0)]
-                (vswap! seen assoc src (inc n))
-                n))))
+            (let [k (sibling-key e)
+                  n (get @seen k 0)]
+              (vswap! seen assoc k (inc n))
+              n)))
         ;; rf2-shv82 (Issue 3) — flag cross-hierarchy edges (source and
         ;; target sit in different parent containers). The label-
         ;; positioning logic uses this to anchor the label near the
@@ -391,11 +411,20 @@
                       ;; loop, not a degenerate near-zero bezier; the edge
                       ;; component reads the `:selfLoop` flag.
                       self-loop?   (= (:source e) (:target e))
-                      ;; rf2-shv82 (Issue 2) — ordinal among self-loops on
-                      ;; this source (0 for the first, 1 for the next, …);
-                      ;; nil when not a self-loop. Drives the perimeter
-                      ;; rotation in `edge-path`.
-                      loop-index   (self-loop-index-of e)
+                      ;; rf2-j10sm (Phase 2, B) — sibling slot in the merged
+                      ;; multi-event group. Drives label stacking +
+                      ;; leader/follower path painting in `transition-edge`.
+                      sibling-index (sibling-index-of e)
+                      sibling-count (get sibling-counts (sibling-key e) 1)
+                      ;; rf2-shv82 (Issue 2) → rf2-j10sm (Phase 2, B) — the
+                      ;; self-loop perimeter fan is superseded by the
+                      ;; multi-event collapse: all self-loops on one source
+                      ;; share ONE loop arc with stacked labels. loop-index
+                      ;; is now always 0 for a self-loop (the historical
+                      ;; single-self-loop slot); the fan code path is
+                      ;; preserved in `edge-path` but is exercised only by
+                      ;; the projection-bypassing test corpus.
+                      loop-index   (when self-loop? 0)
                       ;; rf2-shv82 (Issue 3) — cross-hierarchy flag for the
                       ;; label-placement adjustment in `edge-path`.
                       cross-hier?  (cross-hierarchy?-of e)
@@ -444,10 +473,17 @@
                             :guard      (layout/name-of (:guard e))
                             :action     (layout/name-of (:action e))
                             :selfLoop   self-loop?
-                            ;; rf2-shv82 (Issue 2) — fan ordinal for the
-                            ;; self-loop perimeter rotation in `edge-path`.
-                            ;; Nil for non-self-loops.
+                            ;; rf2-shv82 (Issue 2) → rf2-j10sm (Phase 2, B)
+                            ;; — `loopIndex` is 0 for every self-loop now
+                            ;; (the fan is superseded by the multi-event
+                            ;; collapse) and nil for non-self-loops.
                             :loopIndex  loop-index
+                            ;; rf2-j10sm (Phase 2, B) — slot in the merged
+                            ;; same-`[source target]` group + per-group
+                            ;; total. The renderer pins these and uses them
+                            ;; to stack labels + suppress non-leader paths.
+                            :siblingIndex sibling-index
+                            :siblingCount sibling-count
                             ;; rf2-shv82 (Issue 3) — cross-hierarchy flag
                             ;; for the label-position shift in `edge-path`
                             ;; (source-side bend point instead of midpoint).
@@ -522,6 +558,12 @@
                                ;; the every-edge :data shape stays whole.
                                :loopIndex nil
                                :crossHierarchy false
+                               ;; rf2-j10sm (Phase 2, B) — entry edges are
+                               ;; always singleton (one marker → one state),
+                               ;; so the leader sibling slot keeps the
+                               ;; every-edge :data shape whole.
+                               :siblingIndex 0
+                               :siblingCount 1
                                ;; rf2-cz8v6 (G2) — entry edges keep the
                                ;; bezier (a short marker→state hop never
                                ;; crosses a container); :points nil so

@@ -176,25 +176,80 @@ parser's transition count) so a visual-regression test can pin
 parity at every stage of the parser → projector → DOM chain — the
 silent-drop bug cannot recur at any layer without failing the gate.
 
-### Self-loop fan — multiple self-loops on one node (rf2-shv82, Issue 2)
+### Multi-event label collapse — one arrow, N stacked labels (rf2-j10sm Phase 2, B)
 
-A state with N self-loops (e.g. `:disconnected` with `:ws/arm-fail`,
-`:ws/disarm-fail`, `:ws/clear` in the testdeck) renders each loop in a
-DISTINCT perimeter slot so their labels do not stack and garble.
+N transitions sharing a `[source target]` pair render as **ONE** arrow
+with **N vertically-stacked event labels** — the xstate/Stately
+Studio convention for "multiple events on one transition." This
+applies uniformly to:
 
-The convention follows xstate/Stately Studio's multi-event fan: each
-self-loop gets a stable per-source ordinal (`:loopIndex` 0..N-1, in
-emission order); `chart.edges/edge-path` rotates the loop's anchor
-direction + the label's anchor position to a different cardinal /
-inter-cardinal slot per ordinal (8 slots before wrapping via mod —
-8+ self-loops on one state is a code-smell the user owns). The
-single-self-loop case (`:loopIndex 0`) renders pixel-identical to
-pre-rf2-shv82 — `loop-index nil` is treated as `0`, so historical
-callers stay unchanged.
+- **Multiple self-loops on one state** (e.g. testdeck `:disconnected`
+  with `:ws/arm-fail`, `:ws/disarm-fail`, `:ws/clear`): one loop arc,
+  three labels stacked.
+- **Multiple parallel transitions A → B** on different events: one
+  arrow, N labels.
 
-The chart surfaces `data-loop-index` on each self-loop edge label so
-DOM tests + hosts can pin the per-source slotting. A non-self-loop
-edge carries no `data-loop-index`.
+The projector groups edges by `[source target]` (in emission order)
+and assigns each:
+
+- `:siblingIndex` — the slot in the label stack (0..N-1).
+- `:siblingCount` — the group total (N). Singleton edges carry 1.
+
+The renderer (`chart.edges/transition-edge`) paints the SVG path +
+arrowhead **only when `:siblingIndex` is 0** (the leader); every
+sibling renders its OWN label, offset by `siblingIndex - (N-1)/2`
+rows in Y. So a 3-event group reads as `[−Δ, 0, +Δ]`, a 2-event group
+as `[−Δ/2, +Δ/2]`, a singleton as `[0]` (the historical single-event
+position pixel-identical to pre-collapse). Each label keeps its own
+`data-event-id`, click handler, and `data-fired` / `data-active`
+flags — so an Xray on-chart sim can still dispatch any individual
+event in the stack.
+
+The chart surfaces `data-sibling-index` + `data-sibling-count` on
+every transition edge label so DOM tests + hosts can pin the slot
+assignment.
+
+### Self-loop fan — `:loopIndex` (rf2-shv82 Issue 2 → superseded by rf2-j10sm)
+
+The historical multi-self-loop perimeter fan (rf2-shv82, Issue 2)
+rotated N self-loops around a node's perimeter so their labels did
+not stack. The multi-event collapse above **supersedes** the fan: N
+self-loops on one source share **one** loop arc with N stacked
+labels (visually cleaner than N fanned arcs + N labels). The fan
+geometry is preserved in `chart.edges/edge-path` for direct callers
+that want explicit per-loop rotation (no projection callers exist
+today), but the projection layer no longer fans — every self-loop
+carries `:loopIndex 0` (the historical single-self-loop slot) and
+rides the label stack via `:siblingIndex` / `:siblingCount` instead.
+
+The chart still surfaces `data-loop-index` on every self-loop edge
+label for DOM-test back-compat; a non-self-loop edge carries no
+`data-loop-index`.
+
+### Label rendering — padded backgrounds (rf2-j10sm Phase 1, D)
+
+Every edge label paints with an **opaque chart-bg backplate** (the
+canvas's own `:bg-1` token, alpha-controlled by
+`:edge-label-backplate-opacity`) and **light text** (`:text-primary`)
+on top — so a label sitting over a node, an edge, or another label
+visually "punches through" with the surrounding canvas colour rather
+than merging into the ink below.
+
+Geometry is invariant across densities:
+
+| Style key | Value | Why |
+|---|---|---|
+| `border-radius` | 4px | Softens the chip without reading as product chrome (matches the chart's `:corner-radius` family). |
+| `padding` | `2px 6px` | Adequate breathing room for the mono label glyphs at the regular chart-floor font sizes. |
+| `border` | `1px solid border-default` (idle) / `1px solid yellow` (clickable, host-fed sim) | Idle labels read as a "card" against the canvas; clickable labels stay distinct from inert auto edges (`:after` / `:always`). |
+| `background` | `bg-1` × `edge-label-backplate-opacity` | The chart canvas paints `:bg-1`; an opaque-ish label background blends into it so adjacent labels don't form a solid stacked tile. |
+| `color` | `text-primary` | Light text on dark canvas — matches the chart's text-on-bg posture. |
+| `z-index` | 5 | Above edges + node borders, below xyflow's `Controls` chrome (which renders at z 6+). |
+
+`:edge-label-backplate-opacity` rides the density map (per
+`visual-constants/chart-*`) and is invariant across the three
+densities (the backplate's contrast budget doesn't scale with type
+size — same posture as pre-rf2-j10sm).
 
 ### Cross-hierarchy label placement (rf2-shv82, Issue 3)
 
