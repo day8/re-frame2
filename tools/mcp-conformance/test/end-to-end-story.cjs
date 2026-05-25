@@ -55,6 +55,7 @@ const {
   assertDescriptorShape,
 } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
+const { decodeDedupEnvelope } = require('../lib/dedup-envelope.cjs');
 
 const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -82,6 +83,23 @@ const EXPECTED_TOOLS = JSON.parse(
 // registers, and distinct from the `stdio-roundtrip.js` probe ids so
 // the two test scripts could in principle run against the same JVM.
 const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
+
+// Wire → semantic adapter. Every assertion below reaches for slots
+// that the SEMANTIC contract guarantees (e.g. `:lifecycle` on
+// `preview-variant`'s structuredContent). Three of story-mcp's tools
+// (`preview-variant`, `run-variant`, `record-as-variant`) ship their
+// payloads wrapped in `{:rf.mcp/dedup-table <cache>}` at the wire
+// boundary (rf2-90eft) — a real MCP client decodes via
+// `de-dupe.core/expand` before user code sees it. The harness mirrors
+// that by routing every structuredContent read through
+// `decodeDedupEnvelope`, a no-op on payloads that don't carry the
+// marker. This keeps conformance assertions talking to the semantic
+// contract, not the wire shape — so a future tool gaining or losing
+// dedup-eligibility doesn't break this suite (the slot is reachable
+// either way).
+function structured(resp) {
+  return decodeDedupEnvelope(resp.structuredContent || {});
+}
 
 // JVM boot is slow on a cold CI worker (~10-30s); the whole register →
 // run → read → unregister loop adds a few more seconds. 90s is
@@ -194,7 +212,7 @@ runWithWatchdog(
     if (regResp.isError) {
       throw new Error('register-variant failed: ' + JSON.stringify(regResp));
     }
-    const regStruct = regResp.structuredContent || {};
+    const regStruct = structured(regResp);
     // Pin the SINGLE canonical key story-mcp emits: `:registered?`
     // (Cheshire keeps the `?` on the keyword → JSON key `registered?`;
     // pinned JVM-side by tools_test.clj `(-> reg :structuredContent
@@ -239,7 +257,7 @@ runWithWatchdog(
     if (prevResp.isError) {
       throw new Error('preview-variant on fixture failed: ' + JSON.stringify(prevResp));
     }
-    const prevStruct = prevResp.structuredContent || {};
+    const prevStruct = structured(prevResp);
     if (!('lifecycle' in prevStruct)) {
       throw new Error(
         'preview-variant structuredContent missing :lifecycle: ' + JSON.stringify(prevResp),
@@ -256,7 +274,7 @@ runWithWatchdog(
     if (runResp.isError) {
       throw new Error('run-variant failed: ' + JSON.stringify(runResp));
     }
-    const runStruct = runResp.structuredContent || {};
+    const runStruct = structured(runResp);
     if (!Array.isArray(runStruct.assertions)) {
       throw new Error('run-variant :assertions not an array: ' + JSON.stringify(runResp));
     }
@@ -276,7 +294,7 @@ runWithWatchdog(
     if (failResp.isError) {
       throw new Error('read-failures failed: ' + JSON.stringify(failResp));
     }
-    const failStruct = failResp.structuredContent || {};
+    const failStruct = structured(failResp);
     if (failStruct.total !== 0) {
       throw new Error('read-failures :total expected 0; got: ' + JSON.stringify(failResp));
     }
@@ -303,8 +321,8 @@ runWithWatchdog(
         'snapshot-identity errored: ' + JSON.stringify(snap1) + ' / ' + JSON.stringify(snap2),
       );
     }
-    const h1 = snap1.structuredContent?.['content-hash'];
-    const h2 = snap2.structuredContent?.['content-hash'];
+    const h1 = structured(snap1)['content-hash'];
+    const h2 = structured(snap2)['content-hash'];
     if (!h1 || h1 !== h2) {
       throw new Error('snapshot-identity content-hash not stable: ' + h1 + ' vs ' + h2);
     }
@@ -320,7 +338,7 @@ runWithWatchdog(
     if (recResp.isError) {
       throw new Error('record-as-variant zero-duration failed: ' + JSON.stringify(recResp));
     }
-    const recStruct = recResp.structuredContent || {};
+    const recStruct = structured(recResp);
     if (recStruct['recorded-event-count'] !== 0) {
       throw new Error(
         'record-as-variant :recorded-event-count expected 0; got: ' + JSON.stringify(recResp),
@@ -341,7 +359,7 @@ runWithWatchdog(
     if (unregResp.isError) {
       throw new Error('unregister-variant failed: ' + JSON.stringify(unregResp));
     }
-    const unregStruct = unregResp.structuredContent || {};
+    const unregStruct = structured(unregResp);
     if (unregStruct['unregistered?'] !== true) {
       throw new Error(
         'unregister-variant :unregistered? expected true: ' + JSON.stringify(unregResp),

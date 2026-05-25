@@ -87,6 +87,15 @@ on the server side surfaces as an SDK parse-error.
 - `test/end-to-end-story.cjs` — story-mcp conformance (full write-loop
   with `--allow-writes` enabled) + closed-world read-path success
   envelopes
+- `lib/dedup-envelope.cjs` — Node-side mirror of `de-dupe.core/expand`
+  for the `:rf.mcp/dedup-table` wire envelope (rf2-90eft). story-mcp +
+  pair-mcp wrap selected tools' `:structuredContent` in
+  `{:rf.mcp/dedup-table <cache>}`; a real MCP client decodes by
+  calling `de-dupe.core/expand` before user code sees the payload.
+  `decodeDedupEnvelope` is the Node-side mirror: idempotent on
+  unwrapped payloads, so harnesses can route every
+  `:structuredContent` slot read through it and talk to the SEMANTIC
+  contract (e.g. `:lifecycle` reachable) rather than the wire shape.
 - `test/end-to-end-flag-gates.cjs` — cross-MCP operator-opt-in CLI
   flag-vocabulary conformance (rf2-ee38b.20). Boots story-mcp without /
   with / with-a-legacy `--allow-writes` spelling and asserts the
