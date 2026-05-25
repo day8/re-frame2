@@ -541,7 +541,7 @@ the surface:
 
 | Layer | Server | Tools |
 |---|---|---|
-| Browser substrate | [Chrome DevTools MCP](https://github.com/anthropics/chrome-devtools-mcp) or [Playwright MCP](https://github.com/microsoft/playwright-mcp) | Click, type, navigate, screenshot, viewport |
+| Browser substrate | [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) or [Playwright MCP](https://github.com/microsoft/playwright-mcp) | Click, type, navigate, screenshot, viewport |
 | re-frame2 runtime | **re-frame2-pair-mcp** (this artefact) | `dispatch`, `snapshot`, `get-path`, `subscribe`, `eval-cljs`, … |
 
 Browser-substrate ops and re-frame2-runtime ops are different
