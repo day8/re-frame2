@@ -104,6 +104,23 @@ or gitignored), interrupt the worker, preserve the edits into the worker
 worktree, then restore the mayor checkout — only specific known files; never
 broad destructive resets.
 
+**Mayor-side commit guard (rf2-ydl2p).** A pre-commit hook installed in
+the mayor's `.git/hooks/pre-commit` refuses commits that touch
+worker-tracked surfaces (anything outside the small allow-list:
+`.beads/issues.jsonl` + root `MEMORY.md`). The hook is gated by a
+sentinel file at `<git-common-dir>/mayor-marker` so it activates ONLY
+in the mayor checkout — worker worktrees see a no-op because their
+per-worktree git dir has no marker. Install with
+`sh scripts/install-git-hooks.sh` or
+`pwsh -ExecutionPolicy Bypass -File scripts/install-git-hooks.ps1`. See
+[`scripts/git-hooks/README.md`](../../scripts/git-hooks/README.md) for
+the marker pattern, permitted/refused surfaces, and the
+`--no-verify`/disable escape hatches. This is a commit-time
+complement to the edit-time guard at
+`scripts/assert-worker-worktree.ps1` — if a worker's edit guard is
+bypassed (e.g. PowerShell cwd leak), the commit guard catches the
+attempt from the other side.
+
 **TODO (leak-mitigation escalation).** If this strengthened reminder proves
 insufficient and the leak continues to happen, escalate to one of:
 

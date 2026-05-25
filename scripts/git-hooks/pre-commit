@@ -1,0 +1,69 @@
+#!/usr/bin/env sh
+# .git/hooks/pre-commit (re-frame2-managed segment)
+#
+# Refuses commits in the MAYOR checkout that touch worker-tracked surfaces
+# (rf2-ydl2p). Mayor commits are allowed only for `.beads/issues.jsonl` and
+# the optional root `MEMORY.md`; any source/spec/test/doc/script change
+# must originate from a worker worktree under
+# `C:\Users\miket\code\re-frame2-worktrees\`.
+#
+# Activation is gated by a marker file (default `.git/mayor-marker`) that
+# the installer drops into the mayor checkout's git common dir at install
+# time. Worker worktrees share the same hooks directory (git's default
+# for `git worktree add`) but do NOT share their per-worktree `.git/`
+# directory — so the marker is only visible from the mayor's git dir, and
+# this hook becomes a no-op everywhere else.
+#
+# Installed by scripts/install-git-hooks.sh (POSIX) or .ps1 (Windows).
+# Source of truth: scripts/git-hooks/pre-commit.
+#
+# Discovery context: rf2-oswhk (#2136) near-mishap, 2026-05-25 — a worker
+# tool call landed a commit on the mayor checkout's local main because of
+# a PowerShell cwd leak. This commit-time guard complements the edit-time
+# guard at scripts/assert-worker-worktree.ps1.
+#
+# Cross-platform: runs under Git Bash on Windows, macOS, Linux. POSIX sh.
+
+# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---
+# Managed by scripts/install-git-hooks.sh. Do not edit between markers.
+{
+  # Locate the per-worktree git dir (NOT the shared common dir). Git
+  # invokes hooks with the worktree-specific GIT_DIR set; we re-derive it
+  # defensively in case a wrapper changed the environment.
+  _rf2_git_dir=$(git rev-parse --git-dir 2>/dev/null) || _rf2_git_dir=""
+  _rf2_marker=""
+  if [ -n "$_rf2_git_dir" ]; then
+    # `--git-dir` may be relative (e.g. ".git") when invoked from the
+    # worktree root; resolve to absolute against the toplevel so the
+    # marker check is unambiguous.
+    case "$_rf2_git_dir" in
+      /*|[A-Za-z]:[\\/]*) _rf2_marker="$_rf2_git_dir/mayor-marker" ;;
+      *)
+        _rf2_top=$(git rev-parse --show-toplevel 2>/dev/null) || _rf2_top=""
+        if [ -n "$_rf2_top" ]; then
+          _rf2_marker="$_rf2_top/$_rf2_git_dir/mayor-marker"
+        fi
+        ;;
+    esac
+  fi
+
+  if [ -n "$_rf2_marker" ] && [ -f "$_rf2_marker" ]; then
+    # We are in the mayor checkout. Run the commit-boundary check.
+    _rf2_repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || _rf2_repo_root=""
+    if [ -n "$_rf2_repo_root" ]; then
+      _rf2_lib="$_rf2_repo_root/scripts/git-hooks/lib/check-mayor-commit-boundary.sh"
+      if [ -f "$_rf2_lib" ]; then
+        # shellcheck source=lib/check-mayor-commit-boundary.sh
+        . "$_rf2_lib"
+        _rf2_staged=$(git diff --cached --name-only 2>/dev/null)
+        if ! printf '%s\n' "$_rf2_staged" | check_mayor_commit_boundary; then
+          unset _rf2_git_dir _rf2_marker _rf2_top _rf2_repo_root _rf2_lib _rf2_staged
+          exit 1
+        fi
+      fi
+    fi
+  fi
+
+  unset _rf2_git_dir _rf2_marker _rf2_top _rf2_repo_root _rf2_lib _rf2_staged
+} || true
+# --- END re-frame2 mayor commit boundary (rf2-ydl2p) ---
