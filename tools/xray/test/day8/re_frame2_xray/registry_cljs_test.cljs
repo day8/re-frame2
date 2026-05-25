@@ -61,14 +61,15 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.self-noise :as self-noise]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- xray-init! []
   (preload/reset-for-test!)
   (registry/reset-for-test!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/reset-suppressed-count!)
   ;; rf2-5m5n2 — reset the project-root prefix atom so a sibling test
   ;; that set it (e.g. `open_in_editor_cljs_test.cljs`) doesn't leak
@@ -457,7 +458,6 @@
    ;; their own `reg-event-fx` — per spec/021 §10.5.
    :rf.xray/navigate-to-path
    :rf.xray/note-sensitive-suppressed
-   :rf.xray/note-trace-event
    :rf.xray/open-edit-popup
    :rf.xray/open-in-editor
    ;; rf2-e9tb0 — App-DB segment-inspector popup open event.
@@ -795,99 +795,54 @@
 
 ;; ---- (2) high-value sub contracts: defaults on a fresh frame ------------
 
-(deftest sub-trace-buffer-thunks-trace-bus
-  (testing ":rf.xray/trace-buffer falls through to `trace-bus/buffer`
-            (the process-global ring atom) when Xray's app-db slot is
-            empty — the pre-mount fallback path that lets headless tests
-            drive the collector without first dispatching the seed.
-            Tests push BEFORE the first subscribe; the first deref of a
-            fresh Reaction reads through to the atom and sees the
-            current contents. Per rf2-in6l2 — see `trace_bus.cljc`
-            §Reactivity for the dual atom + app-db slot, and
-            `registry.cljs` for the sub's `(or (get db :trace-buffer)
-            (trace-bus/buffer))` fall-through."
+(deftest sub-trace-buffer-empty-by-default
+  (testing "a fresh :rf/xray frame with an empty `:trace-buffer` slot
+            yields `[]` from the `:rf.xray/trace-buffer` sub. Per
+            rf2-43koh — the sub reads directly from the app-db slot
+            (no atom fall-through; the slot is populated by the
+            microtask-coalesced `:rf.xray/sync-trace-buffer` dispatch
+            from `trace-collector/refresh-trace-rings!`)."
     (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      ;; Push first, then subscribe — the Reaction's first read sees
-      ;; the current atom contents.
-      (trace-bus/collect-trace!
-        {:id 1 :op-type :rf.event :operation :rf.test/x :tags {}})
-      (trace-bus/collect-trace!
-        {:id 2 :op-type :rf.event :operation :rf.test/y :tags {}})
-      (let [buf @(rf/subscribe [:rf.xray/trace-buffer])]
-        (is (= 2 (count buf))
-            "the two pushes are visible on the first subscribe")
-        (is (= [1 2] (mapv :id buf))
-            "events are oldest-first, matching trace-bus/push algebra")))))
-
-(deftest sub-trace-buffer-fresh-frame-sees-empty
-  (testing "a fresh :rf/xray frame with an empty `trace-bus/buffer-state`
-            yields an empty :rf.xray/trace-buffer sub. Clearing the
-            atom before the first subscribe is the canonical reset
-            shape per rf2-e9s81 (the previous app-db-mirror reset
-            shape via `:rf.xray/clear-trace-buffer` is removed)."
-    (setup-xray-frame!)
-    (trace-bus/clear-buffer!)
+    (trace-collector/reset-for-test!)
     (rf/with-frame :rf/xray
       (is (= [] @(rf/subscribe [:rf.xray/trace-buffer]))
-          "empty atom → sub returns []"))))
+          "empty rings + empty slot → sub returns []"))))
 
-(deftest sub-trace-buffer-immediate-reactive-update-via-mirror
-  (testing "Per rf2-in6l2 — mirroring trace pushes into Xray's app-db
-            slot `:trace-buffer` makes the layer-1 sub fire on the
-            standard app-db-write reactive path. This drives the
-            directly-callable `:rf.xray/note-trace-event` append helper
-            (the production live path is the coalesced
-            `:rf.xray/sync-trace-buffer` per rf2-wq6gx; the append
-            handler is the per-event surface tests exercise); assert the
-            sub reads from app-db rather than the atom fall-through once
-            the slot is populated."
+(deftest sub-trace-buffer-reads-from-app-db-slot
+  (testing "Per rf2-43koh — the sub reads off the `:trace-buffer` slot
+            in Xray's app-db, populated by the
+            `:rf.xray/sync-trace-buffer` dispatch carrying the snapshot
+            from `trace-collector/refresh-trace-rings!`."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      ;; Seed the app-db slot via the production event handler. With
-      ;; the slot populated the sub MUST read from app-db (not the atom
-      ;; fall-through) — that's the reactive surface panels depend on.
-      (rf/dispatch-sync [:rf.xray/note-trace-event
-                         {:id 1 :op-type :rf.event :operation :rf.test/a :tags {}}])
-      (rf/dispatch-sync [:rf.xray/note-trace-event
-                         {:id 2 :op-type :rf.event :operation :rf.test/b :tags {}}])
-      (let [buf @(rf/subscribe [:rf.xray/trace-buffer])]
-        (is (= 2 (count buf))
-            "two mirrored pushes are visible immediately on subscribe")
-        (is (= [1 2] (mapv :id buf))
-            "events are oldest-first, matching trace-bus/push algebra"))
-      ;; Bump once more — the reaction re-fires on the same dispatch
-      ;; path the production trace-collector takes. No
-      ;; clear-sub-cache! workaround needed.
-      (rf/dispatch-sync [:rf.xray/note-trace-event
-                         {:id 3 :op-type :rf.event :operation :rf.test/c :tags {}}])
-      (let [buf @(rf/subscribe [:rf.xray/trace-buffer])]
-        (is (= 3 (count buf))
-            "subsequent mirror dispatch re-fires the sub — immediate update")
-        (is (= [1 2 3] (mapv :id buf)))))))
+      (let [seed [{:id 1 :op-type :rf.event :operation :rf.test/a :tags {}}
+                  {:id 2 :op-type :rf.event :operation :rf.test/b :tags {}}]]
+        (rf/dispatch-sync [:rf.xray/sync-trace-buffer seed])
+        (let [buf @(rf/subscribe [:rf.xray/trace-buffer])]
+          (is (= 2 (count buf))
+              "snapshot lands in slot; sub reads it back")
+          (is (= [1 2] (mapv :id buf))
+              "events are oldest-first, matching the snapshot sort order"))))))
 
 (deftest sub-trace-buffer-clear-event-drops-mirror-slot
-  (testing "Per rf2-in6l2 — `:rf.xray/clear-trace-buffer` (dispatched
-            from `trace-bus/clear-buffer!` in CLJS) drops the mirrored
-            slot in lockstep with the atom reset. After clear the
-            sub falls back through the atom path again."
+  (testing "Per rf2-43koh — `:rf.xray/clear-trace-buffer` (dispatched
+            from `trace-collector/retroactive-scrub!` on privacy
+            toggle-off / the Settings clear affordance) drops the
+            mirrored slot in lockstep with the rings reset."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/note-trace-event
-                         {:id 1 :op-type :rf.event :operation :rf.test/x :tags {}}])
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer
+                         [{:id 1 :op-type :rf.event :operation :rf.test/x :tags {}}]])
       (is (= 1 (count @(rf/subscribe [:rf.xray/trace-buffer]))))
       (rf/dispatch-sync [:rf.xray/clear-trace-buffer])
-      ;; After clear the slot is dissoc'd; the sub falls back to the
-      ;; atom (also empty since the trace-bus atom was cleared at the
-      ;; start of the test via the fixture's xray-init!).
       (is (= [] @(rf/subscribe [:rf.xray/trace-buffer]))
-          "clear-trace-buffer drops the slot and the atom is empty too"))))
+          "clear-trace-buffer drops the slot"))))
 
 (deftest sub-trace-buffer-sync-event-overwrites-slot
-  (testing "Per rf2-in6l2 — `:rf.xray/sync-trace-buffer` overwrites the
-            slot wholesale, used by `mount.cljs/open!` to seed the slot
-            with the atom's pre-mount contents and by `set-buffer-depth!`
-            to reflect post-shrink atom state."
+  (testing "Per rf2-43koh — `:rf.xray/sync-trace-buffer` overwrites the
+            slot wholesale; used by `mount.cljs/open!` to seed at first
+            paint and by `trace-collector/refresh-trace-rings!` on every
+            microtask drain."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [seed [{:id 100 :op-type :rf.event :operation :rf.test/seeded :tags {}}
@@ -900,25 +855,25 @@
         (is (= [{:id 200 :tags {}}] @(rf/subscribe [:rf.xray/trace-buffer]))
             "second sync wholly replaces the slot (no merge)")))))
 
-(deftest sub-trace-buffer-evicts-on-overflow
-  (testing "trace-bus enforces the eviction-on-overflow algebra against
-            `current-depth`. We shrink the depth to 3 then push 5
-            events BEFORE the first subscribe; the sub returns the 3
-            newest in oldest-first order."
+(deftest sub-trace-buffer-frameless-ring-overflow
+  (testing "frameless emits (no `:frame` / no `:dispatch-id`) land in
+            Xray's secondary ring per the rf2-3g9nw D2=a ruling. The
+            ring's depth caps the secondary capture independent of the
+            framework's per-frame ring depth."
     (setup-xray-frame!)
-    (trace-bus/set-buffer-depth! 3)
+    (trace-collector/set-frameless-ring-depth! 3)
     (try
-      (rf/with-frame :rf/xray
-        (dotimes [i 5]
-          (trace-bus/collect-trace!
-            {:id i :op-type :rf.event :operation :rf.test/x :tags {}}))
-        (let [buf @(rf/subscribe [:rf.xray/trace-buffer])]
-          (is (= 3 (count buf))
-              "depth=3 caps the sub-visible buffer at 3 entries")
-          (is (= [2 3 4] (mapv :id buf))
-              "oldest entries evicted; newest retained in oldest-first order")))
+      (dotimes [i 5]
+        (trace-collector/seed-trace-for-test!
+          {:id i :op-type :rf.event :operation :rf.test/x :tags {}}))
+      (let [buf (trace-collector/buffer-for-test)]
+        (is (= 3 (count buf))
+            "depth=3 caps the frameless ring at 3 entries")
+        (is (= [2 3 4] (mapv :id buf))
+            "oldest entries evicted; newest retained in oldest-first order"))
       (finally
-        (trace-bus/set-buffer-depth! 1000)))))
+        (trace-collector/set-frameless-ring-depth!
+          trace-collector/default-frameless-ring-depth)))))
 
 ;; ---- :rf.xray/cascades — xray-internal filter (rf2-g1pt8) ------------
 
@@ -939,7 +894,7 @@
   under `:tags :event`."
   [events]
   (doseq [{:keys [dispatch-id event-vec]} events]
-    (trace-bus/collect-trace!
+    (trace-collector/seed-trace-for-test!
       {:operation   :rf.event/dispatched
        :op-type     :rf.event
        :id          dispatch-id
@@ -971,7 +926,7 @@
             "the 3 :rf.xray/* cascades are filtered; the 2 user-app cascades survive")
         (is (= [:cart/add-item :checkout/start] event-ids)
             "the surviving cascades carry the user-app event-ids in oldest-first order")
-        (is (every? (complement trace-bus/xray-internal-cascade?) cascades)
+        (is (every? (complement self-noise/xray-internal-cascade?) cascades)
             "no Xray-internal cascade leaks past the data-layer filter")))))
 
 (deftest sub-cascades-filter-also-applies-to-filtered-cascades

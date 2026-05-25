@@ -223,7 +223,7 @@
   `rf/subscribe`-mediated — the loop is a side-effect driver, not a
   view; using `subscribe` here would create a reactive dependency on
   Xray's own frame from outside the view's reactive context, which is
-  the same self-noise hazard the trace-bus avoids. We reach through
+  the same self-noise hazard the trace collector avoids. We reach through
   `rf/frame-app-db-value` (the JVM-runnable read; CLJS impl reads off
   the frame's app-db atom) directly."
   []

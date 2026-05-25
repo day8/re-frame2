@@ -882,10 +882,11 @@
 ;;
 ;; Runtime plumbing: the three numeric knobs persist into
 ;; `:settings :buffer` via the standard `:rf.xray/settings-update`
-;; event. Consumption is incremental — trace-bus' set-buffer-depth!
-;; is wired here for `:trace-buffer/keep`; the other two knobs are
-;; stored for future consumers (inspector + epoch buffer) until those
-;; layers land.
+;; event. Consumption is incremental — `:cascades-retained` is wired
+;; to the framework's per-frame ring depth via
+;; `(rf/configure :trace-buffer {:cascades-retained N})` (rf2-43koh
+;; consumer substrate); the other two knobs are stored for future
+;; consumers (inspector + epoch buffer) until those layers land.
 
 (defn- numeric-field
   "Hiccup for a numeric setting input + label + hint. Common shape
@@ -997,7 +998,7 @@
 
 (defn- buffer-section []
   (let [retained-epochs   @(rf/subscribe [:rf.xray/setting :buffer :retained-epochs])
-        trace-keep        @(rf/subscribe [:rf.xray/setting :buffer :trace-buffer/keep])
+        cascades-retained @(rf/subscribe [:rf.xray/setting :buffer :cascades-retained])
         collapse-thresh   @(rf/subscribe [:rf.xray/setting :buffer
                                           :app-db/inspector-collapse-threshold])
         confirm-open?     @(rf/subscribe [:rf.xray/settings-clear-confirm-open?])]
@@ -1024,16 +1025,16 @@
         :hint      "Number of epochs kept in the Xray epoch buffer."})
 
      (numeric-field
-       {:testid    "rf-xray-settings-buffer-trace-keep"
-        :label     "Trace buffer keep (:trace-buffer/keep)"
-        :value     trace-keep
-        :default   1000
+       {:testid    "rf-xray-settings-buffer-cascades-retained"
+        :label     "Cascades retained (:buffer/cascades-retained)"
+        :value     cascades-retained
+        :default   50
         :min       1
         :on-commit #(rf/dispatch
                       [:rf.xray/settings-update
-                       :buffer :trace-buffer/keep %]
+                       :buffer :cascades-retained %]
                       {:frame :rf/xray})
-        :hint      "Number of raw trace events Xray retains."})
+        :hint      "Number of cascades retained in each frame's trace ring."})
 
      (numeric-field
        {:testid    "rf-xray-settings-buffer-inspector-collapse"

@@ -11,9 +11,9 @@
        / `configure! {:rf.privacy/show-sensitive? ...}`.
     3. The suppressed-events counter — `note-suppressed!` /
        `suppressed-count` / `reset-suppressed-count!`.
-    4. `trace-bus/collect-trace!` default-suppress + opt-in pass-
+    4. `trace-collector/collect-trace!` default-suppress + opt-in pass-
        through behaviour.
-    5. `trace-bus/clear-buffer!` resets the counter alongside the
+    5. `trace-collector/reset-for-test!` resets the counter alongside the
        buffer.
 
   Pure-data + JVM-runnable so the algebra runs under the JVM target;
@@ -21,7 +21,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -29,11 +29,11 @@
   ;; Each test starts with the defaults: flag off, counter empty.
   (config/set-show-sensitive! false)
   (config/reset-suppressed-count!)
-  (trace-bus/clear-buffer!)
+  #?(:cljs (trace-collector/reset-for-test!))
   (test-fn)
   (config/set-show-sensitive! false)
   (config/reset-suppressed-count!)
-  (trace-bus/clear-buffer!))
+  #?(:cljs (trace-collector/reset-for-test!)))
 
 (use-fixtures :each reset-privacy-state)
 
@@ -153,14 +153,22 @@
 
 ;; ---- (4) collect-trace! default-suppress + opt-in pass-through ----------
 
+;; Test envelopes deliberately omit `:frame` / `:tags :frame` so the
+;; collector routes them to the frameless secondary ring (per rf2-3g9nw
+;; D2=a). Frame-bound events would expect the framework's per-frame
+;; rings to retain them — but that path requires a real `emit!` to
+;; populate, which this unit test does not drive. For the sensitive-
+;; flag gate the frameless-vs-frame-bound distinction is irrelevant —
+;; the gate fires above the ring split.
+
 (defn- non-sensitive-event []
   {:op-type :rf.event :operation :rf.event/dispatched
-   :tags {:rf.trace/event-id :user/click :frame :rf/default}})
+   :tags {:rf.trace/event-id :user/click}})
 
 (defn- sensitive-event []
   {:op-type :rf.event :operation :rf.event/dispatched
    :sensitive? true
-   :tags {:rf.trace/event-id :user/login :frame :rf/default}})
+   :tags {:rf.trace/event-id :user/login}})
 
 ;; The collect-trace! tests run only on CLJS — the side-effect path
 ;; reads `re-frame.interop/debug-enabled?`, which is true under the
@@ -172,27 +180,27 @@
 #?(:cljs
    (deftest collect-trace-buffers-non-sensitive-by-default
      (testing "non-sensitive events flow into the buffer"
-       (trace-bus/collect-trace! (non-sensitive-event))
-       (is (= 1 (count (trace-bus/buffer))))
+       (trace-collector/collect-trace! (non-sensitive-event))
+       (is (= 1 (count (trace-collector/buffer-for-test))))
        (is (= 0 (config/suppressed-count))))))
 
 #?(:cljs
    (deftest collect-trace-suppresses-sensitive-by-default
      (testing "sensitive event is dropped from the buffer and bumps the counter"
-       (trace-bus/collect-trace! (sensitive-event))
-       (is (= 0 (count (trace-bus/buffer)))
+       (trace-collector/collect-trace! (sensitive-event))
+       (is (= 0 (count (trace-collector/buffer-for-test)))
            "sensitive event must NOT enter the buffer under the default")
        (is (= 1 (config/suppressed-count))
            "the dropped event bumps the counter")
-       (is (= 1 (config/suppressed-count :rf/default))
-           "counter bumps under the event's :tags :frame"))))
+       (is (= 1 (config/suppressed-count :global))
+           "frameless event counts under :global"))))
 
 #?(:cljs
    (deftest collect-trace-passes-sensitive-when-opted-in
      (testing "with :rf.privacy/show-sensitive? true the buffer receives the event"
        (config/configure! {:rf.privacy/show-sensitive? true})
-       (trace-bus/collect-trace! (sensitive-event))
-       (is (= 1 (count (trace-bus/buffer)))
+       (trace-collector/collect-trace! (sensitive-event))
+       (is (= 1 (count (trace-collector/buffer-for-test)))
            "opted-in caller sees the sensitive event in the buffer")
        (is (= 0 (config/suppressed-count))
            "the counter does NOT bump when the event passes through"))))
@@ -200,23 +208,23 @@
 #?(:cljs
    (deftest collect-trace-mixed-flow
      (testing "default-suppress + opt-in flip mid-stream"
-       (trace-bus/collect-trace! (non-sensitive-event))      ; in
-       (trace-bus/collect-trace! (sensitive-event))          ; dropped
-       (trace-bus/collect-trace! (non-sensitive-event))      ; in
+       (trace-collector/collect-trace! (non-sensitive-event))      ; in
+       (trace-collector/collect-trace! (sensitive-event))          ; dropped
+       (trace-collector/collect-trace! (non-sensitive-event))      ; in
        (config/configure! {:rf.privacy/show-sensitive? true})
-       (trace-bus/collect-trace! (sensitive-event))          ; in
-       (is (= 3 (count (trace-bus/buffer)))
+       (trace-collector/collect-trace! (sensitive-event))          ; in
+       (is (= 3 (count (trace-collector/buffer-for-test)))
            "buffer contains the 2 non-sensitive + 1 opted-in sensitive")
        (is (= 1 (config/suppressed-count))
            "exactly one event was suppressed under the default"))))
 
 #?(:cljs
    (deftest clear-buffer-resets-suppressed-counter
-     (testing "clear-buffer! drops the buffer AND the redaction counter"
-       (trace-bus/collect-trace! (sensitive-event))
-       (trace-bus/collect-trace! (sensitive-event))
+     (testing "retroactive-scrub! drops the buffer AND the redaction counter"
+       (trace-collector/collect-trace! (sensitive-event))
+       (trace-collector/collect-trace! (sensitive-event))
        (is (= 2 (config/suppressed-count)))
-       (trace-bus/clear-buffer!)
+       (trace-collector/retroactive-scrub!)
        (is (= 0 (config/suppressed-count))
            "clearing the buffer also drops the indicator state"))))
 
@@ -285,14 +293,14 @@
      (testing "true → false clears the trace buffer in lockstep with the flag"
        ;; Scenario: flag on, sensitive cascade lands, flag flipped off.
        (config/set-show-sensitive! true)
-       (trace-bus/collect-trace! (sensitive-event))
-       (trace-bus/collect-trace! (non-sensitive-event))
-       (trace-bus/collect-trace! (sensitive-event))
-       (is (= 3 (count (trace-bus/buffer)))
+       (trace-collector/collect-trace! (sensitive-event))
+       (trace-collector/collect-trace! (non-sensitive-event))
+       (trace-collector/collect-trace! (sensitive-event))
+       (is (= 3 (count (trace-collector/buffer-for-test)))
            "all three events landed while the flag was true")
        ;; User flips off expecting privacy restored.
        (config/set-show-sensitive! false)
-       (is (= 0 (count (trace-bus/buffer)))
+       (is (= 0 (count (trace-collector/buffer-for-test)))
            "buffer must be empty — sensitive payloads cannot survive the toggle")
        (is (= 0 (config/suppressed-count))
            "suppressed counter also drops in lockstep with the buffer"))))
@@ -306,11 +314,11 @@
        ;; the intentional loss so a future refactor doesn't try to
        ;; "improve" by filtering instead of clearing.
        (config/set-show-sensitive! true)
-       (trace-bus/collect-trace! (non-sensitive-event))
-       (trace-bus/collect-trace! (non-sensitive-event))
-       (is (= 2 (count (trace-bus/buffer))))
+       (trace-collector/collect-trace! (non-sensitive-event))
+       (trace-collector/collect-trace! (non-sensitive-event))
+       (is (= 2 (count (trace-collector/buffer-for-test))))
        (config/set-show-sensitive! false)
-       (is (= 0 (count (trace-bus/buffer)))
+       (is (= 0 (count (trace-collector/buffer-for-test)))
            "non-sensitive history is intentionally lost — see Spec 009 §Retroactive-scrub"))))
 
 #?(:cljs
@@ -319,9 +327,9 @@
        ;; The flag started false, so no sensitive events ever landed.
        ;; A redundant set-show-sensitive! false call must NOT throw away
        ;; the buffered non-sensitive history.
-       (trace-bus/collect-trace! (non-sensitive-event))
-       (trace-bus/collect-trace! (non-sensitive-event))
-       (is (= 2 (count (trace-bus/buffer))))
+       (trace-collector/collect-trace! (non-sensitive-event))
+       (trace-collector/collect-trace! (non-sensitive-event))
+       (is (= 2 (count (trace-collector/buffer-for-test))))
        (config/set-show-sensitive! false) ; redundant; default is false
-       (is (= 2 (count (trace-bus/buffer)))
+       (is (= 2 (count (trace-collector/buffer-for-test)))
            "redundant set-show-sensitive! false must not clear the buffer"))))

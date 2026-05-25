@@ -25,14 +25,14 @@
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- xray-init! []
   (preload/reset-for-test!)
   (registry/reset-for-test!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (frame-switcher/clear!)
   (frame-switcher/set-storage-key! nil))
 
@@ -43,7 +43,12 @@
 
 (defn- setup! []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {}))
+  (frame/reg-frame :rf/xray {})
+  ;; Pre-mount seeds (via `seed-trace-for-test!`) land in the
+  ;; frameless ring but can't reach `:rf/xray`'s app-db `:trace-buffer`
+  ;; slot until the frame is registered. Re-sync now so the cascade
+  ;; subs see the seeded events on the next subscribe.
+  (trace-collector/refresh-trace-rings!))
 
 (defn- xray-db []
   (rf/get-frame-db :rf/xray))
@@ -133,7 +138,7 @@
   cascade key is `[frame dispatch-id]` and both must live under
   `:tags`."
   [dispatch-id frame-id]
-  (trace-bus/collect-trace!
+  (trace-collector/seed-trace-for-test!
     {:id          dispatch-id
      :op-type     :rf.event
      :operation   :rf.event/dispatched
@@ -165,7 +170,7 @@
             every frame present in the trace stream — minus the
             internal-frames filter set (spec/018 §8 I1)"
     ;; Seed BEFORE setup! so the sub's first compute reads the populated
-    ;; trace-bus atom (the sub falls back to `(trace-bus/buffer)` when
+    ;; trace-bus atom (the sub falls back to `(trace-collector/buffer-for-test)` when
     ;; the db's `:trace-buffer` slot is unwritten). Mirrors the shell
     ;; tests' seed-then-subscribe order.
     (dispatch-trace 1 :rf/default)

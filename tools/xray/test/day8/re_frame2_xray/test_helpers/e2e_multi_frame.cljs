@@ -14,7 +14,7 @@
 
   Then it wires Xray's trace-bus consumption to the host's dispatches
   exactly the way the production preload does — i.e. it registers
-  `trace-bus/collect-trace!` under the framework's
+  `trace-collector/seed-trace-for-test!` under the framework's
   `re-frame.trace.tooling/register-listener!` surface. After that, any
   REAL `(rf/dispatch-sync ev {:frame :host})` into the host fans out
   through the trace bus → Xray's `:trace-buffer` slot →
@@ -65,7 +65,8 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.self-noise :as self-noise]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- defaults ------------------------------------------------------------
 
@@ -107,8 +108,8 @@
   ;; Seed app-db slots so subs that depend on `:epoch-history` /
   ;; `:target-frame` / `:trace-buffer` resolve to the canonical
   ;; shapes. `mount.cljs/ensure-xray-frame!` does the same.
-  (let [buffer     (trace-bus/buffer)
-        cascades   (into [] (remove trace-bus/xray-internal-cascade?)
+  (let [buffer     (trace-collector/buffer-for-test)
+        cascades   (into [] (remove self-noise/xray-internal-cascade?)
                          (projection/group-cascades buffer))
         seed-frame (or (spine/focusable-head-frame-id cascades)
                        defaults/default-target-frame)]
@@ -141,7 +142,7 @@
       ;; `make-reset-runtime-fixture` clears registrar entries but not the
       ;; trace-bus atom (which is process-global / `defonce`). Clear
       ;; here so the next test starts from a fresh slate.
-      (trace-bus/clear-buffer!))))
+      (trace-collector/reset-for-test!))))
 
 (defn with-host-and-xray-frames
   "Set up host + `:rf/xray` frames, run `body-fn`, tear down.
@@ -184,7 +185,7 @@
     @(rf/subscribe [:rf.xray/target-frame])))
 
 (defn sync-xray-trace-mirror!
-  "Synchronously copy `trace-bus/buffer` into Xray's app-db
+  "Synchronously copy `trace-collector/buffer-for-test` into Xray's app-db
   `:trace-buffer` slot. The production path uses a `next-tick`-
   coalesced `request-mirror-sync!` so the slot lands on the next
   microtask; in node-test we want the mirror to be visible to subs
@@ -193,7 +194,7 @@
   xray` call."
   []
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/sync-trace-buffer (trace-bus/buffer)])))
+    (rf/dispatch-sync [:rf.xray/sync-trace-buffer (trace-collector/buffer-for-test)])))
 
 (defn sync-xray-epoch-history!
   "Synchronously re-read the framework's per-frame epoch ring into

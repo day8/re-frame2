@@ -42,7 +42,7 @@
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.app-db-diff-subs
              :as app-db-diff-subs]))
@@ -51,7 +51,7 @@
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   ;; The `:rf.xray/selected-epoch-diff` cache is a top-level
   ;; `defonce` (lifted from let-local for rf2-o94sp testability).
   ;; Reset between tests so

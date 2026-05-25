@@ -35,13 +35,13 @@
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!))
+  (trace-collector/reset-for-test!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -124,7 +124,7 @@
             browser target."
     (preload/register-trace-collector!)
     (let [result (core/load-theme ".foo { color: red; }")
-          events (trace-bus/buffer)
+          events (trace-collector/buffer-for-test)
           stale  (filter #(= :rf.warning/xray-load-theme-not-yet-implemented
                              (:operation %))
                          events)]

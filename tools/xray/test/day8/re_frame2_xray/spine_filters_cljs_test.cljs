@@ -22,12 +22,12 @@
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
   (spine-filters/clear-raw!)
-  (trace-bus/clear-buffer!))
+  (trace-collector/reset-for-test!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -234,9 +234,9 @@
 
 (deftest muting-strips-rows-from-filtered-cascades
   (xray-setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:auth/login]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 2 [:user/mouse-move]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 3 [:order/submit]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:auth/login]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:user/mouse-move]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:order/submit]))
   ;; Sanity — all three rows present pre-mute.
   (let [before (frame-sub [:rf.xray/filtered-cascades])]
     (is (= 3 (count before))))
@@ -250,9 +250,9 @@
 
 (deftest muting-strips-rows-from-l2-event-list
   (xray-setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:auth/login]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 2 [:user/mouse-move]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 3 [:order/submit]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:auth/login]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:user/mouse-move]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:order/submit]))
   (rf/with-frame :rf/xray
     ;; All three rows render pre-mute.
     (let [tree (shell/shell-view)]
@@ -384,8 +384,8 @@
             downstream effects (row dropped, menu closed, indicator
             visible)."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:auth/login]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:user/mouse-move]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:auth/login]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:user/mouse-move]))
     (let [dispatches (atom [])]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/open-row-context-menu

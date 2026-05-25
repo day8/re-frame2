@@ -5,7 +5,7 @@
   Uses the same test-runtime + seed-buffer pattern as
   `event_detail_cljs_test.cljs` — install Xray's handlers, allocate
   the `:rf/xray` frame, push trace events through the production
-  `trace-bus/collect-trace!` path, then read the composite via
+  `trace-collector/seed-trace-for-test!` path, then read the composite via
   `subscribe`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -15,13 +15,13 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/set-show-sensitive! false)
   (config/reset-suppressed-count!))
 
@@ -34,7 +34,7 @@
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {})
   (doseq [ev evs]
-    (trace-bus/collect-trace! ev)))
+    (trace-collector/seed-trace-for-test! ev)))
 
 ;; ---- trace fixture ------------------------------------------------------
 

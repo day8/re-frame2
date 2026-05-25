@@ -27,7 +27,7 @@
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
@@ -37,7 +37,7 @@
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (after-rings/stop-tick!))
 
 (use-fixtures :each
@@ -62,7 +62,7 @@
 
 (defn- push-scheduled!
   [id machine-id state delay epoch]
-  (trace-bus/collect-trace!
+  (trace-collector/seed-trace-for-test!
     {:id id :time id
      :operation :rf.machine.timer/scheduled
      :tags {:machine-id machine-id
@@ -73,7 +73,7 @@
 
 (defn- push-fired!
   [id machine-id state epoch]
-  (trace-bus/collect-trace!
+  (trace-collector/seed-trace-for-test!
     {:id id :time id
      :operation :rf.machine.timer/fired
      :tags {:machine-id machine-id

@@ -38,7 +38,7 @@
   exact L2-row pipeline Xray uses —
 
     `projection/group-cascades`
-      → `trace-bus/xray-internal-cascade?` (the shared hard-filter)
+      → `self-noise/xray-internal-cascade?` (the shared hard-filter)
       → `shell/l2-cascade-visible?` (the L2 visibility predicate)
 
   and assert the POST-avvwm counter-inc epoch surfaces as exactly one
@@ -51,7 +51,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.shell :as shell]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.self-noise :as self-noise]))
 
 ;; ---- fixture builders ---------------------------------------------------
 
@@ -96,7 +96,7 @@
   ([events] (visible-l2-rows events false))
   ([events show-ungrouped?]
    (->> (projection/group-cascades events)
-        (remove trace-bus/xray-internal-cascade?)
+        (remove self-noise/xray-internal-cascade?)
         (filterv #(shell/l2-cascade-visible? % show-ungrouped?)))))
 
 ;; ---- 1. POST-avvwm: counter-inc epoch surfaces as an L2 row -------------

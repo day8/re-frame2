@@ -19,14 +19,14 @@
             [day8.re-frame2-xray.palette.recents :as recents]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixture -----------------------------------------------------------
 
 (defn- xray-init! []
   (preload/reset-for-test!)
   (registry/reset-for-test!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/reset-suppressed-count!)
   (config/set-project-root! nil)
   ;; rf2-ybjkx — clear palette recents between tests so each scenario
@@ -166,8 +166,8 @@
 (deftest invoke-clear-trace-buffer-empties-buffer
   (setup!)
   ;; Seed the buffer first so we can observe the clear.
-  (trace-bus/seed-buffer-for-test! {:id 1 :op :rf.event/handled :event-id [:foo]})
-  (is (pos? (count (trace-bus/buffer))))
+  (trace-collector/seed-trace-for-test! {:id 1 :op :rf.event/handled :event-id [:foo]})
+  (is (pos? (count (trace-collector/buffer-for-test))))
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/palette-open])
     (rf/dispatch-sync
@@ -177,7 +177,7 @@
         :label  "Clear trace buffer"
         :action [:palette/clear-trace-buffer]}
        false]))
-  (is (zero? (count (trace-bus/buffer))))
+  (is (zero? (count (trace-collector/buffer-for-test))))
   (is (false? (boolean (:palette-open? (xray-db))))))
 
 (deftest popout-flag-routes-through-fx-when-popoutable

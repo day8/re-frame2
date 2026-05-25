@@ -256,7 +256,7 @@ so one host config knob covers every tool.
 The flag MUST be read at the head of the collector body on every
 event so toggling it via `configure!` takes effect on the next trace
 event without re-registering the listener (per
-[`013-Trace-Bus.md`](./013-Trace-Bus.md) §Privacy gate).
+[`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Privacy gate).
 
 `:rf.privacy/show-sensitive?` is **one-way lossy** — flipping from
 `false` to `true` only affects *future* events. Sensitive events
@@ -386,7 +386,7 @@ rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
  :theme     :dark                                ; :dark | :light
  :diff      {:highlight-fn-ref-changes? false}   ; opt-in fn-ref classification
  :buffer    {:retained-epochs                    200    ; epoch buffer depth
-             :trace-buffer/keep                  1000   ; raw trace-event ring depth
+             :cascades-retained                   50    ; per-frame trace-ring cascade count
              :app-db/inspector-collapse-threshold 50}}  ; inspector auto-collapse branching
 ```
 
@@ -410,17 +410,27 @@ Buffer tab:
 
 - `:retained-epochs` — count of epochs Xray retains in its causal
   ring. Default `200`.
-- `:trace-buffer/keep` — count of raw trace events kept. Mirrors
-  `trace-bus/default-buffer-depth` (`1000`).
+- `:cascades-retained` — count of cascades retained in each frame's
+  trace ring. Mirrors
+  `re-frame.trace.tooling/default-cascades-retained` (`50`) and
+  writes through to `(rf/configure :trace-buffer {:cascades-retained
+  N})` once the Settings UX wires the runtime knob (per rf2-43koh).
+  Renamed from `:trace-buffer/keep` (events) at rf2-43koh — the unit
+  changed from events to cascades when Xray's separate ring was
+  retired in favour of the framework's per-frame cascade-keyed rings
+  (per the rf2-3g9nw D1=a ruling). No back-compat alias — pre-alpha
+  posture.
 - `:app-db/inspector-collapse-threshold` — branch factor above which
   the App-db inspector auto-collapses. Default `50`.
 
 The Buffer tab also exposes a destructive "Clear buffer now" action
-that fires `trace-bus/clear-buffer!` after a confirmation modal
-(`"Clear buffer? This deletes all retained epochs."` → Cancel /
-Clear). The action is dispatch-only and carries no `configure!`
-counterpart; hosts that need a programmatic clear call the trace-bus
-helper directly.
+that fires `trace-collector/retroactive-scrub!` after a confirmation
+modal (`"Clear buffer? This deletes all retained epochs."` → Cancel
+/ Clear). The action drops the framework's per-frame rings + Xray's
+frameless secondary ring + the redaction counter in one wholesale
+clear. The action is dispatch-only and carries no `configure!`
+counterpart; hosts that need a programmatic clear call the
+`trace-collector` helper directly.
 
 The `:panel-width-px` slot (rf2-x8h9y) drives the
 `:right-rail` panel's horizontal width. The Xray drag handle (per
@@ -549,8 +559,8 @@ The slot is updated by the `:rf.xray/note-sensitive-suppressed` event
 (per [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md)
 §Shared infrastructure) dispatched from the trace collector. It is
 cleared by `:rf.xray/reset-suppressed-counters` — either entirely
-(no-arg) or per-bucket — fired from `trace-bus/clear-buffer!` and
-test fixtures.
+(no-arg) or per-bucket — fired from `trace-collector/retroactive-scrub!`
+and test fixtures.
 
 The `:rf.xray/suppressed-sensitive-count` subscription reads this
 slot and returns the total across every bucket; the
@@ -592,7 +602,7 @@ inspects. It is the frame-scoped sibling of the handler-scoped
 the gate survives hot-reload. This config is NOT a `configure!` key — it
 is a framework `reg-frame` option Xray sets internally. See
 [framework API §`:rf.trace/frame-no-emit?`](../../../spec/API.md) +
-[`013-Trace-Bus.md` §Tool-frame trace gate](./013-Trace-Bus.md). (Xray
+[`013-Trace-Consumer.md` §Tool-frame trace gate](./013-Trace-Consumer.md). (Xray
 adds a second, ingest-side belt-and-braces drop for the residual cases
 the frame gate misses — see 013.)
 
@@ -738,7 +748,7 @@ All forthcoming keys follow the `:rf.xray/*` convention.
 
 - `:rf.xray/trace-fatten? <bool>` — opt into trace fattening for
   context-at-position payloads (Phase 5 prereq per
-  [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Vision).
+  [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Vision).
 - `:rf.xray/settings-tab-persist? <bool>` — persist selected tab
   across reloads.
 - `:rf.xray/logging-debug? <bool>` — Xray self-debug logs

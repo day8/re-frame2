@@ -447,7 +447,7 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 | 1 | **Event** | `e` | Whole event vector + arg-map + source · handler return · db writes · fx vector · fx-handlers that ran (incl. results) | this doc §5.1 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Event-detail panel |
 | 2 | **App-db** | `a` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
 | 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
-| 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Bus.md`](013-Trace-Bus.md) |
+| 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
 | 5 | **Machines** | `m` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. The spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab's Topology mode in rf2-ga16q. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.xray.static.machines/sim-*`, view at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
 | 6 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
 | 7 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns | this doc §5.4 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon |
@@ -793,7 +793,7 @@ x 16:42:14.713.501  fx:result        :http/post failed: 500                    8
                     src/cart/fx.cljs:18 · error: connection-reset
 ```
 
-Virtualised list (overscan 20). See [`013-Trace-Bus.md`](013-Trace-Bus.md) for the underlying trace-bus contract.
+Virtualised list (overscan 20). See [`013-Trace-Consumer.md`](013-Trace-Consumer.md) for the underlying trace-bus contract.
 
 ### §5.4 Issues tab content
 
@@ -1314,7 +1314,7 @@ suites pin the panel render bodies post-reseed.
 | **Filters** (default) | Active filter pills (mirror of ribbon pills; edit/delete) · Recommended-filters quick-add · auto-hide-error-overrides toggle · advanced pattern-editor for complex globs |
 | **View** | Theme: `◉ Dark · ○ Light · ○ Dim` · Density: `◉ Cosy 28px · ○ Compact 22px` (event-list row height; the `:comfy` tier was dropped per 015 §Density) · Long-keyword treatment threshold (chars) · **`── Power user ──` divider · "Show tool frames in picker" toggle** (OFF by default; reveals `:rf/xray` etc. in ribbon picker; only useful when debugging Xray itself) |
 | **Keybindings** | Table of `Action / Chord / Edit` rows; per-row chord editor (click chord cell → focus, press new chord); reset-to-defaults button per row + global; `Handle keys?` master toggle |
-| **Buffer** | `:buffer/retained-epochs <int>` (default 200) · `:trace-buffer/keep <int>` (default 500) · `:app-db/inspector-collapse-threshold <int>` (default 20) · "Clear buffer now" button |
+| **Buffer** | `:buffer/retained-epochs <int>` (default 200) · `:buffer/cascades-retained <int>` (default 50) · `:app-db/inspector-collapse-threshold <int>` (default 20) · "Clear buffer now" button |
 | **Popout** | `:popout/width <px>` (default 800) · `:popout/height <px>` (default 600) · `:popout/position <:right :left :centre>` (default `:right`) · "Open in popout now" button (= `o`) |
 | **Actions** | `[factory-reset!]` BIG RED BUTTON · "Reset to fresh-install state — clears filters, pins, keybindings, theme. Buffer kept." Confirmation modal on click. Plus: "Reset filters only" / "Reset keybindings only" / "Clear pinned cascades" finer-grained reset buttons. |
 
@@ -1579,7 +1579,7 @@ not Xray.
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — diff renderer + changed-paths derivation used in L4 App-db tab content.
 - [`007-UX-IA.md`](007-UX-IA.md) — typography, colour tokens, density, keyboard map, editor protocol matrix.
 - [`012-Views.md`](012-Views.md) — Views tab three-group layout (mounted / re-rendered / unmounted); nested subs; cluster-large-grids.
-- [`013-Trace-Bus.md`](013-Trace-Bus.md) — trace ring buffer Trace tab filters from.
+- [`013-Trace-Consumer.md`](013-Trace-Consumer.md) — trace ring buffer Trace tab filters from.
 - [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md) — `:rf.xray/*` registry surface (spine sub, focus events, filter slot, active-tab slot).
 - [`015-Configuration.md`](015-Configuration.md) — `configure!` API surface for filters, view, keybindings, buffer, popout, factory-reset.
 - [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) — per-tab content contracts (Event detail · Issues ribbon · etc.); Performance section dropped.

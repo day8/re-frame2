@@ -29,7 +29,7 @@
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (defn reset-editor! []
   (config/set-editor! :vscode)
@@ -43,7 +43,7 @@
 ;; clean runtime so registrations don't bleed between tests.
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (reset-editor!))
 
 (use-fixtures :each

@@ -41,7 +41,7 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.settings.effects :as effects]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (defn install!
   "Install the settings popup's events. Idempotent under re-frame's
@@ -174,13 +174,15 @@
     (fn [db _event]
       (assoc db :settings-clear-confirm-open? false)))
 
-  ;; rf2-ttnst — perform the clear. trace-bus/clear-buffer! empties the
-  ;; ring + drops the redaction counter (see trace-bus §clear-buffer!).
-  ;; We dismiss the confirm modal here; the parent Settings popup stays
-  ;; open so the user lands back on the Buffer tab.
+  ;; rf2-ttnst (rf2-43koh consumer substrate) — perform the clear.
+  ;; `trace-collector/retroactive-scrub!` empties the framework's
+  ;; per-frame trace rings + Xray's frameless secondary ring + Xray's
+  ;; mirrored `:trace-buffer` slot, and drops the redaction counter.
+  ;; We dismiss the confirm modal here; the parent Settings popup
+  ;; stays open so the user lands back on the Buffer tab.
   (rf/reg-event-db :rf.xray/settings-clear-buffer
     (fn [db _event]
-      (try (trace-bus/clear-buffer!) (catch :default _ nil))
+      (try (trace-collector/retroactive-scrub!) (catch :default _ nil))
       (assoc db :settings-clear-confirm-open? false)))
 
   nil)

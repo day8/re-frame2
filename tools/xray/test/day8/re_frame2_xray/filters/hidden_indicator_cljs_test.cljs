@@ -23,13 +23,13 @@
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
   (spine-filters/clear-raw!)
   (frame-switcher/clear!)
-  (trace-bus/clear-buffer!))
+  (trace-collector/reset-for-test!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -110,8 +110,8 @@
 
 (deftest hidden-by-filters-zero-when-no-filters
   (xray-setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
   (let [s (frame-sub [:rf.xray/hidden-by-filters])]
     (is (= 0 (:hidden s)))
     (is (false? (:visible? s)))
@@ -121,9 +121,9 @@
 
 (deftest hidden-by-filters-counts-out-pill-suppression
   (xray-setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:auth/login]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 2 [:user/mouse-move]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 3 [:order/submit]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:auth/login]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:user/mouse-move]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:order/submit]))
   ;; OUT pill hides :user/mouse-move → 1 hidden.
   (frame-dispatch [:rf.xray/add-filter :out {:pattern :user/mouse-move}])
   (let [s (frame-sub [:rf.xray/hidden-by-filters])]
@@ -142,9 +142,9 @@
             baseline is computed WITHIN the selected frame so switching
             frames does not inflate 'hidden'."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a] :rf/frame-x))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b] :rf/frame-y))
-    (trace-bus/collect-trace! (dispatch-trace-ev 3 [:c] :rf/frame-y))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a] :rf/frame-x))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b] :rf/frame-y))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:c] :rf/frame-y))
     ;; Scope to :rf/frame-y → the list shows frame-y's events; the
     ;; other frame's events are out-of-SCOPE, not hidden-by-filter.
     (frame-dispatch [:rf.xray/select-frame :rf/frame-y])
@@ -159,8 +159,8 @@
 
 (deftest hidden-by-filters-counts-mute-suppression
   (xray-setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 2 [:noise/tick]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:noise/tick]))
   (frame-dispatch [:rf.xray/mute-event-id :noise/tick])
   (let [s (frame-sub [:rf.xray/hidden-by-filters])]
     (is (= 1 (:hidden s)))
@@ -174,8 +174,8 @@
             filtered) so nothing is counted as hidden and no message
             renders."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a] :rf/frame-x))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b] :rf/frame-x))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a] :rf/frame-x))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b] :rf/frame-x))
     (frame-dispatch [:rf.xray/select-frame :rf/empty-frame])
     (let [s (frame-sub [:rf.xray/hidden-by-filters])]
       (is (= 0 (:hidden s)) "frame scope is never counted as hidden")
@@ -189,9 +189,9 @@
 
 (deftest indicator-renders-count-when-hidden
   (xray-setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 3 [:noise/tick]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noise/tick]))
   (frame-dispatch [:rf.xray/add-filter :out {:pattern :noise/tick}])
   (rf/with-frame :rf/xray
     (let [tree (shell/shell-view)
@@ -214,9 +214,9 @@
             NOT re-render it as a cause chip. rf2-pjjwh — Clear Filters is
             retired."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 3 [:noise/tick]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noise/tick]))
     (frame-dispatch [:rf.xray/add-filter :out {:pattern :noise/tick}])
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)]
@@ -236,8 +236,8 @@
 
 (deftest indicator-absent-when-nothing-hidden
   (xray-setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
   (rf/with-frame :rf/xray
     (let [tree (shell/shell-view)]
       (is (nil? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
@@ -253,9 +253,9 @@
             not a filter)."
     (when (and (exists? js/window) (.-localStorage js/window))
       (xray-setup!)
-      (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a] :rf/frame-x))
-      (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b] :rf/frame-x))
-      (trace-bus/collect-trace! (dispatch-trace-ev 3 [:noise/tick] :rf/frame-x))
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a] :rf/frame-x))
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b] :rf/frame-x))
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noise/tick] :rf/frame-x))
       (frame-dispatch [:rf.xray/add-filter :in {:pattern :a}])
       (frame-dispatch [:rf.xray/mute-event-id :noise/tick])
       (frame-dispatch [:rf.xray/select-frame :rf/frame-x])
@@ -278,9 +278,9 @@
 
 (deftest clear-all-filters-removes-banner-from-view
   (xray-setup!)
-  (trace-bus/collect-trace! (dispatch-trace-ev 1 [:a]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 2 [:b]))
-  (trace-bus/collect-trace! (dispatch-trace-ev 3 [:noise/tick]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noise/tick]))
   (frame-dispatch [:rf.xray/add-filter :out {:pattern :noise/tick}])
   (rf/with-frame :rf/xray
     (is (some? (find-by-testid (shell/shell-view)

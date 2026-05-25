@@ -903,7 +903,7 @@ clause), the findings carry the discussion that locked the opinion.
   wire-boundary diff, server error projection, head model inspector,
   retry timeline, on-match chain, pending-navigation card, and route-chain
   visualiser all land here.
-- [`013-Trace-Bus.md`](013-Trace-Bus.md) — the trace fattening contract
+- [`013-Trace-Consumer.md`](013-Trace-Consumer.md) — the trace fattening contract
   that enables context-at-position (Phase 5 prereq for per-instance
   replay).
 - [`015-Configuration.md`](015-Configuration.md) — the `configure!` keys

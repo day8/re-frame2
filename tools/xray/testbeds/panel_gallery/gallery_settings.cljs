@@ -134,7 +134,7 @@
   ;; (rf2-ttnst).
   (story/reg-variant :story.xray.settings-popup/buffer
     {:doc        "Settings popup open on Buffer tab. Three numeric
-                 inputs (retained-epochs, trace-buffer/keep,
+                 inputs (retained-epochs, cascades-retained,
                  inspector-collapse-threshold) plus a destructive
                  'Clear buffer now' button. Clicking Clear opens a
                  confirmation modal (Cancel / Clear)."

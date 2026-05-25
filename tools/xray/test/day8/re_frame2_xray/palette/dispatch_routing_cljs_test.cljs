@@ -45,7 +45,7 @@
             [day8.re-frame2-xray.palette :as palette]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixture (map shape per cljs.test/async requirement) ---------------
 
@@ -53,7 +53,7 @@
 
 (defn- setup-runtime! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/reset-settings!)
   (reset! fixture-snap (test-support/snapshot-registrar))
   (reset! frame/frames {})

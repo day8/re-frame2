@@ -43,13 +43,13 @@
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.theme.tokens :as tokens]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixture ------------------------------------------------------------
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/reset-suppressed-count!))
 
 (use-fixtures :each
@@ -109,8 +109,8 @@
             stripe was retired; the active row is marked by background
             only)."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! (handler-exception-ev 99 1))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
     (rf/with-frame :rf/xray
       (let [tree  (shell/shell-view)
             row   (find-by-testid tree "rf-xray-event-row-1")
@@ -135,8 +135,8 @@
             data-rf-xray-status. The vocabulary lives at the L2 row +
             Trace bar sites instead."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! (handler-exception-ev 99 1))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
       (let [tree (event-detail/Panel)]
@@ -158,7 +158,7 @@
             its testid from the resolved status keyword so a future
             classifier shift surfaces here without a colour assertion."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
       (let [tree (trace/Panel)
@@ -178,8 +178,8 @@
   (testing "rf2-b76v4 — an errored focused cascade flips the bar to
             red. Same helper drives the colour the L2 row picks up."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! (handler-exception-ev 99 1))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
       (let [tree (trace/Panel)
@@ -197,8 +197,8 @@
             stripe was retired. The bar resolves to the canonical status
             keyword from ONE map, NO per-call-site rolling."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! (handler-exception-ev 99 1))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
       (let [trace-tree   (trace/Panel)

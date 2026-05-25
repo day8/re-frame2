@@ -208,12 +208,12 @@ async function readXrayState(page) {
       const cljs = window.cljs && window.cljs.core;
       const bus = window.day8 &&
         window.day8.re_frame2_xray &&
-        window.day8.re_frame2_xray.trace_bus;
-      if (!cljs || !bus || typeof bus.buffer !== 'function') {
+        window.day8.re_frame2_xray.trace_collector;
+      if (!cljs || !bus || typeof bus.buffer_for_test !== 'function') {
         return { ok: false, reason: 'trace bus unavailable', events: [] };
       }
       const events = [];
-      let s = cljs.seq(bus.buffer());
+      let s = cljs.seq(bus.buffer_for_test());
       while (s) {
         events.push(cljs.pr_str(cljs.first(s)));
         s = cljs.next(s);

@@ -32,7 +32,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.palette.recents :as recents]
             [day8.re-frame2-xray.palette.sources :as sources]))
 
@@ -351,12 +351,15 @@
 
           :palette/clear-trace-buffer
           (do
-            ;; The trace-bus atom is the canonical write surface
-            ;; (per registry.cljs §trace-buffer mirror); clearing
-            ;; the atom dispatches the coalesced sync into the
-            ;; mirrored slot so the panel re-renders on the
-            ;; standard reactive path.
-            (try (trace-bus/clear-buffer!) (catch :default _ nil))
+            ;; rf2-43koh — the framework's per-frame rings + Xray's
+            ;; frameless secondary ring + Xray's mirrored
+            ;; `:trace-buffer` slot all drop together via
+            ;; `trace-collector/retroactive-scrub!` (the same path
+            ;; the `:rf.privacy/show-sensitive?` true → false
+            ;; transition uses). The slot dispatches a coalesced
+            ;; clear so the panel re-renders on the standard
+            ;; reactive path.
+            (try (trace-collector/retroactive-scrub!) (catch :default _ nil))
             {:db close-db
              :fx base-fx})
 

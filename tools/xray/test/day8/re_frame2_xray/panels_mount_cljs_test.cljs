@@ -48,13 +48,13 @@
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!))
+  (trace-collector/reset-for-test!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -293,9 +293,9 @@
                     rf/epoch-history (fn [_] [])]
         ;; Host dispatched two events on `:cart-frame` while Xray was
         ;; un-mounted — the trace-bus atom accumulated them.
-        (trace-bus/collect-trace!
+        (trace-collector/seed-trace-for-test!
           (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
-        (trace-bus/collect-trace!
+        (trace-collector/seed-trace-for-test!
           (pre-mount-dispatch-event 2 101 :cart-frame :cart/checkout))
         (panels/mount-event-detail! :mount-point)
         (rf/with-frame :rf/xray
@@ -326,7 +326,7 @@
                                        (case frame-id
                                          :cart-frame cart-records
                                          []))]
-        (trace-bus/collect-trace!
+        (trace-collector/seed-trace-for-test!
           (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
         (panels/mount-app-db-diff! :mount-point)
         (rf/with-frame :rf/xray

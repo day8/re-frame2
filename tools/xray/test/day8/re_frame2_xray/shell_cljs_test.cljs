@@ -52,7 +52,7 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.theme.tokens :refer [tokens layout]]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
@@ -65,7 +65,7 @@
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-bus/clear-buffer!)
+  (trace-collector/reset-for-test!)
   (config/reset-suppressed-count!))
 
 (use-fixtures :each
@@ -401,9 +401,9 @@
     ;; one filtered-out event so the warning + a pill render. Raw
     ;; collect-trace! maps (matching the neighbouring filter tests) so the
     ;; test doesn't forward-reference the later `dispatch-trace-ev` helper.
-    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
-    (trace-bus/collect-trace! {:id 2 :op-type :rf.event :operation :rf.event/dispatched
+    (trace-collector/seed-trace-for-test! {:id 2 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:noise/tick] :frame :rf/default :rf.trace/dispatch-id 2}})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :noise/tick}]))
@@ -428,7 +428,7 @@
             (data-open=false on the collapse track) and carries no action
             cluster / warning. Clear Filters is retired entirely."
     (xray-setup!)
-    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     (rf/with-frame :rf/xray
       (let [tree     (shell/shell-view)
@@ -448,7 +448,7 @@
             filter is created. The collapse track flips data-open
             false → true; the pills cluster carries the new pill."
     (xray-setup!)
-    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     ;; before: closed
     (rf/with-frame :rf/xray
@@ -471,9 +471,9 @@
             out` warning appears (when N>0), but the `Clear Filters`
             button is RETIRED. The collapse track opens (data-open=true)."
     (xray-setup!)
-    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
-    (trace-bus/collect-trace! {:id 2 :op-type :rf.event :operation :rf.event/dispatched
+    (trace-collector/seed-trace-for-test! {:id 2 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:noise/tick] :frame :rf/default :rf.trace/dispatch-id 2}})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :noise/tick}]))
@@ -500,7 +500,7 @@
             (data-open=true). The button itself stays in the tree
             (mounted) so Playwright / test lookups can resolve it."
     (xray-setup!)
-    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     (rf/with-frame :rf/xray
       (let [tree     (shell/shell-view)
@@ -521,7 +521,7 @@
             track flips closed (data-open=false). The events-ribbon's
             own add button stays available throughout."
     (xray-setup!)
-    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/add-filter :in {:pattern :a}]))
@@ -545,7 +545,7 @@
             `+ filter` track so the add affordance is never lost in either
             transition."
     (xray-setup!)
-    (trace-bus/collect-trace! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     ;; add then immediately remove
     (rf/with-frame :rf/xray
@@ -604,12 +604,12 @@
             (rf2-x5tro disables ⏭ only at-head? + live?)."
     (xray-setup!)
     ;; Two events + pin focus to the older one ⟹ RETRO, ⏭ enabled.
-    (trace-bus/collect-trace! {:id 1 :op-type :rf.event
+    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event
                                :operation :rf.event/dispatched
                                :tags {:rf.event/v [:older/event]
                                       :frame :rf/default
                                       :rf.trace/dispatch-id 1}})
-    (trace-bus/collect-trace! {:id 2 :op-type :rf.event
+    (trace-collector/seed-trace-for-test! {:id 2 :op-type :rf.event
                                :operation :rf.event/dispatched
                                :tags {:rf.event/v [:newer/event]
                                       :frame :rf/default
@@ -909,8 +909,8 @@
 (deftest event-list-renders-row-per-cascade
   (testing "every cascade gets a row in the L2 list"
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:baz/qux]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:baz/qux]))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)
             rows (find-all-by-testid-prefix tree "rf-xray-event-row-")]
@@ -925,7 +925,7 @@
             the `duration` column was clipped off the right edge until the
             gap audit (rf2-4297k). Rendered only with rows present."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree   (shell/shell-view)
             header (find-by-testid tree "rf-xray-event-list-header")]
@@ -961,7 +961,7 @@
     ;; A cascade with a dispatched-time so the row renders its trailing
     ;; relative-time chip (the column the header's `timestamp` aligns to),
     ;; and a :timer origin so the `source` column tag renders.
-    (trace-bus/collect-trace!
+    (trace-collector/seed-trace-for-test!
       (-> (dispatch-trace-ev 1 [:poll/tick])
           (assoc :time 1000)
           (assoc-in [:tags :rf/dispatch-origin] :timer)))
@@ -1045,7 +1045,7 @@
             name."
     (xray-setup!)
     ;; A :timer-origin cascade — the source column should read `timer`.
-    (trace-bus/collect-trace!
+    (trace-collector/seed-trace-for-test!
       (assoc-in (dispatch-trace-ev 1 [:poll/tick])
                 [:tags :rf/dispatch-origin] :timer))
     (rf/with-frame :rf/xray
@@ -1063,7 +1063,7 @@
             EVERY row, so the dominant app-code origin reads `ui`."
     (xray-setup!)
     ;; A plain (:user / untagged) cascade — source column reads `ui`.
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree   (shell/shell-view)
             ui-tag (find-by-testid tree "rf-xray-row-origin-ui")]
@@ -1077,8 +1077,8 @@
             duration renders the trailing `duration` column value
             (`N.N ms`), restoring the Figma EventList's fourth column."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:poll/tick]))
-    (trace-bus/collect-trace! (run-end-trace-ev 1 1.234))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:poll/tick]))
+    (trace-collector/seed-trace-for-test! (run-end-trace-ev 1 1.234))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)
             cell (find-by-testid tree "rf-xray-row-duration")]
@@ -1094,8 +1094,8 @@
             min-width slot); header + row both read from the same
             `:rf.xray/event-list-col-widths` sub so they never drift."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:poll/tick]))
-    (trace-bus/collect-trace! (run-end-trace-ev 1 0.4))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:poll/tick]))
+    (trace-collector/seed-trace-for-test! (run-end-trace-ev 1 0.4))
     (rf/with-frame :rf/xray
       (let [tree       (shell/shell-view)
             h-duration (find-by-testid tree "rf-xray-event-list-col-duration")
@@ -1123,8 +1123,8 @@
             renders exactly one row (the real cascade) and no row
             carries the `<no event>` text."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! {:id 50 :op-type :rf.registry
                                :operation :sub/registered
                                :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/xray
@@ -1142,7 +1142,7 @@
             container — the `<no event>` placeholder is never the
             user's first impression of the L2 list."
     (xray-setup!)
-    (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
+    (trace-collector/seed-trace-for-test! {:id 50 :op-type :rf.registry
                                :operation :sub/registered
                                :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/xray
@@ -1174,8 +1174,8 @@
     (xray-setup!)
     (config/update-setting! :general :show-ungrouped? true)
     (try
-      (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-      (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+      (trace-collector/seed-trace-for-test! {:id 50 :op-type :rf.registry
                                  :operation :sub/registered
                                  :tags {:rf.sub/id :foo/bar}})
       (rf/with-frame :rf/xray
@@ -1196,8 +1196,8 @@
     ;; Belt-and-braces: assert the default; do not flip the knob.
     (is (false? (config/get-setting :general :show-ungrouped?))
         ":show-ungrouped? defaults OFF (silent-by-default)")
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! {:id 50 :op-type :rf.registry
                                :operation :sub/registered
                                :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/xray
@@ -1215,8 +1215,8 @@
     (xray-setup!)
     (config/update-setting! :general :show-ungrouped? true)
     (try
-      (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
-      (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+      (trace-collector/seed-trace-for-test! {:id 50 :op-type :rf.registry
                                  :operation :sub/registered
                                  :tags {:rf.sub/id :foo/bar}})
       (let [dispatches (atom [])]
@@ -1239,7 +1239,7 @@
   (testing "spec/018 §6 — row click dispatches :rf.xray/focus-cascade,
             spine flips to :retro, every dependent surface rebinds"
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (let [dispatches (atom [])]
       (with-redefs [rf/dispatch* (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
@@ -1289,7 +1289,7 @@
             head in :live mode (per spec/018 §4 Defaults), so the only
             row rendered is also the focused-LIVE-head row."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [focus @(rf/subscribe [:rf.xray/focus])
             tree  (shell/shell-view)
@@ -1306,8 +1306,8 @@
             (the user clicked → already visible; scrolling would
             steal the cursor)."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-cascade 1]))
     (rf/with-frame :rf/xray
@@ -1324,8 +1324,8 @@
             focused rows must not carry one (would scroll on every
             attachment cycle)."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     ;; Focus auto-snaps to head (id 2). Row 1 is the non-focused row.
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)
@@ -1416,8 +1416,8 @@
             in :live (unpaused) mode ⟹ ▶ disabled, ◀ enabled (older
             events exist), ⏭ disabled (already tracking head live)."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     ;; Fresh focus auto-snaps to head (id 2) in :live mode. Sanity-check.
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)
@@ -1435,8 +1435,8 @@
   (testing "rf2-htik0 Bug 1 — focus on the oldest event in the buffer
             ⟹ ◀ disabled, ▶ enabled (newer events exist), ⏭ enabled."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-cascade 1]))
     (rf/with-frame :rf/xray
@@ -1450,9 +1450,9 @@
 (deftest ribbon-nav-buttons-mid-list-both-enabled
   (testing "focus on a middle event ⟹ both ◀ and ▶ enabled."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:middle/event]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 3 [:newer/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:middle/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:newer/event]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-cascade 2]))
     (rf/with-frame :rf/xray
@@ -1470,8 +1470,8 @@
             LIVE, which is not a no-op. Only at-head? + live? (unpaused)
             disables ⏭."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     ;; Auto-snapped to head in :live; Space pauses the LIVE feed.
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
@@ -1493,7 +1493,7 @@
             icon + borderless box; only the opacity recedes. Asserted on
             ⏭ at head + live."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree   (shell/shell-view)
             head   (find-by-testid tree "rf-xray-nav-head")
@@ -1540,9 +1540,9 @@
             only event must NOT pin focus to the :ungrouped bucket."
     (xray-setup!)
     ;; one real cascade …
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     ;; … plus an :ungrouped trace event (no :dispatch-id tag)
-    (trace-bus/collect-trace! {:id 50 :op-type :rf.registry
+    (trace-collector/seed-trace-for-test! {:id 50 :op-type :rf.registry
                                :operation :sub/registered
                                :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/xray
@@ -1561,7 +1561,7 @@
             signal — silent-by-default the user must NOT see a hand
             cursor on a button that won't fire."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)
             prev (find-by-testid tree "rf-xray-nav-prev")
@@ -1578,7 +1578,7 @@
             if a synthetic click somehow fires the on-click slot, it
             must not dispatch any spine event because the slot is nil."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (let [dispatches (atom [])]
       (with-redefs [rf/dispatch* (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
@@ -1601,7 +1601,7 @@
             returns db unchanged, so focus persists on the first event
             and never slides into nil / :ungrouped."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     ;; Spine auto-snaps focus to the only event in :live mode.
     (rf/with-frame :rf/xray
       (let [focus-before @(rf/subscribe [:rf.xray/focus])]
@@ -1629,7 +1629,7 @@
             info-dense L2 list reclaims vertical canvas. Padding stays
             generous enough to keep the row clickable."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)
             row  (find-by-testid tree "rf-xray-event-row-1")
@@ -1663,7 +1663,7 @@
             to-select are absent — keyboard users can't drive L2 at
             all. The audit (2026-05-20) flagged this as P1."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (rf/with-frame :rf/xray
       (let [tree  (shell/shell-view)
             row   (find-by-testid tree "rf-xray-event-row-1")
@@ -1690,7 +1690,7 @@
             (2026-05-20) flagged the absence of Enter-to-select as a P1
             keyboard-a11y miss."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (let [dispatches (atom [])]
       (with-redefs [rf/dispatch* (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
@@ -1719,7 +1719,7 @@
             right-click. The audit flagged the absence of a keyboard
             path to these actions as a P1 a11y miss."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (let [dispatches (atom [])]
       (with-redefs [rf/dispatch* (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
@@ -1743,7 +1743,7 @@
             in the default row (they move to hover tooltip + the L4
             Event detail tab)."
     (xray-setup!)
-    (trace-bus/collect-trace!
+    (trace-collector/seed-trace-for-test!
       (dispatch-trace-ev 1 [:cart/add-item {:item-id "apple" :qty 2}]))
     (rf/with-frame :rf/xray
       (let [tree    (shell/shell-view)
@@ -1782,7 +1782,7 @@
             slot is gone. The default row body slot is now
             `rf-xray-row-event-id` and renders only the bare keyword."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:counter/inc]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:counter/inc]))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)]
         (is (nil? (find-by-testid tree "rf-xray-row-event-vector"))
@@ -1959,10 +1959,10 @@
     (xray-setup!)
     ;; Seed two distinct frames so the picker collapses to the <select>
     ;; branch (single-frame counts render the flat label).
-    (trace-bus/collect-trace!
+    (trace-collector/seed-trace-for-test!
       (assoc-in (dispatch-trace-ev 1 [:cart/add])
                 [:tags :frame] :app/main))
-    (trace-bus/collect-trace!
+    (trace-collector/seed-trace-for-test!
       (assoc-in (dispatch-trace-ev 2 [:cart/add])
                 [:tags :frame] :app/admin))
     (rf/with-frame :rf/xray
@@ -2210,7 +2210,7 @@
             for the power-user reveal."
     (xray-setup!)
     (let [then-ms 1000000]
-      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
       (rf/with-frame :rf/xray
         (let [tree   (shell/shell-view)
               chip   (find-by-testid tree "rf-xray-row-time-chip")
@@ -2238,8 +2238,8 @@
     (xray-setup!)
     (let [old-ms   1000000
           fresh-ms (+ old-ms 90000)]
-      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] old-ms))
-      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:rf.xray.test/anchor] fresh-ms))
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 1 [:foo/bar] old-ms))
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 2 [:rf.xray.test/anchor] fresh-ms))
       (rf/with-frame :rf/xray
         (let [tree     (shell/shell-view)
               chips    (find-all-by-testid tree "rf-xray-row-time-chip")
@@ -2259,7 +2259,7 @@
     (xray-setup!)
     ;; dispatch-trace-ev (without time stamp) — :dispatched slot will
     ;; lack `:time`, so the chip MUST NOT render.
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)
             chip (find-by-testid tree "rf-xray-row-time-chip")]
@@ -2267,13 +2267,13 @@
             "chip is absent when the cascade has no dispatched :time")))))
 
 (defn- sync-trace-buffer!
-  "Mirror `trace-bus/buffer`'s current contents into Xray's app-db
+  "Mirror `trace-collector/buffer-for-test`'s current contents into Xray's app-db
   slot so reactive sub re-runs see the latest cascades. Mirrors the
   production `request-mirror-sync!` path (which dispatches the same
   event asynchronously in shadow-cljs sessions)."
   []
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/sync-trace-buffer (trace-bus/buffer)])))
+    (rf/dispatch-sync [:rf.xray/sync-trace-buffer (trace-collector/buffer-for-test)])))
 
 (deftest relative-time-now-ms-sub-derives-from-cascades
   (testing "rf2-0s2at — `:rf.xray/relative-time-now-ms` is derived
@@ -2285,17 +2285,17 @@
     (rf/with-frame :rf/xray
       (is (nil? @(rf/subscribe [:rf.xray/relative-time-now-ms]))
           "no cascades → nil anchor"))
-    (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] 1000))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 1 [:foo/bar] 1000))
     (sync-trace-buffer!)
     (rf/with-frame :rf/xray
       (is (= 1000 @(rf/subscribe [:rf.xray/relative-time-now-ms]))
           "single cascade → its dispatched-time is the anchor"))
-    (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:foo/baz] 5000))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 2 [:foo/baz] 5000))
     (sync-trace-buffer!)
     (rf/with-frame :rf/xray
       (is (= 5000 @(rf/subscribe [:rf.xray/relative-time-now-ms]))
           "anchor flips to the newest cascade's dispatched-time"))
-    (trace-bus/collect-trace! (dispatch-trace-ev-with-time 3 [:foo/qux] 3000))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 3 [:foo/qux] 3000))
     (sync-trace-buffer!)
     (rf/with-frame :rf/xray
       (is (= 5000 @(rf/subscribe [:rf.xray/relative-time-now-ms]))
@@ -2306,7 +2306,7 @@
             contribute nothing; the sub returns nil so the view falls
             back to `(interop/now-ms)` at render time."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (sync-trace-buffer!)
     (rf/with-frame :rf/xray
       (is (nil? @(rf/subscribe [:rf.xray/relative-time-now-ms]))
@@ -2391,9 +2391,9 @@
             `background: :active-bg` + white icon + `border: none`."
     (xray-setup!)
     ;; Two events + focus the middle so prev/next are ENABLED (active style).
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:mid/event]))
-    (trace-bus/collect-trace! (dispatch-trace-ev 3 [:newer/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:mid/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:newer/event]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-cascade 2]))
     (rf/with-frame :rf/xray
@@ -2417,7 +2417,7 @@
   (testing "rf2-pjjwh — the focus feature is retired: neither the blue
             `focus` button nor the focus-chip appear in the chrome ribbon."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)]
         (is (nil? (find-by-testid tree "rf-xray-focus-button"))
@@ -2430,7 +2430,7 @@
             on BOTH the header label and the row keyword (Figma EventList
             `text-left`), not centred."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree       (shell/shell-view)
             h-event-id (find-by-testid tree "rf-xray-event-list-col-event-id")
@@ -2447,7 +2447,7 @@
             border stays the transparent border-box base so the columns
             never drift from the header."
     (xray-setup!)
-    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-cascade 1]))
     (rf/with-frame :rf/xray

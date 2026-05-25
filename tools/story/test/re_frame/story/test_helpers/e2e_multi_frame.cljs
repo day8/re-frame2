@@ -72,7 +72,7 @@
             [re-frame.story :as story]
             [re-frame.story.ui.state :as ui-state]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as xray-e2e]
-            [day8.re-frame2-xray.trace-bus :as trace-bus]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- install helpers -----------------------------------------------------
 
@@ -148,7 +148,7 @@
     (try
       (body-fn)
       (finally
-        (trace-bus/clear-buffer!)
+        (trace-collector/reset-for-test!)
         (ui-state/reset-shell-state!)))))
 
 ;; ---- dispatch / subscribe helpers ----------------------------------------
