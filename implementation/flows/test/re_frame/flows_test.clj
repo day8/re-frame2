@@ -1013,22 +1013,36 @@
         ":right carries :shared in its per-frame registry too")))
 
 ;; ---------------------------------------------------------------------------
-;; 9c. :rf.registry/handler-replaced :different-fn? reflects real body
-;;     swaps for :flow re-registrations (rf2-v5ttb).
+;; 9c. :rf.registry/handler-replaced reflects real :flow body swaps and
+;;     is suppressed by shape on idempotent reloads.
 ;;
-;; Pre-fix the registrar's `:different-fn?` calculation compared
-;; `(:handler-fn previous)` against `(:handler-fn metadata)` but the
-;; flows registration site stored the body under `:output` only — so
-;; both reads were nil for every flow re-registration and
-;; `:different-fn?` was always `false`. Tools (re-frame-10x's flow
-;; panel, Xray, re-frame2-pair) branching on `:different-fn? true` missed every
-;; real flow-body change. Fix: `reg-flow` now stamps `:handler-fn`
-;; alongside `:output` so the cross-kind registrar trace surface Spec
-;; 001 standardises works for flows too.
+;; Two layered contracts converge here:
+;;
+;;   (1) rf2-v5ttb — `:handler-fn` must be stamped on the flow registry
+;;       metadata so the registrar's `:different-fn?` calculation
+;;       actually compares the flow body across re-registrations.
+;;       Pre-fix the registrar compared `(:handler-fn previous)` to
+;;       `(:handler-fn metadata)` but the flows registration site stored
+;;       the body under `:output` only — both reads were nil and
+;;       `:different-fn?` was always `false`. `reg-flow` now stamps
+;;       `:handler-fn` alongside `:output` so the cross-kind registrar
+;;       trace surface (Spec 001) works for flows too.
+;;
+;;   (2) rf2-g1b2m — Spec 009 B4 ruling, hot-reload dedup by shape
+;;       (#2135 spec landing, #2139 impl). The registrar consults the
+;;       trace.tooling dedup-by-shape table on every emit: identical
+;;       shape on re-register emits ZERO `:rf.registry/handler-replaced`
+;;       events; a real body change emits exactly one. This supersedes
+;;       the rf2-v5ttb-era "every re-registration emits one" assertion
+;;       for identity reloads.
+;;
+;; Together: identity reload → 0 emits (B4 dedup-suppressed); real
+;; `:output` body swap → 1 emit with `:different-fn? true` (rf2-v5ttb
+;; stamping makes the comparison meaningful).
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-hot-reload-different-fn?-reflects-real-body-swap
-  (testing "Per rf2-v5ttb: :rf.registry/handler-replaced :different-fn? is true on a real :output swap, false on identity reload"
+  (testing "Per rf2-v5ttb (`:handler-fn` stamping) + rf2-g1b2m B4 dedup-by-shape: a real `:output` swap emits one `:rf.registry/handler-replaced` with `:different-fn? true`; an identity reload is suppressed (0 emits)."
     (let [captured (atom [])]
       (re-frame.trace/register-listener!
         ::handler-replaced-recorder
@@ -1041,17 +1055,11 @@
                         :inputs [[:n]]
                         :output body-v1
                         :path   [:doubled]})
-          ;; Idempotent re-registration — same fn identity. :different-fn? must be false.
-          (rf/reg-flow {:id     :double
-                        :inputs [[:n]]
-                        :output body-v1
-                        :path   [:doubled]})
-          (is (= 1 (count @captured))
-              "one :rf.registry/handler-replaced fired for the second registration")
-          (is (false? (-> @captured first :tags :different-fn?))
-              ":different-fn? false on identity re-registration (idempotent reload)")
-          ;; Now re-register with a NEW fn — :different-fn? must be true.
-          (reset! captured [])
+          ;; (a) Real body swap — different `:handler-fn` identity, so
+          ;; the B4 dedup table sees a shape change and allows the emit.
+          ;; Exactly one `:rf.registry/handler-replaced` fires with
+          ;; `:different-fn? true` (rf2-v5ttb made the comparison
+          ;; meaningful by stamping `:handler-fn` on the flow metadata).
           (rf/reg-flow {:id     :double
                         :inputs [[:n]]
                         :output (fn [n] (* 100 n))
@@ -1059,7 +1067,31 @@
           (is (= 1 (count @captured))
               "one :rf.registry/handler-replaced fired for the body-swap registration")
           (is (true? (-> @captured first :tags :different-fn?))
-              ":different-fn? true on real body change (rf2-v5ttb fix)"))
+              ":different-fn? true on real body change (rf2-v5ttb fix)")
+          ;; (b) Idempotent reload — re-register with the SAME fn
+          ;; identity as the previous registration. The B4 dedup table
+          ;; (rf2-g1b2m) has already recorded that shape, so the re-emit
+          ;; is suppressed: ZERO `:rf.registry/handler-replaced` events.
+          ;; This supersedes the prior rf2-v5ttb-era assertion of "one
+          ;; emit with `:different-fn? false`" for the idempotent case.
+          (reset! captured [])
+          (let [body-v2 (fn [n] (* 3 n))]
+            (rf/reg-flow {:id     :double
+                          :inputs [[:n]]
+                          :output body-v2
+                          :path   [:doubled]})
+            ;; First registration of `body-v2` shape is genuine — allow.
+            (is (= 1 (count @captured))
+                "baseline emit for the new shape so the dedup table records it")
+            (reset! captured [])
+            ;; Now re-register IDENTICALLY — same fn identity, same
+            ;; meta. B4 dedup must suppress.
+            (rf/reg-flow {:id     :double
+                          :inputs [[:n]]
+                          :output body-v2
+                          :path   [:doubled]})
+            (is (empty? @captured)
+                "B4 dedup-by-shape (rf2-g1b2m) suppresses the re-emit for an identity reload — 0 :rf.registry/handler-replaced events")))
         (finally
           (re-frame.trace/unregister-listener! ::handler-replaced-recorder))))))
 
