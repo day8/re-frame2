@@ -98,11 +98,15 @@ examples/reagent/long_running_work/
                   fires the unmount cascade)
   schema.cljs     malli schemas for the parent + child snapshots
   index.html      static host page (mounted by core/run)
-  long_running_work.spec.cjs   Playwright smoke
   test/long_running_work/
     worker_test.cljs           headless fixtures
   README.md       this file
 ```
+
+Per the test-free examples policy (rf2-8cevm) there is no per-example
+Playwright spec; real-regression coverage lives in the substrate
+contract tests (`npm run test:cljs`) and the framework gates (see
+[`examples/README.md`](../../README.md)).
 
 The integration test that wraps the headless fixtures lives at
 [`implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs).
@@ -113,9 +117,6 @@ Same wrapping pattern as `nine-states-cljs-test` and `realworld-cljs-test`.
 From `implementation/`:
 
 ```bash
-# Playwright smoke (compiles, stages, serves, runs the .spec.cjs).
-npm run test:examples
-
 # Headless cljs-test (runs all the *-cljs-test under
 # implementation/adapters/reagent/test/, including the long-running-work
 # integration).
