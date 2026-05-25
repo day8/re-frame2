@@ -452,19 +452,46 @@ The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel,
 
 ```clojure
 (rf/group-cascades trace-events)
-;; -> [{:dispatch-id <id-or-:ungrouped>
-;;      :event       <event-vector | nil>   ;; from :rf.event/dispatched
-;;      :handler     <trace-event | nil>    ;; the :rf.event/run-start | :rf.event/run-end emit
-;;      :fx          <trace-event | nil>    ;; :rf.fx/do-fx
-;;      :effects     [<trace-event> ...]    ;; :op-type :rf.fx — :rf.fx/handled, override-applied, …
-;;      :subs        [<trace-event> ...]    ;; :rf.sub/run + :rf.sub/create
-;;      :renders     [<trace-event> ...]    ;; :op-type :rf.view / :operation :rf.view/render
-;;      :other       [<trace-event> ...]}   ;; errors, warnings, machines, frames, flows,
-;;                                          ;;   registry, anything outside the six dominoes
+;; -> [{:dispatch-id        <id-or-:ungrouped>
+;;      :parent-dispatch-id <id or nil>      ;; causal-parent link from
+;;                                           ;;   :rf.trace/parent-dispatch-id
+;;                                           ;;   on the :rf.event/dispatched trace
+;;                                           ;;   — the cascade that emitted this
+;;                                           ;;   dispatch (an :fx :dispatch parent,
+;;                                           ;;   a machine-internal dispatch, etc.);
+;;                                           ;;   nil for a root / external dispatch
+;;                                           ;;   (rf2-ryri7)
+;;      :frame              <frame-id or nil> ;; the cascade's host frame, per
+;;                                           ;;   002-Frames §Routing the dispatch
+;;                                           ;;   envelope; nil for an :ungrouped
+;;                                           ;;   slot or a cascade with no frame
+;;                                           ;;   tag in any of its events
+;;      :event              <event-vector | nil> ;; from :rf.event/dispatched :tags
+;;                                              ;;   (the slim, common-case form)
+;;      :dispatched         <trace-event | nil>  ;; the FULL :rf.event/dispatched
+;;                                              ;;   trace event — preserves
+;;                                              ;;   top-level hoisted slots
+;;                                              ;;   (:rf.trace/call-site, :source,
+;;                                              ;;   :origin) per rf2-twt7m
+;;      :handler            <trace-event | nil>  ;; :rf.event/run-start | :rf.event/run-end
+;;                                              ;;   (last wins — typically :run-end)
+;;      :fx                 <trace-event | nil>  ;; :rf.fx/do-fx
+;;      :effects            [<trace-event> ...]  ;; :op-type :rf.fx — :rf.fx/handled,
+;;                                              ;;   override-applied,
+;;                                              ;;   skipped-on-platform
+;;      :subs               [<trace-event> ...]  ;; :rf.sub/run + :rf.sub/skip
+;;                                              ;;   + :rf.sub/create
+;;      :renders            [<trace-event> ...]  ;; :op-type :rf.view /
+;;                                              ;;   :operation :rf.view/render
+;;      :other              [<trace-event> ...]} ;; errors, warnings, machines,
+;;                                              ;;   frames, flows, registry,
+;;                                              ;;   anything outside the six dominoes
 ;;     ...]
 ```
 
-(The cascade-record slot names above — `:dispatch-id`, `:event`, `:handler`, … — are the projection's own output shape, distinct from the trace `:tags` keys it groups by.) Events without a `:rf.trace/dispatch-id` tag (registry-time emits, frame lifecycle, REPL evals outside a drain) collect under the projection's `:dispatch-id :ungrouped` slot. The returned vector is sorted by the lowest `:id` in each cascade so consumers render cascades in emission order. The projection is **pure data** — JVM and CLJS run the same code; tools wiring up post-mortem renders against `(rf/trace-buffer)` get the same output shape as live consumers reading from a `register-listener!` listener.
+The slot order above is the projection's emit order. Each slot's wire-shape and semantics are documented alongside the per-frame ring's read surface at [Tool-Pair.md §Reading the per-frame trace ring](Tool-Pair.md#reading-the-per-frame-trace-ring--cascade-bundles--flat-opt-in-rf2-g1b2m) — the same cascade-bundle shape `(rf/trace-buffer frame-id)` returns by default, since the ring pre-computes this projection per-cascade. (Pair tools assembling the same projection from an `epoch-history` record route off `:rf/epoch-record`'s `:sub-runs` / `:renders` / `:effects` slots per [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record); those structured slots derive from the same `:trace-events` stream this projection groups.)
+
+(The cascade-record slot names above — `:dispatch-id`, `:parent-dispatch-id`, `:frame`, `:event`, `:dispatched`, `:handler`, … — are the projection's own output shape, distinct from the trace `:tags` keys it groups by.) Events without a `:rf.trace/dispatch-id` tag (registry-time emits, frame lifecycle, REPL evals outside a drain) collect under the projection's `:dispatch-id :ungrouped` slot. The returned vector is sorted by the lowest `:id` in each cascade so consumers render cascades in emission order. The projection is **pure data** — JVM and CLJS run the same code; tools wiring up post-mortem renders against `(rf/trace-buffer)` get the same output shape as live consumers reading from a `register-listener!` listener.
 
 `(rf/domino-bucket trace-event)` is the underlying classifier — returns one of `#{:event :handler :fx :effect :sub :render :other}`. Tools that want custom rollups can call it directly per event and skip `group-cascades`.
 
@@ -569,7 +596,7 @@ The query surface is per-frame, with a frame-id required argument. The default r
 
 | API | Signature | Notes |
 |---|---|---|
-| `(rf/trace-buffer frame-id)` | `(frame-id) → vector` | Returns the frame's cascade-bundle vector, oldest-first. Each entry is `{:dispatch-id <id> :trace-events [<event> ...] :event :handler :fx :effects :subs :renders :other ...}` — the `group-cascades`-shape projection per [§Cascade projection](#cascade-projection-group-cascades--domino-bucket), pre-computed per-cascade by the ring. Empty when no cascades have been recorded. |
+| `(rf/trace-buffer frame-id)` | `(frame-id) → vector` | Returns the frame's cascade-bundle vector, oldest-first. Each entry is `{:dispatch-id <id> :parent-dispatch-id <id or nil> :frame <frame-id or nil> :event <event-vector or nil> :dispatched <trace-event or nil> :handler :fx :effects :subs :renders :other :trace-events [...]}` — the `group-cascades`-shape projection per [§Cascade projection](#cascade-projection-group-cascades--domino-bucket), pre-computed per-cascade by the ring. Empty when no cascades have been recorded. |
 | `(rf/trace-buffer frame-id opts)` | `(frame-id, opts) → vector` | Optional filter map (see [§Filter vocabulary](#filter-vocabulary) below). Filters compose AND-wise across cascade-level fields; absent key = no constraint. The `:flat true` opt returns raw trace events instead of cascade bundles (escape hatch — see below). |
 | `(rf/clear-trace-buffer! frame-id)` | `(frame-id) → nil` | Empties the named frame's ring. Tooling uses this between sessions. |
 | `(rf/configure :trace-buffer {:cascades-retained N})` | `(opts) → nil` | Process-default ring depth (applies to `:rf/default` and any frame that did not set per-frame metadata). |
@@ -578,8 +605,12 @@ The `:flat` opt is the escape hatch for callers that want the pre-cascade raw st
 
 ```clojure
 (rf/trace-buffer :step-deck)
-;; → [{:dispatch-id 17 :trace-events [...] :event [:user/click ...] :handler {...} :fx {...} ...}
-;;    {:dispatch-id 18 :trace-events [...] :event [...] ...}
+;; → [{:dispatch-id 17 :parent-dispatch-id nil :frame :step-deck
+;;     :event [:user/click ...] :dispatched {...}
+;;     :handler {...} :fx {...} :effects [...] :subs [...] :renders [...] :other [...]
+;;     :trace-events [...]}
+;;    {:dispatch-id 18 :parent-dispatch-id 17 :frame :step-deck
+;;     :event [...] :dispatched {...} ...}
 ;;    ...]
 
 (rf/trace-buffer :step-deck {:flat true})
