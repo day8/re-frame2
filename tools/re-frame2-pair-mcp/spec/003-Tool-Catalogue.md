@@ -232,7 +232,7 @@ load-bearing: each carries different recovery semantics.
 
 | Dialect       | Meaning                                                            | Example reasons                                                                              |
 |---------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:unknown-tool`, `:runtime-not-preloaded`, `:eval-error`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
+| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:unknown-tool`, `:runtime-not-preloaded`, `:eval-error`, `:timed-out`, `:probe-errored`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
 | `:rf.error/*` | Operator-gated denial OR shared cross-MCP error vocabulary — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran, OR the call ran but failed in a way that warrants the shared cross-MCP error vocabulary (rf2-xn4f9: `:rf.error/eval-cljs-rejected` + `:rf.error/eval-cljs-timeout` are bare-shaped per-call failures but adopt the namespace so an agent host can pattern-match the eval-cljs error cluster as one family) | `:rf.error/eval-cljs-disabled`, `:rf.error/eval-cljs-rejected`, `:rf.error/eval-cljs-timeout`, `:rf.error/concurrent-stream-limit`, `:rf.error/stream-abuse-detected` |
 | `:rf.mcp/*`   | Wire-replacement-marker family (otherwise reserved for substitution markers like `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/cache-hit`, `:rf.mcp/summary`, `:rf.mcp/diff-from`). One carve-out as a `:reason` value: `:rf.mcp/cursor-stale` — cursor-staleness is detected at the wire boundary itself (the cursor envelope), not via tool body or boot gate, so it shares the `:rf.mcp/*` prefix with the rest of the wire-boundary vocabulary | `:rf.mcp/cursor-stale` (the only `:rf.mcp/*` `:reason` value) |
 
@@ -973,9 +973,69 @@ value changes from its pre-call value. Times out after `wait-ms`.
 **Args**: `probe` (string — a CLJS form whose value should change
 after the reload), `wait-ms` (integer, default 5000), `build` (string).
 
-**Returns**: `{:ok? true :t <ms> :soft? false}` on a real change, or
-`{:ok? false :reason :timed-out}` on timeout. If `probe` is omitted,
-falls back to a 300ms soft delay (matches the bash version).
+**Returns**: one of four envelope shapes (rf2-36awg; impl:
+[`src/re_frame2_pair_mcp/tools/tail_build.cljs`](../src/re_frame2_pair_mcp/tools/tail_build.cljs)
+lines 79-137):
+
+1. **Success (probe supplied) — probe value changed within the
+   deadline** (lines 117-123):
+
+    ```clojure
+    {:ok?          true
+     :t            <ms>
+     :soft?        false
+     :probe-values {:initial <v>   ; pre-poll value of the probe form
+                    :final   <v>}} ; final value at completion
+    ```
+
+   `:probe-values` confirms the comparison drove completion — callers
+   read both ends rather than guessing which transition fired.
+
+2. **Timeout (probe supplied) — value never differed from initial
+   within `wait-ms`** (lines 105-111):
+
+    ```clojure
+    {:ok?          false
+     :reason       :timed-out
+     :timed-out?   true
+     :probe-values {:initial <v>   ; pre-poll value of the probe form
+                    :final   <v>}  ; last value the polling loop saw
+     :note         "Probe value did not change within wait-ms. Possible
+                    causes: (a) compile error in shadow stalled the
+                    rebuild, (b) probe form returns the same value
+                    before and after the reload, (c) probe form errored
+                    — check :probe-values to disambiguate."}
+    ```
+
+   With both ends visible the operator distinguishes "compile didn't
+   land" from "probe form returns the same value before and after"
+   without an extra round-trip.
+
+3. **Probe errored on initial evaluation** (lines 134-137):
+
+    ```clojure
+    {:ok?         false
+     :reason      :probe-errored
+     :probe-error "<stringified exception message>"
+     :note        "Probe form raised an exception on every iteration.
+                   The form is likely malformed."}
+    ```
+
+   Distinct from `:timed-out` — the probe form itself threw, so no
+   before/after delta could be measured. Almost always a malformed
+   probe (typo, dotted-form host interop against a missing var, etc.).
+
+4. **No probe supplied — soft delay** (lines 79-84):
+
+    ```clojure
+    {:ok?   true
+     :t     <ms>
+     :soft? true
+     :note  "No probe supplied; waited a 300ms fixed delay."}
+    ```
+
+   Matches the bash shim's behaviour. The `:probe-values` slot does
+   NOT appear in this envelope; tests pin its absence.
 
 ## snapshot
 
