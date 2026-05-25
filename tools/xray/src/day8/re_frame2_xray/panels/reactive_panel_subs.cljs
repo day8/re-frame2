@@ -73,9 +73,17 @@
                             :readers [...]} ...]
          :sub-readers     {<sub-id> [<view-id> ...] ...}
          :view-rows       [{:view-id _ :action _ :reason {...} :coord _} ...]
+         :sub-values      [{:sub-id _ :changed? _ :has-value? _ :value _
+                             :coord _? :slug _} ...]
          :counts          {:subs-ran N :subs-skipped N
                            :views-rendered N
+                           :sub-values N
                            :flows-recomputed N}}
+
+  `:sub-values` (rf2-e46qs phase 3) drives the SUB VALUES inspector
+  section beneath the flow graph — one row per RUN sub with its current
+  cascade value, surfaced through the first-class data-display widget
+  (spec/021 §10).
 
   `:sub-readers` (rf2-y23uw) is the shared-subscription edge map — for
   each sub-id, the views that deref'd it this cascade ('which views read
@@ -96,7 +104,8 @@
 
   `install!` registers `:rf.xray/reactive-data` + the panel-local
   disclosure-toggle state slot. Idempotent."
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as string]
+            [re-frame.core :as rf]
             [re-frame.subs.tooling :as subs-tooling]))
 
 ;; ---- pure helpers (exposed for test) ------------------------------------
@@ -348,16 +357,27 @@
   using the static `sub-topology` snapshot (rf2-8ve8z).
 
   `subs-ran` is the `:sub-runs` projection slice (each entry carries
-  `:sub-id` + `:value-changed?`). `topology` is the
-  `re-frame.subs.tooling/sub-topology` map (`{sub-id {:inputs [...]
+  `:sub-id`, `:value-changed?`, `:value`, `:prev-value`). `topology` is
+  the `re-frame.subs.tooling/sub-topology` map (`{sub-id {:inputs [...]
   :ns :line :file}}`). `readers` (optional, rf2-y23uw) is the sub→readers
   map from `sub-readers` (`{sub-id [view-id ...]}`).
 
   Returns `{:level-1 [row ...] :level-2 [row ...]}` where each row:
 
-    Level 1: {:sub-id _ :changed? bool :coord {...}? :readers [view-id ...]}
+    Level 1: {:sub-id _ :changed? bool :coord {...}? :readers [view-id ...]
+              :has-value? bool :value <v>?}
     Level 2: {:sub-id _ :changed? bool :inputs [<input-sub-id> ...]
-              :coord {...}? :readers [view-id ...]}
+              :coord {...}? :readers [view-id ...]
+              :has-value? bool :value <v>?}
+
+  `:value` (rf2-e46qs phase 3) carries each sub's current cascade value
+  for the SUB VALUES inspector beneath the flow graph. The slot is
+  present iff `:value` rode the `:sub-runs` entry — captured by the
+  substrate when value attribution is on (Spec 009 §`:rf.sub/run`). A
+  `nil` value is still a value, so a presence flag `:has-value?` (true
+  iff the sub-run contained the `:value` key) accompanies it so the
+  inspector can distinguish `nil` from `:value`-absent (the privacy
+  redaction path drops the slot rather than emitting nil).
 
   `:readers` is the views that deref this sub THIS cascade — the
   shared-subscription edge (rf2-y23uw); absent when no rendered view read
@@ -377,19 +397,76 @@
                topo-entry (get topo sub-id)
                changed?   (boolean (:value-changed? sub-run))
                coord      (topology-coord topo-entry)
-               sub-rdrs   (get rdrs sub-id)]
+               sub-rdrs   (get rdrs sub-id)
+               has-value? (contains? sub-run :value)
+               value      (when has-value? (:value sub-run))]
            (if (level-1? topo-entry)
              (update acc :level-1 conj
                      (cond-> {:sub-id sub-id :changed? changed?}
-                       coord         (assoc :coord coord)
-                       (seq sub-rdrs) (assoc :readers (vec sub-rdrs))))
+                       coord          (assoc :coord coord)
+                       (seq sub-rdrs)  (assoc :readers (vec sub-rdrs))
+                       has-value?      (assoc :has-value? true :value value)))
              (update acc :level-2 conj
                      (cond-> {:sub-id sub-id :changed? changed?
                               :inputs (vec (:inputs topo-entry))}
-                       coord         (assoc :coord coord)
-                       (seq sub-rdrs) (assoc :readers (vec sub-rdrs)))))))
+                       coord          (assoc :coord coord)
+                       (seq sub-rdrs)  (assoc :readers (vec sub-rdrs))
+                       has-value?      (assoc :has-value? true :value value))))))
        {:level-1 [] :level-2 []}
        (or subs-ran [])))))
+
+;; ---- per-sub value inspector rows (rf2-e46qs phase 3) --------------------
+
+(defn sub-values
+  "Project the cascade's RUN subs into one row per sub for the SUB
+  VALUES inspector beneath the flow graph (spec/021 §10 — sub value
+  inspector phase 3 of rf2-oqa60).
+
+  Filters `:recomputed?` true — the subs that actually computed this
+  cascade and therefore have an authoritative current value to
+  inspect. Memoised skips (`:recomputed?` false) carry no fresh
+  value; they're omitted from the inspector to keep the section
+  focused on this cascade's actual recomputes. Pass either the raw
+  `:sub-runs` projection slice (mixed recomputed/skipped) or the
+  already-filtered `ran` slice — both produce the same output.
+
+  Each row:
+
+    {:sub-id     <kw/id>
+     :changed?   bool         ; :value-changed? on the sub-run
+     :has-value? bool         ; true iff the sub-run carried :value
+     :value      <v>          ; the sub's current cascade value
+     :coord      {:file :line :ns}?  ; jump-to-source coord
+     :slug       <string>}    ; testid suffix
+
+  `topology` is the static sub-topology snapshot — supplies the source
+  coord. Order preserved from `subs-ran`. nil-safe."
+  ([subs-ran] (sub-values subs-ran nil))
+  ([subs-ran topology]
+   (let [topo (or topology {})]
+     (into []
+           (comp
+             ;; Filter `:recomputed?` true — skipped (memo-hit) subs
+             ;; carry no fresh cascade value; the inspector is for
+             ;; recomputes only. Callers passing the already-filtered
+             ;; `ran` slice (every entry `:recomputed?` true by
+             ;; definition) flow through unchanged.
+             (filter :recomputed?)
+             (keep (fn [sub-run]
+                     (let [sub-id     (:sub-id sub-run)
+                           topo-entry (get topo sub-id)
+                           coord      (topology-coord topo-entry)
+                           has-value? (contains? sub-run :value)]
+                       (when sub-id
+                         (cond-> {:sub-id    sub-id
+                                  :changed?  (boolean (:value-changed? sub-run))
+                                  :has-value? has-value?
+                                  :slug      (string/replace
+                                               (str sub-id)
+                                               #"[^a-zA-Z0-9_]" "_")}
+                           has-value? (assoc :value (:value sub-run))
+                           coord      (assoc :coord coord)))))))
+           (or subs-ran [])))))
 
 ;; ---- record projection ----------------------------------------------------
 
@@ -430,7 +507,8 @@
          {:keys [level-1 level-2]} (partition-subs-by-level ran topology readers)
          v-rows        (view-rows trace-events changed-set)
          unmounted     (unmounted-views trace-events)
-         destroyed     (destroyed-subscriptions trace-events)]
+         destroyed     (destroyed-subscriptions trace-events)
+         sub-vals      (sub-values ran topology)]
      {:subs-ran        ran
       :subs-skipped    skipped
       :views-rendered  renders
@@ -440,12 +518,14 @@
       :view-rows       v-rows
       :unmounted-views unmounted
       :destroyed-subs  destroyed
+      :sub-values      sub-vals
       :counts          {:subs-ran         (count ran)
                         :subs-skipped     (count skipped)
                         :views-rendered   (count renders)
                         :view-rows        (count v-rows)
                         :unmounted-views  (count unmounted)
                         :destroyed-subs   (count destroyed)
+                        :sub-values       (count sub-vals)
                         :flows-recomputed flows-comp
                         :flows-skipped    flows-skipped}})))
 

@@ -31,9 +31,14 @@
   - **shared subscription** → a sub read by ≥2 views fans out to N view
     nodes; the node carries a `×N` annotation.
 
-  Below the graph two list sections record the epoch's reactive
-  teardown (Figma design):
+  Below the graph three list sections complete the panel:
 
+  - **SUB VALUES** (rf2-e46qs phase 3 of rf2-oqa60) — one row per RUN
+    sub this cascade; each row's value renders through the first-class
+    data-display widget (`views.data-display`, spec/021 §10) DIRECTLY
+    — no `edn/inspect` / `edn/browse` facade hop. Per-row stable
+    `:panel-id` (`:rf.xray.reactive-sub-value/<sub-id>`) so two sub-row
+    expansions never share state.
   - **UNMOUNTED VIEWS** — views whose component unmounted this epoch.
   - **DESTROYED SUBSCRIPTIONS** — subs cleaned up when their last reader
     unmounted (data-availability honest: empty until the sub-dispose op
@@ -66,7 +71,13 @@
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
             [day8.re-frame2-xray.theme.tokens :as tk
-             :refer [tokens mono-stack sans-stack]]))
+             :refer [tokens mono-stack sans-stack]]
+            ;; rf2-e46qs phase 3 — per-sub value inspector renders
+            ;; through the first-class data-display widget (spec/021
+            ;; §10) directly. Each sub-value mount gets its own stable
+            ;; per-sub `:panel-id` so two sub-row expansions are
+            ;; independent (acceptance #2).
+            [day8.re-frame2-xray.views.data-display :as dd]))
 
 ;; ---- section chrome -----------------------------------------------------
 
@@ -402,6 +413,112 @@
                   :font-family sans-stack :font-size "10px"}}
       "Subscriptions cleaned up when their last reader unmounted"]]))
 
+;; ---- SUB VALUES inspector section (rf2-e46qs phase 3 of rf2-oqa60) -----
+;;
+;; One row per RUN sub this cascade, surfacing the sub's current value
+;; through the first-class data-display widget (`views.data-display`,
+;; spec/021 §10). Each row mounts `[dd/data-display value opts]`
+;; directly — no `edn/inspect` / `edn/browse` facade hop.
+;;
+;; Per-row `:panel-id` (acceptance #2) is a STABLE per-sub keyword built
+;; from the sub-id: two sub-row expansions never share expansion state.
+;; The widget auto-generates a fresh `mount-id` per call site (D4=a,
+;; rf2-sndui), so a re-render preserves the operator's drill-downs.
+
+(defn- sub-value-panel-id
+  "Stable per-sub `:panel-id` for the data-display mount. The sub-id
+  (a keyword in the standard case) is folded into a namespaced kw under
+  `:rf.xray.reactive-sub-value` so its expansion slot is isolated from
+  every other panel-id in the app-db expansion map. Acceptance #2 —
+  multiple sub-row expansions are independent."
+  [sub-id]
+  (cond
+    (keyword? sub-id)
+    (keyword "rf.xray.reactive-sub-value"
+             (str (when-let [ns (namespace sub-id)] (str ns "_"))
+                  (name sub-id)))
+
+    :else
+    (keyword "rf.xray.reactive-sub-value"
+             (string/replace (pr-str sub-id) #"[^a-zA-Z0-9_]" "_"))))
+
+(defn- sub-value-row
+  "Render one SUB VALUES row — the sub's id + its current value through
+  `[dd/data-display]`. Changed subs read in the accent tone; unchanged
+  subs read dimmed (consistent with the flow-graph node encoding).
+
+  `:has-value?` false → the sub-run carried no `:value` slot (privacy
+  redaction or pre-attribution). The row renders a muted placeholder
+  rather than mounting the widget with `nil` (which would be
+  indistinguishable from a sub whose actual value is `nil`)."
+  [{:keys [sub-id slug changed? has-value? value coord]}]
+  (let [row-testid (str "rf-xray-reactive-sub-value-row-" slug)
+        click      (when coord (fn [e] (open-source! coord e)))]
+    [:div {:data-testid row-testid
+           :data-sub-changed (str (boolean changed?))
+           :style {:display       "flex"
+                   :flex-direction "column"
+                   :gap           "6px"
+                   :padding       "10px 14px"
+                   :border-top    (str "1px solid " (:border-subtle tokens))
+                   :font-family   mono-stack
+                   :font-size     "12px"}}
+     [:div {:style {:display "flex" :align-items "baseline" :gap "8px"}}
+      [:span (cond-> {:data-testid (str row-testid "-id")
+                      :style       {:color (if changed?
+                                             (:accent tokens)
+                                             (:dim tokens))
+                                    :font-weight (if changed? 600 400)}}
+               click (assoc :on-click click
+                            :style {:color (if changed?
+                                             (:accent tokens)
+                                             (:dim tokens))
+                                    :font-weight (if changed? 600 400)
+                                    :cursor "pointer"}))
+       (format-id sub-id)]
+      [:span {:style {:color (:text-tertiary tokens)
+                      :font-family sans-stack
+                      :font-size "10px"
+                      :letter-spacing "0.4px"
+                      :text-transform "uppercase"}}
+       (if changed? "changed" "unchanged")]]
+     (if has-value?
+       [:div {:data-testid (str row-testid "-value")
+              :style {:padding-left "4px"}}
+        [dd/data-display value {:panel-id (sub-value-panel-id sub-id)
+                                :default-expanded-depth 2}]]
+       [:div {:data-testid (str row-testid "-no-value")
+              :style {:padding-left "4px"
+                      :color (:text-tertiary tokens)
+                      :font-family sans-stack
+                      :font-size "11px"
+                      :font-style "italic"}}
+        "(value not captured — redacted or pre-attribution)"])]))
+
+(defn- sub-values-section
+  "Render the SUB VALUES inspector section beneath the flow graph. One
+  row per RUN sub; rows render their value through `[dd/data-display]`
+  directly (rf2-e46qs phase 3 of rf2-oqa60). The section is omitted
+  entirely when the cascade ran no subs — the flow graph's empty
+  placeholder already covers the no-cascade case.
+
+  Row hiccup is produced by INLINING `sub-value-row` (function call,
+  not a `[sub-value-row …]` Reagent component form) so the
+  `[dd/data-display value opts]` mount surfaces in the panel's hiccup
+  tree directly — testable without a React render — and the React
+  reconciler still keys each row via the `^{:key …}` metadata on the
+  inlined `[:div …]`."
+  [data]
+  (let [rows (:sub-values data)]
+    (when (seq rows)
+      [:section {:data-testid "rf-xray-reactive-sub-values-section"
+                 :style {:margin-top "24px"}}
+       (section-label "sub-values" "Sub Values")
+       (into [:div {:data-testid "rf-xray-reactive-sub-values-list"
+                    :style list-card-style}]
+             (for [{:keys [sub-id] :as row} rows]
+               (with-meta (sub-value-row row) {:key (str sub-id)})))])))
+
 ;; ---- legend ------------------------------------------------------------
 
 (defn- swatch
@@ -470,6 +587,10 @@
          [:section {:data-testid "rf-xray-reactive-flow-section"}
           (section-label "flow" "Reactive Flow" {:title-case? true})
           (flow-graph data)]
+         ;; rf2-e46qs phase 3 — SUB VALUES inspector (per-sub
+         ;; value rendered through the first-class data-display
+         ;; widget; spec/021 §10).
+         (sub-values-section data)
          (unmounted-views-section data)
          (destroyed-subs-section data)
          (legend)])]]))

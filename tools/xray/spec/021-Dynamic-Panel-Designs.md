@@ -493,8 +493,14 @@ Quoted from the super-prompt (A.3):
 The L2 row's `🌊 flow-recomputed` badge surfaces flows as a cross-epoch signal; per-epoch flow
 detail lives in Event panel step 4.
 
-Below the graph, two list sections record the epoch's reactive teardown (Figma design):
+Below the graph, three list sections complete the panel:
 
+- **SUB VALUES** (rf2-e46qs phase 3 of rf2-oqa60) — one row per RUN sub this cascade carrying
+  its current value through the first-class data-display widget (`[dd/data-display value opts]`,
+  §10). Each row uses a stable per-sub `:panel-id` qualifier under `:rf.xray.reactive-sub-value`
+  so two sub-row expansions are independent. Subs whose value carries no `:value` slot (privacy
+  redaction / pre-attribution) render a muted no-value placeholder rather than mounting the
+  widget with `nil`. Memoised skips (`:recomputed?` false) are omitted — only RUN subs surface.
 - **UNMOUNTED VIEWS** — views whose component unmounted this epoch (one row each: view name +
   `unmounted` tag; a small `error`-tinted swatch as the row marker).
 - **DESTROYED SUBSCRIPTIONS** — subs cleaned up when their last reader unmounted (one row each:
@@ -1366,7 +1372,19 @@ adapter + dep are dropped.
 Phases 2-5 file as separate beads chained off rf2-oqa60:
 
 - Phase 2 — Trace per-event detail integration
-- Phase 3 — Sub value inspector integration
+- Phase 3 (rf2-e46qs) — **Sub value inspector integration.** The
+  Views panel (`reactive-panel-view`) renders a `SUB VALUES` section
+  beneath the flow graph. Each RUN sub gets one row carrying its
+  current cascade value through `[dd/data-display value opts]`
+  DIRECTLY (no `edn/inspect` / `edn/browse` facade hop). Each row's
+  `:panel-id` is a STABLE per-sub keyword namespaced under
+  `:rf.xray.reactive-sub-value` (folded from the sub-id), so two
+  sub-row expansions are independent. Sub-runs that carry no `:value`
+  slot (privacy redaction / pre-attribution) render a muted no-value
+  placeholder instead of mounting the widget with `nil` — distinct
+  from a sub whose value actually IS `nil`. Memoised skips
+  (`:recomputed?` false) are omitted from the inspector; only RUN
+  subs surface.
 - Phase 4 — Machine snapshot drill-in integration
 - Phase 5 — Diff renderer subsumption (D5=a; replaces
   `data-display/render-tree` and deletes `theme.data-inspector`)
