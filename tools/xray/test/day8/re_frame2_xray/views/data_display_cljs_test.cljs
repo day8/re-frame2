@@ -560,6 +560,15 @@
   (is (= 24 dd/triangle-min-target-px)
       "the public contract pin: 24px in both axes"))
 
+(deftest triangle-style-font-size-is-22px
+  (testing "rf2-4aiaq — triangle glyph font-size is 22px (operator-
+            preferred 22-24px band per Mike's live A/B 2026-05-26).
+            14px was hit-box-adequate but read as hairline against
+            the inspector chrome."
+    (is (= "22px" (:font-size dd/triangle-style))
+        "triangle glyph renders at 22px so the eye registers it as the
+         primary expand/collapse affordance, not a hairline accent")))
+
 (deftest collapsed-triangle-uses-shared-triangle-style
   ;; Force a default-collapsed render (large map at depth past
   ;; default-expanded-depth) and verify the ▸ toggle span carries

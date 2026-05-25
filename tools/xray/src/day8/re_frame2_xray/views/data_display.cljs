@@ -764,23 +764,32 @@
        (when (seq path) (str "-" (str/join "/" (map pr-str path))))))
 
 ;; rf2-tzvk9 — triangle expand/collapse glyph carries an explicit
-;; ≥24×24 click target. The glyph itself stays visually subordinate
-;; (font-size 14px, dimmed `:text-secondary`); padding inside the
-;; existing key-column gutter grows the hit-box without shifting the
-;; surrounding layout. Public via the value so tests can assert the
-;; computed-width contract without re-deriving the magic numbers.
+;; ≥24×24 click target. The padding inside the existing key-column
+;; gutter grows the hit-box without shifting the surrounding layout.
+;; Public via the value so tests can assert the computed-width
+;; contract without re-deriving the magic numbers.
 ;;
-;; Why these numbers — getBoundingClientRect on `inline-flex` + the
-;; padding/font-size below resolves to approximately 26×24px in
-;; Chromium at the shell's default 13px root font-size:
+;; rf2-4aiaq — glyph size bumped 14px → 22px. The 14px glyph cleared
+;; the 24px hit-box but read as a hairline against the inspector
+;; chrome; Mike's live A/B (pair-debug 2026-05-26) found 22-24px
+;; "much more clickable, feels right" vs. 14-18px which still felt
+;; understated. 22px keeps the glyph visually balanced against the
+;; surrounding 12px scalar rows (~1.83× scale) without dominating
+;; the row.
 ;;
-;;   width  ≈ font-size(14) * glyph-advance(~0.7) + padding-l(4) +
-;;            padding-r(4)                                ≈ 26px
-;;   height ≈ font-size(14) * line-height(1.4)            ≈ 19.6px
-;;            + padding-t(4) + padding-b(4)               ≈ 27.6px
+;; Why these numbers — `inline-flex` + the padding/font-size below
+;; resolves to approximately 38×30px in Chromium at the shell's
+;; default 13px root font-size:
 ;;
-;; Both axes clear the 24px WCAG-2.2-flavour comfortable-mouse-target
-;; threshold called out in the bead.
+;;   width  ≈ font-size(22) * glyph-advance(~0.7) + padding-l(4) +
+;;            padding-r(4)                                ≈ 23.4px
+;;   height ≈ font-size(22) * line-height(1)               ≈ 22px
+;;            + padding-t(4) + padding-b(4)                ≈ 30px
+;;
+;; `min-width 24px` pins the floor in both axes even when the glyph's
+;; intrinsic width (`▸` is narrower than `▾`) doesn't reach 24px on
+;; its own. Both axes clear the 24px WCAG-2.2-flavour comfortable-
+;; mouse-target threshold.
 
 (def triangle-min-target-px
   "Minimum click-target width/height the triangle must register
@@ -810,9 +819,12 @@
   - `padding 4px 8px` grows the hit-box WITHOUT pushing the key
     column right — the padding sits inside the existing 4-6px gap
     between the triangle and the first key.
-  - `font-size 14px` overrides the widget's inherited 12px so the
-    glyph is more visible AND the natural metrics grow the hit-box.
-    Bumping by ~2px keeps the glyph subordinate to surrounding data.
+  - `font-size 22px` (rf2-4aiaq) overrides the widget's inherited
+    12px so the glyph reads as the primary expand/collapse affordance
+    — Mike's live A/B (pair-debug 2026-05-26) found the prior 14px
+    glyph read as hairline against the inspector chrome; 22px lands
+    in the operator-preferred 22-24px band where the triangle 'feels
+    clickable'.
   - `line-height 1` collapses inline leading so the height comes
     purely from font + padding, not from inherited 1.4 leading.
 
@@ -826,7 +838,7 @@
    :min-width       (str triangle-min-target-px "px")
    :min-height      (str triangle-min-target-px "px")
    :padding         "4px 8px"
-   :font-size       "14px"
+   :font-size       "22px"
    :line-height     1
    :color           (:text-secondary tokens)})
 
