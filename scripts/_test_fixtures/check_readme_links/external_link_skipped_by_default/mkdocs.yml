@@ -1,0 +1,5 @@
+# Self-test fixture marker.
+#
+# External http(s) URLs are skipped by default to keep the CI gate
+# stable against third-party outages.  Opt in with --check-external.
+# Expected (without --check-external): 0 findings.

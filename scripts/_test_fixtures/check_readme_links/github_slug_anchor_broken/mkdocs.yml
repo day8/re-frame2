@@ -1,0 +1,6 @@
+# Self-test fixture marker.
+#
+# Negative control for mkdocs_slug_anchor_ok: same heading, but the link
+# uses the GITHUB slug rule (which keeps `<name>` content as literal
+# `name` text in the slug).  Under the project's MkDocs rules this slug
+# doesn't exist, so the validator must flag it.  Expected: 1 finding.

@@ -1,0 +1,9 @@
+# Self-test fixture marker.
+#
+# Key fixture for rf2-br5u7: the original `ai/link-sweep-v2.py` flagged
+# 2 false-positive anchors in migration/from-re-frame-v1/README.md because
+# it used GitHub's slug rules instead of MkDocs'.  This fixture exercises
+# the calibration: a heading with `<name>` placeholder text slugifies
+# differently under MkDocs (`<name>` stripped) than under GitHub (kept).
+# The link below uses the MkDocs slug, which is the project's source of
+# truth.  Expected: 0 findings.
