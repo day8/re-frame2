@@ -401,6 +401,85 @@
     {:isError? true
      :reason :missing-form}}
 
+   ;; ---- await opt-in (rf2-xn4f9) ----
+   ;; :await false (the default) MUST preserve the pre-rf2-xn4f9
+   ;; semantics — the form is sent verbatim, no await wrapper. Pin that
+   ;; via :fixture/eval-form-must-not-contain.
+   {:fixture/id    :eval-cljs/await-default-off-no-wrap
+    :fixture/doc   "eval-cljs without :await sends the form verbatim — no await wrapper, no mailbox slot (rf2-xn4f9 default :await false)."
+    :fixture/tool  "eval-cljs"
+    :fixture/args  {:form "(+ 1 2)" :build "app"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["(+ 1 2)"                   3]
+     [:default                    nil]]
+    :fixture/eval-form-must-not-contain ["__rf2pair_await__"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :value 3 :build :app}}}
+
+   ;; Await + non-thenable: the wrapper's synchronous arm reports
+   ;; `:rf.mcp/await-direct v`; the server short-circuits with v as
+   ;; the :value. Same shape as the no-await path.
+   {:fixture/id    :eval-cljs/await-direct-passthrough
+    :fixture/doc   "eval-cljs :await true on a non-thenable form returns the value via the wrapper's synchronous fast path (rf2-xn4f9)."
+    :fixture/tool  "eval-cljs"
+    :fixture/args  {:form "(+ 1 2)" :await true :build "app"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"           true]
+     ;; The await wrapper for a non-thenable returns the
+     ;; `:rf.mcp/await-direct` sentinel; the server pulls v out of it.
+     [":rf.mcp/await-mailbox"  {:rf.mcp/await-direct 3}]
+     [:default                  nil]]
+    :fixture/eval-form-must-contain ["__rf2pair_await__"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :value 3 :build :app}}}
+
+   ;; Await + resolved thenable: wrapper returns the mailbox sentinel;
+   ;; the server polls the read-mailbox form which resolves immediately.
+   ;;
+   ;; Substring-match ordering: the wrap form contains
+   ;; `:rf.mcp/await-mailbox` (the keyword it emits as part of the
+   ;; sentinel literal) AND `\"resolved\"` (in the `.then` handler that
+   ;; writes the resolved status into the mailbox). The mailbox-read
+   ;; form contains `cljs.reader/read-string` (the EDN re-read of the
+   ;; mailbox value) — uniquely identifying it without false-matching
+   ;; the wrap form. The script orders wrap-match first to keep
+   ;; first-match-wins deterministic.
+   {:fixture/id    :eval-cljs/await-resolved
+    :fixture/doc   "eval-cljs :await true on a thenable that resolves returns {:ok? true :value <resolved>} after polling the mailbox (rf2-xn4f9)."
+    :fixture/tool  "eval-cljs"
+    :fixture/args  {:form "(-> (js/Promise.resolve {:hello \"world\"}) (.then identity))"
+                    :await true :build "app"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"   true]
+     [":rf.mcp/await-mailbox"      {:rf.mcp/await-mailbox "fixture-mbx"}]
+     ["cljs.reader/read-string"    {:status :resolved :value {:hello "world"}}]
+     [:default                     nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :value {:hello "world"} :build :app}}}
+
+   ;; Await + rejected thenable: the mailbox-read returns :rejected;
+   ;; the server surfaces :rf.error/eval-cljs-rejected.
+   {:fixture/id    :eval-cljs/await-rejected
+    :fixture/doc   "eval-cljs :await true on a thenable that rejects returns {:ok? false :reason :rf.error/eval-cljs-rejected :rejection <pr-str>} (rf2-xn4f9)."
+    :fixture/tool  "eval-cljs"
+    :fixture/args  {:form "(js/Promise.reject (ex-info \"nope\" {}))"
+                    :await true :build "app"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"   true]
+     [":rf.mcp/await-mailbox"      {:rf.mcp/await-mailbox "fixture-mbx"}]
+     ["cljs.reader/read-string"    {:status :rejected :rejection "#error {:message \"nope\"}"}]
+     [:default                     nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? false
+                  :reason :rf.error/eval-cljs-rejected
+                  :rejection "#error {:message \"nope\"}"
+                  :build :app}}}
+
    ;; ---------- dispatch ---------------------------------------------------
    {:fixture/id    :dispatch/happy
     :fixture/doc   "dispatch wraps the runtime's pair-dispatch! return in {:mode :queued ...}."

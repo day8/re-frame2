@@ -232,7 +232,7 @@ load-bearing: each carries different recovery semantics.
 | Dialect       | Meaning                                                            | Example reasons                                                                              |
 |---------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
 | **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:unknown-tool`, `:runtime-not-preloaded`, `:eval-error`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
-| `:rf.error/*` | Operator-gated denial — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran | `:rf.error/eval-cljs-disabled`, `:rf.error/concurrent-stream-limit`, `:rf.error/stream-abuse-detected` |
+| `:rf.error/*` | Operator-gated denial OR shared cross-MCP error vocabulary — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran, OR the call ran but failed in a way that warrants the shared cross-MCP error vocabulary (rf2-xn4f9: `:rf.error/eval-cljs-rejected` + `:rf.error/eval-cljs-timeout` are bare-shaped per-call failures but adopt the namespace so an agent host can pattern-match the eval-cljs error cluster as one family) | `:rf.error/eval-cljs-disabled`, `:rf.error/eval-cljs-rejected`, `:rf.error/eval-cljs-timeout`, `:rf.error/concurrent-stream-limit`, `:rf.error/stream-abuse-detected` |
 | `:rf.mcp/*`   | Wire-replacement-marker family (otherwise reserved for substitution markers like `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/cache-hit`, `:rf.mcp/summary`, `:rf.mcp/diff-from`). One carve-out as a `:reason` value: `:rf.mcp/cursor-stale` — cursor-staleness is detected at the wire boundary itself (the cursor envelope), not via tool body or boot gate, so it shares the `:rf.mcp/*` prefix with the rest of the wire-boundary vocabulary | `:rf.mcp/cursor-stale` (the only `:rf.mcp/*` `:reason` value) |
 
 ### Rationale for the split
@@ -420,7 +420,14 @@ across the cross-MCP error surface.
 Evaluate a CLJS form in the connected browser runtime via
 `shadow.cljs.devtools.api/cljs-eval`. Returns the EDN value.
 
-**Args**: `form` (string, required), `build` (string, optional).
+**Args**:
+
+| Arg          | Type     | Required | Default | Notes |
+|--------------|----------|----------|---------|-------|
+| `form`       | string   | yes      | —       | The CLJS form to evaluate. |
+| `build`      | string   | no       | env / `:app` | shadow-cljs build id. |
+| `await`      | boolean  | no       | `false` | Opt-in (rf2-xn4f9): if the form returns a thenable, await it server-side instead of `pr-str`'ing the Promise object. |
+| `timeout-ms` | integer  | no       | `5000`  | Maximum ms to wait when `:await true`. Ignored when `:await false`. Caller-controlled because async form costs vary widely. |
 
 **Launch-flag gate**: `--no-eval` (rf2-a0z0h; inverts the prior
 rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is
@@ -431,6 +438,67 @@ without touching the nREPL socket. See §Universal: server launch flags.
 **Returns**: `{:ok? true :value <edn-value>}` on success;
 `{:ok? false :reason :eval-error :message "..."}` on failure.
 `:reason :runtime-not-preloaded` if the runtime preload hasn't run.
+
+### Promise-awaiting (rf2-xn4f9)
+
+`shadow.cljs.devtools.api/cljs-eval` captures the form's **synchronous**
+return value and `pr-str`'s it. When the form returns a JS Promise —
+the synchronous return IS the Promise object, and `pr-str` produces
+`"#object[Promise [object Promise]]"`: a string saying "I'm a Promise"
+with no access to the eventually-resolved value. The historical
+workaround was a two-call mailbox dance — stash on `js/window`, return
+a sentinel, read the global on a second call, poll until resolved.
+
+When the caller passes `:await true`, the server automates that dance.
+The form is wrapped browser-side; thenable returns wire up a mailbox
+on `js/globalThis.__rf2pair_await__`, the wrapper records the resolved
+value (or rejection reason) into the mailbox, and the server polls the
+mailbox until the status flips off `:pending` or `:timeout-ms` elapses.
+Non-thenable returns pass through unchanged on the wrapper's
+synchronous arm — zero round-trips beyond today's behaviour.
+
+**Behaviour table (`:await true`):**
+
+| Form returns                        | Wire result |
+|-------------------------------------|-------------|
+| Non-thenable value `v`              | `{:ok? true :value v :build <id>}` (identical to `:await false`) |
+| Thenable that resolves to `v`       | `{:ok? true :value v :build <id>}` |
+| Thenable that rejects with `e`      | `{:ok? false :reason :rf.error/eval-cljs-rejected :rejection "<pr-str of e>" :build <id>}` |
+| Thenable that doesn't settle within `:timeout-ms` | `{:ok? false :reason :rf.error/eval-cljs-timeout :timeout-ms n :build <id>}` |
+
+**Why opt-in (not always-on).** Two principled reasons (the
+back-compat argument doesn't bind in pre-alpha):
+
+  - **Promise pass-through is sometimes intentional.** Some forms
+    deliberately return a Promise object to hand off to other code;
+    auto-awaiting would change the contract for those callers.
+  - **Timeout policy should be caller-controlled.** The caller knows
+    whether their async work is a 5ms `Promise.resolve` or a multi-
+    second layout computation; the server shouldn't pick.
+
+The default `:await false` preserves today's semantics — the form's
+synchronous return is `pr-str`'d and returned verbatim. Callers
+who DO want to wait on a Promise opt in explicitly and pick the
+deadline.
+
+**Reserved reason keywords introduced by this surface:**
+
+  - `:rf.error/eval-cljs-rejected` — the awaited Promise rejected;
+    `:rejection` carries the `pr-str` of the rejection value
+    (preserving any data carried on an `ex-info`, etc.).
+  - `:rf.error/eval-cljs-timeout` — the awaited Promise didn't settle
+    within `:timeout-ms`; `:timeout-ms` echoes the deadline that
+    expired. The server fires a best-effort discard of the orphaned
+    mailbox slot so a late resolution doesn't accumulate on
+    `js/globalThis`.
+  - `:rf.error/eval-cljs-mailbox-missing` — defensive: the wrapper
+    installed a mailbox but the poll found nothing there. Indicates a
+    wire-shape regression or a page reload destroying the mailbox
+    between the wrap and the first poll. Should not occur in practice.
+  - `:rf.error/eval-cljs-await-wrap-failed` — defensive: the wrapper's
+    synchronous return wasn't one of the two expected sentinels.
+    Indicates a regression in the wrap-form emitter. Should not occur
+    in practice.
 
 ## dispatch
 

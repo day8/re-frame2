@@ -205,16 +205,36 @@
   {:name "eval-cljs"
    :description (str "Evaluate a ClojureScript form in the connected browser runtime via shadow-cljs's cljs-eval. Returns the EDN value. "
                      "Enabled by default (rf2-a0z0h); the operator opts OUT via --no-eval at server launch. "
+                     "Opt-in :await (rf2-xn4f9) awaits Promise-returning forms server-side — single call, no js/window mailbox dance. "
                      "Examples: "
                      "1. Read a sub: {:form \"@(re-frame.core/subscribe [:current-user])\"} -> {:ok? true :value {:id 42 :name \"Ada\"}}. "
                      "2. Inspect a global: {:form \"(keys js/window)\"} -> {:ok? true :value [\"document\" ...]}. "
-                     "3. Gate closed: any args -> {:ok? false :reason :rf.error/eval-cljs-disabled} when launched with --no-eval.")
+                     "3. Await a Promise: {:form \"(-> (.layout instance input) (.then transform))\" :await true :timeout-ms 5000} -> {:ok? true :value <resolved>}. "
+                     "4. Await rejection: {:form \"(js/Promise.reject (ex-info \\\"nope\\\" {}))\" :await true} -> {:ok? false :reason :rf.error/eval-cljs-rejected :rejection \"...\"}. "
+                     "5. Await timeout: {:form \"(js/Promise. (fn [_ _]))\" :await true :timeout-ms 500} -> {:ok? false :reason :rf.error/eval-cljs-timeout :timeout-ms 500}. "
+                     "6. Gate closed: any args -> {:ok? false :reason :rf.error/eval-cljs-disabled} when launched with --no-eval.")
    :typicalTokens 500
    :annotations destructive-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
-                 :properties {:form  {:type "string" :description "The CLJS form to evaluate."}
-                              :build {:type "string" :description "shadow-cljs build id (default: app)"}}
+                 :properties {:form       {:type "string" :description "The CLJS form to evaluate."}
+                              :build      {:type "string" :description "shadow-cljs build id (default: app)"}
+                              :await      {:type "boolean"
+                                           :description (str "When true, if the form returns a thenable (Promise / "
+                                                             "any object with a .then method), await it server-side "
+                                                             "and return the resolved value. Non-thenable returns "
+                                                             "pass through unchanged. Default false (Promise objects "
+                                                             "return as #object[Promise ...] strings, preserving "
+                                                             "passthrough semantics for forms that hand a Promise to "
+                                                             "other code). Rejections surface as :rf.error/eval-cljs-rejected; "
+                                                             "exceeding :timeout-ms surfaces as :rf.error/eval-cljs-timeout. "
+                                                             "Added by rf2-xn4f9.")}
+                              :timeout-ms {:type "integer"
+                                           :description (str "Maximum ms to wait for a Promise to settle when "
+                                                             ":await is true. Default 5000. Ignored when :await is "
+                                                             "false. The caller picks the deadline because async "
+                                                             "form costs vary widely (a 5ms Promise.resolve vs. a "
+                                                             "multi-second layout computation).")}}
                  :required ["form"]
                  :additionalProperties false}})
 
