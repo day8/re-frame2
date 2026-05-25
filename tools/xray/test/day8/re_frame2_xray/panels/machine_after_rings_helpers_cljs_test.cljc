@@ -64,15 +64,22 @@
           :current-epoch   current-epoch
           :recovery        :replaced-with-default}})
 
-(defn- cancelled-on-resolution
-  [id machine-id state epoch sub-id]
-  {:id id :time id
-   :operation :rf.machine.timer/cancelled-on-resolution
-   :tags {:machine-id machine-id
-          :state      state
-          :epoch      epoch
-          :reason     :sub-changed
-          :rf.sub/id     sub-id}})
+(defn- cancelled
+  "Per rf2-82a0u — the unified `:rf.machine.timer/cancelled` event;
+  `reason` is from the closed set `:on-exit / :on-destroy /
+  :on-resolution / :on-supersede / :on-frame-destroy`. The sub-resolve
+  path (formerly emitted as `:cancelled-on-resolution`) is now
+  `:reason :on-resolution`."
+  ([id machine-id state epoch sub-id]
+   (cancelled id machine-id state epoch sub-id :on-resolution))
+  ([id machine-id state epoch sub-id reason]
+   {:id id :time id
+    :operation :rf.machine.timer/cancelled
+    :tags {:machine-id machine-id
+           :state      state
+           :epoch      epoch
+           :reason     reason
+           :sub-id     sub-id}}))
 
 (defn- skipped-on-server
   [id machine-id state delay epoch]
@@ -97,7 +104,7 @@
   (is (h/timer-event? (scheduled 1 :auth/login :idle 1000 0)))
   (is (h/timer-event? (fired 2 :auth/login :idle 0)))
   (is (h/timer-event? (stale-after 3 :auth/login :idle 0 1)))
-  (is (h/timer-event? (cancelled-on-resolution 4 :auth/login :idle 0 :delay-ms)))
+  (is (h/timer-event? (cancelled 4 :auth/login :idle 0 :delay-ms)))
   (is (h/timer-event? (skipped-on-server 5 :auth/login :idle 1000 0))))
 
 (deftest timer-event?-rejects-non-timer-and-nil
@@ -147,16 +154,30 @@
     (is (= 0      (:epoch r))
         "epoch is preserved from the scheduled record")))
 
-(deftest fold-cancelled-on-resolution-flips-to-cancelled
+(deftest fold-cancelled-flips-to-cancelled
   (let [t (h/fold-timer-events
-            [(scheduled              1000 :auth/login :idle 5000 0 :sub)
-             (cancelled-on-resolution 3000 :auth/login :idle 0 :delay-ms)])
+            [(scheduled 1000 :auth/login :idle 5000 0 :sub)
+             (cancelled 3000 :auth/login :idle 0 :delay-ms)])
         r (-> t vals first)]
-    (is (= :cancelled (:status r)))
-    (is (= 3000       (:closed-at r)))
-    (is (= 1000       (:armed-at r))
+    (is (= :cancelled       (:status r)))
+    (is (= 3000             (:closed-at r)))
+    (is (= 1000             (:armed-at r))
         "armed-at survives so the view can render the ring at its last
-         position with the diagonal cross overlay")))
+         position with the diagonal cross overlay")
+    (is (= :on-resolution   (:cancel-reason r))
+        "per rf2-82a0u — the closing event's `:reason` rides through
+         to the record so downstream consumers can branch on cause")))
+
+(deftest fold-cancelled-carries-each-reason
+  (testing "every reason in the closed set rides through to the record"
+    (doseq [reason [:on-exit :on-destroy :on-resolution :on-supersede :on-frame-destroy]]
+      (let [t (h/fold-timer-events
+                [(scheduled 1000 :auth/login :idle 5000 0)
+                 (cancelled 3000 :auth/login :idle 0 nil reason)])
+            r (-> t vals first)]
+        (is (= :cancelled (:status r)))
+        (is (= reason     (:cancel-reason r))
+            (str "reason " reason " carried through"))))))
 
 (deftest fold-skipped-on-server-flips-to-skipped
   (let [t (h/fold-timer-events
@@ -208,7 +229,7 @@
 (deftest active-timers-keeps-armed-and-cancelled
   (let [buf [(scheduled                1000 :auth/login :idle    5000 0)
              (scheduled                1500 :auth/login :authing 5000 0 :sub)
-             (cancelled-on-resolution  2000 :auth/login :authing 0 :delay)
+             (cancelled                2000 :auth/login :authing 0 :delay)
              (scheduled                3000 :auth/login :done    5000 0)
              (fired                    4000 :auth/login :done    0)
              (skipped-on-server        5000 :auth/login :ssr     5000 0)]

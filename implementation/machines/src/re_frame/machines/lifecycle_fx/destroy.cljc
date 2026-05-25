@@ -32,6 +32,7 @@
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.spawn-order :as spawn-order]
+            [re-frame.machines.timer :as timer]
             [re-frame.registrar :as registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -61,6 +62,13 @@
     ;; both transient (the snapshot is dissoc'd two steps later).
     (exit-cascade/run-child-exit! frame-id actor-id)
     (finalize/abort-actor-in-flight-http! actor-id)
+    ;; (rf2-82a0u) Cancel any armed `:after` timers the destroyed
+    ;; actor owns, emitting one `:rf.machine.timer/cancelled :reason
+    ;; :on-destroy` trace per timer. The epoch invariant already
+    ;; backstops firing-correctness; the explicit sweep releases the
+    ;; host-clock handle promptly and stamps the destroy attribution
+    ;; the Xray Handler section consumes.
+    (timer/cancel-actor-timers! frame-id actor-id)
     ;; `teardown-actor` returns [new-db released-sid]; `swap-frame-db!`
     ;; expects a fn returning the new-db only. Capture sid via a side
     ;; channel so we keep a single read + single write.
@@ -201,6 +209,9 @@
         ;; points share one ordering convention.
         (exit-cascade/run-child-exit! frame-id actor-id)
         (finalize/abort-actor-in-flight-http! actor-id)
+        ;; (rf2-82a0u) Cancel any armed `:after` timers the destroyed
+        ;; actor owns — see `destroy-single-actor!` for the rationale.
+        (timer/cancel-actor-timers! frame-id actor-id)
         (frame/swap-frame-db! frame-id
                               (fn [db]
                                 (first (teardown/teardown-actor

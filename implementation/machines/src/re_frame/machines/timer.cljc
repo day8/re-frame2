@@ -173,11 +173,47 @@
       (try (subs/unsubscribe frame-id delay-key)
            (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
+(defn- emit-cancelled!
+  "Emit the unified `:rf.machine.timer/cancelled` trace for one
+  cancellation site. Per rf2-82a0u: every cancellation path — state
+  exit, machine destroy, subscription re-resolution, in-place
+  supersede, frame destroy — flows through this single emit so
+  consumers can pair scheduled→fired→cancelled by
+  `(machine-id, state, epoch)` and branch on `:reason` from the
+  closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede
+  / :on-frame-destroy`.
+
+  Payload shape mirrors `:rf.machine.timer/scheduled` for arm-fire-
+  cancel pairing — same `:machine-id` / `:state` / `:delay` / `:epoch`
+  / `:frame` slots — plus the `:reason` discriminator. `:sub-id` rides
+  when the cancelled timer was a sub-vec delay (`:delay-source :sub`).
+  `:delay` reads the entry's `:resolved-ms` so the cancelled trace
+  reports the wall-clock window the timer actually held, not the
+  unresolved delay-key."
+  [frame-id k entry reason]
+  (let [delay-key    (:delay k)
+        delay-source (:delay-source entry)
+        sub-id       (when (vector? delay-key) (first delay-key))]
+    (trace/emit! :rf.machine :rf.machine.timer/cancelled
+                 (cond-> {:machine-id (:parent k)
+                          :state      (:state entry)
+                          :delay      (:resolved-ms entry)
+                          :epoch      (:epoch entry)
+                          :reason     reason
+                          :frame      frame-id}
+                   (some? delay-source) (assoc :delay-source delay-source)
+                   (some? sub-id)       (assoc :sub-id sub-id)))))
+
 (defn- cancel-after-timer-entry!
-  "Cancel and clear a single :after timer-table entry under `frame-id`.
-  Idempotent — a second call against the same `[frame-id k]` is a no-op."
-  [frame-id k]
+  "Cancel and clear a single :after timer-table entry under `frame-id`,
+  emitting one `:rf.machine.timer/cancelled` trace stamped with
+  `reason` (closed set per rf2-82a0u: `:on-exit / :on-destroy /
+  :on-resolution / :on-supersede / :on-frame-destroy`). Idempotent —
+  a second call against the same `[frame-id k]` is a no-op (the entry
+  is gone so no trace fires)."
+  [frame-id k reason]
   (when-let [entry (get-in @after-timers [frame-id k])]
+    (emit-cancelled! frame-id k entry reason)
     (release-entry-resources! frame-id entry (:delay k))
     ;; Drop the inner-table entry; drop the outer-table entry if this was
     ;; the frame's last live timer so a frame that briefly held timers
@@ -192,24 +228,16 @@
 (defn- on-sub-changed!
   "Watch callback invoked when a subscription-vector delay's value
   changes. Per Spec 005 §Dynamic delay re-resolution: cancel the prior
-  in-flight timer, emit :rf.machine.timer/cancelled-on-resolution, and
+  in-flight timer, emit `:rf.machine.timer/cancelled` (per rf2-82a0u
+  the unified cancellation event with `:reason :on-resolution`), and
   reschedule a fresh timer at the new resolution time. Epoch is
   unchanged (the snapshot's :state hasn't moved); we read it back from
   the live snapshot at reschedule-time so a concurrent state change is
   caught by the epoch invariant when the new timer fires."
   [frame-id parent-id invoke-id delay-key state old-v new-v]
   (when-not (= old-v new-v)
-    (let [k (after-timer-key parent-id invoke-id delay-key)
-          prior-entry (get-in @after-timers [frame-id k])
-          prior-ms    (:resolved-ms prior-entry)]
-      (trace/emit! :rf.machine :rf.machine.timer/cancelled-on-resolution
-                   {:machine-id parent-id
-                    :state      state
-                    :delay      prior-ms
-                    :reason     :sub-changed
-                    :sub-id     (first delay-key)
-                    :frame      frame-id})
-      (cancel-after-timer-entry! frame-id k)
+    (let [k (after-timer-key parent-id invoke-id delay-key)]
+      (cancel-after-timer-entry! frame-id k :on-resolution)
       (when-let [db (frame/frame-app-db-value frame-id)]
         (let [snap (get-in db [:rf/machines parent-id])
               ;; Per Spec 005 §Per-region :after scoping (rf2-l67o): for
@@ -244,18 +272,23 @@
 (defn- schedule-after-timer!
   "Internal helper: resolve the delay, install the host-clock timer, and
   (for sub-vec delays) install the change-watcher. The
-  :rf.machine.timer/scheduled (or /skipped-on-server) trace is emitted by
-  the pure-code side (apply-transition-once) at machine-transition time;
-  this fn emits a fresh /scheduled (paired with :cancelled-on-resolution)
-  only when called from a subscription-change watcher.
+  `:rf.machine.timer/scheduled` (or `/skipped-on-server`) trace is
+  emitted by the pure-code side (apply-transition-once) at machine-
+  transition time; this fn emits a fresh `/scheduled` (paired with the
+  unified `/cancelled :reason :on-resolution`) only when called from a
+  subscription-change watcher.
 
   Idempotent against the timer-table key — cancels any prior entry
-  before installing the new one."
+  before installing the new one. Per rf2-82a0u the leading cancel
+  emits a `:rf.machine.timer/cancelled` trace with `:reason
+  :on-supersede` — the only path that hits this branch with a live
+  prior entry is `cancel-and-reschedule` (initial schedule against an
+  empty slot is a no-op cancel)."
   [frame-id parent-id invoke-id state delay-key epoch server? snapshot
    {:keys [emit-scheduled-trace?]}]
   (let [delay-source (classify-delay-source delay-key)
         k            (after-timer-key parent-id invoke-id delay-key)]
-    (cancel-after-timer-entry! frame-id k)
+    (cancel-after-timer-entry! frame-id k :on-supersede)
     (cond
       server?
       ;; Pure-side already emitted :skipped-on-server; no-op here.
@@ -396,6 +429,12 @@
   fires before this fx runs; this handler is the fast-path that prevents
   zombie watchers and releases timer slots promptly.
 
+  Per rf2-82a0u each cancellation emits one
+  `:rf.machine.timer/cancelled` trace with `:reason :on-exit` so the
+  scheduled→fired→cancelled pairing in the Xray Handler section's
+  AFTER TIMERS sub-section can attribute the cancel to the state-exit
+  cause.
+
   Per rf2-ysa94 the scan is now bounded by the active frame's inner
   table — siblings' timers in other frames are no longer walked. Per
   rf2-gwznv the inner key is `{:parent ... :spawn ... :delay ...}`,
@@ -408,15 +447,42 @@
     (doseq [[k _entry] (get @after-timers frame-id)
             :when (and (= parent-id (:parent k))
                        (= invoke-id (:spawn k)))]
-      (cancel-after-timer-entry! frame-id k))
+      (cancel-after-timer-entry! frame-id k :on-exit))
     nil))
+
+(defn cancel-actor-timers!
+  "Cancel every in-flight `:after` timer owned by `parent-id` under
+  `frame-id`. Per rf2-82a0u: emits one `:rf.machine.timer/cancelled`
+  trace per entry with `:reason :on-destroy`. Called from the machine-
+  destroy paths so trace consumers see the cancellation cause distinct
+  from state-exit / frame-destroy cancellations.
+
+  Pure side-effect — no return value. No-op when the actor has no
+  in-flight timers. The transition engine's epoch invariant backstops
+  any timer that fires between destroy and host-clock teardown; this
+  helper releases the host-clock handle eagerly and emits the trace
+  so the Xray Handler section can attribute the cancel to the actor's
+  destroy event."
+  [frame-id parent-id]
+  (when (and frame-id parent-id)
+    (doseq [[k _entry] (vec (get @after-timers frame-id))
+            :when (= parent-id (:parent k))]
+      (cancel-after-timer-entry! frame-id k :on-destroy))))
 
 (defn cancel-all-timers!
   "Cancel every in-flight :after timer the runtime is currently tracking
   and reset the timer table.
 
   0-arity: every frame's timers (fixture teardown — `reset-timers!`).
+  Silent — fixture-reset is test-isolation cleanup, not a runtime
+  cancellation event; emitting traces here would pollute the trace
+  stream observed by the next test.
+
   1-arity: just the given frame's timers (`frame/destroy-frame!` hook).
+  Per rf2-82a0u each cancelled timer emits one
+  `:rf.machine.timer/cancelled` trace with `:reason :on-frame-destroy`
+  so the Handler section's AFTER TIMERS sub-section can pair scheduled
+  → cancelled on frame teardown.
 
   Per rf2-ysa94 the timer table is partitioned per frame; the 1-arity
   variant releases the destroyed frame's host-clock handles and
@@ -427,6 +493,10 @@
      (release-entry-resources! frame-id entry (:delay k)))
    (reset! after-timers {}))
   ([frame-id]
-   (doseq [[k entry] (get @after-timers frame-id)]
-     (release-entry-resources! frame-id entry (:delay k)))
-   (swap! after-timers dissoc frame-id)))
+   (doseq [[k _entry] (vec (get @after-timers frame-id))]
+     ;; Use the single-entry helper so each cancellation emits the
+     ;; unified `:rf.machine.timer/cancelled` trace with the right
+     ;; `:reason`. `vec`-snapshot the iteration so the swap inside
+     ;; `cancel-after-timer-entry!` cannot trip a concurrent-
+     ;; modification surprise on the JVM target.
+     (cancel-after-timer-entry! frame-id k :on-frame-destroy))))

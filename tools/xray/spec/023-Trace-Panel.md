@@ -249,7 +249,7 @@ Every Spec-009 trace operation → its row. `dur?` = number once timing instrume
 | `:rf.event/dispatched [:rf.route/handle-url-change …]` | ① | EVENT | dispatched | url (the URL-change EVENT — **not** a standalone trace op; it rides the `:rf.event/dispatched` row above) | — (↗ child) |
 | `:rf.machine.timer/scheduled` | ③ | MACHINE | timer-scheduled | delay · state | — (↗ future epoch) |
 | `:rf.machine.timer/fired` | own epoch | MACHINE | timer-fired | delay · state | — |
-| `:rf.machine.timer/stale-after` · `cancelled-on-resolution` | ③ | MACHINE | timer-stale / timer-cancelled | state | — |
+| `:rf.machine.timer/stale-after` · `cancelled` (rf2-82a0u — unified, `:reason` discriminates) | ③ | MACHINE | timer-stale / timer-cancelled | state | — |
 | `:rf.machine.timer/skipped-on-server` | ③ | MACHINE | timer-skipped-on-server | state | — |
 | `:rf.machine/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | ③ | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
 | `:rf.machine/after` · `done` · `finished` | ② / ③ | MACHINE | after / done / finished | delay / output | — |

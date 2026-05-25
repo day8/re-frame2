@@ -203,7 +203,9 @@ total from "huh, nothing happened" to "ah, my guard is wrong."
 
 **Bug class:** Stale `:after` timer (epoch advanced; timer scheduled in a
 prior visit) OR guard re-evaluation on `:after` resolution OR
-`:rf.machine.timer/cancelled-on-resolution` paired with new schedule.
+`:rf.machine.timer/cancelled` (`:reason :on-resolution`, per rf2-82a0u
+the unified cancellation event covering every cancel path) paired with
+new schedule.
 
 **Example bug:** You entered `:loading` with `:after 5000ms → :timeout`.
 30 seconds passed. The snapshot is still `:loading`. The Trace tab shows

@@ -15,7 +15,8 @@
       some-completed, cancelled-on-join-resolution, late-completion,
       bad-child-id)
     - timer.cljc — wall-clock fx-layer traces (no-clock-configured,
-      cancelled-on-resolution, scheduled-from-watcher, after-fn-threw,
+      cancelled (rf2-82a0u — unified cancellation event with :reason
+      closed set), scheduled-from-watcher, after-fn-threw,
       after-sub-threw, after-watch-failed)
     - transition.cljc — pure-engine traces (guard-evaluated, action-ran
       success+error, timer/scheduled, timer/skipped-on-server,

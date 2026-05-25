@@ -1189,7 +1189,7 @@ nothing happened" to "ah, my guard is wrong."
 **v1 ships:** the existing chart with no overlay. **Future:** the
 red-flash overlay + the metadata rail's rejections section.
 
-### M.2 — Stale `:after` timer / cancelled-on-resolution
+### M.2 — Stale `:after` timer / cancelled (per rf2-82a0u — unified `:rf.machine.timer/cancelled` event with `:reason :on-resolution` for the sub-resolve case)
 
 **Bug class:** Wall-clock time-bound bug. The timer arms; the wall clock
 advances; the timer expires; the snapshot doesn't move. Five

@@ -103,14 +103,18 @@
       the cascade reasons; rarer)
     - `:rf.ws/aborted-on-actor-destroy` (Pattern-WebSocket; defensive —
       not all installs ship this)
-    - `:rf.machine.timer/cancelled-on-resolution` (per Spec 005 §after
-      timer lifecycle)
+    - `:rf.machine.timer/cancelled` (per Spec 005 §after timer
+      lifecycle; rf2-82a0u unified every cancellation path under this
+      single event id with a closed `:reason` set covering exit /
+      destroy / resolution / supersede / frame-destroy — the
+      cascade-cancellation case the visualiser anchors on is
+      `:reason :on-destroy`)
     - `:rf.machine.spawn/cancelled-on-join-resolution` (per Spec 005
       §Cancel-on-decision)"
   #{:rf.http/aborted-on-actor-destroy
     :rf.http/aborted
     :rf.ws/aborted-on-actor-destroy
-    :rf.machine.timer/cancelled-on-resolution
+    :rf.machine.timer/cancelled
     :rf.machine.spawn/cancelled-on-join-resolution})
 
 (def ^:private cancellation-reasons
@@ -173,10 +177,10 @@
   the visualiser displays. Pure fn of the event."
   [ev]
   (case (:operation ev)
-    :rf.http/aborted-on-actor-destroy        :http
-    :rf.http/aborted                         :http
-    :rf.ws/aborted-on-actor-destroy          :ws
-    :rf.machine.timer/cancelled-on-resolution :after
+    :rf.http/aborted-on-actor-destroy              :http
+    :rf.http/aborted                               :http
+    :rf.ws/aborted-on-actor-destroy                :ws
+    :rf.machine.timer/cancelled                    :after
     :rf.machine.spawn/cancelled-on-join-resolution :machine-invoke
     :unknown))
 
@@ -198,9 +202,9 @@
   (or (get-in ev [:tags :cancel-cause])
       (get-in ev [:tags :reason])
       (case (:operation ev)
-        :rf.http/aborted-on-actor-destroy        :actor-destroyed
-        :rf.ws/aborted-on-actor-destroy          :actor-destroyed
-        :rf.machine.timer/cancelled-on-resolution :join-resolved
+        :rf.http/aborted-on-actor-destroy              :actor-destroyed
+        :rf.ws/aborted-on-actor-destroy                :actor-destroyed
+        :rf.machine.timer/cancelled                    :join-resolved
         :rf.machine.spawn/cancelled-on-join-resolution :join-resolved
         :unknown)))
 

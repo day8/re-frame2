@@ -881,17 +881,46 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:input      [:map
                  [:data  :any]
                  [:event [:vector :any]]]]
-   [:outcome    [:enum :pass :fail]]])
+   [:outcome    [:enum :pass :fail :threw]] ;; :threw added per rf2-82a0u
+   [:exception  {:optional true} :any]])    ;; present only on the :threw path
 
 (def MachineActionRanTags
   [:map
    [:machine-id :keyword]
    [:action-id  :any]                       ;; keyword OR inline fn
+   [:phase      [:enum                      ;; rf2-82a0u — closed set
+                 :exit :transition :entry
+                 :always :after-action
+                 :initial-entry :destroy-exit]]
    [:input      [:map
                  [:data  :any]
                  [:event [:vector :any]]]]
    [:outcome    :any]                       ;; <return-value> | :ok | :rf.error/action-threw
    [:exception  {:optional true} :any]])    ;; present only on the throw path
+
+;; --- runtime: machine `:after` timer cancelled trace payload
+;;     (per [005 §Trace events] and rf2-82a0u) ---
+
+(def MachineTimerCancelledTags
+  ;; Per rf2-82a0u: the unified `:rf.machine.timer/cancelled` event
+  ;; emitted on every cancellation path. Payload shape mirrors
+  ;; `:rf.machine.timer/scheduled` for arm-fire-cancel pairing by
+  ;; `(machine-id, state, epoch)`; `:reason` discriminates the
+  ;; cancellation cause from the closed set below.
+  [:map
+   [:machine-id   :keyword]
+   [:state        :any]                     ;; keyword OR vector path
+   [:delay        :int]                     ;; the resolved-ms the timer held
+   [:epoch        :int]
+   [:reason       [:enum
+                   :on-exit                 ;; bearing state exited
+                   :on-destroy              ;; machine destroyed
+                   :on-resolution           ;; sub-vec delay re-resolved
+                   :on-supersede            ;; re-armed on a still-live slot
+                   :on-frame-destroy]]      ;; frame teardown
+   [:frame        :keyword]
+   [:delay-source {:optional true} :any]
+   [:sub-id       {:optional true} :any]])  ;; present when :delay-source = :sub
 
 (def SystemIdCollisionTags
   [:map
@@ -1610,7 +1639,7 @@ The recursive `::state-node` ref is registered under the spec id `:rf/state-node
 
 A second `:always`-related category, **`:rf.error/machine-always-depth-exceeded`**, is a *runtime* error (not registration): emitted when the microstep loop exceeds its depth limit (default 16), with `:tags {:machine-id <id> :depth <limit> :path [<state> ...]}` and `:recovery :no-recovery`. The cascade halts with the snapshot uncommitted. See [005 §Bounded depth](005-StateMachines.md#bounded-depth).
 
-**`:after` constraints.** Per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions), the `:after` slot's value is a map whose keys are one of three forms — positive-integer millisecond delays, **subscription vectors** (`[:sub-id & args]` resolved through `subscribe`'s machinery; re-resolves on subscription change per [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution)), or fns of the entering snapshot returning a positive integer — and whose values admit the same three forms as an `:on` clause: keyword-target sugar (`{5000 :timeout}`), a full transition spec (`{5000 {:guard :still-loading? :target :hard-error}}`), or — **parallel to `:on`** — a vector of guarded transition candidates evaluated **first-match-wins** at timer expiry (`{5000 [{:guard :ok? :target :done} {:target :failed}]}`; the first candidate whose `:guard` passes fires, an unguarded candidate is the unconditional fallback). The `:after` value grammar is identical to the `:on` `EventMap` value (`[:or Transition [:vector Transition]]`) — the runtime normalises both through one shared candidate-walk, so the two slots can never drift. Per rf2-vvbdl (#2053) and [005 §Value shape](005-StateMachines.md#value-shape). Sugar normalises at registration time. Cancellation is not a separate fx — staleness is detected via a **per-scheduling-node epoch map** stored in `:data` under the reserved key `:rf/after-epoch` (`{<decl-path-vector> <int>}`; the `:rf/`-namespace within `:data` is reserved for runtime-managed bookkeeping). Per-node tracking is required by [005 §Hierarchy interaction](005-StateMachines.md#hierarchy-interaction): a leaf-only sibling transition leaves a still-active parent's entry — and its in-flight timer — untouched. The clock primitives live in [`re-frame.interop`](002-Frames.md#interop-layer--clock-primitives--see-spec-005) (`now-ms`, `schedule-after!`, `cancel-scheduled!`); tests swap the interop layer rather than configuring a framework-level clock. Hosts whose interop layer hasn't been wired with a clock emit **`:rf.warning/no-clock-configured`** when `:after` is exercised — an advisory-not-fatal: the runtime falls back to a host-native clock if available. Trace events: `:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/stale-after`, `:rf.machine.timer/cancelled-on-resolution`, `:rf.machine.timer/skipped-on-server` (added to the trace-op vocabulary above). Per rf2-3y3y.
+**`:after` constraints.** Per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions), the `:after` slot's value is a map whose keys are one of three forms — positive-integer millisecond delays, **subscription vectors** (`[:sub-id & args]` resolved through `subscribe`'s machinery; re-resolves on subscription change per [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution)), or fns of the entering snapshot returning a positive integer — and whose values admit the same three forms as an `:on` clause: keyword-target sugar (`{5000 :timeout}`), a full transition spec (`{5000 {:guard :still-loading? :target :hard-error}}`), or — **parallel to `:on`** — a vector of guarded transition candidates evaluated **first-match-wins** at timer expiry (`{5000 [{:guard :ok? :target :done} {:target :failed}]}`; the first candidate whose `:guard` passes fires, an unguarded candidate is the unconditional fallback). The `:after` value grammar is identical to the `:on` `EventMap` value (`[:or Transition [:vector Transition]]`) — the runtime normalises both through one shared candidate-walk, so the two slots can never drift. Per rf2-vvbdl (#2053) and [005 §Value shape](005-StateMachines.md#value-shape). Sugar normalises at registration time. Cancellation is not a separate fx — staleness is detected via a **per-scheduling-node epoch map** stored in `:data` under the reserved key `:rf/after-epoch` (`{<decl-path-vector> <int>}`; the `:rf/`-namespace within `:data` is reserved for runtime-managed bookkeeping). Per-node tracking is required by [005 §Hierarchy interaction](005-StateMachines.md#hierarchy-interaction): a leaf-only sibling transition leaves a still-active parent's entry — and its in-flight timer — untouched. The clock primitives live in [`re-frame.interop`](002-Frames.md#interop-layer--clock-primitives--see-spec-005) (`now-ms`, `schedule-after!`, `cancel-scheduled!`); tests swap the interop layer rather than configuring a framework-level clock. Hosts whose interop layer hasn't been wired with a clock emit **`:rf.warning/no-clock-configured`** when `:after` is exercised — an advisory-not-fatal: the runtime falls back to a host-native clock if available. Trace events: `:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/stale-after`, `:rf.machine.timer/cancelled` (with `:reason` closed set per rf2-82a0u — replaces the pre-rf2-82a0u `:cancelled-on-resolution`), `:rf.machine.timer/skipped-on-server` (added to the trace-op vocabulary above). Per rf2-3y3y / rf2-82a0u.
 
 ### `:rf/machine-snapshot`
 

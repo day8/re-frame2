@@ -29,17 +29,20 @@
     - `:rf.machine.timer/fired` (`:fired? true`)— normal expiry
     - `:rf.machine.timer/fired` (`:fired? false`)— guard-suppressed
     - `:rf.machine.timer/stale-after`           — epoch mismatch
-    - `:rf.machine.timer/cancelled-on-resolution`— sub-vec re-resolution
+    - `:rf.machine.timer/cancelled`             — explicit cancel
+      (every cancellation path — state exit / machine destroy / sub-
+      vec re-resolution / supersede / frame destroy — per rf2-82a0u;
+      `:reason` discriminates)
     - `:rf.machine.timer/skipped-on-server`     — SSR no-op
 
   ## Folding algorithm
 
   Walk the trace buffer oldest-first. Each `scheduled` event opens a
   timer keyed by `(machine-id, state, epoch)`; a later `fired` /
-  `stale-after` / `cancelled-on-resolution` event for the same key
-  closes it. The latest event wins so re-schedules at the same key
-  replace the prior record (matches the runtime's idempotent
-  `cancel-after-timer-entry!` shape).
+  `stale-after` / `cancelled` event for the same key closes it. The
+  latest event wins so re-schedules at the same key replace the prior
+  record (matches the runtime's idempotent `cancel-after-timer-entry!`
+  shape).
 
   ## Ring geometry
 
@@ -79,7 +82,7 @@
   #{:rf.machine.timer/scheduled
     :rf.machine.timer/fired
     :rf.machine.timer/stale-after
-    :rf.machine.timer/cancelled-on-resolution
+    :rf.machine.timer/cancelled
     :rf.machine.timer/skipped-on-server})
 
 (defn timer-event?
@@ -114,10 +117,11 @@
   epoch the latest event wins (the runtime's invariant: at most one
   in-flight timer per (state, epoch)).
 
-  When the closing trace event lacks an `:epoch` (the `:cancelled-on-
-  resolution` shape historically didn't stamp epoch — it sent the
-  cancellation reason instead), we fall back to `(machine-id, state,
-  :*)` so closures match the most recent open record."
+  Per rf2-82a0u the unified `:rf.machine.timer/cancelled` event
+  carries `:epoch` (mirroring the `:scheduled` shape), so the closing
+  match is exact for cancel rows — the `:*` fallback is retained for
+  pre-rf2-82a0u trace replays + edge cases where the closing event's
+  tags are projected through a lossy intermediary."
   [machine-id state epoch]
   {:machine-id machine-id
    :state      state
@@ -165,9 +169,13 @@
     - A `:fired` event flips the matching record's `:status` to
       `:fired` (or `:guard-suppressed` when `:fired? false`).
     - A `:stale-after` flips it to `:stale`.
-    - A `:cancelled-on-resolution` flips it to `:cancelled` and
-      retains the `:armed-at` / `:fires-at` so the view can render
-      the ring at its last position with the crossed-out overlay.
+    - A `:cancelled` flips it to `:cancelled` and retains the
+      `:armed-at` / `:fires-at` so the view can render the ring at
+      its last position with the crossed-out overlay. Per rf2-82a0u
+      the closing event carries `:reason` (closed set: `:on-exit /
+      :on-destroy / :on-resolution / :on-supersede / :on-frame-
+      destroy`); the rings panel doesn't currently branch on
+      `:reason` but a future visualiser can.
     - `:skipped-on-server` (`:platform :server`) flips to `:skipped`.
 
   The caller filters down to the entries it wants to render (typically
@@ -223,10 +231,19 @@
               (assoc open k (assoc v :status :stale :closed-at t))
               open))
 
-          (= :rf.machine.timer/cancelled-on-resolution op)
+          (= :rf.machine.timer/cancelled op)
           (let [[k v] (update-or-cancel open machine-id state epoch)]
             (if v
-              (assoc open k (assoc v :status :cancelled :closed-at t))
+              (assoc open k (assoc v
+                                   :status :cancelled
+                                   :closed-at t
+                                   ;; Per rf2-82a0u: carry the `:reason`
+                                   ;; closed-set tag onto the record so
+                                   ;; downstream consumers can branch on
+                                   ;; cause (state-exit vs destroy vs
+                                   ;; sub re-resolve etc) without
+                                   ;; re-reading the trace event.
+                                   :cancel-reason (:reason tags)))
               open))
 
           (= :rf.machine.timer/skipped-on-server op)
