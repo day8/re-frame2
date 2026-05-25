@@ -19,7 +19,7 @@
       :path :active? :final? :tags :on-click ...}` and renders
       accordingly.
     - `compound-node` — compound parent with a header strip and a
-      large body containing nested children (xyflow's `parentNode`
+      large body containing nested children (xyflow's `parentId`
       mechanic handles the hierarchical layout; this node renders
       the outer container chrome).
     - `initial-marker` — a small glyph node paired with the initial
@@ -301,7 +301,7 @@
   translucent boxed background with a header strip carrying the
   compound state's label.
 
-  xyflow's `parentNode` mechanic places child state nodes inside
+  xyflow's `parentId` mechanic places child state nodes inside
   this container; this component only renders the surrounding
   chrome."
   [^js props]

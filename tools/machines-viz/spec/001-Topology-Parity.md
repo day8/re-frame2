@@ -48,7 +48,7 @@ converter maps `position`, `width`/`height`, `shape → type`,
 `parentId` (nesting), `sourcePort`/`targetPort → sourceHandle`/
 `targetHandle`, and `edge.data.label` — **the same fields**
 `chart.projection.cljc` emits (`:position`, node `:type`,
-`parentNode`/`extent:"parent"`, `Handle` ids, `:data {:eventLabel}`).
+`parentId`/`extent:"parent"`, `Handle` ids, `:data {:eventLabel}`).
 So a large slice of parity is **already structural**; the gaps below
 are the residue that the shared primitives do not buy for free.
 
@@ -168,7 +168,7 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 
 | Concern | Status today | Where |
 |---|---|---|
-| **Hierarchy** | ✅ Compound parents render as a dashed container with a header-strip title; children nest via xyflow `parentNode` + `extent:"parent"`; elk lays children inside the parent box (`INCLUDE_CHILDREN`). Nesting recurses (compound-in-compound, compound-in-region). | `nodes.cljs` `compound-node`; `projection.cljc` `->elk-children` (`:parent-id` grouping), `xyflow-graph` (`parentNode`/`extent`); `layout.cljc` `parse-flat` (`:parent-id` on nested nodes). |
+| **Hierarchy** | ✅ Compound parents render as a dashed container with a header-strip title; children nest via xyflow `parentId` + `extent:"parent"` (rf2-xh1lm — v12 reads `parentId`, NOT the pre-v12 `parentNode`); elk lays children inside the parent box (`INCLUDE_CHILDREN`). Nesting recurses (compound-in-compound, compound-in-region). | `nodes.cljs` `compound-node`; `projection.cljc` `->elk-children` (`:parent-id` grouping), `xyflow-graph` (`parentId`/`extent`); `layout.cljc` `parse-flat` (`:parent-id` on nested nodes). |
 | **Parallel regions — structure** | ✅ **Every** region renders as a synthetic `:region?` compound node with a **distinct dashed boundary per region** (palette rotation) + `∥` glyph + region label; states carry `:region` + `:parent-id`; edges stay region-local. | `layout.cljc` `parse-parallel`/`region-node-id`; `projection.cljc` (`type "parallel-region"`); `nodes/parallel_region_node.cljs`. |
 | **Parallel regions — active highlight** | ✅ **Closed (rf2-yoe6e / rf2-g2svr).** `highlight-ids` resolves the whole snapshot `:state` — flat keyword, compound path, **or region-map** `{region path}` — to the **set** of active-leaf node-ids; `xyflow-graph` threads `:highlight-ids` and marks **every** active leaf, so a parallel snapshot's **N simultaneously-active leaves** all light up at once. A nested region value resolves to its deepest leaf. | `layout.cljc` `highlight-ids`; `projection.cljc` `xyflow-graph` (`:highlight-ids` set). |
 | **Parallel regions — active CONTAINER chrome** | ✅ **Closed (rf2-80rm2 / G4).** The region (and, for self-consistency, the compound) **container** reads as active when ANY descendant leaf is active — the projector folds the container into `:active` by walking each active leaf UP its `:parent-id` chain (reusing the G1 active set; no duplicate highlight logic). `parallel-region-node` / `compound-node` then paint active chrome (solid emphasised boundary + the `:info` active-token glow ring, the same affordance state nodes use), so an active region reads as active at the zone level, not just the leaf inside it. **Palette delegated to Figma.** | `projection.cljc` `xyflow-graph` (`active-container-ids` parent-id walk); `nodes/parallel_region_node.cljs`; `nodes.cljs` `compound-node`. |
@@ -250,7 +250,7 @@ The contract (rf2-yoe6e) + impl (rf2-g2svr):
     its node-id and return the **set of N leaves**. Region-scoped
     paths resolve **within** the region (a region's `path` is relative
     to that region's own state-tree; the node-id is minted under the
-    region's `parentNode`).
+    region's `parentId`).
 - **Projection threads a set.** `xyflow-graph` accepts
   `:highlight-ids` (set) alongside / superseding the scalar
   `:highlight-id`; a node is `:active` when its id ∈ the set. The

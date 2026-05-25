@@ -223,7 +223,8 @@
   Walks nested elk children (rf2-lkwev — parallel machines nest each
   region's states under the region container). elkjs reports a child's
   `x`/`y` RELATIVE to its parent container, which is exactly what
-  xyflow's parentNode sub-flow wants — so we record each node's
+  xyflow's `parentId` sub-flow wants (rf2-xh1lm — xyflow v12 reads
+  `parentId`, not the pre-v12 `parentNode`) — so we record each node's
   position AS elkjs gives it, no re-basing. Region containers get
   their root-relative position + the size elkjs computed for the zone.
 

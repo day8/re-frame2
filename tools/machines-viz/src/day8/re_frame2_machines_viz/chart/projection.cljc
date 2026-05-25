@@ -80,7 +80,8 @@
   Nesting is keyed on `:parent-id`: parallel-region states (rf2-lkwev)
   AND compound substates carry it, so BOTH nest UNDER their container
   and elkjs lays them out inside the container's bounding box (xyflow's
-  parentNode sub-flow then renders them inside the dashed boundary).
+  `parentId` sub-flow then renders them inside the dashed boundary —
+  rf2-xh1lm: xyflow v12 reads `parentId`, NOT the pre-v12 `parentNode`).
   Nesting recurses — a compound inside a region, or a compound inside a
   compound, lays out correctly. Each container (region OR compound) gets
   its own `elk.algorithm`/`elk.padding` so the header strip has room and
@@ -257,8 +258,11 @@
             acc))
         ;; rf2-lkwev — container nodes (parallel regions AND compound
         ;; parents) MUST precede their children in the xyflow nodes
-        ;; array (xyflow requires a parentNode to appear before any node
-        ;; that references it). The parse already emits parents first;
+        ;; array (xyflow requires a parentId target to appear before any
+        ;; node that references it; the v12 `adoptUserNodes` walk warns
+        ;; otherwise — `Parent node ${parentId} not found. Please make
+        ;; sure that parent nodes are in front of their child nodes in
+        ;; the nodes array.`). The parse already emits parents first;
         ;; sort defensively so the parent-before-child invariant holds.
         proj-nodes
         (mapv (fn [n]
@@ -323,9 +327,21 @@
                     (assoc :style {:width  (:width pos)
                                    :height (:height pos)})
 
+                    ;; rf2-xh1lm — xyflow v12 reads `parentId` (NOT
+                    ;; `parentNode`, the pre-v12 name retained only in
+                    ;; xyflow's CHANGELOG). Without `parentId` xyflow
+                    ;; does NOT recognise the child as nested: it
+                    ;; interprets `:position` as ABSOLUTE flow coords
+                    ;; and ignores `:extent "parent"` clamping, so an
+                    ;; ELK parent-relative child (e.g. `{:x 14 :y 34}`
+                    ;; under an `:active` container at `{:x 22 :y 240}`)
+                    ;; renders at root `(14, 34)` — visually OUTSIDE
+                    ;; the parent. Emit `:parentId` so xyflow's
+                    ;; `adoptUserNodes` path adopts the child + uses
+                    ;; the parent's absolute origin as the offset.
                     (and (not region?) (:parent-id n))
-                    (assoc :parentNode (:parent-id n)
-                           :extent     "parent"))))
+                    (assoc :parentId (:parent-id n)
+                           :extent   "parent"))))
               (sort-by #(if (or (:region? %) (:compound? %)) 0 1) nodes))
 
         proj-edges
@@ -417,7 +433,7 @@
         ;; `:initial?` state via an unlabelled entry edge. xstate/SCXML
         ;; semantics: every compound level shows its own initial marker.
         ;; The marker shares the state's xyflow coordinate frame (same
-        ;; parentNode for region/compound children) so it sits just left
+        ;; `:parentId` for region/compound children) so it sits just left
         ;; of the state inside its container.
         initial-nodes (filter :initial? nodes)
         marker-nodes
@@ -431,9 +447,11 @@
                            :data      {:targetPath (:path n) :chart chart}
                            :draggable false
                            :selectable false}
+                    ;; rf2-xh1lm — see compound substate :parentId
+                    ;; comment above. xyflow v12 reads `parentId`.
                     (:parent-id n)
-                    (assoc :parentNode (:parent-id n)
-                           :extent     "parent"))))
+                    (assoc :parentId (:parent-id n)
+                           :extent   "parent"))))
               initial-nodes)
         entry-edges
         (mapv (fn [n]

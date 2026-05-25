@@ -88,8 +88,10 @@ with `:region` + `:parent-id`, and flags the result `:parallel? true`.
 `type: "parallel-region"` xyflow node (rendered by
 `chart.nodes.parallel-region-node` with a distinct dashed boundary +
 header label whose colour rotates per region index) and assigns each
-state a `parentNode`/`:extent "parent"` so xyflow's sub-flow mechanic
-nests the states inside the zone; elkjs lays the states out inside
+state a `parentId`/`:extent "parent"` so xyflow's sub-flow mechanic
+nests the states inside the zone (rf2-xh1lm — xyflow v12 reads
+`parentId`, NOT the pre-v12 `parentNode`, which is silently ignored);
+elkjs lays the states out inside
 each region's bounding box via `elk.hierarchyHandling
 INCLUDE_CHILDREN`. The chart root surfaces `data-region-count`; region
 containers are excluded from `data-node-count` + the aria-label state
@@ -109,6 +111,38 @@ against the FULL measured extent overflow the smaller fallback and
 visually escape the container. Leaf (non-container) state nodes carry
 NO `:style`; xyflow sizes them from the rendered DOM
 (`state-node-min-{width,height}`).
+
+### Sub-flow nesting — `:parentId` (NOT `:parentNode`) (rf2-xh1lm)
+
+Every nested xyflow node (region substate, compound substate, the
+initial-marker glyph that pairs with a nested initial state) MUST emit
+`:parentId <container-node-id>` + `:extent "parent"` on the projected
+node. The container's `:position` is root-absolute (from ELK's root
+frame); the child's `:position` is parent-relative (from ELK's nested
+walk). xyflow's `adoptUserNodes` then adopts the child against the
+parent's measured box and reports a `positionAbsolute` of `parent.x +
+child.x`, so the rendered DOM sits inside the container.
+
+This is **`:parentId`, not `:parentNode`**. xyflow v12 renamed the
+sub-flow key from the pre-v12 `parentNode` to `parentId`
+(`@xyflow/system` `types/nodes.d.ts` `NodeBase.parentId`; the v12
+`adoptUserNodes` walk reads `userNode.parentId` exclusively).
+**A `:parentNode` slot is silently ignored** — no warning, no
+deprecation notice; the node is treated as root-level and its
+`:position` is read as ABSOLUTE flow coordinates. With ELK's
+parent-relative coords, that puts an `:active__connecting` child at
+root `(14, 34)` instead of inside `:active` at root `(36, 274)` — the
+exact symptom rf2-xh1lm fixed (substates rendered top-left of canvas
+while the empty `:active` container sat bottom-right).
+
+The projection test corpus guards this two ways: every assertion uses
+`:parentId` (`xyflow-graph-region-children-wire-parent-id`,
+`xyflow-graph-compound-children-wire-parent-id`,
+`xyflow-graph-emits-compound-substate-initial-marker`), and a dedicated
+regression test (`xyflow-graph-region-children-do-not-emit-pre-v12-parent-node`)
+asserts the `:parentNode` key MUST NOT appear on any projected node —
+catching a re-introduction at the projector level rather than waiting
+for a downstream visual-regression catch.
 
 ### Parallel multi-active highlight (rf2-yoe6e, rf2-g2svr)
 

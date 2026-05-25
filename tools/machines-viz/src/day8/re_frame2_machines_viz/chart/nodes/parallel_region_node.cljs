@@ -16,11 +16,12 @@
   `chart.layout/parse-parallel` mints a synthetic `:region?` compound
   node per region; `chart.projection/xyflow-graph` projects it as a
   `type: \"parallel-region\"` xyflow node and assigns every state in
-  the region a `parentNode` pointing at the region node (xyflow's
-  sub-flow mechanic). This component renders the region's CHROME — a
-  large translucent box with a dashed border + the region label in
+  the region a `parentId` pointing at the region node (xyflow's
+  sub-flow mechanic — rf2-xh1lm: xyflow v12 reads `parentId`, NOT the
+  pre-v12 `parentNode`). This component renders the region's CHROME —
+  a large translucent box with a dashed border + the region label in
   the header strip. The child state nodes sit inside via xyflow's
-  parentNode positioning; this component only paints the surround.
+  `parentId` positioning; this component only paints the surround.
 
   ## Distinct boundary per region
 
@@ -70,7 +71,7 @@
 
   Renders a translucent zone with a distinct dashed boundary (the
   region's rotation colour) + a header strip carrying the region
-  label. xyflow's parentNode mechanic places the region's child state
+  label. xyflow's `parentId` mechanic places the region's child state
   nodes inside; this component renders only the surrounding chrome."
   [^js props]
   (let [d            (.-data props)
