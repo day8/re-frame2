@@ -325,6 +325,16 @@
   [^js input]
   (.layout elk-instance input))
 
+(defn invoke-fit-view!
+  "rf2-set3x — indirection over `(.fitView instance opts)`. Same
+  test-seam shape as `invoke-elk-layout!` above: the regression test
+  rebinds this via `set!` to spy the call without needing a real
+  xyflow instance. No production code outside this ns should call it
+  directly; the chart's auto-fit lifecycle (`MachineChart`) is the
+  sole caller."
+  [^js instance ^js opts]
+  (.fitView instance opts))
+
 (defn compute-layout!
   "Run elk.js layout on `parsed` (the output of
   `chart.layout/parse-definition`); call `done-fn` with a map
@@ -533,7 +543,43 @@
         ;; positions, no routes) — the pre-layout render falls back to
         ;; origin + bezier until the async elk pass resolves.
         layout-state  (r/atom {:positions {} :edge-points {}})
-        layout-key    (r/atom nil)]
+        layout-key    (r/atom nil)
+        ;; rf2-set3x — auto-fit lifecycle.
+        ;;
+        ;; xyflow's `:fitView true` prop fires ONCE on initial mount,
+        ;; but mount happens BEFORE the async elk pass resolves: every
+        ;; node renders at the default {x 0 y 0}, the one-shot fitView
+        ;; fits to a degenerate cluster near the origin, and when real
+        ;; positions arrive the viewport is never re-fit. The fix:
+        ;;
+        ;;   1. Capture the xyflow instance via `:onInit`.
+        ;;   2. After EVERY layout settle whose `this-key` differs
+        ;;      from the last key we fit, call `.fitView` once more —
+        ;;      so the user sees the real topology framed.
+        ;;
+        ;; `:fit-key` records the layout-key we last fit; gating on
+        ;; key-inequality means an operator's manual zoom/pan IS
+        ;; preserved across re-renders that don't invalidate layout
+        ;; (highlight changes, overlay ticks, etc.). A genuine layout
+        ;; invalidation (definition / direction / layout-options
+        ;; change — the load-bearing tuple per API.md §Layout-
+        ;; invalidation boundary, AND the manual `Fit` Controls
+        ;; button) is the only thing that re-fits.
+        fit-state     (r/atom {:instance nil :fit-key nil})
+        ;; Helper: schedule a fitView call deferred to the next
+        ;; animation frame, so React's commit + xyflow's internal
+        ;; node-measurement have landed by the time the fit reads the
+        ;; bounding box. Calls go through `invoke-fit-view!` so the
+        ;; regression test can spy via `set!` (mirrors
+        ;; `invoke-elk-layout!`).
+        schedule-fit! (fn [^js instance]
+                        (let [opts #js {:padding 0.1}]
+                          (if (and (exists? js/requestAnimationFrame)
+                                   (some? js/requestAnimationFrame))
+                            (js/requestAnimationFrame
+                              (fn [_] (invoke-fit-view! instance opts)))
+                            ;; Test / Node fallback — fire immediately.
+                            (invoke-fit-view! instance opts))))]
     (fn [{:keys [machine-id definition current-state from-highlight to-highlight
                  fired-edge-ids
                  sim? on-state-click on-edge-click read-only?
@@ -568,7 +614,23 @@
           (compute-layout! parsed direction layout-options machine-id
                            (fn [result]
                              (when result
-                               (reset! layout-state result)))))
+                               (reset! layout-state result)
+                               ;; rf2-set3x — after a successful layout
+                               ;; settle (positions present, no error),
+                               ;; auto-fit the viewport ONCE per layout-
+                               ;; key change so the operator sees the
+                               ;; real topology framed. Gating on
+                               ;; `:fit-key` differs from `this-key`
+                               ;; preserves a manual zoom/pan across
+                               ;; non-layout re-renders, and re-fits on
+                               ;; every layout invalidation (definition
+                               ;; / direction / layout-options change).
+                               (when-let [^js inst (and (seq (:positions result))
+                                                        (nil? (:layout-error result))
+                                                        (:instance @fit-state))]
+                                 (when (not= this-key (:fit-key @fit-state))
+                                   (swap! fit-state assoc :fit-key this-key)
+                                   (schedule-fit! inst)))))))
         (cond
           (nil? definition)
           [:div {:data-testid (str testid "-no-definition")
@@ -747,7 +809,28 @@
                :fitViewOptions      #js {:padding 0.1}
                :minZoom             0.2
                :maxZoom             4.0
-               :proOptions          #js {:hideAttribution true}}
+               :proOptions          #js {:hideAttribution true}
+               ;; rf2-set3x — capture the xyflow ReactFlowInstance so
+               ;; the compute-layout! settle can re-fit the viewport
+               ;; after the async elk pass resolves (the built-in
+               ;; `:fitView true` fires only once on mount, while
+               ;; every node still sits at the default origin). If
+               ;; positions have ALREADY arrived by the time onInit
+               ;; runs (fast layout / cached settle), fit immediately
+               ;; — the post-mount xyflow fit was equally degenerate.
+               :onInit              (fn [^js instance]
+                                      (let [{:keys [positions
+                                                    layout-error]} @layout-state
+                                            key-now                @layout-key
+                                            should-fit-now?
+                                            (and (seq positions)
+                                                 (nil? layout-error)
+                                                 (not= key-now
+                                                       (:fit-key @fit-state)))]
+                                        (swap! fit-state assoc :instance instance)
+                                        (when should-fit-now?
+                                          (swap! fit-state assoc :fit-key key-now)
+                                          (schedule-fit! instance))))}
               (when show-background?
                 ;; rf2-k647w — dot-grid spacing + radius track the
                 ;; resolved density (`:dot-grid-spacing-px` /

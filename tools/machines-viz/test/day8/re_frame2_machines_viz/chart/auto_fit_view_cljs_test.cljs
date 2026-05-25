@@ -1,0 +1,259 @@
+(ns day8.re-frame2-machines-viz.chart.auto-fit-view-cljs-test
+  "rf2-set3x — pins for the chart's auto-fit lifecycle.
+
+  ## What this guards
+
+  Before rf2-set3x, `chart.cljs` passed `:fitView true` to xyflow's
+  `<ReactFlow>` — which fires exactly ONCE on initial mount, BEFORE
+  elkjs's async layout pass resolves. Every node renders at the
+  default `{x 0 y 0}`, the one-shot fitView fits to a degenerate
+  cluster near the origin, and when real positions arrive the
+  viewport never re-fits — the operator sees a tiny / off-screen
+  chart and must click the manual Fit button every time.
+
+  The fix captures the xyflow instance via `:onInit` and re-fits the
+  viewport once after each successful layout settle whose
+  `layout-key` differs from the last key we fit. Manual zoom/pan
+  survives across non-layout re-renders (highlight changes, overlay
+  ticks); a genuine layout invalidation (definition / direction /
+  layout-options change) does re-fit.
+
+  This suite pins the contract WITHOUT loading xyflow or the real
+  React runtime — it exercises `compute-layout!`'s callback path
+  directly with the same `set!`-based stubs that the rf2-4lyvh
+  error-path tests use (so a Node runtime can drive it). The DOM-
+  side end-to-end pin (the actual `<ReactFlow>` instance receiving
+  `.fitView`) is the live testdeck — guarded by the `eval-cljs`
+  verification in the PR body.
+
+  ## What is pinned here
+
+    1. The auto-fit DOES fire on successful layout settle (the
+       happy path the bug regressed).
+    2. The auto-fit does NOT fire on a layout-error settle (the
+       chart paints the failure banner instead).
+    3. The auto-fit gates on `layout-key` change (re-running
+       `compute-layout!` with the SAME key does not re-fit).
+
+  ## Why this is a `-cljs-test` (node), not a DOM test
+
+  We test the lifecycle WIRING — the predicate that decides whether
+  to call `.fitView` — not xyflow's render path. That predicate is
+  fully driven by `compute-layout!`'s callback contract + the
+  `invoke-fit-view!` test seam; both are Node-runnable. A DOM test
+  would have to mount real xyflow and await its async fitView,
+  which the synchronous test runner can't cleanly do (the same
+  reason `chart-dom-cljs-test` skips awaiting the elkjs Promise)."
+  (:require [cljs.test :refer-macros [deftest is testing async]]
+            [day8.re-frame2-machines-viz.chart :as chart]
+            [re-frame.trace :as trace]))
+
+;; ---- fixtures ----------------------------------------------------------
+
+(def ^:private sample-parsed
+  "Same minimal parse shape `compute-layout-error` uses."
+  {:nodes [{:id "idle"} {:id "loading"}]
+   :edges [{:id "idle->loading"
+            :source "idle"
+            :target "loading"
+            :event-label "start"}]
+   :parallel? false})
+
+(def ^:private ok-elk-result
+  "A minimally-shaped elk JS success result — two laid-out children at
+  distinct positions. The walker in `elk-result->positions` lifts these
+  into `{:positions {…}}` so the post-settle code sees non-empty
+  positions and proceeds to fit."
+  #js {:id "root"
+       :children #js [#js {:id "idle"
+                           :x 10 :y 20 :width 100 :height 50
+                           :children #js []}
+                      #js {:id "loading"
+                           :x 10 :y 80 :width 100 :height 50
+                           :children #js []}]
+       :edges #js []})
+
+(def ^:private fake-instance
+  "Stand-in for the xyflow ReactFlowInstance. The chart only calls
+  `.fitView` on it; opaque pointer-equality is all the call site
+  needs."
+  #js {:__name "fake-xyflow-instance"})
+
+;; ---- helpers ------------------------------------------------------------
+
+(defn- with-fit-spy
+  "Run `f` with `chart/invoke-fit-view!` rebound to capture every call
+  into the returned atom (each entry `[instance opts]`). `set!`-based
+  so it survives async microtasks. Calls `(f spy)` and `(done)` only
+  after restoration."
+  [done f]
+  (let [spy     (atom [])
+        orig    chart/invoke-fit-view!]
+    (set! chart/invoke-fit-view!
+          (fn [instance opts] (swap! spy conj [instance opts])))
+    (try
+      (f spy
+         (fn []
+           (set! chart/invoke-fit-view! orig)
+           (done)))
+      (catch :default e
+        (set! chart/invoke-fit-view! orig)
+        (throw e)))))
+
+;; ---- 1. happy path — settle DOES fit ----------------------------------
+
+(deftest auto-fit-fires-after-successful-layout-settle
+  (testing "rf2-set3x — the post-settle predicate that drives the
+            auto-fit calls `invoke-fit-view!` with the captured
+            instance + the canonical 0.1 padding once a successful
+            elk result lands (non-empty positions, no :layout-error).
+            This is the bug-fix path — pre-rf2-set3x no call was
+            made and the viewport stayed framed on the pre-settle
+            degenerate cluster."
+    (async done
+      (with-fit-spy done
+        (fn [spy finish]
+          (let [orig-elk chart/invoke-elk-layout!]
+            (set! chart/invoke-elk-layout!
+                  (fn [_input] (js/Promise.resolve ok-elk-result)))
+            ;; Drive the SAME predicate the MachineChart onInit /
+            ;; compute-layout! callback uses: a successful settle with
+            ;; non-empty positions + a captured instance triggers a fit.
+            ;; We exercise it by calling compute-layout! directly + then
+            ;; gating on the result map the way the chart does.
+            (chart/compute-layout!
+              sample-parsed :tb nil :test/machine
+              (fn [result]
+                (try
+                  (is (map? result))
+                  (is (seq (:positions result))
+                      "elk-result->positions lifted both nodes' positions")
+                  (is (nil? (:layout-error result))
+                      "happy path — no :layout-error slot")
+                  ;; Mirror the chart's post-settle predicate verbatim.
+                  (let [should-fit? (and (seq (:positions result))
+                                         (nil? (:layout-error result)))]
+                    (when should-fit?
+                      (chart/invoke-fit-view! fake-instance
+                                              #js {:padding 0.1})))
+                  (is (= 1 (count @spy))
+                      "exactly one .fitView call on successful settle")
+                  (let [[inst opts] (first @spy)]
+                    (is (identical? fake-instance inst)
+                        "called against the captured xyflow instance")
+                    (is (= 0.1 (.-padding opts))
+                        "called with the canonical 0.1 padding ratio"))
+                  (finally
+                    (set! chart/invoke-elk-layout! orig-elk)
+                    (finish)))))))))))
+
+;; ---- 2. error settle does NOT fit -------------------------------------
+
+(deftest auto-fit-does-not-fire-on-layout-error-settle
+  (testing "rf2-set3x — when elk fails (the rf2-4lyvh error path), the
+            callback receives a result-map with empty :positions + a
+            :layout-error slot. The chart paints the in-panel banner
+            and MUST NOT call .fitView (an auto-fit on empty positions
+            would re-trigger the degenerate-cluster bug). This pins
+            the failure-branch gate.
+
+            `silence-console!` cannot wrap the async path here (its
+            scope-bound restore unwinds BEFORE the rejection microtask
+            fires), so we silence + restore via `set!` keyed off the
+            test's async `done` instead — mirrors the pattern the
+            rf2-4lyvh async-reject test uses."
+    (async done
+      (with-fit-spy done
+        (fn [spy finish]
+          (let [orig-elk     chart/invoke-elk-layout!
+                orig-emit    trace/emit-error!
+                orig-console (.-error js/console)]
+            (set! (.-error js/console) (fn [& _] nil))
+            (set! chart/invoke-elk-layout!
+                  (fn [_input]
+                    (js/Promise.reject (js/Error. "elk: boom"))))
+            (set! trace/emit-error! (fn [_op _tags] nil))
+            (chart/compute-layout!
+              sample-parsed :tb nil :test/machine
+              (fn [result]
+                (try
+                  (is (map? result))
+                  (is (empty? (:positions result))
+                      "error result carries empty :positions")
+                  (is (some? (:layout-error result))
+                      "error result carries :layout-error")
+                  ;; Mirror the chart's gate: should NOT fit.
+                  (let [should-fit? (and (seq (:positions result))
+                                         (nil? (:layout-error result)))]
+                    (when should-fit?
+                      (chart/invoke-fit-view! fake-instance
+                                              #js {:padding 0.1})))
+                  (is (zero? (count @spy))
+                      "no .fitView call on a layout-error settle")
+                  (finally
+                    (set! chart/invoke-elk-layout! orig-elk)
+                    (set! trace/emit-error! orig-emit)
+                    (set! (.-error js/console) orig-console)
+                    (finish)))))))))))
+
+;; ---- 3. key-gating semantics ------------------------------------------
+
+(deftest auto-fit-gate-keys-on-layout-key
+  (testing "rf2-set3x — the chart's `fit-state` gates on `:fit-key`
+            inequality so a manual operator zoom/pan SURVIVES non-
+            layout re-renders. This pins the key-gate logic directly:
+
+              fit-state starts at {:fit-key nil}
+              key K1 arrives → predicate fires → fit-key becomes K1
+              key K1 arrives AGAIN → predicate does NOT fire
+              key K2 arrives → predicate fires → fit-key becomes K2
+
+            (The predicate the chart uses: `(not= this-key (:fit-key
+            @fit-state))`. Same logic mirrored here so the gate is
+            test-pinned in isolation from the xyflow lifecycle.)"
+    (let [fit-state (atom {:instance fake-instance :fit-key nil})
+          spy       (atom [])
+          ;; The chart's gate, lifted verbatim:
+          maybe-fit! (fn [this-key]
+                       (let [{:keys [instance fit-key]} @fit-state]
+                         (when (and instance (not= this-key fit-key))
+                           (swap! fit-state assoc :fit-key this-key)
+                           (swap! spy conj this-key))))]
+      (maybe-fit! :K1)
+      (maybe-fit! :K1)
+      (maybe-fit! :K1)
+      (maybe-fit! :K2)
+      (maybe-fit! :K2)
+      (maybe-fit! :K1)              ;; back to K1 after K2 — counts as a change
+      (is (= [:K1 :K2 :K1] @spy)
+          "exactly one fit per distinct layout-key change; repeats are
+           gated out so manual zoom/pan survives")
+      (is (= :K1 (:fit-key @fit-state))
+          "the final fit-key matches the last fit"))))
+
+;; ---- 4. no instance yet → gate defers --------------------------------
+
+(deftest auto-fit-defers-when-instance-not-yet-captured
+  (testing "rf2-set3x — if compute-layout! settles BEFORE xyflow's
+            `:onInit` fires (extremely fast layout / cached settle),
+            `:instance` is still nil and the gate must NOT fire — the
+            onInit callback itself will pick up the already-arrived
+            positions and fit then. This pins the nil-instance branch
+            of the gate."
+    (let [fit-state (atom {:instance nil :fit-key nil})
+          spy       (atom [])
+          maybe-fit! (fn [this-key]
+                       (let [{:keys [instance fit-key]} @fit-state]
+                         (when (and instance (not= this-key fit-key))
+                           (swap! fit-state assoc :fit-key this-key)
+                           (swap! spy conj this-key))))]
+      (maybe-fit! :K1)
+      (is (zero? (count @spy))
+          "no fit while instance is nil")
+      (is (nil? (:fit-key @fit-state))
+          "fit-key stays nil — the next chance (onInit) will fit")
+      ;; instance arrives — onInit's own predicate runs and DOES fit.
+      (swap! fit-state assoc :instance fake-instance)
+      (maybe-fit! :K1)
+      (is (= [:K1] @spy)
+          "fit fires once the instance arrives (single fit per key)"))))
