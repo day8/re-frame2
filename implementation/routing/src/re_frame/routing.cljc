@@ -1976,7 +1976,7 @@ per-frame [:rf.route/scroll-positions <url>] map before leaving a route."}
         ;; client-only inner fx skips with the standard
         ;; `:rf.fx/skipped-on-platform` trace.
         (let [active-platform (or (get-in frame-record [:config :platform])
-                                  interop/platform)]
+                                  (interop/active-platform))]
           (fx/handle-one-fx frame-id do-entry active-platform {} nil))
 
         :else

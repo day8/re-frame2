@@ -903,10 +903,10 @@
           ;; `:fixture/runtime :platform` declares the simulated host
           ;; platform under which the fixture runs (e.g. `:server`
           ;; for SSR-style fx-platforms tests). On the JVM the
-          ;; default `re-frame.interop/platform` is `:server`, so a
-          ;; missing `:platform` in the frame-config still lands on
-          ;; the server branch; on CLJS the default is `:client`, so
-          ;; honouring `:fixture/runtime :platform` is load-bearing
+          ;; default `re-frame.interop/active-platform` is `:server`,
+          ;; so a missing `:platform` in the frame-config still lands
+          ;; on the server branch; on CLJS the default is `:client`,
+          ;; so honouring `:fixture/runtime :platform` is load-bearing
           ;; for parity. Merging into the frame-config (where
           ;; `run-fx-effects!` reads `:platform` first per
           ;; `re-frame.router/run-fx-effects!`) is the minimal

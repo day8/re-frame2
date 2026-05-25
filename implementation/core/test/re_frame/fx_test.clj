@@ -297,7 +297,8 @@
 ;; #{:client} is gated off when the active platform is :server. The
 ;; runtime emits :rf.fx/skipped-on-platform with :recovery :skipped
 ;; instead of invoking the handler. JVM hosts default to :server (per
-;; re-frame.interop/platform), so :client-only fx are silently inert
+;; re-frame.interop/active-platform — settable via
+;; re-frame.core/init-platform), so :client-only fx are silently inert
 ;; under JVM tests — exactly what we need for headless mode.
 
 (deftest platforms-gating-skips-client-only-fx-on-jvm

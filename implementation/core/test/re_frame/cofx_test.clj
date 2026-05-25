@@ -123,11 +123,11 @@
 ;; :skipped) mirroring `:rf.fx/skipped-on-platform` (fx_test.clj
 ;; §platforms-gating-skips-client-only-fx-on-jvm).
 ;;
-;; The default platform on JVM is `:server` (re-frame.interop/platform);
-;; a cofx with `:platforms #{:client}` is therefore silently inert under
-;; JVM tests — exactly the SSR contract for request-cofx like browser
-;; locale, localStorage, navigator-info that don't make sense
-;; server-side.
+;; The default platform on JVM is `:server` (re-frame.interop/active-platform,
+;; settable via `re-frame.core/init-platform`); a cofx with
+;; `:platforms #{:client}` is therefore silently inert under JVM tests —
+;; exactly the SSR contract for request-cofx like browser locale,
+;; localStorage, navigator-info that don't make sense server-side.
 
 (deftest platforms-gating-skips-client-only-cofx-on-jvm
   (testing ":platforms #{:client} cofx is skipped on JVM (:server) and emits a trace"
@@ -225,7 +225,8 @@
       ;; Register a dedicated SSR frame with :platform :server in its config.
       ;; This mirrors the `:ssr-server` preset (frame.cljc §preset-expansion)
       ;; which sets `:platform :server` regardless of the host's
-      ;; `interop/platform` marker.
+      ;; active-platform marker (`re-frame.interop/active-platform`,
+      ;; settable via `re-frame.core/init-platform`).
       (rf/reg-frame :cofx-test/ssr-frame
         {:preset :ssr-server})
       (rf/reg-cofx :cofx-test/local-storage
