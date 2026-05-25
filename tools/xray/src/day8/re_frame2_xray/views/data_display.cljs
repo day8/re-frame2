@@ -117,7 +117,12 @@
             [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
-            [day8.re-frame2-xray.views.data-display-protocol :as ddp]))
+            [day8.re-frame2-xray.views.data-display-protocol :as ddp]
+            ;; rf2-x16b1 — load default IXrayDataDisplay formatters
+            ;; for uuid + inst. Requiring for side-effect (extend-type).
+            ;; Consumers that extend the same types win — `extend-type`
+            ;; installs the most-recently-loaded impl.
+            [day8.re-frame2-xray.views.data-display-default-formatters]))
 
 ;; =========================================================================
 ;; expansion state — lives in :rf.xray.data-display/expansion under :rf/xray

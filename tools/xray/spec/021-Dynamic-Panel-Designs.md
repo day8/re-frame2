@@ -1429,6 +1429,8 @@ Phases 2-5 file as separate beads chained off rf2-oqa60:
   see §10.0.7
 - Phase 7 (rf2-0qrcr) — `IXrayDataDisplay` custom-formatters
   protocol (D7=a) — see §10.0.6
+- Phase 7 follow-on (rf2-x16b1) — curated default formatters
+  for `uuid` + `inst` (uri deferred) — see §10.0.9
 
 #### §10.0.5 Code-block (separate surface)
 
@@ -1749,6 +1751,64 @@ no chip-reveal leakage.
    (`diff-forces-ancestor-chain-open-over-changed-descendant`).
 6. The public widget's outer container carries `data-rf-mode
    "diff"` when `:before` is supplied; `"browse"` otherwise.
+
+#### §10.0.9 Default `IXrayDataDisplay` formatters (rf2-x16b1)
+
+The phase-7 protocol seam (§10.0.6) ships zero default impls — every
+consuming app would have to register the same boilerplate for the
+common types where the raw repr is genuinely cramped. rf2-x16b1
+ships a curated set of opinionated default formatters, loaded
+automatically when `views.data-display` is required.
+
+**Coverage** — the curated set is deliberately small. Each type
+included carries a clear win over `pr-str`; the rest stay on the
+built-in dispatch.
+
+| Type           | Header (collapsed)            | Body (expanded)              | Title (hover)        |
+|----------------|-------------------------------|------------------------------|----------------------|
+| `cljs.core/UUID` | `#uuid "…<last-8>"`         | `#uuid "<full-36-char>"`     | full canonical form  |
+| `js/Date` (`inst?`) | `#inst "<relative>"`     | `#inst "<ISO-8601>"`         | full ISO             |
+
+**Relative-time formatter** — pure-data buckets, no library dep:
+
+- `< 5s`                   → `just now`
+- `< 60s`                  → `Ns ago` / `in Ns`
+- `< 60m`                  → `Nm ago` / `in Nm`
+- `< 24h`                  → `Nh ago` / `in Nh`
+- `< 30d`                  → `Nd ago` / `in Nd`
+- else                     → `YYYY-MM-DD`
+
+The 30-day upper bound on relative-time avoids `247d ago` reading
+as precise when the eye actually wants the ISO date. Both
+directions are symmetric — past (`Nm ago`) and future (`in Nm`) —
+so scheduled-event timestamps read naturally.
+
+**URI heuristic — deliberately deferred.** CLJS has no built-in
+`uri?` predicate, and extending `js/String` so non-URL strings can
+return `nil` from the protocol path would route every string in
+every render through the seam — invasive on a fundamental type
+for a marginal win. Domain URI wrappers (`goog.Uri`, project-
+specific types) can opt in via `extend-type` per the standard
+contract. The seam-via-extension stays the project-owned escape
+hatch.
+
+**Consumer precedence** — consumers who `extend-type` the same
+types win. CLJS protocol dispatch is not class-hierarchy-based;
+the most-recently-loaded impl is the one that fires. The bundled
+defaults are inert when a consumer takes the seam for a type they
+own. Regression-anchored by
+`consumer-extension-wins-over-default-on-its-own-type` in
+`tools/xray/test/day8/re_frame2_xray/views/data_display_default_formatters_cljs_test.cljs`.
+
+**Surface** — `day8.re-frame2-xray.views.data-display-default-formatters`.
+Public for tests + reference:
+
+- `format-relative` — pure-data inst bucketing against a pinned `now`
+- `render-uuid-header` / `render-uuid-body`
+- `render-inst-header` / `render-inst-body`
+
+The ns is required for side-effect (the `extend-type` forms) from
+`views.data-display` itself — no call-site registration needed.
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
