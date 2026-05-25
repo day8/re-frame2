@@ -194,7 +194,7 @@ focus navigation.
 firing as expected?", "what order did these emit in?"
 
 Spec: [`021-Dynamic-Panel-Designs.md` §5](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
-+ [`013-Trace-Bus.md`](../../../tools/xray/spec/013-Trace-Bus.md)
++ [`013-Trace-Consumer.md`](../../../tools/xray/spec/013-Trace-Consumer.md)
 + [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md);
 implementation at
 [`panels/trace.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/trace.cljs).
