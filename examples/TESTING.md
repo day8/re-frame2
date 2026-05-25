@@ -19,7 +19,7 @@ surfaces change and in the scheduled/manual expensive workflow.
 | Command                            | What it runs                                                                                                        | Where the orchestrator lives                                                                                                |
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
 | `npm run test:browser`             | The shadow-cljs `:browser-test` bundle — every `*-cljs-test` namespace, including example wrappers (`re-frame.nine-states-cljs-test`, `re-frame.realworld-cljs-test`, ...). All of them load into a single Chromium page. | [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs)        |
-| `npm run test:examples`            | Per-example shadow-cljs builds compiled into `out/examples/<name>/`, each served as its own page, exercised by the example's Playwright spec (`<name>.spec.cjs`). | [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs)                                       |
+| `npm run test:examples`            | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate. Per rf2-8cevm the `examples/` tree itself is test-free; this orchestrator drives the adapter smokes only. | [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs)                                       |
 
 The two surfaces are independent:
 
@@ -27,8 +27,9 @@ The two surfaces are independent:
   namespace that is `:require`'d by a `*-cljs-test` wrapper is loaded into
   the same JS runtime and runs against a single shared DOM. This is where
   ns-load side effects bite.
-- `test:examples` is **N bundles, N pages, N specs**. Each example owns
-  its own runtime — no cross-example interaction is possible.
+- `test:examples` is **N bundles, N pages, N specs** — one per adapter
+  testbed. Each adapter owns its own runtime; no cross-adapter
+  interaction is possible.
 
 ## Server-ownership contract (`test:browser`)
 
@@ -179,19 +180,21 @@ bundle, in the same page, with the same shared `#app` mount point. If
 mount-isolation discipline holds, the new example will not affect any
 sibling's tests.
 
-## Adding a new `test:examples` example
+## Adding a new example to `test:examples`
 
-A new example added to the per-example Playwright surface needs:
+Per the test-free examples policy (rf2-8cevm) the `examples/` tree
+itself carries no Playwright specs; `test:examples` drives only the
+three adapter testbeds at
+`implementation/adapters/{reagent,uix,helix}/testbed/`. **Do NOT add
+a `*.spec.cjs` under `examples/`.**
 
-1. A shadow-cljs build target (`:examples/<name>`) in
-   [`implementation/shadow-cljs.edn`](../implementation/shadow-cljs.edn).
-2. A hand-written `index.html` next to the example's `core.cljs`.
-3. A Playwright spec (`<name>.spec.cjs`) alongside.
-4. An entry in the `EXAMPLES` table inside
-   [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs).
+If a new framework contract needs end-to-end browser coverage that
+the existing gates (`test:cljs`, `test:xray-feature-gate`,
+`test:bundle-isolation`, `test:perf-bundle`, mcp-conformance) don't
+already provide, extend the appropriate gate — or, for a genuinely
+new cross-cutting surface, add a top-level `testbeds/<surface>/`
+with its own `spec.cjs`.
 
-Because each example owns its own page under `test:examples`, the
-mount-isolation discipline above is not load-bearing for this surface
-— but the same `(defonce react-root (atom nil))` shape is still the
-convention so the same `core.cljs` can be required by a `test:browser`
-wrapper later without rewriting.
+The `(defonce react-root (atom nil))` mount-isolation shape above is
+still the convention for any example's `core.cljs` so it can be
+required by a `test:browser` wrapper later without rewriting.
