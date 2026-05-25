@@ -216,26 +216,42 @@
 
 (defn get-trace-buffer
   "Tool: `get-trace-buffer`. Return a slice of the trace stream by
-  filter; forwards to `(trace-tooling/trace-buffer opts)`. Filter keys are the
-  canonical Spec 009 filter vocabulary (`:operation`, `:op-type`,
-  `:since`, `:frame`, `:severity`, `:event-id`, `:handler-id`,
-  `:source`, `:origin`, `:dispatch-id`, `:since-ms`, `:between`,
-  `:pred`).
+  filter; forwards to `(trace-tooling/trace-buffer frame-id opts)`.
+  Filter keys are the canonical Spec 009 filter vocabulary
+  (`:operation`, `:op-type`, `:since`, `:severity`, `:event-id`,
+  `:handler-id`, `:source`, `:origin`, `:dispatch-id`, `:since-ms`,
+  `:between`, `:pred`).
 
-  Returns `{:ok? true :events <vec> :count <n>}`. Each event is routed
-  through `elide-wire-value` so sensitive / large values are scrubbed
-  at the wire boundary (MUST-inventory rows #2 / #15 / #19)."
+  Per rf2-g1b2m / rf2-8uwce the ring is now per-frame and cascade-
+  keyed. `:frame` selects the frame (defaults to the sole-registered
+  one via `resolve-frame`); the response emits raw trace events (via
+  `{:flat true}`) so the legacy flat-event consumer shape is
+  preserved. Cascade-bundle reads land in a follow-on bead — this
+  tool is the historical flat-events surface and stays so.
+
+  Returns `{:ok? true :events <vec> :count <n> :frame <frame-id>}`
+  on success, or `{:ok? false :reason :no-frame-resolved ...}` when
+  ambiguous. Each event is routed through `elide-wire-value` so
+  sensitive / large values are scrubbed at the wire boundary
+  (MUST-inventory rows #2 / #15 / #19)."
   ([] (get-trace-buffer {}))
   ([opts]
-   (let [{:keys [include-sensitive? include-large?]} opts
-         filter-opts (dissoc opts :include-sensitive? :include-large?)
-         events      (trace-tooling/trace-buffer filter-opts)
-         scrubbed    (mapv #(elide % {:include-sensitive? include-sensitive?
-                                      :include-large?     include-large?})
-                           events)]
-     {:ok?    true
-      :events scrubbed
-      :count  (count scrubbed)})))
+   (let [{:keys [frame include-sensitive? include-large?]} opts
+         fid (resolve-frame frame)]
+     (if (nil? fid)
+       {:ok? false :reason :no-frame-resolved
+        :hint "Pass :frame :foo or register at least one frame."}
+       (let [filter-opts (-> opts
+                             (dissoc :frame :include-sensitive? :include-large?)
+                             (assoc :flat true))
+             events      (trace-tooling/trace-buffer fid filter-opts)
+             scrubbed    (mapv #(elide % {:include-sensitive? include-sensitive?
+                                          :include-large?     include-large?})
+                               events)]
+         {:ok?    true
+          :frame  fid
+          :events scrubbed
+          :count  (count scrubbed)})))))
 
 (defn get-epoch-history
   "Tool: `get-epoch-history`. Per-frame epoch history (vector of
@@ -374,6 +390,12 @@
   the issue-tier `:op-type`s (`:error`, `:warning`,
   `:rf.schema/violation`, `:rf.hydration/mismatch`).
 
+  Per rf2-g1b2m / rf2-8uwce trace rings are per-frame; iterate every
+  registered frame and merge — issues fired across multiple frames
+  during a single cascade reconstruct correctly. `:flat true` opts
+  into the raw flat-event shape so the existing issue filter walks
+  the same vocabulary.
+
   Returns `{:ok? true :issues <vec>}`. Routes through
   `elide-wire-value` per MUST-inventory row #2."
   ([] (get-issues {}))
@@ -382,8 +404,13 @@
          issue-op-types #{:error :warning
                           :rf.schema/violation
                           :rf.hydration/mismatch}
-         events  (trace-tooling/trace-buffer {})
-         issues  (filterv #(contains? issue-op-types (:op-type %)) events)
+         ;; Per-frame ring: merge across frames so cross-frame issues
+         ;; (e.g. an error landing in :stories while :rf/default is
+         ;; the operating frame) still surface here.
+         events   (into []
+                        (mapcat #(trace-tooling/trace-buffer % {:flat true}))
+                        (rf/frame-ids))
+         issues   (filterv #(contains? issue-op-types (:op-type %)) events)
          scrubbed (mapv #(elide % {:include-sensitive? include-sensitive?
                                    :include-large?     include-large?})
                         issues)]
