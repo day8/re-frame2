@@ -18,6 +18,7 @@ allowed-tools:
   - mcp__re-frame2-pair__discover-app
   - mcp__re-frame2-pair__eval-cljs
   - mcp__re-frame2-pair__dispatch
+  - mcp__re-frame2-pair__dispatch-dry-run
   - mcp__re-frame2-pair__trace-window
   - mcp__re-frame2-pair__watch-epochs
   - mcp__re-frame2-pair__tail-build
