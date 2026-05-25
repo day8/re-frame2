@@ -186,10 +186,21 @@
 (defn emit-progress-tick!
   "Build the per-tick progress payload and ship it via the MCP
   `sendNotification`. Failures are swallowed — a flaky client must not
-  collapse the stream."
+  collapse the stream.
+
+  rf2-mscih — the `:message`-slot EDN map carries the delivered payload
+  under one of two slots per the sub's topic:
+    - `:cascades` (vector of cascade bundles) on cascade-bundle topics
+      (`:trace`/`:fx`/`:error`);
+    - `:events` (flat vector) on `:epoch` and `:frameless`.
+  The split keeps the wire shape congruent with `(rf/trace-buffer
+  frame-id)` for cascade-bundle topics — one tick = one cascade's
+  traces as a unit. The `:cascade?` flag on `tick-state` carries the
+  topic-shape signal."
   [{:keys [send-note progress-tk sub-id]} dedup? tick-state]
-  (let [{:keys [tick dedup-events ev-dropped by-dropped
-                ov-reason dropped tick-elided]} tick-state]
+  (let [{:keys [tick cascade? dedup-events ev-dropped by-dropped
+                ov-reason dropped tick-elided]} tick-state
+        payload-slot (if cascade? :cascades :events)]
     (try
       (send-note
         #js {:method "notifications/progress"
@@ -198,7 +209,7 @@
                        tick
                        (pr-str (wire/with-indicators
                                  (cond-> {:sub-id         sub-id
-                                          :events         dedup-events
+                                          payload-slot    dedup-events
                                           :dedup          dedup?
                                           :dropped-events ev-dropped
                                           :dropped-bytes  by-dropped}
@@ -211,32 +222,48 @@
       (catch :default _ nil))))
 
 ;; ---------------------------------------------------------------------------
-;; Drain eval-form — server-side elision wrap (rf2-vr2hn).
+;; Drain eval-form — server-side elision wrap (rf2-vr2hn + rf2-mscih).
 ;; ---------------------------------------------------------------------------
 ;;
-;; `drain-subscription!` returns `{:ok? :sub-id :events [...]
-;; :dropped-events :dropped-bytes :overflow-reason :gone?}`. The `:epoch`
-;; topic ships full epoch records — `:db-after` / `:db-before` / `:app-db`
-;; slices ride verbatim. When the `--allow-sensitive-reads` boot gate is OFF
-;; (the published-build default), each event must flow through
+;; `drain-subscription!` returns one of two envelopes per the sub's topic
+;; (rf2-mscih):
+;;
+;;   - Cascade-bundle topics (`:trace`/`:fx`/`:error`) →
+;;     `{:ok? :sub-id :cascades [<bundle> ...] :dropped-events ... :gone? ...}`
+;;     where each bundle has `:dispatch-id :frame :event :dispatched
+;;     :handler :fx :effects :subs :renders :other :trace-events
+;;     :parent-dispatch-id` (the framework's `(rf/trace-buffer frame-id)`
+;;     shape).
+;;   - Flat topics (`:epoch`/`:frameless`) →
+;;     `{:ok? :sub-id :events [...] :dropped-events ... :gone? ...}`.
+;;
+;; The `:epoch` topic ships full epoch records (`:db-after` / `:db-before`
+;; ride verbatim). When the `--allow-sensitive-reads` boot gate is OFF (the
+;; published-build default), each delivered value must flow through
 ;; `re-frame.core/elide-wire-value` BEFORE it crosses the nREPL wire —
 ;; mirroring the snapshot / get-path gate (rf2-c2dtu) so an operator who
 ;; didn't pass `--allow-sensitive-reads` can't be talked into shipping raw
 ;; state through a hostile per-call arg.
 ;;
 ;; The walker reads the live `[:rf/elision]` registry, so it has to run
-;; app-side. We compose `drain-subscription!` server-side with a mapv
-;; over `:events`, returning the same envelope with elided values in
-;; place. When elision is OFF (operator opted in via `--allow-sensitive-reads`
-;; AND passed `:elision false`), the bare drain form ships raw — the
-;; pre-rf2-vr2hn posture.
+;; app-side. We compose `drain-subscription!` server-side with mapv over
+;; whichever slot the drain produced — `:cascades` for cascade-bundle
+;; topics, `:events` for flat topics. When elision is OFF (operator opted
+;; in via `--allow-sensitive-reads` AND passed `:elision false`), the bare
+;; drain form ships raw — the pre-rf2-vr2hn posture.
 
 (defn drain-form
   "Build the nREPL drain eval form. When `elision?` is true, wraps the
-  drain envelope so `:events` flows through `re-frame.core/elide-wire-value`
-  server-side; when false, emits the bare drain call. `incl?` threads
-  into the walker's `:rf.size/include-sensitive?` opt — gate-OFF callers
-  see redacted sensitive slots regardless of any per-call opt-in.
+  drain envelope so the delivered slot (`:cascades` or `:events`,
+  whichever the runtime produced) flows through
+  `re-frame.core/elide-wire-value` server-side. `incl?` threads into the
+  walker's `:rf.size/include-sensitive?` opt — gate-OFF callers see
+  redacted sensitive slots regardless of any per-call opt-in.
+
+  Per rf2-mscih the wrapper handles both delivery shapes (cascade-bundle
+  topics → `:cascades`; flat topics → `:events`) without baking the
+  topic into the form — `cond->` over slot presence keeps the form
+  topic-agnostic and the elision contract single-sourced.
 
   Public (not `defn-`) so unit tests can pin the form shape directly —
   the form-string is the contract surface between MCP server and the
@@ -250,11 +277,18 @@
          ;; `include-large?` (subscribe always elides, so emit markers ⇒
          ;; pass `false`). Pre-rf2-suoj2 this was `true` under the old
          ;; "enabled?" polarity that the helper inverted internally.
-         'opts  (ef/rt-raw (elision/elision-opts-edn false incl?))
-         'evts  (ef/rt-raw
-                  (str "(mapv #(re-frame.core/elide-wire-value % opts)"
-                       " (:events drain))"))]
-        (ef/rt-raw "(assoc drain :events evts)")))
+         'opts  (ef/rt-raw (elision/elision-opts-edn false incl?))]
+        ;; Apply the walker to whichever slot the drain produced.
+        ;; Per rf2-mscih cascade-bundle topics return `:cascades`; flat
+        ;; topics return `:events`. `cond->` handles both without baking
+        ;; the topic into the form.
+        (ef/rt-raw
+          (str "(let [walk (fn [xs] (mapv (fn [x] (re-frame.core/elide-wire-value x opts)) xs))]"
+               " (cond-> drain"
+               " (contains? drain :cascades)"
+               " (update :cascades walk)"
+               " (contains? drain :events)"
+               " (update :events walk)))"))))
     (ef/emit (ef/rt-call 'drain-subscription! sub-id))))
 
 ;; ---------------------------------------------------------------------------
@@ -324,12 +358,23 @@
                   (fn [drain-resp]
                     (if (:gone? drain-resp)
                       (terminate :sub-gone)
-                      (let [raw-evts       (:events drain-resp)
+                      (let [;; rf2-mscih — the drain envelope carries the
+                            ;; delivered slot per the sub's topic:
+                            ;; `:cascades` for cascade-bundle topics
+                            ;; (`:trace`/`:fx`/`:error`), `:events` for
+                            ;; flat topics (`:epoch`/`:frameless`).
+                            ;; Exactly one is present; `cascade?` keeps
+                            ;; the slot name on the progress payload
+                            ;; congruent with the topic's wire shape.
+                            cascade?       (contains? drain-resp :cascades)
+                            raw-items      (if cascade?
+                                             (:cascades drain-resp)
+                                             (:events   drain-resp))
                             ev-dropped     (:dropped-events  drain-resp 0)
                             by-dropped     (:dropped-bytes   drain-resp 0)
                             ov-reason      (:overflow-reason drain-resp)
                             [evts dropped] (sensitive/strip-sensitive
-                                             (vec raw-evts) incl?)
+                                             (vec raw-items) incl?)
                             ;; :elided-large counts upstream-pre-elided markers per
                             ;; Spec 009 §Indicator field (rf2-8cntr) — per-tick contribution.
                             tick-elided    (base-elision/count-elided-markers evts)
@@ -357,6 +402,7 @@
                                  :sub-id      sub-id}
                                 dedup?
                                 {:tick         (:tick s')
+                                 :cascade?     cascade?
                                  :dedup-events (dedup/dedup-value evts dedup?)
                                  :ev-dropped   ev-dropped
                                  :by-dropped   by-dropped
@@ -473,11 +519,11 @@
         {:keys [signal send-note progress-tk]} (parse-mcp-extra extra)]
     (cond
       (or (nil? topic)
-          (not (#{:trace :epoch :fx :error} topic)))
+          (not (#{:trace :epoch :fx :error :frameless} topic)))
       (js/Promise.resolve
         (wire/err-text {:ok? false :reason :unknown-topic
                         :given (wire/arg raw-args :topic)
-                        :hint  "Recognised topics: trace, epoch, fx, error."}))
+                        :hint  "Recognised topics: trace, epoch, fx, error, frameless."}))
 
       :else
       ;; rf2-3ijbl — reserve a session-wide stream slot BEFORE any

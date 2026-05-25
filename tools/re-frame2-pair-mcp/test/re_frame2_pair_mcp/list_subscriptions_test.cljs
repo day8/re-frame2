@@ -28,9 +28,9 @@
       (let [props (:properties (:inputSchema d))]
         (is (contains? props :topic))
         (is (contains? props :sub-id))
-        (is (= ["trace" "epoch" "fx" "error"]
+        (is (= ["trace" "epoch" "fx" "error" "frameless"]
                (:enum (:topic props)))
-            "topic enum lists the four runtime topics")))))
+            "topic enum lists the five runtime topics (rf2-mscih adds :frameless)")))))
 
 (deftest descriptor-surfaces-on-tools-list
   (testing "list-subscriptions shows up in tool-descriptors-js"
