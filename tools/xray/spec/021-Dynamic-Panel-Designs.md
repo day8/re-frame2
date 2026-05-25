@@ -1389,8 +1389,8 @@ Phases 2-5 file as separate beads chained off rf2-oqa60:
 - Phase 5 — Diff renderer subsumption (D5=a; replaces
   `data-display/render-tree` and deletes `theme.data-inspector`)
 - Phase 6 (deferred) — Popup overlay infra (D6=a)
-- Phase 7 (optional) — `IXrayDataDisplay` custom-formatters
-  protocol (D7=a)
+- Phase 7 (rf2-0qrcr) — `IXrayDataDisplay` custom-formatters
+  protocol (D7=a) — see §10.0.6
 
 #### §10.0.5 Code-block (separate surface)
 
@@ -1401,6 +1401,88 @@ devtools never owned this, and the in-bundle tokenizer + zprint
 pre-format pipeline survives the rf2-oqa60 cut-over unchanged).
 Token colours follow the Figma `.syntax-*` block: keywords red,
 strings blue/green, numbers blue, comments muted-italic.
+
+#### §10.0.6 `IXrayDataDisplay` custom-formatters protocol (phase 7 · D7=a · rf2-0qrcr)
+
+Phase 7 of rf2-oqa60 opens a single extension seam on the closed
+phase-1 renderer for consuming applications that carry domain types
+the built-in classifier has no better fallback for than `pr-str`.
+
+**Surface** — `day8.re-frame2-xray.views.data-display-protocol`:
+
+```clj
+(defprotocol IXrayDataDisplay
+  (-xray-render-header [v opts])
+  (-xray-render-body   [v opts]))
+```
+
+**Contract**:
+
+- `-xray-render-header` returns hiccup for the node's header row
+  (the row that sits next to the toggle glyph, or the inline-fit
+  content). Returning `nil` falls through to the built-in renderer
+  for the whole node — consumers can selectively opt out per value.
+- `-xray-render-body` returns hiccup for the expanded body, or
+  `nil` for a header-only render (no expanded body, no toggle).
+
+`opts` carries the same per-node context the built-in renderer
+sees — `:panel-id`, `:mount-id`, `:path`, `:depth`,
+`:expansion-map`, plus the per-widget `:default-expanded-depth` /
+`:max-inline-width` / `:max-depth`. The original argument map is
+also threaded under `:node-opts` for consumers that want to recurse
+the built-in renderer on sub-values via `data-display/render-node`.
+
+**Dispatch order** (in `render-node`):
+
+1. `(satisfies? IXrayDataDisplay v)` → consult the protocol.
+2. `-xray-render-header v opts` returns nil → fall through to the
+   built-in container / scalar dispatch.
+3. Otherwise wrap the header (+ optional body) in the standard
+   widget chrome — same `data-testid` shape `[panel-id mount-id
+   path]` as built-in nodes so panel-level toggle / reset
+   affordances address protocol nodes uniformly.
+
+**Safety** — the wrapper catches exceptions thrown by consumer
+impls. A broken third-party formatter falls through to the
+built-in renderer rather than blanking the inspector.
+
+**Boundary** — the protocol is the ONLY public extension seam
+in the widget. Consumers do NOT extend interactions through this
+protocol (the locked B.9 / rf2-sndui model ships exactly one
+path-click interaction); the seam is purely for value rendering.
+
+**Worked example** — a domain `Money` type that wants to render
+as a single chip with the amount + currency, but expand to show
+the underlying ledger entries:
+
+```clj
+(ns my-app.domain.money
+  (:require [day8.re-frame2-xray.views.data-display-protocol
+             :refer [IXrayDataDisplay]]))
+
+(deftype Money [amount currency ledger]
+  IXrayDataDisplay
+  (-xray-render-header [_ _opts]
+    [:span {:style {:color    "var(--rf-xray-syntax-number)"
+                    :padding  "0 6px"
+                    :background "color-mix(in srgb, var(--rf-xray-syntax-number) 12%, transparent)"
+                    :border-radius "3px"}}
+     (str amount " " currency)])
+  (-xray-render-body [_ opts]
+    [day8.re-frame2-xray.views.data-display/render-node
+     (assoc opts :value ledger)]))
+```
+
+Mounted via `[data-display some-money-instance]` — the chip shows
+collapsed; click expands to the ledger as a normal map view.
+
+**Tests** — `tools/xray/test/day8/re_frame2_xray/views/data_display_protocol_cljs_test.cljs`
+pins: (a) built-in types still route through the built-in dispatch
+(no protocol path leakage), (b) protocol-implementing types take
+the protocol path and the consumer's hiccup appears verbatim,
+(c) header-nil falls through, (d) body-nil renders header-only,
+(e) broken consumer impl falls through safely, (f) expansion-map
+overrides still apply to protocol nodes.
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
