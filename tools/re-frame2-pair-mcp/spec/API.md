@@ -69,12 +69,47 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SHADOW_CLJS_BUILD_ID` | `"app"` | Default build id passed to `cljs-eval`. Overridable per-op via the `build` argument. |
+| `SHADOW_CLJS_BUILD_ID` | `"app"` | Final-fallback build id passed to `cljs-eval`. See §Build-id resolution below for the full precedence ladder. |
 | `SHADOW_CLJS_NREPL_PORT` | (unset) | Explicit nREPL port; takes precedence over port-file discovery. |
 | `RE_FRAME2_PAIR_MCP_MAX_STREAMS` | `10` | Max concurrent open streaming subscriptions per session (rf2-3ijbl). |
 | `RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC` | `100` | Per-session rate-limit on progress-notification ticks (rf2-3ijbl). |
 | `RE_FRAME2_PAIR_MCP_ABUSE_OVERFLOW_THRESHOLD` | `50` | Overflow events over the rolling window beyond which a stream is terminated for abuse (rf2-3ijbl). |
 | `RE_FRAME2_PAIR_MCP_ABUSE_WINDOW_MS` | `10000` | Rolling-window length for abuse detection, in milliseconds (rf2-3ijbl). |
+
+### Build-id resolution
+
+Every tool call needs a shadow-cljs build id to route over the nREPL
+socket. The server walks **three sources in precedence order** (rf2-l9ixp;
+impl: [`src/re_frame2_pair_mcp/tools/wire.cljs`](../src/re_frame2_pair_mcp/tools/wire.cljs)
+`arg-build`, lines 125-146):
+
+1. **Explicit `:build` MCP arg on the call.** Operator override always
+   wins; no surprise from the cache.
+2. **Session-scoped `:resolved-build-id` cache on the conn-atom.**
+   Populated by `discover-app` after a successful preload probe
+   (`wire/mark-resolved-build-id!`, `src/.../tools/wire.cljs` line 108;
+   call sites at `src/.../tools/discover_app.cljs` lines 32 / 42 / 57).
+   Removes the friction of repeating `build: foo` on every tool call
+   after a successful discover-app.
+3. **`SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.** The
+   final fallback when neither (1) nor (2) is available.
+
+**Invalidation.** The cache resets on `nrepl/connect!`
+(`src/re_frame2_pair_mcp/nrepl.cljs` line 398) and `nrepl/close!`
+(line 416) — the operator may relaunch shadow-cljs against a different
+build id, so the next reconnect starts with no cached resolution.
+
+**Consequence for callers.** After a successful `discover-app {build:
+"my-app"}` (or a discover-app against the default build), subsequent
+tool calls in the same session may omit the `:build` arg even when
+`SHADOW_CLJS_BUILD_ID` is unset and would otherwise default to `:app`.
+The cached resolution carries through. Multi-build workspaces should
+discover-app once per build they intend to target.
+
+Distinct from the per-session **response** cache (rf2-3rt1f, see
+[`Principles.md`](./Principles.md) § Per-session response cache) —
+that one memoises full response payloads by (tool, args) hash within a
+session; this cache memoises only the resolved build-id.
 
 ### Launch flags
 
