@@ -344,6 +344,10 @@
       label]
      [dd/data-display snapshot
       {:panel-id (snapshot-panel-id machine-id phase)
+       ;; rf2-pvsxs — machine + phase are stable identifiers; the
+       ;; operator's drill-into-data choices survive a Machines tab
+       ;; leave-and-return round-trip.
+       :site-id  [:rf.xray.machines/inspector-snapshot machine-id phase]
        :default-expanded-depth 2
        ;; rf2-l4625 — machine snapshots routinely carry deeply-nested
        ;; `:data` maps; the popup gives the operator a full-modal

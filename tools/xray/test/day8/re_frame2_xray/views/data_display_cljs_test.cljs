@@ -833,6 +833,127 @@
              @captured)
           "default-expanded render → payload carries rendered? true"))))
 
+;; ---- rf2-pvsxs — opt-in `:site-id` for cross-mount persistence ----------
+;;
+;; By default, two `[data-display value]` mounts in the same panel get
+;; independent expansion state via the auto-mount-id (rf2-sndui D4=a).
+;; The cost — only visible in the panel-leave-and-return workflow —
+;; is that the same logical site loses state on every unmount, because
+;; the second mount allocates a new auto-mount-id.
+;;
+;; Opt-in `:site-id` fixes this without breaking the isolation default:
+;; consumers that want their expansion state to SURVIVE a remount pass
+;; a stable identifier (e.g. `[:app-db-frame frame-id]`) as the
+;; `:site-id`. The expansion-key's second component reads `:site-id`
+;; when supplied, falling back to auto-mount-id when omitted.
+
+(deftest data-display-uses-site-id-when-supplied-as-expansion-key-id
+  ;; Two mounts with the SAME `:site-id` and the SAME path must write
+  ;; their override to the SAME expansion-key, so the second mount sees
+  ;; the first mount's choice.
+  (let [panel-id :p
+        site-id  [:my-stable-site "alpha"]
+        path     [:cart :items]
+        ;; First mount → simulate a toggle dispatch carrying rendered? true
+        ;; (i.e. visible state is expanded; first click should collapse).
+        _        (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
+        _        (rf/dispatch-sync [:rf.xray.data-display/toggle-node
+                                    panel-id site-id path true])
+        k        (dd/expansion-key panel-id site-id path)
+        snapshot @(rf/subscribe [dd/expansion-slot])]
+    (is (= false (get-in snapshot [k :expanded?]))
+        "override is stored under [panel-id site-id path], independent
+         of any auto-generated mount-id")
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+
+(deftest data-display-public-widget-routes-site-id-to-render-key
+  ;; The public widget threads `:site-id` (when present) into the
+  ;; `mount-id` slot of every render-node descent so the toggle handler
+  ;; dispatches against the stable id, NOT the auto-mount-id. Verified
+  ;; by mounting the widget twice with the SAME site-id and a value
+  ;; that needs expansion; the testid carrying the stable id must
+  ;; appear on both renders.
+  (let [outer (dd/data-display {:a 1 :b 2 :c 3 :d 4} {:panel-id :p
+                                                      :site-id  [:my-site "x"]
+                                                      :default-expanded-depth 0})
+        inner1 (outer {:a 1 :b 2 :c 3 :d 4} {:panel-id :p
+                                              :site-id  [:my-site "x"]
+                                              :default-expanded-depth 0})
+        attrs  (second inner1)]
+    ;; The container attrs carry both the auto-mount-id (debugging) AND
+    ;; the literal site-id (for inspection / Storybook-tier targeting).
+    (is (some? (get attrs :data-rf-mount-id))
+        "auto-mount-id still present (for debugging)")
+    (is (= (pr-str [:my-site "x"]) (get attrs :data-rf-site-id))
+        ":data-rf-site-id attribute carries the literal site-id")))
+
+(deftest data-display-without-site-id-keeps-per-call-site-isolation
+  ;; The acceptance contract: when `:site-id` is omitted, behaviour is
+  ;; UNCHANGED — auto-mount-id keeps two side-by-side mounts independent.
+  ;; This guards the rf2-sndui D4=a default.
+  (let [outer1 (dd/data-display {:a 1} {:panel-id :p})
+        outer2 (dd/data-display {:a 1} {:panel-id :p})
+        inner1 (outer1 {:a 1} {:panel-id :p})
+        inner2 (outer2 {:a 1} {:panel-id :p})
+        m1     (get (second inner1) :data-rf-mount-id)
+        m2     (get (second inner2) :data-rf-mount-id)]
+    (is (some? m1))
+    (is (some? m2))
+    (is (not= m1 m2)
+        "two mounts with no :site-id get DIFFERENT auto-mount-ids → independent expansion state")
+    (is (nil? (get (second inner1) :data-rf-site-id))
+        "no :site-id supplied → no data-rf-site-id attribute")))
+
+(deftest cross-mount-persistence-survives-unmount-and-remount
+  ;; The canonical rf2-pvsxs scenario: mount widget → expand a path →
+  ;; unmount → remount with the SAME :site-id → the path is STILL
+  ;; expanded. Simulate via:
+  ;;   1. dispatch a toggle that opens [:nested :deep] for site-id Σ
+  ;;   2. confirm the override is stored under [panel Σ [:nested :deep]]
+  ;;   3. "remount" simulated by computing the lookup key with the same Σ
+  ;;   4. confirm the override resolves to `true` (expanded)
+  (let [panel-id :rf.xray/app-db
+        site-id  [:rf.xray/app-db "top"]
+        path     [:nested :deep]
+        _        (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
+        ;; Step 1 — open the path (rendered? false → store true).
+        _        (rf/dispatch-sync [:rf.xray.data-display/toggle-node
+                                    panel-id site-id path false])
+        k        (dd/expansion-key panel-id site-id path)
+        ;; "Unmount" — no state cleanup needed; the expansion slot
+        ;; survives Reagent unmount because it's in app-db.
+        ;; "Remount" — same site-id is passed at the new mount; the
+        ;; renderer's resolve-expanded? reads the same key.
+        snapshot-after-remount @(rf/subscribe [dd/expansion-slot])]
+    (is (= true (get-in snapshot-after-remount [k :expanded?]))
+        "expansion override survives the simulated unmount-and-remount cycle
+         when the consumer passes a stable :site-id")
+    ;; Per the resolve-expanded? helper, this should also yield true
+    ;; regardless of the default-expanded heuristic.
+    (is (true? (dd/resolve-expanded? snapshot-after-remount
+                                     panel-id site-id path false))
+        "resolve-expanded? honours the stored override at the site-id key")
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+
+(deftest two-mounts-with-distinct-site-ids-still-isolate
+  ;; Two consumers using DIFFERENT :site-ids must STILL isolate, even
+  ;; though both opt out of the auto-mount-id default. This is the
+  ;; per-call-site contract restated in :site-id space.
+  (let [panel-id :p
+        s1       [:site/a]
+        s2       [:site/b]
+        path     []
+        k1       (dd/expansion-key panel-id s1 path)
+        k2       (dd/expansion-key panel-id s2 path)]
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])
+    (rf/dispatch-sync [:rf.xray.data-display/toggle-node panel-id s1 path true])
+    (let [snapshot @(rf/subscribe [dd/expansion-slot])]
+      (is (= false (get-in snapshot [k1 :expanded?]))
+          "site/a's override is stored")
+      (is (nil? (get snapshot k2))
+          "site/b's slot is untouched — distinct :site-ids isolate"))
+    (rf/dispatch-sync [:rf.xray.data-display/reset-expansion])))
+
 ;; ---- per-call-site isolation ---------------------------------------------
 
 (deftest two-mounts-independent-via-distinct-mount-ids

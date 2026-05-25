@@ -137,11 +137,19 @@
   (§10.4). The keyword-accent is already orange (owned by
   rf2-ad7zx.3)."
   [value before render-id]
-  (let [_node-key (str "app-db-state/" render-id)]
+  (let [_node-key (str "app-db-state/" render-id)
+        ;; rf2-pvsxs — stable `:site-id` so expansion overrides survive
+        ;; a tab-switch round-trip. `render-id` already identifies the
+        ;; logical surface (e.g. "top" for the user-domain section, an
+        ;; area name for the per-:rf/* sections), so passing it AS the
+        ;; site-id reuses the existing per-surface key without
+        ;; introducing a new namespace.
+        site-id [:rf.xray/app-db render-id]]
     (if (= h/no-diff before)
       [dd/data-display
        (f/display-value value)
        {:panel-id :rf.xray/app-db
+        :site-id  site-id
         :default-expanded-depth 3
         ;; rf2-l4625 — the App-DB whole-tree is the canonical "cramped
         ;; in the side panel" case; the popup gives the operator a
@@ -150,6 +158,7 @@
       [dd/data-display
        (f/display-value value)
        {:panel-id :rf.xray/app-db
+        :site-id  site-id
         :default-expanded-depth 3
         :before (f/display-value before)
         :popup-affordance? true}])))
