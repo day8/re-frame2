@@ -107,6 +107,33 @@
                     panels with multiple top-level inspector mounts
                     (App-DB's TOP + per-`:rf/*` sections; Handler's
                     side-by-side event-detail mounts) opt in.
+  - `:header`        (optional, default nil) — rf2-okq7p; opt-in
+                    three-shade card chrome (outer `<section>` →
+                    `<header>` ribbon → body sleeve), modelled on the
+                    Machine panel's `focused-event-section`. `nil`
+                    renders inline as today. A string renders a
+                    plain-label ribbon. Hiccup renders whatever the
+                    consumer composes (label + code chip + per-
+                    inspector affordances). The widget treats the
+                    value as opaque hiccup — no parsing, no required
+                    shape.
+
+                    Aesthetic (light theme; dark mirrors via theme
+                    tokens): outer `<section>` paints `:bg-2`
+                    (#ffffff) with a `1px solid :border-default`
+                    border + `4px` radius; the `<header>` ribbon
+                    paints `:bg-3` (#e8e8e8) with `10px 12px`
+                    padding + a `1px solid :border-subtle` bottom
+                    rule; the body sleeve paints `:bg-1` (#f5f5f5)
+                    with `12px` padding. The three-shade ramp reads
+                    as a single card with a distinct label band
+                    rather than one continuous block.
+
+                    Composes with `:popup-affordance?` (the icon
+                    sits at the section's top-right corner) and
+                    with `:card?` (independent — `:header` provides
+                    its own surface chrome, so `:card?` is usually
+                    redundant when `:header` is present).
 
   Drop the `:render-id` arg from the old facade — mount-id is now
   auto-generated internally per D4=a (rf2-sndui).
@@ -2025,7 +2052,7 @@
       [value & rest-args]
       (let [opts          (first rest-args)
             {:keys [panel-id site-id default-expanded-depth max-inline-width
-                    max-depth before popup-affordance? card?]
+                    max-depth before popup-affordance? card? header]
              :or   {panel-id :rf.xray.edn-inspector/anon
                     ;; rf2-kbdk8 — default raised from 2 → 8. Under the
                     ;; width-aware heuristic this opt is a CEILING (never
@@ -2039,6 +2066,15 @@
                     popup-affordance? false
                     card? false}} opts
             diff?         (contains? opts :before)
+            ;; rf2-okq7p — `:header` opts the widget into the 3-shade
+            ;; card chrome (outer SECTION + grey-on-grey HEADER ribbon
+            ;; + body), modelled on the Machine panel's `focused-event-
+            ;; section`. `nil` (default) renders inline as before;
+            ;; string or hiccup wraps the render in the chrome with
+            ;; the supplied content as the header ribbon. Composable —
+            ;; the consumer panel decides whether each top-level
+            ;; inspector mount earns a label. See §10.0.10.
+            chromed?      (some? header)
             ;; rf2-pvsxs — `site-id` (when supplied) opt-out of the
             ;; per-call-site mount-id isolation. The expansion-key's
             ;; second slot reads `site-id` instead of the auto-mount-
@@ -2071,71 +2107,147 @@
             ;; own mount-id so re-clicking the affordance "raises" the
             ;; existing popup rather than spawning a duplicate
             ;; (matches `edn-inspector-popup/push-entry` semantics).
-            popup-mount-id (str "ddp-" mount-id)]
-        [:div {:data-testid     container-id
-               :data-rf-mount-id mount-id
-               :data-rf-site-id  (when site-id (pr-str site-id))
-               :data-rf-mode    (if diff? "diff" "browse")
-               :data-rf-popup-affordance? (when popup-affordance? "1")
-               :data-rf-card     (when card? "1")
-               :data-rf-available-width-px (when available-width-px
-                                             (str available-width-px))
-               ;; rf2-kbdk8 — `:ref` callback drives the measurement.
-               ;; Captured once in the form-2 closure; React calls the
-               ;; same fn on mount + unmount so the observer's lifecycle
-               ;; mirrors the widget's DOM lifecycle.
-               :ref             container-ref
-               :style (cond-> {:font-family mono-stack
-                               :font-size   "12px"
-                               :color       (:text-primary tokens)
-                               :line-height 1.4
-                               ;; Position context for the absolute-
-                               ;; positioned affordance button. Harmless
-                               ;; when the affordance is off — no
-                               ;; descendant uses absolute positioning
-                               ;; otherwise.
-                               :position    (when popup-affordance? "relative")}
-                        ;; rf2-63ie5 — inspector-card chrome on
-                        ;; top-level mounts. Theme-aware via tokens so
-                        ;; both light + dark resolve at paint time. The
-                        ;; opt-in (`:card? true`) keeps inline / nested
-                        ;; mounts unchrromed; panels with multiple top-
-                        ;; level inspector mounts (App-DB, Handler)
-                        ;; pass `:card? true` so the eye reads each
-                        ;; mount as a discrete card rather than one
-                        ;; continuous block.
-                        card? (assoc :background-color (:bg-1 tokens)
-                                     :border           (str "1px solid "
-                                                            (:border-default tokens))
-                                     :border-radius    "8px"
-                                     :padding          "8px 10px"
-                                     :margin-bottom    "8px"))}
-         (when popup-affordance?
-           (popup-affordance-button dispatch-fn popup-mount-id value opts))
-         (render-node {:value value
-                       :before (if diff? before ::missing)
-                       :diff? diff?
-                       :panel-id panel-id
-                       ;; rf2-pvsxs — `mount-id` slot in render-node's
-                       ;; key carries the EFFECTIVE id (site-id if
-                       ;; supplied; auto-mount-id otherwise). Callbacks
-                       ;; deep in the recursion thread the same value,
-                       ;; so toggle dispatches store + read overrides
-                       ;; under the persistence-friendly key.
-                       :mount-id effective-id
-                       :path []
-                       :depth 0
-                       :expansion-map expansion-map
-                       :dispatch-fn dispatch-fn
-                       :opts {:default-expanded-depth default-expanded-depth
-                              :max-inline-width max-inline-width
-                              :max-depth max-depth
-                              ;; rf2-kbdk8 — threaded so every recursive
-                              ;; render-node decides expansion against
-                              ;; the same available column width. Nil
-                              ;; until the ref measures, after which
-                              ;; ResizeObserver keeps it live.
-                              :available-width-px available-width-px}})]))))
+            popup-mount-id (str "ddp-" mount-id)
+            ;; rf2-okq7p — when `:header` is supplied we move the
+            ;; measurement + popup-positioning context out to the
+            ;; outer `<section>` so the body div stays a content
+            ;; sleeve. The mount-id testid + ref still anchor at the
+            ;; root of whichever shape renders (section in chromed
+            ;; mode; div otherwise).
+            body-content  (render-node
+                            {:value value
+                             :before (if diff? before ::missing)
+                             :diff? diff?
+                             :panel-id panel-id
+                             ;; rf2-pvsxs — `mount-id` slot in
+                             ;; render-node's key carries the
+                             ;; EFFECTIVE id (site-id if supplied;
+                             ;; auto-mount-id otherwise). Callbacks
+                             ;; deep in the recursion thread the same
+                             ;; value, so toggle dispatches store +
+                             ;; read overrides under the persistence-
+                             ;; friendly key.
+                             :mount-id effective-id
+                             :path []
+                             :depth 0
+                             :expansion-map expansion-map
+                             :dispatch-fn dispatch-fn
+                             :opts {:default-expanded-depth default-expanded-depth
+                                    :max-inline-width max-inline-width
+                                    :max-depth max-depth
+                                    ;; rf2-kbdk8 — threaded so every
+                                    ;; recursive render-node decides
+                                    ;; expansion against the same
+                                    ;; available column width. Nil
+                                    ;; until the ref measures, after
+                                    ;; which ResizeObserver keeps it
+                                    ;; live.
+                                    :available-width-px available-width-px}})]
+        (if chromed?
+          ;; ── rf2-okq7p — three-shade card chrome (section + header
+          ;; ribbon + body). Modelled on the Machine panel's
+          ;; `focused-event-section`: outer `<section>` paints the
+          ;; surface band (`:bg-2`, light: #ffffff), the `<header>`
+          ;; ribbon sits one shade darker (`:bg-3`, light: #e8e8e8),
+          ;; and the body sleeve sits one shade lighter (`:bg-1`,
+          ;; light: #f5f5f5). The three-shade ramp reads as a card
+          ;; with a distinct label band rather than one continuous
+          ;; block — consumer panels mounting multiple inspectors
+          ;; side-by-side (App-DB: counter db + machine db + routes;
+          ;; Handler: event + before + after + fx + coeffects) can
+          ;; label each mount without visual blending.
+          ;;
+          ;; The mount-id testid + ref + measurement plumbing migrate
+          ;; out to the section so DOM-level consumers (tests, panel-
+          ;; gallery selectors) keep their existing selectors working
+          ;; against `data-testid container-id` regardless of which
+          ;; shape rendered.
+          [:section {:data-testid     container-id
+                     :data-rf-mount-id mount-id
+                     :data-rf-site-id  (when site-id (pr-str site-id))
+                     :data-rf-mode    (if diff? "diff" "browse")
+                     :data-rf-popup-affordance? (when popup-affordance? "1")
+                     :data-rf-card     (when card? "1")
+                     :data-rf-header   "1"
+                     :data-rf-available-width-px (when available-width-px
+                                                   (str available-width-px))
+                     :ref             container-ref
+                     :style {:font-family    mono-stack
+                             :font-size      "12px"
+                             :color          (:text-primary tokens)
+                             :line-height    1.4
+                             :background-color (:bg-2 tokens)
+                             :border           (str "1px solid "
+                                                    (:border-default tokens))
+                             :border-radius    "4px"
+                             :overflow         "hidden"
+                             :margin-bottom    "8px"
+                             ;; Positioning context for the absolute-
+                             ;; positioned affordance button — moved
+                             ;; here so the affordance still sits at
+                             ;; the section's top-right corner.
+                             :position    (when popup-affordance? "relative")}}
+           (when popup-affordance?
+             (popup-affordance-button dispatch-fn popup-mount-id value opts))
+           [:header {:data-testid (str container-id "-header")
+                     :data-rf-header-role "ribbon"
+                     :style {:padding       "10px 12px"
+                             :background    (:bg-3 tokens)
+                             :border-bottom (str "1px solid "
+                                                 (:border-subtle tokens))
+                             :font-family   mono-stack
+                             :font-size     "12px"
+                             :color         (:text-primary tokens)
+                             :line-height   1.4}}
+            header]
+           [:div {:data-testid (str container-id "-body")
+                  :data-rf-body-role "card-body"
+                  :style {:padding       "12px"
+                          :background    (:bg-1 tokens)}}
+            body-content]]
+          ;; ── default (no `:header`): flat single-div render, with
+          ;; optional rf2-63ie5 `:card?` chrome on the outer container.
+          [:div {:data-testid     container-id
+                 :data-rf-mount-id mount-id
+                 :data-rf-site-id  (when site-id (pr-str site-id))
+                 :data-rf-mode    (if diff? "diff" "browse")
+                 :data-rf-popup-affordance? (when popup-affordance? "1")
+                 :data-rf-card     (when card? "1")
+                 :data-rf-available-width-px (when available-width-px
+                                               (str available-width-px))
+                 ;; rf2-kbdk8 — `:ref` callback drives the measurement.
+                 ;; Captured once in the form-2 closure; React calls
+                 ;; the same fn on mount + unmount so the observer's
+                 ;; lifecycle mirrors the widget's DOM lifecycle.
+                 :ref             container-ref
+                 :style (cond-> {:font-family mono-stack
+                                 :font-size   "12px"
+                                 :color       (:text-primary tokens)
+                                 :line-height 1.4
+                                 ;; Position context for the absolute-
+                                 ;; positioned affordance button.
+                                 ;; Harmless when the affordance is
+                                 ;; off — no descendant uses absolute
+                                 ;; positioning otherwise.
+                                 :position    (when popup-affordance? "relative")}
+                          ;; rf2-63ie5 — inspector-card chrome on
+                          ;; top-level mounts. Theme-aware via tokens
+                          ;; so both light + dark resolve at paint
+                          ;; time. The opt-in (`:card? true`) keeps
+                          ;; inline / nested mounts unchromed; panels
+                          ;; with multiple top-level inspector mounts
+                          ;; (App-DB, Handler) pass `:card? true` so
+                          ;; the eye reads each mount as a discrete
+                          ;; card rather than one continuous block.
+                          card? (assoc :background-color (:bg-1 tokens)
+                                       :border           (str "1px solid "
+                                                              (:border-default tokens))
+                                       :border-radius    "8px"
+                                       :padding          "8px 10px"
+                                       :margin-bottom    "8px"))}
+           (when popup-affordance?
+             (popup-affordance-button dispatch-fn popup-mount-id value opts))
+           body-content])))))
 
 (defn edn-inspector-diff
   "Diff convenience — `[edn-inspector-diff before after]` or
