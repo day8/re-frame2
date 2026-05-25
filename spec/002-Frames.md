@@ -56,6 +56,10 @@ This Spec inherits the constraints and goals from 000 and adds two frame-specifi
  :app-db       <atom>                   ;; this frame's app-db
  :router       {...}                    ;; this frame's event queue/scheduler state
  :sub-cache    {...}                    ;; this frame's signal-graph cache
+ :epoch-history [...]                   ;; this frame's per-cascade :rf/epoch-record ring (per Tool-Pair §Time-travel)
+ :trace-ring   {...}                    ;; this frame's per-frame trace ring — cascade-keyed,
+                                        ;;   sized by :rf.trace/cascades-retained (default 50),
+                                        ;;   per Spec 009 §Per-frame trace rings (rf2-g1b2m)
  :lifecycle    {:created-at <ts>
                 :destroyed? false
                 :listeners  [...]}
@@ -76,6 +80,8 @@ Three observations:
 1. **Handlers are not in the frame.** The handler registrar is global, shared across all frames. Frames isolate *state*, not *behaviour*.
 2. **The signal graph is per-frame.** Two frames running the same `:total` subscription compute against their own `app-db`s, cache against their own sub-caches; they are independent.
 3. **Frames are mutable runtime objects.** They are not values. User code holds keywords; the framework holds frame records.
+
+**The trace surface is per-frame too (rf2-g1b2m).** Each frame owns its own cascade-keyed trace ring alongside its `epoch-history`. Trace events that ride inside an in-flight cascade route to the frame whose drain loop, reactive recompute, or view render is running — they never cross frames. The ring unit is the cascade (one `:rf.trace/dispatch-id` = one slot), retained at the per-frame `:rf.trace/cascades-retained` knob (default 50). Cross-frame consumers (pair tools, multi-frame stories) merge by `:dispatch-id` across rings; frameless emits (registration, REPL evals, lifecycle outside any cascade) bypass the rings entirely and stream live to listeners only. See [Spec 009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) for the full retention contract.
 
 ## Frame lifecycle
 
@@ -103,10 +109,11 @@ This section is the **canonical grammar** for `reg-frame` metadata. Subsequent s
    :drain-depth  100                            ;; depth limit for run-to-completion drain
    :on-error     :rf.error/server-projection    ;; error-handler policy per [009 §Error-handler policy](009-Instrumentation.md#error-handler-policy-on-error-per-frame); typically preset-supplied (e.g. `:ssr-server`)
    :platform     :server                        ;; active platform for this frame per [011-SSR.md](011-SSR.md); typically preset-supplied
+   :rf.trace/cascades-retained 200              ;; per-frame trace-ring cascade count (default 50); per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only); rf2-g1b2m
    :ns :line :file})                            ;; auto-supplied
 ```
 
-The full set of metadata keys — `:doc`, `:on-create`, `:on-destroy`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:drain-depth`, `:on-error`, `:platform`, plus the auto-supplied `:ns`/`:line`/`:file` — is the canonical surface; the `:rf/frame-meta` schema in [Spec-Schemas](Spec-Schemas.md#rfframe-meta) is the normative reference. `:on-error` and `:platform` are framework-supplied via presets in the v1 closed set (`:ssr-server` wires both); user code may set them directly for non-preset configurations.
+The full set of metadata keys — `:doc`, `:on-create`, `:on-destroy`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:drain-depth`, `:on-error`, `:platform`, `:rf.trace/cascades-retained`, plus the auto-supplied `:ns`/`:line`/`:file` — is the canonical surface; the `:rf/frame-meta` schema in [Spec-Schemas](Spec-Schemas.md#rfframe-meta) is the normative reference. `:on-error` and `:platform` are framework-supplied via presets in the v1 closed set (`:ssr-server` wires both); user code may set them directly for non-preset configurations. `:rf.trace/cascades-retained` defaults to 50 when omitted; per-frame override is useful for inspector frames (e.g. `:rf/xray` may want 200 for deep diagnostic walks) and transient story-variant frames (which may want fewer).
 
 **Frames always start with `app-db = {}`.** There is no `:db` config key — initialisation happens via the `:on-create` event. This keeps "events are the unit of state change" as a single, consistent mechanism: the initial state is built by the same dispatch pipeline that handles all subsequent state changes.
 
@@ -1338,8 +1345,8 @@ The metadata maps returned by `handler-meta` and `frame-meta` follow a documente
 ### Per-frame and trace surface
 
 - **Per-frame app-db inspection** — covered by `get-frame-db` above.
-- **Trace per frame.** Each frame's router emits a stream of trace events (event in, interceptors, effects out) that 10x and other tools subscribe to. Coordination point with 10x: epochs are tagged with their frame.
-- **Hot-reload notifications.** `reg-frame`/`reg-event-*`/etc. re-registration fires notifications on a re-frame-internal pub/sub that tools can listen to and refresh their state.
+- **Trace per frame (rf2-g1b2m).** Each frame owns its own cascade-keyed trace ring. Trace events emitted inside an in-flight cascade route to the frame whose router / reactive substrate / view wrapper is running — they never cross into sibling frames. Each frame's ring is sized independently via `:rf.trace/cascades-retained` (default 50; per-frame override on `reg-frame`); `(rf/trace-buffer frame-id)` reads cascade bundles from that frame's ring; cross-frame consumers (pair tools, multi-frame story sessions) merge by `:dispatch-id` across rings. Frameless emits stream live to listeners only and bypass every ring. See [Spec 009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) for the full contract.
+- **Hot-reload notifications.** `reg-frame`/`reg-event-*`/etc. re-registration fires notifications on a re-frame-internal pub/sub that tools can listen to and refresh their state. Per the B4 ruling (rf2-g1b2m), hot-reload re-emits are deduplicated by shape — unchanged re-registrations do not fire a trace event; only shape changes (handler-fn identity or metadata content) emit. The dedup table is process-scoped and dev-only.
 
 ## Story-tool foundation hooks — see Spec 007
 
@@ -1392,3 +1399,4 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Per-instance frames via anonymous `make-frame` for per-mount lifecycles | [§Per-instance frames — anonymous `make-frame`](#per-instance-frames--anonymous-make-frame) |
 | Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`, `:interceptors` | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |
 | `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, schemas, SSR, epoch) hangs its frame-scoped cleanup off; each artefact publishes a teardown hook the core invokes during destroy | [§Destroy](#destroy), [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) |
+| Per-frame trace rings, cascade-keyed retention — each frame owns an independent ring sized by cascade count (`:rf.trace/cascades-retained`, default 50); trace events route to the in-flight frame; frameless events bypass rings and stream live only; hot-reload re-emits dedup by shape (rf2-g1b2m) | [§What lives in a frame](#what-lives-in-a-frame), [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) |

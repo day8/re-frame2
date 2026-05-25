@@ -444,11 +444,12 @@ The full attachment surface, from the tool's point of view:
 |---|---|---|
 | Receive live trace events | `(rf/register-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Receive per-event assembled epoch records | `(rf/register-epoch-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
-| Read recent trace history (events that already fired) | `(rf/trace-buffer)` (with optional filter map) | [009 §Retain-N trace ring buffer](009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only) |
+| Read recent trace history (cascades that already fired in a frame) | `(rf/trace-buffer frame-id)` returns cascade bundles by default; `(rf/trace-buffer frame-id {:flat true})` returns raw trace events; cross-frame consumers merge by `:dispatch-id` across rings | [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) |
+| Read live stream of frameless trace events (registration, REPL, lifecycle outside any cascade) | `(rf/register-listener! ...)` — frameless emits stream live to listeners only; they are not retained in any ring (per the B3 ruling, rf2-g1b2m) | [009 §Frameless trace events](009-Instrumentation.md#frameless-trace-events--live-stream-only-no-ring-storage) |
 | Read epoch history per frame | `(rf/epoch-history frame-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Restore an epoch | `(rf/restore-epoch frame-id epoch-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Inject an `app-db` value (state injection / story / repro) | `(rf/reset-frame-db! frame-id new-db)` | [§Pair-tool writes](#pair-tool-writes--state-injection) |
-| Configure history depth | `(rf/configure :epoch-history {:depth N})` and `(rf/configure :trace-buffer {:depth N})` | [API.md](API.md) |
+| Configure history depth | `(rf/configure :epoch-history {:depth N})` and `(rf/configure :trace-buffer {:cascades-retained N})` (process-default); `:rf.trace/cascades-retained` on `reg-frame` (per-frame override) | [API.md](API.md), [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) |
 | Inspect registered app-db schemas | `(rf/app-schemas frame-id)` | [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface) |
 | Tag dispatches by actor (e.g. tool vs app) | `:origin` opt on `(rf/dispatch event opts)` | [002 §Dispatch origin tagging](002-Frames.md#dispatch-origin-tagging) |
 | Correlate a dispatch cascade | `:rf.trace/dispatch-id` + `:rf.trace/parent-dispatch-id` on `:rf.event/dispatched` traces | [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id) |
@@ -467,7 +468,7 @@ The full attachment surface, from the tool's point of view:
 
 The consumption pattern is therefore:
 
-> **A pair-shaped tool registers as a trace listener (and/or as an epoch listener for assembled per-cascade records), reads recent history from the trace buffer, queries the registrar for shape, walks the epoch history for time-travel, and dispatches into frames to drive experiments. That's the entire surface.**
+> **A pair-shaped tool registers as a trace listener (and/or as an epoch listener for assembled per-cascade records), reads recent history from the per-frame trace rings (cascade-bundle shape by default, `:flat` opt-in for raw events; cross-frame consumers merge by `:dispatch-id`), queries the registrar for shape (the source of truth for "what's registered right now" — registry queries replace any need to scan rings for frameless events per the B3+B4 ruling), walks the epoch history for time-travel, and dispatches into frames to drive experiments. That's the entire surface.**
 
 Two listener shapes coexist by design: `register-listener!` is the **raw** stream — every event the runtime emits, fine-grained — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-listener!` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per dequeued event (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)), with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
 
@@ -542,6 +543,78 @@ Edge-case behaviour the example does not exercise but consumers should know abou
 - **Re-entrant dispatch from a callback.** A callback that calls `(rf/dispatch …)` enqueues the new event; the new dispatch's drain begins on stack-unwind from the current callback fan-out, not before. Other registered epoch listeners still receive the *current* record before the re-entrant dispatch begins.
 - **`(rf/configure :epoch-history {:depth 0})` and listeners.** Setting depth to 0 disables the per-frame ring buffer (so `(rf/epoch-history frame-id)` returns `[]`) but does **not** stop epoch listeners from firing — `register-epoch-listener!` callbacks continue to receive the assembled record once per dequeued event. Tools that need the assembled stream without retaining history should set depth `0` and consume via `register-epoch-listener!` only.
 - **Frame-destroyed mid-observation.** Tool-Pair surface behaviour against destroyed frames (epoch-history reads, in-flight epoch-cb deliveries, restore against a now-destroyed frame, listener silencing) is closed in [§Surface behaviour against destroyed frames](#surface-behaviour-against-destroyed-frames). Read-shaped surfaces return empty shapes; mutating-shaped surfaces raise `:rf.error/no-such-handler` (kind `:frame`); a previously-firing callback whose observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace.
+
+### Reading the per-frame trace ring — cascade bundles + `:flat` opt-in (rf2-g1b2m)
+
+The per-frame trace ring is the in-process companion to `epoch-history` — same per-frame model, same cascade-keyed retention, but the *trace detail* of each cascade rather than the assembled-projection. Tools route off the ring when they need the raw `:rf.sub/run` / `:rf.sub/skip` / `:rf.fx/handled` / `:rf.machine/*` event stream of recent cascades (per-event timing, full sub-cascade DAG, fine-grained fx ordering) without rebuilding it from a `register-listener!` archive.
+
+The read surface is **per-frame** and returns **cascade bundles by default**:
+
+```clojure
+;; Default — one entry per retained cascade, projection-shape per [009 §Cascade projection]
+(rf/trace-buffer :step-deck)
+;; → [{:dispatch-id 17
+;;     :trace-events [...]
+;;     :event [:user/click ...]
+;;     :handler {:operation :rf.event/run-start ...}
+;;     :fx {:operation :rf.fx/do-fx ...}
+;;     :effects [...]
+;;     :subs [...]
+;;     :renders [...]
+;;     :other [...]}
+;;    {:dispatch-id 18 :trace-events [...] :event [...] ...}
+;;    ...]
+
+;; Opt-in — flatten back to raw trace events (escape hatch for existing flat-stream code)
+(rf/trace-buffer :step-deck {:flat true})
+;; → [{:operation :rf.event/dispatched :tags {:rf.trace/dispatch-id 17 ...} ...}
+;;    {:operation :rf.event/run-start  :tags {:rf.trace/dispatch-id 17 ...} ...}
+;;    {:operation :rf.sub/skip         :tags {:rf.trace/dispatch-id 17 ...} ...}
+;;    ...]
+```
+
+The default matches the storage unit (one cascade = one slot); the `:flat` form reads the ring's per-cascade slots and flattens them at read time. Filters compose AND-wise; see [Spec 009 §Filter vocabulary](009-Instrumentation.md#filter-vocabulary).
+
+#### Cross-frame cascade reconstruction — merge by `:dispatch-id`
+
+A tool watching multiple frames (a pair-MCP session observing both `:rf/xray` and the inspected app frame; a story-MCP session walking a multi-frame variant; an off-box dashboard merging trace from N frames) reconstructs a unified timeline by reading each frame's ring and merging entries by `:dispatch-id`. Each frame retains the traces that EXECUTED IN IT — the framework does not maintain a process-global index — so the merge is the consumer's job, and it is cheap because each ring already keys by `:dispatch-id`:
+
+```clojure
+(defn watch-all-frames []
+  (->> (rf/frame-ids)
+       (mapcat (fn [fid] (map #(assoc % :frame fid) (rf/trace-buffer fid))))
+       (sort-by :dispatch-id)))
+;; → vector of {:dispatch-id N :frame <kw> :trace-events [...] ...} entries,
+;;   suitable for rendering as a single timeline; entries with the same
+;;   :dispatch-id are the same cascade observed from each frame's ring.
+```
+
+In practice, each cascade lives in exactly ONE frame (re-frame2 does not route a single dispatch across multiple frames per [Spec 002](002-Frames.md#routing-the-dispatch-envelope)), so the multi-frame view is interleaved rather than overlapping — `dispatch-id` ordering renders the correct turn-by-turn timeline.
+
+#### `watch-epochs` / `trace-window` consumer shape (MCP layer)
+
+The MCP-server surfaces that stream the per-frame ring to off-box agents (`re-frame2-pair-mcp`'s `trace-window` / `watch-epochs` / `subscribe` per [`tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md`](../tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md)) MUST deliver **complete cascade bundles per stream tick** — the storage unit on the wire. Consumers receive one `{:dispatch-id N :trace-events [...] :event :handler :fx :effects :subs :renders :other}` per tick rather than per-event chunks they would have to re-fold. The in-process zero-arg `(rf/trace-buffer frame-id)` already returns this shape; off-box delivery mirrors it.
+
+The cascade-bundle wire shape DIFFERS from the in-process `:flat true` opt-in by intent: in-process callers may need raw events for fine-grained per-emit logic; off-box agents need atomic cascade context per stream tick to stay within token budgets and to reason about cause→effect at a granularity that matches `:dispatch-id`. The bundle is the better default for LLM-shaped consumers; the `:flat` form is the escape hatch for in-process callers that already grouped raw streams themselves.
+
+Per cursor-pagination (rf2-kbqq3) and per-session cache (rf2-3rt1f) conventions in [§Wire-protocol mechanisms](#wire-protocol-mechanisms-mcp-tool-layer-not-framework) compose unchanged: a `:dispatch-id`-keyed cursor identifies the next cascade slot; a `:rf.mcp/cursor-stale` marker fires when the cursor's cascade has aged out of the ring; per-session response cache keys on app-db identity, not on cascade-id, so the cascade-bundle shape doesn't change its hit semantics.
+
+#### Frameless trace events — live channel only (rf2-g1b2m B3 ruling)
+
+Frameless trace events (registrations, REPL emits, lifecycle outside any cascade) **bypass every ring** and stream live to listeners only. Consumers that want frameless emits — registration-drift monitors, hot-reload diagnostics, REPL-eval tracers — subscribe to the live stream via `register-listener!` and filter by `:op-type` / `:operation`:
+
+```clojure
+(rf/register-listener!
+  :my-tool/registry-monitor
+  (fn [ev]
+    (when (and (= :rf.registry (:op-type ev))
+               (nil? (get-in ev [:tags :rf.trace/dispatch-id])))
+      (record-registration-event! ev))))
+```
+
+The framework runs **hot-reload dedup by shape** (B4 ruling, rf2-g1b2m) at the registrar before the trace fires — unchanged re-emits are suppressed, so the live stream a listener observes is already noise-filtered. Tools wanting "the current set of registered handlers" consult `(rf/registrations kind)` (per [001 §The query API](001-Registration.md#the-query-api)) rather than reconstructing it from live-stream observation. The registry is the source of truth; the live stream is the change-log.
+
+Off-box wire delivery of frameless events MAY ride a separate stream channel from the cascade-bundle stream (since the two carry structurally different payloads — cascade bundles vs single trace events) and consumers MUST subscribe to it explicitly rather than assuming frameless events ride the cascade stream. The split is the framework's; downstream MCP tooling that ships `subscribe`-style notifications shapes the channel separation in its own surface (see [`tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md`](../tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md) for `re-frame2-pair-mcp`'s shape).
 
 ### Implications for downstream tools
 
