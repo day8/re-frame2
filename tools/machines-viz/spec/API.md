@@ -527,6 +527,73 @@ avoids coupling it to a framework registry.
 Source: the host-side surfaces are lifted from
 [Xray 003 §Data sources](../../xray/spec/003-Machine-Inspector.md#data-sources).
 
+### Trace events emitted (rf2-4lyvh)
+
+The chart is otherwise presentation-only, but it owns one diagnostic
+seam: ELK layout failures surface as a public trace event so tools
+that subscribe to `:rf.error/*` (Xray's Issues panel, off-box error
+monitors) see the failure with enough context to diagnose without
+loading xyflow / elkjs.
+
+| Trace operation | When | Op-type |
+|---|---|---|
+| `:rf.error/machines-viz-elk-layout-failed` | `chart/compute-layout!` (`chart.cljs`) hits a failing ELK pass — either a synchronous throw from `(.layout elk-instance input)` (rare; a malformed input) or an async rejection of the returned Promise. The result-map handed to the layout `done-fn` carries an extra `:layout-error` slot (`{:positions {} :edge-points {} :layout-error {…}}`) and the chart paints the in-panel banner (per [§What renders](#what-renders) — the red `Layout failed.` status row at the top of the canvas); the trace event is the parallel off-box surface. | `:error` |
+
+**Payload** (`:tags`), authored by `report-layout-error!` in
+`chart.cljs` from the pure shape in
+`day8.re-frame2-machines-viz.chart.layout-error`:
+
+```clojure
+{:elk-error     {:message <string>          ;; from (.message err); "unknown error" when missing
+                 :name    <string>}         ;; from (.name err); absent when the JS error has no .name
+                                            ;; (or the name is blank). The error's :stack is
+                                            ;; deliberately omitted — stacks are long, environment-
+                                            ;; specific, and bloat the bus.
+ :machine-id    <keyword-or-nil>            ;; the failing chart's :machine-id prop; nil when
+                                            ;; compute-layout! is called without one (the 2- and
+                                            ;; 3-arity overloads used by unit tests).
+ :input-summary {:node-count       <int>    ;; (count (:nodes parsed))
+                 :edge-count       <int>    ;; (count (:edges parsed))
+                 :region-count     <int>    ;; (count (filter :region? (:nodes parsed)))
+                 :parallel?        <bool>   ;; (boolean (:parallel? parsed))
+                 :direction        <kw>     ;; :tb (default) or :lr
+                 :layout-option-ks <vec>}}  ;; sorted vector of (keys layout-options); the VALUES
+                                            ;; are deliberately omitted (caller-supplied + may drift)
+                                            ;; so the trace stays safe to ship off-box.
+```
+
+The pure summary + error-adapter shapes (`input-summary`,
+`error->data`, `layout-error-result`) live in
+[`chart/layout_error.cljc`](../src/day8/re_frame2_machines_viz/chart/layout_error.cljc)
+so the JVM test corpus can pin every payload field without loading
+xyflow / elkjs; the side-effect side (the `trace/emit-error!` call +
+the dev-only `js/console.error` gated on `interop/debug-enabled?`)
+sits at the
+[`chart/compute-layout!` callsite](../src/day8/re_frame2_machines_viz/chart.cljs)
+next to the elkjs interop.
+
+**Production elision.** `re-frame.trace/emit-error!` rides the
+framework's `interop/debug-enabled?` gate (per
+[`spec/009-Instrumentation.md` §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)),
+so the emit is dead-code-eliminated from `:advanced` production
+bundles alongside the rest of the trace substrate. Consumers MUST
+treat the event as a dev-and-debug-build surface — production
+deployments expose no machines-viz trace at all (the chart itself
+is bundle-isolated from production builds per [§Installation](#installation)).
+
+**Consumers.** Xray's Issues panel
+([Xray 016 §Issues panel](../../xray/spec/016-Auxiliary-Panels.md#issues-panel))
+already subscribes to `:rf.error/*` and renders this event with its
+machine-id attribution and ELK error message; off-box monitors that
+forward `:rf.error/*` via the framework's error-emit listener (per
+[Spec 009 §What IS available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production))
+see the same record under the dev-and-debug-build gate.
+
+This is the only trace event the chart emits. The chart consumes
+many trace events through host-side projection (see
+[§Data sources](#data-sources)), but the only emit it owns is this
+ELK-layout-failure surface.
+
 ## Density
 
 The chart ships **three named density variants**. Hosts pick one via
