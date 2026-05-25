@@ -28,8 +28,8 @@
     The data-rf-render-hash attribute would normally be emitted by
     render-to-string with :emit-hash? true; we omit it from the static page
     because we don't recompute the FNV-1a hash here. That side of Spec 011
-    is exercised by the JVM-side ssr-tests fn in core.cljc (and by the
-    re-frame.ssr conformance suite) — out of scope for the browser smoke test.
+    is exercised by the JVM-side ssr-tests fn in test/ssr/core_test.clj (and
+    by the re-frame.ssr conformance suite).
   -->
   <div id="app">
     <div class="page">
