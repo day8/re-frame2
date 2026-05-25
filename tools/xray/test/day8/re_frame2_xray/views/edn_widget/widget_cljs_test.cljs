@@ -108,11 +108,29 @@
       (is (contains-text? out ":k"))
       (is (contains-text? out ":foo/bar")))))
 
-(deftest browse-of-nested-collection-expands-recursively
-  (let [out (w/browse {:value     {:outer {:inner 99}}
-                       :panel-id  :test
-                       :render-id "nested-1"})]
-    (testing "a nested map's inner key + value render (full expansion)"
+(deftest browse-of-wide-nested-collection-collapses-by-default
+  (testing "rf2-dw8n7 — browse is click-to-toggle: wide nested
+            collections render as ▸ summaries by default
+            (§10.4 threshold heuristic at `:default-depth 1`).
+            Operator clicks a triangle to drill deeper; sticky state
+            persists via `:rf.xray/data-display-expansion`."
+    (let [wide (zipmap (map #(keyword (str "k" %)) (range 20)) (range 20))
+          out  (w/browse {:value     {:outer wide}
+                          :panel-id  :test
+                          :render-id "nested-1"})]
+      (is (contains-text? out ":outer")
+          "root expansion surfaces the top-level key")
+      (is (contains-text? out "▸")
+          "wide nested collection renders the ▸ collapse glyph"))))
+
+(deftest browse-default-depth-opt-expands-deeper
+  (testing "rf2-dw8n7 — explicit `:default-depth N` opens N levels at
+            mount; useful for surfaces (like the app-db diff panel)
+            that want a deeper initial reveal"
+    (let [out (w/browse {:value         {:outer {:inner 99}}
+                         :panel-id      :test
+                         :render-id     "depth-1"
+                         :default-depth 3})]
       (is (contains-text? out ":outer"))
       (is (contains-text? out ":inner"))
       (is (contains-text? out "99")))))

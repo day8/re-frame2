@@ -42,15 +42,22 @@
     `[\"object\" ...]` placeholders (those render as a `▶ {…}`
     summary). Suitable for the `mini` one-liner and inline chips
     where a single line is wanted.
-  - `value->tree-hiccup` — render a CLJS value as a FULLY-EXPANDED
-    cljs-devtools tree (the re-frame-10x look · type-coloured ·
-    nested · indented). Recursively expands `[\"object\" ...]`
-    surrogate references up to a depth budget; deeper levels
-    degrade to the collapsed `▶ {…}` summary so a pathological
-    app-db can't blow the call stack. This is the entry the
-    current-state `browse` path uses for collections.
+  - `value->tree-hiccup` — render a CLJS value as the re-frame-10x
+    nested-tree current-state look (`{ :counter ▸ {3 entries} }`)
+    with INTERACTIVE click-to-toggle per `object` surrogate
+    (rf2-dw8n7). Each collection node renders a `▸` (collapsed) /
+    `▾` (expanded) glyph wrapped in a `[:span]` that dispatches
+    `:rf.xray/data-display-toggle-node` on click — the same sticky-
+    expansion contract `data-display/render` uses, so an operator's
+    drill-downs persist through re-renders. Default expansion
+    follows §10.4's depth+size heuristic (`default-depth` defaults
+    to 1: root expanded, nested collections collapsed). Past the
+    hard `max-depth` stack-guard the node degrades to the one-line
+    `▸ {…}` summary so a pathological / cyclic structure can't blow
+    the call stack.
   - `jsonml->hiccup` — pure JSONML walker; public for tests. The
-    arity that takes an opts map drives recursive expansion.
+    arity that takes an opts map drives recursive expansion + the
+    interactive toggle wiring.
 
   ## Posture
 
@@ -60,6 +67,8 @@
   (:require [clojure.string :as str]
             [devtools.formatters.core :as formatters]
             [devtools.prefs :as devtools-prefs]
+            [re-frame.core :as rf]
+            [day8.re-frame2-xray.data-display.render :as data-display]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]))
 
@@ -91,20 +100,29 @@
    :initial-hierarchy-depth-budget false})
 
 (def ^:private xray-expanded-prefs
-  "Extra prefs for the FULLY-EXPANDED current-state tree
-  (`value->tree-hiccup`, rf2-dmso5). cljs-devtools defaults inline only
-  `:max-print-level 2` / `:body-line-max-print-level 3` levels and
-  `:max-header-elements 5` entries before degrading a value to a
-  collapsed `▸ {…}` reference — that's the one-line summary look. For
-  Xray's current-state surfaces we want the re-frame-10x
-  fully-expanded look, so the tree renderer lifts the inline budgets
-  generously (the per-leaf header preview then inlines the whole
-  structure for ordinary app-db depths) and `value->tree-hiccup`'s
-  body-recursion picks up anything past them. `value->hiccup` / `mini`
-  do NOT use these — they stay one-line."
+  "Prefs for the interactive tree (`value->tree-hiccup`, rf2-dw8n7).
+  We FORCE cljs-devtools to emit `object` surrogate references for
+  every nested collection rather than inlining them in the header.
+
+  - `:max-print-level 1` clamps the header inline-depth to a single
+    level, so a map like `{:outer {:inner 1}}` renders as
+    `{ :outer ▸ {…} }` — the inner map appears as a surrogate ref
+    that the walker can wrap in a click-to-toggle triangle. With the
+    cljs-devtools default of 2 (or our previously-lifted 10), the
+    whole tree inlines as one uninterruptible line and the toggle UI
+    has nothing to attach to.
+  - `:body-line-max-print-level 1` applies the same clamp to the
+    expanded body rows — each LI emits its value as a surrogate.
+  - `:max-header-elements` / `:max-number-body-items` stay generous
+    so a wide map doesn't truncate visible keys mid-list.
+  - The shallow chrome overrides (`:item-style`, `:body-style`, …)
+    carry through from `xray-prefs`.
+
+  `value->hiccup` / `mini` use the shallow `xray-prefs` instead so
+  they keep their one-line semantics for inline chips."
   (merge xray-prefs
-         {:max-print-level           10
-          :body-line-max-print-level 10
+         {:max-print-level           1
+          :body-line-max-print-level 1
           :max-header-elements       100
           :max-number-body-items     1000}))
 
@@ -165,22 +183,42 @@
   #{"div" "span" "ol" "li" "table" "tr" "td"})
 
 (def ^:private default-max-depth
-  "How deep `value->tree-hiccup` recursively expands `object`
-  surrogate references before degrading to the collapsed `▶ {…}`
-  summary. App-db is rarely deeper than this; the cap is a stack-guard
-  against pathological / cyclic structures more than a UI choice. The
-  re-frame-10x look reads as fully-expanded for ordinary data."
-  12)
+  "Hard stack-guard for `value->tree-hiccup`'s body recursion. Beyond
+  this depth every nested `object` surrogate degrades to the collapsed
+  `▸ {…}` summary regardless of the operator's per-path expansion
+  state — a defence against cyclic / pathological structures, not a
+  UX choice. The §10.4 default-expansion heuristic (default-depth 1)
+  is the UX bound; this cap is a safety floor."
+  16)
 
-(declare jsonml->hiccup)
+(def ^:private default-default-depth
+  "§10.4 default expansion depth for `value->tree-hiccup` when the
+  caller doesn't override. `1` = the root collection's children render
+  as collapsed `▸ {…}` summaries by default; the operator clicks a
+  triangle to expand. Matches re-frame-10x's app-db panel default
+  (rf2-dw8n7 acceptance)."
+  1)
+
+(declare jsonml->hiccup body-child-count)
+
+(defn- toggle-style
+  "Inline style for the click-to-toggle triangle wrapper on an
+  interactive `object` surrogate. Pointer cursor + accessible focus
+  outline (rf2-dw8n7)."
+  []
+  {:cursor       "pointer"
+   :user-select  "none"
+   :display      "inline-block"
+   :margin-right "2px"
+   :color        (:text-tertiary tokens)})
 
 (defn- render-object-summary
   "Render an `[\"object\" {object: v, config: c}]` surrogate as an
   inline `▸ <header>` ONE-LINE summary (no body expansion). Used as
-  the leaf-fallback in `value->hiccup` and as the depth-budget cap in
-  `value->tree-hiccup`: the user still sees \"there is nested structure
-  here\" via the collection's one-line `{…}` header without the tree
-  committing to expand it."
+  the leaf-fallback in `value->hiccup` — non-interactive, no click
+  handler. For the interactive `value->tree-hiccup` path the wrapper
+  is added by `render-object-interactive`; this function still emits
+  the header markup so both paths share the same inline shape."
   [obj opts]
   (let [^js o obj
         v    (some-> o .-object)
@@ -198,20 +236,33 @@
        (when (some? inner)
          [:span (jsonml->hiccup inner opts)]))]))
 
-(defn- render-object-expanded
-  "Recursively EXPAND an `[\"object\" {object: surrogate}]` reference:
-  render the surrogate's header inline, then — when it has a body and
-  we're within the depth budget — render that body indented underneath.
-  This is what produces the re-frame-10x nested-tree look for
-  collections. Beyond the depth budget the reference degrades to the
-  one-line `render-object-summary`.
+(defn- render-object-interactive
+  "Render an `[\"object\" {object: surrogate}]` reference as the
+  re-frame-10x interactive click-to-toggle node (rf2-dw8n7).
 
-  `binaryage/cljs-devtools` models a value's expandable rows as a
-  surrogate whose `body-api-call` returns an `[\"ol\" …]` of `[\"li\" …]`
-  lines; each line embeds the child values as further `object`
-  references — so recursing on `body-api-call` walks the whole
-  structure."
-  [obj {:keys [depth max-depth] :as opts}]
+  The triangle is a `[:span]` with `:on-click` dispatching
+  `:rf.xray/data-display-toggle-node` against this surrogate's
+  walker-path. When expanded, the header line is followed by the
+  surrogate's body indented underneath (recursing through the walker
+  with a deeper path). When collapsed, only the one-line header
+  renders.
+
+  Defaults: §10.4 heuristic — depth ≤ default-depth → expanded; below
+  the body's child-count threshold at the boundary → still expanded;
+  beyond → collapsed. The operator's sticky override (recorded in
+  `:rf.xray/data-display-expansion`) always wins.
+
+  Hard stack-guard at `max-depth`: deeper than that, the node degrades
+  to the inline summary regardless of the operator's choice — a
+  defence against cyclic / pathological structures.
+
+  `cljs-devtools` models a value's expandable rows as a surrogate whose
+  `body-api-call` returns an `[\"ol\" ...]` of `[\"li\" ...]` lines;
+  each line embeds child values as further `object` references — so
+  recursing on `body-api-call` walks the whole structure."
+  [obj {:keys [depth max-depth panel-id render-id path
+               expansion-map default-depth]
+        :as opts}]
   (let [^js o     obj
         surrogate (some-> o .-object)
         cfg       (some-> o .-config)
@@ -224,40 +275,151 @@
       (nil? header)
       (render-object-summary obj opts)
 
-      ;; Leaf-shaped surrogate (no expandable body) — header only.
+      ;; Leaf-shaped surrogate (no expandable body) — header only,
+      ;; no triangle. cljs-devtools uses surrogates for some scalar
+      ;; shapes too (e.g. native JS objects, certain records) — those
+      ;; have nothing to expand so the toggle UI would be misleading.
       (not has-body?)
       [:span {:style {:font-family mono-stack}}
        (jsonml->hiccup header opts)]
 
-      ;; Depth budget hit — keep the one-line summary so we never
-      ;; recurse without bound on a deep / cyclic structure.
+      ;; Hard stack-guard — beyond max-depth degrade to summary
+      ;; regardless of operator override. Defence against cyclic /
+      ;; pathological structures.
       (>= depth max-depth)
       (render-object-summary obj opts)
 
-      ;; Within budget + has a body — expand: header line, then the
-      ;; body's rows indented one level deeper.
       :else
-      (let [body      (try (formatters/body-api-call surrogate cfg)
-                           (catch :default _ nil))
-            next-opts (assoc opts :depth (inc depth))]
-        [:span {:style {:font-family mono-stack}}
-         [:span {:style {:display "block"}}
-          (jsonml->hiccup header opts)]
-         (when (some? body)
-           [:div {:style {:padding-left "14px"
-                          :border-left  (str "1px solid " (:border-subtle tokens))
-                          :margin-left  "2px"}}
-            (jsonml->hiccup body next-opts)])]))))
+      (let [body         (try (formatters/body-api-call surrogate cfg)
+                              (catch :default _ nil))
+            child-cnt    (body-child-count body)
+            default?     (data-display/default-expanded?
+                           {:depth         depth
+                            :child-count   child-cnt
+                            :default-depth (or default-depth
+                                               default-default-depth)})
+            expanded?    (if (and panel-id render-id)
+                           (data-display/resolve-expanded?
+                             expansion-map panel-id render-id path default?)
+                           default?)
+            glyph        (if expanded? "▾" "▸") ; ▾ / ▸
+            ;; Stable dispatch — `:on-click` fires after React pops the
+            ;; frame context, so the dispatch envelope carries the Xray
+            ;; frame explicitly (matches the segment-inspector + copy
+            ;; affordance pattern in `widget.cljs`).
+            toggle-fn    (when (and panel-id render-id)
+                           (fn [^js e]
+                             (when e
+                               (.preventDefault e)
+                               (.stopPropagation e))
+                             (rf/dispatch
+                               [:rf.xray/data-display-toggle-node
+                                panel-id render-id path]
+                               {:frame :rf/xray})))
+            key-fn       (when toggle-fn
+                           (fn [^js e]
+                             (let [k (.-key e)]
+                               (when (or (= k "Enter") (= k " "))
+                                 (.preventDefault e)
+                                 (.stopPropagation e)
+                                 (toggle-fn e)))))
+            testid       (when (and panel-id render-id)
+                           (str "rf-xray-edn-widget-toggle-"
+                                (name panel-id) "-"
+                                render-id "-"
+                                (str/join "/" (map str path))))
+            triangle     (if toggle-fn
+                           [:span (cond-> {:on-click   toggle-fn
+                                           :on-key-down key-fn
+                                           :role       "button"
+                                           :tab-index  0
+                                           :aria-label (str (if expanded? "Collapse" "Expand")
+                                                            " node")
+                                           :style      (toggle-style)}
+                                    testid (assoc :data-testid testid))
+                            glyph]
+                           [:span {:style {:color (:text-tertiary tokens)
+                                           :margin-right "2px"}}
+                            glyph])
+            ;; Surrogates inside the surrogate's header / body represent
+            ;; CHILDREN of this node — they live at depth+1 in the value
+            ;; tree, so the walker descends with the bumped depth (and
+            ;; the per-li path additions the walker layers on top). This
+            ;; is what keeps the default-expansion heuristic honest for
+            ;; deeply nested values — without the bump, inline surrogates
+            ;; in the parent's header all read as depth=parent and the
+            ;; heuristic over-expands.
+            inner-opts   (assoc opts :depth (inc depth))]
+        (if expanded?
+          [:span {:style {:font-family mono-stack}}
+           [:span {:style {:display "block"}}
+            triangle
+            [:span (jsonml->hiccup header inner-opts)]]
+           (when (some? body)
+             [:div {:style {:padding-left "14px"
+                            :border-left  (str "1px solid " (:border-subtle tokens))
+                            :margin-left  "2px"}}
+              (jsonml->hiccup body inner-opts)])]
+          ;; Collapsed: triangle + one-line header summary side-by-side.
+          [:span {:style {:font-family mono-stack
+                          :color       (:text-secondary tokens)}}
+           triangle
+           [:span (jsonml->hiccup header inner-opts)]])))))
 
 (defn- render-object
-  "Route an `object` reference to the expanding or summary renderer
-  based on `opts`. `:expand? true` (set by `value->tree-hiccup`) walks
-  the surrogate's body; otherwise (header-only `value->hiccup`,
-  `mini`) it renders the one-line summary."
+  "Route an `object` reference to the interactive expanding renderer
+  (when `opts` carries `:expand? true` — the `value->tree-hiccup`
+  path) or the static one-line summary (header-only `value->hiccup`,
+  `mini`)."
   [obj opts]
   (if (:expand? opts)
-    (render-object-expanded obj opts)
+    (render-object-interactive obj opts)
     (render-object-summary obj opts)))
+
+(defn body-child-count
+  "Count the `li` rows in a cljs-devtools body. cljs-devtools wraps
+  the row list in `[\"span\" attrs [\"ol\" attrs li li ...]]` — so
+  this fn descends until it finds the `ol` (or `table`) and returns
+  the number of row children inside it. Used to drive the §10.4
+  default-expansion heuristic at the boundary; returns 0 when body
+  is nil or the shape isn't recognised."
+  [body]
+  (letfn [(child-of [node idx]
+            (cond
+              (and (array? node) (> (.-length node) idx)) (aget node idx)
+              (and (vector? node) (> (count node) idx)) (nth node idx)
+              :else nil))
+          (tag-of [node]
+            (cond
+              (array? node) (when (pos? (.-length node)) (aget node 0))
+              (vector? node) (first node)
+              :else nil))
+          (length-of [node]
+            (cond
+              (array? node) (.-length node)
+              (vector? node) (count node)
+              :else 0))]
+    (loop [n body depth-budget 4]
+      (cond
+        (nil? n) 0
+        (neg? depth-budget) 0
+        :else
+        (let [tag (tag-of n)]
+          (case tag
+            ("ol" "ul" "table")
+            (max 0 (- (length-of n) 2))
+            ;; descend into the first child (skip tag + attrs)
+            (let [c (child-of n 2)]
+              (if c
+                (recur c (dec depth-budget))
+                0))))))))
+
+(defn- child-path
+  "Compose the walker child path. Each li-index inside a body becomes
+  a path segment; nested object refs inside a li inherit that segment
+  via the body-recursion step. Pure data — stable across re-renders."
+  [path child-index]
+  (conj (vec path) child-index))
 
 (defn jsonml->hiccup
   "Pure walker — convert JSONML to hiccup. Public for tests.
@@ -265,73 +427,104 @@
   Numbers / strings pass through verbatim (CLJS keeps them as plain
   values; hiccup renders them as text children). JS arrays whose first
   element is a known container tag become the equivalent hiccup vector.
-  `object` references route through `render-object` — expanded into a
-  nested tree when `opts` carries `:expand? true`, collapsed to a
-  one-line `▸ {…}` summary otherwise. `annotation` (cljs-devtools'
-  path-marker) wraps its children in a bare `[:span]`.
+  `object` references route through `render-object` — the interactive
+  click-to-toggle wrapper when `opts` carries `:expand? true`,
+  collapsed to a one-line `▸ {…}` summary otherwise. `annotation`
+  (cljs-devtools' path-marker) wraps its children in a bare `[:span]`.
+
+  When walking an `\"ol\"` body, each `\"li\"` child gets a per-row
+  path segment so nested object refs inside it can derive their own
+  walker path (used as the sticky-expansion key). Other container tags
+  (div / span / table / tr / td) just pass `opts` through verbatim.
 
   Single-arg arity renders header-only (no expansion). The opts arity
-  threads `{:expand? :depth :max-depth}` so a caller can drive the
-  recursive tree walk."
-  ([jsonml] (jsonml->hiccup jsonml {:expand? false :depth 0 :max-depth 0}))
+  threads `{:expand? :depth :max-depth :panel-id :render-id
+  :expansion-map :path :default-depth}` so a caller can drive the
+  recursive tree walk + the interactive toggle wiring."
+  ([jsonml] (jsonml->hiccup jsonml {:expand? false :depth 0 :max-depth 0
+                                    :path []}))
   ([jsonml opts]
-   (cond
-     (nil? jsonml)     nil
-     (number? jsonml)  jsonml
-     (string? jsonml)  jsonml
-     (boolean? jsonml) (str jsonml)
-     ;; JSONML is a JS array of [tag attrs ...children]. ClojureScript's
-     ;; `array?` predicate identifies the JS array shape.
-     (array? jsonml)
-     (let [tag-name   (aget jsonml 0)
-           attrs      (aget jsonml 1)
-           child-cnt  (.-length jsonml)]
-       (cond
-         (contains? known-tags tag-name)
-         (let [style (attrs-style->map attrs)
-               base  [(keyword tag-name)
-                      {:style (assoc style :font-family mono-stack)}]]
-           (loop [i 2 acc base]
+   (let [walk-container
+         (fn walk-container [tag-name attrs children-fn]
+           (let [style (attrs-style->map attrs)
+                 base  [(keyword tag-name)
+                        {:style (assoc style :font-family mono-stack)}]
+                 li?   (= tag-name "li")
+                 ol?   (or (= tag-name "ol") (= tag-name "ul"))]
+             (children-fn base li? ol?)))]
+     (cond
+       (nil? jsonml)     nil
+       (number? jsonml)  jsonml
+       (string? jsonml)  jsonml
+       (boolean? jsonml) (str jsonml)
+       ;; JSONML is a JS array of [tag attrs ...children]. ClojureScript's
+       ;; `array?` predicate identifies the JS array shape.
+       (array? jsonml)
+       (let [tag-name   (aget jsonml 0)
+             attrs      (aget jsonml 1)
+             child-cnt  (.-length jsonml)]
+         (cond
+           (contains? known-tags tag-name)
+           (walk-container
+             tag-name attrs
+             (fn [base _li? ol?]
+               (loop [i 2 acc base li-idx 0]
+                 (if (>= i child-cnt)
+                   acc
+                   (let [c           (aget jsonml i)
+                         child-opts  (if ol?
+                                       (assoc opts :path (child-path (:path opts) li-idx))
+                                       opts)
+                         next-li-idx (if ol? (inc li-idx) li-idx)]
+                     (recur (inc i)
+                            (conj acc (jsonml->hiccup c child-opts))
+                            next-li-idx))))))
+
+           (= tag-name "object")
+           (render-object attrs opts)
+
+           (= tag-name "annotation")
+           (loop [i 2 acc [:span {}]]
              (if (>= i child-cnt)
                acc
-               (recur (inc i) (conj acc (jsonml->hiccup (aget jsonml i) opts))))))
+               (recur (inc i) (conj acc (jsonml->hiccup (aget jsonml i) opts)))))
 
-         (= tag-name "object")
-         (render-object attrs opts)
+           :else
+           ;; Unknown tag — fall back to a plain span so the markup
+           ;; doesn't disappear silently.
+           (loop [i 2 acc [:span {}]]
+             (if (>= i child-cnt)
+               acc
+               (recur (inc i) (conj acc (jsonml->hiccup (aget jsonml i) opts)))))))
 
-         (= tag-name "annotation")
-         (loop [i 2 acc [:span {}]]
-           (if (>= i child-cnt)
-             acc
-             (recur (inc i) (conj acc (jsonml->hiccup (aget jsonml i) opts)))))
+       ;; Some JSONML producers wrap their content in a CLJS vector
+       ;; instead of a JS array (e.g. when re-routed through edn->js).
+       ;; Walk those too.
+       (vector? jsonml)
+       (let [[tag-name attrs & children] jsonml]
+         (cond
+           (contains? known-tags tag-name)
+           (walk-container
+             tag-name attrs
+             (fn [base _li? ol?]
+               (loop [acc base remaining children li-idx 0]
+                 (if (empty? remaining)
+                   acc
+                   (let [c           (first remaining)
+                         child-opts  (if ol?
+                                       (assoc opts :path (child-path (:path opts) li-idx))
+                                       opts)
+                         next-li-idx (if ol? (inc li-idx) li-idx)]
+                     (recur (conj acc (jsonml->hiccup c child-opts))
+                            (rest remaining)
+                            next-li-idx))))))
 
-         :else
-         ;; Unknown tag — fall back to a plain span so the markup
-         ;; doesn't disappear silently.
-         (loop [i 2 acc [:span {}]]
-           (if (>= i child-cnt)
-             acc
-             (recur (inc i) (conj acc (jsonml->hiccup (aget jsonml i) opts)))))))
+           (= tag-name "object") (render-object attrs opts)
 
-     ;; Some JSONML producers wrap their content in a CLJS vector
-     ;; instead of a JS array (e.g. when re-routed through edn->js).
-     ;; Walk those too.
-     (vector? jsonml)
-     (let [[tag-name attrs & children] jsonml]
-       (cond
-         (contains? known-tags tag-name)
-         (let [style (attrs-style->map attrs)]
-           (into [(keyword tag-name)
-                  {:style (assoc style :font-family mono-stack)}]
-                 (map #(jsonml->hiccup % opts))
-                 children))
+           :else (into [:span {}] (map #(jsonml->hiccup % opts)) children)))
 
-         (= tag-name "object") (render-object attrs opts)
-
-         :else (into [:span {}] (map #(jsonml->hiccup % opts)) children)))
-
-     :else
-     (try (pr-str jsonml) (catch :default _ (str jsonml))))))
+       :else
+       (try (pr-str jsonml) (catch :default _ (str jsonml)))))))
 
 ;; ---- public entry --------------------------------------------------------
 
@@ -373,48 +566,75 @@
       (pr-str-fallback value))))
 
 (defn value->tree-hiccup
-  "Render a CLJS `value` as a FULLY-EXPANDED cljs-devtools tree — the
-  re-frame-10x current-state look: type-coloured leaves, native
-  collection delimiters, records keeping their type tag, nested
-  structure expanded and indented. Returns hiccup; substrate-agnostic.
+  "Render a CLJS `value` as the re-frame-10x current-state nested tree
+  with INTERACTIVE click-to-toggle per collection node (rf2-dw8n7).
 
-  Implementation: take the value's header (the one-line `{…}` / `[…]`
-  summary) and, when the value has an expandable body, render that body
-  underneath — recursively expanding each nested `object` surrogate
-  reference up to `max-depth` (defaults to `default-max-depth`). A
-  scalar value (no body) renders exactly like `value->hiccup`.
+  Each `object` surrogate renders a `▸` / `▾` triangle wrapped in a
+  `[:span]` that dispatches `:rf.xray/data-display-toggle-node` on
+  click — the same sticky-expansion contract the home-grown
+  `data-display/render` engine uses, so an operator's drill-downs
+  persist across re-renders. Default expansion follows §10.4's
+  depth+size heuristic (`:default-depth` defaults to 1: root expanded,
+  nested collections collapsed; matches re-frame-10x's app-db look).
 
-  This is the entry the current-state `browse` path uses for
-  collections; the diff path (Event panel `:db`) stays on the
-  home-grown smallest-diff engine in `data-display/render`."
-  ([value] (value->tree-hiccup value default-max-depth))
-  ([value max-depth]
-   (try
-     (with-expanded-prefs
-       (fn []
-         (let [header    (formatters/header-api-call value nil)
-               has-body? (boolean (formatters/has-body-api-call value nil))]
-           (cond
-             (nil? header)
-             (pr-str-fallback value)
+  The `:max-depth` opt is the HARD stack-guard — past it every
+  surrogate degrades to the inline `▸ {…}` summary regardless of the
+  operator's override. Defence against cyclic / pathological
+  structures; not a UX bound (that's `:default-depth`).
 
-             ;; Scalar / leaf — no body to expand. Render the header.
-             (not has-body?)
-             [:span {:style {:font-family mono-stack}}
-              (jsonml->hiccup header {:expand? false :depth 0 :max-depth max-depth})]
+  When called WITHOUT `:panel-id` + `:render-id` the triangles still
+  render but carry no click handler — operator-state has nowhere to
+  land. The interactive `browse` path always supplies both.
 
-             ;; Collection — render the header line, then the expanded
-             ;; body indented underneath.
-             :else
-             (let [body (formatters/body-api-call value nil)
-                   opts {:expand? true :depth 1 :max-depth max-depth}]
-               [:span {:style {:font-family mono-stack}}
-                [:span {:style {:display "block"}}
-                 (jsonml->hiccup header opts)]
-                (when (some? body)
-                  [:div {:style {:padding-left "14px"
-                                 :border-left  (str "1px solid " (:border-subtle tokens))
-                                 :margin-left  "2px"}}
-                   (jsonml->hiccup body opts)])])))))
-     (catch :default _
-       (pr-str-fallback value)))))
+  ## opts
+
+  | key            | default          | meaning                              |
+  |----------------|------------------|--------------------------------------|
+  | `:panel-id`    | nil              | dispatch key (panel scope)           |
+  | `:render-id`   | nil              | dispatch key (per-render scope)      |
+  | `:expansion-map` | nil            | sub'd from `:rf.xray/data-display-expansion` |
+  | `:default-depth` | 1              | depth threshold (§10.4 heuristic)    |
+  | `:max-depth`   | `default-max-depth` | stack-guard                       |
+
+  Two-arg / single-arg arities supply only `value` (+ optional
+  `max-depth`) — useful for pure-data tests; the click wiring is off
+  in that case."
+  ([value] (value->tree-hiccup value {}))
+  ([value opts-or-max-depth]
+   (if (number? opts-or-max-depth)
+     (value->tree-hiccup value (assoc {} :max-depth opts-or-max-depth))
+     (let [{:keys [panel-id render-id expansion-map default-depth max-depth]
+            :or   {default-depth default-default-depth
+                   max-depth     default-max-depth}} opts-or-max-depth]
+       (try
+         (with-expanded-prefs
+           (fn []
+             (let [header    (formatters/header-api-call value nil)
+                   base-opts {:expand?       true
+                              ;; Inline surrogates in the header represent
+                              ;; CHILDREN of the root value (depth 1 in the
+                              ;; value tree), so the walker descends with
+                              ;; `:depth 1`. `render-object-interactive`
+                              ;; bumps further as it expands each surrogate.
+                              :depth         1
+                              :max-depth     max-depth
+                              :default-depth default-depth
+                              :path          []
+                              :panel-id      panel-id
+                              :render-id     render-id
+                              :expansion-map expansion-map}]
+               ;; cljs-devtools' `has-body-api-call` returns false for raw
+               ;; CLJS values — only its SURROGATES carry bodies. So the
+               ;; root call always renders the header inline; the walker
+               ;; encounters any nested surrogate INSIDE the header and
+               ;; routes through `render-object-interactive`, which is
+               ;; where the click-to-toggle wrappers live. (The ROOT
+               ;; itself doesn't get its own outer triangle — re-frame-10x
+               ;; matches: the toggle UI rides on each collection-valued
+               ;; key inside the root, not on the root container.)
+               (if (nil? header)
+                 (pr-str-fallback value)
+                 [:span {:style {:font-family mono-stack}}
+                  (jsonml->hiccup header base-opts)]))))
+         (catch :default _
+           (pr-str-fallback value)))))))

@@ -68,6 +68,16 @@
              :as cdt]
             [zprint.core :as zprint]))
 
+;; ---- subscription bridge for cljs-devtools click-to-toggle (rf2-dw8n7) ---
+;;
+;; The interactive tree in `cdt/value->tree-hiccup` writes per-path
+;; expansion overrides into `:rf.xray/data-display-expansion` — the
+;; same slot the home-grown `data-display/render` engine uses. The
+;; toggle event + sub already exist in `data-display.render` (registered
+;; via `defonce` sentinel; same pattern the registry ns uses for the
+;; orchestrator's :rf.xray handler bundle), so the widget just reads
+;; the slot and threads it into the render call.
+
 ;; `inspect` / `inspect-inline` (the panel-facing current-state facade)
 ;; delegate to `browse` / `mini`, which are defined further down — forward
 ;; declare so the facade can sit at the top of the file where callers look.
@@ -215,27 +225,45 @@
 (defn browse
   "Render `:value` as a current-state tree via cljs-devtools — the
   re-frame-10x look: type-coloured leaves, native collection
-  delimiters, records keeping their type tag, nested structure
-  expanded + indented. Browse mode is current-state · no diff
+  delimiters, records keeping their type tag, click-to-toggle per
+  collection node (rf2-dw8n7). Browse mode is current-state · no diff
   semantics; cljs-devtools owns the WHOLE value (collections AND
   scalars), per Mike-direction 2026-05-21 (rf2-dmso5).
+
+  Each collection node renders a `▸` / `▾` triangle that dispatches
+  `:rf.xray/data-display-toggle-node` — the same sticky-expansion
+  contract the home-grown `data-display/render` engine uses, so
+  operator drill-downs persist across re-renders. Default expansion
+  follows §10.4's depth+size heuristic (`:default-depth` defaults to
+  1: root expanded, nested collections collapsed — matches
+  re-frame-10x's app-db panel default).
 
   Diff semantics (Event panel `:db` before→after smallest-diff) stay
   on the home-grown `data-display/render-tree` engine via `diff`.
 
   Required: `:value :panel-id :render-id`.
-  Optional: `:max-depth` (recursion cap for cljs-devtools' surrogate
-            expansion · defaults to `cdt/default-max-depth`)
+  Optional: `:max-depth` (HARD stack-guard cap for cljs-devtools'
+            surrogate recursion — defence against cyclic / pathological
+            structures, NOT a UX bound; defaults to
+            `cdt/default-max-depth`)
+            · `:default-depth` (§10.4 heuristic — depth threshold for
+              the click-to-toggle default-expanded state; defaults to 1)
             · `:copy?` (default `true`) — render the universal ⎘ copy
             gesture on the root. Pass `:copy? false` to opt this render
             out (rf2-ilubp — the app-db current-state inspector); every
             other surface keeps the default-on gesture."
-  [{:keys [value panel-id render-id max-depth copy?]
+  [{:keys [value panel-id render-id max-depth default-depth copy?]
     :or   {copy? true}}]
   ;; Every browse value — map / vector / set / record / scalar —
-  ;; routes through cljs-devtools. Collections expand into the nested
+  ;; routes through cljs-devtools. Collections render the interactive
   ;; tree; scalars render as a single coloured span. The home-grown
   ;; render-tree is now diff-only.
+  ;;
+  ;; rf2-dw8n7 — subscribe to the shared `:rf.xray/data-display-expansion`
+  ;; slot once at the widget level and thread it into the cljs-devtools
+  ;; renderer. The walker reads the map directly (no per-node sub) so
+  ;; the operator's expansions persist across re-renders the same way
+  ;; the home-grown engine's do — sticky per `[panel-id render-id path]`.
   ;;
   ;; rf2-f026h — the universal copy affordance rides on this root, so
   ;; every browse/inspect surface (Trace, segment-inspector, Event
@@ -248,10 +276,16 @@
   ;; render only (the app-db current-state inspector opts out). When
   ;; off, the gutter padding collapses too so the value isn't pushed
   ;; off-centre by a button that's no longer there.
-  (let [container-id (str "rf-xray-edn-widget-browse-"
-                          (name (or panel-id :unknown))
-                          "-"
-                          (str (or render-id "")))]
+  (let [container-id  (str "rf-xray-edn-widget-browse-"
+                           (name (or panel-id :unknown))
+                           "-"
+                           (str (or render-id "")))
+        expansion-map @(rf/subscribe [data-display/expansion-slot])
+        cdt-opts      (cond-> {:panel-id      panel-id
+                               :render-id     render-id
+                               :expansion-map expansion-map}
+                        (some? max-depth)     (assoc :max-depth max-depth)
+                        (some? default-depth) (assoc :default-depth default-depth))]
     [:div {:data-testid container-id
            :style {:position    "relative"
                    :font-family mono-stack
@@ -261,9 +295,7 @@
                    :padding-right (if copy? "26px" "0")}}
      (when copy?
        (copy-affordance value (str container-id "-copy")))
-     (if (some? max-depth)
-       (cdt/value->tree-hiccup value max-depth)
-       (cdt/value->tree-hiccup value))]))
+     (cdt/value->tree-hiccup value cdt-opts)]))
 
 ;; ---- variant: diff -------------------------------------------------------
 
