@@ -1,10 +1,12 @@
 (ns ssr.server
-  "Live SSR Ring server for the Playwright `ssr-live.spec.cjs` smoke
-   test (rf2-j3dlc).
+  "Live SSR Ring harness — Jetty + ssr-handler bring-up (rf2-j3dlc).
 
-   Companion to the existing `ssr.spec.cjs` smoke. That spec exercises
-   the hydration path against PRE-BAKED server-shaped HTML staged from
-   `index.html`. This namespace stands up a REAL live SSR handler:
+   Per the test-free examples policy (rf2-8cevm) there is no per-example
+   Playwright spec consuming this server. It remains as an ad-hoc local
+   harness for exploring the live-SSR path against a real handler; the
+   SSR + ssr-ring contracts are exercised by JVM unit tests under
+   `implementation/ssr-ring/test/...`. This namespace stands up a REAL
+   live SSR handler:
 
    - Boot the SSR adapter (`re-frame.ssr/adapter`).
    - Load `ssr.core` (registers events / views / fx).
@@ -19,8 +21,7 @@
    - Run Jetty on the configured port, in this process.
 
    Exec entrypoint: `clojure -X:live-ssr-server :port 8031`. Stays alive
-   until the orchestrator tears the process down (per
-   examples/scripts/serve-and-run-examples-tests.cjs).
+   until killed.
 
    Boundaries:
    - JVM-side Ring/SSR e2e details (header round-trip, cookie wire,
