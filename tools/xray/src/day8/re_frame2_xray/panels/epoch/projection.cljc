@@ -398,40 +398,73 @@
 (defn subscription-rows
   "Project `:rf.sub/run` events into rows. Each row carries:
 
-      :sub-id      — the sub vector's first element (the registered id)
-      :sub-vec     — the full sub query vector (`[:foo arg1 arg2]`)
-      :inputs      — the sub's input keywords (for input-fn subs)
-      :changed?    — true iff the sub's output value differed from
-                     the prior run (`:rf.sub/changed?` tag)
-      :before / :after — the sub's prior/new values when stamped
-      :duration-ms — the sub's recompute duration
+      :sub-id      — the registered sub id (`:rf.sub/id` tag).
+      :sub-vec     — the full sub query vector (`:rf.sub/query-v` tag).
+      :inputs      — the sub's input-signal query-vectors (when stamped).
+                     For layer-2+ subs the substrate stamps the
+                     upstream `:rf.sub/cause-sub` (the input whose
+                     value changed); layer-1 subs read app-db directly
+                     and surface as `:db`.
+      :changed?    — true iff the sub's output value differed from the
+                     prior run (`:rf.sub/value-changed?` tag).
+      :before      — the prior value (`:rf.sub/prev-value` tag).
+      :after       — the freshly-computed value (`:rf.sub/value` tag).
+      :cascade?    — true for layer-2+ recomputes (an upstream SUB drove
+                     this re-run); false for layer-1 subs.
+      :duration-ms — the sub's recompute duration (`:rf.sub/elapsed-ms` tag).
 
-  Pure projection; the view layer renders the row table."
+  Per rf2-kfh1v the tag names match the substrate emit-site
+  (`re-frame.subs.memo`); pre-rf2-kfh1v the projection read against
+  legacy names (`:rf.sub/query`, `:rf.sub/changed?`, `:rf.sub/before`)
+  that the substrate has never stamped — every payload slot returned
+  nil → every row showed `app-db ✗` with no id."
   [events]
   (let [evs (filterv #(or (= :rf.sub/run (op %))
                           (= :rf.sub/skip (op %)))
                      events)]
     (vec
       (for [ev evs
-            :let [sub-vec (or (common/tag-of ev :rf.sub/query)
-                              (common/tag-of ev :query))]]
-        {:sub-id      (when (vector? sub-vec) (first sub-vec))
+            :let [sub-vec (or (common/tag-of ev :rf.sub/query-v)
+                              (common/tag-of ev :rf.sub/query)
+                              (common/tag-of ev :query))
+                  sub-id  (or (common/tag-of ev :rf.sub/id)
+                              (when (vector? sub-vec) (first sub-vec)))
+                  cause   (common/tag-of ev :rf.sub/cause-sub)
+                  cascade? (common/tag-of ev :rf.sub/cascade?)]]
+        {:sub-id      sub-id
          :sub-vec     sub-vec
-         :inputs      (common/tag-of ev :rf.sub/inputs)
-         :changed?    (boolean (common/tag-of ev :rf.sub/changed?))
-         :before      (common/tag-of ev :rf.sub/before)
-         :after       (common/tag-of ev :rf.sub/after)
-         :duration-ms (common/tag-of ev :duration-ms)}))))
+         :inputs      (or cause
+                          (common/tag-of ev :rf.sub/inputs))
+         :changed?    (boolean
+                        (or (common/tag-of ev :rf.sub/value-changed?)
+                            (common/tag-of ev :rf.sub/changed?)))
+         :before      (or (common/tag-of ev :rf.sub/prev-value)
+                          (common/tag-of ev :rf.sub/before))
+         :after       (or (common/tag-of ev :rf.sub/value)
+                          (common/tag-of ev :rf.sub/after))
+         :cascade?    (boolean cascade?)
+         :duration-ms (or (common/tag-of ev :rf.sub/elapsed-ms)
+                          (common/tag-of ev :duration-ms))}))))
 
 (defn subscriptions-step
   "SUBSCRIPTIONS step row. nil when no `:rf.sub/*` events fired (the
-  step is OMITTED — conditional)."
+  step is OMITTED — conditional).
+
+  Per rf2-kfh1v the step header counts split the rows by
+  `:changed?` so the operator sees `N recomputed (M changed,
+  K unchanged)` at a glance — the unchanged rows are hidden behind
+  a toggle in the view, the count makes the toggle's value
+  predictable."
   [events]
   (let [rows (subscription-rows events)]
     (when (seq rows)
-      {:step  :subscriptions
-       :badge :SUBSCRIPTIONS
-       :rows  rows})))
+      (let [changed   (count (filter :changed? rows))
+            unchanged (- (count rows) changed)]
+        {:step      :subscriptions
+         :badge     :SUBSCRIPTIONS
+         :rows      rows
+         :changed   changed
+         :unchanged unchanged}))))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 

@@ -87,10 +87,15 @@
 
 (defn- sub-run-ev
   [sub-vec changed? before after]
-  (ev :rf.sub :rf.sub/run {:rf.sub/query sub-vec
-                           :rf.sub/changed? changed?
-                           :rf.sub/before before
-                           :rf.sub/after after}))
+  ;; Per rf2-kfh1v the substrate stamps `:rf.sub/id`, `:rf.sub/query-v`,
+  ;; `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value` —
+  ;; NOT the legacy `:rf.sub/query` / `:rf.sub/changed?` / `:rf.sub/before`
+  ;; the projection used to read. Fixture mirrors substrate shape.
+  (ev :rf.sub :rf.sub/run {:rf.sub/id             (when (vector? sub-vec) (first sub-vec))
+                           :rf.sub/query-v        sub-vec
+                           :rf.sub/value-changed? changed?
+                           :rf.sub/prev-value     before
+                           :rf.sub/value          after}))
 
 (defn- view-render-ev
   ([view-id subs-read]
@@ -308,6 +313,35 @@
       (is (= 2 (count (:rows s))))
       (is (true? (-> s :rows first :changed?)))
       (is (false? (-> s :rows second :changed?))))))
+
+(deftest subscriptions-row-reads-canonical-substrate-tags-test
+  (testing "rf2-kfh1v — projection reads the substrate's canonical
+            `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`,
+            `:rf.sub/prev-value`, `:rf.sub/value` tags (NOT the legacy
+            `:rf.sub/changed?` / `:rf.sub/before` / `:rf.sub/after`
+            shape the pre-rf2-kfh1v projection read against)"
+    (let [s (proj/subscriptions-step [(sub-run-ev [:counter/total] true 5 6)])
+          row (-> s :rows first)]
+      (is (= :counter/total (:sub-id row))
+          "sub-id is read from `:rf.sub/id`")
+      (is (= [:counter/total] (:sub-vec row))
+          "sub-vec is read from `:rf.sub/query-v`")
+      (is (true? (:changed? row))
+          "changed? is read from `:rf.sub/value-changed?`")
+      (is (= 5 (:before row))
+          "before is read from `:rf.sub/prev-value`")
+      (is (= 6 (:after row))
+          "after is read from `:rf.sub/value`"))))
+
+(deftest subscriptions-step-counts-changed-vs-unchanged-test
+  (testing "rf2-kfh1v — step header carries `changed` + `unchanged`
+            counts so the view can render `N recomputed (M changed,
+            K unchanged)` without re-walking the rows"
+    (let [s (proj/subscriptions-step [(sub-run-ev [:a] true 1 2)
+                                      (sub-run-ev [:b] false :x :x)
+                                      (sub-run-ev [:c] false :y :y)])]
+      (is (= 1 (:changed s)))
+      (is (= 2 (:unchanged s))))))
 
 ;; ---- VIEWS --------------------------------------------------------------
 

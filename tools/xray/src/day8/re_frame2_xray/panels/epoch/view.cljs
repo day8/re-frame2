@@ -770,9 +770,33 @@
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
+(defn- subscriptions-toggle-button
+  "Render the `Show unchanged` toggle button — flips the
+  `:rf.xray.epoch/subs-show-unchanged?` slot on the Xray app-db.
+  When `show?` is true the label reads `Hide unchanged`."
+  [show? unchanged]
+  (when (pos? unchanged)
+    [:button {:data-testid "rf-xray-epoch-subscriptions-toggle"
+              :aria-pressed (str (boolean show?))
+              :on-click (fn [e]
+                          (.stopPropagation e)
+                          (rf/dispatch
+                            [:rf.xray.epoch/toggle-subs-show-unchanged]
+                            {:frame :rf/xray}))
+              :style {:background  "transparent"
+                      :border      (str "1px solid " (:border-default tokens))
+                      :border-radius "3px"
+                      :color       (:text-secondary tokens)
+                      :cursor      "pointer"
+                      :font-family sans-stack
+                      :font-size   "11px"
+                      :padding     "2px 8px"
+                      :margin-left "8px"}}
+     (if show? "Hide unchanged" "Show unchanged")]))
+
 (defn- subscriptions-table
   "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
-  Per the bead body's §SUBSCRIPTIONS (Step 7) shape."
+  Per the bead body's §SUBSCRIPTIONS (Step 7) shape (rf2-kfh1v)."
   [rows]
   [:div {:data-testid "rf-xray-epoch-subscriptions-table"
          :style {:margin-top "5px"
@@ -837,20 +861,40 @@
          [:span {:style {:color (:text-tertiary tokens) :font-weight 700}} "✗"])]])])
 
 (defn render-subscriptions-step
-  "Render the SUBSCRIPTIONS step (only present when subs recomputed)."
-  [{:keys [rows step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-subscriptions"
-         :data-step-kw "subscriptions"}
-   (numbered-circle step-number :SUBSCRIPTIONS)
-   (step-header
-     {:step :subscriptions
-      :badge :SUBSCRIPTIONS
-      :verb (str (count rows) " sub" (when (not= 1 (count rows)) "s")
-                 " recomputed")
-      :expandable? false
-      :testid "rf-xray-epoch-subscriptions"}
-     nil)
-   (subscriptions-table rows)])
+  "Render the SUBSCRIPTIONS step (only present when subs recomputed).
+
+  Per rf2-kfh1v unchanged-input rows are HIDDEN BY DEFAULT — most
+  subs recompute on a cascade but report no value change, so the
+  noisy `N rows of ✗` legacy display was crowding out the rows the
+  operator actually cares about. A `Show unchanged` toggle reveals
+  the full list; the toggle's state lives in
+  `:rf.xray.epoch/subs-show-unchanged?` on the Xray app-db. Step
+  header shows the split count `N recomputed (M changed, K unchanged)`.
+
+  Mirrors the filter-toggle posture Chrome devtools' network panel
+  uses (the precedent the bead body cites)."
+  [{:keys [rows changed unchanged step-number]}]
+  (let [show-unchanged? @(rf/subscribe [:rf.xray.epoch/subs-show-unchanged?])
+        visible-rows    (if show-unchanged?
+                          rows
+                          (filterv :changed? rows))
+        n               (count rows)
+        m               (or changed (count (filter :changed? rows)))
+        k               (or unchanged (- n m))]
+    [:div {:data-testid "rf-xray-epoch-step-subscriptions"
+           :data-step-kw "subscriptions"}
+     (numbered-circle step-number :SUBSCRIPTIONS)
+     (step-header
+       {:step :subscriptions
+        :badge :SUBSCRIPTIONS
+        :verb [:span {:style {:display "inline-flex" :align-items "center"
+                              :gap "8px" :flex-wrap "wrap"}}
+               (str n " recomputed (" m " changed, " k " unchanged)")
+               (subscriptions-toggle-button show-unchanged? k)]
+        :expandable? false
+        :testid "rf-xray-epoch-subscriptions"}
+       nil)
+     (subscriptions-table visible-rows)]))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 

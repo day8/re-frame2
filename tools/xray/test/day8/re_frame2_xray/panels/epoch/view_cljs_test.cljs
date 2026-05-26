@@ -8,11 +8,14 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.panels.epoch.view :as view]))
+            [day8.re-frame2-xray.panels.epoch.view :as view]
+            [day8.re-frame2-xray.panels.epoch-panel :as epoch-orchestrator]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -109,6 +112,73 @@
         (is (string/includes? r0-id ":session"))
         (is (string/includes? r0-value "42"))
         (is (string/includes? r1-id ":rf/now"))))))
+
+;; ---- rf2-kfh1v — SUBSCRIPTIONS rows + filter -------------------------
+
+(defn- count-prefix
+  [tree prefix]
+  (count (th/find-by-testid-prefix tree prefix)))
+
+(deftest sub-row-renders-sub-id-test
+  (testing "rf2-kfh1v — SUBSCRIPTIONS row leads with the sub-id /
+            sub-vec (operator can tell WHICH sub recomputed)"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :counter/total :sub-vec [:counter/total]
+                          :inputs nil :changed? true :before 5 :after 6}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            row  (th/find-by-testid tree "rf-xray-epoch-sub-row-0")]
+        (is (some? row) "the sub row renders")
+        (let [txt (th/text-content row)]
+          (is (string/includes? txt ":counter/total")
+              "sub-id is visible as the leading element"))))))
+
+(deftest sub-rows-hide-unchanged-by-default-test
+  (testing "rf2-kfh1v — unchanged rows are hidden by default;
+            a toggle reveals the full list"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
+                         {:sub-id :b :sub-vec [:b] :changed? false}
+                         {:sub-id :c :sub-vec [:c] :changed? false}]
+                  :changed 1 :unchanged 2}
+            tree (view/render-subscriptions-step step)]
+        (is (= 1 (count-prefix tree "rf-xray-epoch-sub-row-"))
+            "only the one changed row renders by default")
+        (let [header (text-of tree "rf-xray-epoch-subscriptions-header")]
+          (is (string/includes? header "1 changed")
+              "header shows the changed count")
+          (is (string/includes? header "2 unchanged")
+              "header shows the unchanged count")
+          (is (some? (th/find-by-testid
+                       tree "rf-xray-epoch-subscriptions-toggle"))
+              "the Show unchanged toggle is present when unchanged > 0"))))))
+
+(deftest sub-rows-reveal-after-toggle-test
+  (testing "rf2-kfh1v — toggling the show-unchanged flag reveals all
+            rows; toggling back hides them again"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
+                         {:sub-id :b :sub-vec [:b] :changed? false}]
+                  :changed 1 :unchanged 1}]
+        ;; flip the slot on
+        (rf/dispatch-sync [:rf.xray.epoch/toggle-subs-show-unchanged])
+        (let [tree (view/render-subscriptions-step step)]
+          (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
+              "both rows render after toggle"))
+        ;; flip back off
+        (rf/dispatch-sync [:rf.xray.epoch/toggle-subs-show-unchanged])
+        (let [tree (view/render-subscriptions-step step)]
+          (is (= 1 (count-prefix tree "rf-xray-epoch-sub-row-"))
+              "unchanged hidden again after second toggle"))))))
 
 ;; ---- rf2-66wis — HANDLER source code block ---------------------------
 
