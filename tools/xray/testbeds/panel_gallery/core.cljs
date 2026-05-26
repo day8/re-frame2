@@ -63,6 +63,7 @@
             ;; their `register-all!` at namespace load.
             [panel-gallery.gallery-event]
             [panel-gallery.gallery-app-db]
+            [panel-gallery.gallery-epoch]
             [panel-gallery.gallery-views]
             [panel-gallery.gallery-trace]
             [panel-gallery.gallery-machines]

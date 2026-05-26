@@ -52,6 +52,7 @@
   reg-view leaves) takes over."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
+            [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
             [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
@@ -103,6 +104,17 @@
   [:div {:style       card-style
          :data-testid "panel-gallery-app-db-card"}
    [app-db-diff/Panel]])
+
+(defn- epoch-tab-panel
+  "Embedded mount of the Epoch panel — `panels.epoch.view/Panel` via the
+  orchestrator's re-export (rf2-mzcwt). The panel renders the focused
+  epoch as a numbered vertical cascade per spec/021 §9.1; its composite
+  sub `:rf.xray/epoch-pipeline` reads `:rf.xray/focus` +
+  `:rf.xray/epoch-history` from the variant frame."
+  [_args]
+  [:div {:style       card-style
+         :data-testid "panel-gallery-epoch-card"}
+   [epoch-panel/Panel]])
 
 (defn- reactive-tab-panel
   "Embedded mount of the Reactive tab body — the reactive panel
@@ -183,6 +195,7 @@
   []
   (rf/reg-view* :panel-gallery.event/Panel    event-tab-panel)
   (rf/reg-view* :panel-gallery.app-db/Panel   app-db-tab-panel)
+  (rf/reg-view* :panel-gallery.epoch/Panel    epoch-tab-panel)
   (rf/reg-view* :panel-gallery.reactive/Panel reactive-tab-panel)
   (rf/reg-view* :panel-gallery.trace/Panel    trace-tab-panel)
   (rf/reg-view* :panel-gallery.machines/Panel machines-tab-panel)

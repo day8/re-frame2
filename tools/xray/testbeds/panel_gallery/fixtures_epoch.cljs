@@ -1,0 +1,550 @@
+(ns panel-gallery.fixtures-epoch
+  "Pure fixture builders for the Xray **Epoch** panel gallery (rf2-mzcwt).
+
+  ## What the Epoch panel renders
+
+  `tools/xray/spec/021-Dynamic-Panel-Designs.md` §9.1 — the focused
+  epoch's complete computational timeline as a numbered vertical
+  cascade: DISPATCH → COEFFECT → HANDLER → APP-DB DIFF → FLOW → FX →
+  CHILD DISPATCHES → SUBSCRIPTIONS → VIEWS → SCHEMA VIOLATIONS. Each
+  step is CONDITIONAL — only the steps whose driving trace events
+  surfaced get rendered (per
+  `tools/xray/src/day8/re_frame2_xray/panels/epoch/projection.cljc`).
+
+  The 10-entry badge inventory + 16ms long-step threshold ride on
+  `panels.epoch.projection` (PRs #2191 / #2193). These fixtures
+  exercise every section the projection lights up, one variant per
+  section, so the gallery reads as a feature-coverage table.
+
+  ## How variants seed state
+
+  The Epoch panel reads through a composite sub
+  `:rf.xray/epoch-pipeline` that joins:
+
+    - `:rf.xray/focus`         — carries `:epoch-id`
+    - `:rf.xray/epoch-history` — vector of `:rf/epoch-record` maps
+
+  No variant pins focus. With no spine bus seeded the focus stays nil;
+  the shared `focus-resolver`'s head-fallback (rf2-h0120) then renders
+  `(peek epoch-history)` — i.e. the LAST element of the oldest-first
+  history vector. Each fixture therefore returns a one-record history
+  whose `:trace-events` slice surfaces the section under test.
+
+  ## Epoch-record shape (per spec/004-AppDbDiff + re-frame.epoch)
+
+      {:epoch-id      <int>             ; stable id, ring-buffer key
+       :frame         :rf/default
+       :committed-at  <ms>
+       :event-id      <kw>              ; first elem of :trigger-event
+       :trigger-event <event-vec>
+       :dispatch-id   <int>             ; child-dispatch attribution
+       :trace-events  [<trace-event> ...]}  ; what the projection reads
+
+  ## Trace-event shape (per Spec 009 + panels.epoch.projection)
+
+  The projection reads per-event `:operation` + `:tags`; the surface
+  for each step is captured in the projection's per-row builders. Each
+  builder here mirrors the substrate emit-site shape — the same shape
+  the projection unit tests at
+  `tools/xray/test/day8/re_frame2_xray/panels/epoch/projection_cljs_test.cljc`
+  pin. Drift in either keeps both broken in lock-step.")
+
+;; ---- trace-event primitives ---------------------------------------------
+
+(defn- ev
+  "Minimal trace-event map. `op-type` is the broad classifier
+  (`:rf.event / :rf.fx / :rf.sub / :rf.view / :rf.machine / …`),
+  `operation` the precise emit op the projection reads."
+  [op-type operation tags]
+  {:op-type   op-type
+   :operation operation
+   :tags      tags})
+
+(defn- dispatched-ev
+  "`:rf.event/dispatched` trace — drives the DISPATCH row. Carries
+  the substrate-canonical `:rf.event/v` (event vector) +
+  `:source` + optional `:rf.trace/call-site`."
+  ([event] (dispatched-ev event nil nil))
+  ([event source] (dispatched-ev event source nil))
+  ([event source coord]
+   (cond-> (ev :rf.event :rf.event/dispatched
+              {:rf.event/v         event
+               :source             source
+               :rf.trace/call-site coord})
+     true (assoc :event event :source source))))
+
+(defn- cofx-run-ev
+  "`:rf.cofx/run` trace — one per USER-injected coeffect. System
+  cofx (`:db / :event / :frame / :source / :trace-id`) are filtered
+  out by the projection (rf2-cq0ch), so fixtures only need to emit
+  the user-injected ids the COEFFECT step should surface."
+  [id value]
+  (ev :rf.cofx :rf.cofx/run {:rf.cofx/id    id
+                             :rf.cofx/value value
+                             :duration-ms   0.1}))
+
+(defn- run-end-ev
+  "`:rf.event/run-end` trace — the projection reads the handler's
+  finalised duration here."
+  [duration-ms]
+  (ev :rf.event :rf.event/run-end {:duration-ms duration-ms}))
+
+(defn- db-changed-ev
+  "`:rf.event/db-changed` trace — drives both HANDLER's `:db-diff`
+  slot AND the dedicated APP-DB DIFF step (rf2-rrykz, same payload,
+  two surfaces). `paths` is a vec of
+  `[path before after change-kind]` quads."
+  [paths]
+  (ev :rf.event :rf.event/db-changed
+      {:rf.event/db-changed-paths paths}))
+
+(defn- do-fx-ev
+  "`:rf.fx/do-fx` trace — carries the handler's returned `:rf.event/fx`
+  payload. Drives the FX step's per-row attribution AND the
+  CHILD-DISPATCHES step (rf2-yx1ae harvests dispatch-family fx from
+  this same payload)."
+  [fx]
+  (ev :rf.fx :rf.fx/do-fx {:rf.event/fx fx}))
+
+(defn- fx-handled-ev
+  "`:rf.fx/handled` trace — one per fx-handler invocation. The FX
+  step's per-row outcome reads `:rf.fx/id` + `:rf.fx/args` +
+  `:duration-ms` here."
+  ([fx-id args duration-ms]
+   (ev :rf.fx :rf.fx/handled {:rf.fx/id    fx-id
+                              :rf.fx/args  args
+                              :duration-ms duration-ms})))
+
+(defn- flow-recomputed-ev
+  "`:rf.flow/recomputed` trace — drives the FLOW step. The projection
+  reads `:rf.flow/id` + `:rf.flow/path` + before/after."
+  [flow-id path before after]
+  (ev :rf.flow :rf.flow/recomputed {:rf.flow/id     flow-id
+                                    :rf.flow/path   path
+                                    :rf.flow/before before
+                                    :rf.flow/after  after
+                                    :duration-ms    0.4}))
+
+(defn- sub-run-ev
+  "`:rf.sub/run` trace — drives one SUBSCRIPTIONS row. Per rf2-kfh1v
+  the canonical tag names are `:rf.sub/id`, `:rf.sub/query-v`,
+  `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value` —
+  the projection reads ONLY these post-rf2-kfh1v."
+  [sub-vec changed? before after]
+  (ev :rf.sub :rf.sub/run {:rf.sub/id             (when (vector? sub-vec) (first sub-vec))
+                           :rf.sub/query-v        sub-vec
+                           :rf.sub/value-changed? changed?
+                           :rf.sub/prev-value     before
+                           :rf.sub/value          after
+                           :rf.sub/elapsed-ms     0.2}))
+
+(defn- view-rendered-ev
+  "`:rf.view/rendered` trace (per rf2-6djth — NOT the simpler
+  `:rf.view/render` marker; only `:rf.view/rendered` carries
+  `:rf.view/id` + `:rf.view/deref-subs` + `:rf.view/elapsed-ms`)."
+  [view-id deref-subs elapsed-ms]
+  (ev :rf.view :rf.view/rendered {:rf.view/id         view-id
+                                  :rf.view/deref-subs deref-subs
+                                  :rf.view/elapsed-ms elapsed-ms}))
+
+;; ---- machine-handler trace primitives -----------------------------------
+
+(defn- machine-transition-ev
+  "`:rf.machine/transition` trace — drives the HANDLER step's
+  machine TRANSITION sub-section + the DATA-REDUCTION /
+  SNAPSHOT-DIFF projections (the panel's machine-handler full
+  design, PR #2193). `before` + `after` are full machine snapshot
+  maps (`:state` + `:data` + …)."
+  [machine-id event before after microsteps]
+  (ev :rf.machine :rf.machine/transition
+      {:machine-id machine-id
+       :event      event
+       :before     before
+       :after      after
+       :microsteps microsteps}))
+
+(defn- machine-guard-ev
+  "`:rf.machine/guard-evaluated` trace — drives the HANDLER step's
+  GUARDS sub-section (one row per guard, with outcome
+  `:pass / :fail / :threw`)."
+  [guard-id outcome]
+  (ev :rf.machine :rf.machine/guard-evaluated {:guard-id guard-id
+                                               :outcome  outcome}))
+
+(defn- machine-action-ev
+  "`:rf.machine/action-ran` trace — drives the HANDLER step's
+  LIFECYCLE sub-section (one row per action, grouped by `:phase`
+  `:exit / :transition / :entry / :always / :after-action / …` per
+  rf2-82a0u). Optional `:outcome :fx` rides the rf2-9c27r
+  per-action fx attribution."
+  ([action-id phase outcome]
+   (machine-action-ev action-id phase outcome nil nil))
+  ([action-id phase outcome data action-fx]
+   (let [outcome-map (cond-> (if (map? outcome) outcome {})
+                       action-fx (assoc :fx action-fx)
+                       data      (assoc :data data))]
+     (ev :rf.machine :rf.machine/action-ran
+         {:action-id action-id
+          :phase     phase
+          :outcome   outcome-map
+          :input     {:data (or data {}) :event nil}}))))
+
+(defn- machine-timer-cancel-ev
+  "`:rf.machine.timer/cancelled` trace — drives the HANDLER step's
+  AFTER-TIMERS sub-section (one row per cancelled timer with
+  `:reason` in the unified rf2-82a0u set)."
+  [machine-id state delay reason]
+  (ev :rf.machine :rf.machine.timer/cancelled
+      {:machine-id machine-id
+       :state      state
+       :delay      delay
+       :reason     reason}))
+
+;; ---- schema-violation trace primitives ----------------------------------
+
+(defn- schema-violation-ev
+  "`:rf.error/schema-validation-failure` trace (rf2-17vxj) — the
+  runtime per-event boundary check (`:where` in
+  `:app-db / :cofx / :sub-return / :fx-args`). Drives the SCHEMA
+  VIOLATIONS step."
+  [where failing-id path value rollback?]
+  (ev :error :rf.error/schema-validation-failure
+      {:where      where
+       :failing-id failing-id
+       :path       path
+       :value      value
+       :rollback?  (boolean rollback?)
+       :explain    {:errors [{:path path :message "expected int"}]}}))
+
+(defn- schema-hot-reload-ev
+  "`:rf.schema/violation` trace (rf2-17vxj) — the hot-reload drift
+  check fires when a re-registration changed the schema at a
+  `(frame-id, path)` AND the live `app-db` value at `path` fails the
+  new schema. Distinct from the runtime per-event failure; same
+  SCHEMA VIOLATIONS section."
+  [frame-id path mismatching-value]
+  (ev :warning :rf.schema/violation
+      {:frame              frame-id
+       :path               path
+       :mismatching-value  mismatching-value
+       :pre-reload-schema  :int?
+       :post-reload-schema :pos-int?
+       :recovery           :logged-and-skipped}))
+
+;; ---- epoch-record builder ------------------------------------------------
+
+(defn- epoch-record
+  "Minimal `:rf/epoch-record` for the Epoch panel's projection. The
+  projection reads `:trace-events` + `:event-id` + `:dispatch-id`;
+  the panel's empty-state branch additionally reads `:epoch-id`."
+  [{:keys [epoch-id event dispatch-id trace-events]}]
+  {:epoch-id      epoch-id
+   :frame         :rf/default
+   :committed-at  (* 1000 (or epoch-id 0))
+   :event-id      (first event)
+   :trigger-event event
+   :dispatch-id   (or dispatch-id (* 1000 (or epoch-id 0)))
+   :trace-events  (vec trace-events)})
+
+(defn- single-epoch-history
+  "Wrap one trace-event vector into a one-record history. The single
+  record is the head (the focus-resolver's head-fallback resolves to
+  `(peek epoch-history)`)."
+  [opts]
+  [(epoch-record opts)])
+
+;; ---- VARIANT 1: vanilla reg-event-db cascade ----------------------------
+;;
+;; Section coverage: DISPATCH + COEFFECT + HANDLER (reg-event-db
+;; flavour) + APP-DB DIFF + SUBSCRIPTIONS + VIEWS. The simplest possible
+;; counter-inc-style cascade — three subs / two views / one cofx.
+
+(defn vanilla-db-history
+  "Vanilla `reg-event-db` cascade. One user-cofx, a single db path
+  mutation, two subs (one changed, one cached-unchanged), one view
+  render."
+  []
+  (single-epoch-history
+    {:epoch-id 1
+     :event    [:counter/inc 1]
+     :trace-events
+     [(dispatched-ev [:counter/inc 1] :ui)
+      (cofx-run-ev :now 1700000000000)
+      (db-changed-ev [[[:counter] 5 6 :modified]])
+      (sub-run-ev [:counter/value]   true  5 6)
+      (sub-run-ev [:counter/doubled] true  10 12)
+      (sub-run-ev [:counter/label]   false "Count: 5" "Count: 5")
+      (view-rendered-ev :counter/badge [[:counter/value]] 0.8)
+      (run-end-ev 0.5)]}))
+
+;; ---- VARIANT 2: reg-event-fx cascade ------------------------------------
+;;
+;; Section coverage: DISPATCH + HANDLER (reg-event-fx flavour) + FX
+;; section (per-fx outcome — ✓ / ✗ / pending; rf2-uffov header counters
+;; ✓ N fired (M succeeded, K threw)). Mix of :ok and :error to exercise
+;; the both columns of the header counter chip.
+
+(defn reg-event-fx-history
+  "`reg-event-fx` cascade returning two effects — a successful HTTP
+  request and a failed metrics emit. Exercises FX section per-row
+  outcome chrome + header counters."
+  []
+  (single-epoch-history
+    {:epoch-id 2
+     :event    [:order/submit {:order-id 42}]
+     :trace-events
+     [(dispatched-ev [:order/submit {:order-id 42}] :ui)
+      (db-changed-ev [[[:order :status] :draft :submitting :modified]])
+      (do-fx-ev {:db        ::placeholder
+                 :http/post {:url "/api/orders" :body {:order-id 42}}
+                 :metrics   {:event :order-submitted}})
+      (fx-handled-ev :db        nil 0.2)
+      (fx-handled-ev :http/post {:url "/api/orders"} 3.4)
+      (ev :error :rf.error/fx-handler-exception
+          {:rf.fx/id :metrics
+           :rf.fx/args {:event :order-submitted}
+           :duration-ms 0.1})
+      (run-end-ev 1.2)]}))
+
+;; ---- VARIANT 3: machine-driven cascade ----------------------------------
+;;
+;; Section coverage: machine-handler HANDLER section's rich body —
+;; TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA-REDUCTION /
+;; SNAPSHOT-DIFF (PR #2193). A `:ws/connection`-style fixture: an
+;; OPEN event transitions :connecting → :open, a guard checks the
+;; handshake, lifecycle actions ride :exit + :transition + :entry +
+;; :always phases, an after-timer is cancelled :on-exit, data
+;; reduction updates the connection metadata.
+
+(defn machine-history
+  "Machine-handler cascade for a `:ws/connection` machine handling
+  `:ws/open`. Exercises every machine sub-section the rf2-9c27r
+  full design surfaces."
+  []
+  (let [before-snap {:state :connecting
+                     :data  {:retries 2 :last-error :timeout}}
+        after-snap  {:state :open
+                     :data  {:retries 0 :session-id "ws-7821"
+                             :opened-at 1700000000000}}]
+    (single-epoch-history
+      {:epoch-id 3
+       :event    [:ws/open {:url "wss://api.example.com" :session-id "ws-7821"}]
+       :trace-events
+       [(dispatched-ev [:ws/open {:url "wss://api.example.com"
+                                  :session-id "ws-7821"}] :ws)
+        (machine-guard-ev :ws/handshake-valid? :pass)
+        ;; exit phase — leaving :connecting
+        (machine-action-ev :ws.connecting/clear-retry-timer
+                           :exit
+                           {:data {:retries 0}}
+                           {:retries 0}
+                           nil)
+        (machine-timer-cancel-ev :ws/connection :connecting 5000 :on-exit)
+        ;; transition phase
+        (machine-action-ev :ws/log-transition
+                           :transition
+                           {:logged true}
+                           nil
+                           nil)
+        ;; entry phase — arriving in :open
+        (machine-action-ev :ws.open/store-session
+                           :entry
+                           {:data {:session-id "ws-7821"
+                                   :opened-at 1700000000000}}
+                           {:session-id "ws-7821"
+                            :opened-at  1700000000000}
+                           nil)
+        ;; entry phase emits per-action fx (rf2-9c27r)
+        (machine-action-ev :ws.open/notify-subscribers
+                           :entry
+                           {:fx [[:dispatch [:ws/notify :open]]]}
+                           nil
+                           [[:dispatch [:ws/notify :open]]])
+        ;; always phase
+        (machine-action-ev :ws/heartbeat-pulse
+                           :always
+                           {:beat true}
+                           nil
+                           nil)
+        (machine-transition-ev :ws/connection
+                               [:ws/open {:url "wss://api.example.com"
+                                          :session-id "ws-7821"}]
+                               before-snap
+                               after-snap
+                               1)
+        (db-changed-ev [[[:rf/machines :ws/connection :state]
+                         :connecting :open :modified]])
+        (do-fx-ev {:db ::placeholder
+                   :dispatch [:ws/notify :open]})
+        (fx-handled-ev :db nil 0.2)
+        (fx-handled-ev :dispatch [:ws/notify :open] 0.1)
+        (run-end-ev 2.1)]})))
+
+;; ---- VARIANT 4: schema-violation cascade --------------------------------
+;;
+;; Section coverage: SCHEMA VIOLATIONS step (warning chrome +
+;; `open issues →` button). Mix of runtime per-boundary failure
+;; (with rollback?) AND hot-reload drift to exercise both ops in
+;; `schema-violation-ops`.
+
+(defn schema-violations-history
+  "Cascade where the app-db boundary check fired (validation failure
+  + rollback) AND a hot-reload drift surfaced. Exercises the
+  SCHEMA VIOLATIONS section's `:rollback?` chrome + the two
+  distinct row :kind sources."
+  []
+  (single-epoch-history
+    {:epoch-id 4
+     :event    [:counter/set "not-a-number"]
+     :trace-events
+     [(dispatched-ev [:counter/set "not-a-number"] :ui)
+      ;; Validation failure: the handler tried to set :counter to
+      ;; a string; the app-db boundary schema rejected the write
+      ;; and rolled the cascade back.
+      (schema-violation-ev :app-db :counter/set [:counter]
+                           "not-a-number" true)
+      ;; Hot-reload drift: a separate schema (the :user/profile
+      ;; map) was re-registered tighter, and the live app-db value
+      ;; now fails the new shape. The framework logs and skips —
+      ;; the operator gets a warning row.
+      (schema-hot-reload-ev :rf/default [:user/profile :age] -3)
+      (run-end-ev 0.3)]}))
+
+;; ---- VARIANT 5: child-dispatching cascade -------------------------------
+;;
+;; Section coverage: CHILD DISPATCHES step
+;; (`:dispatch / :dispatch-n / :dispatch-later`). The fixture also
+;; pre-pends an OLDER epoch (the `:cart/add` child sitting in the
+;; buffer) so the panel's `find-child-epoch` joins the parent→child
+;; link; the `:audit/log` child has aged out of the buffer (rendered
+;; with the "not in buffer" muted marker) — i.e. no matching
+;; epoch-record carries the parent dispatch-id.
+
+(defn child-dispatches-history
+  "Multi-record history: one resolved child cascade in the buffer +
+  one parent cascade whose handler returns `:dispatch` /
+  `:dispatch-n` / `:dispatch-later` fx. The parent's
+  CHILD-DISPATCHES section shows all four rows; only the
+  `:cart/add` row resolves to an epoch-id (the others fall through
+  to the muted not-in-buffer marker because no child epoch records
+  carry the matching parent dispatch-id)."
+  []
+  [;; OLDER child epoch — present in the buffer, parent-dispatch-id
+   ;; matches the parent's :dispatch-id below. This is the row the
+   ;; CHILD-DISPATCHES section resolves to a "jump to" affordance.
+   (-> (epoch-record
+         {:epoch-id 50
+          :event    [:cart/add :apple]
+          :trace-events
+          [(dispatched-ev [:cart/add :apple] :ui)
+           (db-changed-ev [[[:cart :items] [] [{:id :apple}] :modified]])
+           (run-end-ev 0.4)]})
+       (assoc :parent-dispatch-id 9001))
+   ;; PARENT cascade — emits three flavours of child dispatch.
+   (-> (epoch-record
+         {:epoch-id    51
+          :event       [:checkout/begin]
+          :dispatch-id 9001
+          :trace-events
+          [(dispatched-ev [:checkout/begin] :ui)
+           (db-changed-ev [[[:checkout :phase] :idle :began :modified]])
+           (do-fx-ev {:db          ::placeholder
+                      :dispatch    [:cart/add :apple]
+                      :dispatch-n  [[:audit/log :checkout/begin]
+                                    [:metrics/emit :checkout/begin]]
+                      :dispatch-later {:ms 250
+                                       :dispatch [:checkout/retry-prompt]}})
+           (fx-handled-ev :db nil 0.2)
+           (fx-handled-ev :dispatch [:cart/add :apple] 0.1)
+           (fx-handled-ev :dispatch-n [[:audit/log :checkout/begin]
+                                       [:metrics/emit :checkout/begin]] 0.2)
+           (fx-handled-ev :dispatch-later
+                          {:ms 250 :dispatch [:checkout/retry-prompt]} 0.1)
+           (run-end-ev 1.4)]}))])
+
+;; ---- VARIANT 6: long-step cascade ---------------------------------------
+;;
+;; Section coverage: 16ms long-step warning chrome — the `▲` glyph +
+;; warning tone fires when any single step's `:duration-ms` exceeds
+;; `proj/long-step-threshold-ms` (= 16). The fixture stamps a 42ms
+;; HANDLER (the cascade-driving duration) + a 28ms fx call, so the
+;; CASCADE-TOTAL chip lights up and two rows carry the long-step
+;; chrome.
+
+(defn long-step-history
+  "Cascade with a 42ms handler + 28ms fx — both above the 16ms
+  threshold. Drives the long-step warning chrome on the duration
+  chips + the cascade-summary's `N steps over 16ms` secondary
+  chip."
+  []
+  (single-epoch-history
+    {:epoch-id 5
+     :event    [:report/recompute-all {:tenant :acme}]
+     :trace-events
+     [(dispatched-ev [:report/recompute-all {:tenant :acme}] :ui)
+      (db-changed-ev [[[:report :status] :idle :recomputing :modified]
+                      [[:report :results] {} {:tenant :acme :rows 1000} :modified]])
+      (do-fx-ev {:db ::placeholder
+                 :http/post {:url "/api/report/recompute"}})
+      (fx-handled-ev :db nil 0.4)
+      (fx-handled-ev :http/post {:url "/api/report/recompute"} 28)
+      (sub-run-ev [:report/results] true {} {:tenant :acme :rows 1000})
+      (view-rendered-ev :report/table [[:report/results]] 18)
+      ;; The HANDLER's duration is the dominant long-step (42ms — well
+      ;; above 16ms). The view also crosses the threshold for the
+      ;; render row.
+      (run-end-ev 42)]}))
+
+;; ---- VARIANT 7: flow-firing cascade -------------------------------------
+;;
+;; Section coverage: FLOW step. Three flow-recomputed events ride
+;; the cascade after the handler returns — the framework runs flows
+;; at the outermost :after, transforming the pending :db before the
+;; single deferred install (per `re-frame.flow`).
+
+(defn flows-history
+  "Cascade triggering three downstream flows — `:cart/total`,
+  `:cart/item-count`, `:cart/badge`. Exercises the FLOW step's
+  per-row before/after rendering."
+  []
+  (single-epoch-history
+    {:epoch-id 6
+     :event    [:cart/add :pear]
+     :trace-events
+     [(dispatched-ev [:cart/add :pear] :ui)
+      (db-changed-ev [[[:cart :items]
+                       [{:id :apple :qty 1}]
+                       [{:id :apple :qty 1} {:id :pear :qty 1}]
+                       :modified]])
+      (flow-recomputed-ev :cart/total       [:cart :total]
+                          120 195)
+      (flow-recomputed-ev :cart/item-count  [:cart :item-count]
+                          1 2)
+      (flow-recomputed-ev :cart/badge       [:cart :badge]
+                          "1 item" "2 items")
+      (do-fx-ev {:db ::placeholder})
+      (fx-handled-ev :db nil 0.3)
+      (sub-run-ev [:cart/total] true 120 195)
+      (view-rendered-ev :cart/badge-view [[:cart/badge]] 0.6)
+      (run-end-ev 0.9)]}))
+
+;; ---- empty + no-focus auxiliary fixtures --------------------------------
+;;
+;; Two non-section-specific variants the gallery includes so the
+;; panel's empty-state copy is also visible at a glance.
+
+(defn empty-history
+  "No epochs at all — drives the panel's `:no-focus` empty-state line
+  ('No epoch focused. Dispatch an event to see the cascade.')."
+  []
+  [])
+
+(defn no-events-history
+  "One epoch whose `:trace-events` slice is empty. The projection
+  returns an empty step vector; the panel renders the
+  cold-pipeline empty-state without crashing."
+  []
+  (single-epoch-history
+    {:epoch-id 7
+     :event    [:counter/init]
+     :trace-events []}))
