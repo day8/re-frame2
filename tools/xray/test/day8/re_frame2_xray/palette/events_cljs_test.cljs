@@ -144,10 +144,11 @@
   (is (= :trace (:selected-tab (xray-db))))
   (is (false? (boolean (:palette-open? (xray-db))))))
 
-(deftest invoke-select-event-routes-to-event-tab
-  ;; rf2-qy0nu — :palette/select-event now writes :selected-tab :event
-  ;; (the L3 tab id that mounts event-detail/Panel) instead of the
-  ;; dead `:selected-panel :event-detail` slot.
+(deftest invoke-select-event-routes-to-epoch-tab
+  ;; rf2-qy0nu — :palette/select-event writes :selected-tab to the
+  ;; canonical "what happened in this epoch" L3 tab. rf2-5gl5r retired
+  ;; the Event/Handler tab; the routing target is now `:epoch` (the
+  ;; Epoch panel supersedes it).
   (setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/palette-open])
@@ -159,7 +160,7 @@
         :action [:palette/select-event [:foo/bar]]
         :popout? true}
        false]))
-  (is (= :event (:selected-tab (xray-db))))
+  (is (= :epoch (:selected-tab (xray-db))))
   (is (= [:foo/bar]    (:selected-event-id (xray-db))))
   (is (false? (boolean (:palette-open? (xray-db))))))
 

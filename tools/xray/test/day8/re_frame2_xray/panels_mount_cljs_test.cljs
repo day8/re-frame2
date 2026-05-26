@@ -40,7 +40,7 @@
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.app-db-segment-inspector :as segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
-            [day8.re-frame2-xray.panels.event-detail :as event-detail]
+            [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
             [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.routing :as routing]
@@ -98,18 +98,20 @@
 
 ;; ---- top-level L3-tab panels (7) ---------------------------------------
 
-(deftest mount-event-detail-wraps-in-frame-provider-and-delegates-to-adapter
-  (testing "rf2-crhr8 — mount-event-detail! installs handlers, wraps
-            event-detail/Panel in `[rf/frame-provider {:frame :rf/xray}
-            [Panel]]`, delegates to substrate-adapter/render, and
-            returns the adapter's unmount fn."
+(deftest mount-epoch-panel-wraps-in-frame-provider-and-delegates-to-adapter
+  (testing "rf2-crhr8 + rf2-5gl5r — mount-epoch-panel! installs
+            handlers, wraps epoch-panel/Panel in `[rf/frame-provider
+            {:frame :rf/xray} [Panel]]`, delegates to substrate-
+            adapter/render, and returns the adapter's unmount fn.
+            (Replaces the prior mount-event-detail! coverage; the
+            Event/Handler panel was retired alongside rf2-5gl5r.)"
     (let [[capture unmount-sentinel render-stub] (make-render-stub)
           mount-point :mount-point-sentinel]
       (with-redefs [substrate-adapter/render render-stub]
-        (let [unmount (panels/mount-event-detail! mount-point)]
+        (let [unmount (panels/mount-epoch-panel! mount-point)]
           (is (= 1 (count @capture))
               "substrate-adapter/render invoked exactly once")
-          (is (frame-provider-wrap? (captured-tree capture) event-detail/Panel)
+          (is (frame-provider-wrap? (captured-tree capture) epoch-panel/Panel)
               "tree is wrapped in rf/frame-provider :rf/xray around Panel")
           (is (= mount-point (-> @capture first :mount-point))
               "mount-point passed through unchanged")
@@ -228,7 +230,7 @@
             actually carries them."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [substrate-adapter/render render-stub]
-        (panels/mount-event-detail! :mount-point {:frame :my-app/cart})
+        (panels/mount-epoch-panel! :mount-point {:frame :my-app/cart})
         (let [tree (captured-tree capture)]
           (is (= rf/frame-provider (first tree)))
           (is (= {:frame :my-app/cart} (second tree))
@@ -245,7 +247,7 @@
             the panels ns does not deduplicate)."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [substrate-adapter/render render-stub]
-        (panels/mount-event-detail! :mount-1)
+        (panels/mount-epoch-panel! :mount-1)
         (panels/mount-app-db-diff! :mount-2)
         (panels/mount-issues-ribbon! :mount-3)
         (is (= 3 (count @capture))
@@ -297,7 +299,7 @@
           (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
         (trace-collector/seed-trace-for-test!
           (pre-mount-dispatch-event 2 101 :cart-frame :cart/checkout))
-        (panels/mount-event-detail! :mount-point)
+        (panels/mount-epoch-panel! :mount-point)
         (rf/with-frame :rf/xray
           (let [buf @(rf/subscribe [:rf.xray/trace-buffer])]
             (is (= 2 (count buf))
@@ -362,7 +364,7 @@
   (testing "rf2-crhr8 — the eleven per-panel mount fns + the full-
             shell mount fn are all present + ifn? — defensive guard
             against accidental removal during refactor."
-    (let [fns [["mount-event-detail!"                       panels/mount-event-detail!]
+    (let [fns [["mount-epoch-panel!"                        panels/mount-epoch-panel!]
                ["mount-app-db-diff!"                        panels/mount-app-db-diff!]
                ["mount-reactive-panel!"                     panels/mount-reactive-panel!]
                ["mount-trace!"                              panels/mount-trace!]

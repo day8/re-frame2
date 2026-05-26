@@ -1,19 +1,20 @@
 (ns day8.re-frame2-xray.panels.shared.coord-chip
   "Shared `coord-chip` — the canonical 'open in editor' icon-only chip
-  used across panels (Epoch, Event-detail, future surfaces).
+  used across panels (Epoch, future surfaces).
 
   ## Why this exists (rf2-xjgdk, audit L2)
 
   Before rf2-xjgdk two near-identical icon-only chip components lived
-  as private `defn-`s in `panels/epoch/view.cljs` and
-  `panels/event_detail.cljs`. The hiccup was 99% the same — a
-  `<button>` carrying the lucide `external-link` glyph, dispatching
+  as private `defn-`s in `panels/epoch/view.cljs` and (the now-
+  retired) `panels/event_detail.cljs`. The hiccup was 99% the same —
+  a `<button>` carrying the lucide `external-link` glyph, dispatching
   `[:rf.xray/open-in-editor {:source-coord coord}]` on the `:rf/xray`
   frame, hidden when the coord has no `:file`. Only two pixel knobs
   varied:
 
   - **`:color`** — Epoch used `\"inherit\"` (the chip rides whatever
-    text colour its parent set); Event-detail used `(:accent tokens)`.
+    text colour its parent set); the retired Event-detail panel used
+    `(:accent tokens)`.
   - **`:margin-left`** — Epoch `4px`, Event-detail `6px`.
 
   Folding the two into one shared component removes the duplication

@@ -84,7 +84,6 @@
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.app-db-diff-format :as f]
             [day8.re-frame2-xray.panels.cancellation-cascade-helpers :as cch]
-            [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-xray.panels.trace-helpers :as h]
@@ -766,8 +765,7 @@
   fn the L2 list rows + the Event L4 header dot consume, so the whole
   devtool speaks ONE lifecycle vocabulary."
   [{:keys [cascade focus]}]
-  (let [status-state (event-status/cascade->state
-                       cascade focus event-detail/cascade-outcome)
+  (let [status-state (event-status/cascade->state cascade focus)
         status-kw    (event-status/classify-status status-state)
         status-hex   (event-status/event-status-colour status-state)]
     [:div {:data-testid (str "rf-xray-trace-cascade-status-bar-"

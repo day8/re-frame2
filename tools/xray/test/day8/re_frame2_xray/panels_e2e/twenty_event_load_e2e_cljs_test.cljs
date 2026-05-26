@@ -8,9 +8,11 @@
   the counter testbed, opened the Xray shell, and asserted:
 
     1. The trace count grew (proves dispatch reached the trace bus).
-    2. The Event-Detail panel default-focused the head cascade after
+    2. The focused-epoch panel default-focused the head cascade after
        load (proves the spine pipeline emitted routable cascades).
-    3. The event-detail / overlay state synchronises across launch
+       Originally the Event/Handler panel; rf2-5gl5r migrated the
+       surface to the Epoch panel.
+    3. The focused-cascade overlay state synchronises across launch
        modes (overlay vs popout).
 
   At the data layer — which is what the bug class actually probes —

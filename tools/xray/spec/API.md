@@ -197,7 +197,7 @@ authoritative list.
 | Namespace | Source | Public surfaces |
 |---|---|---|
 | `day8.re-frame2-xray.core` | `core.cljs` | The 12 canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `load-theme`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-show-sensitive!`). |
-| `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 7 `Panel` reg-views — `event-detail/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel`, `issues-ribbon/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 7 tabs). rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
+| `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 7 `Panel` reg-views — `epoch-panel/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel`, `issues-ribbon/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 7 tabs). rf2-5gl5r removed `event-detail/Panel` — the Epoch panel supersedes the Event/Handler design as the canonical "what happened in this epoch" surface. rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
 | `day8.re-frame2-xray.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-show-sensitive!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-xray.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — needed when an embed host's mount lifecycle runs after Xray's preload and wants to take the chord back. |
 | `day8.re-frame2-xray.runtime` | `runtime.cljs` | The Xray ↔ MCP read-and-mutate seam. The accessor surface this namespace exposes is enumerated normatively in §Runtime accessor surface below. Tool clients (`tools/re-frame2-pair-mcp/` today) evaluate forms addressed at this namespace via `eval-cljs`. |
@@ -240,7 +240,7 @@ Each panel namespace exports a single public `Panel` component. The
 canonical symbol list:
 
 ```clojure
-day8.re-frame2-xray.panels.event-detail/Panel
+day8.re-frame2-xray.panels.epoch-panel/Panel
 day8.re-frame2-xray.panels.app-db-diff/Panel
 day8.re-frame2-xray.panels.reactive-panel/Panel
 day8.re-frame2-xray.panels.trace/Panel
@@ -251,8 +251,9 @@ day8.re-frame2-xray.panels.issues-ribbon/Panel
 
 (rf2-qy0nu — the 8-panel dead-code sweep removed `causality-graph`,
 `time-travel`, `effects`, `flows`, `routes`, `performance`, `schema-
-violation-timeline`, `hydration-debugger`, and `mcp-server`. The
-4-layer shell switches over the L3 tab ids in
+violation-timeline`, `hydration-debugger`, and `mcp-server`.
+rf2-5gl5r removed the `event-detail` panel — the Epoch panel
+supersedes it. The 4-layer shell switches over the L3 tab ids in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §The 7 tabs — these
 seven are the surviving `Panel` exports. The L4 display label for
 `reactive-panel/Panel` is **Reactive** (per `spec/021 §11.5`); the

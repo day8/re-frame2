@@ -39,7 +39,7 @@
 
 (deftest merge-preset-variant-overrides-story
   (testing "variant slot wins over story slot at the top level"
-    (let [story {:open? true :tab :event-detail}
+    (let [story {:open? true :tab :epoch}
           vari  {:tab :issues}]
       (is (= {:open? true :tab :issues}
              (xray-preset/merge-preset story vari))))))
@@ -86,7 +86,7 @@
       {:doc "preset on both"
        :component :Some.view
        :xray {:open? true
-               :tab   :event-detail
+               :tab   :epoch
                :filters {:in [:keep/x]}}})
     (story/reg-variant :story.both/v
       {:doc "v"

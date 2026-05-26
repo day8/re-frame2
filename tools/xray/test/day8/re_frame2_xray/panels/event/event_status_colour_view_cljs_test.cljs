@@ -37,7 +37,6 @@
             [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.trace :as trace]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
@@ -121,34 +120,17 @@
         (is (nil? (get-in attrs [:style :box-shadow]))
             "no lifecycle status box-shadow on the row")))))
 
-;; ---- (2) Event panel no longer carries a status dot (rf2-ad7zx.17) -----
+;; ---- (2) Event panel no longer carries a status dot (rf2-ad7zx.17 ·
+;;          rf2-5gl5r) ----------------------------------------------------
 ;;
-;; The Event panel's top header/ribbon — which carried the lifecycle
-;; status dot — was removed to match `EventPanel` (rf2-ad7zx.17). The
-;; status-colour vocabulary now has TWO render sites (L2 row + Trace bar)
-;; rather than three; the pure-data layer is exercised in
-;; `event_status_colour_cljs_test.cljc`.
-
-(deftest event-panel-no-longer-renders-a-status-dot
-  (testing "rf2-ad7zx.17 — the Event panel has no top ribbon, so it
-            renders NO lifecycle status dot and NO header carrying
-            data-rf-xray-status. The vocabulary lives at the L2 row +
-            Trace bar sites instead."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
-      (let [tree (event-detail/Panel)]
-        (is (nil? (find-by-testid tree "rf-xray-event-detail-header"))
-            "no top header carrying data-rf-xray-status")
-        (is (every? (fn [st]
-                      (nil? (find-by-testid
-                              tree
-                              (str "rf-xray-event-detail-status-dot-" st))))
-                    ["settled-success" "settled-error" "in-flight"
-                     "paused-by-tool" "stale"])
-            "no lifecycle status dot of any state")))))
+;; rf2-ad7zx.17 retired the Event panel's top header/ribbon (no
+;; lifecycle status dot at the panel level); rf2-5gl5r retired the
+;; Event/Handler panel itself in favour of the Epoch panel. The
+;; status-colour vocabulary now has TWO render sites (L2 row + Trace
+;; bar); the pure-data layer is exercised in
+;; `event_status_colour_cljs_test.cljc`. The prior `event-panel-no-
+;; longer-renders-a-status-dot` test asserted absence on a panel that
+;; no longer exists — dropped as a no-op.
 
 ;; ---- (3) Trace timeline bar pickups ------------------------------------
 

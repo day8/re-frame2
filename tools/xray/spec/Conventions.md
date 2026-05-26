@@ -182,30 +182,31 @@ contract; per-leaf smoke tests are the unit contract.
 > rename to verbose `EventDetailPanel`-style.**
 
 Each panel's facade owns one public reg-view named exactly `Panel`
-(`day8.re-frame2-xray.panels.event-detail/Panel`,
+(`day8.re-frame2-xray.panels.epoch-panel/Panel`,
 `day8.re-frame2-xray.panels.app-db-diff/Panel`, etc. — per
 [`API.md`](./API.md) §Panel reg-views). A reader audit
 (`ai/findings/2026-05-20-tools-xray-api-review.md` Finding #12)
 flagged `Panel` as a generic React idiom (Material UI Panel, Ant
 Design Panel) and asked whether the CLJS-side surface should rename
-to match the JS-side `EventDetailPanel`-style names. The decision
+to match the JS-side `EpochPanel`-style names. The decision
 locks the bare-`Panel` convention.
 
 **Why bare `Panel` wins.**
 
 1. **Panels are addressed by tab-key, not class name.** The 4-layer
-   shell switches over the 6 L3 tab ids enumerated in
+   shell switches over the 7 L3 tab ids enumerated in
    [`018-Event-Spine.md`](./018-Event-Spine.md) §5
-   (`:event` · `:reactive` · `:trace` · `:machines` · `:routing` ·
-   `:issues`) per
+   (`:epoch` · `:app-db` · `:views` · `:trace` · `:machines` ·
+   `:routing` · `:issues` — post rf2-5gl5r, after the Event/Handler
+   tab retirement) per
    [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md).
    The reg-view symbol name is internal plumbing; the tab-key is the
    addressable identity.
 
 2. **The namespace already establishes context.** A consumer reading
-   `day8.re-frame2-xray.panels.event-detail/Panel` sees the
+   `day8.re-frame2-xray.panels.epoch-panel/Panel` sees the
    qualifying context in the namespace segment; renaming the var to
-   `EventDetailPanel` doubles the context and adds ceremony without
+   `EpochPanel` doubles the context and adds ceremony without
    buying clarity.
 
 3. **Host-side collision is a non-issue.** Hosts that mount Xray

@@ -72,8 +72,10 @@
   Renders the active tab's projection of the focused event. The L4
   panel is registry-driven (rf2-2moh1): each tab registers its
   `:panel` via `panel-registry/reg-l4-tab!` and the shell mounts the
-  active tab through `panel-registry/tab-by-id`. The seven Dynamic
-  tabs all mount real panels — Event → `event-detail/Panel`, App-db →
+  active tab through `panel-registry/tab-by-id`. Post rf2-5gl5r the
+  seven Dynamic tabs all mount real panels — Epoch →
+  `epoch-panel/Panel` (the canonical numbered cascade per 021 §9.1;
+  supersedes the retired Event/Handler panel), App-db →
   `app-db-diff/Panel`, Views → `reactive-panel/Panel` (the 021 §3
   three-stacked-tables design, rf2-8ve8z), Trace → `trace/Panel`,
   Machines → `machine-inspector/Panel`, Routing → `routing/Panel`,

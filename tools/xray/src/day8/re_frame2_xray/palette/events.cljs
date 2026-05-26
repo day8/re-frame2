@@ -304,13 +304,12 @@
            :fx (conj base-fx [:dispatch [:rf.xray.static/select-tab (first args)]])}
 
           :palette/select-event
-          ;; Future: route to event-detail with the event pre-
-          ;; selected. Phase 1 routes to the Event tab; the event-detail
-          ;; panel reads `:rf.xray/selected-event-id` for the specific
-          ;; event focus (event-detail panel handles the missing-id
-          ;; gracefully — see panels/event_detail.cljs).
+          ;; Route to the Epoch tab with the event pre-selected. Post
+          ;; rf2-5gl5r the Event/Handler tab was retired (Epoch panel
+          ;; supersedes it); `:rf.xray/selected-event-id` is the
+          ;; selected-event slot the surviving panels read.
           {:db (assoc close-db
-                      :selected-tab :event
+                      :selected-tab :epoch
                       :selected-event-id (first args))
            :fx base-fx}
 
@@ -336,9 +335,12 @@
           ;; handler choice. The handler-detail panel is itself a
           ;; follow-on bead — for now the store is enough so the
           ;; palette completes its part of the contract.
+          ;; (Post rf2-5gl5r the canonical "what happened in this
+          ;; epoch" tab is `:epoch`; the prior `:selected-tab :event`
+          ;; routing pointed at the retired Event/Handler panel.)
           (let [[kind id] args]
             {:db (assoc close-db
-                        :selected-tab :event
+                        :selected-tab :epoch
                         :inspecting-handler [kind id])
              :fx base-fx})
 

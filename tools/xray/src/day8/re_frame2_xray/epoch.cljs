@@ -108,7 +108,7 @@
   ;; subs read, AND writes through the spine's `[:focus :epoch-id]`
   ;; slot so the `:rf.xray/focus` sub the spec/018 surfaces consume
   ;; rebinds when the user picks an epoch. Symmetric with
-  ;; `:rf.xray/select-dispatch-id` in event_detail.cljs.
+  ;; `:rf.xray/select-dispatch-id` (in registry.cljs post rf2-5gl5r).
   (rf/reg-event-db :rf.xray/select-epoch
     (fn [db [_ epoch-id]]
       (-> db

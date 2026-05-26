@@ -54,7 +54,7 @@
             [day8.re-frame2-xray.theme.tokens :refer [tokens layout]]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
-            [day8.re-frame2-xray.panels.event-detail :as event-detail]
+            [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
             [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.routing :as routing]
@@ -177,9 +177,10 @@
             "L2 event list present")
         (is (some? (find-by-testid tree "rf-xray-tab-bar"))
             "L3 tab bar present")
-        ;; default tab is :event → detail panel testid carries the tab name
-        (is (some? (find-by-testid tree "rf-xray-detail-panel-event"))
-            "L4 detail panel present (default :event tab)")))))
+        ;; default tab is :epoch (post rf2-5gl5r) → detail panel
+        ;; testid carries the tab name.
+        (is (some? (find-by-testid tree "rf-xray-detail-panel-epoch"))
+            "L4 detail panel present (default :epoch tab)")))))
 
 (deftest shell-root-carries-lens-mode-class
   (testing "rf2-ad7zx.13 — the shell root carries the `mode-dynamic` /
@@ -669,18 +670,23 @@
 
 (def ^:private expected-tab-ids
   "Authoritative tab inventory per spec/018 §5 The 7 tabs (Routing
-  promoted to its own L3 tab per rf2-nrbs9). (rf2-4v67l — Chrome A11y
-  was removed in favour of Story's already-shipped chrome-a11y dogfood
-  per rf2-18t6p; a11y dogfooding is properly Story's domain. rf2-ga16q
-  — the Machines Canvas tab was removed; its spine-INDEPENDENT
-  browse-all canvas relocated to the Static Machines sub-tab.)"
-  [:event :app-db :views :trace :machines :routing :issues])
+  promoted to its own L3 tab per rf2-nrbs9). rf2-5gl5r retired the
+  Event/Handler tab in favour of the Epoch panel — `:epoch` now
+  occupies the leftmost position (the same default-landing slot the
+  prior `:event` tab held). (rf2-4v67l — Chrome A11y was removed in
+  favour of Story's already-shipped chrome-a11y dogfood per rf2-18t6p;
+  a11y dogfooding is properly Story's domain. rf2-ga16q — the
+  Machines Canvas tab was removed; its spine-INDEPENDENT browse-all
+  canvas relocated to the Static Machines sub-tab.)"
+  [:epoch :app-db :views :trace :machines :routing :issues])
 
 (deftest tab-bar-renders-seven-tabs
-  (testing "spec/018 §5 — seven tabs (Event / App-db / Views / Trace /
-            Machines / Routing / Issues). rf2-4v67l removed the Chrome
-            A11y dogfood in favour of Story's shipped panel; rf2-ga16q
-            removed the Machines Canvas tab (relocated to Static)."
+  (testing "spec/018 §5 — seven tabs (Epoch / App-db / Views / Trace /
+            Machines / Routing / Issues — Epoch supersedes the retired
+            Event/Handler tab per rf2-5gl5r). rf2-4v67l removed the
+            Chrome A11y dogfood in favour of Story's shipped panel;
+            rf2-ga16q removed the Machines Canvas tab (relocated to
+            Static)."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)
@@ -719,7 +725,8 @@
         (is (string? (:aria-label attrs))
             "aria-label present so the tablist has an accessible name"))
       ;; Per-tab ARIA: role='tab' on every button, aria-selected matching
-      ;; the active state. The active tab is the default :event.
+      ;; the active state. The active tab is the default :epoch
+      ;; (post rf2-5gl5r — previously :event).
       (let [tree (shell/shell-view)]
         (doseq [tab-id expected-tab-ids]
           (let [btn   (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))
@@ -729,7 +736,7 @@
                 (str "tab " tab-id " carries role='tab'"))
             (is (contains? attrs :aria-selected)
                 (str "tab " tab-id " carries aria-selected"))
-            (is (= (if (= tab-id :event) "true" "false")
+            (is (= (if (= tab-id :epoch) "true" "false")
                    (:aria-selected attrs))
                 (str "tab " tab-id " aria-selected matches the active tab"))))))
     ;; After switching tabs the aria-selected flips with the active tab.
@@ -775,16 +782,17 @@
                 (str "tab " tab-id " is a <button>"))
             (is (= rounded-top (:border-radius style))
                 (str "tab " tab-id " has rounded-top corners (4px 4px 0 0)"))))
-        ;; (c) The ACTIVE tab (default :event) carries the light fill + dark
-        ;; ink (the folder tab lifting onto the panel below).
-        (let [active (find-by-testid tree "rf-xray-tab-event")
+        ;; (c) The ACTIVE tab (default :epoch — post rf2-5gl5r)
+        ;; carries the light fill + dark ink (the folder tab lifting
+        ;; onto the panel below).
+        (let [active (find-by-testid tree "rf-xray-tab-epoch")
               style  (:style (second active))]
           (is (= active-fill (:background style))
               "active tab background is the light :chrome-ribbon-tab-active fill")
           (is (= active-ink (:color style))
               "active tab ink is the dark :chrome-ribbon-tab-active-text"))
         ;; (d) INACTIVE tabs carry a translucent-white fill + muted-white ink.
-        (doseq [tab-id (remove #{:event} expected-tab-ids)]
+        (doseq [tab-id (remove #{:epoch} expected-tab-ids)]
           (let [btn   (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))
                 style (:style (second btn))]
             (is (= "rgba(255,255,255,0.12)" (:background style))
@@ -798,13 +806,13 @@
       (let [tree        (shell/shell-view)
             active-fill (:chrome-ribbon-tab-active tokens)
             mach        (:style (second (find-by-testid tree "rf-xray-tab-machines")))
-            event       (:style (second (find-by-testid tree "rf-xray-tab-event")))]
+            epoch       (:style (second (find-by-testid tree "rf-xray-tab-epoch")))]
         (is (= active-fill (:background mach))
             "newly-active :machines tab gains the light fill")
         (is (= (:chrome-ribbon-tab-active-text tokens) (:color mach))
             "newly-active :machines tab ink is the dark active-text")
-        (is (= "rgba(255,255,255,0.12)" (:background event))
-            "previously-active :event tab reverts to the translucent fill")))))
+        (is (= "rgba(255,255,255,0.12)" (:background epoch))
+            "previously-active :epoch tab reverts to the translucent fill")))))
 
 (deftest tab-click-dispatches-select-tab
   (testing "spec/018 §5 — clicking a tab fires :rf.xray/select-tab"
@@ -827,18 +835,18 @@
             changes. Verified via the panel's testid which carries
             the selected tab name."
     (xray-setup!)
-    ;; default tab → :event
+    ;; default tab → :epoch (post rf2-5gl5r — supersedes :event)
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)]
-        (is (some? (find-by-testid tree "rf-xray-detail-panel-event"))
-            "default detail panel is :event")))
+        (is (some? (find-by-testid tree "rf-xray-detail-panel-epoch"))
+            "default detail panel is :epoch")))
     ;; flip to :app-db
     (select-tab! :app-db)
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)]
         (is (some? (find-by-testid tree "rf-xray-detail-panel-app-db"))
             "detail panel rebinds to :app-db after select-tab")
-        (is (nil? (find-by-testid tree "rf-xray-detail-panel-event"))
+        (is (nil? (find-by-testid tree "rf-xray-detail-panel-epoch"))
             "previous panel testid is gone")))
     ;; flip to :issues
     (select-tab! :issues)
@@ -855,7 +863,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree    (shell/shell-view)
-            wrapper (find-by-testid tree "rf-xray-detail-panel-fade-event")
+            wrapper (find-by-testid tree "rf-xray-detail-panel-fade-epoch")
             anim    (get-in wrapper [1 :style :animation])]
         (is (some? wrapper)
             "the inner cross-fade wrapper is present + testid'd")
@@ -873,8 +881,10 @@
   `shell/detail-panel`. The `:views` tab key routes to the Reactive
   panel (rf2-wyvf2 · display label rebased to 'Reactive' per spec/021
   §11.5; tab key unchanged). The Routing tab routes to the lens panel
-  per rf2-nrbs9 — promoted from 'lives in App-db + Trace'."
-  {:event           event-detail/Panel
+  per rf2-nrbs9 — promoted from 'lives in App-db + Trace'. The
+  `:epoch` tab supersedes the retired `:event` tab post rf2-5gl5r
+  (Epoch panel is the canonical 'what happened in this epoch' surface)."
+  {:epoch           epoch-panel/Panel
    :app-db          app-db-diff/Panel
    :views           reactive-panel/Panel
    :trace           trace/Panel

@@ -327,7 +327,7 @@ namespace (locked in
 
 | Panel id        | Mount fn                                                  | Xray Panel view                                  |
 |-----------------|-----------------------------------------------------------|---------------------------------------------------|
-| `:event-detail` | `(mount-event-detail!       mount-point opts) → unmount`  | Six-domino cascade view for the focused event     |
+| `:epoch`        | `(mount-epoch-panel!        mount-point opts) → unmount`  | Numbered computational timeline for the focused epoch (rf2-5gl5r supersedes `:event-detail`) |
 | `:app-db`       | `(mount-app-db-diff!        mount-point opts) → unmount`  | Structural diff of app-db across the cascade      |
 | `:views`        | `(mount-views!              mount-point opts) → unmount`  | Per-view sub-invalidation surface                 |
 | `:trace`        | `(mount-trace!              mount-point opts) → unmount`  | Trace-buffer feed for the focused cascade         |
@@ -370,10 +370,10 @@ hiccup so a variant or panel change forces a fresh React mount
 (belt-and-braces — the lifecycle handlers cover it, but the key
 guarantees no state leaks across Xray-internal bugs).
 
-`mount-fn-for` does a feature-detect symbol → fn lookup against the
-`panel-id->mount-fn-sym` map (e.g. `:event-detail` → `'day8.re-
-frame2-xray.panels/mount-event-detail!`) — a nil result is a clean
-no-op render, so Xray absence never throws.
+`mount-fn-for` does a compile-time symbol → fn lookup against the
+canonical seven panel ids (e.g. `:epoch` → `day8.re-frame2-xray.
+panels/mount-epoch-panel!` post rf2-5gl5r) — a nil result is a
+clean no-op render, so Xray absence never throws.
 
 ### Chip-click → swap sequence
 

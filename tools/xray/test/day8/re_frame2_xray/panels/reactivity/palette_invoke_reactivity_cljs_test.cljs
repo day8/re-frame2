@@ -23,8 +23,8 @@
             re-fires with the new tab id. End-to-end the palette's
             tab-jump verb flips the chrome via the reactive path."
     (h/setup-xray-frame!)
-    (is (= :event (h/read-sub :rf.xray/selected-tab))
-        "default selected-tab is :event")
+    (is (= :epoch (h/read-sub :rf.xray/selected-tab))
+        "default selected-tab is :epoch (post rf2-5gl5r — supersedes :event)")
     (h/dispatch-xray!
       [:rf.xray/palette-invoke
        {:source :command

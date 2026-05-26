@@ -137,7 +137,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree         (shell/shell-view)
-            active-tab   :event ;; default
+            active-tab   :epoch ;; default (post rf2-5gl5r — supersedes :event)
             tab-button   (find-by-testid tree (str "rf-xray-tab-" (name active-tab)))
             tab-attrs    (props tab-button)
             expected-id  (str "rf-xray-tab-button-" (name active-tab))

@@ -1,7 +1,8 @@
 (ns panel-gallery.panel-views
   "Registered re-frame views referenced by Story variant `:component`
   slots in the Xray panel gallery (rf2-sszlr — rebuilt for the new
-  7-tab Xray shape).
+  7-tab Xray shape; rf2-5gl5r retired the Event/Handler tab in
+  favour of the Epoch panel).
 
   Story canvas resolves `:component` to a registered re-frame view
   via `(rf/view <id>)` (per
@@ -16,12 +17,13 @@
   a card that sets a fixed-ish height so the variants-grid layout
   stays visually uniform.
 
-  ## The 8 L4 tabs
+  ## The L4 tabs
 
-  Per spec/018-Event-Spine.md §5 the chrome surfaces eight tabs whose
+  Per spec/018-Event-Spine.md §5 the chrome surfaces seven tabs whose
   bodies are existing per-panel Panel views:
 
-    - **Event**           → `event-detail/Panel`
+    - **Epoch**           → `epoch-panel/Panel` (rf2-sc3r1; supersedes
+                            the retired Event/Handler panel — rf2-5gl5r)
     - **App-db**          → `app-db-diff/Panel`
     - **Reactive**        → `reactive-panel/Panel`
     - **Trace**           → `trace/Panel`
@@ -45,7 +47,7 @@
   registered Panel facade. Because facades are `reg-view`-registered,
   their `render-fn` is wrapped with `:contextType frame-context` by
   `re-frame.views/reg-view*`. The Reagent component-vector form
-  `[event-detail/Panel]` is therefore safe here — React resolves the
+  `[epoch-panel/Panel]` is therefore safe here — React resolves the
   wrapped class's `:contextType`, the facade body reads
   `current-frame` correctly, and inside the facade body the per-
   panel discipline (function-call for plain-fn leaves, vector for
@@ -53,7 +55,6 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
-            [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.routing :as routing]
@@ -91,13 +92,10 @@
   (assoc card-style :height "640px"))
 
 ;; ---- per-tab wrappers ----------------------------------------------------
-
-(defn- event-tab-panel
-  "Embedded mount of the Event tab body — the event-detail panel."
-  [_args]
-  [:div {:style       card-style
-         :data-testid "panel-gallery-event-card"}
-   [event-detail/Panel]])
+;;
+;; (rf2-5gl5r — `event-tab-panel` removed alongside the retired
+;; Event/Handler panel; the Epoch wrapper below is the canonical
+;; "what happened in this epoch" gallery surface.)
 
 (defn- app-db-tab-panel
   "Embedded mount of the App-db tab body — the app-db-diff panel."
@@ -223,12 +221,11 @@
   Uses `reg-view*` (the runtime-registration surface, per Spec 004)
   because the gallery view-ids are explicit panel-keyed keywords
   rather than auto-derived from a defn symbol — we want
-  `:panel-gallery.event/Panel` not the autogen
-  `:panel-gallery.panel-views/event-tab-panel`. Idempotent —
+  `:panel-gallery.epoch/Panel` not the autogen
+  `:panel-gallery.panel-views/epoch-tab-panel`. Idempotent —
   re-registering the same id replaces the handler; subsequent calls
   are silent at the registry."
   []
-  (rf/reg-view* :panel-gallery.event/Panel    event-tab-panel)
   (rf/reg-view* :panel-gallery.app-db/Panel   app-db-tab-panel)
   (rf/reg-view* :panel-gallery.epoch/Panel    epoch-tab-panel)
   (rf/reg-view* :panel-gallery.reactive/Panel reactive-tab-panel)

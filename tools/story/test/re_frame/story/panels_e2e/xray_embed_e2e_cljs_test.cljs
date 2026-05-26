@@ -47,7 +47,7 @@
     2. Set `:selected-variant` in shell state (the same write the
        sidebar click does)
     3. Walk the `xray-embed-panel` hiccup
-    4. Assert `data-active-panel` carries the default `:event-detail`
+    4. Assert `data-active-panel` carries the default `:epoch`
     5. Assert one chip per catalogued panel
     6. Invoke the App-db chip's `:on-click` → assert
        `data-active-panel` flips to `:app-db` and `effective-panel`
@@ -83,7 +83,7 @@
 ;; the embed reads `:selected-variant` off the shell ratom; resolving
 ;; the panel-id walks the registrar for the variant body's
 ;; `:xray-panel` slot. A bare variant with no `:xray-panel` resolves
-;; to the catalog's `default-panel` (`:event-detail`).
+;; to the catalog's `default-panel` (`:epoch`).
 
 (def ^:private variant-id :story.counter/loaded)
 
@@ -105,11 +105,11 @@
     ;; design decision.
     (is (= 7 (count xray-embed/panel-catalog))
         "7 panels in the chip-row catalog (rf2-v1ach)")
-    (is (= #{:event-detail :app-db :views :trace :machines :routing :issues}
+    (is (= #{:epoch :app-db :views :trace :machines :routing :issues}
            xray-embed/panel-ids)
         "panel-ids set matches the catalog")
-    (is (= :event-detail xray-embed/default-panel)
-        "default-panel is :event-detail (catalog's first entry, the
+    (is (= :epoch xray-embed/default-panel)
+        "default-panel is :epoch (catalog's first entry, the
          most-common diagnostic lens)")))
 
 (deftest mount-fn-resolves-for-every-panel
@@ -144,7 +144,7 @@
                                     wrapper)]
           (is (some? wrapper)
               "embed wrapper present (rf2-v1ach `[data-test=\"story-xray-embed\"]`)")
-          (is (= "event-detail" (get-in wrapper [1 :data-active-panel]))
+          (is (= "epoch" (get-in wrapper [1 :data-active-panel]))
               "data-active-panel carries the resolved default
                (rf2-v1ach + rf2-senbl class — would be blank if
                effective-panel returned nil)")
@@ -154,7 +154,7 @@
               "panel-host slot is a hiccup vector in the wrapper's
                children — the mount target the panel-host-component
                class drives (rf2-4l7t2 class)")
-          (is (= :event-detail (second panel-host-slot))
+          (is (= :epoch (second panel-host-slot))
               "panel-host-component is mounted with the resolved
                panel-id as its argv — rf2-4l7t2 fix: argv-diff in
                :component-did-update drives the in-place panel swap"))))))

@@ -101,9 +101,9 @@ state-mutating vs state-observing.
 
 | Phase | Steps | What |
 |---|---|---|
-| **Handling** (state-mutating) | Dispatch → Coeffects → Handler → Flows recompute → Effects | The `Event` L4 panel renders the handling pipeline as a numbered vertical flow (the rendered section order — DISPATCH · COEFFECTS · EVENT HANDLER · FLOWS · AFTER INTERCEPTORS · APP-DB CHANGES · FX — is in §2.2; optional sections are omitted when absent). Flows recompute at the outermost `:after`, reshaping the pending `:db` before it commits — so they precede APP-DB CHANGES and FX. |
+| **Handling** (state-mutating) | Dispatch → Coeffects → Handler → Flows recompute → Effects | The `Epoch` L4 panel renders the full computational timeline as a numbered vertical cascade (DISPATCH · COEFFECTS · HANDLER · FLOW · FX · SUBSCRIPTIONS · VIEWS; conditional rendering per §9.1.3). It supersedes the retired Event/Handler panel (§2 below, kept as historical reference) per rf2-5gl5r. Flows recompute at the outermost `:after`, reshaping the pending `:db` before it commits — so they precede the post-commit FX. |
 | **Pivot** (the keystone) | — | Handling → reactive transition. The architectural inflection. App-db panel sits on this boundary. |
-| **Reactive** (state-observing) | Subs recompute → Views re-render | The `View` L4 panel renders the cascade as a left → right graph (§3). |
+| **Reactive** (state-observing) | Subs recompute → Views re-render | The `View` L4 panel renders the cascade as a left → right graph (§3); the Epoch panel ALSO surfaces SUBSCRIPTIONS + VIEWS as the trailing steps of its numbered cascade. |
 
 The pivot from handling to reactive is the architectural keystone (per A.3
 super-prompt). All state mutation is left of the line; all state
@@ -183,7 +183,23 @@ scope](018-Event-Spine.md) + [`020-Filter-Predicates.md` §3](020-Filter-Predica
 
 ---
 
-## §2 The Event panel (handling perspective)
+## §2 The Event panel (handling perspective) — RETIRED 2026-05-27 (rf2-5gl5r)
+
+> **Status — retired.** rf2-5gl5r deleted `panels/event_detail.cljs`
+> and the `:event` tab registration in favour of the §9.1 Epoch panel.
+> The Epoch panel renders the full computational timeline (DISPATCH
+> through VIEWS) as a numbered vertical cascade and supersedes this
+> design as the canonical "what happened in this epoch" surface. The
+> §2 design is kept here as historical reference for the operational-
+> order pipeline (rf2-ynnre B+) — its sub-sections (§2.2 layout, §2.3
+> queries, §2.4 cross-panel nav, §2.5 film-strip) DO NOT describe a
+> live panel and are not normative post rf2-5gl5r. Working surfaces
+> for the same questions live at:
+>
+> - **§9.1 Epoch panel** — the numbered cascade (DISPATCH · COEFFECTS ·
+>   HANDLER · FLOW · FX · SUBSCRIPTIONS · VIEWS).
+> - **§4 App-db panel** — the committed `:db` diff per epoch.
+> - **§3 View panel** — the reactive cascade.
 
 ### §2.1 Question
 
@@ -1260,25 +1276,23 @@ handler → flow → fx → subscriptions → views. It is the canonical
 the same question, but the Epoch panel renders the WHOLE chain in
 fire order.
 
-### §9.1.2 Co-existence with the Event panel (initial landing)
+### §9.1.2 Supersedes the retired Event/Handler panel (rf2-5gl5r)
 
-Per the rf2-sc3r1 bead body's pre-alpha posture: the Epoch panel
-co-exists with the existing Event lens (§2). Both surface the focused
-epoch — but through different lenses:
+Per rf2-sc3r1's pre-alpha posture the Epoch panel initially co-existed
+with the Event/Handler panel (§2). rf2-5gl5r retired the older panel
+once the Epoch panel reached parity: `panels/event_detail.cljs` is
+deleted, the `:event` L4 tab registration is gone, and the Epoch tab
+moves to `:order -1` (leftmost) so it claims the same default-landing
+position the retired tab held. The retired §2 design is kept as
+historical reference at the top of this doc; it is NOT normative.
 
-- **Event** (`:event` tab, §2) — the Figma-locked operational-order
-  handling pipeline (rf2-ynnre B+); reads more like a spec-shaped
-  attribution document.
-- **Epoch** (`:epoch` tab) — the full timeline as a delightful
-  numbered cascade including the reactive trailing edge
-  (SUBSCRIPTIONS + VIEWS) that the Event lens routes to its own
-  Reactive tab (§3).
+The Epoch panel renders the full timeline as a delightful numbered
+cascade including the reactive trailing edge (SUBSCRIPTIONS + VIEWS)
+that the retired Event panel routed to its own Reactive tab (§3).
 
-A follow-on bead deprecates the older Event + Reactive split once
-the new Epoch panel is exercised in production.
-
-Tab placement: `:epoch`, mnemonic `e`, order 5 (between `:machines`
-at 4 and `:routing` at 6). Registered against `:dynamic` mode only.
+Tab placement: `:epoch`, mnemonic `e`, order -1 (leftmost — claims the
+position the retired Event/Handler tab held). Registered against
+`:dynamic` mode only.
 
 ### §9.1.3 Conditional cascade — only-the-steps-that-fired
 

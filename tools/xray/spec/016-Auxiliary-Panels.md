@@ -13,7 +13,7 @@ The per-tab content this doc covers:
 
 | Tab content | `:rf.xray/panels.*` | Source / phase |
 |---|---|---|
-| Event tab content (fattened) | `event-detail` | Phase 2 (rf2-op3bz) + folds in former Effects panel content |
+| Epoch tab content (numbered cascade) | `epoch-panel` | rf2-sc3r1; supersedes the retired Event/Handler panel per rf2-5gl5r (see §9.1 of [`021`](./021-Dynamic-Panel-Designs.md)) |
 | Issues tab content | `issues-ribbon` | Phase 5 (rf2-d1p4o); unified feed per [`018-Event-Spine.md`](./018-Event-Spine.md) §5.4 |
 | Routing tab content (7th tab) | `routing` | rf2-nrbs9 — promoted from "lives in App-db + Trace" to its own L3 lens tab; see §Routing tab below |
 | Flows (lives in Views tab "Re-rendered" group) | `flows` | Phase 5 (rf2-83irn); see §Flows content below |
@@ -28,7 +28,7 @@ mount paths and L3-tab backing (when applicable) are:
 
 | # | Tier | Panel | Mount path (`day8.re-frame2-xray.panels.*`) | Backs L3 tab |
 |---|---|---|---|---|
-| 1  | 1 | Event tab            | `event-detail/Panel`                | Event |
+| 1  | 1 | Epoch tab            | `epoch-panel/Panel`                 | Epoch |
 | 2  | 1 | App-db tab           | `app-db-diff/Panel`                 | App-db |
 | 3  | 1 | Views tab            | `views/Panel`                       | Views |
 | 4  | 1 | Trace tab            | `trace/Panel`                       | Trace |
@@ -38,7 +38,7 @@ mount paths and L3-tab backing (when applicable) are:
 | 8  | 2 | App-DB segment-inspector popup    | `app-db-segment-inspector/Popup`        | — (overlay) |
 | 9  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
 | 10 | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
-| 11 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | embedded in Event tab |
+| 11 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | standalone mount (rf2-5gl5r — the Event/Handler tab that originally embedded it was retired) |
 | 12 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
 | 13 | 4 | Sim side-rail                      | `static.machines.sim/SimRail`           | sub of Machines tab |
 
@@ -117,53 +117,21 @@ All tab content shares the cross-panel substrate:
   atomically. No panel reads `(peek history)`; no panel carries
   `:selected-*-id` slots.
 
-## Event-detail panel
+## Event-detail panel — RETIRED 2026-05-27 (rf2-5gl5r)
 
-The §10 Lock 7 default landing view (per
-[`007-UX-IA.md`](./007-UX-IA.md) §The default landing view). The hero
-panel for "what just happened, in detail" — the first surface a
-user sees on opening Xray.
-
-### Inputs
-
-- `:rf.xray/trace-buffer` — the ring of `:rf/trace-event` records
-  (per [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Consumer contract).
-- `:rf.xray/selected-dispatch-id` — keyword dispatch-id or `nil`.
-- `:rf.xray/event-detail` — composite sub merging the two above
-  ([`014`](./014-Registry-Catalogue.md) §Event-detail panel).
-
-### Main interactions
-
-- **Click a cascade row** in the cascade list →
-  `:rf.xray/select-dispatch-id` (selection event).
-- **Clear selection** → `:rf.xray/clear-selected-dispatch-id`.
-- **Source-coord click-through** (non-interactive in v1) → planned
-  jump-to-editor via rf2-evgf5 / the
-  `:rf.xray/open-in-editor` event (the actual editor jump rides on
-  the open-in-editor module).
-
-### Outputs
-
-- The **cascade list** view (no selection) — one row per cascade,
-  oldest first.
-- The **six-domino hero** (selection set) — the cascade rendered as
-  six labelled rows in order:
-  1. The event vector (the cascade root — from `:rf.event/dispatched`).
-  2. The handler trace event (the `:rf.event/run-end` emit — populated by
-     `re-frame.trace.projection/absorb`).
-  3. The `:rf.fx/do-fx` emit (the effects map about to be walked).
-  4. The list of `:rf.fx/handled` / override / skipped effects.
-  5. The list of `:rf.sub/run` + `:rf.sub/create` events.
-  6. The list of `:rf.view/render` events.
-- An **`:other` bucket** for traces that don't fit the six-domino
-  vocabulary (errors, warnings, machine transitions, etc.).
-- A small mono-font **source-coord caption** under each event when
-  `:rf.trace/trigger-handler` is present (per rf2-3nn8 / rf2-lf84g).
-
-### Empty state
-
-The cascade list with `:rf.xray/empty-trace` cue when the buffer
-holds no `:rf.event/dispatched` events.
+> **Status — retired.** rf2-5gl5r deleted the Event/Handler panel
+> (`panels/event_detail.cljs`) once the §9.1 Epoch panel (see
+> [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md))
+> reached feature parity. The canonical "what happened in this epoch"
+> surface is now the Epoch panel — a numbered vertical cascade of
+> every pipeline step (DISPATCH · COEFFECTS · HANDLER · FLOW · FX ·
+> SUBSCRIPTIONS · VIEWS, conditional per the trace stream). The
+> surviving cross-panel sub `:rf.xray/event-detail` + spine-shim
+> events `:rf.xray/select-dispatch-id` / `:rf.xray/clear-selected-
+> dispatch-id` were relocated to `registry.cljs` as cross-panel
+> primitives (consumed by `share.cljs`, the trace panel's status bar,
+> machine-inspector, cancellation-cascade, and the existing test
+> corpus).
 
 ## Effects content — folded into Event tab
 

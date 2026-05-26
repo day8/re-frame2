@@ -4,7 +4,7 @@
 
   A variant body may declare a `:xray-panel <kw>` slot — the Story
   RHS resolves which Xray panel to mount for that variant from this
-  slot, beating the embed's `default-panel` (`:event-detail`).
+  slot, beating the embed's `default-panel` (`:epoch`).
 
   ## Bugs this catches
 
@@ -130,7 +130,7 @@
         (is (= xray-embed/default-panel
                (xray-embed/resolve-panel :story.typo/v))
             "unknown slot value → fallback to default-panel
-             (:event-detail)")))))
+             (:epoch)")))))
 
 ;; ---- user override beats variant slot ----------------------------------
 

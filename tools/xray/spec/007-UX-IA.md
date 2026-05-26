@@ -89,9 +89,9 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 │ view   │ :form/submit    │ 12:30:09.456   │  1.8 ms                      │
 ╞═════════════════════════════════════════════════════════════════════════╡   L2/L3 seam — drag ↕ to resize
 ├─────────────────────────────────────────────────────────────────────────┤
-│ [Event]  app-db   Views   Trace   Machine   Routes   Issues              │              L3 — 7 tabs
+│ [Epoch]  app-db   Views   Trace   Machine   Routes   Issues              │              L3 — 7 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
-│ — Event tab content for the focused event —                             │   L4 — fills the rest
+│ — Epoch tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -117,9 +117,13 @@ The four layers, top to bottom:
    The active/focused row takes a subtle background; functional semantic markers
    (redaction / issue / pin) ride as subtle per-row signals (§Event-list rows). The spine
    sub `:rf.xray/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Seven tabs in the order the Figma export fixes:
-   **Event · app-db · Views · Trace · Machine · Routes · Issues**. Letter mnemonics:
-   `e` `a` `v` `t` `m` `r` `i`. Each tab renders its **label only** (no `◉`/`○` glyph — Figma
+3. **L3 — Tab bar (40px).** Seven tabs in the order the Figma export fixes,
+   updated post rf2-5gl5r:
+   **Epoch · app-db · Views · Trace · Machine · Routes · Issues**. Letter mnemonics:
+   `e` `a` `v` `t` `m` `r` `i`. (The original Figma export listed Event/Handler at
+   `:order 0`; rf2-5gl5r retired that panel in favour of the Epoch panel at
+   `:order -1` — same letter mnemonic `e`, same leftmost position.) Each tab
+   renders its **label only** (no `◉`/`○` glyph — Figma
    design rf2-ad7zx); the **active tab fills with the single `accent`** (GitHub blue) + white
    text, inactive tabs are plain with a hover background. (The Figma export labels
    the reactive tab `Views` and the machines tab `Machine`; the spec elsewhere uses the
@@ -1511,11 +1515,14 @@ command palette, share modal) are NOT counted here — they are shell
 chrome, not panel content.
 
 **Tier 1 — L3 tab panels (7):** one per `:rf.xray/selected-tab`
-value.
+value. (Post rf2-5gl5r the Event/Handler tab was retired in favour
+of the Epoch tab; the Epoch panel renders the focused epoch's full
+computational timeline as a numbered vertical cascade per
+[`021-Dynamic-Panel-Designs.md` §9.1](./021-Dynamic-Panel-Designs.md#91-the-epoch-panel-numbered-cascade--rf2-sc3r1).)
 
 | Panel | View | Mount fn |
 |---|---|---|
-| Event tab    | `event-detail/Panel`     | `mount-event-detail!` |
+| Epoch tab    | `epoch-panel/Panel`      | `mount-epoch-panel!` |
 | App-db tab   | `app-db-diff/Panel`      | `mount-app-db-diff!` |
 | Views tab    | `views/Panel`            | `mount-views!` |
 | Trace tab    | `trace/Panel`            | `mount-trace!` |
@@ -1534,8 +1541,9 @@ sub (closed-state cost is one subscribe + a `when` short-circuit).
 | Cancellation-cascade popover    | `cancellation-cascade/Popover`    | `mount-cancellation-cascade-popover!` |
 
 **Tier 3 — inline content surface (1):** the managed-fx
-wire-boundary diff template that the Event tab embeds inline under
-its six-domino cascade view. Exposed standalone for Story ribbons
+wire-boundary diff template originally embedded inline under the
+retired Event/Handler panel's six-domino cascade view (rf2-5gl5r);
+the mount fn survives as the standalone surface for Story ribbons
 that want JUST the managed-fx list for the focused cascade.
 
 | Panel | View | Mount fn |
@@ -1594,7 +1602,7 @@ history + spine focus:
 
 | Panel | Reads (subs) | Writes (dispatches) |
 |---|---|---|
-| **event-detail**   | `:rf.xray/focus` · `:rf.xray/cascades` · `:rf.xray/target-frame-db` | `:rf.xray/focus-cascade` · `:rf.xray/focus-event` |
+| **epoch-panel**    | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` · `:rf.xray.epoch/set-db-view-mode` |
 | **app-db-diff**    | `:rf.xray/app-db-diff` (composite) | `:rf.xray/focus-slice-path` · `:rf.xray/open-segment-inspector` |
 | **views**          | `:rf.xray/views-focused-cascade-pair` · `:rf.xray/views-sub-diff` | view-row toggles · sub-diff selection |
 | **trace**          | `:rf.xray/trace-feed` (incremental projection) | `:rf.xray/select-dispatch-id` · `:rf.xray/open-in-editor` |
@@ -1798,9 +1806,10 @@ with L2; Static is 3-layer without). The composer (`surface-composer`
 in `shell.cljs`) `case`-dispatches between the two on `[:rf.xray/mode]`.
 
 **Tab inventory rule.** Tab inventories are mode-keyed and not shared.
-Dynamic ships 7 tabs (Event / App DB / Views / Trace / Machines /
+Dynamic ships 7 tabs (Epoch / App DB / Views / Trace / Machines /
 Routes / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
-for the per-panel content designs). Static ships 5 tabs (Machines /
+for the per-panel content designs; the Event/Handler tab was retired
+by rf2-5gl5r when the Epoch panel reached parity). Static ships 5 tabs (Machines /
 Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
 above). New tabs MUST declare which mode(s) they belong to; tab-id
 keyword collisions across modes (`:machines`) are deliberate and
@@ -1857,5 +1866,7 @@ this rule.
   the canonical per-panel facade shape (`Panel` reg-view +
   `install!`) every mount-fn target adheres to.
 - [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) —
-  the per-panel content designs for the 7 Dynamic L4 panels; the
-  per-panel companion to the Mode bifurcation rule above.
+  the per-panel content designs for the 7 Dynamic L4 panels (Epoch
+  is the §9.1 design; rf2-5gl5r retired the Event/Handler panel
+  that previously occupied §2 of this doc); the per-panel companion
+  to the Mode bifurcation rule above.
