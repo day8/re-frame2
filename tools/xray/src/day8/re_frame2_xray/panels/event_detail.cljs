@@ -538,34 +538,62 @@
       m)))
 
 (defn- coeffect-row
-  "One COEFFECTS row: `<id>  <chip?>  <value>`. Per rf2-xw7mj the
-  cofx-id renders alongside an `external-link` click-to-source chip
-  whenever the registered `reg-cofx` carries a captured source-coord
-  (`(rf/handler-meta :cofx id)`); the chip is omitted when the registry
-  lookup yields no `:file` (e.g. framework-default cofx or one
-  registered without coord capture). Matches the Figma authority's
-  click-to-source treatment for COEFFECTS coeffect-name links."
+  "One COEFFECTS row, rendered in the two-line diff-idiom shape per
+  spec/021 §2.2 (lines 295-300) + design-reference §2 COEFFECTS:
+
+      :now ↗
+        + [:now]  #inst \"2026-05-23T12:30:05.123Z\"
+      :session ↗
+        + [:session]  {:user-id 42, :token \"...\"}
+
+  Line 1 is the id-row — `<id> <chip?>` rendered in the accent (link)
+  colour, with the unified `external-link` click-to-source chip beside
+  the id when the registered cofx carries a captured source-coord
+  (rf2-xw7mj). Line 2 is the add-row — `+ [<id>] <value>` in the same
+  EDN-diff idiom APP-DB CHANGES (`+ [path] value`) + AFTER INTERCEPTORS
+  (`ctx-delta-row`) use: `+` glyph in `:green`, `[<id>]` path-form
+  repetition in `:text-tertiary`, value in `:text-primary` rendered via
+  the §10 EDN widget. The path-form repetition is intentional — it
+  teaches that each user-injected coeffect adds the value at `[<id>]`
+  in the handler's coeffects map, the diff-glyph ties COEFFECTS visually
+  to APP-DB CHANGES (both are 'added to ctx' lines), and the indent
+  scales gracefully to multi-line / nested values where the prior
+  single-line shape crammed the value next to the id."
   [id value]
   (let [suffix     (interceptor-testid-suffix id)
         cofx-meta  (when (keyword? id) (rf/handler-meta :cofx id))
         coord      (when (and cofx-meta (string? (:file cofx-meta)))
                      {:file (:file cofx-meta) :line (:line cofx-meta)})]
     [:div {:data-testid (str "rf-xray-event-detail-coeffect-row-" suffix)
-           :style {:display "flex"
-                   :align-items "flex-start"
-                   :padding "2px 0"}}
-     [:span {:style {:display      "inline-flex"
-                     :align-items  "center"
-                     :color        (:accent tokens)
-                     :min-width    "180px"
-                     :margin-right "12px"}}
+           :style {:padding "2px 0"}}
+     ;; Line 1 — id + click-to-source chip (link styling).
+     [:div {:style {:display      "inline-flex"
+                    :align-items  "center"
+                    :color        (:accent tokens)}}
       (pr-str id)
       (coord-chip coord (str "rf-xray-event-detail-coeffect-open-chip-" suffix))]
-     [:span {:style {:color (:text-primary tokens)
-                     :min-width 0
-                     :flex 1
-                     :word-break "break-word"}}
-      (edn/inspect value (str "event-detail/coeffect/" suffix))]]))
+     ;; Line 2 — `+ [<id>]  <value>` add-row, mirroring the diff-glyph
+     ;; idiom shared with APP-DB CHANGES / AFTER INTERCEPTORS / FLOWS.
+     [:div {:data-testid (str "rf-xray-event-detail-coeffect-add-row-" suffix)
+            :style {:display      "flex"
+                    :align-items  "flex-start"
+                    :padding      "1px 0 1px 24px"}}
+      [:span {:data-testid (str "rf-xray-event-detail-coeffect-add-glyph-" suffix)
+              :style {:color       (:green tokens)
+                      :font-weight 700
+                      :margin-right "8px"
+                      :min-width   "10px"}}
+       "+"]
+      [:span {:data-testid (str "rf-xray-event-detail-coeffect-add-path-" suffix)
+              :style {:color        (:text-tertiary tokens)
+                      :margin-right "8px"
+                      :min-width    "0"}}
+       (str "[" (pr-str id) "]")]
+      [:span {:style {:color      (:text-primary tokens)
+                      :min-width  0
+                      :flex       1
+                      :word-break "break-word"}}
+       (edn/inspect value (str "event-detail/coeffect/" suffix))]]]))
 
 (defn- coeffects-body
   "Step COEFFECTS body — one row per user-injected coeffect. Returns

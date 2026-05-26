@@ -1316,6 +1316,59 @@
         (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-row-local-storage"))
             ":local-storage row rendered")))))
 
+(deftest coeffect-row-renders-two-line-diff-idiom-shape
+  (testing "rf2-ge2oe.1 — per spec/021 §2.2 (lines 295-300) +
+            design-reference §2 COEFFECTS, each user-injected coeffect
+            renders as a TWO-LINE block:
+              line 1 — `<id> ↗`  (id + click-to-source chip)
+              line 2 — `+ [<id>]  <value>`  (diff-glyph idiom)
+            mirroring the `+ [path] value` shape APP-DB CHANGES + AFTER
+            INTERCEPTORS use. The single-line shape was impl drift."
+    (seed-buffer!
+      (cascade-evs 100 [:cart/restore] 0
+                   {:coeffects {:now "2026-05-18T19:00:00Z"}}))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-row-now"))
+            "line 1 (id-row) still rendered with the original testid")
+        (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-add-row-now"))
+            "line 2 (add-row) rendered with the new testid")
+        (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-add-glyph-now"))
+            "`+` diff-glyph rendered on line 2")
+        (is (= "+"
+               (let [glyph (find-by-testid
+                             tree "rf-xray-event-detail-coeffect-add-glyph-now")]
+                 (last glyph)))
+            "diff-glyph is the `+` (added) marker, matching APP-DB CHANGES")
+        (let [path-node (find-by-testid
+                          tree "rf-xray-event-detail-coeffect-add-path-now")]
+          (is (some? path-node)
+              "path-form `[<id>]` rendered on line 2")
+          (is (= "[:now]" (last path-node))
+              "path-form encodes the cofx id in vector brackets — signals
+               'value lives at this path in ctx', matching the
+               `+ [path] value` shape of APP-DB CHANGES"))))))
+
+(deftest coeffect-row-add-row-renders-for-qualified-keyword-ids
+  (testing "rf2-ge2oe.1 — the two-line shape's per-row testid suffix
+            uses the same `interceptor-testid-suffix` scheme the line-1
+            row uses, so qualified-keyword cofx ids (e.g. :auth/token)
+            still match through to the add-row + glyph + path testids."
+    (seed-buffer!
+      (cascade-evs 100 [:checkout/submit] 0
+                   {:coeffects {:auth/token "tok-abc"}}))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-add-row-auth/token")))
+        (is (some? (find-by-testid tree "rf-xray-event-detail-coeffect-add-glyph-auth/token")))
+        (let [path-node (find-by-testid
+                          tree "rf-xray-event-detail-coeffect-add-path-auth/token")]
+          (is (some? path-node))
+          (is (= "[:auth/token]" (last path-node))
+              "path-form preserves qualified-keyword rendering"))))))
+
 (deftest coeffect-row-renders-external-link-chip-when-cofx-has-source-coord
   (testing "rf2-xw7mj — when the registered cofx carries a captured
             source-coord on its handler-meta, the COEFFECTS row renders
