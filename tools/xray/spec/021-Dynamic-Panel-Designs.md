@@ -1301,19 +1301,22 @@ empty-state line. This matches the §2.2 dynamic-numbering contract
 from the Event lens — both panels share the same "absence is
 silence" rhythm.
 
-### §9.1.4 Badge taxonomy (the 7-badge inventory)
+### §9.1.4 Badge taxonomy (the 10-badge inventory)
 
 Each step renders a uppercase badge pill at its numbered circle:
 
 | Badge | Token | Hue family |
 |-------|-------|------------|
-| `:DISPATCH`      | `:text-tertiary` | muted grey |
-| `:COEFFECT`      | `:magenta`       | purple |
-| `:HANDLER`       | `:accent`        | blue (single Xray accent) |
-| `:FLOW`          | `:accent`        | blue (paired with HANDLER) |
-| `:FX`            | `:orange`        | functional amber (post-commit irreversible) |
-| `:SUBSCRIPTIONS` | `:magenta`       | pink/magenta family |
-| `:VIEWS`         | `:success`       | green |
+| `:DISPATCH`           | `:text-tertiary` | muted grey |
+| `:COEFFECT`           | `:magenta`       | purple |
+| `:HANDLER`            | `:accent`        | blue (single Xray accent) |
+| `:FLOW`               | `:accent`        | blue (paired with HANDLER) |
+| `:FX`                 | `:orange`        | functional amber (post-commit irreversible) |
+| `:SUBSCRIPTIONS`      | `:magenta`       | pink/magenta family |
+| `:VIEWS`              | `:success`       | green |
+| `:SCHEMA-VIOLATIONS`  | `:warning`       | warning amber (rf2-17vxj) |
+| `:CHILD-DISPATCHES`   | `:text-tertiary` | muted grey (same as DISPATCH — cascade-link semantics, rf2-yx1ae) |
+| `:APP-DB-DIFF`        | `:accent`        | blue (state-mutation lens, rf2-rrykz) |
 
 The inventory is LOCKED — the projection's `badge-set` enforces
 that every emitted step's `:badge` is a member, and the view's
@@ -1458,6 +1461,44 @@ naturally heavy.
 The summary chip elides when no step carries a numeric duration
 (cold-start records, fixtures synthesised without timing); the
 cascade renders normally.
+
+### §9.1.10.3 Schema-violations section (rf2-17vxj)
+
+A SCHEMA VIOLATIONS step is appended to the cascade when the
+focused epoch's trace stream carried at least one of:
+
+- `:rf.error/schema-validation-failure` — runtime per-boundary
+  validation failure (app-db commit / cofx / sub-return / fx-args /
+  event payload). Tags: `:where`, `:path`, `:value`, `:failing-id`,
+  `:rollback?`, `:explain`, `:sensitive?`.
+- `:rf.schema/violation` — hot-reload drift: a re-registration
+  changed the schema at `(frame-id, path)` and the live app-db
+  value fails the new schema. Tags: `:path`, `:frame`,
+  `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`,
+  `:recovery`, `:sensitive?`.
+
+Both ops project into the same row schema, with `:kind` flagging
+the source. Section chrome is warning-tone (`:warning` colour
+token + `▲` glyph) — load-bearing without rising to alarmist
+`:error` tone. Per-row body:
+
+- `:where` label (e.g. `app-db commit`, `sub return`, `hot-reload`).
+- `:failing-id` (the registered name whose boundary failed).
+- `:path` (when present).
+- failing value via `edn/inspect-inline` (already redacted at the
+  substrate emit site when the slot is `:sensitive?`).
+- `rolled back` chip when `:rollback?` is true.
+- `recovery: <reason>` chip when `:rollback?` is false (the
+  cascade ran through despite the violation).
+- `(value redacted — slot declared :sensitive?)` marker when the
+  substrate redacted the value.
+
+Header carries the violation count + a per-rollback split + an
+`open issues →` affordance that dispatches `[:rf.xray/select-tab
+:issues]` so the operator can pivot to the Issues panel for
+cross-session triage.
+
+Section is conditional — omitted when no violation events fired.
 
 ### §9.1.11 Cross-panel navigation
 

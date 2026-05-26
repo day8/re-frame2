@@ -505,6 +505,88 @@
        :badge :VIEWS
        :rows  rows})))
 
+;; ---- SCHEMA VIOLATIONS step ----------------------------------------------
+;;
+;; rf2-17vxj — surface schema violations that fired during this epoch.
+;; Two trace operations carry violations:
+;;
+;;   :rf.error/schema-validation-failure — runtime per-event boundary
+;;     check (app-db / cofx / sub-return / fx-args). Tags:
+;;       :where       — `:app-db | :cofx | :sub-return | :fx-args | …`
+;;       :path        — `[k k …]` (where applicable)
+;;       :value       — failing value (already redacted to `:rf/redacted`
+;;                       when slot was `:sensitive?`)
+;;       :failing-id  — the handler / cofx / sub / fx whose boundary
+;;                       failed
+;;       :rollback?   — true when app-db was rolled back
+;;       :explain     — Malli explain data (optional)
+;;
+;;   :rf.schema/violation — hot-reload check: a re-registration changed
+;;     the schema at a `(frame-id, path)` AND the live `app-db` value at
+;;     `path` fails the new schema. Tags:
+;;       :path / :frame
+;;       :pre-reload-schema / :post-reload-schema
+;;       :mismatching-value (or `:rf/redacted`)
+;;       :recovery — `:logged-and-skipped`
+;;       :sensitive?
+;;
+;; Surfaced when the cascade carried at least one of either op.
+
+(def schema-violation-ops
+  "Closed set of trace ops the SCHEMA-VIOLATIONS step harvests
+  (rf2-17vxj). The runtime per-boundary failure and the hot-reload
+  drift check ride distinct ops + tag shapes; both project into the
+  same row schema with `:kind` flagging the source."
+  #{:rf.error/schema-validation-failure
+    :rf.schema/violation})
+
+(defn- schema-violation-row
+  "Project one schema-violation trace event into the per-row data
+  shape (rf2-17vxj). Empty / nil values are kept absent so the view
+  can elide slots cleanly."
+  [ev]
+  (let [op-kw (op ev)
+        tags  (:tags ev)]
+    (cond-> {:kind        op-kw
+             :where       (or (:where tags)
+                              (when (= :rf.schema/violation op-kw) :hot-reload))
+             :path        (:path tags)
+             :failing-id  (or (:failing-id tags)
+                              (when (= :rf.schema/violation op-kw)
+                                (:frame tags)))
+             :value       (or (:value tags) (:mismatching-value tags))
+             :explain     (:explain tags)
+             :rollback?   (boolean (:rollback? tags))
+             :recovery    (:recovery tags)
+             :sensitive?  (boolean (:sensitive? tags))}
+      (= :rf.schema/violation op-kw)
+      (assoc :pre-reload-schema  (:pre-reload-schema tags)
+             :post-reload-schema (:post-reload-schema tags)
+             :frame              (:frame tags)))))
+
+(defn schema-violation-rows
+  "Walk every schema-violation trace event in `events` (both runtime
+  per-event validation failures + hot-reload drift) into a vec of
+  per-row maps (rf2-17vxj). Empty vec when none fired."
+  [events]
+  (vec
+    (for [ev events
+          :when (contains? schema-violation-ops (op ev))]
+      (schema-violation-row ev))))
+
+(defn schema-violations-step
+  "Build the SCHEMA-VIOLATIONS step row, or nil when no violations
+  fired (the step is OMITTED — conditional). Header carries the
+  total count + a per-rollback split so the operator can tell at a
+  glance whether the cascade was REJECTED by the validator."
+  [events]
+  (let [rows (schema-violation-rows events)]
+    (when (seq rows)
+      {:step      :schema-violations
+       :badge     :SCHEMA-VIOLATIONS
+       :rows      rows
+       :rollbacks (count (filter :rollback? rows))})))
+
 ;; ---- top-level projection ------------------------------------------------
 
 (defn project
@@ -565,7 +647,12 @@
                        (flow-step events)
                        (fx-step events)
                        (subscriptions-step events)
-                       (views-step events)]]
+                       (views-step events)
+                       ;; rf2-17vxj — schema violations ride at the end of
+                       ;; the cascade so the operator sees the boundary
+                       ;; check that may have rolled back THIS cascade
+                       ;; AFTER reading the steps that drove it.
+                       (schema-violations-step events)]]
         (filterv some? steps)))))
 
 (defn number-steps
@@ -744,12 +831,20 @@
 ;; ---- public mapping table -----------------------------------------------
 
 (def badge-set
-  "The 7 badges produced by the projection — every projected step's
-  `:badge` is a member of this set. Catalogued separately so tests
-  + the view's colour resolver have one authoritative inventory.
+  "The badge inventory produced by the projection — every projected
+  step's `:badge` is a member of this set. Catalogued separately so
+  tests + the view's colour resolver have one authoritative inventory.
 
-  Per the bead body's badge taxonomy (rf2-sc3r1)."
-  #{:DISPATCH :COEFFECT :HANDLER :FLOW :FX :SUBSCRIPTIONS :VIEWS})
+  - Original 7 (rf2-sc3r1): DISPATCH · COEFFECT · HANDLER · FLOW · FX ·
+    SUBSCRIPTIONS · VIEWS.
+  - rf2-17vxj: + SCHEMA-VIOLATIONS (warning chrome, conditional).
+  - rf2-yx1ae: + CHILD-DISPATCHES (cascade-link section, conditional).
+  - rf2-rrykz: + APP-DB-DIFF (state-mutation lens, conditional).
+
+  The view's badge resolver bails to `:text-tertiary` on an unknown
+  badge, so adding to this set is purely additive."
+  #{:DISPATCH :COEFFECT :HANDLER :FLOW :FX :SUBSCRIPTIONS :VIEWS
+    :SCHEMA-VIOLATIONS :CHILD-DISPATCHES :APP-DB-DIFF})
 
 (defn valid-badge?
   "Predicate — `:badge` keyword is a member of `badge-set`."

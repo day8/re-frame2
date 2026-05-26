@@ -273,6 +273,68 @@
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-cascade-summary-long-count"))
           "no long-count chip on a fast cascade"))))
 
+;; ---- rf2-17vxj — schema-violations section ----------------------------
+
+(deftest schema-violations-step-renders-rows-test
+  (testing "rf2-17vxj — SCHEMA VIOLATIONS step renders one row per
+            violation; rollback chip rides any rollback? row"
+    (let [step {:step :schema-violations :badge :SCHEMA-VIOLATIONS
+                :step-number 8
+                :rows [{:kind :rf.error/schema-validation-failure
+                        :where :app-db
+                        :failing-id :counter/inc
+                        :path [:count]
+                        :value "not-an-int"
+                        :rollback? true
+                        :sensitive? false}
+                       {:kind :rf.schema/violation
+                        :where :hot-reload
+                        :frame :rf/default
+                        :failing-id :rf/default
+                        :path [:count]
+                        :value "boom"
+                        :recovery :logged-and-skipped
+                        :rollback? false
+                        :sensitive? false}]
+                :rollbacks 1}
+          tree (view/render-schema-violations-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-schema-violations"))
+          "the step wrapper renders")
+      (is (= 2 (count (th/find-by-testid-prefix
+                        tree "rf-xray-epoch-schema-violation-row-"))))
+      (is (some? (th/find-by-testid
+                   tree "rf-xray-epoch-schema-violation-rollback-0"))
+          "the rollback chip rides the rollback? row")
+      (is (nil? (th/find-by-testid
+                  tree "rf-xray-epoch-schema-violation-rollback-1"))
+          "no rollback chip on a clean recovery row")
+      (let [header (text-of tree "rf-xray-epoch-schema-violations-header")]
+        (is (string/includes? header "2 violation"))
+        (is (string/includes? header "1 rollback")))
+      (is (some? (th/find-by-testid
+                   tree "rf-xray-epoch-schema-violations-open-issues"))
+          "the open-issues affordance is present"))))
+
+(deftest schema-violations-row-shows-fields-test
+  (testing "rf2-17vxj — per-row body shows where + failing-id + path + value"
+    (let [step {:step :schema-violations :badge :SCHEMA-VIOLATIONS
+                :step-number 8
+                :rows [{:kind :rf.error/schema-validation-failure
+                        :where :sub-return
+                        :failing-id :counter/total
+                        :path [:total]
+                        :value {:bad :data}
+                        :rollback? false
+                        :sensitive? false}]
+                :rollbacks 0}
+          tree (view/render-schema-violations-step step)]
+      (let [where (text-of tree "rf-xray-epoch-schema-violation-where-0")
+            id    (text-of tree "rf-xray-epoch-schema-violation-id-0")
+            path  (text-of tree "rf-xray-epoch-schema-violation-path-0")]
+        (is (string/includes? where "sub return"))
+        (is (string/includes? id ":counter/total"))
+        (is (string/includes? path "[:total]"))))))
+
 (deftest duration-chip-renders-long-step-warning-test
   (testing "rf2-nqt3d — a step header's duration chip paints warning
             chrome when over 16ms"

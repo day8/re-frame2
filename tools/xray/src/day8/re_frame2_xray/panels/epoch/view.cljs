@@ -1015,21 +1015,181 @@
      nil)
    (views-table rows)])
 
+;; ---- SCHEMA-VIOLATIONS step (rf2-17vxj) ----------------------------------
+
+(defn- schema-violation-where-label
+  "Render a violation's `:where` slot as a UI label (rf2-17vxj). Closed
+  set is per Spec 008 / 010; defaults to the keyword name."
+  [where]
+  (case where
+    :app-db      "app-db commit"
+    :cofx        "coeffect"
+    :sub-return  "sub return"
+    :fx-args     "fx args"
+    :event       "event payload"
+    :hot-reload  "schema hot-reload"
+    (when (keyword? where) (name where))))
+
+(defn- schema-violation-row-view
+  "Render one schema-violation row (rf2-17vxj). Per-row fields:
+
+    - `:where` label
+    - `:failing-id` / `:frame` (the registered name whose boundary failed)
+    - `:path` (the db / payload path, when available)
+    - failing value via `edn/inspect-inline` (already redacted at the
+      substrate emit site when `:sensitive?`)
+    - `:rollback?` chip when the cascade was rejected"
+  [idx {:keys [where failing-id path value rollback? recovery sensitive?
+               kind explain] :as _row}]
+  [:div {:key (str "schema-violation-" idx)
+         :data-testid (str "rf-xray-epoch-schema-violation-row-" idx)
+         :data-violation-kind (when kind (name kind))
+         :data-rollback (str (boolean rollback?))
+         :style {:display "flex"
+                 :flex-direction "column"
+                 :gap "3px"
+                 :padding "5px 8px"
+                 :background    (:bg-3 tokens)
+                 :border-left   (str "2px solid " (:warning tokens))
+                 :margin-bottom "5px"
+                 :border-radius "0 3px 3px 0"
+                 :font-family   mono-stack
+                 :font-size     "12px"}}
+   ;; head row: where + failing-id + rollback chip
+   [:div {:style {:display "flex"
+                  :align-items "center"
+                  :gap "8px"
+                  :flex-wrap "wrap"}}
+    [:span {:data-testid (str "rf-xray-epoch-schema-violation-where-" idx)
+            :style {:color       (:warning tokens)
+                    :font-weight 700
+                    :text-transform "uppercase"
+                    :font-size   "10px"
+                    :letter-spacing "0.5px"}}
+     (schema-violation-where-label where)]
+    (when failing-id
+      [:span {:data-testid (str "rf-xray-epoch-schema-violation-id-" idx)
+              :style {:color (:accent tokens)}}
+       (proj/ns-keyword failing-id)])
+    (when rollback?
+      [:span {:data-testid (str "rf-xray-epoch-schema-violation-rollback-" idx)
+              :title "this cascade was rolled back"
+              :style {:padding "2px 5px"
+                      :border-radius "3px"
+                      :background (:error tokens)
+                      :color (:white tokens)
+                      :font-size "10px"
+                      :font-weight 700
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"}}
+       "rolled back"])
+    (when (and recovery (not rollback?))
+      [:span {:style {:color (:text-tertiary tokens)
+                      :font-size "10px"
+                      :font-style "italic"}}
+       (str "recovery: " (name recovery))])]
+   ;; path (when present)
+   (when (sequential? path)
+     [:div {:data-testid (str "rf-xray-epoch-schema-violation-path-" idx)
+            :style {:color (:text-tertiary tokens)
+                    :padding-left "16px"}}
+      (proj/path-display path)])
+   ;; failing value
+   (when (some? value)
+     [:div {:data-testid (str "rf-xray-epoch-schema-violation-value-" idx)
+            :style {:color (:text-primary tokens)
+                    :padding-left "16px"
+                    :word-break "break-word"}}
+      (edn/inspect-inline value)])
+   ;; sensitive marker (the substrate already redacted; surface that the
+   ;; value WAS redacted so the operator doesn't read the placeholder
+   ;; as the actual failing value)
+   (when sensitive?
+     [:div {:style {:color (:text-tertiary tokens)
+                    :font-style "italic"
+                    :font-size "10px"
+                    :padding-left "16px"}}
+      "(value redacted — slot declared :sensitive?)"])
+   ;; explain detail (Malli explain map, when stamped)
+   (when (some? explain)
+     [:div {:data-testid (str "rf-xray-epoch-schema-violation-explain-" idx)
+            :style {:color (:text-secondary tokens)
+                    :padding-left "16px"
+                    :font-size "11px"}}
+      (proj/truncate (pr-str explain) 120)])])
+
+(defn render-schema-violations-step
+  "Render the SCHEMA VIOLATIONS step (rf2-17vxj — only present when
+  the cascade carried `:rf.error/schema-validation-failure` or
+  `:rf.schema/violation` trace events).
+
+  Header carries the violation count + a per-rollback split + a
+  click-affordance that navigates to the Issues panel for full
+  triage (the per-row data shows the cascade-local view; Issues
+  holds the cross-session list)."
+  [{:keys [rows rollbacks step-number]}]
+  [:div {:data-testid "rf-xray-epoch-step-schema-violations"
+         :data-step-kw "schema-violations"
+         :data-rollback-count (str (or rollbacks 0))}
+   (numbered-circle step-number :SCHEMA-VIOLATIONS)
+   (step-header
+     {:step :schema-violations
+      :badge :SCHEMA-VIOLATIONS
+      :verb [:span {:style {:display "inline-flex" :align-items "center"
+                            :gap "8px" :flex-wrap "wrap"}}
+             [:span {:style {:display "inline-flex"
+                             :align-items "center"
+                             :gap "4px"
+                             :color (:warning tokens)}}
+              (icons/alert-triangle)
+              (str (count rows) " violation"
+                   (when (not= 1 (count rows)) "s"))]
+             (when (pos? (or rollbacks 0))
+               [:span {:style {:color (:error tokens)
+                               :font-weight 700}}
+                (str rollbacks " rollback"
+                     (when (not= 1 rollbacks) "s"))])
+             [:button {:data-testid "rf-xray-epoch-schema-violations-open-issues"
+                       :aria-label "open the Issues panel for full triage"
+                       :on-click (fn [e]
+                                   (.stopPropagation e)
+                                   (rf/dispatch [:rf.xray/select-tab :issues]
+                                                {:frame :rf/xray}))
+                       :style {:background "transparent"
+                               :border (str "1px solid " (:border-default tokens))
+                               :border-radius "3px"
+                               :color (:text-secondary tokens)
+                               :cursor "pointer"
+                               :font-family sans-stack
+                               :font-size "10px"
+                               :padding "2px 8px"
+                               :margin-left "8px"
+                               :text-transform "uppercase"
+                               :letter-spacing "0.5px"}}
+              "open issues →"]]
+      :expandable? false
+      :testid "rf-xray-epoch-schema-violations"}
+     nil)
+   [:div {:style {:margin-top "5px"}}
+    (map-indexed schema-violation-row-view rows)]])
+
 ;; ---- step dispatcher -----------------------------------------------------
 
 (defn- render-step
   "Dispatch a step row to its renderer. Returns hiccup; nil for
   unknown step kinds (defensive — every step the projection produces
-  is in the seven-step inventory)."
+  is in the canonical inventory; rf2-17vxj added SCHEMA-VIOLATIONS,
+  rf2-yx1ae added CHILD-DISPATCHES, rf2-rrykz added APP-DB-DIFF)."
   [step]
   (case (:step step)
-    :dispatch       (render-dispatch-step step)
-    :coeffect       (render-coeffect-step step)
-    :handler        (render-handler-step step)
-    :flow           (render-flow-step step)
-    :fx             (render-fx-step step)
-    :subscriptions  (render-subscriptions-step step)
-    :views          (render-views-step step)
+    :dispatch          (render-dispatch-step step)
+    :coeffect          (render-coeffect-step step)
+    :handler           (render-handler-step step)
+    :flow              (render-flow-step step)
+    :fx                (render-fx-step step)
+    :subscriptions     (render-subscriptions-step step)
+    :views             (render-views-step step)
+    :schema-violations (render-schema-violations-step step)
     nil))
 
 ;; ---- pipeline view -------------------------------------------------------

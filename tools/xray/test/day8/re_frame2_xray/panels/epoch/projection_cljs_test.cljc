@@ -135,6 +135,25 @@
                                                :delay delay
                                                :reason reason}))
 
+(defn- schema-violation-ev
+  ([where failing-id path value]
+   (schema-violation-ev where failing-id path value nil))
+  ([where failing-id path value rollback?]
+   (ev :error :rf.error/schema-validation-failure
+       (cond-> {:where where
+                :failing-id failing-id
+                :path path
+                :value value}
+         (some? rollback?) (assoc :rollback? rollback?)))))
+
+(defn- schema-hot-reload-ev
+  [frame-id path mismatching-value]
+  (ev :warning :rf.schema/violation
+      {:frame frame-id
+       :path path
+       :mismatching-value mismatching-value
+       :recovery :logged-and-skipped}))
+
 (defn- record
   "Build a synthetic `:rf/epoch-record` for projection."
   ([events] (record events nil))
@@ -437,7 +456,8 @@
                          (view-render-ev ::v [:s])])
           steps (proj/project rec)]
       (is (every? proj/valid-badge? (map :badge steps)))
-      (is (= 7 (count proj/badge-set))))))
+      (is (= 10 (count proj/badge-set))
+          "rf2-sc3r1 + rf2-17vxj + rf2-yx1ae + rf2-rrykz = 7 + 3 = 10 badges"))))
 
 ;; ---- formatting helpers --------------------------------------------------
 
@@ -517,3 +537,71 @@
     (is (= 2 (proj/long-step-count [{:duration-ms 18}
                                     {:duration-ms 1}
                                     {:duration-ms 50}])))))
+
+;; ---- rf2-17vxj — schema-violations step ---------------------------------
+
+(deftest schema-violations-step-conditional-test
+  (testing "rf2-17vxj — no violation events → step is OMITTED"
+    (is (nil? (proj/schema-violations-step []))))
+
+  (testing "rf2-17vxj — `:rf.error/schema-validation-failure` event
+            surfaces a row"
+    (let [s (proj/schema-violations-step
+              [(schema-violation-ev :app-db :counter/inc [:count]
+                                    "not-an-int" true)])]
+      (is (= :schema-violations (:step s)))
+      (is (= :SCHEMA-VIOLATIONS (:badge s)))
+      (is (= 1 (count (:rows s))))
+      (is (= 1 (:rollbacks s))
+          ":rollbacks counts rows where :rollback? is true")
+      (let [r (-> s :rows first)]
+        (is (= :app-db (:where r)))
+        (is (= :counter/inc (:failing-id r)))
+        (is (= [:count] (:path r)))
+        (is (= "not-an-int" (:value r)))
+        (is (true? (:rollback? r)))
+        (is (= :rf.error/schema-validation-failure (:kind r)))))))
+
+(deftest schema-violations-hot-reload-event-test
+  (testing "rf2-17vxj — `:rf.schema/violation` event (hot-reload drift)
+            also produces a row; `:where` defaults to `:hot-reload`"
+    (let [s (proj/schema-violations-step
+              [(schema-hot-reload-ev :rf/default [:count]
+                                     "not-an-int")])]
+      (is (= 1 (count (:rows s))))
+      (let [r (-> s :rows first)]
+        (is (= :hot-reload (:where r)))
+        (is (= :rf.schema/violation (:kind r)))
+        (is (= [:count] (:path r)))
+        (is (= "not-an-int" (:value r)))
+        (is (= :logged-and-skipped (:recovery r)))))))
+
+(deftest schema-violations-mixed-rows-test
+  (testing "rf2-17vxj — runtime + hot-reload events project into the
+            same row schema"
+    (let [s (proj/schema-violations-step
+              [(schema-violation-ev :sub-return :counter/total nil
+                                    {:bad :data})
+               (schema-hot-reload-ev :rf/default [:counter :n]
+                                     "boom")])]
+      (is (= 2 (count (:rows s)))
+          "both events project into rows")
+      (is (= 0 (:rollbacks s))
+          "no rollback-true rows in this fixture"))))
+
+(deftest project-includes-schema-violations-step-test
+  (testing "rf2-17vxj — top-level project emits SCHEMA-VIOLATIONS at
+            the END of the cascade when violations fired"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (db-changed-ev [[[:count] 0 "boom" :modified]])
+                         (schema-violation-ev :app-db :counter/inc
+                                              [:count] "boom" true)])
+          steps (proj/project rec)]
+      (is (= :schema-violations (-> steps last :step))
+          "SCHEMA-VIOLATIONS rides at the end of the cascade")))
+
+  (testing "rf2-17vxj — no violations → step absent"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (db-changed-ev [[[:count] 0 1 :modified]])])
+          steps (proj/project rec)]
+      (is (not-any? #(= :schema-violations (:step %)) steps)))))

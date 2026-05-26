@@ -63,27 +63,40 @@
   COEFFECT, `:magenta` for SUBSCRIPTIONS) per the bead body — the
   view differentiates them with their text label rather than a
   hue split; the project's palette doesn't carry a separate pink hue
-  and adding one for this single use site would erode the palette's
+  and adding to it for this single use site would erode the palette's
   single-source-of-truth posture (per spec/022). HANDLER + FLOW share
-  `:accent` — the Figma export's single-accent identity (rf2-ad7zx.13)."
-  {:DISPATCH      :text-tertiary
-   :COEFFECT      :magenta
-   :HANDLER       :accent
-   :FLOW          :accent
-   :FX            :orange
-   :SUBSCRIPTIONS :magenta
-   :VIEWS         :success})
+  `:accent` — the Figma export's single-accent identity (rf2-ad7zx.13).
+
+  rf2-17vxj — SCHEMA-VIOLATIONS pulls `:warning` so the section
+  reads as load-bearing without rising to `:error`'s alarmist tone.
+  rf2-yx1ae — CHILD-DISPATCHES pulls `:text-tertiary` (the same muted
+  grey as DISPATCH — same hue family, same cascade-link semantics).
+  rf2-rrykz — APP-DB-DIFF pulls `:accent` (the same blue as HANDLER /
+  FLOW — same state-mutation lens semantics)."
+  {:DISPATCH          :text-tertiary
+   :COEFFECT          :magenta
+   :HANDLER           :accent
+   :FLOW              :accent
+   :FX                :orange
+   :SUBSCRIPTIONS     :magenta
+   :VIEWS             :success
+   :SCHEMA-VIOLATIONS :warning
+   :CHILD-DISPATCHES  :text-tertiary
+   :APP-DB-DIFF       :accent})
 
 (def ^:private badge->label
   "Map from badge keyword → uppercase label rendered in the badge
   pill. Pure data."
-  {:DISPATCH      "DISPATCH"
-   :COEFFECT      "COEFFECT"
-   :HANDLER       "HANDLER"
-   :FLOW          "FLOW"
-   :FX            "FX"
-   :SUBSCRIPTIONS "SUBSCRIPTIONS"
-   :VIEWS         "VIEWS"})
+  {:DISPATCH          "DISPATCH"
+   :COEFFECT          "COEFFECT"
+   :HANDLER           "HANDLER"
+   :FLOW              "FLOW"
+   :FX                "FX"
+   :SUBSCRIPTIONS     "SUBSCRIPTIONS"
+   :VIEWS             "VIEWS"
+   :SCHEMA-VIOLATIONS "SCHEMA VIOLATIONS"
+   :CHILD-DISPATCHES  "DISPATCHED EVENTS"
+   :APP-DB-DIFF       "APP-DB DIFF"})
 
 (defn token-key
   "Return the theme-token KEYWORD for `badge` (e.g. `:accent` for
