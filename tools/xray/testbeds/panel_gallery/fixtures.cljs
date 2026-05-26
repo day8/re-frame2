@@ -433,11 +433,14 @@
   (event-lens-simple-buffer))
 
 (defn event-lens-with-coeffects-buffer
-  "Event lens fixture exercising the COEFFECTS section (rf2-jhhqt).
-  Stamps two user-injected coeffects (`:now` + `:local-storage`) onto
-  the `:rf.fx/do-fx` trace's `:tags :coeffects` slot — the substrate
-  filter has already excluded the framework defaults (`:db` `:event`
-  `:frame` `:source` `:trace-id`)."
+  "Event lens fixture exercising the COEFFECTS section (rf2-jhhqt,
+  rf2-9dk9y). Stamps two user-injected coeffects (`:now` +
+  `:local-storage`) onto the `:rf.event/run-end` trace's
+  `:tags :rf.event/coeffects` slot — the substrate filter has already
+  excluded the framework defaults (`:db` `:event` `:frame` `:source`
+  `:trace-id`). Per rf2-9dk9y the stamp lives on `:run-end`, not
+  `:do-fx`, because do-fx never fires for handlers that return only
+  `:db` and no `:fx`."
   []
   (let [dispatch-id 110
         id-base     60
@@ -448,13 +451,13 @@
             :rf.trace/call-site
             {:file "src/cart/events.cljs" :line 211})
      {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-end
-      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 7)}
-     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
-      :tags (assoc tag :rf.event/fx [[:db nil]]
-                       :rf.event/db-present? true
+      :tags (assoc tag :rf.trace/phase :run-end :duration-ms 7
                        :rf.event/coeffects {:now "2026-05-18T19:00:00Z"
                                    :local-storage {:user/last-cart-id "cart-42"
                                                    :user/wishlist-ids #{"sku-9"}}})}
+     {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/do-fx
+      :tags (assoc tag :rf.event/fx [[:db nil]]
+                       :rf.event/db-present? true)}
      {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/handled
       :tags (assoc tag :rf.fx/id :db :duration-ms 1)}]))
 
