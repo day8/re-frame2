@@ -47,14 +47,34 @@
             [day8.re-frame2-xray.panels.app-db-diff-state :as state]
             [day8.re-frame2-xray.panels.app-db-diff-subs :as subs]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens sans-stack]]))
+             :refer [tokens sans-stack]]
+            [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]))
 
 (rf/reg-view Panel
   "The app-db tab's root view — a current-state inspector sectioned by
-  reserved `:rf/*` area."
+  reserved `:rf/*` area.
+
+  rf2-yqjrd — carries the universal three-mode toggle
+  `[diff][full][full+diff]` at the top. The toggle drives every
+  section's rendering uniformly:
+
+  - `:diff`      — pure-diff lens at the top of the panel (flat path
+                   list of changes the focused epoch produced).
+                   Per-section bodies are suppressed.
+  - `:full`      — every section renders LIVE current-state with no
+                   `:before` threading (plain browse mode).
+  - `:full+diff` — every section renders LIVE current-state WITH the
+                   focused epoch's `:db-before` threaded so inline
+                   diff annotations paint (default; mode-3).
+
+  Mode persists in `:rf.xray.app-db/view-mode` on Xray's app-db so the
+  operator's preference survives focus shifts."
   []
-  (let [section-model @(rf/subscribe [:rf.xray/app-db-state])]
+  (let [mode          @(rf/subscribe [:rf.xray.app-db/view-mode])
+        section-model @(rf/subscribe [:rf.xray/app-db-state])
+        diff-triples  @(rf/subscribe [:rf.xray/selected-epoch-diff])]
     [:section {:data-testid "rf-xray-app-db-diff"
+               :data-view-mode (name mode)
                :style       {:height         "100%"
                              :display        "flex"
                              :flex-direction "column"
@@ -62,10 +82,32 @@
                              :color          (:text-primary tokens)
                              :font-family    sans-stack
                              :font-size      "14px"}}
+     ;; rf2-yqjrd — universal three-mode toggle. Sits at the top of the
+     ;; panel above the section list; one mode applies to every
+     ;; section's body. Frame-anchored to `:rf/xray` per the same
+     ;; rf2-p56sk / rf2-7sdja / rf2-kcaiz pattern the HANDLER `:db`
+     ;; toggle uses.
+     [:div {:style {:padding "12px 12px 0"
+                    :display "flex"
+                    :align-items "center"
+                    :gap "8px"}}
+      [:span {:style {:font-family sans-stack
+                      :font-size "11px"
+                      :font-weight 600
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"
+                      :color (:text-secondary tokens)}}
+       "View"]
+      [diff-mode/diff-mode-toggle
+       {:mode mode
+        :testid "rf-xray-app-db-view-mode"
+        :on-change (fn [m]
+                     (rf/with-frame :rf/xray
+                       (rf/dispatch [:rf.xray.app-db/set-view-mode m])))}]]
      ;; rf2-6xezz — the L4 tab strip is the panel-name source-of-truth;
      ;; content starts immediately under the tab bar.
      [:div {:style {:flex 1 :overflow "auto"}}
-      (state/state-body section-model)]]))
+      (state/state-body section-model {:mode mode :diff-triples diff-triples})]]))
 
 (defn install!
   "Idempotent install for the app-db tab's Xray-side registrations.

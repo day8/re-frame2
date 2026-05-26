@@ -45,6 +45,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
+            [day8.re-frame2-xray.diff.engine :as diff-engine]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
@@ -57,6 +58,7 @@
             ;; edn-inspector widget directly. Each machine gets its own
             ;; `:panel-id` qualifier so two machines' expansion state
             ;; stays independent. See spec/021 §10 widget contract.
+            [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
              :as t
@@ -454,139 +456,223 @@
     (keyword? machine-id) (subs (str machine-id) 1)
     :else (str machine-id)))
 
-(defn- snapshot-block
-  "Render one machine snapshot map (`{:state X :data Y}`) via the
-  first-class edn-inspector widget (rf2-oqa60 phase 1, rf2-lxvn6 phase
-  4). Tagged with a section heading + the per-mount testid so panel-
-  level tests can assert presence per (machine-id, phase) pair.
+(defn- snapshot-flat-diff-rows
+  "Project the (before, after) snapshot pair through the shared
+  Editscript engine to a flat list of `[path before after change-kind]`
+  triples — the same shape the App-DB / Epoch HANDLER `:diff` lens
+  consumes. Used by the Machine Inspector's `:diff` mode (rf2-yqjrd).
 
-  rf2-3d987 issue #3: each column carries its own internal header
-  (`Before` / `After`) so the side-by-side layout (CSS grid in the
-  caller) reads as two diff-able columns. The grouping header in
-  `snapshot-drill-in` drops the `before / after` suffix since it's now
-  visually obvious from the two columns.
+  Returns an empty vector when no Editscript edits surface (identical
+  snapshots) so the renderer can paint a `— (no changes)` placeholder."
+  [before after]
+  (let [proj (diff-engine/project before after)
+        rows (:flat-rows proj)]
+    (mapv (fn [{:keys [path op before after]}]
+            (let [kind (case op
+                         :added    :added
+                         :removed  :removed
+                         :modified :modified
+                         :modified)]
+              [path before after kind]))
+          rows)))
 
-  When `before-snapshot` is supplied (the AFTER block receives the
-  BEFORE snapshot as the diff pre-image), the inspector renders in
-  diff mode — changed leaves get the `← changed from X` annotation
-  and the row chrome (wash + stripe) marks added / modified /
-  removed paths. The BEFORE block does not get a pre-image (it's the
-  baseline; there's nothing to diff against).
-
-  Returns `nil` when the snapshot is absent — the empty-state is
-  handled by the caller (a top-level placeholder is more legible than
-  a per-block nil chip)."
-  [{:keys [machine-id phase label snapshot before-snapshot]}]
-  (when (some? snapshot)
-    [:div {:data-testid    (str "rf-xray-machine-snapshot-block-"
-                                (machine-id-suffix machine-id)
-                                "-" (name phase))
+(defn- snapshot-flat-diff-body
+  "Render the `:diff` lens for the snapshot drill-in — flat path-
+  prefixed rows showing the Editscript projection of `(before, after)`.
+  Mirrors the App-DB `:diff` body shape so the operator sees the same
+  flat-list grammar regardless of surface."
+  [{:keys [machine-id before after]}]
+  (let [rows  (snapshot-flat-diff-rows before after)
+        empty? (empty? rows)]
+    [:div {:data-testid (str "rf-xray-machine-snapshot-diff-"
+                             (machine-id-suffix machine-id))
            :data-machine-id (str machine-id)
-           :data-phase      (name phase)
-           ;; Issue #2 (option b): match the outer section's `bg-2`
-           ;; rather than the brighter `bg-1` so the snapshot pair
-           ;; reads as continuation of the body, not as a second card
-           ;; layer. The outer bordered section provides the card chrome.
+           :data-empty (str empty?)
            :style {:padding "8px 12px"
                    :background (:bg-2 tokens)
                    :min-width 0}}
-     ;; Issue #3 — per-column internal header (`Before` / `After`).
-     ;; Carries the same upper-case caption styling that earlier nested
-     ;; in the outer ribbon but now serves as the column label.
-     [:div {:style {:color (:text-tertiary tokens)
-                    :text-transform "uppercase"
-                    :font-size "10px"
-                    :letter-spacing "0.5px"
-                    :font-family sans-stack
-                    :font-weight 700
-                    :margin-bottom "4px"}}
-      label]
+     (if empty?
+       [:div {:style {:font-family sans-stack
+                      :font-size "11px"
+                      :font-style "italic"
+                      :color (:text-tertiary tokens)}}
+        "— (no changes)"]
+       (into [:div {:style {:font-family mono-stack
+                            :font-size "12px"}}]
+             (for [[i [path before-v after-v kind]] (map-indexed vector rows)]
+               (let [glyph        (case kind
+                                    :added    "+"
+                                    :removed  "−"
+                                    :modified "~"
+                                    "~")
+                     glyph-colour (case glyph
+                                    "+" (:success tokens)
+                                    "−" (:error tokens)
+                                    (:warning tokens))]
+                 [:div {:key (str "row-" i)
+                        :data-testid (str "rf-xray-machine-snapshot-diff-row-"
+                                          (machine-id-suffix machine-id) "-" i)
+                        :style {:display "flex"
+                                :gap "8px"
+                                :align-items "baseline"
+                                :padding "2px 0"
+                                :flex-wrap "wrap"}}
+                  [:span {:style {:color glyph-colour :font-weight 700 :min-width "1ch"}}
+                   glyph]
+                  [:span {:style {:color (:text-secondary tokens)
+                                  :word-break "break-word"}}
+                   (pr-str path)]
+                  (when (= "~" glyph)
+                    [:<>
+                     [:span {:style {:color (:text-tertiary tokens)
+                                     :text-decoration "line-through"}}
+                      [ei/mini before-v 40]]
+                     [:span {:style {:color (:text-tertiary tokens)}} "→"]
+                     [:span {:style {:color (:success tokens)}}
+                      [ei/mini after-v 40]]])
+                  (when (= "+" glyph)
+                    [:span {:style {:color (:success tokens) :flex 1 :min-width 0}}
+                     [ei/mini after-v 80]])
+                  (when (= "−" glyph)
+                    [:span {:style {:color (:error tokens)
+                                    :text-decoration "line-through"
+                                    :flex 1 :min-width 0}}
+                     [ei/mini before-v 80]])]))))]))
+
+(defn- snapshot-block
+  "Render a machine snapshot map (`{:state X :data Y}`) via the
+  first-class edn-inspector widget (rf2-oqa60 phase 1, rf2-lxvn6 phase
+  4). One mount; the view-mode toggle (rf2-yqjrd) drives whether
+  `:before` is threaded as the diff pre-image.
+
+  Replaces the prior side-by-side Before/After grid (retired
+  2026-05-27 per rf2-yqjrd) — mode-3 (`:full+diff`) carries the same
+  meanings the two-column layout did (full state + diff context +
+  comparison) in a single unified surface, and the `:diff` mode
+  carries the pure-diff lens for operators who want only the
+  changes.
+
+  Mode behaviour:
+
+  - `:full`      — render the AFTER snapshot with no `:before` (plain
+                   browse).
+  - `:full+diff` — render the AFTER snapshot with `:before` threaded
+                   so changed leaves carry inline `← changed from X`
+                   annotations + row chrome (added/modified/removed).
+                   Default.
+  - `:diff`      — render via `snapshot-flat-diff-body` (handled by
+                   `snapshot-drill-in`, not here).
+
+  Renders `nil` when the snapshot is absent."
+  [{:keys [machine-id snapshot before-snapshot mode]}]
+  (when (some? snapshot)
+    [:div {:data-testid    (str "rf-xray-machine-snapshot-block-"
+                                (machine-id-suffix machine-id))
+           :data-machine-id (str machine-id)
+           :data-view-mode  (when (keyword? mode) (name mode))
+           ;; Issue #2 (option b): match the outer section's `bg-2`
+           ;; rather than the brighter `bg-1` so the snapshot reads as
+           ;; continuation of the body, not as a second card layer.
+           :style {:padding "8px 12px"
+                   :background (:bg-2 tokens)
+                   :min-width 0}}
      [ei/edn-inspector snapshot
-      (cond-> {:panel-id (snapshot-panel-id machine-id phase)
-               ;; rf2-pvsxs — machine + phase are stable identifiers; the
-               ;; operator's drill-into-data choices survive a Machines tab
-               ;; leave-and-return round-trip.
-               :site-id  [:rf.xray.machines/inspector-snapshot machine-id phase]
-               :default-expanded-depth 2
-               ;; rf2-l4625 — machine snapshots routinely carry deeply-nested
-               ;; `:data` maps; the popup gives the operator a full-modal
-               ;; inspection surface alongside the per-machine drill-in.
+      (cond-> {:panel-id (snapshot-panel-id machine-id :after)
+               ;; rf2-pvsxs — machine + phase identifiers; the operator's
+               ;; drill-into-data choices survive a Machines tab leave-
+               ;; and-return round-trip. `:after` is the canonical phase
+               ;; suffix for the single-mount post-rf2-yqjrd shape (the
+               ;; old `:before` mount was retired with the side-by-side
+               ;; grid).
+               :site-id  [:rf.xray.machines/inspector-snapshot machine-id :after]
+               :default-expanded-depth (case mode :full+diff 3 2)
+               ;; rf2-l4625 — machine snapshots routinely carry deeply-
+               ;; nested `:data` maps; the popup gives the operator a
+               ;; full-modal inspection surface alongside the per-
+               ;; machine drill-in.
                :popup-affordance? true}
-        ;; Diff mode kicks in when the AFTER block carries the BEFORE
-        ;; snapshot as its pre-image — the widget paints the row
-        ;; chrome (added / modified / removed) + the inline
-        ;; `← changed from X` annotations against the changed paths.
-        (some? before-snapshot) (assoc :before before-snapshot))]]))
+        ;; Mode-3: thread the BEFORE snapshot as the diff pre-image so
+        ;; the widget paints inline `← changed from X` annotations.
+        ;; Mode `:full` skips the threading — pure-data browse.
+        (and (= mode :full+diff) (some? before-snapshot))
+        (assoc :before before-snapshot :full-with-diff? true))]]))
+
+(defn- snapshot-mode-toggle
+  "Three-button toggle bar `[diff][full][full+diff]` for the snapshot
+  drill-in (rf2-yqjrd). Shared widget; dispatches frame-anchored to
+  `:rf/xray` per the rf2-p56sk / rf2-7sdja pattern."
+  [mode]
+  [diff-mode/diff-mode-toggle
+   {:mode      mode
+    :testid    "rf-xray-machine-snapshot-view-mode"
+    :on-change (fn [m]
+                 (rf/with-frame :rf/xray
+                   (rf/dispatch [:rf.xray.machine-inspector/set-view-mode m])))}])
 
 (defn- snapshot-drill-in
   "Snapshot drill-in section beneath the focused-event chart. Renders
-  the BEFORE and AFTER snapshot maps for the focused transition via
-  the first-class edn-inspector widget so the operator can inspect
-  what `:data` carried on either side of the transition (spec/003
-  §M.10 bug class — `:data` mutations invisible without app-db diff).
+  the focused-transition snapshot via the first-class edn-inspector
+  widget so the operator can inspect what `:data` carried on either
+  side of the transition (spec/003 §M.10 bug class — `:data` mutations
+  invisible without app-db diff).
+
+  rf2-yqjrd — RETIRES the prior Before/After side-by-side grid
+  (rf2-3d987 issue #3). The two-column layout is replaced by a SINGLE
+  mount + the universal three-mode toggle `[diff][full][full+diff]`.
+  Mode-3 (`:full+diff`, default) carries the same meanings the side-
+  by-side did — full AFTER state + diff context + comparison against
+  BEFORE — in one unified surface via the R1-R8 grammar (rf2-n2jig).
+  The `:diff` mode adds a pure-diff lens (flat path list) for
+  operators who want only the changes. Pre-alpha posture; no shim.
 
   Per spec/021 §10 widget contract every call site qualifies with a
-  per-machine `:panel-id`; here the qualifier folds in the phase
-  (`:before` / `:after`) so the two sibling mounts don't share
-  expansion state on the same machine.
+  per-machine `:panel-id`; the post-rf2-yqjrd shape uses a single
+  `:after`-phase qualifier (the second mount + its `:before`
+  qualifier retired with the side-by-side grid).
 
-  rf2-3d987 issue #2 (option b): no second card layer — body uses the
-  outer section's `bg-2` so the snapshot pair reads as a continuation
-  of the body. Issue #3: Before / After render side-by-side in a CSS
-  Grid (`repeat(auto-fit, minmax(360px, 1fr))`) when the section is
-  ≥ ~720px wide; falls back to stacked when narrower. Each column
-  carries its own header (`Before` / `After`); the grouping header
-  drops the `before / after` suffix. Issue #5: weight differential on
-  the section label (`<strong>Snapshot</strong>`). Issue #7: nested
-  header uses the lighter-chrome style (no ribbon background, smaller
-  font, bottom-border separator).
-
-  Renders nothing when both snapshots are nil (legacy trace fixtures
-  pre-dating the commit-or-finalize snapshot tagging — see
+  Renders nothing when the AFTER snapshot is absent (legacy trace
+  fixtures pre-dating the commit-or-finalize snapshot tagging — see
   `transition-record-from-trace` docstring)."
   [{:keys [machine-id before after]}]
   (when (or (some? before) (some? after))
-    [:section
-     {:data-testid     "rf-xray-machine-snapshot-drill-in"
-      :data-machine-id (str machine-id)
-      :data-has-before (str (some? before))
-      :data-has-after  (str (some? after))
-      :style {:background (:bg-2 tokens)}}
-     ;; Issue #7 — nested-header treatment: borderless ribbon, smaller
-     ;; font, bottom-border separator. Issue #5 — `<strong>` weight
-     ;; differential lets the eye pick out `Snapshot` from the
-     ;; `transition` qualifier.
-     [:header {:data-testid "rf-xray-machine-snapshot-drill-in-header"
-               :style nested-header-base-style}
-      [:strong {:style {:color (:text-tertiary tokens)
-                        :text-transform "uppercase"
-                        :font-size "10px"
-                        :letter-spacing "0.5px"
-                        :font-weight 700}}
-       "Snapshot"]
-      [:span {:style {:color (:text-tertiary tokens)}} "·"]
-      [:span {:style {:color (:text-secondary tokens)}}
-       "transition"]]
-     ;; Issue #3 — Before/After side-by-side via CSS Grid auto-fit.
-     ;; At viewport ≥ ~720px wide (two 360px minmax tracks) the columns
-     ;; render side-by-side; narrower fits collapse to single-column
-     ;; stack automatically. `min-width 0` on the children prevents
-     ;; inspector content from forcing the column wider than its track.
-     [:div {:data-testid "rf-xray-machine-snapshot-drill-in-grid"
-            :style {:display "grid"
-                    :grid-template-columns
-                    "repeat(auto-fit, minmax(360px, 1fr))"
-                    :gap (:gap-2 spacing)
-                    :padding (:gap-2 spacing)}}
-      (snapshot-block {:machine-id machine-id
-                       :phase :before
-                       :label "Before"
-                       :snapshot before})
-      (snapshot-block {:machine-id machine-id
-                       :phase :after
-                       :label "After"
-                       :snapshot after
-                       :before-snapshot before})]]))
+    (let [mode @(rf/subscribe :rf/xray
+                              [:rf.xray.machine-inspector/view-mode])]
+      [:section
+       {:data-testid     "rf-xray-machine-snapshot-drill-in"
+        :data-machine-id (str machine-id)
+        :data-has-before (str (some? before))
+        :data-has-after  (str (some? after))
+        :data-view-mode  (when (keyword? mode) (name mode))
+        :style {:background (:bg-2 tokens)}}
+       ;; Header carries the section label + the universal three-mode
+       ;; toggle. Same shape as the Epoch HANDLER `:db` and App-DB
+       ;; panel headers post-rf2-yqjrd.
+       [:header {:data-testid "rf-xray-machine-snapshot-drill-in-header"
+                 :style (assoc nested-header-base-style
+                               :display "flex"
+                               :align-items "center"
+                               :gap "8px")}
+        [:strong {:style {:color (:text-tertiary tokens)
+                          :text-transform "uppercase"
+                          :font-size "10px"
+                          :letter-spacing "0.5px"
+                          :font-weight 700}}
+         "Snapshot"]
+        [:span {:style {:color (:text-tertiary tokens)}} "·"]
+        [:span {:style {:color (:text-secondary tokens)}}
+         "transition"]
+        (snapshot-mode-toggle mode)]
+       ;; Body — pure-diff lens vs single-mount snapshot, driven by mode.
+       (case mode
+         :diff
+         (snapshot-flat-diff-body {:machine-id machine-id
+                                   :before before
+                                   :after  after})
+
+         (snapshot-block {:machine-id machine-id
+                          :snapshot   (or after before)
+                          :before-snapshot before
+                          :mode mode}))])))
 
 ;; ---- per-machine focused-event section ---------------------------------
 
@@ -1108,6 +1194,20 @@
   `static.machines.sim` — installed via
   `static.machines.panel/install!` further down the registry."
   []
+  ;; ---- Machine Inspector snapshot view-mode toggle (rf2-yqjrd) -----
+  ;;
+  ;; Universal three-mode toggle for the snapshot drill-in section.
+  ;; Replaces the prior Before/After side-by-side grid — one mount,
+  ;; one toggle, same R1-R8 grammar every other Xray diff surface
+  ;; uses (rf2-n2jig).
+  (rf/reg-sub :rf.xray.machine-inspector/view-mode
+    (fn [db _query]
+      (get db :machine-inspector-view-mode :full+diff)))
+
+  (rf/reg-event-db :rf.xray.machine-inspector/set-view-mode
+    (fn [db [_ mode]]
+      (assoc db :machine-inspector-view-mode mode)))
+
   ;; Registered-machine vector (reads `(rf/machines)`).
   (rf/reg-sub :rf.xray/registered-machines
     (fn [db _query]

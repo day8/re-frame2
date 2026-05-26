@@ -170,6 +170,14 @@
    ;; toggle slot. Persists the operator's preferred view-mode for
    ;; the HANDLER step's `:db` sub-section. Defaults to `:diff`.
    :rf.xray.epoch/db-view-mode
+   ;; rf2-yqjrd — SUBSCRIPTIONS value-mode toggle. Orthogonal to the
+   ;; row-filter `:subs-filter-mode`; governs how each `:changed?`
+   ;; row's value cell renders (`:diff` / `:full` / `:full+diff`).
+   :rf.xray.epoch/subs-value-mode
+   ;; rf2-yqjrd — App-DB panel universal view-mode toggle slot.
+   :rf.xray.app-db/view-mode
+   ;; rf2-yqjrd — Machine Inspector snapshot view-mode toggle slot.
+   :rf.xray.machine-inspector/view-mode
    :rf.xray/event-detail
    :rf.xray/filtered-cascades
    ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
@@ -474,6 +482,12 @@
    ;; toggle write event. Sets the persisted view-mode slot the
    ;; `:rf.xray.epoch/db-view-mode` sub reads.
    :rf.xray.epoch/set-db-view-mode
+   ;; rf2-yqjrd — universal three-mode toggle write events. Each
+   ;; surface registers its own pair so per-surface mode persistence
+   ;; stays isolated.
+   :rf.xray.epoch/set-subs-value-mode
+   :rf.xray.app-db/set-view-mode
+   :rf.xray.machine-inspector/set-view-mode
    :rf.xray/epoch-recorded
    ;; rf2-piye4 — typed-predicate filter events. Each appends a
    ;; typed `{:kind <kw> :params {…}}` IN pill from a right-click

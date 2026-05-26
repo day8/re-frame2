@@ -1165,12 +1165,21 @@
           "the fx row's args mount a mini-render"))))
 
 (deftest subscriptions-values-route-through-mini-test
-  (testing "rf2-8w8er — SUBSCRIPTIONS row renders sub-vec + before /
-            after values through `ei/mini` so the table cells light
-            up with syntax-token chrome rather than plain `pr-str`."
+  (testing "rf2-8w8er + rf2-yqjrd — SUBSCRIPTIONS row renders sub-vec
+            + before / after values through `ei/mini` so the table
+            cells light up with syntax-token chrome rather than plain
+            `pr-str`. The mini-mount triad applies to the `:diff`
+            value-mode (the prior shape); the new `:full` /
+            `:full+diff` modes route through the full edn-inspector
+            instead. Test pins both halves: setting the value-mode
+            to `:diff` recovers the original assertion."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
+      ;; rf2-yqjrd — flip the value-mode to `:diff` so the per-row
+      ;; cell renders via `mini` instead of the new edn-inspector
+      ;; mount that `:full+diff` (default) uses.
+      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-mode :diff])
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/total :sub-vec [:counter/total]
                           :inputs nil :changed? true :before 5 :after 6}]
