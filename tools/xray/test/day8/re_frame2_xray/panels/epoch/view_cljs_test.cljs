@@ -254,6 +254,62 @@
 
 ;; ---- rf2-66wis — HANDLER source code block ---------------------------
 
+;; ---- rf2-93436 — HANDLER :db diff sub-section (design §Section 1+2) -----
+
+(deftest handler-db-diff-always-renders-for-non-machine-handlers-test
+  (testing "rf2-93436 — `:db diff` sub-section is ALWAYS present
+            inside the HANDLER body for reg-event-db / reg-event-fx.
+            Empty diff renders `— (no changes)`; populated diff
+            renders the path-changes."
+    (testing "reg-event-db with empty diff"
+      (let [tree (view/render-handler-step
+                   {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-event-db :event-id :nop
+                    :db-diff [] :fx [] :machine nil})
+            slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
+        (is (some? slot)
+            ":db diff sub-section is always present even when empty")
+        (is (string/includes? (or (th/text-content slot) "") "no changes")
+            "empty diff renders `— (no changes)` per design §Empty edge cases")))
+    (testing "reg-event-db with populated diff"
+      (let [tree (view/render-handler-step
+                   {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-event-db :event-id :counter/inc
+                    :db-diff [[[:counter :value] 5 6 :modified]]
+                    :fx [] :machine nil})
+            slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
+        (is (some? slot))
+        (is (some? (th/find-by-testid
+                     tree "rf-xray-epoch-handler-diff-row-0"))
+            "the populated diff row renders inside the sub-section")))
+    (testing "reg-event-fx with empty diff"
+      (let [tree (view/render-handler-step
+                   {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-event-fx :event-id :navigate
+                    :db-diff [] :fx [{:fx-id :navigate :value "/x"}]
+                    :machine nil})
+            slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
+        (is (some? slot)
+            "even reg-event-fx that returned no :db gets the sub-section")
+        (is (string/includes? (or (th/text-content slot) "") "no changes"))))))
+
+(deftest handler-db-diff-suppressed-for-machine-handlers-test
+  (testing "rf2-93436 — for machine handlers the standalone `:db diff`
+            sub-section is suppressed (design §Section 3 §DB DIFF —
+            folds into SNAPSHOT DIFF since the snapshot IS the
+            db change at `[:rf/machines <id>]`). Avoids the redundant
+            slot duplicating data already shown in SNAPSHOT DIFF."
+    (let [tree (view/render-handler-step
+                 {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-machine :event-id :ws/start
+                  :db-diff [[[:rf/machines :ws/conn] {} {} :modified]]
+                  :fx []
+                  :machine {:transition nil :guards []
+                            :lifecycle [] :timers []}})]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-db-diff"))
+          "no standalone :db diff under machine handlers — folded into
+           SNAPSHOT DIFF per design"))))
+
 (deftest handler-body-renders-source-placeholder-test
   (testing "rf2-66wis — HANDLER body carries a source-code slot.
             When no handler-meta has been stamped the slot renders

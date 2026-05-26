@@ -843,6 +843,39 @@
                        :padding-left "16px"}}
         "<source not yet captured>"])]))
 
+(defn- handler-db-diff-block
+  "Render the HANDLER step's `:db diff` sub-section (rf2-93436 / design
+  doc §Section 1 + §Section 2). Always renders for non-machine
+  handlers — when `db-diff` is empty, the body reads `— (no changes)`
+  per the design's §Empty edge-case rendering table (reg-event-db
+  returning identical db / reg-event-fx returning nil → explicit empty
+  state, not an omitted slot). Operator learns 'the handler ran but
+  wrote nothing to app-db' as a first-class outcome rather than
+  inferring it from absence.
+
+  Distinct from the top-level APP-DB DIFF step (rf2-rrykz) — same
+  source data, different lens. HANDLER's `:db diff` attributes the
+  change to THIS handler's return value; APP-DB DIFF surfaces the
+  cascade-wide accumulated change (which can include fx-triggered
+  child handlers' writes).
+
+  Suppressed for machine handlers — per design §Section 3 §DB DIFF
+  the snapshot IS the db change (at `[:rf/machines <id>]`) so DB DIFF
+  folds into SNAPSHOT DIFF rather than carrying a redundant standalone
+  slot."
+  [db-diff]
+  (let [empty? (not (seq db-diff))
+        n      (count db-diff)]
+    [:div {:data-testid "rf-xray-epoch-handler-db-diff"
+           :data-empty (str empty?)}
+     (sub-header ":db diff"
+                 (if empty?
+                   "— (no changes)"
+                   (str n " path" (when (not= 1 n) "s"))))
+     (when-not empty?
+       (for [[i row] (map-indexed vector db-diff)]
+         (db-diff-line row i)))]))
+
 (defn handler-body
   "Render the HANDLER step's body — source block + db-diff + fx + the
   machine block when the handler is a machine-event-handler.
@@ -851,30 +884,33 @@
   the header already carries that descriptor. Per rf2-66wis the body
   now leads with the handler's source code (or machine spec) so the
   operator can answer 'why did this handler do X' without leaving the
-  panel."
+  panel.
+
+  Per rf2-93436 the `:db diff` sub-section is ALWAYS present for
+  non-machine handlers (design doc §Section 1 + §Section 2) — empty
+  diff renders `— (no changes)` rather than collapsing the slot. For
+  machine handlers the standalone `:db diff` is suppressed (folded
+  into SNAPSHOT DIFF per design §Section 3)."
   [{:keys [flavour event-id db-diff fx machine] :as _row}]
-  [:div {:data-testid "rf-xray-epoch-handler-body"}
-   ;; Source / machine spec block — rf2-66wis
-   (handler-source-block flavour event-id)
-   ;; Machine extras BEFORE db diff (lifecycle is the story for machines)
-   (when machine
-     (machine-block machine))
-   ;; :db diff
-   (when (seq db-diff)
-     [:div {:data-testid "rf-xray-epoch-handler-db-diff"}
-      (sub-header ":db diff"
-                  (str (count db-diff) " path"
-                       (when (not= 1 (count db-diff)) "s")))
-      (for [[i row] (map-indexed vector db-diff)]
-        (db-diff-line row i))])
-   ;; :fx entries
-   (when (seq fx)
-     [:div {:data-testid "rf-xray-epoch-handler-fx"}
-      (sub-header ":fx"
-                  (str (count fx) " entr"
-                       (if (= 1 (count fx)) "y" "ies")))
-      (for [[i entry] (map-indexed vector fx)]
-        (fx-entry-line entry i))])])
+  (let [machine? (= :reg-machine flavour)]
+    [:div {:data-testid "rf-xray-epoch-handler-body"}
+     ;; Source / machine spec block — rf2-66wis
+     (handler-source-block flavour event-id)
+     ;; Machine extras BEFORE db diff (lifecycle is the story for machines)
+     (when machine
+       (machine-block machine))
+     ;; :db diff — always present for non-machine handlers (rf2-93436);
+     ;; folded into SNAPSHOT DIFF for machines
+     (when-not machine?
+       (handler-db-diff-block db-diff))
+     ;; :fx entries
+     (when (seq fx)
+       [:div {:data-testid "rf-xray-epoch-handler-fx"}
+        (sub-header ":fx"
+                    (str (count fx) " entr"
+                         (if (= 1 (count fx)) "y" "ies")))
+        (for [[i entry] (map-indexed vector fx)]
+          (fx-entry-line entry i))])]))
 
 (defn render-handler-step
   "Render the HANDLER step (always present)."
