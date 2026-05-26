@@ -935,3 +935,232 @@
             (is (some? (some-> (meta section) :key))
                 (str "focused-event-section carries :key meta — got "
                      (pr-str (meta section))))))))))
+
+;; ---- (6) rf2-3d987 layout fixes -----------------------------------------
+;;
+;; Pin the 8 cohesive layout changes (rf2-3d987) so a future refactor that
+;; quietly drops one of them has a test marker to fail against. The DOM-
+;; measurement assertions (sibling gap, side-by-side at ≥800px) live in
+;; the Playwright suite — these JVM tests pin the hiccup-level invariants.
+
+(defn- style-of
+  "Return the inline :style map of a hiccup node, or nil."
+  [node]
+  (when (and (vector? node) (map? (second node)))
+    (:style (second node))))
+
+(deftest rf2-3d987-issue-1-focused-event-section-has-gap
+  (testing "rf2-3d987 issue #1: focused-event-section's children must
+            sit on a flex column with a non-zero :gap so sibling sub-
+            panels (lens / chart / snapshot drill-in / cascade) get
+            visible breathing room rather than reading as one wall of
+            grey."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree    (machine-inspector/Panel)
+            section (find-by-testid
+                      tree "rf-xray-machine-focused-event-section-auth/login")
+            style   (style-of section)]
+        (is (some? section)   "focused-event-section mounts")
+        (is (= "flex" (:display style))   "section is a flex container")
+        (is (= "column" (:flex-direction style))
+            "section is a flex column")
+        (is (some? (:gap style))
+            "section carries a :gap so siblings get breathing room")))))
+
+(deftest rf2-3d987-issue-2-snapshot-drill-in-flat-no-second-card
+  (testing "rf2-3d987 issue #2 (option b): snapshot-drill-in matches
+            the outer section's `bg-2` so it reads as a continuation
+            of the body, not as a nested white card. The bordered
+            outer section already provides the card chrome."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree  (machine-inspector/Panel)
+            drill (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
+            style (style-of drill)
+            ;; bg-2 token resolves to the var(--rf-xray-bg-2) CSS string.
+            expected-bg "var(--rf-xray-bg-2)"]
+        (is (some? drill)   "drill-in mounts")
+        (is (= expected-bg (:background style))
+            "drill-in body uses :bg-2 — same as outer section, no card-in-card")))))
+
+(deftest rf2-3d987-issue-3-before-after-side-by-side-grid
+  (testing "rf2-3d987 issue #3: Before/After render in a CSS grid that
+            auto-fits side-by-side at the wider viewport and falls back
+            to stacked when narrower. Pinned via the
+            `grid-template-columns: repeat(auto-fit, minmax(...)` shape
+            on the snapshot-drill-in's inner grid container."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree (machine-inspector/Panel)
+            grid (find-by-testid
+                   tree "rf-xray-machine-snapshot-drill-in-grid")
+            style (style-of grid)
+            cols  (:grid-template-columns style)]
+        (is (some? grid)
+            "snapshot-drill-in carries an inner grid container")
+        (is (= "grid" (:display style))
+            "container uses display: grid")
+        (is (and (string? cols)
+                 (str/includes? cols "auto-fit")
+                 (str/includes? cols "minmax"))
+            (str "grid-template-columns uses auto-fit + minmax so the "
+                 "layout collapses to one column when narrow — got "
+                 (pr-str cols)))))))
+
+(deftest rf2-3d987-issue-4-chart-collapsible-toggle-and-state
+  (testing "rf2-3d987 issue #4: the chart sub-panel carries a collapse
+            toggle button + the chart wrapper surfaces the per-machine
+            `:data-chart-collapsed` flag. Default state is expanded
+            (`false`); the toggle event flips the persisted slot."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      ;; Default state — chart is expanded.
+      (let [tree    (machine-inspector/Panel)
+            wrapper (find-by-testid
+                      tree "rf-xray-machine-focused-event-chart")
+            toggle  (find-by-testid
+                      tree "rf-xray-machine-chart-toggle-auth/login")]
+        (is (some? wrapper)   "chart wrapper mounts")
+        (is (some? toggle)    "collapse toggle button mounts")
+        (is (= "false" (:data-chart-collapsed (second wrapper)))
+            "default state — chart is expanded")
+        (is (= "false" (:data-collapsed (second toggle)))
+            "toggle reflects expanded state")
+        (is (nil? (find-by-testid
+                    tree
+                    "rf-xray-machine-chart-collapsed-summary-auth/login"))
+            "collapsed summary is hidden while expanded"))
+      ;; Toggle → collapsed.
+      (rf/dispatch-sync
+        [:rf.xray.machine-canvas/set-chart-collapsed
+         {:machine-id :auth/login :mode :collapsed}])
+      (let [tree    (machine-inspector/Panel)
+            wrapper (find-by-testid
+                      tree "rf-xray-machine-focused-event-chart")
+            summary (find-by-testid
+                      tree
+                      "rf-xray-machine-chart-collapsed-summary-auth/login")]
+        (is (= "true" (:data-chart-collapsed (second wrapper)))
+            "wrapper reflects collapsed state after dispatch")
+        (is (some? summary)
+            "collapsed summary renders when chart is collapsed")))))
+
+(deftest rf2-3d987-issue-7-nested-header-differentiated-from-outer
+  (testing "rf2-3d987 issue #7: nested headers (chart-header,
+            snapshot-drill-in-header) use lighter chrome than the outer
+            focused-event-header. Pinned by: nested headers DO NOT carry
+            the outer `bg-3` ribbon background; they use a transparent
+            background + bottom-border separator + smaller font."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree    (machine-inspector/Panel)
+            outer   (find-by-testid
+                      tree "rf-xray-machine-focused-event-header")
+            nested-chart  (find-by-testid
+                            tree
+                            "rf-xray-machine-focused-event-chart-header")
+            nested-snap   (find-by-testid
+                            tree
+                            "rf-xray-machine-snapshot-drill-in-header")
+            outer-bg   (-> outer style-of :background)
+            chart-bg   (-> nested-chart style-of :background)
+            snap-bg    (-> nested-snap style-of :background)
+            outer-fs   (-> outer style-of :font-size)
+            chart-fs   (-> nested-chart style-of :font-size)
+            snap-fs    (-> nested-snap style-of :font-size)]
+        (is (some? outer)         "outer header mounts")
+        (is (some? nested-chart)  "chart nested header mounts")
+        (is (some? nested-snap)   "snapshot nested header mounts")
+        (is (= "var(--rf-xray-bg-3)" outer-bg)
+            "outer header keeps the ribbon background")
+        (is (= "transparent" chart-bg)
+            "chart nested header uses transparent background")
+        (is (= "transparent" snap-bg)
+            "snapshot nested header uses transparent background")
+        (is (not= outer-fs chart-fs)
+            "chart nested header font-size differs from outer")
+        (is (not= outer-fs snap-fs)
+            "snapshot nested header font-size differs from outer")))))
+
+(deftest rf2-3d987-issue-8-section-has-panel-breathing-room
+  (testing "rf2-3d987 issue #8: focused-event-section's outer margin
+            grew from 12px to 16px so the card has visible breathing
+            room from the panel host edge at every viewport width."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree    (machine-inspector/Panel)
+            section (find-by-testid
+                      tree "rf-xray-machine-focused-event-section-auth/login")
+            margin  (-> section style-of :margin)]
+        (is (some? section)   "section mounts")
+        (is (= "16px" margin)
+            (str "section uses the 16px (gap-4) margin so it has "
+                 "breathing room from the panel host edge — got "
+                 (pr-str margin)))))))

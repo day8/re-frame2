@@ -45,7 +45,9 @@
   (rf/with-frame :rf/xray
     (testing "every machine-canvas sub resolves through rf/subscribe"
       (doseq [q-v [[:rf.xray.machine-canvas/view-mode-for :m]
-                   [:rf.xray.machine-canvas/view-mode-by-id]]]
+                   [:rf.xray.machine-canvas/view-mode-by-id]
+                   [:rf.xray.machine-canvas/chart-collapsed-for :m]
+                   [:rf.xray.machine-canvas/chart-collapsed-by-id]]]
         (is (some? (rf/subscribe q-v))
             (str q-v " must resolve through rf/subscribe"))))))
 
@@ -85,6 +87,64 @@
         (registrar/handler
           :fx :rf.xray.machine-canvas/persist-view-mode))
       "persist-view-mode fx is in the registrar"))
+
+;; ---- 2b. Chart-collapsed slot (rf2-3d987 issue #4) ---------------------
+
+(deftest chart-collapsed-defaults-to-false
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (let [collapsed? @(rf/subscribe
+                        [:rf.xray.machine-canvas/chart-collapsed-for :m])]
+      (is (= false collapsed?)
+          "rf2-3d987 issue #4 — unset slot defaults to false (expanded)"))))
+
+(deftest chart-collapsed-set-collapsed-and-toggle
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync
+      [:rf.xray.machine-canvas/set-chart-collapsed
+       {:machine-id :m :mode :collapsed}])
+    (is (= true @(rf/subscribe
+                   [:rf.xray.machine-canvas/chart-collapsed-for :m]))
+        ":mode :collapsed flips the slot to true")
+    (rf/dispatch-sync
+      [:rf.xray.machine-canvas/set-chart-collapsed
+       {:machine-id :m :mode :toggle}])
+    (is (= false @(rf/subscribe
+                    [:rf.xray.machine-canvas/chart-collapsed-for :m]))
+        ":mode :toggle inverts the slot")
+    (rf/dispatch-sync
+      [:rf.xray.machine-canvas/set-chart-collapsed
+       {:machine-id :m :mode :toggle}])
+    (is (= true @(rf/subscribe
+                   [:rf.xray.machine-canvas/chart-collapsed-for :m]))
+        "second :toggle inverts again")
+    (rf/dispatch-sync
+      [:rf.xray.machine-canvas/set-chart-collapsed
+       {:machine-id :m :mode :expanded}])
+    (is (= false @(rf/subscribe
+                    [:rf.xray.machine-canvas/chart-collapsed-for :m]))
+        ":mode :expanded flips the slot to false")))
+
+(deftest chart-collapsed-is-per-machine
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync
+      [:rf.xray.machine-canvas/set-chart-collapsed
+       {:machine-id :auth/login :mode :collapsed}])
+    (is (= true  @(rf/subscribe
+                    [:rf.xray.machine-canvas/chart-collapsed-for :auth/login])))
+    (is (= false @(rf/subscribe
+                    [:rf.xray.machine-canvas/chart-collapsed-for :checkout/flow]))
+        "rf2-3d987 issue #4 — per-machine slot, one machine's collapse
+         does not affect another's")))
+
+(deftest persist-chart-collapsed-fx-registered
+  (setup-xray-frame!)
+  (is (some?
+        (registrar/handler
+          :fx :rf.xray.machine-canvas/persist-chart-collapsed))
+      "persist-chart-collapsed fx is in the registrar"))
 
 ;; ---- 3. Chart view hiccup shape ---------------------------------------
 
