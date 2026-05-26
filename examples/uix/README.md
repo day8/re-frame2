@@ -13,7 +13,7 @@ uix/
   dashboard_uix/  <-- design-led example proving multi-pane layout on UIx
 ```
 
-Each example sits in its own folder with the CLJS source (`core.cljs`) and a hand-written `index.html`. The `examples/` tree is **test-free** (locked policy, rf2-8cevm): no example ships a Playwright spec — see [Testing](#testing) below for where the real regression coverage lives. The on-disk folder names carry the `_uix` suffix because the CLJS namespaces (`counter-uix.core`, `login-uix.core`) are deliberately distinct from their Reagent siblings (`counter.core`, `login.core`) — both substrate trees end up on the same shadow-cljs classpath, so the namespaces have to be unique. The folder name follows the namespace convention (`-` becomes `_` on disk).
+Each example sits in its own folder with the CLJS source (`core.cljs`) and a hand-written `index.html`. The `examples/` tree is **test-free**: no example ships a Playwright spec — see [Testing](#testing) below for where the real regression coverage lives. The on-disk folder names carry the `_uix` suffix because the CLJS namespaces (`counter-uix.core`, `login-uix.core`) are deliberately distinct from their Reagent siblings (`counter.core`, `login.core`) — both substrate trees end up on the same shadow-cljs classpath, so the namespaces have to be unique. The folder name follows the namespace convention (`-` becomes `_` on disk).
 
 The dataflow — events, subs, schemas, machine, managed-HTTP stub — is **identical** to the Reagent siblings under [`../reagent/`](../reagent/); only the view layer differs. UIx components are written as `defui` and consume subs via the `use-subscribe` hook (Decision 1, UIx-idiomatic).
 
@@ -30,7 +30,7 @@ The dataflow — events, subs, schemas, machine, managed-HTTP stub — is **iden
 
 ## Testing
 
-The `examples/` tree carries no tests (locked policy, rf2-8cevm). Browser smoke coverage for the UIx substrate lives at the **adapter level**: a single mount + dispatch + assert smoke at [`implementation/adapters/uix/testbed/spec.cjs`](../../implementation/adapters/uix/testbed/) (one each for Reagent, UIx, and Helix). Real regressions are caught by the substrate contract tests (`npm run test:cljs`), the Xray feature-matrix gate (`npm run test:xray-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance — not by per-example specs.
+The `examples/` tree carries no tests. Browser smoke coverage for the UIx substrate lives at the **adapter level**: a single mount + dispatch + assert smoke at [`implementation/adapters/uix/testbed/spec.cjs`](../../implementation/adapters/uix/testbed/) (one each for Reagent, UIx, and Helix). Real regressions are caught by the substrate contract tests (`npm run test:cljs`), the Xray feature-matrix gate (`npm run test:xray-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance — not by per-example specs.
 
 From `implementation/`, the adapter smokes run via:
 

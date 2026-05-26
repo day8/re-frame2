@@ -1,5 +1,5 @@
 (ns ssr-streaming.core
-  "Worked example for Spec 011 §Streaming SSR (rf2-ojakd / rf2-olb64 (a)).
+  "Worked example for Spec 011 §Streaming SSR.
 
   A dashboard with three slow cards: the page's shell + header render
   immediately on the server, then each card streams its content as its
@@ -145,8 +145,8 @@
                       :failed? failed?}))
                  continuations)
            render-hash (rf/with-frame fid (ssr/render-tree-hash hiccup))
-           ;; rf2-gtgf9: hydration-payload policy is explicit + fail-
-           ;; closed. This example's app-db is structurally safe to
+           ;; Hydration-payload policy is explicit + fail-closed. This
+           ;; example's app-db is structurally safe to
            ;; expose end-to-end (every key the dashboard handlers
            ;; populate is intended for the client), so we opt in with
            ;; `:payload-policy :rf.ssr.payload/whole-app-db`. A real

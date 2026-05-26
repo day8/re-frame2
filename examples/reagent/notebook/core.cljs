@@ -3,8 +3,8 @@
 
      [ documents tree ]  [ markdown editor ]  [ live preview ]
 
-   Proves re-frame2 + Reagent can build a substantive UI (rf2-t7t6f). The
-   data-flow is the canonical six dominoes:
+   Proves re-frame2 + Reagent can build a substantive UI. The data-flow
+   is the canonical six dominoes:
 
      - selecting a document         dispatches  [:notebook/select id]
      - editing the body             dispatches  [:notebook/edit-body text]
@@ -14,11 +14,10 @@
    Distinguished from the canonical login + counter examples by being
    `reg-view`-based at every layer, exercising multi-pane layout, and
    leaning into the shared 'Editorial Warm' visual identity from
-   examples/_shared/css/style.css (rf2-v4fpe Option 2 — one shared
-   identity across all three substrates). No state machines, no HTTP —
-   the design-led examples per rf2-t7t6f exist to prove polished
-   visuals + interaction, not to replay the platform features other
-   examples already cover.
+   examples/_shared/css/style.css — one shared identity across all
+   three substrates. No state machines, no HTTP — design-led examples
+   exist to prove polished visuals + interaction, not to replay the
+   platform features other examples already cover.
 
    Markdown rendering is intentionally a tiny pure-CLJS parser (headings,
    bold, italic, links, paragraphs, lists) — keeps the bundle small and
@@ -209,7 +208,7 @@
   (fn [body _] (markdown->hiccup body)))
 
 ;; ============================================================================
-;; VIEWS  (CP-4) — shared 'Editorial Warm' palette (rf2-v4fpe Option 2)
+;; VIEWS  (CP-4) — shared 'Editorial Warm' palette
 ;; ============================================================================
 
 (reg-view sidebar []

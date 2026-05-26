@@ -60,9 +60,9 @@
             ;; family); without it, dispatching `:rf.http/managed`
             ;; (used below) would fail with :rf.error/no-such-fx.
             [re-frame.http-managed]
-            ;; rf2-cdmle — this demo redirects :rf.http/managed to the
-            ;; canned stubs via :fx-overrides (no real backend ships
-            ;; with the example). The canned-stub fx ids
+            ;; This demo redirects :rf.http/managed to the canned
+            ;; stubs via :fx-overrides (no real backend ships with the
+            ;; example). The canned-stub fx ids
             ;; (`:rf.http/managed-canned-success`,
             ;; `:rf.http/managed-canned-failure`) register from
             ;; re-frame.http-test-support, not re-frame.http-managed —

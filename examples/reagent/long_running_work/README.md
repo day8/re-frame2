@@ -15,8 +15,8 @@ declarative spawn-and-join.
 
 ## What this example demonstrates
 
-- **Declarative spawn-and-join** via [`:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all)
-  (rf2-6vmw). The parent `:work/flow` machine spawns 3 `:work/processor`
+- **Declarative spawn-and-join** via [`:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all).
+  The parent `:work/flow` machine spawns 3 `:work/processor`
   children in parallel; the runtime owns the join state at
   `[:rf/spawned :work/flow [:working]]`. No per-child bookkeeping in
   the parent's `:data` — the runtime fires
@@ -103,7 +103,7 @@ examples/reagent/long_running_work/
   README.md       this file
 ```
 
-Per the test-free examples policy (rf2-8cevm) there is no per-example
+Per the test-free examples policy there is no per-example
 Playwright spec; real-regression coverage lives in the substrate
 contract tests (`npm run test:cljs`) and the framework gates (see
 [`examples/README.md`](../../README.md)).

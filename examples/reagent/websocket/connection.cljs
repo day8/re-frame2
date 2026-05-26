@@ -135,8 +135,8 @@
         {:data (assoc data :error error)})
 
       :record-socket-id
-      ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory only — it
-      ;; cannot mutate :data. The :active state's :entry dispatches
+      ;; `:on-spawn` is advisory only — it cannot mutate :data. The
+      ;; :active state's :entry dispatches
       ;; `[:ws/connection [:ws/-socket-spawned <actor-id>]]` via the
       ;; `:on-spawn` advisory callback's side-effect; this action
       ;; captures the id user-side.
@@ -252,9 +252,9 @@
                 :data       (fn [{snap :snapshot}]
                               {:url        (-> snap :data :url)
                                :auth-token (-> snap :data :auth-token)})
-                ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory only
-                ;; — its return is dropped, so the callback CANNOT
-                ;; mutate the parent's `:data`. We use the late-bind
+                ;; `:on-spawn` is advisory only — its return is dropped,
+                ;; so the callback CANNOT mutate the parent's `:data`.
+                ;; We use the late-bind
                 ;; `:router/dispatch!` hook from inside the callback to
                 ;; fire a self-event back into this machine; the
                 ;; matching `:on :ws/-socket-spawned` transition runs
@@ -289,10 +289,10 @@
                                         {:data (update data :subscriptions conj topic)})}
                ;; Framework-internal: the `:on-spawn` advisory callback
                ;; dispatches this so the machine can record the spawned
-               ;; socket id into its `:data` via a regular action. Per
-               ;; rf2-grw4i / rf2-v0rrr `:on-spawn`'s return is dropped;
-               ;; this self-event is the supported mechanism for
-               ;; observing the freshly-allocated actor id user-side.
+               ;; socket id into its `:data` via a regular action.
+               ;; `:on-spawn`'s return is dropped; this self-event is
+               ;; the supported mechanism for observing the freshly-
+               ;; allocated actor id user-side.
                :ws/-socket-spawned {:action :record-socket-id}}
 
        :initial :connecting

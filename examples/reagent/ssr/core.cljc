@@ -42,7 +42,7 @@
             ;; stub during render. Without the require, the override
             ;; would target an unregistered fx-id.
             [re-frame.http-managed]
-            ;; rf2-cdmle — the canned-stub fx ids
+            ;; The canned-stub fx ids
             ;; (`:rf.http/managed-canned-success`,
             ;; `:rf.http/managed-canned-failure`) register from
             ;; re-frame.http-test-support, NOT re-frame.http-managed.
@@ -158,8 +158,8 @@
 
 ;; reg-view (defn-shape per Spec 004 §reg-view) auto-defs the symbol and
 ;; registers under (keyword *ns* sym) — overridden here via
-;; ^{:rf/id ...} so the legacy :pages/articles / :app/root ids stay
-;; intact for the view callers below.
+;; ^{:rf/id ...} so the :pages/articles / :app/root ids the view
+;; callers below use match the registrations.
 ;;
 ;; Server-side (JVM) the auto-injected `subscribe` in `reg-view` is a
 ;; macro-time concept that resolves to (rf/subscriber) — a frame-bound

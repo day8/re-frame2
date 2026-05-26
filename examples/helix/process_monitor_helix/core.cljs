@@ -2,7 +2,7 @@
   "Helix design-led example — 'Process Monitor'. Terminal-style two-pane
    layout: filterable process list on the left + live log feed on the
    right, with status tiles across the top. Proves re-frame2 + Helix can
-   build a substantive UI (rf2-t7t6f).
+   build a substantive UI.
 
    Demonstrates:
 
@@ -14,14 +14,14 @@
        static screenshot
      - per-row dispatch from inside a `defnc` row component
 
-   No HTTP, no state machines — design-led examples per rf2-t7t6f
-   prove polished visuals + interaction, not platform features other
-   examples already cover. Distinct shape from the Reagent 'Notebook'
-   (3-pane editor) and UIx 'Atlas' dashboard (cards + sparklines).
+   No HTTP, no state machines — design-led examples prove polished
+   visuals + interaction, not platform features other examples already
+   cover. Distinct shape from the Reagent 'Notebook' (3-pane editor)
+   and UIx 'Atlas' dashboard (cards + sparklines).
 
    The shared 'Editorial Warm' visual identity comes from
-   examples/_shared/css/style.css (rf2-v4fpe Option 2 — one identity
-   across all three substrates)."
+   examples/_shared/css/style.css — one identity across all three
+   substrates."
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]

@@ -53,7 +53,7 @@ counter_slim_and_fast/
 The bundle-isolation verifier is adapter-owned rather than a general
 human-facing example test and lives under `implementation/scripts/`.
 
-Per the test-free examples policy (rf2-8cevm) there is no per-example
+Per the test-free examples policy there is no per-example
 Playwright spec; real-regression coverage lives in the substrate
 contract tests (`npm run test:cljs`) and the framework gates (see
 [`examples/README.md`](../../README.md)).
