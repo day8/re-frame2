@@ -135,6 +135,32 @@
                     its own surface chrome, so `:card?` is usually
                     redundant when `:header` is present).
 
+  - `:zoomable?`     (optional, default false) — rf2-h71e0; when true
+                    every container in the tree renders a `⊙` zoom-
+                    affordance button next to the expand triangle.
+                    Click dispatches
+                    `[:rf.xray.edn-inspector/zoom-to panel-id mount-id
+                    absolute-path]`, which stores the absolute path
+                    under `:rf.xray.edn-inspector/zoom` keyed by
+                    `[panel-id site-or-mount-id]`. The widget then
+                    renders ONLY the subtree at that path, with a
+                    breadcrumb row above the body showing the path
+                    from the original root (each segment clickable for
+                    one-tap zoom-up).
+                    Esc (when the widget has focus AND a zoom is
+                    active) pops one level off the zoom stack.
+                    Composes with `:popup-affordance?` (both
+                    affordances render side-by-side — they serve
+                    different intents: zoom = focus here; popup = open
+                    in new pane). Diff mode (`:before` present)
+                    suppresses zoom resolution — the diff path's
+                    force-expand-over-changed-descendants logic and
+                    zoom's hide-everything-outside-the-subtree are
+                    conflicting intents; operators view diffs over the
+                    full value. Per-mount keying matches the
+                    expansion-slot pattern; pass a stable `:site-id`
+                    to survive a panel-leave-and-return round-trip.
+
   Drop the `:render-id` arg from the old facade — mount-id is now
   auto-generated internally per D4=a (rf2-sndui).
 
@@ -299,6 +325,107 @@
     (if (and (string? mount-id) (some-> db (get widths-slot) (contains? mount-id)))
       (update db widths-slot dissoc mount-id)
       db)))
+
+;; =========================================================================
+;; zoom-into-node + breadcrumb navigation (rf2-h71e0)
+;; =========================================================================
+;;
+;; Zoom turns the inspector into a focused window onto an arbitrary subtree.
+;; Operator clicks the `⊙` zoom affordance on any container; that node
+;; becomes the root of the displayed tree. A breadcrumb trail at the top
+;; shows the path from the original root; clicking any segment zooms back
+;; to that level.
+;;
+;; State shape mirrors `expansion-slot` — keyed by `[panel-id site-or-
+;; mount-id]` so two side-by-side mounts zoom independently and a stable
+;; `:site-id` (rf2-pvsxs) preserves the zoomed view across a panel-
+;; leave-and-return round-trip:
+;;
+;;   {[:rf.xray/app-db [:rf.xray/app-db "top"]] [:cart :items]
+;;    [:rf.xray/handler "mount-uuid-…"]         []}
+;;
+;; An entry with `nil` or `[]` value renders the full tree (no zoom). The
+;; sub `:rf.xray.edn-inspector/zoom-path` reads the slot; events
+;; `:zoom-to`, `:zoom-up`, `:zoom-reset` mutate it.
+
+(def zoom-slot
+  "App-db slot holding the per-mount zoom path overrides. Public so the
+  consuming panel's reset affordance can clear it.
+
+  Mirrors `expansion-slot`'s shape — a map keyed by `[panel-id site-or-
+  mount-id]` with a path vector as the value (the path within the
+  original value that becomes the current zoom root). Empty / missing
+  entries render the full tree."
+  :rf.xray.edn-inspector/zoom)
+
+(defn zoom-key
+  "Compose the per-mount zoom key — `[panel-id site-or-mount-id]`. Pure
+  data, JVM-portable. Distinct from `expansion-key`'s three-element shape
+  because zoom is per-mount (one zoom root), not per-node (one expansion
+  override per path)."
+  [panel-id mount-id]
+  [panel-id mount-id])
+
+(rf/reg-sub zoom-slot
+  (fn [db _] (get db zoom-slot)))
+
+(rf/reg-event-db :rf.xray.edn-inspector/zoom-to
+  ;; Sets the zoom path for `[panel-id mount-id]` to `path`. An empty /
+  ;; nil path clears the zoom (renders the full tree).
+  (fn [db [_ panel-id mount-id path]]
+    (let [k (zoom-key panel-id mount-id)
+          p (vec path)]
+      (if (seq p)
+        (assoc-in db [zoom-slot k] p)
+        (update db zoom-slot dissoc k)))))
+
+(rf/reg-event-db :rf.xray.edn-inspector/zoom-up
+  ;; Pop one segment off the zoom path. No-op when no zoom is active.
+  (fn [db [_ panel-id mount-id]]
+    (let [k        (zoom-key panel-id mount-id)
+          current  (get-in db [zoom-slot k])
+          popped   (when (seq current) (vec (butlast current)))]
+      (cond
+        (nil? current)   db
+        (empty? popped)  (update db zoom-slot dissoc k)
+        :else            (assoc-in db [zoom-slot k] popped)))))
+
+(rf/reg-event-db :rf.xray.edn-inspector/zoom-reset
+  ;; Clear the zoom for a specific mount. With no args (mount-unspecified)
+  ;; clear the entire slot — used by the panel-level reset affordance.
+  (fn [db [_ panel-id mount-id]]
+    (cond
+      (and panel-id mount-id)
+      (update db zoom-slot dissoc (zoom-key panel-id mount-id))
+
+      :else
+      (dissoc db zoom-slot))))
+
+(defn resolve-zoom-path
+  "Pure projection — given the per-render zoom map, return the zoom
+  path for this mount (vector of segments) or `nil` for the default no-
+  zoom state. Public so tests + render-time consumers can drive the
+  decision deterministically."
+  [zoom-map panel-id mount-id]
+  (let [v (get zoom-map (zoom-key panel-id mount-id))]
+    (when (seq v) (vec v))))
+
+(defn resolve-zoom-into
+  "Pure projection — given the original `value` and the zoom map for a
+  mount, return the value the widget should display. Walks `get-in`
+  along the stored zoom path; falls back to the original value when the
+  path is empty / nil / no-longer-resolvable (a value mutated out from
+  under a stale zoom). Public so callers can probe the resolution
+  without re-deriving the walk."
+  [value zoom-map panel-id mount-id]
+  (let [path (resolve-zoom-path zoom-map panel-id mount-id)]
+    (cond
+      (nil? path)   value
+      (empty? path) value
+      :else
+      (let [resolved (try (get-in value path ::no-resolve)
+                          (catch :default _ ::no-resolve))]
+        (if (= resolved ::no-resolve) value resolved)))))
 
 (defn resolve-expanded?
   "Pure projection — given the per-render expansion map, the path,
@@ -1251,6 +1378,12 @@
 
 (declare render-inline-recursive)
 
+;; rf2-h71e0 — forward declaration for the zoom affordance button
+;; rendered inside `render-container`'s header row. The definition
+;; lives further down alongside the breadcrumb component + popup
+;; affordance (all three are top-level chrome surfaces).
+(declare zoom-affordance-button)
+
 (defn- render-inline-pair
   "Render a single map / record entry `[k v]` as a key+value sequence
   for the inline render path. Returns a seq of hiccup fragments (no
@@ -1322,9 +1455,18 @@
                    when called outside a registered view (test/REPL).
    - diff? / before — when diff? true the renderer paints gutter rows,
                       annotates changed leaves, and force-expands the
-                      ancestor chain over any changed descendant."
+                      ancestor chain over any changed descendant.
+   - zoomable? / zoom-path-prefix — when zoomable? true (rf2-h71e0), the
+                                    container renders a `⊙` zoom-in
+                                    affordance next to the expand
+                                    triangle. zoom-path-prefix is the
+                                    absolute path of the CURRENT zoom
+                                    root within the original value; the
+                                    affordance dispatches with `(into
+                                    zoom-path-prefix path)` so the
+                                    zoom-slot stores the full path."
   [{:keys [value kind panel-id mount-id path depth expansion-map opts
-           dispatch-fn diff? before]}]
+           dispatch-fn diff? before zoomable? zoom-path-prefix]}]
   (let [{:keys [default-expanded-depth max-depth max-inline-width
                 available-width-px]
          :or {default-expanded-depth default-ceiling-depth
@@ -1390,7 +1532,23 @@
         toggle-fn     (on-toggle dispatch-fn panel-id mount-id path
                                  (boolean (and expanded? (not depth-capped?))))
         children      (when (and (not empty?) (not depth-capped?) expanded? (not inline-fit?))
-                        (children-of value))]
+                        (children-of value))
+        ;; rf2-h71e0 — zoom affordance is rendered next to the expand
+        ;; triangle on every non-empty container at a NON-ROOT relative
+        ;; path. The root (`[]`) skips the affordance because zooming
+        ;; into the current zoom root is a no-op. The button dispatches
+        ;; with the ABSOLUTE path = `(into zoom-path-prefix path)` so
+        ;; the zoom-slot stores the full path from the original root.
+        zoom-button   (when (and zoomable?
+                                 (not empty?)
+                                 (seq path))
+                        (zoom-affordance-button
+                          {:dispatch-fn   dispatch-fn
+                           :panel-id      panel-id
+                           :mount-id      mount-id
+                           :absolute-path (into (vec zoom-path-prefix) path)
+                           :testid        (str (testid-for panel-id mount-id path)
+                                               "-zoom-affordance")}))]
     [:div {:data-testid (testid-for panel-id mount-id path)
            :data-rf-kind (name kind)
            :data-rf-expanded (if expanded? "1" "0")
@@ -1411,20 +1569,21 @@
 
         ;; Depth-capped — render the placeholder ellipsis, click expands one level.
         depth-capped?
-        [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
-         [:span {:on-click   toggle-fn
-                 :role       "button"
-                 :tabindex   0
-                 :aria-expanded false
-                 :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                 ;; rf2-tzvk9 — ≥24×24 click target via the shared
-                 ;; `triangle-style` (padding + font-size + min-width/
-                 ;; -height).
-                 :style triangle-style}
-          "▸"]
-         (bracket kind :open value)
-         [:span {:style (token-style :text-tertiary)} "…"]
-         (bracket kind :close value)]
+        (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
+                 [:span {:on-click   toggle-fn
+                         :role       "button"
+                         :tabindex   0
+                         :aria-expanded false
+                         :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                         ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                         ;; `triangle-style` (padding + font-size + min-width/
+                         ;; -height).
+                         :style triangle-style}
+                  "▸"]]
+          zoom-button (conj zoom-button)
+          true        (conj (bracket kind :open value))
+          true        (conj [:span {:style (token-style :text-tertiary)} "…"])
+          true        (conj (bracket kind :close value)))
 
         ;; Small enough to render inline — open bracket + items + close
         ;; bracket on one row, NO toggle (already exposed). Maps /
@@ -1437,58 +1596,72 @@
         ;; the same inline span. The legacy strict path (scalar-only
         ;; children) still feeds the pre-measurement fallback.
         inline-fit?
-        (if width-fits?
-          (render-inline-recursive value)
-          (let [labelled? (#{:map :record :map-entry} kind)
-                pairs     (children-of value)]
-            (into [:span {:style {:display "inline-flex"
-                                  :align-items "baseline"
-                                  :flex-wrap "wrap"
-                                  :gap "4px"}}
-                   (bracket kind :open value)]
-                  (concat
-                    (apply concat
-                           (map-indexed
-                             (fn [i [k cv]]
-                               (let [sep (when (pos? i)
-                                           [:span {:style (token-style :text-tertiary)} ", "])
-                                     ks  (when labelled? (key-segment k))
-                                     sp  (when labelled?
-                                           [:span {:style (token-style :text-tertiary)} " "])]
-                                 (cond-> []
-                                   sep (conj sep)
-                                   ks  (conj ks)
-                                   sp  (conj sp)
-                                   true (conj (render-scalar cv)))))
-                             pairs))
-                    [(bracket kind :close value)]))))
+        (let [inline-render
+              (if width-fits?
+                (render-inline-recursive value)
+                (let [labelled? (#{:map :record :map-entry} kind)
+                      pairs     (children-of value)]
+                  (into [:span {:style {:display "inline-flex"
+                                        :align-items "baseline"
+                                        :flex-wrap "wrap"
+                                        :gap "4px"}}
+                         (bracket kind :open value)]
+                        (concat
+                          (apply concat
+                                 (map-indexed
+                                   (fn [i [k cv]]
+                                     (let [sep (when (pos? i)
+                                                 [:span {:style (token-style :text-tertiary)} ", "])
+                                           ks  (when labelled? (key-segment k))
+                                           sp  (when labelled?
+                                                 [:span {:style (token-style :text-tertiary)} " "])]
+                                       (cond-> []
+                                         sep (conj sep)
+                                         ks  (conj ks)
+                                         sp  (conj sp)
+                                         true (conj (render-scalar cv)))))
+                                   pairs))
+                          [(bracket kind :close value)]))))]
+          (if zoom-button
+            ;; rf2-h71e0 — wrap the inline render in a flex span so the
+            ;; zoom button sits next to (and aligned with) the inline
+            ;; content. The inline-fit path has no toggle triangle, so
+            ;; the affordance leads.
+            [:span {:style {:display "inline-flex"
+                            :align-items "baseline"
+                            :gap "4px"}}
+             zoom-button
+             inline-render]
+            inline-render))
 
         ;; Default — toggle glyph + open bracket (when expanded) OR summary.
         expanded?
-        [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
-         [:span {:on-click   toggle-fn
-                 :role       "button"
-                 :tabindex   0
-                 :aria-expanded true
-                 :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                 ;; rf2-tzvk9 — ≥24×24 click target via the shared
-                 ;; `triangle-style`.
-                 :style triangle-style}
-          "▾"]
-         (bracket kind :open value)]
+        (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
+                 [:span {:on-click   toggle-fn
+                         :role       "button"
+                         :tabindex   0
+                         :aria-expanded true
+                         :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                         ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                         ;; `triangle-style`.
+                         :style triangle-style}
+                  "▾"]]
+          zoom-button (conj zoom-button)
+          true        (conj (bracket kind :open value)))
 
         :else
-        [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
-         [:span {:on-click   toggle-fn
-                 :role       "button"
-                 :tabindex   0
-                 :aria-expanded false
-                 :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                 ;; rf2-tzvk9 — ≥24×24 click target via the shared
-                 ;; `triangle-style`.
-                 :style triangle-style}
-          "▸"]
-         (collapsed-summary value kind)])]
+        (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
+                 [:span {:on-click   toggle-fn
+                         :role       "button"
+                         :tabindex   0
+                         :aria-expanded false
+                         :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                         ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                         ;; `triangle-style`.
+                         :style triangle-style}
+                  "▸"]]
+          zoom-button (conj zoom-button)
+          true        (conj (collapsed-summary value kind))))]
 
      ;; ---- body — children rendered indented -----------------------------
      ;;
@@ -1571,6 +1744,8 @@
                                          :depth (inc depth)
                                          :expansion-map expansion-map
                                          :dispatch-fn dispatch-fn
+                                         :zoomable? zoomable?
+                                         :zoom-path-prefix zoom-path-prefix
                                          :opts opts})]
                        [(with-meta
                           ;; Key cell — uses `div` so the grid baseline
@@ -1613,6 +1788,8 @@
                                        :depth (inc depth)
                                        :expansion-map expansion-map
                                        :dispatch-fn dispatch-fn
+                                       :zoomable? zoomable?
+                                       :zoom-path-prefix zoom-path-prefix
                                        :opts opts})
                          {:key (str "v-" (pr-str k))})))
                    child-pairs)))))
@@ -1769,8 +1946,8 @@
 
   Public so unit tests can drive the renderer without mounting."
   [{:keys [value before diff? panel-id mount-id path depth expansion-map
-           dispatch-fn opts]
-    :or   {depth 0 path []}}]
+           dispatch-fn zoomable? zoom-path-prefix opts]
+    :or   {depth 0 path [] zoom-path-prefix []}}]
   (or
     ;; Protocol seam (rf2-0qrcr) — light-touch satisfies? gate; nil
     ;; result falls through to built-ins. Bound to the same testid
@@ -1807,6 +1984,8 @@
                              :depth depth
                              :expansion-map expansion-map
                              :dispatch-fn dispatch-fn
+                             :zoomable? zoomable?
+                             :zoom-path-prefix zoom-path-prefix
                              :opts opts
                              :diff? true
                              :before ::missing})
@@ -1823,6 +2002,8 @@
                              :depth depth
                              :expansion-map expansion-map
                              :dispatch-fn dispatch-fn
+                             :zoomable? zoomable?
+                             :zoom-path-prefix zoom-path-prefix
                              :opts opts
                              :diff? (boolean diff?)
                              :before before})
@@ -1887,6 +2068,200 @@
    ;; the colour change off the inline style avoids paint thrash on
    ;; every render.
    :opacity       0.6})
+
+;; =========================================================================
+;; zoom affordance + breadcrumb (rf2-h71e0)
+;; =========================================================================
+;;
+;; Two surfaces:
+;;
+;; 1. `zoom-affordance-button` — inline `⊙` button rendered next to the
+;;    expand triangle on every container when `:zoomable? true`. Click
+;;    dispatches `:zoom-to` with the node's ABSOLUTE path from the
+;;    original root (the renderer's per-node `:path` is RELATIVE to the
+;;    current zoom root, so the dispatch composes `zoom-path-prefix` +
+;;    `path` before storing).
+;;
+;; 2. `zoom-breadcrumbs` — segmented nav at the top of the inspector
+;;    when the zoom path is non-empty. First segment is the `:header`
+;;    hiccup (or generic "root" fallback); subsequent segments render
+;;    one key/index per zoom-path level. Each segment dispatches
+;;    `:zoom-to` with a TRUNCATED path so clicking segment N pops the
+;;    zoom back to N levels deep.
+
+(def ^:private zoom-affordance-glyph
+  ;; `⊙` (circled-dot) reads as "focus / aim cursor at this node" — the
+  ;; mental model the bead body identified (Chrome devtools' object
+  ;; inspector + nav, IDE nav-to-symbol). Visually distinct from the
+  ;; popup affordance (`↗` — "open in new pane"), the expand triangles
+  ;; (`▸`/`▾` — toggle), and the breadcrumb separator (`›`). Single
+  ;; codepoint, theme-token coloured.
+  "⊙")
+
+(def ^:private breadcrumb-separator
+  ;; `›` (single right-pointing angle) reads as nav direction — same
+  ;; convention as file-browser breadcrumbs + IDE path bars. Distinct
+  ;; from `→` (transition / arrow) and `>` (greater-than / blockquote).
+  "›")
+
+(def ^:private zoom-affordance-button-style
+  {:background    "transparent"
+   :border        "none"
+   :color         (:text-tertiary tokens)
+   :font-size     "13px"
+   :line-height   1
+   :cursor        "pointer"
+   :padding       "0 4px"
+   :margin        "0"
+   :border-radius "3px"
+   ;; Subtle by default — matches the popup affordance's resting opacity
+   ;; so the operator's eye reads "secondary affordance" at both glyphs.
+   ;; Theme-aware via the token resolution.
+   :opacity       0.55
+   :display       "inline-flex"
+   :align-items   "center"
+   :user-select   "none"})
+
+(defn zoom-affordance-button
+  "Inline `⊙` zoom-in button. Renders next to the expand triangle on
+  containers when `:zoomable? true`. Click dispatches `:zoom-to` with
+  the absolute path from the original root (composed by the caller as
+  `(into zoom-path-prefix path)`).
+
+  `dispatch-fn` is the lexically-captured frame-aware dispatcher (so the
+  event lands on the same frame the widget is mounted under). `panel-id`
+  + `mount-id` (or `site-id`) key the zoom slot. `absolute-path` is the
+  vec the reducer stores verbatim.
+
+  Public so unit tests can drive the button without mounting."
+  [{:keys [dispatch-fn panel-id mount-id absolute-path testid]}]
+  (let [dispatch-fn (or dispatch-fn rf/dispatch*)]
+    [:button
+     {:data-testid        testid
+      :data-rf-affordance "zoom"
+      :aria-label         "Zoom into this node"
+      :title              "Zoom into this node"
+      :on-click           (fn [^js e]
+                            (when e
+                              (.preventDefault e)
+                              (.stopPropagation e))
+                            (dispatch-fn
+                              [:rf.xray.edn-inspector/zoom-to
+                               panel-id mount-id (vec absolute-path)]))
+      :style              zoom-affordance-button-style}
+     zoom-affordance-glyph]))
+
+(defn- breadcrumb-segment-label
+  "Render a single path-segment label using the syntax-palette colour
+  that matches the segment's type. Reuses `key-segment` so coloured-
+  keyword / coloured-int / coloured-string segments paint consistently
+  with the renderer's leaf-key column.
+
+  Returns hiccup `[:span ...]`."
+  [seg]
+  (key-segment seg))
+
+(def ^:private breadcrumb-row-style
+  {:display       "flex"
+   :flex-wrap     "wrap"
+   :align-items   "baseline"
+   :gap           "4px"
+   :padding       "4px 8px"
+   :margin-bottom "6px"
+   :font-family   mono-stack
+   :font-size     "12px"
+   :line-height   1.4
+   :background    (:bg-2 tokens)
+   :border        (str "1px solid " (:border-subtle tokens))
+   :border-radius "4px"})
+
+(def ^:private breadcrumb-segment-button-style
+  {:background    "transparent"
+   :border        "none"
+   :cursor        "pointer"
+   :padding       "2px 4px"
+   :margin        "0"
+   :border-radius "3px"
+   :font-family   mono-stack
+   :font-size     "12px"
+   :line-height   1.4
+   :color         (:text-primary tokens)})
+
+(def ^:private breadcrumb-separator-style
+  {:color       (:text-tertiary tokens)
+   :font-size   "12px"
+   :user-select "none"})
+
+(defn zoom-breadcrumbs
+  "Render the breadcrumb nav above the zoomed inspector body.
+
+  - `panel-id` / `mount-id` — key the zoom slot the dispatch mutates.
+  - `zoom-path` — the current absolute zoom path (vec of segments).
+    Caller passes the resolved `[]`-or-nil for the no-zoom case; this
+    fn renders nothing when the path is empty.
+  - `home-label` — hiccup / string for the first (home) segment; the
+    consumer's `:header` value if present, else a generic `\"root\"`.
+  - `dispatch-fn` — frame-aware dispatcher (lexically captured by the
+    surrounding `reg-view`).
+  - `testid-prefix` — base for `data-testid` attrs on each segment.
+
+  Each segment dispatches `:zoom-to` with a TRUNCATED prefix of the
+  zoom path. Home segment dispatches with `[]` (clears zoom). Segment
+  N dispatches with `(subvec zoom-path 0 (inc N))`.
+
+  Public so unit tests can drive the breadcrumb without mounting the
+  full widget."
+  [{:keys [panel-id mount-id zoom-path home-label dispatch-fn testid-prefix]}]
+  (when (seq zoom-path)
+    (let [dispatch-fn   (or dispatch-fn rf/dispatch*)
+          testid-prefix (or testid-prefix "rf-xray-edn-inspector-breadcrumbs")
+          home-content  (cond
+                          (nil? home-label)    "root"
+                          (string? home-label) home-label
+                          :else                home-label)
+          on-click-to   (fn [next-path]
+                          (fn [^js e]
+                            (when e
+                              (.preventDefault e)
+                              (.stopPropagation e))
+                            (dispatch-fn
+                              [:rf.xray.edn-inspector/zoom-to
+                               panel-id mount-id (vec next-path)])))
+          home-button   [:button
+                         {:data-testid (str testid-prefix "-home")
+                          :data-rf-breadcrumb-segment "home"
+                          :on-click    (on-click-to [])
+                          :aria-label  "Zoom back to root"
+                          :title       "Zoom back to root"
+                          :style       breadcrumb-segment-button-style}
+                         home-content]
+          sep           [:span {:style breadcrumb-separator-style
+                                :data-rf-breadcrumb-separator "1"
+                                :aria-hidden true}
+                         breadcrumb-separator]
+          segment-buttons
+          (map-indexed
+            (fn [i seg]
+              (let [next-path (subvec (vec zoom-path) 0 (inc i))]
+                [:button
+                 {:data-testid (str testid-prefix "-" i)
+                  :data-rf-breadcrumb-segment (str i)
+                  :on-click    (on-click-to next-path)
+                  :aria-label  (str "Zoom to " (pr-str seg))
+                  :title       (str "Zoom to " (pr-str seg))
+                  :style       breadcrumb-segment-button-style}
+                 (breadcrumb-segment-label seg)]))
+            zoom-path)]
+      (into [:div {:data-testid     testid-prefix
+                   :data-rf-zoomed  "1"
+                   :data-rf-zoom-depth (str (count zoom-path))
+                   :role            "navigation"
+                   :aria-label      "Zoom breadcrumbs"
+                   :style           breadcrumb-row-style}
+             home-button]
+            (apply concat
+                   (for [btn segment-buttons]
+                     [sep btn]))))))
 
 (defn popup-affordance-button
   "Render the 'open in popup' icon button. `dispatch-fn` is the
@@ -2073,7 +2448,7 @@
       [value & rest-args]
       (let [opts          (first rest-args)
             {:keys [panel-id site-id default-expanded-depth max-inline-width
-                    max-depth before popup-affordance? card? header]
+                    max-depth before popup-affordance? card? header zoomable?]
              :or   {panel-id :rf.xray.edn-inspector/anon
                     ;; rf2-kbdk8 — default raised from 2 → 8. Under the
                     ;; width-aware heuristic this opt is a CEILING (never
@@ -2085,7 +2460,12 @@
                     max-inline-width 60
                     max-depth 16
                     popup-affordance? false
-                    card? false}} opts
+                    card? false
+                    ;; rf2-h71e0 — `:zoomable?` is OPT-IN. When false
+                    ;; (default) the widget renders exactly as before:
+                    ;; no zoom affordance, no breadcrumb, full tree
+                    ;; rendered from the original root.
+                    zoomable? false}} opts
             diff?         (contains? opts :before)
             ;; rf2-okq7p — `:header` opts the widget into the 3-shade
             ;; card chrome (outer SECTION + grey-on-grey HEADER ribbon
@@ -2115,6 +2495,37 @@
             ;; injected by `reg-view` — reads the expansion-slot
             ;; from the surrounding frame's app-db (e.g. `:rf/xray`).
             expansion-map @(subscribe [expansion-slot])
+            ;; rf2-h71e0 — zoom slot read alongside expansion. Nil/empty
+            ;; for unzoomed mounts; non-empty vec for mounts with an
+            ;; active zoom. The slot is per-frame (same `:rf/xray`
+            ;; pattern as `expansion-slot`); the per-mount key is
+            ;; `[panel-id effective-id]` (effective-id is `site-id` if
+            ;; supplied, else the auto-mount-id). Diff mode ALSO ignores
+            ;; zoom (`zoom-active?` short-circuits when `diff?` is true)
+            ;; because the diff path's force-expand-over-changed-
+            ;; descendants logic + zoom's hide-everything-outside the
+            ;; subtree are conflicting intents. Operators view diffs
+            ;; over the FULL value; non-diff browse can zoom.
+            zoom-map      (when zoomable? @(subscribe [zoom-slot]))
+            zoom-path     (resolve-zoom-path zoom-map panel-id
+                                             (or site-id mount-id))
+            zoom-active?  (and zoomable? (not diff?) (seq zoom-path))
+            displayed-value
+            (if zoom-active?
+              (resolve-zoom-into value zoom-map panel-id
+                                 (or site-id mount-id))
+              value)
+            displayed-before
+            (if (and diff? zoom-active?)
+              (resolve-zoom-into before zoom-map panel-id
+                                 (or site-id mount-id))
+              before)
+            ;; The effective zoom-path-prefix is `[]` when not zoomed;
+            ;; otherwise the stored zoom-path. Threaded into every
+            ;; container's render-context so the affordance button can
+            ;; dispatch with the ABSOLUTE path (zoom path + per-node
+            ;; relative path).
+            zoom-path-prefix (if zoom-active? zoom-path [])
             ;; rf2-kbdk8 — read the measured container width keyed by
             ;; THIS mount's id. Nil on the first render (the ref hasn't
             ;; fired yet); subsequent renders see the width and the
@@ -2136,8 +2547,8 @@
             ;; root of whichever shape renders (section in chromed
             ;; mode; div otherwise).
             body-content  (render-node
-                            {:value value
-                             :before (if diff? before ::missing)
+                            {:value displayed-value
+                             :before (if diff? displayed-before ::missing)
                              :diff? diff?
                              :panel-id panel-id
                              ;; rf2-pvsxs — `mount-id` slot in
@@ -2153,6 +2564,17 @@
                              :depth 0
                              :expansion-map expansion-map
                              :dispatch-fn dispatch-fn
+                             ;; rf2-h71e0 — `:zoomable?` enables the
+                             ;; per-container `⊙` affordance during the
+                             ;; recursive walk. `:zoom-path-prefix` is
+                             ;; the absolute path of the displayed-
+                             ;; subtree's root within the original
+                             ;; value; per-container affordances
+                             ;; compose this prefix with their relative
+                             ;; `:path` to produce the absolute path
+                             ;; the dispatched event stores.
+                             :zoomable? zoomable?
+                             :zoom-path-prefix zoom-path-prefix
                              :opts {:default-expanded-depth default-expanded-depth
                                     :max-inline-width max-inline-width
                                     :max-depth max-depth
@@ -2163,7 +2585,38 @@
                                     ;; until the ref measures, after
                                     ;; which ResizeObserver keeps it
                                     ;; live.
-                                    :available-width-px available-width-px}})]
+                                    :available-width-px available-width-px}})
+            ;; rf2-h71e0 — breadcrumb row above the body, only when a
+            ;; zoom is active. Home label uses the consumer's `:header`
+            ;; if supplied (mirrors §10.0.10's "header is the natural
+            ;; identity label"); otherwise falls back to the generic
+            ;; "root" string.
+            breadcrumbs   (when zoom-active?
+                            (zoom-breadcrumbs
+                              {:panel-id      panel-id
+                               :mount-id      effective-id
+                               :zoom-path     zoom-path
+                               :home-label    (or header "root")
+                               :dispatch-fn   dispatch-fn
+                               :testid-prefix (str container-id "-breadcrumbs")}))
+            ;; rf2-h71e0 — Esc handler for "zoom up one level". Active
+            ;; only when the widget is zoomable AND currently zoomed.
+            ;; Coordinates with the popup widget's Esc-closes-top
+            ;; behaviour (rf2-7sdja): the popup's keydown handler lives
+            ;; on its own backdrop + dialog and `stopPropagation`s, so
+            ;; when a popup is open Esc closes the popup; subsequent
+            ;; Esc presses (no popup open) reach this handler and zoom
+            ;; up one level. Captures the surrounding-frame dispatcher
+            ;; so the zoom-up event lands on the correct frame.
+            on-keydown
+            (when zoom-active?
+              (fn [^js e]
+                (when (and e (= "Escape" (.-key e)))
+                  (.preventDefault e)
+                  (.stopPropagation e)
+                  (dispatch-fn
+                    [:rf.xray.edn-inspector/zoom-up
+                     panel-id effective-id]))))]
         (if chromed?
           ;; ── rf2-okq7p — three-shade card chrome (section + header
           ;; ribbon + body). Modelled on the Machine panel's
@@ -2190,9 +2643,14 @@
                      :data-rf-popup-affordance? (when popup-affordance? "1")
                      :data-rf-card     (when card? "1")
                      :data-rf-header   "1"
+                     :data-rf-zoomable (when zoomable? "1")
+                     :data-rf-zoomed   (when zoom-active? "1")
+                     :data-rf-zoom-path (when zoom-active? (pr-str zoom-path))
                      :data-rf-available-width-px (when available-width-px
                                                    (str available-width-px))
                      :ref             container-ref
+                     :on-key-down     on-keydown
+                     :tab-index       (when zoom-active? -1)
                      :style {:font-family    mono-stack
                              :font-size      "12px"
                              :color          (:text-primary tokens)
@@ -2221,6 +2679,10 @@
                   :data-rf-body-role "card-body"
                   :style {:padding       "12px"
                           :background    (:bg-1 tokens)}}
+            ;; rf2-h71e0 — breadcrumb row above the rendered tree.
+            ;; Returns nil when no zoom is active, so the chromed body
+            ;; layout stays unchanged for unzoomed mounts.
+            breadcrumbs
             body-content]]
           ;; ── default (no `:header`): flat single-div render, with
           ;; optional rf2-63ie5 `:card?` chrome on the outer container.
@@ -2230,6 +2692,9 @@
                  :data-rf-mode    (if diff? "diff" "browse")
                  :data-rf-popup-affordance? (when popup-affordance? "1")
                  :data-rf-card     (when card? "1")
+                 :data-rf-zoomable (when zoomable? "1")
+                 :data-rf-zoomed   (when zoom-active? "1")
+                 :data-rf-zoom-path (when zoom-active? (pr-str zoom-path))
                  :data-rf-available-width-px (when available-width-px
                                                (str available-width-px))
                  ;; rf2-kbdk8 — `:ref` callback drives the measurement.
@@ -2237,6 +2702,8 @@
                  ;; the same fn on mount + unmount so the observer's
                  ;; lifecycle mirrors the widget's DOM lifecycle.
                  :ref             container-ref
+                 :on-key-down     on-keydown
+                 :tab-index       (when zoom-active? -1)
                  :style (cond-> {:font-family mono-stack
                                  :font-size   "12px"
                                  :color       (:text-primary tokens)
@@ -2264,6 +2731,10 @@
                                        :margin-bottom    "8px"))}
            (when popup-affordance?
              (popup-affordance-button dispatch-fn popup-mount-id value opts))
+           ;; rf2-h71e0 — breadcrumb row leads the body when a zoom is
+           ;; active. nil when not zoomed so the un-zoomed render is
+           ;; unchanged.
+           breadcrumbs
            body-content])))))
 
 (defn edn-inspector-diff

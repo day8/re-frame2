@@ -1950,6 +1950,136 @@ internal:
 Consumer adoption is per-panel and case-by-case; this section
 documents the contract, not a blanket migration.
 
+#### §10.0.11 `:zoomable?` opt — zoom-into-node + breadcrumb (rf2-h71e0)
+
+Dense app-db trees force the operator to scroll past chrome AND every
+intermediate level just to see one deep subtree. Sticky expansion
+(rf2-pvsxs / §10.0.6) only solves part of this — even when the path is
+fully expanded the surrounding tree consumes screen real-estate and
+visual attention.
+
+Zoom-into-node turns the inspector into a focused window onto an
+arbitrary subtree. The operator clicks the `⊙` zoom affordance on any
+container; that node becomes the root of the displayed tree. A
+breadcrumb trail at the top shows the path from the original root;
+clicking any segment zooms back to that level. Anchors to known mental
+models — Chrome devtools' object inspector + nav, React devtools'
+selected-component focus, IDE nav-to-symbol + back, file browsers'
+breadcrumb drill-in.
+
+**Surface** — one new opt on the existing `[edn-inspector value opts]`:
+
+| `:zoomable?` value | Behaviour                                                                               |
+|--------------------|-----------------------------------------------------------------------------------------|
+| `false` (default)  | No affordance, no breadcrumb — widget renders as today (back-compat).                   |
+| `true`             | Every non-empty non-root container gets a `⊙` affordance; breadcrumb renders if zoomed. |
+
+**Affordance glyph** — `⊙` (circled-dot, U+2299). Reads as "focus / aim
+cursor at this node" — visually distinct from the popup affordance (`↗`,
+"open in new pane"), the expand triangles (`▸`/`▾`), and the breadcrumb
+separator (`›`). Single codepoint, theme-token coloured (`:text-tertiary`
+at 0.55 resting opacity, hover bumps to `:text-secondary` via the
+`data-rf-affordance="zoom"` selector in the global stylesheet).
+
+**Breadcrumb structure** — when a zoom is active, a row above the body
+renders `<home> › <seg1> › <seg2> › …`. Each segment is a clickable
+button; click dispatches `:zoom-to` with a TRUNCATED prefix of the zoom
+path:
+
+- **Home segment** — content is the consumer's `:header` hiccup if
+  supplied (the §10.0.10 path — reuses the existing "header is the
+  natural identity label" choice). Falls back to a generic "root"
+  string. Click dispatches `:zoom-to ... []` (clears the zoom).
+- **Segment N** — content is the path-segment label, rendered through
+  the same syntax-palette as the renderer's key column (keyword
+  magenta, integer orange, string green, …). Click dispatches
+  `:zoom-to ... (subvec path 0 (inc N))` — truncates to depth N+1.
+
+**State shape** — per-mount, mirrors the §10.0.6 expansion-slot
+pattern:
+
+```
+:rf.xray.edn-inspector/zoom
+  {[<panel-id> <site-or-mount-id>] <zoom-path-vec>
+   ...}
+```
+
+A `nil` / empty / missing entry renders the un-zoomed full tree.
+Per-mount keying makes two side-by-side mounts zoom independently; a
+stable `:site-id` (§10.0.6) preserves the zoom across a panel-leave-
+and-return round-trip (App-DB tab switching, focused-event re-mount).
+
+**Events**
+
+| Event id                                  | Payload                              | Action                                                                              |
+|-------------------------------------------|--------------------------------------|-------------------------------------------------------------------------------------|
+| `:rf.xray.edn-inspector/zoom-to`          | `panel-id mount-id absolute-path`    | Set zoom path; empty path clears the entry.                                         |
+| `:rf.xray.edn-inspector/zoom-up`          | `panel-id mount-id`                  | Pop one segment off the zoom path; popping past root clears.                        |
+| `:rf.xray.edn-inspector/zoom-reset`       | `[panel-id mount-id]` (both optional) | With args: clear that mount's entry only. Without args: clear the whole slot.       |
+
+**Sub** — `[:rf.xray.edn-inspector/zoom]` reads the slot as a map.
+Pure helpers `resolve-zoom-path` + `resolve-zoom-into` project the
+map for a given mount into either the stored path vector or the
+resolved sub-value (used by the widget's render-time `get-in` walk).
+
+**Keyboard navigation** — Esc (when the widget has focus AND a zoom is
+active) dispatches `:zoom-up`. The handler is installed on the outer
+container only while `zoom-active?` is true, so unzoomed mounts let
+Esc bubble unchanged. Coordinates with the popup widget's Esc-closes-
+top (rf2-7sdja): the popup's own keydown handler lives on its
+backdrop + dialog and `stopPropagation`s, so an open popup intercepts
+Esc first; subsequent Esc presses (no popup) reach the inspector's
+handler and zoom up.
+
+**Composition with other opts** —
+
+- **`:popup-affordance?`** — independent. Both affordances render
+  side-by-side when both opts are present — they serve different
+  intents (zoom = focus here without opening a new pane; popup = open
+  the value in a roomier modal). Inside a popup the inner inspector
+  recurses with `:popup-affordance? false` (§10.0.7.2) but
+  `:zoomable?` survives the recursion so the popup body is itself
+  zoom-navigable.
+- **`:before` (diff mode)** — zoom is SUPPRESSED in diff mode. The
+  widget self-detects (`zoom-active? = zoomable? AND NOT diff? AND
+  zoom-path non-empty`) and renders the full value with the gutter
+  glyphs as today. Rationale: diff's force-expand-over-changed-
+  descendants logic and zoom's hide-everything-outside-the-subtree are
+  conflicting intents; operators view diffs over the full value.
+- **`:header`** — the hiccup feeds the breadcrumb home segment when
+  zoomed (`home-label`).
+- **`:default-expanded-depth`** / **`:max-depth`** — applied to the
+  zoomed subtree as if it were the root (depth counter restarts at
+  `0` from the zoom point). Operator's mental model: "the zoom IS the
+  new root."
+
+**Where to opt in** — per the bead's audit:
+
+- **App-DB** — the canonical consumer. Dense top-level trees benefit
+  hugely from focusing on a single subtree; the breadcrumb keeps the
+  operator's bearings. Per-section mount (user-domain TOP + every
+  `:rf/*` area) opts in.
+- **Handler/Event** — db-before / db-after / fx / coeffects mounts each
+  benefit. Operator clicks deep into one slot to focus the comparison.
+- **Machine snapshot drill-in** — operator can zoom into a particular
+  snapshot path; the breadcrumb anchors the navigation across
+  successive snapshots.
+
+**Where NOT to opt in** —
+
+- **`mini` inline renders** — too small to be useful; the inline span
+  has no room for the affordance.
+- **Trace expanded payloads** — the trace row already carries its own
+  per-row layout; zoom inside a row would conflict.
+- **Inspector-card titles / chip mounts** — single-level renders never
+  need zoom.
+
+**Skipped affordance** — the root of the displayed subtree (relative
+path `[]`) never renders the affordance; zooming into the current
+zoom root is a no-op. The renderer composes the absolute path as
+`(into zoom-path-prefix path)` so the dispatched `:zoom-to` carries the
+full path from the ORIGINAL root, not the currently-displayed root.
+
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
 1. **Lazy collapsible tree** — hierarchical EDN with expand/collapse.
