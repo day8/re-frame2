@@ -1529,21 +1529,25 @@ cross-session triage.
 
 Section is conditional — omitted when no violation events fired.
 
-### §9.1.10.6 FX section header + per-action attribution (rf2-uffov)
+### §9.1.10.6 FX section header + per-action attribution (rf2-uffov · rf2-m8ac9)
 
 The FX step has rendered per-fx rows since rf2-sc3r1. rf2-uffov
-extends it with:
+extends it with header + attribution; Mike's pair-debug commit
+`adaabb8aa` (2026-05-26, rf2-m8ac9) reshaped the header. Current
+shape:
 
-- **Header outcome split** — `N fired (M succeeded, K threw,
-  L skipped)`. Counters are projection-side aggregations of the
-  per-row `:status` keyword (`:ok / :overridden → :succeeded`,
-  `:error → :threw`, `:skipped → :skipped`). The view consumes
-  the projected counters directly so the header reads as
-  at-a-glance correctness.
+- **Header chrome** — badge `:FX` (uppercase pill, single-token
+  hue per §9.1.4), a muted-italic `(side effects)` caption beside
+  the badge, and a threw-count chip in `:error` tone that surfaces
+  **only when non-zero**. The prior `N fired (M succeeded, K threw,
+  L skipped)` count summary was dropped per Mike's pair-debug
+  rationale: the per-row glyphs (`✓ / ✗`) already convey per-fx
+  outcome, so the count summary was noise in the step header. The
+  threw chip is the at-a-glance error signal that survives.
 - **Per-action attribution** — when the cascade was driven by a
   machine handler, each FX row that maps to a fx-id emitted by an
   action's outcome `:fx` slot carries `:attributed-to {:action-id
-  …, :phase …}` (rf2-9c27r + this bead). The view renders an
+  …, :phase …}` (rf2-9c27r + rf2-uffov). The view renders an
   italic `← <action-id> (<phase>)` chip alongside the row so the
   operator reads `fx X emitted by action Y in phase Z` in one
   line. Best-effort: first-attribution wins when the same fx-id
