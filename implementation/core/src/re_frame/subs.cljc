@@ -556,7 +556,10 @@
    (unsubscribe frame-id query-v nil))
   ([frame-id query-v opts]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
-     (subs-cache/unsubscribe! cache (cache-key query-v) opts))))
+     ;; rf2-mrnur — thread `frame-id` through so the `:rf.sub/dispose`
+     ;; trace emit at the eviction site (synchronous fire OR deferred
+     ;; grace-period timer) carries the canonical `:frame` tag.
+     (subs-cache/unsubscribe! cache (cache-key query-v) opts frame-id))))
 
 ;; ---- tooling sibling --------------------------------------------------
 ;;
