@@ -693,7 +693,13 @@
         (cond-> {:fx-id       fx-id
                  :status      (status-fn o)
                  :args        (common/tag-of ev :rf.fx/args)
-                 :duration-ms (common/tag-of ev :duration-ms)}
+                 ;; rf2-ipaza — substrate stamps the per-fx-handler
+                 ;; invocation duration as `:rf.fx/elapsed-ms` on
+                 ;; `:rf.fx/handled` (rf2-hhh92 · `re-frame.fx`;
+                 ;; spec 009 §241). Legacy `:duration-ms` retained
+                 ;; as a fixture-compat fallback for older runtimes.
+                 :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
+                                  (common/tag-of ev :duration-ms))}
           (get attribution-map fx-id)
           (assoc :attributed-to (get attribution-map fx-id)))))))
 

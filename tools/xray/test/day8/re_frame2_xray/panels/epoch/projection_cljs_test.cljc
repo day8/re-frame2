@@ -82,14 +82,14 @@
   (ev :rf.fx :rf.fx/do-fx {:rf.event/fx fx}))
 
 (defn- fx-handled-ev
-  ;; rf2-e0xjx — substrate stamps the per-fx-handler invocation
+  ;; rf2-ipaza — substrate stamps the per-fx-handler invocation
   ;; duration as `:rf.fx/elapsed-ms` on `:rf.fx/handled` (rf2-hhh92 ·
-  ;; `re-frame.fx`). Fixture stamps both the canonical name and the
-  ;; legacy `:duration-ms` until rf2-ipaza swaps the reader.
+  ;; `re-frame.fx`; spec 009 §241). Fixture stamps the canonical name
+  ;; only; the reader's legacy `:duration-ms` fallback remains for
+  ;; older runtimes / external test fixtures.
   [fx-id args duration-ms]
   (ev :rf.fx :rf.fx/handled {:rf.fx/id          fx-id
                              :rf.fx/args        args
-                             :duration-ms       duration-ms
                              :rf.fx/elapsed-ms  duration-ms}))
 
 (defn- flow-recomputed-ev
@@ -674,6 +674,31 @@
       (is (= :FX (:badge s)))
       (is (= 2 (count (:rows s))))
       (is (= :ok (-> s :rows first :status))))))
+
+(deftest fx-rows-reads-canonical-elapsed-ms-test
+  (testing "rf2-ipaza — substrate stamps the per-fx-handler invocation
+            duration as `:rf.fx/elapsed-ms` on `:rf.fx/handled`
+            (rf2-hhh92 · `re-frame.fx`; spec 009 §241). The pre-rf2-ipaza
+            reader looked for the never-emitted `:duration-ms` — every
+            FX row showed nil duration."
+    (let [ev {:op-type   :rf.fx
+              :operation :rf.fx/handled
+              :tags      {:rf.fx/id         :http/post
+                          :rf.fx/args       {:url "/x"}
+                          :rf.fx/elapsed-ms 3.4}}
+          s (proj/fx-step [ev])]
+      (is (= 3.4 (-> s :rows first :duration-ms))
+          "FX row duration resolves through canonical :rf.fx/elapsed-ms")))
+
+  (testing "rf2-ipaza — fixture-compat: a runtime that still stamps
+            `:duration-ms` falls through the preserved fallback"
+    (let [ev {:op-type   :rf.fx
+              :operation :rf.fx/handled
+              :tags      {:rf.fx/id    :http/get
+                          :duration-ms 7.7}}
+          s (proj/fx-step [ev])]
+      (is (= 7.7 (-> s :rows first :duration-ms))
+          "legacy :duration-ms fallback retained for older fixtures"))))
 
 ;; ---- rf2-uffov — FX section header split + per-action attribution -----
 

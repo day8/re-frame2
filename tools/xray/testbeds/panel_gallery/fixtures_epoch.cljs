@@ -120,15 +120,15 @@
 (defn- fx-handled-ev
   "`:rf.fx/handled` trace — one per fx-handler invocation. The FX
   step's per-row outcome reads `:rf.fx/id` + `:rf.fx/args` +
-  duration here.
+  `:rf.fx/elapsed-ms` here.
 
-  rf2-e0xjx — substrate stamps the canonical `:rf.fx/elapsed-ms`
-  (rf2-hhh92 · `re-frame.fx`); fixture mirrors that. Legacy
-  `:duration-ms` companion stays until rf2-ipaza lands."
+  rf2-ipaza — substrate stamps the canonical `:rf.fx/elapsed-ms`
+  (rf2-hhh92 · `re-frame.fx`; spec 009 §241); fixture mirrors that.
+  The reader retains a legacy `:duration-ms` fallback for older
+  runtimes / external test fixtures."
   ([fx-id args duration-ms]
    (ev :rf.fx :rf.fx/handled {:rf.fx/id          fx-id
                               :rf.fx/args        args
-                              :duration-ms       duration-ms
                               :rf.fx/elapsed-ms  duration-ms})))
 
 (defn- flow-recomputed-ev
