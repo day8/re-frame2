@@ -85,10 +85,10 @@
             ;; (used below in the load-todos fx) would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
-            ;; rf2-cdmle — :fx-overrides {:rf.http/managed
-            ;; :rf.http/managed-canned-success/failure} below. The
-            ;; canned-stub fx ids register from re-frame.http-test-support
-            ;; per the rf2-cdmle gate change.
+            ;; :fx-overrides redirect :rf.http/managed to the canned
+            ;; stubs (:rf.http/managed-canned-success/failure) below.
+            ;; The canned-stub fx ids register from
+            ;; re-frame.http-test-support.
             [re-frame.http-test-support]
             [re-frame.views]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])

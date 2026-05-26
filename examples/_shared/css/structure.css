@@ -1,15 +1,10 @@
 /* ============================================================================
  * Structural baseline — class shapes the example views actually emit.
  *
- * rf2-jzqs9 lifted this from inline <style> blocks in every Reagent
- * index.html. The classes here are layout-only (display/flex/grid,
- * padding, max-widths, grid-template-columns); typography + palette +
- * atmosphere live in style.css (rf2-v4fpe Option 2 — one shared identity
- * across all three substrates) which @imports this file.
- *
- * Sources: examples/reagent/{login,boot,realworld,websocket,
- * state_machine_walkthrough,ssr,ssr_streaming,long_running_work,7Guis/cells,
- * counter}/index.html pre-rf2-jzqs9.
+ * The classes here are layout-only (display/flex/grid, padding,
+ * max-widths, grid-template-columns); typography + palette + atmosphere
+ * live in style.css (one shared identity across all three substrates)
+ * which @imports this file.
  * ========================================================================== */
 
 /* -- Forms (login, signup, settings) ------------------------------------- */

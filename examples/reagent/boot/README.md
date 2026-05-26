@@ -78,7 +78,7 @@ npx shadow-cljs compile examples/boot
 npm run test:cljs           # Headless boot machine tests
 ```
 
-Per the test-free examples policy (rf2-8cevm) there is no per-example
+Per the test-free examples policy there is no per-example
 Playwright spec; real-regression coverage lives in `npm run test:cljs`
 and the framework gates (see [`examples/README.md`](../../README.md)).
 

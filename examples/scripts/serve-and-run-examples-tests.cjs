@@ -1,19 +1,15 @@
 #!/usr/bin/env node
 /*
  * Orchestrator for the adapter-smoke Playwright suite (npm run
- * test:examples). Per rf2-8cevm (Mike directive 2026-05-19) the
- * `examples/` tree is TEST-FREE — this orchestrator compiles +
- * stages only the surfaces paired with a `spec.cjs` under the
- * runner's SPEC_ROOTS, which is now just the three adapter smokes
- * at implementation/adapters/<name>/testbed/.
+ * test:examples). The `examples/` tree is TEST-FREE — this
+ * orchestrator compiles + stages only the surfaces paired with a
+ * `spec.cjs` under the runner's SPEC_ROOTS, which is just the three
+ * adapter smokes at implementation/adapters/<name>/testbed/.
  *
- * Per rf2-t5slp the framework-testbeds gate (formerly the second
- * orchestrator invocation, scoped via EXAMPLES_FILTER=testbeds/)
- * was retired after all four rf2-tglku migration waves moved every
- * framework + top-level testbed Playwright spec.cjs to CLJS/JVM
- * unit tests. The testbed surfaces themselves (tools/xray/testbeds/**
- * and top-level testbeds/**) stay in-tree as Xray observation
- * targets; they're no longer staged by this orchestrator.
+ * Framework + top-level testbed assertions live as CLJS/JVM unit
+ * tests. The testbed surfaces themselves (tools/xray/testbeds/** and
+ * top-level testbeds/**) stay in-tree as Xray observation targets;
+ * they're not staged by this orchestrator.
  *
  * 1. Compiles each surface's shadow-cljs build (one per smoke).
  * 2. Stages each surface's hand-written index.html into its
@@ -41,12 +37,12 @@ const {
   waitForHttpReady,
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
-// rf2-h9ut9 — narrow filter. When set, only the EXAMPLES entries
-// whose `build` id includes any one of the comma-separated substrings
-// are compiled + staged, and the value is propagated to the Playwright
-// runner via the `EXAMPLES_FILTER` env-var so the runner only executes
-// matching specs. Unset (or empty) = the full sweep. The filter is
-// supplied via either:
+// Narrow filter. When set, only the EXAMPLES entries whose `build` id
+// includes any one of the comma-separated substrings are compiled +
+// staged, and the value is propagated to the Playwright runner via
+// the `EXAMPLES_FILTER` env-var so the runner only executes matching
+// specs. Unset (or empty) = the full sweep. The filter is supplied
+// via either:
 //
 //   1. CLI flag (cross-platform; the recommended shape):
 //      node serve-and-run-examples-tests.cjs --filter adapters
@@ -54,10 +50,9 @@ const {
 //   2. Env var (for CI / scripted use):
 //      EXAMPLES_FILTER=adapters node serve-and-run-examples-tests.cjs
 //
-// rf2-9grp6 — multi-pattern filter. Comma separates alternatives, OR-
-// matched. The single CI invocation today (adapter-testbed-smokes)
-// passes `adapters/` to scope the runner to the 3 adapter smokes.
-// Single-pattern usage stays backwards-compatible.
+// Multi-pattern filter: comma separates alternatives, OR-matched. The
+// single CI invocation today (adapter-testbed-smokes) passes
+// `adapters/` to scope the runner to the 3 adapter smokes.
 //
 // The filter is substring-matched against the shadow-cljs build id
 // (`adapters/<name>-testbed`), giving a single knob that composes
@@ -78,19 +73,19 @@ function parseFilterFromArgs(argv) {
 }
 const FILTER = parseFilterFromArgs(process.argv)
             || (process.env.EXAMPLES_FILTER || '').trim();
-// rf2-9grp6 — split a comma-separated filter into the list of
-// substrings. Empty filter returns an empty array (meaning
-// "pass-through everything" — see `selectedExample` below).
+// Split a comma-separated filter into the list of substrings. Empty
+// filter returns an empty array (meaning "pass-through everything"
+// — see `selectedExample` below).
 function parseFilterPatterns(raw) {
   if (!raw) return [];
   return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
 }
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
-// rf2-043cm — `EXAMPLES_PORT` env-var override defaults to 8030. Lets
-// parallel workers / contended dev sessions (e.g. a long-running
-// `shadow-cljs watch` on the two-frame-isolation testbed at 8030)
-// retarget this orchestrator to a free port without editing the
-// script. No CLI surface is added.
+// `EXAMPLES_PORT` env-var override defaults to 8030. Lets parallel
+// workers / contended dev sessions (e.g. a long-running `shadow-cljs
+// watch` on the two-frame-isolation testbed at 8030) retarget this
+// orchestrator to a free port without editing the script. No CLI
+// surface is added.
 const PORT = Number(process.env.EXAMPLES_PORT || 8030);
 // __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
 // (where shadow-cljs runs and node_modules lives); REPO_ROOT is <repo>.
@@ -111,31 +106,23 @@ cleanup.installSignalHandlers();
 // directory under out/examples it lands in. The url-path is what the
 // Playwright spec navigates to under http://127.0.0.1:PORT/.
 //
-// Policy (rf2-8cevm, Mike directive 2026-05-19): the `examples/` tree
-// is TEST-FREE. The orchestrator drives the three adapter smokes
-// (Reagent / UIx / Helix); every build below is paired with a
-// `spec.cjs`; never add a build here whose only purpose is "compile
-// + stage with no spec to drive it" (that's dead CI weight).
+// Policy: the `examples/` tree is TEST-FREE. The orchestrator drives
+// the three adapter smokes (Reagent / UIx / Helix); every build below
+// is paired with a `spec.cjs`; never add a build here whose only
+// purpose is "compile + stage with no spec to drive it" (that's dead
+// CI weight).
 //
-// Per-example smoke coverage that previously lived under
-// `examples/<substrate>/<name>/*.spec.cjs` has been permanently
-// retired — real regressions are caught by substrate contract tests,
-// the Xray feature-matrix gate, bundle-isolation, the perf-bundle
-// gate, and mcp-conformance.
-//
-// Per rf2-t5slp the framework-testbeds orchestrator invocation was
-// retired after all four rf2-tglku migration waves (rf2-4j0tb /
-// rf2-lcg1z / rf2-pxb7t / rf2-e3j8l) moved every framework + top-
-// level testbed assertion to CLJS/JVM unit tests under
-// `implementation/{core,epoch,flows,http,machines,ssr}/test/`. The
-// testbed surfaces themselves (`tools/xray/testbeds/**` +
-// `testbeds/**`) stay in-tree as Xray observation targets; the
-// build targets stay in `implementation/shadow-cljs.edn` but no
-// `EXAMPLES` row references them here.
+// Real regressions are caught by substrate contract tests, the Xray
+// feature-matrix gate, bundle-isolation, the perf-bundle gate, and
+// mcp-conformance — not by per-example or per-testbed Playwright
+// specs. The testbed surfaces themselves (`tools/xray/testbeds/**` +
+// `testbeds/**`) stay in-tree as Xray observation targets; the build
+// targets stay in `implementation/shadow-cljs.edn` but no `EXAMPLES`
+// row references them here.
 const EXAMPLES = [
   // ----- Adapter smokes (3 of 3) ----------------------------------------
-  // rf2-eceuv — per-adapter end-to-end smoke. Each adapter (Reagent
-  // / UIx / Helix) ships a standalone counter under
+  // Per-adapter end-to-end smoke. Each adapter (Reagent / UIx / Helix)
+  // ships a standalone counter under
   // implementation/adapters/<name>/testbed/ that proves the adapter
   // wires up end-to-end (mount, subscribe, dispatch, re-render). The
   // shadow build emits straight into out/examples/adapter-testbeds/<name>/,
@@ -160,14 +147,14 @@ const EXAMPLES = [
   },
 ];
 
-// rf2-h9ut9 — substring-match a build id against the filter. Empty
-// filter = pass-through. The same predicate gates compile and stage
-// so a narrow run never spins up resources for excluded surfaces.
+// Substring-match a build id against the filter. Empty filter =
+// pass-through. The same predicate gates compile and stage so a
+// narrow run never spins up resources for excluded surfaces.
 //
-// rf2-mpa3x — `normalizeForFilter` collapses kebab/snake and `\`/`/`
-// cosmetic variants on both sides before substring-matching. Build ids
-// already use kebab-case so this is a no-op for typical filters; the
-// gain is symmetry with `run-examples-tests.cjs` (which sees
+// `normalizeForFilter` collapses kebab/snake and `\`/`/` cosmetic
+// variants on both sides before substring-matching. Build ids already
+// use kebab-case so this is a no-op for typical filters; the gain is
+// symmetry with `run-examples-tests.cjs` (which sees
 // snake_case-bearing spec paths). Keep the predicate in lockstep so a
 // single EXAMPLES_FILTER value gates compile, stage, and spec runner
 // identically. See the runner for the substring-trap rationale.
@@ -188,9 +175,9 @@ function compileAll() {
   const isWin = process.platform === 'win32';
   const cmd = isWin ? 'npx.cmd' : 'npx';
   // Compile every build in one shadow-cljs invocation — faster: it
-  // shares the JVM warmup across builds.  Silent-on-success
-  // (rf2-try1x): shadow-cljs's own status lines flow through; that
-  // output is build-tool, not test-runner, and is out of scope here.
+  // shares the JVM warmup across builds. Silent-on-success: shadow-
+  // cljs's own status lines flow through; that output is build-tool,
+  // not test-runner, and is out of scope here.
   const builds = selectedExamples().map((e) => e.build);
   if (builds.length === 0) {
     throw new Error(
@@ -226,13 +213,12 @@ function copyDirRecursive(src, dest) {
   }
 }
 
-// rf2-jzqs9 — Shared examples design system: one stylesheet + favicon +
-// OG image across all three substrates (rf2-v4fpe Option 2). The
-// hand-written index.html files reference these via relative paths like
-// `_shared/css/style.css`, so the orchestrator stages the
-// `examples/_shared/` tree into every example's output dir alongside
-// main.js + index.html. Single source on disk; one copy step per build
-// (cheap — a handful of small files).
+// Shared examples design system: one stylesheet + favicon + OG image
+// across all three substrates. The hand-written index.html files
+// reference these via relative paths like `_shared/css/style.css`, so
+// the orchestrator stages the `examples/_shared/` tree into every
+// example's output dir alongside main.js + index.html. Single source
+// on disk; one copy step per build (cheap — a handful of small files).
 const SHARED_SRC = path.join(REPO_ROOT, 'examples', '_shared');
 
 function stageShared(outDir) {
@@ -241,9 +227,9 @@ function stageShared(outDir) {
 }
 
 function stageHtml() {
-  // Silent-on-success (rf2-try1x): per-file staging notices are
-  // suppressed.  Errors still throw with the offending path.
-  // rf2-h9ut9 — narrow EXAMPLES_FILTER: only stage selected entries.
+  // Silent-on-success: per-file staging notices are suppressed.
+  // Errors still throw with the offending path.
+  // EXAMPLES_FILTER: only stage selected entries.
   for (const ex of selectedExamples()) {
     if (!fs.existsSync(ex.outDir)) {
       throw new Error(`Build output dir missing: ${ex.outDir}`);
@@ -254,9 +240,9 @@ function stageHtml() {
     const dest = path.join(ex.outDir, 'index.html');
     fs.copyFileSync(ex.htmlSrc, dest);
 
-    // rf2-jzqs9 — stage examples/_shared/ alongside index.html so the
-    // hand-written page can <link>/<img> assets at the same relative
-    // path on every example build.
+    // Stage examples/_shared/ alongside index.html so the hand-written
+    // page can <link>/<img> assets at the same relative path on every
+    // example build.
     stageShared(ex.outDir);
 
     for (const extra of ex.extraFiles || []) {
@@ -300,10 +286,10 @@ async function main() {
     env: {
       ...process.env,
       EXAMPLES_BASE_URL:    `http://127.0.0.1:${PORT}`,
-      // rf2-h9ut9 — propagate the orchestrator's filter (CLI or env)
-      // to the runner so spec-file selection matches the build/stage
-      // narrowing. Empty = full sweep, which matches the runner's
-      // unset-env default.
+      // Propagate the orchestrator's filter (CLI or env) to the runner
+      // so spec-file selection matches the build/stage narrowing.
+      // Empty = full sweep, which matches the runner's unset-env
+      // default.
       EXAMPLES_FILTER:       FILTER,
     },
   }));

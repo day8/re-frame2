@@ -22,7 +22,7 @@
             [re-frame.schemas]
             [re-frame.machines]
             [re-frame.http-managed]
-            ;; rf2-cdmle — :fx-overrides into :rf.http/managed-canned-*;
+            ;; :fx-overrides redirect :rf.http/managed to :rf.http/managed-canned-*;
             ;; the canned-stub fx ids register from re-frame.http-test-support.
             [re-frame.http-test-support]
             [re-frame.adapter.uix :as uix-adapter]))

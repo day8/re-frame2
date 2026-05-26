@@ -1,7 +1,7 @@
 (ns dashboard-uix.core
   "UIx design-led example — 'Analytics Dashboard'. A grid of metric cards
    + sparklines + filter chips. Proves re-frame2 + UIx can build a
-   substantive UI (rf2-t7t6f).
+   substantive UI.
 
    Demonstrates:
 
@@ -13,16 +13,15 @@
        time-range picker (how many trailing points each sparkline draws,
        plus the header label)
 
-   No HTTP, no state machines — the design-led examples per rf2-t7t6f
-   exist to prove polished visuals + interaction, not to replay platform
-   features other examples already cover. Distinct shape from the
-   Reagent 'Notebook' (3-pane editor) and Helix 'Process Monitor'
-   (terminal log viewer) per the cluster prompt — three different
-   substantive UIs, one per substrate.
+   No HTTP, no state machines — design-led examples exist to prove
+   polished visuals + interaction, not to replay platform features
+   other examples already cover. Distinct shape from the Reagent
+   'Notebook' (3-pane editor) and Helix 'Process Monitor' (terminal
+   log viewer) — three different substantive UIs, one per substrate.
 
    The shared 'Editorial Warm' visual identity comes from
-   examples/_shared/css/style.css (rf2-v4fpe Option 2 — one identity
-   across all three substrates)."
+   examples/_shared/css/style.css — one identity across all three
+   substrates."
   (:require [uix.core :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core            :as rf]

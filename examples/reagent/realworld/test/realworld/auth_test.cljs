@@ -38,10 +38,10 @@
     (assert (nil? (rf/compute-sub [:auth/user] (rf/get-frame-db f))))))
 
 (defn session-token-cofx-shape-test []
-  ;; rf2-gg4dz regression guard — the :auth.session/token cofx must
-  ;; assoc its injected value into `(:coeffects ctx)` (not the top of
-  ;; ctx). If the shape regresses, the value lands at ctx[<cofx-id>]
-  ;; and the handler's destructure binds nil — silently.
+  ;; Cofx-shape contract — the :auth.session/token cofx must assoc its
+  ;; injected value into `(:coeffects ctx)` (not the top of ctx). If
+  ;; the shape regresses, the value lands at ctx[<cofx-id>] and the
+  ;; handler's destructure binds nil — silently.
   ;;
   ;; Call the registered cofx handler directly with a known empty input
   ;; ctx and assert the value lands at the conventional path. The cofx
@@ -52,8 +52,7 @@
         handler   (:handler-fn cofx-meta)
         result    (handler {:coeffects {}} nil)]
     (assert (contains? (:coeffects result) :auth.session/token)
-            "cofx body must assoc its injected value under [:coeffects :auth.session/token];
-             see rf2-gg4dz")
+            "cofx body must assoc its injected value under [:coeffects :auth.session/token]")
     (assert (nil? (get result :auth.session/token))
             "the misshapen-cofx witness — the value must NOT land at top of ctx")))
 

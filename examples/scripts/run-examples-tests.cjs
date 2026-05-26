@@ -10,10 +10,8 @@
  * the surface's URL and asserts a user-visible behaviour (initial
  * render + an interaction + post-interaction state).
  *
- * Test surface inventory (post rf2-8cevm + rf2-t5slp — `examples/`
- * tree is TEST-FREE; the framework-testbeds Playwright gate was
- * retired after the rf2-tglku migration waves moved every framework +
- * top-level testbed assertion to CLJS/JVM unit tests):
+ * Test surface inventory (the `examples/` tree is TEST-FREE; framework-
+ * testbed assertions live as CLJS/JVM unit tests):
  *
  *   - 3 adapter smokes   (implementation/adapters/<name>/testbed/spec.cjs)
  *     Reagent / UIx / Helix mount + dispatch + render.
@@ -25,9 +23,9 @@
  * (`npm run test:perf-bundle`), and mcp-conformance.
  *
  * Why a hand-rolled runner rather than @playwright/test:
- *   - Mirrors the run-browser-tests.cjs pattern (PR #15) — same
- *     dependencies (`playwright`), same console-tap + pageerror
- *     discipline, same exit-code contract.
+ *   - Mirrors the run-browser-tests.cjs pattern — same dependencies
+ *     (`playwright`), same console-tap + pageerror discipline, same
+ *     exit-code contract.
  *   - Avoids dragging in @playwright/test as a separate devDep when
  *     the spec surface is small and the orchestration is straightforward.
  *
@@ -57,15 +55,13 @@ const IMPL_ROOT = path.resolve(__dirname, '..', '..', 'implementation');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
 const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
-// rf2-h9ut9 — narrow EXAMPLES_FILTER. When set, only spec files whose
+// `EXAMPLES_FILTER` narrows the spec set. When set, only spec files whose
 // path includes the substring are loaded. Composes with the
 // orchestrator's compile/stage filter so a narrow run only exercises
 // the matched surface end-to-end. The substring is matched against
-// the spec file's absolute path, so values like `realworld` match
-// `examples/reagent/realworld/realworld.spec.cjs` cleanly. Unset (or
-// empty) = the full sweep.
+// the spec file's absolute path. Unset (or empty) = the full sweep.
 //
-// rf2-9grp6 — comma-separated alternatives, OR-matched. Mirrors the
+// Comma-separated alternatives are OR-matched. Mirrors the
 // orchestrator's multi-pattern filter so a single EXAMPLES_FILTER
 // shape gates compile/stage/spec selection identically.
 const FILTER = (process.env.EXAMPLES_FILTER || '').trim();
@@ -74,7 +70,7 @@ function parseFilterPatterns(raw) {
   return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
 }
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
-// rf2-mpa3x — normalize before substring-matching. Two cosmetic
+// Normalize before substring-matching. Two cosmetic
 // conventions diverge between build ids and spec paths:
 //
 //   1. Build ids use kebab-case (`examples/counter-with-stories`);
@@ -104,15 +100,13 @@ function matchesFilter(filePath) {
 // __dirname is <repo>/examples/scripts; the example tree sits at
 // <repo>/examples (one level up).
 //
-// Spec discovery (post rf2-8cevm, Mike directive 2026-05-19): the
-// `examples/` tree is TEST-FREE — no `*.spec.cjs` is permitted under
-// it. Per rf2-t5slp the framework-testbeds Playwright gate was
-// retired after all four rf2-tglku migration waves moved every
-// framework + top-level testbed assertion to CLJS/JVM unit tests.
-// Discovery now scans only the per-adapter smoke root:
+// Spec discovery: the `examples/` tree is TEST-FREE — no `*.spec.cjs`
+// is permitted under it. Framework + top-level testbed assertions
+// live as CLJS/JVM unit tests. Discovery scans only the per-adapter
+// smoke root:
 //
 //   - implementation/adapters/      — per-adapter end-to-end smokes
-//                                     (rf2-eceuv: Reagent/UIx/Helix)
+//                                     (Reagent/UIx/Helix)
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SPEC_ROOTS = [
   path.join(REPO_ROOT, 'implementation', 'adapters'),
@@ -128,9 +122,8 @@ const VERBOSE_TESTS = isVerboseTests();
 
 // Specs live alongside the adapter testbed they exercise: each adapter
 // (Reagent / UIx / Helix) ships `implementation/adapters/<name>/testbed/
-// spec.cjs` (the unprefixed-`spec.cjs` convention from rf2-p8f2s).
-// The walker also picks up `*.spec.cjs` for the historic examples shape,
-// though `examples/` is test-free today (rf2-8cevm).
+// spec.cjs` (the unprefixed-`spec.cjs` convention).
+// The walker also accepts `*.spec.cjs`, though `examples/` is test-free.
 function isSpecFile(name) {
   return name === 'spec.cjs' || name.endsWith('.spec.cjs');
 }
@@ -171,10 +164,10 @@ function withTimeout(promise, ms, label) {
 
 (async () => {
   const allSpecFiles = listSpecFiles(SPEC_ROOTS);
-  // rf2-h9ut9 + rf2-mpa3x — apply EXAMPLES_FILTER substring match
-  // against the absolute spec path so narrow runs only execute matching
-  // specs. The normalisation in `matchesFilter` bridges the kebab/snake
-  // and `\`/`/` cosmetic gaps without weakening the substring trap.
+  // Apply EXAMPLES_FILTER substring match against the absolute spec
+  // path so narrow runs only execute matching specs. The normalisation
+  // in `matchesFilter` bridges the kebab/snake and `\`/`/` cosmetic
+  // gaps without weakening the substring trap.
   const specFiles = allSpecFiles.filter(matchesFilter);
   if (specFiles.length === 0) {
     if (FILTER) {
@@ -199,10 +192,10 @@ function withTimeout(promise, ms, label) {
   const results = [];
   let anyFailed = false;
 
-  // Silent-on-success (rf2-try1x): buffer per-spec narration into
-  // `lines` and only flush it for specs that FAIL. Green specs emit
-  // nothing; the final summary is a single counts line. SKIP specs
-  // still flush so the reason is visible.
+  // Silent-on-success: buffer per-spec narration into `lines` and
+  // only flush it for specs that FAIL. Green specs emit nothing; the
+  // final summary is a single counts line. SKIP specs still flush so
+  // the reason is visible.
   for (const spec of specs) {
     const label = spec.name || path.basename(spec.file);
     const lines = [];
@@ -267,9 +260,8 @@ function withTimeout(promise, ms, label) {
 
   await browser.close();
 
-  // Silent-on-success (rf2-try1x): green runs emit the canonical
-  // single-line summary; red runs also list the failing labels for
-  // quick triage.
+  // Silent-on-success: green runs emit the canonical single-line
+  // summary; red runs also list the failing labels for quick triage.
   const passedCount = results.filter((r) => r.passed && !r.skipped).length;
   const skippedCount = results.filter((r) => r.skipped).length;
   const failedCount = results.filter((r) => !r.passed).length;

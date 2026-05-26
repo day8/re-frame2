@@ -19,7 +19,7 @@ surfaces change and in the scheduled/manual expensive workflow.
 | Command                            | What it runs                                                                                                        | Where the orchestrator lives                                                                                                |
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
 | `npm run test:browser`             | The shadow-cljs `:browser-test` bundle — every `*-cljs-test` namespace, including example wrappers (`re-frame.nine-states-cljs-test`, `re-frame.realworld-cljs-test`, ...). All of them load into a single Chromium page. | [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs)        |
-| `npm run test:examples`            | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate. Per rf2-8cevm the `examples/` tree itself is test-free; this orchestrator drives the adapter smokes only. | [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs)                                       |
+| `npm run test:examples`            | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate. The `examples/` tree itself is test-free; this orchestrator drives the adapter smokes only. | [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs)                                       |
 
 The two surfaces are independent:
 
@@ -113,7 +113,7 @@ The shape every Reagent example uses:
 ```
 
 This is enforced informally — by code review — rather than by a test.
-The historical anti-pattern was:
+The anti-pattern to avoid is:
 
 ```clojure
 ;; ANTI-PATTERN: mount side effect runs at ns-load.
@@ -182,7 +182,7 @@ sibling's tests.
 
 ## Adding a new example to `test:examples`
 
-Per the test-free examples policy (rf2-8cevm) the `examples/` tree
+Per the test-free examples policy the `examples/` tree
 itself carries no Playwright specs; `test:examples` drives only the
 three adapter testbeds at
 `implementation/adapters/{reagent,uix,helix}/testbed/`. **Do NOT add

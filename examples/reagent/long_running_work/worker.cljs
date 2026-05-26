@@ -177,8 +177,8 @@
     ;; resume after the delay elapses.
     ;;
     ;; The :after key is a (fn [{:keys [snapshot]}] ms) form per Spec
-    ;; 005 §Value shape (rf2-grw4i / rf2-v0rrr — unified context-map) —
-    ;; reads the per-child :tick-ms out of :data so tests / callers can
+    ;; 005 §Value shape (unified context-map) — reads the per-child
+    ;; :tick-ms out of :data so tests / callers can
     ;; stagger or zero-out the delay.
     {:tags  #{:work/running :work/cancellable :work/yielding}
      :after {(fn after-tick-ms [{snap :snapshot}]

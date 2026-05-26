@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Story `:play-script` CI-as-test runner (rf2-3qcxk + rf2-tl7zk).
+ * Story `:play-script` CI-as-test runner.
  *
  * Compiles the counter-with-stories Story testbed, serves it, opens
  * the Story shell in Playwright, enumerates every registered variant
@@ -10,8 +10,8 @@
  * shell to each variant, waits for each play's terminal status
  * (`:pass` / `:fail`), and prints a per-play report.
  *
- * rf2-tl7zk multi-play
- * --------------------
+ * Multi-play
+ * ----------
  * The runner consumes `ciContext().rows` — one row per PLAY. A variant
  * declaring `:plays` of size N produces N rows; a single-script
  * `:play-script` variant produces ONE row. The runner navigates once
@@ -135,9 +135,9 @@ function stageTestbedHtml() {
  * the classification is over identifiers (not body content), so the
  * runner can pre-compute the verdict before the Story shell boots.
  *
- * rf2-tl7zk: accepts an optional `playKey` so multi-play rows can
- * mark a specific play as expected-fail without forcing the entire
- * variant id to carry the marker.
+ * Accepts an optional `playKey` so multi-play rows can mark a
+ * specific play as expected-fail without forcing the entire variant
+ * id to carry the marker.
  */
 function expectedStatusFor(variantId, playKey) {
   const re = /(?:failing|expected[-_]fail)/;
@@ -194,7 +194,7 @@ async function readRunStateOnce(page, variantId) {
 }
 
 /**
- * rf2-tl7zk: per-play state read for multi-play rows.
+ * Per-play state read for multi-play rows.
  */
 async function readPlayRunStateOnce(page, variantId, playKey) {
   return page.evaluate(
@@ -225,7 +225,7 @@ async function waitForTerminalState(page, variantId) {
 }
 
 /**
- * rf2-tl7zk: wait for the per-(variantId, playKey) terminal state.
+ * Wait for the per-(variantId, playKey) terminal state.
  */
 async function waitForPlayTerminalState(page, variantId, playKey) {
   const deadline = Date.now() + TERMINAL_TIMEOUT_MS;
@@ -241,8 +241,8 @@ async function waitForPlayTerminalState(page, variantId, playKey) {
 }
 
 /**
- * rf2-tl7zk: trigger a specific play to run. The CI hook's `runPlay`
- * picks the spec off the variant body and drives the runner.
+ * Trigger a specific play to run. The CI hook's `runPlay` picks the
+ * spec off the variant body and drives the runner.
  */
 async function triggerPlay(page, variantId, playKey) {
   return page.evaluate(
@@ -337,8 +337,8 @@ function summariseResults(results) {
 }
 
 /**
- * rf2-tl7zk: group ci-rows by variant id so we navigate ONCE per
- * variant and then drive each row's play locally.
+ * Group ci-rows by variant id so we navigate ONCE per variant and
+ * then drive each row's play locally.
  */
 function groupRowsByVariant(rows) {
   const grouped = new Map();
@@ -368,8 +368,8 @@ async function runAllVariants(browser, baseUrl) {
       throw new Error(`variant discovery failed: ${discovery.error || JSON.stringify(discovery)}`);
     }
     const variants = discovery.variants;
-    // rf2-tl7zk: prefer the per-play `rows` enumeration; fall back to
-    // the legacy per-variant shape when the CI hook is older.
+    // Prefer the per-play `rows` enumeration; fall back to the
+    // per-variant shape when the CI hook predates `rows`.
     const rows =
       discovery.context && Array.isArray(discovery.context.rows)
         ? discovery.context.rows

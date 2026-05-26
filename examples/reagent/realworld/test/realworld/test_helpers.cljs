@@ -8,10 +8,9 @@
    test-specific `:value` (success) or `:kind` + `:tags` (failure)."
   (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            ;; rf2-cdmle — these helpers resolve
-            ;; :rf.http/managed-canned-success/failure via registrar lookup.
-            ;; Per the gate change, those fx ids register from
-            ;; re-frame.http-test-support, NOT re-frame.http-managed.
+            ;; These helpers resolve :rf.http/managed-canned-success
+            ;; / failure via registrar lookup. Those fx ids register
+            ;; from re-frame.http-test-support, NOT re-frame.http-managed.
             [re-frame.http-test-support]))
 
 (defn reg-canned-success!
