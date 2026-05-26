@@ -56,6 +56,29 @@
       (is (not (string/includes? (or body-text "") "reg-event-db"))
           "body MUST NOT duplicate the flavour pill"))))
 
+;; ---- rf2-93a7s — DISPATCH body shows the event vector ----------------
+
+(deftest dispatch-body-shows-event-vector-test
+  (testing "rf2-93a7s — DISPATCH body renders the dispatched event vector"
+    (let [tree (view/render-dispatch-step
+                 {:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:counter/inc 7] :source :ui :coord nil})
+          body (th/find-by-testid tree "rf-xray-epoch-dispatch-event")]
+      (is (some? body) "the body's event-vector slot is present")
+      (is (string/includes? (th/text-content body) ":counter/inc")
+          "event-id is visible in the body")
+      (is (string/includes? (th/text-content body) "7")
+          "the event args are visible too"))))
+
+(deftest dispatch-body-omits-event-when-absent-test
+  (testing "rf2-93a7s — empty event yields no event-vector slot
+            (graceful-degrade rather than rendering `[]` noise)"
+    (let [tree (view/render-dispatch-step
+                 {:step :dispatch :badge :DISPATCH :step-number 1
+                  :event nil :source :ui :coord nil})]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-dispatch-event"))
+          "no body row when no event vector was captured"))))
+
 ;; ---- rf2-cq0ch — COEFFECT body --------------------------------------
 
 (deftest coeffect-body-renders-labelled-value-test

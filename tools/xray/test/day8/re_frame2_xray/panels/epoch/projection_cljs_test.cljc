@@ -150,6 +150,21 @@
   (testing "no dispatched + no fallback returns nil"
     (is (nil? (proj/dispatch-row [] nil)))))
 
+(deftest dispatch-row-reads-canonical-event-v-tag-test
+  (testing "rf2-93a7s — the dispatched trace stamps the event vector at
+            the substrate-canonical `:rf.event/v` tag; the projection
+            must read that tag (the pre-rf2-93a7s read against `:event`
+            silently returned nil — DISPATCH step appeared without its
+            event-vector body)"
+    (let [ev {:op-type   :rf.event
+              :operation :rf.event/dispatched
+              :tags      {:rf.event/v [:counter/inc 7]
+                          :source     :ui}}
+          r  (proj/dispatch-row [ev] nil)]
+      (is (= [:counter/inc 7] (:event r))
+          "event vector resolves through :rf.event/v")
+      (is (= :ui (:source r))))))
+
 ;; ---- COEFFECT ------------------------------------------------------------
 
 (deftest coeffect-rows-granular-test
