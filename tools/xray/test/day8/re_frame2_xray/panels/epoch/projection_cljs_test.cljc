@@ -146,6 +146,20 @@
         :rf.view/render-key render-key
         :frame              frame})))
 
+(defn- sub-dispose-ev
+  "`:rf.sub/dispose` trace event — drives the SUBSCRIPTIONS step's
+  DISPOSED sub-section (rf2-wpfjo). Per rf2-mrnur the substrate stamps
+  `:rf.sub/id` + `:rf.sub/query-v` + `:rf.sub/reason` + `:frame`
+  on every cache eviction site."
+  ([sub-vec reason]
+   (sub-dispose-ev sub-vec reason :rf/default))
+  ([sub-vec reason frame]
+   (ev :rf.sub :rf.sub/dispose
+       {:rf.sub/id      (when (vector? sub-vec) (first sub-vec))
+        :rf.sub/query-v sub-vec
+        :rf.sub/reason  reason
+        :frame          frame})))
+
 (defn- machine-transition-ev
   ([machine-id before after]
    (machine-transition-ev machine-id before after nil 0))
@@ -844,6 +858,57 @@
                                       (sub-run-ev [:c] false :y :y)])]
       (is (= 1 (:changed s)))
       (is (= 2 (:unchanged s))))))
+
+(deftest disposed-subs-rows-test
+  (testing "rf2-wpfjo — `disposed-subs-rows` walks every
+            `:rf.sub/dispose` trace event into a row carrying
+            `:sub-id`, `:query`, `:reason`, `:frame`"
+    (let [rows (proj/disposed-subs-rows
+                 [(sub-dispose-ev [:counter/total] :no-more-derefers)
+                  (sub-dispose-ev [:counter/label] :hot-reload)
+                  (sub-dispose-ev [:cart/items 42] :cache-clear)])]
+      (is (= 3 (count rows)))
+      (is (= :counter/total (-> rows first :sub-id)))
+      (is (= [:counter/total] (-> rows first :query)))
+      (is (= :no-more-derefers (-> rows first :reason)))
+      (is (= :rf/default (-> rows first :frame)))
+      (is (= :hot-reload   (-> rows second :reason)))
+      (is (= :cache-clear  (-> rows last :reason)))
+      (is (= [:cart/items 42] (-> rows last :query)))))
+
+  (testing "rf2-wpfjo — no `:rf.sub/dispose` events → empty vec"
+    (is (= [] (proj/disposed-subs-rows
+                [(sub-run-ev [:counter/total] true 5 6)])))))
+
+(deftest subscriptions-step-surfaces-disposed-rows-test
+  (testing "rf2-wpfjo — `subscriptions-step` carries `:disposed-rows`
+            when `:rf.sub/dispose` events fired alongside the
+            recompute rows"
+    (let [s (proj/subscriptions-step
+              [(sub-run-ev [:a] true 1 2)
+               (sub-dispose-ev [:cart/items] :no-more-derefers)])]
+      (is (= 1 (count (:rows s))))
+      (is (= 1 (count (:disposed-rows s))))
+      (is (= :cart/items (-> s :disposed-rows first :sub-id)))
+      (is (= :no-more-derefers (-> s :disposed-rows first :reason)))))
+
+  (testing "rf2-wpfjo — dispose-only cascade (no run/skip) → step
+            still present; `:rows` empty, `:disposed-rows` populated"
+    (let [s (proj/subscriptions-step
+              [(sub-dispose-ev [:cart/items] :no-more-derefers)])]
+      (is (some? s) "step rendered when only dispose events fired")
+      (is (= :subscriptions (:step s)))
+      (is (= [] (:rows s)))
+      (is (= 1 (count (:disposed-rows s))))))
+
+  (testing "rf2-wpfjo — no sub events at all → step OMITTED"
+    (is (nil? (proj/subscriptions-step []))))
+
+  (testing "rf2-wpfjo — only recomputes, no disposals → `:disposed-rows`
+            slot ABSENT (omit-by-absence)"
+    (let [s (proj/subscriptions-step [(sub-run-ev [:a] true 1 2)])]
+      (is (not (contains? s :disposed-rows))
+          "absent slot conveys absence, not an empty vec"))))
 
 ;; ---- VIEWS --------------------------------------------------------------
 

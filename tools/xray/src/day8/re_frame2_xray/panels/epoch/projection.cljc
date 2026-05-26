@@ -784,6 +784,28 @@
          :duration-ms (or (common/tag-of ev :rf.sub/elapsed-ms)
                           (common/tag-of ev :duration-ms))}))))
 
+(defn disposed-subs-rows
+  "Project `:rf.sub/dispose` events into rows (rf2-wpfjo). Each row
+  carries:
+
+      :sub-id  — the sub-cache's query-id (`:rf.sub/id` tag)
+      :query   — the full query-vector that was evicted (`:rf.sub/query-v`)
+      :reason  — closed set per rf2-mrnur:
+                 `:no-more-derefers` / `:hot-reload` / `:cache-clear`
+      :frame   — the originating frame (`:frame` tag)
+
+  Per `re-frame.subs.cache/emit-dispose!` (Spec 009 §:op-type vocabulary
+  §`:rf.sub/dispose`) every cache eviction site funnels through ONE
+  emit shape — this projection mirrors that shape verbatim. Returns an
+  empty vec when no `:rf.sub/dispose` events fired."
+  [events]
+  (vec
+    (for [ev (filter-op events :rf.sub/dispose)]
+      {:sub-id (common/tag-of ev :rf.sub/id)
+       :query  (common/tag-of ev :rf.sub/query-v)
+       :reason (common/tag-of ev :rf.sub/reason)
+       :frame  (common/tag-of ev :frame)})))
+
 (defn subscriptions-step
   "SUBSCRIPTIONS step row. nil when no `:rf.sub/*` events fired (the
   step is OMITTED — conditional).
@@ -792,17 +814,26 @@
   `:changed?` so the operator sees `N recomputed (M changed,
   K unchanged)` at a glance — the unchanged rows are hidden behind
   a toggle in the view, the count makes the toggle's value
-  predictable."
+  predictable.
+
+  Per rf2-wpfjo the step also carries `:disposed-rows` when the
+  cascade fired `:rf.sub/dispose` events (one row per cache eviction).
+  Omit-by-absence — the slot is present only when populated. The
+  step surfaces when ANY of the two surfaces (`:run/:skip` OR
+  `:dispose`) have content, so a dispose-only cascade still renders."
   [events]
-  (let [rows (subscription-rows events)]
-    (when (seq rows)
+  (let [rows          (subscription-rows events)
+        disposed-rows (disposed-subs-rows events)]
+    (when (or (seq rows) (seq disposed-rows))
       (let [changed   (count (filter :changed? rows))
             unchanged (- (count rows) changed)]
-        {:step      :subscriptions
-         :badge     :SUBSCRIPTIONS
-         :rows      rows
-         :changed   changed
-         :unchanged unchanged}))))
+        (cond-> {:step      :subscriptions
+                 :badge     :SUBSCRIPTIONS
+                 :rows      rows
+                 :changed   changed
+                 :unchanged unchanged}
+          (seq disposed-rows)
+          (assoc :disposed-rows disposed-rows))))))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 

@@ -1772,6 +1772,78 @@
             [:span {:style {:color (:success tokens)}} [ei/mini after 24]])]
          [:span {:style {:color (:text-tertiary tokens) :font-weight 700}} "✗"])]])])
 
+(defn- dispose-reason-label
+  "Render a `:rf.sub/dispose` `:reason` keyword as a UI label
+  (rf2-wpfjo). Closed set per rf2-mrnur — `:no-more-derefers /
+  :hot-reload / :cache-clear`. Falls through `name` for unknown
+  reasons so future extensions still paint text."
+  [reason]
+  (case reason
+    :no-more-derefers "no-more-derefers"
+    :hot-reload       "hot-reload"
+    :cache-clear      "cache-clear"
+    (when (keyword? reason) (name reason))))
+
+(defn- disposed-subs-table
+  "Render the DISPOSED sub-section (rf2-wpfjo) — one row per
+  `:rf.sub/dispose` trace event. Visually distinct from the
+  recompute rows: a red/error glyph conveys eviction; a muted
+  reason chip carries the dispose path."
+  [rows]
+  [:div {:data-testid "rf-xray-epoch-subscriptions-disposed-table"
+         :style {:margin-top "8px"
+                 :border (str "1px solid " (:border-subtle tokens))
+                 :border-radius "3px"
+                 :overflow "hidden"}}
+   [:div {:style {:display "flex"
+                  :align-items "stretch"
+                  :background (:bg-3 tokens)
+                  :border-bottom (str "1px solid " (:border-subtle tokens))
+                  :font-family sans-stack
+                  :font-size "10px"
+                  :font-weight 700
+                  :color (:text-tertiary tokens)
+                  :text-transform "uppercase"
+                  :letter-spacing "0.5px"}}
+    [:div {:style {:flex "0 0 24px" :padding "5px 8px"}} ""]
+    [:div {:style {:flex "1 1 60%" :padding "5px 8px"}} "disposed sub"]
+    [:div {:style {:flex "1 1 40%" :padding "5px 8px"}} "reason"]]
+   (for [[i {:keys [sub-id query reason]}] (map-indexed vector rows)]
+     [:div {:key (str "disposed-" i)
+            :data-testid (str "rf-xray-epoch-sub-disposed-row-" i)
+            :data-sub-reason (when reason (pr-str reason))
+            :style {:display "flex"
+                    :align-items "stretch"
+                    :border-bottom (when (< i (dec (count rows)))
+                                     (str "1px solid " (:border-subtle tokens)))}}
+      [:div {:style {:flex "0 0 24px" :padding "5px 8px"
+                     :color (:error tokens)
+                     :font-family mono-stack :font-size "12px"
+                     :font-weight 700
+                     :text-align "center"}}
+       ;; Eviction glyph — `✗` red/error tone conveys "removed from
+       ;; the reactive graph" (rf2-wpfjo).
+       "✗"]
+      [:div {:style {:flex "1 1 60%" :padding "5px 8px" :min-width 0
+                     :font-family mono-stack :font-size "12px"
+                     :word-break "break-word"}}
+       [:span {:data-testid (str "rf-xray-epoch-sub-disposed-row-id-" i)
+               :style {:color (:text-secondary tokens)
+                       :display "inline-flex"
+                       :align-items "center" :gap "4px"}}
+        (cond
+          (vector? query) [ei/mini query 40]
+          (some? sub-id)  [ei/mini sub-id 40]
+          :else           [:span {:style {:color (:text-tertiary tokens)
+                                          :font-style "italic"}}
+                           "<anonymous sub>"])]]
+      [:div {:data-testid (str "rf-xray-epoch-sub-disposed-row-reason-" i)
+             :style {:flex "1 1 40%" :padding "5px 8px" :min-width 0
+                     :font-family mono-stack :font-size "11px"
+                     :color (:text-tertiary tokens)
+                     :word-break "break-word"}}
+       (dispose-reason-label reason)]])])
+
 (defn render-subscriptions-step
   "Render the SUBSCRIPTIONS step (only present when subs recomputed).
 
@@ -1798,7 +1870,7 @@
   inside a different frame-provider (story testbeds, embedded
   surfaces). The toggle slot lives on `:rf/xray`'s app-db; the
   matching read MUST also target `:rf/xray`'s db."
-  [{:keys [rows changed unchanged step-number]}]
+  [{:keys [rows disposed-rows changed unchanged step-number]}]
   (let [show-unchanged? @(rf/subscribe :rf/xray
                                        [:rf.xray.epoch/subs-show-unchanged?])
         visible-rows    (if show-unchanged?
@@ -1806,7 +1878,22 @@
                           (filterv :changed? rows))
         n               (count rows)
         m               (or changed (count (filter :changed? rows)))
-        k               (or unchanged (- n m))]
+        k               (or unchanged (- n m))
+        l               (count disposed-rows)
+        ;; Per rf2-wpfjo — header counter expands to surface the
+        ;; eviction count alongside the recompute split. The
+        ;; recompute clause is omitted when there were none (a
+        ;; pure-dispose cascade reads `L disposed` only); the
+        ;; disposed clause appears only when L > 0.
+        recompute-clause (when (pos? n)
+                           (str n " recomputed (" m " changed, " k " unchanged)"))
+        disposed-clause  (when (pos? l)
+                           (str l " disposed"))
+        verb-text        (cond
+                           (and recompute-clause disposed-clause)
+                           (str recompute-clause "; " disposed-clause)
+                           recompute-clause recompute-clause
+                           :else             disposed-clause)]
     [:div {:data-testid "rf-xray-epoch-step-subscriptions"
            :data-step-kw "subscriptions"}
      (numbered-circle step-number :SUBSCRIPTIONS)
@@ -1815,12 +1902,15 @@
         :badge :SUBSCRIPTIONS
         :verb [:span {:style {:display "inline-flex" :align-items "center"
                               :gap "8px" :flex-wrap "wrap"}}
-               (str n " recomputed (" m " changed, " k " unchanged)")
+               verb-text
                (subscriptions-toggle-button show-unchanged? k)]
         :expandable? false
         :testid "rf-xray-epoch-subscriptions"}
        nil)
-     (subscriptions-table visible-rows)]))
+     (when (pos? n)
+       (subscriptions-table visible-rows))
+     (when (pos? l)
+       (disposed-subs-table disposed-rows))]))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 

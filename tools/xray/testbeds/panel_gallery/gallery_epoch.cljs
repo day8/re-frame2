@@ -24,6 +24,7 @@
   | `empty`                | empty-state — no epochs (`:no-focus`)              |
   | `no-events`            | cold pipeline — one epoch with empty `:trace-events` |
   | `unmounted-views`      | DISPATCH · HANDLER (db) · SUBSCRIPTIONS · VIEWS (re-renders + UNMOUNTED sub-section — rf2-gmw1i) |
+  | `disposed-subs`        | DISPATCH · HANDLER (db) · SUBSCRIPTIONS (recompute + DISPOSED sub-section — rf2-wpfjo) |
 
   ## Why seed via `:rf.xray/sync-epoch-history`
 
@@ -180,13 +181,25 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
+  ;; ----- 11. disposed-subs cascade (rf2-wpfjo) -----------------------
+  (story/reg-variant :story.xray.epoch/disposed-subs
+    {:doc        "Route-change cascade where three sub-cache entries
+                 evict (two `:no-more-derefers`, one `:hot-reload`)
+                 while one sub recomputes. Exercises the SUBSCRIPTIONS
+                 step's DISPOSED sub-section (rf2-wpfjo) — header reads
+                 `N recomputed (...); L disposed`, each row paints the
+                 red ✗ eviction glyph + a muted reason chip."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/disposed-subs-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
   ;; ----- workspace ---------------------------------------------------
   (story/reg-workspace :Workspace.xray.epoch/all
-    {:doc      "All ten Epoch panel variants in one auto-grid.
+    {:doc      "All eleven Epoch panel variants in one auto-grid.
                 Scroll to see the cascade across vanilla-db /
                 reg-event-fx / machine-driven / schema-violations /
                 child-dispatches / long-step / flow-firing / empty /
-                no-events / unmounted-views."
+                no-events / unmounted-views / disposed-subs."
      :layout   :variants-grid
      :story    :story.xray.epoch
      :columns  2

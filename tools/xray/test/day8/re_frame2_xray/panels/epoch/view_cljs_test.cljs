@@ -261,6 +261,83 @@
               "envelope-anchored dispatch flips the :rf/xray slot the
                2-arity sub reads"))))))
 
+;; ---- rf2-wpfjo — SUBSCRIPTIONS disposed sub-section -------------------
+
+(deftest disposed-subs-section-renders-when-rows-present-test
+  (testing "rf2-wpfjo — when projection carries `:disposed-rows`, the
+            SUBSCRIPTIONS step renders a DISPOSED sub-section listing
+            each evicted sub; header reads `N recomputed (...); L disposed`"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}]
+                  :changed 1 :unchanged 0
+                  :disposed-rows [{:sub-id :cart/items
+                                   :query  [:cart/items]
+                                   :reason :no-more-derefers
+                                   :frame  :rf/default}
+                                  {:sub-id :counter/label
+                                   :query  [:counter/label]
+                                   :reason :hot-reload
+                                   :frame  :rf/default}]}
+            tree (view/render-subscriptions-step step)
+            header (text-of tree "rf-xray-epoch-subscriptions-header")
+            disposed-tbl (th/find-by-testid tree "rf-xray-epoch-subscriptions-disposed-table")
+            row0   (th/find-by-testid tree "rf-xray-epoch-sub-disposed-row-0")
+            id0    (text-of tree "rf-xray-epoch-sub-disposed-row-id-0")
+            reason0 (text-of tree "rf-xray-epoch-sub-disposed-row-reason-0")]
+        (is (some? disposed-tbl)
+            "the DISPOSED sub-section is present when disposed-rows non-empty")
+        (is (some? row0)
+            "the per-disposed-sub row renders")
+        (is (string/includes? header "2 disposed")
+            "header reads `... 2 disposed`")
+        (is (string/includes? id0 ":cart/items")
+            "evicted sub-id renders in the row")
+        (is (string/includes? reason0 "no-more-derefers")
+            "the row's reason chip renders the rf2-mrnur closed-set keyword")))))
+
+(deftest disposed-subs-section-omitted-without-rows-test
+  (testing "rf2-wpfjo — when no `:disposed-rows`, no DISPOSED
+            sub-section renders; header reads the legacy `N recomputed
+            (...)` shape"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            header (text-of tree "rf-xray-epoch-subscriptions-header")]
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-subscriptions-disposed-table"))
+            "no DISPOSED table renders when disposed-rows is absent")
+        (is (not (string/includes? header "disposed"))
+            "header omits the disposed clause")))))
+
+(deftest subscriptions-step-dispose-only-cascade-renders-test
+  (testing "rf2-wpfjo — when the cascade is dispose-only (no
+            recomputes) the step still renders; the recompute table
+            is absent; header reads `L disposed`"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows []
+                  :changed 0 :unchanged 0
+                  :disposed-rows [{:sub-id :cart/items
+                                   :query  [:cart/items]
+                                   :reason :cache-clear
+                                   :frame  :rf/default}]}
+            tree (view/render-subscriptions-step step)
+            header (text-of tree "rf-xray-epoch-subscriptions-header")]
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-subscriptions-table"))
+            "the recompute table is omitted when no recompute rows fired")
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-subscriptions-disposed-table"))
+            "the DISPOSED table renders")
+        (is (string/includes? header "1 disposed")
+            "header reads the dispose-only shape")))))
+
 ;; ---- rf2-66wis — HANDLER source code block ---------------------------
 
 ;; ---- rf2-93436 — HANDLER :db diff sub-section (design §Section 1+2) -----
