@@ -93,6 +93,7 @@
             [day8.re-frame2-xray.panels.overflow-indicator :as overflow]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as managed-fx-h]
             [day8.re-frame2-xray.panels.managed-fx-template :as managed-fx]
+            [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
             [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
@@ -387,48 +388,354 @@
                        :color       (:text-secondary tokens)}}
         (str duration-ms "ms")]])))
 
+;; ---- hoisted row-level styles (rf2-xjgdk · audit F4) -------------------
+;;
+;; The Event lens renders a handful of row types many times per epoch —
+;; APP-DB CHANGES can produce 20-50 `db-change-row`s per cascade, FLOWS
+;; and AFTER INTERCEPTORS easily 10+ each. Allocating fresh `:style`
+;; maps inside each render produces ~200-250 garbage maps per panel
+;; render. Hoisting the static shape to ns-top defs collapses each row
+;; render to a single map reference plus, where colour varies, a tiny
+;; `assoc`-overlay. Mirrors the rf2-5venq Trace + rf2-qx414 Cancellation
+;; pattern.
+;;
+;; Token reads (`(:bg-1 tokens)` etc.) resolve at ns-load — `tokens` is
+;; a static const map (spec/007-UX-IA §CSS custom-property surface);
+;; theme switching is handled by the CSS-vars seam, not by rebinding
+;; the Clojure value. The maps below are therefore safe to capture
+;; once, at compile time, and reuse on every render in both light and
+;; dark modes.
+
+;; --- §3 step DISPATCH ----------------------------------------------------
+
+(def ^:private dispatch-event-vector-box-style
+  {:background    (:bg-3 tokens)
+   :border        (str "1px solid " (:border-subtle tokens))
+   :border-radius "3px"
+   :padding       "5px 8px"
+   :overflow-x    "auto"
+   :min-width     "0"})
+
+(def ^:private dispatch-from-row-style
+  {:display      "flex"
+   :align-items  "baseline"
+   :gap          "6px"
+   :margin-top   "6px"
+   :font-family  mono-stack
+   :font-size    "12px"})
+
+(def ^:private dispatch-from-caption-style
+  {:color (:text-tertiary tokens)})
+
+(def ^:private dispatch-source-link-style
+  {:color           (:accent tokens)
+   :text-decoration "underline"
+   :text-decoration-style "dotted"
+   :text-underline-offset "2px"
+   :display         "inline-flex"
+   :align-items     "center"
+   :gap             "4px"})
+
+(def ^:private dispatch-source-plain-style
+  {:color (:text-secondary tokens)})
+
+;; --- §4 step COEFFECTS — coeffect-row ------------------------------------
+
+(def ^:private coeffect-row-style
+  {:padding "2px 0"})
+
+(def ^:private coeffect-id-line-style
+  {:display      "inline-flex"
+   :align-items  "center"
+   :color        (:accent tokens)})
+
+(def ^:private coeffect-add-row-style
+  {:display      "flex"
+   :align-items  "flex-start"
+   :padding      "1px 0 1px 24px"})
+
+(def ^:private coeffect-add-glyph-style
+  {:color        (:green tokens)
+   :font-weight  700
+   :margin-right "8px"
+   :min-width    "10px"})
+
+(def ^:private coeffect-add-path-style
+  {:color        (:text-tertiary tokens)
+   :margin-right "8px"
+   :min-width    "0"})
+
+(def ^:private coeffect-add-value-style
+  {:color      (:text-primary tokens)
+   :min-width  0
+   :flex       1
+   :word-break "break-word"})
+
+;; --- §5 AFTER INTERCEPTORS — interceptor-row + ctx-delta-row ------------
+
+(def ^:private interceptor-row-style
+  {:padding "2px 0"})
+
+(def ^:private interceptor-row-header-style
+  {:display     "flex"
+   :align-items "center"})
+
+(def ^:private interceptor-id-style
+  {:color        (:accent tokens)
+   :margin-right "12px"
+   :min-width    "180px"})
+
+(def ^:private interceptor-coord-style
+  {:color (:text-secondary tokens)})
+
+(def ^:private interceptor-coord-absent-style
+  {:color       (:text-tertiary tokens)
+   :font-style  "italic"
+   :font-size   "11px"})
+
+(def ^:private ctx-delta-block-style
+  {:padding "2px 0 4px 0"})
+
+(def ^:private ctx-delta-row-style
+  {:display     "flex"
+   :align-items "flex-start"
+   :padding     "1px 0 1px 24px"
+   :font-family mono-stack
+   :font-size   "11px"})
+
+(def ^:private ctx-delta-glyph-base-style
+  {:font-weight  700
+   :margin-right "8px"
+   :min-width    "10px"})
+
+(def ^:private ctx-delta-segment-style
+  {:color        (:text-tertiary tokens)
+   :margin-right "8px"
+   :min-width    "0"})
+
+(def ^:private ctx-delta-value-style
+  {:color      (:text-primary tokens)
+   :min-width  "0"
+   :flex       1
+   :word-break "break-word"})
+
+;; --- §6 APP-DB CHANGES — db-change-row + overlays -----------------------
+
+(def ^:private db-change-row-style
+  {:display     "flex"
+   :align-items "baseline"
+   :flex-wrap   "wrap"
+   :gap         "8px"
+   :padding     "2px 0"})
+
+(def ^:private db-change-glyph-base-style
+  {:flex        "0 0 12px"
+   :font-family mono-stack
+   :font-weight 700
+   :text-align  "center"
+   :user-select "none"})
+
+(def ^:private db-change-path-base-style
+  {:font-family mono-stack})
+
+(def ^:private db-change-modified-cell-style
+  {:display     "inline-flex"
+   :align-items "baseline"
+   :flex-wrap   "wrap"
+   :gap         "6px"
+   :min-width   0})
+
+(def ^:private db-change-modified-before-style
+  {:color           (:text-tertiary tokens)
+   :text-decoration "line-through"})
+
+(def ^:private db-change-modified-arrow-style
+  {:color (:text-tertiary tokens)})
+
+(def ^:private db-change-modified-after-style
+  {:color (:text-primary tokens)})
+
+(def ^:private db-change-added-value-style
+  {:color (:text-primary tokens) :min-width 0})
+
+;; --- §7 FLOWS — flow-row -------------------------------------------------
+
+(def ^:private flow-row-style-flat
+  "Outer `flow-row` container — top-level (un-chained) flow."
+  {:padding      "4px 0"
+   :padding-left "0"})
+
+(def ^:private flow-row-style-chained
+  "Outer `flow-row` container — chained flow (`↳ via …`) is indented."
+  {:padding      "4px 0"
+   :padding-left "20px"})
+
+(def ^:private flow-row-header-style
+  {:display     "flex"
+   :align-items "center"
+   :gap         "8px"
+   :flex-wrap   "wrap"})
+
+(def ^:private flow-row-glyph-base-style
+  {:font-weight 600
+   :font-size   "12px"})
+
+(def ^:private flow-row-id-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :color       (:accent tokens)
+   :font-weight 600
+   :min-width   "160px"})
+
+(def ^:private flow-row-via-style
+  {:color       (:text-tertiary tokens)
+   :font-family sans-stack
+   :font-style  "italic"
+   :font-size   "11px"})
+
+(def ^:private flow-row-line-style
+  "Shared shape for the `wrote` + `read` lines under the header."
+  {:display     "flex"
+   :align-items "flex-start"
+   :padding     "2px 0 2px 24px"})
+
+(def ^:private flow-row-line-label-style
+  {:color        (:text-tertiary tokens)
+   :margin-right "10px"
+   :min-width    "48px"
+   :font-family  sans-stack
+   :font-size    "11px"})
+
+(def ^:private flow-row-write-path-style
+  {:color        (:accent tokens)
+   :margin-right "12px"})
+
+(def ^:private flow-row-write-value-style
+  {:color     (:text-primary tokens)
+   :min-width 0
+   :flex      1})
+
+(def ^:private flow-row-read-paths-container-style
+  {:color      (:text-secondary tokens)
+   :flex       1
+   :word-break "break-word"})
+
+(def ^:private flow-row-read-path-style
+  {:color        (:accent tokens)
+   :margin-right "8px"})
+
+(def ^:private flow-row-read-absent-style
+  {:color      (:text-tertiary tokens)
+   :font-style "italic"
+   :font-size  "11px"})
+
+;; --- §8 FX — fx-handler-row ---------------------------------------------
+
+(def ^:private fx-handler-row-style
+  {:padding "4px 0"})
+
+(def ^:private fx-handler-row-inner-style
+  {:display     "flex"
+   :align-items "center"
+   :gap         "10px"
+   :flex-wrap   "wrap"})
+
+(def ^:private fx-handler-id-style
+  {:color     (:accent tokens)
+   :min-width "160px"})
+
+(def ^:private fx-handler-status-base-style
+  {:font-weight 600 :font-size "11px"})
+
+(def ^:private fx-managed-record-style
+  {:margin "6px 0 4px 16px"})
+
+;; --- §3 EVENT HANDLER — handler-returned-effects-block ------------------
+
+(def ^:private handler-returned-effects-style
+  {:margin-top "8px"
+   :padding    "6px 0 0 16px"
+   :border-top (str "1px dashed " (:border-subtle tokens))})
+
+(def ^:private handler-returned-effects-caption-style
+  {:color         (:text-tertiary tokens)
+   :font-family   sans-stack
+   :font-size     "11px"
+   :margin-bottom "4px"})
+
+(def ^:private handler-returned-section-style
+  {:padding     "1px 0"
+   :font-family mono-stack
+   :font-size   "11px"})
+
+(def ^:private handler-returned-key-row-style
+  {:display     "flex"
+   :align-items "baseline"
+   :gap         "8px"})
+
+(def ^:private handler-returned-key-label-style
+  {:color     (:accent tokens)
+   :min-width "32px"})
+
+(def ^:private handler-returned-db-value-style
+  {:color     (:text-primary tokens)
+   :flex      1
+   :min-width 0})
+
+(def ^:private handler-returned-db-absent-style
+  {:color      (:text-tertiary tokens)
+   :font-style "italic"})
+
+(def ^:private handler-returned-fx-summary-style
+  {:color (:text-tertiary tokens)})
+
+(def ^:private handler-returned-fx-row-style
+  {:padding "1px 0 1px 40px"
+   :color   (:text-secondary tokens)})
+
+;; --- cascade-list-row (empty-state list) --------------------------------
+
+(def ^:private cascade-list-row-style
+  {:padding       "8px 12px"
+   :border-bottom (str "1px solid " (:border-subtle tokens))
+   :cursor        "pointer"
+   :font-family   mono-stack
+   :font-size     "13px"
+   :color         (:text-primary tokens)})
+
+(def ^:private cascade-list-dispatch-id-style
+  {:color        (:accent tokens)
+   :margin-right "8px"})
+
+(def ^:private cascade-list-frame-style
+  {:color        (:text-tertiary tokens)
+   :margin-right "8px"})
+
 ;; ---- step DISPATCH (spec/021 §2.2 step 1) ------------------------------
 
-(defn- coord-chip
-  "Reusable 'open in editor' click-to-source affordance. Renders the
-  Figma authority's `external-link` lucide SVG glyph (13px, currentColor
-  stroke, inline with the surrounding link text); nothing when `coord`
-  has no `:file`. Dispatches `:rf.xray/open-in-editor` with the
-  structured coord; the trace collector thereby records the click + the
-  editor handler resolves the URI through the rf2-cm93v allowlist.
+;; coord-chip moved to `panels.shared.coord-chip/coord-chip` (rf2-xjgdk
+;; audit L2 — the icon-only chip was duplicated across panels; one
+;; canonical home + per-site overlays now). The Event lens renders its
+;; chips with the `:accent`-coloured + `6px`-margin overlay below,
+;; matching this panel's prior shape exactly. Per rf2-xw7mj the lucide
+;; `external-link` glyph remains unified across every click-to-source
+;; site in the Event lens (DISPATCH FROM, COEFFECTS rows, EVENT
+;; HANDLER coord, AFTER INTERCEPTORS rows, FLOWS rows) so the
+;; affordance reads as one vocabulary.
 
-  Per rf2-xw7mj the glyph is unified across every click-to-source site
-  in the Event lens (DISPATCH FROM, COEFFECTS rows, EVENT HANDLER
-  coord, AFTER INTERCEPTORS rows, FLOWS rows) so the affordance reads
-  as one vocabulary. The previous unicode `↗` arrow is superseded
-  here; the SVG mirrors the lucide-icons family the Figma authority
-  ships across the rest of the devtool chrome.
+(def ^:private event-chip-opts
+  "Per-site overlay for the Event-lens coord-chip — `:accent` colour
+  (stands alone in a `:text-primary` row) + `6px` left margin (slightly
+  wider tap target than the Epoch idiom)."
+  {:color       (:accent tokens)
+   :margin-left "6px"})
 
-  Accessibility: rendered as a `<button>` (so it's tab-focusable +
-  activates on Enter / Space natively); the SVG itself carries
-  `aria-hidden=\"true\"` so screen readers read the button's
-  `aria-label` (\"open in editor\") rather than walking the path
-  geometry."
+(defn- event-coord-chip
+  "Event-lens chip — thin wrapper that fixes the per-site overlay so
+  call-sites read `(event-coord-chip coord testid)` like the prior
+  inline `defn-`."
   [coord testid]
-  (when (and (map? coord) (seq (:file coord)))
-    [:button {:data-testid testid
-              :aria-label  "open in editor"
-              :title       "open in editor"
-              :on-click    (fn [e]
-                             (.stopPropagation e)
-                             (rf/dispatch [:rf.xray/open-in-editor
-                                           {:source-coord coord}]
-                                          {:frame :rf/xray}))
-              :style       {:background      "transparent"
-                            :color           (:accent tokens)
-                            :border          "none"
-                            :padding         "0 4px"
-                            :margin-left     "6px"
-                            :cursor          "pointer"
-                            :display         "inline-flex"
-                            :align-items     "center"
-                            :line-height     1}}
-     (icons/external-link)]))
+  (coord-chip/coord-chip coord testid event-chip-opts))
 
 (defn- dispatch-body
   "Step DISPATCH body — the dispatched event vector + the `FROM:
@@ -494,7 +801,7 @@
                         :color (:accent tokens)
                         :font-family mono-stack}}
          label
-         (coord-chip coord "rf-xray-event-detail-dispatch-open-chip")]
+         (event-coord-chip coord "rf-xray-event-detail-dispatch-open-chip")]
         ;; No call-site coord — plain muted source text, no link.
         [:span {:data-testid "rf-xray-event-detail-dispatch-from"
                 :style {:color (:text-secondary tokens)
@@ -565,34 +872,22 @@
         coord      (when (and cofx-meta (string? (:file cofx-meta)))
                      {:file (:file cofx-meta) :line (:line cofx-meta)})]
     [:div {:data-testid (str "rf-xray-event-detail-coeffect-row-" suffix)
-           :style {:padding "2px 0"}}
+           :style coeffect-row-style}
      ;; Line 1 — id + click-to-source chip (link styling).
-     [:div {:style {:display      "inline-flex"
-                    :align-items  "center"
-                    :color        (:accent tokens)}}
+     [:div {:style coeffect-id-line-style}
       (pr-str id)
-      (coord-chip coord (str "rf-xray-event-detail-coeffect-open-chip-" suffix))]
+      (event-coord-chip coord (str "rf-xray-event-detail-coeffect-open-chip-" suffix))]
      ;; Line 2 — `+ [<id>]  <value>` add-row, mirroring the diff-glyph
      ;; idiom shared with APP-DB CHANGES / AFTER INTERCEPTORS / FLOWS.
      [:div {:data-testid (str "rf-xray-event-detail-coeffect-add-row-" suffix)
-            :style {:display      "flex"
-                    :align-items  "flex-start"
-                    :padding      "1px 0 1px 24px"}}
+            :style coeffect-add-row-style}
       [:span {:data-testid (str "rf-xray-event-detail-coeffect-add-glyph-" suffix)
-              :style {:color       (:green tokens)
-                      :font-weight 700
-                      :margin-right "8px"
-                      :min-width   "10px"}}
+              :style coeffect-add-glyph-style}
        "+"]
       [:span {:data-testid (str "rf-xray-event-detail-coeffect-add-path-" suffix)
-              :style {:color        (:text-tertiary tokens)
-                      :margin-right "8px"
-                      :min-width    "0"}}
+              :style coeffect-add-path-style}
        (str "[" (pr-str id) "]")]
-      [:span {:style {:color      (:text-primary tokens)
-                      :min-width  0
-                      :flex       1
-                      :word-break "break-word"}}
+      [:span {:style coeffect-add-value-style}
        (edn/inspect value (str "event-detail/coeffect/" suffix))]]]))
 
 (defn- coeffects-body
@@ -653,24 +948,12 @@
   (let [glyph    (ctx-delta-op->glyph op)
         colour   (get tokens (ctx-delta-op->colour-key op))]
     [:div {:data-testid (str "rf-xray-event-detail-icpt-delta-row-" testid-suffix)
-           :style {:display "flex"
-                   :align-items "flex-start"
-                   :padding "1px 0 1px 24px"
-                   :font-family mono-stack
-                   :font-size "11px"}}
-     [:span {:style {:color colour
-                     :font-weight 700
-                     :margin-right "8px"
-                     :min-width "10px"}}
+           :style ctx-delta-row-style}
+     [:span {:style (assoc ctx-delta-glyph-base-style :color colour)}
       glyph]
-     [:span {:style {:color (:text-tertiary tokens)
-                     :margin-right "8px"
-                     :min-width "0"}}
+     [:span {:style ctx-delta-segment-style}
       (str (name segment) "/" (pr-str k))]
-     [:span {:style {:color (:text-primary tokens)
-                     :min-width "0"
-                     :flex 1
-                     :word-break "break-word"}}
+     [:span {:style ctx-delta-value-style}
       display-value]]))
 
 (defn- format-changed-value
@@ -715,7 +998,7 @@
           rows      (mapcat per-seg segments)]
       (when (seq rows)
         (into [:div {:data-testid (str "rf-xray-event-detail-icpt-delta-" icpt-suffix)
-                     :style {:padding "2px 0 4px 0"}}]
+                     :style ctx-delta-block-style}]
               (map-indexed
                 (fn [i row] (with-meta row {:key (str i)}))
                 rows))))))
@@ -726,22 +1009,17 @@
         display (format-coord-display coord)
         suffix  (interceptor-testid-suffix id)]
     [:div {:data-testid (str "rf-xray-event-detail-interceptor-row-" suffix)
-           :style {:padding "2px 0"}}
-     [:div {:style {:display "flex"
-                    :align-items "center"}}
-      [:span {:style {:color (:accent tokens)
-                      :margin-right "12px"
-                      :min-width "180px"}}
+           :style interceptor-row-style}
+     [:div {:style interceptor-row-header-style}
+      [:span {:style interceptor-id-style}
        (pr-str id)]
       (if display
-        [:span {:style {:color (:text-secondary tokens)}}
+        [:span {:style interceptor-coord-style}
          display]
-        [:span {:style {:color (:text-tertiary tokens)
-                        :font-style "italic"
-                        :font-size "11px"}}
+        [:span {:style interceptor-coord-absent-style}
          "rf2 std-interceptor"])
-      (coord-chip coord
-                  (str "rf-xray-event-detail-interceptor-open-chip-" suffix))]
+      (event-coord-chip coord
+                        (str "rf-xray-event-detail-interceptor-open-chip-" suffix))]
      ;; Per rf2-9dk9y: render the per-:after ctx-delta block below the
      ;; row when the substrate captured one — using the EDN-diff
      ;; +/~/- idiom shared with APP-DB CHANGES. Absent (`nil` delta)
@@ -859,30 +1137,18 @@
         cascade-id (:dispatch-id cascade)]
     (when (or db-pres? (seq fx-vec))
       [:div {:data-testid "rf-xray-event-detail-handler-returned-effects"
-             :style {:margin-top "8px"
-                     :padding "6px 0 0 16px"
-                     :border-top (str "1px dashed " (:border-subtle tokens))}}
+             :style handler-returned-effects-style}
        [:div {:data-testid "rf-xray-event-detail-handler-returned-effects-caption"
-              :style {:color (:text-tertiary tokens)
-                      :font-family sans-stack
-                      :font-size "11px"
-                      :margin-bottom "4px"}}
+              :style handler-returned-effects-caption-style}
         "↳ returned effects (pre-commit)"]
        (when db-pres?
          [:div {:data-testid "rf-xray-event-detail-handler-returned-db"
-                :style {:padding "1px 0"
-                        :font-family mono-stack
-                        :font-size "11px"}}
-          [:div {:style {:display "flex"
-                         :align-items "baseline"
-                         :gap "8px"}}
-           [:span {:style {:color (:accent tokens)
-                           :min-width "32px"}} ":db"]
+                :style handler-returned-section-style}
+          [:div {:style handler-returned-key-row-style}
+           [:span {:style handler-returned-key-label-style} ":db"]
            (if (some? t1-trace)
              [:span {:data-testid "rf-xray-event-detail-handler-returned-db-value"
-                     :style {:color    (:text-primary tokens)
-                             :flex     1
-                             :min-width 0}}
+                     :style handler-returned-db-value-style}
               (edn/inspect t1-db
                            (str "event-detail/handler-returned-db/"
                                 (or cascade-id "x")))]
@@ -890,20 +1156,14 @@
              ;; or a trace recorded pre-rf2-ta0y7). The committed value
              ;; still reads naturally one step down under APP-DB CHANGES.
              [:span {:data-testid "rf-xray-event-detail-handler-returned-db-absent"
-                     :style {:color (:text-tertiary tokens)
-                             :font-style "italic"}}
+                     :style handler-returned-db-absent-style}
               "pending — see APP-DB CHANGES below for the committed diff"])]])
        (when (seq fx-vec)
          (into [:div {:data-testid "rf-xray-event-detail-handler-returned-fx"
-                      :style {:padding "1px 0"
-                              :font-family mono-stack
-                              :font-size "11px"}}
-                [:div {:style {:display "flex"
-                               :align-items "baseline"
-                               :gap "8px"}}
-                 [:span {:style {:color (:accent tokens)
-                                 :min-width "32px"}} ":fx"]
-                 [:span {:style {:color (:text-tertiary tokens)}}
+                      :style handler-returned-section-style}
+                [:div {:style handler-returned-key-row-style}
+                 [:span {:style handler-returned-key-label-style} ":fx"]
+                 [:span {:style handler-returned-fx-summary-style}
                   (str (count fx-vec) " entr"
                        (if (= 1 (count fx-vec)) "y" "ies")
                        " — see FX below for what ran")]]]
@@ -913,8 +1173,7 @@
                      (with-meta
                        [:div {:data-testid (str "rf-xray-event-detail-handler-returned-fx-row-"
                                                  (interceptor-testid-suffix fx-id))
-                              :style {:padding "1px 0 1px 40px"
-                                      :color (:text-secondary tokens)}}
+                              :style handler-returned-fx-row-style}
                         (pr-str pair)]
                        {:key (str i)})))
                  fx-vec)))])))
@@ -956,7 +1215,7 @@
          (if event-id
            (str "no registration found for " (pr-str event-id))
            "no handler registered")])
-      (coord-chip coord "rf-xray-event-detail-handler-open-chip")]
+      (event-coord-chip coord "rf-xray-event-detail-handler-open-chip")]
      (handler-source-line meta)
      (handler-returned-effects-block cascade)]))
 
@@ -1048,16 +1307,12 @@
         colour (fx-status-colour status)
         suffix (interceptor-testid-suffix fx-id)]
     [:div {:data-testid (str "rf-xray-event-detail-effects-ran-row-" suffix)
-           :style {:padding "4px 0"}}
-     [:div {:style {:display "flex"
-                    :align-items "center"
-                    :gap "10px"
-                    :flex-wrap "wrap"}}
-      [:span {:style {:color (:accent tokens)
-                      :min-width "160px"}}
+           :style fx-handler-row-style}
+     [:div {:style fx-handler-row-inner-style}
+      [:span {:style fx-handler-id-style}
        (pr-str fx-id)]
       (when duration-ms (tier-dot duration-ms))
-      [:span {:style {:color colour :font-weight 600 :font-size "11px"}}
+      [:span {:style (assoc fx-handler-status-base-style :color colour)}
        (case status
          :ok          "✓ handled"
          :overridden  "◑ overridden"
@@ -1069,7 +1324,7 @@
      (when managed-fx-record
        [:div {:data-testid (str "rf-xray-event-detail-effects-ran-managed-fx-"
                                  (or id "x"))
-              :style {:margin "6px 0 4px 16px"}}
+              :style fx-managed-record-style}
         (managed-fx/record-panel managed-fx-record)])]))
 
 (defn- fx-post-commit-caption
@@ -1278,83 +1533,49 @@
                      {:file (:file flow-meta) :line (:line flow-meta)})]
     [:div {:data-testid (str "rf-xray-event-detail-flow-row-" suffix)
            :data-via    (str via?)
-           :style {:padding     "4px 0"
-                   :padding-left (if via? "20px" "0")}}
+           :style (if via? flow-row-style-chained flow-row-style-flat)}
      ;; Header line: glyph + flow-id + via attribution
-     [:div {:style {:display     "flex"
-                    :align-items "center"
-                    :gap         "8px"
-                    :flex-wrap   "wrap"}}
+     [:div {:style flow-row-header-style}
       [:span {:data-testid (str "rf-xray-event-detail-flow-row-glyph-" suffix)
-              :style {:color       (if via?
+              :style (assoc flow-row-glyph-base-style
+                            :color (if via?
                                      (:text-secondary tokens)
-                                     (:text-tertiary tokens))
-                      :font-weight 600
-                      :font-size   "12px"}}
+                                     (:text-tertiary tokens)))}
        (if via? "↳" "▸")]
       [:span {:data-testid (str "rf-xray-event-detail-flow-row-id-" suffix)
-              :style {:display     "inline-flex"
-                      :align-items "center"
-                      :color       (:accent tokens)
-                      :font-weight 600
-                      :min-width   "160px"}}
+              :style flow-row-id-style}
        (pr-str flow-id)
-       (coord-chip coord (str "rf-xray-event-detail-flow-open-chip-" suffix))]
+       (event-coord-chip coord (str "rf-xray-event-detail-flow-open-chip-" suffix))]
       (when via?
         [:span {:data-testid (str "rf-xray-event-detail-flow-row-via-" suffix)
-                :style {:color       (:text-tertiary tokens)
-                        :font-family sans-stack
-                        :font-style  "italic"
-                        :font-size   "11px"}}
+                :style flow-row-via-style}
          (str "via "
               (string/join
                 ", "
                 (map pr-str via-flow-ids)))])]
      ;; wrote line
      [:div {:data-testid (str "rf-xray-event-detail-flow-row-wrote-" suffix)
-            :style {:display      "flex"
-                    :align-items  "flex-start"
-                    :padding      "2px 0 2px 24px"}}
-      [:span {:style {:color       (:text-tertiary tokens)
-                      :margin-right "10px"
-                      :min-width   "48px"
-                      :font-family sans-stack
-                      :font-size   "11px"}}
-       "wrote"]
+            :style flow-row-line-style}
+      [:span {:style flow-row-line-label-style} "wrote"]
       [:span {:data-testid (str "rf-xray-event-detail-flow-row-write-path-" suffix)
-              :style {:color       (:accent tokens)
-                      :margin-right "12px"}}
+              :style flow-row-write-path-style}
        (pr-str write-path)]
-      [:span {:style {:color    (:text-primary tokens)
-                      :min-width 0
-                      :flex     1}}
+      [:span {:style flow-row-write-value-style}
        (edn/inspect result
                           (str "event-detail/flow/"
                                (or trace-id "x")
                                "/result"))]]
      ;; read line — placeholder when registry lookup failed (flow cleared)
      [:div {:data-testid (str "rf-xray-event-detail-flow-row-read-" suffix)
-            :style {:display     "flex"
-                    :align-items "flex-start"
-                    :padding     "2px 0 2px 24px"}}
-      [:span {:style {:color       (:text-tertiary tokens)
-                      :margin-right "10px"
-                      :min-width   "48px"
-                      :font-family sans-stack
-                      :font-size   "11px"}}
-       "read"]
+            :style flow-row-line-style}
+      [:span {:style flow-row-line-label-style} "read"]
       (if (seq read-paths)
-        (into [:span {:style {:color (:text-secondary tokens)
-                              :flex 1
-                              :word-break "break-word"}}]
+        (into [:span {:style flow-row-read-paths-container-style}]
               (for [p read-paths]
-                [:span {:style {:color (:accent tokens)
-                                :margin-right "8px"}}
+                [:span {:style flow-row-read-path-style}
                  (pr-str p)]))
         [:span {:data-testid (str "rf-xray-event-detail-flow-row-read-absent-" suffix)
-                :style {:color       (:text-tertiary tokens)
-                        :font-style  "italic"
-                        :font-size   "11px"}}
+                :style flow-row-read-absent-style}
          "input paths unavailable (flow may have been cleared)"])]]))
 
 (defn- flows-reshape-summary
@@ -1587,39 +1808,24 @@
         path-label (f/format-edn (vec path))]
     [:div {:data-testid (str "rf-xray-event-detail-db-change-row-" suffix)
            :data-op     (name op)
-           :style {:display      "flex"
-                   :align-items  "baseline"
-                   :flex-wrap    "wrap"
-                   :gap          "8px"
-                   :padding      "2px 0"}}
+           :style db-change-row-style}
      [:span {:data-testid (str "rf-xray-event-detail-db-change-glyph-" suffix)
-             :style {:flex        "0 0 12px"
-                     :color       tone
-                     :font-family mono-stack
-                     :font-weight 700
-                     :text-align  "center"
-                     :user-select "none"}}
+             :style (assoc db-change-glyph-base-style :color tone)}
       glyph]
      [:span {:data-testid (str "rf-xray-event-detail-db-change-path-" suffix)
-             :style {:color       tone
-                     :font-family mono-stack}}
+             :style (assoc db-change-path-base-style :color tone)}
       path-label]
      (case op
        :modified
-       [:span {:style {:display     "inline-flex"
-                       :align-items "baseline"
-                       :flex-wrap   "wrap"
-                       :gap         "6px"
-                       :min-width   0}}
-        [:span {:style {:color           (:text-tertiary tokens)
-                        :text-decoration "line-through"}}
+       [:span {:style db-change-modified-cell-style}
+        [:span {:style db-change-modified-before-style}
          (edn/inspect-inline before)]
-        [:span {:style {:color (:text-tertiary tokens)}} "→"]
-        [:span {:style {:color (:text-primary tokens)}}
+        [:span {:style db-change-modified-arrow-style} "→"]
+        [:span {:style db-change-modified-after-style}
          (edn/inspect-inline after)]]
 
        :added
-       [:span {:style {:color (:text-primary tokens) :min-width 0}}
+       [:span {:style db-change-added-value-style}
         (edn/inspect-inline after)]
 
        ;; :removed — path alone (spec/021 line 229: `- [path]`).
@@ -1864,16 +2070,11 @@
         :on-click   #(rf/dispatch
                        [:rf.xray/select-dispatch-id dispatch-id frame]
                        {:frame :rf/xray})
-        :style      {:padding      "8px 12px"
-                     :border-bottom (str "1px solid " (:border-subtle tokens))
-                     :cursor       "pointer"
-                     :font-family  mono-stack
-                     :font-size    "13px"
-                     :color        (:text-primary tokens)}}
-   [:span {:style {:color (:accent tokens) :margin-right "8px"}}
+        :style      cascade-list-row-style}
+   [:span {:style cascade-list-dispatch-id-style}
     (str "#" dispatch-id)]
    (when frame
-     [:span {:style {:color (:text-tertiary tokens) :margin-right "8px"}}
+     [:span {:style cascade-list-frame-style}
       (str frame)])
    (format-edn (or event :ungrouped))])
 
