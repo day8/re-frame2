@@ -18,8 +18,8 @@
   6. **Per-call-site isolation** — two `[edn-inspector]` mounts get
      independent `mount-id`s; toggling one path in mount-A leaves
      mount-B's same path untouched.
-  7. **Sentinels** (`:rf/redacted`, `:rf/large`, combined) render
-     their first-class chip chrome.
+  7. **Sentinels** (`:rf/redacted`, `:rf.size/large-elided`, combined)
+     render their first-class chip chrome.
 
   Pure-data unit tests; no DOM mount. Default for new Causa/Story
   tests per `feedback-causa-story-cljs-unit-tests-not-playwright`."
@@ -103,12 +103,42 @@
 (deftest classify-sentinels
   (testing "redacted bare keyword"
     (is (= :sentinel-redacted (ei/collection-kind :rf/redacted))))
-  (testing "large wrapper"
+  (testing "large wrapper — spec/015 §Wire elision shape"
+    ;; rf2-ndb13 — body keys per the framework's emission site
+    ;; (implementation/core/src/re_frame/elision.cljc): `:path :bytes
+    ;; :type :reason :hint :handle`.
     (is (= :sentinel-large
-           (ei/collection-kind {:rf/large {:bytes 200 :head "abc"}}))))
+           (ei/collection-kind
+             {:rf.size/large-elided {:path   [:big]
+                                     :bytes  200
+                                     :type   :string
+                                     :reason :schema
+                                     :hint   "preview hint"
+                                     :handle [:rf.elision/at [:big]]}}))))
   (testing "redacted-with-size wrapper"
     (is (= :sentinel-redacted-size
            (ei/collection-kind {:rf/redacted {:bytes 200}})))))
+
+(deftest large-sentinel-detects-spec-current-shape
+  ;; rf2-ndb13 — regression for stale-key bug. The predicate previously
+  ;; matched `:rf/large` (a key the framework no longer emits) and fell
+  ;; through generic map rendering for real markers. Lock in the
+  ;; spec-current key + pin the legacy key as a non-match.
+  (testing "spec-current `:rf.size/large-elided` wrapper is detected"
+    (is (true? (ei/large-sentinel?
+                 {:rf.size/large-elided {:path   [:p]
+                                         :bytes  1024
+                                         :type   :vector
+                                         :reason :schema
+                                         :hint   nil
+                                         :handle [:rf.elision/at [:p]]}}))))
+  (testing "legacy `:rf/large` shape is NOT detected (pre-alpha: no shim)"
+    (is (false? (ei/large-sentinel? {:rf/large {:bytes 1024 :head "abc"}}))))
+  (testing "ordinary one-key map is NOT detected"
+    (is (false? (ei/large-sentinel? {:not-a-sentinel {:bytes 1}}))))
+  (testing "non-map values are NOT detected"
+    (is (false? (ei/large-sentinel? :rf.size/large-elided)))
+    (is (false? (ei/large-sentinel? nil)))))
 
 ;; ---- scalar rendering ----------------------------------------------------
 
@@ -258,12 +288,48 @@
     (is (= (:magenta tokens) (-> h second :style :color)))))
 
 (deftest large-sentinel-chrome
-  (let [h (ei/render-scalar {:rf/large {:bytes 5000 :head "preview"}})
+  ;; rf2-ndb13 — marker shape is the framework-emitted spec/015 body:
+  ;; `:path :bytes :type :reason :hint :handle`.
+  (let [h (ei/render-scalar
+            {:rf.size/large-elided {:path   [:blob]
+                                    :bytes  5000
+                                    :type   :string
+                                    :reason :schema
+                                    :hint   "Upload preview"
+                                    :handle [:rf.elision/at [:blob]]}})
         all (collect-text h)]
     (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-large")))
     (is (re-find #"large" all))
     (is (re-find #"5000" all))
     (is (= (:yellow tokens) (-> h second :style :color)))))
+
+(deftest large-sentinel-chrome-renders-when-marker-keys-missing
+  ;; rf2-ndb13 — defensive: the chip must render gracefully even if the
+  ;; emission side ever omits optional body slots. `:bytes` may be
+  ;; absent (no "· N bytes" segment); `:type` and `:hint` are optional
+  ;; (title degrades to the base sentence).
+  (testing "marker with only :path + :handle still renders the chip"
+    (let [h (ei/render-scalar
+              {:rf.size/large-elided {:path   [:x]
+                                      :handle [:rf.elision/at [:x]]}})]
+      (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-large")))
+      (is (re-find #"large" (collect-text h))))))
+
+(deftest large-sentinel-not-rendered-as-plain-map
+  ;; rf2-ndb13 — the original symptom: real framework-emitted markers
+  ;; fell through to ordinary map rendering, exposing `:path :bytes
+  ;; :type :reason :hint :handle` as plain map keys. With the predicate
+  ;; pointed at the spec-current key, `collection-kind` MUST classify
+  ;; the marker as `:sentinel-large`, NOT `:map`.
+  (let [marker {:rf.size/large-elided {:path   [:blob]
+                                       :bytes  5000
+                                       :type   :string
+                                       :reason :schema
+                                       :hint   nil
+                                       :handle [:rf.elision/at [:blob]]}}]
+    (is (= :sentinel-large (ei/collection-kind marker))
+        "marker classifies as sentinel-large (not :map)")
+    (is (not= :map (ei/collection-kind marker)))))
 
 (deftest redacted-size-sentinel-chrome
   (let [h (ei/render-scalar {:rf/redacted {:bytes 200}})

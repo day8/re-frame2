@@ -147,7 +147,8 @@
   L4 detail-panel renderer. Routes through the first-class
   edn-inspector widget (rf2-oqa60 phase 1) which classifies every type
   natively, including the spec/015 sentinels (`:rf/redacted` and
-  `:rf/large`) as first-class chip chrome (D3=a per rf2-sndui).
+  `:rf.size/large-elided`) as first-class chip chrome (D3=a per
+  rf2-sndui).
 
   Phase 1 delegates the legacy facade to the new widget so existing
   call sites compile unchanged; phases 2-4 migrate each surface
@@ -241,8 +242,8 @@
   "One-liner inline rendering of `value` via the first-class
   edn-inspector widget (rf2-oqa60 phase 1). Returns hiccup
   `[:span ...]` so callers embed inline. Sentinels (`:rf/redacted`,
-  `:rf/large`) keep their chip chrome inline; other values render as
-  a colour-coded inline-preview."
+  `:rf.size/large-elided`) keep their chip chrome inline; other values
+  render as a colour-coded inline-preview."
   ([value] (mini value 80))
   ([value max-len]
    (ei/mini value max-len)))

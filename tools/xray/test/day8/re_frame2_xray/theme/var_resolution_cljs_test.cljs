@@ -284,8 +284,13 @@
                true                        ; boolean leaf
                nil                         ; nil leaf
                :rf/redacted                ; redacted sentinel
-               {:rf/large {:bytes 1234     ; large sentinel
-                           :head "abc"}}]]
+               {:rf.size/large-elided      ; large sentinel (spec/015)
+                {:path   [:blob]
+                 :bytes  1234
+                 :type   :string
+                 :reason :schema
+                 :hint   "preview hint"
+                 :handle [:rf.elision/at [:blob]]}}]]
       (let [tree (ei/render-node {:value v
                                   :panel-id :rf.xray/var-resolution-test
                                   :mount-id "test"

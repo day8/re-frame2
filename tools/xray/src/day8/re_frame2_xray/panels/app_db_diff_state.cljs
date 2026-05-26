@@ -23,7 +23,8 @@
   The new widget owns the WHOLE contract — browse + diff + mini —
   CLJS-aware type detection, distinct bracket styling per collection
   kind, click-to-toggle expansion stored in re-frame app-db, first-
-  class sentinel chrome (`:rf/redacted`, `:rf/large`). After phase 5
+  class sentinel chrome (`:rf/redacted`, `:rf.size/large-elided`).
+  After phase 5
   (rf2-q3dzw, D5=a per rf2-sndui) diff also routes through this same
   widget via the `:before` opt — the legacy `edn-inspector.render`
   engine is gone.
