@@ -117,6 +117,7 @@
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.app-db-segment-inspector :as segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
+            [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
             [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
@@ -196,6 +197,15 @@
   See ns docstring for `opts` shape + the embedding contract."
   ([mount-point]      (mount-event-detail! mount-point nil))
   ([mount-point opts] (render-panel! event-detail/Panel mount-point opts)))
+
+(defn mount-epoch-panel!
+  "Mount Xray's Epoch tab in isolation at `mount-point` (rf2-sc3r1).
+  Renders the numbered cascade — the focused epoch's complete
+  computational timeline (DISPATCH → COEFFECTS → HANDLER → FLOW →
+  FX → SUBSCRIPTIONS → VIEWS) with conditional rendering per the
+  trace stream."
+  ([mount-point]      (mount-epoch-panel! mount-point nil))
+  ([mount-point opts] (render-panel! epoch-panel/Panel mount-point opts)))
 
 (defn mount-app-db-diff!
   "Mount Xray's App-DB tab in isolation at `mount-point`. Renders the
