@@ -29,12 +29,45 @@
   `cache-key` STAYS on the `re-frame.subs` facade ns — it's a one-liner
   on the per-subscribe hit path and Closure inlines it across nss only
   if it stays trivial. Keeping the constant chokepoint co-located with
-  `subscribe` preserves the hot-path lookup."
+  `subscribe` preserves the hot-path lookup.
+
+  Per rf2-mrnur (Spec 009 §:op-type vocabulary §`:rf.sub/dispose`): every
+  eviction site emits a `:rf.sub/dispose` trace event so consumers can
+  observe the sub-cache lifecycle's terminal half — created / run / skip
+  / **dispose**. The reason axis discriminates the eviction path:
+  `:no-more-derefers` (grace-period timer or synchronous grace=0 fire),
+  `:hot-reload` (re-registration evicted), `:cache-clear` (explicit
+  test/REPL teardown). Cache-key shape is the query-vector itself
+  (`re-frame.subs/cache-key` is identity), so the emit derives `:rf.sub/id`
+  and `:rf.sub/query-v` directly from `k`. The emits ride
+  `interop/debug-enabled?` so production CLJS bundles DCE them with the
+  rest of the trace surface."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as registrar]
+            [re-frame.trace :as trace
+             #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
+
+;; ---- dispose trace emit (rf2-mrnur) ---------------------------------------
+;;
+;; Per Spec 009 §:op-type vocabulary §`:rf.sub/dispose` — every cache
+;; eviction site funnels through this helper so the emit tag-shape is
+;; single-sourced. `k` is the cache-key (currently the query-vector
+;; itself, per `re-frame.subs/cache-key`); `query-id` is `(first k)`.
+;; The whole call sits behind `interop/debug-enabled?` so production
+;; CLJS bundles DCE the tag-map allocation + the emit call along with
+;; the rest of the trace surface.
+
+(defn- emit-dispose!
+  [frame-id k reason]
+  (when interop/debug-enabled?
+    (trace/emit! :rf.sub :rf.sub/dispose
+                 {:frame          frame-id
+                  :rf.sub/id      (first k)
+                  :rf.sub/query-v k
+                  :rf.sub/reason  reason})))
 
 ;; ---- grace-period configuration -------------------------------------------
 ;;
@@ -85,26 +118,39 @@
   returned by `swap-vals!` and acted on AFTER the CAS commits. `swap!`
   is allowed to retry on contention on the JVM, so any side-effect
   (`interop/dispose!`) inside the swap-fn could fire 2+ times under
-  concurrent invalidate + grace-fire."
-  [cache k]
-  (let [[old new] (swap-vals! cache
-                              (fn [m]
-                                (if-let [entry (get m k)]
-                                  (if (<= (or (:ref-count entry) 0) 0)
-                                    (dissoc m k)
-                                    ;; Resubscribe arrived between schedule
-                                    ;; and fire — keep entry.
-                                    m)
-                                  m)))]
-    ;; The slot was evicted by THIS call iff it was present in `old` and
-    ;; absent in `new`. A concurrent evictor (e.g. invalidate-sub-on-
-    ;; replace! or clear-sub-cache!) that won the CAS race would
-    ;; have left the slot absent in `old` too, so we don't double-dispose.
-    (when (and (contains? old k) (not (contains? new k)))
-      (when-let [r (get-in old [k :reaction])]
-        (try (interop/dispose! r)
-             (catch #?(:clj Throwable :cljs :default) _ nil))))
-    nil))
+  concurrent invalidate + grace-fire.
+
+  Per rf2-mrnur: emits `:rf.sub/dispose` with `:rf.sub/reason
+  :no-more-derefers` after the CAS commits, for the call that actually
+  drove the eviction (read off the `old` / `new` snapshot diff — the
+  same single-fire discipline that gates `interop/dispose!`). `frame-id`
+  rides on the emit's `:frame` tag; the 2-arity form is preserved for
+  legacy call sites that don't carry a frame-id (the emit fires with
+  `:frame nil` and tools fall back to `:rf.sub/id` for grouping)."
+  ([cache k] (dispose-entry-now! cache k nil))
+  ([cache k frame-id]
+   (let [[old new] (swap-vals! cache
+                               (fn [m]
+                                 (if-let [entry (get m k)]
+                                   (if (<= (or (:ref-count entry) 0) 0)
+                                     (dissoc m k)
+                                     ;; Resubscribe arrived between schedule
+                                     ;; and fire — keep entry.
+                                     m)
+                                   m)))]
+     ;; The slot was evicted by THIS call iff it was present in `old` and
+     ;; absent in `new`. A concurrent evictor (e.g. invalidate-sub-on-
+     ;; replace! or clear-sub-cache!) that won the CAS race would
+     ;; have left the slot absent in `old` too, so we don't double-dispose.
+     (when (and (contains? old k) (not (contains? new k)))
+       ;; rf2-mrnur — emit the dispose trace before tearing down the
+       ;; reaction. Single-fire (gated on the same CAS-winner check as
+       ;; `interop/dispose!`) so we never double-emit under contention.
+       (emit-dispose! frame-id k :no-more-derefers)
+       (when-let [r (get-in old [k :reaction])]
+         (try (interop/dispose! r)
+              (catch #?(:clj Throwable :cljs :default) _ nil))))
+     nil)))
 
 (defn unsubscribe!
   "Decrement the ref-count on the cached subscription for `k`. When
@@ -124,8 +170,15 @@
                      is used.
 
   Called from the public `re-frame.subs/unsubscribe` after `cache-key`
-  + `cache` resolution; the facade fn holds the public API shape."
-  [cache k opts]
+  + `cache` resolution; the facade fn holds the public API shape.
+
+  Per rf2-mrnur: `frame-id` is threaded through to `dispose-entry-now!`
+  / the deferred timer callback so the `:rf.sub/dispose` trace emit at
+  the actual eviction site carries the right `:frame` tag. The 3-arity
+  form is preserved for legacy callers that don't carry a frame-id;
+  the emit falls back to `:frame nil` on that path."
+  ([cache k opts] (unsubscribe! cache k opts nil))
+  ([cache k opts frame-id]
   (let [;; An explicit `:grace` in opts overrides the per-runtime
         ;; configured grace-period. `contains?` (not `(:grace opts)`)
         ;; so `{:grace 0}` is honoured.
@@ -170,12 +223,12 @@
     (when dropped-to-zero?
       (if (zero? grace)
         ;; Grace = 0: dispose synchronously (the test/explicit-tear-down path).
-        (dispose-entry-now! cache k)
+        (dispose-entry-now! cache k frame-id)
         ;; Grace > 0: schedule deferred disposal. Stash the timer handle
         ;; so a re-subscribe inside the window can cancel it.
         (let [handle (interop/set-timeout!
                        (fn []
-                         (dispose-entry-now! cache k))
+                         (dispose-entry-now! cache k frame-id))
                        grace)
               ;; Pure swap-fn: return the new map and a flag indicating
               ;; whether the handle was actually stashed. The clear-
@@ -197,7 +250,7 @@
           (when-not (identical? handle (get-in new2 [k :pending-dispose]))
             (try (interop/clear-timeout! handle)
                  (catch #?(:clj Throwable :cljs :default) _ nil))))))
-    nil))
+    nil)))
 
 ;; ---- hot-reload invalidation ---------------------------------------------
 ;;
@@ -234,6 +287,13 @@
             (when-let [h (get-in old [k :pending-dispose])]
               (try (interop/clear-timeout! h)
                    (catch #?(:clj Throwable :cljs :default) _ nil))))
+          ;; rf2-mrnur — emit dispose per evicted key BEFORE running the
+          ;; per-reaction `interop/dispose!` teardown. The reason
+          ;; `:hot-reload` discriminates this path from grace-period fires
+          ;; (`:no-more-derefers`) and explicit `clear-sub-cache!`
+          ;; (`:cache-clear`).
+          (doseq [k evicted-keys]
+            (emit-dispose! frame-id k :hot-reload))
           (doseq [k evicted-keys]
             (when-let [r (get-in old [k :reaction])]
               (try (interop/dispose! r)
@@ -260,10 +320,16 @@
   ([] (clear-sub-cache! :rf/default))
   ([frame-id]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
-     (doseq [[_k entry] @cache]
+     (doseq [[k entry] @cache]
        (when-let [h (:pending-dispose entry)]
          (try (interop/clear-timeout! h)
               (catch #?(:clj Throwable :cljs :default) _ nil)))
+       ;; rf2-mrnur — emit dispose per evicted key BEFORE the per-
+       ;; reaction `interop/dispose!`. Reason `:cache-clear`
+       ;; discriminates the explicit-teardown path from grace-period
+       ;; fires (`:no-more-derefers`) and hot-reload re-registration
+       ;; (`:hot-reload`).
+       (emit-dispose! frame-id k :cache-clear)
        (when-let [r (:reaction entry)]
          (try (interop/dispose! r)
               (catch #?(:clj Throwable :cljs :default) _ nil))))
