@@ -1571,6 +1571,54 @@ shards). Other modes keep their existing defaults.
 + theme/density case. To see what R5 looks like, see story
 `diff-mode-3/r5-wholly-new-subtree`.
 
+#### §9.1.5.2 Universal three-mode toggle adoption (rf2-yqjrd)
+
+Per Mike's pair-debug 2026-05-27 the toggle established in §9.1.5.1
+applies to **every Xray surface that surfaces a `(before, after)`
+data view**, not just the HANDLER step's `:db` sub-section. The
+adoption uses ONE shared widget at
+`day8.re-frame2-xray.views.diff-mode-toggle/diff-mode-toggle` so the
+operator sees the same `[diff][full][full+diff]` button-bar shape
+regardless of panel.
+
+**Affected surfaces** (post-rf2-yqjrd):
+
+| Surface                           | Mode slot                              | Default |
+|-----------------------------------|----------------------------------------|---------|
+| Epoch HANDLER step `:db`          | `:rf.xray.epoch/db-view-mode`          | `:full+diff` |
+| App-DB panel (panel-wide)         | `:rf.xray.app-db/view-mode`            | `:full+diff` |
+| Machine Inspector snapshot drill-in | `:rf.xray.machine-inspector/view-mode` | `:full+diff` |
+| Epoch SUBSCRIPTIONS step value cells | `:rf.xray.epoch/subs-value-mode`     | `:full+diff` |
+
+Per-surface mode behaviour follows the same vocabulary as §9.1.5.1's
+HANDLER `:db`:
+
+- `:diff` — pure-diff lens (flat path-prefixed change list).
+- `:full` — pure-data lens (live current-state, no `:before`).
+- `:full+diff` — mode-3 combined lens (full tree + R1-R8 grammar
+  annotations against `:before`).
+
+**Per-surface storage**: every surface registers its own sub +
+event pair so the modes are independent (operator's App-DB choice
+doesn't override the Machine Inspector choice).
+
+**Retired by rf2-yqjrd**:
+
+- The Machine Inspector's prior Before/After CSS-Grid side-by-side
+  layout (rf2-3d987 issue #3 chrome). Mode-3 (`:full+diff`)
+  carries the same meanings — full AFTER state + diff context +
+  comparison — in a single unified mount via the R1-R8 grammar.
+- Per-section auto-routing in App-DB (the `:before` sentinel
+  branch). Replaced by an explicit panel-wide toggle so the
+  operator chooses the lens.
+
+**Note on Story snapshot identity**: the bead (rf2-yqjrd) listed
+Story snapshot as a fourth surface. Investigation 2026-05-27:
+Story's `snapshot-identity` (per rf2-zfy1e) is a content-hash
+string consumed by visual-regression services — there's no value-
+diff UI surface in Story to retire. The universal toggle adoption
+is therefore limited to the three Xray surfaces above.
+
 ### §9.1.6 Numbered cascade chrome
 
 Per the bead body's §Visual Structure:

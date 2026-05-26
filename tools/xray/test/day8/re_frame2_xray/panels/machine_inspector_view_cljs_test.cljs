@@ -566,10 +566,8 @@
       (focus-epoch! 1)
       (let [tree   (machine-inspector/Panel)
             drill  (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
-            before (find-by-testid
-                     tree "rf-xray-machine-snapshot-block-auth/login-before")
-            after  (find-by-testid
-                     tree "rf-xray-machine-snapshot-block-auth/login-after")]
+            block  (find-by-testid
+                     tree "rf-xray-machine-snapshot-block-auth/login")]
         (is (some? drill)
             "drill-in section mounts when before/after snapshots are present")
         (is (= ":auth/login" (:data-machine-id (second drill)))
@@ -578,14 +576,14 @@
             "before snapshot presence surfaced on the host")
         (is (= "true" (:data-has-after (second drill)))
             "after snapshot presence surfaced on the host")
-        (is (some? before)
-            "BEFORE snapshot block renders")
-        (is (some? after)
-            "AFTER snapshot block renders")
-        (is (= "before" (:data-phase (second before)))
-            "BEFORE block carries the :before phase tag")
-        (is (= "after" (:data-phase (second after)))
-            "AFTER block carries the :after phase tag")))))
+        ;; rf2-yqjrd — the side-by-side Before/After grid retired; a
+        ;; SINGLE mount renders the AFTER snapshot with the three-mode
+        ;; toggle controlling whether BEFORE is threaded as the diff
+        ;; pre-image. The two `-before` / `-after` blocks collapse to
+        ;; one `rf-xray-machine-snapshot-block-<machine-id>` mount.
+        (is (some? block)
+            "single snapshot block renders post-rf2-yqjrd (replaces
+             the prior Before/After side-by-side grid)")))))
 
 (defn- find-popup-affordance-containers
   "Walk hiccup (already expand-tree'd by the find-by-testid helper) and
@@ -683,12 +681,13 @@
             "before-presence surface reflects the missing :before slot")
         (is (= "true" (:data-has-after (second drill)))
             "after-presence surface reflects the present :after slot")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-snapshot-block-auth/login-before"))
-            "BEFORE block is omitted when its snapshot is nil")
+        ;; rf2-yqjrd — single mount; the AFTER snapshot's block paints
+        ;; even when BEFORE is missing. Mode-3 (`:full+diff`, the
+        ;; default) gracefully degrades to plain browse when no
+        ;; pre-image is threaded.
         (is (some? (find-by-testid
-                     tree "rf-xray-machine-snapshot-block-auth/login-after"))
-            "AFTER block renders when its snapshot is present")))))
+                     tree "rf-xray-machine-snapshot-block-auth/login"))
+            "AFTER-only path renders the single snapshot block")))))
 
 ;; ---- (5) per-machine prev/next nav -------------------------------------
 
@@ -1006,12 +1005,13 @@
         (is (= expected-bg (:background style))
             "drill-in body uses :bg-2 — same as outer section, no card-in-card")))))
 
-(deftest rf2-3d987-issue-3-before-after-side-by-side-grid
-  (testing "rf2-3d987 issue #3: Before/After render in a CSS grid that
-            auto-fits side-by-side at the wider viewport and falls back
-            to stacked when narrower. Pinned via the
-            `grid-template-columns: repeat(auto-fit, minmax(...)` shape
-            on the snapshot-drill-in's inner grid container."
+(deftest rf2-yqjrd-snapshot-drill-in-three-mode-toggle
+  (testing "rf2-yqjrd — the Before/After side-by-side grid retired in
+            favour of a SINGLE mount + the universal three-mode toggle
+            `[diff][full][full+diff]`. The toggle paints in the
+            drill-in header; the single mount shows the AFTER snapshot
+            with the BEFORE snapshot threaded as the diff pre-image
+            when mode is `:full+diff` (default)."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -1021,25 +1021,24 @@
           :trace-events
           [{:id 1 :time 10 :operation :rf.machine/transition
             :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
+                   :before {:state :idle :data {:user nil}}
+                   :after  {:state :authing :data {:user "alice"}}
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree (machine-inspector/Panel)
-            grid (find-by-testid
-                   tree "rf-xray-machine-snapshot-drill-in-grid")
-            style (style-of grid)
-            cols  (:grid-template-columns style)]
-        (is (some? grid)
-            "snapshot-drill-in carries an inner grid container")
-        (is (= "grid" (:display style))
-            "container uses display: grid")
-        (is (and (string? cols)
-                 (str/includes? cols "auto-fit")
-                 (str/includes? cols "minmax"))
-            (str "grid-template-columns uses auto-fit + minmax so the "
-                 "layout collapses to one column when narrow — got "
-                 (pr-str cols)))))))
+      (let [tree   (machine-inspector/Panel)
+            drill  (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
+            toggle (find-by-testid
+                     tree "rf-xray-machine-snapshot-view-mode")]
+        (is (some? drill)
+            "drill-in section mounts")
+        (is (some? toggle)
+            "three-mode toggle paints in the drill-in header")
+        (is (= "full+diff" (:data-mode (second toggle)))
+            "default mode is :full+diff per pair-debug 2026-05-27")
+        ;; The grid container retired with the side-by-side layout.
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-snapshot-drill-in-grid"))
+            "the side-by-side grid container is retired")))))
 
 (deftest rf2-3d987-issue-4-chart-collapsible-toggle-and-state
   (testing "rf2-3d987 issue #4: the chart sub-panel carries a collapse

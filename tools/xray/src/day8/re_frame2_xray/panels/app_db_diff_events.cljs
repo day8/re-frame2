@@ -21,6 +21,36 @@
     (fn [db _event]
       (dissoc db :focused-slice-path)))
 
+  ;; ---- App-DB panel view-mode toggle (rf2-yqjrd) ----
+  ;;
+  ;; Three-mode toggle `[diff][full][full+diff]` that drives every section
+  ;; (top + per-`:rf/*` area) in the App-DB panel. Per pair-debug
+  ;; 2026-05-27 the same shape every Xray diff surface uses — shared
+  ;; widget in `views.diff-mode-toggle`.
+  ;;
+  ;; - `:diff`      — pure-diff lens: flat path-prefixed change list for
+  ;;                  the focused epoch. Same source as the Epoch
+  ;;                  HANDLER step's `:diff` view; same flat rows.
+  ;; - `:full`      — pure-data lens: every section renders the LIVE
+  ;;                  current-state value with no `:before` (plain
+  ;;                  browse, no inline diff annotations).
+  ;; - `:full+diff` — combined lens (mode-3): every section renders the
+  ;;                  full current-state value WITH inline diff
+  ;;                  annotations against the focused epoch's
+  ;;                  `:db-before`. Default per pair-debug 2026-05-27 —
+  ;;                  the operator's most-useful default; shape + delta
+  ;;                  together.
+  ;;
+  ;; Mode persists via `:rf.xray.app-db/view-mode` so the operator's
+  ;; preference survives focus shifts.
+  (rf/reg-sub :rf.xray.app-db/view-mode
+    (fn [db _query]
+      (get db :app-db-panel-view-mode :full+diff)))
+
+  (rf/reg-event-db :rf.xray.app-db/set-view-mode
+    (fn [db [_ mode]]
+      (assoc db :app-db-panel-view-mode mode)))
+
   (rf/reg-fx :rf.xray.fx/copy-to-clipboard
     (fn [_ctx {:keys [text]}]
       (try

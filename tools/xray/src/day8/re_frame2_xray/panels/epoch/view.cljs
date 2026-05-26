@@ -58,6 +58,7 @@
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
+            [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.theme.tokens
@@ -2221,58 +2222,25 @@
         "<source not yet captured>"])]))
 
 (defn- db-view-mode-toggle
-  "Three-button toggle bar `[diff][full][full+diff]` for the HANDLER
-  `:db` sub-section. Active button paints in `:accent`; inactive
-  buttons are transparent with muted text. Click dispatches
-  `:rf.xray.epoch/set-db-view-mode`.
+  "Thin wrapper around the shared `views.diff-mode-toggle/diff-mode-toggle`
+  widget (rf2-yqjrd extraction of the rf2-n2jig toggle). The button-bar
+  chrome + per-mode labels + R1-R8 grammar default mode (`:full+diff`)
+  all live in the shared widget; this wrapper supplies the surface-
+  specific testid prefix + the `:rf/xray` frame-anchored dispatch
+  (matches the rf2-p56sk / rf2-7sdja / rf2-kcaiz frame-leak fix
+  pattern — toggle's home app-db is Xray regardless of host frame).
 
-  rf2-n2jig — replaces the two-button `[diff][all]` toggle. The new
-  mode-3 `:full+diff` is the operator's most-useful default (shape +
-  delta in one read); per-mode labels:
-
-  - `diff` — flat path-prefixed change list (what changed).
-  - `full` — full data tree, no diff chrome (the shape; renamed
-             from `all` for clarity).
-  - `full+diff` — full tree WITH inline diff annotations (R1-R8
-             grammar per findings doc; mode-3 default)."
+  Per the universalisation bead, every Xray surface that surfaces a
+  diff-mode toggle does so through this same shared widget so the
+  operator sees ONE button-bar shape across App-DB / Machine
+  Inspector / SUBSCRIPTIONS / HANDLER `:db`."
   [mode]
-  [:span {:data-testid "rf-xray-epoch-handler-db-view-mode"
-          :data-mode (name mode)
-          :style mode-toggle-bar-style}
-   (for [m [:diff :full :full+diff]
-         :let [active? (= mode m)
-               ;; Use a sanitised name for the testid so the `+` in
-               ;; `:full+diff` doesn't end up in a CSS selector
-               ;; downstream.
-               testid-suffix (case m
-                               :full+diff "full-with-diff"
-                               (name m))]]
-     ^{:key (name m)}
-     [:button {:data-testid (str "rf-xray-epoch-handler-db-view-" testid-suffix)
-               :aria-pressed (str active?)
-               :on-click (fn [e]
-                           (.stopPropagation e)
-                           ;; `with-frame :rf/xray` pins the dispatch
-                           ;; target so the sub running in :rf/xray
-                           ;; sees the write. The `{:frame :rf/xray}`
-                           ;; opts envelope SHOULD route the same way
-                           ;; but doesn't through React's click
-                           ;; context-pop (same class as rf2-7sdja /
-                           ;; rf2-kcaiz / rf2-p56sk frame-leak bugs).
-                           ;; Matches the pattern in `core.cljs` at
-                           ;; `set-target-frame!`.
-                           (rf/with-frame :rf/xray
-                             (rf/dispatch
-                               [:rf.xray.epoch/set-db-view-mode m])))
-               :style (if active?
-                        mode-toggle-button-active-style
-                        mode-toggle-button-inactive-style)}
-      ;; Label — `full+diff` uses a `+` joiner per Mike's pair-debug
-      ;; 2026-05-27 grammar locking (the literal symbol is the cue).
-      (case m
-        :diff      "diff"
-        :full      "full"
-        :full+diff "full+diff")])])
+  [diff-mode/diff-mode-toggle
+   {:mode      mode
+    :testid    "rf-xray-epoch-handler-db-view-mode"
+    :on-change (fn [m]
+                 (rf/with-frame :rf/xray
+                   (rf/dispatch [:rf.xray.epoch/set-db-view-mode m])))}])
 
 (defn- handler-db-diff-block
   "Render the HANDLER step's `:db` sub-section (rf2-93436 / design
@@ -2650,11 +2618,68 @@
                         subs-filter-button-inactive-style)}
       (name m)])])
 
+(defn- subs-value-cell
+  "Render the `changed` cell for one sub recomputation row using the
+  universal three-mode toggle (rf2-yqjrd).
+
+  `mode` is the panel-wide `:rf.xray.epoch/subs-value-mode` keyword:
+
+  - `:diff`      — `✓ before → after` row (the prior shape; surfaces
+                   only the value pair via `mini`).
+  - `:full`      — `✓` + AFTER value via the edn-inspector widget
+                   (no diff chrome). Used when the operator wants to
+                   see the freshly-computed value alone.
+  - `:full+diff` — `✓` + AFTER value via the edn-inspector with
+                   BEFORE threaded as the `:before` pre-image so the
+                   R1-R8 grammar paints inline `← changed from X`
+                   annotations. Default per pair-debug 2026-05-27.
+
+  Unchanged rows (`:changed? false`) render the muted `✗` tick
+  regardless of mode (no value, nothing to diff)."
+  [{:keys [sub-id changed? before after]} mode idx]
+  (if changed?
+    (case mode
+      :full
+      [:div {:style subs-changed-row-style}
+       [:span {:style subs-changed-tick-style} "✓"]
+       [:div {:style {:flex 1 :min-width 0}}
+        [ei/edn-inspector after
+         {:panel-id :rf.xray.epoch/subs-value
+          :site-id  [:rf.xray.epoch/subs-value sub-id idx :full]
+          :default-expanded-depth 2}]]]
+
+      :full+diff
+      [:div {:style subs-changed-row-style}
+       [:span {:style subs-changed-tick-style} "✓"]
+       [:div {:style {:flex 1 :min-width 0}}
+        [ei/edn-inspector after
+         (cond-> {:panel-id :rf.xray.epoch/subs-value
+                  :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
+                  :default-expanded-depth 3
+                  :full-with-diff? true}
+           (some? before) (assoc :before before))]]]
+
+      ;; :diff (default fallback) — preserve the prior shape.
+      [:div {:style subs-changed-row-style}
+       [:span {:style subs-changed-tick-style} "✓"]
+       (when (some? before)
+         [:span {:style diff-before-style} [ei/mini before 24]])
+       (when (and (some? before) (some? after))
+         [:span {:style cascade-detail-label-style} "→"])
+       (when (some? after)
+         [:span {:style diff-after-success-style} [ei/mini after 24]])])
+    [:span {:style subs-unchanged-tick-style} "✗"]))
+
 (defn- subscriptions-table
   "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
-  Per the bead body's §SUBSCRIPTIONS (Step 7) shape (rf2-kfh1v)."
-  [rows]
+  Per the bead body's §SUBSCRIPTIONS (Step 7) shape (rf2-kfh1v).
+
+  rf2-yqjrd — the `changed` cell now routes through `subs-value-cell`
+  so the universal three-mode toggle drives value rendering. `mode`
+  carries the resolved `:rf.xray.epoch/subs-value-mode` keyword."
+  [rows mode]
   [:div {:data-testid "rf-xray-epoch-subscriptions-table"
+         :data-subs-value-mode (when (keyword? mode) (name mode))
          :style subscriptions-table-style}
    ;; header
    [:div {:style table-header-row-style}
@@ -2662,10 +2687,10 @@
     [:div {:style subs-th-35-style} "inputs"]
     [:div {:style subs-th-30-style} "changed"]]
    ;; rows
-   (for [[i {:keys [sub-id sub-vec inputs changed? before after]}] (map-indexed vector rows)]
+   (for [[i {:keys [sub-id sub-vec inputs] :as row}] (map-indexed vector rows)]
      [:div {:key (str "sub-" i)
             :data-testid (str "rf-xray-epoch-sub-row-" i)
-            :data-sub-changed (str (boolean changed?))
+            :data-sub-changed (str (boolean (:changed? row)))
             :style (if (< i (dec (count rows)))
                      subs-row-style-with-border
                      subs-row-style)}
@@ -2690,18 +2715,7 @@
          (some? inputs) [ei/mini inputs 40]
          :else          "app-db")]
       [:div {:style subs-cell-changed-style}
-       (if changed?
-         [:div {:style subs-changed-row-style}
-          [:span {:style subs-changed-tick-style} "✓"]
-          ;; rf2-8w8er — before/after through `mini` so numbers
-          ;; paint orange, keywords magenta, etc.
-          (when (some? before)
-            [:span {:style diff-before-style} [ei/mini before 24]])
-          (when (and (some? before) (some? after))
-            [:span {:style cascade-detail-label-style} "→"])
-          (when (some? after)
-            [:span {:style diff-after-success-style} [ei/mini after 24]])]
-         [:span {:style subs-unchanged-tick-style} "✗"])]])])
+       (subs-value-cell row mode i)]])])
 
 (defn- dispose-reason-label
   "Render a `:rf.sub/dispose` `:reason` keyword as a UI label
@@ -2775,6 +2789,8 @@
   [{:keys [rows disposed-rows step-number violations]}]
   (let [mode          @(rf/subscribe :rf/xray
                                      [:rf.xray.epoch/subs-filter-mode])
+        value-mode    @(rf/subscribe :rf/xray
+                                     [:rf.xray.epoch/subs-value-mode])
         visible-rows  (case mode
                         :all       rows
                         :unchanged (filterv (complement :changed?) rows)
@@ -2799,6 +2815,19 @@
         :verb [:span {:style subs-verb-style}
                (when (pos? n)
                  (subs-filter-button-bar mode))
+               ;; rf2-yqjrd — universal three-mode toggle drives how each
+               ;; `:changed?` row's value cell renders. Orthogonal to the
+               ;; row-filter button bar above. Same shared widget every
+               ;; other Xray diff surface uses (Epoch HANDLER `:db`,
+               ;; App-DB, Machine Inspector snapshot).
+               (when (pos? n)
+                 [diff-mode/diff-mode-toggle
+                  {:mode      value-mode
+                   :testid    "rf-xray-epoch-subscriptions-value-mode"
+                   :on-change (fn [m]
+                                (rf/with-frame :rf/xray
+                                  (rf/dispatch
+                                    [:rf.xray.epoch/set-subs-value-mode m])))}])
                (when (pos? l)
                  [:span {:style subs-disposed-count-style}
                   (str l " disposed")])]
@@ -2806,7 +2835,7 @@
         :testid "rf-xray-epoch-subscriptions"}
        nil)
      (when (pos? n)
-       (subscriptions-table visible-rows))
+       (subscriptions-table visible-rows value-mode))
      (when (pos? l)
        (disposed-subs-table disposed-rows))
      ;; rf2-xgeag — `:sub-return` boundary violations. Per-row
