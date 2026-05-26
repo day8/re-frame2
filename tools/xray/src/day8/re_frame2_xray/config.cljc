@@ -102,6 +102,71 @@
   rather than a side-effect of dragging the handle off the left edge."
   0.9)
 
+;; ---- L2 event-list vertical resize (rf2-t2dsh) ---------------------------
+;;
+;; The seam between the L2 event list and the L3 tab bar is a draggable
+;; row-resize affordance. The height value persists through the same
+;; Settings round-trip as the panel-width; floor + ceiling clamp so the
+;; list cannot collapse below two rows + chrome (the documented L2 min)
+;; and cannot expand so far that the L4 detail panel disappears.
+;;
+;; The earlier browser-native `:resize \"vertical\"` corner-grip was
+;; retired in rf2-t2dsh: it carried no persistence, no keyboard
+;; affordance, and a tiny corner hit-target. The seam matches the
+;; left-edge panel-width handle's interaction model so all resize
+;; surfaces share one mental model (drag the seam, double-click to
+;; reset, keyboard arrows for fine step).
+
+(def default-events-list-height-px
+  "Default L2 event-list height in pixels (rf2-t2dsh). 200px == 8 rows
+  × 22px + 7 × 2px gap + 8px outer padding, matching the rf2-htik0
+  Bug 2 tightened rhythm. The drag handle on the L2/L3 seam writes the
+  live value back through `:rf.xray/set-events-list-height-px`, which
+  clamps + persists + writes the inline `height` style on the next
+  paint."
+  200)
+
+(def min-events-list-height-px
+  "Lower clamp for the L2/L3 seam drag handle (rf2-t2dsh). 48px ==
+  2 rows + chrome, matching the previously documented `min-height`
+  ceiling that kept the list operable when dragged tight."
+  48)
+
+(def max-events-list-height-fraction
+  "Upper clamp for the L2/L3 seam drag handle expressed as a fraction
+  of the viewport height (rf2-t2dsh). 0.7 leaves a 30% sliver for the
+  L1 chrome + L3 tab bar + L4 detail panel — full-viewport L2 isn't a
+  documented mode; clamping prevents the user dragging the seam below
+  the bottom of the viewport, which would orphan the L3/L4 surfaces."
+  0.7)
+
+(def events-list-height-keyboard-step-px
+  "Keyboard fine step for an arrow-key press on the L2/L3 seam handle.
+  Mirrors the panel resize handle's 8px convention so all resize
+  surfaces share one fine-step rhythm."
+  8)
+
+(def events-list-height-keyboard-coarse-multiplier
+  "Multiplier for Shift+arrow on the L2/L3 seam handle. 8 × 4 = 32px
+  per press for coarse traversal — mirrors the panel resize handle."
+  4)
+
+(defn clamp-events-list-height-px
+  "Pure helper: clamp `px` to the seam handle's [min, viewport×0.7]
+  range (rf2-t2dsh). Pass `viewport-height-px` explicitly so the helper
+  stays CLJC-pure and JVM-testable (no implicit `window.innerHeight`
+  reach). Non-numeric input falls back to `default-events-list-height-px`
+  so a malformed persisted payload never leaves the list at an
+  unusable size."
+  [px viewport-height-px]
+  (if-not (number? px)
+    default-events-list-height-px
+    (let [max-px (long (* (or viewport-height-px 1000)
+                          max-events-list-height-fraction))
+          floor  min-events-list-height-px
+          ceil   (max floor max-px)]
+      (long (-> px (max floor) (min ceil))))))
+
 (def default-accent-css-var
   "Name of the CSS custom property carrying Xray's accent colour (the
   GitHub blue `#539bf5` from `theme/tokens.cljc` / `spec/007-UX-IA.md`
@@ -767,6 +832,7 @@
   {:general   {:text-size              13              ; px — slider range 10–18
                :panel-position         :right-rail     ; :right-rail | :popout | :fullscreen
                :panel-width-px         default-panel-width-px ; rf2-x8h9y resize handle
+               :events-list-height-px  default-events-list-height-px ; rf2-t2dsh L2/L3 seam handle
                :auto-open-on-error?    false
                :density                :cosy           ; #{:cosy :compact}
                :show-tool-frames?      false

@@ -1,8 +1,22 @@
 (ns day8.re-frame2-xray.resize-handle
-  "Left-edge horizontal resize handle for the Xray shell (rf2-x8h9y +
-  rf2-70u8q auto-inject contract).
+  "Resize affordances for the Xray shell: the LEFT-edge panel-width
+  `Handle` (rf2-x8h9y + rf2-70u8q auto-inject contract) and the
+  L2/L3 seam `SeamHandle` (rf2-t2dsh) that drives the event-list
+  height.
 
-  ## What this is
+  ## Two handles, one mental model
+
+  Both handles mirror the same drag mechanics (document-level
+  pointer capture, unified mouse / touch / pen via pointer events,
+  body-cursor override during drag), the same UX (drag + double-
+  click reset + keyboard arrows + Home/End clamps), and the same
+  persistence (dispatch through a `:rf.xray/set-*` event that
+  clamps at write-time + round-trips through the Settings map +
+  localStorage). The only axis difference is the cursor (`col-resize`
+  vs `row-resize`) and which CSS variable / inline style consumes
+  the persisted value.
+
+  ## What `Handle` is
 
   A 6px-wide vertical strip pinned to the LEFT edge of the shell in
   `:right-rail` (`:inline`) mode. The user drags it (mouse, touch, or
@@ -11,6 +25,19 @@
   survives reload via localStorage. Double-click resets to
   `config/default-panel-width-px` (560px). Keyboard-navigable via
   arrow keys (8px step; 32px with Shift) and Home / End (clamp ends).
+
+  ## What `SeamHandle` is
+
+  A full-width 8px-tall horizontal strip mounted between the L2 event
+  list and the L3 tab bar in `dynamic-chrome`. Drag DOWN grows the
+  list; drag UP shrinks it. Live height persists through the Settings
+  map under `:general :events-list-height-px`. Double-click resets to
+  `config/default-events-list-height-px` (200px). Keyboard surface
+  mirrors the panel-width handle except for axis (`ArrowDown` /
+  `ArrowUp` instead of left/right). The handle REPLACES the previous
+  browser-native `:resize \"vertical\"` corner-grip on the L2 list,
+  which had no persistence, no keyboard surface, and a tiny corner
+  hit-target.
 
   ## Auto-inject contract (rf2-70u8q)
 
@@ -413,3 +440,257 @@
                                    [:rf.xray/reset-panel-width]
                                    {:frame :rf/xray}))
              :style            (handle-style)}])))
+
+;; ==========================================================================
+;; L2/L3 seam handle (rf2-t2dsh)
+;; ==========================================================================
+;;
+;; The horizontal seam between the L2 event list and the L3 tab bar is a
+;; row-resize affordance: hover anywhere along the seam and the cursor
+;; flips to `row-resize`; click-and-drag changes the event-list height.
+;; Mirrors the LEFT-edge panel-width handle's interaction model (drag,
+;; double-click to reset, keyboard arrows for fine step) so all resize
+;; surfaces in Xray read as one mental model.
+;;
+;; Per rf2-t2dsh this REPLACES the previous browser-native
+;; `:resize \"vertical\"` corner-grip on the L2 list — that affordance
+;; had no persistence, no keyboard surface, and a tiny corner hit-target.
+;; The seam runs the full width of the panel so the click-area is the
+;; whole horizontal seam, not a single 16px corner.
+;;
+;; Mechanics mirror `start-drag!` above (document-level pointer capture,
+;; pointer-events unification of mouse/touch/pen, body cursor override
+;; while dragging). The dispatch surface is
+;; `:rf.xray/set-events-list-height-px` which clamps at write-time per
+;; `config/clamp-events-list-height-px`.
+
+(defonce ^:private seam-drag-state
+  ;; Holds the active seam-drag snapshot. Same shape as `drag-state`
+  ;; above but with `:start-y` + `:start-height` for the vertical axis.
+  ;; defonce so a shadow-cljs :after-load mid-drag doesn't strand a
+  ;; half-installed listener.
+  (atom nil))
+
+(defn seam-dragging?
+  "Test seam — true iff an L2/L3 seam drag is in progress. Pure read
+  of the seam-drag-state atom. Used by the test suite to assert the
+  start/stop lifecycle."
+  []
+  (some? @seam-drag-state))
+
+(defn- seam-detach-document-listeners! []
+  (when-let [{:keys [on-move on-up on-cancel prev-cursor]} @seam-drag-state]
+    (when (and (exists? js/document) (.-removeEventListener js/document))
+      (try (.removeEventListener js/document "pointermove" on-move)
+           (catch :default _ nil))
+      (try (.removeEventListener js/document "pointerup" on-up)
+           (catch :default _ nil))
+      (try (.removeEventListener js/document "pointercancel" on-cancel)
+           (catch :default _ nil)))
+    (when (and (exists? js/document) (.-body js/document))
+      (set! (-> js/document .-body .-style .-cursor)
+            (or prev-cursor "")))
+    (reset! seam-drag-state nil)))
+
+(defn- seam-on-document-move [^js e]
+  (when-let [{:keys [start-y start-height]} @seam-drag-state]
+    ;; The seam sits BELOW the event-list and ABOVE the tab-bar. Drag
+    ;; DOWN (now-y > start-y) grows the list; drag UP shrinks it.
+    ;; dy = (now-y - start-y).
+    (let [dy         (- (.-pageY e) start-y)
+          new-height (+ start-height dy)]
+      (rf/dispatch [:rf.xray/set-events-list-height-px new-height]
+                   {:frame :rf/xray}))))
+
+(defn- seam-on-document-up [^js _e]
+  (seam-detach-document-listeners!))
+
+(defn- seam-on-document-cancel [^js _e]
+  (seam-detach-document-listeners!))
+
+(defn start-seam-drag!
+  "Begin an L2/L3 seam drag. Records the start-y + start-height
+  snapshot, then attaches the document-level move / up / cancel
+  listeners that drive the live update. Mirrors `start-drag!` above
+  for the vertical axis.
+
+  Exposed for the seam view's `:on-pointer-down` handler AND for the
+  test suite, which drives the lifecycle without a real DOM."
+  [^js e current-height]
+  (seam-detach-document-listeners!)
+  (let [start-y     (.-pageY e)
+        pointer-id  (.-pointerId e)
+        prev-cursor (when (and (exists? js/document)
+                               (.-body js/document))
+                      (-> js/document .-body .-style .-cursor))
+        on-move     seam-on-document-move
+        on-up       seam-on-document-up
+        on-cancel   seam-on-document-cancel]
+    (reset! seam-drag-state {:start-y      start-y
+                             :start-height (or current-height
+                                               config/default-events-list-height-px)
+                             :pointer-id   pointer-id
+                             :on-move      on-move
+                             :on-up        on-up
+                             :on-cancel    on-cancel
+                             :prev-cursor  prev-cursor})
+    (when (and (exists? js/document) (.-body js/document))
+      (set! (-> js/document .-body .-style .-cursor) "row-resize"))
+    (when (and (exists? js/document) (.-addEventListener js/document))
+      (try (.addEventListener js/document "pointermove" on-move)
+           (catch :default _ nil))
+      (try (.addEventListener js/document "pointerup" on-up)
+           (catch :default _ nil))
+      (try (.addEventListener js/document "pointercancel" on-cancel)
+           (catch :default _ nil)))
+    (try (.preventDefault e) (catch :default _ nil))))
+
+(defn seam-simulate-move!
+  "Test-only: drive the document-level pointermove handler for the
+  seam drag with a page-Y coordinate. No-op when no drag is in progress."
+  [page-y]
+  (when @seam-drag-state
+    (seam-on-document-move #js {:pageY page-y})))
+
+(defn seam-simulate-up!
+  "Test-only: drive the document-level pointerup handler for the seam
+  drag. No-op when no drag is in progress."
+  []
+  (when @seam-drag-state
+    (seam-on-document-up nil)))
+
+(defn seam-simulate-cancel!
+  "Test-only: drive the document-level pointercancel handler for the
+  seam drag. Covers the system-preempt path."
+  []
+  (when @seam-drag-state
+    (seam-on-document-cancel nil)))
+
+(defn handle-seam-keydown!
+  "Keyboard-navigable seam resize. Per spec/007-UX-IA.md §Splitter
+  affordance the seam handle MUST be operable without a pointer
+  device. Bindings:
+
+    ArrowDown          +8px  (grow list — drag-down semantics)
+    ArrowUp            -8px  (shrink)
+    Shift+ArrowDown    +32px (coarse grow)
+    Shift+ArrowUp      -32px (coarse shrink)
+    Home               +very-large step (clamp to upper bound)
+    End                -very-large step (clamp to lower bound)
+    Enter / Space      reset to default (matches double-click)
+
+  Mirrors the panel resize handle's keyboard contract — clamp lives in
+  the registry handler so we dispatch the desired height and let
+  `:rf.xray/set-events-list-height-px` apply the [min, viewport×0.7]
+  bounds.
+
+  Returns true iff the keypress was handled (so the caller can
+  `preventDefault` to suppress the default behavior — page scroll on
+  arrow keys, button activation on space). Other keypresses return
+  false and bubble normally."
+  [^js e current-height]
+  (let [key      (.-key e)
+        shift?   (.-shiftKey e)
+        step     (if shift?
+                   (* config/events-list-height-keyboard-step-px
+                      config/events-list-height-keyboard-coarse-multiplier)
+                   config/events-list-height-keyboard-step-px)
+        dispatch (fn [px]
+                   (rf/dispatch [:rf.xray/set-events-list-height-px px]
+                                {:frame :rf/xray}))]
+    (case key
+      "ArrowDown"   (do (dispatch (+ current-height step)) true)
+      "ArrowUp"     (do (dispatch (- current-height step)) true)
+      "Home"        (do (dispatch 10000) true)
+      "End"         (do (dispatch 0) true)
+      ("Enter" " ") (do (rf/dispatch [:rf.xray/reset-events-list-height]
+                                     {:frame :rf/xray})
+                        true)
+      false)))
+
+(def ^:private seam-base-height-px
+  "Click-area height for the L2/L3 seam handle (rf2-t2dsh). 8px is the
+  conventional comfortable hit-target for a horizontal splitter while
+  remaining a thin visual line. The always-visible hairline accent is
+  1px at 33% alpha; the click-area covers ±3px on either side so the
+  pointer doesn't need pixel-perfect aim. Mirrors the panel-width
+  handle's 6px strip — slightly taller because the surrounding chrome
+  is denser horizontally than vertically."
+  8)
+
+(defn- seam-handle-style
+  "Inline style for the L2/L3 seam-handle node. The handle is a
+  full-width 8px horizontal strip carrying `row-resize` cursor + an
+  always-visible 1px accent stripe at 33% alpha along the seam line.
+  The strip's hover treatment lives in `theme/global-styles/motion-css`
+  (the rule intensifies the stripe on hover; inline styles cannot
+  carry `:hover` pseudo-classes). Mirrors `handle-style` above for the
+  vertical axis."
+  []
+  {:flex            "0 0 auto"
+   :width           "100%"
+   :height          (str seam-base-height-px "px")
+   :margin          "0"
+   :padding         "0"
+   :cursor          "row-resize"
+   :background      "transparent"
+   ;; Hairline on the seam centre so the affordance is visible against
+   ;; either theme. 33% alpha of the single `:accent` (GitHub blue) —
+   ;; same intensity as the panel-width handle's hairline so the two
+   ;; affordances read as one family.
+   :box-shadow      (str "inset 0 4px 0 -3px " (t/with-alpha :accent 33))
+   ;; Disable native gestures during drag (text-select on mouse,
+   ;; page-pan on touch).
+   :touch-action    "none"
+   :user-select     "none"
+   ;; The seam is part of the L2 surface — give it a hairline footer
+   ;; that matches the list's border-bottom so the visual rhythm is
+   ;; preserved (the L2 list lost its own border-bottom when the seam
+   ;; was extracted; the seam IS the boundary).
+   :position        "relative"})
+
+(rf/reg-view SeamHandle
+  "Render the horizontal seam between the L2 event list and the L3 tab
+  bar as a draggable resize affordance (rf2-t2dsh). Always renders —
+  every mode that mounts the L2 list (Dynamic chrome only; Static mode
+  doesn't carry L2) renders the seam.
+
+  Per spec/007-UX-IA.md §Splitter affordance:
+    - hover anywhere along the seam → `row-resize` cursor
+    - click-and-drag from anywhere along the seam → resizes the list
+    - 8px click-area, hairline accent that intensifies on hover
+    - keyboard-navigable (arrow keys for fine step, Enter/Space to
+      reset)
+    - double-click resets to default
+
+  `reg-view`-wrapped per rf2-in6l2 so the inner subscribe routes
+  through React-context to `:rf/xray`."
+  []
+  (let [current-height @(rf/subscribe [:rf.xray/events-list-height-px])
+        viewport-h     (when (exists? js/window)
+                         (.-innerHeight js/window))
+        aria-max       (long (* (or viewport-h 1000)
+                                config/max-events-list-height-fraction))]
+    [:div {:data-testid      "rf-xray-event-list-seam"
+           :role             "separator"
+           :aria-orientation "horizontal"
+           :aria-label       "Resize events list"
+           :aria-valuemin    config/min-events-list-height-px
+           :aria-valuemax    aria-max
+           :aria-valuenow    current-height
+           :title            (str "Drag to resize events list · "
+                                  "double-click to reset · "
+                                  "arrow keys for fine resize (Shift = coarse) · "
+                                  "Enter to reset")
+           :tab-index        0
+           :on-pointer-down  (fn [^js e]
+                               (start-seam-drag! e current-height))
+           :on-key-down      (fn [^js e]
+                               (when (handle-seam-keydown! e current-height)
+                                 (try (.preventDefault e)
+                                      (catch :default _ nil))))
+           :on-double-click  (fn [^js _e]
+                               (rf/dispatch
+                                 [:rf.xray/reset-events-list-height]
+                                 {:frame :rf/xray}))
+           :style            (seam-handle-style)}]))

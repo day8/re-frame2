@@ -920,6 +920,33 @@
     "    transparent 3px,\n"
     "    transparent\n"
     "  ) !important;\n"
+    "}\n"
+    ;; rf2-t2dsh — L2/L3 seam handle hover treatment. The seam ships
+    ;; with an always-visible 1px accent hairline at 33% alpha (inline
+    ;; `box-shadow` in `resize_handle.cljs` §seam-handle-style). On
+    ;; hover the hairline intensifies to a 1px stripe along the seam
+    ;; centre so the affordance reads as draggable without depending
+    ;; on a JS pointer-move pre-flash. Light + dark themes route
+    ;; through the same `--rf-xray-accent` variable so the treatment
+    ;; lands consistently in both. Mirrors the column-divider hover
+    ;; rule above for the horizontal axis.
+    "[data-testid=\"rf-xray-event-list-seam\"] {\n"
+    "  transition: background-color calc(120ms * var(--rf-xray-motion-scale, 1)) ease-out;\n"
+    "}\n"
+    "[data-testid=\"rf-xray-event-list-seam\"]:hover {\n"
+    "  background: linear-gradient(\n"
+    "    to bottom,\n"
+    "    transparent 0,\n"
+    "    transparent 3px,\n"
+    "    color-mix(in srgb, var(--rf-xray-accent) 55%, transparent) 3px,\n"
+    "    color-mix(in srgb, var(--rf-xray-accent) 55%, transparent) 5px,\n"
+    "    transparent 5px,\n"
+    "    transparent\n"
+    "  ) !important;\n"
+    "}\n"
+    "[data-testid=\"rf-xray-event-list-seam\"]:focus-visible {\n"
+    "  outline: 2px solid var(--rf-xray-accent);\n"
+    "  outline-offset: -2px;\n"
     "}\n"))
 
 (defn- inject-motion-style!

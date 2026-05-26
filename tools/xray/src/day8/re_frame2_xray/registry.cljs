@@ -248,6 +248,54 @@
         {:fx [[:dispatch [:rf.xray/set-panel-width-px
                           config/default-panel-width-px]]]}))
 
+    ;; ---- L2 event-list height (rf2-t2dsh seam resize handle) -----
+    ;;
+    ;; The L2/L3 seam carries a row-resize drag handle that drives the
+    ;; events-list height. Mirrors the panel-width-px shape above:
+    ;;
+    ;;   - `:rf.xray/events-list-height-px` reads from the settings
+    ;;     map; the L2 list's inline `:height` style binds to it so
+    ;;     drag updates re-paint immediately.
+    ;;   - `:rf.xray/set-events-list-height-px` clamps to
+    ;;     [min, viewport×0.7] before persisting, mirroring the
+    ;;     panel-width clamp at write-time.
+    ;;   - `:rf.trace/no-emit?` matches the panel-width handler — drag
+    ;;     emits one dispatch per pixel of motion; trace-buffering them
+    ;;     would flood the bus with shape no panel consumes.
+    ;;
+    ;; Per rf2-t2dsh the prior browser-native `:resize \"vertical\"`
+    ;; corner-grip on the L2 list was RETIRED — it carried no
+    ;; persistence, no keyboard affordance, and a tiny corner hit-
+    ;; target. The seam matches the panel-width handle's interaction
+    ;; model so all resize surfaces share one mental model.
+    (rf/reg-sub :rf.xray/events-list-height-px
+      (fn [db _query]
+        (or (get-in db [:settings :general :events-list-height-px])
+            (config/get-setting :general :events-list-height-px)
+            config/default-events-list-height-px)))
+
+    (rf/reg-event-db :rf.xray/set-events-list-height-px
+      {:rf.trace/no-emit? true}
+      (fn [db [_ px]]
+        (let [viewport (or (when (exists? js/window)
+                             (.-innerHeight js/window))
+                           1000)
+              clamped  (config/clamp-events-list-height-px px viewport)]
+          ;; Dual-write: same pattern the panel-width handler uses
+          ;; (config atom drives localStorage round-trip; app-db slot
+          ;; drives reactive re-render).
+          (config/update-setting! :general :events-list-height-px clamped)
+          (assoc-in db [:settings :general :events-list-height-px] clamped))))
+
+    ;; Reset to default — bound to the seam handle's double-click +
+    ;; Enter/Space keyboard binding. Routes through the same write
+    ;; surface so persistence stays consistent.
+    (rf/reg-event-fx :rf.xray/reset-events-list-height
+      {:rf.trace/no-emit? true}
+      (fn [_ _event]
+        {:fx [[:dispatch [:rf.xray/set-events-list-height-px
+                          config/default-events-list-height-px]]]}))
+
     ;; ---- L2 event-list resizable column widths (rf2-6ni62) -------
     ;;
     ;; The L2 event-list carries four columns — `event-id` (flex),
