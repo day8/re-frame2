@@ -370,6 +370,14 @@
    ;; removed with rf2-td380 + rf2-gkczt. The feed now projects the arc
    ;; shape (envelope + 4 phase bands) per spec/023 (rf2-l2f2g).
    :rf.xray/trace-feed
+   ;; rf2-wcfsy — layer-3 composite over `:rf.xray/cascades` +
+   ;; `:rf.xray/focus`; returns the focused cascade record (or nil
+   ;; when no focus is pinned). Replaces an inline `some` scan that
+   ;; ran on every Trace-panel render — the composite memoises on
+   ;; its input signals so the scan only re-runs when cascades /
+   ;; focus actually change. Read by the Trace panel's
+   ;; `cascade-status-bar`.
+   :rf.xray.trace/focused-cascade
    ;; Reactive panel (rf2-wyvf2 · spec/021 §3 · renamed from Views per
    ;; §11.5; tab key stays `:views`, display label rebases). Reads the
    ;; focused cascade's `:trace-events` for the substrate ops landed in
