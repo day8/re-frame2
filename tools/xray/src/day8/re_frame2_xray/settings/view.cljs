@@ -625,13 +625,26 @@
 (defn- theme-section []
   (let [theme            @(rf/subscribe [:rf.xray/setting :theme nil])
         use-system?      @(rf/subscribe [:rf.xray/setting
-                                         :general :use-system-colors?])]
+                                         :general :use-system-colors?])
+        ;; rf2-pfx4u — the "(default)" annotation is derived from the
+        ;; canonical default in `config/default-settings`, not hard-coded
+        ;; against `:dark`. The prior labels paired the annotation with
+        ;; Dark while the actual default is `:light` (per
+        ;; `config.cljc :theme :light` and `effects/apply-theme!` which
+        ;; falls back to `:light` when no theme is set) — the Figma
+        ;; authority reference also opens on Light. Sourcing the marker
+        ;; from config keeps the label in lock-step with the default and
+        ;; survives any future flip without a separate copy-edit.
+        default-theme    (:theme config/default-settings)]
     [:div {:data-testid "rf-xray-settings-section-theme"}
      [:h2 {:style (section-heading-style)} "Theme"]
      [:div {:style (field-style)}
       [:span {:style (label-style)} "Colour theme"]
-      (for [[t label] [[:dark  "Dark (default)"]
-                       [:light "Light"]]]
+      (for [[t base-label] [[:dark  "Dark"]
+                            [:light "Light"]]
+            :let [label (if (= t default-theme)
+                          (str base-label " (default)")
+                          base-label)]]
         ^{:key t}
         [:label {:style {:display "flex" :align-items "center" :gap "8px"
                          :cursor "pointer"
