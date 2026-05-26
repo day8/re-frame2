@@ -29,6 +29,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
+            [day8.re-frame2-xray.diff.engine :as engine]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens dark-palette light-palette]]))
 
@@ -2782,3 +2783,122 @@
         attrs (-> h second)]
     (is (nil? (:on-key-down attrs))
         "no zoom active → no keydown handler (keystrokes bubble up)")))
+
+;; ---- rf2-4p1vl — engine/project memoisation across re-renders -------------
+;;
+;; The audit's H1 finding: in diff mode (mode-3) the inner render fn invoked
+;; `engine/project` on every render — expansion toggle, ResizeObserver width
+;; update, parent re-render. Even when the `(before, after)` inputs were
+;; byte-identical, the full Editscript A* walk + ancestor classification
+;; ran again from scratch.
+;;
+;; The fix captures a per-mount projection cache in the form-2 outer body
+;; closure. Identity-stable inputs short-circuit to the cached projection.
+;; The cache key uses `identical?` on both `before` and `after`, matching
+;; the engine's own short-circuit at engine.cljc:515.
+;;
+;; Tests below spy on `engine/project` via `with-redefs` and count
+;; invocations across multiple inner-fn calls with identical inputs.
+
+(deftest projection-memo-skips-recompute-on-identical-inputs
+  ;; Mount the widget once (get the form-2 inner fn); call inner three
+  ;; times with the SAME `before` + `value` references. Without the
+  ;; memo `engine/project` fires three times; with the memo it fires
+  ;; once.
+  (let [before {:a 1 :b {:c 2}}
+        after  {:a 1 :b {:c 3}}
+        opts   {:panel-id :rf.xray/app-db
+                :before   before}
+        call-count (atom 0)
+        real-project engine/project]
+    (with-redefs [engine/project (fn [b a]
+                                   (swap! call-count inc)
+                                   (real-project b a))]
+      (let [inner (ei/edn-inspector after opts)]
+        ;; Three renders with identical (before, after) refs.
+        (inner after opts)
+        (inner after opts)
+        (inner after opts)
+        (is (= 1 @call-count)
+            "engine/project invoked exactly once across three identity-stable renders")))))
+
+(deftest projection-memo-recomputes-when-before-changes
+  ;; Cache invalidates when `before` is a different reference. New
+  ;; epoch / new diff input must trigger a fresh projection.
+  (let [before1 {:a 1}
+        before2 {:a 2}
+        after   {:a 3}
+        call-count (atom 0)
+        real-project engine/project]
+    (with-redefs [engine/project (fn [b a]
+                                   (swap! call-count inc)
+                                   (real-project b a))]
+      (let [inner (ei/edn-inspector after {:panel-id :rf.xray/app-db
+                                            :before   before1})]
+        (inner after {:panel-id :rf.xray/app-db :before before1})
+        (inner after {:panel-id :rf.xray/app-db :before before2})
+        (is (= 2 @call-count)
+            "engine/project re-runs when `before` reference changes")))))
+
+(deftest projection-memo-recomputes-when-after-changes
+  ;; Mirror of the above for the `after` side. Same-`before`, different-
+  ;; `after` reference must miss the cache.
+  (let [before {:a 1}
+        after1 {:a 2}
+        after2 {:a 3}
+        call-count (atom 0)
+        real-project engine/project]
+    (with-redefs [engine/project (fn [b a]
+                                   (swap! call-count inc)
+                                   (real-project b a))]
+      (let [inner (ei/edn-inspector after1 {:panel-id :rf.xray/app-db
+                                             :before   before})]
+        (inner after1 {:panel-id :rf.xray/app-db :before before})
+        (inner after2 {:panel-id :rf.xray/app-db :before before})
+        (is (= 2 @call-count)
+            "engine/project re-runs when `after` reference changes")))))
+
+(deftest projection-memo-is-per-mount-isolated
+  ;; The cache lives in the form-2 outer body closure → each mount gets
+  ;; its OWN cache. Two side-by-side mounts must not share entries,
+  ;; otherwise mount-A's projection could be served to mount-B with
+  ;; different inputs.
+  (let [before {:a 1}
+        after  {:a 2}
+        call-count (atom 0)
+        real-project engine/project]
+    (with-redefs [engine/project (fn [b a]
+                                   (swap! call-count inc)
+                                   (real-project b a))]
+      (let [inner1 (ei/edn-inspector after {:panel-id :rf.xray/app-db
+                                             :before   before})
+            inner2 (ei/edn-inspector after {:panel-id :rf.xray/app-db
+                                             :before   before})]
+        (inner1 after {:panel-id :rf.xray/app-db :before before})
+        (inner2 after {:panel-id :rf.xray/app-db :before before})
+        ;; Two distinct mounts → two cache misses, even with identity-
+        ;; stable inputs. The point of this test is the ABSENCE of
+        ;; cross-mount cache sharing; if both mounts shared, we'd see
+        ;; @call-count = 1 here.
+        (is (= 2 @call-count)
+            "each mount has its own projection cache (no cross-mount leak)")
+        ;; And within a single mount, second render is a cache hit.
+        (inner1 after {:panel-id :rf.xray/app-db :before before})
+        (is (= 2 @call-count)
+            "mount-1's second render hits its own cache")))))
+
+(deftest projection-not-invoked-outside-diff-mode
+  ;; Browse mode (no `:before` opt) must NOT touch `engine/project` at
+  ;; all — the projection is nil and the renderer's path-keyed lookups
+  ;; return `:same` for everything. This guards against accidentally
+  ;; warming the cache in non-diff renders.
+  (let [call-count (atom 0)
+        real-project engine/project]
+    (with-redefs [engine/project (fn [b a]
+                                   (swap! call-count inc)
+                                   (real-project b a))]
+      (let [inner (ei/edn-inspector {:a 1} {:panel-id :rf.xray/app-db})]
+        (inner {:a 1} {:panel-id :rf.xray/app-db})
+        (inner {:a 1} {:panel-id :rf.xray/app-db})
+        (is (= 0 @call-count)
+            "browse mode never calls engine/project")))))
