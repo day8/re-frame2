@@ -1674,8 +1674,13 @@
             "row padding is the tightened 1px 6px (was 4px 8px)")))))
 
 (deftest event-list-container-height-matches-tight-rows
-  (testing "rf2-htik0 Bug 2 — container height stays at ~8 rows of the
-            new 22px row × 2px gap + padding (≈200px, was 224px)."
+  (testing "rf2-htik0 Bug 2 — container default height stays at ~8
+            rows of the new 22px row × 2px gap + padding (≈200px, was
+            224px). Post rf2-t2dsh the value reads from the
+            `:rf.xray/events-list-height-px` sub instead of the
+            literal — fresh xray-setup! resets settings to the
+            default, so the rendered style at `:height` is still the
+            default 200px."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree  (shell/shell-view)

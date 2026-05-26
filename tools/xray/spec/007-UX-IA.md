@@ -64,7 +64,7 @@ the left because normal layout owns the relationship.
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ LAYER 1  Two ribbons — chrome (~32px) + events ribbon (~36px) (rf2-4vp5j)│  scope + spine controls
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 2  Event list (4-col table; 6 rows default; resize bottom edge)   │  the spine / timeline
+│ LAYER 2  Event list (4-col table; 6 rows default; resize via L2/L3 seam)│  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 3  Tab bar (40px) — 7 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -86,8 +86,9 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 │ timer  │ :poll/tick      │ 12:30:07.001   │  0.2 ms                      │
 │ view   │ :user/profile   │ 12:30:07.892   │  0.6 ms                      │
 │ machine│ :title/loaded   │ 12:30:08.234   │  0.3 ms                      │
-│ view   │ :form/submit    │ 12:30:09.456   │  1.8 ms     ↕ resize edge     │
-├─────────────────────────────────────────────────────────────────────────┤   drag bottom edge
+│ view   │ :form/submit    │ 12:30:09.456   │  1.8 ms                      │
+╞═════════════════════════════════════════════════════════════════════════╡   L2/L3 seam — drag ↕ to resize
+├─────────────────────────────────────────────────────────────────────────┤
 │ [Event]  app-db   Views   Trace   Machine   Routes   Issues              │              L3 — 7 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
@@ -111,10 +112,11 @@ The four layers, top to bottom:
    the chrome ribbon's mode dropdown toggles Dynamic ↔ Static (a separate axis). Anatomy in
    §The L1 ribbon below.
 2. **L2 — Event list.** A **four-column table** (`source · event id · timestamp · duration`);
-   **6 rows visible by default**, the **bottom edge a drag handle for vertical resize**;
-   latest-on-bottom; virtualised; sticky header. The active/focused row takes a subtle
-   background; functional semantic markers (redaction / issue / pin) ride as subtle per-row
-   signals (§Event-list rows). The spine sub `:rf.xray/focus` reads from this layer.
+   **6 rows visible by default**, with **the L2/L3 seam acting as the drag handle for
+   vertical resize** (§Splitter affordance); latest-on-bottom; virtualised; sticky header.
+   The active/focused row takes a subtle background; functional semantic markers
+   (redaction / issue / pin) ride as subtle per-row signals (§Event-list rows). The spine
+   sub `:rf.xray/focus` reads from this layer.
 3. **L3 — Tab bar (40px).** Seven tabs in the order the Figma export fixes:
    **Event · app-db · Views · Trace · Machine · Routes · Issues**. Letter mnemonics:
    `e` `a` `v` `t` `m` `r` `i`. Each tab renders its **label only** (no `◉`/`○` glyph — Figma
@@ -249,6 +251,80 @@ Unrecognised keys bubble normally so the surrounding chrome's
 `Ctrl+Shift+C` / `?` / `Esc` shortcuts remain reachable from the
 handle's focus position.
 
+### Splitter affordance — the L2/L3 seam (rf2-t2dsh)
+
+The horizontal boundary between the **L2 event list** and the **L3 tab
+bar** is a draggable resize affordance. The seam SHALL:
+
+- Show `cursor: row-resize` on hover anywhere along the seam
+- Drag-to-update the event-list height with global pointer-capture
+  (mouse, touch, and pen unified through pointer events;
+  `touch-action: none` so a touch-drag does not pan the page)
+- Clamp height to `[48px, viewport×0.7]` — 48px == 2 rows + chrome,
+  the documented L2 minimum; 70% leaves a 30% sliver for L1 chrome +
+  L3 tab bar + L4 detail panel
+- Persist via `configure! :rf.xray/settings :general :events-list-height-px`
+  (round-trips through localStorage with the rest of the Settings
+  map; see [`015-Configuration.md`](./015-Configuration.md))
+- Reset to default height (200px) on double-click
+
+The click-area is a **full-width 8px horizontal strip** so the
+operator can grab the seam from any X coordinate; the visible
+affordance is a 1px accent hairline at 33% alpha along the seam
+centre, intensifying to ~55% alpha on hover (light + dark themes
+both route through `--rf-xray-accent` — the treatment lands
+consistently in both).
+
+#### Disposition of the prior corner-grip
+
+The previous affordance was the browser-native `:resize "vertical"`
+declaration on the L2 list — a tiny 16px corner-grip at the bottom-
+right of the list. That affordance was **retired** in rf2-t2dsh:
+
+- no persistence (height reset to 200px on every reload)
+- no keyboard surface (mouse/touch only)
+- tiny corner hit-target (~16×16px) — invisible to a user who hasn't
+  hovered the exact corner
+- inconsistent with the panel-width handle's interaction model (drag
+  + reset + keyboard arrows)
+
+The L2 list's inline style no longer carries `:resize`; the seam
+handle is the sole vertical-resize surface. Per pre-alpha posture
+(no back-compat shims) the swap is a hard cut.
+
+#### Keyboard contract
+
+The seam is keyboard-reachable (`tabindex="0"`, `role="separator"`,
+`aria-orientation="horizontal"`, live `aria-valuenow` for the current
+height). Bindings:
+
+| Key | Action |
+|---|---|
+| `ArrowDown` | Grow list by 8px (matches drag-down semantics) |
+| `ArrowUp` | Shrink list by 8px |
+| `Shift+ArrowDown` | Grow by 32px (coarse step) |
+| `Shift+ArrowUp` | Shrink by 32px |
+| `Home` | Snap to upper clamp (registry applies the 70vh bound) |
+| `End` | Snap to lower clamp (registry applies the 48px floor) |
+| `Enter` / `Space` | Reset to default (matches double-click) |
+
+Unrecognised keys bubble normally — the surrounding chrome's
+`Ctrl+Shift+C` / `?` / `Esc` shortcuts remain reachable from the
+handle's focus position.
+
+#### Rendering
+
+The seam-handle is one DOM node mounted between `event-list` and
+`tab-bar` (DOM-order asserted by `events-list-seam-cljs-test`). The
+testid is `rf-xray-event-list-seam`. Styles are Xray-owned — no
+consumer CSS surface; the seam appears automatically as part of the
+4-layer chrome.
+
+The seam rides on the Dynamic surface composer (`surface-composer`
+→ `dynamic-chrome`); Static mode renders a different surface
+(`static-shell/surface`) that doesn't carry an L2 event list, so
+the seam is absent there without an explicit check.
+
 ## The L1 ribbon — two ribbons (rf2-4vp5j)
 
 Layer 1 is **two stacked ribbons**, splitting scope SELECTORS from
@@ -340,9 +416,10 @@ needs (redaction / issue / pin) survive as a subtle per-row tint or trailing mar
 as the primary row structure. Full click behaviour + hover tooltip in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §4.
 
-**6 rows visible by default; the bottom edge is a drag handle for vertical resize** (drag down
-to show more history). The header row is sticky; on hover/selection the row takes a subtle
-background (`hover` / `bg-active`) — the active/focused row is the spine's `:rf.xray/focus`.
+**6 rows visible by default; the L2/L3 seam is a drag handle for vertical resize** (drag
+down to show more history — see §Splitter affordance for the full mechanics). The header
+row is sticky; on hover/selection the row takes a subtle background (`hover` / `bg-active`)
+— the active/focused row is the spine's `:rf.xray/focus`.
 
 ### Columns (left → right)
 
@@ -354,13 +431,14 @@ background (`hover` / `bg-active`) — the active/focused row is the spine's `:r
 | **duration** | how long the event took to process, e.g. `0.4 ms` | mono, muted |
 
 ```
-┌ Event list  (6 rows default · drag bottom edge ↕ to resize) ───────────┐
+┌ Event list  (6 rows default · drag L2/L3 seam ↕ to resize) ─────────────┐
 │ source │ event id          │ timestamp      │ duration                  │
 │ fx     │ :title/flow       │ 12:30:05.123   │  1.2 ms                   │
 │ view   │ :counter-inc      │ 12:30:06.456   │  0.4 ms   ← focused row    │
 │ timer  │ :poll/tick        │ 12:30:07.001   │  0.2 ms                   │
 │ machine│ :title/loaded     │ 12:30:08.234   │  0.3 ms                   │
-│  …                                            ↕ resize edge             │
+│  …                                                                       │
+╞═════════════════════════════════════════════════════════════════════════╡   ↕ L2/L3 seam (drag to resize)
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 

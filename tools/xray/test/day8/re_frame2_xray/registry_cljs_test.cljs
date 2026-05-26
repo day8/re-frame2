@@ -309,6 +309,8 @@
    :rf.xray/panel-width-px
    ;; rf2-6ni62 — L2 event-list user-resizable column widths.
    :rf.xray/event-list-col-widths
+   ;; rf2-t2dsh — L2/L3 seam-handle event-list height.
+   :rf.xray/events-list-height-px
    ;; rf2-vbbq0 / rf2-0s2at — L2 row relative-time chip anchor (sub
    ;; composed off `:rf.xray/cascades` — dispatched-time of the most
    ;; recent cascade; flips on event arrival, not on a per-second tick).
@@ -536,6 +538,8 @@
    :rf.xray/reset-event-list-col-width
    ;; rf2-x8h9y — resize-handle double-click reset.
    :rf.xray/reset-panel-width
+   ;; rf2-t2dsh — L2/L3 seam-handle double-click reset.
+   :rf.xray/reset-events-list-height
    :rf.xray/reset-suppressed-counters
    :rf.xray/restore-from-share-url
    :rf.xray/save-edit-popup
@@ -602,6 +606,8 @@
    :rf.xray/set-event-list-col-width
    ;; rf2-x8h9y — resize-handle live update event.
    :rf.xray/set-panel-width-px
+   ;; rf2-t2dsh — L2/L3 seam-handle live update event.
+   :rf.xray/set-events-list-height-px
    ;; rf2-7hwwe — `:after` countdown rings now-ms override (test-only).
    :rf.xray/set-now-ms-override-for-test
    :rf.xray/set-registered-machines-override-for-test

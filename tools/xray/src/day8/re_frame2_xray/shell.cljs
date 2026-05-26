@@ -1772,10 +1772,17 @@
   (rf2-htik0 Bug 2 — was 28px row × 224px container; Xray is
   info-dense and the earlier rhythm wasted vertical canvas).
 
-  Container height: 8 rows × 22px + 7 × 2px gap + 8px outer padding
-  ≈ 200px. `min-height` drops to 48px (2 rows + chrome) so the
-  native vertical-resize handle can still squeeze the list down to
-  the L2/L3 drag spec minimum.
+  Container default height: 8 rows × 22px + 7 × 2px gap + 8px outer
+  padding ≈ 200px. The live height reads from
+  `:rf.xray/events-list-height-px` (rf2-t2dsh) so the L2/L3 seam
+  handle's drag writes lift the list reactively. `min-height` drops
+  to `config/min-events-list-height-px` (48px == 2 rows + chrome) —
+  the same floor the seam-handle clamp enforces.
+
+  Per rf2-t2dsh the bottom-right browser-native `:resize \"vertical\"`
+  corner-grip was retired — the seam handle that sits on the L2/L3
+  boundary is the single resize affordance now, carrying persistence
+  + keyboard + reset that the corner-grip lacked.
 
   Per spec/018 §6 sub-graph + rf2-ak4ms: reads `:rf.xray/filtered-
   cascades` (NOT raw `:rf.xray/cascades`) so the L1 ribbon's IN/OUT
@@ -1814,6 +1821,9 @@
         ;; widths map through to the header + every row so the two
         ;; surfaces never drift out of column alignment.
         col-widths     @(rf/subscribe [:rf.xray/event-list-col-widths])
+        ;; rf2-t2dsh — list height is driven by the L2/L3 seam handle.
+        ;; The sub returns a clamped px value; default == 200 px.
+        list-height-px @(rf/subscribe [:rf.xray/events-list-height-px])
         cascades       @(rf/subscribe [:rf.xray/filtered-cascades])
         ;; rf2-4vp5j — the hidden-by-filters message moved UP to the
         ;; events ribbon (`events-ribbon`); the L2 list no longer renders
@@ -1851,13 +1861,17 @@
      ;; events ribbon (above this list) rather than as an inline banner
      ;; here; the list is just the scroll container.
      [:div {:data-testid "rf-xray-event-list"
-            :style {:height        "200px"   ; 8 rows × 22px + gaps + padding (rf2-htik0)
-                    :min-height    "48px"    ; 2 rows minimum
+            :style {;; rf2-t2dsh — live height from the seam handle's
+                    ;; sub; default 200 px (8 rows × 22 px + gaps +
+                    ;; padding, per rf2-htik0). The `:resize` CSS rule
+                    ;; that used to ride here was retired in favour of
+                    ;; the seam-handle (Spec 007 §Splitter affordance).
+                    :height        (->px list-height-px)
+                    :min-height    (->px config/min-events-list-height-px)
                     :overflow-y    "auto"
                     :overflow-x    "hidden"
                     :background    (:bg-2 tokens)
                     :border-bottom (str "1px solid " (:border-subtle tokens))
-                    :resize        "vertical"   ; native vertical resize for the L2/L3 drag handle
                     :padding       "4px"
                     ;; rf2-ieg6d Bug 2 — Firefox standardised props for the
                     ;; slim scrollbar. WebKit/Blink pseudo-element rules ship
@@ -2161,6 +2175,12 @@
    [ribbon {}]
    [events-ribbon]
    [event-list]
+   ;; rf2-t2dsh — L2/L3 seam handle. Click-and-drag anywhere along the
+   ;; horizontal seam between the event list and the tab bar resizes
+   ;; the events list. Replaces the previous browser-native
+   ;; `:resize \"vertical\"` corner-grip per spec/007-UX-IA.md
+   ;; §Splitter affordance.
+   [resize-handle/SeamHandle]
    [tab-bar]
    [detail-panel]])
 
