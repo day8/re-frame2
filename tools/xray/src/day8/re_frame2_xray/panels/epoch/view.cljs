@@ -121,24 +121,32 @@
   Per the bead body's §Numbered Cascade Pattern step 2:
 
       Badge pill: uppercase text, 10px font (devtools-micro),
-                  rounded, padding 5px horizontal, 3px vertical"
+                  rounded, padding 5px horizontal, 3px vertical
+
+  Pair-debug 2026-05-26: when the badge's display label starts
+  with `:` (e.g. `:fx`) the CSS uppercase + letter-spacing is
+  skipped — the EDN-key-style label is shown as authored, distinct
+  from the conventional step-name labels (DISPATCH, HANDLER, etc.)."
   [step-badge]
-  [:span {:data-testid (str "rf-xray-epoch-badge-"
-                            (str/lower-case (name step-badge)))
-          :style {:display          "inline-flex"
-                  :align-items      "center"
-                  :background       (badge/colour step-badge)
-                  :color            (:white tokens)
-                  :font-family      sans-stack
-                  :font-size        "10px"
-                  :font-weight      700
-                  :letter-spacing   "0.5px"
-                  :padding          "3px 5px"
-                  :border-radius    "3px"
-                  :line-height      1
-                  :text-transform   "uppercase"
-                  :white-space      "nowrap"}}
-   (badge/label step-badge)])
+  (let [label (badge/label step-badge)
+        edn-style? (and (string? label) (str/starts-with? label ":"))]
+    [:span {:data-testid (str "rf-xray-epoch-badge-"
+                              (str/lower-case (name step-badge)))
+            :style       (cond-> {:display          "inline-flex"
+                                  :align-items      "center"
+                                  :background       (badge/colour step-badge)
+                                  :color            (:white tokens)
+                                  :font-family      (if edn-style? mono-stack sans-stack)
+                                  :font-size        "10px"
+                                  :font-weight      700
+                                  :padding          "3px 5px"
+                                  :border-radius    "3px"
+                                  :line-height      1
+                                  :white-space      "nowrap"}
+                           (not edn-style?)
+                           (assoc :letter-spacing "0.5px"
+                                  :text-transform "uppercase"))}
+     label]))
 
 (defn- numbered-circle
   "Render the numbered circle — 21px diameter, painted in the step's
@@ -1269,16 +1277,13 @@
 (defn render-fx-step
   "Render the FX step (only present when fx-handlers fired).
 
-  Per rf2-uffov: header carries the outcome split — `N fired (M
-  succeeded, K threw)` — so the operator reads at-a-glance
-  correctness without scanning every row's glyph. The `:succeeded`
-  count rolls `:ok + :overridden`; `:skipped` rides as its own
-  chip when non-zero."
-  [{:keys [rows step-number succeeded skipped threw]}]
-  (let [n (count rows)
-        m (or succeeded n)
-        k (or threw 0)
-        s (or skipped 0)]
+  Pair-debug 2026-05-26: the prior verb that read `N fired (M
+  succeeded, K threw)` is dropped — the row glyphs (✓/✗) already
+  convey per-fx outcome; the count summary is noise in the
+  step header. Threw-count surfaces as a chip only if non-zero so
+  the operator still sees errors at-a-glance."
+  [{:keys [rows step-number threw]}]
+  (let [k (or threw 0)]
     [:div {:data-testid "rf-xray-epoch-step-fx"
            :data-step-kw "fx"
            :data-fx-threw (str k)}
@@ -1286,17 +1291,10 @@
      (step-header
        {:step :fx
         :badge :FX
-        :verb [:span {:style {:display "inline-flex" :align-items "center"
-                              :gap "8px" :flex-wrap "wrap"}}
-               (str n " fired (" m " succeeded")
-               (when (pos? k)
-                 [:span {:style {:color (:error tokens)
-                                 :font-weight 700}}
-                  (str ", " k " threw")])
-               (when (pos? s)
-                 [:span {:style {:color (:text-tertiary tokens)}}
-                  (str ", " s " skipped")])
-               ")"]
+        :verb (when (pos? k)
+                [:span {:style {:color (:error tokens)
+                                :font-weight 700}}
+                 (str k " threw")])
         :expandable? false
         :testid "rf-xray-epoch-fx"}
        nil)
@@ -1722,83 +1720,12 @@
    [:div {:style {:margin-top "5px"}}
     (map-indexed schema-violation-row-view rows)]])
 
-;; ---- APP-DB DIFF step (rf2-rrykz) ---------------------------------------
+;; ---- APP-DB DIFF step — REMOVED pair-debug 2026-05-26 -------------------
+;;
+;; Replaced by the HANDLER step's `:db` `[diff][all]` toggle which
+;; surfaces the same data in-context. `render-app-db-diff-step` +
+;; `app-db-diff-row-view` deleted along with the step.
 
-(defn- app-db-diff-row-view
-  "Render one app-db diff row (rf2-rrykz). Per-row chrome mirrors the
-  HANDLER step's existing `db-diff-line` posture (+ for added, ~ for
-  modified, - for removed)."
-  [idx {:keys [path before after change]}]
-  (let [glyph (case change
-                :added    "+"
-                :removed  "-"
-                :modified "~"
-                "~")
-        glyph-colour (case change
-                       :added    (:success tokens)
-                       :removed  (:error tokens)
-                       (:warning tokens))]
-    [:div {:key (str "app-db-diff-" idx)
-           :data-testid (str "rf-xray-epoch-app-db-diff-row-" idx)
-           :data-change (when (keyword? change) (name change))
-           :style {:display      "flex"
-                   :align-items  "flex-start"
-                   :gap          "8px"
-                   :padding      "2px 0"
-                   :font-family  mono-stack
-                   :font-size    "12px"}}
-     [:span {:style {:color glyph-colour :font-weight 700}} glyph]
-     [:span {:style {:color (:text-tertiary tokens) :white-space "nowrap"}}
-      (proj/path-display path)]
-     ;; rf2-8w8er — added/removed/modified values render through
-     ;; `mini` so per-token syntax chrome paints. Matches the HANDLER
-     ;; step's :db-diff posture so the two diff surfaces read
-     ;; identically.
-     (case change
-       :added
-       [:span {:style {:color (:success tokens) :min-width 0 :flex 1
-                       :word-break "break-word"}}
-        [ei/mini after 80]]
-
-       :removed
-       [:span {:style {:color (:error tokens) :min-width 0 :flex 1
-                       :word-break "break-word"}}
-        [ei/mini before 80]]
-
-       ;; modified (default)
-       [:<>
-        [:span {:style {:color (:error tokens)}} [ei/mini before 40]]
-        [:span {:style {:color (:text-tertiary tokens)}} "→"]
-        [:span {:style {:color (:success tokens)}} [ei/mini after 40]]])]))
-
-(defn render-app-db-diff-step
-  "Render the APP-DB DIFF step (rf2-rrykz — only present when the
-  cascade mutated app-db).
-
-  Header carries the change-count split `N changes (+M / ~K / -L)`
-  so the operator reads structure at a glance. Per-row body is
-  the same diff-line posture HANDLER's `:db-diff` uses (same data,
-  different lens — HANDLER attributes, APP-DB DIFF surfaces)."
-  [{:keys [rows added modified removed step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-app-db-diff"
-         :data-step-kw "app-db-diff"}
-   (numbered-circle step-number :APP-DB-DIFF)
-   (step-header
-     {:step :app-db-diff
-      :badge :APP-DB-DIFF
-      :verb [:span {:style {:display "inline-flex" :align-items "center"
-                            :gap "8px" :flex-wrap "wrap"}}
-             (str (count rows) " path"
-                  (when (not= 1 (count rows)) "s") " changed")
-             [:span {:style {:color (:text-tertiary tokens)
-                             :font-size "10px"
-                             :font-family mono-stack}}
-              (str "(+" added " / ~" modified " / -" removed ")")]]
-      :expandable? false
-      :testid "rf-xray-epoch-app-db-diff"}
-     nil)
-   [:div {:style {:margin-top "5px"}}
-    (map-indexed app-db-diff-row-view rows)]])
 
 ;; ---- CHILD DISPATCHES step (rf2-yx1ae) ----------------------------------
 
@@ -1942,7 +1869,7 @@
     :views             (render-views-step step)
     :schema-violations (render-schema-violations-step step)
     :child-dispatches  (render-child-dispatches-step step ctx)
-    :app-db-diff       (render-app-db-diff-step step)
+    ;; :app-db-diff removed pair-debug 2026-05-26 — see comment above.
     nil))
 
 ;; ---- pipeline view -------------------------------------------------------
