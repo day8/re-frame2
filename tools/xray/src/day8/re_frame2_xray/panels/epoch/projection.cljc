@@ -485,9 +485,17 @@
       (for [ev events
             :let [o (op ev)
                   fx-id (common/tag-of ev :rf.fx/id)]
-            :when (or (= "rf.fx" (op-ns ev))
-                      (contains? #{:rf.error/fx-handler-exception
-                                   :rf.error/no-such-fx} o))]
+            :when (and (or (= "rf.fx" (op-ns ev))
+                           (contains? #{:rf.error/fx-handler-exception
+                                        :rf.error/no-such-fx} o))
+                       ;; Pair-debug 2026-05-26 — the framework emits an
+                       ;; `:rf.fx/handled` trace for the implicit `:db`
+                       ;; commit path without stamping `:rf.fx/id`,
+                       ;; producing a blank `✓` row. Drop fx-id-less
+                       ;; rows from the FX step; the `:db` placement
+                       ;; surfaces in the HANDLER `:db` sub-section
+                       ;; already.
+                       (some? fx-id))]
         (cond-> {:fx-id       fx-id
                  :status      (status-fn o)
                  :args        (common/tag-of ev :rf.fx/args)
@@ -899,12 +907,10 @@
                        ;; surfaces the same data IN-context.
                        (flow-step events)
                        (fx-step events)
-                       ;; rf2-yx1ae — child dispatches sit after FX (they
-                       ;; are themselves fx, but a dedicated section makes
-                       ;; the parent→child cascade-link affordance the
-                       ;; primary read; the FX step still surfaces every
-                       ;; fx for completeness).
-                       (child-dispatches-step events)
+                       ;; CHILD DISPATCHES step removed pair-debug
+                       ;; 2026-05-26 — redundant with the FX step which
+                       ;; already surfaces each `:dispatch` /
+                       ;; `:dispatch-n` / `:dispatch-later` fx entry.
                        (subscriptions-step events)
                        (views-step events)
                        ;; rf2-17vxj — schema violations ride at the end of
