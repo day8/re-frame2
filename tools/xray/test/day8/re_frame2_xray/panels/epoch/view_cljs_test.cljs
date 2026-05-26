@@ -603,79 +603,158 @@
       (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-missing-0")))
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-jump-0"))))))
 
-;; ---- rf2-9c27r — machine handler section -------------------------------
+;; ---- rf2-u69j7 — machine handler section: time-ordered cascade ----------
+;;
+;; Replaces the pre-rf2-u69j7 category-grouped layout (TRANSITION /
+;; GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF /
+;; FX) with a single time-ordered cascade view. Each row interleaves
+;; source code (always visible) with phase + duration + outcome.
 
-(deftest machine-handler-renders-data-reduction-test
-  (testing "rf2-9c27r — DATA REDUCTION sub-section renders `:data`
-            before / after when they differ"
+(deftest machine-handler-renders-cascade-view-test
+  (testing "rf2-u69j7 — machine handler renders the time-ordered
+            cascade view; legacy category-grouped sub-sections are
+            REPLACED (not augmented)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
                 :db-diff [] :fx []
-                :machine {:transition {:machine-id :ws/conn
-                                       :before {:state [:idle]      :data {:count 0}}
-                                       :after  {:state [:connected] :data {:count 1}}
-                                       :data-before {:count 0}
-                                       :data-after  {:count 1}
-                                       :microsteps 0}
-                          :guards []
-                          :lifecycle []
-                          :timers []}}
+                :machine {:cascade [{:kind :guard :step 1
+                                     :guard-id :ready? :outcome :pass}
+                                    {:kind :action :step 2
+                                     :action-id :open-socket
+                                     :phase :entry}
+                                    {:kind :transition :step 3
+                                     :machine-id :ws/conn
+                                     :from-state [:idle]
+                                     :to-state   [:connected]
+                                     :microsteps 1}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
           tree (view/render-handler-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-reduction"))
-          "DATA REDUCTION block renders when data changed")
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-before")))
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-after"))))))
-
-(deftest machine-handler-renders-snapshot-diff-test
-  (testing "rf2-9c27r — SNAPSHOT DIFF sub-section renders the full
-            machine snapshot before / after"
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-machine :event-id :ws/start
-                :db-diff [] :fx []
-                :machine {:transition {:machine-id :ws/conn
-                                       :before {:state [:idle]}
-                                       :after  {:state [:connected]}
-                                       :microsteps 1}
-                          :guards [] :lifecycle [] :timers []}}
-          tree (view/render-handler-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-snapshot-diff")))
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-microsteps"))
-          "microsteps slot is surfaced under the transition summary"))))
-
-(deftest machine-handler-omits-data-reduction-when-unchanged-test
-  (testing "rf2-9c27r — DATA REDUCTION elides when before == after"
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-machine :event-id :ws/start
-                :db-diff [] :fx []
-                :machine {:transition {:machine-id :ws/conn
-                                       :before {:state [:idle] :data {:n 1}}
-                                       :after  {:state [:connected] :data {:n 1}}
-                                       :data-before {:n 1}
-                                       :data-after  {:n 1}
-                                       :microsteps 0}
-                          :guards [] :lifecycle [] :timers []}}
-          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade"))
+          "the cascade view replaces the category-grouped layout")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
+          "cascade rows container is rendered")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
+          "first cascade row is rendered")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-2")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-3")))
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-reduction"))
-          "no DATA REDUCTION block when both sides are identical"))))
+          "the LEGACY DATA REDUCTION sub-section is GONE")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine-snapshot-diff"))
+          "the LEGACY SNAPSHOT DIFF sub-section is GONE"))))
 
-(deftest machine-handler-per-action-fx-attribution-test
-  (testing "rf2-9c27r — per-action fx attribution renders under the
-            lifecycle row when the action returned :fx"
+(deftest machine-handler-cascade-renders-rows-in-trace-order-test
+  (testing "rf2-u69j7 — cascade rows render in the projection's
+            step-ordinal order (substrate insertion order). Each
+            row carries `data-cascade-kind` so a smoke test can
+            assert the kind-sequence."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
                 :db-diff [] :fx []
-                :machine {:transition nil
-                          :guards []
-                          :lifecycle [{:action-id :open-socket
-                                       :phase :entry
-                                       :outcome {:fx [[:http/get {:url "/x"}]]}
-                                       :fx [[:http/get {:url "/x"}]]}]
-                          :timers []}}
+                :machine {:cascade [{:kind :guard :step 1
+                                     :guard-id :ok? :outcome :pass}
+                                    {:kind :action :step 2
+                                     :action-id :a1 :phase :exit}
+                                    {:kind :action :step 3
+                                     :action-id :a2 :phase :entry}
+                                    {:kind :timer :step 4
+                                     :state [:idle] :delay 500
+                                     :reason :on-exit}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
           tree (view/render-handler-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-phase-entry-row-0"))
-          "the lifecycle row renders")
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-phase-entry-fx-0"))
-          "per-action fx attribution shows under the row"))))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-2")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-3")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-4"))))))
+
+(deftest machine-handler-cascade-action-row-phase-chip-test
+  (testing "rf2-u69j7 — `:action` rows render a phase chip identifying
+            which phase (`:exit / :transition / :entry / :always /
+            :after-action / :initial-entry / :destroy-exit`) fired."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:cascade [{:kind :action :step 1
+                                     :action-id :open-socket
+                                     :phase :entry}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-phase-entry"))
+          "phase chip is stamped with the row's phase keyword"))))
+
+(deftest machine-handler-cascade-action-fx-attribution-test
+  (testing "rf2-u69j7 — per-action fx attribution renders inline on
+            the `:action` row (no separate FX sub-section). The same
+            data the FX step's `:attributed-to` chip surfaces, but
+            in the action's own row so the operator reads
+            'action X emitted fx Y' in one place."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:cascade [{:kind :action :step 1
+                                     :action-id :open-socket
+                                     :phase :entry
+                                     :outcome {:fx [[:http/get {:url "/x"}]]}
+                                     :fx [[:http/get {:url "/x"}]]}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-fx-1"))
+          "per-action fx attribution row is rendered")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-fx-1-0"))
+          "first emitted fx-id is rendered as a chip"))))
+
+(deftest machine-handler-cascade-transition-row-renders-states-test
+  (testing "rf2-u69j7 — `:transition` rows render the `from → to`
+            state-vector chrome alongside `event` + `microsteps` so
+            the operator reads the state change at the row's vertical
+            position."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:cascade [{:kind :transition :step 1
+                                     :machine-id :ws/conn
+                                     :before {:state [:idle]}
+                                     :after  {:state [:connected]}
+                                     :from-state [:idle]
+                                     :to-state   [:connected]
+                                     :event [:ws/start]
+                                     :microsteps 1}]
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-transition-1"))
+          "transition detail block renders")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-from-to-1"))
+          "from → to state chrome renders"))))
+
+(deftest machine-handler-cascade-empty-state-test
+  (testing "rf2-u69j7 — empty cascade (no machine cascade events fired)
+            renders the empty-state line rather than blowing up. This
+            is defensive — production machine handlers always emit at
+            least one `:rf.machine/transition`."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:cascade []
+                          :transition nil :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-empty"))
+          "empty-state line renders"))))
+
+(deftest vanilla-reg-event-db-cascade-unchanged-by-rf2-u69j7-test
+  (testing "rf2-u69j7 acceptance #4 — a vanilla `reg-event-db` cascade
+            renders the existing pipeline UNCHANGED (the redesign is
+            machine-specific; non-machine rendering must not regress)."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-event-db :event-id :counter/inc
+                :db-diff [[[:counter] 5 6 :modified]]
+                :fx [] :machine nil}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-db-diff"))
+          "the standard :db-diff sub-section renders for non-machine handlers")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine"))
+          "no machine block on a non-machine handler")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade"))
+          "no cascade view on a non-machine handler"))))
 
 (deftest duration-chip-renders-long-step-warning-test
   (testing "rf2-nqt3d — a step header's duration chip paints warning

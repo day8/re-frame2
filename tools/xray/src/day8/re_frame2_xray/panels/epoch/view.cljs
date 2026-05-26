@@ -663,261 +663,526 @@
                    :word-break "break-word"}}
     [ei/mini value 80]]])
 
-(defn- machine-lifecycle-block
-  "Render the per-phase lifecycle rows for a machine handler. Empty
-  phases render dimmed `(none)` so the model reads as the full
-  exit → transition → entry shape even when one phase carries no
-  actions (the panel doubles as a teaching surface — bead body §What
-  this panel teaches).
+;; ---- Machine cascade view (rf2-u69j7) -----------------------------------
+;;
+;; Pre-rf2-u69j7 the machine-handler-section rendered 7 categories
+;; (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION /
+;; SNAPSHOT DIFF / FX). The operator had to read top-to-bottom + cross-
+;; reference categories to reconstruct what fired in what order.
+;;
+;; The redesign (rf2-u69j7) replaces the category-grouped layout with a
+;; single TIME-ORDERED CASCADE. One row per substrate emit, ordered by
+;; trace-event INSERTION ORDER — the substrate already emits guards →
+;; exit actions → transition → entry actions → always → after-action
+;; → timer-cancels in cascade order, so no re-sort is needed.
+;;
+;; Each row renders:
+;;   - Step ordinal (1..N) in a compact left-rail.
+;;   - Kind chip (`GUARD / ACTION / TRANSITION / TIMER`) — colour-coded.
+;;   - Phase chip (action rows only — `:exit / :transition / :entry /
+;;     :always / :after-action / :initial-entry / :destroy-exit`).
+;;   - Verb (action-id / guard-id / transition labels / timer state),
+;;     a click-to-source button via shared `coord-chip` style when
+;;     the machine spec carries the per-element source-coord
+;;     (rf2-8bp3 / rf2-80u5a / rf2-ehd8v).
+;;   - Duration chip (right-aligned, with long-step warning when
+;;     `:duration-ms > 16ms` per rf2-nqt3d).
+;;   - Outcome chip — `✓ pass / ▲ fail / ✗ threw` for guards;
+;;     `✓ ok / ✗ threw` for actions; `→ N microstep(s)` for the
+;;     transition; `· cancelled (<reason>)` for timers.
+;;   - Body: source code (ALWAYS VISIBLE per the bead body's
+;;     "interleaved source code" requirement) + outcome detail
+;;     (per-action fx attribution + data-write delta for actions;
+;;     before→after snapshot for the transition).
 
-  Per rf2-9c27r each row also surfaces per-action fx attribution
-  when the action returned a map carrying `:fx` — the operator can
-  trace each fx back to its emitting action without spec-walking."
-  [lifecycle-rows]
-  (let [grouped (proj/group-lifecycle-by-phase lifecycle-rows)
-        phases  [:exit :transition :entry :always
-                 :after-action :initial-entry :destroy-exit]]
-    [:div {:data-testid "rf-xray-epoch-handler-machine-lifecycle"
-           :style {:margin-top "5px"}}
-     (sub-header "lifecycle"
-                 (str (count lifecycle-rows) " action"
-                      (when (not= 1 (count lifecycle-rows)) "s")))
-     (for [phase phases
-           :let [rows (get grouped phase)]
-           :when (seq rows)]
-       [:div {:key (str "phase-" (name phase))
-              :data-testid (str "rf-xray-epoch-handler-phase-" (name phase))
-              :style {:padding "2px 0 2px 21px"
+(defn- cascade-row-coord
+  "Lift a `{:file :line}` source-coord from the registered machine's
+  `:rf.machine/source-coords` index (rf2-8bp3) for a cascade row. The
+  index key is `[:actions <id>]` / `[:guards <id>]` per rf2-8bp3.
+  Returns nil when no coord was captured (production builds, fixture
+  fn-form machines)."
+  [machine-meta row]
+  (when-let [k (proj/cascade-row-source-key row)]
+    (let [idx (or (get-in machine-meta [:rf/machine :rf.machine/source-coords])
+                  (:rf.machine/source-coords machine-meta))
+          c   (get idx k)]
+      (when (and (map? c) (string? (:file c)) (seq (:file c)))
+        {:file (:file c) :line (:line c)}))))
+
+(defn- cascade-row-source-form
+  "Lift the source form (a CLJS fn literal or sugar form) for a cascade
+  row's action/guard from the registered machine spec (rf2-u69j7).
+  The form lives in the spec map at `[:actions <id>]` / `[:guards
+  <id>]`. Returns nil for kinds without a definition site
+  (`:transition`, `:timer`)."
+  [machine-meta row]
+  (when-let [k (proj/cascade-row-source-key row)]
+    (let [spec (or (:rf/machine machine-meta)
+                   (:machine-spec machine-meta)
+                   (:rf.machine/spec machine-meta))]
+      (get-in spec k))))
+
+(defn- cascade-outcome-chip
+  "Render the outcome chip for a cascade row (rf2-u69j7). Pulls glyph
+  + label from the `panels.epoch.badge` table; colour from
+  `cascade-outcome-token-key`."
+  [outcome label-override]
+  (when (or (some? outcome) label-override)
+    (let [glyph        (badge/cascade-outcome-glyph outcome)
+          token-key    (badge/cascade-outcome-token-key outcome)
+          colour       (get tokens token-key (:text-tertiary tokens))
+          label-string (or label-override
+                           (when (keyword? outcome) (name outcome)))]
+      [:span {:data-testid (str "rf-xray-epoch-machine-cascade-outcome-"
+                                (when (keyword? outcome) (name outcome)))
+              :style {:display "inline-flex"
+                      :align-items "center"
+                      :gap "4px"
+                      :color colour
                       :font-family mono-stack
-                      :font-size "12px"}}
-        [:div {:style {:color (:text-tertiary tokens)
-                       :font-size "10px"
-                       :text-transform "uppercase"
-                       :letter-spacing "0.5px"
-                       :margin-bottom "2px"}}
-         (proj/phase-label phase)]
-        (for [[i row] (map-indexed vector rows)]
-          ^{:key (str "lc-" (name phase) "-" i)}
-          [:div {:data-testid (str "rf-xray-epoch-handler-phase-" (name phase) "-row-" i)
-                 :style {:display "flex"
-                         :flex-direction "column"
-                         :padding "1px 0"
-                         :color (if (:threw? row) (:error tokens)
-                                    (:text-primary tokens))}}
-           [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
-            [:span {:style {:color (:text-tertiary tokens)}} "↓"]
-            [:span (proj/ns-keyword (:action-id row))]
-            (when (:threw? row)
-              [:span {:style {:color (:error tokens) :margin-left "8px"}}
-               "(threw)"])]
-           ;; rf2-9c27r — per-action fx attribution
-           (when (seq (:fx row))
-             [:div {:data-testid (str "rf-xray-epoch-handler-phase-" (name phase) "-fx-" i)
-                    :style {:padding-left "21px"
-                            :color (:text-tertiary tokens)
-                            :font-size "11px"}}
-              (for [[j entry] (map-indexed vector (:fx row))
-                    :let [[fx-id _args] (if (vector? entry) entry [entry nil])]]
-                ^{:key (str "lc-fx-" (name phase) "-" i "-" j)}
-                [:div {:style {:display "inline-flex"
-                               :align-items "center"
-                               :gap "4px"
-                               :margin-right "8px"}}
-                 "→ fx "
-                 [:span {:style {:color (:accent tokens)}}
-                  (proj/ns-keyword fx-id)]])])])])]))
+                      :font-size "11px"
+                      :font-weight 600
+                      :white-space "nowrap"}}
+       [:span {:aria-hidden true :style {:font-weight 700}} glyph]
+       (when label-string label-string)])))
 
-(defn- machine-data-reduction-block
-  "Render the DATA REDUCTION sub-section (rf2-9c27r §5). Renders
-  `:data` before / after via `edn/inspect`. Elides when both sides
-  are absent / identical."
-  [{:keys [data-before data-after]}]
-  (when (or (some? data-before) (some? data-after))
-    (when (not= data-before data-after)
-      [:div {:data-testid "rf-xray-epoch-handler-machine-data-reduction"
-             :style {:padding "3px 0 3px 16px"}}
-       (sub-header "data reduction")
-       [:div {:style {:display "flex"
-                      :gap "13px"
-                      :padding-left "16px"
+(defn- cascade-phase-chip
+  "Render the phase pill for an `:action` cascade row (rf2-u69j7).
+  Renders nothing for non-action rows. The pill is intentionally
+  muted (`:text-tertiary` + 10px) — the action verb is the headline;
+  the phase is refinement."
+  [phase]
+  (when (badge/cascade-phase? phase)
+    [:span {:data-testid (str "rf-xray-epoch-machine-cascade-phase-"
+                              (name phase))
+            :style {:display "inline-flex"
+                    :align-items "center"
+                    :background (:bg-3 tokens)
+                    :color (:text-tertiary tokens)
+                    :border (str "1px solid " (:border-subtle tokens))
+                    :border-radius "2px"
+                    :padding "1px 5px"
+                    :font-family mono-stack
+                    :font-size "10px"
+                    :font-weight 600
+                    :letter-spacing "0.3px"
+                    :white-space "nowrap"}}
+     (badge/cascade-phase-label phase)]))
+
+(defn- cascade-kind-pill
+  "Render the kind pill (`GUARD / ACTION / TRANSITION / TIMER`) on a
+  cascade row's header (rf2-u69j7). Smaller than the top-level badge
+  pill — the cascade is rendered INSIDE the HANDLER step's body and
+  the per-row chip is a refinement on the HANDLER badge above it."
+  [kind]
+  [:span {:data-testid (str "rf-xray-epoch-machine-cascade-kind-"
+                            (when (keyword? kind) (name kind)))
+          :style {:display "inline-flex"
+                  :align-items "center"
+                  :background (badge/cascade-kind-colour kind)
+                  :color (:white tokens)
+                  :font-family sans-stack
+                  :font-size "9px"
+                  :font-weight 700
+                  :padding "2px 5px"
+                  :border-radius "2px"
+                  :letter-spacing "0.5px"
+                  :text-transform "uppercase"
+                  :line-height 1
+                  :white-space "nowrap"}}
+   (badge/cascade-kind-label kind)])
+
+(defn- cascade-row-ordinal
+  "Render the row's 1..N step ordinal on the left rail (rf2-u69j7).
+  Compact monospace chip — keeps the cascade scannable across many
+  rows without clipping into the rest of the row's chrome."
+  [step]
+  [:span {:data-testid (str "rf-xray-epoch-machine-cascade-ordinal-" step)
+          :aria-label  (str "cascade step " step)
+          :style {:display "inline-flex"
+                  :align-items "center"
+                  :justify-content "center"
+                  :min-width "21px"
+                  :height "16px"
+                  :padding "0 4px"
+                  :background (:bg-3 tokens)
+                  :color (:text-tertiary tokens)
+                  :font-family mono-stack
+                  :font-size "10px"
+                  :font-weight 700
+                  :border-radius "2px"
+                  :white-space "nowrap"}}
+   (str step)])
+
+(defn- cascade-row-verb-link
+  "Render a cascade row's verb (action-id / guard-id / transition
+  label / timer state) as a click-to-source button when the machine
+  spec carries the per-element source-coord (rf2-8bp3); falls back to
+  a plain coloured span otherwise.
+
+  rf2-80u5a / rf2-ehd8v — the affordance reads the same `<label> + ↗`
+  shape as the HANDLER step's verb so the operator's eye trains on
+  ONE source-link grammar across the panel."
+  [row coord verb-string]
+  (let [clickable? (and (map? coord) (seq (:file coord)))]
+    (if clickable?
+      [:button {:data-testid (str "rf-xray-epoch-machine-cascade-verb-link-"
+                                  (:step row))
+                :aria-label  (str "open " (:file coord)
+                                  (when (:line coord)
+                                    (str ":" (:line coord)))
+                                  " in editor")
+                :title       (str "open " (:file coord)
+                                  (when (:line coord)
+                                    (str ":" (:line coord)))
+                                  " in editor")
+                :on-click    (fn [e]
+                               (.stopPropagation e)
+                               (rf/dispatch [:rf.xray/open-in-editor
+                                             {:source-coord coord}]
+                                            {:frame :rf/xray}))
+                :style {:background "transparent"
+                        :border     "none"
+                        :padding    0
+                        :margin     0
+                        :color      (:accent tokens)
+                        :cursor     "pointer"
+                        :font-family mono-stack
+                        :font-size  "12px"
+                        :font-weight 600
+                        :text-decoration "underline"
+                        :text-decoration-style "dotted"
+                        :text-underline-offset "2px"
+                        :display    "inline-flex"
+                        :align-items "center"
+                        :gap        "4px"
+                        :white-space "nowrap"}}
+       verb-string
+       (icons/external-link)]
+      [:span {:data-testid (str "rf-xray-epoch-machine-cascade-verb-"
+                                (:step row))
+              :style {:color       (:text-primary tokens)
                       :font-family mono-stack
-                      :font-size "12px"
-                      :flex-wrap "wrap"}}
-        [:div {:data-testid "rf-xray-epoch-handler-machine-data-before"
-               :style {:flex 1 :min-width "120px"}}
-         [:div {:style {:color (:text-tertiary tokens)
-                        :font-size "10px"
-                        :text-transform "uppercase"
-                        :letter-spacing "0.5px"
-                        :margin-bottom "2px"}}
-          "before"]
-         [:div {:style {:color (:error tokens)}}
-          (edn/inspect-inline data-before)]]
-        [:div {:data-testid "rf-xray-epoch-handler-machine-data-after"
-               :style {:flex 1 :min-width "120px"}}
-         [:div {:style {:color (:text-tertiary tokens)
-                        :font-size "10px"
-                        :text-transform "uppercase"
-                        :letter-spacing "0.5px"
-                        :margin-bottom "2px"}}
-          "after"]
-         [:div {:style {:color (:success tokens)}}
-          (edn/inspect-inline data-after)]]]])))
+                      :font-size   "12px"
+                      :font-weight 600
+                      :white-space "nowrap"}}
+       verb-string])))
 
-(defn- machine-snapshot-diff-block
-  "Render the SNAPSHOT DIFF sub-section (rf2-9c27r §6). The Spec 005
-  snapshot is the full `{:state … :data … …}` map; we render
-  `before` + `after` via `edn/inspect` so the operator can drill into
-  any slot (data, state, parallel-region tags). Elides when the
-  snapshots are identical."
-  [{:keys [before after]}]
-  (when (and (some? before) (some? after) (not= before after))
-    [:div {:data-testid "rf-xray-epoch-handler-machine-snapshot-diff"
-           :style {:padding "3px 0 3px 16px"}}
-     (sub-header "snapshot diff")
+(defn- cascade-row-source-body
+  "Render the source code body for a cascade row (rf2-u69j7). Always
+  visible per the bead body's 'interleaved source code' requirement —
+  the operator reads what ran AND its code at the same vertical
+  position without scrolling.
+
+  - For `:action` / `:guard` rows that resolve a source form (via
+    `cascade-row-source-form` reading the registered machine spec),
+    render the form through the canonical `edn/code-block` widget
+    (the same widget the HANDLER step uses).
+  - When no source form is captured (production builds with
+    `goog.DEBUG=false`, fixture machines that pre-date the
+    source-coord stamping pass), render a muted placeholder so the
+    operator sees the slot consistently.
+  - `:transition` / `:timer` rows have no definition site — they ARE
+    the substrate's chrome, not user code. The body slot elides for
+    those kinds.
+
+  rf2-66wis / rf2-93jp0 — `edn/code-block` paints clojure-syntax
+  tokens with the same per-token palette as the Figma authority's
+  `.syntax-*` classes, so the cascade code body matches the HANDLER
+  step's source body."
+  [row source-form]
+  (when (contains? #{:action :guard} (:kind row))
+    [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-"
+                             (:step row))
+           :style {:margin    "5px 0 3px 0"
+                   :padding-left "8px"
+                   :border-left (str "2px solid " (:border-subtle tokens))
+                   :min-width 0}}
+     (if (some? source-form)
+       (edn/code-block
+         {:source (pr-str source-form)
+          :lang   :clojure
+          :testid (str "rf-xray-epoch-machine-cascade-source-body-"
+                       (:step row))})
+       [:span {:data-testid (str "rf-xray-epoch-machine-cascade-source-missing-"
+                                 (:step row))
+               :style {:font-style "italic"
+                       :font-family mono-stack
+                       :font-size  "11px"
+                       :color      (:text-tertiary tokens)}}
+        "<source not yet captured>"])]))
+
+(defn- cascade-row-action-outcome-details
+  "Render the per-action outcome details for an `:action` cascade row
+  (rf2-u69j7). Three slots ride below the row's source body:
+
+  - DATA Δ — when the action returned a `:data` write, surface the
+    delta the action contributed (rf2-9c27r-style per-action
+    attribution, now inline rather than buried in a category roll-up).
+  - FX — when the action returned a `:fx` list, surface each emitted
+    fx-id (per-action attribution; same data as the FX step's
+    `:attributed-to` chip, now visible IN the action's row).
+  - EXCEPTION — when the action threw, surface the exception message
+    (the cascade halts on the first throw — Spec 005 §Errors).
+
+  Each slot elides cleanly when the underlying data is absent so the
+  row stays minimal for actions that ran without side-effects."
+  [row]
+  (let [{:keys [data-write fx threw? exception]} row]
+    (when (or data-write (seq fx) threw?)
+      [:div {:data-testid (str "rf-xray-epoch-machine-cascade-outcome-"
+                               (:step row))
+             :style {:padding "2px 0 4px 21px"
+                     :display "flex"
+                     :flex-direction "column"
+                     :gap "2px"
+                     :font-family mono-stack
+                     :font-size "11px"}}
+       ;; Per-action DATA Δ — the data the action wrote into the
+       ;; snapshot. Surface as `↳ data Δ <map>` so the cascade
+       ;; row tells the operator 'this action wrote …' without
+       ;; reading the post-cascade snapshot diff.
+       (when (some? data-write)
+         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-data-write-"
+                                  (:step row))
+                :style {:display "flex"
+                        :gap "6px"
+                        :align-items "flex-start"
+                        :color (:text-secondary tokens)}}
+          [:span {:style {:color (:success tokens) :font-weight 700}} "↳"]
+          [:span {:style {:color (:text-tertiary tokens)}} "data Δ"]
+          [:span {:style {:color (:text-primary tokens) :min-width 0 :flex 1
+                          :word-break "break-word"}}
+           [ei/mini data-write 80]]])
+       ;; Per-action FX attribution — each fx-id the action emitted
+       ;; in its outcome's `:fx` slot. The view layer already
+       ;; surfaces these via the FX step's `:attributed-to` chip;
+       ;; this row carries the SAME data inline so the operator can
+       ;; read 'action X emitted fx Y' in one place without crossing
+       ;; the cascade.
+       (when (seq fx)
+         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-fx-"
+                                  (:step row))
+                :style {:display "flex"
+                        :gap "6px"
+                        :align-items "flex-start"
+                        :flex-wrap "wrap"}}
+          [:span {:style {:color (:accent tokens) :font-weight 700}} "↳"]
+          [:span {:style {:color (:text-tertiary tokens)}} "fx"]
+          (for [[j entry] (map-indexed vector fx)
+                :let [[fx-id _args] (if (vector? entry) entry [entry nil])]]
+            ^{:key (str "cascade-fx-" (:step row) "-" j)}
+            [:span {:data-testid (str "rf-xray-epoch-machine-cascade-fx-"
+                                      (:step row) "-" j)
+                    :style {:color (:accent tokens)
+                            :margin-right "6px"}}
+             (proj/ns-keyword fx-id)])])
+       ;; Threw path — the action halted the cascade. Surface a
+       ;; compact error chip so the operator can pivot to the
+       ;; exception body via the Issues panel.
+       (when threw?
+         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-threw-"
+                                  (:step row))
+                :style {:display "flex"
+                        :gap "6px"
+                        :align-items "flex-start"
+                        :color (:error tokens)}}
+          [:span {:style {:font-weight 700}} "✗"]
+          [:span {:style {:font-weight 600}} "threw"]
+          (when exception
+            [:span {:style {:color (:text-secondary tokens)
+                            :font-style "italic"}}
+             (str " — "
+                  (or (when (some? exception)
+                        (.-message ^js exception))
+                      (str exception)))])])])))
+
+(defn- cascade-row-transition-details
+  "Render the transition's `from → to` chrome under a `:transition`
+  cascade row (rf2-u69j7). Pulls the state vectors off the
+  `:from-state` / `:to-state` slots the projection hoisted from the
+  trace's `:before` / `:after` snapshots."
+  [row]
+  (let [{:keys [from-state to-state event microsteps]} row]
+    (when (or from-state to-state event microsteps)
+      [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-"
+                               (:step row))
+             :style {:padding "3px 0 4px 21px"
+                     :display "flex"
+                     :flex-direction "column"
+                     :gap "2px"
+                     :font-family mono-stack
+                     :font-size "11px"}}
+       (when (or from-state to-state)
+         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-from-to-"
+                                  (:step row))
+                :style {:display "inline-flex"
+                        :align-items "center"
+                        :gap "6px"
+                        :flex-wrap "wrap"}}
+          [:span {:style {:color (:text-tertiary tokens)}} "state"]
+          [:span {:style {:color (:error tokens)}} [ei/mini from-state 30]]
+          [:span {:style {:color (:text-tertiary tokens)}} "→"]
+          [:span {:style {:color (:success tokens)}} [ei/mini to-state 30]]])
+       (when (vector? event)
+         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-trigger-"
+                                  (:step row))
+                :style {:display "inline-flex"
+                        :align-items "center"
+                        :gap "6px"
+                        :color (:text-secondary tokens)}}
+          [:span {:style {:color (:text-tertiary tokens)}} "event"]
+          [ei/mini event 40]])])))
+
+(defn- cascade-row-view
+  "Render one cascade row (rf2-u69j7). Layout:
+
+      [#step] [KIND] [phase?] verb (↗ source)    duration · outcome
+      ─┐ source code (always visible, monospace, syntax-highlighted)
+        ↳ data Δ  …
+        ↳ fx …
+
+  The row's `:kind` keys all the chrome variants: `:action` rides the
+  full layout (phase chip + source body + outcome details);
+  `:guard` rides a thinner layout (source body, no phase chip);
+  `:transition` rides the state-change layout (no source body,
+  state-vector before/after); `:timer` rides a minimal layout (no
+  source body, no phase chip, just the kind + state + reason)."
+  [machine-meta row]
+  (let [{:keys [kind step phase duration-ms outcome threw?]} row
+        coord       (cascade-row-coord machine-meta row)
+        source-form (cascade-row-source-form machine-meta row)
+        verb        (proj/cascade-row-label row)
+        outcome-lbl (proj/cascade-outcome-label row)
+        long?       (and (number? duration-ms)
+                         (> duration-ms proj/long-step-threshold-ms))]
+    [:div {:key (str "cascade-row-" step)
+           :data-testid (str "rf-xray-epoch-machine-cascade-row-" step)
+           :data-cascade-kind (when (keyword? kind) (name kind))
+           :data-cascade-phase (when (keyword? phase) (name phase))
+           :data-cascade-long-step (str (boolean long?))
+           :style {:display "flex"
+                   :flex-direction "column"
+                   :padding "5px 0 5px 0"
+                   :border-bottom (str "1px solid " (:border-subtle tokens))}}
+     ;; Header row: ordinal + kind pill + phase chip + verb + duration + outcome
      [:div {:style {:display "flex"
-                    :gap "13px"
-                    :padding-left "16px"
+                    :align-items "center"
+                    :gap "6px"
                     :flex-wrap "wrap"}}
-      [:div {:data-testid "rf-xray-epoch-handler-machine-snapshot-before"
-             :style {:flex 1 :min-width "120px"
-                     :font-family mono-stack
-                     :font-size "12px"}}
-       [:div {:style {:color (:text-tertiary tokens)
-                      :font-size "10px"
-                      :text-transform "uppercase"
-                      :letter-spacing "0.5px"
-                      :margin-bottom "2px"}}
-        "before"]
-       [:div {:style {:color (:error tokens) :word-break "break-word"}}
-        (edn/inspect-inline before)]]
-      [:div {:data-testid "rf-xray-epoch-handler-machine-snapshot-after"
-             :style {:flex 1 :min-width "120px"
-                     :font-family mono-stack
-                     :font-size "12px"}}
-       [:div {:style {:color (:text-tertiary tokens)
-                      :font-size "10px"
-                      :text-transform "uppercase"
-                      :letter-spacing "0.5px"
-                      :margin-bottom "2px"}}
-        "after"]
-       [:div {:style {:color (:success tokens) :word-break "break-word"}}
-        (edn/inspect-inline after)]]]]))
+      (cascade-row-ordinal step)
+      (cascade-kind-pill kind)
+      (when (= :action kind)
+        (cascade-phase-chip phase))
+      (cascade-row-verb-link row coord verb)
+      ;; Right-aligned: duration + outcome chip
+      [:span {:style {:margin-left "auto"
+                      :display "inline-flex"
+                      :align-items "center"
+                      :gap "8px"
+                      :flex-wrap "nowrap"}}
+       (duration-chip duration-ms)
+       (cascade-outcome-chip
+         (cond
+           (= :guard kind)      outcome
+           (and (= :action kind) threw?)  :threw
+           (= :action kind)     :ok
+           (= :timer kind)      :cancelled
+           :else                nil)
+         (when (or (= :transition kind) (and (= :guard kind) outcome-lbl))
+           outcome-lbl))]]
+     ;; Source code body (always visible per rf2-u69j7) — actions + guards only
+     (cascade-row-source-body row source-form)
+     ;; Per-row outcome details — kind-specific
+     (case kind
+       :action     (cascade-row-action-outcome-details row)
+       :transition (cascade-row-transition-details row)
+       nil)]))
+
+(defn- machine-cascade-view
+  "Render the time-ordered machine-handler cascade (rf2-u69j7). Replaces
+  the pre-rf2-u69j7 category-grouped layout (TRANSITION / GUARDS /
+  LIFECYCLE / AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF / FX) with
+  a single time-ordered row stream.
+
+  The cascade is REQUIRED non-empty for machine handlers — the
+  substrate emits at least one `:rf.machine/transition` per macrostep
+  (`make-machine-handler`'s emit shape). The empty-state branch is
+  defensive only (fixtures that synthesise a machine handler without
+  any cascade events).
+
+  Header carries:
+  - `N step(s)` count (compact summary at a glance).
+  - Cascade total ms (sum of per-row `:duration-ms`); elides when no
+    row carries a duration.
+
+  Each row is rendered via `cascade-row-view` — see its docstring
+  for the per-row layout grammar."
+  [machine-meta cascade-rows]
+  (let [n     (count cascade-rows)
+        total (proj/machine-cascade-total-ms cascade-rows)]
+    [:div {:data-testid "rf-xray-epoch-handler-machine-cascade"
+           :data-cascade-row-count (str n)
+           :style {:margin-top "8px"
+                   :display "flex"
+                   :flex-direction "column"}}
+     (sub-header "cascade"
+                 [:span {:style {:display "inline-flex"
+                                 :align-items "center"
+                                 :gap "8px"
+                                 :font-family mono-stack
+                                 :font-size "11px"}}
+                  (str n " step"
+                       (when (not= 1 n) "s"))
+                  (when (number? total)
+                    [:span {:data-testid "rf-xray-epoch-machine-cascade-total"
+                            :style {:color (:text-tertiary tokens)}}
+                     (str "· " (proj/format-duration-ms total))])])
+     (if (zero? n)
+       [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-empty"
+              :style {:padding "5px 0 5px 21px"
+                      :font-family mono-stack
+                      :font-size "11px"
+                      :font-style "italic"
+                      :color (:text-tertiary tokens)}}
+        "— (no machine cascade events fired)"]
+       (into [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-rows"
+                    :style {:display "flex"
+                            :flex-direction "column"
+                            :border-top (str "1px solid " (:border-subtle tokens))
+                            :margin-top "3px"}}]
+             (for [row cascade-rows]
+               (cascade-row-view machine-meta row))))]))
 
 (defn- machine-block
-  "Render the machine-handler-specific extras (transition summary,
-  guards, lifecycle, timer cancellations, data reduction, snapshot
-  diff). Per the bead body §HANDLER (Step 4) machine handler branch —
-  uses the rf2-82a0u trace enhancements (phase + outcome + reason).
+  "Render the machine-handler section as a SINGLE TIME-ORDERED CASCADE
+  (rf2-u69j7). Replaces the pre-rf2-u69j7 category-grouped layout
+  (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION /
+  SNAPSHOT DIFF / FX) with one cascade view: each row interleaves
+  source code with the row's phase + duration + outcome (per Mike's
+  authority — Bead rf2-u69j7).
 
-  Per rf2-9c27r the section now carries all 7 sub-sections per the
-  design doc:
+  Order comes from the substrate's `:rf.machine/action-ran` /
+  `:rf.machine/guard-evaluated` / `:rf.machine/transition` /
+  `:rf.machine.timer/cancelled` trace events' INSERTION ORDER in the
+  epoch buffer — the substrate already emits them in cascade order
+  (Spec 005 §Trace events + rf2-82a0u). The projection's
+  `machine-cascade-rows` is a pure-data walk over the events; this
+  view layer is a faithful render of that vector.
 
-    1. TRANSITION — `before-state → after-state`, event, microsteps
-    2. GUARDS — per-guard pass/fail/threw outcomes
-    3. LIFECYCLE — phase-grouped action rows with per-action fx
-       attribution
-    4. AFTER TIMERS — armed/cancelled with reasons
-    5. DATA REDUCTION — `:data` before / after via edn-inspector
-    6. SNAPSHOT DIFF — full snapshot before / after
-    7. FX — per-action fx attribution surfaces inline in LIFECYCLE
-       (rather than as a sibling sub-section) so the operator reads
-       'action X emitted fx Y' in one line."
-  [{:keys [transition guards lifecycle timers]}]
-  [:div {:data-testid "rf-xray-epoch-handler-machine"}
-   ;; Transition summary
-   (when transition
-     [:div {:data-testid "rf-xray-epoch-handler-machine-transition"
-            :style {:padding "3px 0 3px 16px"
-                    :font-family mono-stack
-                    :font-size "12px"
-                    :color (:text-primary tokens)}}
-      [:div {:style {:color (:text-tertiary tokens)
-                     :font-size "10px"
-                     :text-transform "uppercase"
-                     :letter-spacing "0.5px"}}
-       (str "transition · " (proj/ns-keyword (:machine-id transition)))]
-      [:div {:style {:padding-left "16px"
-                     :display "inline-flex"
-                     :align-items "center"
-                     :gap "6px"
-                     :flex-wrap "wrap"}}
-       ;; rf2-8w8er — state before/after render through `mini` so
-       ;; the state vector's keywords paint magenta, scalars orange,
-       ;; etc. — matching how every other Xray panel renders state.
-       (let [before (or (some-> (:before transition) :state) (:before transition))
-             after  (or (some-> (:after transition) :state) (:after transition))]
-         [:<>
-          [:span {:style {:color (:error tokens)}} [ei/mini before 40]]
-          [:span {:style {:color (:text-tertiary tokens)}} "→"]
-          [:span {:style {:color (:success tokens)}} [ei/mini after 40]]])]
-      ;; rf2-9c27r — microsteps + event slots ride alongside the
-      ;; before→after pair so the operator can tell at a glance how
-      ;; many always-microsteps fired + which event drove the cascade.
-      (when (number? (:microsteps transition))
-        [:div {:data-testid "rf-xray-epoch-handler-machine-microsteps"
-               :style {:padding-left "16px"
-                       :color (:text-tertiary tokens)
-                       :font-size "10px"}}
-         (str (:microsteps transition) " microstep"
-              (when (not= 1 (:microsteps transition)) "s"))])])
-   ;; Guards
-   (when (seq guards)
-     [:div {:style {:padding "3px 0 3px 16px"}}
-      (sub-header "guards" (str (count guards) " evaluated"))
-      (for [[i {:keys [guard-id outcome]}] (map-indexed vector guards)]
-        [:div {:key (str "g-" i)
-               :data-testid (str "rf-xray-epoch-handler-guard-row-" i)
-               :style {:display "flex"
-                       :gap "8px"
-                       :padding "1px 0 1px 21px"
-                       :font-family mono-stack
-                       :font-size "12px"}}
-         [:span {:style {:color (case outcome
-                                  :pass (:success tokens)
-                                  :fail (:warning tokens)
-                                  :threw (:error tokens)
-                                  (:text-tertiary tokens))
-                         :font-weight 700}}
-          (case outcome
-            :pass  "✓"
-            :fail  "✗"
-            :threw "!"
-            "·")]
-         [:span (proj/ns-keyword guard-id)]
-         [:span {:style {:color (:text-tertiary tokens) :margin-left "8px"}}
-          (when (keyword? outcome) (name outcome))]])])
-   ;; Lifecycle (with per-action fx attribution — rf2-9c27r)
-   (when (seq lifecycle)
-     (machine-lifecycle-block lifecycle))
-   ;; Timers
-   (when (seq timers)
-     [:div {:style {:padding "3px 0 3px 16px"}}
-      (sub-header "after-timers" (str (count timers) " cancelled"))
-      (for [[i {:keys [state delay reason]}] (map-indexed vector timers)]
-        [:div {:key (str "t-" i)
-               :style {:display "flex"
-                       :gap "8px"
-                       :padding "1px 0 1px 21px"
-                       :font-family mono-stack
-                       :font-size "12px"}}
-         [:span {:style {:color (:warning tokens)}} "✗"]
-         ;; rf2-8w8er — state vector through `mini` so the machine
-         ;; state syntax-token chrome reads consistently with every
-         ;; other Xray state-rendering surface.
-         [:span [ei/mini state 40]]
-         (when (number? delay)
-           [:span {:style {:color (:text-tertiary tokens)}}
-            (str delay "ms")])
-         [:span {:style {:color (:text-tertiary tokens) :font-style "italic"
-                         :margin-left "8px"}}
-          (proj/timer-reason-label reason)]])])
-   ;; rf2-9c27r — DATA REDUCTION + SNAPSHOT DIFF sub-sections, fed
-   ;; by the `:data-before / :data-after` + `:before / :after`
-   ;; slots the projection hoists off the `:rf.machine/transition`
-   ;; trace.
-   (machine-data-reduction-block transition)
-   (machine-snapshot-diff-block transition)])
+  The legacy category-grouped sub-sections (TRANSITION / GUARDS /
+  LIFECYCLE / AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF / FX) are
+  REPLACED, not augmented (per Mike: 'pre-alpha; no back-compat
+  shim'). The full state-change story is now told inline by the
+  cascade — transitions render their `from → to` state vectors;
+  actions render their data-write + fx attribution + source code
+  body."
+  [{:keys [cascade] :as _machine-row} event-id]
+  (let [machine-meta (when (some? event-id)
+                       (try (rf/handler-meta :machine event-id)
+                            (catch :default _ nil)))]
+    [:div {:data-testid "rf-xray-epoch-handler-machine"}
+     (machine-cascade-view machine-meta (or cascade []))]))
 
 ;; ---- handler source --------------------------------------------------
 ;;
@@ -1223,9 +1488,10 @@
     [:div {:data-testid "rf-xray-epoch-handler-body"}
      ;; Source / machine spec block — rf2-66wis
      (handler-source-block flavour event-id)
-     ;; Machine extras BEFORE db diff (lifecycle is the story for machines)
+     ;; Machine cascade BEFORE db diff (the cascade IS the story for
+     ;; machines — rf2-u69j7 redesign).
      (when machine
-       (machine-block machine))
+       (machine-block machine event-id))
      ;; :db diff — always present for non-machine handlers (rf2-93436);
      ;; folded into SNAPSHOT DIFF for machines
      (when-not machine?

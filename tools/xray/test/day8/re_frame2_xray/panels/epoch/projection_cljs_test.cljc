@@ -390,6 +390,180 @@
       (is (= 2 (count (:exit grouped))))
       (is (= 1 (count (:entry grouped)))))))
 
+;; ---- rf2-u69j7 — machine cascade (time-ordered) -----------------------
+
+(deftest machine-cascade-rows-preserves-substrate-trace-order-test
+  (testing "rf2-u69j7 — `machine-cascade-rows` returns rows in the
+            SAME ORDER the substrate emitted them in the trace
+            buffer. Order is the cascade's narrative; no re-sort,
+            no per-category re-grouping."
+    (let [;; The substrate emits in cascade order: guards → exit
+          ;; actions → transition → entry actions → always →
+          ;; after-action. We mirror that shape here.
+          evs [(machine-guard-ev :ready? :pass)
+               (machine-action-ev :clear-buffer :exit :ok)
+               (machine-action-ev :open-socket :transition :ok)
+               (machine-transition-ev :ws/conn [:idle] [:connecting]
+                                       [:ws/start] 1)
+               (machine-action-ev :arm-heartbeat :entry :ok)
+               (machine-action-ev :pulse :always :ok)
+               (machine-timer-cancel-ev :ws/conn [:idle] 500 :on-exit)]
+          cascade (proj/machine-cascade-rows evs)]
+      (is (= 7 (count cascade))
+          "one cascade row per substrate emit")
+      (is (= [:guard :action :action :transition :action :action :timer]
+             (mapv :kind cascade))
+          "rows mirror substrate insertion order — NOT re-sorted by category")
+      (is (= [1 2 3 4 5 6 7] (mapv :step cascade))
+          ":step is contiguous 1..N over the cascade")
+      (is (= [0 1 2 3 4 5 6] (mapv :trace-index cascade))
+          ":trace-index is the input-order index")
+      (is (= [nil :exit :transition nil :entry :always nil]
+             (mapv :phase cascade))
+          "phase is only stamped on :action rows (substrate contract)"))))
+
+(deftest machine-cascade-row-fields-test
+  (testing "rf2-u69j7 — each cascade row exposes the substrate-canonical
+            slots the view layer consumes"
+    (let [g (machine-guard-ev :form-valid? :fail)
+          a (ev :rf.machine :rf.machine/action-ran
+                {:action-id :open-socket
+                 :phase     :entry
+                 :outcome   {:fx [[:http/get {:url "/x"}]]
+                             :data {:n 1}}
+                 :input     {:data {} :event nil}})
+          t (machine-transition-ev :ws/conn
+                                    {:state [:idle]     :data {:n 0}}
+                                    {:state [:active]   :data {:n 1}}
+                                    [:ws/start] 0)
+          tm (machine-timer-cancel-ev :ws/conn [:idle] 250 :on-supersede)
+          rows (proj/machine-cascade-rows [g a t tm])]
+      ;; Guard row
+      (let [r (nth rows 0)]
+        (is (= :guard (:kind r)))
+        (is (= :form-valid? (:guard-id r)))
+        (is (= :fail (:outcome r))))
+      ;; Action row
+      (let [r (nth rows 1)]
+        (is (= :action (:kind r)))
+        (is (= :open-socket (:action-id r)))
+        (is (= :entry (:phase r)))
+        (is (false? (:threw? r)))
+        (is (= 1 (count (:fx r)))
+            "per-action fx attribution is hoisted onto the row")
+        (is (= {:n 1} (:data-write r))
+            "per-action data delta is hoisted onto the row"))
+      ;; Transition row
+      (let [r (nth rows 2)]
+        (is (= :transition (:kind r)))
+        (is (= :ws/conn (:machine-id r)))
+        (is (= [:idle]   (:from-state r))
+            ":from-state is hoisted off the :before snapshot")
+        (is (= [:active] (:to-state r))
+            ":to-state is hoisted off the :after snapshot")
+        (is (= {:n 0} (:data-before r)))
+        (is (= {:n 1} (:data-after r)))
+        (is (= [:ws/start] (:event r))))
+      ;; Timer row
+      (let [r (nth rows 3)]
+        (is (= :timer (:kind r)))
+        (is (= [:idle] (:state r)))
+        (is (= 250 (:delay r)))
+        (is (= :on-supersede (:reason r)))))))
+
+(deftest machine-cascade-rows-action-threw-test
+  (testing "rf2-u69j7 — an action that threw stamps `:threw? true`
+            on its cascade row + carries the exception"
+    (let [exc  #?(:clj  (RuntimeException. "boom")
+                  :cljs (ex-info "boom" {}))
+          evs  [(ev :rf.machine :rf.machine/action-ran
+                    {:action-id :explode
+                     :phase     :entry
+                     :outcome   :rf.error/action-threw
+                     :exception exc})]
+          rows (proj/machine-cascade-rows evs)
+          r    (first rows)]
+      (is (= 1 (count rows)))
+      (is (true? (:threw? r)))
+      (is (= exc (:exception r))))))
+
+(deftest machine-cascade-rows-empty-when-no-machine-events-test
+  (testing "rf2-u69j7 — non-machine cascades produce an empty cascade
+            vec; the view's empty-state branch keys off this"
+    (is (= [] (proj/machine-cascade-rows [])))
+    (is (= [] (proj/machine-cascade-rows
+                [(dispatched-ev [:counter/inc])
+                 (db-changed-ev [[[:count] 0 1 :modified]])
+                 (fx-handled-ev :http/post {} 0.1)]))
+        "non-machine events are filtered out — empty cascade")))
+
+(deftest machine-cascade-total-ms-test
+  (testing "rf2-u69j7 — cascade-total sums every row's :duration-ms"
+    (is (= 3.5 (proj/machine-cascade-total-ms
+                 [{:kind :guard :duration-ms 0.1}
+                  {:kind :action :duration-ms 3.4}])))
+    (is (nil? (proj/machine-cascade-total-ms []))
+        "empty cascade → nil so the view elides the chip")
+    (is (nil? (proj/machine-cascade-total-ms
+                [{:kind :guard} {:kind :action}]))
+        "no row carries a duration → nil")))
+
+(deftest project-machine-populates-cascade-slot-test
+  (testing "rf2-u69j7 — `(handler-row …)` now populates `:machine
+            :cascade` with the time-ordered cascade view consumes"
+    (let [evs [(dispatched-ev [:ws/start] :ui nil)
+               (machine-guard-ev :ready? :pass)
+               (machine-action-ev :open-socket :entry :ok)
+               (machine-transition-ev :ws/conn [:idle] [:connecting])]
+          r   (proj/handler-row evs :ws/start)
+          c   (-> r :machine :cascade)]
+      (is (vector? c) ":cascade is a vector")
+      (is (= 3 (count c))
+          "one row per substrate emit (guard + action + transition)")
+      (is (= [:guard :action :transition] (mapv :kind c))
+          "cascade kinds reflect substrate insertion order"))))
+
+(deftest cascade-row-label-test
+  (testing "rf2-u69j7 — `cascade-row-label` renders a human verb per kind"
+    (is (= "guard :ready?"
+           (proj/cascade-row-label {:kind :guard :guard-id :ready?})))
+    (is (= "entry action :open-socket"
+           (proj/cascade-row-label {:kind :action :action-id :open-socket
+                                    :phase :entry})))
+    (is (= "timer [:idle] · on-exit"
+           (proj/cascade-row-label {:kind :timer :state [:idle]
+                                    :reason :on-exit})))))
+
+(deftest cascade-row-source-key-test
+  (testing "rf2-u69j7 — `cascade-row-source-key` returns the spec-path
+            tuple for source-coord lookup"
+    (is (= [:actions :open-socket]
+           (proj/cascade-row-source-key
+             {:kind :action :action-id :open-socket})))
+    (is (= [:guards :ready?]
+           (proj/cascade-row-source-key
+             {:kind :guard :guard-id :ready?})))
+    (is (nil? (proj/cascade-row-source-key {:kind :transition}))
+        "transitions have no definition site → nil")
+    (is (nil? (proj/cascade-row-source-key {:kind :timer}))
+        "timers have no definition site → nil")))
+
+(deftest cascade-outcome-label-test
+  (testing "rf2-u69j7 — `cascade-outcome-label` renders kind-specific
+            outcome strings"
+    (is (= "pass"  (proj/cascade-outcome-label {:kind :guard :outcome :pass})))
+    (is (= "fail"  (proj/cascade-outcome-label {:kind :guard :outcome :fail})))
+    (is (= "threw" (proj/cascade-outcome-label {:kind :guard :outcome :threw})))
+    (is (= "ok"    (proj/cascade-outcome-label {:kind :action :outcome :ok})))
+    (is (= "threw" (proj/cascade-outcome-label
+                     {:kind :action :threw? true :outcome :rf.error/action-threw})))
+    (is (= "1 microstep"
+           (proj/cascade-outcome-label {:kind :transition :microsteps 1})))
+    (is (= "3 microsteps"
+           (proj/cascade-outcome-label {:kind :transition :microsteps 3})))
+    (is (= "cancelled (on-exit)"
+           (proj/cascade-outcome-label {:kind :timer :reason :on-exit})))))
+
 ;; ---- FLOW ---------------------------------------------------------------
 
 (deftest flow-step-conditional-test

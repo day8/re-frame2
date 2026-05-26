@@ -308,18 +308,38 @@
 
 ;; ---- VARIANT 3: machine-driven cascade ----------------------------------
 ;;
-;; Section coverage: machine-handler HANDLER section's rich body —
-;; TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA-REDUCTION /
-;; SNAPSHOT-DIFF (PR #2193). A `:ws/connection`-style fixture: an
-;; OPEN event transitions :connecting → :open, a guard checks the
-;; handshake, lifecycle actions ride :exit + :transition + :entry +
-;; :always phases, an after-timer is cancelled :on-exit, data
-;; reduction updates the connection metadata.
+;; Section coverage (rf2-u69j7): the machine-handler section renders as
+;; a SINGLE TIME-ORDERED CASCADE — one row per substrate emit, in trace
+;; insertion order. Replaces the pre-rf2-u69j7 7-category roll-up
+;; (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA-REDUCTION /
+;; SNAPSHOT-DIFF / FX) with a single cascade view per Mike's bead body.
+;;
+;; The fixture below richly exercises every cascade row kind + every
+;; rf2-82a0u phase the substrate stamps:
+;;
+;;   1. guard pass (handshake-valid?)
+;;   2. guard fail  (retry-budget?) — exercises the fail outcome chip
+;;   3. exit action — clear-retry-timer (data write)
+;;   4. transition action — log-transition (no data write, no fx)
+;;   5. timer cancellation — on-exit reason
+;;   6. transition emit — :connecting → :open
+;;   7. entry action — store-session (data write)
+;;   8. entry action — notify-subscribers (per-action fx attribution)
+;;   9. always action — heartbeat-pulse
+;;  10. after-action — retry-failover-arm
 
 (defn machine-history
   "Machine-handler cascade for a `:ws/connection` machine handling
-  `:ws/open`. Exercises every machine sub-section the rf2-9c27r
-  full design surfaces."
+  `:ws/open` (rf2-u69j7). Exercises every cascade row kind +
+  every rf2-82a0u phase + the long-step warning chrome (the
+  store-session action lands at 18ms — above the 16ms threshold)
+  so the gallery exercises:
+
+    - kind variety (guard / action / transition / timer)
+    - phase variety (exit / transition / entry / always / after-action)
+    - outcome variety (pass / fail / ok / threw / cancelled)
+    - per-action data delta + per-action fx attribution
+    - duration warning chrome on a long-running entry action"
   []
   (let [before-snap {:state :connecting
                      :data  {:retries 2 :last-error :timeout}}
@@ -332,21 +352,34 @@
        :trace-events
        [(dispatched-ev [:ws/open {:url "wss://api.example.com"
                                   :session-id "ws-7821"}] :ws)
+        ;; --- guards (substrate emits BEFORE the transition fires) ---
         (machine-guard-ev :ws/handshake-valid? :pass)
-        ;; exit phase — leaving :connecting
+        ;; A second guard fails — the cascade still proceeds because
+        ;; the outer transition has multiple `when` branches and the
+        ;; substrate emits one row per evaluated guard.
+        (machine-guard-ev :ws/retry-budget? :fail)
+        ;; --- exit phase — leaving :connecting ---
         (machine-action-ev :ws.connecting/clear-retry-timer
                            :exit
                            {:data {:retries 0}}
                            {:retries 0}
                            nil)
-        (machine-timer-cancel-ev :ws/connection :connecting 5000 :on-exit)
-        ;; transition phase
+        ;; --- transition phase ---
         (machine-action-ev :ws/log-transition
                            :transition
                            {:logged true}
                            nil
                            nil)
-        ;; entry phase — arriving in :open
+        ;; --- timer cancellation (substrate fires :on-exit) ---
+        (machine-timer-cancel-ev :ws/connection :connecting 5000 :on-exit)
+        ;; --- transition emit — the macrostep's headline ---
+        (machine-transition-ev :ws/connection
+                               [:ws/open {:url "wss://api.example.com"
+                                          :session-id "ws-7821"}]
+                               before-snap
+                               after-snap
+                               1)
+        ;; --- entry phase — arriving in :open ---
         (machine-action-ev :ws.open/store-session
                            :entry
                            {:data {:session-id "ws-7821"
@@ -354,30 +387,36 @@
                            {:session-id "ws-7821"
                             :opened-at  1700000000000}
                            nil)
-        ;; entry phase emits per-action fx (rf2-9c27r)
+        ;; entry phase emits per-action fx (rf2-9c27r / rf2-u69j7 —
+        ;; surfaces inline on the cascade row, not in a sibling
+        ;; FX sub-section).
         (machine-action-ev :ws.open/notify-subscribers
                            :entry
-                           {:fx [[:dispatch [:ws/notify :open]]]}
+                           {:fx [[:dispatch [:ws/notify :open]]
+                                 [:http/post {:url "/ws/registered"}]]}
                            nil
-                           [[:dispatch [:ws/notify :open]]])
-        ;; always phase
+                           [[:dispatch [:ws/notify :open]]
+                            [:http/post {:url "/ws/registered"}]])
+        ;; --- always phase ---
         (machine-action-ev :ws/heartbeat-pulse
                            :always
                            {:beat true}
                            nil
                            nil)
-        (machine-transition-ev :ws/connection
-                               [:ws/open {:url "wss://api.example.com"
-                                          :session-id "ws-7821"}]
-                               before-snap
-                               after-snap
-                               1)
+        ;; --- after-action ---
+        (machine-action-ev :ws/retry-failover-arm
+                           :after-action
+                           {:armed true}
+                           nil
+                           nil)
         (db-changed-ev [[[:rf/machines :ws/connection :state]
                          :connecting :open :modified]])
         (do-fx-ev {:db ::placeholder
-                   :dispatch [:ws/notify :open]})
+                   :dispatch [:ws/notify :open]
+                   :http/post {:url "/ws/registered"}})
         (fx-handled-ev :db nil 0.2)
         (fx-handled-ev :dispatch [:ws/notify :open] 0.1)
+        (fx-handled-ev :http/post {:url "/ws/registered"} 4.2)
         (run-end-ev 2.1)]})))
 
 ;; ---- VARIANT 4: schema-violation cascade --------------------------------
