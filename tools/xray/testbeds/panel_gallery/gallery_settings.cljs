@@ -112,11 +112,13 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 3. Buffer tab — three numeric knobs + destructive Clear
-  ;; (rf2-ttnst).
+  ;; ----- 3. Buffer tab — epoch-history slider + two numeric knobs
+  ;; + destructive Clear (rf2-ttnst; rf2-pu9sb consolidation).
   (story/reg-variant :story.xray.settings-popup/buffer
-    {:doc        "Settings popup open on Buffer tab. Three numeric
-                 inputs (retained-epochs, cascades-retained,
+    {:doc        "Settings popup open on Buffer tab. Epoch history
+                 slider (range 10–500, slot `:general :epoch-history`
+                 — relocated from General per rf2-pu9sb) plus two
+                 numeric inputs (cascades-retained,
                  inspector-collapse-threshold) plus a destructive
                  'Clear buffer now' button. Clicking Clear opens a
                  confirmation modal (Cancel / Clear)."
