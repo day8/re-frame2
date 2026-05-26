@@ -100,7 +100,7 @@
    :COEFFECT          "COEFFECT"
    :HANDLER           "HANDLER"
    :FLOW              "FLOW"
-   :FX                "FX"
+   :FX                ":fx"
    :SUBSCRIPTIONS     "SUBSCRIPTIONS"
    :VIEWS             "VIEWS"
    :SCHEMA-VIOLATIONS "SCHEMA VIOLATIONS"
