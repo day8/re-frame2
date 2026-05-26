@@ -200,6 +200,59 @@
       (is (= :actor-destroyed (-> c :effect-aborts first :cancel-cause)))
       (is (= 20 (:total-elapsed-ms c))))))
 
+;; ---- (2) extract-cascade: dispatch-id projection (rf2-kducz) ----------
+
+(deftest extract-projects-canonical-dispatch-id-onto-rows
+  (testing "row projection lifts :rf.trace/dispatch-id (the canonical
+            substrate tag) into the row's :dispatch-id slot — guards
+            against the rf2-kducz regression where rows read the bare
+            `:dispatch-id` tag (always nil) and grouping silently
+            degraded to the wall-clock heuristic"
+    (let [buf [(dispatched-ev [:auth/logout]
+                              {:dispatch-id 42 :time 1000 :id 1})
+               (destroy-ev {:machine-id :user-session
+                            :dispatch-id 42 :time 1010 :id 2})
+               (http-abort-ev {:request-id :req-1
+                               :actor-id :user-session
+                               :dispatch-id 42
+                               :time 1020 :id 3})]
+          c   (h/extract-cascade buf)]
+      (testing "decision row carries the canonical dispatch-id"
+        (is (= 42 (-> c :parent-decision :dispatch-id))))
+      (testing "teardown row carries the canonical dispatch-id"
+        (is (= 1 (count (:child-teardowns c))))
+        (is (= 42 (-> c :child-teardowns first :dispatch-id))))
+      (testing "abort row carries the canonical dispatch-id"
+        (is (= 1 (count (:effect-aborts c))))
+        (is (= 42 (-> c :effect-aborts first :dispatch-id)))))))
+
+(deftest extract-ignores-non-canonical-dispatch-id-tag
+  (testing "an abort whose ONLY dispatch-id slot is the bare (non-canonical)
+            `:dispatch-id` key MUST NOT correlate by dispatch-id —
+            the substrate emits the canonical `:rf.trace/dispatch-id`
+            and the reader must not accept the bare key as a fallback
+            (otherwise drift between substrate and consumer is masked).
+            Such an abort can still ride along via the wall-clock window."
+    (let [anchor (destroy-ev {:machine-id :user-session :dispatch-id 7
+                              :time 1000 :id 1})
+          ;; Build an abort whose canonical tag is missing but a bare
+          ;; `:dispatch-id` tag matches the anchor. The reader must
+          ;; project nil — not 7 — into the abort row's :dispatch-id.
+          abort  (-> (http-abort-ev {:request-id :r1
+                                     :actor-id :user-session
+                                     :time 1010 :id 2})
+                     (update :tags dissoc :rf.trace/dispatch-id)
+                     (assoc-in [:tags :dispatch-id] 7))
+          c      (h/extract-cascade [anchor abort])
+          row    (first (:effect-aborts c))]
+      ;; The abort still rides via the wall-clock fallback, but its
+      ;; projected :dispatch-id reflects the CANONICAL tag (absent
+      ;; here), not the bare key.
+      (is (some? row) "abort gathered via wall-clock proximity")
+      (is (nil? (:dispatch-id row))
+          "row :dispatch-id is nil because the canonical tag is absent
+           — the reader must not silently accept the bare `:dispatch-id`"))))
+
 ;; ---- (2) extract-cascade: many aborts ----------------------------------
 
 (deftest extract-many-aborts-sorted
@@ -342,7 +395,7 @@
                ;; missing from tags; proximity gathers it.
                (-> (http-abort-ev {:request-id :r1 :actor-id :user-session
                                    :time 1015 :id 2})
-                   (update :tags dissoc :dispatch-id))]
+                   (update :tags dissoc :rf.trace/dispatch-id))]
           c   (h/extract-cascade buf)]
       (is (= 1 (count (:effect-aborts c)))))))
 
