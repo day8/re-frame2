@@ -1312,7 +1312,7 @@ Each step renders a uppercase badge pill at its numbered circle:
 | `:HANDLER`            | `:accent`        | blue (single Xray accent) |
 | `:FLOW`               | `:accent`        | blue (paired with HANDLER) |
 | `:FX`                 | `:orange`        | functional amber (post-commit irreversible) |
-| `:SUBSCRIPTIONS`      | `:magenta`       | pink/magenta family |
+| `:SUBSCRIPTIONS`      | `:magenta-pink`  | pink (rf2-cgm4f split from COEFFECT violet) |
 | `:VIEWS`              | `:success`       | green |
 | `:SCHEMA-VIOLATIONS`  | `:warning`       | warning amber (rf2-17vxj) |
 
