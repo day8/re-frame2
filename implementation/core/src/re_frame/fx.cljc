@@ -160,17 +160,25 @@
 ;; §Cascade propagation (line 1162) and §Drain-loop pseudocode
 ;; `inheritable-envelope-keys` (lines 947-952). `:event` and
 ;; `:dispatched-at` are NOT inherited — the child gets its own.
+;; Per rf2-ejtpd, `:source` is ALSO not inherited — each fx-emitted
+;; child dispatch's `:source` reflects its immediate trigger
+;; (`:fx-dispatch` / `:fx-dispatch-later`), stamped by the fx handler
+;; below. Pre-rf2-ejtpd `:source` was inherited, causing every fx-emitted
+;; descendant to mis-report the originating user event's trigger (a
+;; `:dispatch` fx three levels deep kept reporting `:source :ui`).
 (def ^:private inheritable-envelope-keys
-  [:frame :fx-overrides :interceptor-overrides :trace-id :origin :source])
+  [:frame :fx-overrides :interceptor-overrides :trace-id :origin])
 
 (defn- child-dispatch-opts
   "Project the parent envelope's inheritable keys onto the opts map for a
   child dispatch. Per Spec 002 §Cascade propagation: the dispatched
   child inherits `:frame`, `:fx-overrides`, `:interceptor-overrides`,
-  `:trace-id`, `:origin`, `:source`. When `parent-envelope` is nil
-  (caller did not thread one through — legacy routing-artefact callers
-  or test fixtures), falls back to `{:frame frame-id}` so single-key
-  propagation still holds.
+  `:trace-id`, `:origin`. `:source` is NOT inherited (rf2-ejtpd) — the
+  fx handler stamps the specific `:fx-dispatch` / `:fx-dispatch-later`
+  value via a separate `:source` opt on the call site. When
+  `parent-envelope` is nil (caller did not thread one through — legacy
+  routing-artefact callers or test fixtures), falls back to
+  `{:frame frame-id}` so single-key propagation still holds.
 
   Per rf2-t1lxr: `:rf/dispatch-origin` is NOT inherited from the parent
   — it's the *immediate* functional source of the dispatch, so the
@@ -212,21 +220,29 @@
    ;; Append to back of the frame's router queue. Per Spec 002
    ;; §Cascade propagation, the child envelope inherits the parent's
    ;; `:fx-overrides` / `:interceptor-overrides` / `:trace-id` /
-   ;; `:origin` / `:source`.
+   ;; `:origin`. Per rf2-ejtpd, `:source` is OVERRIDDEN to
+   ;; `:fx-dispatch` — the child's immediate trigger is "the
+   ;; `:dispatch` fx executed", not whatever woke the originating
+   ;; user event.
    (fn [frame-id parent-envelope args]
      ;; Sticky hook (rf2-f72pd) — `:router/dispatch!` is published once
      ;; at re-frame.router load and never withdrawn; this fires per
      ;; `:dispatch` fx invocation.
      (when-let [f (late-bind/get-fn-cached :router/dispatch!)]
-       (f args (child-dispatch-opts frame-id parent-envelope))))
+       (f args (assoc (child-dispatch-opts frame-id parent-envelope)
+                      :source :fx-dispatch))))
 
    :dispatch-later
    ;; Delayed dispatch — wraps the same router hook in `set-timeout!`.
    ;; Inheritable keys are projected at fx-firing time and captured in
    ;; the closure so the deferred dispatch carries the parent envelope's
-   ;; overrides into the eventual child cascade.
+   ;; overrides into the eventual child cascade. Per rf2-ejtpd, the
+   ;; deferred dispatch stamps `:source :fx-dispatch-later` so the Epoch
+   ;; panel's DISPATCH step renders the precise trigger rather than the
+   ;; originating user event's `:source`.
    (fn [frame-id parent-envelope {:keys [ms event]}]
-     (let [opts (child-dispatch-opts frame-id parent-envelope)]
+     (let [opts (assoc (child-dispatch-opts frame-id parent-envelope)
+                       :source :fx-dispatch-later)]
        (interop/set-timeout!
          (fn []
            ;; Sticky hook (rf2-f72pd) — same as above; the timer

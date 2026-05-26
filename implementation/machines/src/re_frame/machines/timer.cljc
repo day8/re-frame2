@@ -341,6 +341,16 @@
                       ;; the resulting dispatch with :rf/dispatch-origin
                       ;; :timer so Xray can prefix the L2 row + filter on
                       ;; timer-origin epochs.
+                      ;; Per rf2-ejtpd: stamp `:source :after-timer` so
+                      ;; the Epoch panel's DISPATCH step labels this
+                      ;; dispatch as "from :after timer" rather than the
+                      ;; `:unknown` residual default (rf2-hxj0d). The two
+                      ;; axes — `:rf/dispatch-origin :timer` and
+                      ;; `:source :after-timer` — are independent: the
+                      ;; former is the closed-enum functional source
+                      ;; (Spec 009 §Dispatch-origin tagging), the latter
+                      ;; is the operator-facing trigger-kind classifier
+                      ;; (Spec 002 §`:source` / Spec-Schemas §`:rf/dispatch-envelope`).
                       ;; Per Spec 005 §Hierarchy interaction: carry the
                       ;; scheduling node's decl-path (`invoke-id`) so the
                       ;; pure side routes the firing to the correct
@@ -349,7 +359,9 @@
                       ;; `:after {30000 ...}`) resolve unambiguously.
                       (dispatch! [parent-id [:rf.machine.timer/after-elapsed
                                               delay-key epoch (vec invoke-id)]]
-                                 {:frame frame-id :rf/dispatch-origin :timer})))
+                                 {:frame              frame-id
+                                  :rf/dispatch-origin :timer
+                                  :source             :after-timer})))
                   resolved-ms)
                 watch-key (when (= :sub delay-source)
                             [::after-watch frame-id parent-id invoke-id delay-key])]

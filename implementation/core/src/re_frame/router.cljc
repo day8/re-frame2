@@ -80,13 +80,26 @@
     :interceptor-overrides
     :trace-id           tooling
     :source             trigger-kind classifier — closed set
-                        `:ui :frame-init :fx :machine :dispatch-later
-                        :test :unknown`. Default `:unknown` per
-                        rf2-hxj0d (changed from `:ui` to avoid false
+                        `:ui :frame-init :fx :machine :machine-spawn
+                        :always :after-timer :fx-dispatch
+                        :fx-dispatch-later :dispatch-later :timer
+                        :http :repl :ssr-hydration :test :unknown
+                        :other`. Default `:unknown` per rf2-hxj0d
+                        (changed from `:ui` to avoid false
                         attribution of unstamped dispatches as
                         UI-driven). UI handler call-sites stamp
-                        `:source :ui` explicitly; other origins
-                        stamp per the documented vocabulary.
+                        `:source :ui` explicitly; substrate-internal
+                        dispatch sites stamp the matching specific
+                        value per rf2-ejtpd:
+                          - machine `:after` timer       → :after-timer
+                          - machine `:always` microstep  → :always (on the
+                            per-microstep trace; `:always` does not
+                            produce its own envelope)
+                          - machine spawn fx             → :machine-spawn
+                          - `:dispatch` fx               → :fx-dispatch
+                          - `:dispatch-later` fx         → :fx-dispatch-later
+                        Other origins stamp per the documented
+                        vocabulary.
     :origin             actor identity tag (:app default; :pair, :story,
                         :test, ... per Spec 002 §Dispatch origin tagging)
     :rf/dispatch-origin closed-enum functional source per Xray A.5 /

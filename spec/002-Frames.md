@@ -371,7 +371,7 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
  :frame        :todo                   ;; resolved frame keyword
  :fx-overrides {:my-app/http stub-fn}  ;; per-dispatch fx replacements (master's dispatch-with)
  :trace-id     "..."                   ;; tooling/agent fields
- :source       :ui                     ;; trigger kind — the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui :frame-init :fx :machine :dispatch-later :timer :http :repl :ssr-hydration :test :unknown :other`); defaults to `:unknown` per rf2-hxj0d (previously `:ui`)
+ :source       :ui                     ;; trigger kind — the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui :frame-init :fx :machine :machine-spawn :always :after-timer :fx-dispatch :fx-dispatch-later :dispatch-later :timer :http :repl :ssr-hydration :test :unknown :other`); defaults to `:unknown` per rf2-hxj0d (previously `:ui`); substrate-internal dispatch sites stamp the matching value (`:after-timer`, `:machine-spawn`, `:fx-dispatch`, `:fx-dispatch-later`) per rf2-ejtpd
  :origin       :pair                   ;; actor identity — open vocabulary, defaults to `:app`; e.g. `:pair`, `:claude`, `:story`, `:test`
  :dispatched-at <ts>}
 ```
@@ -424,9 +424,21 @@ The dispatch opts map accepts an optional `:origin` key — a tag identifying th
 
 Pair-shaped tools and other tooling surfaces set `:origin` to filter their own activity in post-mortem trace views — "show me only the dispatches the pair tool issued during this session" becomes a one-key filter on the trace stream. User application code typically omits the opt; framework code (the SSR boot path, the router, the machine timer) sets it to a runtime-reserved value (`:rf/router`, `:rf/ssr`, etc.) where the distinction is useful.
 
-`:origin` is **distinct from `:source`** (the existing envelope key). `:source` describes the trigger kind — what *woke* the runtime; the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui`, `:frame-init`, `:fx`, `:machine`, `:dispatch-later`, `:timer`, `:http`, `:repl`, `:ssr-hydration`, `:test`, `:unknown`, `:other`). `:origin` describes the actor identity — *who* issued the dispatch. Both can be set independently; tools commonly set `:origin :pair` and let `:source` default to `:unknown`.
+`:origin` is **distinct from `:source`** (the existing envelope key). `:source` describes the trigger kind — what *woke* the runtime; the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui`, `:frame-init`, `:fx`, `:machine`, `:machine-spawn`, `:always`, `:after-timer`, `:fx-dispatch`, `:fx-dispatch-later`, `:dispatch-later`, `:timer`, `:http`, `:repl`, `:ssr-hydration`, `:test`, `:unknown`, `:other`). `:origin` describes the actor identity — *who* issued the dispatch. Both can be set independently; tools commonly set `:origin :pair` and let `:source` default to `:unknown`.
 
 Per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d), the default `:source` value is **`:unknown`** — previously `:ui`, which silently misattributed every un-stamped dispatch (frame-init, REPL eval, internal continuation) as UI-driven. Frame-init dispatches (the `:on-create` event fired by `reg-frame`) explicitly stamp `:source :frame-init` and carry the `reg-frame` call-site coord under `:rf.trace/call-site` so click-to-source jumps to the `(rf/reg-frame ...)` line. UI handler call-sites that previously relied on the `:ui` default now either explicitly stamp `:source :ui` or render as `:unknown` — the framework no longer assumes UI provenance.
+
+Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd), substrate-internal dispatch sites stamp their own specific `:source` kind so the Epoch panel's DISPATCH step renders the precise trigger rather than the prior aggregate (`:fx` / `:machine` / `:unknown`):
+
+| `:source` value | Stamped by | When |
+|---|---|---|
+| `:after-timer` | machine substrate's `:after` timer-fire path | timer's delay elapses + the substrate dispatches the synthetic `:rf.machine.timer/after-elapsed` trigger |
+| `:always` | machine substrate's `:always` microstep loop | per-microstep marker on `:rf.machine.microstep/transition`; `:always` does not produce its own envelope (it runs intra-macrostep) but the value is reserved on the closed set so tools have a consistent vocabulary |
+| `:machine-spawn` | spawn-fx (`:rf.machine/spawn`) | a machine spawns + the substrate dispatches the spawned actor's `:start` (or synthetic `[:rf.machine/spawned]`) initial-entry trigger |
+| `:fx-dispatch` | `:dispatch` fx handler | the `:dispatch` reserved fx executes and enqueues a child dispatch |
+| `:fx-dispatch-later` | `:dispatch-later` fx handler | the `:dispatch-later` reserved fx fires after its delay |
+
+The naming preserves the spec's own terminology — `:after`, `:always`, `:dispatch-later` — so panel labels grep back to spec/005 and spec/002 directly. The existing `:rf/dispatch-origin` tag (`:timer` / `:internal` / `:fx-emit` / ...) STAYS on the dispatch envelope alongside `:source`; `:source` is the operator-facing trigger-kind axis, `:rf/dispatch-origin` is the closed-enum functional source per [009 §Dispatch-origin tagging](009-Instrumentation.md#dispatch-origin-tagging-rfdispatch-origin). Both can be filtered independently. `:source` is **no longer inherited** through `:fx [[:dispatch ...]]` cascades — each child dispatch's `:source` reflects its *immediate* trigger (`:fx-dispatch` / `:fx-dispatch-later`), not the originating user event's. Inheritance still applies to `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:origin`, and `:frame`.
 
 ## View ergonomics (the hard part)
 
@@ -1116,10 +1128,14 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; :dispatch-later queue a new envelope. This is the "envelope-field-copying
 ;; when queueing children" mechanism named in [§Cascade propagation]
 ;; (#cascade-propagation). `:event` and `:dispatched-at` are NOT inherited —
-;; the child gets its own. `:source` is preserved unless the queueing fx
-;; sets a more specific value (e.g. a timer fx might set `:source :timer`).
+;; the child gets its own. Per rf2-ejtpd, `:source` is NOT inherited either —
+;; each child dispatch's `:source` reflects its IMMEDIATE trigger
+;; (`:fx-dispatch` / `:fx-dispatch-later`), stamped by the queueing fx
+;; handler. Inheriting `:source` mis-attributed every fx-emitted dispatch
+;; as carrying the originating user-event's trigger (e.g. a `:dispatch` fx
+;; deep in a cascade kept reporting `:source :ui`).
 (def ^:private inheritable-envelope-keys
-  [:frame :fx-overrides :interceptor-overrides :trace-id :origin :source])
+  [:frame :fx-overrides :interceptor-overrides :trace-id :origin])
 
 (defn- child-envelope [parent-envelope event]
   (-> (select-keys parent-envelope inheritable-envelope-keys)
@@ -1335,7 +1351,9 @@ Use cases:
 
 ### Cascade propagation
 
-All three override types propagate transitively through any depth of `:fx [:dispatch ...]` cascade. When a handler returns an effect map containing `:dispatch`, the dispatched child inherits the parent envelope's overrides (and `:frame`, `:trace-id`, etc.). One mechanism: envelope-field-copying when queueing children; same as `:frame` propagation.
+All three override types propagate transitively through any depth of `:fx [:dispatch ...]` cascade. When a handler returns an effect map containing `:dispatch`, the dispatched child inherits the parent envelope's overrides (and `:frame`, `:trace-id`, `:origin`). One mechanism: envelope-field-copying when queueing children; same as `:frame` propagation.
+
+Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd), `:source` is **excluded from the inheritance set** — each child dispatch's `:source` reflects its *immediate* trigger. The `:dispatch` fx handler stamps `:source :fx-dispatch`; the `:dispatch-later` fx handler stamps `:source :fx-dispatch-later`. Inheriting `:source` mis-attributed every fx-emitted dispatch as carrying the originating user event's trigger (a `:dispatch` fx deep in a cascade kept reporting `:source :ui`). The actor-identity axis (`:origin`) still propagates so post-mortem filters like "show me only the dispatches I (the pair tool) issued" remain effective end-to-end.
 
 ### Discoverability
 

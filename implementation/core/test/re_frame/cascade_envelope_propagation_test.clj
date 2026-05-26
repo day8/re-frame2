@@ -3,10 +3,16 @@
   §Drain-loop pseudocode `inheritable-envelope-keys` (lines 947-952).
 
   The dispatch envelope's `:fx-overrides`, `:interceptor-overrides`,
-  `:trace-id`, `:origin`, `:source`, `:frame` MUST propagate through
+  `:trace-id`, `:origin`, `:frame` MUST propagate through
   `:fx [[:dispatch ...]]` cascades: when a handler returns an effect-map
   containing `:dispatch`, the dispatched child inherits the parent
   envelope's overrides. Same mechanism for `:dispatch-later`.
+
+  `:source` is **excluded from inheritance** per rf2-ejtpd — each
+  fx-emitted child stamps its own immediate-trigger value
+  (`:fx-dispatch` / `:fx-dispatch-later`) so the trigger-kind axis
+  reflects the substrate's actual dispatch site rather than the
+  originating user event's trigger.
 
   JVM-only — the cascade propagation is platform-agnostic; the runtime
   paths under test do not depend on a CLJS host."
@@ -84,12 +90,19 @@
       (is (= [{:lvl 0} {:lvl 1} {:lvl 2}] @http-stub)
           "override propagated through three levels of :dispatch cascade"))))
 
-;; ---- :trace-id / :origin / :source propagation ----------------------------
+;; ---- :trace-id / :origin propagation; :source overridden by fx-handler -----
 
-(deftest trace-id-origin-source-propagate-through-cascade
-  (testing ":trace-id, :origin, :source all ride the child envelope"
+(deftest trace-id-origin-propagate-source-overridden-through-cascade
+  (testing ":trace-id and :origin ride the child envelope; :source is OVERRIDDEN to :fx-dispatch"
     ;; Capture parent and child envelopes via the trace stream — every
-    ;; :rf.event/dispatched event surfaces :origin / :source on :tags.
+    ;; :rf.event/dispatched event surfaces :origin on :tags and :source
+    ;; hoisted to the top level.
+    ;;
+    ;; Per rf2-ejtpd: `:source` is NOT inherited through `:fx [[:dispatch ...]]`
+    ;; cascades — the `:dispatch` fx handler stamps `:source :fx-dispatch`
+    ;; on the child envelope, regardless of what the parent carried. The
+    ;; parent's `:source :test` is recorded against the parent's own
+    ;; envelope; the child reports the substrate's actual dispatch site.
     (let [seen (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
@@ -101,7 +114,7 @@
         (rf/dispatch-sync [:test/parent]
                           {:trace-id ::scoped-trace
                            :origin   :test
-                           :source   :unit-test})
+                           :source   :test})
 
         (let [dispatched   (->> @seen
                                  (filter #(= :rf.event/dispatched (:operation %))))
@@ -109,14 +122,14 @@
               child-ev     (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
           (is (some? parent-ev) "parent's :rf.event/dispatched is captured")
           (is (some? child-ev)  "child's :rf.event/dispatched is captured")
-          ;; :origin rides :tags; :source is hoisted to top-level by
-          ;; trace/emit! per Spec 009 §Core fields (line 367/388).
+          ;; :origin rides :tags (inherited); :source is hoisted to top-
+          ;; level by trace/emit! per Spec 009 §Core fields.
           (is (= :test      (get-in parent-ev [:tags :rf.event/origin])) "parent carries :origin :test")
-          (is (= :unit-test (:source parent-ev))             "parent carries :source :unit-test")
+          (is (= :test      (:source parent-ev))                          "parent carries :source :test")
           (is (= :test      (get-in child-ev  [:tags :rf.event/origin]))
               ":origin :test propagated through the cascade")
-          (is (= :unit-test (:source child-ev))
-              ":source :unit-test propagated through the cascade"))
+          (is (= :fx-dispatch (:source child-ev))
+              "child's :source is :fx-dispatch (stamped by the :dispatch fx; NOT inherited from parent)"))
         (finally (rf/unregister-listener! ::rec))))))
 
 ;; ---- :envelope exposed on fx-handler ctx (rf2-4jci1.4) -------------------
