@@ -888,8 +888,8 @@
    [:div {:data-testid "rf-xray-epoch-rail"
           :aria-hidden true
           :style {:position    "absolute"
-                  :left        (str (+ 55 (badge/line-left-offset-px)) "px")
-                  :top         (str (badge/vertical-line-offset-px) "px")
+                  :left        (str (+ 55 badge/line-left-offset-px) "px")
+                  :top         (str badge/vertical-line-offset-px "px")
                   :bottom      "13px"
                   :width       "1px"
                   :background  (:border-default tokens)
