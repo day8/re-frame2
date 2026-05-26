@@ -1271,57 +1271,47 @@ suites pin the panel render bodies post-reseed.
 
 1. Settings is **transient** — open, tweak, close — not browsed. Modals fit transient workflows; panels fit ongoing reference.
 2. Modal **preserves the user's last-active tab** — they don't lose context.
-3. Dedicated panel would force a tab-bar slot — tab count would creep back up (6 is hard-won; adding Settings would make 7).
+3. Dedicated panel would force a tab-bar slot — tab count would creep back up (the L1 tab inventory is hard-won; adding Settings would make one more).
 4. Modal pattern matches Cmd-K palette (also transient overlay) — consistent affordance class.
 
 ### Wireframe
 
 ```
 ┌─ Settings ───────────────────────────────────────────────────  ✕  ┐
+│ [ General ] [ Keybindings ] [ Buffer ] [ Diff ]                    │
 │                                                                    │
-│ ◉ Filters                                                          │
-│ ○ View                                                             │
-│ ○ Keybindings                                                      │
-│ ○ Buffer                                                           │
-│ ○ Popout                                                           │
-│ ○ Actions                                                          │
+│ ─ General ──────────────────────────────────────────────────────   │
 │                                                                    │
-│ ─ Filters ──────────────────────────────────────────────────────  │
+│ Text size              [────●────]  13 px                          │
+│ Panel width            [────●────]  480 px                         │
+│ Panel position         ◉ Right rail  ○ Popout  ○ Fullscreen        │
+│ Density                ◉ Cosy        ○ Compact                     │
+│ Auto-open on error     ☐                                           │
+│ Long-keyword threshold [────●────]  60 chars                       │
 │                                                                    │
-│ Active filters (5)                                                 │
-│   [+ :auth/* ✎]  [× :mouse-move ✎]  [+ http ✎]                    │
-│   [× :anim-frame ✎]  [× :pointer-move ✎]                          │
-│   [Clear all] [Add pill]                                           │
-│                                                                    │
-│ Recommended filters                                                │
-│   ☐ :mouse-move        (pointer-coord events; high volume)        │
-│   ☐ :anim-frame        (requestAnimationFrame ticks)              │
-│   ☐ :resize            (window resize coalescing)                  │
-│   ☐ :pointermove       (modern pointer events)                     │
-│   ☐ :scroll            (scroll events; often debounce-triggered)  │
-│   [Apply selected]   [Apply all]                                   │
-│                                                                    │
-│ Auto-hide error overrides? ◉ Yes  ○ No                            │
-│   When ON, OUT-matched events that ERROR still surface on the list │
+│ ── Power user ──                                                   │
+│ ☐ Show tool frames in picker                                       │
+│ ☐ Use system colors  (HCM override; :general :use-system-colors?)  │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-### Sections (left-rail navigation; right-pane content)
+A top tab strip (NOT left-rail navigation) drives which body section
+renders. Tabs are equal-weight; **General** is the default-on-open.
+
+### Sections (top tab strip; per-tab body)
 
 | Section | Content |
 |---|---|
-| **Filters** (default) | Active filter pills (mirror of ribbon pills; edit/delete) · Recommended-filters quick-add · auto-hide-error-overrides toggle · advanced pattern-editor for complex globs |
-| **View** | Theme: `◉ Dark · ○ Light · ○ Dim` · Density: `◉ Cosy 28px · ○ Compact 22px` (event-list row height; the `:comfy` tier was dropped per 015 §Density) · Long-keyword treatment threshold (chars) · **`── Power user ──` divider · "Show tool frames in picker" toggle** (OFF by default; reveals `:rf/xray` etc. in ribbon picker; only useful when debugging Xray itself) |
-| **Keybindings** | Table of `Action / Chord / Edit` rows; per-row chord editor (click chord cell → focus, press new chord); reset-to-defaults button per row + global; `Handle keys?` master toggle |
-| **Buffer** | `:general :epoch-history <int>` (slider, default 50, range 10–500; slot stays under `:general` per rf2-pu9sb — only the popup home moved into Buffer) · `:buffer/cascades-retained <int>` (default 50) · `:app-db/inspector-collapse-threshold <int>` (default 20) · "Clear buffer now" button |
-| **Popout** | `:popout/width <px>` (default 800) · `:popout/height <px>` (default 600) · `:popout/position <:right :left :centre>` (default `:right`) · "Open in popout now" button (= `o`) |
-| **Actions** | `[factory-reset!]` BIG RED BUTTON · "Reset to fresh-install state — clears filters, pins, keybindings, theme. Buffer kept." Confirmation modal on click. Plus: "Reset filters only" / "Reset keybindings only" / "Clear pinned cascades" finer-grained reset buttons. |
+| **General** (default) | Text-size slider · Panel-width slider · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen`) · Density radio (`:cosy` / `:compact`; the `:comfy` tier was dropped per 015 §Density) · Auto-open-on-error checkbox · Long-keyword treatment threshold · **`── Power user ──` divider · "Show tool frames in picker" toggle** (OFF by default; reveals `:rf/xray` etc. in ribbon picker; only useful when debugging Xray itself) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot stays `:general :use-system-colors?`) |
+| **Keybindings** | Read-only chord table (every binding the global keydown listener captures) · `Handle keys?` master toggle. v1 ships READ-ONLY; the per-row chord editor + reset-to-defaults UI is the v1.1 follow-on. |
+| **Buffer** | `:general :epoch-history <int>` (slider, default 50, range 10–500; slot stays under `:general` per rf2-pu9sb — only the popup home moved into Buffer) · `:buffer/cascades-retained <int>` (default 50) · `:app-db/inspector-collapse-threshold <int>` (default 20) · "Clear buffer now" button (confirm modal) |
+| **Diff** | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; section-grouping threshold fixed defaults — both dropped from the user surface) |
 
 ### v1 ships
 
-**v1 ships four sections, NOT six** (rf2-9poxq + rf2-jh9ws +
-rf2-ttnst + rf2-ou3pn + rf2-wknb3): **General**, **Keybindings**,
+**v1 ships four sections** (rf2-9poxq + rf2-jh9ws + rf2-ttnst +
+rf2-ou3pn + rf2-wknb3 + rf2-pu9sb): **General**, **Keybindings**,
 **Buffer**, **Diff** — a top tab strip (not left-rail nav) drives
 which body section renders. Defaults: auto-open-on-error OFF,
 panel-position `:right-rail`, theme `:light` (Figma authority;
@@ -1330,24 +1320,26 @@ key `re-frame2.xray.settings.v1` (single nested map, one round-trip
 through `pr-str`). Full per-knob inventory + persistence rationale +
 auto-open-watcher semantics are in
 [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup
-— v1 ships. (A Telemetry tab shipped briefly with the initial popup
-landing but was removed per rf2-jh9ws — Xray transmits no telemetry
-and the toggle was a broken affordance. The Theme tab was retired
-per rf2-ou3pn — the ribbon's sun/moon icon dispatches the same
-`[:rf.xray/settings-update :theme nil <kw>]` event the popup radio
-used to drive; the popup copy was pure redundancy. The Filters tab
-was retired per rf2-wknb3 — full pill management lives in the
-ribbon strip + per-pill edit popup + mute manager modal; the
-popup's tab was a discoverability pointer whose only widget
-dispatched an unregistered event.)
+— v1 ships.
 
-The Popout and Actions sections (rows of the table above) are
-**full §9 catalogue intent** and remain the target for follow-on
-beads; Keybindings, Buffer, and Diff already ship per rf2-ttnst +
-rf2-i39w2. The Filters tab is no longer part of v1 — full pill
-management lives in the ribbon strip + per-pill edit popup + mute
-manager modal; re-implementing it in two places would invite drift
-(retired per rf2-wknb3).
+**Retirements from the earlier 6-tab aspiration:**
+
+- A **Telemetry** tab shipped briefly with the initial popup landing
+  (rf2-9poxq) but was removed per rf2-jh9ws — Xray transmits no
+  telemetry and the toggle was a broken affordance.
+- The **Theme** tab was retired per rf2-ou3pn — the top-ribbon
+  sun/moon icon dispatches the same
+  `[:rf.xray/settings-update :theme nil <kw>]` event the popup radio
+  used to drive; the popup copy was pure redundancy. The HCM-override
+  `:use-system-colors?` toggle relocated to **General → Power user**.
+- The **Filters** tab was retired per rf2-wknb3 — full pill
+  management lives in the ribbon strip + per-pill edit popup + mute
+  manager modal; the popup's tab was a discoverability pointer whose
+  only widget dispatched an unregistered event.
+- **Popout** folded into General's Panel-position radio — no own tab.
+- **Actions** dropped — factory-reset stays code-only
+  (`config/reset-settings!`); the "Clear buffer now" affordance under
+  the Buffer tab covers the only destructive op users have asked for.
 
 ### "Show tool frames in picker" toggle
 
