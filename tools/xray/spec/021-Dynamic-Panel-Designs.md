@@ -1585,7 +1585,7 @@ verbatim; no DOM concern bleeds into the data layer.
 |-----|-------|--------|
 | `:rf.xray/epoch-pipeline` | `:rf.xray/focus` · `:rf.xray/epoch-history` (via the shared `panels.shared.focus-resolver`) | `{:status :no-focus | :focused | :epoch-evicted, :epoch-id, :record, :steps}` |
 | `:rf.xray.epoch/expanded-rows` | `:epoch-panel-expanded-rows` slot | `#{[step-kw row-id] …}` |
-| `:rf.xray.epoch/subs-show-unchanged?` | `:epoch-panel-subs-show-unchanged?` slot | boolean (rf2-kfh1v — SUBSCRIPTIONS step filters unchanged rows by default; this flag opts in to seeing all) |
+| `:rf.xray.epoch/subs-filter-mode` | `:epoch-panel-subs-filter-mode` slot | keyword `:all / :changed / :unchanged` (rf2-tzmmf — SUBSCRIPTIONS step's `[all][changed][unchanged]` button-bar; supersedes rf2-kfh1v's boolean `subs-show-unchanged?`. Default `:changed` preserves the rf2-kfh1v hide-unchanged-by-default rationale) |
 
 ### §9.1.10 Events
 
@@ -1593,7 +1593,7 @@ verbatim; no DOM concern bleeds into the data layer.
 |-------|--------|
 | `:rf.xray.epoch/toggle-row-expand step-kw row-id` | flip the row's pair in `:epoch-panel-expanded-rows` |
 | `:rf.xray.epoch/clear-row-expand` | drop the expansion set |
-| `:rf.xray.epoch/toggle-subs-show-unchanged` | flip the SUBSCRIPTIONS show-unchanged flag (rf2-kfh1v) |
+| `:rf.xray.epoch/set-subs-filter-mode mode` | set the SUBSCRIPTIONS filter mode (rf2-tzmmf — closed set `:all / :changed / :unchanged`; supersedes rf2-kfh1v's `toggle-subs-show-unchanged`. The button-bar replaces both the prior boolean toggle AND the badge-adjacent `N recomputed (M changed, K unchanged)` summary text — Mike pair-debug 2026-05-26: no coexistence, pre-alpha posture) |
 
 ### §9.1.10.1 Substrate tag dependencies (the trace-stamp contract)
 

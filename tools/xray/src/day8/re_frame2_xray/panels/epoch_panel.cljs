@@ -136,21 +136,33 @@
     (fn [db _event]
       (dissoc db :epoch-panel-expanded-rows)))
 
-  ;; ---- SUBSCRIPTIONS show-unchanged toggle (rf2-kfh1v) -----------------
+  ;; ---- SUBSCRIPTIONS [all][changed][unchanged] filter (rf2-tzmmf) ------
   ;;
-  ;; Per the bead body the SUBSCRIPTIONS step hides unchanged-input rows
-  ;; by default — N rows of mostly-unchanged subs is noisy. The operator
-  ;; opts in to see all rows via this flag (mirrors Chrome devtools'
-  ;; network panel's filter toggle). Slot lives on the Xray app-db so the
-  ;; preference survives focus shifts.
+  ;; Per Mike pair-debug 2026-05-26 (rf2-tzmmf) the SUBSCRIPTIONS step's
+  ;; chrome to the right of the badge is a 3-button bar
+  ;; `[all][changed][unchanged]` — directly mirrors the HANDLER step's
+  ;; `[diff][all]` toggle bar above (one familiar shape, no second
+  ;; design vocabulary to learn). SUPERSEDES the prior rf2-kfh1v
+  ;; `Show unchanged` boolean toggle + the badge-adjacent text — both
+  ;; are deleted (pre-alpha masterpiece posture, no back-compat shims).
+  ;;
+  ;; Modes:
+  ;;   :changed   (default) — show only recompute rows whose value changed
+  ;;   :all                 — show every recompute row
+  ;;   :unchanged           — show only recompute rows whose value didn't change
+  ;;
+  ;; Preference lives on the Xray app-db so it survives focus shifts;
+  ;; default is `:changed` because most subs recompute on a cascade
+  ;; but report no value change (rf2-kfh1v hide-unchanged-by-default
+  ;; rationale is preserved as the default mode).
 
-  (rf/reg-sub :rf.xray.epoch/subs-show-unchanged?
+  (rf/reg-sub :rf.xray.epoch/subs-filter-mode
     (fn [db _query]
-      (boolean (get db :epoch-panel-subs-show-unchanged?))))
+      (get db :epoch-panel-subs-filter-mode :changed)))
 
-  (rf/reg-event-db :rf.xray.epoch/toggle-subs-show-unchanged
-    (fn [db _event]
-      (update db :epoch-panel-subs-show-unchanged? not)))
+  (rf/reg-event-db :rf.xray.epoch/set-subs-filter-mode
+    (fn [db [_ mode]]
+      (assoc db :epoch-panel-subs-filter-mode mode)))
 
   ;; ---- HANDLER :db view-mode toggle (pair-debug 2026-05-26) -------------
   ;;

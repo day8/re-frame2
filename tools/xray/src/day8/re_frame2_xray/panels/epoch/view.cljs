@@ -1674,29 +1674,59 @@
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
-(defn- subscriptions-toggle-button
-  "Render the `Show unchanged` toggle button — flips the
-  `:rf.xray.epoch/subs-show-unchanged?` slot on the Xray app-db.
-  When `show?` is true the label reads `Hide unchanged`."
-  [show? unchanged]
-  (when (pos? unchanged)
-    [:button {:data-testid "rf-xray-epoch-subscriptions-toggle"
-              :aria-pressed (str (boolean show?))
-              :on-click (fn [e]
-                          (.stopPropagation e)
-                          (rf/dispatch
-                            [:rf.xray.epoch/toggle-subs-show-unchanged]
-                            {:frame :rf/xray}))
-              :style {:background  "transparent"
-                      :border      (str "1px solid " (:border-default tokens))
-                      :border-radius "3px"
-                      :color       (:text-secondary tokens)
-                      :cursor      "pointer"
-                      :font-family sans-stack
-                      :font-size   "11px"
-                      :padding     "2px 8px"
-                      :margin-left "8px"}}
-     (if show? "Hide unchanged" "Show unchanged")]))
+(defn- subs-filter-button-bar
+  "Three-button filter bar `[all][changed][unchanged]` for the
+  SUBSCRIPTIONS step (rf2-tzmmf). Mirrors the HANDLER step's
+  `[diff][all]` toggle shape — same chrome vocabulary.
+
+  Active button paints in `:accent`; inactive buttons are
+  transparent with muted text. Click dispatches
+  `:rf.xray.epoch/set-subs-filter-mode` with the chosen keyword.
+
+  SUPERSEDES the prior rf2-kfh1v `Show unchanged` boolean toggle
+  AND the badge-adjacent `N recomputed (M changed, K unchanged)`
+  text — Mike pair-debug 2026-05-26: the button-bar IS the new
+  right-of-badge chrome. Pre-alpha masterpiece posture; no
+  back-compat shim retained."
+  [mode]
+  [:span {:data-testid "rf-xray-epoch-subscriptions-filter-mode"
+          :data-mode (when (keyword? mode) (name mode))
+          :style {:display "inline-flex"
+                  :align-items "center"
+                  :gap 0
+                  :border (str "1px solid " (:border-subtle tokens))
+                  :border-radius "3px"
+                  :overflow "hidden"
+                  :margin-left "8px"
+                  :line-height 1}}
+   (for [m [:all :changed :unchanged]
+         :let [active? (= mode m)]]
+     ^{:key (name m)}
+     [:button {:data-testid (str "rf-xray-epoch-subscriptions-filter-" (name m))
+               :aria-pressed (str active?)
+               :on-click (fn [e]
+                           (.stopPropagation e)
+                           ;; `with-frame :rf/xray` pins the dispatch
+                           ;; target so the sub running in :rf/xray
+                           ;; sees the write (matches the rf2-p56sk +
+                           ;; HANDLER `[diff][all]` frame-anchor
+                           ;; pattern — Xray app-db is the toggle's
+                           ;; home regardless of host frame).
+                           (rf/with-frame :rf/xray
+                             (rf/dispatch
+                               [:rf.xray.epoch/set-subs-filter-mode m])))
+               :style {:background (if active? (:accent tokens) "transparent")
+                       :color      (if active? (:white tokens) (:text-secondary tokens))
+                       :border     "none"
+                       :padding    "2px 8px"
+                       :font-family sans-stack
+                       :font-size  "10px"
+                       :font-weight 700
+                       :text-transform "uppercase"
+                       :letter-spacing "0.5px"
+                       :cursor     "pointer"
+                       :line-height 1}}
+      (name m)])])
 
 (defn- subscriptions-table
   "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
@@ -1845,65 +1875,59 @@
        (dispose-reason-label reason)]])])
 
 (defn render-subscriptions-step
-  "Render the SUBSCRIPTIONS step (only present when subs recomputed).
+  "Render the SUBSCRIPTIONS step (present when subs recomputed OR
+  when sub-cache entries were disposed — rf2-wpfjo).
 
-  Per rf2-kfh1v unchanged-input rows are HIDDEN BY DEFAULT — most
-  subs recompute on a cascade but report no value change, so the
-  noisy `N rows of ✗` legacy display was crowding out the rows the
-  operator actually cares about. A `Show unchanged` toggle reveals
-  the full list; the toggle's state lives in
-  `:rf.xray.epoch/subs-show-unchanged?` on the Xray app-db. Step
-  header shows the split count `N recomputed (M changed, K unchanged)`.
+  Per rf2-tzmmf the chrome to the right of the SUBSCRIPTIONS badge
+  is a 3-button filter bar `[all][changed][unchanged]` — mirrors the
+  HANDLER step's `[diff][all]` toggle shape. SUPERSEDES the prior
+  rf2-kfh1v `Show unchanged` boolean toggle AND the badge-adjacent
+  `N recomputed (M changed, K unchanged)` summary text — Mike
+  pair-debug 2026-05-26: the button-bar IS the new right-of-badge
+  chrome (no coexistence; pre-alpha masterpiece posture).
 
-  Mirrors the filter-toggle posture Chrome devtools' network panel
-  uses (the precedent the bead body cites).
+  Filter mode lives in `:rf.xray.epoch/subs-filter-mode` on the Xray
+  app-db. Default is `:changed` — the rf2-kfh1v hide-unchanged-by-
+  default rationale (most subs recompute but report no value change;
+  unchanged rows crowd out signal) is preserved as the default mode.
 
-  Per rf2-p56sk — fourth frame-leak in this class (after rf2-7sdja
-  popup, rf2-y59tb triangle, rf2-kcaiz zoom). The toggle event is
-  dispatched with explicit `{:frame :rf/xray}` envelope in
-  `subscriptions-toggle-button`, and the read here uses the
-  2-arity `subscribe` form so the sub anchors to `:rf/xray`
-  regardless of where the plain hiccup render dereffs from. Without
-  the explicit frame anchor, a non-`reg-view`-internal subscribe
-  resolves through the React-context tier — which is `:rf/xray` in
-  the Xray shell but is NOT guaranteed when the panel renders
-  inside a different frame-provider (story testbeds, embedded
-  surfaces). The toggle slot lives on `:rf/xray`'s app-db; the
-  matching read MUST also target `:rf/xray`'s db."
-  [{:keys [rows disposed-rows changed unchanged step-number]}]
-  (let [show-unchanged? @(rf/subscribe :rf/xray
-                                       [:rf.xray.epoch/subs-show-unchanged?])
-        visible-rows    (if show-unchanged?
-                          rows
-                          (filterv :changed? rows))
-        n               (count rows)
-        m               (or changed (count (filter :changed? rows)))
-        k               (or unchanged (- n m))
-        l               (count disposed-rows)
-        ;; Per rf2-wpfjo — header counter expands to surface the
-        ;; eviction count alongside the recompute split. The
-        ;; recompute clause is omitted when there were none (a
-        ;; pure-dispose cascade reads `L disposed` only); the
-        ;; disposed clause appears only when L > 0.
-        recompute-clause (when (pos? n)
-                           (str n " recomputed (" m " changed, " k " unchanged)"))
-        disposed-clause  (when (pos? l)
-                           (str l " disposed"))
-        verb-text        (cond
-                           (and recompute-clause disposed-clause)
-                           (str recompute-clause "; " disposed-clause)
-                           recompute-clause recompute-clause
-                           :else             disposed-clause)]
+  Frame-anchor pattern per rf2-p56sk: the 2-arity `subscribe` pins
+  the read to `:rf/xray`, and the button-bar's click dispatches with
+  `with-frame :rf/xray` envelope (matches the HANDLER `[diff][all]`
+  toggle pattern). Both halves are anchored so toggle writes + reads
+  hit the same app-db regardless of host frame-provider."
+  [{:keys [rows disposed-rows step-number]}]
+  (let [mode          @(rf/subscribe :rf/xray
+                                     [:rf.xray.epoch/subs-filter-mode])
+        visible-rows  (case mode
+                        :all       rows
+                        :unchanged (filterv (complement :changed?) rows)
+                        ;; :changed (default) — also the fallback for
+                        ;; an unknown mode keyword so the panel never
+                        ;; renders an empty filter.
+                        (filterv :changed? rows))
+        n             (count rows)
+        l             (count disposed-rows)]
     [:div {:data-testid "rf-xray-epoch-step-subscriptions"
            :data-step-kw "subscriptions"}
      (numbered-circle step-number :SUBSCRIPTIONS)
      (step-header
        {:step :subscriptions
         :badge :SUBSCRIPTIONS
+        ;; Per rf2-tzmmf the badge-adjacent recompute summary text
+        ;; is REMOVED — the button-bar is the new chrome. The
+        ;; disposed-clause stays because there's no button-bar
+        ;; affordance for that surface (and the count is small
+        ;; enough that "L disposed" still reads at a glance).
         :verb [:span {:style {:display "inline-flex" :align-items "center"
                               :gap "8px" :flex-wrap "wrap"}}
-               verb-text
-               (subscriptions-toggle-button show-unchanged? k)]
+               (when (pos? n)
+                 (subs-filter-button-bar mode))
+               (when (pos? l)
+                 [:span {:style {:color (:text-tertiary tokens)
+                                 :font-family mono-stack
+                                 :font-size "11px"}}
+                  (str l " disposed")])]
         :expandable? false
         :testid "rf-xray-epoch-subscriptions"}
        nil)

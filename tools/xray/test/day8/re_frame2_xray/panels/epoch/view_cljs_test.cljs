@@ -180,9 +180,11 @@
           (is (string/includes? txt ":counter/total")
               "sub-id is visible as the leading element"))))))
 
-(deftest sub-rows-hide-unchanged-by-default-test
-  (testing "rf2-kfh1v — unchanged rows are hidden by default;
-            a toggle reveals the full list"
+(deftest sub-rows-default-mode-is-changed-test
+  (testing "rf2-tzmmf — `:changed` is the default filter mode so the
+            unchanged-by-default rationale (rf2-kfh1v) carries through
+            to the new 3-button bar. Only the changed row renders;
+            the new `[all][changed][unchanged]` bar is present."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
@@ -193,73 +195,96 @@
                   :changed 1 :unchanged 2}
             tree (view/render-subscriptions-step step)]
         (is (= 1 (count-prefix tree "rf-xray-epoch-sub-row-"))
-            "only the one changed row renders by default")
-        (let [header (text-of tree "rf-xray-epoch-subscriptions-header")]
-          (is (string/includes? header "1 changed")
-              "header shows the changed count")
-          (is (string/includes? header "2 unchanged")
-              "header shows the unchanged count")
+            "only the one changed row renders in the default `:changed` mode")
+        (is (some? (th/find-by-testid
+                     tree "rf-xray-epoch-subscriptions-filter-mode"))
+            "the new `[all][changed][unchanged]` button-bar is present")
+        (doseq [m ["all" "changed" "unchanged"]]
           (is (some? (th/find-by-testid
-                       tree "rf-xray-epoch-subscriptions-toggle"))
-              "the Show unchanged toggle is present when unchanged > 0"))))))
+                       tree (str "rf-xray-epoch-subscriptions-filter-" m)))
+              (str "the " m " button is in the bar")))))))
 
-(deftest sub-rows-reveal-after-toggle-test
-  (testing "rf2-kfh1v — toggling the show-unchanged flag reveals all
-            rows; toggling back hides them again"
+(deftest sub-rows-supersede-old-toggle-test
+  (testing "rf2-tzmmf — the old `Show unchanged` toggle + the
+            badge-adjacent `N recomputed (...)` summary text are
+            DELETED (pre-alpha posture, no coexistence). The button-bar
+            is the new chrome."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
                          {:sub-id :b :sub-vec [:b] :changed? false}]
-                  :changed 1 :unchanged 1}]
-        ;; flip the slot on
-        (rf/dispatch-sync [:rf.xray.epoch/toggle-subs-show-unchanged])
-        (let [tree (view/render-subscriptions-step step)]
-          (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
-              "both rows render after toggle"))
-        ;; flip back off
-        (rf/dispatch-sync [:rf.xray.epoch/toggle-subs-show-unchanged])
-        (let [tree (view/render-subscriptions-step step)]
-          (is (= 1 (count-prefix tree "rf-xray-epoch-sub-row-"))
-              "unchanged hidden again after second toggle"))))))
+                  :changed 1 :unchanged 1}
+            tree (view/render-subscriptions-step step)
+            header (text-of tree "rf-xray-epoch-subscriptions-header")]
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-subscriptions-toggle"))
+            "the prior `Show unchanged` toggle is gone")
+        (is (not (string/includes? header "recomputed"))
+            "the badge-adjacent `N recomputed (...)` summary text is gone")
+        ;; "changed" appears in the button-bar label; the split-text
+        ;; we deleted was `M changed, K unchanged` — check the
+        ;; count-phrase shape is gone rather than the bare word.
+        (is (not (re-find #"\d+ changed" header))
+            "the `<N> changed` count phrase is gone")
+        (is (not (re-find #"\d+ unchanged" header))
+            "the `<N> unchanged` count phrase is gone")))))
 
-(deftest sub-toggle-anchors-to-xray-frame-test
-  (testing "rf2-p56sk — fourth frame-leak class (rf2-7sdja popup +
-            rf2-y59tb triangle + rf2-kcaiz zoom). The Show unchanged
-            toggle's dispatch carries explicit `{:frame :rf/xray}`
-            envelope AND the read uses the 2-arity subscribe form
-            so the sub-write + sub-read are anchored to the same
-            frame regardless of the surrounding render context.
-            Without both anchors, the dispatch lands in `:rf/xray`'s
-            app-db while the read accidentally resolves `:rf/default`
-            (or any other frame) — mutation never visible to the row
-            filter."
+(deftest sub-rows-reveal-via-all-mode-test
+  (testing "rf2-tzmmf — clicking `all` flips the filter-mode slot;
+            every row renders. Clicking `unchanged` shows only
+            unchanged rows."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
-    ;; Run OUTSIDE `with-frame :rf/xray` so the dispatch path is
-    ;; exercised exactly as the live shell's React onClick fires it —
-    ;; the dispatch-time frame must be the envelope, NOT a lexical
-    ;; binding the test artificially supplies.
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
+                         {:sub-id :b :sub-vec [:b] :changed? false}
+                         {:sub-id :c :sub-vec [:c] :changed? false}]
+                  :changed 1 :unchanged 2}]
+        ;; default — :changed
+        (let [tree (view/render-subscriptions-step step)]
+          (is (= 1 (count-prefix tree "rf-xray-epoch-sub-row-"))
+              "default mode `:changed` renders only the changed row"))
+        ;; switch to `:all`
+        (rf/dispatch-sync [:rf.xray.epoch/set-subs-filter-mode :all])
+        (let [tree (view/render-subscriptions-step step)]
+          (is (= 3 (count-prefix tree "rf-xray-epoch-sub-row-"))
+              "`:all` mode renders every row"))
+        ;; switch to `:unchanged`
+        (rf/dispatch-sync [:rf.xray.epoch/set-subs-filter-mode :unchanged])
+        (let [tree (view/render-subscriptions-step step)]
+          (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
+              "`:unchanged` mode renders only the unchanged rows"))))))
+
+(deftest sub-filter-bar-anchors-to-xray-frame-test
+  (testing "rf2-tzmmf — the button-bar's click dispatches via
+            `with-frame :rf/xray` (matches the HANDLER `[diff][all]`
+            toggle pattern) AND the read uses the 2-arity subscribe
+            form. Both halves anchored to `:rf/xray` regardless of
+            host frame."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
     (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                 :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
                        {:sub-id :b :sub-vec [:b] :changed? false}]
                 :changed 1 :unchanged 1}]
-      ;; The button's onClick dispatches with envelope; mirror that.
+      ;; Confirm each button carries an on-click handler.
       (rf/with-frame :rf/xray
-        ;; Confirm the toggle button is rendered and carries the envelope.
-        (let [tree (view/render-subscriptions-step step)
-              btn  (th/find-by-testid tree "rf-xray-epoch-subscriptions-toggle")]
-          (is (some? btn) "toggle button is present")
-          (is (fn? (:on-click (second btn))))))
-      ;; Dispatch with the envelope — same shape as the click handler.
-      (rf/dispatch-sync [:rf.xray.epoch/toggle-subs-show-unchanged]
-                        {:frame :rf/xray})
+        (let [tree (view/render-subscriptions-step step)]
+          (doseq [m ["all" "changed" "unchanged"]]
+            (let [btn (th/find-by-testid
+                        tree (str "rf-xray-epoch-subscriptions-filter-" m))]
+              (is (some? btn) (str m " button rendered"))
+              (is (fn? (:on-click (second btn)))
+                  (str m " button carries an on-click handler"))))))
+      ;; Mirror what the click does: dispatch under with-frame.
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray.epoch/set-subs-filter-mode :all]))
       (rf/with-frame :rf/xray
         (let [tree (view/render-subscriptions-step step)]
           (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
-              "envelope-anchored dispatch flips the :rf/xray slot the
-               2-arity sub reads"))))))
+              "frame-anchored dispatch flips the :rf/xray slot the 2-arity sub reads"))))))
 
 ;; ---- rf2-wpfjo — SUBSCRIPTIONS disposed sub-section -------------------
 
@@ -1098,10 +1123,10 @@
 ;; pipeline's `(for [[i step] …] …)` MUST be realised inside
 ;; `pipeline-view`'s return value so that any `@(rf/subscribe …)` deref
 ;; reached transitively by `render-step` (e.g. `handler-db-diff-block`'s
-;; `:rf.xray.epoch/db-view-mode` read at view.cljs L1416, or
-;; `render-subscriptions-step`'s `:rf.xray.epoch/subs-show-unchanged?`
-;; read at view.cljs L1802) fires while the parent reg-view's reactive
-;; scope is still live. A lazy seq realised AFTER the reg-view returns
+;; `:rf.xray.epoch/db-view-mode` read, or `render-subscriptions-step`'s
+;; `:rf.xray.epoch/subs-filter-mode` read — rf2-tzmmf) fires while the
+;; parent reg-view's reactive scope is still live. A lazy seq realised
+;; AFTER the reg-view returns
 ;; leaves the derefs OUTSIDE that scope — Reagent doesn't watch them,
 ;; sub-value changes don't trigger re-render, and the operator sees a
 ;; click "do nothing" until an external repaint forces the panel back
