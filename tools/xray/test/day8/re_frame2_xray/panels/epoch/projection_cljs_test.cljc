@@ -53,14 +53,25 @@
      true (assoc :event event :source source))))
 
 (defn- run-end-ev
+  ;; rf2-e0xjx — substrate stamps the handler's wall-clock duration as
+  ;; `:rf.event/elapsed-ms` on `:rf.event/run-end` (rf2-hhh92 ·
+  ;; `re-frame.router/emit-run-end-trace`). The fixture stamps both
+  ;; the canonical name and the legacy `:duration-ms` while the
+  ;; reader still falls back to `:duration-ms`; once the rf2-slnce
+  ;; reader-fix lands the legacy stamp is removed.
   ([] (run-end-ev nil nil))
   ([duration-ms] (run-end-ev duration-ms nil))
   ([duration-ms coeffects]
-   (ev :rf.event :rf.event/run-end (cond-> {:duration-ms duration-ms}
+   (ev :rf.event :rf.event/run-end (cond-> {:duration-ms        duration-ms
+                                            :rf.event/elapsed-ms duration-ms}
                                      coeffects (assoc :rf.event/coeffects
                                                       coeffects)))))
 
 (defn- cofx-run-ev
+  ;; rf2-e0xjx — substrate stamps `:rf.cofx/elapsed-ms` on
+  ;; `:rf.cofx/run` (rf2-hhh92 · `re-frame.cofx`). The fixture stamps
+  ;; the canonical name; the bead rf2-w2r4p reader-fix swaps the
+  ;; projection's read to prefer it over `:duration-ms`.
   [id value]
   (ev :rf.cofx :rf.cofx/run {:rf.cofx/id id :rf.cofx/value value}))
 
@@ -73,17 +84,35 @@
   (ev :rf.fx :rf.fx/do-fx {:rf.event/fx fx}))
 
 (defn- fx-handled-ev
+  ;; rf2-e0xjx — substrate stamps the per-fx-handler invocation
+  ;; duration as `:rf.fx/elapsed-ms` on `:rf.fx/handled` (rf2-hhh92 ·
+  ;; `re-frame.fx`). Fixture stamps both the canonical name and the
+  ;; legacy `:duration-ms` until rf2-ipaza swaps the reader.
   [fx-id args duration-ms]
-  (ev :rf.fx :rf.fx/handled {:rf.fx/id fx-id
-                             :rf.fx/args args
-                             :duration-ms duration-ms}))
+  (ev :rf.fx :rf.fx/handled {:rf.fx/id          fx-id
+                             :rf.fx/args        args
+                             :duration-ms       duration-ms
+                             :rf.fx/elapsed-ms  duration-ms}))
 
 (defn- flow-recomputed-ev
+  ;; rf2-e0xjx — substrate stamps flow-recomputes under the
+  ;; `:rf.flow/computed` operation with bare `:flow-id`, `:path`,
+  ;; `:before`, `:result`, `:elapsed-ms` (Spec 009 §Flow trace events
+  ;; · `re-frame.flows`). The pre-bead-2 fixture mirrored the buggy
+  ;; reader's `:rf.flow/recomputed` op + `:rf.flow/id|path|before|after`
+  ;; tags — the fixture-co-bug pattern that hid rf2-yhgk8 from tests
+  ;; and gallery. This builder now stamps the canonical op + tags
+  ;; alongside the legacy ones so the still-buggy reader keeps
+  ;; passing existing tests; rf2-yhgk8 drops the legacy companion.
   [flow-id path before after]
-  (ev :rf.flow :rf.flow/recomputed {:rf.flow/id flow-id
-                                    :rf.flow/path path
+  (ev :rf.flow :rf.flow/recomputed {:rf.flow/id     flow-id
+                                    :rf.flow/path   path
                                     :rf.flow/before before
-                                    :rf.flow/after after}))
+                                    :rf.flow/after  after
+                                    :flow-id        flow-id
+                                    :path           path
+                                    :before         before
+                                    :result         after}))
 
 (defn- sub-run-ev
   [sub-vec changed? before after]
