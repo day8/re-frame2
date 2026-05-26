@@ -397,3 +397,199 @@
       ;; The collision triple no longer fuses source + target into one id.
       (is (not= (:source e) (:target e))
           ":a-b and :a/b stay distinct across an edge"))))
+
+;; ---- rf2-ezqpm: :always + :after transition coverage --------------------
+;;
+;; Pre-fix, `collect-edges` walked only `(:on state-node)`. `:always`
+;; (eventless / transient) and `:after` (delay-fired) transitions are
+;; first-class in Spec 005 — the chart was therefore showing a partial
+;; topology when a machine used either slot. These tests pin the edges'
+;; presence, labels (Stately glyph convention per rf2-a2b55), and the
+;; `:always?` / `:after` discriminators on the projected edges.
+
+(deftest parse-definition-emits-edge-for-always-transition
+  (testing "rf2-ezqpm — `:always` (eventless transient) emits an edge"
+    (let [def {:initial :checking
+               :states  {:checking {:always {:target :ready :guard :ok?}}
+                         :ready    {:final? true}}}
+          {:keys [edges]} (topology/parse-definition def)]
+      (is (= 1 (count edges)))
+      (let [e (first edges)]
+        (is (= [:checking] (:from e)))
+        (is (= [:ready]    (:to e)))
+        (is (true? (:always? e)))
+        (is (= :always (:event e)))
+        (is (= :ok? (:guard e)))
+        (is (= "∞ [ok?]" (:label e))
+            "label uses the Stately infinity glyph (rf2-a2b55)")))))
+
+(deftest parse-definition-emits-edge-for-bare-keyword-always
+  (testing "rf2-ezqpm — `:always :ready` (the bare-keyword shorthand)
+            is also charted (matches the `:on` shorthand grammar)"
+    (let [def {:initial :checking
+               :states  {:checking {:always :ready}
+                         :ready    {}}}
+          {:keys [edges]} (topology/parse-definition def)]
+      (is (= 1 (count edges)))
+      (is (= [:ready] (-> edges first :to)))
+      (is (true? (-> edges first :always?))))))
+
+(deftest parse-definition-emits-edge-for-always-vector-fork
+  (testing "rf2-ezqpm — `:always [{:target … :guard …} …]` (the guarded
+            fork grammar) emits one edge per candidate; ids are distinct
+            so xyflow keeps every branch"
+    (let [def {:initial :checking
+               :states  {:checking {:always [{:target :winner  :guard :enough-correct?}
+                                             {:target :loser   :guard :enough-wrong?}]}
+                         :winner   {}
+                         :loser    {}}}
+          {:keys [edges]} (topology/parse-definition def)]
+      (is (= 2 (count edges)))
+      (is (= #{[:winner] [:loser]} (set (map :to edges))))
+      (is (every? :always? edges))
+      (is (= 2 (count (set (map :id edges))))
+          "candidates mint DISTINCT edge ids (per-candidate ordinal)"))))
+
+(deftest parse-definition-emits-edge-for-after-transition
+  (testing "rf2-ezqpm — `:after {<ms> {:target …}}` emits one edge per
+            delay entry"
+    (let [def {:initial :loading
+               :states  {:loading {:after {5000 {:target :timeout}}}
+                         :timeout {:final? true}}}
+          {:keys [edges]} (topology/parse-definition def)]
+      (is (= 1 (count edges)))
+      (let [e (first edges)]
+        (is (= [:loading] (:from e)))
+        (is (= [:timeout] (:to e)))
+        (is (= 5000 (:after e)))
+        (is (= "⌚ 5000ms" (:label e))
+            "label uses the Stately clock glyph + `<ms>ms` (rf2-a2b55)")))))
+
+(deftest parse-definition-emits-edge-for-after-bare-keyword
+  (testing "rf2-ezqpm — `:after {<ms> :target-state}` shorthand"
+    (let [def {:initial :loading
+               :states  {:loading {:after {500 :ready}}
+                         :ready   {}}}
+          {:keys [edges]} (topology/parse-definition def)]
+      (is (= 1 (count edges)))
+      (is (= [:ready] (-> edges first :to)))
+      (is (= 500 (-> edges first :after))))))
+
+(deftest parse-definition-emits-one-edge-per-after-delay
+  (testing "rf2-ezqpm — each `:after` delay entry is INDEPENDENT and
+            emits its own edge (Spec 005 — one timer per entry)"
+    (let [def {:initial :idle
+               :states  {:idle {:after {500  {:target :short}
+                                        5000 {:target :long}}}
+                         :short {}
+                         :long  {}}}
+          {:keys [edges]} (topology/parse-definition def)]
+      (is (= 2 (count edges)))
+      (is (= #{500 5000} (set (map :after edges))))
+      (is (= 2 (count (set (map :id edges))))
+          "the two `:after` delays mint DISTINCT edge ids"))))
+
+(deftest parse-definition-after-edge-carries-guard-and-action
+  (testing "rf2-ezqpm — `:after` map spec surfaces guard + action into the label"
+    (let [def {:initial :loading
+               :states  {:loading {:after {1500 {:target :timeout
+                                                 :guard  :still-pending?
+                                                 :action :cleanup}}}
+                         :timeout {}}}
+          {:keys [edges]} (topology/parse-definition def)]
+      (is (= 1 (count edges)))
+      (is (= "⌚ 1500ms [still-pending?] / cleanup"
+             (-> edges first :label))))))
+
+(deftest parse-definition-mixes-on-always-after-on-one-state
+  (testing "rf2-ezqpm — all three transition slots co-exist on a state;
+            each emits its own edge(s) and the on-edges keep their old
+            shape (back-compat for the `:on` projection)"
+    (let [def {:initial :loading
+               :states  {:loading {:on     {:cancel :idle}
+                                   :after  {3000 {:target :timeout}}
+                                   :always {:target :ready :guard :data-loaded?}}
+                         :idle    {}
+                         :timeout {}
+                         :ready   {}}}
+          {:keys [edges]} (topology/parse-definition def)
+          by-target (group-by :to edges)]
+      (is (= 3 (count edges)))
+      ;; :on edge (unchanged)
+      (let [e (first (get by-target [:idle]))]
+        (is (= :cancel (:event e)))
+        (is (= "cancel" (:label e)))
+        (is (not (contains? e :after)))
+        (is (not (contains? e :always?))))
+      ;; :after edge
+      (let [e (first (get by-target [:timeout]))]
+        (is (= 3000 (:after e)))
+        (is (= "⌚ 3000ms" (:label e))))
+      ;; :always edge
+      (let [e (first (get by-target [:ready]))]
+        (is (true? (:always? e)))
+        (is (= "∞ [data-loaded?]" (:label e)))))))
+
+(deftest parse-definition-always-after-recurse-into-compound
+  (testing "rf2-ezqpm — `:always` / `:after` on a compound substate are
+            walked (recursion already covered `:on`; the new slots ride
+            the same recursion)"
+    (let [def {:initial :authed
+               :states  {:authed {:initial :browsing
+                                  :states  {:browsing {:after {1000 {:target :idle}}}
+                                            :idle     {:always {:target :browsing}}}}}}
+          {:keys [edges]} (topology/parse-definition def)
+          paths (set (map (juxt :from :to) edges))]
+      (is (contains? paths [[:authed :browsing] [:authed :idle]])
+          "nested :after edge surfaces")
+      (is (contains? paths [[:authed :idle] [:authed :browsing]])
+          "nested :always edge surfaces"))))
+
+(deftest project-surfaces-always-and-after-on-data
+  (testing "rf2-ezqpm — the projected xyflow `:data` carries `:always?`
+            / `:after` so the downstream renderer can split by kind
+            without re-parsing the label"
+    (let [def {:initial :loading
+               :states  {:loading {:after  {2000 {:target :timeout}}
+                                   :always {:target :ready :guard :ok?}}
+                         :timeout {}
+                         :ready   {}}}
+          out (topology/project {:definition def})
+          by-target (into {} (map (juxt :target identity) (:edges out)))
+          to-timeout (get by-target (chart-layout/node-id [:timeout]))
+          to-ready   (get by-target (chart-layout/node-id [:ready]))]
+      (is (= 2000 (-> to-timeout :data :after)))
+      (is (not (contains? (:data to-timeout) :always?))
+          "`:after` edge does not also carry `:always?`")
+      (is (true? (-> to-ready :data :always?)))
+      (is (not (contains? (:data to-ready) :after))
+          "`:always` edge does not also carry `:after`"))))
+
+(deftest project-includes-arrowhead-for-always-and-after
+  (testing "rf2-ezqpm — every projected edge (including `:always` /
+            `:after`) requests an arrowclosed markerEnd (rf2-5qsxo)"
+    (let [def {:initial :loading
+               :states  {:loading {:after  {2000 {:target :timeout}}
+                                   :always {:target :ready :guard :ok?}}
+                         :timeout {}
+                         :ready   {}}}
+          out (topology/project {:definition def})]
+      (is (= 2 (count (:edges out))))
+      (doseq [e (:edges out)]
+        (is (= "arrowclosed" (-> e :markerEnd :type)))))))
+
+(deftest project-applies-edge-style-fn-to-always-and-after
+  (testing "rf2-ezqpm — `:always` and `:after` edges run through the
+            same kind-resolution + style-fn pipeline as `:on` edges"
+    (let [def {:initial :loading
+               :states  {:loading {:after  {2000 {:target :timeout}}
+                                   :always {:target :ready}}
+                         :timeout {}
+                         :ready   {}}}
+          out (topology/project {:definition def
+                                 :edge-style-fn (fn [k]
+                                                  {:test-marker (str "edge-" (name k))})})
+          markers (set (map #(-> % :style :test-marker) (:edges out)))]
+      ;; Both edges resolve to :registered (no fired/traversed sets).
+      (is (= #{"edge-registered"} markers)
+          ":always + :after edges both go through edge-style-fn"))))

@@ -3223,6 +3223,27 @@ Edge label: `:micro` (`~10px`) JetBrains Mono in `:text-secondary`,
 rendered inline on the edge (xyflow's `label` prop), not in a side
 legend.
 
+**Transition kinds projected onto edges (rf2-ezqpm).** The topology
+projection at `tools/xray/src/.../panels/machines/topology.cljs`
+inspects all three first-class transition-source slots a state node
+may carry (Spec 005). Each emits its own edge; the edge style table
+above applies uniformly to all three kinds (their distinction is
+encoded in the label glyph, not the stroke). The label conventions
+match `machines-viz/chart.layout/event-segment` (rf2-a2b55, the single
+source of truth for the Stately graph-view glyphs):
+
+| Slot | Edge label segment | Edge data flags | Spec |
+|---|---|---|---|
+| `(:on    state-node)` — event-triggered | `event-id` (ns preserved; `:*` → `* (any)`) | (none) | Spec 005 §`:on` map |
+| `(:after state-node)` — delay-fired | `⌚ <delay>ms` | `:after <delay>` | Spec 005 §Delayed `:after` |
+| `(:always state-node)` — eventless / transient | `∞` | `:always? true` | Spec 005 §Eventless `:always` |
+
+`:after`'s `<delay>` is the ms-key of the `{ms transition-spec}` map
+entry — each entry schedules an independent timer and therefore mints
+its own edge. `:always`'s guarded-fork grammar (`[{:target … :guard …}
+…]`) forks into one edge per candidate; the per-candidate ordinal in
+the edge id keeps every branch addressable in xyflow.
+
 #### §17.4.4 Layout direction + default zoom
 
 - **Direction**: left-to-right (xyflow `dagre` `rankdir: 'LR'`) — matches

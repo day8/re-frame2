@@ -41,6 +41,26 @@
     - `:registered`           — every other edge (registered, never
                                 traversed).
 
+  ## Transition-source slots (rf2-ezqpm)
+
+  `collect-edges` walks THREE transition slots on every state node
+  (Spec 005 first-class — pre-rf2-ezqpm only `:on` was inspected,
+  dropping `:always` + `:after` entirely):
+
+    - `(:on    state-node)` — event-triggered transitions.
+    - `(:after state-node)` — delay-fired transitions. One edge per
+                              `[delay spec]` entry; edge carries
+                              `:after <delay>` + label `⌚ <delay>ms`.
+    - `(:always state-node)` — eventless / transient transitions.
+                              One edge per guarded candidate (the
+                              vector-of-maps fork grammar); edge
+                              carries `:always? true` + label `∞`.
+
+  Glyph conventions match `machines-viz/chart.layout/event-segment`
+  (rf2-a2b55 — Stately graph view). Downstream consumers can split
+  by transition-kind via the `:after` / `:always?` fields on each
+  edge (also surfaced into the projected `:data`).
+
   ## Layout posture
 
   Initial v1 uses a deterministic top-to-bottom grid lift from the
@@ -143,51 +163,174 @@
     (fn? v)      (or (some-> v meta :name str) "fn")
     :else        (str v)))
 
+(defn- event-segment-str
+  "Render the leading event segment of an edge label per the Stately
+  graph view convention (rf2-a2b55, single source of truth in
+  `machines-viz/chart.layout/event-segment`):
+
+    - `:after <delay>` transition  → `\"⌚ <delay>ms\"` (clock glyph)
+    - `:always`        transition  → `\"∞\"`           (infinity glyph)
+    - regular event keyword         → `\"event-id\"` (ns preserved)
+
+  The xstate-textual `after(<delay>)` / `always` forms are NOT used
+  here — the Figma reconcile (spec/021 §6.2) + rf2-a2b55 fix the glyphs
+  as the canonical encoding so an `:always` / `:after` edge reads at a
+  glance against ordinary event arrows."
+  [{:keys [event after always?]}]
+  (cond
+    after            (str "⌚ " after "ms")
+    always?          "∞"
+    :else            (seg-name event)))
+
 (defn- edge-label-str
   "Compose an xstate-stately edge label: `event [guard] / action`.
   Brackets / slash appear ONLY when the segment is present, matching
   `machines-viz`'s `chart.layout/edge-label` convention. Fn-safe via
-  `seg-name`."
-  [event-id guard action]
-  (str (seg-name event-id)
-       (when guard  (str " [" (seg-name guard) "]"))
-       (when action (str " / " (seg-name action)))))
+  `seg-name`. The event segment uses the Stately glyph for `:after`
+  and `:always` (rf2-a2b55 · rf2-ezqpm) — `event-segment-str`."
+  [edge]
+  (let [{:keys [guard action]} edge]
+    (str (event-segment-str edge)
+         (when guard  (str " [" (seg-name guard) "]"))
+         (when action (str " / " (seg-name action))))))
+
+(defn- target-of
+  "Pull the target keyword off a transition spec. The spec may be a
+  bare keyword (`:populated`) or a map (`{:target :populated …}`).
+  Returns nil for any other shape."
+  [spec]
+  (cond
+    (keyword? spec) spec
+    (map? spec)     (:target spec)
+    :else           nil))
+
+(defn- spec-attrs
+  "Pull `:guard` / `:action` off a transition spec map (or nil for a
+  bare-keyword spec)."
+  [spec]
+  (when (map? spec)
+    {:guard  (:guard spec)
+     :action (:action spec)}))
+
+(defn- on-edges
+  "Emit one edge per `(:on state-node)` entry. Event-triggered
+  transitions — the legacy projection's only edge kind."
+  [parent-path from-path on]
+  (for [[event-id target-spec] on
+        :let [target-id (target-of target-spec)
+              {:keys [guard action]} (spec-attrs target-spec)
+              to-path   (when target-id
+                          (conj (vec parent-path) target-id))]
+        :when to-path]
+    (let [edge {:from   from-path
+                :to     to-path
+                :event  event-id
+                :guard  guard
+                :action action}]
+      (assoc edge
+        :id    (str (node-id-for-path from-path) "__"
+                    (node-id-for-path to-path) "__"
+                    (name event-id))
+        :label (edge-label-str edge)))))
+
+(defn- after-edges
+  "Emit one edge per `(:after state-node)` entry — Spec 005 §Delayed
+  `:after` transitions (rf2-ezqpm). `after-map` is `{delay-ms spec
+  ...}`; each delay schedules an independent timer. Edge label uses the
+  Stately clock glyph + `<delay>ms` (rf2-a2b55)."
+  [parent-path from-path after-map]
+  (for [[delay spec] after-map
+        :let [target-id (target-of spec)
+              {:keys [guard action]} (spec-attrs spec)
+              to-path   (when target-id
+                          (conj (vec parent-path) target-id))]
+        :when to-path]
+    (let [edge {:from   from-path
+                :to     to-path
+                :event  (keyword (str "after-" delay))
+                :after  delay
+                :guard  guard
+                :action action}]
+      (assoc edge
+        :id    (str (node-id-for-path from-path) "__"
+                    (node-id-for-path to-path) "__"
+                    "after-" delay)
+        :label (edge-label-str edge)))))
+
+(defn- always-edges
+  "Emit one edge per `(:always state-node)` entry — Spec 005 §Eventless
+  `:always` transitions (rf2-ezqpm). `always-spec` may be a bare keyword
+  / map / vector-of-maps (the guarded-fork grammar). Edge label uses the
+  Stately infinity glyph (rf2-a2b55).
+
+  Multiple guarded candidates fork into multiple edges sharing the same
+  from→to event segment — the per-candidate ordinal disambiguates the
+  edge id so xyflow keeps every branch (mirrors `parse-flat`'s ordinal
+  scheme in `machines-viz/chart.layout`)."
+  [parent-path from-path always-spec]
+  (let [candidates (cond
+                     (nil? always-spec)     []
+                     (keyword? always-spec) [always-spec]
+                     (map? always-spec)     [always-spec]
+                     (vector? always-spec)  always-spec
+                     :else                  [])
+        base-id    (str (node-id-for-path from-path) "__always__")]
+    (->> candidates
+         (keep-indexed
+           (fn [idx spec]
+             (let [target-id (target-of spec)
+                   {:keys [guard action]} (spec-attrs spec)
+                   to-path   (when target-id
+                               (conj (vec parent-path) target-id))]
+               (when to-path
+                 (let [edge {:from    from-path
+                             :to      to-path
+                             :event   :always
+                             :always? true
+                             :guard   guard
+                             :action  action}]
+                   (assoc edge
+                     :id    (str base-id
+                                 (node-id-for-path to-path)
+                                 (when (pos? idx) (str "__" idx)))
+                     :label (edge-label-str edge)))))))
+         vec)))
 
 (defn- collect-edges
   "Walk a `{state-id state-node}` map; emit edges. Each edge is
-  `{:from :to :label :id :event :guard :action}`. Reads the `:on` map
-  (event-id → target-spec) on every state INCLUDING compound substates
-  (recurses). Map target-specs surface their `:guard` / `:action` into
-  the xstate-style label. Targets resolve relative to the source's
-  parent path; self-transitions (target == source) are emitted."
+  `{:from :to :label :id :event :guard :action [:after _] [:always? _]}`.
+  Reads three transition-source slots on every state (rf2-ezqpm —
+  previously only `:on` was inspected, dropping `:always` + `:after`
+  entirely):
+
+    - `(:on state-node)`     — event-triggered transitions (legacy).
+    - `(:after state-node)`  — delay-fired transitions (Spec 005
+                               §Delayed `:after`). One edge per entry
+                               with `:after <delay>` set; label is
+                               `⌚ <delay>ms` (Stately convention,
+                               rf2-a2b55).
+    - `(:always state-node)` — eventless transitions (Spec 005
+                               §Eventless `:always`). One edge per
+                               guarded candidate with `:always? true`;
+                               label is `∞` (Stately convention,
+                               rf2-a2b55).
+
+  Compound substates recurse. Map target-specs surface their `:guard` /
+  `:action` into the xstate-style label. Targets resolve relative to
+  the source's parent path; self-transitions (target == source) are
+  emitted."
   [parent-path state-map]
   (when (map? state-map)
     (vec
       (mapcat
         (fn [[state-id state-node]]
           (let [from-path (conj (vec parent-path) state-id)
-                own (when-let [on (:on state-node)]
-                      (for [[event-id target-spec] on
-                            :let [target-id (cond
-                                              (keyword? target-spec) target-spec
-                                              (map? target-spec)     (:target target-spec)
-                                              :else                  nil)
-                                  guard     (when (map? target-spec) (:guard target-spec))
-                                  action    (when (map? target-spec) (:action target-spec))
-                                  to-path   (when target-id
-                                              (conj (vec parent-path) target-id))]
-                            :when to-path]
-                        {:id    (str (node-id-for-path from-path) "__"
-                                     (node-id-for-path to-path) "__"
-                                     (name event-id))
-                         :from  from-path
-                         :to    to-path
-                         :label (edge-label-str event-id guard action)
-                         :event event-id
-                         :guard guard
-                         :action action}))
-                nested (when (:states state-node)
-                         (collect-edges from-path (:states state-node)))]
+                own       (concat
+                            (on-edges     parent-path from-path (:on    state-node))
+                            (after-edges  parent-path from-path (:after state-node))
+                            (always-edges parent-path from-path (:always state-node)))
+                nested    (when (:states state-node)
+                            (collect-edges from-path (:states state-node)))]
             (concat own nested)))
         state-map))))
 
@@ -401,6 +544,13 @@
                             :color  (or (:stroke style) "currentColor")
                             :width  18
                             :height 18}
-                :data     {:kind  kind
-                           :event (:event e)}}))
+                :data     (cond-> {:kind  kind
+                                   :event (:event e)}
+                            ;; rf2-ezqpm — `:always?` / `:after` flags
+                            ;; surface on the projected edge so the
+                            ;; downstream renderer (or a test asserting
+                            ;; the transition-category split) can read
+                            ;; the kind without re-parsing the label.
+                            (:always? e) (assoc :always? true)
+                            (:after   e) (assoc :after (:after e)))}))
            edges)}))
