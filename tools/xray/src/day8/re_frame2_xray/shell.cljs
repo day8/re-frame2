@@ -1110,9 +1110,24 @@
      ;; was dropped (A4); the cluster now leads with the `Events` label.
      ;; rf2-pjjwh retired the focus button + focus-chip with the focus
      ;; feature.
+     ;; rf2-axpq2 — `:flex-wrap "nowrap"` on the LEFT cluster. The prior
+     ;; `wrap` caused the [+] add-pill (the cluster's last child) to wrap
+     ;; onto a second line at ~420px viewports, where it overflowed the
+     ;; fixed 34px chrome-ribbon height and got vertically occluded by the
+     ;; events-ribbon below — click-blocked. The Figma authority chrome-
+     ;; ribbon does NOT wrap (`design-reference/xray_devtools_reference
+     ;; .cljs` `chrome-ribbon` uses plain non-wrapping flex). Keeping
+     ;; nowrap lets the cluster overflow horizontally instead — the [+]
+     ;; stays inline at y=ribbon-centre and remains hit-testable until it
+     ;; runs past the viewport edge.
      [:div {:data-testid "rf-xray-ribbon-selectors"
             :style {:display "flex" :align-items "center" :gap "13px"
-                    :flex-wrap "wrap"}}
+                    :flex-wrap "nowrap"
+                    ;; The cluster is allowed to shrink but its children
+                    ;; carry `white-space: nowrap` so they stay legible;
+                    ;; horizontal overflow goes off-screen rather than
+                    ;; wrapping into the row below.
+                    :min-width "0"}}
       ;; rf2-xawwb — `Event History` label leads the left cluster (Figma-
       ;; Make surface renamed `Events` → `Event History`). White ink on the
       ;; dark chrome band (`chrome-ribbon-text`).
