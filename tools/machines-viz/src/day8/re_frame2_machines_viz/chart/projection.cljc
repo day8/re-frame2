@@ -63,6 +63,35 @@
   "Minimum height for a compound container."
   120)
 
+;; ---- synthetic event-node helpers --------------------------------------
+;;
+;; rf2-qo5xy events-as-nodes paradigm: each parsed transition emits ONE
+;; synthetic xyflow node sitting between source and target states. These
+;; two tiny pure helpers bucket the variant + mint the stable id, and are
+;; consumed by BOTH the elk children projection (`elk-event-child` below)
+;; AND the main `xyflow-graph` projector further down — so they live
+;; above both rather than buried inside the graph-projection section.
+
+(defn event-variant
+  "rf2-qo5xy — bucket a parsed edge by its event variant for the
+  events-as-nodes paradigm: `:after` (clock glyph), `:always`
+  (infinity glyph), or `:on` (regular event keyword). Pure data → keyword."
+  [edge]
+  (cond
+    (:after edge)   :after
+    (:always? edge) :always
+    :else           :on))
+
+(defn event-node-id
+  "rf2-qo5xy — stable string id for an event-node. The xyflow node
+  inserted between the source state and the (optional) target state
+  in the events-as-nodes paradigm. Derived from the canonical edge-id
+  (`chart.layout/edge-id`) so two transitions sharing source/target/
+  event/guard/action keep distinct event-node ids — the same
+  collision-tiebreak `chart.layout/parse-flat` applies."
+  [edge]
+  (str "event__" (:id edge)))
+
 ;; ---- elk.js children projection ----------------------------------------
 
 (def event-node-elk-width
@@ -173,26 +202,6 @@
   inspector, not as an edge in this chart."
   [edge]
   (if (:after edge) "after" "transition"))
-
-(defn event-variant
-  "rf2-qo5xy — bucket a parsed edge by its event variant for the
-  events-as-nodes paradigm: `:after` (clock glyph), `:always`
-  (infinity glyph), or `:on` (regular event keyword). Pure data → keyword."
-  [edge]
-  (cond
-    (:after edge)   :after
-    (:always? edge) :always
-    :else           :on))
-
-(defn event-node-id
-  "rf2-qo5xy — stable string id for an event-node. The xyflow node
-  inserted between the source state and the (optional) target state
-  in the events-as-nodes paradigm. Derived from the canonical edge-id
-  (`chart.layout/edge-id`) so two transitions sharing source/target/
-  event/guard/action keep distinct event-node ids — the same
-  collision-tiebreak `chart.layout/parse-flat` applies."
-  [edge]
-  (str "event__" (:id edge)))
 
 (defn xyflow-graph
   "Project the parsed graph + a `{node-id position}` map into the
