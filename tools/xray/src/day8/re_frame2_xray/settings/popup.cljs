@@ -8,14 +8,25 @@
   `:rf.xray/settings-open?` is false; closed-state cost is one
   subscribe + a `when`.
 
-  ## Sections (rf2-9poxq + rf2-jh9ws + rf2-ttnst)
+  ## Sections (rf2-9poxq + rf2-jh9ws + rf2-ttnst + rf2-ou3pn + rf2-wknb3)
 
-  Six inner tabs:
-  General | Theme | Filters | Keybindings | Buffer | Diff. The top
-  tab strip drives which body section renders. Inner mnemonics
-  (`g` / `t` / `f` / `k` / `b` / `d`) switch tabs while the modal
-  is focused — captured by the dialog's `on-key-down`, gated against
-  the editable-target case so numeric inputs are not interrupted.
+  Four inner tabs:
+  General | Keybindings | Buffer | Diff. The top tab strip drives
+  which body section renders. Inner mnemonics (`g` / `k` / `b` /
+  `d`) switch tabs while the modal is focused — captured by the
+  dialog's `on-key-down`, gated against the editable-target case so
+  numeric inputs are not interrupted.
+
+  The Theme tab was retired (rf2-ou3pn) — the ribbon's sun/moon icon
+  is now the canonical light/dark affordance. The `:use-system-colors?`
+  HCM-override checkbox moved to General → Power user.
+
+  The Filters tab was retired (rf2-wknb3) — full filter management
+  lives in the top-ribbon pill strip (`filters/pills.cljs`), the
+  per-pill edit popup (`filters/edit_popup.cljs`), and the mute
+  manager modal (rf2-ikuwt). The settings tab's only widget was a
+  dead-chrome 'Open auto-filter UI' button dispatching an
+  unregistered event.
 
   Keybindings (rf2-ttnst) v1 is READ-ONLY — a chord catalogue plus
   the master `:rf.xray/keybinding-enabled?` toggle. Rebind UI is the
