@@ -28,12 +28,16 @@
   xyflow `MachineChart` (`chart.nodes` / `chart.edges` / `chart.cljs`)
   reads every constant off the resolved density map (threaded through
   the projector's per-node/per-edge `:data`) instead of hardcoding.
-  The drifted tag-pill values were reconciled to the shipped renderer
-  numbers (so wiring `:density` introduced no visual regression), and
-  two render constants the renderer hardcoded — `:compound-radius`,
-  `:tag-pill-radius` — were promoted into the maps. This suite now
-  guards live render code, not just the spec data-contract it pinned
-  before."
+
+  rf2-so5b0 — the visible state-tag pill row retired in favour of a
+  hover-only `title` + `data-tags` attr on the state-node body, per
+  the xstate/Stately convention (the chart canvas is for STRUCTURAL
+  chrome only; user-declared tags are a programmatic concept the host
+  surfaces in its inspector list, not on the topology). The
+  `:tag-pill-*` key family DROPPED from the density maps along with
+  the visible row — the test catalogue here is updated in lockstep
+  so a stray re-introduction of `:tag-pill-height` etc. fails the
+  shape pins."
   (:require
     #?(:clj  [clojure.test :refer [deftest is testing]]
        :cljs [cljs.test    :refer-macros [deftest is testing]])
@@ -66,13 +70,10 @@
     ;; rf2-ee38b.21 — :caption-strip-px / :caption-text-px removed:
     ;; no renderer ever read them (there is no caption strip in the
     ;; chart). They were carried only to satisfy this parity test.
-    ;; state-tag pills (rf2-m1b88; rf2-k647w drift reconciled to shipped)
-    :tag-pill-height
-    :tag-pill-pad-x
-    :tag-pill-px
-    :tag-pill-radius                ;; rf2-k647w — render constant promoted
-    :tag-pill-gap
-    :tag-pill-row-gap
+    ;; rf2-so5b0 — `:tag-pill-*` family removed: the visible
+    ;; state-tag pill row retired in favour of a hover-only `title`
+    ;; + `data-tags` attr on the state-node body, so the chart has
+    ;; no pill geometry to parameterise.
     ;; dot-grid background (rf2-m4nj4)
     :dot-grid-spacing-px
     :dot-grid-radius-px
@@ -132,21 +133,6 @@
             floor fails CI."
     (is (= 13 (:state-label-px vc/chart)))
     (is (= 11 (:edge-label-px vc/chart)))))
-
-(deftest chart-regular-tag-pill-matches-shipped-render
-  (testing "rf2-k647w — `chart-regular`'s tag-pill geometry/typography
-            equals the values the xyflow renderer SHIPPED before this
-            bead (height 16 / pad-x 6 / px 9 / radius 8 / row-gap 3).
-            Pre-bead the renderer hardcoded these while `chart-regular`
-            carried the older 12/5/8/-/4. The reconciliation moved
-            `chart-regular` to the shipped reality so wiring `:density`
-            introduces NO visual regression at the default. Pin so a
-            future edit can't silently re-open the drift."
-    (is (= 16 (:tag-pill-height vc/chart)))
-    (is (= 6  (:tag-pill-pad-x vc/chart)))
-    (is (= 9  (:tag-pill-px vc/chart)))
-    (is (= 8  (:tag-pill-radius vc/chart)))
-    (is (= 3  (:tag-pill-row-gap vc/chart)))))
 
 (deftest chart-regular-compound-radius-matches-shipped-render
   (testing "rf2-k647w — `chart-regular`'s `:compound-radius` equals the
@@ -235,21 +221,17 @@
            (:dot-grid-spacing-px vc/chart-regular)
            (:dot-grid-spacing-px vc/chart-cosy)))))
 
-(deftest density-tag-pill-and-compound-render-constants-monotonic
-  (testing "rf2-k647w — the render constants the renderer now reads off
-            the resolved density (tag-pill height/radius, compound
-            radius) track the density axis monotonically too. The
-            corner-radius lock (6) is the ONLY geometry that does not
-            scale; everything the renderer paints by quantity does."
-    (is (< (:tag-pill-height vc/chart-compact)
-           (:tag-pill-height vc/chart-regular)
-           (:tag-pill-height vc/chart-cosy)))
-    (is (< (:tag-pill-radius vc/chart-compact)
-           (:tag-pill-radius vc/chart-regular)
-           (:tag-pill-radius vc/chart-cosy)))
-    (is (< (:tag-pill-px vc/chart-compact)
-           (:tag-pill-px vc/chart-regular)
-           (:tag-pill-px vc/chart-cosy)))
+(deftest density-compound-radius-monotonic
+  (testing "rf2-k647w — `:compound-radius` (the render constant the
+            renderer now reads off the resolved density) tracks the
+            density axis monotonically. The corner-radius lock (6)
+            is the ONLY geometry that does not scale; everything the
+            renderer paints by quantity does.
+
+            rf2-so5b0 — the historical sibling assertions on
+            `:tag-pill-height` / `:tag-pill-radius` / `:tag-pill-px`
+            retired with the visible pill row; the chart no longer
+            carries pill geometry to assert monotonic over."
     (is (< (:compound-radius vc/chart-compact)
            (:compound-radius vc/chart-regular)
            (:compound-radius vc/chart-cosy)))))

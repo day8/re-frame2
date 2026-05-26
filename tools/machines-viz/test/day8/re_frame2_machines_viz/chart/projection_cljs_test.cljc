@@ -719,18 +719,23 @@
 
 (deftest xyflow-graph-density-changes-threaded-constants
   (testing "rf2-k647w — switching the density threads a DIFFERENT
-            constants map: the regular projection's tag-pill height
-            differs from the compact projection's, proving `:density`
-            actually changes what the renderer paints"
+            constants map: the regular projection's state-label font
+            size differs from the compact projection's, proving
+            `:density` actually changes what the renderer paints.
+
+            rf2-so5b0 — historical assertions on `:tag-pill-height`
+            replaced with `:state-label-px` since the tag-pill family
+            retired with the visible pill row; the state-label keys
+            are now the density's load-bearing typography surface."
     (let [parsed   (layout/parse-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           regular  (-> (projection/xyflow-graph parsed {} {:chart vc/chart-regular})
                        (node-by-id idle-id) :data :chart)
           compact  (-> (projection/xyflow-graph parsed {} {:chart vc/chart-compact})
                        (node-by-id idle-id) :data :chart)]
-      (is (not= (:tag-pill-height regular) (:tag-pill-height compact)))
-      (is (= 16 (:tag-pill-height regular)))
-      (is (= 13 (:tag-pill-height compact)))
+      (is (not= (:state-label-px regular) (:state-label-px compact)))
+      (is (= 13 (:state-label-px regular)))
+      (is (= 11 (:state-label-px compact)))
       ;; corner-radius is the locked invariant — identical across both
       (is (= (:corner-radius regular) (:corner-radius compact) 6)))))
 

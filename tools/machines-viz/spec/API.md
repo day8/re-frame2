@@ -467,8 +467,19 @@ For the supplied `:definition`, the chart shows:
   flips that palette to amber for the simulator path.
 - **`:final?` states.** Rendered with a doubled border + checkmark
   glyph (per `chart.nodes/state-node`).
-- **State-tag badges.** Each state node carries a tag pill per state
-  tag (per `chart.nodes/tag-pill`; Spec 005 §State tags).
+- **State tags surface as a hover tooltip (rf2-so5b0).** A state's
+  declared `:tags` set (Spec 005 §State tags) renders on the state
+  node as a sorted space-joined string on both the `title` attr
+  (native HTML hover tooltip) and the `data-tags` attr (DOM tests +
+  host introspection). The chart canvas is reserved for STRUCTURAL
+  chrome (state name, nesting, transitions) per the xstate / Stately
+  convention; tags are a programmatic concept the host surfaces in
+  its inspector list, NOT as visible per-tag pills on each state node
+  (the historical pill row was retired because a per-tag chip row
+  inflated each state node's footprint — most acutely on nested
+  compound substates whose tag set restated the parent's ancestry —
+  and visually competed with the structural label + entry/exit
+  rows).
 - **`:after` countdown rings (overlay, host-fed).** When the host
   passes a non-empty `:after-ring-specs` vector the chart mounts the
   `chart.overlays.after-rings` overlay as a sibling of the canvas; it

@@ -66,11 +66,10 @@
 
 (def region-boundary-palette
   "Deterministic colour rotation for parallel-region boundaries
-  (rf2-lkwev). Distinct from the tag-pill palette: regions are
-  structural zones (not per-state badges), so the rotation leads with
-  `:accent` (the structural-container colour the compound-node
-  chrome already uses) and spreads across cool/warm so adjacent
-  regions read as distinct orthogonal zones."
+  (rf2-lkwev). Regions are STRUCTURAL zones (not per-state badges),
+  so the rotation leads with `:accent` (the structural-container
+  colour the compound-node chrome already uses) and spreads across
+  cool/warm so adjacent regions read as distinct orthogonal zones."
   [:accent :info :orange :green :magenta :yellow])
 
 (defn region-boundary-color-key
