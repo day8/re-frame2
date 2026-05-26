@@ -18,8 +18,9 @@
        `:rf.event/run-end` stamp fallback.
     3. `handler-row` — flavour discrimination (reg-event-db /
        reg-event-fx / reg-machine) from the trace stream.
-    4. `flow-step` — conditional: present iff `:rf.flow/computed`
-       fired (rf2-yhgk8 — substrate-canonical op-name).
+    4. `flow-rows` — one row per `:rf.flow/computed` event;
+       `project` splats into N first-class FLOW steps in the
+       cascade (rf2-xnb1x, mirror of cofx per-step split).
     5. `fx-step` — conditional: present iff any `:rf.fx/*` event fired.
     6. `subscriptions-step` — conditional: present iff `:rf.sub/*`
        events fired.
@@ -846,16 +847,46 @@
 
 ;; ---- FLOW ---------------------------------------------------------------
 
-(deftest flow-step-conditional-test
-  (testing "no flow events → step is OMITTED"
-    (is (nil? (proj/flow-step []))))
+(deftest flow-steps-cascade-shape-test
+  (testing "rf2-xnb1x — no flow events → no FLOW step in the cascade"
+    (let [record {:trace-events [{:op-type   :rf.event
+                                  :operation :rf.event/dispatched
+                                  :tags      {:rf.event/event [:noop]}}]}
+          steps  (proj/project record)
+          flows  (filter #(= :flow (:step %)) steps)]
+      (is (empty? flows)
+          "zero flow events → no FLOW step rendered")))
 
-  (testing "flow event present → step is rendered"
-    (let [s (proj/flow-step [(flow-recomputed-ev :total-parity [:total] 5 6)])]
-      (is (= :flow (:step s)))
-      (is (= :FLOW (:badge s)))
-      (is (= 1 (count (:rows s))))
-      (is (= :total-parity (-> s :rows first :flow-id))))))
+  (testing "rf2-xnb1x — one flow event → ONE FLOW step"
+    (let [record {:trace-events [{:op-type   :rf.event
+                                  :operation :rf.event/dispatched
+                                  :tags      {:rf.event/event [:counter/inc]}}
+                                 (flow-recomputed-ev :total-parity [:total] 5 6)]}
+          steps  (proj/project record)
+          flows  (filter #(= :flow (:step %)) steps)]
+      (is (= 1 (count flows)))
+      (let [f (first flows)]
+        (is (= :flow         (:step f)))
+        (is (= :FLOW         (:badge f)))
+        (is (= :total-parity (:flow-id f)))
+        (is (= [:total]      (:path f)))
+        (is (= 5             (:before f)))
+        (is (= 6             (:after f))))))
+
+  (testing "rf2-xnb1x — N flow events → N first-class FLOW steps, each
+            carrying its own flow-id + path + before/after pair"
+    (let [record {:trace-events [{:op-type   :rf.event
+                                  :operation :rf.event/dispatched
+                                  :tags      {:rf.event/event [:checkout/begin]}}
+                                 (flow-recomputed-ev :cart/total [:cart :total] 120 195)
+                                 (flow-recomputed-ev :cart/n-items [:cart :n] 2 3)]}
+          steps  (proj/project record)
+          flows  (filter #(= :flow (:step %)) steps)]
+      (is (= 2 (count flows))
+          "two flow events → two FLOW steps (mirrors per-cofx COEFFECT split)")
+      (is (= [:cart/total :cart/n-items]
+             (mapv :flow-id flows))
+          "preserves substrate-order"))))
 
 (deftest flow-rows-reads-canonical-substrate-shape-test
   (testing "rf2-yhgk8 — substrate emits `:rf.flow/computed` with BARE

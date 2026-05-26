@@ -580,11 +580,16 @@
 ;; the cascade after the handler returns — the framework runs flows
 ;; at the outermost :after, transforming the pending :db before the
 ;; single deferred install (per `re-frame.flow`).
+;;
+;; rf2-xnb1x: the projection splats each flow into its OWN numbered
+;; FLOW step (mirror of the per-cofx COEFFECT split). This fixture
+;; renders THREE first-class FLOW steps in the cascade — operator
+;; counts flows by counting circles, not rows-in-a-step.
 
 (defn flows-history
   "Cascade triggering three downstream flows — `:cart/total`,
-  `:cart/item-count`, `:cart/badge`. Exercises the FLOW step's
-  per-row before/after rendering."
+  `:cart/item-count`, `:cart/badge`. Drives THREE numbered FLOW
+  steps in the cascade per the rf2-xnb1x per-flow split."
   []
   (single-epoch-history
     {:epoch-id 6

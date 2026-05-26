@@ -656,30 +656,9 @@
    :padding-left "16px"})
 
 ;; -- FLOW ------------------------------------------------------------------
-
-(def ^:private flow-row-style
-  {:padding "3px 0"})
-
-(def ^:private flow-row-id-style
-  {:display     "inline-flex"
-   :gap         "4px"
-   :font-family mono-stack
-   :font-size   "12px"
-   :color       accent-colour})
-
-(def ^:private flow-row-duration-style
-  {:color text-tertiary-colour :margin-left "8px"})
-
-(def ^:private flow-row-path-style
-  {:display     "flex"
-   :align-items "flex-start"
-   :gap         "8px"
-   :padding     "2px 0 2px 21px"
-   :font-family mono-stack
-   :font-size   "12px"})
-
-(def ^:private flow-row-warning-glyph-style
-  {:color warning-colour :font-weight 700})
+;;
+;; rf2-xnb1x — FLOW steps reuse the COEFFECT body styles (coeffect-body-*).
+;; The legacy per-row flow styles retired with the aggregate step shape.
 
 ;; -- FX --------------------------------------------------------------------
 
@@ -2353,52 +2332,76 @@
 
 ;; ---- FLOW step -----------------------------------------------------------
 
-(defn- flow-row-view
-  "Render one flow recompute row — id link + diff-style line.
-
-  Argument order matches `map-indexed`'s `(f idx item)` convention
-  (rf2-cq0ch — companion swap with `coeffect-row-view` / `fx-row-view`)."
-  [idx {:keys [flow-id path before after duration-ms]}]
-  [:div {:key (str "flow-" idx)
-         :data-testid (str "rf-xray-epoch-flow-row-" idx)
-         :style flow-row-style}
-   [:div {:style flow-row-id-style}
-    (proj/ns-keyword flow-id)
-    (icons/external-link)
-    (when (number? duration-ms)
-      [:span {:style flow-row-duration-style}
-       (proj/format-duration-ms duration-ms)])]
-   (when (sequential? path)
-     [:div {:style flow-row-path-style}
-      [:span {:style flow-row-warning-glyph-style} "~"]
-      [:span {:style cascade-detail-label-style}
-       (proj/path-display path)]
-      ;; rf2-8w8er — before/after render through the edn-inspector
-      ;; `mini` widget so per-token syntax chrome paints (numbers
-      ;; orange, keywords magenta, sentinels chip).
-      (when (some? before)
-        [:span {:style diff-before-style} [ei/mini before 30]])
-      (when (and (some? before) (some? after))
-        [:span {:style cascade-detail-label-style} "→"])
-      (when (some? after)
-        [:span {:style diff-after-success-style} [ei/mini after 30]])])])
-
 (defn render-flow-step
-  "Render the FLOW step (only present when flows fired)."
-  [{:keys [rows step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-flow"
-         :data-step-kw "flow"}
-   (numbered-circle step-number :FLOW)
-   (step-header
-     {:step :flow
-      :badge :FLOW
-      :verb (str (count rows) " flow"
-                 (when (not= 1 (count rows)) "s") " recomputed")
-      :expandable? false
-      :testid "rf-xray-epoch-flow"}
-     nil)
-   [:div {:style margin-top-5-style}
-    (map-indexed flow-row-view rows)]])
+  "Render one FLOW step — one PER flow that fired (rf2-xnb1x — mirror
+  of the COEFFECT per-cofx restructure from pair-debug 2026-05-26).
+  Each flow recompute gets its own numbered pipeline entry with the
+  flow-id rendered as the verb (clickable to source when the
+  registered flow carries `:file`/`:line` meta from `reg-flow`).
+
+  The projection emits N flow step maps for a cascade with N flow
+  recomputes; the body row renders the diff (path · before → after)
+  beneath the badge, left-aligned with no extra indent — same body
+  layout as the COEFFECT step."
+  [{:keys [flow-id path before after duration-ms step-number]}]
+  (let [flow-meta  (when (keyword? flow-id)
+                     (try (rf/handler-meta :flow flow-id)
+                          (catch :default _ nil)))
+        coord      (when (and flow-meta (string? (:file flow-meta)))
+                     {:file (:file flow-meta) :line (:line flow-meta)})
+        clickable? (and (map? coord) (seq (:file coord)))
+        label      (proj/ns-keyword flow-id)]
+    [:div {:data-testid (str "rf-xray-epoch-step-flow-" (name flow-id))
+           :data-step-kw "flow"
+           :data-flow-id (name flow-id)}
+     (numbered-circle step-number :FLOW)
+     (step-header
+       {:step :flow
+        :badge :FLOW
+        ;; Verb = flow-id (clickable when coord captured). Same
+        ;; affordance shape as the COEFFECT step's cofx-id hyperlink.
+        :verb (if clickable?
+                [:button {:data-testid (str "rf-xray-epoch-flow-id-" (name flow-id))
+                          :aria-label  (str "open " (:file coord)
+                                            (when (:line coord)
+                                              (str ":" (:line coord)))
+                                            " in editor")
+                          :title       (str "open " (:file coord)
+                                            (when (:line coord)
+                                              (str ":" (:line coord)))
+                                            " in editor")
+                          :on-click    (fn [e]
+                                         (.stopPropagation e)
+                                         (rf/dispatch
+                                           [:rf.xray/open-in-editor
+                                            {:source-coord coord}]
+                                           {:frame :rf/xray}))
+                          :style coeffect-verb-link-button-style}
+                 label
+                 (icons/external-link)]
+                [:span {:data-testid (str "rf-xray-epoch-flow-id-" (name flow-id))
+                        :style coeffect-verb-plain-style}
+                 label])
+        :expandable? false
+        :testid (str "rf-xray-epoch-flow-" (name flow-id))
+        :duration-ms duration-ms}
+       nil)
+     ;; Body — `[path] before → after` diff line, left-aligned with
+     ;; the badge (no extra indent). Mirrors the COEFFECT step's
+     ;; body layout (pair-debug 2026-05-26).
+     (when (sequential? path)
+       [:div {:data-testid (str "rf-xray-epoch-flow-value-" (name flow-id))
+              :style coeffect-body-style}
+        [:span {:style coeffect-body-plus-style}
+         (if (some? before) "~" "+")]
+        [:span {:style coeffect-body-path-style}
+         (proj/path-display path)]
+        (when (some? before)
+          [:span {:style diff-before-style} [ei/mini before 30]])
+        (when (and (some? before) (some? after))
+          [:span {:style coeffect-body-path-style} "→"])
+        (when (some? after)
+          [:span {:style coeffect-body-value-style} [ei/mini after 30]])])]))
 
 ;; ---- FX step -------------------------------------------------------------
 
@@ -2407,8 +2410,7 @@
   + truncated args.
 
   Argument order matches `map-indexed`'s `(f idx item)` convention
-  (rf2-cq0ch — companion swap with `coeffect-row-view` /
-  `flow-row-view`).
+  (rf2-cq0ch — companion swap with `coeffect-row-view`).
 
   Per rf2-uffov: when the row carries `:attributed-to`, a muted
   `← <action-id>` attribution chip rides alongside so the operator

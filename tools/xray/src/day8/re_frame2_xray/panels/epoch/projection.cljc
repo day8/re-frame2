@@ -750,16 +750,13 @@
          :after       (common/tag-of ev :result)
          :duration-ms (common/tag-of ev :elapsed-ms)}))))
 
-(defn flow-step
-  "Top-level FLOW step (single row carrying the flow-rows). nil when no
-  flows fired (the step is OMITTED from the cascade — conditional
-  rendering per the bead body)."
-  [events]
-  (let [rows (flow-rows events)]
-    (when (seq rows)
-      {:step  :flow
-       :badge :FLOW
-       :rows  rows})))
+;; rf2-xnb1x — FLOW is splatted into ONE step per flow that fired
+;; (mirror of the COEFFECT per-cofx split). Each step map carries the
+;; row's slots directly; the cascade reads the count of FLOW steps
+;; the same way it reads the count of COEFFECT steps — one numbered
+;; circle per first-class entry. The `flow-step` aggregate retired
+;; with rf2-xnb1x; the splicing in `project` consumes `flow-rows`
+;; directly.
 
 ;; ---- FX step -------------------------------------------------------------
 
@@ -1311,28 +1308,45 @@
                                  (some? duration-ms)
                                  (assoc :duration-ms duration-ms)))
                              cofx-rows)
+            ;; rf2-xnb1x — one FLOW step per flow that fired (mirror
+            ;; of the cofx-steps splat above). The operator counts
+            ;; flows by counting numbered circles in the cascade
+            ;; rather than counting rows inside a single aggregate
+            ;; step. `flow-rows` projection (per-row data) is
+            ;; unchanged; the aggregation shape was the only thing
+            ;; that changed.
+            flow-steps (mapv (fn [{:keys [flow-id path before after duration-ms]}]
+                               (cond-> {:step    :flow
+                                        :badge   :FLOW
+                                        :flow-id flow-id
+                                        :path    path
+                                        :before  before
+                                        :after   after}
+                                 (some? duration-ms)
+                                 (assoc :duration-ms duration-ms)))
+                             (flow-rows events))
             steps     (vec
                         (concat
                           [(dispatch-row events fallback)]
                           cofx-steps
-                          [(handler-row events event-id db-before db-after)
-                       ;; APP-DB DIFF removed pair-debug 2026-05-26 —
-                       ;; redundant with the HANDLER step's `:db`
-                       ;; sub-section's [diff][all] toggle which
-                       ;; surfaces the same data IN-context.
-                       (flow-step events)
-                       (fx-step events)
-                       ;; CHILD DISPATCHES step removed pair-debug
-                       ;; 2026-05-26 — redundant with the FX step which
-                       ;; already surfaces each `:dispatch` /
-                       ;; `:dispatch-n` / `:dispatch-later` fx entry.
-                       (subscriptions-step events)
-                       (views-step events)
-                       ;; rf2-17vxj — schema violations ride at the end of
-                       ;; the cascade so the operator sees the boundary
-                       ;; check that may have rolled back THIS cascade
-                       ;; AFTER reading the steps that drove it.
-                       (schema-violations-step events)]))]
+                          [(handler-row events event-id db-before db-after)]
+                          ;; APP-DB DIFF removed pair-debug 2026-05-26 —
+                          ;; redundant with the HANDLER step's `:db`
+                          ;; sub-section's [diff][all] toggle which
+                          ;; surfaces the same data IN-context.
+                          flow-steps
+                          [(fx-step events)
+                           ;; CHILD DISPATCHES step removed pair-debug
+                           ;; 2026-05-26 — redundant with the FX step which
+                           ;; already surfaces each `:dispatch` /
+                           ;; `:dispatch-n` / `:dispatch-later` fx entry.
+                           (subscriptions-step events)
+                           (views-step events)
+                           ;; rf2-17vxj — schema violations ride at the end of
+                           ;; the cascade so the operator sees the boundary
+                           ;; check that may have rolled back THIS cascade
+                           ;; AFTER reading the steps that drove it.
+                           (schema-violations-step events)]))]
         (filterv some? steps)))))
 
 (defn number-steps

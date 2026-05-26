@@ -1778,6 +1778,36 @@ step with N rows" to "N steps, one per injected cofx" (see §9.1.3
   :trace-id` are filtered before splitting (rf2-cq0ch). A cascade
   with no surviving user-cofx renders zero COEFFECT steps.
 
+### §9.1.10.8 FLOW step chrome (rf2-xnb1x · pair-debug 2026-05-27)
+
+The FLOW step was restructured from "one step with N rows" to
+"N steps, one per flow that recomputed", mirroring the COEFFECT
+per-cofx split (§9.1.10.7). The projection splats `flow-rows`
+into N first-class step maps in `project`'s cascade `concat`;
+each carries `:flow-id`, `:path`, `:before`, `:after`, and
+`:duration-ms` (when stamped). The aggregate `flow-step` defn
+retired with rf2-xnb1x.
+
+The accompanying view-layer chrome:
+
+- **Header** — `:FLOW` badge + flow-id button to the right of
+  the badge. The button is clickable when
+  `(rf/handler-meta :flow <id>)` returns a coordinate (click-to-source
+  jumps through the shared `:rf.xray/open-in-editor` allowlist —
+  see §9.1.11); otherwise the id renders as a plain coloured span.
+  An external-link glyph trails the id when source-jump is wired.
+- **Body** — `<glyph> [path] before → after` diff-style line,
+  left-aligned with the badge (no indent), reusing the COEFFECT
+  body styles (`coeffect-body-*`). Glyph is `~` for an update
+  (both before and after present) or `+` for a first-write (no
+  before). Values render through the edn-inspector `mini` widget.
+- **Verb dropped** — the prior `N flows recomputed` aggregate
+  verb is gone; the per-step expansion of flows makes the count
+  visible in the cascade numbering itself (operator scans left
+  rail; numbered circle count = flow count).
+- **Conditional emit unchanged** — a cascade with zero
+  `:rf.flow/computed` events renders zero FLOW steps.
+
 ### §9.1.10.5 App-db diff section — RETIRED 2026-05-26 (rf2-rrykz · rf2-zkiu5)
 
 > **Retired pair-debug 2026-05-26** in Mike's commit `ee9def224`. The
