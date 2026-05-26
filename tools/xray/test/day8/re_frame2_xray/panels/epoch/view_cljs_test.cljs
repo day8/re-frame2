@@ -551,107 +551,67 @@
       (is (string/includes? header "1 unmounted")
           "header reads the unmount-only shape"))))
 
-;; ---- rf2-nqt3d — per-step elapsed time + cascade total ----------------
+;; ---- rf2-xgeag — inline violation sub-block + hot-reload tail step ----
 
-(deftest cascade-summary-renders-total-test
-  (testing "rf2-nqt3d — cascade-summary chip carries the cascade total
-            formatted via `format-duration-ms`"
-    (let [tree (view/cascade-summary [{:step :dispatch :duration-ms 0.5}
-                                      {:step :handler  :duration-ms 12}])
-          chip (th/find-by-testid tree "rf-xray-epoch-cascade-summary")]
-      (is (some? chip) "the summary chip renders when any step carries a duration")
-      (is (string/includes? (th/text-content chip) "cascade total"))
-      (is (string/includes? (th/text-content chip) "13ms")
-          "total reads as the rounded sum of every step's :duration-ms"))))
+(deftest violation-block-renders-headline-+-fields-test
+  (testing "rf2-xgeag — `violation-block` renders the pink sub-block
+            with title, recovery chip, headline, path, and value rows"
+    (let [row  {:kind :rf.error/schema-validation-failure
+                :where :app-db
+                :failing-id :counter/inc
+                :path [:count]
+                :value "not-an-int"
+                :rollback? true
+                :sensitive? false}
+          tree (view/violation-block :handler 0 row)
+          base "rf-xray-epoch-violation-handler-0"]
+      (is (some? (th/find-by-testid tree base))
+          "the sub-block wrapper renders")
+      (let [title    (text-of tree (str base "-title"))
+            recovery (text-of tree (str base "-recovery"))
+            headline (text-of tree (str base "-headline"))
+            path     (text-of tree (str base "-path"))]
+        (is (string/includes? title "SCHEMA VIOLATION"))
+        (is (string/includes? recovery "rolled back"))
+        (is (string/includes? headline "app-db commit"))
+        (is (string/includes? headline ":counter/inc"))
+        (is (string/includes? path "[:count]"))))))
 
-(deftest cascade-summary-elides-when-no-durations-test
-  (testing "rf2-nqt3d — projection without any duration returns nil so
-            the view never renders an empty `total: —` chip"
-    (let [tree (view/cascade-summary [{:step :dispatch}
-                                      {:step :handler}])]
-      (is (nil? tree)
-          "no durations → no summary chip (graceful-degrade)"))))
+(deftest violation-block-recovery-chip-test
+  (testing "rf2-xgeag — recovery chip surfaces a per-where label when
+            no rollback fired"
+    (let [tree (view/violation-block :fx 0
+                 {:where :fx-args :failing-id :http/post
+                  :rollback? false})
+          recovery (text-of tree "rf-xray-epoch-violation-fx-0-recovery")]
+      (is (string/includes? recovery "fx skipped"))))
 
-(deftest cascade-summary-shows-long-step-count-test
-  (testing "rf2-nqt3d — when any step exceeds 16ms the summary surfaces
-            a warning-tone count chip"
-    (let [tree (view/cascade-summary [{:step :handler :duration-ms 12}
-                                      {:step :views   :duration-ms 25}
-                                      {:step :fx      :duration-ms 30}])
-          long-chip (th/find-by-testid tree "rf-xray-epoch-cascade-summary-long-count")]
-      (is (some? long-chip) "long-count chip present when any step is over 16ms")
-      (is (string/includes? (th/text-content long-chip) "2 over 16ms")
-          "count + threshold are visible in the chip text"))))
+  (testing "rf2-xgeag — sub-return → 'returned nil'"
+    (let [tree (view/violation-block :subscriptions 0
+                 {:where :sub-return :failing-id :user/profile
+                  :rollback? false})
+          recovery (text-of tree
+                            "rf-xray-epoch-violation-subscriptions-0-recovery")]
+      (is (string/includes? recovery "returned nil")))))
 
-(deftest cascade-summary-omits-long-count-when-zero-test
-  (testing "rf2-nqt3d — clean cascade (every step under threshold) → no
-            long-count chip in the summary"
-    (let [tree (view/cascade-summary [{:step :handler :duration-ms 0.5}
-                                      {:step :views   :duration-ms 1.2}])]
-      (is (nil? (th/find-by-testid tree "rf-xray-epoch-cascade-summary-long-count"))
-          "no long-count chip on a fast cascade"))))
-
-;; ---- rf2-17vxj — schema-violations section ----------------------------
-
-(deftest schema-violations-step-renders-rows-test
-  (testing "rf2-17vxj — SCHEMA VIOLATIONS step renders one row per
-            violation; rollback chip rides any rollback? row"
-    (let [step {:step :schema-violations :badge :SCHEMA-VIOLATIONS
+(deftest render-schema-hot-reload-step-test
+  (testing "rf2-xgeag — standalone SCHEMA HOT-RELOAD step renders one
+            sub-block per drift row + the badge label is the renamed
+            'SCHEMA HOT-RELOAD' (not the retired 'SCHEMA VIOLATIONS')"
+    (let [step {:step :schema-hot-reload :badge :SCHEMA-HOT-RELOAD
                 :step-number 8
-                :rows [{:kind :rf.error/schema-validation-failure
-                        :where :app-db
-                        :failing-id :counter/inc
-                        :path [:count]
-                        :value "not-an-int"
-                        :rollback? true
-                        :sensitive? false}
-                       {:kind :rf.schema/violation
+                :rows [{:kind :rf.schema/violation
                         :where :hot-reload
-                        :frame :rf/default
                         :failing-id :rf/default
                         :path [:count]
                         :value "boom"
-                        :recovery :logged-and-skipped
-                        :rollback? false
-                        :sensitive? false}]
-                :rollbacks 1}
-          tree (view/render-schema-violations-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-schema-violations"))
-          "the step wrapper renders")
-      (is (= 2 (count (th/find-by-testid-prefix
-                        tree "rf-xray-epoch-schema-violation-row-"))))
-      (is (some? (th/find-by-testid
-                   tree "rf-xray-epoch-schema-violation-rollback-0"))
-          "the rollback chip rides the rollback? row")
-      (is (nil? (th/find-by-testid
-                  tree "rf-xray-epoch-schema-violation-rollback-1"))
-          "no rollback chip on a clean recovery row")
-      (let [header (text-of tree "rf-xray-epoch-schema-violations-header")]
-        (is (string/includes? header "2 violation"))
-        (is (string/includes? header "1 rollback")))
-      (is (some? (th/find-by-testid
-                   tree "rf-xray-epoch-schema-violations-open-issues"))
-          "the open-issues affordance is present"))))
-
-(deftest schema-violations-row-shows-fields-test
-  (testing "rf2-17vxj — per-row body shows where + failing-id + path + value"
-    (let [step {:step :schema-violations :badge :SCHEMA-VIOLATIONS
-                :step-number 8
-                :rows [{:kind :rf.error/schema-validation-failure
-                        :where :sub-return
-                        :failing-id :counter/total
-                        :path [:total]
-                        :value {:bad :data}
-                        :rollback? false
-                        :sensitive? false}]
-                :rollbacks 0}
-          tree (view/render-schema-violations-step step)]
-      (let [where (text-of tree "rf-xray-epoch-schema-violation-where-0")
-            id    (text-of tree "rf-xray-epoch-schema-violation-id-0")
-            path  (text-of tree "rf-xray-epoch-schema-violation-path-0")]
-        (is (string/includes? where "sub return"))
-        (is (string/includes? id ":counter/total"))
-        (is (string/includes? path "[:total]"))))))
+                        :recovery :logged-and-skipped}]}
+          tree (view/render-schema-hot-reload-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-schema-hot-reload")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-violation-hot-reload-0"))
+          "the drift row renders as a violation sub-block")
+      (let [header (text-of tree "rf-xray-epoch-schema-hot-reload-header")]
+        (is (string/includes? header "1 hot-reload drift"))))))
 
 ;; ---- rf2-uffov — FX section header + per-action attribution ----------
 
@@ -1259,7 +1219,6 @@
   "Locate the step-seq returned by `pipeline-view`. The view returns:
 
       [:div {:data-testid \"rf-xray-epoch-pipeline-container\"}
-       (cascade-summary …)
        [:div {:data-testid \"rf-xray-epoch-pipeline\" …}
         [:div {:data-testid \"rf-xray-epoch-rail\" …}]
         <steps-seq>]]

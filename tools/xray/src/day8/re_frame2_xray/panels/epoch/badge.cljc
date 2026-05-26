@@ -76,8 +76,11 @@
   HANDLER + FLOW share `:accent` — the Figma export's single-accent
   identity (rf2-ad7zx.13).
 
-  rf2-17vxj — SCHEMA-VIOLATIONS pulls `:warning` so the section
-  reads as load-bearing without rising to `:error`'s alarmist tone.
+  rf2-17vxj — SCHEMA-VIOLATIONS pulled `:warning` for the aggregate
+  trailing step. rf2-xgeag retired the aggregate; the per-step
+  violation sub-block lives inline now. Hot-reload drift carries
+  on a standalone SCHEMA-HOT-RELOAD tail step (same `:warning`
+  token; renamed badge to flag the narrowed scope).
   rf2-yx1ae — CHILD-DISPATCHES pulls `:text-tertiary` (the same muted
   grey as DISPATCH — same hue family, same cascade-link semantics).
   rf2-rrykz — APP-DB-DIFF pulls `:accent` (the same blue as HANDLER /
@@ -89,7 +92,7 @@
    :FX                :orange
    :SUBSCRIPTIONS     :magenta-pink
    :VIEWS             :success
-   :SCHEMA-VIOLATIONS :warning
+   :SCHEMA-HOT-RELOAD :warning
    :CHILD-DISPATCHES  :text-tertiary
    :APP-DB-DIFF       :accent})
 
@@ -103,7 +106,7 @@
    :FX                ":fx"
    :SUBSCRIPTIONS     "SUBSCRIPTIONS"
    :VIEWS             "VIEWS"
-   :SCHEMA-VIOLATIONS "SCHEMA VIOLATIONS"
+   :SCHEMA-HOT-RELOAD "SCHEMA HOT-RELOAD"
    :CHILD-DISPATCHES  "DISPATCHED EVENTS"
    :APP-DB-DIFF       "APP-DB DIFF"})
 

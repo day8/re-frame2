@@ -110,6 +110,9 @@
    :dim            "#6e7681"
    :hover          "#2a2a2a"
 
+   ;; violation wash (rf2-xgeag · key parity mirror with Xray)
+   :bg-violation   "#3a1f25"
+
    ;; functional categorical hues (spec/022 carve-out)
    ;; Two pink/violet-family hues — see Xray's `dark-palette` block for
    ;; rationale. The drift gate (rf2-z7ms8) requires these to match Xray's
@@ -203,6 +206,9 @@
    :success        "#1a7f37"
    :dim            "#8c959f"
    :hover          "#e8e8e8"
+
+   ;; violation wash (rf2-xgeag · key parity mirror with Xray)
+   :bg-violation   "#fde0e3"
 
    ;; functional categorical hues
    ;; Two pink/violet-family hues — see Xray's `light-palette` block for

@@ -54,33 +54,12 @@
   []
   corner-down-right-svg)
 
-;; ---- Warning triangle ---------------------------------------------------
-
-(def ^:private alert-triangle-svg
-  "Lucide `alert-triangle` icon as a hiccup-shaped svg. 13×13
-  square, `viewBox 0 0 24 24`, `stroke: currentColor`. Used by the
-  SCHEMA-VIOLATIONS section header (rf2-17vxj) to signal warning
-  chrome without rising to the alarmist `:error` tone of an `✗`."
-  [:svg {:width            "13"
-         :height           "13"
-         :viewBox          "0 0 24 24"
-         :fill             "none"
-         :stroke           "currentColor"
-         :stroke-width     "2"
-         :stroke-linecap   "round"
-         :stroke-linejoin  "round"
-         :aria-hidden      "true"
-         :focusable        "false"}
-   [:path {:d "M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"}]
-   [:line {:x1 "12" :y1 "9"  :x2 "12" :y2 "13"}]
-   [:line {:x1 "12" :y1 "17" :x2 "12.01" :y2 "17"}]])
-
-(defn alert-triangle
-  "Render the lucide `alert-triangle` glyph (rf2-17vxj). Inherits
-  colour from the enclosing element via `currentColor` so the
-  glyph rides the warning-tone section header."
-  []
-  alert-triangle-svg)
+;; ---- Warning triangle (retired with rf2-xgeag) --------------------------
+;;
+;; The `alert-triangle` SVG was used by the now-retired aggregate
+;; SCHEMA-VIOLATIONS step's header (rf2-17vxj). With rf2-xgeag's
+;; inline sub-block + tail-step shape the title row uses the Unicode
+;; `⚠` glyph inline; no SVG required.
 
 ;; ---- Arrow right (cascade-link) -----------------------------------------
 
