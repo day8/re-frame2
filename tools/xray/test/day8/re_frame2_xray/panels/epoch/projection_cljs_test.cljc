@@ -454,15 +454,18 @@
 ;; ---- top-level project --------------------------------------------------
 
 (deftest project-minimal-test
-  (testing "minimal epoch (dispatch + handler, no cofx/flow/fx/sub/view)"
+  (testing "minimal epoch (dispatch + handler + app-db-diff for the
+            db mutation, no cofx/flow/fx/sub/view)"
     (let [rec   (record [(dispatched-ev [:counter-inc] :ui nil)
                          (db-changed-ev [[[:counter] 5 6 :modified]])])
           steps (proj/project rec)]
-      (is (= 2 (count steps)))
-      (is (= [:dispatch :handler] (mapv :step steps))))))
+      (is (= 3 (count steps))
+          "rf2-rrykz appends :app-db-diff for any cascade that mutated app-db")
+      (is (= [:dispatch :handler :app-db-diff] (mapv :step steps))))))
 
 (deftest project-full-pipeline-test
-  (testing "full epoch with every step → 7 steps emitted"
+  (testing "full epoch with every step + app-db-diff + child-dispatches
+            (handler returned `:dispatch` fx)"
     (let [rec   (record [(dispatched-ev [:cart/checkout] :ui nil)
                          (cofx-run-ev :session {:user 1})
                          (do-fx-ev {:db {} :http/post {:url "/x"}})
@@ -472,10 +475,13 @@
                          (fx-handled-ev :http/post {} 12.0)
                          (sub-run-ev [:total] true 10 20)
                          (view-render-ev ::cart-view [:total])])
-          steps (proj/project rec)]
-      (is (= 7 (count steps)))
-      (is (= [:dispatch :coeffect :handler :flow :fx :subscriptions :views]
-             (mapv :step steps))))))
+          steps (proj/project rec)
+          kws   (mapv :step steps)]
+      (is (= [:dispatch :coeffect :handler :app-db-diff :flow :fx
+              :subscriptions :views]
+             kws)
+          "rf2-rrykz appends :app-db-diff between :handler and :flow")
+      (is (= 8 (count steps))))))
 
 (deftest project-numbered-test
   (testing "number-steps assigns sequential 1..N regardless of omissions"
@@ -648,6 +654,55 @@
           "both events project into rows")
       (is (= 0 (:rollbacks s))
           "no rollback-true rows in this fixture"))))
+
+;; ---- rf2-rrykz — app-db diff section ----------------------------------
+
+(deftest app-db-diff-step-conditional-test
+  (testing "rf2-rrykz — no db-changed event → step OMITTED"
+    (is (nil? (proj/app-db-diff-step []))))
+
+  (testing "rf2-rrykz — empty changed-paths → step OMITTED"
+    (is (nil? (proj/app-db-diff-step [(db-changed-ev [])]))))
+
+  (testing "rf2-rrykz — db mutation present → step rendered"
+    (let [s (proj/app-db-diff-step
+              [(db-changed-ev [[[:count]    0   1   :modified]
+                               [[:cart 0]   nil "x" :added]
+                               [[:old]      5   nil :removed]])])]
+      (is (= :app-db-diff (:step s)))
+      (is (= :APP-DB-DIFF (:badge s)))
+      (is (= 3 (count (:rows s))))
+      (is (= 1 (:added s)))
+      (is (= 1 (:modified s)))
+      (is (= 1 (:removed s))))))
+
+(deftest app-db-diff-row-fields-test
+  (testing "rf2-rrykz — each row carries `:path / :before / :after / :change`"
+    (let [s (proj/app-db-diff-step
+              [(db-changed-ev [[[:count] 0 1 :modified]])])
+          r (-> s :rows first)]
+      (is (= [:count] (:path r)))
+      (is (= 0 (:before r)))
+      (is (= 1 (:after r)))
+      (is (= :modified (:change r))))))
+
+(deftest project-includes-app-db-diff-after-handler-test
+  (testing "rf2-rrykz — top-level project emits APP-DB-DIFF immediately
+            after HANDLER so the state-mutation lens lands next to the
+            attribution row"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (db-changed-ev [[[:count] 0 1 :modified]])])
+          steps (proj/project rec)
+          kws   (mapv :step steps)]
+      (is (some #{:app-db-diff} kws))
+      (is (= (.indexOf kws :app-db-diff)
+             (inc (.indexOf kws :handler)))
+          ":app-db-diff rides immediately after :handler")))
+
+  (testing "rf2-rrykz — no app-db mutation → step absent"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)])
+          steps (proj/project rec)]
+      (is (not-any? #(= :app-db-diff (:step %)) steps)))))
 
 ;; ---- rf2-yx1ae — child dispatches section -----------------------------
 

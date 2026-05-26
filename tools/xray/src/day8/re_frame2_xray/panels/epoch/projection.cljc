@@ -609,6 +609,66 @@
        :rows      rows
        :rollbacks (count (filter :rollback? rows))})))
 
+;; ---- APP-DB DIFF step (rf2-rrykz) ----------------------------------------
+;;
+;; The `:rf.event/db-changed` trace (Spec 009) carries the changed-
+;; paths vector under `:rf.event/db-changed-paths` — each element
+;; is `[path before after change-kind]`. The HANDLER step's
+;; `:db-diff` slot has read this since rf2-sc3r1 (carrying the
+;; same data); the APP-DB DIFF step is a dedicated section so the
+;; operator's "what changed in app-db?" question lands the same
+;; pre-roll as any cascade, separately from the HANDLER body.
+;;
+;; The two surfaces coexist intentionally — HANDLER's diff is an
+;; attribution-row (which handler caused this change), the APP-DB
+;; DIFF step is the canonical "state-mutation" lens (parallel to
+;; the App-DB Diff panel).
+;;
+;; Conditional: rendered only when the cascade actually mutated
+;; app-db.
+
+(defn- categorise-diff-path
+  "Classify one `[path before after change-kind]` triple into
+  `:added / :modified / :removed`. Defaults from before/after
+  nullity when `change-kind` is absent (older fixtures)."
+  [[_path before after change-kind]]
+  (cond
+    (= change-kind :added)    :added
+    (= change-kind :removed)  :removed
+    (= change-kind :modified) :modified
+    (and (nil? before) (some? after))   :added
+    (and (some? before) (nil? after))   :removed
+    :else                                :modified))
+
+(defn app-db-diff-step
+  "Build the APP-DB DIFF step row (rf2-rrykz). nil when the cascade
+  mutated no app-db paths (the step is OMITTED — conditional).
+
+  Reads the same `:rf.event/db-changed-paths` payload the HANDLER
+  step's `:db-diff` slot does — no re-derivation. Each row:
+
+    {:path <path-vec> :before <val> :after <val> :change <kind>}
+
+  Header counters split into `:added / :modified / :removed` so
+  the view can render `N changes (+M / ~K / -L)` at a glance."
+  [events]
+  (let [paths (db-diff-paths events)]
+    (when (seq paths)
+      (let [rows  (mapv (fn [triple]
+                          (let [[p before after change-kind] triple]
+                            {:path    p
+                             :before  before
+                             :after   after
+                             :change  (or change-kind (categorise-diff-path triple))}))
+                        paths)
+            kinds (frequencies (map :change rows))]
+        {:step     :app-db-diff
+         :badge    :APP-DB-DIFF
+         :rows     rows
+         :added    (get kinds :added    0)
+         :modified (get kinds :modified 0)
+         :removed  (get kinds :removed  0)}))))
+
 ;; ---- CHILD DISPATCHES step (rf2-yx1ae) -----------------------------------
 ;;
 ;; When a handler returns `:dispatch / :dispatch-n / :dispatch-later`
@@ -780,6 +840,12 @@
                           :badge :COEFFECT
                           :rows  cofx-rows})
                        (handler-row events event-id)
+                       ;; rf2-rrykz — APP-DB DIFF rides immediately after
+                       ;; HANDLER so the "what mutated in app-db?" lens
+                       ;; lands right after the attribution-row (the
+                       ;; HANDLER body's :db-diff). Same data, different
+                       ;; chrome — one cross-cascade canonical.
+                       (app-db-diff-step events)
                        (flow-step events)
                        (fx-step events)
                        ;; rf2-yx1ae — child dispatches sit after FX (they

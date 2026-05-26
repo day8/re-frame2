@@ -335,6 +335,39 @@
         (is (string/includes? id ":counter/total"))
         (is (string/includes? path "[:total]"))))))
 
+;; ---- rf2-rrykz — app-db diff section ---------------------------------
+
+(deftest app-db-diff-step-renders-rows-test
+  (testing "rf2-rrykz — APP-DB DIFF step renders one row per changed
+            path with the change kind reflected on the row data attr"
+    (let [step {:step :app-db-diff :badge :APP-DB-DIFF :step-number 4
+                :rows [{:path [:count] :before 0 :after 1 :change :modified}
+                       {:path [:new]   :before nil :after "v" :change :added}
+                       {:path [:gone]  :before 5 :after nil :change :removed}]
+                :added 1 :modified 1 :removed 1}
+          tree (view/render-app-db-diff-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-app-db-diff")))
+      (is (= 3 (count (th/find-by-testid-prefix
+                        tree "rf-xray-epoch-app-db-diff-row-"))))
+      (let [header (text-of tree "rf-xray-epoch-app-db-diff-header")]
+        (is (string/includes? header "3 paths changed"))
+        (is (string/includes? header "+1 / ~1 / -1"))))))
+
+(deftest app-db-diff-row-shows-path-and-values-test
+  (testing "rf2-rrykz — :modified row shows before → after"
+    (let [step {:step :app-db-diff :badge :APP-DB-DIFF :step-number 4
+                :rows [{:path [:counter :value] :before 5 :after 6
+                        :change :modified}]
+                :added 0 :modified 1 :removed 0}
+          tree (view/render-app-db-diff-step step)
+          row  (th/find-by-testid tree "rf-xray-epoch-app-db-diff-row-0")]
+      (is (some? row))
+      (let [txt (th/text-content row)]
+        (is (string/includes? txt "[:counter :value]")
+            "path is visible")
+        (is (string/includes? txt "5"))
+        (is (string/includes? txt "6"))))))
+
 ;; ---- rf2-yx1ae — child-dispatches section -----------------------------
 
 (deftest child-dispatches-step-renders-rows-test

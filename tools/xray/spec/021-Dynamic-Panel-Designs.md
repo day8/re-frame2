@@ -1522,6 +1522,33 @@ cross-session triage.
 
 Section is conditional — omitted when no violation events fired.
 
+### §9.1.10.5 App-db diff section (rf2-rrykz)
+
+An APP-DB DIFF step rides immediately after HANDLER when the
+cascade mutated app-db. The section answers the most fundamental
+"what happened?" question — what changed in app-db this cascade —
+as a top-level cascade element rather than buried in the HANDLER
+body.
+
+Two surfaces coexist by design:
+
+- HANDLER body's `:db-diff` slot — **attribution** lens ("this
+  handler caused these changes"). Renders the same diff inline
+  with the source code block, machine block, and `:fx` slot.
+- APP-DB DIFF step — **state-mutation** lens ("these are app-db's
+  changes this cascade"). Renders as its own numbered step with
+  the header carrying the change-count split.
+
+Same data (`:rf.event/db-changed-paths` on `:rf.event/db-changed`),
+two chrome treatments. The pre-roll for "show me app-db deltas"
+now matches every cascade — same shape, same place.
+
+Header: `N paths changed (+M / ~K / -L)` (added / modified /
+removed split). Per-row chrome mirrors HANDLER's `db-diff-line`
+(glyph + path + value(s)).
+
+Section is conditional — omitted when no app-db mutation fired.
+
 ### §9.1.10.4 Cascading-dispatches section (rf2-yx1ae)
 
 A CHILD-DISPATCHES step rides between FX and SUBSCRIPTIONS when the
