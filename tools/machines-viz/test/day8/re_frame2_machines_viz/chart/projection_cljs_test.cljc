@@ -109,6 +109,28 @@
   [graph id]
   (first (filter #(= id (:id %)) (:nodes graph))))
 
+(defn- event-node-for
+  "rf2-qo5xy — find the event-node a projected graph emitted for a
+  given parsed-edge id. The events-as-nodes paradigm hoists each
+  transition into a `\"rf2-event\"` xyflow node; the legacy single-
+  edge state→state shape (with the event/guard/action on the edge
+  label) is gone."
+  [graph parsed-edge-id]
+  (first (filter #(and (= "rf2-event" (:type %))
+                       (= (str "event__" parsed-edge-id) (:id %)))
+                 (:nodes graph))))
+
+(defn- inbound-edge-for
+  "rf2-qo5xy — the source-state → event-node edge for a parsed-edge id."
+  [graph parsed-edge-id]
+  (edge-by-id graph (str parsed-edge-id "__in")))
+
+(defn- outbound-edge-for
+  "rf2-qo5xy — the event-node → target-state edge for a parsed-edge
+  id. nil for internal transitions (which emit no outbound edge)."
+  [graph parsed-edge-id]
+  (edge-by-id graph (str parsed-edge-id "__out")))
+
 ;; ---- choose-edge-type (G2) ---------------------------------------------
 
 (deftest choose-edge-type-plain-transition
@@ -517,23 +539,30 @@
       (is (true? (:active (:data e)))))))
 
 (deftest xyflow-graph-edge-focused-when-source-and-target-match-lens
-  (testing "an edge is `:focused` ONLY when source==from-highlight AND
-            target==to-highlight (the focused-event lens). A partial
-            match is not focused."
+  (testing "rf2-qo5xy — events-as-nodes paradigm: an inbound edge
+            (source-state → event-node) is `:focused` when the parsed
+            transition's source/target match the from/to lens. The
+            paired outbound edge (event-node → target-state) gets the
+            same focused flag so the WHOLE traversal lights up."
     (let [parsed (layout/parse-definition idle-loading)
           from   (layout/node-id [:idle])
           to     (layout/node-id [:loading])
+          start-edge (->> (:edges parsed)
+                          (filter #(= (:source %) from))
+                          first)
           graph  (projection/xyflow-graph parsed {}
                                           {:from-highlight-id from
                                            :to-highlight-id   to})
-          focused-edge (first (filter #(and (= (:source %) from)
-                                            (= (:target %) to))
-                                      (:edges graph)))
-          other-edges  (remove #(and (= (:source %) from)
-                                      (= (:target %) to))
-                               (:edges graph))]
-      (is (true? (:focused (:data focused-edge))))
-      (is (every? false? (map (comp :focused :data) other-edges))))))
+          in-edge  (inbound-edge-for  graph (:id start-edge))
+          out-edge (outbound-edge-for graph (:id start-edge))]
+      (is (some? in-edge)  "the inbound edge for the focused transition exists")
+      (is (some? out-edge) "and so does the outbound edge")
+      (is (true? (:focused (:data in-edge))))
+      (is (true? (:focused (:data out-edge))))
+      ;; Every OTHER edge is not focused.
+      (let [other-edges (remove #(#{(:id in-edge) (:id out-edge)} (:id %))
+                                (:edges graph))]
+        (is (every? false? (map (comp :focused :data) other-edges)))))))
 
 (deftest xyflow-graph-edge-not-focused-without-both-lens-ends
   (testing "with only ONE lens end set, no edge is focused (the
@@ -658,41 +687,46 @@
           idle   (node-by-id graph (layout/node-id [:idle]))]
       (is (= {:x 0 :y 0} (:position idle))))))
 
-(deftest xyflow-graph-edge-carries-after-ms-and-event-label
-  (testing "edge `:data` surfaces the after-ms duration + the composed
-            event label from the parsed edge"
-    (let [parsed (layout/parse-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})
-          after  (first (filter #(:afterMs (:data %)) (:edges graph)))]
-      (is (some? after) "the :after edge surfaces an :afterMs")
-      (is (= 1000 (:afterMs (:data after))))
-      (is (string? (:eventLabel (:data after)))))))
+(deftest xyflow-graph-event-node-carries-after-ms-and-event-label
+  (testing "rf2-qo5xy — events-as-nodes paradigm: the event-node
+            (not the edge) carries the `:afterMs` + the visible event
+            label. The `⌚`-prefixed segment (from chart.layout/event-
+            segment) rides on the event-node's `:eventLabel`."
+    (let [parsed     (layout/parse-definition idle-loading)
+          graph      (projection/xyflow-graph parsed {} {})
+          after-parsed (first (filter :after (:edges parsed)))
+          after-node (event-node-for graph (:id after-parsed))]
+      (is (some? after-parsed) "parser emitted an :after edge")
+      (is (some? after-node)   "projector emitted the matching event-node")
+      (is (= 1000 (:afterMs (:data after-node))))
+      (is (string? (:eventLabel (:data after-node))))
+      (is (= "after" (:variant (:data after-node)))
+          "the variant attribute identifies the `:after` event-node kind"))))
 
-(deftest xyflow-graph-edge-carries-event-line-label-without-action
-  (testing "rf2-a2b55 — Stately graph view convention: the visible edge
-            label paints `event [guard]` on one row and the action as a
-            `+ <action>` pill on a row below. `:eventLineLabel` is the
-            event-line text without the `/ action` suffix; `:eventLabel`
-            keeps the full `event [guard] / action` form for the
-            data-event attr + host introspection. Both fields ride the
-            edge `:data`."
-    (let [parsed (layout/parse-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})
-          ;; idle-loading's `:start` edge has no guard / no action
-          start  (first (filter #(re-find #"^start"
-                                          (or (:eventLabel (:data %)) ""))
-                                (:edges graph)))]
-      (is (some? start) "fixture has the :start edge")
-      (is (= "start" (:eventLabel (:data start)))
-          "without guard/action `:eventLabel` is just the event id")
-      (is (= "start" (:eventLineLabel (:data start)))
-          "without guard `:eventLineLabel` matches `:eventLabel`"))))
+(deftest xyflow-graph-event-node-eventLabel-is-event-segment
+  (testing "rf2-qo5xy — the event-node's `:eventLabel` is the raw
+            event-segment text from chart.layout/event-segment (e.g.
+            \"start\"); guard/action ride on dedicated `:guard` +
+            `:action` slots of the event-node payload."
+    (let [parsed     (layout/parse-definition idle-loading)
+          graph      (projection/xyflow-graph parsed {} {})
+          start-parsed (->> (:edges parsed)
+                            (filter #(= (:source %) (layout/node-id [:idle])))
+                            first)
+          ev-node    (event-node-for graph (:id start-parsed))]
+      (is (some? start-parsed) "parser emitted the :start edge")
+      (is (some? ev-node)      "projector emitted the matching event-node")
+      (is (= "start" (:eventLabel (:data ev-node)))
+          "no guard/action: the label is just the event segment")
+      (is (= "on" (:variant (:data ev-node)))
+          "regular :on event-node variant"))))
 
-(deftest xyflow-graph-edge-event-line-strips-action-suffix
-  (testing "rf2-a2b55 — when an edge has an :action, `:eventLineLabel`
-            keeps the event-only line (no `/ action`); the full label
-            text remains on `:eventLabel`. Tests the divergence point
-            between the two fields directly."
+(deftest xyflow-graph-event-node-surfaces-guard-and-action
+  (testing "rf2-qo5xy — when an edge declares a guard / action, the
+            event-node's `:data` carries them as separate strings (the
+            renderer paints the `[guard]` chip + `+ <action>` pill from
+            these). The legacy `event [guard] / action` text composition
+            is gone — each piece sits in its own slot."
     (let [m {:initial :idle
              :states  {:idle {:on {:submit {:target :loading
                                             :guard  :authed?
@@ -700,14 +734,12 @@
                        :loading {}}}
           parsed (layout/parse-definition m)
           graph  (projection/xyflow-graph parsed {} {})
-          submit (first (filter #(re-find #"^submit"
-                                          (or (:eventLabel (:data %)) ""))
-                                (:edges graph)))]
-      (is (some? submit) "fixture has the :submit edge")
-      (is (= "submit [authed?] / log-it" (:eventLabel (:data submit)))
-          "`:eventLabel` keeps the full xstate text form")
-      (is (= "submit [authed?]" (:eventLineLabel (:data submit)))
-          "`:eventLineLabel` strips the `/ action` suffix"))))
+          submit-parsed (first (:edges parsed))
+          ev-node       (event-node-for graph (:id submit-parsed))]
+      (is (some? ev-node) "the event-node was projected")
+      (is (= "submit"  (:eventLabel (:data ev-node))))
+      (is (= "authed?" (:guard      (:data ev-node))))
+      (is (= "log-it"  (:action     (:data ev-node)))))))
 
 (deftest xyflow-graph-entry-edge-carries-empty-event-line-label
   (testing "rf2-a2b55 — entry edges (initial-marker → leaf) have no
@@ -804,53 +836,54 @@
 ;; guard that wiring; the edge component's click behaviour is pinned at
 ;; the DOM layer (chart_dom).
 
-(deftest xyflow-graph-edge-carries-fireable-event-id
-  (testing "rf2-u422r — a plain `:on` transition edge carries its raw
-            fireable `:eventId` (the keyword the sim sends) + the
-            from/to paths on its `:data`"
+(deftest xyflow-graph-event-node-carries-fireable-event-id
+  (testing "rf2-u422r + rf2-qo5xy — the event-node (not an edge) carries
+            its fireable `:eventId` for the on-chart sim path; from/to
+            paths ride with it so the host can dispatch the originating
+            transition."
+    (let [parsed   (layout/parse-definition idle-loading)
+          graph    (projection/xyflow-graph parsed {} {})
+          start    (->> (:edges parsed)
+                        (filter #(= (:source %) (layout/node-id [:idle])))
+                        first)
+          ev-node  (event-node-for graph (:id start))]
+      (is (some? ev-node) "the start event-node was projected")
+      (is (= :start (:eventId (:data ev-node)))
+          "the raw fireable event keyword rides on the event-node")
+      (is (= [:idle]    (:fromPath (:data ev-node))))
+      (is (= [:loading] (:toPath   (:data ev-node)))))))
+
+(deftest xyflow-graph-after-and-always-event-nodes-not-fireable
+  (testing "rf2-u422r + rf2-qo5xy — `:after` + `:always` event-nodes
+            carry nil `:eventId` (the engine fires them automatically;
+            the host filters them out for clickability). Their variant
+            slot still identifies them as `:after` / `:always`."
     (let [parsed (layout/parse-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
-          start  (first (filter #(= (:source %) (layout/node-id [:idle]))
-                                (:edges graph)))]
-      (is (some? start) "fixture has the idle→loading :start edge")
-      (is (= :start (:eventId (:data start)))
-          "the raw fireable event keyword rides on the edge data")
-      (is (= [:idle] (:fromPath (:data start))))
-      (is (= [:loading] (:toPath (:data start)))))))
+          after-parsed  (first (filter :after   (:edges parsed)))
+          always-parsed (first (filter :always? (:edges parsed)))
+          after-node    (event-node-for graph (:id after-parsed))
+          always-node   (event-node-for graph (:id always-parsed))]
+      (is (some? after-node)  "fixture has an :after event-node")
+      (is (nil? (:eventId (:data after-node))) "not user-fireable")
+      (is (= "after" (:variant (:data after-node))))
+      (is (some? always-node) "fixture has an :always event-node")
+      (is (nil? (:eventId (:data always-node))) "not user-fireable")
+      (is (= "always" (:variant (:data always-node)))))))
 
-(deftest xyflow-graph-after-and-always-edges-are-not-fireable
-  (testing "rf2-u422r — `:after`-timer + `:always` eventless edges fire
-            automatically inside the engine, so they carry a nil
-            `:eventId` (the host filters them out — they are not
-            user-clickable on the chart)"
-    (let [parsed (layout/parse-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})
-          after  (first (filter #(:afterMs (:data %)) (:edges graph)))
-          ;; rf2-a2b55 — the `:always` edge's label segment renders as
-          ;; the Stately graph view infinity glyph (the guarded
-          ;; fixture renders "∞ [loaded?]").
-          always (first (filter #(re-find #"^∞"
-                                          (or (:eventLabel (:data %)) ""))
-                                (:edges graph)))]
-      (is (some? after) "fixture has an :after edge")
-      (is (nil? (:eventId (:data after)))
-          "the :after edge is not user-fireable")
-      (is (some? always) "fixture has an :always edge")
-      (is (nil? (:eventId (:data always)))
-          "the :always edge is not user-fireable"))))
-
-(deftest xyflow-graph-threads-on-edge-click-onto-every-edge
-  (testing "rf2-u422r — the host's `:on-edge-click` callback threads onto
-            EVERY edge's `:data {:onClick}` (the edge component decides
-            clickability from the presence of BOTH the callback + a
-            fireable event-id)"
+(deftest xyflow-graph-threads-on-edge-click-onto-every-event-node
+  (testing "rf2-u422r + rf2-qo5xy — the host's `:on-edge-click` (now
+            on-event-click) threads onto every event-node's
+            `:data {:onClick}` (the event-node component decides
+            clickability from the callback + fireable eventId pair)."
     (let [parsed   (layout/parse-definition idle-loading)
           captured (atom nil)
           cb       (fn [m] (reset! captured m))
-          graph    (projection/xyflow-graph parsed {} {:on-edge-click cb})]
-      (is (seq (:edges graph)))
-      (is (every? #(= cb (:onClick (:data %))) (:edges graph))
-          "every edge carries the same on-edge-click callback"))))
+          graph    (projection/xyflow-graph parsed {} {:on-edge-click cb})
+          ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))]
+      (is (seq ev-nodes))
+      (is (every? #(= cb (:onClick (:data %))) ev-nodes)
+          "every event-node carries the same on-event-click callback"))))
 
 (deftest xyflow-graph-omits-on-click-when-no-callback
   (testing "rf2-u422r — omitting `:on-edge-click` leaves `:onClick` nil
@@ -861,12 +894,17 @@
 
 ;; ---- ->elk-children (G3) -----------------------------------------------
 
-(deftest elk-children-flat-is-one-per-node
-  (testing "a flat machine projects one elk child per parsed node, each
-            with id + width/height floors + a label"
+(deftest elk-children-flat-is-state-plus-event-nodes
+  (testing "rf2-qo5xy — a flat machine projects one elk child per
+            parsed state node PLUS one synthetic event-node per parsed
+            transition (events-as-nodes paradigm). All children carry
+            id + width/height + label."
     (let [parsed   (layout/parse-definition idle-loading)
-          children (projection/->elk-children parsed)]
-      (is (= (count (:nodes parsed)) (count children)))
+          children (projection/->elk-children parsed)
+          n-states (count (:nodes parsed))
+          n-events (count (:edges parsed))]
+      (is (= (+ n-states n-events) (count children))
+          "states + events = total flat children")
       (is (every? :id children))
       (is (every? #(pos? (:width %)) children))
       (is (every? #(pos? (:height %)) children)))))
@@ -885,20 +923,23 @@
       (is (= projection/state-node-min-height (:height leaf))))))
 
 (deftest elk-children-parallel-nests-states-under-regions
-  (testing "rf2-lkwev — a parallel machine projects ONE elk child per
-            region (not per state); each region carries its own
-            layoutOptions + nests its states as :children so elkjs lays
-            them out inside the zone"
+  (testing "rf2-lkwev + rf2-qo5xy — a parallel machine projects ONE elk
+            top-level child per region (regions are the only top-level
+            structural containers); each region nests its states AND
+            the events declared inside as `:children`."
     (let [parsed   (layout/parse-definition parallel-machine)
-          children (projection/->elk-children parsed)]
-      ;; two regions → two top-level elk children
-      (is (= 2 (count children)))
-      (is (every? #(contains? % :layoutOptions) children))
-      (is (every? #(seq (:children %)) children))
-      ;; the audio region nests its two states
+          children (projection/->elk-children parsed)
+          regions  (filter #(re-find #"^region__" (:id %)) children)]
+      (is (= 2 (count regions))
+          "two regions land as top-level elk children")
+      (is (every? #(contains? % :layoutOptions) regions))
+      (is (every? #(seq (:children %)) regions))
+      ;; the audio region nests its two states + its two events
+      ;; (`:unmute` + `:mute`).
       (let [audio (first (filter #(= (layout/region-node-id :audio) (:id %))
-                                 children))]
-        (is (= 2 (count (:children audio))))))))
+                                 regions))]
+        (is (= 4 (count (:children audio)))
+            "2 states + 2 events nest under the audio region")))))
 
 (deftest elk-children-region-padding-leaves-header-room
   (testing "each region's elk.padding leaves top room for the header
@@ -953,15 +994,30 @@
       (is (not (contains? marker :parentNode))
           "rf2-xh1lm — the pre-v12 :parentNode key MUST NOT appear"))))
 
-(deftest xyflow-graph-flags-self-transition
-  (testing "rf2-54s5a — a source==target edge carries :data {:selfLoop true}"
+(deftest xyflow-graph-self-transition-routes-through-event-node
+  (testing "rf2-qo5xy — a self-transition (source == target in the
+            parsed graph) routes through its event-node like every
+            other transition: source-state → event-node → source-state.
+            The structural self-loop becomes a TWO-edge fork — the
+            event-node sits beside the state, both edges anchor on it.
+            Pre-rf2-qo5xy a self-loop was a single edge with selfLoop
+            true; the events-as-nodes paradigm dissolves that special
+            case (the visible loop arc is now the route around the
+            event-node)."
     (let [parsed   (layout/parse-definition self-loop-machine)
           graph    (projection/xyflow-graph parsed {} {})
-          self     (first (filter #(= (:source %) (:target %)) (:edges graph)))
-          non-self (first (filter #(not= (:source %) (:target %)) (:edges graph)))]
-      (is (some? self) "fixture has a self-transition")
-      (is (true?  (:selfLoop (:data self))))
-      (is (false? (:selfLoop (:data non-self)))))))
+          self     (first (filter #(= (:source %) (:target %))
+                                  (:edges parsed)))
+          in-edge  (inbound-edge-for  graph (:id self))
+          out-edge (outbound-edge-for graph (:id self))]
+      (is (some? self)     "fixture has a self-transition (parsed)")
+      (is (some? in-edge)  "the inbound edge survives projection")
+      (is (some? out-edge) "the outbound edge survives projection")
+      (is (= (:source self) (:source in-edge))  "inbound source == state")
+      (is (= (:source self) (:target out-edge)) "outbound target == state")
+      ;; Both edges connect through the same event-node.
+      (is (= (:target in-edge) (:source out-edge))
+          "inbound target == outbound source == event-node"))))
 
 (deftest xyflow-graph-compound-children-wire-parent-id
   (testing "rf2-54s5a + rf2-xh1lm — compound substates nest via xyflow
@@ -976,80 +1032,101 @@
       (is (not (contains? browsing :parentNode))
           "rf2-xh1lm — the pre-v12 :parentNode key MUST NOT appear"))))
 
-(deftest elk-children-nests-compound-substates
-  (testing "rf2-54s5a — a compound parent nests its substates as elk
-            :children (so they lay out inside the container)"
+(deftest elk-children-nests-compound-substates-and-events
+  (testing "rf2-54s5a + rf2-qo5xy — a compound parent nests its
+            substates AS WELL AS the event-nodes of any transition
+            whose source is inside the compound. State nodes count is
+            unchanged (2); event-nodes for `:checkout` (browsing → paying)
+            and `:done` (paying → browsing) sit inside too."
     (let [parsed   (layout/parse-definition compound-machine)
           children (projection/->elk-children parsed)
           by-id    (into {} (map (juxt :id identity) children))
           authed   (get by-id (layout/node-id [:authenticated]))]
       (is (some? authed) "compound parent is a top-level elk child")
-      (is (= 2 (count (:children authed)))
-          "browsing + paying nest inside"))))
+      (let [kid-types (group-by #(if (re-find #"^event__" (:id %))
+                                   :event :state)
+                                (:children authed))]
+        (is (= 2 (count (:state kid-types)))
+            "browsing + paying state-nodes nest inside")
+        (is (= 2 (count (:event kid-types)))
+            "two event-nodes (checkout + done) nest inside too")))))
 
 ;; ---- self-transitions / wildcard / machine-level :on (rf2-ee38b.21) ----
 
-(deftest xyflow-graph-same-state-projects-self-loop
-  (testing "rf2-ee38b.21 — `:target :same-state` projects a true
-            self-loop (source == target, :selfLoop true) into a REAL
-            node — not a dangling edge to a phantom :same-state node"
+(deftest xyflow-graph-same-state-projects-through-event-node
+  (testing "rf2-ee38b.21 + rf2-qo5xy — `:target :same-state` resolves
+            to source == target in the parsed graph; the projector
+            routes the transition through an event-node (no phantom
+            target node)."
     (let [parsed   (layout/parse-definition same-state-machine)
           graph    (projection/xyflow-graph parsed {} {})
           node-ids (set (map :id (:nodes graph)))
-          ;; the only non-entry edge is the :ping self-transition
-          ping     (first (remove #(:entry (:data %)) (:edges graph)))]
-      (is (some? ping))
-      (is (= (:source ping) (:target ping)) "source == target")
-      (is (true? (:selfLoop (:data ping))))
-      (is (contains? node-ids (:target ping))
-          "target is a real node, not a phantom :same-state"))))
+          ping     (first (:edges parsed))
+          in-edge  (inbound-edge-for  graph (:id ping))
+          out-edge (outbound-edge-for graph (:id ping))]
+      (is (= (:source ping) (:target ping)) "parsed: source == target")
+      (is (some? in-edge))
+      (is (some? out-edge))
+      (is (contains? node-ids (:target out-edge))
+          "the outbound target is a real node, not a phantom"))))
 
-(deftest xyflow-graph-internal-self-transition-flagged
-  (testing "rf2-ee38b.21 — an internal self-transition (omit :target)
-            projects a self-loop flagged `:internal true`"
-    (let [parsed (layout/parse-definition internal-self-machine)
-          graph  (projection/xyflow-graph parsed {} {})
-          tick   (first (remove #(:entry (:data %)) (:edges graph)))]
-      (is (some? tick))
-      (is (= (:source tick) (:target tick)))
-      (is (true? (:selfLoop (:data tick))))
-      (is (true? (:internal (:data tick)))))))
+(deftest xyflow-graph-internal-self-transition-emits-no-outbound
+  (testing "rf2-ee38b.21 + rf2-qo5xy — an internal self-transition
+            (omit :target) emits an inbound edge into the event-node
+            but NO outbound edge — the Stately convention 'runs an
+            action and we hang here'. The event-node carries
+            `:internal true`."
+    (let [parsed   (layout/parse-definition internal-self-machine)
+          graph    (projection/xyflow-graph parsed {} {})
+          tick     (first (:edges parsed))
+          ev-node  (event-node-for graph (:id tick))
+          in-edge  (inbound-edge-for  graph (:id tick))
+          out-edge (outbound-edge-for graph (:id tick))]
+      (is (true? (:internal? tick)) "parser flagged the internal transition")
+      (is (some? ev-node))
+      (is (true? (:internal (:data ev-node))))
+      (is (some? in-edge)  "inbound edge into the event-node is emitted")
+      (is (nil? out-edge)  "no outbound edge (internal hangs at the event-node)"))))
 
-(deftest xyflow-graph-wildcard-not-fireable
-  (testing "rf2-ee38b.21 — the `:*` wildcard edge carries a NIL :eventId
-            so the on-chart sim can't dispatch a literal `[:* ...]`
-            (same inert posture as :after / :always); the real `:start`
-            event stays fireable"
+(deftest xyflow-graph-wildcard-event-node-not-fireable
+  (testing "rf2-ee38b.21 + rf2-qo5xy — the `:*` wildcard transition's
+            event-node carries a NIL :eventId (not user-fireable on
+            the chart); the real `:start` event-node stays fireable."
     (let [parsed (layout/parse-definition wildcard-machine)
           graph  (projection/xyflow-graph parsed {} {})
+          ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
           wild   (first (filter #(re-find #"\(any\)"
                                           (or (:eventLabel (:data %)) ""))
-                                (:edges graph)))
-          start  (first (filter #(= :start (:eventId (:data %)))
-                                (:edges graph)))]
-      (is (some? wild) "the wildcard edge is present")
-      (is (nil? (:eventId (:data wild))) "wildcard is NOT fireable")
-      (is (some? start) "the real :start edge stays fireable")
+                                ev-nodes))
+          start  (first (filter #(= :start (:eventId (:data %))) ev-nodes))]
+      (is (some? wild) "the wildcard event-node is present")
+      (is (nil? (:eventId (:data wild))))
+      (is (some? start) "the real :start event-node stays fireable")
       (is (= :start (:eventId (:data start)))))))
 
-(deftest xyflow-graph-machine-level-on-flagged
-  (testing "rf2-ee38b.21 — machine-level (top-level) :on fallback edges
-            project with `:machineLevel true` from every leaf"
+(deftest xyflow-graph-machine-level-event-nodes-flagged
+  (testing "rf2-ee38b.21 + rf2-qo5xy — machine-level (top-level) :on
+            fallback transitions project as event-nodes flagged
+            `:machineLevel true` (one per inheriting leaf)."
     (let [parsed (layout/parse-definition machine-level-on-machine)
           graph  (projection/xyflow-graph parsed {} {})
-          logout (filter #(= :logout (:eventId (:data %))) (:edges graph))]
-      (is (= 2 (count logout)) "one inherited edge per leaf")
+          ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
+          logout (filter #(= :logout (:eventId (:data %))) ev-nodes)]
+      (is (= 2 (count logout)) "one inherited event-node per leaf")
       (is (every? #(true? (:machineLevel (:data %))) logout)))))
 
 (deftest xyflow-graph-state-only-transitions-not-machine-level
-  (testing "rf2-ee38b.21 — a normal state-local transition carries
-            `:machineLevel false`"
-    (let [parsed (layout/parse-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})
-          start  (first (filter #(= :start (:eventId (:data %))) (:edges graph)))]
-      (is (some? start))
-      (is (false? (:machineLevel (:data start))))
-      (is (false? (:internal (:data start)))))))
+  (testing "rf2-ee38b.21 + rf2-qo5xy — a normal state-local transition's
+            event-node carries `:machineLevel false`."
+    (let [parsed  (layout/parse-definition idle-loading)
+          graph   (projection/xyflow-graph parsed {} {})
+          start-p (->> (:edges parsed)
+                       (filter #(= :start (:event %)))
+                       first)
+          ev-node (event-node-for graph (:id start-p))]
+      (is (some? ev-node))
+      (is (false? (:machineLevel (:data ev-node))))
+      (is (false? (:internal     (:data ev-node)))))))
 
 ;; ---- entry / exit state actions (rf2-ee38b.21) -------------------------
 
@@ -1079,40 +1156,44 @@
 ;; across a container (§1.7 of `001-Topology-Parity.md`). These pins
 ;; guard the projection half at the cheap JVM layer.
 
-(deftest xyflow-graph-attaches-edge-points-to-matching-edge
-  (testing "rf2-cz8v6 (THE G2 CAPABILITY) — an edge whose id has an
-            entry in :edge-points carries that route on its
-            `:data {:points}` so the edge renders THROUGH the bend
-            points (not a straight/bezier shortcut)"
+(deftest xyflow-graph-attaches-edge-points-to-outbound-edge
+  (testing "rf2-cz8v6 + rf2-qo5xy — a parsed-edge's elk-routed bend-
+            points attach to the OUTBOUND edge (event-node → target
+            state). The visible curve `transition-edge` paints is the
+            event-node-to-state segment; the structurally-short
+            source-state-to-event-node segment keeps the bezier
+            fallback (a single straight handoff to the event-node)."
     (let [parsed   (layout/parse-definition idle-loading)
-          ;; the idle→loading :start edge
           start    (->> (:edges parsed)
                         (filter #(= (:source %) (layout/node-id [:idle])))
                         first)
           route    [{:x 0 :y 0} {:x 0 :y 50} {:x 80 :y 50} {:x 80 :y 100}]
           graph    (projection/xyflow-graph
                      parsed {} {:edge-points {(:id start) route}})
-          start-e  (edge-by-id graph (:id start))]
-      (is (some? start-e))
-      (is (= route (:points (:data start-e)))
-          "elk's routed bend-points ride on the edge data"))))
+          out-edge (outbound-edge-for graph (:id start))]
+      (is (some? out-edge))
+      (is (= route (:points (:data out-edge)))
+          "elk's routed bend-points ride on the outbound edge"))))
 
 (deftest xyflow-graph-edge-without-route-falls-back-to-nil-points
-  (testing "rf2-cz8v6 — a simple edge with no :edge-points entry carries
-            `:points nil`, so the edge component falls back to the
-            bezier path (the no-bend-point case)"
+  (testing "rf2-cz8v6 + rf2-qo5xy — outbound edges with no :edge-points
+            entry carry `:points nil` (bezier fallback). Inbound edges
+            never carry points (they are short handoffs into the
+            event-node)."
     (let [parsed (layout/parse-definition idle-loading)
-          ;; supply a route for ONE edge only; every other edge is bare
           start  (->> (:edges parsed)
                       (filter #(= (:source %) (layout/node-id [:idle])))
                       first)
           graph  (projection/xyflow-graph
                    parsed {} {:edge-points {(:id start) [{:x 0 :y 0} {:x 9 :y 9}]}})
-          others (remove #(= (:id %) (:id start))
-                         (remove #(:entry (:data %)) (:edges graph)))]
-      (is (seq others) "fixture has more than one transition edge")
-      (is (every? #(nil? (:points (:data %))) others)
-          "edges with no route entry carry nil points (bezier fallback)"))))
+          out-edges    (filter #(:outbound (:data %)) (:edges graph))
+          inbound-edges (filter #(:inbound  (:data %)) (:edges graph))
+          other-outs   (remove #(= (:id %) (str (:id start) "__out")) out-edges)]
+      (is (seq other-outs) "fixture has additional outbound edges")
+      (is (every? #(nil? (:points (:data %))) other-outs)
+          "outbound edges with no route entry carry nil points")
+      (is (every? #(nil? (:points (:data %))) inbound-edges)
+          "inbound edges never carry routed points"))))
 
 (deftest xyflow-graph-no-edge-points-leaves-all-points-nil
   (testing "rf2-cz8v6 — omitting :edge-points entirely (the pre-layout
@@ -1124,26 +1205,32 @@
       (is (every? #(nil? (:points (:data %))) (:edges graph))
           "no edge-points map → no routed edges"))))
 
-(deftest xyflow-graph-self-loop-never-carries-points
-  (testing "rf2-cz8v6 — a self-loop keeps its dedicated loop path: even
-            when elk emits a route for the self-edge id, the projector
-            drops it so :points stays nil (self-loops unchanged)"
+(deftest xyflow-graph-self-loop-outbound-can-carry-points
+  (testing "rf2-cz8v6 + rf2-qo5xy — the events-as-nodes paradigm
+            dissolves the legacy self-loop special case: a self-
+            transition's outbound edge (event-node → source-state)
+            is just a regular edge with elk-routed points. The visible
+            loop arc is the route around the event-node sibling."
     (let [parsed (layout/parse-definition self-loop-machine)
           self   (->> (:edges parsed)
                       (filter #(= (:source %) (:target %)))
                       first)
           graph  (projection/xyflow-graph
-                   parsed {} {:edge-points {(:id self) [{:x 0 :y 0} {:x 5 :y 5}]}})
-          self-e (edge-by-id graph (:id self))]
+                   parsed {} {:edge-points {(:id self)
+                                            [{:x 0 :y 0} {:x 5 :y 5} {:x 10 :y 0}]}})
+          out-edge (outbound-edge-for graph (:id self))]
       (is (some? self) "fixture has a self-transition")
-      (is (true? (:selfLoop (:data self-e))))
-      (is (nil? (:points (:data self-e)))
-          "a self-loop never carries elk points (it keeps its loop path)"))))
+      (is (some? out-edge) "outbound edge survives projection")
+      ;; The route attaches to the outbound edge (the visible loop
+      ;; arc) — no longer dropped as in the legacy single-edge model.
+      (is (= [{:x 0 :y 0} {:x 5 :y 5} {:x 10 :y 0}]
+             (:points (:data out-edge)))))))
 
 (deftest xyflow-graph-routed-edge-keeps-active-highlight
-  (testing "rf2-cz8v6 — G1's active-edge styling survives routing: an
-            edge that BOTH has a route AND touches the highlighted node
-            is `:active` (highlighted) AND carries its `:points`"
+  (testing "rf2-cz8v6 + rf2-qo5xy — G1's active-edge styling survives
+            routing through the event-node: an outbound edge whose
+            target is active carries both `:active true` and the elk
+            route on its `:data`."
     (let [parsed  (layout/parse-definition idle-loading)
           hi      (layout/node-id [:loading])
           start   (->> (:edges parsed)
@@ -1153,11 +1240,9 @@
           graph   (projection/xyflow-graph
                     parsed {} {:highlight-id hi
                                :edge-points  {(:id start) route}})
-          start-e (edge-by-id graph (:id start))]
-      (is (true? (:active (:data start-e)))
-          "the idle→loading edge still highlights (target is active)")
-      (is (= route (:points (:data start-e)))
-          "and still carries its elk route — highlight + routing coexist"))))
+          out-edge (outbound-edge-for graph (:id start))]
+      (is (true? (:active (:data out-edge))))
+      (is (= route (:points (:data out-edge)))))))
 
 ;; ---- fired-this-epoch edge highlight (rf2-qeemm, G3) -------------------
 ;;
@@ -1170,23 +1255,30 @@
 ;; `data-fired` attr. The match is by EDGE-ID (not endpoint node-ids like
 ;; `:focused`) so every traversed arm lights up.
 
-(deftest xyflow-graph-marks-fired-edge
-  (testing "rf2-qeemm (THE G3 CAPABILITY) — an edge whose id ∈
-            :fired-edge-ids gets `:fired true`; every other edge stays
-            `:fired false`"
+(deftest xyflow-graph-marks-fired-event-node-and-its-edges
+  (testing "rf2-qeemm + rf2-qo5xy — a parsed-edge id in :fired-edge-ids
+            marks BOTH the inbound + outbound edges AND the event-node
+            for that transition with `:fired true` (the whole
+            event-as-nodes structural fork lights up). Other edges /
+            event-nodes stay `:fired false`."
     (let [parsed   (layout/parse-definition idle-loading)
           start    (->> (:edges parsed)
                         (filter #(= (:source %) (layout/node-id [:idle])))
                         first)
           graph    (projection/xyflow-graph
                      parsed {} {:fired-edge-ids #{(:id start)}})
-          start-e  (edge-by-id graph (:id start))
-          others   (remove #(= (:id %) (:id start)) (:edges graph))]
-      (is (some? start) "fixture has the idle→loading edge")
-      (is (true? (:fired (:data start-e)))
-          "the fired edge is marked :fired")
-      (is (every? #(false? (:fired (:data %))) others)
-          "no other edge is marked fired (including entry edges)"))))
+          ev-node  (event-node-for graph (:id start))
+          in-edge  (inbound-edge-for  graph (:id start))
+          out-edge (outbound-edge-for graph (:id start))
+          other-ev (remove #(= (:id %) (:id ev-node))
+                           (filter #(= "rf2-event" (:type %)) (:nodes graph)))
+          other-ed (remove #(#{(:id in-edge) (:id out-edge)} (:id %))
+                           (:edges graph))]
+      (is (true? (:fired (:data ev-node))))
+      (is (true? (:fired (:data in-edge))))
+      (is (true? (:fired (:data out-edge))))
+      (is (every? #(false? (:fired (:data %))) other-ev))
+      (is (every? #(false? (:fired (:data %))) other-ed)))))
 
 (deftest xyflow-graph-no-fired-edge-ids-leaves-all-unfired
   (testing "rf2-qeemm — omitting :fired-edge-ids (the viewer / Story path,
@@ -1197,24 +1289,26 @@
       (is (every? #(false? (:fired (:data %))) (:edges graph))
           "no fired set → no fired edges"))))
 
-(deftest xyflow-graph-fired-collects-multiple-edges
-  (testing "rf2-qeemm — a set with N fired ids marks ALL N edges :fired
-            (an epoch with several microsteps lights every traversed arm)"
+(deftest xyflow-graph-fired-collects-multiple-event-nodes
+  (testing "rf2-qeemm + rf2-qo5xy — a set with N fired parsed-edge ids
+            marks N event-nodes + their inbound/outbound edges as
+            fired. An epoch with two traversed arms lights two
+            event-node forks."
     (let [parsed (layout/parse-definition idle-loading)
           start  (->> (:edges parsed)
                       (filter #(= (:source %) (layout/node-id [:idle])))
                       first)
-          ;; the :always loading→ready edge
           always (->> (:edges parsed)
                       (filter #(= (:target %) (layout/node-id [:ready])))
                       first)
           ids    #{(:id start) (:id always)}
           graph  (projection/xyflow-graph parsed {} {:fired-edge-ids ids})
-          fired  (set (map :id (filter #(:fired (:data %)) (:edges graph))))]
-      (is (some? start) "fixture has the :start edge")
-      (is (some? always) "fixture has the :always edge")
-      (is (= ids fired)
-          "exactly the two fired ids are marked, no more no fewer"))))
+          fired-ev-nodes (set (map :id (filter #(and (= "rf2-event" (:type %))
+                                                     (:fired (:data %)))
+                                               (:nodes graph))))]
+      (is (= #{(str "event__" (:id start)) (str "event__" (:id always))}
+             fired-ev-nodes)
+          "exactly the two event-nodes for the fired ids light up"))))
 
 (deftest xyflow-graph-fired-marker-colour-distinct
   (testing "rf2-qeemm — a fired edge's arrowhead colour differs from a
@@ -1236,9 +1330,9 @@
           "fired vs non-fired arrowheads are distinct colours"))))
 
 (deftest xyflow-graph-fired-coexists-with-active-and-routing
-  (testing "rf2-qeemm — :fired coexists with G1 :active + G2 routing on
-            the SAME edge: a fired edge that also touches an active node
-            AND carries an elk route keeps all three"
+  (testing "rf2-qeemm + rf2-qo5xy — :fired + :active + :points coexist
+            on the outbound edge of a fired transition that also
+            touches an active node and carries an elk route."
     (let [parsed  (layout/parse-definition idle-loading)
           hi      (layout/node-id [:loading])
           start   (->> (:edges parsed)
@@ -1249,29 +1343,32 @@
                     parsed {} {:highlight-id   hi
                                :edge-points    {(:id start) route}
                                :fired-edge-ids #{(:id start)}})
-          start-e (edge-by-id graph (:id start))]
-      (is (true? (:fired  (:data start-e))) "edge is fired")
-      (is (true? (:active (:data start-e))) "edge is still active (G1)")
-      (is (= route (:points (:data start-e))) "edge still carries its route (G2)"))))
+          out-edge (outbound-edge-for graph (:id start))]
+      (is (true? (:fired  (:data out-edge))))
+      (is (true? (:active (:data out-edge))))
+      (is (= route (:points (:data out-edge)))))))
 
-(deftest xyflow-graph-fired-is-edge-id-not-endpoint-matched
-  (testing "rf2-qeemm — :fired matches the EDGE id directly, NOT endpoint
-            node-ids like :focused. Passing only :fired-edge-ids (no
-            from/to lens) lights the fired edge while NO edge is :focused"
+(deftest xyflow-graph-fired-is-parsed-edge-id-not-endpoint-matched
+  (testing "rf2-qeemm + rf2-qo5xy — :fired matches the parsed-edge id
+            directly (via the event-node bridge), NOT endpoint node-ids
+            like :focused. Passing only :fired-edge-ids (no from/to
+            lens) lights the fired forks while no edge is :focused."
     (let [parsed  (layout/parse-definition idle-loading)
           start   (->> (:edges parsed)
                        (filter #(= (:source %) (layout/node-id [:idle])))
                        first)
           graph   (projection/xyflow-graph
                     parsed {} {:fired-edge-ids #{(:id start)}})
-          start-e (edge-by-id graph (:id start))]
-      (is (true? (:fired (:data start-e))) "the fired edge lights")
-      (is (every? #(false? (:focused (:data %))) (:edges graph))
-          "no from/to lens → no edge is focused (fired is independent)"))))
+          out-edge (outbound-edge-for graph (:id start))]
+      (is (true? (:fired (:data out-edge))))
+      (is (every? #(false? (:focused (:data %))) (:edges graph))))))
 
 (deftest xyflow-graph-entry-edges-carry-fired-false
-  (testing "rf2-qeemm — initial entry edges keep the every-edge :data
-            shape whole: they carry `:fired false` (never fired)"
+  (testing "rf2-qeemm — initial entry edges (initial-marker → state)
+            keep the every-edge :data shape whole: they carry
+            `:fired false` (never fired). Note: these are distinct
+            from the rf2-qo5xy state→event-node→state edges. The
+            entry-edge is the marker→state hop."
     (let [parsed (layout/parse-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {:fired-edge-ids #{"anything"}})
           entry  (first (filter #(:entry (:data %)) (:edges graph)))]
@@ -1312,56 +1409,68 @@
              :failed  {:on {:retry :active}}}})
 
 (deftest xyflow-graph-emits-edge-with-compound-as-target
-  (testing "rf2-shv82 (Issue 1) — `:idle --connect--> :active` mints an
-            edge whose target is the COMPOUND `:active`'s node-id; the
-            projector must NOT drop or filter it"
+  (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — `:idle --connect--> :active`
+            mints an event-node + outbound edge whose target is the
+            COMPOUND `:active` node-id; the projector must not drop it."
     (let [parsed   (layout/parse-definition parent-level-transition-machine)
           graph    (projection/xyflow-graph parsed {} {})
           active-id (layout/node-id [:active])
-          edge     (first (filter #(and (= :connect (:eventId (:data %)))
-                                        (= (:target %) active-id))
-                                  (:edges graph)))]
-      (is (some? edge) "the compound-as-target edge survives projection")
-      (is (= (layout/node-id [:idle]) (:source edge))))))
+          connect  (first (filter #(= :connect (:event %)) (:edges parsed)))
+          ev-node  (event-node-for graph (:id connect))
+          out-edge (outbound-edge-for graph (:id connect))
+          in-edge  (inbound-edge-for  graph (:id connect))]
+      (is (some? ev-node))
+      (is (= active-id (:target out-edge))
+          "outbound edge targets the compound :active")
+      (is (= (layout/node-id [:idle]) (:source in-edge))
+          "inbound edge sources from :idle"))))
 
 (deftest xyflow-graph-emits-edge-with-compound-as-source
-  (testing "rf2-shv82 (Issue 1) — `:active --disconnect--> :idle` mints
-            an edge whose source is the COMPOUND `:active`'s node-id"
+  (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — `:active --disconnect--> :idle`
+            mints an inbound edge whose source is the COMPOUND `:active`."
     (let [parsed (layout/parse-definition parent-level-transition-machine)
           graph  (projection/xyflow-graph parsed {} {})
           active-id (layout/node-id [:active])
-          edge   (first (filter #(and (= :disconnect (:eventId (:data %)))
-                                      (= (:source %) active-id))
-                                (:edges graph)))]
-      (is (some? edge) "the compound-as-source edge survives projection"))))
+          disc   (first (filter #(= :disconnect (:event %)) (:edges parsed)))
+          in-edge (inbound-edge-for graph (:id disc))]
+      (is (some? in-edge))
+      (is (= active-id (:source in-edge))))))
 
-(deftest xyflow-graph-emits-self-loop-on-compound
-  (testing "rf2-shv82 (Issue 1) — `:active --send--> :active` (a
-            compound self-transition) projects as a self-loop on the
-            compound node, flagged :selfLoop"
+(deftest xyflow-graph-emits-self-routing-on-compound
+  (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — `:active --send--> {}`
+            (the compound's internal self-transition: omit :target,
+            just declare :action) projects as an event-node beside
+            the compound with an inbound edge from the compound but
+            NO outbound (internal transition convention)."
     (let [parsed (layout/parse-definition parent-level-transition-machine)
           graph  (projection/xyflow-graph parsed {} {})
           active-id (layout/node-id [:active])
-          edge   (first (filter #(and (= (:source %) active-id)
-                                      (= (:target %) active-id)
-                                      (= :send (:eventId (:data %))))
-                                (:edges graph)))]
-      (is (some? edge) "the compound self-loop survives projection")
-      (is (true? (:selfLoop (:data edge)))))))
+          send-e (first (filter #(= :send (:event %)) (:edges parsed)))
+          ev-node  (event-node-for     graph (:id send-e))
+          in-edge  (inbound-edge-for   graph (:id send-e))
+          out-edge (outbound-edge-for  graph (:id send-e))]
+      (is (true? (:internal? send-e))
+          "fixture sanity: :send is an internal self-transition")
+      (is (some? ev-node))
+      (is (true? (:internal (:data ev-node))))
+      (is (some? in-edge)  "inbound edge from compound exists")
+      (is (= active-id (:source in-edge))
+          "inbound source == :active compound")
+      (is (nil? out-edge)
+          "internal transition emits no outbound edge"))))
 
-(deftest xyflow-graph-emits-compound-endpoint-edges-survive-projection
-  (testing "rf2-shv82 (Issue 1) — every edge the parser emits also
-            appears in the projected graph; no edge involving a compound
-            endpoint is silently dropped at the projection layer (the
-            rf2-shv82 bug was DOM-layer; pin the contract here so a
-            future projection-layer filter would fail the test)"
+(deftest xyflow-graph-emits-compound-endpoint-event-nodes-survive-projection
+  (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — every parsed edge mints
+            an event-node in the projected graph; no compound-endpoint
+            edge is silently dropped at the projection layer."
     (let [parsed (layout/parse-definition parent-level-transition-machine)
           graph  (projection/xyflow-graph parsed {} {})
           parsed-ids (set (map :id (:edges parsed)))
-          proj-ids   (set (map :id (remove #(:entry (:data %))
-                                           (:edges graph))))]
-      (is (= parsed-ids proj-ids)
-          "every parsed edge id appears in the projected edge ids"))))
+          ev-node-ids (set (map :id (filter #(= "rf2-event" (:type %))
+                                            (:nodes graph))))
+          expected (set (map #(str "event__" %) parsed-ids))]
+      (is (= expected ev-node-ids)
+          "every parsed edge id has a matching event-node"))))
 
 ;; ---- self-loop fan superseded by multi-event collapse (rf2-shv82 → rf2-j10sm)
 ;;
@@ -1385,102 +1494,78 @@
                          :disarm {:action :disarm-it}
                          :clear  {:action :clear-it}}}}})
 
-(deftest xyflow-graph-multi-self-loops-collapse-to-one-arc-with-stacked-labels
-  (testing "rf2-j10sm (Phase 2, B) — multiple self-loops on the same
-            source ALL share `:loopIndex 0` (one loop arc, not a fan of
-            N arcs); the per-event slot rides on `:siblingIndex`
-            (0..N-1) + `:siblingCount` N, so the renderer paints ONE
-            arc + N stacked event labels (xstate/Stately convention)"
+(deftest xyflow-graph-multi-self-events-each-get-own-event-node
+  (testing "rf2-qo5xy — multiple self-events on one source each project
+            as their own event-node (events-as-nodes paradigm). The
+            legacy sibling-collapse (one arc, N stacked labels) is
+            superseded — each event is its own first-class box, and
+            the action attribution rides on the event-node itself."
     (let [parsed (layout/parse-definition multi-self-loop-machine)
           graph  (projection/xyflow-graph parsed {} {})
-          self-loops (->> (:edges graph)
-                          (remove #(:entry (:data %)))
-                          (filter #(true? (:selfLoop (:data %)))))]
-      (is (= 3 (count self-loops)) "fixture has 3 self-loops on :idle")
-      (is (every? #(= 0 (:loopIndex (:data %))) self-loops)
-          "all 3 self-loops share loop-index 0 (one arc, no fan)")
-      (is (= [0 1 2] (sort (map #(:siblingIndex (:data %)) self-loops)))
-          "the 3 events get sibling slots 0/1/2 in the label stack")
-      (is (every? #(= 3 (:siblingCount (:data %))) self-loops)
-          "every sibling knows the group total"))))
+          ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
+          on-idle  (filter (fn [e] (let [in (inbound-edge-for graph
+                                                              (subs (:id e)
+                                                                    (count "event__")))]
+                                     (= (:source in) (layout/node-id [:idle]))))
+                           ev-nodes)]
+      (is (= 3 (count on-idle))
+          "fixture has 3 events on :idle → 3 event-nodes")
+      (is (= #{:arm :disarm :clear}
+             (set (map #(:eventId (:data %)) on-idle))))
+      ;; The fixture's events ARE all internal (action only, no target),
+      ;; so each event-node anchors ONE inbound edge and NO outbound:
+      ;; 3 inbound, 0 outbound — the Stately convention for internal
+      ;; handlers ("runs an action and we hang here").
+      (let [inbound  (filter #(:inbound  (:data %)) (:edges graph))
+            outbound (filter #(:outbound (:data %)) (:edges graph))]
+        (is (= 3 (count inbound))
+            "3 inbound edges (one per internal self-event)")
+        (is (= 0 (count outbound))
+            "no outbound edges — these are internal transitions")))))
 
-(deftest xyflow-graph-single-self-loop-gets-index-zero
-  (testing "rf2-shv82 (Issue 2) — a single self-loop on a node gets
-            :loopIndex 0 (the historical top-right slot) AND siblingCount
-            1, so the single-self-loop case renders pixel-identical to
-            pre-collapse"
-    (let [parsed (layout/parse-definition self-loop-machine)
-          graph  (projection/xyflow-graph parsed {} {})
-          ping   (first (filter #(true? (:selfLoop (:data %))) (:edges graph)))]
+(deftest xyflow-graph-single-event-emits-one-event-node
+  (testing "rf2-qo5xy — a transition with exactly one event maps to one
+            event-node, one inbound edge, one outbound edge — the
+            paradigm's minimum unit."
+    (let [parsed   (layout/parse-definition self-loop-machine)
+          graph    (projection/xyflow-graph parsed {} {})
+          ping     (first (filter #(= (:source %) (:target %))
+                                  (:edges parsed)))
+          ev-node  (event-node-for graph (:id ping))
+          in-edge  (inbound-edge-for  graph (:id ping))
+          out-edge (outbound-edge-for graph (:id ping))]
       (is (some? ping))
-      (is (= 0 (:loopIndex (:data ping)))
-          "single self-loop gets slot 0 (historical position)")
-      (is (= 1 (:siblingCount (:data ping)))
-          "single-event case: siblingCount 1, no stacking")
-      (is (= 0 (:siblingIndex (:data ping)))
-          "the sole sibling is its own leader at slot 0"))))
+      (is (some? ev-node))
+      (is (some? in-edge))
+      (is (some? out-edge)))))
 
-(deftest xyflow-graph-non-self-loops-have-nil-loop-index
-  (testing "rf2-shv82 (Issue 2) — a normal transition (source != target)
-            carries `:loopIndex nil` (no perimeter slot to assign)"
-    (let [parsed (layout/parse-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})
-          non-self (filter #(false? (:selfLoop (:data %)))
-                           (remove #(:entry (:data %)) (:edges graph)))]
-      (is (seq non-self))
-      (is (every? #(nil? (:loopIndex (:data %))) non-self)
-          "non-self-loop edges carry no loop-index"))))
-
-(deftest xyflow-graph-self-loop-sibling-counter-is-per-source
-  (testing "rf2-j10sm (Phase 2, B) — the sibling counter resets per
-            `[source target]` pair. A node with 2 self-loops + another
-            with 1 self-loop reports independent sibling slots; the
-            second node's sibling starts at 0, not at 2."
-    (let [m {:initial :a
-             :states  {:a {:on {:a1 {} :a2 {}}}
-                       :b {:on {:b1 {}}}}}
-          parsed (layout/parse-definition m)
-          graph  (projection/xyflow-graph parsed {} {})
-          self-loops (filter #(true? (:selfLoop (:data %)))
-                             (remove #(:entry (:data %)) (:edges graph)))
-          by-source  (group-by :source self-loops)
-          a-sib  (sort (map #(:siblingIndex (:data %))
-                            (get by-source (layout/node-id [:a]))))
-          b-sib  (sort (map #(:siblingIndex (:data %))
-                            (get by-source (layout/node-id [:b]))))]
-      (is (= [0 1] a-sib) ":a has 2 self-loops in sibling slots 0/1")
-      (is (= [0]   b-sib) ":b's lone self-loop is at slot 0"))))
-
-(deftest xyflow-graph-multi-event-collapse-same-source-target-non-self-loop
-  (testing "rf2-j10sm (Phase 2, B) — the collapse applies to ANY
-            same-`[source target]` pair, not just self-loops. Two events
-            both transitioning A → B render as one arrow with two
-            stacked labels."
+(deftest xyflow-graph-multiple-events-on-same-source-target-pair
+  (testing "rf2-qo5xy — the events-as-nodes paradigm dissolves the
+            multi-event same-`[source target]` collapse: each event
+            becomes its own event-node, so two events both
+            transitioning A → B emit TWO event-nodes (with two
+            inbound + two outbound edges)."
     (let [m {:initial :a
              :states  {:a {:on {:go-fast :b :go-slow :b}}
                        :b {}}}
           parsed (layout/parse-definition m)
           graph  (projection/xyflow-graph parsed {} {})
-          a-to-b (->> (:edges graph)
-                      (remove #(:entry (:data %)))
-                      (filter #(and (= (:source %) (layout/node-id [:a]))
-                                    (= (:target %) (layout/node-id [:b])))))]
-      (is (= 2 (count a-to-b)) "fixture has two A→B edges")
-      (is (every? #(= 2 (:siblingCount (:data %))) a-to-b)
-          "both A→B siblings know the group total")
-      (is (= [0 1] (sort (map #(:siblingIndex (:data %)) a-to-b)))
-          "the two events take sibling slots 0 and 1"))))
+          ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))]
+      (is (= 2 (count ev-nodes))
+          "two events on :a → two event-nodes (no collapse)")
+      (is (= #{:go-fast :go-slow}
+             (set (map #(:eventId (:data %)) ev-nodes)))))))
 
-(deftest xyflow-graph-unique-pair-edge-is-its-own-sibling-leader
-  (testing "rf2-j10sm (Phase 2, B) — a singleton edge (the only edge
-            between its source/target) is its own leader: siblingIndex 0
-            + siblingCount 1, identical to the single-self-loop case"
-    (let [parsed (layout/parse-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})
-          start  (first (filter #(= :start (:eventId (:data %))) (:edges graph)))]
-      (is (some? start) "fixture has the idle→loading edge")
-      (is (= 1 (:siblingCount (:data start))))
-      (is (= 0 (:siblingIndex (:data start)))))))
+(deftest xyflow-graph-each-parsed-edge-yields-one-event-node
+  (testing "rf2-qo5xy — the projection invariant: parsed-edges count
+            equals event-nodes count. No collapse, no duplication."
+    (doseq [m [idle-loading compound-machine self-loop-machine
+               wildcard-machine machine-level-on-machine]]
+      (let [parsed   (layout/parse-definition m)
+            graph    (projection/xyflow-graph parsed {} {})
+            ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))]
+        (is (= (count (:edges parsed)) (count ev-nodes))
+            (str "fixture " m " mismatch"))))))
 
 ;; ---- cross-hierarchy label placement (rf2-shv82, Issue 3) --------------
 ;;
@@ -1499,45 +1584,46 @@
              :sibling {}}})
 
 (deftest xyflow-graph-flags-cross-hierarchy-edge
-  (testing "rf2-shv82 (Issue 3) — an edge whose source and target sit
-            in DIFFERENT parent containers gets :crossHierarchy true"
+  (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — an outbound edge whose
+            source event-node and target state sit in DIFFERENT parent
+            containers gets :crossHierarchy true."
     (let [parsed (layout/parse-definition cross-hierarchy-machine)
           graph  (projection/xyflow-graph parsed {} {})
-          escape (first (filter #(= :escape (:eventId (:data %))) (:edges graph)))]
-      (is (some? escape))
-      (is (true? (:crossHierarchy (:data escape)))
+          escape (first (filter #(= :escape (:event %)) (:edges parsed)))
+          out-edge (outbound-edge-for graph (:id escape))]
+      (is (some? out-edge))
+      (is (true? (:crossHierarchy (:data out-edge)))
           "inner→sibling escapes the :outer container"))))
 
 (deftest xyflow-graph-same-parent-edge-not-cross-hierarchy
-  (testing "rf2-shv82 (Issue 3) — an edge between two siblings under the
-            SAME parent is NOT cross-hierarchy (both leaves share a
-            parent-id; the edge stays inside the container)"
+  (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — an outbound edge between
+            two siblings under the SAME parent is NOT cross-hierarchy."
     (let [parsed (layout/parse-definition compound-machine)
           graph  (projection/xyflow-graph parsed {} {})
-          ;; :browsing --checkout--> :paying (both under :authenticated)
-          checkout (first (filter #(= :checkout (:eventId (:data %)))
-                                  (:edges graph)))]
-      (is (some? checkout))
-      (is (false? (:crossHierarchy (:data checkout)))
-          "two siblings under the same compound parent are NOT cross-hierarchy"))))
+          checkout (first (filter #(= :checkout (:event %)) (:edges parsed)))
+          out-edge (outbound-edge-for graph (:id checkout))]
+      (is (some? out-edge))
+      (is (false? (:crossHierarchy (:data out-edge)))))))
 
 (deftest xyflow-graph-flat-machine-no-cross-hierarchy
-  (testing "rf2-shv82 (Issue 3) — a flat machine has no containers, so
-            no edge is cross-hierarchy"
+  (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — a flat machine has no
+            containers, so no outbound edge is cross-hierarchy."
     (let [parsed (layout/parse-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
-          non-entry (remove #(:entry (:data %)) (:edges graph))]
-      (is (seq non-entry))
-      (is (every? #(false? (:crossHierarchy (:data %))) non-entry)))))
+          out-edges (filter #(:outbound (:data %)) (:edges graph))]
+      (is (seq out-edges))
+      (is (every? #(false? (:crossHierarchy (:data %))) out-edges)))))
 
-(deftest xyflow-graph-self-loop-not-cross-hierarchy
-  (testing "rf2-shv82 (Issue 3) — a self-loop (source == target) is
-            never cross-hierarchy regardless of its container nesting"
+(deftest xyflow-graph-self-routing-not-cross-hierarchy
+  (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — a self-routing transition
+            (source == target) is never cross-hierarchy regardless of
+            container nesting."
     (let [parsed (layout/parse-definition self-loop-machine)
           graph  (projection/xyflow-graph parsed {} {})
-          ping   (first (filter #(true? (:selfLoop (:data %))) (:edges graph)))]
-      (is (some? ping))
-      (is (false? (:crossHierarchy (:data ping)))))))
+          ping   (first (filter #(= (:source %) (:target %)) (:edges parsed)))
+          out-edge (outbound-edge-for graph (:id ping))]
+      (is (some? out-edge))
+      (is (false? (:crossHierarchy (:data out-edge)))))))
 
 (deftest xyflow-graph-entry-edges-carry-cross-hierarchy-false
   (testing "rf2-shv82 — entry edges keep the every-edge :data shape

@@ -605,33 +605,32 @@
                           (= event     (:event e)))
                  (:id e))))))
 
-(deftest chart-fired-edge-renders-data-fired-on-the-right-edge
-  (testing "rf2-qeemm (G3) — passing :fired-edge-ids #{<idle→loading id>}
-            renders data-fired=\"true\" on THAT edge's label and
-            data-fired=\"false\" on every other edge label"
+(deftest chart-fired-event-node-renders-data-fired
+  (testing "rf2-qeemm (G3) + rf2-qo5xy — events-as-nodes paradigm:
+            passing :fired-edge-ids #{<idle→loading id>} marks the
+            matching event-node (xyflow `rf2-event`) with
+            data-fired=\"true\"; non-fired event-nodes carry
+            data-fired=\"false\"."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
-      (let [start-id (canonical-edge-id idle-loading-done [:idle] [:loading] :start)]
+      (let [start-id (canonical-edge-id idle-loading-done [:idle] [:loading] :start)
+            fired-ev-id (str "event__" start-id)]
         (with-mounted-chart
           {:machine-id     :test/flow
            :definition     idle-loading-done
            :fired-edge-ids #{start-id}}
           (fn [_root node]
             (let [fired-el (.querySelector
-                             node (str "[data-testid=\"rf-mv-chart-edge-" start-id "\"]"))
-                  all      (array-seq
-                             (.querySelectorAll node "[data-testid^=\"rf-mv-chart-edge-\"]"))
-                  others   (remove #(= % fired-el) all)]
-              ;; edge labels mount on first commit (no layout dependency)
+                             node (str "[data-testid=\"rf-mv-chart-event-" fired-ev-id "\"]"))
+                  all-evs  (array-seq
+                             (.querySelectorAll node "[data-testid^=\"rf-mv-chart-event-\"]"))
+                  others   (remove #(= % fired-el) all-evs)]
               (when (some? fired-el)
-                (is (= "true" (.getAttribute fired-el "data-fired"))
-                    "the fired edge's label carries data-fired=true")
-                (is (every? #(= "false" (.getAttribute % "data-fired")) others)
-                    "no other edge label is marked fired"))
-              ;; structural invariant so the test is meaningful even if a
-              ;; label races the commit.
+                (is (= "true" (.getAttribute fired-el "data-fired")))
+                (is (every? #(or (= "false" (.getAttribute % "data-fired"))
+                                 (nil? (.getAttribute % "data-fired"))) others)))
               (is (number? (.-length (.querySelectorAll
-                                       node "[data-testid^=\"rf-mv-chart-edge-\"]")))))))))))
+                                       node "[data-testid^=\"rf-mv-chart-event-\"]")))))))))))
 
 (deftest chart-fired-edge-ids-surfaces-on-root
   (testing "rf2-qeemm (G3) — the chart root surfaces the sorted fired set

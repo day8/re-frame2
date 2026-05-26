@@ -164,19 +164,39 @@
   + positions each orthogonal zone and its states; flat machines get
   the original single-level child list. The root `layoutOptions` are
   computed by the pure `elk-layout-options` (cross-hierarchy switch +
-  direction + host overrides) and `clj->js`-ed here."
+  direction + host overrides) and `clj->js`-ed here.
+
+  rf2-qo5xy — the events-as-nodes paradigm decomposes each parsed
+  transition into TWO elk edges: source-state → event-node and
+  event-node → target-state (the second omitted for internal
+  transitions). elkjs lays out the synthetic event-node alongside
+  the source state's siblings (per `projection/->elk-children`); the
+  resulting positions land in `:positions` keyed by the event-node id
+  (`projection/event-node-id`) and the chart's xyflow projection picks
+  them up."
   [{:keys [edges] :as parsed} direction layout-options]
   #js {:id "root"
        :layoutOptions (clj->js (elk-layout-options parsed layout-options
                                                    direction))
        :children (clj->js (projection/->elk-children parsed))
        :edges (clj->js
-                (mapv (fn [e]
-                        {:id (:id e)
-                         :sources [(:source e)]
-                         :targets [(:target e)]
-                         :labels [{:text (:event-label e)}]})
-                      edges))})
+                (vec
+                  (mapcat
+                    (fn [e]
+                      (let [ev-id (projection/event-node-id e)]
+                        (cond-> [{:id      (str (:id e) "__in")
+                                  :sources [(:source e)]
+                                  :targets [ev-id]
+                                  :labels  [{:text ""}]}]
+                          ;; Internal self-transitions (omit :target) have
+                          ;; no outgoing edge — the event-node 'hangs and
+                          ;; ends' per the Stately convention.
+                          (not (:internal? e))
+                          (conj {:id      (str (:id e) "__out")
+                                 :sources [ev-id]
+                                 :targets [(:target e)]
+                                 :labels  [{:text ""}]}))))
+                    edges)))})
 
 (defn elk-edge-points
   "rf2-cz8v6 (G2) — lift one elk edge's routed bend-points into a flat
@@ -535,6 +555,15 @@
     :overlay-tick      — opaque value the host bumps to force the
                          spawn-all + cascade overlays to re-measure +
                          repaint (mirrors `:after-ring-tick`).
+    :machine-data      — rf2-qo5xy. Optional CLJS map of the current
+                         machine `:data` (`:rf.machine/data`). When
+                         supplied the chart paints a small read-only
+                         panel in the top-LEFT corner of the canvas
+                         showing each `(key, value)` pair so the
+                         operator sees the live `:data` without leaving
+                         the chart (Stately graph view convention). nil
+                         → no panel. The panel is purely presentation —
+                         the host owns the data projection.
     :testid            — root wrapper `data-testid`; defaults to
                          `\"rf-mv-chart\"` so tests + hosts find it."
   [_initial-props]
@@ -602,6 +631,7 @@
                  on-after-ring-hover on-after-ring-leave
                  spawn-all-join on-spawn-child-click
                  cancellation-cascade overlay-tick
+                 machine-data
                  testid]
           :or   {direction         :tb
                  height            "100%"
@@ -919,6 +949,65 @@
              ;; (the overlay is a no-op).
              [label-collisions/LabelCollisionsOverlay
               {:tick (or after-ring-tick overlay-tick)}]
+             ;; rf2-qo5xy — `:machine-data` corner panel. The Stately
+             ;; graph view paints the machine's current `:data` /
+             ;; context as a top-left panel so the operator reads it
+             ;; alongside the topology. Presentation-only: the host
+             ;; supplies the map; the chart paints whatever shape it is
+             ;; (the panel does no destructuring, just pr-str on each
+             ;; value). Hidden when nil / empty so a machine with no
+             ;; `:data` declared (or a host that hasn't wired it) does
+             ;; not paint an empty box.
+             (when (and machine-data (seq machine-data))
+               [:div {:data-testid (str testid "-machine-data-panel")
+                      :data-key-count (str (count machine-data))
+                      :role "complementary"
+                      :aria-label (str "Machine context for "
+                                       (when machine-id (name machine-id)))
+                      :style {:position      "absolute"
+                              :top           "8px"
+                              :left          "8px"
+                              :z-index       6
+                              :max-width     "260px"
+                              :max-height    "40%"
+                              :overflow      "auto"
+                              :padding       "8px 10px"
+                              :font-family   tokens/mono-stack
+                              :font-size     "11px"
+                              :line-height   1.4
+                              :color         (:text-primary tokens/tokens)
+                              :background    (tokens/with-alpha :bg-2 0.92)
+                              :border        (str "1px solid "
+                                                  (tokens/with-alpha :border-default 0.6))
+                              :border-radius "4px"}}
+                [:div {:style {:font-family    tokens/sans-stack
+                               :font-size      "9px"
+                               :font-weight    700
+                               :letter-spacing "0.06em"
+                               :text-transform "uppercase"
+                               :color          (:text-tertiary tokens/tokens)
+                               :margin-bottom  "4px"}}
+                 "Context"]
+                (for [[k v] (seq machine-data)]
+                  ^{:key (pr-str k)}
+                  [:div {:data-testid (str testid "-machine-data-key-"
+                                           (if (keyword? k) (name k) (str k)))
+                         :data-key (pr-str k)
+                         :style {:display "flex"
+                                 :gap     "6px"
+                                 :align-items "baseline"
+                                 :white-space "nowrap"
+                                 :overflow "hidden"
+                                 :text-overflow "ellipsis"}}
+                   [:span {:style {:color (:accent tokens/tokens)
+                                   :font-weight 600}}
+                    (if (keyword? k) (name k) (str k))]
+                   [:span {:style {:color (:text-tertiary tokens/tokens)}}
+                    ":"]
+                   [:span {:style {:color (:text-secondary tokens/tokens)
+                                   :overflow "hidden"
+                                   :text-overflow "ellipsis"}}
+                    (pr-str v)]])])
              ;; rf2-4lyvh — ELK layout-failure indicator. When
              ;; `compute-layout!` surfaces a `:layout-error` slot the
              ;; chart would otherwise render every node stacked at

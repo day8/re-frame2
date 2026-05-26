@@ -65,6 +65,19 @@
 
 ;; ---- elk.js children projection ----------------------------------------
 
+(def event-node-elk-width
+  "elk.js layout width for an event-node — narrower than a state node
+  so two adjacent events do not crowd the state row, but wide enough
+  for the `event-segment` text + optional `[guard]` chip + `+ action`
+  pill (rf2-qo5xy)."
+  120)
+
+(def event-node-elk-height
+  "elk.js layout height for an event-node — taller than a single text
+  line so the action-pill row has space underneath the header
+  (rf2-qo5xy)."
+  46)
+
 (defn elk-child
   "Build a single elk.js child descriptor for a parsed node (a plain
   CLJS map; `chart`'s `->elk-input` `clj->js`-es the whole tree)."
@@ -74,8 +87,20 @@
    :height (if (:compound? n) compound-node-min-height state-node-min-height)
    :labels [{:text (:label n)}]})
 
+(defn elk-event-child
+  "rf2-qo5xy — build an elk.js child descriptor for a SYNTHETIC
+  event-node. The events-as-nodes paradigm inserts one of these per
+  spec transition (between source state and target state); elkjs lays
+  it out alongside the source state's siblings inside the source's
+  parent container."
+  [parsed-edge]
+  {:id     (event-node-id parsed-edge)
+   :width  event-node-elk-width
+   :height event-node-elk-height
+   :labels [{:text (or (:event-label parsed-edge) "")}]})
+
 (defn ->elk-children
-  "Project parsed nodes into elk.js's `children` shape.
+  "Project parsed nodes + parsed edges into elk.js's `children` shape.
 
   Nesting is keyed on `:parent-id`: parallel-region states (rf2-lkwev)
   AND compound substates carry it, so BOTH nest UNDER their container
@@ -86,20 +111,46 @@
   compound, lays out correctly. Each container (region OR compound) gets
   its own `elk.algorithm`/`elk.padding` so the header strip has room and
   the zone gets a clean internal layout; top-level nodes are laid out at
-  the root."
-  [{:keys [nodes]}]
-  (let [by-parent (group-by :parent-id nodes)
+  the root.
+
+  rf2-qo5xy — synthetic event-nodes (one per parsed edge) sit alongside
+  state-nodes as elk children of the SOURCE state's parent container
+  (top-level when the source has no parent). elk then lays them out
+  with the layered algorithm — events flow naturally between states
+  per the events-as-nodes paradigm. They carry no children of their
+  own."
+  [{:keys [nodes edges]}]
+  (let [node-by-id (into {} (map (juxt :id identity)) nodes)
+        ;; The event-node's parent container == the source state's
+        ;; parent. Top-level when the source has no `:parent-id`.
+        event-children
+        (mapv (fn [e]
+                (let [src (get node-by-id (:source e))
+                      pid (:parent-id src)]
+                  (cond-> (elk-event-child e)
+                    pid (assoc ::event-parent pid))))
+              edges)
+        by-parent (group-by :parent-id nodes)
+        events-by-parent (group-by ::event-parent event-children)
         build (fn build [n]
-                (let [kids (get by-parent (:id n))]
+                (let [state-kids (get by-parent (:id n) [])
+                      event-kids (get events-by-parent (:id n) [])
+                      kids       (concat state-kids event-kids)]
                   (cond-> (elk-child n)
                     (seq kids)
-                    (assoc :children (mapv build kids)
-                           ;; Container lays out its own children;
-                           ;; padding leaves top room for the header strip
-                           ;; (region label / compound title).
+                    (assoc :children (->> kids
+                                          (mapv (fn [k]
+                                                  (if (contains? k ::event-parent)
+                                                    ;; Strip the helper-only key
+                                                    ;; before handing to elk.
+                                                    (dissoc k ::event-parent)
+                                                    (build k)))))
                            :layoutOptions {"elk.algorithm" "layered"
-                                           "elk.padding"   "[top=34,left=14,bottom=14,right=14]"}))))]
-    (mapv build (get by-parent nil))))
+                                           "elk.padding"   "[top=34,left=14,bottom=14,right=14]"}))))
+        top-state-children (mapv build (get by-parent nil))
+        top-event-children (->> (get events-by-parent nil [])
+                                (mapv #(dissoc % ::event-parent)))]
+    (vec (concat top-state-children top-event-children))))
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
 
@@ -122,6 +173,26 @@
   inspector, not as an edge in this chart."
   [edge]
   (if (:after edge) "after" "transition"))
+
+(defn event-variant
+  "rf2-qo5xy — bucket a parsed edge by its event variant for the
+  events-as-nodes paradigm: `:after` (clock glyph), `:always`
+  (infinity glyph), or `:on` (regular event keyword). Pure data → keyword."
+  [edge]
+  (cond
+    (:after edge)   :after
+    (:always? edge) :always
+    :else           :on))
+
+(defn event-node-id
+  "rf2-qo5xy — stable string id for an event-node. The xyflow node
+  inserted between the source state and the (optional) target state
+  in the events-as-nodes paradigm. Derived from the canonical edge-id
+  (`chart.layout/edge-id`) so two transitions sharing source/target/
+  event/guard/action keep distinct event-node ids — the same
+  collision-tiebreak `chart.layout/parse-flat` applies."
+  [edge]
+  (str "event__" (:id edge)))
 
 (defn xyflow-graph
   "Project the parsed graph + a `{node-id position}` map into the
@@ -344,181 +415,213 @@
                            :extent   "parent"))))
               (sort-by #(if (or (:region? %) (:compound? %)) 0 1) nodes))
 
-        ;; rf2-j10sm (Phase 2, B) — multi-event same-`[source target]`
-        ;; collapse (the xstate/Stately convention). N edges with the
-        ;; same source + target (e.g. 3 self-loops on `:disconnected`,
-        ;; or 2 parallel transitions A→B on different events) render as
-        ;; ONE arrow with N stacked event labels rather than N
-        ;; overlapping arrows + N overlapping labels.
+        ;; rf2-qo5xy — events-as-nodes paradigm. Each parsed transition
+        ;; emits ONE event-node (xyflow `type "rf2-event"`) plus one or
+        ;; two edges:
         ;;
-        ;; Compute, in two passes:
+        ;;   source-state ─→ event-node ─→ target-state  (regular external)
+        ;;   source-state ─→ event-node                 (internal: no :target)
         ;;
-        ;;   sibling-counts — `{[source target] N}` for every pair the
-        ;;     projection emits. Read by the edge renderer to space the
-        ;;     stacked labels (and by `:data-sibling-count`).
-        ;;   sibling-index-of — per-pair monotone counter (0..N-1) that
-        ;;     hands each edge its slot in the stack in emission order.
-        ;;     Only the leader (`:siblingIndex 0`) paints the SVG path +
-        ;;     arrowhead; siblings render just their label, vertically
-        ;;     offset.
+        ;; Pre-rf2-qo5xy the chart painted transitions as edge LABELS
+        ;; between state boxes (event + guard + action floated on the
+        ;; line). The events-as-nodes paradigm hoists the event into a
+        ;; first-class box so the action attribution (+ guard chip)
+        ;; reads cleanly even with several stacked candidates — the
+        ;; Stately graph view convention (rf2-qo5xy bead §Shift 1).
         ;;
-        ;; This SUPERSEDES the rf2-shv82 self-loop perimeter fan: a
-        ;; self-loop is just a same-pair case (source == target), and
-        ;; stacked labels on ONE loop arc are visually cleaner than N
-        ;; loops fanned around the perimeter. `loop-index` collapses to
-        ;; 0 for every self-loop now (no fan); the fan slots are
-        ;; reserved for a future "explicit fan" affordance that doesn't
-        ;; collapse labels (none planned). The historical single-self-
-        ;; loop case (one loop on a node) is unchanged: siblingCount 1,
-        ;; loop-index 0, leader paints the loop in slot 0.
-        sibling-key       (juxt :source :target)
-        sibling-counts    (frequencies (map sibling-key edges))
-        sibling-index-of
-        (let [seen (volatile! {})]
-          (fn [e]
-            (let [k (sibling-key e)
-                  n (get @seen k 0)]
-              (vswap! seen assoc k (inc n))
-              n)))
-        ;; rf2-shv82 (Issue 3) — flag cross-hierarchy edges (source and
-        ;; target sit in different parent containers). The label-
-        ;; positioning logic uses this to anchor the label near the
-        ;; SOURCE-SIDE first bend point (just outside the container the
-        ;; edge exits) instead of at the routed midpoint, which can land
-        ;; far from the visual origin for a deeply-nested cross-hierarchy
-        ;; edge (Stately Studio's convention).
+        ;; The legacy single-edge `:edges` shape (state → state with
+        ;; event/guard/action on the label) is dropped: tests that used
+        ;; to assert on the edge `:data {:eventLabel ...}` now address
+        ;; the event-node's `:data {:eventLabel ...}` instead. The
+        ;; cross-hierarchy / sibling / self-loop / fired / focused
+        ;; treatments still apply to the incoming + outgoing edges, but
+        ;; the visible label rides on the event-node.
         cross-hierarchy?-of
-        (fn [e]
-          (let [src-parent (get parent-of (:source e))
-                tgt-parent (get parent-of (:target e))]
-            (and (not= (:source e) (:target e))
+        (fn [src tgt]
+          (let [src-parent (get parent-of src)
+                tgt-parent (get parent-of tgt)]
+            (and (not= src tgt)
                  (not= src-parent tgt-parent))))
-        proj-edges
+        ;; Per-edge derived values + the event-node descriptor for the
+        ;; current parsed transition.
+        edge-descriptors
         (mapv (fn [e]
-                (let [from-active? (or (contains? active-ids (:source e))
-                                       (contains? active-ids (:target e)))
+                (let [src          (:source e)
+                      tgt          (:target e)
+                      from-active? (or (contains? active-ids src)
+                                       (contains? active-ids tgt))
                       focused?     (and (some? from-highlight-id)
                                         (some? to-highlight-id)
-                                        (= (:source e) from-highlight-id)
-                                        (= (:target e) to-highlight-id))
-                      ;; rf2-qeemm (G3) — the edge fired THIS epoch when its
-                      ;; canonical id ∈ `:fired-edge-ids` (matched directly,
-                      ;; not by endpoint node-ids like `focused?`). The set
-                      ;; is the host's `extract-fired-edge-ids` result, whose
-                      ;; ids agree with `(:id e)` by construction.
+                                        (= src from-highlight-id)
+                                        (= tgt to-highlight-id))
                       fired?       (contains? fired-edge-ids (:id e))
-                      ;; A self-transition (source == target) renders as a
-                      ;; loop, not a degenerate near-zero bezier; the edge
-                      ;; component reads the `:selfLoop` flag.
-                      self-loop?   (= (:source e) (:target e))
-                      ;; rf2-j10sm (Phase 2, B) — sibling slot in the merged
-                      ;; multi-event group. Drives label stacking +
-                      ;; leader/follower path painting in `transition-edge`.
-                      sibling-index (sibling-index-of e)
-                      sibling-count (get sibling-counts (sibling-key e) 1)
-                      ;; rf2-shv82 (Issue 2) → rf2-j10sm (Phase 2, B) — the
-                      ;; self-loop perimeter fan is superseded by the
-                      ;; multi-event collapse: all self-loops on one source
-                      ;; share ONE loop arc with stacked labels. loop-index
-                      ;; is now always 0 for a self-loop (the historical
-                      ;; single-self-loop slot); the fan code path is
-                      ;; preserved in `edge-path` but is exercised only by
-                      ;; the projection-bypassing test corpus.
-                      loop-index   (when self-loop? 0)
-                      ;; rf2-shv82 (Issue 3) — cross-hierarchy flag for the
-                      ;; label-placement adjustment in `edge-path`.
-                      cross-hier?  (cross-hierarchy?-of e)
-                      ;; rf2-qeemm (G3) — the fired-this-epoch arrowhead reads
-                      ;; in the FIRED hue (`:accent`, distinct from the
-                      ;; focused/active `:info`); fired wins over focused/active
-                      ;; so a traversed edge stands out as "what just happened".
-                      ;; Palette delegated to Figma (no new token).
-                      marker-color (cond
-                                     fired?                  (:accent tokens/tokens)
-                                     (or focused? from-active?) (:info tokens/tokens)
-                                     :else                   (:border-default tokens/tokens))
+                      self-loop?   (= src tgt)
+                      internal?    (boolean (:internal? e))
                       ;; A `:*` wildcard `:on` arm is a real transition
-                      ;; but NOT a fireable event (Spec 005 §Wildcard —
-                      ;; it matches "any otherwise-unhandled event").
-                      ;; Excluding it keeps `:eventId` nil so the on-chart
-                      ;; sim can't dispatch a literal `[:* ...]` (same
-                      ;; inert posture as `:after` / `:always`).
+                      ;; but NOT a fireable event (Spec 005 §Wildcard).
                       fireable?    (and (nil? (:after e))
                                         (not (:always? e))
                                         (keyword? (:event e))
                                         (not= :* (:event e)))
                       event-id     (when fireable? (:event e))
-                      ;; rf2-cz8v6 (G2) — elk's routed bend-points for
-                      ;; this edge (absolute coords). Self-loops keep
-                      ;; their dedicated loop path, so they never carry
-                      ;; points even if elk emitted a degenerate route.
-                      points       (when-not self-loop?
-                                     (get edge-points (:id e)))]
-                  {:id     (:id e)
-                   :source (:source e)
-                   :target (:target e)
-                   :type   (choose-edge-type e)
-                   :markerEnd {:type "arrowclosed"
-                               :color marker-color
-                               :width 18
-                               :height 18}
-                   :data   {:eventLabel (:event-label e)
-                            ;; rf2-a2b55 — Stately graph view convention: the
-                            ;; visible label paints the event + guard on ONE
-                            ;; line, with the action as a `+ <action>` pill on
-                            ;; a separate row BELOW it. `:eventLineLabel` is
-                            ;; the visible-line text (`event [guard]`, no
-                            ;; `/ action`); `:eventLabel` keeps the full
-                            ;; `event [guard] / action` form for the
-                            ;; `data-event` attr + host introspection +
-                            ;; label-collision-overlay path.
-                            :eventLineLabel (layout/event-line e)
-                            :active     from-active?
-                            :focused    focused?
-                            ;; rf2-qeemm (G3) — fired-this-epoch flag the
-                            ;; edge component reads to paint the FIRED
-                            ;; treatment + surface `data-fired`.
-                            :fired      fired?
-                            :afterMs    (:after e)
-                            :guard      (layout/name-of (:guard e))
-                            :action     (layout/name-of (:action e))
-                            :selfLoop   self-loop?
-                            ;; rf2-shv82 (Issue 2) → rf2-j10sm (Phase 2, B)
-                            ;; — `loopIndex` is 0 for every self-loop now
-                            ;; (the fan is superseded by the multi-event
-                            ;; collapse) and nil for non-self-loops.
-                            :loopIndex  loop-index
-                            ;; rf2-j10sm (Phase 2, B) — slot in the merged
-                            ;; same-`[source target]` group + per-group
-                            ;; total. The renderer pins these and uses them
-                            ;; to stack labels + suppress non-leader paths.
-                            :siblingIndex sibling-index
-                            :siblingCount sibling-count
-                            ;; rf2-shv82 (Issue 3) — cross-hierarchy flag
-                            ;; for the label-position shift in `edge-path`
-                            ;; (source-side bend point instead of midpoint).
-                            :crossHierarchy cross-hier?
-                            ;; rf2-cz8v6 (G2) — elk's routed bend-points
-                            ;; (a `[{:x :y} …]` vector in absolute /
-                            ;; flow coords) when elk computed a route;
-                            ;; the edge component draws a smooth poly-
-                            ;; path THROUGH them (around nested
-                            ;; containers). nil → the bezier fallback.
-                            :points       points
-                            ;; rf2-ee38b.21 — an internal self-transition
-                            ;; (omit :target) runs only :action; the
-                            ;; renderer draws it as a self-loop with no
-                            ;; exit/entry re-trigger affordance.
-                            :internal     (boolean (:internal? e))
-                            ;; A machine-level (top-level :on) fallback
-                            ;; transition every state inherits.
-                            :machineLevel (boolean (:machine-level? e))
-                            :eventId    event-id
-                            :fromPath   (:from-path e)
-                            :toPath     (:to-path e)
-                            :onClick    on-edge-click
-                            :chart      chart}}))
+                      variant      (event-variant e)
+                      ev-node-id   (event-node-id e)
+                      ;; The event-node nests inside the SAME parent
+                      ;; container as the source state (parent-id chain
+                      ;; preserved). elkjs lays it out alongside other
+                      ;; siblings; xyflow's `parentId` sub-flow does the
+                      ;; rest. Top-level states leave `:parent-id` nil.
+                      parent-id    (get parent-of src)
+                      cross-hier?  (cross-hierarchy?-of src tgt)
+                      points       (get edge-points (:id e))]
+                  {:edge      e
+                   :event-id  event-id
+                   :variant   variant
+                   :ev-node-id ev-node-id
+                   :parent-id parent-id
+                   :focused?  focused?
+                   :fired?    fired?
+                   :from-active? from-active?
+                   :self-loop? self-loop?
+                   :internal? internal?
+                   :cross-hier? cross-hier?
+                   :points    points}))
               edges)
+        ;; Event-nodes — one per parsed transition. The xyflow node
+        ;; renderer (`chart.nodes.event-node`) paints the event header
+        ;; (`event-segment` glyph), the `[guard]` chip, and the
+        ;; `+ <action>` pill row.
+        event-nodes
+        (mapv (fn [{:keys [edge variant ev-node-id parent-id
+                           focused? fired? internal? event-id]}]
+                (let [src (:source edge)
+                      src-pos (get positions src {:x 0 :y 0})
+                      ev-pos  (get positions ev-node-id
+                                   ;; Pre-layout fallback: a small offset
+                                   ;; from the source so a no-layout
+                                   ;; render does not stack everything at
+                                   ;; the origin.
+                                   {:x (+ (:x src-pos) 0)
+                                    :y (+ (:y src-pos) 80)})]
+                  (cond-> {:id        ev-node-id
+                           :type      "rf2-event"
+                           :position  {:x (:x ev-pos) :y (:y ev-pos)}
+                           :data      {:eventLabel  (layout/event-segment edge)
+                                       :variant     (name variant)
+                                       :afterMs     (:after edge)
+                                       :guard       (layout/name-of (:guard edge))
+                                       :action      (layout/name-of (:action edge))
+                                       :focused     focused?
+                                       :fired       fired?
+                                       :internal    internal?
+                                       :machineLevel (boolean (:machine-level? edge))
+                                       :eventId     event-id
+                                       :fromPath    (:from-path edge)
+                                       :toPath      (:to-path edge)
+                                       :onClick     on-edge-click
+                                       :chart       chart}
+                           :draggable false
+                           :selectable false}
+                    ;; rf2-xh1lm — the event-node nests inside the same
+                    ;; parent the source state nests in, so a transition
+                    ;; declared on a compound substate's child sits inside
+                    ;; the compound container rather than leaking to the
+                    ;; root.
+                    parent-id
+                    (assoc :parentId parent-id
+                           :extent   "parent"))))
+              edge-descriptors)
+        ;; Inbound edges: source-state → event-node. One per parsed
+        ;; transition. No label rides on this edge (the event-node holds
+        ;; the event/guard/action text); the edge is structural —
+        ;; "this state handles this event".
+        inbound-edges
+        (mapv (fn [{:keys [edge ev-node-id from-active? focused? fired?
+                           cross-hier?]}]
+                {:id        (str (:id edge) "__in")
+                 :source    (:source edge)
+                 :target    ev-node-id
+                 :type      "transition"
+                 :markerEnd {:type "arrowclosed"
+                             :color (cond
+                                      fired?    (:accent tokens/tokens)
+                                      focused?  (:info tokens/tokens)
+                                      from-active? (:info tokens/tokens)
+                                      :else     (:border-default tokens/tokens))
+                             :width 14
+                             :height 14}
+                 :data      {:eventLabel ""
+                             :eventLineLabel ""
+                             :active     from-active?
+                             :focused    focused?
+                             :fired      fired?
+                             :afterMs    nil
+                             :guard      nil
+                             :action     nil
+                             :selfLoop   false
+                             :loopIndex  nil
+                             :siblingIndex 0
+                             :siblingCount 1
+                             :crossHierarchy cross-hier?
+                             :points     nil
+                             :internal   false
+                             :machineLevel (boolean (:machine-level? edge))
+                             :eventId    nil
+                             :fromPath   (:from-path edge)
+                             :toPath     (:to-path edge)
+                             :onClick    nil
+                             :chart      chart
+                             :inbound    true
+                             :eventNodeId ev-node-id
+                             :spec-edge-id (:id edge)}})
+              edge-descriptors)
+        ;; Outbound edges: event-node → target-state. Omitted for
+        ;; internal transitions (`:internal? true`) — the event-node
+        ;; hangs with no outgoing arrow per the Stately graph view
+        ;; convention for internal handlers ("runs an action, no state
+        ;; change").
+        outbound-edges
+        (->> edge-descriptors
+             (remove (fn [{:keys [internal?]}] internal?))
+             (mapv (fn [{:keys [edge ev-node-id focused? fired? from-active?
+                                cross-hier? points]}]
+                     {:id        (str (:id edge) "__out")
+                      :source    ev-node-id
+                      :target    (:target edge)
+                      :type      "transition"
+                      :markerEnd {:type "arrowclosed"
+                                  :color (cond
+                                           fired?    (:accent tokens/tokens)
+                                           focused?  (:info tokens/tokens)
+                                           from-active? (:info tokens/tokens)
+                                           :else     (:border-default tokens/tokens))
+                                  :width 18
+                                  :height 18}
+                      :data      {:eventLabel ""
+                                  :eventLineLabel ""
+                                  :active     from-active?
+                                  :focused    focused?
+                                  :fired      fired?
+                                  :afterMs    nil
+                                  :guard      nil
+                                  :action     nil
+                                  :selfLoop   false
+                                  :loopIndex  nil
+                                  :siblingIndex 0
+                                  :siblingCount 1
+                                  :crossHierarchy cross-hier?
+                                  :points     points
+                                  :internal   false
+                                  :machineLevel (boolean (:machine-level? edge))
+                                  :eventId    nil
+                                  :fromPath   (:from-path edge)
+                                  :toPath     (:to-path edge)
+                                  :onClick    nil
+                                  :chart      chart
+                                  :outbound   true
+                                  :eventNodeId ev-node-id
+                                  :spec-edge-id (:id edge)}})))
+        proj-edges (vec (concat inbound-edges outbound-edges))
 
         ;; Initial-state markers — a small filled dot wired into each
         ;; `:initial?` state via an unlabelled entry edge. xstate/SCXML
@@ -583,5 +686,11 @@
                                :eventId nil :fromPath nil :toPath nil
                                :onClick on-edge-click :chart chart}})
               initial-nodes)]
-    {:nodes (into proj-nodes marker-nodes)
+    ;; rf2-qo5xy — order matters for xyflow: parent containers must
+    ;; precede any node that references them via `:parentId`. State /
+    ;; region / compound nodes are already sorted parent-first; the
+    ;; event-nodes nest into the same parents (we set `:parent-id` to
+    ;; the source state's parent), so appending them AFTER `proj-nodes`
+    ;; keeps the parent-before-child invariant.
+    {:nodes (vec (concat proj-nodes marker-nodes event-nodes))
      :edges (into proj-edges entry-edges)}))

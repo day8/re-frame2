@@ -176,7 +176,113 @@ parser's transition count) so a visual-regression test can pin
 parity at every stage of the parser → projector → DOM chain — the
 silent-drop bug cannot recur at any layer without failing the gate.
 
-### Multi-event label collapse — one arrow, N stacked labels (rf2-j10sm Phase 2, B)
+### Events as nodes — Stately graph view paradigm (rf2-qo5xy)
+
+**This is a paradigm-shift section.** Pre-rf2-qo5xy the chart painted
+transitions as edge labels between state boxes: `event [guard] /
+action` floated on the line. Multiple candidates, long action names,
+or stacked siblings degraded legibility quickly, and action
+attribution was always a second-class citizen of the line text.
+
+Stately Studio's graph view paints each transition as its own box —
+`source-state → event-node → (optional) target-state`. The event box
+carries the event name (header), an optional `[guard]` chip, and `+
+action` pills for action attribution. Internal transitions (no
+`:target`) get the event box but no outgoing edge — they read as
+"this dispatches an action and we hang here". rf2-qo5xy adopts that
+paradigm: every parsed transition emits exactly one xyflow node of
+`type "rf2-event"` (registered in `chart.nodes/node-types`) plus one
+or two edges, with these structural rules:
+
+| Parsed transition shape | Event-node | Inbound edge | Outbound edge |
+|---|---|---|---|
+| `:on {:e :target}` — regular external | yes | state → ev-node | ev-node → target |
+| `:on {:e :same-state}` — external self-transition | yes | state → ev-node | ev-node → state |
+| `:on {:e {:action :a}}` — INTERNAL (no `:target`) | yes (`:internal true`) | state → ev-node | **none** |
+| `:after {1000 ...}` — timer | yes (`:variant "after"`, `:afterMs 1000`) | state → ev-node | ev-node → target |
+| `:always [{:target ...}]` | yes (`:variant "always"`) | state → ev-node | ev-node → target |
+| Wildcard `:*` | yes (`:eventId nil`, not user-fireable) | state → ev-node | ev-node → target |
+
+The event-node carries everything the legacy edge `:data` used to
+carry: `:eventLabel` (the `chart.layout/event-segment` glyph-aware
+text), `:guard` (string), `:action` (string), `:variant` (`:on` /
+`:after` / `:always`), `:eventId` (raw fireable keyword for the
+on-chart sim — nil for `:after` / `:always` / wildcard), `:fromPath`
+/ `:toPath`, `:focused`, `:fired`, `:internal`, `:machineLevel`,
+`:onClick` (the host-supplied callback), `:afterMs`, `:chart`
+(resolved visual-constants).
+
+The inbound + outbound edges carry the structural / styling state
+that used to live on the single state→state edge: `:active`,
+`:focused`, `:fired`, `:crossHierarchy`, elk-routed `:points` on the
+outbound edge. The `:eventLabel` slot on these edges is empty (the
+event-node holds the visible text). Edge ids: `<spec-edge-id>__in` /
+`<spec-edge-id>__out`. Event-node ids: `event__<spec-edge-id>` via
+`chart.projection/event-node-id`.
+
+elkjs lays out event-nodes as siblings of their source state's
+parent container: an event declared inside a compound substate nests
+inside that compound; a region-local event nests inside its region
+container. The layout engine treats them as ordinary layered-graph
+children with explicit incoming/outgoing edges — no new layout
+algorithm.
+
+#### Convention glyphs (rf2-qo5xy)
+
+The event-node header renders the variant glyph an operator who
+knows xstate/Stately reads in 30 seconds (per the bead's §Shift 4):
+
+| Glyph | Variant | Source |
+|---|---|---|
+| `↳`   | initial-marker | `chart.nodes/initial-marker` (paired with the filled-dot source) |
+| `⌚ <ms>ms` | `:after`-delay event-node | `chart.layout/event-segment` |
+| `∞`   | `:always` event-node | `chart.layout/event-segment` |
+| `+ <name>` | action pill (entry / exit / transition) | `chart.nodes/action-pill` + `chart.nodes.event-node` |
+| `[name]` | guard chip | `chart.nodes.event-node` |
+| filled dot | initial-marker source | `chart.nodes/initial-marker` |
+
+#### Active state on box border
+
+The active-state affordance lives on the state-box BORDER (the
+state-node's `:border` colour + `:box-shadow` ring), not on
+duplicate text tags. Compound and region containers light the same
+way when any descendant leaf is active (G4 / rf2-80rm2, preserved
+under the paradigm shift). The legacy "tags row inside the state
+box" (rf2-a2b55) is unchanged — those are user-declared semantic
+`:tags`, distinct from active-state highlight.
+
+#### Context corner panel (rf2-qo5xy)
+
+The chart accepts an optional `:machine-data` prop — the machine's
+current `:data` map (the `:rf.machine/data` slot from the snapshot).
+When non-nil + non-empty, the chart paints a small read-only panel
+in the top-LEFT corner of the canvas showing each `(key, value)`
+pair so the operator sees the live context without leaving the
+chart. The panel is presentation-only — the host owns the data
+projection; the chart paints whatever shape it receives. nil / empty
+→ no panel.
+
+#### Legacy paradigm sections below
+
+The remaining sections in this spec (label collapse, edge label
+geometry, cross-hierarchy label placement, etc.) describe the
+RENDERING of the inbound / outbound edges in the events-as-nodes
+paradigm. The structural model `source-state → event-node →
+target-state` supersedes the pre-rf2-qo5xy single-edge model in
+every other respect; where the legacy sections describe edge
+behaviour, read "edge" as "inbound or outbound edge attached to an
+event-node" unless explicitly stated otherwise.
+
+### Multi-event label collapse — one arrow, N stacked labels (rf2-j10sm Phase 2, B — SUPERSEDED by rf2-qo5xy)
+
+> rf2-qo5xy events-as-nodes paradigm SUPERSEDES this section's
+> collapse-to-one-arc convention: each event now projects as its own
+> first-class `rf2-event` node, so two transitions A→B emit two
+> distinct event-nodes (no collapse). The text below is preserved
+> for context — the rf2-j10sm rationale (legibility of N transitions
+> on one source/target pair) is honoured by the new paradigm in a
+> different way (each event-node is its own scannable box rather
+> than one of N stacked labels on a shared arrow).
 
 N transitions sharing a `[source target]` pair render as **ONE** arrow
 with **N vertically-stacked event labels** — the xstate/Stately
@@ -444,17 +550,20 @@ The overlay callbacks (`:on-spawn-child-click`, `:on-after-ring-hover`,
 
 For the supplied `:definition`, the chart shows:
 
-- **A directional state-chart.** Nodes are states (compound states
+- **A directional state-chart — events-as-nodes paradigm
+  (rf2-qo5xy).** State boxes are first-class nodes (compound states
   nested visually via xyflow sub-flows; `{:type :parallel}` machines
   render every region as a distinct orthogonal zone — see
   [§Parallel-region rendering](#parallel-region-rendering-rf2-lkwev-xyflow-phase-2)).
-  Edges are transitions, labelled with their triggering event id;
-  `:after` edges read `⌚ <delay>ms` and `:always` edges read `∞`
-  (per `chart.layout/event-segment`, the Stately graph view glyph
-  conventions — rf2-a2b55). When a transition declares an `:action`,
-  the action renders as a `+ <action-name>` pill on a separate row
-  below the event line (the action no longer joins the event-line
-  text as `/ action`).
+  Each transition projects as ITS OWN `rf2-event` xyflow node sitting
+  between the source state and the (optional) target state, the
+  paradigm Stately Studio's graph view paints. The event-node carries
+  the event header (`event-id`, or `⌚ <ms>` for `:after`, or `∞` for
+  `:always` per `chart.layout/event-segment`, rf2-a2b55), an optional
+  `[guard]` chip, and a `+ <action>` pill row when the transition
+  declares an action. Internal transitions (omit `:target`) emit an
+  inbound edge into the event-node but no outbound (Stately
+  convention — "runs an action and we hang here").
 - **The current state highlights.** When `:current-state` is set every
   active leaf carries a static active tint + bolder stroke. A flat /
   compound snapshot has one active leaf; a **parallel** snapshot (a
