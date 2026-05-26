@@ -338,6 +338,20 @@
         (into [:g {:data-testid "rf-xray-reactive-view-nodes"}]
               (map (fn [n] ^{:key (:slug n)} [view-node n]) (-> g :nodes :view)))]])))
 
+;; ---- hoisted row-level styles (rf2-gjiog · audit F9) -------------------
+;;
+;; Extends the existing `list-card-style` hoist (sibling
+;; `panels/event_detail.cljs` / `panels/cancellation_cascade.cljs`
+;; precedents) to the list-row + sub-value-row + legend-swatch row
+;; primitives below. Each Reactive panel render produces ~10-20 list
+;; rows and ~5-15 sub-value rows; collapsing the inline `:style {...}`
+;; allocations to ns-top map references trims ~80 allocations off a
+;; representative panel render. Per-row colour variation rides a tiny
+;; `assoc`-overlay on a shared base map (the audit-F4 pattern).
+;;
+;; Token reads resolve at ns-load; theme switching rides the CSS vars
+;; seam per spec/007-UX-IA so the hoist is safe across light + dark.
+
 ;; ---- teardown list sections (UNMOUNTED VIEWS / DESTROYED SUBS) ---------
 
 (def ^:private list-card-style
@@ -346,28 +360,52 @@
    :background (:bg-1 tokens)
    :overflow "hidden"})
 
+(def ^:private section-margin-top-style
+  {:margin-top "24px"})
+
+(def ^:private list-row-style
+  {:display "flex" :align-items "center" :gap "12px"
+   :padding "8px 14px"
+   :border-top (str "1px solid " (:border-subtle tokens))
+   :font-family mono-stack :font-size "12px"})
+
+(def ^:private list-row-swatch-style-base
+  {:width "14px" :height "14px" :border-radius "3px"
+   :flex "0 0 auto"})
+
+(def ^:private list-row-primary-style
+  {:flex 1 :color (:text-primary tokens)})
+
+(def ^:private list-row-tag-style
+  {:color (:text-tertiary tokens)
+   :font-family sans-stack :font-size "10px"})
+
+(def ^:private empty-placeholder-style
+  {:padding "2px 0" :color (:text-tertiary tokens)
+   :font-style "italic" :font-family sans-stack
+   :font-size "11px"})
+
+(def ^:private destroyed-caption-style
+  {:margin "8px 0 0 0" :color (:text-tertiary tokens)
+   :font-family sans-stack :font-size "10px"})
+
 (defn- list-row
   "One teardown-list row: a small tinted swatch + identifier + a muted
   trailing tag, matching the Figma `divide-y` list rows."
   [{:keys [testid swatch-token primary tag]}]
   [:div {:data-testid testid
-         :style {:display "flex" :align-items "center" :gap "12px"
-                 :padding "8px 14px"
-                 :border-top (str "1px solid " (:border-subtle tokens))
-                 :font-family mono-stack :font-size "12px"}}
-   [:span {:style {:width "14px" :height "14px" :border-radius "3px"
-                   :flex "0 0 auto"
-                   :background (tk/with-alpha swatch-token 20)}}]
-   [:span {:style {:flex 1 :color (:text-primary tokens)}} primary]
-   [:span {:style {:color (:text-tertiary tokens)
-                   :font-family sans-stack :font-size "10px"}}
+         :style list-row-style}
+   [:span {:style (assoc list-row-swatch-style-base
+                         :background (tk/with-alpha swatch-token 20))}]
+   [:span {:style list-row-primary-style} primary]
+   [:span {:style list-row-tag-style}
     tag]])
 
 (defn- unmounted-views-section
   [data]
   (let [rows (:unmounted-views data)]
     [:section {:data-testid "rf-xray-reactive-unmounted-section"
-               :style {:margin-top "24px"}}
+               :style section-margin-top-style}
      (section-label "unmounted" "Unmounted Views")
      (if (seq rows)
        (into [:div {:data-testid "rf-xray-reactive-unmounted-list"
@@ -382,16 +420,14 @@
                           :primary nm
                           :tag "unmounted"}]))
        [:div {:data-testid "rf-xray-reactive-unmounted-empty"
-              :style {:padding "2px 0" :color (:text-tertiary tokens)
-                      :font-style "italic" :font-family sans-stack
-                      :font-size "11px"}}
+              :style empty-placeholder-style}
         "(no views unmounted)"])]))
 
 (defn- destroyed-subs-section
   [data]
   (let [rows (:destroyed-subs data)]
     [:section {:data-testid "rf-xray-reactive-destroyed-section"
-               :style {:margin-top "24px"}}
+               :style section-margin-top-style}
      (section-label "destroyed" "Destroyed Subscriptions")
      (if (seq rows)
        (into [:div {:data-testid "rf-xray-reactive-destroyed-list"
@@ -404,13 +440,10 @@
                           :primary (format-id sub-id)
                           :tag "no readers remaining"}]))
        [:div {:data-testid "rf-xray-reactive-destroyed-empty"
-              :style {:padding "2px 0" :color (:text-tertiary tokens)
-                      :font-style "italic" :font-family sans-stack
-                      :font-size "11px"}}
+              :style empty-placeholder-style}
         "(no subscriptions destroyed)"])
      [:p {:data-testid "rf-xray-reactive-destroyed-caption"
-          :style {:margin "8px 0 0 0" :color (:text-tertiary tokens)
-                  :font-family sans-stack :font-size "10px"}}
+          :style destroyed-caption-style}
       "Subscriptions cleaned up when their last reader unmounted"]]))
 
 ;; ---- SUB VALUES inspector section (rf2-e46qs phase 3 of rf2-oqa60) -----
@@ -442,6 +475,51 @@
     (keyword "rf.xray.reactive-sub-value"
              (string/replace (pr-str sub-id) #"[^a-zA-Z0-9_]" "_"))))
 
+(def ^:private sub-value-row-style
+  {:display       "flex"
+   :flex-direction "column"
+   :gap           "6px"
+   :padding       "10px 14px"
+   :border-top    (str "1px solid " (:border-subtle tokens))
+   :font-family   mono-stack
+   :font-size     "12px"})
+
+(def ^:private sub-value-row-header-style
+  {:display "flex" :align-items "baseline" :gap "8px"})
+
+;; Changed / unchanged colour overlay for the sub-id span. Hoisted as
+;; two fully-realised maps (changed vs unchanged) + a cursor-pointer
+;; superset for the clickable variant; the renderer picks one by key
+;; rather than allocating a fresh map per row.
+(def ^:private sub-value-row-id-style-changed
+  {:color (:accent tokens) :font-weight 600})
+
+(def ^:private sub-value-row-id-style-unchanged
+  {:color (:dim tokens) :font-weight 400})
+
+(def ^:private sub-value-row-id-style-changed-clickable
+  (assoc sub-value-row-id-style-changed :cursor "pointer"))
+
+(def ^:private sub-value-row-id-style-unchanged-clickable
+  (assoc sub-value-row-id-style-unchanged :cursor "pointer"))
+
+(def ^:private sub-value-row-tag-style
+  {:color (:text-tertiary tokens)
+   :font-family sans-stack
+   :font-size "10px"
+   :letter-spacing "0.4px"
+   :text-transform "uppercase"})
+
+(def ^:private sub-value-row-body-padding-style
+  {:padding-left "4px"})
+
+(def ^:private sub-value-row-no-value-style
+  (assoc sub-value-row-body-padding-style
+         :color (:text-tertiary tokens)
+         :font-family sans-stack
+         :font-size "11px"
+         :font-style "italic"))
+
 (defn- sub-value-row
   "Render one SUB VALUES row — the sub's id + its current value through
   `[ei/edn-inspector]`. Changed subs read in the accent tone; unchanged
@@ -453,38 +531,27 @@
   indistinguishable from a sub whose actual value is `nil`)."
   [{:keys [sub-id slug changed? has-value? value coord]}]
   (let [row-testid (str "rf-xray-reactive-sub-value-row-" slug)
-        click      (when coord (fn [e] (open-source! coord e)))]
+        click      (when coord (fn [e] (open-source! coord e)))
+        id-style   (if click
+                     (if changed?
+                       sub-value-row-id-style-changed-clickable
+                       sub-value-row-id-style-unchanged-clickable)
+                     (if changed?
+                       sub-value-row-id-style-changed
+                       sub-value-row-id-style-unchanged))]
     [:div {:data-testid row-testid
            :data-sub-changed (str (boolean changed?))
-           :style {:display       "flex"
-                   :flex-direction "column"
-                   :gap           "6px"
-                   :padding       "10px 14px"
-                   :border-top    (str "1px solid " (:border-subtle tokens))
-                   :font-family   mono-stack
-                   :font-size     "12px"}}
-     [:div {:style {:display "flex" :align-items "baseline" :gap "8px"}}
+           :style sub-value-row-style}
+     [:div {:style sub-value-row-header-style}
       [:span (cond-> {:data-testid (str row-testid "-id")
-                      :style       {:color (if changed?
-                                             (:accent tokens)
-                                             (:dim tokens))
-                                    :font-weight (if changed? 600 400)}}
-               click (assoc :on-click click
-                            :style {:color (if changed?
-                                             (:accent tokens)
-                                             (:dim tokens))
-                                    :font-weight (if changed? 600 400)
-                                    :cursor "pointer"}))
+                      :style       id-style}
+               click (assoc :on-click click))
        (format-id sub-id)]
-      [:span {:style {:color (:text-tertiary tokens)
-                      :font-family sans-stack
-                      :font-size "10px"
-                      :letter-spacing "0.4px"
-                      :text-transform "uppercase"}}
+      [:span {:style sub-value-row-tag-style}
        (if changed? "changed" "unchanged")]]
      (if has-value?
        [:div {:data-testid (str row-testid "-value")
-              :style {:padding-left "4px"}}
+              :style sub-value-row-body-padding-style}
         [ei/edn-inspector value {:panel-id (sub-value-panel-id sub-id)
                                 ;; rf2-pvsxs — sub-id is stable across
                                 ;; cascades; the operator's expansion
@@ -499,11 +566,7 @@
                                 ;; surface for cramped values.
                                 :popup-affordance? true}]]
        [:div {:data-testid (str row-testid "-no-value")
-              :style {:padding-left "4px"
-                      :color (:text-tertiary tokens)
-                      :font-family sans-stack
-                      :font-size "11px"
-                      :font-style "italic"}}
+              :style sub-value-row-no-value-style}
         "(value not captured — redacted or pre-attribution)"])]))
 
 (defn- sub-values-section
@@ -523,7 +586,7 @@
   (let [rows (:sub-values data)]
     (when (seq rows)
       [:section {:data-testid "rf-xray-reactive-sub-values-section"
-                 :style {:margin-top "24px"}}
+                 :style section-margin-top-style}
        (section-label "sub-values" "Sub Values")
        (into [:div {:data-testid "rf-xray-reactive-sub-values-list"
                     :style list-card-style}]
@@ -532,23 +595,38 @@
 
 ;; ---- legend ------------------------------------------------------------
 
+(def ^:private legend-swatch-wrapper-style
+  {:display "inline-flex" :align-items "center" :gap "8px"})
+
+(def ^:private legend-swatch-base-style
+  {:display "inline-block" :width "12px"
+   :height "12px" :border-radius "3px"})
+
+(def ^:private legend-style
+  (merge section-margin-top-style
+         {:color (:text-tertiary tokens)
+          :font-family sans-stack :font-size "10px"}))
+
+(def ^:private legend-caption-style
+  {:margin "0 0 6px 0"})
+
+(def ^:private legend-swatch-row-style
+  {:display "flex" :flex-wrap "wrap" :gap "16px"
+   :align-items "center"})
+
 (defn- swatch
   [style label]
-  [:span {:style {:display "inline-flex" :align-items "center" :gap "8px"}}
-   [:span {:style (merge {:display "inline-block" :width "12px"
-                          :height "12px" :border-radius "3px"} style)}]
+  [:span {:style legend-swatch-wrapper-style}
+   [:span {:style (merge legend-swatch-base-style style)}]
    label])
 
 (defn- legend
   []
   [:div {:data-testid "rf-xray-reactive-legend"
-         :style {:margin-top "24px"
-                 :color (:text-tertiary tokens)
-                 :font-family sans-stack :font-size "10px"}}
-   [:p {:style {:margin "0 0 6px 0"}}
+         :style legend-style}
+   [:p {:style legend-caption-style}
     "Views (right) are the focus — each: re-rendered + why (reactive vs parent re-render)"]
-   [:div {:style {:display "flex" :flex-wrap "wrap" :gap "16px"
-                  :align-items "center"}}
+   [:div {:style legend-swatch-row-style}
     (swatch {:background (:accent tokens)} "changed (propagates downstream)")
     (swatch {:background "transparent" :border (str "1px dashed " (:dim tokens))}
             "no change (short-circuits)")
