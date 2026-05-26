@@ -790,8 +790,9 @@
   "Higher-order callback wrapper: take an existing fn `f` and return a
   new fn that re-establishes `*current-frame*` for `f`'s body. The
   captured frame value is closed over — no dynamic-var read at call
-  time, no fragility across the React click-handler / setTimeout /
-  Promise.then / requestAnimationFrame microtask boundary.
+  time, so the wrapped fn dispatches into the captured frame even when
+  it fires after the surrounding `with-frame` / `frame-provider`
+  lexical scope has unwound.
 
   Two arities:
     (frame-bound-fn f)            — capture `(current-frame)` at wrap time.
@@ -799,27 +800,47 @@
                                     `with-frame` or frame-provider needed
                                     at wrap time.
 
-  This is the canonical pattern for React onClick / onKeyDown / onChange
-  callbacks that need to dispatch to a non-default frame. Pair with
-  the `bound-fn` macro (the macro form is sugar over this fn when you
-  want both `fn` syntax and frame-capture in one step).
+  Use `frame-bound-fn` when a callback is constructed in one
+  synchronous moment (a render-fn, an event handler body, a module
+  install! routine) but invoked LATER, across an async boundary that
+  unwinds the `*current-frame*` dynamic binding:
+
+    - `setTimeout` / `setInterval` callbacks
+    - `Promise.then` / `js/await` continuations
+    - `requestAnimationFrame` ticks
+    - WebSocket / EventSource `onmessage` handlers
+    - Worker `postMessage` handlers
+    - IntersectionObserver / MutationObserver callbacks
+    - Custom event subscribers, deferred fns, third-party callback APIs
+
+  Pair with the `bound-fn` macro — the macro form is sugar over this fn
+  when you want both `fn` syntax and frame-capture in one step.
 
   Example (Reagent / UIx / Helix view body, all substrates):
 
       (rf/reg-view MyToggle [mode]
-        (let [on-click (rf/frame-bound-fn
-                         (fn [_e new-mode]
-                           (rf/dispatch [:set-mode new-mode])))]
-          [:button {:on-click #(on-click % :all)} \"all\"]))
+        (let [on-message (rf/frame-bound-fn
+                           (fn [msg] (rf/dispatch [:ws/incoming msg])))]
+          (ws/subscribe! on-message)
+          [:div \"streaming…\"]))
 
-  Why this is more robust than `(rf/dispatch [...] {:frame :id})` at
-  the call site: the explicit-opt pattern is correct but discipline-
-  dependent — every dispatch site must remember to thread the opt, and
-  the bug class (rf2-7sdja popup, rf2-kcaiz zoom, rf2-p56sk subs-toggle,
-  rf2-tvu99 epoch :db toggle) keeps cycling because the discipline
-  fails. `frame-bound-fn` makes the surface impossible to misuse: the
-  callback ALWAYS dispatches in the wrapped frame, regardless of how
-  many dispatches happen inside it or how deep the call chain goes."
+  Why `frame-bound-fn` over threading `(rf/dispatch [...] {:frame :id})`
+  at the call site: explicit-opt threading is verbose at every dispatch
+  site and brittle when `*current-frame*` is genuinely lost across an
+  async boundary (the callback fires AFTER the surrounding `with-frame`
+  has unwound). `frame-bound-fn` captures the frame at wrap time and
+  closes over it, so the callback always dispatches in the wrapped
+  frame regardless of how deep the async chain goes.
+
+  See also spec/006 §Lazy-seq deref tracking (Reagent adapter) for an
+  adjacent but DIFFERENT bug class — \"view doesn't update on click\"
+  that looks superficially like \"frame lost across React onClick\" but
+  is actually a Reagent reactive-tracking failure (a lazy `(for ...)`
+  in a `reg-view` body whose elements deref subscriptions must be
+  realised with `doall` / `mapv` / `into` inside the render scope).
+  Reach for `frame-bound-fn` when you have a genuine async-boundary
+  case; reach for `doall` when you have a reactive-tracking case. Per
+  rf2-atqkg the two are not interchangeable."
   ([f]
    (let [frame (current-frame)]
      (fn [& args]
