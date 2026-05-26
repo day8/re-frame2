@@ -93,9 +93,17 @@
                            :rf.sub/after after}))
 
 (defn- view-render-ev
-  [view-id subs-read]
-  (ev :rf.view :rf.view/render {:rf.view/id view-id
-                                :rf.view/subs subs-read}))
+  ([view-id subs-read]
+   (view-render-ev view-id subs-read nil))
+  ([view-id subs-read elapsed-ms]
+   ;; Per rf2-6djth the substrate stamps the rich per-render marker as
+   ;; `:rf.view/rendered` (not `:rf.view/render`) with `:rf.view/id` +
+   ;; `:rf.view/deref-subs`. Fixture mirrors substrate shape.
+   (ev :rf.view :rf.view/rendered
+       (cond-> {:rf.view/id          view-id
+                :rf.view/deref-subs  subs-read}
+         (some? elapsed-ms)
+         (assoc :rf.view/elapsed-ms elapsed-ms)))))
 
 (defn- machine-transition-ev
   [machine-id before after]
@@ -313,6 +321,22 @@
       (is (= :VIEWS (:badge s)))
       (is (= 1 (count (:rows s))))
       (is (= ::counter-view (-> s :rows first :view-id))))))
+
+(deftest views-step-reads-rich-rendered-marker-test
+  (testing "rf2-6djth — projection reads the substrate's rich
+            `:rf.view/rendered` marker (carries `:rf.view/id`,
+            `:rf.view/deref-subs`, `:rf.view/elapsed-ms`). The
+            previously-read `:rf.view/render` marker only carried
+            `:rf.view/render-key` — read against it the row had nil
+            view-id + empty subs-read"
+    (let [s   (proj/views-step
+                [(view-render-ev :app.counter/Counter
+                                 [[:counter/total] [:counter/threshold]]
+                                 1.2)])
+          row (-> s :rows first)]
+      (is (= :app.counter/Counter (:view-id row)))
+      (is (= [[:counter/total] [:counter/threshold]] (:subs-read row)))
+      (is (= 1.2 (:duration-ms row))))))
 
 ;; ---- top-level project --------------------------------------------------
 

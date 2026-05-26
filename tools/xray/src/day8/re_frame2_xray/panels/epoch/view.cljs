@@ -854,9 +854,25 @@
 
 ;; ---- VIEWS step ----------------------------------------------------------
 
+(defn- view-coord
+  "Pull the registered view's source coord off
+  `(rf/handler-meta :view view-id)`. Returns nil when no meta is
+  captured. Matches the reactive panel's resolver shape."
+  [view-id]
+  (when (some? view-id)
+    (let [m (try (rf/handler-meta :view view-id) (catch :default _ nil))]
+      (when (and m (string? (:file m)))
+        {:file (:file m) :line (:line m) :ns (:ns m)}))))
+
 (defn- views-table
   "Render the VIEWS table — 2 columns (views / subs). Per the bead
-  body's §VIEWS (Step 8) shape."
+  body's §VIEWS (Step 8) shape (rf2-6djth).
+
+  Each row carries:
+    - view-id (hyperlinked via the registrar's `:view` meta coord)
+    - duration (when stamped, rendered as a muted chip below the id)
+    - the subs the view dereffed during this render (one per line —
+      vectors via `pr-str`, scalars via `ns-keyword`)."
   [rows]
   [:div {:data-testid "rf-xray-epoch-views-table"
          :style {:margin-top "5px"
@@ -878,6 +894,7 @@
    (for [[i {:keys [view-id subs-read duration-ms]}] (map-indexed vector rows)]
      [:div {:key (str "view-" i)
             :data-testid (str "rf-xray-epoch-view-row-" i)
+            :data-view-id (when view-id (pr-str view-id))
             :style {:display "flex"
                     :align-items "stretch"
                     :border-bottom (when (< i (dec (count rows)))
@@ -885,28 +902,35 @@
       [:div {:style {:flex "1 1 50%" :padding "5px 8px" :min-width 0
                      :font-family mono-stack :font-size "12px"
                      :word-break "break-word"}}
-       [:span {:style {:color (:accent tokens) :display "inline-flex"
+       [:span {:data-testid (str "rf-xray-epoch-view-row-id-" i)
+               :style {:color (:accent tokens) :display "inline-flex"
                        :align-items "center" :gap "4px"}}
-        (proj/ns-keyword view-id)
-        (icons/external-link)]
+        (if (some? view-id)
+          (proj/ns-keyword view-id)
+          [:span {:style {:color (:text-tertiary tokens)
+                          :font-style "italic"}}
+           "<anonymous view>"])
+        (coord-chip (view-coord view-id)
+                    (str "rf-xray-epoch-view-row-coord-" i))]
        (when (number? duration-ms)
          [:span {:style {:color (:text-tertiary tokens)
                          :margin-left "8px"
                          :font-size "10px"}}
           (proj/format-duration-ms duration-ms)])]
-      [:div {:style {:flex "1 1 50%" :padding "5px 8px" :min-width 0
+      [:div {:data-testid (str "rf-xray-epoch-view-row-subs-" i)
+             :style {:flex "1 1 50%" :padding "5px 8px" :min-width 0
                      :font-family mono-stack :font-size "12px"
                      :color (:text-tertiary tokens)
                      :word-break "break-word"}}
        (cond
-         (sequential? subs-read)
+         (and (sequential? subs-read) (seq subs-read))
          (into [:div {:style {:display "flex" :flex-direction "column" :gap "2px"}}]
                (for [s subs-read]
                  [:div (if (vector? s) (pr-str s) (proj/ns-keyword s))]))
          (some? subs-read)
          (proj/ns-keyword subs-read)
          :else
-         "(none)")]])])
+         [:span {:style {:font-style "italic"}} "(none)"])]])])
 
 (defn render-views-step
   "Render the VIEWS step (only present when views re-rendered)."

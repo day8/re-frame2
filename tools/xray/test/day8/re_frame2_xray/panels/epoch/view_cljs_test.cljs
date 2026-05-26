@@ -130,6 +130,39 @@
             (or (text-of tree "rf-xray-epoch-handler-source-placeholder") "")
             "<source not yet captured>")))))
 
+;; ---- rf2-6djth — VIEWS row carries view-id + subs ---------------------
+
+(deftest views-row-shows-id-and-subs-test
+  (testing "rf2-6djth — VIEWS table row shows the view-id + its
+            consumed subs. Per-row testids are stable and the body
+            text contains both halves."
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id :app.counter/Counter
+                        :subs-read [[:counter/total] [:counter/threshold]]
+                        :duration-ms 1.2}]}
+          tree (view/render-views-step step)
+          row  (th/find-by-testid tree "rf-xray-epoch-view-row-0")
+          id   (text-of tree "rf-xray-epoch-view-row-id-0")
+          subs (text-of tree "rf-xray-epoch-view-row-subs-0")]
+      (is (some? row) "the view row renders")
+      (is (string/includes? id ":app.counter/Counter")
+          "view-id is the leading element")
+      (is (string/includes? subs ":counter/total")
+          "consumed subs appear in the subs cell")
+      (is (string/includes? subs ":counter/threshold")
+          "every consumed sub renders, one per line"))))
+
+(deftest views-row-graceful-degrades-when-id-absent-test
+  (testing "rf2-6djth — a row whose view-id is nil renders an
+            anonymous-view placeholder rather than the bare keyword
+            colon"
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id nil :subs-read [] :duration-ms nil}]}
+          tree (view/render-views-step step)
+          id   (text-of tree "rf-xray-epoch-view-row-id-0")]
+      (is (string/includes? id "<anonymous view>")
+          "missing view-id reads as `<anonymous view>` placeholder"))))
+
 (deftest handler-body-renders-captured-source-test
   (testing "rf2-66wis — when the registrar carries an
             `:rf.handler/source`, the body renders it via the

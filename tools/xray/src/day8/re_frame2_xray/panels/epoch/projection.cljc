@@ -436,21 +436,35 @@
 ;; ---- VIEWS step ----------------------------------------------------------
 
 (defn view-rows
-  "Project `:rf.view/render` events into rows. Each row carries the
-  view id + the subs it read during the render."
+  "Project view-render events into rows. Each row carries the view-id,
+  the subs the view dereffed during this render, and the wall-clock
+  duration of the render-fn.
+
+  Per rf2-6djth the projection reads `:rf.view/rendered` (the rich
+  per-render marker — rf2-25zo2 / rf2-9hoos / rf2-8wrzz.1) rather than
+  the simpler `:rf.view/render` marker; only `:rf.view/rendered`
+  carries `:rf.view/id`, `:rf.view/deref-subs`, and `:rf.view/elapsed-ms`.
+  The pre-rf2-6djth read against the bare `render` marker returned nil
+  for every payload slot, hence the VIEWS step rendered a count with
+  no per-row detail. Legacy `:view-id` / `:subs-read` reads are
+  retained as fixture-compatibility fallbacks."
   [events]
   (vec
-    (for [ev (filter-op events :rf.view/render)]
-      {:view-id     (or (common/tag-of ev :rf.view/id)
-                        (common/tag-of ev :view-id))
-       :subs-read   (or (common/tag-of ev :rf.view/subs)
-                        (common/tag-of ev :subs-read)
-                        [])
-       :duration-ms (common/tag-of ev :duration-ms)})))
+    (for [ev (filter-op events :rf.view/rendered)]
+      {:view-id      (or (common/tag-of ev :rf.view/id)
+                         (common/tag-of ev :view-id))
+       :subs-read    (or (common/tag-of ev :rf.view/deref-subs)
+                         (common/tag-of ev :rf.view/subs)
+                         (common/tag-of ev :subs-read)
+                         [])
+       :mount?       (common/tag-of ev :rf.view/mount?)
+       :triggered-by (common/tag-of ev :rf.view/triggered-by)
+       :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
+                         (common/tag-of ev :duration-ms))})))
 
 (defn views-step
-  "VIEWS step row. nil when no `:rf.view/render` events fired (the
-  step is OMITTED — conditional)."
+  "VIEWS step row. nil when no view-render events fired (the step is
+  OMITTED — conditional)."
   [events]
   (let [rows (view-rows events)]
     (when (seq rows)
