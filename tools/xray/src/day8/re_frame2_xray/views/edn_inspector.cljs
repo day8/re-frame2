@@ -2746,6 +2746,35 @@
         ;; arrive verbatim and should not churn the app-db slot.
         observer    (atom nil)
         last-width  (atom nil)
+        ;; rf2-4p1vl — per-mount projection cache. The Editscript-backed
+        ;; `engine/project` walks the full `(before, after)` pair every
+        ;; call; the inner render fn runs on EVERY render of the mount
+        ;; (expansion toggle, ResizeObserver widths update, parent re-
+        ;; render). Without this cache the mode-3 diff path re-walks the
+        ;; same byte-identical inputs N times per epoch — the audit's
+        ;; H1 finding (ai/findings/three-mode-diff-efficiency-audit-2026-
+        ;; 05-27.md §H1).
+        ;;
+        ;; Atom holds `{:before <ref> :after <ref> :projection <map>}` or
+        ;; nil. Cache hit when both refs match the previous call by
+        ;; `identical?`; otherwise recompute and store. The cache is
+        ;; closure-scoped so it lives exactly as long as the mount —
+        ;; unmount frees the closure, no leak.
+        ;;
+        ;; Identity stability of the inputs is gated by
+        ;; `f/display-value` preserving structural sharing (rf2-4spyl).
+        projection-cache (atom nil)
+        memoised-project
+        (fn [before after]
+          (let [cached @projection-cache]
+            (if (and cached
+                     (identical? before (:before cached))
+                     (identical? after  (:after  cached)))
+              (:projection cached)
+              (let [p (engine/project before after)]
+                (reset! projection-cache
+                        {:before before :after after :projection p})
+                p))))
         measure-and-dispatch
         (fn [^js el]
           (when el
@@ -2889,8 +2918,17 @@
             ;; projection is nil and the renderer's path-keyed lookups
             ;; return `:same` for everything. Pure data — same value
             ;; key composability as `expansion-map`.
+            ;;
+            ;; rf2-4p1vl — the projection is computed via the per-mount
+            ;; `memoised-project` closure (captured in the form-2 outer
+            ;; body). Byte-identical `(displayed-before, displayed-
+            ;; value)` pairs across renders short-circuit to the cached
+            ;; result; only changed inputs trigger a fresh Editscript
+            ;; walk. Restores parity with the sub-cached `:diff` lens
+            ;; path (rf2-yqjrd) which has the same caching property
+            ;; via `annotated-tree-cache`.
             projection    (when diff?
-                            (engine/project displayed-before displayed-value))
+                            (memoised-project displayed-before displayed-value))
             body-content  (render-node
                             {:value displayed-value
                              :before (if diff? displayed-before ::missing)
