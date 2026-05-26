@@ -856,6 +856,64 @@
     (cond-> file
       line (str ":" line))))
 
+(defn- handler-verb-link
+  "Render the HANDLER step's verb (e.g. `reg-event-fx`) as a
+  clickable hyperlink + external-link glyph when the handler's
+  registered meta carries `:file` / `:line` (clicks dispatch
+  `:rf.xray/open-in-editor`). Falls back to a plain coloured span
+  when no coord was captured (production builds, fn-form
+  registrations).
+
+  rf2-ehd8v / Mike pair-debug 2026-05-26 — the verb itself IS the
+  goto-source affordance; the legacy SOURCE sub-header that
+  carried the file:line + [open] chrome is gone (handler-source-
+  block now leads with the code body directly)."
+  [flavour event-id]
+  (let [machine? (= :reg-machine flavour)
+        meta     (when (some? event-id)
+                   (try (rf/handler-meta
+                          (if machine? :machine :event) event-id)
+                        (catch :default _ nil)))
+        coord    (coord-from-handler-meta meta)
+        label    (proj/handler-flavour-label flavour)
+        clickable? (and (map? coord) (seq (:file coord)))]
+    (if clickable?
+      [:button {:data-testid "rf-xray-epoch-handler-verb-link"
+                :aria-label  (str "open " (:file coord)
+                                  (when (:line coord)
+                                    (str ":" (:line coord)))
+                                  " in editor")
+                :title       (str "open " (:file coord)
+                                  (when (:line coord)
+                                    (str ":" (:line coord)))
+                                  " in editor")
+                :on-click    (fn [e]
+                               (.stopPropagation e)
+                               (rf/dispatch
+                                 [:rf.xray/open-in-editor
+                                  {:source-coord coord}]
+                                 {:frame :rf/xray}))
+                :style {:background  "transparent"
+                        :border      "none"
+                        :padding     0
+                        :margin      0
+                        :color       (:accent tokens)
+                        :cursor      "pointer"
+                        :font-family "inherit"
+                        :font-size   "inherit"
+                        :font-weight "inherit"
+                        :text-decoration "underline"
+                        :text-decoration-style "dotted"
+                        :text-underline-offset "2px"
+                        :display     "inline-flex"
+                        :align-items "center"
+                        :gap         "4px"}}
+       label
+       (icons/external-link)]
+      [:span {:data-testid "rf-xray-epoch-handler-verb-plain"
+              :style {:color (:accent tokens)}}
+       label])))
+
 (defn- handler-source-block
   "Render the source-code block under the HANDLER header. Three
   cases:
@@ -868,39 +926,20 @@
        placeholder so the slot is always present (operator learns
        where to look + when the substrate didn't stamp).
 
-  rf2-ehd8v — the `SOURCE` / `MACHINE SPEC` sub-header carries a
-  `file:line` chrome + `[open]` affordance when the handler's
-  registered meta carries `:file` / `:line`. The open-button reuses
-  `coord-chip` — the same click-to-source machinery the DISPATCH
-  source-label (rf2-80u5a) + the VIEWS row coord chip already ride.
-  When coord-annotation is unavailable (production builds, fn-form
-  registrations without `:file` meta) the chrome simply elides — no
-  broken / dead-link affordance."
+  rf2-ehd8v / pair-debug 2026-05-26 — the SOURCE / MACHINE SPEC
+  sub-header is gone; the verb in the HANDLER step header IS the
+  click-to-source affordance now (see `handler-verb-link`). This
+  fn renders only the code body."
   [flavour event-id]
   (let [machine? (= :reg-machine flavour)
         meta     (when (some? event-id)
                    (try (rf/handler-meta (if machine? :machine :event) event-id)
                         (catch :default _ nil)))
         spec     (when machine? (machine-spec-value meta))
-        src      (when-not machine? (handler-source-string meta))
-        coord    (coord-from-handler-meta meta)
-        coord-display (source-coord-display coord)
-        header-trailing
-        (when coord-display
-          [:span {:data-testid "rf-xray-epoch-handler-source-coord"
-                  :style {:display     "inline-flex"
-                          :align-items "center"
-                          :gap         "0"}}
-           [:span {:data-testid "rf-xray-epoch-handler-source-coord-text"
-                   :title       coord-display
-                   :style {:color       (:text-tertiary tokens)
-                           :font-family mono-stack}}
-            coord-display]
-           (coord-chip coord "rf-xray-epoch-handler-source-open")])]
+        src      (when-not machine? (handler-source-string meta))]
     [:div {:data-testid "rf-xray-epoch-handler-source"
            :style {:margin-top "8px"
                    :min-width  "0"}}
-     (sub-header (if machine? "machine spec" "source") header-trailing)
      (cond
        (and machine? (some? spec))
        [:div {:data-testid "rf-xray-epoch-handler-source-spec"
@@ -922,38 +961,125 @@
                        :padding-left "16px"}}
         "<source not yet captured>"])]))
 
+(defn- db-view-mode-toggle
+  "Two-button toggle bar `[diff][all]` for the HANDLER `:db`
+  sub-section. Active button paints in `:accent`; inactive button
+  is transparent with muted text. Click dispatches
+  `:rf.xray.epoch/set-db-view-mode`.
+
+  Pair-debug 2026-05-26 — operator wants the choice between
+  cascade-attributable diff and the full post-cascade app-db
+  without leaving the HANDLER step."
+  [mode]
+  [:span {:data-testid "rf-xray-epoch-handler-db-view-mode"
+          :data-mode (name mode)
+          :style {:display "inline-flex"
+                  :align-items "center"
+                  :gap 0
+                  :border (str "1px solid " (:border-subtle tokens))
+                  :border-radius "3px"
+                  :overflow "hidden"
+                  :margin-left "8px"
+                  :line-height 1}}
+   (for [m [:diff :all]
+         :let [active? (= mode m)]]
+     ^{:key (name m)}
+     [:button {:data-testid (str "rf-xray-epoch-handler-db-view-" (name m))
+               :aria-pressed (str active?)
+               :on-click (fn [e]
+                           (.stopPropagation e)
+                           ;; `with-frame :rf/xray` pins the dispatch
+                           ;; target so the sub running in :rf/xray
+                           ;; sees the write. The `{:frame :rf/xray}`
+                           ;; opts envelope SHOULD route the same way
+                           ;; but doesn't through React's click
+                           ;; context-pop (same class as rf2-7sdja /
+                           ;; rf2-kcaiz / rf2-p56sk frame-leak bugs).
+                           ;; Matches the pattern in `core.cljs` at
+                           ;; `set-target-frame!`.
+                           (rf/with-frame :rf/xray
+                             (rf/dispatch
+                               [:rf.xray.epoch/set-db-view-mode m])))
+               :style {:background (if active? (:accent tokens) "transparent")
+                       :color      (if active? (:white tokens) (:text-secondary tokens))
+                       :border     "none"
+                       :padding    "2px 8px"
+                       :font-family sans-stack
+                       :font-size  "10px"
+                       :font-weight 700
+                       :text-transform "uppercase"
+                       :letter-spacing "0.5px"
+                       :cursor     "pointer"
+                       :line-height 1}}
+      (name m)])])
+
 (defn- handler-db-diff-block
-  "Render the HANDLER step's `:db diff` sub-section (rf2-93436 / design
+  "Render the HANDLER step's `:db` sub-section (rf2-93436 / design
   doc §Section 1 + §Section 2). Always renders for non-machine
-  handlers — when `db-diff` is empty, the body reads `— (no changes)`
-  per the design's §Empty edge-case rendering table (reg-event-db
-  returning identical db / reg-event-fx returning nil → explicit empty
-  state, not an omitted slot). Operator learns 'the handler ran but
-  wrote nothing to app-db' as a first-class outcome rather than
-  inferring it from absence.
+  handlers.
+
+  Per pair-debug 2026-05-26 the sub-section carries a `[diff][all]`
+  view-mode toggle:
+
+  - `:diff` (default) — render only the path-changes this handler
+    produced. When empty, reads `— (no changes)` per the design's
+    §Empty edge-case rendering table (reg-event-db returning
+    identical db / reg-event-fx returning nil — explicit empty
+    state, not an omitted slot).
+  - `:all` — render the full post-cascade `:db-after` via the
+    edn-inspector widget. Operator sees the entire app-db value
+    without leaving the HANDLER step.
+
+  Mode persists via `:rf.xray.epoch/db-view-mode` so the operator's
+  preference survives focus shifts.
 
   Distinct from the top-level APP-DB DIFF step (rf2-rrykz) — same
-  source data, different lens. HANDLER's `:db diff` attributes the
+  source data, different lens. HANDLER's `:db` attributes the
   change to THIS handler's return value; APP-DB DIFF surfaces the
   cascade-wide accumulated change (which can include fx-triggered
   child handlers' writes).
 
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
-  the snapshot IS the db change (at `[:rf/machines <id>]`) so DB DIFF
-  folds into SNAPSHOT DIFF rather than carrying a redundant standalone
-  slot."
+  the snapshot IS the db change (at `[:rf/machines <id>]`) so the
+  slot folds into SNAPSHOT DIFF rather than carrying a redundant
+  standalone slot."
   [db-diff]
-  (let [empty? (not (seq db-diff))
-        n      (count db-diff)]
+  (let [mode      @(rf/subscribe [:rf.xray.epoch/db-view-mode])
+        empty?    (not (seq db-diff))
+        n         (count db-diff)
+        diff-summary (cond
+                       (not= :diff mode) nil
+                       empty? "— (no changes)"
+                       :else  (str n " path" (when (not= 1 n) "s")))]
     [:div {:data-testid "rf-xray-epoch-handler-db-diff"
-           :data-empty (str empty?)}
-     (sub-header ":db diff"
-                 (if empty?
-                   "— (no changes)"
-                   (str n " path" (when (not= 1 n) "s"))))
-     (when-not empty?
-       (for [[i row] (map-indexed vector db-diff)]
-         (db-diff-line row i)))]))
+           :data-empty (str empty?)
+           :data-db-view-mode (name mode)}
+     (sub-header ":db"
+                 [:span {:style {:display "inline-flex" :align-items "center"}}
+                  (when diff-summary diff-summary)
+                  (db-view-mode-toggle mode)])
+     (case mode
+       :diff
+       (when-not empty?
+         (for [[i row] (map-indexed vector db-diff)]
+           (db-diff-line row i)))
+
+       :all
+       (let [record  @(rf/subscribe [:rf.xray/selected-epoch-record])
+             db-after (:db-after record)]
+         (if (some? db-after)
+           [:div {:data-testid "rf-xray-epoch-handler-db-all"
+                  :style {:padding-left "16px"}}
+            [ei/edn-inspector db-after
+             {:site-id [:rf.xray.epoch/handler-db-all (:epoch-id record)]
+              :default-expanded-depth 2}]]
+           [:span {:data-testid "rf-xray-epoch-handler-db-all-missing"
+                   :style {:font-style "italic"
+                           :font-family mono-stack
+                           :font-size "11px"
+                           :color (:text-tertiary tokens)
+                           :padding-left "16px"}}
+            "— db-after not available in epoch record"])))]))
 
 (defn handler-body
   "Render the HANDLER step's body — source block + db-diff + fx + the
@@ -992,7 +1118,11 @@
           (fx-entry-line entry i))])]))
 
 (defn render-handler-step
-  "Render the HANDLER step (always present)."
+  "Render the HANDLER step (always present). Per Mike pair-debug
+  2026-05-26: the verb (reg-event-db / reg-event-fx / reg-event-ctx
+  / reg-machine flavour label) is the click-to-source hyperlink;
+  the event-id is NOT repeated in the HANDLER line because the
+  DISPATCH step's header already names it."
   [{:keys [flavour event-id duration-ms step-number] :as step}]
   [:div {:data-testid "rf-xray-epoch-step-handler"
          :data-step-kw "handler"
@@ -1001,12 +1131,7 @@
    (step-header
      {:step :handler
       :badge :HANDLER
-      :verb [:span {:style {:display "inline-flex" :gap "4px"}}
-             [:span {:style {:color (:accent tokens)}}
-              (proj/handler-flavour-label flavour)]
-             (when event-id
-               [:span {:style {:color (:text-tertiary tokens)}}
-                (proj/ns-keyword event-id)])]
+      :verb (handler-verb-link flavour event-id)
       :expandable? false
       :testid "rf-xray-epoch-handler"
       :duration-ms duration-ms}

@@ -44,7 +44,8 @@
   `tools/xray/spec/Conventions.md` §Pure-data helpers as `.cljc` — the
   projection is data-in / data-out and runs under both targets.
   `feedback_jvm_interop_must_work.md` is binding."
-  (:require [day8.re-frame2-xray.panels.common-helpers :as common]))
+  (:require [day8.re-frame2-xray.panels.common-helpers :as common]
+            [day8.re-frame2-xray.panels.app-db-diff-helpers :as diff-helpers]))
 
 ;; ---- trace-event lookups -------------------------------------------------
 
@@ -246,16 +247,28 @@
         :else []))))
 
 (defn- db-diff-paths
-  "Pull the changed-paths vector off the `:rf.event/db-changed` trace.
-  Per Spec 009 §db-changed payload: `:tags :rf.event/db-changed-paths`
-  carries `[[path before after change-kind] ...]`. Returns an empty
-  vec when no db-changed event fired (the handler returned no `:db`,
-  or db value was identical)."
-  [events]
-  (when-let [ev (find-op events :rf.event/db-changed)]
-    (or (common/tag-of ev :rf.event/db-changed-paths)
-        (common/tag-of ev :rf.event/changed-paths)
-        [])))
+  "Compute the changed-paths vector for this cascade JIT from the
+  epoch-record's `:db-before` + `:db-after` snapshots via the
+  structural-sharing `app-db-diff-helpers/diff-paths` (Spec 004).
+
+  Pair-debug 2026-05-26 fix: the prior implementation read a
+  `:rf.event/db-changed-paths` tag off the `:rf.event/db-changed`
+  trace event. The framework's emit at `router.cljc:455` does NOT
+  stamp that tag (the framework's design records RAW snapshots —
+  `:db-before` / `:db-after` on the epoch record — and leaves diffs
+  to be computed JIT by consumers; the App-DB panel does the same).
+  Looking for the never-emitted tag meant `db-diff-paths` always
+  returned `[]` and the HANDLER `:db` sub-section always read
+  '— (no changes)' even when the handler mutated state extensively.
+
+  Returns a vector of 4-tuples `[path before after change-kind]`
+  matching the view-layer `db-diff-line` render shape. When
+  before == after (the handler returned no `:db` or an identical
+  value), returns `[]` correctly."
+  [db-before db-after]
+  (mapv (fn [{:keys [op path before after]}]
+          [path before after op])
+        (diff-helpers/diff-paths db-before db-after)))
 
 (defn- machine-lifecycle-rows
   "Project the `:rf.machine/action-ran` stream into per-phase rows
@@ -349,8 +362,20 @@
   - `:reg-event-db`  → :db-diff
   - `:reg-event-fx`  → :db-diff + :fx
   - `:reg-machine`   → :db-diff + :fx + :machine {transition guards
-                                                  lifecycle timers}"
-  [events event-id]
+                                                  lifecycle timers}
+
+  `:db-diff` is computed JIT from `db-before` / `db-after` via
+  `diff-helpers/diff-paths` (Spec 004 structural-sharing diff). The
+  framework records raw snapshots on the epoch-record; consumers
+  derive diffs on demand (pair-debug 2026-05-26 fix).
+
+  Two arities — the 2-arg form (legacy callers / tests that
+  pre-date the JIT-diff fix) supplies nil/nil for db-before/after,
+  yielding an empty `:db-diff` consistent with the prior
+  trace-tag-based behaviour for the same input shape."
+  ([events event-id]
+   (handler-row events event-id nil nil))
+  ([events event-id db-before db-after]
   (let [flavour     (handler-flavour events)
         run-end     (run-end-tags events)
         db-changed  (find-op events :rf.event/db-changed)
@@ -364,14 +389,14 @@
                      :flavour     flavour
                      :event-id    event-id
                      :duration-ms duration-ms
-                     :db-diff     (or (db-diff-paths events) [])
+                     :db-diff     (db-diff-paths db-before db-after)
                      :fx          (or (fx-entries events) [])}]
     (cond-> base
       (= :reg-machine flavour)
       (assoc :machine {:transition  (machine-transition-row events)
                        :guards      (machine-guard-rows events)
                        :lifecycle   (machine-lifecycle-rows events)
-                       :timers      (machine-timer-rows events)}))))
+                       :timers      (machine-timer-rows events)})))))
 
 ;; ---- FLOW step -----------------------------------------------------------
 
@@ -893,6 +918,8 @@
   record; no DOM, no substrate runtime, JVM-testable."
   [epoch-record]
   (let [events    (or (:trace-events epoch-record) [])
+        db-before (:db-before epoch-record)
+        db-after  (:db-after epoch-record)
         event-id  (or (:event-id epoch-record)
                       (when-let [ev (find-op events :rf.event/dispatched)]
                         (let [v (or (common/tag-of ev :rf.event/v)
@@ -916,13 +943,11 @@
                          {:step  :coeffect
                           :badge :COEFFECT
                           :rows  cofx-rows})
-                       (handler-row events event-id)
-                       ;; rf2-rrykz — APP-DB DIFF rides immediately after
-                       ;; HANDLER so the "what mutated in app-db?" lens
-                       ;; lands right after the attribution-row (the
-                       ;; HANDLER body's :db-diff). Same data, different
-                       ;; chrome — one cross-cascade canonical.
-                       (app-db-diff-step events)
+                       (handler-row events event-id db-before db-after)
+                       ;; APP-DB DIFF removed pair-debug 2026-05-26 —
+                       ;; redundant with the HANDLER step's `:db`
+                       ;; sub-section's [diff][all] toggle which
+                       ;; surfaces the same data IN-context.
                        (flow-step events)
                        (fx-step events)
                        ;; rf2-yx1ae — child dispatches sit after FX (they

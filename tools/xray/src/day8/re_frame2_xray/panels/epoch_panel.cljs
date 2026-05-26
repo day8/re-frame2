@@ -152,6 +152,22 @@
     (fn [db _event]
       (update db :epoch-panel-subs-show-unchanged? not)))
 
+  ;; ---- HANDLER :db view-mode toggle (pair-debug 2026-05-26) -------------
+  ;;
+  ;; The HANDLER step's `:db` sub-section carries a `[diff][all]` button
+  ;; bar. `:diff` (default) renders only the path-changes the handler
+  ;; produced; `:all` renders the full post-cascade app-db via the
+  ;; edn-inspector. Mode is persisted so the operator's preference
+  ;; survives focus shifts.
+
+  (rf/reg-sub :rf.xray.epoch/db-view-mode
+    (fn [db _query]
+      (get db :epoch-panel-db-view-mode :diff)))
+
+  (rf/reg-event-db :rf.xray.epoch/set-db-view-mode
+    (fn [db [_ mode]]
+      (assoc db :epoch-panel-db-view-mode mode)))
+
   ;; ---- L4 tab registration ----------------------------------------------
   ;;
   ;; The Epoch tab lands between Machines (order 4) and Routing
