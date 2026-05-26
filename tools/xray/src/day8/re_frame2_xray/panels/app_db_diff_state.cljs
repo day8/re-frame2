@@ -6,16 +6,22 @@
   `app-db-diff-helpers/current-state-sections` produces:
 
     - a TOP section — the app-db MINUS every reserved `:rf/*` key (the
-      user-domain app-db).
-    - one section per reserved `:rf/*` area (per spec/Conventions.md
-      §Reserved app-db keys). Map-of-instances areas (`:rf/machines`,
-      `:rf/spawned`) FAN OUT to one named sub-section per instance —
-      section title = the instance id (e.g. `:title/flow`). Singleton
-      slices (`:rf/route`, `:rf/system-ids`, `:rf/pending-navigation`,
-      `:rf/elision`) render as one section each.
+      user-domain app-db). ALWAYS renders, even when empty.
+    - one section per POPULATED reserved `:rf/*` area (per
+      spec/Conventions.md §Reserved app-db keys). Map-of-instances
+      areas (`:rf/machines`, `:rf/spawned`) FAN OUT to one named
+      sub-section per instance — section title = the instance id (e.g.
+      `:title/flow`). Singleton slices (`:rf/route`, `:rf/system-ids`,
+      `:rf/pending-navigation`, `:rf/elision`) render as one section
+      each.
 
-  Every reserved area renders even when absent/empty — an empty-state
-  placeholder — so the developer sees the full reserved inventory.
+  rf2-jcdvo — empty / absent reserved areas are FILTERED at projection
+  time (`current-state-sections` omits any `:empty?` entry). The
+  operator sees only areas that actually carry state; the panel is no
+  longer cluttered with six labelled 'No X' placeholder cards. As
+  state accrues (e.g. operator triggers navigation that populates
+  `:rf/pending-navigation`), the corresponding card appears
+  automatically — visibility is data-driven.
 
   ## Current-state render — first-class edn-inspector widget (rf2-oqa60)
 
@@ -33,15 +39,22 @@
   unaffected on surfaces still wired to it (Trace, segment-inspector,
   Event lens, Static panels) until phases 2-4 migrate them.
 
-  ## Flat-hairline layout (spec/021 §4.2-4.3, Figma · rf2-ad7zx.11)
+  ## Inspector-card layout (rf2-63ie5 + rf2-okq7p, post-rf2-jcdvo)
 
-  Reconciled to `tools/xray/design-reference/xray_devtools_reference.cljs`
-  (the `app-db-panel` component):
-  sections render FLAT — an uppercase caption label over the value body,
-  with adjacent sections separated by a 1px hairline (`border-t`), NOT
-  bordered cards. The old `:bg-3` card + radius + per-section header-rule
-  chrome is gone; the panel reads as one continuous scroll keyed by
-  caption labels.
+  Each section's value body renders through the first-class edn-inspector
+  widget with `:card? true` (rf2-63ie5) and a header ribbon (rf2-okq7p),
+  giving each top-level mount discrete inspector-card chrome — border +
+  radius + background + header. Adjacent cards self-separate via that
+  chrome + the inter-card vertical gap; rf2-jcdvo dropped the redundant
+  inter-section hairline that competed with the card borders for the
+  eye's attention.
+
+  Empty reserved-area sections are FILTERED at projection time
+  (`current-state-sections` omits any `:empty?` entry). The operator
+  sees only areas that actually carry state — no labelled 'No machines
+  registered.' / 'No active route.' placeholder cards. The TOP
+  user-domain section ALWAYS renders (it is the panel's anchor; an
+  empty user-domain app-db is itself meaningful operator information).
 
   ## Inline `← changed` annotation (spec/021 §4.3)
 
@@ -69,22 +82,20 @@
 ;; ---- shared section chrome ----------------------------------------------
 
 (defn- section-shell
-  "A flat current-state section (spec/021 §4.2, Figma). `title` is hiccup
-  (so callers can colour the reserved-area / instance-id label);
-  `testid` hooks the section for tests; `body` is the section's content
-  hiccup; `first?` suppresses the leading hairline on the panel's top
-  section.
+  "A current-state section wrapper. `title` is hiccup (so callers can
+  colour the reserved-area / instance-id label); `testid` hooks the
+  section for tests; `body` is the section's content hiccup;
+  `hide-header?` suppresses the section-shell H3 (used when the body's
+  own card chrome carries its own header ribbon — the common case post-
+  rf2-okq7p).
 
-  Renders FLAT — an uppercase caption label over the value body, no card
-  surface. Adjacent sections are separated by a 1px hairline drawn as a
-  `border-top` on every section after the first (Figma's `border-t`
-  dividers). Reuses Xray's token CSS variables so light/dark resolve."
-  [{:keys [testid title body first? hide-header?]}]
+  rf2-jcdvo dropped the inter-section hairline divider — each card's
+  own border + the inter-card vertical gap is sufficient visual
+  separation; the divider was redundant chrome that competed with the
+  card borders for the eye's attention."
+  [{:keys [testid title body hide-header?]}]
   [:section {:data-testid testid
-             :style       (cond-> {:padding "12px 12px 4px"}
-                            (not first?)
-                            (assoc :border-top
-                                   (str "1px solid " (:border-subtle tokens))))}
+             :style       {:padding "12px 12px 4px"}}
    (when-not hide-header?
      [:h3 {:style {:display         "flex"
                    :align-items     "center"
@@ -194,15 +205,19 @@
   user-domain app-db). Renders the whole user-domain value as a
   current-state / diff tree. Empty-state when the user-domain app-db is
   empty (e.g. boot value / reserved-keys-only db). `before` is the
-  prior user-domain value (or `h/no-diff`); `first?` suppresses the
-  panel-leading hairline."
-  ([top] (top-section top h/no-diff true))
-  ([top before first?]
+  prior user-domain value (or `h/no-diff`).
+
+  rf2-jcdvo — the TOP section ALWAYS renders, even when empty (it is
+  the panel's anchor; an empty user-domain app-db is itself meaningful
+  operator information). Empty reserved-area sections are filtered at
+  projection time and never reach the renderer; only the TOP carries
+  an empty-state body."
+  ([top] (top-section top h/no-diff))
+  ([top before]
    (let [title  [:span "app-db"]
          empty? (and (map? top) (empty? top))]
      (section-shell
        {:testid       "rf-xray-app-db-state-top"
-        :first?       first?
         :title        title
         :hide-header? (not empty?)
         :body         (if empty?
@@ -224,8 +239,8 @@
   reserved area — section title = the instance id. Used per machine
   (`:rf/machines`) and per parent (`:rf/spawned`). The instance carries
   its own `:before` pre-image so the body diff-annotates the changed
-  snapshot in place. Each instance section draws the leading hairline
-  (it is never the panel's first section — the TOP precedes it)."
+  snapshot in place. The section-shell H3 is suppressed — the
+  edn-inspector card's own header ribbon carries the title."
   [area {:keys [id value] :as inst}]
   (let [title [:span
                (area-label area)
@@ -237,7 +252,6 @@
     (section-shell
       {:testid       (str "rf-xray-app-db-state-instance-"
                           (pr-str area) "-" (pr-str id))
-       :first?       false
        :title        title
        :hide-header? true
        :body         (value-body value (get inst :before h/no-diff)
@@ -246,55 +260,42 @@
 
 (defn instances-area
   "Render a map-of-instances reserved area (`:rf/machines`,
-  `:rf/spawned`). Fans out to one `instance-section` per id. When the
-  registry is empty/absent, renders a single empty-state section so the
-  area is still visible in the inventory."
-  [{:keys [area empty? instances]}]
-  (if empty?
-    (section-shell
-      {:testid (str "rf-xray-app-db-state-area-" (pr-str area))
-       :first? false
-       :title  (area-label area)
-       :body   (empty-body
-                 (case area
-                   :rf/machines "No machines registered."
-                   :rf/spawned  "No spawned actors."
-                   "Empty."))})
-    (into [:div {:data-testid (str "rf-xray-app-db-state-area-" (pr-str area))}]
-          (for [{:keys [id] :as inst} instances]
-            (with-meta (instance-section area inst)
-                       {:key (pr-str id)})))))
+  `:rf/spawned`). Fans out to one `instance-section` per id.
+
+  rf2-jcdvo — empty registries are filtered at projection time
+  (`current-state-sections` omits `:empty?` entries) so this fn is
+  only invoked for populated registries; no empty-state branch."
+  [{:keys [area instances]}]
+  (into [:div {:data-testid (str "rf-xray-app-db-state-area-" (pr-str area))}]
+        (for [{:keys [id] :as inst} instances]
+          (with-meta (instance-section area inst)
+                     {:key (pr-str id)}))))
 
 (defn singleton-area
   "Render a singleton-slice reserved area (`:rf/route`,
   `:rf/system-ids`, `:rf/pending-navigation`, `:rf/elision`) as ONE
-  section. The section title is the singular slice name (e.g. `route`
-  for `:rf/route`). Empty/absent slices render the empty-state body;
-  populated slices carry their `:before` pre-image for the inline diff
-  annotation."
-  [{:keys [area empty? value] :as area-entry}]
+  section.
+
+  rf2-jcdvo — empty/absent slices are filtered at projection time
+  (`current-state-sections` omits `:empty?` entries) so this fn is
+  only invoked for populated slices; no empty-state branch. The
+  section-shell H3 is suppressed — the edn-inspector card's own header
+  ribbon carries the title."
+  [{:keys [area value] :as area-entry}]
   (let [title (area-label area)]
     (section-shell
       {:testid       (str "rf-xray-app-db-state-area-" (pr-str area))
-       :first?       false
        :title        title
-       :hide-header? (not empty?)
-       :body         (if empty?
-                       (empty-body
-                         (case area
-                           :rf/route              "No active route."
-                           :rf/system-ids         "No system-id bindings."
-                           :rf/pending-navigation "No navigation pending."
-                           :rf/elision            "No elision declarations."
-                           "Empty."))
-                       (value-body value (get area-entry :before h/no-diff)
-                                   (pr-str area)
-                                   title))})))
+       :hide-header? true
+       :body         (value-body value (get area-entry :before h/no-diff)
+                                 (pr-str area)
+                                 title)})))
 
 (defn area-section
   "Dispatch one reserved-area section entry (from
   `current-state-sections`'s `:areas`) to the matching renderer based
-  on its `:kind`."
+  on its `:kind`. Only invoked for non-empty areas — empty entries are
+  filtered at projection time (rf2-jcdvo)."
   [{:keys [kind] :as area-entry}]
   (case kind
     :instances (instances-area area-entry)
@@ -308,16 +309,15 @@
 (defn state-body
   "Render the full current-state inspector body for the section model
   `current-state-sections` produces: the TOP user-domain section
-  followed by one section group per reserved `:rf/*` area (in
-  `:areas` order). Adjacent sections are separated by 1px hairlines —
-  the TOP is the panel's first section (no leading hairline); every
-  reserved-area section after it draws the divider (spec/021 §4.2).
+  followed by one section group per POPULATED reserved `:rf/*` area
+  (in `:areas` order; rf2-jcdvo — empty areas are filtered at
+  projection time so only data-bearing cards reach the renderer).
   Each section threads its `:before` pre-image so changed nodes carry
   the inline `← changed` annotation (spec/021 §4.3). Pure hiccup;
   nil-safe (a nil model degrades to an empty TOP + no areas)."
   [{:keys [top areas] :as model}]
   (into [:div {:data-testid "rf-xray-app-db-state"}
-         (top-section top (get model :before-top h/no-diff) true)]
+         (top-section top (get model :before-top h/no-diff))]
         (for [{:keys [area] :as area-entry} areas]
           (with-meta (area-section area-entry)
                      {:key (pr-str area)}))))

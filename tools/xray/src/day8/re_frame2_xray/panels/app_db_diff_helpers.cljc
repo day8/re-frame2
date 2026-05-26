@@ -267,10 +267,14 @@
 ;;     `:rf/system-ids`, `:rf/pending-navigation`, and `:rf/elision`
 ;;     are singletons.
 ;;
-;; If a reserved area is ABSENT or empty the section still renders — as
-;; an empty-state placeholder — so the developer always sees the full
-;; reserved inventory and learns which areas are unpopulated rather than
-;; wondering whether the panel dropped them.
+;; Empty / absent reserved areas are FILTERED at projection time
+;; (rf2-jcdvo) — `current-state-sections` omits any area that is
+;; absent / nil / present-but-empty. The operator sees only areas
+;; that actually carry state; the panel is no longer cluttered with
+;; six labelled "No machines registered." / "No active route." /
+;; etc. placeholder cards. The TOP user-domain section ALWAYS renders
+;; (it is the panel's anchor; an empty user-domain app-db is itself
+;; meaningful operator information).
 
 (def reserved-area-order
   "Render order for the reserved-area sections (after the user-domain
@@ -369,12 +373,34 @@
                 :value {…}}
                …]}
 
-  One area entry per reserved `:rf/*` key (in `reserved-area-order`),
-  ALWAYS present even when absent/empty — `:empty?` flags the
-  empty-state so the renderer draws a blank section rather than omitting
-  it. Map-of-instances areas (`map-of-instances-areas`) carry
-  `:kind :instances` + an `:instances` vector (one entry per id);
-  every other reserved area is `:kind :singleton` + a `:value`.
+  One area entry per POPULATED reserved `:rf/*` key (in
+  `reserved-area-order`). Map-of-instances areas
+  (`map-of-instances-areas`) carry `:kind :instances` + an `:instances`
+  vector (one entry per id); every other reserved area is
+  `:kind :singleton` + a `:value`.
+
+  ## Empty-area filtering (rf2-jcdvo)
+
+  Empty / absent reserved areas are OMITTED from `:areas` entirely. An
+  area is empty when:
+
+    - the reserved key is absent from the db, OR
+    - the value is `nil`, OR
+    - the value is a present-but-empty collection (`{}` pending-nav,
+      `{}` registry, `#{}` system-ids), OR
+    - (for `:rf/machines` / `:rf/spawned`) the registry contains no
+      instance ids.
+
+  The renderer is the only consumer that needs the `:empty?` flag, and
+  it never draws an empty section now (the placeholder cards added
+  visual noise — six labelled 'No X' cards mostly saying 'nothing
+  here'). Populated areas still carry `:empty? false` for callers that
+  inspect the model shape; the slot is preserved for symmetry.
+
+  The TOP user-domain section is NOT filtered — it always appears in
+  the renderer's output, even when the user-domain app-db is empty
+  (it's the panel's anchor; an empty user-domain app-db is itself
+  meaningful operator information).
 
   ## Inline diff (spec/021 §4.3, rf2-ad7zx.11)
 
@@ -406,28 +432,34 @@
                     (user-domain-db before-db)
                     no-diff)
       :areas (vec
-               (for [area reserved-area-order]
-                 (let [present?    (contains? db area)
-                       area-value  (get db area)]
-                   (if (contains? map-of-instances-areas area)
-                     (let [instances (instances-of area-value
-                                                    (before-area area))]
-                       {:area      area
-                        :kind      :instances
-                        :empty?    (empty? instances)
-                        :instances instances})
-                     {:area   area
-                      :kind   :singleton
-                      ;; A singleton is empty when the key is absent, or
-                      ;; present-but-nil, or present-but-empty-collection
-                      ;; (e.g. `{}` pending-nav). Scalars / non-empty
-                      ;; collections are non-empty.
-                      :empty? (or (not present?)
-                                  (nil? area-value)
-                                  (and (coll? area-value)
-                                       (empty? area-value)))
-                      :value  area-value
-                      :before (before-area area)}))))})))
+               (for [area reserved-area-order
+                     :let [present?   (contains? db area)
+                           area-value (get db area)
+                           entry      (if (contains? map-of-instances-areas area)
+                                        (let [instances (instances-of area-value
+                                                                       (before-area area))]
+                                          {:area      area
+                                           :kind      :instances
+                                           :empty?    (empty? instances)
+                                           :instances instances})
+                                        {:area   area
+                                         :kind   :singleton
+                                         ;; A singleton is empty when the key is absent, or
+                                         ;; present-but-nil, or present-but-empty-collection
+                                         ;; (e.g. `{}` pending-nav). Scalars / non-empty
+                                         ;; collections are non-empty.
+                                         :empty? (or (not present?)
+                                                     (nil? area-value)
+                                                     (and (coll? area-value)
+                                                          (empty? area-value)))
+                                         :value  area-value
+                                         :before (before-area area)})]
+                     ;; rf2-jcdvo — empty areas are omitted from :areas;
+                     ;; the renderer never draws labelled "No X" placeholder
+                     ;; cards. The TOP user-domain section (above) is the
+                     ;; only always-rendered slot.
+                     :when (not (:empty? entry))]
+                 entry))})))
 
 ;; ---- 'Show me when this changed' walker ---------------------------------
 

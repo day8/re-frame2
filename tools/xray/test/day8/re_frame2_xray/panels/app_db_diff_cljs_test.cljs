@@ -6,9 +6,10 @@
   The app-db tab was redesigned from a diff view into a CURRENT-STATE
   inspector (re-frame-10x style), sectioned by reserved `:rf/*` area.
   The view-render tests assert the inspector shape (TOP user-domain
-  section, per-instance machine fan-out, singleton route, empty-state
-  for absent areas) via `app-db-diff-state/state-body` through the
-  Panel. The diff data subs (`:rf.xray/selected-epoch-diff` and the
+  section, per-instance machine fan-out, singleton route; rf2-jcdvo
+  — empty / absent reserved areas are filtered at projection time so
+  no placeholder cards reach the renderer) via
+  `app-db-diff-state/state-body` through the Panel. The diff data subs (`:rf.xray/selected-epoch-diff` and the
   composite `:rf.xray/app-db-diff`) survive for the Event tab diff
   surface + the redacted-modified count; their sub-level contracts are
   still pinned here.
@@ -582,9 +583,11 @@
         (is (some? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
             "route singleton section present")))))
 
-(deftest panel-renders-empty-reserved-areas
-  (testing "absent reserved areas still render (empty-state), not omitted
-            — the full :rf/* inventory is always visible"
+(deftest panel-omits-empty-reserved-areas
+  (testing "rf2-jcdvo — absent reserved areas are OMITTED from the
+            panel entirely; no placeholder cards. Visibility is
+            data-driven — a card appears when state accrues at that
+            slot, never as a persistent 'No X' placeholder."
     (seed-host-frame! {:counter 1})
     (registry/register-xray-handlers!)
     (frame/reg-frame :rf/xray {})
@@ -592,9 +595,9 @@
       (let [tree (app-db-diff/Panel)]
         (doseq [area [:rf/machines :rf/spawned :rf/route :rf/system-ids
                       :rf/pending-navigation :rf/elision]]
-          (is (some? (find-by-testid
-                       tree (str "rf-xray-app-db-state-area-" (pr-str area))))
-              (str "empty-state section present for " area)))))))
+          (is (nil? (find-by-testid
+                      tree (str "rf-xray-app-db-state-area-" (pr-str area))))
+              (str "no placeholder card for empty reserved area " area)))))))
 
 (deftest focus-slice-path-event-still-wired
   (testing "the :rf.xray/focus-slice-path event remains registered. UI

@@ -235,10 +235,16 @@
 ;;
 ;; The app-db tab is a CURRENT-STATE inspector. `current-state-sections`
 ;; splits the live app-db into:
-;;   - TOP: app-db MINUS reserved keys (user-domain).
-;;   - one section per reserved `:rf/*` area: machines/spawned fan out
-;;     one entry per instance id; route + the other slices are
-;;     singletons. Every area present even when empty (empty-state).
+;;   - TOP: app-db MINUS reserved keys (user-domain). ALWAYS present.
+;;   - one section per POPULATED reserved `:rf/*` area: machines/spawned
+;;     fan out one entry per instance id; route + the other slices are
+;;     singletons.
+;;
+;; rf2-jcdvo — empty / absent reserved areas are FILTERED at projection
+;; time (omitted from `:areas` entirely). The renderer never draws
+;; labelled "No X" placeholder cards; the operator sees only areas that
+;; actually carry state. The TOP user-domain section is the only
+;; always-rendered slot.
 
 (defn- area-by [model area]
   (some (fn [a] (when (= area (:area a)) a)) (:areas model)))
@@ -264,15 +270,23 @@
       (is (= {:counter 5 :user {:name "ada"}} (:top model))
           ":top excludes :rf/route"))))
 
-(deftest current-state-sections-enumerates-every-reserved-area
-  (testing "every reserved area appears in :areas exactly once, even when
-            absent from the db (empty-state)"
-    (let [model (h/current-state-sections {:counter 1})
+(deftest current-state-sections-enumerates-only-populated-areas
+  (testing "rf2-jcdvo — :areas contains ONLY populated reserved areas;
+            empty / absent areas are omitted entirely (no placeholder
+            cards in the rendered panel)"
+    (let [model (h/current-state-sections {:counter 1})]
+      (is (= [] (:areas model))
+          "a user-domain-only db produces zero reserved-area entries"))
+    (let [model (h/current-state-sections
+                  {:counter 1
+                   :rf/route    {:id :home}
+                   :rf/machines {:auth {:state :idle}}})
           areas (set (map :area (:areas model)))]
-      (is (= h/reserved-app-db-keys areas)
-          "the :areas cover the full reserved inventory")
-      (is (every? :empty? (:areas model))
-          "with no reserved slots in the db, every area is flagged :empty?"))))
+      (is (= #{:rf/machines :rf/route} areas)
+          "only the two populated areas appear; the other four reserved
+           slots are omitted")
+      (is (every? (complement :empty?) (:areas model))
+          "every entry in :areas is non-empty"))))
 
 (deftest current-state-sections-machines-fan-out-one-per-instance
   (testing ":rf/machines fans out to one instance entry per machine id —
@@ -297,16 +311,14 @@
       (is (= :instances (:kind area)))
       (is (= [:parent-a] (mapv :id (:instances area)))))))
 
-(deftest current-state-sections-empty-machines-registry-is-empty-state
-  (testing "an absent OR empty :rf/machines registry → :instances kind,
-            :empty? true, no instances (renders the empty-state section)"
-    (let [absent (area-by (h/current-state-sections {:counter 1}) :rf/machines)
-          empty  (area-by (h/current-state-sections {:rf/machines {}}) :rf/machines)]
-      (is (= :instances (:kind absent)))
-      (is (true? (:empty? absent)))
-      (is (= [] (:instances absent)))
-      (is (true? (:empty? empty))
-          "present-but-empty registry is still empty-state"))))
+(deftest current-state-sections-empty-machines-registry-is-omitted
+  (testing "rf2-jcdvo — an absent OR present-but-empty :rf/machines
+            registry is OMITTED from :areas entirely; no placeholder
+            card reaches the renderer"
+    (is (nil? (area-by (h/current-state-sections {:counter 1}) :rf/machines))
+        "absent :rf/machines → no area entry")
+    (is (nil? (area-by (h/current-state-sections {:rf/machines {}}) :rf/machines))
+        "present-but-empty registry → no area entry")))
 
 (deftest current-state-sections-route-is-singleton
   (testing ":rf/route is a SINGLE current-route slice → :singleton kind,
@@ -320,36 +332,41 @@
       (is (= route (:value area))
           "the section value is the whole current-route slice"))))
 
-(deftest current-state-sections-absent-route-is-empty-singleton
-  (testing "an absent :rf/route → :singleton kind, :empty? true (blank
-            section, not omitted)"
-    (let [area (area-by (h/current-state-sections {:counter 1}) :rf/route)]
-      (is (= :singleton (:kind area)))
-      (is (true? (:empty? area)))
-      (is (nil? (:value area))))))
+(deftest current-state-sections-absent-route-is-omitted
+  (testing "rf2-jcdvo — an absent :rf/route is OMITTED from :areas
+            entirely; no placeholder card reaches the renderer"
+    (is (nil? (area-by (h/current-state-sections {:counter 1}) :rf/route))
+        "absent :rf/route → no area entry")))
 
-(deftest current-state-sections-empty-singleton-collection-is-empty
-  (testing "a present-but-empty singleton collection (e.g. {} pending-nav)
-            is flagged :empty? so it renders the empty-state"
-    (let [area (area-by (h/current-state-sections {:rf/pending-navigation {}})
-                        :rf/pending-navigation)]
-      (is (= :singleton (:kind area)))
-      (is (true? (:empty? area))
-          "{} is empty-state"))))
+(deftest current-state-sections-empty-singleton-collection-is-omitted
+  (testing "rf2-jcdvo — a present-but-empty singleton collection
+            (e.g. {} pending-nav) is OMITTED from :areas entirely"
+    (is (nil? (area-by (h/current-state-sections {:rf/pending-navigation {}})
+                       :rf/pending-navigation))
+        "{} pending-navigation → no area entry")))
 
 (deftest current-state-sections-nil-and-empty-db-safe
-  (testing "nil-safe: nil / empty db yields an empty TOP + every reserved
-            area flagged empty"
+  (testing "rf2-jcdvo — nil-safe: nil / empty db yields an empty TOP +
+            ZERO reserved-area entries (every reserved area is empty so
+            every entry is filtered out)"
     (doseq [db [nil {}]]
       (let [model (h/current-state-sections db)]
         (is (= {} (:top model)))
-        (is (= h/reserved-app-db-keys (set (map :area (:areas model)))))
-        (is (every? :empty? (:areas model)))))))
+        (is (= [] (:areas model))
+            "no reserved-area entries — every reserved slot is empty so
+             every entry is filtered out at projection time")))))
 
 (deftest current-state-sections-area-order-is-stable
   (testing "areas render in `reserved-area-order` — machines + spawned
-            (the registries) lead, then the singleton slices"
-    (let [model (h/current-state-sections {})]
+            (the registries) lead, then the singleton slices. With every
+            reserved slot populated, all six appear in canonical order."
+    (let [db    {:rf/machines           {:auth {:state :idle}}
+                 :rf/spawned            {:parent {:invoke :child}}
+                 :rf/route              {:id :home}
+                 :rf/system-ids         #{:app}
+                 :rf/pending-navigation {:to :next}
+                 :rf/elision            {:declarations {}}}
+          model (h/current-state-sections db)]
       (is (= h/reserved-area-order (mapv :area (:areas model)))))))
 
 ;; ---- inline-diff section model (spec/021 §4.3, rf2-ad7zx.11) -------------
