@@ -49,6 +49,15 @@
              :refer [tokens mono-stack sans-stack type-scale]]))
 
 ;; ---- row styling primitives ----------------------------------------------
+;;
+;; All inline `:style {...}` maps in the row renderers below are hoisted to
+;; ns-level defs (rf2-qx414, audit F2 of rf2-qa75r). The cascade body can
+;; render up to ~50 abort rows × ~5 cells each — without hoisting, each
+;; re-render allocated ~250 fresh JS objects to feed the React reconciler.
+;; The stable bits live as plain maps; per-row variation (cursor on the
+;; outer container, kind-colour on the glyph + category label) is layered
+;; in via `assoc`. Tokens resolve to `var(--rf-xray-*)` strings at ns load,
+;; so the hoisted maps follow the active theme without re-evaluation.
 
 (def ^:private row-glyph
   {:parent-decision "●"
@@ -56,22 +65,113 @@
    :effect-abort    "├─"
    :effect-abort-last "└─"})
 
-(defn- row-colour
-  "Per the bead's contract: decision = blue, teardown = orange,
-  abort = red. Reads tokens off the theme map so the visualiser
-  follows the active theme."
-  [kind]
-  (case kind
-    :parent-decision (:info tokens)              ; fixed cool-blue category (≠ accent)
-    :child-teardown  (or (:accent-orange tokens)
-                         (:warning-amber tokens)
-                         (:yellow tokens))
-    :effect-abort    (or (:red tokens)
-                         (:error-red tokens)
-                         (:danger tokens))
-    (:text-secondary tokens)))
+;; Kind-colour resolution per the bead's contract: decision = blue,
+;; teardown = orange, abort = red. Pre-resolved at ns load (`tokens`
+;; values are CSS-var strings — the active theme class picks the hex
+;; at paint time, so resolution-once is correct across light/dark).
+(def ^:private decision-colour (:info tokens))
+(def ^:private teardown-colour (or (:accent-orange tokens)
+                                   (:warning-amber tokens)
+                                   (:yellow tokens)))
+(def ^:private abort-colour    (or (:red tokens)
+                                   (:error-red tokens)
+                                   (:danger tokens)))
+
+;; Outer flex container — shared chrome, padding diverges per row type.
+(def ^:private row-container-chrome
+  {:display       "flex"
+   :align-items   "center"
+   :gap           "8px"
+   :font-family   mono-stack
+   :font-size     "12px"
+   :border-bottom (str "1px solid " (:border-subtle tokens))})
+
+(def ^:private decision-row-style
+  (assoc row-container-chrome :padding "8px 14px"))
+
+(def ^:private teardown-row-style
+  (assoc row-container-chrome :padding "6px 14px 6px 28px"))
+
+(def ^:private abort-row-style
+  (assoc row-container-chrome :padding "6px 14px 6px 42px"))
+
+;; Per-row cells — stable across all three row types.
+(def ^:private time-chip-style
+  {:color       (:text-tertiary tokens)
+   :font-size   "10px"
+   :min-width   "70px"
+   :white-space "nowrap"})
+
+(def ^:private primary-cell-style
+  {:color         (:text-primary tokens)
+   :flex          1
+   :overflow      "hidden"
+   :text-overflow "ellipsis"
+   :white-space   "nowrap"})
+
+(def ^:private tertiary-trailing-style
+  {:color       (:text-tertiary tokens)
+   :font-size   "10px"
+   :white-space "nowrap"})
+
+;; Category label (DECISION / TEARDOWN / ABORT) — shape stable, colour
+;; varies per kind. Decision uses `:text-secondary` (the parent line is
+;; presentationally muted, not category-tinted); teardown + abort reuse
+;; their kind colour.
+(def ^:private category-label-base
+  {:text-transform "uppercase"
+   :font-size      "9px"
+   :letter-spacing "0.5px"})
+
+(def ^:private decision-category-label-style
+  (assoc category-label-base :color (:text-secondary tokens)))
+
+(def ^:private teardown-category-label-style
+  (assoc category-label-base :color teardown-colour))
+
+(def ^:private abort-category-label-style
+  (assoc category-label-base :color abort-colour))
+
+;; Leading glyph cell — bold mark coloured per kind.
+(def ^:private decision-glyph-style {:color decision-colour :font-weight 700})
+(def ^:private teardown-glyph-style {:color teardown-colour :font-weight 700})
+(def ^:private abort-glyph-style    {:color abort-colour    :font-weight 700})
+
+;; Cursor overlays for the row container — clickable rows get
+;; `pointer`, non-clickable rows get the browser default.
+(def ^:private cursor-pointer-overlay {:cursor "pointer"})
+(def ^:private cursor-default-overlay {:cursor "default"})
 
 ;; ---- header --------------------------------------------------------------
+
+(def ^:private header-style
+  {:display         "flex"
+   :align-items     "center"
+   :justify-content "space-between"
+   :gap             "12px"
+   :padding         "10px 14px"
+   :background      (:bg-2 tokens)
+   :border-bottom   (str "1px solid " (:border-subtle tokens))})
+
+(def ^:private header-title-style
+  {:font-family sans-stack
+   :font-size   (:body type-scale)
+   :font-weight 600
+   :color       (:text-primary tokens)})
+
+(def ^:private header-summary-style
+  {:font-family sans-stack
+   :font-size   "11px"
+   :color       (:text-tertiary tokens)
+   :margin-top  "2px"})
+
+(def ^:private header-close-button-style
+  {:background  "transparent"
+   :border      "none"
+   :color       (:text-secondary tokens)
+   :cursor      "pointer"
+   :font-family mono-stack
+   :font-size   "14px"})
 
 (defn- header
   "Top strip — title + the cascade summary + close button (popover
@@ -79,36 +179,18 @@
   in the side-panel mount."
   [cascade close-fn]
   [:div {:data-testid "rf-xray-cancellation-cascade-header"
-         :style {:display "flex"
-                 :align-items "center"
-                 :justify-content "space-between"
-                 :gap "12px"
-                 :padding "10px 14px"
-                 :background (:bg-2 tokens)
-                 :border-bottom (str "1px solid " (:border-subtle tokens))}}
+         :style       header-style}
    [:div
-    [:div {:style {:font-family sans-stack
-                   :font-size (:body type-scale)
-                   :font-weight 600
-                   :color (:text-primary tokens)}}
-     "Cancellation cascade"]
+    [:div {:style header-title-style} "Cancellation cascade"]
     [:div {:data-testid "rf-xray-cancellation-cascade-summary"
-           :style {:font-family sans-stack
-                   :font-size "11px"
-                   :color (:text-tertiary tokens)
-                   :margin-top "2px"}}
+           :style       header-summary-style}
      (h/cascade-summary cascade)]]
    (when close-fn
      [:button {:data-testid "rf-xray-cancellation-cascade-close"
                :aria-label  "Close cancellation cascade"
                :title       "Close"
                :on-click    close-fn
-               :style       {:background  "transparent"
-                             :border      "none"
-                             :color       (:text-secondary tokens)
-                             :cursor      "pointer"
-                             :font-family mono-stack
-                             :font-size   "14px"}}
+               :style       header-close-button-style}
       "×"])])
 
 ;; ---- parent-decision row ------------------------------------------------
@@ -125,37 +207,20 @@
                                {:dispatch-id (:dispatch-id decision)
                                 :trace-id    (:trace-id decision)}]
                               {:frame :rf/xray})))
-           :style {:display       "flex"
-                   :align-items   "center"
-                   :gap           "8px"
-                   :padding       "8px 14px"
-                   :cursor        (if clickable? "pointer" "default")
-                   :font-family   mono-stack
-                   :font-size     "12px"
-                   :border-bottom (str "1px solid " (:border-subtle tokens))}}
-     [:span {:style {:color (row-colour :parent-decision)
-                     :font-weight 700}}
+           :style       (merge decision-row-style
+                                (if clickable?
+                                  cursor-pointer-overlay
+                                  cursor-default-overlay))}
+     [:span {:style decision-glyph-style}
       (:parent-decision row-glyph)]
-     [:span {:style {:color       (:text-tertiary tokens)
-                     :font-size   "10px"
-                     :min-width   "70px"
-                     :white-space "nowrap"}}
+     [:span {:style time-chip-style}
       (h/format-time-ms (:t decision))]
-     [:span {:style {:color (:text-secondary tokens)
-                     :text-transform "uppercase"
-                     :font-size "9px"
-                     :letter-spacing "0.5px"}}
+     [:span {:style decision-category-label-style}
       "DECISION"]
-     [:span {:style {:color (:text-primary tokens)
-                     :flex 1
-                     :overflow "hidden"
-                     :text-overflow "ellipsis"
-                     :white-space "nowrap"}}
+     [:span {:style primary-cell-style}
       (h/format-event-vec (:event-vec decision))]
      (when-let [m (:machine-id decision)]
-       [:span {:style {:color (:text-tertiary tokens)
-                       :font-size "10px"
-                       :white-space "nowrap"}}
+       [:span {:style tertiary-trailing-style}
         (str " by " m)])]))
 
 ;; ---- teardown row --------------------------------------------------------
@@ -172,44 +237,25 @@
                                {:dispatch-id dispatch-id
                                 :trace-id    trace-id}]
                               {:frame :rf/xray})))
-           :style {:display       "flex"
-                   :align-items   "center"
-                   :gap           "8px"
-                   :padding       "6px 14px 6px 28px"
-                   :cursor        (if clickable? "pointer" "default")
-                   :font-family   mono-stack
-                   :font-size     "12px"
-                   :border-bottom (str "1px solid " (:border-subtle tokens))}}
-     [:span {:style {:color (row-colour :child-teardown)
-                     :font-weight 700}}
+           :style       (merge teardown-row-style
+                                (if clickable?
+                                  cursor-pointer-overlay
+                                  cursor-default-overlay))}
+     [:span {:style teardown-glyph-style}
       (:child-teardown row-glyph)]
-     [:span {:style {:color       (:text-tertiary tokens)
-                     :font-size   "10px"
-                     :min-width   "70px"
-                     :white-space "nowrap"}}
+     [:span {:style time-chip-style}
       (h/format-time-ms t)]
-     [:span {:style {:color (row-colour :child-teardown)
-                     :text-transform "uppercase"
-                     :font-size "9px"
-                     :letter-spacing "0.5px"}}
+     [:span {:style teardown-category-label-style}
       "TEARDOWN"]
-     [:span {:style {:color (:text-primary tokens)
-                     :flex 1
-                     :overflow "hidden"
-                     :text-overflow "ellipsis"
-                     :white-space "nowrap"}}
+     [:span {:style primary-cell-style}
       (str child-id)]
-     [:span {:style {:color (:text-tertiary tokens)
-                     :font-size "10px"
-                     :white-space "nowrap"}}
+     [:span {:style tertiary-trailing-style}
       (str inflight-count
            (if (= 1 inflight-count)
              " in-flight fx"
              " in-flight fxs"))]
      (when reason
-       [:span {:style {:color (:text-tertiary tokens)
-                       :font-size "10px"
-                       :white-space "nowrap"}}
+       [:span {:style tertiary-trailing-style}
         (str " · " reason)])]))
 
 ;; ---- abort row -----------------------------------------------------------
@@ -231,63 +277,52 @@
                                {:dispatch-id dispatch-id
                                 :trace-id    trace-id}]
                               {:frame :rf/xray})))
-           :style {:display       "flex"
-                   :align-items   "center"
-                   :gap           "8px"
-                   :padding       "6px 14px 6px 42px"
-                   :cursor        (if clickable? "pointer" "default")
-                   :font-family   mono-stack
-                   :font-size     "12px"
-                   :border-bottom (str "1px solid " (:border-subtle tokens))}}
-     [:span {:style {:color (row-colour :effect-abort)
-                     :font-weight 700}}
+           :style       (merge abort-row-style
+                                (if clickable?
+                                  cursor-pointer-overlay
+                                  cursor-default-overlay))}
+     [:span {:style abort-glyph-style}
       (if last?
         (:effect-abort-last row-glyph)
         (:effect-abort row-glyph))]
-     [:span {:style {:color       (:text-tertiary tokens)
-                     :font-size   "10px"
-                     :min-width   "70px"
-                     :white-space "nowrap"}}
+     [:span {:style time-chip-style}
       (h/format-time-ms t)]
-     [:span {:style {:color (row-colour :effect-abort)
-                     :text-transform "uppercase"
-                     :font-size "9px"
-                     :letter-spacing "0.5px"}}
+     [:span {:style abort-category-label-style}
       "ABORT"]
-     [:span {:style {:color (:text-primary tokens)
-                     :flex 1
-                     :overflow "hidden"
-                     :text-overflow "ellipsis"
-                     :white-space "nowrap"}}
+     [:span {:style primary-cell-style}
       (h/format-fx-label row)]
-     [:span {:style {:color (:text-tertiary tokens)
-                     :font-size "10px"
-                     :white-space "nowrap"}}
+     [:span {:style tertiary-trailing-style}
       (str cancel-cause)]]))
 
 ;; ---- collapsed expander row ---------------------------------------------
+
+(def ^:private expander-container-style
+  {:padding       "8px 14px"
+   :text-align    "center"
+   :border-bottom (str "1px solid " (:border-subtle tokens))})
+
+(def ^:private expander-button-style
+  {:background    "transparent"
+   :border        (str "1px solid " (:border-default tokens))
+   :color         (:accent tokens)
+   :font-family   sans-stack
+   :font-size     "11px"
+   :padding       "3px 10px"
+   :border-radius "10px"
+   :cursor        "pointer"})
 
 (defn- expand-button
   "Renders the 'Show all N' / 'Collapse' affordance under the abort
   list when collapse is active."
   [collapsed-count total-count expanded?]
   [:div {:data-testid "rf-xray-cancellation-cascade-expander"
-         :style {:padding "8px 14px"
-                 :text-align "center"
-                 :border-bottom (str "1px solid " (:border-subtle tokens))}}
+         :style       expander-container-style}
    [:button {:data-testid "rf-xray-cancellation-cascade-expand-toggle"
              :on-click    (fn [_]
                             (rf/dispatch
                               [:rf.xray/cancellation-cascade-toggle-expand]
                               {:frame :rf/xray}))
-             :style       {:background "transparent"
-                           :border (str "1px solid " (:border-default tokens))
-                           :color (:accent tokens)
-                           :font-family sans-stack
-                           :font-size "11px"
-                           :padding "3px 10px"
-                           :border-radius "10px"
-                           :cursor "pointer"}}
+             :style       expander-button-style}
     (if expanded?
       (str "Collapse · showing " total-count)
       (str "Show all " total-count " · "
@@ -295,29 +330,39 @@
 
 ;; ---- empty states --------------------------------------------------------
 
+(def ^:private empty-state-style
+  {:padding     "16px"
+   :color       (:text-tertiary tokens)
+   :font-family sans-stack
+   :font-size   "13px"
+   :text-align  "center"})
+
+(def ^:private empty-state-paragraph-style {:margin 0})
+
 (defn- empty-state
   "Empty-state body — branches on the cascade's `:empty-kind`."
   [cascade]
   (let [kind (:empty-kind cascade)]
     [:div {:data-testid (str "rf-xray-cancellation-cascade-empty-"
                              (name (or kind :no-trigger)))
-           :style {:padding "16px"
-                   :color (:text-tertiary tokens)
-                   :font-family sans-stack
-                   :font-size "13px"
-                   :text-align "center"}}
+           :style       empty-state-style}
      (case kind
        :no-trigger
-       [:p {:style {:margin 0}}
+       [:p {:style empty-state-paragraph-style}
         "No cancellation cascade in the trace window."]
 
        :no-aborts
-       [:p {:style {:margin 0}}
+       [:p {:style empty-state-paragraph-style}
         "Destroy fired — no in-flight effects to abort."]
 
-       [:p {:style {:margin 0}} "No cascade data."])]))
+       [:p {:style empty-state-paragraph-style} "No cascade data."])]))
 
 ;; ---- the body (waterfall list) -----------------------------------------
+
+(def ^:private body-style
+  {:flex       1
+   :overflow   "auto"
+   :background (:bg-2 tokens)})
 
 (defn- body
   "Render the waterfall body — decision + teardown rows + abort rows.
@@ -336,9 +381,7 @@
            :data-collapsed (str (and collapse? (not expanded?)))
            :data-aborts-shown (str (count visible-aborts))
            :data-aborts-total (str (count effect-aborts))
-           :style {:flex 1
-                   :overflow "auto"
-                   :background (:bg-2 tokens)}}
+           :style          body-style}
      (when parent-decision
        (parent-decision-row parent-decision))
      (when (seq child-teardowns)
@@ -373,6 +416,17 @@
 
 ;; ---- public views --------------------------------------------------------
 
+(def ^:private cascade-section-style
+  {:display        "flex"
+   :flex-direction "column"
+   :height         "100%"
+   :background     (:bg-2 tokens)
+   :color          (:text-primary tokens)
+   :font-family    sans-stack
+   :border         (str "1px solid " (:border-subtle tokens))
+   :border-radius  "4px"
+   :overflow       "hidden"})
+
 (defn render-cascade
   "Render the cascade as a self-contained block. `cascade` is the
   helpers/extract-cascade record; `close-fn` is optional (popover
@@ -381,18 +435,10 @@
   Always renders SOMETHING — the empty-state branches still render
   so the mount point can place this unconditionally."
   [cascade close-fn]
-  [:section {:data-testid "rf-xray-cancellation-cascade"
+  [:section {:data-testid    "rf-xray-cancellation-cascade"
              :data-empty-kind (when (:empty-kind cascade)
                                 (name (:empty-kind cascade)))
-             :style {:display "flex"
-                     :flex-direction "column"
-                     :height "100%"
-                     :background (:bg-2 tokens)
-                     :color (:text-primary tokens)
-                     :font-family sans-stack
-                     :border (str "1px solid " (:border-subtle tokens))
-                     :border-radius "4px"
-                     :overflow "hidden"}}
+             :style          cascade-section-style}
    (header cascade close-fn)
    (if (:empty-kind cascade)
      (empty-state cascade)
