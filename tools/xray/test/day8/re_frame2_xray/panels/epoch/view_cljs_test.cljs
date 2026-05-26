@@ -954,3 +954,82 @@
       (is (some? ev))
       (is (pos? (count (mini-mounts ev)))
           "the dispatched-event slot mounts a mini-render"))))
+
+;; ---- rf2-atqkg — pipeline-view realises step-seq inside reactive scope ---
+;;
+;; Regression test for the reactive-tracking failure the bead pins: the
+;; pipeline's `(for [[i step] …] …)` MUST be realised inside
+;; `pipeline-view`'s return value so that any `@(rf/subscribe …)` deref
+;; reached transitively by `render-step` (e.g. `handler-db-diff-block`'s
+;; `:rf.xray.epoch/db-view-mode` read at view.cljs L1416, or
+;; `render-subscriptions-step`'s `:rf.xray.epoch/subs-show-unchanged?`
+;; read at view.cljs L1802) fires while the parent reg-view's reactive
+;; scope is still live. A lazy seq realised AFTER the reg-view returns
+;; leaves the derefs OUTSIDE that scope — Reagent doesn't watch them,
+;; sub-value changes don't trigger re-render, and the operator sees a
+;; click "do nothing" until an external repaint forces the panel back
+;; through render.
+;;
+;; The structural invariant we pin here: the steps-seq inside the inner
+;; `[:div :data-testid "rf-xray-epoch-pipeline"]` is either a vector
+;; (eager) OR a *realised* lazy seq. Lazy-but-unrealised at the moment
+;; `pipeline-view` returns is the bug shape.
+
+(defn- pipeline-steps-seq
+  "Locate the step-seq returned by `pipeline-view`. The view returns:
+
+      [:div {:data-testid \"rf-xray-epoch-pipeline-container\"}
+       (cascade-summary …)
+       [:div {:data-testid \"rf-xray-epoch-pipeline\" …}
+        [:div {:data-testid \"rf-xray-epoch-rail\" …}]
+        <steps-seq>]]
+
+  We walk the top-level tree directly (NOT via `find-by-testid`, which
+  realises lazy seqs as a side-effect of walking) and return the
+  step-seq child verbatim so the caller can probe its `realized?`
+  state."
+  [tree]
+  (let [inner (some (fn [node]
+                      (when (and (vector? node)
+                                 (= "rf-xray-epoch-pipeline"
+                                    (some-> node th/attrs :data-testid)))
+                        node))
+                    ;; Walk top-level children of the container only;
+                    ;; we want the inner pipeline div without forcing
+                    ;; realisation of the step-seq itself.
+                    (rest tree))]
+    (when inner
+      ;; The inner div's children are [div-attrs rail-div steps-seq];
+      ;; steps-seq is the last child.
+      (last inner))))
+
+(deftest pipeline-view-realises-step-seq-rf2-atqkg-test
+  (testing "rf2-atqkg — `pipeline-view` returns its step-seq REALISED
+            so descendant sub derefs (e.g. handler-db-diff-block's
+            `:rf.xray.epoch/db-view-mode` read) fire during the parent
+            reg-view's reactive scope. An unrealised lazy seq at this
+            position is the rf2-atqkg bug shape (Reagent emits the
+            `Reactive deref not supported in lazy seq, it should be
+            wrapped in doall` console warning at render time)."
+    (let [steps [{:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:counter/inc] :source :ui :coord nil}
+                 {:step :handler :badge :HANDLER :step-number 2
+                  :flavour :reg-event-db :event-id :counter/inc
+                  :db-diff [[[:counter :value] 5 6 :modified]]
+                  :fx [] :machine nil}]
+          tree  (view/pipeline-view steps)
+          step-seq (pipeline-steps-seq tree)]
+      (is (some? step-seq)
+          "the inner pipeline div carries a step-seq child")
+      ;; Either a vector (eager build) or a realised lazy seq is fine.
+      ;; An unrealised lazy seq is the bug.
+      (is (or (vector? step-seq)
+              (not (instance? cljs.core/LazySeq step-seq))
+              (realized? step-seq))
+          (str "pipeline-view's step-seq MUST be realised at return-time. "
+               "Got: "
+               (cond
+                 (vector? step-seq) "vector (eager)"
+                 (instance? cljs.core/LazySeq step-seq)
+                 (str "LazySeq, realized?=" (realized? step-seq))
+                 :else (str "type=" (type step-seq))))))))
