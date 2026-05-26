@@ -50,6 +50,8 @@
   (:require ["@xyflow/react" :as xyflow]
             [clojure.string :as str]
             [reagent.core :as r]
+            [day8.re-frame2-machines-viz.chart.nodes.event-node
+             :as event-node]
             [day8.re-frame2-machines-viz.chart.nodes.parallel-region-node
              :as parallel-region-node]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
@@ -469,16 +471,36 @@
 ;; ---- initial marker node ------------------------------------------------
 
 (defn initial-marker
-  "Reagent component for the machine's initial-state marker — a
-  small filled dot. Rendered as a tiny xyflow node with an outgoing
-  edge into the initial state."
+  "Reagent component for the machine's initial-state marker — a filled
+  dot followed by the `↳` glyph (Stately graph view convention,
+  rf2-qo5xy). Rendered as a tiny xyflow node with an outgoing edge
+  into the initial state.
+
+  Pre-rf2-qo5xy the marker was JUST the filled dot; the bead's
+  paradigm-shift checklist calls for the `↳` glyph as an additional
+  affordance an operator who knows xstate/Stately reads in 30
+  seconds — 'this is THE initial state' rather than 'a state node
+  with an upstream marker'. Composing the glyph on the marker
+  (rather than as separate node) keeps the topology hop short and
+  the elk layered layout pleasant."
   [^js _props]
   (r/as-element
     [:div {:data-testid "rf-mv-chart-initial-marker"
-           :style {:width            "12px"
-                   :height           "12px"
-                   :border-radius    "50%"
-                   :background       (:accent tokens/tokens)}}
+           :style {:display          "inline-flex"
+                   :align-items      "center"
+                   :gap              "4px"}}
+     [:div {:data-testid "rf-mv-chart-initial-marker-dot"
+            :style {:width            "10px"
+                    :height           "10px"
+                    :border-radius    "50%"
+                    :background       (:accent tokens/tokens)}}]
+     [:span {:data-testid "rf-mv-chart-initial-marker-glyph"
+             :style {:font-family   mono-stack
+                     :font-size     "14px"
+                     :font-weight   600
+                     :line-height   "1"
+                     :color         (:accent tokens/tokens)}}
+      "↳"]
      [:> Handle {:type "source" :position pos-right
                  :style {:opacity 0}}]]))
 
@@ -495,9 +517,15 @@
   "The `nodeTypes` prop value for `<ReactFlow>`. Returns a fresh
   plain-JS object on every call — xyflow caches by reference, so
   callers SHOULD memoise this map at component-construction time
-  to avoid re-render churn."
+  to avoid re-render churn.
+
+  rf2-qo5xy — `rf2-event` joins the registered set: events render as
+  first-class xyflow nodes (one per spec transition) rather than as
+  edge LABELS between state boxes. Same node-type pattern the state /
+  compound / region nodes use."
   []
   #js {"state"           state-node
        "compound"        compound-node
        "parallel-region" parallel-region-node/parallel-region-node
-       "initial-marker"  initial-marker})
+       "initial-marker"  initial-marker
+       "rf2-event"       event-node/event-node})

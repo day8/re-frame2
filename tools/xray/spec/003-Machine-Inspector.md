@@ -79,10 +79,12 @@ below; the three render states are:
     - Topology chart (**xyflow + elkjs** primitive — rf2-gpzb4 xyflow
       migration; the prior host-side ELK+SVG render is gone) with the
       FROM state drawn dashed/accent-violet and the TO state bold/cyan;
-      connecting edge emphasised. Custom Stately/xstate-style nodes +
-      edges (initial-state marker, compound-state nesting, self-loops,
-      `event [guard] / action` edge labels) per [`021-Dynamic-Panel-Designs.md`
-      §6 + §17.4](021-Dynamic-Panel-Designs.md). `:after` countdown
+      connecting edges emphasised. Custom Stately/xstate-style nodes
+      (initial-state marker with `↳`, compound-state nesting,
+      events-as-nodes per rf2-qo5xy — each transition projects as its
+      own `rf2-event` box between the source and target state, with
+      `[guard]` chip + `+ <action>` pills inside the event box; `⌚`
+      glyph for `:after`, `∞` for `:always`). `:after` countdown
       rings overlay armed timer states.
     - Guards list (when the trace carried guard-evaluated events for
       this transition).
