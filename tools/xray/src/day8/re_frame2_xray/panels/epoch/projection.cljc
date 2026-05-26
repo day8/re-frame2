@@ -238,29 +238,51 @@
 
   Each row carries `:action-id`, `:phase`, `:outcome`, optional
   `:threw?` + `:exception` (action-throw path emits
-  `:outcome :rf.error/action-threw` + an `:exception` slot). Rendered
-  in trace order — the substrate emits in execution order
-  (exit → transition → entry → always …)."
+  `:outcome :rf.error/action-threw` + an `:exception` slot), and
+  optional `:fx` (per-action fx attribution per rf2-9c27r — the
+  vector of `[fx-id args]` the action returned in its outcome map's
+  `:fx` slot). Rendered in trace order — the substrate emits in
+  execution order (exit → transition → entry → always …)."
   [events]
   (vec
     (for [ev (filter-op events :rf.machine/action-ran)]
-      {:action-id (common/tag-of ev :action-id)
-       :phase     (common/tag-of ev :phase)
-       :outcome   (common/tag-of ev :outcome)
-       :threw?    (= :rf.error/action-threw (common/tag-of ev :outcome))
-       :exception (common/tag-of ev :exception)
-       :input     (common/tag-of ev :input)})))
+      (let [outcome (common/tag-of ev :outcome)
+            ;; Per-action fx attribution (rf2-9c27r) — when the
+            ;; action returned a map carrying `:fx`, surface the
+            ;; tuple list so the LIFECYCLE row can show which fx
+            ;; the operator should attribute to this action.
+            action-fx (when (map? outcome) (:fx outcome))
+            action-data (when (map? outcome) (:data outcome))]
+        (cond-> {:action-id (common/tag-of ev :action-id)
+                 :phase     (common/tag-of ev :phase)
+                 :outcome   outcome
+                 :threw?    (= :rf.error/action-threw outcome)
+                 :exception (common/tag-of ev :exception)
+                 :input     (common/tag-of ev :input)}
+          (seq action-fx) (assoc :fx (vec action-fx))
+          (some? action-data) (assoc :data-write action-data))))))
 
 (defn- machine-transition-row
   "Project the `:rf.machine/transition` event (one per macrostep) into a
-  summary `{:machine-id :before :after :microsteps}` row. nil when no
-  transition trace fired."
+  summary `{:machine-id :before :after :microsteps :event :data-before
+            :data-after}` row. nil when no transition trace fired.
+
+  Per Spec 005 §Trace events the `:before` / `:after` slots carry
+  the full machine snapshot maps (`:state` + `:data` + …); the row
+  hoists `:data-before` / `:data-after` for the rf2-9c27r DATA
+  REDUCTION sub-section so the view layer doesn't re-walk the
+  snapshot map."
   [events]
   (when-let [ev (find-op events :rf.machine/transition)]
-    {:machine-id (common/tag-of ev :machine-id)
-     :before     (common/tag-of ev :before)
-     :after      (common/tag-of ev :after)
-     :microsteps (common/tag-of ev :microsteps)}))
+    (let [before (common/tag-of ev :before)
+          after  (common/tag-of ev :after)]
+      {:machine-id   (common/tag-of ev :machine-id)
+       :event        (common/tag-of ev :event)
+       :before       before
+       :after        after
+       :data-before  (when (map? before) (:data before))
+       :data-after   (when (map? after)  (:data after))
+       :microsteps   (common/tag-of ev :microsteps)})))
 
 (defn- machine-guard-rows
   "Project the `:rf.machine/guard-evaluated` stream into rows. Each

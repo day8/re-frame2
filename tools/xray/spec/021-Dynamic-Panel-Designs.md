@@ -1324,30 +1324,52 @@ colour resolver bails to `:text-tertiary` on an unknown badge so a
 future taxonomy extension paints something but tests catch the
 omission.
 
-### §9.1.5 Handler-type adaptation (rf2-82a0u prerequisites)
+### §9.1.5 Handler-type adaptation (rf2-82a0u prerequisites · rf2-9c27r full design)
 
 The HANDLER step's body adapts to the handler's flavour, discovered
 from the trace stream:
 
 - **`:reg-event-db`** — `:db` diff only (the simplest case).
 - **`:reg-event-fx`** — `:db` diff + per-fx-entry block.
-- **`:reg-machine`** — full machine block: transition summary
-  (machine-id + before/after state vectors), guard rows
-  (`:pass / :fail / :threw` outcomes), per-phase lifecycle rows
-  (phases drawn from the closed set
-  `:exit / :transition / :entry / :always / :after-action /
-  :initial-entry / :destroy-exit`, per rf2-82a0u's `:phase` stamp
-  on `:rf.machine/action-ran`), and timer-cancellation rows
-  (reasons drawn from the closed set
-  `:on-exit / :on-destroy / :on-resolution / :on-supersede /
-  :on-frame-destroy`, per the unified `:rf.machine.timer/cancelled`
-  trace).
+- **`:reg-machine`** — the full machine block per the rf2-9c27r
+  design doc, with all seven sub-sections (rf2-9c27r):
+
+  1. **TRANSITION** — `before-state → after-state`, machine-id,
+     event vector, microstep count (one `:rf.machine/transition` per
+     macrostep — Spec 005 §Trace events).
+  2. **GUARDS** — per-guard row from `:rf.machine/guard-evaluated`:
+     guard-id + `:outcome` from the closed set `:pass / :fail /
+     :threw` (rf2-82a0u).
+  3. **LIFECYCLE** — phase-grouped rows from `:rf.machine/action-ran`
+     (rf2-82a0u — every emit carries `:phase` from the closed set
+     `:exit / :transition / :entry / :always / :after-action /
+     :initial-entry / :destroy-exit`). Each row carries action-id,
+     outcome, and **per-action fx attribution** when the action's
+     outcome map carried `:fx` — the operator reads `action X
+     emitted fx Y` inline (rf2-9c27r §7 folds the FX sub-section
+     into LIFECYCLE for compactness).
+  4. **AFTER TIMERS** — armed + cancelled rows with
+     `:rf.machine.timer/cancelled` `:reason` from the closed set
+     `:on-exit / :on-destroy / :on-resolution / :on-supersede /
+     :on-frame-destroy`.
+  5. **DATA REDUCTION** — `:data` before / after via
+     `edn/inspect-inline`. Source: the `:before / :after` snapshots
+     on `:rf.machine/transition`; the projection hoists `:data-before
+     / :data-after` from those maps. Elides when before == after.
+  6. **SNAPSHOT DIFF** — full snapshot before / after via
+     `edn/inspect-inline`. Source: same trace; renders the WHOLE
+     snapshot map (state vector + data map + parallel-region tags)
+     so the operator can drill into any slot. Elides when snapshots
+     are identical.
+  7. **FX** — per-action attribution folded into LIFECYCLE (above).
+     The HANDLER step's top-level `:fx` slot still surfaces the
+     handler's returned fx for completeness.
 
 The flavour discriminator runs at projection time as a pure-data
 check against the trace stream — no spec read, no registry lookup,
 no replay. The substrate enhancements in #2155 (rf2-82a0u) are the
-prerequisite that lets the LIFECYCLE / TIMERS sub-blocks read
-directly off the trace.
+prerequisite that lets the LIFECYCLE / TIMERS / DATA REDUCTION /
+SNAPSHOT DIFF sub-blocks read directly off the trace.
 
 ### §9.1.6 Numbered cascade chrome
 

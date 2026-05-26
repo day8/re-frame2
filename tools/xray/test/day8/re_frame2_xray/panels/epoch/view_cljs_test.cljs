@@ -392,6 +392,80 @@
       (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-missing-0")))
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-jump-0"))))))
 
+;; ---- rf2-9c27r — machine handler section -------------------------------
+
+(deftest machine-handler-renders-data-reduction-test
+  (testing "rf2-9c27r — DATA REDUCTION sub-section renders `:data`
+            before / after when they differ"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:transition {:machine-id :ws/conn
+                                       :before {:state [:idle]      :data {:count 0}}
+                                       :after  {:state [:connected] :data {:count 1}}
+                                       :data-before {:count 0}
+                                       :data-after  {:count 1}
+                                       :microsteps 0}
+                          :guards []
+                          :lifecycle []
+                          :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-reduction"))
+          "DATA REDUCTION block renders when data changed")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-before")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-after"))))))
+
+(deftest machine-handler-renders-snapshot-diff-test
+  (testing "rf2-9c27r — SNAPSHOT DIFF sub-section renders the full
+            machine snapshot before / after"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:transition {:machine-id :ws/conn
+                                       :before {:state [:idle]}
+                                       :after  {:state [:connected]}
+                                       :microsteps 1}
+                          :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-snapshot-diff")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-microsteps"))
+          "microsteps slot is surfaced under the transition summary"))))
+
+(deftest machine-handler-omits-data-reduction-when-unchanged-test
+  (testing "rf2-9c27r — DATA REDUCTION elides when before == after"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:transition {:machine-id :ws/conn
+                                       :before {:state [:idle] :data {:n 1}}
+                                       :after  {:state [:connected] :data {:n 1}}
+                                       :data-before {:n 1}
+                                       :data-after  {:n 1}
+                                       :microsteps 0}
+                          :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-reduction"))
+          "no DATA REDUCTION block when both sides are identical"))))
+
+(deftest machine-handler-per-action-fx-attribution-test
+  (testing "rf2-9c27r — per-action fx attribution renders under the
+            lifecycle row when the action returned :fx"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:transition nil
+                          :guards []
+                          :lifecycle [{:action-id :open-socket
+                                       :phase :entry
+                                       :outcome {:fx [[:http/get {:url "/x"}]]}
+                                       :fx [[:http/get {:url "/x"}]]}]
+                          :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-phase-entry-row-0"))
+          "the lifecycle row renders")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-phase-entry-fx-0"))
+          "per-action fx attribution shows under the row"))))
+
 (deftest duration-chip-renders-long-step-warning-test
   (testing "rf2-nqt3d — a step header's duration chip paints warning
             chrome when over 16ms"

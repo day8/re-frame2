@@ -111,10 +111,15 @@
          (assoc :rf.view/elapsed-ms elapsed-ms)))))
 
 (defn- machine-transition-ev
-  [machine-id before after]
-  (ev :rf.machine :rf.machine/transition {:machine-id machine-id
-                                          :before before
-                                          :after after}))
+  ([machine-id before after]
+   (machine-transition-ev machine-id before after nil 0))
+  ([machine-id before after event microsteps]
+   (ev :rf.machine :rf.machine/transition
+       (cond-> {:machine-id machine-id
+                :before before
+                :after after}
+         event       (assoc :event event)
+         microsteps  (assoc :microsteps microsteps)))))
 
 (defn- machine-guard-ev
   [guard-id outcome]
@@ -122,11 +127,13 @@
                                                :outcome outcome}))
 
 (defn- machine-action-ev
-  [action-id phase outcome]
-  (ev :rf.machine :rf.machine/action-ran {:action-id action-id
-                                          :phase phase
-                                          :outcome outcome
-                                          :input {:data {} :event nil}}))
+  ([action-id phase outcome]
+   (machine-action-ev action-id phase outcome nil))
+  ([action-id phase outcome data]
+   (ev :rf.machine :rf.machine/action-ran {:action-id action-id
+                                           :phase phase
+                                           :outcome outcome
+                                           :input {:data (or data {}) :event nil}})))
 
 (defn- machine-timer-cancel-ev
   [machine-id state delay reason]
@@ -281,6 +288,59 @@
       (is (= 2 (count (:lifecycle m))))
       (is (= 1 (count (:timers m))))
       (is (= :on-exit (-> m :timers first :reason))))))
+
+(deftest machine-transition-row-hoists-data-snapshots-test
+  (testing "rf2-9c27r — `machine-transition-row` exposes `:data-before /
+            :data-after` from the `:before / :after` snapshots, plus the
+            `:event` + `:microsteps` slots for the design's TRANSITION sub"
+    (let [snap-before {:state [:idle]      :data {:count 0}}
+          snap-after  {:state [:connected] :data {:count 1}}
+          evs [(machine-transition-ev :ws/conn snap-before snap-after
+                                       [:ws/start] 2)
+               ;; action-ran event drives the :reg-machine flavour
+               ;; discriminator so handler-row populates the machine
+               ;; block (rf2-9c27r — the transition row only lands
+               ;; when the flavour is :reg-machine).
+               (machine-action-ev :open-socket :entry :ok)]
+          r   (proj/handler-row evs :ws/start)
+          mt  (-> r :machine :transition)]
+      (is (= [:ws/start]    (:event mt)))
+      (is (= 2              (:microsteps mt)))
+      (is (= snap-before    (:before mt)))
+      (is (= snap-after     (:after mt)))
+      (is (= {:count 0}     (:data-before mt))
+          ":data-before hoisted off the before snapshot")
+      (is (= {:count 1}     (:data-after mt))
+          ":data-after hoisted off the after snapshot"))))
+
+(deftest machine-action-fx-attribution-test
+  (testing "rf2-9c27r — when a lifecycle action returns a map carrying
+            `:fx`, the row exposes the per-action fx attribution"
+    (let [outcome {:fx [[:http/get {:url "/x"}]
+                        [:dispatch [:other]]]
+                   :data {:n 1}}
+          evs [(ev :rf.machine :rf.machine/action-ran
+                   {:action-id :open-socket
+                    :phase     :entry
+                    :outcome   outcome
+                    :input     {:data {} :event nil}})]
+          r   (proj/handler-row evs :ws/start)
+          row (-> r :machine :lifecycle first)]
+      (is (= 2 (count (:fx row)))
+          "per-action fx tuple list rides on the lifecycle row")
+      (is (= :http/get (-> row :fx (nth 0) first))
+          "first fx-id is :http/get")
+      (is (= {:n 1} (:data-write row))
+          "the action's :data write is also surfaced for attribution"))))
+
+(deftest machine-action-without-fx-omits-slot-test
+  (testing "rf2-9c27r — actions whose outcome carries no :fx leave the
+            `:fx` slot ABSENT (not nil) so the row stays minimal"
+    (let [evs [(machine-action-ev :open-socket :entry :ok)]
+          r   (proj/handler-row evs :ws/start)
+          row (-> r :machine :lifecycle first)]
+      (is (not (contains? row :fx))
+          ":fx slot absent on actions without per-action fx"))))
 
 (deftest machine-lifecycle-grouped-by-phase-test
   (testing "group-lifecycle-by-phase produces phase → rows map"

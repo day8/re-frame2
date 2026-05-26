@@ -432,7 +432,11 @@
   phases render dimmed `(none)` so the model reads as the full
   exit → transition → entry shape even when one phase carries no
   actions (the panel doubles as a teaching surface — bead body §What
-  this panel teaches)."
+  this panel teaches).
+
+  Per rf2-9c27r each row also surfaces per-action fx attribution
+  when the action returned a map carrying `:fx` — the operator can
+  trace each fx back to its emitting action without spec-walking."
   [lifecycle-rows]
   (let [grouped (proj/group-lifecycle-by-phase lifecycle-rows)
         phases  [:exit :transition :entry :always
@@ -457,28 +461,138 @@
                        :margin-bottom "2px"}}
          (proj/phase-label phase)]
         (for [[i row] (map-indexed vector rows)]
-          [:div {:key (str "lc-" i)
+          ^{:key (str "lc-" (name phase) "-" i)}
+          [:div {:data-testid (str "rf-xray-epoch-handler-phase-" (name phase) "-row-" i)
                  :style {:display "flex"
-                         :gap "8px"
+                         :flex-direction "column"
                          :padding "1px 0"
                          :color (if (:threw? row) (:error tokens)
                                     (:text-primary tokens))}}
-           [:span {:style {:color (:text-tertiary tokens)}} "↓"]
-           [:span (proj/ns-keyword (:action-id row))]
-           (when (:threw? row)
-             [:span {:style {:color (:error tokens) :margin-left "8px"}}
-              "(threw)"])])])]))
+           [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
+            [:span {:style {:color (:text-tertiary tokens)}} "↓"]
+            [:span (proj/ns-keyword (:action-id row))]
+            (when (:threw? row)
+              [:span {:style {:color (:error tokens) :margin-left "8px"}}
+               "(threw)"])]
+           ;; rf2-9c27r — per-action fx attribution
+           (when (seq (:fx row))
+             [:div {:data-testid (str "rf-xray-epoch-handler-phase-" (name phase) "-fx-" i)
+                    :style {:padding-left "21px"
+                            :color (:text-tertiary tokens)
+                            :font-size "11px"}}
+              (for [[j entry] (map-indexed vector (:fx row))
+                    :let [[fx-id _args] (if (vector? entry) entry [entry nil])]]
+                ^{:key (str "lc-fx-" (name phase) "-" i "-" j)}
+                [:div {:style {:display "inline-flex"
+                               :align-items "center"
+                               :gap "4px"
+                               :margin-right "8px"}}
+                 "→ fx "
+                 [:span {:style {:color (:accent tokens)}}
+                  (proj/ns-keyword fx-id)]])])])])]))
+
+(defn- machine-data-reduction-block
+  "Render the DATA REDUCTION sub-section (rf2-9c27r §5). Renders
+  `:data` before / after via `edn/inspect`. Elides when both sides
+  are absent / identical."
+  [{:keys [data-before data-after]}]
+  (when (or (some? data-before) (some? data-after))
+    (when (not= data-before data-after)
+      [:div {:data-testid "rf-xray-epoch-handler-machine-data-reduction"
+             :style {:padding "3px 0 3px 16px"}}
+       (sub-header "data reduction")
+       [:div {:style {:display "flex"
+                      :gap "13px"
+                      :padding-left "16px"
+                      :font-family mono-stack
+                      :font-size "12px"
+                      :flex-wrap "wrap"}}
+        [:div {:data-testid "rf-xray-epoch-handler-machine-data-before"
+               :style {:flex 1 :min-width "120px"}}
+         [:div {:style {:color (:text-tertiary tokens)
+                        :font-size "10px"
+                        :text-transform "uppercase"
+                        :letter-spacing "0.5px"
+                        :margin-bottom "2px"}}
+          "before"]
+         [:div {:style {:color (:error tokens)}}
+          (edn/inspect-inline data-before)]]
+        [:div {:data-testid "rf-xray-epoch-handler-machine-data-after"
+               :style {:flex 1 :min-width "120px"}}
+         [:div {:style {:color (:text-tertiary tokens)
+                        :font-size "10px"
+                        :text-transform "uppercase"
+                        :letter-spacing "0.5px"
+                        :margin-bottom "2px"}}
+          "after"]
+         [:div {:style {:color (:success tokens)}}
+          (edn/inspect-inline data-after)]]]])))
+
+(defn- machine-snapshot-diff-block
+  "Render the SNAPSHOT DIFF sub-section (rf2-9c27r §6). The Spec 005
+  snapshot is the full `{:state … :data … …}` map; we render
+  `before` + `after` via `edn/inspect` so the operator can drill into
+  any slot (data, state, parallel-region tags). Elides when the
+  snapshots are identical."
+  [{:keys [before after]}]
+  (when (and (some? before) (some? after) (not= before after))
+    [:div {:data-testid "rf-xray-epoch-handler-machine-snapshot-diff"
+           :style {:padding "3px 0 3px 16px"}}
+     (sub-header "snapshot diff")
+     [:div {:style {:display "flex"
+                    :gap "13px"
+                    :padding-left "16px"
+                    :flex-wrap "wrap"}}
+      [:div {:data-testid "rf-xray-epoch-handler-machine-snapshot-before"
+             :style {:flex 1 :min-width "120px"
+                     :font-family mono-stack
+                     :font-size "12px"}}
+       [:div {:style {:color (:text-tertiary tokens)
+                      :font-size "10px"
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"
+                      :margin-bottom "2px"}}
+        "before"]
+       [:div {:style {:color (:error tokens) :word-break "break-word"}}
+        (edn/inspect-inline before)]]
+      [:div {:data-testid "rf-xray-epoch-handler-machine-snapshot-after"
+             :style {:flex 1 :min-width "120px"
+                     :font-family mono-stack
+                     :font-size "12px"}}
+       [:div {:style {:color (:text-tertiary tokens)
+                      :font-size "10px"
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"
+                      :margin-bottom "2px"}}
+        "after"]
+       [:div {:style {:color (:success tokens) :word-break "break-word"}}
+        (edn/inspect-inline after)]]]]))
 
 (defn- machine-block
   "Render the machine-handler-specific extras (transition summary,
-  guards, lifecycle, timer cancellations). Per the bead body §HANDLER
-  (Step 4) machine handler branch — uses the rf2-82a0u trace
-  enhancements (phase + outcome + reason)."
+  guards, lifecycle, timer cancellations, data reduction, snapshot
+  diff). Per the bead body §HANDLER (Step 4) machine handler branch —
+  uses the rf2-82a0u trace enhancements (phase + outcome + reason).
+
+  Per rf2-9c27r the section now carries all 7 sub-sections per the
+  design doc:
+
+    1. TRANSITION — `before-state → after-state`, event, microsteps
+    2. GUARDS — per-guard pass/fail/threw outcomes
+    3. LIFECYCLE — phase-grouped action rows with per-action fx
+       attribution
+    4. AFTER TIMERS — armed/cancelled with reasons
+    5. DATA REDUCTION — `:data` before / after via edn-inspector
+    6. SNAPSHOT DIFF — full snapshot before / after
+    7. FX — per-action fx attribution surfaces inline in LIFECYCLE
+       (rather than as a sibling sub-section) so the operator reads
+       'action X emitted fx Y' in one line."
   [{:keys [transition guards lifecycle timers]}]
   [:div {:data-testid "rf-xray-epoch-handler-machine"}
    ;; Transition summary
    (when transition
-     [:div {:style {:padding "3px 0 3px 16px"
+     [:div {:data-testid "rf-xray-epoch-handler-machine-transition"
+            :style {:padding "3px 0 3px 16px"
                     :font-family mono-stack
                     :font-size "12px"
                     :color (:text-primary tokens)}}
@@ -490,13 +604,24 @@
       [:div {:style {:padding-left "16px"}}
        (let [before (or (some-> (:before transition) :state) (:before transition))
              after  (or (some-> (:after transition) :state) (:after transition))]
-         (str (pr-str before) " → " (pr-str after)))]])
+         (str (pr-str before) " → " (pr-str after)))]
+      ;; rf2-9c27r — microsteps + event slots ride alongside the
+      ;; before→after pair so the operator can tell at a glance how
+      ;; many always-microsteps fired + which event drove the cascade.
+      (when (number? (:microsteps transition))
+        [:div {:data-testid "rf-xray-epoch-handler-machine-microsteps"
+               :style {:padding-left "16px"
+                       :color (:text-tertiary tokens)
+                       :font-size "10px"}}
+         (str (:microsteps transition) " microstep"
+              (when (not= 1 (:microsteps transition)) "s"))])])
    ;; Guards
    (when (seq guards)
      [:div {:style {:padding "3px 0 3px 16px"}}
       (sub-header "guards" (str (count guards) " evaluated"))
       (for [[i {:keys [guard-id outcome]}] (map-indexed vector guards)]
         [:div {:key (str "g-" i)
+               :data-testid (str "rf-xray-epoch-handler-guard-row-" i)
                :style {:display "flex"
                        :gap "8px"
                        :padding "1px 0 1px 21px"
@@ -516,7 +641,7 @@
          [:span (proj/ns-keyword guard-id)]
          [:span {:style {:color (:text-tertiary tokens) :margin-left "8px"}}
           (when (keyword? outcome) (name outcome))]])])
-   ;; Lifecycle
+   ;; Lifecycle (with per-action fx attribution — rf2-9c27r)
    (when (seq lifecycle)
      (machine-lifecycle-block lifecycle))
    ;; Timers
@@ -537,7 +662,13 @@
             (str delay "ms")])
          [:span {:style {:color (:text-tertiary tokens) :font-style "italic"
                          :margin-left "8px"}}
-          (proj/timer-reason-label reason)]])])])
+          (proj/timer-reason-label reason)]])])
+   ;; rf2-9c27r — DATA REDUCTION + SNAPSHOT DIFF sub-sections, fed
+   ;; by the `:data-before / :data-after` + `:before / :after`
+   ;; slots the projection hoists off the `:rf.machine/transition`
+   ;; trace.
+   (machine-data-reduction-block transition)
+   (machine-snapshot-diff-block transition)])
 
 ;; ---- handler source --------------------------------------------------
 ;;
