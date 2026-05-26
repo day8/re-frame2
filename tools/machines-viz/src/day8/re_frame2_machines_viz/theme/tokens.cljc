@@ -111,11 +111,15 @@
    :hover          "#2a2a2a"
 
    ;; functional categorical hues (spec/022 carve-out)
+   ;; Two pink/violet-family hues — see Xray's `dark-palette` block for
+   ;; rationale. The drift gate (rf2-z7ms8) requires these to match Xray's
+   ;; values; this mirror is updated alongside rf2-cgm4f.
    :green          "#3fb950"
    :yellow         "#d29922"
    :orange         "#FB923C"
    :red            "#F87171"
-   :magenta        "#E879F9"
+   :magenta        "#a855f7"   ; violet-500 — was #E879F9 pre-rf2-cgm4f
+   :magenta-pink   "#ec4899"   ; pink-500 — added rf2-cgm4f
    :info           "#79c0ff"
 
    ;; syntax-highlighter palette (rf2-79ojx · One Dark / Atom One Dark)
@@ -201,11 +205,15 @@
    :hover          "#e8e8e8"
 
    ;; functional categorical hues
+   ;; Two pink/violet-family hues — see Xray's `light-palette` block for
+   ;; rationale. The drift gate (rf2-z7ms8) requires these to match Xray's
+   ;; values; this mirror is updated alongside rf2-cgm4f.
    :green          "#1a7f37"
    :yellow         "#9a6700"
    :orange         "#C2570F"
    :red            "#C84444"
-   :magenta        "#B146C2"
+   :magenta        "#9333ea"   ; violet-600 — was #B146C2 pre-rf2-cgm4f
+   :magenta-pink   "#db2777"   ; pink-600 — added rf2-cgm4f
    :info           "#0550ae"
 
    ;; syntax-highlighter palette (rf2-79ojx · One Light / Atom One Light)

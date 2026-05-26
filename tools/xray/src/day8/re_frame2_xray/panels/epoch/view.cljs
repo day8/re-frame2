@@ -57,6 +57,7 @@
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -303,25 +304,34 @@
 ;; ---- DISPATCH step -------------------------------------------------------
 
 (defn dispatch-body
-  "Render the DISPATCH step's expanded body — the event vector as a
-  boxed monospace block. Per the bead body's §DISPATCH (Step 1).
+  "Render the DISPATCH step's expanded body — the event vector via the
+  canonical edn-inspector widget. Per the bead body's §DISPATCH
+  (Step 1).
 
   Per rf2-9jvx1 the body no longer repeats the `from <source>` line —
   the header already carries that descriptor; the body is detail-only.
-  The click-to-source affordance rides on the header (rf2-93a7s)."
+  The click-to-source affordance rides on the header (rf2-93a7s).
+
+  Per rf2-8w8er (subsumes rf2-nszcv) the event vector renders through
+  the first-class `edn-inspector` widget so keywords paint magenta,
+  numbers orange, strings green (rf2-79ojx palette), with
+  width-aware inline/tree behaviour, sticky expansion, click-to-zoom,
+  and sentinel chrome (`:rf/redacted`, `:rf.size/large-elided`). Pre-
+  fix the body was plain text — the operator saw the dispatch event
+  styled DIFFERENTLY in the Event panel (inspector-styled) vs the
+  Epoch panel (plain) for the same value."
   [{:keys [event]}]
   (when (vector? event)
     [:div {:data-testid "rf-xray-epoch-dispatch-event"
-           :style {:font-family   mono-stack
-                   :font-size     "12px"
-                   :color         (:text-primary tokens)
-                   :background    (:bg-3 tokens)
+           :style {:background    (:bg-3 tokens)
                    :border        (str "1px solid " (:border-subtle tokens))
                    :border-radius "3px"
                    :padding       "5px 8px"
                    :margin-top    "5px"
                    :overflow-x    "auto"}}
-     (proj/event-display event)]))
+     [ei/edn-inspector event {:site-id "epoch-dispatch-event"
+                              :card?   false
+                              :zoomable? true}]]))
 
 (defn- dispatch-source-label
   "Render the dispatch source label — `<source>` text. When the
@@ -467,7 +477,13 @@
 
 (defn- db-diff-line
   "Render one db-diff entry (`~ [path] before → after` /
-  `+ [path] value` / `- [path]`)."
+  `+ [path] value` / `- [path]`).
+
+  Per rf2-8w8er the before / after values render through the
+  edn-inspector `mini` widget so keywords, numbers, strings, and
+  sentinels paint with their canonical syntax-token chrome rather
+  than as plain `pr-str` text. The diff-glyph + path label stay
+  plain — they are signalling cues, not CLJS values."
   [[path before after change-kind] idx]
   (let [glyph (case change-kind
                 :added    "+"
@@ -495,17 +511,21 @@
      (when (= "~" glyph)
        [:<>
         [:span {:style {:color (:error tokens)}}
-         (proj/truncate (pr-str before) 40)]
+         [ei/mini before 40]]
         [:span {:style {:color (:text-tertiary tokens)}} "→"]
         [:span {:style {:color (:success tokens)}}
-         (proj/truncate (pr-str after) 40)]])
+         [ei/mini after 40]]])
      (when (= "+" glyph)
        [:span {:style {:color (:success tokens) :min-width 0 :flex 1
                        :word-break "break-word"}}
-        (proj/truncate (pr-str after) 80)])]))
+        [ei/mini after 80]])]))
 
 (defn- fx-entry-line
-  "Render one fx entry inside the HANDLER step's :fx sub-block."
+  "Render one fx entry inside the HANDLER step's :fx sub-block.
+
+  Per rf2-8w8er the fx value routes through the edn-inspector `mini`
+  widget so its scalars / keywords / collections paint with the
+  canonical syntax-token chrome rather than plain `pr-str` text."
   [{:keys [fx-id value]} idx]
   [:div {:key (str "fx-entry-" idx)
          :data-testid (str "rf-xray-epoch-handler-fx-row-" idx)
@@ -519,7 +539,7 @@
     (proj/ns-keyword fx-id)]
    [:span {:style {:color (:text-primary tokens) :min-width 0 :flex 1
                    :word-break "break-word"}}
-    (proj/truncate (pr-str value) 80)]])
+    [ei/mini value 80]]])
 
 (defn- machine-lifecycle-block
   "Render the per-phase lifecycle rows for a machine handler. Empty
@@ -695,10 +715,20 @@
                      :text-transform "uppercase"
                      :letter-spacing "0.5px"}}
        (str "transition · " (proj/ns-keyword (:machine-id transition)))]
-      [:div {:style {:padding-left "16px"}}
+      [:div {:style {:padding-left "16px"
+                     :display "inline-flex"
+                     :align-items "center"
+                     :gap "6px"
+                     :flex-wrap "wrap"}}
+       ;; rf2-8w8er — state before/after render through `mini` so
+       ;; the state vector's keywords paint magenta, scalars orange,
+       ;; etc. — matching how every other Xray panel renders state.
        (let [before (or (some-> (:before transition) :state) (:before transition))
              after  (or (some-> (:after transition) :state) (:after transition))]
-         (str (pr-str before) " → " (pr-str after)))]
+         [:<>
+          [:span {:style {:color (:error tokens)}} [ei/mini before 40]]
+          [:span {:style {:color (:text-tertiary tokens)}} "→"]
+          [:span {:style {:color (:success tokens)}} [ei/mini after 40]]])]
       ;; rf2-9c27r — microsteps + event slots ride alongside the
       ;; before→after pair so the operator can tell at a glance how
       ;; many always-microsteps fired + which event drove the cascade.
@@ -750,7 +780,10 @@
                        :font-family mono-stack
                        :font-size "12px"}}
          [:span {:style {:color (:warning tokens)}} "✗"]
-         [:span (str (pr-str state))]
+         ;; rf2-8w8er — state vector through `mini` so the machine
+         ;; state syntax-token chrome reads consistently with every
+         ;; other Xray state-rendering surface.
+         [:span [ei/mini state 40]]
          (when (number? delay)
            [:span {:style {:color (:text-tertiary tokens)}}
             (str delay "ms")])
@@ -800,6 +833,29 @@
       (:spec meta)
       (:rf.machine/spec meta)))
 
+(defn- coord-from-handler-meta
+  "Lift a `{:file :line}` source-coord off a registered handler's meta
+  map (`rf/handler-meta` return shape). Returns nil when the meta
+  carries no `:file` (production builds, registrations that pre-date
+  the coord-annotation pass).
+
+  rf2-ehd8v — shared by the HANDLER source-block (event + machine
+  handlers) so the `file:line + [open]` affordance reads the same
+  shape both render-paths use."
+  [m]
+  (when (and m (string? (:file m)) (seq (:file m)))
+    {:file (:file m) :line (:line m)}))
+
+(defn- source-coord-display
+  "Render a structured source-coord `{:file :line}` as the display
+  string `\"file:line\"` (or just `\"file\"`). nil when the coord
+  lacks `:file`. Mirrors `event_detail/format-coord-display` so the
+  HANDLER source row reads the same chrome the Event panel ships."
+  [{:keys [file line]}]
+  (when (and (string? file) (seq file))
+    (cond-> file
+      line (str ":" line))))
+
 (defn- handler-source-block
   "Render the source-code block under the HANDLER header. Three
   cases:
@@ -810,18 +866,41 @@
        `edn/code-block` (clojure-syntax highlight).
     3. Otherwise — render a clear `<source not yet captured>`
        placeholder so the slot is always present (operator learns
-       where to look + when the substrate didn't stamp)."
+       where to look + when the substrate didn't stamp).
+
+  rf2-ehd8v — the `SOURCE` / `MACHINE SPEC` sub-header carries a
+  `file:line` chrome + `[open]` affordance when the handler's
+  registered meta carries `:file` / `:line`. The open-button reuses
+  `coord-chip` — the same click-to-source machinery the DISPATCH
+  source-label (rf2-80u5a) + the VIEWS row coord chip already ride.
+  When coord-annotation is unavailable (production builds, fn-form
+  registrations without `:file` meta) the chrome simply elides — no
+  broken / dead-link affordance."
   [flavour event-id]
   (let [machine? (= :reg-machine flavour)
         meta     (when (some? event-id)
                    (try (rf/handler-meta (if machine? :machine :event) event-id)
                         (catch :default _ nil)))
         spec     (when machine? (machine-spec-value meta))
-        src      (when-not machine? (handler-source-string meta))]
+        src      (when-not machine? (handler-source-string meta))
+        coord    (coord-from-handler-meta meta)
+        coord-display (source-coord-display coord)
+        header-trailing
+        (when coord-display
+          [:span {:data-testid "rf-xray-epoch-handler-source-coord"
+                  :style {:display     "inline-flex"
+                          :align-items "center"
+                          :gap         "0"}}
+           [:span {:data-testid "rf-xray-epoch-handler-source-coord-text"
+                   :title       coord-display
+                   :style {:color       (:text-tertiary tokens)
+                           :font-family mono-stack}}
+            coord-display]
+           (coord-chip coord "rf-xray-epoch-handler-source-open")])]
     [:div {:data-testid "rf-xray-epoch-handler-source"
            :style {:margin-top "8px"
                    :min-width  "0"}}
-     (sub-header (if machine? "machine spec" "source"))
+     (sub-header (if machine? "machine spec" "source") header-trailing)
      (cond
        (and machine? (some? spec))
        [:div {:data-testid "rf-xray-epoch-handler-source-spec"
@@ -965,14 +1044,15 @@
       [:span {:style {:color (:warning tokens) :font-weight 700}} "~"]
       [:span {:style {:color (:text-tertiary tokens)}}
        (proj/path-display path)]
+      ;; rf2-8w8er — before/after render through the edn-inspector
+      ;; `mini` widget so per-token syntax chrome paints (numbers
+      ;; orange, keywords magenta, sentinels chip).
       (when (some? before)
-        [:span {:style {:color (:error tokens)}}
-         (proj/truncate (pr-str before) 30)])
+        [:span {:style {:color (:error tokens)}} [ei/mini before 30]])
       (when (and (some? before) (some? after))
         [:span {:style {:color (:text-tertiary tokens)}} "→"])
       (when (some? after)
-        [:span {:style {:color (:success tokens)}}
-         (proj/truncate (pr-str after) 30)])])])
+        [:span {:style {:color (:success tokens)}} [ei/mini after 30]])])])
 
 (defn render-flow-step
   "Render the FLOW step (only present when flows fired)."
@@ -1031,10 +1111,12 @@
      [:span {:style {:color colour :font-weight 700}} glyph]
      [:span {:style {:color (:accent tokens)}}
       (proj/ns-keyword fx-id)]
+     ;; rf2-8w8er — args render through `mini` so the fx-call surface
+     ;; lights up with syntax-token colour rather than plain text.
      (when (some? args)
        [:span {:style {:color (:text-primary tokens) :min-width 0 :flex 1
                        :word-break "break-word"}}
-        (proj/truncate (pr-str args) 80)])
+        [ei/mini args 80]])
      (when (number? duration-ms)
        [:span {:style {:color (:text-tertiary tokens)
                        :margin-left "8px"
@@ -1157,35 +1239,43 @@
       [:div {:style {:flex "1 1 35%" :padding "5px 8px" :min-width 0
                      :font-family mono-stack :font-size "12px"
                      :word-break "break-word"}}
+       ;; rf2-8w8er — sub-vec renders through `mini` so the vector's
+       ;; keywords paint magenta, scalars orange, etc. Sub-id-only
+       ;; fallback keeps the keyword-token chrome via `mini` too.
        [:span {:style {:color (:accent tokens) :display "inline-flex"
                        :align-items "center" :gap "4px"}}
-        (or (when (vector? sub-vec) (pr-str sub-vec))
-            (proj/ns-keyword sub-id))
+        (if (vector? sub-vec)
+          [ei/mini sub-vec 40]
+          [ei/mini sub-id 40])
         (icons/external-link)]]
       [:div {:style {:flex "1 1 35%" :padding "5px 8px" :min-width 0
                      :font-family mono-stack :font-size "12px"
                      :color (:text-tertiary tokens)
                      :word-break "break-word"}}
+       ;; rf2-8w8er — each input keyword routes through `mini` so
+       ;; the input column lights up as keywords, not plain text.
+       ;; "app-db" stays as a label (it's a source descriptor, not
+       ;; a CLJS value).
        (cond
          (vector? inputs)
          (into [:div {:style {:display "flex" :flex-direction "column" :gap "2px"}}]
-               (map (fn [i] [:div (proj/ns-keyword i)]) inputs))
-         inputs (proj/ns-keyword inputs)
-         :else  "app-db")]
+               (map (fn [i] [:div [ei/mini i 40]]) inputs))
+         (some? inputs) [ei/mini inputs 40]
+         :else          "app-db")]
       [:div {:style {:flex "1 1 30%" :padding "5px 8px" :min-width 0
                      :font-family mono-stack :font-size "12px"}}
        (if changed?
          [:div {:style {:display "flex" :gap "6px" :flex-wrap "wrap"
                         :align-items "center"}}
           [:span {:style {:color (:success tokens) :font-weight 700}} "✓"]
+          ;; rf2-8w8er — before/after through `mini` so numbers
+          ;; paint orange, keywords magenta, etc.
           (when (some? before)
-            [:span {:style {:color (:error tokens)}}
-             (proj/truncate (pr-str before) 24)])
+            [:span {:style {:color (:error tokens)}} [ei/mini before 24]])
           (when (and (some? before) (some? after))
             [:span {:style {:color (:text-tertiary tokens)}} "→"])
           (when (some? after)
-            [:span {:style {:color (:success tokens)}}
-             (proj/truncate (pr-str after) 24)])]
+            [:span {:style {:color (:success tokens)}} [ei/mini after 24]])]
          [:span {:style {:color (:text-tertiary tokens) :font-weight 700}} "✗"])]])])
 
 (defn render-subscriptions-step
@@ -1317,13 +1407,17 @@
                      :font-family mono-stack :font-size "12px"
                      :color (:text-tertiary tokens)
                      :word-break "break-word"}}
+       ;; rf2-8w8er — each sub-id (keyword or sub-vector) renders
+       ;; through `mini` so the column reads as syntax-highlighted
+       ;; tokens (keywords magenta, vectors with their bracket
+       ;; chrome) rather than plain pr-str / `:foo` text.
        (cond
          (and (sequential? subs-read) (seq subs-read))
          (into [:div {:style {:display "flex" :flex-direction "column" :gap "2px"}}]
                (for [s subs-read]
-                 [:div (if (vector? s) (pr-str s) (proj/ns-keyword s))]))
+                 [:div [ei/mini s 60]]))
          (some? subs-read)
-         (proj/ns-keyword subs-read)
+         [ei/mini subs-read 60]
          :else
          [:span {:style {:font-style "italic"}} "(none)"])]])])
 
@@ -1438,13 +1532,15 @@
                     :font-size "10px"
                     :padding-left "16px"}}
       "(value redacted — slot declared :sensitive?)"])
-   ;; explain detail (Malli explain map, when stamped)
+   ;; explain detail (Malli explain map, when stamped) — rf2-8w8er
+   ;; routes through `mini` so the explain map's keyword keys + value
+   ;; tokens carry syntax-token chrome rather than plain pr-str text.
    (when (some? explain)
      [:div {:data-testid (str "rf-xray-epoch-schema-violation-explain-" idx)
             :style {:color (:text-secondary tokens)
                     :padding-left "16px"
                     :font-size "11px"}}
-      (proj/truncate (pr-str explain) 120)])])
+      [ei/mini explain 120]])])
 
 (defn render-schema-violations-step
   "Render the SCHEMA VIOLATIONS step (rf2-17vxj — only present when
@@ -1529,24 +1625,26 @@
      [:span {:style {:color glyph-colour :font-weight 700}} glyph]
      [:span {:style {:color (:text-tertiary tokens) :white-space "nowrap"}}
       (proj/path-display path)]
+     ;; rf2-8w8er — added/removed/modified values render through
+     ;; `mini` so per-token syntax chrome paints. Matches the HANDLER
+     ;; step's :db-diff posture so the two diff surfaces read
+     ;; identically.
      (case change
        :added
        [:span {:style {:color (:success tokens) :min-width 0 :flex 1
                        :word-break "break-word"}}
-        (proj/truncate (pr-str after) 80)]
+        [ei/mini after 80]]
 
        :removed
        [:span {:style {:color (:error tokens) :min-width 0 :flex 1
                        :word-break "break-word"}}
-        (proj/truncate (pr-str before) 80)]
+        [ei/mini before 80]]
 
        ;; modified (default)
        [:<>
-        [:span {:style {:color (:error tokens)}}
-         (proj/truncate (pr-str before) 40)]
+        [:span {:style {:color (:error tokens)}} [ei/mini before 40]]
         [:span {:style {:color (:text-tertiary tokens)}} "→"]
-        [:span {:style {:color (:success tokens)}}
-         (proj/truncate (pr-str after) 40)]])]))
+        [:span {:style {:color (:success tokens)}} [ei/mini after 40]]])]))
 
 (defn render-app-db-diff-step
   "Render the APP-DB DIFF step (rf2-rrykz — only present when the
@@ -1620,13 +1718,14 @@
                      :letter-spacing "0.5px"
                      :font-weight 600}}
       (child-dispatch-via-label via)]
-     ;; event vector (primary)
+     ;; event vector (primary) — rf2-8w8er routes through `mini` so
+     ;; the dispatched event vector carries syntax-token chrome.
      [:span {:data-testid (str "rf-xray-epoch-child-dispatch-event-" idx)
              :style {:color (:text-primary tokens)
                      :min-width 0
                      :flex 1
                      :word-break "break-word"}}
-      (pr-str event)]
+      [ei/mini event 80]]
      ;; delay chip (for :dispatch-later)
      (when (number? delay-ms)
        [:span {:data-testid (str "rf-xray-epoch-child-dispatch-delay-" idx)

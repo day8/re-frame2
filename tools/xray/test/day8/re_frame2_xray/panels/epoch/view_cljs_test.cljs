@@ -723,3 +723,195 @@
             "the code-block widget mounts under the source slot")
         (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
             "no placeholder when source IS captured")))))
+
+;; ---- rf2-ehd8v — HANDLER source carries file:line + [open] ----------
+
+(deftest handler-source-renders-file-line-and-open-affordance-test
+  (testing "rf2-ehd8v — when the handler-meta carries :file + :line the
+            HANDLER source sub-header renders `file:line` text and a
+            clickable `[open]` button next to the SOURCE label.
+            Reuses the cross-panel coord-chip (same affordance Static
+            Handler + Event panels ship)."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :rf.test.epoch.view/ehd8v-srctest-handler
+                       {:rf.handler/source "(reg-event-db :rf.test.epoch.view/ehd8v-srctest-handler\n  (fn [db _] (update db :n inc)))"
+                        :file "src/app/counter.cljs"
+                        :line 42}
+                       (fn [db _] db))
+      (let [step {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db
+                  :event-id :rf.test.epoch.view/ehd8v-srctest-handler
+                  :db-diff [] :fx [] :machine nil}
+            tree (view/render-handler-step step)
+            coord (th/find-by-testid tree "rf-xray-epoch-handler-source-coord")
+            text  (th/find-by-testid tree "rf-xray-epoch-handler-source-coord-text")
+            open  (th/find-by-testid tree "rf-xray-epoch-handler-source-open")]
+        (is (some? coord)
+            "the source-coord chrome row is present alongside the label")
+        (is (some? text)
+            "the file:line text element is present")
+        (is (string/includes? (or (th/text-content text) "") "src/app/counter.cljs")
+            "the file path appears in the text")
+        (is (string/includes? (or (th/text-content text) "") "42")
+            "the line number appears in the text")
+        (is (some? open)
+            "the [open] coord-chip is present when :file is captured")
+        (is (= :button (first open))
+            "the open affordance is a real button (clickable)")
+        (is (fn? (:on-click (second open)))
+            "the open button has a click handler")))))
+
+(deftest handler-source-elides-affordance-when-coord-absent-test
+  (testing "rf2-ehd8v — when no handler-meta is registered for the
+            event-id (unregistered handler, production builds with
+            goog.DEBUG=false where source-coords elide), the
+            file:line text + [open] button simply do not render. No
+            broken / dead-link affordance.
+
+            Reg-event-* macros automatically stamp :file/:line at
+            expansion time, so the empty-coord state is most cleanly
+            reproduced by pointing at an event-id with no registered
+            handler at all."
+    (rf/with-frame :rf/default
+      (let [step {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db
+                  :event-id :rf.test.epoch.view/ehd8v-never-registered
+                  :db-diff [] :fx [] :machine nil}
+            tree (view/render-handler-step step)]
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-coord"))
+            "no coord-row when :file meta is absent")
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-open"))
+            "no [open] affordance without a coord")))))
+
+;; Machine-handler path is exercised by the rf2-66wis tests above; the
+;; coord-resolution is a shared helper (`coord-from-handler-meta`) so the
+;; event-handler test above pins the affordance shape, and the machine
+;; render-path inherits it without a separate test. Reg-machine stamps
+;; source coords under the `:event` kind (Spec 005 §Registration —
+;; see core/test/.../source_coords_test.clj) while the source-spec
+;; lookup walks the `:machine` slot, so a tight machine-path coord test
+;; would have to re-create both halves of that side-table dance.
+
+;; ---- rf2-8w8er (subsumes rf2-nszcv) — values route through edn-inspector
+
+(defn- mini-mounts
+  "Return every `[ei/mini ...]` hiccup mount under `tree`. Anchors on
+  the `:data-rf-mini` attribute the widget stamps onto every render."
+  [tree]
+  (th/find-all-by-attr tree :data-rf-mini "1"))
+
+(defn- ei-mounts
+  "Return every full-widget `[ei/edn-inspector ...]` mount under
+  `tree`. Anchors on the data-testid suffix the widget stamps onto
+  every render (`*-inspector` testid form)."
+  [tree]
+  (th/find-by-testid-prefix tree "rf-xray-edn-inspector"))
+
+(deftest dispatch-event-routes-through-edn-inspector-test
+  (testing "rf2-8w8er (subsumes rf2-nszcv) — DISPATCH event vector
+            renders through the canonical edn-inspector widget so the
+            event-id keyword + args paint with the canonical
+            syntax-token chrome (keyword magenta, number orange,
+            string green). Pre-fix the body was plain text via
+            `proj/event-display`."
+    (let [tree (view/render-dispatch-step
+                 {:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:counter/inc 7 "x"] :source :ui :coord nil})]
+      (is (pos? (count (ei-mounts tree)))
+          "the DISPATCH body mounts at least one edn-inspector widget"))))
+
+(deftest handler-db-diff-values-route-through-mini-test
+  (testing "rf2-8w8er — HANDLER step's :db diff rows render before /
+            after values through `ei/mini` so per-token chrome paints
+            (numbers orange, sentinels chip)."
+    (let [tree (view/render-handler-step
+                 {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db :event-id :counter/inc
+                  :db-diff [[[:counter :value] 5 6 :modified]]
+                  :fx [] :machine nil})]
+      (is (pos? (count (mini-mounts tree)))
+          "the :db diff row mounts at least one mini-render"))))
+
+(deftest handler-fx-values-route-through-mini-test
+  (testing "rf2-8w8er — HANDLER step's :fx entries render the value
+            through `ei/mini`."
+    (let [tree (view/render-handler-step
+                 {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-fx :event-id :do/it
+                  :db-diff []
+                  :fx [{:fx-id :http/post :value {:url "/x" :body {:n 1}}}]
+                  :machine nil})
+          fx-row (th/find-by-testid tree "rf-xray-epoch-handler-fx-row-0")]
+      (is (some? fx-row))
+      (is (pos? (count (mini-mounts fx-row)))
+          "the fx value mounts a mini-render"))))
+
+(deftest fx-step-args-route-through-mini-test
+  (testing "rf2-8w8er — FX step row's args render through `ei/mini`."
+    (let [tree (view/render-fx-step
+                 {:step :fx :badge :FX :step-number 4
+                  :rows [{:fx-id :http/get :status :ok :args {:url "/x"}}]
+                  :succeeded 1 :threw 0 :skipped 0})
+          row  (th/find-by-testid tree "rf-xray-epoch-fx-row-0")]
+      (is (some? row))
+      (is (pos? (count (mini-mounts row)))
+          "the fx row's args mount a mini-render"))))
+
+(deftest subscriptions-values-route-through-mini-test
+  (testing "rf2-8w8er — SUBSCRIPTIONS row renders sub-vec + before /
+            after values through `ei/mini` so the table cells light
+            up with syntax-token chrome rather than plain `pr-str`."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :counter/total :sub-vec [:counter/total]
+                          :inputs nil :changed? true :before 5 :after 6}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            row  (th/find-by-testid tree "rf-xray-epoch-sub-row-0")]
+        (is (some? row))
+        ;; sub-vec + before + after = 3 minimum mini mounts in the row
+        (is (>= (count (mini-mounts row)) 3)
+            "row mounts ≥3 mini-renders (sub-vec + before + after)")))))
+
+(deftest views-subs-read-routes-through-mini-test
+  (testing "rf2-8w8er — VIEWS row's subs-read list renders each sub-id
+            through `ei/mini` so the consumed-subs column reads as
+            syntax-highlighted tokens rather than plain `pr-str`."
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id :app.counter/Counter
+                        :subs-read [[:counter/total] [:counter/threshold]]
+                        :duration-ms 1.2}]}
+          tree (view/render-views-step step)
+          subs (th/find-by-testid tree "rf-xray-epoch-view-row-subs-0")]
+      (is (some? subs))
+      ;; 2 consumed subs → 2 mini mounts
+      (is (>= (count (mini-mounts subs)) 2)
+          "subs-read column mounts one mini per consumed sub"))))
+
+(deftest app-db-diff-values-route-through-mini-test
+  (testing "rf2-8w8er — APP-DB DIFF rows render before / after through
+            `ei/mini` so per-token chrome paints consistently with the
+            HANDLER :db diff."
+    (let [tree (view/render-app-db-diff-step
+                 {:step :app-db-diff :badge :APP-DB-DIFF :step-number 4
+                  :rows [{:path [:count] :before 0 :after 1 :change :modified}]
+                  :added 0 :modified 1 :removed 0})
+          row  (th/find-by-testid tree "rf-xray-epoch-app-db-diff-row-0")]
+      (is (some? row))
+      (is (>= (count (mini-mounts row)) 2)
+          "modified row mounts ≥2 mini-renders (before + after)"))))
+
+(deftest child-dispatches-event-routes-through-mini-test
+  (testing "rf2-8w8er — CHILD-DISPATCHES row renders the event vector
+            through `ei/mini`."
+    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
+                :step-number 5
+                :rows [{:event [:other/x 1] :via :dispatch}]}
+          ctx  {:dispatch-id 1 :epoch-history []}
+          tree (view/render-child-dispatches-step step ctx)
+          ev   (th/find-by-testid tree "rf-xray-epoch-child-dispatch-event-0")]
+      (is (some? ev))
+      (is (pos? (count (mini-mounts ev)))
+          "the dispatched-event slot mounts a mini-render"))))
