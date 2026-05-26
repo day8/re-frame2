@@ -463,6 +463,16 @@
                                :width 18
                                :height 18}
                    :data   {:eventLabel (:event-label e)
+                            ;; rf2-a2b55 — Stately graph view convention: the
+                            ;; visible label paints the event + guard on ONE
+                            ;; line, with the action as a `+ <action>` pill on
+                            ;; a separate row BELOW it. `:eventLineLabel` is
+                            ;; the visible-line text (`event [guard]`, no
+                            ;; `/ action`); `:eventLabel` keeps the full
+                            ;; `event [guard] / action` form for the
+                            ;; `data-event` attr + host introspection +
+                            ;; label-collision-overlay path.
+                            :eventLineLabel (layout/event-line e)
                             :active     from-active?
                             :focused    focused?
                             ;; rf2-qeemm (G3) — fired-this-epoch flag the
@@ -548,7 +558,7 @@
                  ;; Entry edges are non-interactive, but carry the full
                  ;; edge `:data` shape (flags + threaded callback/chart)
                  ;; so the "every edge has X" projection invariants hold.
-                 :data        {:eventLabel "" :entry true
+                 :data        {:eventLabel "" :eventLineLabel "" :entry true
                                :active false :focused false :fired false
                                :afterMs nil
                                :guard nil :action nil :selfLoop false

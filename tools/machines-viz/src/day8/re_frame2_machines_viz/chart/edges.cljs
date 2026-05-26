@@ -349,6 +349,13 @@
         d          (.-data props)
         vc         (chart-constants d)
         label      (or (.-eventLabel d) "")
+        ;; rf2-a2b55 — Stately graph view convention. `eventLineLabel`
+        ;; is the visible-line text (`event [guard]`, no `/ action`);
+        ;; the action ride below as a `+ <action>` pill (`action-str`).
+        ;; Fall back to `label` when the projector didn't thread the
+        ;; line-text (legacy / direct construction).
+        line-label (or (.-eventLineLabel d) label)
+        action-str (.-action d)
         active?    (boolean (.-active d))
         focused?   (boolean (.-focused d))
         ;; rf2-qeemm (G3) — this edge traversed THIS epoch. Drives the
@@ -399,7 +406,9 @@
         sibling-index   (or (.-siblingIndex d) 0)
         sibling-count   (or (.-siblingCount d) 1)
         sibling-leader? (zero? sibling-index)
-        {:keys [edge-label-px edge-label-backplate-opacity]} vc
+        {:keys [edge-label-px edge-label-backplate-opacity
+                action-pill-height action-pill-pad-x action-pill-px
+                action-pill-radius action-pill-row-gap]} vc
         ;; rf2-j10sm (Phase 2, B) — per-sibling label-y offset. Vertical
         ;; row pitch ≈ (label font-size + 6px padding) so adjacent labels
         ;; touch without overlap. Centred on the geometric anchor
@@ -547,8 +556,38 @@
                        ;; built-in chrome.
                        :z-index        5
                        :white-space    "nowrap"
-                       :user-select    "none"}}
-         label]])])))
+                       :user-select    "none"
+                       ;; rf2-a2b55 — when an action pill rides below the
+                       ;; event line, stack them vertically inside the
+                       ;; backplate so the pill participates in the same
+                       ;; collision-avoidance unit as the line text.
+                       :display        "inline-flex"
+                       :flex-direction "column"
+                       :align-items    "center"
+                       :gap            (when action-str (str action-pill-row-gap "px"))}}
+         ;; rf2-a2b55 — visible event line: event + guard, no
+         ;; `/ action`. The action paints as a pill on the row below.
+         [:span {:data-testid (str "rf-mv-chart-edge-event-" (.-id props))
+                 :data-event-line line-label}
+          line-label]
+         (when action-str
+           [:span {:data-testid (str "rf-mv-chart-edge-action-" (.-id props))
+                   :data-action action-str
+                   :style {:display          "inline-flex"
+                           :align-items      "center"
+                           :height           (str action-pill-height "px")
+                           :padding          (str "0 " action-pill-pad-x "px")
+                           :background       (tokens/with-alpha :advisory 0.18)
+                           :border           (str "1px solid "
+                                                  (tokens/with-alpha :advisory 0.6))
+                           :border-radius    (str action-pill-radius "px")
+                           :color            (:advisory tokens/tokens)
+                           :font-family      mono-stack
+                           :font-size        (str action-pill-px "px")
+                           :font-weight      500
+                           :line-height      "1"
+                           :white-space      "nowrap"}}
+            (str "+ " action-str)])]])])))
 
 ;; ---- after-edge ---------------------------------------------------------
 

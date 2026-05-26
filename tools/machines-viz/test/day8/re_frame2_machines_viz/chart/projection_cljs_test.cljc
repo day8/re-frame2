@@ -668,6 +668,61 @@
       (is (= 1000 (:afterMs (:data after))))
       (is (string? (:eventLabel (:data after)))))))
 
+(deftest xyflow-graph-edge-carries-event-line-label-without-action
+  (testing "rf2-a2b55 — Stately graph view convention: the visible edge
+            label paints `event [guard]` on one row and the action as a
+            `+ <action>` pill on a row below. `:eventLineLabel` is the
+            event-line text without the `/ action` suffix; `:eventLabel`
+            keeps the full `event [guard] / action` form for the
+            data-event attr + host introspection. Both fields ride the
+            edge `:data`."
+    (let [parsed (layout/parse-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          ;; idle-loading's `:start` edge has no guard / no action
+          start  (first (filter #(re-find #"^start"
+                                          (or (:eventLabel (:data %)) ""))
+                                (:edges graph)))]
+      (is (some? start) "fixture has the :start edge")
+      (is (= "start" (:eventLabel (:data start)))
+          "without guard/action `:eventLabel` is just the event id")
+      (is (= "start" (:eventLineLabel (:data start)))
+          "without guard `:eventLineLabel` matches `:eventLabel`"))))
+
+(deftest xyflow-graph-edge-event-line-strips-action-suffix
+  (testing "rf2-a2b55 — when an edge has an :action, `:eventLineLabel`
+            keeps the event-only line (no `/ action`); the full label
+            text remains on `:eventLabel`. Tests the divergence point
+            between the two fields directly."
+    (let [m {:initial :idle
+             :states  {:idle {:on {:submit {:target :loading
+                                            :guard  :authed?
+                                            :action :log-it}}}
+                       :loading {}}}
+          parsed (layout/parse-definition m)
+          graph  (projection/xyflow-graph parsed {} {})
+          submit (first (filter #(re-find #"^submit"
+                                          (or (:eventLabel (:data %)) ""))
+                                (:edges graph)))]
+      (is (some? submit) "fixture has the :submit edge")
+      (is (= "submit [authed?] / log-it" (:eventLabel (:data submit)))
+          "`:eventLabel` keeps the full xstate text form")
+      (is (= "submit [authed?]" (:eventLineLabel (:data submit)))
+          "`:eventLineLabel` strips the `/ action` suffix"))))
+
+(deftest xyflow-graph-entry-edge-carries-empty-event-line-label
+  (testing "rf2-a2b55 — entry edges (initial-marker → leaf) have no
+            event label; the every-edge-:data invariant means they
+            carry `:eventLineLabel \"\"` alongside the existing
+            `:eventLabel \"\"`."
+    (let [parsed   (layout/parse-definition idle-loading)
+          graph    (projection/xyflow-graph parsed {} {})
+          idle-id  (layout/node-id [:idle])
+          marker-id (str "initial__" idle-id)
+          entry    (edge-by-id graph (str marker-id "__entry"))]
+      (is (some? entry))
+      (is (= "" (:eventLineLabel (:data entry))))
+      (is (= "" (:eventLabel (:data entry)))))))
+
 (deftest xyflow-graph-region-data-carries-region-id-and-index
   (testing "a region container's `:data` carries `:regionId` +
             `:regionIndex`; a plain state's does not"
@@ -771,9 +826,10 @@
     (let [parsed (layout/parse-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           after  (first (filter #(:afterMs (:data %)) (:edges graph)))
-          ;; the `:always` edge's label segment starts with "always"
-          ;; (the guarded fixture renders "always [loaded?]").
-          always (first (filter #(re-find #"^always"
+          ;; rf2-a2b55 — the `:always` edge's label segment renders as
+          ;; the Stately graph view infinity glyph (the guarded
+          ;; fixture renders "∞ [loaded?]").
+          always (first (filter #(re-find #"^∞"
                                           (or (:eventLabel (:data %)) ""))
                                 (:edges graph)))]
       (is (some? after) "fixture has an :after edge")
@@ -998,8 +1054,11 @@
 ;; ---- entry / exit state actions (rf2-ee38b.21) -------------------------
 
 (deftest xyflow-graph-threads-entry-exit-onto-node-data
-  (testing "rf2-ee38b.21 — :entry / :exit action name strings ride the
-            node :data so state-node can paint `entry / <name>` rows"
+  (testing "rf2-ee38b.21; rf2-a2b55 — :entry / :exit action name
+            strings ride the node :data so state-node can paint
+            `+ <name>` (entry) / `- <name>` (exit) action pills below
+            the state name (Stately graph view convention; rf2-a2b55
+            replaced the prior text rows with pills)"
     (let [parsed (layout/parse-definition entry-exit-machine)
           graph  (projection/xyflow-graph parsed {} {})
           a      (node-by-id graph (layout/node-id [:a]))

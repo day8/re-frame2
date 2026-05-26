@@ -29,15 +29,14 @@
   reads every constant off the resolved density map (threaded through
   the projector's per-node/per-edge `:data`) instead of hardcoding.
 
-  rf2-so5b0 — the visible state-tag pill row retired in favour of a
-  hover-only `title` + `data-tags` attr on the state-node body, per
-  the xstate/Stately convention (the chart canvas is for STRUCTURAL
-  chrome only; user-declared tags are a programmatic concept the host
-  surfaces in its inspector list, not on the topology). The
-  `:tag-pill-*` key family DROPPED from the density maps along with
-  the visible row — the test catalogue here is updated in lockstep
-  so a stray re-introduction of `:tag-pill-height` etc. fails the
-  shape pins."
+  rf2-so5b0 → rf2-a2b55 — the visible state-tag pill row, retired by
+  rf2-so5b0, is RESTORED by rf2-a2b55 BELOW the state name (Stately
+  graph view convention). The `:tag-pill-*` key family is back on
+  every density map, joined by an `:action-pill-*` family that
+  parameterises the entry/exit + edge action pills (`+ <action>` /
+  `- <action>`) the same convention uses. `:data-tags` / `:title`
+  attr surface (rf2-so5b0) persists in parallel for host
+  introspection."
   (:require
     #?(:clj  [clojure.test :refer [deftest is testing]]
        :cljs [cljs.test    :refer-macros [deftest is testing]])
@@ -70,10 +69,21 @@
     ;; rf2-ee38b.21 — :caption-strip-px / :caption-text-px removed:
     ;; no renderer ever read them (there is no caption strip in the
     ;; chart). They were carried only to satisfy this parity test.
-    ;; rf2-so5b0 — `:tag-pill-*` family removed: the visible
-    ;; state-tag pill row retired in favour of a hover-only `title`
-    ;; + `data-tags` attr on the state-node body, so the chart has
-    ;; no pill geometry to parameterise.
+    ;; state-tag pills (rf2-m1b88; rf2-a2b55 restored under state-name)
+    :tag-pill-height
+    :tag-pill-pad-x
+    :tag-pill-px
+    :tag-pill-radius
+    :tag-pill-gap
+    :tag-pill-row-gap
+    ;; action pills (rf2-a2b55 — entry/exit + edge actions render
+    ;; as `+ <action>` pills per Stately graph view convention)
+    :action-pill-height
+    :action-pill-pad-x
+    :action-pill-px
+    :action-pill-radius
+    :action-pill-gap
+    :action-pill-row-gap
     ;; dot-grid background (rf2-m4nj4)
     :dot-grid-spacing-px
     :dot-grid-radius-px

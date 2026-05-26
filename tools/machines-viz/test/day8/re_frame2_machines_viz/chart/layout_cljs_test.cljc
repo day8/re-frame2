@@ -333,17 +333,21 @@
                              :action :log-it}))))
 
 (deftest edge-label-after-with-guard-and-action
-  (is (= "after(1500) [timeout?] / cleanup"
-         (layout/edge-label {:event  :after-1500
-                             :after  1500
-                             :guard  :timeout?
-                             :action :cleanup}))))
+  (testing "rf2-a2b55 — `:after` event-segment renders as the Stately
+            graph view clock glyph + `<ms>ms` suffix"
+    (is (= "⌚ 1500ms [timeout?] / cleanup"
+           (layout/edge-label {:event  :after-1500
+                               :after  1500
+                               :guard  :timeout?
+                               :action :cleanup})))))
 
 (deftest edge-label-always-with-guard
-  (is (= "always [ready?]"
-         (layout/edge-label {:event   :always
-                             :always? true
-                             :guard   :ready?}))))
+  (testing "rf2-a2b55 — `:always` event-segment renders as the
+            Stately graph view infinity glyph"
+    (is (= "∞ [ready?]"
+           (layout/edge-label {:event   :always
+                               :always? true
+                               :guard   :ready?})))))
 
 (deftest edge-label-namespaced-event-with-guard
   (is (= "auth/submit [authed?] / log-it"
@@ -356,6 +360,47 @@
     (is (= "submit [auth/authed?]"
            (layout/edge-label {:event :submit
                                :guard :auth/authed?})))))
+
+;; ---- event-line (rf2-a2b55) --------------------------------------------
+
+(deftest event-line-event-only
+  (testing "rf2-a2b55 — `event-line` renders the visible event line
+            (event + guard, NO `/ action`); the action paints as a
+            `+ <action>` pill on a separate row in the renderer."
+    (is (= "submit"
+           (layout/event-line {:event :submit})))))
+
+(deftest event-line-event-with-guard
+  (is (= "submit [authed?]"
+         (layout/event-line {:event :submit :guard :authed?}))))
+
+(deftest event-line-event-with-action-strips-action
+  (testing "rf2-a2b55 — `event-line` does NOT emit `/ action`; that
+            text form is `edge-label`'s job. The action surfaces as a
+            pill in the chart and as the full text in `:data-event`
+            via `edge-label`."
+    (is (= "submit"
+           (layout/event-line {:event :submit :action :log-it})))))
+
+(deftest event-line-event-with-guard-and-action-strips-action
+  (is (= "submit [authed?]"
+         (layout/event-line {:event :submit
+                             :guard :authed?
+                             :action :log-it}))))
+
+(deftest event-line-after-renders-clock-glyph
+  (testing "rf2-a2b55 — `:after` event-segment renders as ⌚ + <ms>ms"
+    (is (= "⌚ 1500ms [timeout?]"
+           (layout/event-line {:event :after-1500
+                               :after 1500
+                               :guard :timeout?})))))
+
+(deftest event-line-always-renders-infinity-glyph
+  (testing "rf2-a2b55 — `:always` event-segment renders as ∞"
+    (is (= "∞ [ready?]"
+           (layout/event-line {:event   :always
+                               :always? true
+                               :guard   :ready?})))))
 
 (deftest parse-definition-emits-event-label-with-guard-and-action
   (testing "parse-definition emits the full xstate label on every edge"

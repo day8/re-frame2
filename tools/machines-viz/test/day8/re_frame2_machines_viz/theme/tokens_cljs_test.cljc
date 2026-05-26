@@ -3,10 +3,11 @@
   (rf2-pyvmr — with-alpha;
    rf2-xfx6l — motion/duration-css).
 
-  rf2-so5b0 — the `tag-pill-color` / `tag-pill-palette` tests retired
-  with the visible state-tag pill row; tags now surface as a hover
-  tooltip + data-tags attr on the state-node body (no per-tag chip →
-  no per-tag colour to map)."
+  rf2-so5b0 retired the `tag-pill-color` / `tag-pill-palette` helpers
+  with the visible state-tag pill row; rf2-a2b55 reinstates BOTH
+  helpers AND the pill row (positioned BELOW the state name per
+  Stately graph view convention). Determinism + reserved-token tests
+  for the helper restored at the end of this ns."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
@@ -113,3 +114,28 @@
     (is (pos? (:glow-duration-ms tokens/motion)))
     (is (nil? (:pulse-duration-ms tokens/motion))
         "pulse-duration-ms removed (rf2-2sez0)")))
+
+;; ---- tag-pill colour rotation (rf2-m1b88; rf2-a2b55 restored) ----------
+
+(deftest tag-pill-color-is-deterministic
+  (testing "rf2-m1b88 — `tag-pill-color` resolves the same tag id to
+            the same palette entry across calls, so the human eye can
+            track 'tag X = blue pill' across renders. Pure data →
+            keyword; the same id MUST resolve to the same hue."
+    (let [tag :ws/connecting]
+      (is (= (tokens/tag-pill-color tag)
+             (tokens/tag-pill-color tag))))))
+
+(deftest tag-pill-color-skips-reserved-tokens
+  (testing "rf2-m1b88 — `:red` / `:accent` / `:info` are reserved for
+            chart semantics (cancellation glyph; initial-state +
+            FROM-highlight; TO-highlight + active). The palette
+            rotation MUST NOT land on any of those — a state-tag pill
+            sharing a hue with an active-state border would read as
+            'this state is active' on a tag that has nothing to do
+            with activity. Pinned across a small sweep of tag ids."
+    (let [reserved #{:red :accent :info}]
+      (doseq [tag [:a :b :c :ws/active :ws/connecting :foo/bar
+                   :idle :running :error :timeout :loaded]]
+        (is (not (contains? reserved (tokens/tag-pill-color tag)))
+            (str "tag " tag " maps to a reserved chart-semantic token"))))))

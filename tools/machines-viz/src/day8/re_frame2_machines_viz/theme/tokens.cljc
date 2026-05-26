@@ -366,10 +366,44 @@
   [ms]
   (str "calc(" ms "ms * var(" (:scale-var-name motion) ", 1))"))
 
-;; rf2-so5b0 — the historical `tag-pill-palette` + `tag-pill-color`
-;; pair (rf2-m1b88) retired with the visible state-tag pill row. User-
-;; declared `:tags` now surface as a hover tooltip + data-tags attr on
-;; the state-node body (no per-tag chip → no per-tag colour to
-;; allocate). A future host inspector that DOES render visible tag
-;; chips can re-introduce a deterministic mapping at its own surface;
-;; in this ns it was dead.
+;; ---- tag-pill palette (rf2-m1b88; rf2-a2b55 restored) ------------------
+;;
+;; rf2-so5b0 retired this pair when the visible state-tag pill row was
+;; dropped. rf2-a2b55 reinstates the visible pill row BELOW the state
+;; name (Stately graph view convention: descriptive tags ride a pill
+;; row directly under the state title, not as ancestor-path chips
+;; above), so the deterministic colour rotation is live again. A given
+;; tag id resolves to the same palette token across renders so tests +
+;; the human eye can rely on identity-by-colour.
+
+(def tag-pill-palette
+  "Deterministic colour rotation for state-tag pills (rf2-m1b88;
+  rf2-a2b55 restored). Skips `:red`, `:accent` and `:info` — all
+  reserved for chart semantics (`:red` for cancellation glyphs, the
+  single `:accent` for the initial-state marker + FROM-highlight,
+  `:info` for the TO-highlight / active state). The remaining five
+  spread across cool/warm/neutral so a typical 2-4 tag count reads
+  distinctly."
+  [:advisory :green :yellow :orange :magenta])
+
+(defn- char-code
+  "Portable char → int. JVM uses `int`; CLJS reaches for
+  `charCodeAt` on the string at the per-char index."
+  [^String s idx]
+  #?(:clj  (int (.charAt s ^int idx))
+     :cljs (.charCodeAt s idx)))
+
+(defn tag-pill-color
+  "Map a tag keyword to a stable palette entry. Deterministic — the
+  same tag id resolves to the same token across renders. Pure data
+  → keyword."
+  [tag]
+  (let [^String s (str (when-let [n (and (keyword? tag) (namespace tag))]
+                         (str n "/"))
+                       (if (keyword? tag) (name tag) (str tag)))
+        n (count s)
+        h (loop [i 0 acc 0]
+            (if (< i n)
+              (recur (inc i) (+ acc (char-code s i)))
+              acc))]
+    (nth tag-pill-palette (mod h (count tag-pill-palette)))))

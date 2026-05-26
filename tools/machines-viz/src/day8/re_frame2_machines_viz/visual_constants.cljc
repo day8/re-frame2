@@ -54,15 +54,15 @@
   projector's per-node/per-edge `:data`); switching `:density`
   changes the render for real and the chart root emits `data-density`.
 
-  rf2-so5b0 — the `:tag-pill-*` family (`:tag-pill-height`,
-  `:tag-pill-pad-x`, `:tag-pill-px`, `:tag-pill-radius`,
-  `:tag-pill-gap`, `:tag-pill-row-gap`) RETIRED with the visible
-  state-tag pill row. User-declared `:tags` (Spec 005) now surface as
-  a native HTML hover tooltip + `data-tags` attr on the state-node
-  itself — no per-pill geometry to parameterise. The xstate / Stately
-  convention reserves the chart canvas for STRUCTURAL chrome (state
-  name, nesting, transitions); tags are a programmatic concept the
-  host surfaces in its inspector list, not on the topology."
+  rf2-so5b0 retired the `:tag-pill-*` family along with the visible
+  state-tag pill row; rf2-a2b55 reinstates BOTH the family AND the row,
+  positioned BELOW the state name (Stately graph view convention) and
+  adds an `:action-pill-*` family for the entry-action + edge-action
+  pills (`+ <action-name>`) the same convention uses for transition
+  actions. User-declared `:tags` (Spec 005) still surface on the
+  state-node's `:data-tags` + `:title` attrs for host-introspection +
+  hover; the visible pill row is the eye-scan surface that pairs the
+  tag set with each state, the way Stately's graph view paints them."
   {:no-doc true})
 
 (def chart-regular
@@ -96,6 +96,25 @@
                                 (rf2-k647w — distinct from the
                                 state-node `:corner-radius` lock; the
                                 compound chrome reads as a looser box)
+    :tag-pill-height          — state-tag pill height (rf2-m1b88;
+                                rf2-a2b55 restored under state-name)
+    :tag-pill-pad-x           — state-tag pill horizontal padding
+    :tag-pill-px              — state-tag pill text font-size
+    :tag-pill-radius          — state-tag pill corner radius
+    :tag-pill-gap             — horizontal gap between adjacent pills
+    :tag-pill-row-gap         — vertical gap from pill row to state
+                                label (positive ⇒ pills sit BELOW name)
+    :action-pill-height       — entry/exit + edge action pill height
+                                (rf2-a2b55 — `+ <action>` Stately
+                                graph view convention; distinct from
+                                tag pills so action chrome can scale
+                                independently)
+    :action-pill-pad-x        — action pill horizontal padding
+    :action-pill-px           — action pill text font-size
+    :action-pill-radius       — action pill corner radius
+    :action-pill-gap          — gap between adjacent action pills
+    :action-pill-row-gap      — gap from action pill row to its
+                                anchor (state label / edge event line)
     :dot-grid-spacing-px      — dot-grid background pattern spacing
                                 (rf2-m4nj4 — 16px)
     :dot-grid-radius-px       — single dot radius
@@ -115,6 +134,24 @@
    :edge-label-backplate-opacity 0.85
    :final-glyph-px         13
    :compound-title-px      13
+
+   ;; ── state-tag pills (rf2-m1b88; rf2-a2b55 restored — sit BELOW
+   ;;    the state name per Stately graph view convention) ─────────
+   :tag-pill-height        16
+   :tag-pill-pad-x         6
+   :tag-pill-px            9
+   :tag-pill-radius        8
+   :tag-pill-gap           3
+   :tag-pill-row-gap       4
+
+   ;; ── action pills (rf2-a2b55 — entry/exit + edge actions render
+   ;;    as `+ <action>` pills per Stately graph view convention) ──
+   :action-pill-height     16
+   :action-pill-pad-x      6
+   :action-pill-px         9
+   :action-pill-radius     6
+   :action-pill-gap        4
+   :action-pill-row-gap    4
 
    ;; ── dot-grid background (rf2-m4nj4) ──────────────────────────
    :dot-grid-spacing-px    16
@@ -155,6 +192,22 @@
    :final-glyph-px         11
    :compound-title-px      11
 
+   ;; ── state-tag pills (tighter than the regular 16/6/9/8) ──────
+   :tag-pill-height        13
+   :tag-pill-pad-x         5
+   :tag-pill-px            7
+   :tag-pill-radius        6
+   :tag-pill-gap           2
+   :tag-pill-row-gap       3
+
+   ;; ── action pills (~25% tighter than the regular 16/6/9/6) ────
+   :action-pill-height     13
+   :action-pill-pad-x      5
+   :action-pill-px         7
+   :action-pill-radius     5
+   :action-pill-gap        3
+   :action-pill-row-gap    3
+
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    12
    :dot-grid-radius-px     0.85
@@ -191,6 +244,22 @@
    :edge-label-backplate-opacity 0.85
    :final-glyph-px         15
    :compound-title-px      15
+
+   ;; ── state-tag pills (looser than the regular 16/6/9/8) ───────
+   :tag-pill-height        19
+   :tag-pill-pad-x         7
+   :tag-pill-px            11
+   :tag-pill-radius        10
+   :tag-pill-gap           4
+   :tag-pill-row-gap       5
+
+   ;; ── action pills (~25% looser than the regular 16/6/9/6) ─────
+   :action-pill-height     19
+   :action-pill-pad-x      7
+   :action-pill-px         11
+   :action-pill-radius     8
+   :action-pill-gap        5
+   :action-pill-row-gap    5
 
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    20
