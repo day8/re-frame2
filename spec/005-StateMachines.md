@@ -151,7 +151,7 @@ Why the locked path — the load-bearing reason is [Goal 2 — Frame state rever
 
 > **Cost: feature-locality.** Putting machine snapshots under a reserved global subtree means they don't sit alongside their feature's own app-db slice. A user inspecting `[:auth ...]` won't see the auth flow's machine snapshot there — it lives at `[:rf/machines :auth/login-flow]`. This is a real cost. We accept it because the wins (uniform tool support, atomic revertibility per [Goal 2 of 000-Vision](000-Vision.md#frame-state-revertibility), host-independent storage scheme, automatic SSR hydration / persistence / undo) require *one* structural location for machine state. Tooling can present a feature-local view (10x's app-db panel can render a "Machines" section adjacent to the feature's data) without compromising the storage scheme.
 
-The runtime composes `:rf/machines`'s schema automatically from the registered machines' `:data` schemas — `(rf/app-schema-at [:rf/machines])` returns `[:map-of :keyword :rf/machine-snapshot]`, and per-machine entries refine `:rf/machine-snapshot` against the registered machine's declared `:data` shape.
+The runtime composes `:rf/machines`'s schema from the registered machines' `:schema` slots (per [§Schema validation](#schema-validation), the surface shipped under rf2-jbbp7): `(rf/app-schema-at [:rf/machines])` returns `[:map-of :keyword :rf/machine-snapshot]`, and per-machine entries refine `:rf/machine-snapshot` against each machine's declared `:schema` (which describes the `:data` shape). Violations surface at the `:where :machine-data` boundary — row 7 of the per-step recovery table per [Spec 010 §Per-step recovery](010-Schemas.md#per-step-recovery).
 
 ### What the Single Store gives us for free
 
@@ -162,7 +162,7 @@ Because every machine's snapshot lives in `app-db` at `[:rf/machines <id>]` — 
 - **SSR hydration.** The `:rf/hydrate` event replaces `app-db` with the server-supplied payload (per [011](011-SSR.md)); machine snapshots ride along with the rest of the state — no separate hydration channel.
 - **Persistence.** Writing `app-db` to localStorage / IndexedDB / a server endpoint serialises machines too. Reloading deserialises them back into `[:rf/machines <id>]` and the next event sees them.
 - **Conformance fixtures.** A fixture's `:fixture/expect :final-app-db` covers machine state without needing a machine-specific assertion.
-- **Schema validation.** `(rf/reg-app-schema [:rf/machines] ...)` validates the whole machine map; per-machine `:data` schemas refine it (per [§Where snapshots live](#where-snapshots-live)).
+- **Schema validation.** `(rf/reg-app-schema [:rf/machines] ...)` validates the whole machine map; per-machine `:schema` slots refine it against each machine's `:data` shape at the `:where :machine-data` boundary (per [§Schema validation](#schema-validation), shipped under rf2-jbbp7; row 7 of [Spec 010 §Per-step recovery](010-Schemas.md#per-step-recovery)).
 - **Trace replay.** Tool-Pair epochs replay events against `:db-before` to reproduce a session; machine transitions replay along with everything else because their state is in the db.
 - **Snapshot-and-restore.** The epoch surface (`epoch/restore-epoch` + `epoch/reset-frame-db!`) captures `app-db` and reapplies it; machines come back with the rest of state.
 
@@ -421,7 +421,7 @@ Consumers route on `:where` — the existing Issues triage, Xray projections, sc
 
 **Production builds.** Per [010 §Production builds](010-Schemas.md#production-builds), the validation site is gated by `re-frame.interop/debug-enabled?` and DCEs to a no-op under `:advanced` + `goog.DEBUG=false`. The boundary is dev-only by default; apps needing production validation at system boundaries reach for the `:rf.schema/at-boundary` interceptor on the specific events that ingest untrusted machine `:data` (e.g. an SSR-hydrate that restores machine snapshots from the wire).
 
-**Cross-reference.** Per [010 §Per-step recovery row 7](010-Schemas.md#per-step-recovery), this boundary is row 7 of the per-step recovery table; the `:where :machine-data` value is the closed-set extension to [Spec-Schemas §`SchemaValidationTags`](Spec-Schemas.md#per-category-tags-schemas). The aspirational paragraphs at [§Where snapshots live](#where-snapshots-live) and the §What the Single Store gives us for free Schema-validation bullet become factual with this surface; the sibling bead (rf2-mr1ei) reconciles the prose.
+**Cross-reference.** Per [010 §Per-step recovery row 7](010-Schemas.md#per-step-recovery), this boundary is row 7 of the per-step recovery table; the `:where :machine-data` value is the closed-set extension to [Spec-Schemas §`SchemaValidationTags`](Spec-Schemas.md#per-category-tags-schemas). The two paragraphs at [§Where snapshots live](#where-snapshots-live) (schema composition) and in §What the Single Store gives us for free (the Schema-validation bullet) describe this surface as fact.
 
 ### Trace events — guard evaluations and action runs
 
