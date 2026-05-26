@@ -1496,8 +1496,6 @@ trace.
 Per the bead body's §Visual Structure:
 
 - Container: padding `21px`, overflow auto, full height.
-- Header text: "The computational timeline for the event"
-  (muted, `margin-bottom: 21px`).
 - Pipeline: left margin `55px` to accommodate numbered circles.
 - Vertical line: absolute-positioned, 1px width, starts at `13px`
   from top, positioned at `-34px` from the content column's left
@@ -1666,7 +1664,7 @@ and silently rendered empty rows. The binding inventory:
 | `:views` | `:rf.view/rendered` (NOT the simpler `:rf.view/render` marker) | `:rf.view/id`, `:rf.view/deref-subs`, `:rf.view/elapsed-ms`, `:rf.view/mount?`, `:rf.view/triggered-by` (rf2-6djth aligned the read against the rich marker) |
 | `:views` unmounted (rf2-gmw1i) | `:rf.view/unmounted` (already emitted by `re-frame.views/emit-view-unmounted!` per rf2-9hoos + rf2-te71r) | `:rf.view/id`, `:rf.view/render-key`, `:frame`. Surfaced via `projection/unmounted-views-rows`; the VIEWS step carries an optional `:unmounted-rows` slot (omit-by-absence when none fired). The step renders an UNMOUNTED sub-section when populated and reads `N re-rendered; M unmounted` in its header. |
 
-### §9.1.10.2 Per-step elapsed time + cascade total (rf2-nqt3d)
+### §9.1.10.2 Per-step elapsed time (rf2-nqt3d · rf2-dwuq3)
 
 Each step row carries `:duration-ms` (a number when the substrate
 stamped it; nil otherwise). The view paints it as a right-aligned
@@ -1674,27 +1672,24 @@ monospace chip on every step's header — pure-data via
 `projection/format-duration-ms`, which formats `0.1ms` / `12ms` /
 `1.2s` per scale.
 
-Pure-data aggregations layered on top of the projected step vector
-drive the cascade-level chrome:
+Per-row predicate driving long-step chrome:
 
 | Helper | Returns | Used for |
 |--------|---------|----------|
-| `projection/cascade-total-ms steps` | number (sum of `:duration-ms`) or nil | top-of-cascade summary chip total |
 | `projection/long-step? step` | boolean (`:duration-ms > 16ms`) | per-step warning chrome |
-| `projection/long-step-count steps` | integer | summary chip secondary count |
 
 `projection/long-step-threshold-ms` is **16ms** — one display frame
 at 60Hz, the natural marker for "this single step will visibly
 jank the next paint". Crossing the threshold paints the chip in the
-warning tone with a `▲` glyph; the cascade-summary chip surfaces a
-secondary `N over 16ms` count when any step is long. Below
-threshold the chip is muted with no glyph — alarmist `✗` chrome
-would crowd the cascade on the common case where one step is
-naturally heavy.
+warning tone with a `▲` glyph. Below threshold the chip is muted
+with no glyph — alarmist `✗` chrome would crowd the cascade on the
+common case where one step is naturally heavy.
 
-The summary chip elides when no step carries a numeric duration
-(cold-start records, fixtures synthesised without timing); the
-cascade renders normally.
+The top-of-pipeline `cascade total: <N>ms` summary chip was
+retired post-rf2-nqt3d (rf2-dwuq3) — the operator reads heavy
+steps from the per-row chips, not the sum. The per-row chip + the
+per-row `▲` long-step warning are the cascade's complete timing
+surface.
 
 ### §9.1.10.3 Schema-violations section (rf2-17vxj)
 

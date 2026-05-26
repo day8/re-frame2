@@ -548,15 +548,13 @@
 ;; Section coverage: 16ms long-step warning chrome — the `▲` glyph +
 ;; warning tone fires when any single step's `:duration-ms` exceeds
 ;; `proj/long-step-threshold-ms` (= 16). The fixture stamps a 42ms
-;; HANDLER (the cascade-driving duration) + a 28ms fx call, so the
-;; CASCADE-TOTAL chip lights up and two rows carry the long-step
-;; chrome.
+;; HANDLER (the cascade-driving duration) + a 28ms fx call, so two
+;; per-step duration chips carry the long-step chrome.
 
 (defn long-step-history
   "Cascade with a 42ms handler + 28ms fx — both above the 16ms
-  threshold. Drives the long-step warning chrome on the duration
-  chips + the cascade-summary's `N steps over 16ms` secondary
-  chip."
+  threshold. Drives the long-step warning chrome on the per-step
+  duration chips."
   []
   (single-epoch-history
     {:epoch-id 5

@@ -135,9 +135,9 @@
     {:doc        "Cascade with a 42ms handler + 28ms fx + 18ms view —
                  every duration over the 16ms `long-step-threshold-ms`.
                  Exercises the long-step warning chrome (`▲` glyph +
-                 warning tone) on per-step duration chips, plus the
-                 cascade-summary's `N steps over 16ms` secondary chip
-                 (rf2-nqt3d)."
+                 warning tone) on per-step duration chips (rf2-nqt3d
+                 per-row portion; the top-of-pipeline summary chip
+                 was retired by rf2-dwuq3)."
      :events     [[:rf.xray/sync-epoch-history (fixtures/long-step-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})

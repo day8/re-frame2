@@ -1284,28 +1284,6 @@
     (is (false? (proj/long-step? {}))
         "missing duration returns false")))
 
-(deftest cascade-total-ms-test
-  (testing "rf2-nqt3d — sum of every step's :duration-ms"
-    (is (= 12.5 (proj/cascade-total-ms [{:duration-ms 0.5}
-                                        {:duration-ms 12}])))
-    (is (nil? (proj/cascade-total-ms []))
-        "empty step vec returns nil so the view can elide the chip")
-    (is (nil? (proj/cascade-total-ms [{:step :dispatch} {:step :handler}]))
-        "no step carries a duration → nil")
-    (is (= 5 (proj/cascade-total-ms [{:step :dispatch}
-                                     {:duration-ms 5}
-                                     {:step :views}]))
-        "mixed presence: missing durations skipped, sum returned")))
-
-(deftest long-step-count-test
-  (testing "rf2-nqt3d — count of steps over the 16ms threshold"
-    (is (= 0 (proj/long-step-count [])))
-    (is (= 0 (proj/long-step-count [{:duration-ms 0.1}
-                                    {:duration-ms 10}])))
-    (is (= 2 (proj/long-step-count [{:duration-ms 18}
-                                    {:duration-ms 1}
-                                    {:duration-ms 50}])))))
-
 ;; ---- rf2-17vxj — schema-violations step ---------------------------------
 
 (deftest schema-violations-step-conditional-test

@@ -1391,28 +1391,6 @@
   (let [ms (:duration-ms step)]
     (and (number? ms) (> ms long-step-threshold-ms))))
 
-(defn cascade-total-ms
-  "Sum of every step's `:duration-ms` over the projected step vector,
-  or nil when no step carries a numeric duration. Pure aggregation;
-  the view renders this in the cascade-summary chip at the top of
-  the panel.
-
-  Per rf2-nqt3d the summary is the operator's first read — the
-  cascade total tells them whether to even start drilling per-step.
-  Returns a number (so the chip can format via
-  `format-duration-ms`)."
-  [steps]
-  (let [nums (keep :duration-ms steps)]
-    (when (seq nums)
-      (reduce + 0 nums))))
-
-(defn long-step-count
-  "Count of projected steps whose `:duration-ms` exceeds the long-step
-  threshold. Drives the cascade-summary's secondary chip
-  (`N step over 16ms`)."
-  [steps]
-  (count (filter long-step? steps)))
-
 (defn event-display
   "Render the dispatched event vector as a one-line monospace string
   for the DISPATCH row's target slot."

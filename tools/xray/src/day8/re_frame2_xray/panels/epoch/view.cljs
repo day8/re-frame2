@@ -1099,44 +1099,6 @@
    :font-size  "10px"
    :font-style "italic"})
 
-;; -- cascade-summary ------------------------------------------------------
-
-(def ^:private cascade-summary-style
-  {:display       "flex"
-   :align-items   "center"
-   :gap           "13px"
-   :margin-bottom "13px"
-   :padding       "5px 8px"
-   :border        border-subtle-1px
-   :border-radius "3px"
-   :background    bg-3-colour
-   :font-family   sans-stack
-   :font-size     "11px"
-   :color         text-secondary-colour})
-
-(def ^:private cascade-summary-label-style
-  {:color          text-tertiary-colour
-   :text-transform "uppercase"
-   :letter-spacing "0.5px"
-   :font-weight    600
-   :font-size      "10px"})
-
-(def ^:private cascade-summary-total-style
-  {:color       text-primary-colour
-   :font-family mono-stack
-   :font-weight 700})
-
-(def ^:private cascade-summary-long-style
-  {:color       warning-colour
-   :font-family mono-stack
-   :margin-left "auto"
-   :display     "inline-flex"
-   :align-items "center"
-   :gap         "4px"})
-
-(def ^:private cascade-summary-long-glyph-style
-  {:font-size "10px"})
-
 ;; -- pipeline -------------------------------------------------------------
 
 (def ^:private pipeline-host-style
@@ -1180,12 +1142,6 @@
 
 (def ^:private panel-scroll-style
   {:flex 1 :overflow "auto" :padding "21px"})
-
-(def ^:private panel-header-style
-  {:color         text-tertiary-colour
-   :font-family   sans-stack
-   :font-size     "11px"
-   :margin-bottom "21px"})
 
 ;; ---- expansion state helpers ---------------------------------------------
 ;;
@@ -3105,42 +3061,6 @@
 
 ;; ---- pipeline view -------------------------------------------------------
 
-(defn cascade-summary
-  "Render the cascade-summary chip at the top of the pipeline (rf2-nqt3d).
-
-  Two pieces of information:
-
-    1. **Cascade total** — sum of every projected step's `:duration-ms`,
-       formatted via `format-duration-ms`. Operator's first read —
-       'how heavy was this whole cascade'.
-    2. **Long-step count** — number of steps whose `:duration-ms`
-       exceeded `proj/long-step-threshold-ms` (16ms — one 60Hz frame).
-       Rendered with warning tone when > 0; absent when 0.
-
-  Returns nil when the cascade carries no durations (cold start
-  records, fixtures synthesised without timing). The view elides
-  the slot rather than rendering `total: —`."
-  [steps]
-  (let [total       (proj/cascade-total-ms steps)
-        long-count  (proj/long-step-count steps)]
-    (when (number? total)
-      [:div {:data-testid "rf-xray-epoch-cascade-summary"
-             :data-long-step-count (str long-count)
-             :style cascade-summary-style}
-       [:span {:style cascade-summary-label-style}
-        "cascade total"]
-       [:span {:data-testid "rf-xray-epoch-cascade-summary-total"
-               :style cascade-summary-total-style}
-        (proj/format-duration-ms total)]
-       (when (pos? long-count)
-         [:span {:data-testid "rf-xray-epoch-cascade-summary-long-count"
-                 :title       (str long-count " step"
-                                   (when (not= 1 long-count) "s")
-                                   " over " proj/long-step-threshold-ms "ms")
-                 :style cascade-summary-long-style}
-          [:span {:aria-hidden true :style cascade-summary-long-glyph-style} "▲"]
-          (str long-count " over " proj/long-step-threshold-ms "ms")])])))
-
 (defn pipeline-view
   "Render the numbered pipeline cascade for `steps` (already
   numbered via `project-numbered`). Each step renders as a
@@ -3165,10 +3085,6 @@
    (pipeline-view steps {}))
   ([steps ctx]
    [:div {:data-testid "rf-xray-epoch-pipeline-container"}
-    ;; rf2-nqt3d — cascade-summary chip rides above the numbered
-    ;; cascade. When the projection carries no durations the chip
-    ;; elides; the cascade still renders normally.
-    (cascade-summary steps)
     [:div {:data-testid "rf-xray-epoch-pipeline"
            :style pipeline-host-style}
      ;; The vertical rail — absolute-positioned line behind the
@@ -3229,9 +3145,6 @@
     [:section {:data-testid "rf-xray-epoch-panel"
                :style panel-root-style}
      [:div {:style panel-scroll-style}
-      [:div {:data-testid "rf-xray-epoch-panel-header"
-             :style panel-header-style}
-       "The computational timeline for the event"]
       (cond
         (= :focused status)
         (if (seq steps)
