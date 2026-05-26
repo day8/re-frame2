@@ -1463,13 +1463,101 @@ Each step's row carries:
 2. Badge pill: uppercase 10px font, rounded, `5px/3px` padding.
 3. Verb/label: monospace, click-to-source hyperlink for any
    source-bearing target (cofx ids, handler flavour, flow ids,
-   fx ids, sub vectors, view ids).
+   fx ids, sub vectors, view ids). The HANDLER verb's specific
+   shape — verb-as-link + external-link glyph + graceful fallback —
+   is the contract in §9.1.6.1.
 4. Duration: right-aligned, muted, monospace (e.g. `0.1ms`).
 5. Per-step body content: code blocks, tables, diff displays.
 
 Fibonacci spacing system (3 · 5 · 8 · 13 · 21 · 34 · 55 · 89) drives
 every gap / pad value. Tabulated in `panels.epoch.badge/fib` for one
 source of truth.
+
+#### §9.1.6.1 HANDLER source affordance (rf2-ehd8v · rf2-80u5a · rf2-xjgdk · pair-debug 2026-05-26)
+
+The HANDLER step's flavour label (e.g. `reg-event-db` / `reg-event-fx`
+/ `reg-event-ctx` / `reg-machine`) IS the click-to-source affordance —
+the verb itself is the hyperlink, with an external-link glyph (↗)
+trailing inside it. The earlier rf2-ehd8v shape parked a separate
+`file:line + [open]` sub-header below the HANDLER header; Mike's pair-
+debug commit `ee9def224` (2026-05-26) collapsed that sub-header into
+the verb so the affordance is read inline with the cascade rhythm
+(one link per step, no second-line chrome).
+
+**Contract** — implemented by `handler-verb-link` in
+`tools/xray/src/day8/re_frame2_xray/panels/epoch/view.cljs`:
+
+- **Source-coord read.** Pulls `(rf/handler-meta :event event-id)` for
+  vanilla flavours and `(rf/handler-meta :machine event-id)` for
+  `:reg-machine`. Coord shape: `{:file <string> :line <int>}` (the
+  registrar-meta surface; NOT a trace read).
+- **Clickable when** `(:file coord)` is non-empty — renders a
+  `<button>` carrying the flavour label + lucide `external-link`
+  glyph. Underlined-dotted in the accent tone so the hyperlink reads
+  as an affordance without crowding the step header.
+- **Plain coloured span** otherwise — accent-tone label only, no
+  glyph, no button. Graceful degradation for production builds (meta
+  stripped under elision) and fn-form registrations where the
+  registrar never captured `{:file :line}`.
+- **Click dispatch.** `[:rf.xray/open-in-editor {:source-coord
+  <coord>}]` on the `:rf/xray` frame envelope. Click handler calls
+  `.stopPropagation` so the verb-link doesn't trigger the row's own
+  expand-toggle. URI resolution + `Location.assign` happens
+  downstream in the `:rf.editor/open` reg-fx via the rf2-cm93v
+  launcher allowlist.
+- **Test surface.** `data-testid` is
+  `rf-xray-epoch-handler-verb-link` (clickable variant) or
+  `rf-xray-epoch-handler-verb-plain` (fallback). The `aria-label` +
+  `title` carry `open <file>:<line> in editor`.
+
+**Composition with the testbed-boot precondition (rf2-2c5xb).** The
+`:rf.xray/open-in-editor` event resolves the file path against
+`:rf.xray/project-root`. Testbeds that host the panel-gallery (or any
+xray-instrumented surface) MUST seed `:rf.xray/project-root` at boot
+via `xray-config/configure!` (with a query-string override slot) —
+without it the chip ships bare classpath-relative paths that don't
+resolve to the operator's filesystem. The verb-link's event payload
+is unchanged by this requirement; it is the downstream URI builder
+that consumes `:rf.xray/project-root`.
+
+#### §9.1.6.2 Shared `coord-chip` component (rf2-xjgdk audit L2 · `panels/shared/coord_chip.cljs`)
+
+The HANDLER verb-link is the panel's primary source affordance, but
+other Epoch surfaces (and the Event-detail panel) still ride an
+**icon-only chip** — a `<button>` carrying just the `external-link`
+glyph, no inline label. rf2-xjgdk extracted the previously-duplicated
+private chip from `panels/epoch/view.cljs` + `panels/event_detail.cljs`
+into a single canonical home at
+`tools/xray/src/day8/re_frame2_xray/panels/shared/coord_chip.cljs`.
+
+**Contract.**
+
+- **Public fn.** `coord-chip coord testid` (or `coord-chip coord
+  testid opts`). Returns `nil` when `coord` lacks a `:file` — call-
+  sites drop the chip cleanly without conditional wrapping.
+- **Click dispatch.** Identical to the verb-link —
+  `[:rf.xray/open-in-editor {:source-coord coord}]` on `:rf/xray`.
+- **Pixel knobs.** Two options surface per call-site (the only knobs
+  that varied across the duplicated chips before extraction):
+  - `:color` — defaults `"inherit"` (Epoch idiom, chip rides the
+    parent text colour). Pass `(:accent tokens)` for the Event-
+    detail idiom (chip stands alone in a `:text-primary` row).
+  - `:margin-left` — defaults `"4px"` (Epoch). Pass `"6px"` for the
+    Event-detail's slightly wider tap target.
+- **Style hoist.** `chip-style-base` is an ns-top immutable map
+  reused across every render; per-call knobs land via a tiny `assoc`
+  overlay (rf2-xjgdk audit F4 hoist).
+- **Accessibility.** Native `<button>` (Enter / Space activate),
+  `aria-label "open in editor"`, inline SVG `aria-hidden`.
+
+**`coord-chip` vs `open_in_editor/open-chip`** — two surfaces co-
+exist by design. `coord-chip` (the dispatch-based button used inside
+xray panels) routes through the trace bus so the click is observable
+as a first-class operation on `:rf/xray`. `open_in_editor/open-chip`
+is a SEPARATE surface that renders an `<a href="…">` anchor with the
+URI pre-resolved against `editor-uri/editor-uri`; it is used by demo
+surfaces + the standalone static page where no trace bus is
+available. (rf2-evgf5 / rf2-g5q8d decision.)
 
 ### §9.1.7 Composition with the edn-inspector widget
 
@@ -1521,7 +1609,7 @@ and silently rendered empty rows. The binding inventory:
 | `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source`, `:rf.trace/call-site` |
 | `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value`, `:rf.cofx/elapsed-ms` (rf2-w2r4p aligned the per-cofx duration read against the substrate's canonical name + threaded `:duration-ms` through the `cofx-steps` flattening) — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch). **Projection splits each surviving cofx into its own numbered step** (rf2-s1jw4 · pair-debug 2026-05-26): `cofx-steps` is a `mapv` over `cofx-rows` producing `{:step :coeffect :badge :COEFFECT :id <kw> :value <v> :duration-ms <ms>}` per entry, spliced into the steps vec before HANDLER. |
 | `:handler` duration | `:rf.event/run-end` `:rf.event/elapsed-ms` (rf2-slnce aligned the per-handler duration read against the substrate's canonical name — see `re-frame.router/emit-run-end-trace`) |
-| `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta) |
+| `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta). The `{:file :line}` coord on the same meta drives the HANDLER verb-as-link affordance (§9.1.6.1 · rf2-ehd8v + pair-debug 2026-05-26). |
 | `:handler` machine cascade (rf2-u69j7) | `:rf.machine/guard-evaluated` · `:rf.machine/action-ran` · `:rf.machine/transition` · `:rf.machine.timer/cancelled` (closed set: `machine-cascade-trace-ops`) | guard rows read `:guard-id`, `:outcome` (closed set `:pass / :fail / :threw` — rf2-82a0u); action rows read `:action-id`, `:phase` (closed set `:exit / :transition / :entry / :always / :after-action / :initial-entry / :destroy-exit` — rf2-82a0u), `:outcome` (rich map; `:fx` + `:data` hoisted onto the row), `:input`, `:exception`; transition rows read `:machine-id`, `:event`, `:before`, `:after`, `:microsteps` (state vectors hoisted off `:before`/`:after`); timer rows read `:state`, `:delay`, `:reason` (closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede / :on-frame-destroy` — rf2-82a0u). Source-coord lookup reads `(rf/handler-meta :machine id) → :rf/machine → :rf.machine/source-coords` (rf2-8bp3), keyed by `[:actions <id>] | [:guards <id>]`. |
 | `:flow` | `:rf.flow/computed` (NOT `:rf.flow/recomputed` — rf2-yhgk8 aligned the read against `re-frame.flows`'s canonical emit) | `:flow-id`, `:path`, `:before`, `:result` (the view-side `:after` slot maps to the substrate's `:result`), `:elapsed-ms` |
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:rf.fx/elapsed-ms` (rf2-ipaza aligned the duration read against the substrate's canonical name) |
