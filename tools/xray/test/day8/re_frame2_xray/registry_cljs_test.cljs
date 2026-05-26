@@ -187,6 +187,11 @@
    ;; zoom/pan/fit internally).
    :rf.xray.machine-canvas/view-mode-by-id
    :rf.xray.machine-canvas/view-mode-for
+   ;; rf2-3d987 issue #4 — chart-collapsed slot per machine, persisted
+   ;; alongside view-mode-by-id. Lets the operator hide the chart so
+   ;; the snapshot pair has room without scrolling.
+   :rf.xray.machine-canvas/chart-collapsed-by-id
+   :rf.xray.machine-canvas/chart-collapsed-for
    ;; rf2-a9cke — focused-event lens composite consumed by the
    ;; Machine Inspector + the cancellation-cascade SidePanel.
    :rf.xray/machine-transitions-for-focused-event
@@ -458,6 +463,9 @@
    ;; retired — xyflow owns zoom/pan/fit internally).
    :rf.xray.machine-canvas/hydrate-view-modes
    :rf.xray.machine-canvas/set-view-mode
+   ;; rf2-3d987 issue #4 — chart-collapsed events.
+   :rf.xray.machine-canvas/hydrate-chart-collapsed
+   :rf.xray.machine-canvas/set-chart-collapsed
    ;; (Pre-rf2-q3dzw the legacy `edn-inspector.render` engine emitted
    ;; `:rf.xray/navigate-to-path` from its clickable-path glyphs and
    ;; registered a default no-op handler. The new widget ships ZERO
@@ -655,6 +663,9 @@
    ;; localStorage on every `:set-view-mode` mutation so the user's
    ;; Canvas / List choice survives reloads.
    :rf.xray.machine-canvas/persist-view-mode
+   ;; rf2-3d987 issue #4 — chart-collapsed persistence side-effect. Same
+   ;; localStorage round-trip pattern as persist-view-mode.
+   :rf.xray.machine-canvas/persist-chart-collapsed
    ;; rf2-wm7z4 — palette pop-out side-effect. Lives under the
    ;; palette-specific prefix because it wraps a mount-layer pop-out
    ;; call that no other Xray surface invokes.

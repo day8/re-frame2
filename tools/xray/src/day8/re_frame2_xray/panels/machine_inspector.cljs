@@ -60,7 +60,36 @@
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
              :as t
-             :refer [tokens mono-stack sans-stack display-stack]]))
+             :refer [tokens mono-stack sans-stack display-stack spacing]]))
+
+;; ---- shared layout constants (rf2-3d987) ------------------------------
+;;
+;; The Machine panel's 8 layout fixes (rf2-3d987) split header styling
+;; into two tiers — OUTER (section header at the top of focused-event-
+;; section; ribbon background, larger font) and NESTED (sub-section
+;; headers inside the same section; lighter chrome, smaller font,
+;; bottom-border separator instead of full-ribbon background). Issue #7
+;; fix: nested headers MUST be visually distinguishable from outer
+;; headers so the operator's eye reads hierarchy at a glance.
+;;
+;; Both tiers consume tokens (`tokens` map · CSS variables) so the
+;; light/dark theme toggle continues to flip palette in lockstep.
+
+(def ^:private nested-header-base-style
+  "Style map for any sub-section header NESTED inside the outer
+  focused-event-section. Per rf2-3d987 issue #7 these headers use a
+  smaller font, no ribbon background, and a bottom-border separator —
+  so the operator can tell a nested header from the outer section
+  header at a glance."
+  {:padding "6px 12px"
+   :background "transparent"
+   :border-bottom (str "1px solid " (:border-subtle tokens))
+   :font-family sans-stack
+   :font-size "11px"
+   :color (:text-secondary tokens)
+   :display "flex"
+   :align-items "center"
+   :gap "8px"})
 
 ;; ---- safe-name helper ---------------------------------------------------
 
@@ -211,31 +240,45 @@
   `h/pick-focused-transition` — see Dynamic-mode rule, rf2-8og3k) and
   renders the Target Machine Instance / TRANSITION / GUARDS RUN /
   ACTIONS RUN block in the normative order. Pure hiccup — fn-source is
-  resolved via `rf/handler-meta` which is a pure registrar lookup."
+  resolved via `rf/handler-meta` which is a pure registrar lookup.
+
+  rf2-3d987 issue #6 (option b): lens is metadata about the focused
+  transition — chrome dims relative to the interactive chart so the
+  operator's eye reads `chart = primary, lens = secondary`. Same body
+  background as the rest of the section interior (`bg-2`); padding-only
+  separation; section labels carry weight differential per issue #5."
   [{:keys [machine-id from-state to-state guards actions]}]
   [:div {:data-testid "rf-xray-machine-focused-transition-lens"
          :data-machine-id (str machine-id)
          :data-guard-count (str (count guards))
          :data-action-count (str (count actions))
-         :style {:padding "12px 14px"
-                 :background (:bg-1 tokens)
-                 :border-bottom (str "1px solid " (:border-subtle tokens))
+         ;; Issue #6 option (b) — secondary-metadata treatment. No
+         ;; coloured body (matches the section's `bg-2`); slightly
+         ;; smaller mono font; lighter default text colour. The lens
+         ;; reads as supplementary rather than co-equal with the chart.
+         :style {:padding "10px 14px"
+                 :background "transparent"
                  :font-family mono-stack
-                 :font-size "12px"
-                 :color (:text-primary tokens)
+                 :font-size "11px"
+                 :color (:text-secondary tokens)
                  :line-height 1.55}}
    [:div {:data-testid "rf-xray-machine-lens-target-instance"
           :style {:margin-bottom "6px"}}
-    [:span {:style {:color (:text-tertiary tokens)}}
-     "Target Machine Instance: "]
+    [:span {:style {:color (:text-tertiary tokens)
+                    :font-weight 600}}
+     "Target Machine Instance"]
+    [:span {:style {:color (:text-tertiary tokens)}} " · "]
     [:span {:style {:color (:magenta tokens)}}
      (h/format-machine-id machine-id)]]
    [:div {:data-testid "rf-xray-machine-lens-transition"
           :style {:margin "4px 0"}}
-    [:div {:style {:color (:text-tertiary tokens)
-                   :text-transform "uppercase"
-                   :font-size "10px"
-                   :letter-spacing "0.5px"}}
+    ;; Issue #5 — `<strong>` weight differential on the section
+    ;; label so the eye picks it out from the path that follows.
+    [:strong {:style {:color (:text-tertiary tokens)
+                      :text-transform "uppercase"
+                      :font-size "10px"
+                      :letter-spacing "0.5px"
+                      :font-weight 700}}
      "Transition"]
     [:div {:style {:padding-left "16px"}}
      [:span {:style {:color (:text-secondary tokens)}}
@@ -246,10 +289,11 @@
    (when (seq guards)
      [:div {:data-testid "rf-xray-machine-lens-guards-run"
             :style {:margin "4px 0"}}
-      [:div {:style {:color (:text-tertiary tokens)
-                     :text-transform "uppercase"
-                     :font-size "10px"
-                     :letter-spacing "0.5px"}}
+      [:strong {:style {:color (:text-tertiary tokens)
+                       :text-transform "uppercase"
+                       :font-size "10px"
+                       :letter-spacing "0.5px"
+                       :font-weight 700}}
        "Guards Run"]
       (into [:div]
             (for [g guards]
@@ -258,10 +302,11 @@
    (when (seq actions)
      [:div {:data-testid "rf-xray-machine-lens-actions-run"
             :style {:margin "4px 0"}}
-      [:div {:style {:color (:text-tertiary tokens)
-                     :text-transform "uppercase"
-                     :font-size "10px"
-                     :letter-spacing "0.5px"}}
+      [:strong {:style {:color (:text-tertiary tokens)
+                       :text-transform "uppercase"
+                       :font-size "10px"
+                       :letter-spacing "0.5px"
+                       :font-weight 700}}
        "Actions Run"]
       (into [:div]
             (for [a actions]
@@ -322,6 +367,12 @@
   4). Tagged with a section heading + the per-mount testid so panel-
   level tests can assert presence per (machine-id, phase) pair.
 
+  rf2-3d987 issue #3: each column carries its own internal header
+  (`Before` / `After`) so the side-by-side layout (CSS grid in the
+  caller) reads as two diff-able columns. The grouping header in
+  `snapshot-drill-in` drops the `before / after` suffix since it's now
+  visually obvious from the two columns.
+
   Returns `nil` when the snapshot is absent — the empty-state is
   handled by the caller (a top-level placeholder is more legible than
   a per-block nil chip)."
@@ -332,14 +383,22 @@
                                 "-" (name phase))
            :data-machine-id (str machine-id)
            :data-phase      (name phase)
+           ;; Issue #2 (option b): match the outer section's `bg-2`
+           ;; rather than the brighter `bg-1` so the snapshot pair
+           ;; reads as continuation of the body, not as a second card
+           ;; layer. The outer bordered section provides the card chrome.
            :style {:padding "8px 12px"
-                   :border-bottom (str "1px solid " (:border-subtle tokens))
-                   :background (:bg-1 tokens)}}
+                   :background (:bg-2 tokens)
+                   :min-width 0}}
+     ;; Issue #3 — per-column internal header (`Before` / `After`).
+     ;; Carries the same upper-case caption styling that earlier nested
+     ;; in the outer ribbon but now serves as the column label.
      [:div {:style {:color (:text-tertiary tokens)
                     :text-transform "uppercase"
                     :font-size "10px"
                     :letter-spacing "0.5px"
                     :font-family sans-stack
+                    :font-weight 700
                     :margin-bottom "4px"}}
       label]
      [ei/edn-inspector snapshot
@@ -366,6 +425,17 @@
   (`:before` / `:after`) so the two sibling mounts don't share
   expansion state on the same machine.
 
+  rf2-3d987 issue #2 (option b): no second card layer — body uses the
+  outer section's `bg-2` so the snapshot pair reads as a continuation
+  of the body. Issue #3: Before / After render side-by-side in a CSS
+  Grid (`repeat(auto-fit, minmax(360px, 1fr))`) when the section is
+  ≥ ~720px wide; falls back to stacked when narrower. Each column
+  carries its own header (`Before` / `After`); the grouping header
+  drops the `before / after` suffix. Issue #5: weight differential on
+  the section label (`<strong>Snapshot</strong>`). Issue #7: nested
+  header uses the lighter-chrome style (no ribbon background, smaller
+  font, bottom-border separator).
+
   Renders nothing when both snapshots are nil (legacy trace fixtures
   pre-dating the commit-or-finalize snapshot tagging — see
   `transition-record-from-trace` docstring)."
@@ -376,41 +446,137 @@
       :data-machine-id (str machine-id)
       :data-has-before (str (some? before))
       :data-has-after  (str (some? after))
-      :style {:border-bottom (str "1px solid " (:border-subtle tokens))
-              :background (:bg-2 tokens)}}
-     [:header {:style {:padding "8px 12px"
-                       :background (:bg-3 tokens)
-                       :border-bottom (str "1px solid " (:border-subtle tokens))
-                       :font-family sans-stack
-                       :font-size "11px"
-                       :color (:text-secondary tokens)}}
-      [:span {:style {:color (:text-tertiary tokens)
-                      :text-transform "uppercase"
-                      :font-size "10px"
-                      :letter-spacing "0.5px"
-                      :margin-right "8px"}}
+      :style {:background (:bg-2 tokens)}}
+     ;; Issue #7 — nested-header treatment: borderless ribbon, smaller
+     ;; font, bottom-border separator. Issue #5 — `<strong>` weight
+     ;; differential lets the eye pick out `Snapshot` from the
+     ;; `transition` qualifier.
+     [:header {:data-testid "rf-xray-machine-snapshot-drill-in-header"
+               :style nested-header-base-style}
+      [:strong {:style {:color (:text-tertiary tokens)
+                        :text-transform "uppercase"
+                        :font-size "10px"
+                        :letter-spacing "0.5px"
+                        :font-weight 700}}
        "Snapshot"]
+      [:span {:style {:color (:text-tertiary tokens)}} "·"]
       [:span {:style {:color (:text-secondary tokens)}}
-       "transition · before / after"]]
-     (snapshot-block {:machine-id machine-id
-                      :phase :before
-                      :label "Before"
-                      :snapshot before})
-     (snapshot-block {:machine-id machine-id
-                      :phase :after
-                      :label "After"
-                      :snapshot after})]))
+       "transition"]]
+     ;; Issue #3 — Before/After side-by-side via CSS Grid auto-fit.
+     ;; At viewport ≥ ~720px wide (two 360px minmax tracks) the columns
+     ;; render side-by-side; narrower fits collapse to single-column
+     ;; stack automatically. `min-width 0` on the children prevents
+     ;; inspector content from forcing the column wider than its track.
+     [:div {:data-testid "rf-xray-machine-snapshot-drill-in-grid"
+            :style {:display "grid"
+                    :grid-template-columns
+                    "repeat(auto-fit, minmax(360px, 1fr))"
+                    :gap (:gap-2 spacing)
+                    :padding (:gap-2 spacing)}}
+      (snapshot-block {:machine-id machine-id
+                       :phase :before
+                       :label "Before"
+                       :snapshot before})
+      (snapshot-block {:machine-id machine-id
+                       :phase :after
+                       :label "After"
+                       :snapshot after})]]))
 
 ;; ---- per-machine focused-event section ---------------------------------
+
+(defn- chart-collapse-toggle
+  "Inline ▾ / ▸ button that toggles the chart-collapsed state for the
+  per-machine focused-event-section (rf2-3d987 issue #4). Persisted
+  via `machine-canvas`'s chart-collapsed-by-id slot (localStorage round-
+  trip identical to view-mode-by-id) so the operator's choice survives
+  reloads.
+
+  `collapsed?` is the current state; click flips it via the
+  `:set-chart-collapsed` event with mode `:toggle`."
+  [{:keys [machine-id collapsed?]}]
+  [:button
+   {:data-testid (str "rf-xray-machine-chart-toggle-"
+                      (machine-id-suffix machine-id))
+    :data-machine-id (str machine-id)
+    :data-collapsed (str (boolean collapsed?))
+    :aria-expanded (str (not collapsed?))
+    :title (if collapsed?
+             "Expand chart"
+             "Collapse chart (frees space for the snapshot pair)")
+    :on-click (fn [_]
+                (rf/dispatch
+                  [:rf.xray.machine-canvas/set-chart-collapsed
+                   {:machine-id machine-id :mode :toggle}]
+                  {:frame :rf/xray}))
+    :style {:background "transparent"
+            :border "none"
+            :color (:text-secondary tokens)
+            :font-family sans-stack
+            :font-size "11px"
+            :font-weight 600
+            :padding "2px 6px"
+            :cursor "pointer"
+            :border-radius "4px"
+            :display "inline-flex"
+            :align-items "center"
+            :gap "6px"}}
+   [:span {:style {:font-size "10px"}}
+    (if collapsed? "▸" "▾")]
+   [:span "Chart"]])
+
+(defn- chart-collapsed-summary
+  "One-line summary that replaces the expanded chart when the operator
+  collapses it (rf2-3d987 issue #4). Communicates topology
+  shape (node-count / transition-count) so the operator sees the chart
+  is still here, just hidden."
+  [{:keys [machine-id definition]}]
+  (let [states     (:states definition)
+        node-count (count states)
+        ;; Each state's `:on` map is a `{event target-or-vec}` entry;
+        ;; a state may also carry `:after` (one entry) producing
+        ;; transitions to a single target. Conservative count: sum
+        ;; the `:on` cardinalities plus 1 per `:after` (when present).
+        transitions
+        (reduce
+          (fn [acc [_state-id m]]
+            (+ acc (count (or (:on m) {})) (if (:after m) 1 0)))
+          0
+          states)]
+    [:div {:data-testid (str "rf-xray-machine-chart-collapsed-summary-"
+                             (machine-id-suffix machine-id))
+           :data-machine-id (str machine-id)
+           :data-node-count (str node-count)
+           :data-transition-count (str transitions)
+           :style {:padding "8px 12px"
+                   :background (:bg-1 tokens)
+                   :font-family sans-stack
+                   :font-size "11px"
+                   :color (:text-tertiary tokens)
+                   :font-style "italic"}}
+     (str "Machine topology · " node-count " "
+          (if (= 1 node-count) "node" "nodes") " · "
+          transitions " "
+          (if (= 1 transitions) "transition" "transitions")
+          " · click ▸ to expand")]))
 
 (defn- focused-event-section
   "Render one section per transitioned machine. Lens (above the chart,
   rf2-2n34o) → header → chart → snapshot drill-in (rf2-lxvn6) →
   cancellation cascade (inline) → after-rings overlay (on the chart).
   Guards / actions detail lives in the lens, not in a separate strip
-  below the chart."
+  below the chart.
+
+  rf2-3d987 layout fixes:
+   - issue #1: `gap: 8px` between sibling sub-panels via flex gap.
+   - issue #4: chart is collapsible via the per-machine
+     `:chart-collapsed` flag; toggle in the chart's nested header.
+   - issue #5: outer header uses `<strong>` weight differential on the
+     machine-id (already there) + the path uses an arrow separator.
+   - issue #7: nested headers use lighter chrome than the outer header.
+   - issue #8: outer margin bumped to 16px so the section has visible
+     breathing room from the panel host edge."
   [{:keys [machine-id from-state to-state on-event event microstep?
-           definition fired-edge-ids before after]
+           definition fired-edge-ids]
     :as record}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance (layout-or-fallback / ensure-elk! / compute-layout!)
@@ -419,7 +585,9 @@
   ;; node-ids for the focused-event lens highlight.
   (let [from-id    (when from-state (chart-layout/highlight-id from-state))
         to-id      (when to-state   (chart-layout/highlight-id to-state))
-        engine     "xyflow+elkjs"]
+        engine     "xyflow+elkjs"
+        collapsed? @(rf/subscribe
+                      [:rf.xray.machine-canvas/chart-collapsed-for machine-id])]
     [:section
      {:data-testid (str "rf-xray-machine-focused-event-section-"
                         (when machine-id
@@ -429,18 +597,29 @@
       :data-to-state (str to-state)
       :data-on-event (str on-event)
       :data-microstep (str (boolean microstep?))
+      :data-chart-collapsed (str collapsed?)
       ;; rf2-zdfbm — the topology is the panel's centrepiece, so the
       ;; section grows to fill the focused-event host's available
       ;; height. A flex column lets the canvas chart (`flex 1` below)
       ;; expand into the panel instead of sitting in a fixed 320px box.
-      :style {:margin "12px"
+      ;;
+      ;; rf2-3d987 issue #1 — `gap` on the flex column gives every
+      ;; sibling sub-panel (lens / chart / snapshot drill-in /
+      ;; cascade) visible breathing room. Background shows through
+      ;; the gap so three concerns no longer read as one wall of grey.
+      ;;
+      ;; rf2-3d987 issue #8 — outer margin bumped from 12px → 16px so
+      ;; the section has visible breathing room from the panel host
+      ;; edge at every viewport width.
+      :style {:margin (:gap-4 spacing)
               :border (str "1px solid " (:border-default tokens))
               :border-radius "4px"
               :background (:bg-2 tokens)
               :flex "1 1 0"
               :min-height 0
               :display "flex"
-              :flex-direction "column"}}
+              :flex-direction "column"
+              :gap (:gap-2 spacing)}}
      ;; Right-click on the per-machine section header fires
      ;; `:rf.xray/filter-by-machine` with this section's machine-id
      ;; (rf2-piye4) — drops a typed `:machine` IN pill into the ribbon
@@ -453,15 +632,18 @@
                                       [:rf.xray/filter-by-machine machine-id]
                                       {:frame :rf/xray})))
                :title "Right-click to filter the event list to this machine"
+               ;; OUTER header — ribbon background + slightly larger
+               ;; font than nested headers (issue #7 differential).
                :style {:padding "10px 12px"
                        :display "flex"
                        :align-items "center"
                        :gap "10px"
-                       :border-bottom (str "1px solid " (:border-subtle tokens))
                        :background (:bg-3 tokens)
                        :font-family mono-stack
-                       :font-size "12px"
-                       :color (:text-primary tokens)}}
+                       :font-size "13px"
+                       :color (:text-primary tokens)
+                       :border-top-left-radius "4px"
+                       :border-top-right-radius "4px"}}
       (when microstep?
         [:span {:style {:color (:text-tertiary tokens) :font-size "10px"}}
          "↳"])
@@ -520,6 +702,11 @@
              "Chart hidden in List view — flip to Canvas to inspect the topology."]]
 
            ;; default — :canvas
+           ;; rf2-3d987 issue #4 — collapsible chart. The chart wrapper
+           ;; carries its own nested header with a ▾/▸ toggle. When
+           ;; collapsed the chart is replaced by a one-line summary
+           ;; so the snapshot pair sits within the operator's foveal
+           ;; band without scrolling.
            [:div {:data-testid "rf-xray-machine-focused-event-chart"
                   :data-layout-engine engine
                   :data-machine-id (str machine-id)
@@ -532,6 +719,7 @@
                   :data-fired-edge-ids (str/join
                                          " " (sort (set fired-edge-ids)))
                   :data-view-mode "canvas"
+                  :data-chart-collapsed (str collapsed?)
                   ;; rf2-zdfbm — fill the section's available height so the
                   ;; topology chart (`machine-canvas/Chart` is `height
                   ;; 100%`) expands into the panel rather than collapsing
@@ -539,36 +727,59 @@
                   ;; chart grow inside the flex-column section; the
                   ;; min-height floor keeps xyflow's non-zero-parent-
                   ;; height requirement satisfied when the panel is short.
-                  :style {:padding "12px"
-                          :background (:bg-1 tokens)
-                          :overflow "hidden"
-                          :flex "1 1 0"
-                          :min-height "320px"
-                          :display "flex"
-                          :flex-direction "column"
-                          ;; position-relative so the after-rings overlay
-                          ;; can absolute-position itself over the chart SVG.
-                          :position "relative"}}
-            ;; rf2-y3l8z — the chart is now wrapped in an interactive
-            ;; viewport adapter (zoom/pan/fit + view-mode toggle +
-            ;; controls toolbar). The adapter owns the after-rings
-            ;; overlay so they stay co-located with the canvas.
-            [machine-canvas/Chart
-             {:definition         definition
-              :machine-id         machine-id
-              :from-highlight     from-state
-              :to-highlight       to-state
-              ;; rf2-qeemm (G3) — the focused epoch's traversed edges paint
-              ;; the FIRED treatment on the live chart (canonical ids from
-              ;; `extract-fired-edge-ids`, attached to the section record).
-              :fired-edge-ids     fired-edge-ids
-              :on-state-click     (fn [path]
-                                    (rf/dispatch
-                                      [:rf.xray/machine-state-clicked
-                                       {:machine-id machine-id
-                                        :path       path}]
-                                      {:frame :rf/xray}))
-              :show-after-rings?  true}]])))
+                  ;;
+                  ;; When collapsed the wrapper drops `flex 1` + the
+                  ;; min-height floor so the row only consumes header +
+                  ;; summary height — freeing screen real-estate for the
+                  ;; snapshot pair below (issue #4).
+                  :style (merge
+                           {:background (:bg-2 tokens)
+                            :display "flex"
+                            :flex-direction "column"
+                            :overflow "hidden"
+                            :position "relative"}
+                           (if collapsed?
+                             {:flex "0 0 auto"}
+                             {:flex "1 1 0"
+                              :min-height "320px"}))}
+            ;; Nested header (issue #7 — lighter chrome, smaller font,
+            ;; bottom-border separator). Carries the ▾ / ▸ toggle.
+            [:header {:data-testid "rf-xray-machine-focused-event-chart-header"
+                      :style nested-header-base-style}
+             (chart-collapse-toggle
+               {:machine-id machine-id :collapsed? collapsed?})]
+            (if collapsed?
+              (chart-collapsed-summary
+                {:machine-id machine-id :definition definition})
+              [:div {:style {:flex "1 1 0"
+                             :min-height 0
+                             :padding "12px"
+                             :background (:bg-1 tokens)
+                             :display "flex"
+                             :flex-direction "column"
+                             ;; position-relative so the after-rings overlay
+                             ;; can absolute-position itself over the chart SVG.
+                             :position "relative"}}
+               ;; rf2-y3l8z — the chart is now wrapped in an interactive
+               ;; viewport adapter (zoom/pan/fit + view-mode toggle +
+               ;; controls toolbar). The adapter owns the after-rings
+               ;; overlay so they stay co-located with the canvas.
+               [machine-canvas/Chart
+                {:definition         definition
+                 :machine-id         machine-id
+                 :from-highlight     from-state
+                 :to-highlight       to-state
+                 ;; rf2-qeemm (G3) — the focused epoch's traversed edges paint
+                 ;; the FIRED treatment on the live chart (canonical ids from
+                 ;; `extract-fired-edge-ids`, attached to the section record).
+                 :fired-edge-ids     fired-edge-ids
+                 :on-state-click     (fn [path]
+                                       (rf/dispatch
+                                         [:rf.xray/machine-state-clicked
+                                          {:machine-id machine-id
+                                           :path       path}]
+                                         {:frame :rf/xray}))
+                 :show-after-rings?  true}]])])))
      ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — snapshot drill-in. Each
      ;; per-machine section renders the BEFORE / AFTER snapshot maps
      ;; through the first-class edn-inspector widget (spec/021 §10).

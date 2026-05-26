@@ -82,6 +82,14 @@
   [db machine-id]
   (get-in db [slot-root :view-mode-by-id machine-id] :canvas))
 
+(defn- chart-collapsed-of
+  "Read the persisted chart-collapsed flag for `machine-id`. Defaults
+  to `false` — rf2-3d987 issue #4 fix: chart is expanded by default so
+  first-time operators see the topology; persisting per-machine lets
+  the operator hide chart real-estate to give the snapshot pair room."
+  [db machine-id]
+  (boolean (get-in db [slot-root :chart-collapsed-by-id machine-id] false)))
+
 ;; ---- localStorage round-trip --------------------------------------------
 
 (def storage-key
@@ -89,6 +97,14 @@
   Mirrors `static.machines.persistence/sub-mode-key`'s posture: one
   bare EDN slot keyed by machine-id keyword."
   "xray.machine-canvas.view-mode-by-id")
+
+(def chart-collapsed-storage-key
+  "Canonical localStorage key for the per-machine chart-collapsed flag
+  map (rf2-3d987 issue #4). Same posture as `storage-key`: one EDN
+  map keyed by machine-id. Persisting per-machine lets one machine's
+  Chart be collapsed (snapshot pair foregrounded) while another's
+  Chart stays expanded."
+  "xray.machine-canvas.chart-collapsed-by-id")
 
 (defn- storage-available? []
   (and (exists? js/window)
@@ -136,6 +152,31 @@
                 parsed)))
       (catch :default _ {}))))
 
+(defn save-chart-collapsed-by-id!
+  "Persist the chart-collapsed-by-id map to localStorage (rf2-3d987
+  issue #4). Empty/nil clears the slot."
+  [m]
+  (if (or (nil? m) (and (map? m) (empty? m)))
+    (remove-raw! chart-collapsed-storage-key)
+    (write-raw! chart-collapsed-storage-key (pr-str m)))
+  nil)
+
+(defn load-chart-collapsed-by-id
+  "Read + normalise the persisted chart-collapsed map. Returns `{}`
+  when the slot is absent / unparseable. Values normalise to booleans
+  (truthy → `true`, anything else → `false`)."
+  []
+  (when-let [raw (read-raw chart-collapsed-storage-key)]
+    (try
+      (let [parsed (reader/read-string raw)]
+        (when (map? parsed)
+          (into {}
+                (keep (fn [[k v]]
+                        (when (keyword? k)
+                          [k (boolean v)])))
+                parsed)))
+      (catch :default _ {}))))
+
 ;; ---- subs ---------------------------------------------------------------
 
 (defn- install-subs! []
@@ -145,7 +186,15 @@
 
   (rf/reg-sub :rf.xray.machine-canvas/view-mode-by-id
     (fn [db _]
-      (get-in db [slot-root :view-mode-by-id] {}))))
+      (get-in db [slot-root :view-mode-by-id] {})))
+
+  (rf/reg-sub :rf.xray.machine-canvas/chart-collapsed-for
+    (fn [db [_ machine-id]]
+      (chart-collapsed-of db machine-id)))
+
+  (rf/reg-sub :rf.xray.machine-canvas/chart-collapsed-by-id
+    (fn [db _]
+      (get-in db [slot-root :chart-collapsed-by-id] {}))))
 
 ;; ---- events -------------------------------------------------------------
 
@@ -160,14 +209,39 @@
 
   (rf/reg-event-db :rf.xray.machine-canvas/hydrate-view-modes
     (fn [db [_ by-id]]
-      (assoc-in db [slot-root :view-mode-by-id] (or by-id {})))))
+      (assoc-in db [slot-root :view-mode-by-id] (or by-id {}))))
+
+  ;; rf2-3d987 issue #4 — toggle the per-machine chart-collapsed flag.
+  ;; `mode` is :collapsed / :expanded / :toggle. Persists the post-mutation
+  ;; map to localStorage so the operator's choice survives reloads.
+  (rf/reg-event-fx :rf.xray.machine-canvas/set-chart-collapsed
+    (fn [{:keys [db]} [_ {:keys [machine-id mode]}]]
+      (let [current (chart-collapsed-of db machine-id)
+            next    (case mode
+                      :collapsed true
+                      :expanded  false
+                      :toggle    (not current)
+                      (boolean mode))
+            db'     (assoc-in db [slot-root :chart-collapsed-by-id machine-id]
+                              next)
+            by-id   (get-in db' [slot-root :chart-collapsed-by-id])]
+        {:db db'
+         :rf.xray.machine-canvas/persist-chart-collapsed by-id})))
+
+  (rf/reg-event-db :rf.xray.machine-canvas/hydrate-chart-collapsed
+    (fn [db [_ by-id]]
+      (assoc-in db [slot-root :chart-collapsed-by-id] (or by-id {})))))
 
 ;; ---- fx -----------------------------------------------------------------
 
 (defn- install-fx! []
   (rf/reg-fx :rf.xray.machine-canvas/persist-view-mode
     (fn [_ctx by-id]
-      (save-view-mode-by-id! by-id))))
+      (save-view-mode-by-id! by-id)))
+
+  (rf/reg-fx :rf.xray.machine-canvas/persist-chart-collapsed
+    (fn [_ctx by-id]
+      (save-chart-collapsed-by-id! by-id))))
 
 ;; ---- hydration ----------------------------------------------------------
 
@@ -175,6 +249,10 @@
   (let [by-id (load-view-mode-by-id)]
     (when (seq by-id)
       (rf/dispatch [:rf.xray.machine-canvas/hydrate-view-modes by-id]
+                   {:frame :rf/xray})))
+  (let [by-id (load-chart-collapsed-by-id)]
+    (when (seq by-id)
+      (rf/dispatch [:rf.xray.machine-canvas/hydrate-chart-collapsed by-id]
                    {:frame :rf/xray}))))
 
 ;; ---- view-mode toggle ---------------------------------------------------
