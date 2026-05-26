@@ -561,7 +561,7 @@
 ;; across the epoch, the structural diff sees `:rf/redacted` on both
 ;; sides and (correctly per the contract) emits no diff row — the
 ;; renderer never tries to override the elision contract (per
-;; `diff/annotated_tree.cljc` §Sentinel handling).
+;; `diff/engine.cljc` §Sentinel-aware modified handling).
 ;;
 ;; This leaves the developer with an empty diff and no signal that
 ;; anything happened in the redacted slot. The hint surface

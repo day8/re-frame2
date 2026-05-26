@@ -6,9 +6,9 @@
 
   ## Why a separate engine
 
-  The generic annotated-tree walker (Phase 1) treats hiccup as a plain
-  vector — `[tag attrs? & children]` — which produces noisy output for
-  rendered hiccup:
+  A generic structural-diff walker treats hiccup as a plain vector —
+  `[tag attrs? & children]` — which produces noisy output for rendered
+  hiccup:
 
     1. Slot 1 (the attrs map) deserves its own diff treatment so a
        single attribute change reads as one delta, not a 'slot 1

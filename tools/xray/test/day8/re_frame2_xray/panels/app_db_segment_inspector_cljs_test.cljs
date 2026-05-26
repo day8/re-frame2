@@ -4,11 +4,10 @@
   ai/findings/2026-05-21-testcov-xray.md §Axis 1.2).
 
   Before this file the inspector (`panels/app-db-segment-inspector`)
-  was exercised only for its ARIA SHAPE (`modals-aria-cljs-test`) and
-  indirectly for the breadcrumb-open dispatch
-  (`diff/render-cljs-test`). Its OWN content projection — the
-  path-prefix slice the value sub computes + the value the body
-  renders — had no focused test. This is that test.
+  was exercised only for its ARIA SHAPE (`modals-aria-cljs-test`).
+  Its OWN content projection — the path-prefix slice the value sub
+  computes + the value the body renders — had no focused test. This
+  is that test.
 
   ## Wiring
 

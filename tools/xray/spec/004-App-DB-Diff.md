@@ -236,9 +236,9 @@ sentinel into `:db-before` / `:db-after` to keep sensitive material out
 of recorded records. When the underlying value at a redacted path
 actually changed across a cascade, the structural diff correctly sees
 `:rf/redacted` = `:rf/redacted` and emits no row — the elision
-contract is preserved (per [`diff/annotated_tree.cljc` §Sentinel
-handling](#)). The developer is left with an empty diff and no signal
-that anything happened in the redacted slot.
+contract is preserved (per `diff/engine.cljc` §Sentinel-aware
+modified handling). The developer is left with an empty diff and no
+signal that anything happened in the redacted slot.
 
 Xray surfaces a **separate-from-diff** signal: a muted-grey chip
 at the top of the diff body when count > 0.
