@@ -2418,7 +2418,7 @@ edn-inspector in every panel renders the same placeholder:
 ┌─ epoch #12 ──────────────────────────────────────────────────────────┐
 │  Epoch evicted from buffer.                                          │
 │  Increase :epoch-history to retain more.                             │
-│  Settings → General → Epoch history.                                 │
+│  Settings → Buffer → Epoch history.                                  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -2458,7 +2458,7 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 |---|---|
 | Cascade attribution capture | **Focused-event-only** (cheaper). All epochs in buffer carry the bones (which subs ran, which views re-rendered); only the focused epoch needs the full chain attribution payload. Substrate hot-path: emit lightweight rows on every epoch; emit fattened cause-chain rows only when `:rf.xray/focused-dispatch-id` matches. |
 | Bounded per-epoch capture | Cap at **50 subs + 100 views per epoch**. The substrate enforces at capture time; the panel shows `+N more` overflow indicator (existing component, `panels/overflow_indicator.cljc`). |
-| Buffer retention | Substrate-owned. Xray documents the operator surface as **Settings → General → Epoch history** (current ~100; configurable). |
+| Buffer retention | Substrate-owned. Xray documents the operator surface as **Settings → Buffer → Epoch history** (current ~100; configurable). |
 | Evicted-epoch UX | Per §10.7 — placeholder string in every panel. |
 | Sub `:skipped` op | New trace op needed (`:rf.sub/skipped`) — current trace has `:rf.sub/run` only. Without `:skipped`, the "unchanged subs" disclosure in §3.4 cannot render coverage. |
 
@@ -2616,8 +2616,9 @@ real beads after approving this doc.
   captured aggregate.
 
 - **rf2-?????** — *Xray: settings — `:epoch-history` knob + "Show
-  unchanged subs" toggle.* General → Epoch history slider; View → Show
-  unchanged subs in cascade toggle (default OFF per §3.4).
+  unchanged subs" toggle.* Buffer → Epoch history slider (relocated
+  from General per rf2-pu9sb; slot stays `:general :epoch-history`);
+  View → Show unchanged subs in cascade toggle (default OFF per §3.4).
 
 ### Doc-only beads
 

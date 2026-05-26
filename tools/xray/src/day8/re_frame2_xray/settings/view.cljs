@@ -207,9 +207,13 @@
   (alias for `:rf.xray/keybinding-enabled?`). Rebind UI is the v1.1
   follow-on.
 
-  Buffer (rf2-ttnst) surfaces the trace-buffer / epoch-buffer /
-  inspector-collapse-threshold knobs + a 'Clear buffer now' button
-  with a confirmation modal (destructive action)."
+  Buffer (rf2-ttnst; rf2-pu9sb consolidation) surfaces the
+  epoch-history slider + cascades-retained + inspector-collapse-
+  threshold knobs plus a 'Clear buffer now' button with a
+  confirmation modal (destructive action). The epoch-history slider
+  lived on General pre-pu9sb; the slot stays `:general :epoch-
+  history` and only the visual home moved into the spec-canonical
+  Buffer category."
   [{:id :general     :label "General"     :mnemonic "g"}
    {:id :keybindings :label "Keybindings" :mnemonic "k"}
    {:id :buffer      :label "Buffer"      :mnemonic "b"}
@@ -267,8 +271,7 @@
         show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
         show-unchanged-subs? @(rf/subscribe [:rf.xray/setting :general :show-unchanged-subs?])
         use-system?     @(rf/subscribe [:rf.xray/setting
-                                        :general :use-system-colors?])
-        epoch-history   @(rf/subscribe [:rf.xray/setting :general :epoch-history])]
+                                        :general :use-system-colors?])]
     [:div {:data-testid "rf-xray-settings-section-general"}
      [:h2 {:style (section-heading-style)} "General"]
 
@@ -437,48 +440,16 @@
       [:p {:style (hint-style)}
        "Fully-qualified keywords longer than this elide in compact list cells."]]
 
-     ;; ── Epoch history slider (rf2-3zyyx — spec/021 §10.7, §13) ──
+     ;; ── Epoch history slider (rf2-3zyyx; relocated rf2-pu9sb) ──
      ;;
-     ;; Depth of the per-frame epoch ring buffer. Writes through to
-     ;; the substrate via `(rf/configure :epoch-history {:depth N})`
-     ;; (see settings/effects.cljs §apply-epoch-history!). The
-     ;; "Epoch evicted from buffer" placeholder text in every panel
-     ;; (spec/021 §10.7) points the operator here — bumping the knob
-     ;; retains more time-travel coverage at a higher heap cost.
-     ;; Slider range 10–500 brackets the default 50 with one decade
-     ;; in either direction.
-     [:div {:style (field-style)}
-      [:label {:html-for "rf-xray-settings-epoch-history-input"
-               :style    (label-style)} "Epoch history"]
-      [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
-       [:input {:data-testid "rf-xray-settings-epoch-history-input"
-                :id          "rf-xray-settings-epoch-history-input"
-                :type        "range"
-                :min         "10"
-                :max         "500"
-                :step        "10"
-                :value       (str (or epoch-history 50))
-                :on-change   (fn [^js e]
-                               (let [n (js/parseInt (.. e -target -value) 10)]
-                                 (when-not (js/isNaN n)
-                                   (rf/dispatch
-                                     [:rf.xray/settings-update
-                                      :general :epoch-history n]
-                                     {:frame :rf/xray}))))
-                :style       {:flex 1}}]
-       [:span {:data-testid "rf-xray-settings-epoch-history-value"
-               :style       {:font-family mono-stack
-                             :color       (:text-secondary tokens)
-                             :min-width   "48px"
-                             :text-align  "right"}}
-        (str (or epoch-history 50))]]
-      [:p {:style (hint-style)}
-       "Number of epochs Xray retains per frame for time-travel "
-       "inspection. Older epochs evict when the buffer fills; the "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        "Epoch evicted from buffer"]
-       " placeholder points here. Default 50."]]
+     ;; Categorically a buffer-capacity knob — moved to the Buffer
+     ;; tab (`buffer-section`). The settings slot stays
+     ;; `:general :epoch-history` (the slot is what `apply-epoch-
+     ;; history!` reads + restores), so no state migration; only the
+     ;; visual home changed. The dead `:buffer :retained-epochs`
+     ;; numeric input (no substrate consumer) was also removed in the
+     ;; same cleanup — pre-pu9sb the popup carried two fields for the
+     ;; same conceptual knob, one wired and one not.
 
      ;; ── Power user divider + show-tool-frames toggle (rf2-ttnst) ─
      ;;
@@ -855,21 +826,36 @@
                             action]])
                         rows)))))]))
 
-;; ---- section: Buffer (rf2-ttnst) ----------------------------------------
+;; ---- section: Buffer (rf2-ttnst; rf2-pu9sb epoch-history consolidation) -
 ;;
-;; Three numeric inputs plus a destructive 'Clear buffer now' button.
-;; The Clear button opens a confirmation modal — a small nested dialog
-;; mounted inside the Settings dialog body. The user must confirm
-;; before the trace-buffer is dropped, because the action is silent
-;; (no undo) and destroys debug context.
+;; Surfaces buffer-capacity knobs plus a destructive 'Clear buffer
+;; now' button. The Clear button opens a confirmation modal — a
+;; small nested dialog mounted inside the Settings dialog body. The
+;; user must confirm before the trace-buffer is dropped, because the
+;; action is silent (no undo) and destroys debug context.
 ;;
-;; Runtime plumbing: the three numeric knobs persist into
-;; `:settings :buffer` via the standard `:rf.xray/settings-update`
-;; event. Consumption is incremental — `:cascades-retained` is wired
-;; to the framework's per-frame ring depth via
-;; `(rf/configure :trace-buffer {:cascades-retained N})` (rf2-43koh
-;; consumer substrate); the other two knobs are stored for future
-;; consumers (inspector + epoch buffer) until those layers land.
+;; Runtime plumbing.
+;;
+;; * Epoch history (rf2-3zyyx, slot `:general :epoch-history`) — wired
+;;   to the framework's per-frame epoch ring depth via
+;;   `(rf/configure :epoch-history {:depth N})` (see
+;;   `settings/effects.cljs §apply-epoch-history!`). Slot stays under
+;;   `:general` for back-compat with the persisted settings shape;
+;;   only the popup home moved here (rf2-pu9sb).
+;; * Cascades retained (slot `:buffer :cascades-retained`) — wired to
+;;   the framework's per-frame trace ring depth via
+;;   `(rf/configure :trace-buffer {:cascades-retained N})` (rf2-43koh
+;;   consumer substrate).
+;; * App-db inspector collapse threshold (slot
+;;   `:buffer :app-db/inspector-collapse-threshold`) — stored for the
+;;   inspector layer.
+;;
+;; Pre-pu9sb the section also carried a `:buffer :retained-epochs`
+;; numeric input that had no substrate consumer (dead chrome — a
+;; duplicate of the wired `:general :epoch-history` slider that
+;; lived on the General tab). pu9sb consolidated to one slider in
+;; Buffer (the spec-canonical category per spec/007 §Settings popup
+;; row 5) and removed the dead field.
 
 (defn- numeric-field
   "Hiccup for a numeric setting input + label + hint. Common shape
@@ -980,7 +966,7 @@
       "Clear"]]]])
 
 (defn- buffer-section []
-  (let [retained-epochs   @(rf/subscribe [:rf.xray/setting :buffer :retained-epochs])
+  (let [epoch-history     @(rf/subscribe [:rf.xray/setting :general :epoch-history])
         cascades-retained @(rf/subscribe [:rf.xray/setting :buffer :cascades-retained])
         collapse-thresh   @(rf/subscribe [:rf.xray/setting :buffer
                                           :app-db/inspector-collapse-threshold])
@@ -995,17 +981,58 @@
       "numbers keep memory smaller; higher numbers let you scroll "
       "further back through past epochs."]
 
-     (numeric-field
-       {:testid    "rf-xray-settings-buffer-retained-epochs"
-        :label     "Retained epochs (:buffer/retained-epochs)"
-        :value     retained-epochs
-        :default   200
-        :min       1
-        :on-commit #(rf/dispatch
-                      [:rf.xray/settings-update
-                       :buffer :retained-epochs %]
-                      {:frame :rf/xray})
-        :hint      "Number of epochs kept in the Xray epoch buffer."})
+     ;; ── Epoch history slider (rf2-3zyyx — spec/021 §10.7, §13;
+     ;; relocated to Buffer in rf2-pu9sb) ──
+     ;;
+     ;; Depth of the per-frame epoch ring buffer. Writes through to
+     ;; the substrate via `(rf/configure :epoch-history {:depth N})`
+     ;; (see settings/effects.cljs §apply-epoch-history!). The
+     ;; "Epoch evicted from buffer" placeholder text in every panel
+     ;; (spec/021 §10.7) points the operator here — bumping the knob
+     ;; retains more time-travel coverage at a higher heap cost.
+     ;; Slider range 10–500 brackets the default 50 with one decade
+     ;; in either direction.
+     ;;
+     ;; Settings slot is `:general :epoch-history` (not
+     ;; `:buffer :epoch-history`) — this is the slot the effects
+     ;; layer reads + restores on boot. Pre-pu9sb the General tab
+     ;; held this slider and the Buffer tab carried a separate
+     ;; `:buffer :retained-epochs` numeric input that had no
+     ;; substrate consumer (dead chrome). pu9sb consolidated the
+     ;; surface here in Buffer (the spec-canonical category) without
+     ;; moving the slot.
+     [:div {:style (field-style)}
+      [:label {:html-for "rf-xray-settings-epoch-history-input"
+               :style    (label-style)} "Epoch history"]
+      [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
+       [:input {:data-testid "rf-xray-settings-epoch-history-input"
+                :id          "rf-xray-settings-epoch-history-input"
+                :type        "range"
+                :min         "10"
+                :max         "500"
+                :step        "10"
+                :value       (str (or epoch-history 50))
+                :on-change   (fn [^js e]
+                               (let [n (js/parseInt (.. e -target -value) 10)]
+                                 (when-not (js/isNaN n)
+                                   (rf/dispatch
+                                     [:rf.xray/settings-update
+                                      :general :epoch-history n]
+                                     {:frame :rf/xray}))))
+                :style       {:flex 1}}]
+       [:span {:data-testid "rf-xray-settings-epoch-history-value"
+               :style       {:font-family mono-stack
+                             :color       (:text-secondary tokens)
+                             :min-width   "48px"
+                             :text-align  "right"}}
+        (str (or epoch-history 50))]]
+      [:p {:style (hint-style)}
+       "Number of epochs Xray retains per frame for time-travel "
+       "inspection. Older epochs evict when the buffer fills; the "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "Epoch evicted from buffer"]
+       " placeholder points here. Default 50."]]
 
      (numeric-field
        {:testid    "rf-xray-settings-buffer-cascades-retained"

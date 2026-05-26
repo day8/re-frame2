@@ -569,7 +569,7 @@ walkthrough locks the list (rf2-ttnst):
 | 2 | **Theme** | `t` | Dark / Light (a single GitHub-blue accent in both modes, per §Colour system; per-tab default-expansion knob dropped) |
 | 3 | **Filters** | `f` | Active filter pills mirror · auto-filter-UI quick-open |
 | 4 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
-| 5 | **Buffer** | `b` | `:buffer/retained-epochs` · `:buffer/cascades-retained` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" button with confirm modal |
+| 5 | **Buffer** | `b` | `:general :epoch-history` (slider, relocated from General per rf2-pu9sb — slot stays under `:general` for the persisted-settings shape, only the popup home moved) · `:buffer/cascades-retained` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" button with confirm modal |
 | 6 | **Diff** | `d` | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; section-grouping threshold fixed defaults — both dropped from the user surface) |
 
 **Inner-tab mnemonics** (g / t / f / k / b / d) — bare-letter

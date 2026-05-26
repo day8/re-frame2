@@ -106,12 +106,42 @@
       (is (find-by-testid rendered "rf-xray-settings-text-size-input"))
       (is (find-by-testid rendered "rf-xray-settings-panel-position-right-rail"))
       (is (find-by-testid rendered "rf-xray-settings-auto-open-on-error"))
-      ;; rf2-3zyyx — Epoch history slider renders in General with its
-      ;; numeric readout sibling.
-      (is (find-by-testid rendered "rf-xray-settings-epoch-history-input")
-          "Epoch history slider renders in General")
-      (is (find-by-testid rendered "rf-xray-settings-epoch-history-value")
-          "Epoch history numeric readout renders alongside the slider"))))
+      ;; rf2-pu9sb — Epoch history slider relocated from General to
+      ;; Buffer (the spec-canonical category for buffer-capacity
+      ;; knobs). The slot stays `:general :epoch-history`; only the
+      ;; visual home moved. See `epoch-history-slider-renders-in-buffer`
+      ;; below for the new home.
+      (is (nil? (find-by-testid rendered "rf-xray-settings-epoch-history-input"))
+          "Epoch history slider no longer renders in General (rf2-pu9sb)")
+      (is (nil? (find-by-testid rendered "rf-xray-settings-epoch-history-value"))
+          "Epoch history numeric readout no longer renders in General (rf2-pu9sb)"))))
+
+;; rf2-pu9sb — Epoch history slider dedupe. Pre-pu9sb the popup
+;; carried two fields for the same conceptual knob: a wired
+;; `:general :epoch-history` slider on General and a dead
+;; `:buffer :retained-epochs` numeric input on Buffer (no substrate
+;; consumer). pu9sb collapsed to one slider in Buffer (the spec-
+;; canonical category per spec/007 §Settings popup row 5) using the
+;; wired `:general :epoch-history` slot.
+
+(deftest epoch-history-slider-renders-in-buffer
+  (testing "rf2-pu9sb — Epoch history slider renders in the Buffer
+            section (not General); slot stays `:general :epoch-history`."
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-open])
+      (rf/dispatch-sync [:rf.xray/settings-select-tab :buffer]))
+    (rf/with-frame :rf/xray
+      (let [rendered (popup/Modal)]
+        (is (find-by-testid rendered "rf-xray-settings-section-buffer"))
+        (is (find-by-testid rendered "rf-xray-settings-epoch-history-input")
+            "Epoch history slider renders in Buffer")
+        (is (find-by-testid rendered "rf-xray-settings-epoch-history-value")
+            "Epoch history numeric readout renders alongside the slider")
+        ;; The dead `:buffer :retained-epochs` numeric input had no
+        ;; substrate consumer and was removed in the same cleanup.
+        (is (nil? (find-by-testid rendered "rf-xray-settings-buffer-retained-epochs"))
+            "Dead `:buffer :retained-epochs` numeric input is gone")))))
 
 ;; Filters tab removed (rf2-wknb3) — filter management lives in the
 ;; top-ribbon pill strip (`filters/pills.cljs`), the per-pill edit
