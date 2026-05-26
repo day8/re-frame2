@@ -568,18 +568,29 @@
         ;; invalidation boundary, AND the manual `Fit` Controls
         ;; button) is the only thing that re-fits.
         fit-state     (r/atom {:instance nil :fit-key nil})
-        ;; Helper: schedule a fitView call deferred to the next
-        ;; animation frame, so React's commit + xyflow's internal
-        ;; node-measurement have landed by the time the fit reads the
-        ;; bounding box. Calls go through `invoke-fit-view!` so the
-        ;; regression test can spy via `set!` (mirrors
-        ;; `invoke-elk-layout!`).
+        ;; rf2-s5kyp — double-rAF deferral. A SINGLE rAF races
+        ;; xyflow's internal node measurement on the focused-machine-
+        ;; change path: by the time the chart re-renders with the new
+        ;; `:definition`'s positions, React commits the new prop set, the
+        ;; rAF fires, and xyflow may still be measuring the just-mounted
+        ;; node DOM — `.fitView` then reads stale / zero-size bounds and
+        ;; frames the chart on the prior topology's extent (or a
+        ;; degenerate box if every new node is still default-sized).
+        ;; Two rAFs guarantee the fit runs in the frame AFTER React's
+        ;; commit + xyflow's measurement pass, the same trick xyflow's
+        ;; own examples use for post-load fit calls. Single-rAF is kept
+        ;; only as the test-runtime fallback (Node has no rAF).
+        ;;
+        ;; Calls go through `invoke-fit-view!` so the regression test can
+        ;; spy via `set!` (mirrors `invoke-elk-layout!`).
         schedule-fit! (fn [^js instance]
                         (let [opts #js {:padding 0.1}]
                           (if (and (exists? js/requestAnimationFrame)
                                    (some? js/requestAnimationFrame))
                             (js/requestAnimationFrame
-                              (fn [_] (invoke-fit-view! instance opts)))
+                              (fn [_]
+                                (js/requestAnimationFrame
+                                  (fn [_] (invoke-fit-view! instance opts)))))
                             ;; Test / Node fallback — fire immediately.
                             (invoke-fit-view! instance opts))))]
     (fn [{:keys [machine-id definition current-state from-highlight to-highlight

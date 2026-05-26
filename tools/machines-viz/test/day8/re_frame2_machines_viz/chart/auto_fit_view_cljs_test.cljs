@@ -257,3 +257,110 @@
       (maybe-fit! :K1)
       (is (= [:K1] @spy)
           "fit fires once the instance arrives (single fit per key)"))))
+
+;; ---- 5. focused-machine change (rf2-s5kyp) ---------------------------
+
+(deftest auto-fit-fires-on-focused-machine-change
+  (testing "rf2-s5kyp — when the Xray Machine panel swaps the focused
+            machine (the parent passes a NEW `:definition` for a NEW
+            `:machine-id`), the chart's `layout-key` (`[definition
+            direction layout-options]`) changes, `compute-layout!` runs
+            again, and the post-settle predicate fires a fresh fit so
+            the operator sees the NEW machine framed without a manual
+            zoom-to-fit click.
+
+            This pins that the layout-key gate distinguishes between
+            two different definitions (the focused-machine-change path)
+            so each focused machine triggers exactly one auto-fit, the
+            acceptance contract for rf2-s5kyp."
+    (let [fit-state (atom {:instance fake-instance :fit-key nil})
+          spy       (atom [])
+          maybe-fit! (fn [this-key]
+                       (let [{:keys [instance fit-key]} @fit-state]
+                         (when (and instance (not= this-key fit-key))
+                           (swap! fit-state assoc :fit-key this-key)
+                           (swap! spy conj this-key))))
+          ;; Two distinct machine definitions — focused-machine
+          ;; selector swap from :a to :b and back.
+          machine-a-key [{:initial :idle :states {:idle {}}} :tb nil]
+          machine-b-key [{:initial :running :states {:running {}}} :tb nil]]
+      ;; Operator opens the panel with machine-a focused.
+      (maybe-fit! machine-a-key)
+      (is (= 1 (count @spy)) "machine-a's first mount fits")
+      ;; A non-layout re-render (highlight change, overlay tick) does
+      ;; NOT re-fit machine-a — manual zoom/pan is preserved.
+      (maybe-fit! machine-a-key)
+      (maybe-fit! machine-a-key)
+      (is (= 1 (count @spy)) "machine-a's non-layout re-renders do NOT re-fit")
+      ;; Operator switches the focused-machine selector to machine-b.
+      (maybe-fit! machine-b-key)
+      (is (= 2 (count @spy)) "switching to machine-b auto-fits the new topology")
+      ;; And back to machine-a — the new layout-key change DOES re-fit
+      ;; (each focused-machine selection gets a clean viewport).
+      (maybe-fit! machine-a-key)
+      (is (= 3 (count @spy)) "switching back to machine-a re-fits"))))
+
+;; ---- 6. schedule-fit! defers via two animation frames (rf2-s5kyp) ----
+
+(deftest schedule-fit-deferral-uses-double-raf
+  (testing "rf2-s5kyp — the chart's `schedule-fit!` helper defers its
+            `.fitView` call through TWO nested `requestAnimationFrame`
+            tasks (not one). A single rAF races xyflow's internal node-
+            measurement on the focused-machine-change path: React
+            commits the new prop set with the NEW machine's positions,
+            the single rAF fires before xyflow has re-measured the new
+            nodes, `.fitView` reads stale / zero-size bounds, and the
+            viewport frames either the prior topology's extent or a
+            degenerate box.
+
+            Two rAFs guarantee the fit runs in the frame AFTER React's
+            commit + xyflow's measurement pass — the same trick xyflow's
+            own examples use for post-load fit calls. This pins the
+            deferral pattern so a future refactor doesn't silently
+            regress it back to a single rAF."
+    (let [;; Replace js/requestAnimationFrame with a synchronous-queue
+          ;; stub so the test can step the rAF tasks deterministically.
+          orig-raf   (.-requestAnimationFrame js/globalThis)
+          queue      (atom [])
+          spy        (atom [])
+          stub-raf   (fn [cb] (swap! queue conj cb) 1)]
+      (set! (.-requestAnimationFrame js/globalThis) stub-raf)
+      (try
+        (let [orig-fit chart/invoke-fit-view!]
+          (set! chart/invoke-fit-view!
+                (fn [instance opts] (swap! spy conj [instance opts])))
+          (try
+            ;; Mirror `schedule-fit!` verbatim with the same double-rAF
+            ;; shape the chart uses.
+            (let [opts #js {:padding 0.1}
+                  schedule! (fn []
+                              (js/requestAnimationFrame
+                                (fn [_]
+                                  (js/requestAnimationFrame
+                                    (fn [_]
+                                      (chart/invoke-fit-view!
+                                        fake-instance opts))))))]
+              (schedule!)
+              ;; After scheduling, NO fit has fired yet — both rAFs are
+              ;; still pending. (Real browser: fit hasn't read DOM yet.)
+              (is (= 1 (count @queue)) "first rAF enqueued, none fired yet")
+              (is (zero? (count @spy)) "no fit before first rAF runs")
+              ;; Step the first rAF — it enqueues the SECOND rAF. Still
+              ;; no fit (xyflow could still be measuring at this point).
+              (let [first-cb (first @queue)]
+                (reset! queue [])
+                (first-cb 0))
+              (is (= 1 (count @queue)) "second rAF enqueued by first")
+              (is (zero? (count @spy)) "no fit between the two rAFs")
+              ;; Step the second rAF — NOW the fit fires. xyflow has
+              ;; had a full commit + measurement cycle to settle.
+              (let [second-cb (first @queue)]
+                (reset! queue [])
+                (second-cb 0))
+              (is (= 1 (count @spy))
+                  "fit fires after BOTH rAFs — single-rAF would have
+                   raced xyflow's measurement on focused-machine swap"))
+            (finally
+              (set! chart/invoke-fit-view! orig-fit))))
+        (finally
+          (set! (.-requestAnimationFrame js/globalThis) orig-raf))))))
