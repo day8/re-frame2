@@ -57,6 +57,7 @@
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
+            [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -287,34 +288,44 @@
 ;; ---- COEFFECT step -------------------------------------------------------
 
 (defn- coeffect-row-view
-  "Render one COEFFECT row (id link + diff-style add-row) per the bead
-  body's §COEFFECT shape."
-  [{:keys [id value] :as _row} idx]
+  "Render one COEFFECT row (id link + labelled value via edn-inspector)
+  per the bead body's §COEFFECT shape (rf2-cq0ch).
+
+  The injected value renders via the canonical edn-inspector widget —
+  scalars one-line through `edn/inspect-inline`; nested structures get
+  the labelled cofx-id header so the row reads `:rf/now <inst>` /
+  `:session {:user-id 42}` rather than the legacy cryptic
+  `+[]<value>` diff-row.
+
+  Argument order matches `map-indexed`'s `(f idx item)` calling
+  convention; the pre-rf2-cq0ch shape transposed these and silently
+  destructured a number as the row map (`_row` was the index, `idx`
+  the row map — hence the legacy `+[]nil` symptom)."
+  [idx {:keys [id value] :as _row}]
   [:div {:key (str "cofx-" idx)
          :data-testid (str "rf-xray-epoch-coeffect-row-" idx)
-         :style {:padding "3px 0"}}
-   ;; id link
-   [:div {:style {:display "inline-flex"
-                  :align-items "center"
-                  :gap "4px"
-                  :font-family mono-stack
-                  :font-size "12px"
-                  :color (:accent tokens)}}
+         :style {:padding "3px 0"
+                 :display "flex"
+                 :align-items "flex-start"
+                 :gap "8px"
+                 :font-family mono-stack
+                 :font-size "12px"}}
+   ;; id label
+   [:span {:data-testid (str "rf-xray-epoch-coeffect-row-id-" idx)
+           :style {:color (:accent tokens)
+                   :white-space "nowrap"
+                   :display "inline-flex"
+                   :align-items "center"
+                   :gap "4px"}}
     (proj/ns-keyword id)
     (icons/external-link)]
-   ;; diff-style add row
-   [:div {:style {:display      "flex"
-                  :align-items  "flex-start"
-                  :gap          "8px"
-                  :padding      "2px 0 2px 16px"
-                  :font-family  mono-stack
-                  :font-size    "12px"}}
-    [:span {:style {:color (:success tokens) :font-weight 700}} "+"]
-    [:span {:style {:color (:text-tertiary tokens) :white-space "nowrap"}}
-     (str "[" (proj/ns-keyword id) "]")]
-    [:span {:style {:color (:success tokens) :min-width 0 :flex 1
-                    :word-break "break-word"}}
-     (proj/truncate (pr-str value) 100)]]])
+   ;; injected value (labelled — no cryptic `+[]nil` line)
+   [:span {:data-testid (str "rf-xray-epoch-coeffect-row-value-" idx)
+           :style {:color (:text-primary tokens)
+                   :min-width 0
+                   :flex 1
+                   :word-break "break-word"}}
+    (edn/inspect-inline value)]])
 
 (defn render-coeffect-step
   "Render the COEFFECT step (single step with N rows — one per
@@ -559,8 +570,11 @@
 ;; ---- FLOW step -----------------------------------------------------------
 
 (defn- flow-row-view
-  "Render one flow recompute row — id link + diff-style line."
-  [{:keys [flow-id path before after duration-ms]} idx]
+  "Render one flow recompute row — id link + diff-style line.
+
+  Argument order matches `map-indexed`'s `(f idx item)` convention
+  (rf2-cq0ch — companion swap with `coeffect-row-view` / `fx-row-view`)."
+  [idx {:keys [flow-id path before after duration-ms]}]
   [:div {:key (str "flow-" idx)
          :data-testid (str "rf-xray-epoch-flow-row-" idx)
          :style {:padding "3px 0"}}
@@ -614,8 +628,12 @@
 
 (defn- fx-row-view
   "Render one fx-handler row inside the FX step — green check + fx-id
-  + truncated args."
-  [{:keys [fx-id status args duration-ms]} idx]
+  + truncated args.
+
+  Argument order matches `map-indexed`'s `(f idx item)` convention
+  (rf2-cq0ch — companion swap with `coeffect-row-view` /
+  `flow-row-view`)."
+  [idx {:keys [fx-id status args duration-ms]}]
   (let [glyph    (case status
                    :ok          "✓"
                    :overridden  "↺"

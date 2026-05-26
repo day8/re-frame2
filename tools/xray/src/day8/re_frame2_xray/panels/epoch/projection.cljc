@@ -98,16 +98,38 @@
 
 ;; ---- COEFFECT rows -------------------------------------------------------
 
+(def system-cofx-ids
+  "Coeffect ids the substrate auto-injects on every event handler — the
+  user did not register them via `reg-cofx` and the operator does not
+  benefit from seeing them. Filtered out of the COEFFECT step at
+  projection time (rf2-cq0ch).
+
+  Mirrors `re-frame.fx/framework-coeffect-keys`; the substrate already
+  filters these out of the `:rf.event/run-end :rf.event/coeffects`
+  stamp (rf2-9dk9y), but we filter here too as a belt-and-braces
+  defence — older runtimes / test fixtures that supply a raw cofx-map
+  through the fallback still get clean output."
+  #{:db :event :frame :source :trace-id})
+
+(defn- user-cofx?
+  "True iff `id` is a user-defined coeffect (i.e. not a system-injected
+  default). Used to gate per-row visibility."
+  [id]
+  (and (some? id) (not (contains? system-cofx-ids id))))
+
 (defn- coeffect-rows-from-runs
   "Walk every `:rf.cofx/run` event (rf2-hhh92) and project one row per
   user-injected coeffect — each row carries the cofx id and the value
-  it added to ctx. Empty seq when no `:rf.cofx/run` events fired."
+  it added to ctx. Empty seq when no `:rf.cofx/run` events fired.
+
+  System-injected defaults (`:db`, `:event`, `:frame`, `:source`,
+  `:trace-id`) are filtered out per rf2-cq0ch."
   [events]
   (vec
     (for [ev (filter-op events :rf.cofx/run)
           :let [id    (common/tag-of ev :rf.cofx/id)
                 value (common/tag-of ev :rf.cofx/value)]
-          :when (some? id)]
+          :when (user-cofx? id)]
       {:step        :coeffect
        :badge       :COEFFECT
        :id          id
@@ -119,22 +141,30 @@
   trace's `:rf.event/coeffects` stamp (rf2-9dk9y). The substrate places
   the user-injected subset there so events that return only `:db`
   still surface their cofx. Returns a vec of rows in map order; this
-  fallback is used only when no granular `:rf.cofx/run` events exist."
+  fallback is used only when no granular `:rf.cofx/run` events exist.
+
+  System-injected defaults are filtered out per rf2-cq0ch (belt-and-
+  braces — the substrate already filters at the run-end emit site)."
   [events]
   (when-let [run-end (find-op events :rf.event/run-end)]
     (let [m (common/tag-of run-end :rf.event/coeffects)]
       (when (map? m)
-        (vec (for [[id value] m]
+        (vec (for [[id value] m
+                   :when (user-cofx? id)]
                {:step  :coeffect
                 :badge :COEFFECT
                 :id    id
                 :value value}))))))
 
 (defn coeffect-rows
-  "All COEFFECT rows for the epoch — one per user-injected coeffect.
+  "All COEFFECT rows for the epoch — one per USER-defined coeffect
+  (system defaults like `:db` / `:event` are filtered out — rf2-cq0ch).
   Prefers granular `:rf.cofx/run` events; falls back to the run-end
   coeffect stamp when no granular events exist (older runtimes / test
-  fixtures). Returns an empty vec when neither surface is present."
+  fixtures). Returns an empty vec when neither surface is present, or
+  when every coeffect is system-injected — the latter is the typical
+  reg-event-db case where the operator gains nothing from a `:db`
+  presence-pill."
   [events]
   (let [granular (coeffect-rows-from-runs events)]
     (if (seq granular)

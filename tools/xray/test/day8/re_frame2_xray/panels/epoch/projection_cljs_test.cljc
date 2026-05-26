@@ -173,6 +173,29 @@
   (testing "no cofx events + no run-end stamp returns empty vec"
     (is (= [] (proj/coeffect-rows [])))))
 
+(deftest coeffect-rows-skip-system-cofx-test
+  (testing "rf2-cq0ch — system-injected defaults (:db / :event / :frame /
+            :source / :trace-id) are filtered out at projection time"
+    (let [evs  (concat (mapv #(cofx-run-ev % nil) [:db :event :frame :source :trace-id])
+                       [(cofx-run-ev :session {:user-id 42})])
+          rows (proj/coeffect-rows evs)]
+      (is (= 1 (count rows)) "only the user-defined :session row survives")
+      (is (= :session (-> rows first :id)))))
+
+  (testing "rf2-cq0ch — fallback path also filters system defaults"
+    (let [evs  [(run-end-ev 0.1 {:db {} :event [:x] :session {:user-id 7}})]
+          rows (proj/coeffect-rows evs)]
+      (is (= 1 (count rows)))
+      (is (= :session (-> rows first :id)))))
+
+  (testing "rf2-cq0ch — pure reg-event-db (only system cofx) emits NO step"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (cofx-run-ev :db nil)
+                         (db-changed-ev [[[:counter] 5 6 :modified]])])
+          steps (proj/project rec)]
+      (is (not-any? #(= :coeffect (:step %)) steps)
+          "no COEFFECT step is emitted when every cofx is system-injected"))))
+
 ;; ---- HANDLER -------------------------------------------------------------
 
 (deftest handler-row-reg-event-db-test

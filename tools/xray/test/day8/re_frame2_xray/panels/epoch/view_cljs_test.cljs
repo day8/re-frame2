@@ -55,3 +55,22 @@
       (is (string/includes? header-text ":counter/inc"))
       (is (not (string/includes? (or body-text "") "reg-event-db"))
           "body MUST NOT duplicate the flavour pill"))))
+
+;; ---- rf2-cq0ch — COEFFECT body --------------------------------------
+
+(deftest coeffect-body-renders-labelled-value-test
+  (testing "rf2-cq0ch — each user-injected cofx renders the id +
+            value via the canonical edn-inspector. No cryptic
+            `+[]nil` line."
+    (let [step {:step :coeffect :badge :COEFFECT :step-number 2
+                :rows [{:id :session :value {:user-id 42}}
+                       {:id :rf/now :value "2026-05-26T00:00:00"}]}
+          tree (view/render-coeffect-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-coeffect-row-0")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-coeffect-row-1")))
+      (let [r0-id    (text-of tree "rf-xray-epoch-coeffect-row-id-0")
+            r0-value (text-of tree "rf-xray-epoch-coeffect-row-value-0")
+            r1-id    (text-of tree "rf-xray-epoch-coeffect-row-id-1")]
+        (is (string/includes? r0-id ":session"))
+        (is (string/includes? r0-value "42"))
+        (is (string/includes? r1-id ":rf/now"))))))
