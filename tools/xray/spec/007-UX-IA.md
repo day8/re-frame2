@@ -642,19 +642,22 @@ underneath. Closes on `Esc`, click outside, or click `✕`. Settings
 persist immediately on change (no Apply/Cancel — every toggle writes
 through to `(xray-config/configure! …)` on commit).
 
-Six inner tabs (top tab strip, body below) — Mike 2026-05-19 §0ter.4
-walkthrough locks the list (rf2-ttnst):
+Four inner tabs (top tab strip, body below) — Mike 2026-05-19 §0ter.4
+walkthrough originally locked six (rf2-ttnst); the Theme tab was
+retired per rf2-ou3pn (top-ribbon sun/moon icon is now the canonical
+light/dark affordance) and the Filters tab per rf2-wknb3 (full pill
+management lives in the ribbon filter strip + per-pill edit popup +
+mute manager modal). The Buffer tab inherited the
+`:general :epoch-history` slider per rf2-pu9sb:
 
 | # | Tab | Mnemonic | Content |
 |---|---|---|---|
-| 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Power user:** "Show tool frames in picker" toggle (off by default) |
-| 2 | **Theme** | `t` | Dark / Light (a single GitHub-blue accent in both modes, per §Colour system; per-tab default-expansion knob dropped) |
-| 3 | **Filters** | `f` | Active filter pills mirror · auto-filter-UI quick-open |
-| 4 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
-| 5 | **Buffer** | `b` | `:general :epoch-history` (slider, relocated from General per rf2-pu9sb — slot stays under `:general` for the persisted-settings shape, only the popup home moved) · `:buffer/cascades-retained` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" button with confirm modal |
-| 6 | **Diff** | `d` | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; section-grouping threshold fixed defaults — both dropped from the user surface) |
+| 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Power user:** "Show tool frames in picker" toggle (off by default) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot is `:general :use-system-colors?`) |
+| 2 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
+| 3 | **Buffer** | `b` | `:general :epoch-history` (slider, relocated from General per rf2-pu9sb — slot stays under `:general` for the persisted-settings shape, only the popup home moved) · `:buffer/cascades-retained` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" button with confirm modal |
+| 4 | **Diff** | `d` | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; section-grouping threshold fixed defaults — both dropped from the user surface) |
 
-**Inner-tab mnemonics** (g / t / f / k / b / d) — bare-letter
+**Inner-tab mnemonics** (g / k / b / d) — bare-letter
 keystrokes captured at the dialog level while the modal is open.
 The dialog's `on-key-down` stops propagation on every consumed key,
 and the global keydown listener gates spine bindings on a
@@ -664,10 +667,12 @@ spine. Mnemonics are suppressed while the focused element is an
 `<input>` / `<textarea>` / `<select>` / contenteditable surface so
 typing into numeric knobs is not interrupted.
 
-**Dropped from earlier drafts** (per the same 2026-05-19 walkthrough):
+**Dropped from earlier drafts** (per the same 2026-05-19 walkthrough plus post-#2186 retirements):
 
 | Dropped | Rationale |
 |---|---|
+| **Theme tab** (rf2-ou3pn) | Top-ribbon sun/moon icon (`ribbon-theme-toggle` in `shell.cljs`) is the canonical light/dark affordance; both surfaces dispatched the identical `[:rf.xray/settings-update :theme nil <kw>]` event, so the popup copy was pure redundancy. The `:use-system-colors?` HCM-override toggle relocated to **General → Power user** — the setting slot has always been `:general :use-system-colors?`; only its cosmetic home in the Theme section is gone with the tab. |
+| **Filters tab** (rf2-wknb3) | Full pill management lives in the top-ribbon filter strip (`filters/pills.cljs`, per [`018-Event-Spine.md`](./018-Event-Spine.md) §7), the per-pill edit popup (`filters/edit_popup.cljs`), and the mute manager modal (rf2-ikuwt). The settings tab's only widget was an "Open auto-filter UI" button dispatching `:rf.xray.filters/open` — an event with no handler registered anywhere — plus a static explainer paragraph. With the management surfaces all canonical elsewhere, the discoverability pointer was redundant. |
 | Actions tab + factory-reset BIG RED BUTTON | Factory-reset stays code-only (`config/reset-settings!`) — a destructive UI button has no use case the confirm modal beneath "Clear buffer" does not already cover. |
 | Density Comfy tier | Two tiers cover the rhythm need; the third was a styling-pass aspiration with no observed demand. |
 | Per-tab default expansion (`:bookish` / `:dense`) | Each tab owns its expansion default; no global knob. |

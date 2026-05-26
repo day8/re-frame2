@@ -660,18 +660,26 @@ and FROM/TO nav transitions. The App-db slice pin is the raw-data
 echo for users who want to inspect the slice alongside other app-db
 state.
 
-### Settings popup — full 6-tab catalogue
+### Historical — 6-tab aspiration superseded by 4-tab v1
 
 rf2-ttnst (Mike 2026-05-19 §0ter.4 walkthrough; shipped via PR #1518)
-locked the Settings popup at **6 tabs**: **General · Theme · Filters ·
-Keybindings · Buffer · Diff**. The locked inventory plus per-tab
-content sits in [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overlay)
+originally locked the Settings popup at **6 tabs**: **General · Theme ·
+Filters · Keybindings · Buffer · Diff**. Post-#2186 the popup ships
+**4 tabs**: **General · Keybindings · Buffer · Diff** — the Theme tab
+was retired per rf2-ou3pn (top-ribbon sun/moon icon is the canonical
+light/dark affordance) and the Filters tab per rf2-wknb3 (full pill
+management lives in the ribbon strip + per-pill edit popup + mute
+manager modal). The Buffer tab inherited the `:general :epoch-history`
+slider per rf2-pu9sb. The locked 4-tab inventory plus per-tab content
+sits in [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overlay)
 (the canonical UX surface) and [`018-Event-Spine.md` §9](./018-Event-Spine.md#9-settings-popup)
-(the architectural contract). This Vision block historically catalogued
-a different 8-row aspiration (Theme / Density / Editor / Trace v1 +
-Keybindings / Buffer / Popout / Actions future); it is superseded.
+(the architectural contract). The v1 reality is also captured earlier
+in this document — see §Settings popup — v1 ships above. This Vision
+block historically catalogued a different 8-row aspiration (Theme /
+Density / Editor / Trace v1 + Keybindings / Buffer / Popout / Actions
+future); it is superseded.
 
-What landed under rf2-ttnst that the earlier aspiration did not anticipate:
+What landed under rf2-ttnst (and the subsequent retirements) that the earlier aspiration did not anticipate:
 
 - **Density** folds into **General** (no separate tab).
 - **Editor** + **Trace** fold into **General** as power-user knobs.
