@@ -75,7 +75,6 @@
              :as app-db-segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
-            [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.managed-fx-subs :as managed-fx-subs]
@@ -161,12 +160,14 @@
     ;;
     ;; The L3 tab bar reads `:rf.xray/selected-tab` to pick which
     ;; projection of the focused event the L4 detail panel renders.
-    ;; Default is `:event` per spec/018 §5 — the Event tab carries
-    ;; the fattened event detail (handler return + db writes + fx +
-    ;; fx-handlers that ran).
+    ;; Default is `:epoch` post rf2-5gl5r — the Epoch panel is the
+    ;; canonical "what happened in this epoch" surface and registers
+    ;; at `:order -1` (leftmost). Previously defaulted to `:event`
+    ;; while the Handler/Event panel co-existed; that panel was
+    ;; retired and the Epoch panel supersedes it.
     (rf/reg-sub :rf.xray/selected-tab
       (fn [db _query]
-        (get db :selected-tab :event)))
+        (get db :selected-tab :epoch)))
 
     ;; ---- Modal positioning (rf2-om6fa) ----
     ;;
@@ -394,6 +395,87 @@
         (let [cascades (projection/group-cascades buffer)]
           (into [] (remove self-noise/xray-internal-cascade?) cascades))))
 
+    ;; ---- Focused-cascade composite (rf2-5gl5r — relocated from the
+    ;; retired event-detail panel) -----------------------------------
+    ;;
+    ;; `:rf.xray/event-detail` produces the focused-cascade record
+    ;; alongside the cascade vector + the effective dispatch-id/frame
+    ;; so multiple consumers can read "the cascade the spine is
+    ;; pointing at" in one shot. The original home was
+    ;; `panels/event_detail.cljs`'s `install!`; when the Event/Handler
+    ;; panel was retired (Epoch panel supersedes it — rf2-5gl5r) the
+    ;; composite stayed valuable to the share modal
+    ;; (`:rf.xray/cascade-export`), the per-cascade managed-fx surface,
+    ;; and the existing test corpus, so it lives here as a cross-panel
+    ;; primitive next to `:rf.xray/cascades` it composes against.
+    ;;
+    ;; Reads the EFFECTIVE focused dispatch-id off the spine sub
+    ;; (`:rf.xray/focus`); spine auto-advances to head in `:live` mode,
+    ;; so the consumers never pin to a stale id. Per rf2-639lc Bug 1:
+    ;; if the spine landed on `:ungrouped` (the projection's catch-all
+    ;; bucket for registry-time emits / frame lifecycle outside a
+    ;; drain), fall back to the most recent ROUTED cascade so the
+    ;; default-focus never lands on the projection's internal bucket.
+    (rf/reg-sub :rf.xray/event-detail
+      :<- [:rf.xray/cascades]
+      :<- [:rf.xray/focus]
+      (fn [[cascades focus] _query]
+        (let [focus-id       (:dispatch-id focus)
+              focus-frame    (:frame focus)
+              ungrouped?     (= :ungrouped focus-id)
+              routed?        (fn [c] (vector? (:event c)))
+              head           (when (or (nil? focus-id) ungrouped?)
+                               (last (filterv routed? cascades)))
+              selected-id    (cond
+                               ungrouped?      (:dispatch-id head)
+                               (nil? focus-id) (:dispatch-id head)
+                               :else           focus-id)
+              selected-frame (cond
+                               ungrouped?      (:frame head)
+                               (nil? focus-id) (:frame head)
+                               :else           focus-frame)
+              by-id          (when selected-id
+                               (some (fn [c]
+                                       (when (and (= selected-id (:dispatch-id c))
+                                                  (or (nil? selected-frame)
+                                                      (= selected-frame (:frame c))))
+                                         c))
+                                     cascades))]
+          {:cascades                cascades
+           :selected-dispatch-id    selected-id
+           :selected-dispatch-frame selected-frame
+           :selected-cascade        by-id})))
+
+    ;; ---- Spine shim — focus by dispatch-id (rf2-adve5, relocated
+    ;; rf2-5gl5r) ----------------------------------------------------
+    ;;
+    ;; `:rf.xray/select-dispatch-id` is the legacy entry point used by
+    ;; machine-inspector / issues-ribbon / trace / cancellation-cascade
+    ;; / mcp-server / the cross-site event-status-colour e2e harness.
+    ;; It writes through the spine via the same reducer the spec-018
+    ;; `:rf.xray/focus-cascade` event uses. Relocated from the retired
+    ;; event-detail panel — multi-panel consumer, lives here.
+    (rf/reg-event-db :rf.xray/select-dispatch-id
+      (fn [db [_ dispatch-id frame-id]]
+        (let [history  (get db :epoch-history [])
+              epoch-id (spine/epoch-id-for-cascade history dispatch-id)
+              head-id  (spine/focusable-head-id (spine/db->cascades db))]
+          (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))))
+
+    ;; Programmatic clear of the focused cascade. Resets the spine
+    ;; focus back to LIVE (head-tracking) per the rf2-s0s5x Phase A
+    ;; semantics. Relocated from event_detail.cljs alongside the
+    ;; select event above (rf2-5gl5r).
+    (rf/reg-event-db :rf.xray/clear-selected-dispatch-id
+      (fn [db _event]
+        (-> db
+            (dissoc :selected-epoch-id)
+            (update :focus (fnil assoc {})
+                    :dispatch-id nil
+                    :epoch-id    nil
+                    :mode        :live
+                    :previewing? false))))
+
     ;; ---- L2 relative-time anchor (rf2-vbbq0 / rf2-0s2at) ----------
     ;;
     ;; Every L2 row carries a small right-aligned chip showing how long
@@ -426,8 +508,9 @@
 
     ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
 
-    ;; L3 tab bar — flip the active tab. Seven valid ids per spec/018 §5:
-    ;; :event :app-db :views :trace :machines :routing :issues
+    ;; L3 tab bar — flip the active tab. Seven valid ids post rf2-5gl5r
+    ;; (Event/Handler tab retired; Epoch supersedes):
+    ;; :epoch :app-db :views :trace :machines :routing :issues
     ;; (rf2-2moh1 registry-driven; new tab requires only a reg-l4-tab! call).
     (rf/reg-event-db :rf.xray/select-tab
       (fn [db [_ tab-id]]
@@ -716,11 +799,12 @@
     ;; epoch" surface; numbered cascade of every pipeline step. Reads
     ;; the spine's `:rf.xray/focus` + `:rf.xray/epoch-history`,
     ;; projects the focused record's `:trace-events` into ordered
-    ;; step rows. Registers at order 5, between Machines (4) and
-    ;; Routing (6). Co-exists with the existing Event lens
-    ;; initially per the bead body's pre-alpha posture.
+    ;; step rows. Registers at order -1 (leftmost). The retired
+    ;; Event/Handler panel (rf2-5gl5r) used to install here; its
+    ;; surviving cross-panel primitives — `:rf.xray/event-detail`,
+    ;; `:rf.xray/select-dispatch-id`, `:rf.xray/clear-selected-
+    ;; dispatch-id` — were relocated to the cross-panel block above.
     (epoch-panel/install!)
-    (event-detail/install!)
     (issues-ribbon/install!)
     (machine-inspector/install!)
     ;; Static Machines sub-tab (rf2-o5f5f.2) — browses every registered
@@ -734,9 +818,10 @@
     (static-machines-panel/install!)
     ;; Managed-fx wire-boundary diff template (rf2-uyp86) — installs the
     ;; `:rf.xray/managed-fx-for-focused-event` sub + the
-    ;; `:rf.xray/focus-event` cross-link event. The panel view itself
-    ;; mounts inline in event_detail.cljs under the six-domino cascade,
-    ;; so no L3 tab is added.
+    ;; `:rf.xray/focus-event` cross-link event. Originally embedded inline
+    ;; under the (now-retired) Event panel's six-domino cascade
+    ;; (rf2-5gl5r); the public `mount-managed-fx!` aggregator entry on
+    ;; `panels.cljs` is the remaining surface. No L3 tab.
     (managed-fx-subs/install!)
     ;; Routing tab (rf2-nrbs9, narrowed per rf2-o5f5f.3) — Dynamic L3
     ;; tab carrying the focused-event lens (FROM/TO chips when the

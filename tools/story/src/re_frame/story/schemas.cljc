@@ -262,8 +262,9 @@
                  are the default RHS surface; `:open?` survives for the
                  popout / whole-shell escape hatch only.
   - `:panel`   — rf2-v1ach. The Xray panel to mount in the RHS Xray
-                 host. One of:
-                   `:event-detail` (default)
+                 host. Post rf2-5gl5r, one of:
+                   `:epoch` (default — supersedes the retired
+                              `:event-detail`)
                    `:app-db`
                    `:views`
                    `:trace`

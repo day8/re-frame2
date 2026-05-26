@@ -13,12 +13,13 @@ const {
 
 // Post rf2-xy4yb (4-layer chrome refactor): the legacy 15-panel
 // sidebar + bottom rail is dead. The L3 tab bar exposes 7 tabs:
-// event / app-db / views / trace / machines / routing / issues
-// (spec/018 §5; spec/007-UX-IA.md §L3). Panels without a tab no
-// longer have a UI handoff and are dropped from the shell-sweep
-// scenario.
+// epoch / app-db / views / trace / machines / routing / issues
+// (spec/018 §5; spec/007-UX-IA.md §L3 — post rf2-5gl5r the Event/
+// Handler tab was retired in favour of the Epoch panel). Panels
+// without a tab no longer have a UI handoff and are dropped from
+// the shell-sweep scenario.
 const PANEL_HANDOFFS = [
-  ['event', 'rf-xray-event-detail'],
+  ['epoch', 'rf-xray-epoch-panel'],
   ['app-db', 'rf-xray-app-db-diff'],
   // The :views tab routes to the full Views panel per spec/012-Views.md
   // (rf2-21ob3 replaced the legacy Subscriptions panel). The Views
@@ -135,8 +136,10 @@ async function openXray(page) {
 }
 
 // Post rf2-xy4yb: the L3 tab bar replaces the legacy sidebar. Tabs
-// expose `data-testid="rf-xray-tab-<id>"` for the 6 surviving panels
-// (event / app-db / views / trace / machines / issues — spec/018 §5).
+// expose `data-testid="rf-xray-tab-<id>"` for the 7 surviving panels
+// (epoch / app-db / views / trace / machines / routing / issues —
+// spec/018 §5; rf2-5gl5r retired the Event/Handler tab in favour of
+// the Epoch panel).
 async function clickTab(page, id, canvasTestId) {
   await page.locator(`[data-testid="rf-xray-tab-${id}"]`).click();
   await expectVisible(page.locator(`[data-testid="${canvasTestId}"]`), 5000);
@@ -146,9 +149,12 @@ async function clickTab(page, id, canvasTestId) {
 // refactor (time-travel, causality, subs, fx, flows, routes,
 // performance, schemas, hydration, mcp-server) and the rf2-y0z5b
 // causality-surface drop have no UI handoff — callers that target
-// them must be updated separately.
+// them must be updated separately. rf2-5gl5r: `event-detail` and
+// `event` legacy ids both route to the Epoch panel's `:epoch` tab
+// (the canonical "what happened in this epoch" surface).
 const LEGACY_PANEL_TO_TAB = {
-  'event-detail': 'event',
+  'event-detail': 'epoch',
+  'event':        'epoch',
   'app-db':       'app-db',
   'trace':        'trace',
   'machines':     'machines',
@@ -848,24 +854,33 @@ async function readLaunchModeProjection(page) {
         ? Array.from(root.querySelectorAll('[data-testid^="rf-xray-sidebar-item-"]'))
           .find((el) => (el.textContent || '').includes('◉'))
         : null;
-      const cascade = root && root.querySelector('[data-testid="rf-xray-event-detail-cascade"]');
+      // rf2-5gl5r — `rf-xray-event-detail-cascade` is gone with the
+      // retired Event/Handler panel. The Epoch panel is the canonical
+      // focused-cascade surface; its DISPATCH step is the rendering
+      // proxy for "a cascade is in focus and its data is rendered".
+      const epochPanel = root && root.querySelector('[data-testid="rf-xray-epoch-panel"]');
+      const dispatchStep = root && root.querySelector('[data-testid="rf-xray-epoch-step-dispatch"]');
       return {
         present: Boolean(root),
         rootMode: root ? root.getAttribute('data-rf-xray-mode') : null,
         shellPresent: Boolean(shell),
         shellMode: shell ? shell.getAttribute('data-rf-xray-mode') : null,
         activePanel: active ? active.getAttribute('data-testid') : null,
-        selectedDispatchId: cascade ? cascade.getAttribute('data-dispatch-id') : null,
-        selectedFrame: cascade ? cascade.getAttribute('data-frame') : null,
-        cascadeText: text(root, '[data-testid="rf-xray-event-detail-cascade"]'),
-        // Per rf2-639lc the L4 Event panel default-focuses the head
-        // cascade on mount — the cascade-detail container is the
-        // primary surface. The legacy `rf-xray-cascade-row-*` list
-        // only renders in the empty-state branch (no routable
-        // cascades). `cascadeRows` is 1 when cascade-detail is
-        // rendered, 0 when the empty container or orphaned branch is.
-        cascadeRows: count(root, '[data-testid="rf-xray-event-detail-cascade"]'),
+        // The Epoch panel doesn't stamp a top-level `:data-dispatch-id` /
+        // `:data-frame` (the dispatch info lives inside the rendered
+        // DISPATCH step's text). The pop-out vs overlay agreement
+        // therefore rides on `cascadeRows` + `cascadeText` matching;
+        // we leave these slots null for diagnostic stability across
+        // the two surfaces.
+        selectedDispatchId: null,
+        selectedFrame: null,
+        cascadeText: text(root, '[data-testid="rf-xray-epoch-panel"]'),
+        // Post rf2-5gl5r `cascadeRows` semantics shift: 1 when the
+        // Epoch panel rendered a DISPATCH step (focus has a cascade),
+        // 0 when not (empty-state / no-focus / epoch-evicted).
+        cascadeRows: dispatchStep ? 1 : 0,
         traceRows: count(root, '[data-testid^="rf-xray-trace-row-"]'),
+        epochPanelPresent: Boolean(epochPanel),
       };
     }
     const trace = traceEvents();
@@ -952,16 +967,16 @@ async function runShellFeatureSweep(page) {
   await clickHostButtonByLabel(page, '+');
   await clickHostButtonByLabel(page, '-');
 
-  await clickTab(page, 'event', 'rf-xray-event-detail');
-  // Per rf2-639lc the L4 Event panel default-focuses the head cascade
-  // on mount, so the panel renders `rf-xray-event-detail-cascade`
-  // (six-domino detail) directly — no click-into-list step required.
-  // The legacy `rf-xray-cascade-row-*` empty-state rows only appear
-  // when the panel has no routable cascade to default-focus on.
+  await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
+  // Post rf2-5gl5r the Epoch panel supersedes the retired Event/Handler
+  // panel. Per rf2-639lc the panel default-focuses the head cascade
+  // on mount; the panel renders the numbered cascade steps directly
+  // (e.g. `rf-xray-epoch-step-dispatch`). Asserts non-empty via the
+  // presence of at least one step row.
   await waitForValue(
-    () => page.locator('[data-testid="rf-xray-event-detail-cascade"]').count(),
+    () => page.locator('[data-testid="rf-xray-epoch-step-dispatch"]').count(),
     (count) => count > 0,
-    { timeoutMs: 5000, description: 'event-detail cascade default-focus' },
+    { timeoutMs: 5000, description: 'epoch panel cascade default-focus' },
   );
 
   await clickTab(page, 'trace', 'rf-xray-trace');
@@ -1161,23 +1176,19 @@ async function runHttpToggle(page) {
   }
 
   // Post rf2-xy4yb: the dedicated Effects (fx) panel was dropped.
-  // Per spec/018 §5 fx-handlers-ran now lands as an `fx` + `effects`
-  // domino row inside the cascade-detail of the Event tab. Per
-  // rf2-639lc the L4 panel default-focuses the head (most-recent)
-  // cascade on mount — so opening the tab after the last `:go`
-  // dispatch already surfaces its cascade-detail. Assert the rendered
-  // detail carries an fx row (the `:rf.fx/handled` emits for the
-  // dispatched `:go` event are projected into the `effects` block).
-  await clickTab(page, 'event', 'rf-xray-event-detail');
-  await expectVisible(page.locator('[data-testid="rf-xray-event-detail-cascade"]'), 5000);
-  const cascadeText = ((await page.locator('[data-testid="rf-xray-event-detail-cascade"]').textContent()) || '').toLowerCase();
-  if (!cascadeText.includes('effects') && !cascadeText.includes('fx')) {
-    const dispatchId = await page
-      .locator('[data-testid="rf-xray-event-detail-cascade"]')
-      .getAttribute('data-dispatch-id');
-    failWithDetails('Event-tab cascade-detail did not surface the fx/effects domino rows', {
-      dispatchId,
-      cascadeText: cascadeText.slice(0, 800),
+  // Post rf2-5gl5r the Epoch panel is the canonical "what happened
+  // in this epoch" surface. Per rf2-639lc the panel default-focuses
+  // the head (most-recent) cascade on mount — opening the tab after
+  // the last `:go` dispatch surfaces its full numbered cascade.
+  // Assert the rendered panel carries an FX step (the `:rf.fx/handled`
+  // emits for the dispatched `:go` event are projected into the FX
+  // step of the cascade).
+  await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
+  await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
+  const epochText = ((await page.locator('[data-testid="rf-xray-epoch-panel"]').textContent()) || '').toLowerCase();
+  if (!epochText.includes('fx') && !epochText.includes('effects')) {
+    failWithDetails('Epoch panel did not surface the FX step', {
+      epochText: epochText.slice(0, 800),
     });
   }
   // Per rf2-u6dhp the Issues feed is cascade-scoped: when the focused
@@ -1267,29 +1278,32 @@ async function runMultiFrame(page, state) {
     eventId: ':multi-frame.core/inc',
   });
   state.multiFrame.selectedTraceRow = selected;
-  await clickTab(page, 'event', 'rf-xray-event-detail');
+  // Post rf2-5gl5r the Epoch panel supersedes the retired Event/
+  // Handler panel; the selected-cascade projection lives on the
+  // Epoch DISPATCH step. Assert the panel text carries the event-id
+  // of the focused multi-frame cascade.
+  await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
   const eventDetailProjection = await waitForValue(
     () => page.evaluate(() => {
-      const orphaned = document.querySelector('[data-testid="rf-xray-event-detail-orphaned"]');
-      const cascade = document.querySelector('[data-testid="rf-xray-event-detail-cascade"]');
+      const epochPanel = document.querySelector('[data-testid="rf-xray-epoch-panel"]');
       return {
-        cascadeRows: document.querySelectorAll('[data-testid^="rf-xray-cascade-row-"]').length,
-        selectedCascadeFrame: cascade ? cascade.getAttribute('data-frame') : null,
-        selectedCascadeDispatchId: cascade ? cascade.getAttribute('data-dispatch-id') : null,
-        selectedCascadeText: cascade ? (cascade.textContent || '').trim() : null,
-        orphanedText: orphaned ? (orphaned.textContent || '').trim() : null,
+        epochPanelText: epochPanel ? (epochPanel.textContent || '').trim() : null,
+        stepDispatch: !!document.querySelector('[data-testid="rf-xray-epoch-step-dispatch"]'),
       };
     }),
-    (projection) => projection.selectedCascadeFrame === ':counter/b',
-    { timeoutMs: 5000, description: 'event-detail projection after focusing B cascade' },
+    (projection) =>
+      projection.stepDispatch &&
+      projection.epochPanelText &&
+      projection.epochPanelText.includes(':multi-frame.core/inc'),
+    { timeoutMs: 5000, description: 'epoch panel projection after focusing B cascade' },
   );
   state.multiFrame.eventDetailProjection = eventDetailProjection;
-  if (eventDetailProjection.orphanedText ||
-      !eventDetailProjection.selectedCascadeText.includes(':multi-frame.core/inc')) {
-    failWithDetails('Event detail did not render the selected :counter/b cascade', {
+  if (!eventDetailProjection.stepDispatch ||
+      !eventDetailProjection.epochPanelText ||
+      !eventDetailProjection.epochPanelText.includes(':multi-frame.core/inc')) {
+    failWithDetails('Epoch panel did not render the selected :counter/b cascade', {
       selected,
       eventDetailProjection,
-      expectedFrame: ':counter/b',
       expectedEvent: ':multi-frame.core/inc',
     });
   }
@@ -1758,7 +1772,9 @@ async function runTraceBudgetSaturation(page, state) {
 async function runLaunchModesTwentyEventLoad(page, state) {
   await expectHostCounterEquals(page, 5, 10000);
   await openXray(page);
-  await clickSidebar(page, 'event-detail', 'rf-xray-event-detail');
+  // rf2-5gl5r — `event-detail` → `epoch` tab; the Epoch panel's
+  // root testid is `rf-xray-epoch-panel`.
+  await clickSidebar(page, 'event-detail', 'rf-xray-epoch-panel');
 
   const launch = await page.evaluate(() => {
     const xray = window.day8 && window.day8.re_frame2_xray;
@@ -1791,7 +1807,7 @@ async function runLaunchModesTwentyEventLoad(page, state) {
   if (!launch.popout.ok) {
     failWithDetails('Xray launch modes were not all available before load', launch);
   }
-  await expectVisible(page.locator('#rf-xray-root [data-testid="rf-xray-event-detail"]'), 5000);
+  await expectVisible(page.locator('#rf-xray-root [data-testid="rf-xray-epoch-panel"]'), 5000);
   await clearTrace(page);
 
   const before = await readLaunchModeProjection(page);
@@ -1805,7 +1821,7 @@ async function runLaunchModesTwentyEventLoad(page, state) {
       projection.hostDispatchCount === 20 &&
       projection.overlay.cascadeRows > 0 &&
       projection.popout.cascadeRows > 0,
-    { timeoutMs: 10000, description: 'launch-mode shared event-detail state after 20 host dispatches' },
+    { timeoutMs: 10000, description: 'launch-mode shared Epoch-panel state after 20 host dispatches' },
   );
   const elapsedMs = Date.now() - start;
   const cascadeRowCounts = [after.overlay.cascadeRows, after.popout.cascadeRows];
@@ -1836,12 +1852,8 @@ async function runLaunchModesTwentyEventLoad(page, state) {
     });
   }
   if (uniqueCascadeRowCounts.length !== 1) {
-    failWithDetails('Overlay and pop-out Event Detail disagree on rendered cascade rows', {
+    failWithDetails('Overlay and pop-out Epoch panel disagree on rendered cascade rows', {
       cascadeRowCounts,
-      selectedDispatchIds: [
-        after.overlay.selectedDispatchId,
-        after.popout.selectedDispatchId,
-      ],
       before,
       after,
     });
@@ -2456,14 +2468,15 @@ const SCENARIOS = [
     // on the PR critical path; the rest of the matrix runs nightly.
     smoke: true,
     panels: PANEL_HANDOFFS.map(([id]) => id),
-    // Post rf2-xy4yb + rf2-y0z5b: coverage narrowed to the 6
-    // surviving L3 tabs. Removed surfaces (Time Travel, Causality
-    // Graph, Subscriptions, Routes, Schemas, Hydration, Performance,
-    // Flows, Effects, MCP Server) lost their UI handoff with the
-    // 4-layer chrome refactor and are covered (where still
-    // functionally present) by their dedicated substrate scenarios.
+    // Post rf2-xy4yb + rf2-y0z5b + rf2-5gl5r: coverage narrowed to the
+    // 7 surviving L3 tabs (Event/Handler retired in favour of the
+    // Epoch panel). Removed surfaces (Time Travel, Causality Graph,
+    // Subscriptions, Routes, Schemas, Hydration, Performance, Flows,
+    // Effects, MCP Server) lost their UI handoff with the 4-layer
+    // chrome refactor and are covered (where still functionally
+    // present) by their dedicated substrate scenarios.
     coveredRows: [
-      'Event Detail',
+      'Epoch Panel',
       'App-DB Diff',
       'Trace',
       'Machines',
@@ -2493,7 +2506,7 @@ const SCENARIOS = [
     // deliberate-throw are the only two surfaces the smoke compiles.
     smoke: true,
     panels: ['issues', 'trace'],
-    coveredRows: ['Event Detail', 'Trace', 'Issues Ribbon', 'Effects', 'Flows', 'Machines', 'Open in Editor / Source Coordinates'],
+    coveredRows: ['Epoch Panel', 'Trace', 'Issues Ribbon', 'Effects', 'Flows', 'Machines', 'Open in Editor / Source Coordinates'],
     run: runExceptionSchemaHttp,
   },
   {
@@ -2509,10 +2522,11 @@ const SCENARIOS = [
     name: 'managed http and effects rows',
     url: '/testbeds/http-toggle/',
     // Post rf2-xy4yb: the Effects panel was dropped — fx/effects rows
-    // are now inline dominoes inside the Event-tab cascade. Performance
-    // panel is gone too (Mike's call: use Chrome DevTools Performance).
-    panels: ['event', 'issues', 'trace'],
-    coveredRows: ['Event Detail', 'Issues Ribbon', 'Trace'],
+    // are now inline steps inside the Epoch panel's numbered cascade.
+    // Performance panel is gone too (Mike's call: use Chrome DevTools
+    // Performance). rf2-5gl5r: `event` panel renamed to `epoch`.
+    panels: ['epoch', 'issues', 'trace'],
+    coveredRows: ['Epoch Panel', 'Issues Ribbon', 'Trace'],
     run: runHttpToggle,
   },
   {
@@ -2520,9 +2534,10 @@ const SCENARIOS = [
     url: '/testbeds/multi-frame/',
     // Post rf2-xy4yb + rf2-y0z5b: Causality Graph and Time Travel
     // panels were dropped. Multi-frame isolation is now exercised
-    // via the Trace and Event tabs (cascade per frame).
-    panels: ['trace', 'event'],
-    coveredRows: ['Trace', 'Event Detail'],
+    // via the Trace and Epoch tabs (cascade per frame). rf2-5gl5r:
+    // `event` panel renamed to `epoch`.
+    panels: ['trace', 'epoch'],
+    coveredRows: ['Trace', 'Epoch Panel'],
     run: runMultiFrame,
   },
   {
@@ -2617,9 +2632,10 @@ const SCENARIOS = [
   //
   // '20-event feature/load re-check' — the Playwright scenario drove
   // 20 host counter +/- clicks and asserted the trace count grew +
-  // the Event Detail cascade rendered. Both are data invariants the
-  // multi-frame e2e harness covers at ~5ms per dispatch (vs ~200ms
-  // per click in browser):
+  // the focused cascade rendered (originally on the Event Detail
+  // panel; rf2-5gl5r migrated the surface to the Epoch panel). Both
+  // are data invariants the multi-frame e2e harness covers at ~5ms
+  // per dispatch (vs ~200ms per click in browser):
   // `tools/xray/test/day8/re_frame2_xray/panels_e2e/
   // twenty_event_load_e2e_cljs_test.cljs` walks the same 20-event
   // sequence, asserts cascades grow, focus auto-follows the head
@@ -2644,10 +2660,10 @@ const SCENARIOS = [
   {
     name: '20-event launch-mode shared runtime re-check',
     url: '/counter/',
-    panels: ['event-detail'],
+    panels: ['epoch'],
     load: true,
     coveredRows: [
-      'Event Detail',
+      'Epoch Panel',
       'Pop-out, Docking, and Inline Embedding',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],

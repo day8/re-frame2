@@ -23,25 +23,26 @@
                    :rf.view/render-key  [<view-id> <args>] ;; on :view
                    :frame       <frame-id>}}
 
-  The mirror of this shape lives in
-  `tools/xray/test/day8/re_frame2_xray/panels/event_detail_cljs_test.cljs`
-  (`cascade-evs`); the gallery uses the same template so any future
-  panel projection change shows up identically in both places.
+  The mirror of this shape (the `cascade-evs` helper template) lived
+  in the panel-detail panel's test corpus alongside the panel itself;
+  rf2-5gl5r retired the Event/Handler panel and its tests. The gallery
+  retains the template so any future panel projection change has one
+  shared fixture surface to drive variant seeds.
 
   Builders return plain vectors; the variant `:events` slot wraps each
   in `[:rf.xray/sync-trace-buffer <buffer>]` for the seed dispatch.")
 
 ;; ---- domino-row builders ------------------------------------------------
 ;;
-;; Eight-event template per cascade — one of each row the event-detail
+;; Eight-event template per cascade — one of each row a focused-epoch
 ;; panel renders. id-base lets a caller stack many cascades without id
 ;; collision. Optional frame-id rides on every emit so cross-frame
-;; cascades surface the panel's `:frame` annotation in the cascade list.
+;; cascades surface a panel's `:frame` annotation in its cascade list.
 
 (defn cascade-evs
   "Synthesize the eight trace events for a single cascade. Mirrors the
-  `cascade-evs` helper in event_detail_cljs_test so the gallery exercises
-  exactly the rows the unit tests pin.
+  template used by the retired event-detail unit tests (rf2-5gl5r);
+  retained here as the canonical gallery seed.
 
   Returns a vector of trace-event maps shaped per
   `re-frame.trace.projection/group-cascades`."

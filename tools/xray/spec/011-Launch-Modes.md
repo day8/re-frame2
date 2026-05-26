@@ -159,7 +159,7 @@ mechanisms, both writing the same `flex-basis` slot:
    persists across reloads via
    `configure! :rf.xray/settings :general :panel-width-px`, double-click to
    reset. This is the path for "I want a bit more room for the
-   event-detail panel right now."
+   Epoch panel right now."
 
 The two cooperate cleanly. The variable establishes the initial
 size; a drag overrides it (and persists); reload restores the

@@ -70,15 +70,17 @@
      :tags       #{:dev :feature/xray-chrome}
      :substrates #{:reagent}})
 
-  ;; ----- 1. Event tab pre-selected (default) -------------------------
-  (story/reg-variant :story.xray.chrome/tab-event
-    {:doc        "Chrome with the Event tab pre-selected (default).
+  ;; ----- 1. Epoch tab pre-selected (default) -------------------------
+  ;; Post rf2-5gl5r the Epoch tab supersedes the retired Event/Handler
+  ;; tab as the default landing (:order -1, leftmost).
+  (story/reg-variant :story.xray.chrome/tab-epoch
+    {:doc        "Chrome with the Epoch tab pre-selected (default).
                  Trace buffer has six cascades; the event-list (L2)
-                 surfaces them; the detail panel (L4) renders
-                 event-detail with the head cascade focused."
+                 surfaces them; the detail panel (L4) renders the
+                 epoch panel with the head cascade focused."
      :events     [[:panel-gallery.chrome/seed!
                    {:trace-buffer  (fixtures/n-cascades 6)
-                    :selected-tab  :event}]]
+                    :selected-tab  :epoch}]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 

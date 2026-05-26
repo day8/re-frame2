@@ -6,9 +6,9 @@
   in `ai/findings/2026-05-19-story-design-xray-integration.md` §Part
   B the per-panel embed is shape #3: Story's RHS hosts ONE Xray
   panel at a time, configurable per story via the `:xray-panel` slot
-  (default `:event-detail`), with a chip-row picker letting the user
-  swap (`Event` / `App-db` / `Views` / `Trace` / `Machines` /
-  `Routing` / `Issues`) at runtime.
+  (default `:epoch` — post rf2-5gl5r; previously `:event-detail`),
+  with a chip-row picker letting the user swap (`Epoch` / `App-db` /
+  `Views` / `Trace` / `Machines` / `Routing` / `Issues`) at runtime.
 
   ## Why per-panel beats whole-shell
 
@@ -35,7 +35,9 @@
     React component to drive the mount on every panel-id change.
   - `(resolve-panel variant-id)` — pure-ish: read the resolved
     `:xray-panel` for `variant-id` (variant slot beats story
-    slot beats default `:event-detail`).
+    slot beats default `:epoch` — post rf2-5gl5r the canonical
+    default is the Epoch panel; the prior `:event-detail` default
+    pointed at the now-retired Event/Handler panel).
 
   ## Frame isolation
 
@@ -69,13 +71,14 @@
 (def panel-catalog
   "Ordered vector of `{:panel <kw> :label <str> :title <str>}` maps
   for every Xray panel exposed in the Story RHS chip-row. Order
-  matches the rough debugging-frequency rubric: event-detail first
-  (the default), state-shape lenses next (app-db / views), trace
-  next, then the specialised lenses (machines / routing / issues).
+  matches the rough debugging-frequency rubric: epoch first (the
+  default — post rf2-5gl5r supersedes the prior event-detail
+  default), state-shape lenses next (app-db / views), trace next,
+  then the specialised lenses (machines / routing / issues).
 
   Pure data — JVM-portable. Tests assert ordering + completeness
   against the rf2-crhr8 panel set."
-  [{:panel :event-detail :label "Event"    :title "Six-domino cascade view for the focused event"}
+  [{:panel :epoch        :label "Epoch"    :title "Full computational timeline for the focused event"}
    {:panel :app-db       :label "App-db"   :title "Structural diff of app-db across the focused cascade"}
    {:panel :views        :label "Views"    :title "Per-view sub-invalidation surface for the focused cascade"}
    {:panel :trace        :label "Trace"    :title "Trace-buffer feed for the focused cascade"}
@@ -84,8 +87,10 @@
    {:panel :issues       :label "Issues"   :title "Cascade-scoped issues feed + ungrouped escape-hatch lane"}])
 
 (def default-panel
-  "Default panel when neither story nor variant declares one."
-  :event-detail)
+  "Default panel when neither story nor variant declares one. Post
+  rf2-5gl5r the canonical default is the Epoch panel (the retired
+  Event/Handler panel was the prior default)."
+  :epoch)
 
 (def panel-ids
   "Set of valid `:panel` slot values. Pure data — used by the schema
@@ -140,10 +145,11 @@
 (defn mount-fn-for
   "Return the Xray `mount-<panel>!` fn for `panel-id`, or nil when
   `panel-id` is unknown. Compile-time symbol resolution via the
-  `case` dispatch — no runtime namespace walk."
+  `case` dispatch — no runtime namespace walk. (rf2-5gl5r retired
+  `:event-detail` in favour of `:epoch`.)"
   [panel-id]
   (case panel-id
-    :event-detail xray-panels/mount-event-detail!
+    :epoch        xray-panels/mount-epoch-panel!
     :app-db       xray-panels/mount-app-db-diff!
     :views        xray-panels/mount-reactive-panel!
     :trace        xray-panels/mount-trace!

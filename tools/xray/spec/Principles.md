@@ -78,11 +78,13 @@ once.
 A graph is striking. A flat panel that answers in one click is
 useful. When the two compete, the flat panel wins.
 
-This is why the event-detail panel is the hero (lock #7). The Event
-tab is the panel that answers in zero clicks. The causality graph
-that originally accompanied this principle has since been dropped
-entirely (rf2-y0z5b) — cascade lineage is inspected via the Event
-tab + Trace tab tags.
+This is why the focused-epoch panel is the hero (lock #7). Post
+rf2-5gl5r the **Epoch** tab is the panel that answers in zero
+clicks — the numbered-cascade view that supersedes the retired
+Event/Handler panel. The causality graph that originally
+accompanied this principle has since been dropped entirely
+(rf2-y0z5b) — cascade lineage is inspected via the Epoch tab +
+Trace tab tags.
 
 ## Ephemeral by default
 

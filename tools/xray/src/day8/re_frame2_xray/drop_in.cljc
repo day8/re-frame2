@@ -98,7 +98,7 @@
 ;; Hosts that don't number their own events still want cursor-based
 ;; filtering (the `:since` axis the framework's filter vocabulary
 ;; honours on `(rf/trace-buffer fid {:since N})`) to work — otherwise
-;; the L2 event list, the `:rf.xray/event-detail` hero,
+;; the L2 event list, the `:rf.xray/event-detail` composite,
 ;; and every other panel that diffs the buffer by id would lose its
 ;; ability to point at a specific event. The drop-in keeps its own
 ;; monotonic counter, namespaced under `:rf.xray.drop-in/id-counter`

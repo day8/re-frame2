@@ -45,10 +45,12 @@
   surviving mirror is `:selected-epoch-id`: the spine reducers stamp it
   alongside `:focus`'s `:epoch-id` so the App-DB-diff / Views panels can
   follow the focused epoch through `epoch.cljs`'s `:selected-epoch-id`
-  sub → `app_db_diff_subs`. The Event panel reads focus directly off the
-  `:rf.xray/event-detail` composite (derived from the spine), so the
-  former `:selected-dispatch-id` / `:selected-dispatch` mirror slots are
-  gone — there is no longer a dual-write for them."
+  sub → `app_db_diff_subs`. The cross-panel `:rf.xray/event-detail`
+  composite (relocated to `registry.cljs` post rf2-5gl5r — the retired
+  Event/Handler panel originally owned it) reads focus directly off
+  the spine, so the former `:selected-dispatch-id` / `:selected-
+  dispatch` mirror slots are gone — there is no longer a dual-write
+  for them."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
@@ -62,8 +64,8 @@
   time'. The `:ungrouped` bucket produced by `projection/group-cascades`
   for registry-time emits / frame lifecycle outside a drain / REPL
   evals carries no event vector and is therefore NOT a valid focus
-  target BY DEFAULT: pinning to it leaves every event-detail / app-db
-  / views panel with no cascade to render, which degrades into the
+  target BY DEFAULT: pinning to it leaves every epoch / app-db /
+  views panel with no cascade to render, which degrades into the
   unwanted 'all subs / all handlers' aggregate look.
 
   Strip the bucket before any spine walk so:
@@ -313,8 +315,8 @@
         paused?    (boolean (:paused? focus))
         ;; rf2-fzbrw — a slot pointing at nil OR the :ungrouped bucket
         ;; is NOT a valid focus pin BY DEFAULT. (Evicted ids are still
-        ;; a valid pin: the event-detail panel surfaces its orphaned-
-        ;; state copy off them, so we don't conflate "evicted" with
+        ;; a valid pin: downstream panels surface an "epoch evicted"
+        ;; placeholder off them, so we don't conflate "evicted" with
         ;; "never valid".) rf2-r9lyy — when `show-ungrouped?` is on,
         ;; `:ungrouped` IS pinnable so the user's click on the bucket
         ;; row sticks.
@@ -352,7 +354,7 @@
                     slot-id
                     head-id)
                   ;; Retro — slot-id wins. Evicted ids preserve the
-                  ;; orphaned-state surface in the event-detail panel.
+                  ;; "epoch evicted" placeholder downstream panels render.
                   :else
                   slot-id)
         cascade (cascade-by-id focusable eff-id slot-frame)
@@ -438,8 +440,9 @@
        ;; `:selected-epoch-id` is the live App-DB-diff shim slot
        ;; (epoch.cljs sub → app_db_diff_subs) — App-DB / Views follow the
        ;; spine's focused epoch through it. The dispatch-id slots are gone:
-       ;; the Event panel reads focus off the `:rf.xray/event-detail`
-       ;; composite (which derives off the spine), not a mirrored db slot.
+       ;; downstream consumers read focus off the `:rf.xray/event-detail`
+       ;; composite (relocated to `registry.cljs` post rf2-5gl5r when
+       ;; the Event/Handler panel retired), not a mirrored db slot.
        true       (assoc :selected-epoch-id epoch-id)))))
 
 (defn focus-step-reducer
@@ -619,9 +622,10 @@
   path inside the `:rf.xray/focus` sub uses the `:rf.xray/cascades`
   chain.
 
-  Public so legacy spine-shim events (e.g. `:rf.xray/select-
-  dispatch-id` in event_detail.cljs) can reuse the same projection
-  when they need head-id (rf2-xzzih)."
+  Public so cross-panel spine-shim events (e.g. `:rf.xray/select-
+  dispatch-id`, relocated from event_detail.cljs to registry.cljs in
+  rf2-5gl5r) can reuse the same projection when they need head-id
+  (rf2-xzzih)."
   [db]
   (let [buffer (or (get db :trace-buffer) (trace-collector/snapshot-from-rings))]
     (projection/group-cascades buffer)))

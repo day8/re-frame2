@@ -37,8 +37,8 @@
     4. **Transition history ribbon** — filter the Xray trace buffer
        to `:rf.machine/transition` events for the selected machine and
        render them as a scrubbable horizontal list. Click a row →
-       `:rf.xray/select-dispatch-id` (pivots to event-detail, parity
-       with every other Xray cross-panel jump).
+       `:rf.xray/select-dispatch-id` (pivots focus, parity with every
+       other Xray cross-panel jump).
 
   ## What v1 does NOT include
 
@@ -343,9 +343,9 @@
 
 (defn format-event
   "Compact event-vector formatter for the transition row. Falls back
-  to `str` if `pr-str` throws (mirrors the format-edn helper in
-  event_detail.cljs but lives here so the test suite can assert
-  against the formatted output without booting the view)."
+  to `str` if `pr-str` throws (mirrors the format-edn idiom the
+  retired event_detail.cljs used; relocated here so the test suite
+  can assert against the formatted output without booting the view)."
   [event]
   (if (nil? event)
     ""

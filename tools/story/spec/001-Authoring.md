@@ -448,7 +448,7 @@ slot's value is one of the seven canonical Xray panel ids:
 
 | `:xray-panel` value | Xray panel rendered (chip label)             | Typical use case                                  |
 |----------------------|-----------------------------------------------|---------------------------------------------------|
-| `:event-detail`      | Event — six-domino cascade view (default)     | "What happened on the last event?"                |
+| `:epoch`             | Epoch — numbered computational timeline (default; supersedes `:event-detail` per rf2-5gl5r) | "What happened on the last event?"                |
 | `:app-db`            | App-db — structural diff across the cascade   | State-shape stories (counter, settings, modals)   |
 | `:views`             | Views — per-view sub-invalidation surface     | Reactive-graph debugging, sub-fan-out stories     |
 | `:trace`             | Trace — trace-buffer feed for the cascade     | Side-effect / fx-heavy stories                    |
@@ -457,10 +457,12 @@ slot's value is one of the seven canonical Xray panel ids:
 | `:issues`            | Issues — cascade-scoped issues feed           | Stories that exercise issue / warning surfaces    |
 
 The slot resolves variant-first, then story-level, then the framework
-default `:event-detail`. The user can swap panels at runtime via the
-chip-row picker in the RHS — their click is sticky for the session
-and overrides the declared default. Unknown keywords fall back to
-`:event-detail` so a typo doesn't blank the embed. The canonical id
+default `:epoch` (post rf2-5gl5r — the prior default `:event-detail`
+pointed at the now-retired Event/Handler panel). The user can swap
+panels at runtime via the chip-row picker in the RHS — their click
+is sticky for the session and overrides the declared default.
+Unknown keywords fall back to `:epoch` so a typo doesn't blank the
+embed. The canonical id
 list lives in
 [`re-frame.story.ui.xray-embed/panel-catalog`](../src/re_frame/story/ui/xray_embed.cljs);
 the Xray-side mount surface (one `mount-<panel>!` per id) lives at

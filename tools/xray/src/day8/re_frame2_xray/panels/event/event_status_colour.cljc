@@ -197,6 +197,77 @@
   [state]
   (get tokens/tokens (event-status-token state) (:accent tokens/tokens)))
 
+;; ---- cascade-outcome (relocated from event_detail.cljs · rf2-5gl5r) ----
+;;
+;; Pure-data classifier: project a cascade's `:other` bucket onto the
+;; outcome triad `:ok | :error | :warning`. Originally a private helper
+;; in the retired event-detail panel; the trace panel's
+;; `cascade-status-bar` reads it via `cascade->state` (below), and the
+;; existing JVM test corpus targets it directly. Lifted into the
+;; event-status-colour ns alongside `cascade->state` because the two
+;; are co-consumed (the typical call shape is `(cascade->state cascade
+;; focus cascade-outcome)`) — keeping them in the same place removes
+;; the dependency-injection indirection the prior cross-ns split forced.
+
+(defn- error-trace?
+  "True iff `ev` is an error trace — classified by the universal
+  severity axis (`:op-type :error`, per Spec 009) with a namespace
+  fallback for any `:rf.error/*` operation. Mirrors the namespace-based
+  idiom in `issues-ribbon-helpers/op-type->severity` rather than
+  enumerating individual ops the substrate may add over time."
+  [{:keys [op-type operation] :as _ev}]
+  (or (= :error op-type)
+      (and (keyword? operation) (= "rf.error" (namespace operation)))))
+
+(defn- warning-trace?
+  "True iff `ev` is a warning trace — `:op-type :warning` (per Spec 009)
+  with an `:rf.warning/*` namespace fallback. Severity-driven, not
+  op-enumerated."
+  [{:keys [op-type operation] :as _ev}]
+  (or (= :warning op-type)
+      (and (keyword? operation) (= "rf.warning" (namespace operation)))))
+
+(defn- has-error?
+  "True iff the cascade carries ANY error trace (severity `:error` /
+  `:rf.error/*`) in its `:other` bucket. Pure predicate."
+  [{:keys [other]}]
+  (boolean (some error-trace? (or other []))))
+
+(defn- has-warning?
+  "True iff the cascade carries any non-fatal warning that should pivot
+  the outcome glyph to ⚠ (amber). Pure predicate."
+  [{:keys [other]}]
+  (boolean (some warning-trace? (or other []))))
+
+(defn cascade-outcome
+  "Project a cascade record into an outcome-summary map:
+
+      {:event-id    <kw>           ;; first element of :event vec
+       :glyph       \"✓\" | \"✗\" | \"⚠\"
+       :outcome     :ok | :error | :warning
+       :duration-ms <num-or-nil>
+       :dispatch-id <int>
+       :ssr?        <bool>}        ;; true when this was an SSR-hydration cascade
+
+  Pure data → data. JVM-portable. Relocated from the retired
+  event-detail panel (rf2-5gl5r); the trace panel's cascade-status-bar
+  is the surviving consumer alongside the JVM unit-test corpus."
+  [{:keys [event handler dispatch-id] :as cascade}]
+  (let [event-id    (when (vector? event) (first event))
+        duration-ms (get-in handler [:tags :duration-ms])
+        ssr?        (or (= :rf.ssr/hydrated event-id)
+                        (= :rf.ssr/hydration-complete event-id))
+        [outcome glyph] (cond
+                          (has-error? cascade)   [:error   "✗"]
+                          (has-warning? cascade) [:warning "⚠"]
+                          :else                  [:ok      "✓"])]
+    {:event-id    event-id
+     :glyph       glyph
+     :outcome     outcome
+     :duration-ms duration-ms
+     :dispatch-id dispatch-id
+     :ssr?        ssr?}))
+
 ;; ---- convenience: cascade → state map -----------------------------------
 
 (defn cascade->state
@@ -211,14 +282,17 @@
                       `:paused?`); pass nil for callers that don't have
                       it (e.g. JVM unit tests building the state map by
                       hand)
-  - `outcome-fn`    — a fn `(cascade) -> :ok|:error|:warning`. Passed
-                      in by the caller (typically
-                      `event-detail/cascade-outcome` composed with
-                      `:outcome` selection) so this ns does NOT pull a
-                      circular dep on `panels/event-detail`.
+  - `outcome-fn`    — a fn `(cascade) -> :ok|:error|:warning`. Default
+                      `cascade-outcome` (above). The injection seam
+                      survives from the pre-rf2-5gl5r era where this
+                      ns deliberately avoided a circular dep on
+                      `panels/event-detail`; with that panel retired,
+                      the default behaviour is the common path.
 
   Pure data → map; JVM-runnable."
-  [cascade focus outcome-fn]
+  ([cascade focus]
+   (cascade->state cascade focus cascade-outcome))
+  ([cascade focus outcome-fn]
   (let [outcome   (some-> cascade outcome-fn :outcome)
         focused?  (boolean
                     (and cascade focus
@@ -229,4 +303,4 @@
      :paused?    (boolean (and focused? (:paused? focus)))
      :mode       (when focused? (:mode focus))
      :in-flight? false
-     :stale?     stale?}))
+     :stale?     stale?})))

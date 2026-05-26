@@ -69,7 +69,9 @@
             [panel-gallery.panel-views :as panel-views]
             ;; Side-effecting story registrations — namespaces fire
             ;; their `register-all!` at namespace load.
-            [panel-gallery.gallery-event]
+            ;; (rf2-5gl5r — `gallery-event` removed alongside the
+            ;; retired Event/Handler panel; the Epoch gallery is the
+            ;; canonical surface.)
             [panel-gallery.gallery-app-db]
             [panel-gallery.gallery-epoch]
             [panel-gallery.gallery-views]

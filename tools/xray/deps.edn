@@ -23,8 +23,9 @@
 ;;
 ;; Foundation only: preload, Ctrl+Shift+C, frame-provider :rf/xray
 ;; isolation, empty-shell layout, trace bus subscription. Panels
-;; (event-detail hero, time-travel, app-db diff, etc.) ship as
-;; separate beads under rf2-5aw5v.
+;; (Epoch hero, app-db diff, etc.) ship as separate beads under
+;; rf2-5aw5v. (Pre rf2-5gl5r the hero was the now-retired Event/
+;; Handler panel; the Epoch panel is the canonical replacement.)
 ;;
 ;; ## MCP surface
 ;;

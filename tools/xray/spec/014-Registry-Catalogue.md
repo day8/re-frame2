@@ -111,9 +111,17 @@ discipline as the rest of the registry.
 | `:rf.xray/trace-collector` | `rf/register-listener!` | Xray's trace consumer listener. Drops self-noise (`:frame :rf/xray`), applies the privacy gate, pushes frameless events into Xray's secondary ring, and requests a coalesced microtask sync into `:rf/xray`'s `:trace-buffer` slot — the framework's per-frame rings own the frame-bound data plane (per rf2-43koh). Idempotent per preload installation. |
 | `:rf.xray/epoch-collector` | `rf/register-epoch-listener!` | Xray's epoch-settle pump. Dispatches `:rf.xray/epoch-recorded` per settled epoch so the cached `:rf.xray/epoch-history` snapshot stays consistent with `(rf/epoch-history target)`. Short-circuits when Xray is not mounted. |
 
-## Event-detail panel
+## Cross-panel focused-cascade primitives (relocated from the retired event-detail panel · rf2-5gl5r)
 
-Spec: [`007-UX-IA.md`](./007-UX-IA.md) §The default landing view, §10 Lock 7.
+Spec: [`007-UX-IA.md`](./007-UX-IA.md) §The default landing view.
+rf2-5gl5r retired the Event/Handler panel in favour of the Epoch
+panel ([`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+§9.1). The composite sub + spine-shim events listed below were
+**relocated** from the deleted `panels/event_detail.cljs` to
+`registry.cljs` as cross-panel primitives — multiple consumers
+(`share.cljs`'s cascade-export, the trace panel's status bar,
+machine-inspector, cancellation-cascade, the unit-test corpus) read
+them and they outlived the panel that originally owned them.
 
 ### Subscriptions
 
@@ -125,8 +133,8 @@ Spec: [`007-UX-IA.md`](./007-UX-IA.md) §The default landing view, §10 Lock 7.
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.xray/select-dispatch-id` | `[_ dispatch-id]` | Sets selection. |
-| `:rf.xray/clear-selected-dispatch-id` | `[_]` | Drops selection. |
+| `:rf.xray/select-dispatch-id` | `[_ dispatch-id]` | Sets selection (writes through the spine via `spine/focus-cascade-reducer`). |
+| `:rf.xray/clear-selected-dispatch-id` | `[_]` | Drops selection (resets spine focus to LIVE per rf2-s0s5x Phase A). |
 
 ## Time-travel scrubber
 

@@ -14,7 +14,7 @@
   Per `tools/xray/spec/008-Embedding-Contract.md` every panel exposes
   a public mount fn:
 
-      (mount-event-detail!     mount-point opts) → unmount-fn
+      (mount-epoch-panel!      mount-point opts) → unmount-fn
       (mount-app-db-diff!      mount-point opts) → unmount-fn
       (mount-reactive-panel!   mount-point opts) → unmount-fn
       (mount-trace!            mount-point opts) → unmount-fn
@@ -68,7 +68,7 @@
 
   | Panel | Reads | Writes (via dispatch) |
   |---|---|---|
-  | **event-detail** | `:rf.xray/focus` · `:rf.xray/cascades` · `:rf.xray/target-frame-db` | `:rf.xray/focus-cascade` |
+  | **epoch-panel** | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` · `:rf.xray.epoch/set-db-view-mode` |
   | **app-db (current-state inspector)** | `:rf.xray/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area — rf2-okvit) | `:rf.xray/open-segment-inspector` |
   | **reactive-panel** | `:rf.xray/reactive-data` (composite over focused cascade's `:trace-events`) | `:rf.xray/reactive-toggle-unchanged` |
   | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into the whole-epoch arc: envelope + 4 phase bands, spec/023) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/toggle-trace-band-collapse` · `:rf.xray/open-in-editor` |
@@ -118,7 +118,6 @@
             [day8.re-frame2-xray.panels.app-db-segment-inspector :as segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
-            [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.managed-fx-template :as managed-fx]
@@ -162,7 +161,7 @@
   tear the mount down without going through this ns again.
 
   - `panel-view` — the panel's `reg-view`-registered Var (e.g.
-    `event-detail/Panel`). Wrapped in a Reagent component-vector so
+    `epoch-panel/Panel`). Wrapped in a Reagent component-vector so
     React-context flows correctly per Spec 006 §706 (a plain `defn`
     invoked as a fn-call would skip the React-context tier and the
     panel's subscribes would route to `:rf/default`).
@@ -183,20 +182,16 @@
 
 ;; ---- per-panel mount fns ------------------------------------------------
 ;;
-;; All eleven public mount fns share the same shape — install handlers
-;; → wrap panel view in frame-provider → delegate to substrate adapter.
-;; The only per-panel axis is which `Panel` (or equivalent) view to
-;; render. This keeps the surface uniform — adding a panel = adding a
-;; line below; the chrome (registration, frame wiring, substrate
-;; delegation) lives in `render-panel!` exactly once.
-
-(defn mount-event-detail!
-  "Mount Xray's Event tab in isolation at `mount-point`. Renders the
-  six-domino cascade view for the current spine focus.
-
-  See ns docstring for `opts` shape + the embedding contract."
-  ([mount-point]      (mount-event-detail! mount-point nil))
-  ([mount-point opts] (render-panel! event-detail/Panel mount-point opts)))
+;; All public mount fns share the same shape — install handlers → wrap
+;; panel view in frame-provider → delegate to substrate adapter. The
+;; only per-panel axis is which `Panel` (or equivalent) view to render.
+;; This keeps the surface uniform — adding a panel = adding a line
+;; below; the chrome (registration, frame wiring, substrate delegation)
+;; lives in `render-panel!` exactly once.
+;;
+;; (rf2-5gl5r — `mount-event-detail!` removed alongside the retired
+;; Event/Handler panel; the Epoch panel supersedes it as the canonical
+;; "what happened in this epoch" mount target.)
 
 (defn mount-epoch-panel!
   "Mount Xray's Epoch tab in isolation at `mount-point` (rf2-sc3r1).
@@ -275,8 +270,9 @@
   reads `:rf.xray/managed-fx-for-focused-event` and renders the
   records list. `managed-fx-template/records-list` is a pure fn over
   a records vector; this reg-view ties it to the focused cascade's
-  managed-fx sub so consumers get the same content the Event tab
-  embeds inline under the six-domino cascade view.
+  managed-fx sub so consumers get the same content the (retired)
+  Event/Handler panel embedded inline; rf2-5gl5r kept the sub but
+  dropped the inline-embed host.
 
   Exposing this as a reg-view (rather than a plain fn) follows the
   Conventions.md panel-facade contract — every public mount target
@@ -289,7 +285,7 @@
 (defn mount-managed-fx!
   "Mount the managed-fx wire-boundary diff list in isolation at
   `mount-point`. Renders one record-panel per managed-fx invocation
-  inside the focused cascade's six-domino window. Empty when the
+  inside the focused cascade's managed-fx records. Empty when the
   focused cascade had no managed-fx records."
   ([mount-point]      (mount-managed-fx! mount-point nil))
   ([mount-point opts] (render-panel! ManagedFxList mount-point opts)))
