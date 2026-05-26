@@ -158,8 +158,10 @@
    ;; rows) + per-row expansion-set sub.
    :rf.xray/epoch-pipeline
    :rf.xray.epoch/expanded-rows
-   ;; rf2-kfh1v — Epoch panel SUBSCRIPTIONS show-unchanged flag.
-   :rf.xray.epoch/subs-show-unchanged?
+   ;; rf2-tzmmf — Epoch panel SUBSCRIPTIONS filter-mode sub
+   ;; (`[all][changed][unchanged]` button-bar; supersedes
+   ;; rf2-kfh1v's boolean `subs-show-unchanged?`).
+   :rf.xray.epoch/subs-filter-mode
    ;; pair-debug 2026-05-26 (ee9def224) — HANDLER `:db` `[diff][all]`
    ;; toggle slot. Persists the operator's preferred view-mode for
    ;; the HANDLER step's `:db` sub-section. Defaults to `:diff`.
@@ -450,8 +452,10 @@
    ;; rf2-sc3r1 — Epoch panel per-row expansion events.
    :rf.xray.epoch/toggle-row-expand
    :rf.xray.epoch/clear-row-expand
-   ;; rf2-kfh1v — Epoch panel SUBSCRIPTIONS show-unchanged toggle.
-   :rf.xray.epoch/toggle-subs-show-unchanged
+   ;; rf2-tzmmf — Epoch panel SUBSCRIPTIONS filter-mode write event
+   ;; (`[all][changed][unchanged]` button-bar; supersedes
+   ;; rf2-kfh1v's `toggle-subs-show-unchanged`).
+   :rf.xray.epoch/set-subs-filter-mode
    ;; pair-debug 2026-05-26 (ee9def224) — HANDLER `:db` `[diff][all]`
    ;; toggle write event. Sets the persisted view-mode slot the
    ;; `:rf.xray.epoch/db-view-mode` sub reads.

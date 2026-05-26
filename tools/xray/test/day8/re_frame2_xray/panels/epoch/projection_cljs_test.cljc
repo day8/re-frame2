@@ -133,6 +133,33 @@
          (some? elapsed-ms)
          (assoc :rf.view/elapsed-ms elapsed-ms)))))
 
+(defn- view-unmounted-ev
+  "`:rf.view/unmounted` trace event — drives the VIEWS step's
+  UNMOUNTED sub-section (rf2-gmw1i). Per
+  `re-frame.views/emit-view-unmounted!` the substrate stamps
+  `:rf.view/id` + `:rf.view/render-key` + `:frame`."
+  ([view-id]
+   (view-unmounted-ev view-id nil :rf/default))
+  ([view-id render-key frame]
+   (ev :rf.view :rf.view/unmounted
+       {:rf.view/id         view-id
+        :rf.view/render-key render-key
+        :frame              frame})))
+
+(defn- sub-dispose-ev
+  "`:rf.sub/dispose` trace event — drives the SUBSCRIPTIONS step's
+  DISPOSED sub-section (rf2-wpfjo). Per rf2-mrnur the substrate stamps
+  `:rf.sub/id` + `:rf.sub/query-v` + `:rf.sub/reason` + `:frame`
+  on every cache eviction site."
+  ([sub-vec reason]
+   (sub-dispose-ev sub-vec reason :rf/default))
+  ([sub-vec reason frame]
+   (ev :rf.sub :rf.sub/dispose
+       {:rf.sub/id      (when (vector? sub-vec) (first sub-vec))
+        :rf.sub/query-v sub-vec
+        :rf.sub/reason  reason
+        :frame          frame})))
+
 (defn- machine-transition-ev
   ([machine-id before after]
    (machine-transition-ev machine-id before after nil 0))
@@ -832,6 +859,57 @@
       (is (= 1 (:changed s)))
       (is (= 2 (:unchanged s))))))
 
+(deftest disposed-subs-rows-test
+  (testing "rf2-wpfjo — `disposed-subs-rows` walks every
+            `:rf.sub/dispose` trace event into a row carrying
+            `:sub-id`, `:query`, `:reason`, `:frame`"
+    (let [rows (proj/disposed-subs-rows
+                 [(sub-dispose-ev [:counter/total] :no-more-derefers)
+                  (sub-dispose-ev [:counter/label] :hot-reload)
+                  (sub-dispose-ev [:cart/items 42] :cache-clear)])]
+      (is (= 3 (count rows)))
+      (is (= :counter/total (-> rows first :sub-id)))
+      (is (= [:counter/total] (-> rows first :query)))
+      (is (= :no-more-derefers (-> rows first :reason)))
+      (is (= :rf/default (-> rows first :frame)))
+      (is (= :hot-reload   (-> rows second :reason)))
+      (is (= :cache-clear  (-> rows last :reason)))
+      (is (= [:cart/items 42] (-> rows last :query)))))
+
+  (testing "rf2-wpfjo — no `:rf.sub/dispose` events → empty vec"
+    (is (= [] (proj/disposed-subs-rows
+                [(sub-run-ev [:counter/total] true 5 6)])))))
+
+(deftest subscriptions-step-surfaces-disposed-rows-test
+  (testing "rf2-wpfjo — `subscriptions-step` carries `:disposed-rows`
+            when `:rf.sub/dispose` events fired alongside the
+            recompute rows"
+    (let [s (proj/subscriptions-step
+              [(sub-run-ev [:a] true 1 2)
+               (sub-dispose-ev [:cart/items] :no-more-derefers)])]
+      (is (= 1 (count (:rows s))))
+      (is (= 1 (count (:disposed-rows s))))
+      (is (= :cart/items (-> s :disposed-rows first :sub-id)))
+      (is (= :no-more-derefers (-> s :disposed-rows first :reason)))))
+
+  (testing "rf2-wpfjo — dispose-only cascade (no run/skip) → step
+            still present; `:rows` empty, `:disposed-rows` populated"
+    (let [s (proj/subscriptions-step
+              [(sub-dispose-ev [:cart/items] :no-more-derefers)])]
+      (is (some? s) "step rendered when only dispose events fired")
+      (is (= :subscriptions (:step s)))
+      (is (= [] (:rows s)))
+      (is (= 1 (count (:disposed-rows s))))))
+
+  (testing "rf2-wpfjo — no sub events at all → step OMITTED"
+    (is (nil? (proj/subscriptions-step []))))
+
+  (testing "rf2-wpfjo — only recomputes, no disposals → `:disposed-rows`
+            slot ABSENT (omit-by-absence)"
+    (let [s (proj/subscriptions-step [(sub-run-ev [:a] true 1 2)])]
+      (is (not (contains? s :disposed-rows))
+          "absent slot conveys absence, not an empty vec"))))
+
 ;; ---- VIEWS --------------------------------------------------------------
 
 (deftest views-step-conditional-test
@@ -860,6 +938,52 @@
       (is (= :app.counter/Counter (:view-id row)))
       (is (= [[:counter/total] [:counter/threshold]] (:subs-read row)))
       (is (= 1.2 (:duration-ms row))))))
+
+(deftest unmounted-views-rows-test
+  (testing "rf2-gmw1i — `unmounted-views-rows` projects each
+            `:rf.view/unmounted` trace event into a row with `:view-id`,
+            `:instance`, `:frame`"
+    (let [rows (proj/unmounted-views-rows
+                 [(view-unmounted-ev :app/Counter [:Counter 0] :rf/default)
+                  (view-unmounted-ev :app/Sidebar [:Sidebar 0] :rf/default)])]
+      (is (= 2 (count rows)))
+      (is (= :app/Counter (-> rows first :view-id)))
+      (is (= [:Counter 0] (-> rows first :instance)))
+      (is (= :rf/default (-> rows first :frame)))
+      (is (= :app/Sidebar (-> rows second :view-id)))))
+
+  (testing "rf2-gmw1i — no `:rf.view/unmounted` events → empty vec"
+    (is (= [] (proj/unmounted-views-rows
+                [(view-render-ev :app/Counter [])])))))
+
+(deftest views-step-surfaces-unmounted-rows-test
+  (testing "rf2-gmw1i — `views-step` carries `:unmounted-rows` when
+            `:rf.view/unmounted` events fired alongside re-renders"
+    (let [s (proj/views-step
+              [(view-render-ev :app/Counter [])
+               (view-unmounted-ev :app/SidebarItem [:SidebarItem 0]
+                                  :rf/default)])]
+      (is (= 1 (count (:rows s))))
+      (is (= 1 (count (:unmounted-rows s))))
+      (is (= :app/SidebarItem (-> s :unmounted-rows first :view-id)))))
+
+  (testing "rf2-gmw1i — unmount-only cascade (no renders) → step still
+            present; `:rows` empty, `:unmounted-rows` populated"
+    (let [s (proj/views-step
+              [(view-unmounted-ev :app/Tooltip [:Tooltip 0] :rf/default)])]
+      (is (some? s) "step rendered even when no re-renders fired")
+      (is (= :views (:step s)))
+      (is (= [] (:rows s)))
+      (is (= 1 (count (:unmounted-rows s))))))
+
+  (testing "rf2-gmw1i — no view events at all → step OMITTED"
+    (is (nil? (proj/views-step []))))
+
+  (testing "rf2-gmw1i — only re-renders, no unmounts → `:unmounted-rows`
+            slot ABSENT (omit-by-absence)"
+    (let [s (proj/views-step [(view-render-ev :app/Counter [])])]
+      (is (not (contains? s :unmounted-rows))
+          "absent slot conveys absence, not an empty vec"))))
 
 ;; ---- top-level project --------------------------------------------------
 

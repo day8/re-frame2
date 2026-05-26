@@ -167,6 +167,28 @@
                                   :rf.view/deref-subs deref-subs
                                   :rf.view/elapsed-ms elapsed-ms}))
 
+(defn- view-unmounted-ev
+  "`:rf.view/unmounted` trace (per rf2-9hoos / rf2-te71r) — drives
+  the VIEWS step's UNMOUNTED sub-section (rf2-gmw1i). Substrate
+  stamps `:rf.view/id` + `:rf.view/render-key` + `:frame` on every
+  view-instance teardown."
+  [view-id render-key]
+  (ev :rf.view :rf.view/unmounted {:rf.view/id         view-id
+                                   :rf.view/render-key render-key
+                                   :frame              :rf/default}))
+
+(defn- sub-dispose-ev
+  "`:rf.sub/dispose` trace (per rf2-mrnur) — drives the SUBSCRIPTIONS
+  step's DISPOSED sub-section (rf2-wpfjo). Substrate stamps
+  `:rf.sub/id` + `:rf.sub/query-v` + `:rf.sub/reason` + `:frame` on
+  every cache-eviction site (closed `:reason` set per rf2-mrnur:
+  `:no-more-derefers / :hot-reload / :cache-clear`)."
+  [sub-vec reason]
+  (ev :rf.sub :rf.sub/dispose {:rf.sub/id      (when (vector? sub-vec) (first sub-vec))
+                               :rf.sub/query-v sub-vec
+                               :rf.sub/reason  reason
+                               :frame          :rf/default}))
+
 ;; ---- machine-handler trace primitives -----------------------------------
 
 (defn- machine-transition-ev
@@ -607,3 +629,54 @@
     {:epoch-id 7
      :event    [:counter/init]
      :trace-events []}))
+
+;; ---- VARIANT 11: disposed-subs cascade (rf2-wpfjo) ----------------------
+;;
+;; Section coverage: SUBSCRIPTIONS step's DISPOSED sub-section
+;; (rf2-wpfjo). A route change tears down two view-instances; their
+;; subs lose their last derefer and evict (`:no-more-derefers`). A
+;; third sub was re-registered (`:hot-reload`) so the cache cleared.
+;; One sub recomputes (the new route's root sub).
+
+(defn disposed-subs-history
+  "Cascade where three sub-cache entries are evicted (two by
+  `:no-more-derefers` after the prior route's views unmounted, one
+  by `:hot-reload` after a re-registration) while one sub recomputes.
+  Exercises the SUBSCRIPTIONS step's DISPOSED sub-section (rf2-wpfjo)
+  with the full `:reason` closed set."
+  []
+  (single-epoch-history
+    {:epoch-id 11
+     :event    [:route/change :reports]
+     :trace-events
+     [(dispatched-ev [:route/change :reports] :ui)
+      (db-changed-ev [[[:route] :checkout :reports :modified]])
+      (sub-run-ev [:route/current] true :checkout :reports)
+      (sub-dispose-ev [:checkout/total]       :no-more-derefers)
+      (sub-dispose-ev [:checkout/line-items]  :no-more-derefers)
+      (sub-dispose-ev [:report/threshold-cfg] :hot-reload)
+      (run-end-ev 0.7)]}))
+
+;; ---- VARIANT 10: unmounted-views cascade (rf2-gmw1i) --------------------
+;;
+;; Section coverage: VIEWS step's UNMOUNTED sub-section (rf2-gmw1i).
+;; A route change tears down two views; one new view mounts. Exercises
+;; the `N re-rendered; M unmounted` header counter + the per-row red
+;; `✗` glyph chrome on the unmounted entries.
+
+(defn unmounted-views-history
+  "Cascade where two view instances unmount (route change tears down
+  the modal + a sidebar item) while one new view re-renders.
+  Exercises the VIEWS step's UNMOUNTED sub-section (rf2-gmw1i)."
+  []
+  (single-epoch-history
+    {:epoch-id 10
+     :event    [:route/change :dashboard]
+     :trace-events
+     [(dispatched-ev [:route/change :dashboard] :ui)
+      (db-changed-ev [[[:route] :checkout :dashboard :modified]])
+      (sub-run-ev [:route/current] true :checkout :dashboard)
+      (view-rendered-ev :app.dashboard/Page [[:route/current]] 1.1)
+      (view-unmounted-ev :app.checkout/Modal      [:Modal 0])
+      (view-unmounted-ev :app.sidebar/CheckoutItem [:CheckoutItem 0])
+      (run-end-ev 0.6)]}))

@@ -1585,7 +1585,7 @@ verbatim; no DOM concern bleeds into the data layer.
 |-----|-------|--------|
 | `:rf.xray/epoch-pipeline` | `:rf.xray/focus` · `:rf.xray/epoch-history` (via the shared `panels.shared.focus-resolver`) | `{:status :no-focus | :focused | :epoch-evicted, :epoch-id, :record, :steps}` |
 | `:rf.xray.epoch/expanded-rows` | `:epoch-panel-expanded-rows` slot | `#{[step-kw row-id] …}` |
-| `:rf.xray.epoch/subs-show-unchanged?` | `:epoch-panel-subs-show-unchanged?` slot | boolean (rf2-kfh1v — SUBSCRIPTIONS step filters unchanged rows by default; this flag opts in to seeing all) |
+| `:rf.xray.epoch/subs-filter-mode` | `:epoch-panel-subs-filter-mode` slot | keyword `:all / :changed / :unchanged` (rf2-tzmmf — SUBSCRIPTIONS step's `[all][changed][unchanged]` button-bar; supersedes rf2-kfh1v's boolean `subs-show-unchanged?`. Default `:changed` preserves the rf2-kfh1v hide-unchanged-by-default rationale) |
 
 ### §9.1.10 Events
 
@@ -1593,7 +1593,7 @@ verbatim; no DOM concern bleeds into the data layer.
 |-------|--------|
 | `:rf.xray.epoch/toggle-row-expand step-kw row-id` | flip the row's pair in `:epoch-panel-expanded-rows` |
 | `:rf.xray.epoch/clear-row-expand` | drop the expansion set |
-| `:rf.xray.epoch/toggle-subs-show-unchanged` | flip the SUBSCRIPTIONS show-unchanged flag (rf2-kfh1v) |
+| `:rf.xray.epoch/set-subs-filter-mode mode` | set the SUBSCRIPTIONS filter mode (rf2-tzmmf — closed set `:all / :changed / :unchanged`; supersedes rf2-kfh1v's `toggle-subs-show-unchanged`. The button-bar replaces both the prior boolean toggle AND the badge-adjacent `N recomputed (M changed, K unchanged)` summary text — Mike pair-debug 2026-05-26: no coexistence, pre-alpha posture) |
 
 ### §9.1.10.1 Substrate tag dependencies (the trace-stamp contract)
 
@@ -1614,7 +1614,9 @@ and silently rendered empty rows. The binding inventory:
 | `:flow` | `:rf.flow/computed` (NOT `:rf.flow/recomputed` — rf2-yhgk8 aligned the read against `re-frame.flows`'s canonical emit) | `:flow-id`, `:path`, `:before`, `:result` (the view-side `:after` slot maps to the substrate's `:result`), `:elapsed-ms` |
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:rf.fx/elapsed-ms` (rf2-ipaza aligned the duration read against the substrate's canonical name) |
 | `:subscriptions` | `:rf.sub/run` / `:rf.sub/skip` | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/elapsed-ms` (rf2-kfh1v aligned the reads against these) |
+| `:subscriptions` disposed (rf2-wpfjo) | `:rf.sub/dispose` (emitted by `re-frame.subs.cache/emit-dispose!` per rf2-mrnur — every cache eviction site funnels through ONE emit shape) | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/reason` (closed set `:no-more-derefers / :hot-reload / :cache-clear`), `:frame`. Surfaced via `projection/disposed-subs-rows`; the SUBSCRIPTIONS step carries an optional `:disposed-rows` slot (omit-by-absence). The step renders a DISPOSED sub-section when populated and reads `N recomputed (...); L disposed` in its header. A dispose-only cascade (no run/skip) still renders the step. |
 | `:views` | `:rf.view/rendered` (NOT the simpler `:rf.view/render` marker) | `:rf.view/id`, `:rf.view/deref-subs`, `:rf.view/elapsed-ms`, `:rf.view/mount?`, `:rf.view/triggered-by` (rf2-6djth aligned the read against the rich marker) |
+| `:views` unmounted (rf2-gmw1i) | `:rf.view/unmounted` (already emitted by `re-frame.views/emit-view-unmounted!` per rf2-9hoos + rf2-te71r) | `:rf.view/id`, `:rf.view/render-key`, `:frame`. Surfaced via `projection/unmounted-views-rows`; the VIEWS step carries an optional `:unmounted-rows` slot (omit-by-absence when none fired). The step renders an UNMOUNTED sub-section when populated and reads `N re-rendered; M unmounted` in its header. |
 
 ### §9.1.10.2 Per-step elapsed time + cascade total (rf2-nqt3d)
 

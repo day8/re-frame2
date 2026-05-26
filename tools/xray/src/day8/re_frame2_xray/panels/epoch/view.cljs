@@ -1674,29 +1674,59 @@
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
-(defn- subscriptions-toggle-button
-  "Render the `Show unchanged` toggle button — flips the
-  `:rf.xray.epoch/subs-show-unchanged?` slot on the Xray app-db.
-  When `show?` is true the label reads `Hide unchanged`."
-  [show? unchanged]
-  (when (pos? unchanged)
-    [:button {:data-testid "rf-xray-epoch-subscriptions-toggle"
-              :aria-pressed (str (boolean show?))
-              :on-click (fn [e]
-                          (.stopPropagation e)
-                          (rf/dispatch
-                            [:rf.xray.epoch/toggle-subs-show-unchanged]
-                            {:frame :rf/xray}))
-              :style {:background  "transparent"
-                      :border      (str "1px solid " (:border-default tokens))
-                      :border-radius "3px"
-                      :color       (:text-secondary tokens)
-                      :cursor      "pointer"
-                      :font-family sans-stack
-                      :font-size   "11px"
-                      :padding     "2px 8px"
-                      :margin-left "8px"}}
-     (if show? "Hide unchanged" "Show unchanged")]))
+(defn- subs-filter-button-bar
+  "Three-button filter bar `[all][changed][unchanged]` for the
+  SUBSCRIPTIONS step (rf2-tzmmf). Mirrors the HANDLER step's
+  `[diff][all]` toggle shape — same chrome vocabulary.
+
+  Active button paints in `:accent`; inactive buttons are
+  transparent with muted text. Click dispatches
+  `:rf.xray.epoch/set-subs-filter-mode` with the chosen keyword.
+
+  SUPERSEDES the prior rf2-kfh1v `Show unchanged` boolean toggle
+  AND the badge-adjacent `N recomputed (M changed, K unchanged)`
+  text — Mike pair-debug 2026-05-26: the button-bar IS the new
+  right-of-badge chrome. Pre-alpha masterpiece posture; no
+  back-compat shim retained."
+  [mode]
+  [:span {:data-testid "rf-xray-epoch-subscriptions-filter-mode"
+          :data-mode (when (keyword? mode) (name mode))
+          :style {:display "inline-flex"
+                  :align-items "center"
+                  :gap 0
+                  :border (str "1px solid " (:border-subtle tokens))
+                  :border-radius "3px"
+                  :overflow "hidden"
+                  :margin-left "8px"
+                  :line-height 1}}
+   (for [m [:all :changed :unchanged]
+         :let [active? (= mode m)]]
+     ^{:key (name m)}
+     [:button {:data-testid (str "rf-xray-epoch-subscriptions-filter-" (name m))
+               :aria-pressed (str active?)
+               :on-click (fn [e]
+                           (.stopPropagation e)
+                           ;; `with-frame :rf/xray` pins the dispatch
+                           ;; target so the sub running in :rf/xray
+                           ;; sees the write (matches the rf2-p56sk +
+                           ;; HANDLER `[diff][all]` frame-anchor
+                           ;; pattern — Xray app-db is the toggle's
+                           ;; home regardless of host frame).
+                           (rf/with-frame :rf/xray
+                             (rf/dispatch
+                               [:rf.xray.epoch/set-subs-filter-mode m])))
+               :style {:background (if active? (:accent tokens) "transparent")
+                       :color      (if active? (:white tokens) (:text-secondary tokens))
+                       :border     "none"
+                       :padding    "2px 8px"
+                       :font-family sans-stack
+                       :font-size  "10px"
+                       :font-weight 700
+                       :text-transform "uppercase"
+                       :letter-spacing "0.5px"
+                       :cursor     "pointer"
+                       :line-height 1}}
+      (name m)])])
 
 (defn- subscriptions-table
   "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
@@ -1772,55 +1802,139 @@
             [:span {:style {:color (:success tokens)}} [ei/mini after 24]])]
          [:span {:style {:color (:text-tertiary tokens) :font-weight 700}} "✗"])]])])
 
+(defn- dispose-reason-label
+  "Render a `:rf.sub/dispose` `:reason` keyword as a UI label
+  (rf2-wpfjo). Closed set per rf2-mrnur — `:no-more-derefers /
+  :hot-reload / :cache-clear`. Falls through `name` for unknown
+  reasons so future extensions still paint text."
+  [reason]
+  (case reason
+    :no-more-derefers "no-more-derefers"
+    :hot-reload       "hot-reload"
+    :cache-clear      "cache-clear"
+    (when (keyword? reason) (name reason))))
+
+(defn- disposed-subs-table
+  "Render the DISPOSED sub-section (rf2-wpfjo) — one row per
+  `:rf.sub/dispose` trace event. Visually distinct from the
+  recompute rows: a red/error glyph conveys eviction; a muted
+  reason chip carries the dispose path."
+  [rows]
+  [:div {:data-testid "rf-xray-epoch-subscriptions-disposed-table"
+         :style {:margin-top "8px"
+                 :border (str "1px solid " (:border-subtle tokens))
+                 :border-radius "3px"
+                 :overflow "hidden"}}
+   [:div {:style {:display "flex"
+                  :align-items "stretch"
+                  :background (:bg-3 tokens)
+                  :border-bottom (str "1px solid " (:border-subtle tokens))
+                  :font-family sans-stack
+                  :font-size "10px"
+                  :font-weight 700
+                  :color (:text-tertiary tokens)
+                  :text-transform "uppercase"
+                  :letter-spacing "0.5px"}}
+    [:div {:style {:flex "0 0 24px" :padding "5px 8px"}} ""]
+    [:div {:style {:flex "1 1 60%" :padding "5px 8px"}} "disposed sub"]
+    [:div {:style {:flex "1 1 40%" :padding "5px 8px"}} "reason"]]
+   (for [[i {:keys [sub-id query reason]}] (map-indexed vector rows)]
+     [:div {:key (str "disposed-" i)
+            :data-testid (str "rf-xray-epoch-sub-disposed-row-" i)
+            :data-sub-reason (when reason (pr-str reason))
+            :style {:display "flex"
+                    :align-items "stretch"
+                    :border-bottom (when (< i (dec (count rows)))
+                                     (str "1px solid " (:border-subtle tokens)))}}
+      [:div {:style {:flex "0 0 24px" :padding "5px 8px"
+                     :color (:error tokens)
+                     :font-family mono-stack :font-size "12px"
+                     :font-weight 700
+                     :text-align "center"}}
+       ;; Eviction glyph — `✗` red/error tone conveys "removed from
+       ;; the reactive graph" (rf2-wpfjo).
+       "✗"]
+      [:div {:style {:flex "1 1 60%" :padding "5px 8px" :min-width 0
+                     :font-family mono-stack :font-size "12px"
+                     :word-break "break-word"}}
+       [:span {:data-testid (str "rf-xray-epoch-sub-disposed-row-id-" i)
+               :style {:color (:text-secondary tokens)
+                       :display "inline-flex"
+                       :align-items "center" :gap "4px"}}
+        (cond
+          (vector? query) [ei/mini query 40]
+          (some? sub-id)  [ei/mini sub-id 40]
+          :else           [:span {:style {:color (:text-tertiary tokens)
+                                          :font-style "italic"}}
+                           "<anonymous sub>"])]]
+      [:div {:data-testid (str "rf-xray-epoch-sub-disposed-row-reason-" i)
+             :style {:flex "1 1 40%" :padding "5px 8px" :min-width 0
+                     :font-family mono-stack :font-size "11px"
+                     :color (:text-tertiary tokens)
+                     :word-break "break-word"}}
+       (dispose-reason-label reason)]])])
+
 (defn render-subscriptions-step
-  "Render the SUBSCRIPTIONS step (only present when subs recomputed).
+  "Render the SUBSCRIPTIONS step (present when subs recomputed OR
+  when sub-cache entries were disposed — rf2-wpfjo).
 
-  Per rf2-kfh1v unchanged-input rows are HIDDEN BY DEFAULT — most
-  subs recompute on a cascade but report no value change, so the
-  noisy `N rows of ✗` legacy display was crowding out the rows the
-  operator actually cares about. A `Show unchanged` toggle reveals
-  the full list; the toggle's state lives in
-  `:rf.xray.epoch/subs-show-unchanged?` on the Xray app-db. Step
-  header shows the split count `N recomputed (M changed, K unchanged)`.
+  Per rf2-tzmmf the chrome to the right of the SUBSCRIPTIONS badge
+  is a 3-button filter bar `[all][changed][unchanged]` — mirrors the
+  HANDLER step's `[diff][all]` toggle shape. SUPERSEDES the prior
+  rf2-kfh1v `Show unchanged` boolean toggle AND the badge-adjacent
+  `N recomputed (M changed, K unchanged)` summary text — Mike
+  pair-debug 2026-05-26: the button-bar IS the new right-of-badge
+  chrome (no coexistence; pre-alpha masterpiece posture).
 
-  Mirrors the filter-toggle posture Chrome devtools' network panel
-  uses (the precedent the bead body cites).
+  Filter mode lives in `:rf.xray.epoch/subs-filter-mode` on the Xray
+  app-db. Default is `:changed` — the rf2-kfh1v hide-unchanged-by-
+  default rationale (most subs recompute but report no value change;
+  unchanged rows crowd out signal) is preserved as the default mode.
 
-  Per rf2-p56sk — fourth frame-leak in this class (after rf2-7sdja
-  popup, rf2-y59tb triangle, rf2-kcaiz zoom). The toggle event is
-  dispatched with explicit `{:frame :rf/xray}` envelope in
-  `subscriptions-toggle-button`, and the read here uses the
-  2-arity `subscribe` form so the sub anchors to `:rf/xray`
-  regardless of where the plain hiccup render dereffs from. Without
-  the explicit frame anchor, a non-`reg-view`-internal subscribe
-  resolves through the React-context tier — which is `:rf/xray` in
-  the Xray shell but is NOT guaranteed when the panel renders
-  inside a different frame-provider (story testbeds, embedded
-  surfaces). The toggle slot lives on `:rf/xray`'s app-db; the
-  matching read MUST also target `:rf/xray`'s db."
-  [{:keys [rows changed unchanged step-number]}]
-  (let [show-unchanged? @(rf/subscribe :rf/xray
-                                       [:rf.xray.epoch/subs-show-unchanged?])
-        visible-rows    (if show-unchanged?
-                          rows
-                          (filterv :changed? rows))
-        n               (count rows)
-        m               (or changed (count (filter :changed? rows)))
-        k               (or unchanged (- n m))]
+  Frame-anchor pattern per rf2-p56sk: the 2-arity `subscribe` pins
+  the read to `:rf/xray`, and the button-bar's click dispatches with
+  `with-frame :rf/xray` envelope (matches the HANDLER `[diff][all]`
+  toggle pattern). Both halves are anchored so toggle writes + reads
+  hit the same app-db regardless of host frame-provider."
+  [{:keys [rows disposed-rows step-number]}]
+  (let [mode          @(rf/subscribe :rf/xray
+                                     [:rf.xray.epoch/subs-filter-mode])
+        visible-rows  (case mode
+                        :all       rows
+                        :unchanged (filterv (complement :changed?) rows)
+                        ;; :changed (default) — also the fallback for
+                        ;; an unknown mode keyword so the panel never
+                        ;; renders an empty filter.
+                        (filterv :changed? rows))
+        n             (count rows)
+        l             (count disposed-rows)]
     [:div {:data-testid "rf-xray-epoch-step-subscriptions"
            :data-step-kw "subscriptions"}
      (numbered-circle step-number :SUBSCRIPTIONS)
      (step-header
        {:step :subscriptions
         :badge :SUBSCRIPTIONS
+        ;; Per rf2-tzmmf the badge-adjacent recompute summary text
+        ;; is REMOVED — the button-bar is the new chrome. The
+        ;; disposed-clause stays because there's no button-bar
+        ;; affordance for that surface (and the count is small
+        ;; enough that "L disposed" still reads at a glance).
         :verb [:span {:style {:display "inline-flex" :align-items "center"
                               :gap "8px" :flex-wrap "wrap"}}
-               (str n " recomputed (" m " changed, " k " unchanged)")
-               (subscriptions-toggle-button show-unchanged? k)]
+               (when (pos? n)
+                 (subs-filter-button-bar mode))
+               (when (pos? l)
+                 [:span {:style {:color (:text-tertiary tokens)
+                                 :font-family mono-stack
+                                 :font-size "11px"}}
+                  (str l " disposed")])]
         :expandable? false
         :testid "rf-xray-epoch-subscriptions"}
        nil)
-     (subscriptions-table visible-rows)]))
+     (when (pos? n)
+       (subscriptions-table visible-rows))
+     (when (pos? l)
+       (disposed-subs-table disposed-rows))]))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 
@@ -1915,21 +2029,94 @@
          :else
          [:span {:style {:font-style "italic"}} "(none)"])]])])
 
+(defn- unmounted-views-table
+  "Render the UNMOUNTED VIEWS sub-section (rf2-gmw1i) — one row per
+  `:rf.view/unmounted` trace event. Visually distinct from the
+  re-render rows: a red/error glyph conveys the teardown semantic.
+  Click-to-source uses the same `(rf/handler-meta :view view-id)`
+  resolver the re-render rows use, so the operator can jump to the
+  view's definition even when the instance is gone."
+  [rows]
+  [:div {:data-testid "rf-xray-epoch-views-unmounted-table"
+         :style {:margin-top "8px"
+                 :border (str "1px solid " (:border-subtle tokens))
+                 :border-radius "3px"
+                 :overflow "hidden"}}
+   [:div {:style {:display "flex"
+                  :align-items "stretch"
+                  :background (:bg-3 tokens)
+                  :border-bottom (str "1px solid " (:border-subtle tokens))
+                  :font-family sans-stack
+                  :font-size "10px"
+                  :font-weight 700
+                  :color (:text-tertiary tokens)
+                  :text-transform "uppercase"
+                  :letter-spacing "0.5px"}}
+    [:div {:style {:flex "0 0 24px" :padding "5px 8px"}} ""]
+    [:div {:style {:flex "1 1 auto" :padding "5px 8px"}} "unmounted view"]]
+   (for [[i {:keys [view-id]}] (map-indexed vector rows)]
+     [:div {:key (str "unmounted-" i)
+            :data-testid (str "rf-xray-epoch-view-unmounted-row-" i)
+            :data-view-id (when view-id (pr-str view-id))
+            :style {:display "flex"
+                    :align-items "stretch"
+                    :border-bottom (when (< i (dec (count rows)))
+                                     (str "1px solid " (:border-subtle tokens)))}}
+      [:div {:style {:flex "0 0 24px" :padding "5px 8px"
+                     :color (:error tokens)
+                     :font-family mono-stack :font-size "12px"
+                     :font-weight 700
+                     :text-align "center"}}
+       ;; Teardown glyph — `✗` red/error tone conveys the view came
+       ;; off the reactive graph (rf2-gmw1i).
+       "✗"]
+      [:div {:style {:flex "1 1 auto" :padding "5px 8px" :min-width 0
+                     :font-family mono-stack :font-size "12px"
+                     :word-break "break-word"}}
+       [:span {:data-testid (str "rf-xray-epoch-view-unmounted-row-id-" i)
+               :style {:color (:text-secondary tokens)
+                       :display "inline-flex"
+                       :align-items "center" :gap "4px"}}
+        (if (some? view-id)
+          (proj/ns-keyword view-id)
+          [:span {:style {:color (:text-tertiary tokens)
+                          :font-style "italic"}}
+           "<anonymous view>"])
+        (coord-chip/coord-chip (view-coord view-id)
+                               (str "rf-xray-epoch-view-unmounted-row-coord-" i))]]])])
+
 (defn render-views-step
-  "Render the VIEWS step (only present when views re-rendered)."
-  [{:keys [rows step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-views"
-         :data-step-kw "views"}
-   (numbered-circle step-number :VIEWS)
-   (step-header
-     {:step :views
-      :badge :VIEWS
-      :verb (str (count rows) " view"
-                 (when (not= 1 (count rows)) "s") " re-rendered")
-      :expandable? false
-      :testid "rf-xray-epoch-views"}
-     nil)
-   (views-table rows)])
+  "Render the VIEWS step (present when views re-rendered OR when
+  views unmounted during the cascade — rf2-gmw1i).
+
+  Header counter reads `N re-rendered; M unmounted` when both
+  surfaces are non-empty; collapses to `N re-rendered` or `M
+  unmounted` when one half is absent. The unmounted sub-section
+  is omitted entirely when no unmount-trace events fired."
+  [{:keys [rows unmounted-rows step-number]}]
+  (let [n (count rows)
+        m (count unmounted-rows)
+        verb (cond
+               (and (pos? n) (pos? m))
+               (str n " re-rendered; " m " unmounted")
+               (pos? m)
+               (str m " unmounted")
+               :else
+               (str n " view" (when (not= 1 n) "s") " re-rendered"))]
+    [:div {:data-testid "rf-xray-epoch-step-views"
+           :data-step-kw "views"}
+     (numbered-circle step-number :VIEWS)
+     (step-header
+       {:step :views
+        :badge :VIEWS
+        :verb verb
+        :expandable? false
+        :testid "rf-xray-epoch-views"}
+       nil)
+     (when (pos? n)
+       (views-table rows))
+     (when (pos? m)
+       (unmounted-views-table unmounted-rows))]))
 
 ;; ---- SCHEMA-VIOLATIONS step (rf2-17vxj) ----------------------------------
 
