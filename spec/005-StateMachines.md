@@ -1399,11 +1399,15 @@ The rejection is decidable at registration purely from the entry's `:target` (re
 
 An **internal** `:always` — one with no `:target`, only an `:action` — is NOT a self-loop and is permitted: it is the canonical action-microstep (`{:guard :more? :action :step}`) whose action flips the guard false and the microstep loop settles (per [§What `:always` is *not*](#what-always-is-not)). Only an explicit self-`:target` is rejected.
 
+### `:source` classification — `:always`
+
+`:always` microsteps run intra-macrostep and do NOT produce their own dispatch envelope — the resolving event's envelope is the only `:rf/dispatch-envelope` for the whole macrostep (per [§Microstep loop within drain](#microstep-loop-within-drain)). However, the per-microstep `:rf.machine.microstep/transition` trace (see [§Trace events](#trace-events-1)) carries `:source :always` so tools can filter "show only `:always`-driven microsteps" without needing to disambiguate from `:on`-driven transitions. The closed-set value `:always` is reserved on `:rf/dispatch-envelope`'s `:source` for forward consistency with the vocabulary (per [Spec-Schemas §`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope)) — should a future revision lift `:always` to a substrate-dispatched event (today it's a pure microstep), the value already names the trigger correctly. Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd).
+
 ### Trace events
 
 The runtime emits trace events at **two levels**, so tools can subscribe at the granularity they need:
 
-- **Per-microstep** `:rf.machine.microstep/transition` — one event per microstep with `:tags {:machine-id <id> :from <state> :to <state> :microstep-index <n>}`. Tools that want to see the inner cascade (visualisers, debuggers) consume these.
+- **Per-microstep** `:rf.machine.microstep/transition` — one event per microstep with `:tags {:machine-id <id> :from <state> :to <state> :microstep-index <n> :source :always}`. Tools that want to see the inner cascade (visualisers, debuggers) consume these. The `:source :always` tag is stamped per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd) so the trigger kind is uniform with the dispatch-envelope vocabulary.
 - **Outer macrostep** `:rf.machine/transition` — the existing event, augmented with `:tags { ... :microsteps <count>}` carrying the total number of microsteps in the macrostep. Tools that want only externally-observable transitions (UI inspectors, replay panels) consume this and ignore the per-microstep stream.
 
 Both levels are emitted unconditionally; consumers filter.
@@ -1775,6 +1779,10 @@ The CLJS realisation uses `js/Date.now` and `js/setTimeout` / `js/clearTimeout`.
 
 > **Why `:rf.warning/*` rather than `:rf.error/*` (rf2-o2lum).** The audit (rf2-a2xhr Finding 14) noted that `:rf.warning/no-clock-configured` is the only `:rf.warning/*` machine-emit; every other machine-emit is `:rf.error/*`. The asymmetry is **deliberate** and confirmed: the recovery is `:warned-and-replaced` (fall back to the host-native clock — see [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), which is materially different from the `:rf.error/*` machine emits whose recoveries are `:no-recovery`, `:replaced-with-default`, or `:logged-and-fallback` on a genuine failure path. "Host-native clock available; advisory only" is precisely what `:warning` severity is for — the request completes correctly, the trace records a configuration drift the operator should address. Promoting to `:rf.error/no-clock-configured` would conflate "configuration missing but graceful fallback exists" with "operation failed and was recovered" — two different operator intents. The asymmetry is the right shape; per audit rf2-a2xhr Finding 14, the decision is to **keep the warning severity**.
 
+### `:source` classification — `:after-timer`
+
+When an `:after` timer's delay elapses, the substrate dispatches the synthetic `[:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]` trigger event into the parent machine. That dispatch stamps **`:source :after-timer`** on the dispatch envelope so the Epoch panel's DISPATCH step renders "from :after timer" rather than `:unknown` (the residual default per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d)). The naming uses the spec's own term — `:after` — so the value greps back to this section. The existing `:rf/dispatch-origin :timer` tag is also stamped (per rf2-t1lxr); the two axes are independent. Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd).
+
 ### Trace events
 
 The runtime emits five trace events around every `:after`:
@@ -1993,6 +2001,10 @@ Per [rf2-ijm7](#) — when `[:rf.machine/spawn ...]` does NOT carry an explicit 
 Machines that don't handle `:rf.machine/spawned` see the event as a benign no-op — it walks the leaf→root resolution chain, finds no match, and the snapshot is unchanged (per [§Transition resolution — deepest-wins with parent fallthrough](#transition-resolution--deepest-wins-with-parent-fallthrough)).
 
 When the spawn DOES carry `:start`, the runtime dispatches `[<spawned-id> <start>]` instead — the existing behaviour, unchanged. The two paths are mutually exclusive; an actor receives one of `:rf.machine/spawned` OR the user's `:start`, never both. In both cases the initial-state `:entry` cascade runs BEFORE the first event's `:on` lookup, so `:entry` actions on the initial state fire regardless of which kick-off mode the spawn used.
+
+### `:source` classification — `:machine-spawn`
+
+The spawn fx (`:rf.machine/spawn`) dispatches the spawned actor's first event — either the user-supplied `:start` event or the synthetic `[:rf.machine/spawned]` — into the new actor. That dispatch stamps **`:source :machine-spawn`** on the dispatch envelope so the Epoch panel's DISPATCH step renders "from machine spawn" rather than `:unknown` (the residual default per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d)) or `:fx-dispatch` (which would be the default if the spawn fx routed through `:dispatch`). The naming — `:machine-spawn` — mirrors the spec's term so the operator-facing label greps back to this section. The existing `:rf/dispatch-origin :internal` tag is also stamped (per rf2-t1lxr); the two axes are independent. Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd).
 
 ### Top-level boot-time spawn (rare)
 

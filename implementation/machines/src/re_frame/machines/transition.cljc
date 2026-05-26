@@ -1726,12 +1726,20 @@
                             ;; carrying the from/to states and the 0-based
                             ;; microstep index, so visualisers/debuggers see the
                             ;; inner `:always` cascade the outer trace hides.
+                            ;; Per rf2-ejtpd: stamp `:source :always` so the
+                            ;; trigger-kind classifier is uniform with the
+                            ;; dispatch-envelope vocabulary (Spec-Schemas
+                            ;; §`:rf/dispatch-envelope`). `:always` microsteps
+                            ;; do not produce their own envelope (intra-
+                            ;; macrostep); the trace is the surface where the
+                            ;; closed-set value is observable.
                             (trace/emit! :rf.machine :rf.machine.microstep/transition
                                          {:machine-id     (or (:rf/parent-id machine)
                                                               (:id machine))
                                           :from           (:state snap)
                                           :to             (:state snap2)
                                           :microstep-index depth
+                                          :source         :always
                                           ;; Per rf2-ko8jb: epoch-capture
                                           ;; admission requires `:frame`.
                                           :frame          (:rf/frame machine)})
