@@ -454,7 +454,7 @@ expands to `inspect` (expandable hero). Props diffs use `inspect-diff`
 [`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
 
 The renderer respects [spec/015 data classification](../../../spec/015-Data-Classification.md):
-`:rf/redacted` → `[● REDACTED N]` magenta opaque; `:rf/large` → `[●
+`:rf/redacted` → `[● REDACTED N]` magenta opaque; `:rf.size/large-elided` → `[●
 ELIDED · N bytes]` yellow drillable. See
 [`018-Event-Spine.md`](018-Event-Spine.md) §12.
 

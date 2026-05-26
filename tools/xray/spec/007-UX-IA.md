@@ -374,7 +374,7 @@ functional semantic colours):
 |---|---|---|
 | Issue tint / trailing `⚠` | the row's epoch carries an error/warning issue | a subtle row tint + small trailing marker (not a new column); navigates to Issues for that epoch |
 | `[● REDACTED N]` | event arg-map carries `:rf/redacted` | magenta trailing marker |
-| `[● ELIDED N]` | event arg-map carries `:rf/large` | yellow trailing marker |
+| `[● ELIDED N]` | event arg-map carries `:rf.size/large-elided` | yellow trailing marker |
 | pin marker `↺` | pinned cascade | small trailing modifier on the row |
 
 These are right-anchored, subordinate to the four data columns — they reinforce, never replace,
@@ -775,7 +775,7 @@ Accents:   blue    #539bf5  ACCENT — active tab, chrome stripe, selected, focu
            info    #79c0ff  fixed cool categorical blue; :story / :test origin; spine-paused; syntax-number
            indigo  #5570FF  :pair-origin
            green   #3fb950  success, additions, machine-active
-           yellow  #d29922  warnings, schema-replaced-with-default, :rf/large elision
+           yellow  #d29922  warnings, schema-replaced-with-default, :rf.size/large-elided elision
            amber   #FB923C  long-task / perf-slow (functional perf-amber)
            red     #F87171  errors, schema-violations, hydration-mismatches
            magenta #E879F9  classification: :rf/redacted
@@ -1102,7 +1102,7 @@ The cljs-devtools-shaped surface (rf2-x9fzk):
 |---|---|---|
 | `collapse-threshold` | `5` | Collections longer than this start collapsed; the user clicks `▶` to expand. Map literals ≤ 5 keys render flat; typical app-db slices don't dump every key on initial render. |
 | `string-inline-cap` | `64` | Strings longer than this tail-ellide in `inspect-inline`; the full value remains visible via the parent collection's expand affordance. |
-| `large-fetch-warn-threshold-bytes` | `100000` (100 KB) | Per [`018-Event-Spine.md`](./018-Event-Spine.md) §12 — `:rf/large` expansions above this size gate behind a confirm step so a stray click can't pour a multi-megabyte expansion into the detail panel. |
+| `large-fetch-warn-threshold-bytes` | `100000` (100 KB) | Per [`018-Event-Spine.md`](./018-Event-Spine.md) §12 — `:rf.size/large-elided` expansions above this size gate behind a confirm step so a stray click can't pour a multi-megabyte expansion into the detail panel. |
 
 **Colour palette** (mapped onto Xray's theme tokens so the renderer
 reads as native shell chrome): **keywords are the single coloured type —
@@ -1122,7 +1122,7 @@ read/written via re-frame primitives:
 - `:rf.xray.data-inspector/toggle-expanded <node-key>` — flip.
 - `:rf.xray.data-inspector/request-large-confirm <node-key>` /
   `:rf.xray.data-inspector/confirm-large <node-key>` — two-step
-  confirmation for `:rf/large` sentinels above the size threshold.
+  confirmation for `:rf.size/large-elided` markers above the size threshold.
 
 Each L4 panel mount supplies a unique `node-key` prefix so two panels
 rendered side-by-side don't share expand state. See
@@ -1138,9 +1138,10 @@ shapes and emits bespoke chrome (per [`018-Event-Spine.md`](./018-Event-Spine.md
 - `:rf/redacted` (bare keyword) — magenta opaque chip
   (`● redacted`); italic small-caps; **never** expandable, no reveal
   affordance ever.
-- `{:rf/large {:bytes N :head "…"}}` — yellow chip
-  (`● large · N bytes · "head…"`); click reveals an inline expansion
-  showing the full `:head` preview. Sizes above
+- `{:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint "…" :handle [:rf.elision/at <path>]}}` — yellow chip
+  (`● large · N bytes · "hint…"`); click reveals an inline expansion
+  surfacing the `:hint` text and routing a fetch via the `:handle`
+  through `get-path`. Sizes above
   `large-fetch-warn-threshold-bytes` gate behind an inline confirm
   prompt (textual "Expand N bytes? (>100000 threshold)" + Confirm
   button) rather than a full modal — v1 ships the inline prompt so
@@ -1156,7 +1157,7 @@ Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md):
 | Sentinel | Xray renders | Drillable | Affordance |
 |---|---|---|---|
 | `:rf/redacted` | `[● REDACTED N]` magenta | NO | Hover tooltip discloses path + mark source; **no reveal** |
-| `:rf/large {:bytes N :head "…"}` | `[● ELIDED · N bytes]` yellow | YES | Click → popover with `:head` preview + "Fetch full value" button (size-warned via confirm modal when bytes > threshold) |
+| `:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint "…" :handle [:rf.elision/at <path>]}` | `[● ELIDED · N bytes]` yellow | YES | Click → popover with `:hint` text + "Fetch full value" button that round-trips the marker's `:handle` through `get-path` (size-warned via confirm modal when bytes > threshold) |
 | `:rf/redacted {:bytes N}` | `[● REDACTED · N bytes]` magenta | NO | Sensitive dominates; size disclosed |
 
 Per-surface enumeration in [`018-Event-Spine.md`](./018-Event-Spine.md)
