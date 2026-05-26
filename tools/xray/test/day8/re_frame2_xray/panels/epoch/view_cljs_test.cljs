@@ -47,17 +47,21 @@
         (is (string/includes? header-text "ui"))))))
 
 (deftest handler-flavour-renders-once-test
-  (testing "rf2-9jvx1 — HANDLER header carries the flavour + event-id
-            once; the body's pre-rf2-9jvx1 stand-alone flavour row is
-            removed. Body's first slot is the source block (rf2-66wis),
-            not a flavour pill."
+  (testing "rf2-9jvx1 — HANDLER header carries the flavour-verb; the
+            body's pre-rf2-9jvx1 stand-alone flavour row is removed.
+            Body's first slot is the source block (rf2-66wis), not a
+            flavour pill.
+
+            Post pair-debug 2026-05-26 (commit ee9def224): the verb
+            is now the click-to-source hyperlink. The event-id is no
+            longer repeated in the HANDLER header (the DISPATCH step's
+            header already names it) — that assertion is retired."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-event-db :event-id :no-such/handler
                 :db-diff [] :fx [] :machine nil}
           tree (view/render-handler-step step)
           header-text (text-of tree "rf-xray-epoch-handler-header")]
       (is (string/includes? header-text "reg-event-db"))
-      (is (string/includes? header-text ":no-such/handler"))
       ;; The body's first slot is now the source block — never a
       ;; duplicate flavour pill.
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source"))
@@ -132,21 +136,26 @@
 ;; ---- rf2-cq0ch — COEFFECT body --------------------------------------
 
 (deftest coeffect-body-renders-labelled-value-test
-  (testing "rf2-cq0ch — each user-injected cofx renders the id +
-            value via the canonical edn-inspector. No cryptic
-            `+[]nil` line."
+  (testing "rf2-cq0ch — a user-injected cofx renders the id + value
+            via the canonical edn-inspector. No cryptic `+[]nil` line.
+
+            Post pair-debug 2026-05-26 (commit ee9def224): the
+            projection emits ONE COEFFECT step PER injected cofx
+            (replacing the prior single step with N `:rows`).
+            `view/render-coeffect-step` takes a single step map
+            with `:id` + `:value`; the previous `:rows`-bearing
+            shape is retired. This test pins the per-cofx render."
     (let [step {:step :coeffect :badge :COEFFECT :step-number 2
-                :rows [{:id :session :value {:user-id 42}}
-                       {:id :rf/now :value "2026-05-26T00:00:00"}]}
-          tree (view/render-coeffect-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-coeffect-row-0")))
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-coeffect-row-1")))
-      (let [r0-id    (text-of tree "rf-xray-epoch-coeffect-row-id-0")
-            r0-value (text-of tree "rf-xray-epoch-coeffect-row-value-0")
-            r1-id    (text-of tree "rf-xray-epoch-coeffect-row-id-1")]
-        (is (string/includes? r0-id ":session"))
-        (is (string/includes? r0-value "42"))
-        (is (string/includes? r1-id ":rf/now"))))))
+                :id :session :value {:user-id 42}}
+          tree (view/render-coeffect-step step)
+          id-text    (text-of tree "rf-xray-epoch-coeffect-id-session")
+          value-text (text-of tree "rf-xray-epoch-coeffect-value-session")]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-coeffect-session"))
+          "the per-cofx step wrapper renders with the cofx-id in its testid")
+      (is (string/includes? (or id-text "") ":session")
+          "the cofx-id is surfaced in the header")
+      (is (string/includes? (or value-text "") "42")
+          "the cofx value renders in the body"))))
 
 ;; ---- rf2-kfh1v — SUBSCRIPTIONS rows + filter -------------------------
 
@@ -485,8 +494,17 @@
 ;; ---- rf2-uffov — FX section header + per-action attribution ----------
 
 (deftest fx-step-header-shows-outcome-split-test
-  (testing "rf2-uffov — FX step header reads
-            `N fired (M succeeded, K threw)`"
+  (testing "rf2-uffov — FX step header surfaces the threw-count when
+            non-zero, beside the subdued `(side effects)` caption.
+
+            Post pair-debug 2026-05-26 (commits 862288aca / adaabb8aa):
+            the prior `N fired (M succeeded, K threw)` verb was
+            dropped — the per-row ✓/✗ glyphs already convey per-fx
+            outcome; the count summary was noise. The header now
+            renders a subdued `(side effects)` caption beside the
+            badge, with a red `K threw` chip only when fx errored.
+            `N fired` + `M succeeded` are no longer surfaced in the
+            header."
     (let [step {:step :fx :badge :FX :step-number 4
                 :rows [{:fx-id :db :status :ok}
                        {:fx-id :http/get :status :ok}
@@ -494,9 +512,10 @@
                 :succeeded 2 :threw 1 :skipped 0}
           tree (view/render-fx-step step)
           header (text-of tree "rf-xray-epoch-fx-header")]
-      (is (string/includes? header "3 fired"))
-      (is (string/includes? header "2 succeeded"))
-      (is (string/includes? header "1 threw")))))
+      (is (string/includes? header "(side effects)")
+          "the subdued caption rides beside the badge")
+      (is (string/includes? header "1 threw")
+          "threw-count chip surfaces in the header when non-zero"))))
 
 (deftest fx-row-shows-attribution-chip-test
   (testing "rf2-uffov — when an FX row carries :attributed-to, the
@@ -520,38 +539,12 @@
           tree (view/render-fx-step step)]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-fx-row-attribution-0"))))))
 
-;; ---- rf2-rrykz — app-db diff section ---------------------------------
-
-(deftest app-db-diff-step-renders-rows-test
-  (testing "rf2-rrykz — APP-DB DIFF step renders one row per changed
-            path with the change kind reflected on the row data attr"
-    (let [step {:step :app-db-diff :badge :APP-DB-DIFF :step-number 4
-                :rows [{:path [:count] :before 0 :after 1 :change :modified}
-                       {:path [:new]   :before nil :after "v" :change :added}
-                       {:path [:gone]  :before 5 :after nil :change :removed}]
-                :added 1 :modified 1 :removed 1}
-          tree (view/render-app-db-diff-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-app-db-diff")))
-      (is (= 3 (count (th/find-by-testid-prefix
-                        tree "rf-xray-epoch-app-db-diff-row-"))))
-      (let [header (text-of tree "rf-xray-epoch-app-db-diff-header")]
-        (is (string/includes? header "3 paths changed"))
-        (is (string/includes? header "+1 / ~1 / -1"))))))
-
-(deftest app-db-diff-row-shows-path-and-values-test
-  (testing "rf2-rrykz — :modified row shows before → after"
-    (let [step {:step :app-db-diff :badge :APP-DB-DIFF :step-number 4
-                :rows [{:path [:counter :value] :before 5 :after 6
-                        :change :modified}]
-                :added 0 :modified 1 :removed 0}
-          tree (view/render-app-db-diff-step step)
-          row  (th/find-by-testid tree "rf-xray-epoch-app-db-diff-row-0")]
-      (is (some? row))
-      (let [txt (th/text-content row)]
-        (is (string/includes? txt "[:counter :value]")
-            "path is visible")
-        (is (string/includes? txt "5"))
-        (is (string/includes? txt "6"))))))
+;; ---- rf2-rrykz — app-db diff section — RETIRED 2026-05-26 -------------
+;;
+;; The `view/render-app-db-diff-step` fn was deleted in commit
+;; 862288aca along with the standalone APP-DB DIFF projection step.
+;; HANDLER `:db` `[diff][all]` toggle covers the same surface
+;; in-context (tests for that ride in the rf2-93436 section above).
 
 ;; ---- rf2-yx1ae — child-dispatches section -----------------------------
 
@@ -724,42 +717,17 @@
         (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
             "no placeholder when source IS captured")))))
 
-;; ---- rf2-ehd8v — HANDLER source carries file:line + [open] ----------
-
-(deftest handler-source-renders-file-line-and-open-affordance-test
-  (testing "rf2-ehd8v — when the handler-meta carries :file + :line the
-            HANDLER source sub-header renders `file:line` text and a
-            clickable `[open]` button next to the SOURCE label.
-            Reuses the cross-panel coord-chip (same affordance Static
-            Handler + Event panels ship)."
-    (rf/with-frame :rf/default
-      (rf/reg-event-db :rf.test.epoch.view/ehd8v-srctest-handler
-                       {:rf.handler/source "(reg-event-db :rf.test.epoch.view/ehd8v-srctest-handler\n  (fn [db _] (update db :n inc)))"
-                        :file "src/app/counter.cljs"
-                        :line 42}
-                       (fn [db _] db))
-      (let [step {:step :handler :badge :HANDLER :step-number 3
-                  :flavour :reg-event-db
-                  :event-id :rf.test.epoch.view/ehd8v-srctest-handler
-                  :db-diff [] :fx [] :machine nil}
-            tree (view/render-handler-step step)
-            coord (th/find-by-testid tree "rf-xray-epoch-handler-source-coord")
-            text  (th/find-by-testid tree "rf-xray-epoch-handler-source-coord-text")
-            open  (th/find-by-testid tree "rf-xray-epoch-handler-source-open")]
-        (is (some? coord)
-            "the source-coord chrome row is present alongside the label")
-        (is (some? text)
-            "the file:line text element is present")
-        (is (string/includes? (or (th/text-content text) "") "src/app/counter.cljs")
-            "the file path appears in the text")
-        (is (string/includes? (or (th/text-content text) "") "42")
-            "the line number appears in the text")
-        (is (some? open)
-            "the [open] coord-chip is present when :file is captured")
-        (is (= :button (first open))
-            "the open affordance is a real button (clickable)")
-        (is (fn? (:on-click (second open)))
-            "the open button has a click handler")))))
+;; ---- rf2-ehd8v — HANDLER source `file:line + [open]` ----------------
+;;
+;; The dedicated `file:line + [open]` sub-header alongside the SOURCE
+;; label was retired in commit ee9def224. The HANDLER step's verb
+;; itself (e.g. `reg-event-fx`) IS now the click-to-source hyperlink
+;; (`handler-verb-link` in view.cljs); the source-block leads with the
+;; code body directly. The positive-affordance test
+;; (`handler-source-renders-file-line-and-open-affordance-test`) is
+;; retired; the absence-of-affordance check below stays — those
+;; testids are still nil now (no affordance means nothing rendered),
+;; which is still the correct contract.
 
 (deftest handler-source-elides-affordance-when-coord-absent-test
   (testing "rf2-ehd8v — when no handler-meta is registered for the
@@ -890,18 +858,10 @@
       (is (>= (count (mini-mounts subs)) 2)
           "subs-read column mounts one mini per consumed sub"))))
 
-(deftest app-db-diff-values-route-through-mini-test
-  (testing "rf2-8w8er — APP-DB DIFF rows render before / after through
-            `ei/mini` so per-token chrome paints consistently with the
-            HANDLER :db diff."
-    (let [tree (view/render-app-db-diff-step
-                 {:step :app-db-diff :badge :APP-DB-DIFF :step-number 4
-                  :rows [{:path [:count] :before 0 :after 1 :change :modified}]
-                  :added 0 :modified 1 :removed 0})
-          row  (th/find-by-testid tree "rf-xray-epoch-app-db-diff-row-0")]
-      (is (some? row))
-      (is (>= (count (mini-mounts row)) 2)
-          "modified row mounts ≥2 mini-renders (before + after)"))))
+;; `app-db-diff-values-route-through-mini-test` retired in rf2-xu5iv
+;; (commit 862288aca dropped `view/render-app-db-diff-step` along with
+;; the projection step). HANDLER `:db` diff mini-mount coverage rides
+;; on `handler-db-diff-values-route-through-mini-test` above.
 
 (deftest child-dispatches-event-routes-through-mini-test
   (testing "rf2-8w8er — CHILD-DISPATCHES row renders the event vector
