@@ -63,6 +63,1130 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
+;; ---- style hoists (rf2-zlk6h) -------------------------------------------
+;;
+;; Every literal `:style {...}` map in the renderers below is hoisted to
+;; ns-top defs (rf2-zlk6h, follow-on to rf2-qx414 / rf2-xjgdk / rf2-gjiog
+;; / rf2-alsnz). The Epoch panel renders ~10 step renderers, each
+;; emitting ~5-20 `:style {...}` maps; a typical focused-epoch render
+;; mints ~200 fresh JS objects to feed the React reconciler before the
+;; hoist. `tokens` values resolve to `var(--rf-xray-*)` CSS strings at
+;; ns load — theme switching rides the CSS-variable seam (spec/007
+;; §UX-IA), so the hoisted maps follow light/dark without re-evaluation.
+;;
+;; Per-call variation rides:
+;;   - small `assoc` / `cond->` overlays on a shared base map
+;;     (cursor flips, kind-colour swaps), and
+;;   - hoisted named variants selected by key (active/inactive buttons,
+;;     long-step vs default duration chip).
+
+;; -- pre-resolved palette pieces -------------------------------------------
+
+(def ^:private accent-colour       (:accent          tokens))
+(def ^:private text-primary-colour (:text-primary    tokens))
+(def ^:private text-secondary-colour (:text-secondary tokens))
+(def ^:private text-tertiary-colour  (:text-tertiary  tokens))
+(def ^:private success-colour      (:success         tokens))
+(def ^:private warning-colour      (:warning         tokens))
+(def ^:private error-colour        (:error           tokens))
+(def ^:private white-colour        (:white           tokens))
+(def ^:private bg-1-colour         (:bg-1            tokens))
+(def ^:private bg-2-colour         (:bg-2            tokens))
+(def ^:private bg-3-colour         (:bg-3            tokens))
+(def ^:private border-subtle-colour  (:border-subtle  tokens))
+(def ^:private border-default-colour (:border-default tokens))
+
+(def ^:private border-subtle-1px  (str "1px solid " border-subtle-colour))
+(def ^:private border-default-1px (str "1px solid " border-default-colour))
+
+;; -- badge-pill ------------------------------------------------------------
+
+(def ^:private badge-pill-base-style
+  {:display       "inline-flex"
+   :align-items   "center"
+   :color         white-colour
+   :font-size     "10px"
+   :font-weight   700
+   :padding       "3px 5px"
+   :border-radius "3px"
+   :line-height   1
+   :white-space   "nowrap"})
+
+(def ^:private badge-pill-edn-overlay
+  {:font-family mono-stack})
+
+(def ^:private badge-pill-text-overlay
+  {:font-family    sans-stack
+   :letter-spacing "0.5px"
+   :text-transform "uppercase"})
+
+;; -- numbered-circle -------------------------------------------------------
+
+(def ^:private numbered-circle-base-style
+  {:position        "absolute"
+   :left            "-44px"
+   :top             0
+   :width           "21px"
+   :height          "21px"
+   :border-radius   "50%"
+   :color           white-colour
+   :display         "inline-flex"
+   :align-items     "center"
+   :justify-content "center"
+   :font-family     mono-stack
+   :font-size       "11px"
+   :font-weight     700
+   :line-height     1
+   :z-index         1})
+
+;; -- duration-chip ---------------------------------------------------------
+
+(def ^:private duration-chip-base-style
+  {:font-family  mono-stack
+   :font-size    "11px"
+   :white-space  "nowrap"
+   :margin-left  "auto"
+   :padding-left "8px"
+   :display      "inline-flex"
+   :align-items  "center"
+   :gap          "4px"})
+
+(def ^:private duration-chip-default-style
+  (assoc duration-chip-base-style
+         :color       text-tertiary-colour
+         :font-weight 500))
+
+(def ^:private duration-chip-long-style
+  (assoc duration-chip-base-style
+         :color       warning-colour
+         :font-weight 700))
+
+(def ^:private duration-chip-long-glyph-style
+  {:font-size "10px"})
+
+;; -- step-header -----------------------------------------------------------
+
+(def ^:private step-header-base-style
+  {:display     "flex"
+   :align-items "center"
+   :gap         "8px"
+   :font-family sans-stack
+   :font-size   "12px"
+   :color       text-primary-colour
+   :user-select "none"})
+
+(def ^:private step-header-pointer-style
+  (assoc step-header-base-style :cursor "pointer"))
+
+(def ^:private step-header-default-cursor-style
+  (assoc step-header-base-style :cursor "default"))
+
+(def ^:private step-header-verb-style
+  {:display       "inline-flex"
+   :align-items   "center"
+   :gap           "4px"
+   :font-family   mono-stack
+   :font-size     "12px"
+   :color         text-primary-colour
+   :min-width     0
+   :flex          "1 1 auto"
+   :overflow      "hidden"
+   :text-overflow "ellipsis"
+   :white-space   "nowrap"})
+
+(def ^:private step-header-expand-glyph-style
+  {:color       text-tertiary-colour
+   :font-family mono-stack
+   :font-size   "10px"
+   :margin-left "4px"})
+
+;; -- sub-header -----------------------------------------------------------
+
+(def ^:private sub-header-style
+  {:display        "flex"
+   :align-items    "center"
+   :gap            "6px"
+   :margin         "8px 0 5px 0"
+   :font-family    sans-stack
+   :font-size      "11px"
+   :font-weight    600
+   :color          text-tertiary-colour
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"})
+
+(def ^:private sub-header-glyph-style
+  {:display "inline-flex"
+   :color   text-tertiary-colour})
+
+(def ^:private sub-header-trailing-style
+  {:color          text-tertiary-colour
+   :font-weight    400
+   :font-family    mono-stack
+   :text-transform "none"})
+
+;; -- DISPATCH --------------------------------------------------------------
+
+(def ^:private dispatch-body-style
+  {:background    bg-1-colour
+   :border        border-default-1px
+   :border-radius "3px"
+   :padding       "5px 8px"
+   :margin-top    "5px"
+   :overflow-x    "auto"})
+
+(def ^:private dispatch-verb-style
+  {:display "inline-flex" :align-items "center" :gap "4px"})
+
+(def ^:private link-button-style
+  {:background            "transparent"
+   :border                "none"
+   :padding               0
+   :margin                0
+   :color                 accent-colour
+   :cursor                "pointer"
+   :font-family           mono-stack
+   :font-size             "12px"
+   :text-decoration       "underline"
+   :text-decoration-style "dotted"
+   :text-underline-offset "2px"
+   :display               "inline-flex"
+   :align-items           "center"
+   :gap                   "4px"})
+
+(def ^:private link-button-nowrap-style
+  (assoc link-button-style :white-space "nowrap"))
+
+(def ^:private link-button-inherit-base-style
+  {:background            "transparent"
+   :border                "none"
+   :padding               0
+   :margin                0
+   :color                 accent-colour
+   :cursor                "pointer"
+   :font-family           "inherit"
+   :font-size             "inherit"
+   :font-weight           "inherit"
+   :text-decoration       "underline"
+   :text-decoration-style "dotted"
+   :text-underline-offset "2px"
+   :display               "inline-flex"
+   :align-items           "center"
+   :gap                   "4px"})
+
+(def ^:private link-button-inherit-style
+  (assoc link-button-inherit-base-style :white-space "nowrap"))
+
+(def ^:private dispatch-source-plain-style
+  {:color       accent-colour
+   :display     "inline-flex"
+   :align-items "center"})
+
+;; -- COEFFECT --------------------------------------------------------------
+
+(def ^:private coeffect-row-style
+  {:padding     "3px 0"
+   :display     "flex"
+   :align-items "flex-start"
+   :gap         "8px"
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private coeffect-row-id-plain-style
+  {:color       accent-colour
+   :white-space "nowrap"})
+
+(def ^:private coeffect-row-value-style
+  {:color      text-primary-colour
+   :min-width  0
+   :flex       1
+   :word-break "break-word"})
+
+(def ^:private coeffect-verb-link-button-style
+  (assoc link-button-style
+         :font-weight "inherit"
+         :white-space "nowrap"))
+
+(def ^:private coeffect-verb-plain-style
+  {:color       accent-colour
+   :font-family mono-stack
+   :font-size   "12px"
+   :white-space "nowrap"})
+
+(def ^:private coeffect-body-style
+  {:margin-top  "5px"
+   :display     "flex"
+   :align-items "flex-start"
+   :gap         "8px"
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private coeffect-body-plus-style
+  {:color success-colour :font-weight 700})
+
+(def ^:private coeffect-body-path-style
+  {:color text-tertiary-colour :white-space "nowrap"})
+
+(def ^:private coeffect-body-value-style
+  {:color      text-primary-colour
+   :min-width  0
+   :flex       1
+   :word-break "break-word"})
+
+;; -- db-diff / fx-entry ----------------------------------------------------
+
+(def ^:private diff-row-style
+  {:display     "flex"
+   :align-items "flex-start"
+   :gap         "8px"
+   :padding     "2px 0"
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private fx-entry-row-style
+  {:display     "flex"
+   :align-items "flex-start"
+   :gap         "8px"
+   :padding     "2px 0 2px 21px"
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private fx-entry-id-style
+  {:color accent-colour :white-space "nowrap"})
+
+(def ^:private diff-value-flex-style
+  {:color      text-primary-colour
+   :min-width  0
+   :flex       1
+   :word-break "break-word"})
+
+(def ^:private diff-path-style
+  {:color text-tertiary-colour :white-space "nowrap"})
+
+(def ^:private diff-arrow-style
+  {:color text-tertiary-colour})
+
+(def ^:private diff-before-style
+  {:color error-colour})
+
+(def ^:private diff-after-success-style
+  {:color success-colour})
+
+(def ^:private diff-added-flex-style
+  {:color success-colour :min-width 0 :flex 1 :word-break "break-word"})
+
+(def ^:private diff-glyph-bold-style
+  {:font-weight 700})
+
+;; -- cascade outcome / phase / kind / ordinal / verb ----------------------
+
+(def ^:private cascade-outcome-chip-base-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :gap         "4px"
+   :font-family mono-stack
+   :font-size   "11px"
+   :font-weight 600
+   :white-space "nowrap"})
+
+(def ^:private cascade-phase-style
+  {:display        "inline-flex"
+   :align-items    "center"
+   :background     bg-3-colour
+   :color          text-tertiary-colour
+   :border         (str "1px solid " border-subtle-colour)
+   :border-radius  "2px"
+   :padding        "1px 5px"
+   :font-family    mono-stack
+   :font-size      "10px"
+   :font-weight    600
+   :letter-spacing "0.3px"
+   :white-space    "nowrap"})
+
+(def ^:private cascade-kind-pill-base-style
+  {:display        "inline-flex"
+   :align-items    "center"
+   :color          white-colour
+   :font-family    sans-stack
+   :font-size      "9px"
+   :font-weight    700
+   :padding        "2px 5px"
+   :border-radius  "2px"
+   :letter-spacing "0.5px"
+   :text-transform "uppercase"
+   :line-height    1
+   :white-space    "nowrap"})
+
+(def ^:private cascade-ordinal-style
+  {:display         "inline-flex"
+   :align-items     "center"
+   :justify-content "center"
+   :min-width       "21px"
+   :height          "16px"
+   :padding         "0 4px"
+   :background      bg-3-colour
+   :color           text-tertiary-colour
+   :font-family     mono-stack
+   :font-size       "10px"
+   :font-weight     700
+   :border-radius   "2px"
+   :white-space     "nowrap"})
+
+(def ^:private cascade-verb-link-button-style
+  {:background            "transparent"
+   :border                "none"
+   :padding               0
+   :margin                0
+   :color                 accent-colour
+   :cursor                "pointer"
+   :font-family           mono-stack
+   :font-size             "12px"
+   :font-weight           600
+   :text-decoration       "underline"
+   :text-decoration-style "dotted"
+   :text-underline-offset "2px"
+   :display               "inline-flex"
+   :align-items           "center"
+   :gap                   "4px"
+   :white-space           "nowrap"})
+
+(def ^:private cascade-verb-plain-style
+  {:color       text-primary-colour
+   :font-family mono-stack
+   :font-size   "12px"
+   :font-weight 600
+   :white-space "nowrap"})
+
+(def ^:private cascade-row-source-style
+  {:margin       "5px 0 3px 0"
+   :padding-left "8px"
+   :border-left  (str "2px solid " border-subtle-colour)
+   :min-width    0})
+
+(def ^:private cascade-row-source-missing-style
+  {:font-style  "italic"
+   :font-family mono-stack
+   :font-size   "11px"
+   :color       text-tertiary-colour})
+
+(def ^:private cascade-outcome-details-style
+  {:padding        "2px 0 4px 21px"
+   :display        "flex"
+   :flex-direction "column"
+   :gap            "2px"
+   :font-family    mono-stack
+   :font-size      "11px"})
+
+(def ^:private cascade-detail-row-style
+  {:display     "flex"
+   :gap         "6px"
+   :align-items "flex-start"
+   :color       text-secondary-colour})
+
+(def ^:private cascade-detail-fx-row-style
+  {:display     "flex"
+   :gap         "6px"
+   :align-items "flex-start"
+   :flex-wrap   "wrap"})
+
+(def ^:private cascade-detail-success-arrow-style
+  {:color success-colour :font-weight 700})
+
+(def ^:private cascade-detail-accent-arrow-style
+  {:color accent-colour :font-weight 700})
+
+(def ^:private cascade-detail-label-style
+  {:color text-tertiary-colour})
+
+(def ^:private cascade-detail-value-style
+  {:color      text-primary-colour
+   :min-width  0
+   :flex       1
+   :word-break "break-word"})
+
+(def ^:private cascade-detail-fx-chip-style
+  {:color        accent-colour
+   :margin-right "6px"})
+
+(def ^:private cascade-detail-threw-row-style
+  {:display     "flex"
+   :gap         "6px"
+   :align-items "flex-start"
+   :color       error-colour})
+
+(def ^:private cascade-threw-glyph-style {:font-weight 700})
+(def ^:private cascade-threw-label-style {:font-weight 600})
+
+(def ^:private cascade-threw-message-style
+  {:color      text-secondary-colour
+   :font-style "italic"})
+
+(def ^:private cascade-transition-details-style
+  {:padding        "3px 0 4px 21px"
+   :display        "flex"
+   :flex-direction "column"
+   :gap            "2px"
+   :font-family    mono-stack
+   :font-size      "11px"})
+
+(def ^:private cascade-from-to-row-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :gap         "6px"
+   :flex-wrap   "wrap"})
+
+(def ^:private cascade-trigger-row-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :gap         "6px"
+   :color       text-secondary-colour})
+
+(def ^:private cascade-row-style
+  {:display        "flex"
+   :flex-direction "column"
+   :padding        "5px 0 5px 0"
+   :border-bottom  border-subtle-1px})
+
+(def ^:private cascade-row-header-style
+  {:display     "flex"
+   :align-items "center"
+   :gap         "6px"
+   :flex-wrap   "wrap"})
+
+(def ^:private cascade-row-right-style
+  {:margin-left "auto"
+   :display     "inline-flex"
+   :align-items "center"
+   :gap         "8px"
+   :flex-wrap   "nowrap"})
+
+(def ^:private machine-cascade-root-style
+  {:margin-top     "8px"
+   :display        "flex"
+   :flex-direction "column"})
+
+(def ^:private machine-cascade-summary-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :gap         "8px"
+   :font-family mono-stack
+   :font-size   "11px"})
+
+(def ^:private machine-cascade-total-style
+  {:color text-tertiary-colour})
+
+(def ^:private machine-cascade-empty-style
+  {:padding     "5px 0 5px 21px"
+   :font-family mono-stack
+   :font-size   "11px"
+   :font-style  "italic"
+   :color       text-tertiary-colour})
+
+(def ^:private machine-cascade-rows-style
+  {:display        "flex"
+   :flex-direction "column"
+   :border-top     border-subtle-1px
+   :margin-top     "3px"})
+
+;; -- handler verb-link / source ------------------------------------------
+
+(def ^:private handler-verb-link-button-style
+  link-button-inherit-base-style)
+
+(def ^:private handler-verb-plain-style
+  {:color accent-colour})
+
+(def ^:private handler-source-root-style
+  {:margin-top "8px"
+   :min-width  "0"})
+
+(def ^:private handler-source-spec-style
+  {:padding-left "16px"})
+
+(def ^:private handler-source-placeholder-style
+  {:font-style   "italic"
+   :font-family  mono-stack
+   :font-size    "11px"
+   :color        text-tertiary-colour
+   :padding-left "16px"})
+
+;; -- db-view-mode toggle / db-diff ----------------------------------------
+
+(def ^:private mode-toggle-bar-style
+  {:display       "inline-flex"
+   :align-items   "center"
+   :gap           0
+   :border        border-subtle-1px
+   :border-radius "3px"
+   :overflow      "hidden"
+   :margin-left   "8px"
+   :line-height   1})
+
+(def ^:private mode-toggle-button-base-style
+  {:border         "none"
+   :padding        "2px 8px"
+   :font-family    sans-stack
+   :font-size      "10px"
+   :font-weight    700
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"
+   :cursor         "pointer"
+   :line-height    1})
+
+(def ^:private mode-toggle-button-active-style
+  (assoc mode-toggle-button-base-style
+         :background accent-colour
+         :color      white-colour))
+
+(def ^:private mode-toggle-button-inactive-style
+  (assoc mode-toggle-button-base-style
+         :background "transparent"
+         :color      text-secondary-colour))
+
+(def ^:private inline-flex-center-style
+  {:display "inline-flex" :align-items "center"})
+
+(def ^:private handler-db-all-style
+  {:padding-left "16px"})
+
+(def ^:private handler-db-all-missing-style
+  {:font-style   "italic"
+   :font-family  mono-stack
+   :font-size    "11px"
+   :color        text-tertiary-colour
+   :padding-left "16px"})
+
+;; -- FLOW ------------------------------------------------------------------
+
+(def ^:private flow-row-style
+  {:padding "3px 0"})
+
+(def ^:private flow-row-id-style
+  {:display     "inline-flex"
+   :gap         "4px"
+   :font-family mono-stack
+   :font-size   "12px"
+   :color       accent-colour})
+
+(def ^:private flow-row-duration-style
+  {:color text-tertiary-colour :margin-left "8px"})
+
+(def ^:private flow-row-path-style
+  {:display     "flex"
+   :align-items "flex-start"
+   :gap         "8px"
+   :padding     "2px 0 2px 21px"
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private flow-row-warning-glyph-style
+  {:color warning-colour :font-weight 700})
+
+;; -- FX --------------------------------------------------------------------
+
+(def ^:private fx-row-style
+  {:display     "flex"
+   :align-items "flex-start"
+   :gap         "8px"
+   :padding     "2px 0"
+   :font-family mono-stack
+   :font-size   "12px"
+   :flex-wrap   "wrap"})
+
+(def ^:private fx-row-id-style
+  {:color accent-colour})
+
+(def ^:private fx-row-args-style
+  {:color      text-primary-colour
+   :min-width  0
+   :flex       1
+   :word-break "break-word"})
+
+(def ^:private fx-row-duration-style
+  {:color       text-tertiary-colour
+   :margin-left "8px"
+   :white-space "nowrap"})
+
+(def ^:private fx-row-attribution-style
+  {:color       text-tertiary-colour
+   :font-size   "10px"
+   :margin-left "auto"
+   :white-space "nowrap"
+   :display     "inline-flex"
+   :align-items "center"
+   :gap         "4px"
+   :font-style  "italic"})
+
+(def ^:private fx-row-attribution-phase-style
+  {:color text-tertiary-colour})
+
+(def ^:private fx-verb-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :gap         "8px"})
+
+(def ^:private fx-caption-style
+  {:color       text-tertiary-colour
+   :font-family sans-stack
+   :font-size   "11px"
+   :font-style  "italic"})
+
+(def ^:private fx-threw-style
+  {:color error-colour :font-weight 700})
+
+(def ^:private margin-top-5-style
+  {:margin-top "5px"})
+
+;; -- SUBSCRIPTIONS table ---------------------------------------------------
+
+(def ^:private subscriptions-table-style
+  {:margin-top    "5px"
+   :border        border-subtle-1px
+   :border-radius "3px"
+   :overflow      "hidden"})
+
+(def ^:private table-header-row-style
+  {:display        "flex"
+   :align-items    "stretch"
+   :background     bg-3-colour
+   :border-bottom  border-subtle-1px
+   :font-family    sans-stack
+   :font-size      "10px"
+   :font-weight    700
+   :color          text-tertiary-colour
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"})
+
+(def ^:private subs-th-35-style
+  {:flex "1 1 35%" :padding "5px 8px"})
+
+(def ^:private subs-th-30-style
+  {:flex "1 1 30%" :padding "5px 8px"})
+
+(def ^:private subs-row-style
+  {:display     "flex"
+   :align-items "stretch"})
+
+(def ^:private subs-row-style-with-border
+  (assoc subs-row-style :border-bottom border-subtle-1px))
+
+(def ^:private subs-cell-id-style
+  {:flex        "1 1 35%"
+   :padding     "5px 8px"
+   :min-width   0
+   :font-family mono-stack
+   :font-size   "12px"
+   :word-break  "break-word"})
+
+(def ^:private subs-cell-inputs-style
+  {:flex        "1 1 35%"
+   :padding     "5px 8px"
+   :min-width   0
+   :font-family mono-stack
+   :font-size   "12px"
+   :color       text-tertiary-colour
+   :word-break  "break-word"})
+
+(def ^:private subs-cell-changed-style
+  {:flex        "1 1 30%"
+   :padding     "5px 8px"
+   :min-width   0
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private subs-cell-id-span-style
+  {:color       accent-colour
+   :display     "inline-flex"
+   :align-items "center"
+   :gap         "4px"})
+
+(def ^:private subs-inputs-list-style
+  {:display "flex" :flex-direction "column" :gap "2px"})
+
+(def ^:private subs-changed-row-style
+  {:display     "flex"
+   :gap         "6px"
+   :flex-wrap   "wrap"
+   :align-items "center"})
+
+(def ^:private subs-changed-tick-style
+  {:color success-colour :font-weight 700})
+
+(def ^:private subs-unchanged-tick-style
+  {:color text-tertiary-colour :font-weight 700})
+
+;; -- SUBSCRIPTIONS filter button bar --------------------------------------
+
+(def ^:private subs-filter-bar-style
+  mode-toggle-bar-style)
+
+(def ^:private subs-filter-button-active-style
+  mode-toggle-button-active-style)
+
+(def ^:private subs-filter-button-inactive-style
+  mode-toggle-button-inactive-style)
+
+(def ^:private subs-verb-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :gap         "8px"
+   :flex-wrap   "wrap"})
+
+(def ^:private subs-disposed-count-style
+  {:color       text-tertiary-colour
+   :font-family mono-stack
+   :font-size   "11px"})
+
+;; -- DISPOSED subs table --------------------------------------------------
+
+(def ^:private disposed-subs-table-style
+  {:margin-top    "8px"
+   :border        border-subtle-1px
+   :border-radius "3px"
+   :overflow      "hidden"})
+
+(def ^:private table-glyph-cell-header-style
+  {:flex "0 0 24px" :padding "5px 8px"})
+
+(def ^:private disposed-th-60-style
+  {:flex "1 1 60%" :padding "5px 8px"})
+
+(def ^:private disposed-th-40-style
+  {:flex "1 1 40%" :padding "5px 8px"})
+
+(def ^:private disposed-glyph-cell-style
+  {:flex        "0 0 24px"
+   :padding     "5px 8px"
+   :color       error-colour
+   :font-family mono-stack
+   :font-size   "12px"
+   :font-weight 700
+   :text-align  "center"})
+
+(def ^:private disposed-id-cell-style
+  {:flex        "1 1 60%"
+   :padding     "5px 8px"
+   :min-width   0
+   :font-family mono-stack
+   :font-size   "12px"
+   :word-break  "break-word"})
+
+(def ^:private disposed-id-span-style
+  {:color       text-secondary-colour
+   :display     "inline-flex"
+   :align-items "center"
+   :gap         "4px"})
+
+(def ^:private disposed-anonymous-style
+  {:color text-tertiary-colour :font-style "italic"})
+
+(def ^:private disposed-reason-cell-style
+  {:flex        "1 1 40%"
+   :padding     "5px 8px"
+   :min-width   0
+   :font-family mono-stack
+   :font-size   "11px"
+   :color       text-tertiary-colour
+   :word-break  "break-word"})
+
+;; -- VIEWS table ----------------------------------------------------------
+
+(def ^:private views-table-style
+  {:margin-top    "5px"
+   :border        border-subtle-1px
+   :border-radius "3px"
+   :overflow      "hidden"})
+
+(def ^:private views-th-50-style
+  {:flex "1 1 50%" :padding "5px 8px"})
+
+(def ^:private views-cell-view-style
+  {:flex        "1 1 50%"
+   :padding     "5px 8px"
+   :min-width   0
+   :font-family mono-stack
+   :font-size   "12px"
+   :word-break  "break-word"})
+
+(def ^:private views-cell-subs-style
+  {:flex        "1 1 50%"
+   :padding     "5px 8px"
+   :min-width   0
+   :font-family mono-stack
+   :font-size   "12px"
+   :color       text-tertiary-colour
+   :word-break  "break-word"})
+
+(def ^:private views-cell-id-span-style
+  {:color       accent-colour
+   :display     "inline-flex"
+   :align-items "center"
+   :gap         "4px"})
+
+(def ^:private views-cell-id-clickable-style
+  (assoc views-cell-id-span-style :cursor "pointer"))
+
+(def ^:private views-row-duration-style
+  {:color       text-tertiary-colour
+   :margin-left "8px"
+   :font-size   "10px"})
+
+(def ^:private views-anonymous-style
+  {:color text-tertiary-colour :font-style "italic"})
+
+(def ^:private views-subs-list-style
+  {:display "flex" :flex-direction "column" :gap "2px"})
+
+(def ^:private italic-style {:font-style "italic"})
+
+;; -- UNMOUNTED views table -----------------------------------------------
+
+(def ^:private unmounted-views-table-style
+  disposed-subs-table-style)
+
+(def ^:private unmounted-th-auto-style
+  {:flex "1 1 auto" :padding "5px 8px"})
+
+(def ^:private unmounted-glyph-cell-style
+  disposed-glyph-cell-style)
+
+(def ^:private unmounted-id-cell-style
+  {:flex        "1 1 auto"
+   :padding     "5px 8px"
+   :min-width   0
+   :font-family mono-stack
+   :font-size   "12px"
+   :word-break  "break-word"})
+
+(def ^:private unmounted-id-span-style
+  disposed-id-span-style)
+
+;; -- SCHEMA VIOLATIONS ----------------------------------------------------
+
+(def ^:private schema-violation-row-style
+  {:display        "flex"
+   :flex-direction "column"
+   :gap            "3px"
+   :padding        "5px 8px"
+   :background     bg-3-colour
+   :border-left    (str "2px solid " warning-colour)
+   :margin-bottom  "5px"
+   :border-radius  "0 3px 3px 0"
+   :font-family    mono-stack
+   :font-size      "12px"})
+
+(def ^:private schema-violation-head-style
+  {:display     "flex"
+   :align-items "center"
+   :gap         "8px"
+   :flex-wrap   "wrap"})
+
+(def ^:private schema-violation-where-style
+  {:color          warning-colour
+   :font-weight    700
+   :text-transform "uppercase"
+   :font-size      "10px"
+   :letter-spacing "0.5px"})
+
+(def ^:private schema-violation-id-style
+  {:color accent-colour})
+
+(def ^:private schema-violation-rollback-style
+  {:padding        "2px 5px"
+   :border-radius  "3px"
+   :background     error-colour
+   :color          white-colour
+   :font-size      "10px"
+   :font-weight    700
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"})
+
+(def ^:private schema-violation-recovery-style
+  {:color      text-tertiary-colour
+   :font-size  "10px"
+   :font-style "italic"})
+
+(def ^:private schema-violation-path-style
+  {:color text-tertiary-colour :padding-left "16px"})
+
+(def ^:private schema-violation-value-style
+  {:color        text-primary-colour
+   :padding-left "16px"
+   :word-break   "break-word"})
+
+(def ^:private schema-violation-sensitive-style
+  {:color        text-tertiary-colour
+   :font-style   "italic"
+   :font-size    "10px"
+   :padding-left "16px"})
+
+(def ^:private schema-violation-explain-style
+  {:color        text-secondary-colour
+   :padding-left "16px"
+   :font-size    "11px"})
+
+(def ^:private schema-violations-verb-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :gap         "8px"
+   :flex-wrap   "wrap"})
+
+(def ^:private schema-violations-count-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :gap         "4px"
+   :color       warning-colour})
+
+(def ^:private schema-violations-rollback-count-style
+  {:color error-colour :font-weight 700})
+
+(def ^:private schema-violations-open-issues-style
+  {:background     "transparent"
+   :border         border-default-1px
+   :border-radius  "3px"
+   :color          text-secondary-colour
+   :cursor         "pointer"
+   :font-family    sans-stack
+   :font-size      "10px"
+   :padding        "2px 8px"
+   :margin-left    "8px"
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"})
+
+;; -- CHILD DISPATCHES -----------------------------------------------------
+
+(def ^:private child-dispatch-row-style
+  {:display     "flex"
+   :align-items "center"
+   :gap         "8px"
+   :padding     "3px 0"
+   :font-family mono-stack
+   :font-size   "12px"
+   :flex-wrap   "wrap"})
+
+(def ^:private child-dispatch-via-style
+  {:color          text-tertiary-colour
+   :font-size      "10px"
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"
+   :font-weight    600})
+
+(def ^:private child-dispatch-event-style
+  {:color      text-primary-colour
+   :min-width  0
+   :flex       1
+   :word-break "break-word"})
+
+(def ^:private child-dispatch-delay-style
+  {:color text-tertiary-colour :font-size "10px"})
+
+(def ^:private child-dispatch-jump-style
+  {:background     "transparent"
+   :border         border-default-1px
+   :border-radius  "3px"
+   :color          accent-colour
+   :cursor         "pointer"
+   :font-family    sans-stack
+   :font-size      "10px"
+   :padding        "2px 8px"
+   :display        "inline-flex"
+   :align-items    "center"
+   :gap            "4px"
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"})
+
+(def ^:private child-dispatch-missing-style
+  {:color      text-tertiary-colour
+   :font-size  "10px"
+   :font-style "italic"})
+
+;; -- cascade-summary ------------------------------------------------------
+
+(def ^:private cascade-summary-style
+  {:display       "flex"
+   :align-items   "center"
+   :gap           "13px"
+   :margin-bottom "13px"
+   :padding       "5px 8px"
+   :border        border-subtle-1px
+   :border-radius "3px"
+   :background    bg-3-colour
+   :font-family   sans-stack
+   :font-size     "11px"
+   :color         text-secondary-colour})
+
+(def ^:private cascade-summary-label-style
+  {:color          text-tertiary-colour
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"
+   :font-weight    600
+   :font-size      "10px"})
+
+(def ^:private cascade-summary-total-style
+  {:color       text-primary-colour
+   :font-family mono-stack
+   :font-weight 700})
+
+(def ^:private cascade-summary-long-style
+  {:color       warning-colour
+   :font-family mono-stack
+   :margin-left "auto"
+   :display     "inline-flex"
+   :align-items "center"
+   :gap         "4px"})
+
+(def ^:private cascade-summary-long-glyph-style
+  {:font-size "10px"})
+
+;; -- pipeline -------------------------------------------------------------
+
+(def ^:private pipeline-host-style
+  {:position     "relative"
+   :padding-left "55px"
+   :padding-top  "0"})
+
+(def ^:private pipeline-step-style
+  {:position      "relative"
+   :margin-bottom "23px"
+   :min-height    "21px"})
+
+;; Rail position depends on `badge/line-left-offset-px` +
+;; `badge/vertical-line-offset-px`. Resolved at ns load so the rail
+;; map is allocated once.
+(def ^:private pipeline-rail-style
+  {:position       "absolute"
+   :left           (str (+ 55 badge/line-left-offset-px) "px")
+   :top            (str badge/vertical-line-offset-px "px")
+   :bottom         "13px"
+   :width          "1px"
+   :background     border-default-colour
+   :pointer-events "none"})
+
+;; -- empty-state + Panel root --------------------------------------------
+
+(def ^:private empty-state-style
+  {:padding     "21px"
+   :color       text-tertiary-colour
+   :font-family sans-stack
+   :font-size   "13px"})
+
+(def ^:private panel-root-style
+  {:height         "100%"
+   :display        "flex"
+   :flex-direction "column"
+   :background     bg-2-colour
+   :color          text-primary-colour
+   :font-family    sans-stack
+   :font-size      "13px"})
+
+(def ^:private panel-scroll-style
+  {:flex 1 :overflow "auto" :padding "21px"})
+
+(def ^:private panel-header-style
+  {:color         text-tertiary-colour
+   :font-family   sans-stack
+   :font-size     "11px"
+   :margin-bottom "21px"})
+
 ;; ---- expansion state helpers ---------------------------------------------
 ;;
 ;; The Epoch panel's row-expansion surface (`:rf.xray.epoch/toggle-
@@ -133,20 +1257,11 @@
         edn-style? (and (string? label) (str/starts-with? label ":"))]
     [:span {:data-testid (str "rf-xray-epoch-badge-"
                               (str/lower-case (name step-badge)))
-            :style       (cond-> {:display          "inline-flex"
-                                  :align-items      "center"
-                                  :background       (badge/colour step-badge)
-                                  :color            (:white tokens)
-                                  :font-family      (if edn-style? mono-stack sans-stack)
-                                  :font-size        "10px"
-                                  :font-weight      700
-                                  :padding          "3px 5px"
-                                  :border-radius    "3px"
-                                  :line-height      1
-                                  :white-space      "nowrap"}
-                           (not edn-style?)
-                           (assoc :letter-spacing "0.5px"
-                                  :text-transform "uppercase"))}
+            :style (merge badge-pill-base-style
+                          {:background (badge/colour step-badge)}
+                          (if edn-style?
+                            badge-pill-edn-overlay
+                            badge-pill-text-overlay))}
      label]))
 
 (defn- numbered-circle
@@ -157,22 +1272,8 @@
   [step-number step-badge]
   [:span {:data-testid (str "rf-xray-epoch-circle-" step-number)
           :aria-label  (str "step " step-number " (" (name step-badge) ")")
-          :style {:position         "absolute"
-                  :left             "-44px"
-                  :top              0
-                  :width            "21px"
-                  :height           "21px"
-                  :border-radius    "50%"
-                  :background       (badge/colour step-badge)
-                  :color            (:white tokens)
-                  :display          "inline-flex"
-                  :align-items      "center"
-                  :justify-content  "center"
-                  :font-family      mono-stack
-                  :font-size        "11px"
-                  :font-weight      700
-                  :line-height      1
-                  :z-index          1}}
+          :style (assoc numbered-circle-base-style
+                        :background (badge/colour step-badge))}
    (str step-number)])
 
 (defn- duration-chip
@@ -196,21 +1297,12 @@
                        (str "step exceeded "
                             proj/long-step-threshold-ms
                             "ms (one 60Hz frame)"))
-              :style {:color       (if long?
-                                     (:warning tokens)
-                                     (:text-tertiary tokens))
-                      :font-family mono-stack
-                      :font-size   "11px"
-                      :font-weight (if long? 700 500)
-                      :white-space "nowrap"
-                      :margin-left "auto"
-                      :padding-left "8px"
-                      :display     "inline-flex"
-                      :align-items "center"
-                      :gap         "4px"}}
+              :style (if long?
+                       duration-chip-long-style
+                       duration-chip-default-style)}
        (when long?
          [:span {:aria-hidden true
-                 :style {:font-size "10px"}}
+                 :style duration-chip-long-glyph-style}
           "▲"])
        (proj/format-duration-ms duration-ms)])))
 
@@ -232,35 +1324,17 @@
                         (fn [e]
                           (.stopPropagation e)
                           (on-toggle)))
-         :style {:display      "flex"
-                 :align-items  "center"
-                 :gap          "8px"
-                 :cursor       (if expandable? "pointer" "default")
-                 :font-family  sans-stack
-                 :font-size    "12px"
-                 :color        (:text-primary tokens)
-                 :user-select  "none"}}
+         :style (if expandable?
+                  step-header-pointer-style
+                  step-header-default-cursor-style)}
    (badge-pill badge)
    [:span {:data-testid (str testid "-verb")
-           :style {:display      "inline-flex"
-                   :align-items  "center"
-                   :gap          "4px"
-                   :font-family  mono-stack
-                   :font-size    "12px"
-                   :color        (:text-primary tokens)
-                   :min-width    0
-                   :flex         "1 1 auto"
-                   :overflow     "hidden"
-                   :text-overflow "ellipsis"
-                   :white-space  "nowrap"}}
+           :style step-header-verb-style}
     verb]
    (when expandable?
      [:span {:data-testid (str testid "-expand-glyph")
              :aria-hidden true
-             :style {:color       (:text-tertiary tokens)
-                     :font-family mono-stack
-                     :font-size   "10px"
-                     :margin-left "4px"}}
+             :style step-header-expand-glyph-style}
       (if expanded? "▾" "▸")])
    (duration-chip duration-ms)])
 
@@ -271,24 +1345,12 @@
   ([label]
    (sub-header label nil))
   ([label trailing]
-   [:div {:style {:display      "flex"
-                  :align-items  "center"
-                  :gap          "6px"
-                  :margin       "8px 0 5px 0"
-                  :font-family  sans-stack
-                  :font-size    "11px"
-                  :font-weight  600
-                  :color        (:text-tertiary tokens)
-                  :text-transform "uppercase"
-                  :letter-spacing "0.5px"}}
-    [:span {:style {:display "inline-flex" :color (:text-tertiary tokens)}}
+   [:div {:style sub-header-style}
+    [:span {:style sub-header-glyph-style}
      (icons/corner-down-right)]
     [:span label]
     (when trailing
-      [:span {:style {:color (:text-tertiary tokens)
-                      :font-weight 400
-                      :font-family mono-stack
-                      :text-transform "none"}}
+      [:span {:style sub-header-trailing-style}
        trailing])]))
 
 ;; ---- DISPATCH step -------------------------------------------------------
@@ -313,12 +1375,7 @@
   [{:keys [event]}]
   (when (vector? event)
     [:div {:data-testid "rf-xray-epoch-dispatch-event"
-           :style {:background    (:bg-1 tokens)
-                   :border        (str "1px solid " (:border-default tokens))
-                   :border-radius "3px"
-                   :padding       "5px 8px"
-                   :margin-top    "5px"
-                   :overflow-x    "auto"}}
+           :style dispatch-body-style}
      [ei/edn-inspector event {:site-id "epoch-dispatch-event"
                               :card?   false
                               :zoomable? true}]]))
@@ -352,26 +1409,11 @@
                                  [:rf.xray/open-in-editor
                                   {:source-coord coord}]
                                  {:frame :rf/xray}))
-                :style {:background "transparent"
-                        :border     "none"
-                        :padding    0
-                        :margin     0
-                        :color      (:accent tokens)
-                        :cursor     "pointer"
-                        :font-family mono-stack
-                        :font-size  "12px"
-                        :text-decoration "underline"
-                        :text-decoration-style "dotted"
-                        :text-underline-offset "2px"
-                        :display    "inline-flex"
-                        :align-items "center"
-                        :gap        "4px"}}
+                :style link-button-style}
        label
        (icons/external-link)]
       [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
-              :style {:color (:accent tokens)
-                      :display "inline-flex"
-                      :align-items "center"}}
+              :style dispatch-source-plain-style}
        label])))
 
 (defn render-dispatch-step
@@ -393,7 +1435,7 @@
    (step-header
      {:step :dispatch
       :badge :DISPATCH
-      :verb [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
+      :verb [:span {:style dispatch-verb-style}
              "from "
              (dispatch-source-label source coord)]
       :expandable? false
@@ -435,12 +1477,7 @@
         label      (proj/ns-keyword id)]
     [:div {:key (str "cofx-" idx)
            :data-testid (str "rf-xray-epoch-coeffect-row-" idx)
-           :style {:padding "3px 0"
-                   :display "flex"
-                   :align-items "flex-start"
-                   :gap "8px"
-                   :font-family mono-stack
-                   :font-size "12px"}}
+           :style coeffect-row-style}
      ;; id — clickable button when coord captured; plain span otherwise
      (if clickable?
        [:button {:data-testid (str "rf-xray-epoch-coeffect-row-id-" idx)
@@ -455,34 +1492,15 @@
                                 (rf/dispatch [:rf.xray/open-in-editor
                                               {:source-coord coord}]
                                              {:frame :rf/xray}))
-                 :style {:background  "transparent"
-                         :border      "none"
-                         :padding     0
-                         :margin      0
-                         :color       (:accent tokens)
-                         :cursor      "pointer"
-                         :font-family "inherit"
-                         :font-size   "inherit"
-                         :font-weight "inherit"
-                         :text-decoration "underline"
-                         :text-decoration-style "dotted"
-                         :text-underline-offset "2px"
-                         :display     "inline-flex"
-                         :align-items "center"
-                         :gap         "4px"
-                         :white-space "nowrap"}}
+                 :style link-button-inherit-style}
         label
         (icons/external-link)]
        [:span {:data-testid (str "rf-xray-epoch-coeffect-row-id-" idx)
-               :style {:color (:accent tokens)
-                       :white-space "nowrap"}}
+               :style coeffect-row-id-plain-style}
         label])
      ;; injected value (labelled — no cryptic `+[]nil` line)
      [:span {:data-testid (str "rf-xray-epoch-coeffect-row-value-" idx)
-             :style {:color (:text-primary tokens)
-                     :min-width 0
-                     :flex 1
-                     :word-break "break-word"}}
+             :style coeffect-row-value-style}
       (edn/inspect-inline value)]]))
 
 (defn render-coeffect-step
@@ -530,29 +1548,11 @@
                                            [:rf.xray/open-in-editor
                                             {:source-coord coord}]
                                            {:frame :rf/xray}))
-                          :style {:background "transparent"
-                                  :border     "none"
-                                  :padding    0
-                                  :margin     0
-                                  :color      (:accent tokens)
-                                  :cursor     "pointer"
-                                  :font-family mono-stack
-                                  :font-size  "12px"
-                                  :font-weight "inherit"
-                                  :text-decoration "underline"
-                                  :text-decoration-style "dotted"
-                                  :text-underline-offset "2px"
-                                  :display    "inline-flex"
-                                  :align-items "center"
-                                  :gap        "4px"
-                                  :white-space "nowrap"}}
+                          :style coeffect-verb-link-button-style}
                  label
                  (icons/external-link)]
                 [:span {:data-testid (str "rf-xray-epoch-coeffect-id-" (name id))
-                        :style {:color (:accent tokens)
-                                :font-family mono-stack
-                                :font-size "12px"
-                                :white-space "nowrap"}}
+                        :style coeffect-verb-plain-style}
                  label])
         :expandable? false
         :testid (str "rf-xray-epoch-coeffect-" (name id))}
@@ -562,19 +1562,11 @@
      ;; indent) so the diff-line reads at the same column as the
      ;; header's badge pill.
      [:div {:data-testid (str "rf-xray-epoch-coeffect-value-" (name id))
-            :style {:margin-top "5px"
-                    :display "flex"
-                    :align-items "flex-start"
-                    :gap "8px"
-                    :font-family mono-stack
-                    :font-size "12px"}}
-      [:span {:style {:color (:success tokens) :font-weight 700}} "+"]
-      [:span {:style {:color (:text-tertiary tokens) :white-space "nowrap"}}
+            :style coeffect-body-style}
+      [:span {:style coeffect-body-plus-style} "+"]
+      [:span {:style coeffect-body-path-style}
        (str "[" (proj/ns-keyword id) "]")]
-      [:span {:style {:color (:text-primary tokens)
-                      :min-width 0
-                      :flex 1
-                      :word-break "break-word"}}
+      [:span {:style coeffect-body-value-style}
        [ei/mini value 80]]]]))
 
 ;; ---- HANDLER step --------------------------------------------------------
@@ -598,30 +1590,24 @@
                   (some? after)                       "+"
                   :else                                "-"))
         glyph-colour (case glyph
-                       "+" (:success tokens)
-                       "-" (:error tokens)
-                       (:warning tokens))]
+                       "+" success-colour
+                       "-" error-colour
+                       warning-colour)]
     [:div {:key (str "diff-" idx)
            :data-testid (str "rf-xray-epoch-handler-diff-row-" idx)
-           :style {:display      "flex"
-                   :align-items  "flex-start"
-                   :gap          "8px"
-                   :padding      "2px 0"
-                   :font-family  mono-stack
-                   :font-size    "12px"}}
-     [:span {:style {:color glyph-colour :font-weight 700}} glyph]
-     [:span {:style {:color (:text-tertiary tokens) :white-space "nowrap"}}
+           :style diff-row-style}
+     [:span {:style (assoc diff-glyph-bold-style :color glyph-colour)} glyph]
+     [:span {:style diff-path-style}
       (proj/path-display path)]
      (when (= "~" glyph)
        [:<>
-        [:span {:style {:color (:error tokens)}}
+        [:span {:style diff-before-style}
          [ei/mini before 40]]
-        [:span {:style {:color (:text-tertiary tokens)}} "→"]
-        [:span {:style {:color (:success tokens)}}
+        [:span {:style diff-arrow-style} "→"]
+        [:span {:style diff-after-success-style}
          [ei/mini after 40]]])
      (when (= "+" glyph)
-       [:span {:style {:color (:success tokens) :min-width 0 :flex 1
-                       :word-break "break-word"}}
+       [:span {:style diff-added-flex-style}
         [ei/mini after 80]])]))
 
 (defn- fx-entry-line
@@ -633,16 +1619,10 @@
   [{:keys [fx-id value]} idx]
   [:div {:key (str "fx-entry-" idx)
          :data-testid (str "rf-xray-epoch-handler-fx-row-" idx)
-         :style {:display      "flex"
-                 :align-items  "flex-start"
-                 :gap          "8px"
-                 :padding      "2px 0 2px 21px"
-                 :font-family  mono-stack
-                 :font-size    "12px"}}
-   [:span {:style {:color (:accent tokens) :white-space "nowrap"}}
+         :style fx-entry-row-style}
+   [:span {:style fx-entry-id-style}
     (proj/ns-keyword fx-id)]
-   [:span {:style {:color (:text-primary tokens) :min-width 0 :flex 1
-                   :word-break "break-word"}}
+   [:span {:style diff-value-flex-style}
     [ei/mini value 80]]])
 
 ;; ---- Machine cascade view (rf2-u69j7) -----------------------------------
@@ -717,15 +1697,8 @@
                            (when (keyword? outcome) (name outcome)))]
       [:span {:data-testid (str "rf-xray-epoch-machine-cascade-outcome-"
                                 (when (keyword? outcome) (name outcome)))
-              :style {:display "inline-flex"
-                      :align-items "center"
-                      :gap "4px"
-                      :color colour
-                      :font-family mono-stack
-                      :font-size "11px"
-                      :font-weight 600
-                      :white-space "nowrap"}}
-       [:span {:aria-hidden true :style {:font-weight 700}} glyph]
+              :style (assoc cascade-outcome-chip-base-style :color colour)}
+       [:span {:aria-hidden true :style diff-glyph-bold-style} glyph]
        (when label-string label-string)])))
 
 (defn- cascade-phase-chip
@@ -737,18 +1710,7 @@
   (when (badge/cascade-phase? phase)
     [:span {:data-testid (str "rf-xray-epoch-machine-cascade-phase-"
                               (name phase))
-            :style {:display "inline-flex"
-                    :align-items "center"
-                    :background (:bg-3 tokens)
-                    :color (:text-tertiary tokens)
-                    :border (str "1px solid " (:border-subtle tokens))
-                    :border-radius "2px"
-                    :padding "1px 5px"
-                    :font-family mono-stack
-                    :font-size "10px"
-                    :font-weight 600
-                    :letter-spacing "0.3px"
-                    :white-space "nowrap"}}
+            :style cascade-phase-style}
      (badge/cascade-phase-label phase)]))
 
 (defn- cascade-kind-pill
@@ -759,19 +1721,8 @@
   [kind]
   [:span {:data-testid (str "rf-xray-epoch-machine-cascade-kind-"
                             (when (keyword? kind) (name kind)))
-          :style {:display "inline-flex"
-                  :align-items "center"
-                  :background (badge/cascade-kind-colour kind)
-                  :color (:white tokens)
-                  :font-family sans-stack
-                  :font-size "9px"
-                  :font-weight 700
-                  :padding "2px 5px"
-                  :border-radius "2px"
-                  :letter-spacing "0.5px"
-                  :text-transform "uppercase"
-                  :line-height 1
-                  :white-space "nowrap"}}
+          :style (assoc cascade-kind-pill-base-style
+                        :background (badge/cascade-kind-colour kind))}
    (badge/cascade-kind-label kind)])
 
 (defn- cascade-row-ordinal
@@ -781,19 +1732,7 @@
   [step]
   [:span {:data-testid (str "rf-xray-epoch-machine-cascade-ordinal-" step)
           :aria-label  (str "cascade step " step)
-          :style {:display "inline-flex"
-                  :align-items "center"
-                  :justify-content "center"
-                  :min-width "21px"
-                  :height "16px"
-                  :padding "0 4px"
-                  :background (:bg-3 tokens)
-                  :color (:text-tertiary tokens)
-                  :font-family mono-stack
-                  :font-size "10px"
-                  :font-weight 700
-                  :border-radius "2px"
-                  :white-space "nowrap"}}
+          :style cascade-ordinal-style}
    (str step)])
 
 (defn- cascade-row-verb-link
@@ -823,31 +1762,12 @@
                                (rf/dispatch [:rf.xray/open-in-editor
                                              {:source-coord coord}]
                                             {:frame :rf/xray}))
-                :style {:background "transparent"
-                        :border     "none"
-                        :padding    0
-                        :margin     0
-                        :color      (:accent tokens)
-                        :cursor     "pointer"
-                        :font-family mono-stack
-                        :font-size  "12px"
-                        :font-weight 600
-                        :text-decoration "underline"
-                        :text-decoration-style "dotted"
-                        :text-underline-offset "2px"
-                        :display    "inline-flex"
-                        :align-items "center"
-                        :gap        "4px"
-                        :white-space "nowrap"}}
+                :style cascade-verb-link-button-style}
        verb-string
        (icons/external-link)]
       [:span {:data-testid (str "rf-xray-epoch-machine-cascade-verb-"
                                 (:step row))
-              :style {:color       (:text-primary tokens)
-                      :font-family mono-stack
-                      :font-size   "12px"
-                      :font-weight 600
-                      :white-space "nowrap"}}
+              :style cascade-verb-plain-style}
        verb-string])))
 
 (defn- cascade-row-source-body
@@ -876,10 +1796,7 @@
   (when (contains? #{:action :guard} (:kind row))
     [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-"
                              (:step row))
-           :style {:margin    "5px 0 3px 0"
-                   :padding-left "8px"
-                   :border-left (str "2px solid " (:border-subtle tokens))
-                   :min-width 0}}
+           :style cascade-row-source-style}
      (if (some? source-form)
        (edn/code-block
          {:source (pr-str source-form)
@@ -888,10 +1805,7 @@
                        (:step row))})
        [:span {:data-testid (str "rf-xray-epoch-machine-cascade-source-missing-"
                                  (:step row))
-               :style {:font-style "italic"
-                       :font-family mono-stack
-                       :font-size  "11px"
-                       :color      (:text-tertiary tokens)}}
+               :style cascade-row-source-missing-style}
         "<source not yet captured>"])]))
 
 (defn- cascade-row-action-outcome-details
@@ -914,12 +1828,7 @@
     (when (or data-write (seq fx) threw?)
       [:div {:data-testid (str "rf-xray-epoch-machine-cascade-outcome-"
                                (:step row))
-             :style {:padding "2px 0 4px 21px"
-                     :display "flex"
-                     :flex-direction "column"
-                     :gap "2px"
-                     :font-family mono-stack
-                     :font-size "11px"}}
+             :style cascade-outcome-details-style}
        ;; Per-action DATA Δ — the data the action wrote into the
        ;; snapshot. Surface as `↳ data Δ <map>` so the cascade
        ;; row tells the operator 'this action wrote …' without
@@ -927,14 +1836,10 @@
        (when (some? data-write)
          [:div {:data-testid (str "rf-xray-epoch-machine-cascade-data-write-"
                                   (:step row))
-                :style {:display "flex"
-                        :gap "6px"
-                        :align-items "flex-start"
-                        :color (:text-secondary tokens)}}
-          [:span {:style {:color (:success tokens) :font-weight 700}} "↳"]
-          [:span {:style {:color (:text-tertiary tokens)}} "data Δ"]
-          [:span {:style {:color (:text-primary tokens) :min-width 0 :flex 1
-                          :word-break "break-word"}}
+                :style cascade-detail-row-style}
+          [:span {:style cascade-detail-success-arrow-style} "↳"]
+          [:span {:style cascade-detail-label-style} "data Δ"]
+          [:span {:style cascade-detail-value-style}
            [ei/mini data-write 80]]])
        ;; Per-action FX attribution — each fx-id the action emitted
        ;; in its outcome's `:fx` slot. The view layer already
@@ -945,19 +1850,15 @@
        (when (seq fx)
          [:div {:data-testid (str "rf-xray-epoch-machine-cascade-fx-"
                                   (:step row))
-                :style {:display "flex"
-                        :gap "6px"
-                        :align-items "flex-start"
-                        :flex-wrap "wrap"}}
-          [:span {:style {:color (:accent tokens) :font-weight 700}} "↳"]
-          [:span {:style {:color (:text-tertiary tokens)}} "fx"]
+                :style cascade-detail-fx-row-style}
+          [:span {:style cascade-detail-accent-arrow-style} "↳"]
+          [:span {:style cascade-detail-label-style} "fx"]
           (for [[j entry] (map-indexed vector fx)
                 :let [[fx-id _args] (if (vector? entry) entry [entry nil])]]
             ^{:key (str "cascade-fx-" (:step row) "-" j)}
             [:span {:data-testid (str "rf-xray-epoch-machine-cascade-fx-"
                                       (:step row) "-" j)
-                    :style {:color (:accent tokens)
-                            :margin-right "6px"}}
+                    :style cascade-detail-fx-chip-style}
              (proj/ns-keyword fx-id)])])
        ;; Threw path — the action halted the cascade. Surface a
        ;; compact error chip so the operator can pivot to the
@@ -965,15 +1866,11 @@
        (when threw?
          [:div {:data-testid (str "rf-xray-epoch-machine-cascade-threw-"
                                   (:step row))
-                :style {:display "flex"
-                        :gap "6px"
-                        :align-items "flex-start"
-                        :color (:error tokens)}}
-          [:span {:style {:font-weight 700}} "✗"]
-          [:span {:style {:font-weight 600}} "threw"]
+                :style cascade-detail-threw-row-style}
+          [:span {:style cascade-threw-glyph-style} "✗"]
+          [:span {:style cascade-threw-label-style} "threw"]
           (when exception
-            [:span {:style {:color (:text-secondary tokens)
-                            :font-style "italic"}}
+            [:span {:style cascade-threw-message-style}
              (str " — "
                   (or (when (some? exception)
                         (.-message ^js exception))
@@ -989,31 +1886,20 @@
     (when (or from-state to-state event microsteps)
       [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-"
                                (:step row))
-             :style {:padding "3px 0 4px 21px"
-                     :display "flex"
-                     :flex-direction "column"
-                     :gap "2px"
-                     :font-family mono-stack
-                     :font-size "11px"}}
+             :style cascade-transition-details-style}
        (when (or from-state to-state)
          [:div {:data-testid (str "rf-xray-epoch-machine-cascade-from-to-"
                                   (:step row))
-                :style {:display "inline-flex"
-                        :align-items "center"
-                        :gap "6px"
-                        :flex-wrap "wrap"}}
-          [:span {:style {:color (:text-tertiary tokens)}} "state"]
-          [:span {:style {:color (:error tokens)}} [ei/mini from-state 30]]
-          [:span {:style {:color (:text-tertiary tokens)}} "→"]
-          [:span {:style {:color (:success tokens)}} [ei/mini to-state 30]]])
+                :style cascade-from-to-row-style}
+          [:span {:style cascade-detail-label-style} "state"]
+          [:span {:style diff-before-style} [ei/mini from-state 30]]
+          [:span {:style cascade-detail-label-style} "→"]
+          [:span {:style diff-after-success-style} [ei/mini to-state 30]]])
        (when (vector? event)
          [:div {:data-testid (str "rf-xray-epoch-machine-cascade-trigger-"
                                   (:step row))
-                :style {:display "inline-flex"
-                        :align-items "center"
-                        :gap "6px"
-                        :color (:text-secondary tokens)}}
-          [:span {:style {:color (:text-tertiary tokens)}} "event"]
+                :style cascade-trigger-row-style}
+          [:span {:style cascade-detail-label-style} "event"]
           [ei/mini event 40]])])))
 
 (defn- cascade-row-view
@@ -1043,26 +1929,16 @@
            :data-cascade-kind (when (keyword? kind) (name kind))
            :data-cascade-phase (when (keyword? phase) (name phase))
            :data-cascade-long-step (str (boolean long?))
-           :style {:display "flex"
-                   :flex-direction "column"
-                   :padding "5px 0 5px 0"
-                   :border-bottom (str "1px solid " (:border-subtle tokens))}}
+           :style cascade-row-style}
      ;; Header row: ordinal + kind pill + phase chip + verb + duration + outcome
-     [:div {:style {:display "flex"
-                    :align-items "center"
-                    :gap "6px"
-                    :flex-wrap "wrap"}}
+     [:div {:style cascade-row-header-style}
       (cascade-row-ordinal step)
       (cascade-kind-pill kind)
       (when (= :action kind)
         (cascade-phase-chip phase))
       (cascade-row-verb-link row coord verb)
       ;; Right-aligned: duration + outcome chip
-      [:span {:style {:margin-left "auto"
-                      :display "inline-flex"
-                      :align-items "center"
-                      :gap "8px"
-                      :flex-wrap "nowrap"}}
+      [:span {:style cascade-row-right-style}
        (duration-chip duration-ms)
        (cascade-outcome-chip
          (cond
@@ -1105,34 +1981,21 @@
         total (proj/machine-cascade-total-ms cascade-rows)]
     [:div {:data-testid "rf-xray-epoch-handler-machine-cascade"
            :data-cascade-row-count (str n)
-           :style {:margin-top "8px"
-                   :display "flex"
-                   :flex-direction "column"}}
+           :style machine-cascade-root-style}
      (sub-header "cascade"
-                 [:span {:style {:display "inline-flex"
-                                 :align-items "center"
-                                 :gap "8px"
-                                 :font-family mono-stack
-                                 :font-size "11px"}}
+                 [:span {:style machine-cascade-summary-style}
                   (str n " step"
                        (when (not= 1 n) "s"))
                   (when (number? total)
                     [:span {:data-testid "rf-xray-epoch-machine-cascade-total"
-                            :style {:color (:text-tertiary tokens)}}
+                            :style machine-cascade-total-style}
                      (str "· " (proj/format-duration-ms total))])])
      (if (zero? n)
        [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-empty"
-              :style {:padding "5px 0 5px 21px"
-                      :font-family mono-stack
-                      :font-size "11px"
-                      :font-style "italic"
-                      :color (:text-tertiary tokens)}}
+              :style machine-cascade-empty-style}
         "— (no machine cascade events fired)"]
        (into [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-rows"
-                    :style {:display "flex"
-                            :flex-direction "column"
-                            :border-top (str "1px solid " (:border-subtle tokens))
-                            :margin-top "3px"}}]
+                    :style machine-cascade-rows-style}]
              (for [row cascade-rows]
                (cascade-row-view machine-meta row))))]))
 
@@ -1262,25 +2125,11 @@
                                  [:rf.xray/open-in-editor
                                   {:source-coord coord}]
                                  {:frame :rf/xray}))
-                :style {:background  "transparent"
-                        :border      "none"
-                        :padding     0
-                        :margin      0
-                        :color       (:accent tokens)
-                        :cursor      "pointer"
-                        :font-family "inherit"
-                        :font-size   "inherit"
-                        :font-weight "inherit"
-                        :text-decoration "underline"
-                        :text-decoration-style "dotted"
-                        :text-underline-offset "2px"
-                        :display     "inline-flex"
-                        :align-items "center"
-                        :gap         "4px"}}
+                :style handler-verb-link-button-style}
        label
        (icons/external-link)]
       [:span {:data-testid "rf-xray-epoch-handler-verb-plain"
-              :style {:color (:accent tokens)}}
+              :style handler-verb-plain-style}
        label])))
 
 (defn- handler-source-block
@@ -1307,12 +2156,11 @@
         spec     (when machine? (machine-spec-value meta))
         src      (when-not machine? (handler-source-string meta))]
     [:div {:data-testid "rf-xray-epoch-handler-source"
-           :style {:margin-top "8px"
-                   :min-width  "0"}}
+           :style handler-source-root-style}
      (cond
        (and machine? (some? spec))
        [:div {:data-testid "rf-xray-epoch-handler-source-spec"
-              :style {:padding-left "16px"}}
+              :style handler-source-spec-style}
         (edn/inspect spec)]
 
        src
@@ -1323,11 +2171,7 @@
 
        :else
        [:span {:data-testid "rf-xray-epoch-handler-source-placeholder"
-               :style {:font-style "italic"
-                       :font-family mono-stack
-                       :font-size   "11px"
-                       :color       (:text-tertiary tokens)
-                       :padding-left "16px"}}
+               :style handler-source-placeholder-style}
         "<source not yet captured>"])]))
 
 (defn- db-view-mode-toggle
@@ -1342,14 +2186,7 @@
   [mode]
   [:span {:data-testid "rf-xray-epoch-handler-db-view-mode"
           :data-mode (name mode)
-          :style {:display "inline-flex"
-                  :align-items "center"
-                  :gap 0
-                  :border (str "1px solid " (:border-subtle tokens))
-                  :border-radius "3px"
-                  :overflow "hidden"
-                  :margin-left "8px"
-                  :line-height 1}}
+          :style mode-toggle-bar-style}
    (for [m [:diff :all]
          :let [active? (= mode m)]]
      ^{:key (name m)}
@@ -1369,17 +2206,9 @@
                            (rf/with-frame :rf/xray
                              (rf/dispatch
                                [:rf.xray.epoch/set-db-view-mode m])))
-               :style {:background (if active? (:accent tokens) "transparent")
-                       :color      (if active? (:white tokens) (:text-secondary tokens))
-                       :border     "none"
-                       :padding    "2px 8px"
-                       :font-family sans-stack
-                       :font-size  "10px"
-                       :font-weight 700
-                       :text-transform "uppercase"
-                       :letter-spacing "0.5px"
-                       :cursor     "pointer"
-                       :line-height 1}}
+               :style (if active?
+                        mode-toggle-button-active-style
+                        mode-toggle-button-inactive-style)}
       (name m)])])
 
 (defn- handler-db-diff-block
@@ -1424,7 +2253,7 @@
            :data-empty (str empty?)
            :data-db-view-mode (name mode)}
      (sub-header ":db"
-                 [:span {:style {:display "inline-flex" :align-items "center"}}
+                 [:span {:style inline-flex-center-style}
                   (when diff-summary diff-summary)
                   (db-view-mode-toggle mode)])
      (case mode
@@ -1438,16 +2267,12 @@
              db-after (:db-after record)]
          (if (some? db-after)
            [:div {:data-testid "rf-xray-epoch-handler-db-all"
-                  :style {:padding-left "16px"}}
+                  :style handler-db-all-style}
             [ei/edn-inspector db-after
              {:site-id [:rf.xray.epoch/handler-db-all (:epoch-id record)]
               :default-expanded-depth 2}]]
            [:span {:data-testid "rf-xray-epoch-handler-db-all-missing"
-                   :style {:font-style "italic"
-                           :font-family mono-stack
-                           :font-size "11px"
-                           :color (:text-tertiary tokens)
-                           :padding-left "16px"}}
+                   :style handler-db-all-missing-style}
             "— db-after not available in epoch record"])))]))
 
 (defn handler-body
@@ -1518,36 +2343,27 @@
   [idx {:keys [flow-id path before after duration-ms]}]
   [:div {:key (str "flow-" idx)
          :data-testid (str "rf-xray-epoch-flow-row-" idx)
-         :style {:padding "3px 0"}}
-   [:div {:style {:display "inline-flex"
-                  :gap "4px"
-                  :font-family mono-stack
-                  :font-size "12px"
-                  :color (:accent tokens)}}
+         :style flow-row-style}
+   [:div {:style flow-row-id-style}
     (proj/ns-keyword flow-id)
     (icons/external-link)
     (when (number? duration-ms)
-      [:span {:style {:color (:text-tertiary tokens) :margin-left "8px"}}
+      [:span {:style flow-row-duration-style}
        (proj/format-duration-ms duration-ms)])]
    (when (sequential? path)
-     [:div {:style {:display "flex"
-                    :align-items "flex-start"
-                    :gap "8px"
-                    :padding "2px 0 2px 21px"
-                    :font-family mono-stack
-                    :font-size "12px"}}
-      [:span {:style {:color (:warning tokens) :font-weight 700}} "~"]
-      [:span {:style {:color (:text-tertiary tokens)}}
+     [:div {:style flow-row-path-style}
+      [:span {:style flow-row-warning-glyph-style} "~"]
+      [:span {:style cascade-detail-label-style}
        (proj/path-display path)]
       ;; rf2-8w8er — before/after render through the edn-inspector
       ;; `mini` widget so per-token syntax chrome paints (numbers
       ;; orange, keywords magenta, sentinels chip).
       (when (some? before)
-        [:span {:style {:color (:error tokens)}} [ei/mini before 30]])
+        [:span {:style diff-before-style} [ei/mini before 30]])
       (when (and (some? before) (some? after))
-        [:span {:style {:color (:text-tertiary tokens)}} "→"])
+        [:span {:style cascade-detail-label-style} "→"])
       (when (some? after)
-        [:span {:style {:color (:success tokens)}} [ei/mini after 30]])])])
+        [:span {:style diff-after-success-style} [ei/mini after 30]])])])
 
 (defn render-flow-step
   "Render the FLOW step (only present when flows fired)."
@@ -1563,7 +2379,7 @@
       :expandable? false
       :testid "rf-xray-epoch-flow"}
      nil)
-   [:div {:style {:margin-top "5px"}}
+   [:div {:style margin-top-5-style}
     (map-indexed flow-row-view rows)]])
 
 ;; ---- FX step -------------------------------------------------------------
@@ -1587,53 +2403,37 @@
                    :error       "✗"
                    "·")
         colour   (case status
-                   :ok          (:success tokens)
-                   :overridden  (:accent tokens)
-                   :skipped     (:text-tertiary tokens)
-                   :error       (:error tokens)
-                   (:text-secondary tokens))]
+                   :ok          success-colour
+                   :overridden  accent-colour
+                   :skipped     text-tertiary-colour
+                   :error       error-colour
+                   text-secondary-colour)]
     [:div {:key (str "fx-" idx)
            :data-testid (str "rf-xray-epoch-fx-row-" idx)
            :data-fx-status (when (keyword? status) (name status))
            :data-fx-attributed (str (some? attributed-to))
-           :style {:display "flex"
-                   :align-items "flex-start"
-                   :gap "8px"
-                   :padding "2px 0"
-                   :font-family mono-stack
-                   :font-size "12px"
-                   :flex-wrap "wrap"}}
-     [:span {:style {:color colour :font-weight 700}} glyph]
-     [:span {:style {:color (:accent tokens)}}
+           :style fx-row-style}
+     [:span {:style (assoc diff-glyph-bold-style :color colour)} glyph]
+     [:span {:style fx-row-id-style}
       (proj/ns-keyword fx-id)]
      ;; rf2-8w8er — args render through `mini` so the fx-call surface
      ;; lights up with syntax-token colour rather than plain text.
      (when (some? args)
-       [:span {:style {:color (:text-primary tokens) :min-width 0 :flex 1
-                       :word-break "break-word"}}
+       [:span {:style fx-row-args-style}
         [ei/mini args 80]])
      (when (number? duration-ms)
-       [:span {:style {:color (:text-tertiary tokens)
-                       :margin-left "8px"
-                       :white-space "nowrap"}}
+       [:span {:style fx-row-duration-style}
         (proj/format-duration-ms duration-ms)])
      ;; rf2-uffov — per-action attribution chip (for machine cascades)
      (when-let [{:keys [action-id phase]} attributed-to]
        [:span {:data-testid (str "rf-xray-epoch-fx-row-attribution-" idx)
                :title (str "emitted by " (proj/ns-keyword action-id)
                            (when phase (str " (" (name phase) " action)")))
-               :style {:color (:text-tertiary tokens)
-                       :font-size "10px"
-                       :margin-left "auto"
-                       :white-space "nowrap"
-                       :display "inline-flex"
-                       :align-items "center"
-                       :gap "4px"
-                       :font-style "italic"}}
+               :style fx-row-attribution-style}
         [:span {:aria-hidden true} "←"]
         (proj/ns-keyword action-id)
         (when phase
-          [:span {:style {:color (:text-tertiary tokens)}}
+          [:span {:style fx-row-attribution-phase-style}
            (str "(" (name phase) ")")])])]))
 
 (defn render-fx-step
@@ -1653,23 +2453,17 @@
      (step-header
        {:step :fx
         :badge :FX
-        :verb [:span {:style {:display "inline-flex"
-                              :align-items "center"
-                              :gap "8px"}}
+        :verb [:span {:style fx-verb-style}
                [:span {:data-testid "rf-xray-epoch-fx-caption"
-                       :style {:color (:text-tertiary tokens)
-                               :font-family sans-stack
-                               :font-size "11px"
-                               :font-style "italic"}}
+                       :style fx-caption-style}
                 "(side effects)"]
                (when (pos? k)
-                 [:span {:style {:color (:error tokens)
-                                 :font-weight 700}}
+                 [:span {:style fx-threw-style}
                   (str k " threw")])]
         :expandable? false
         :testid "rf-xray-epoch-fx"}
        nil)
-     [:div {:style {:margin-top "5px"}}
+     [:div {:style margin-top-5-style}
       (map-indexed fx-row-view rows)]]))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
@@ -1691,14 +2485,7 @@
   [mode]
   [:span {:data-testid "rf-xray-epoch-subscriptions-filter-mode"
           :data-mode (when (keyword? mode) (name mode))
-          :style {:display "inline-flex"
-                  :align-items "center"
-                  :gap 0
-                  :border (str "1px solid " (:border-subtle tokens))
-                  :border-radius "3px"
-                  :overflow "hidden"
-                  :margin-left "8px"
-                  :line-height 1}}
+          :style subs-filter-bar-style}
    (for [m [:all :changed :unchanged]
          :let [active? (= mode m)]]
      ^{:key (name m)}
@@ -1715,17 +2502,9 @@
                            (rf/with-frame :rf/xray
                              (rf/dispatch
                                [:rf.xray.epoch/set-subs-filter-mode m])))
-               :style {:background (if active? (:accent tokens) "transparent")
-                       :color      (if active? (:white tokens) (:text-secondary tokens))
-                       :border     "none"
-                       :padding    "2px 8px"
-                       :font-family sans-stack
-                       :font-size  "10px"
-                       :font-weight 700
-                       :text-transform "uppercase"
-                       :letter-spacing "0.5px"
-                       :cursor     "pointer"
-                       :line-height 1}}
+               :style (if active?
+                        subs-filter-button-active-style
+                        subs-filter-button-inactive-style)}
       (name m)])])
 
 (defn- subscriptions-table
@@ -1733,74 +2512,53 @@
   Per the bead body's §SUBSCRIPTIONS (Step 7) shape (rf2-kfh1v)."
   [rows]
   [:div {:data-testid "rf-xray-epoch-subscriptions-table"
-         :style {:margin-top "5px"
-                 :border (str "1px solid " (:border-subtle tokens))
-                 :border-radius "3px"
-                 :overflow "hidden"}}
+         :style subscriptions-table-style}
    ;; header
-   [:div {:style {:display "flex"
-                  :align-items "stretch"
-                  :background (:bg-3 tokens)
-                  :border-bottom (str "1px solid " (:border-subtle tokens))
-                  :font-family sans-stack
-                  :font-size "10px"
-                  :font-weight 700
-                  :color (:text-tertiary tokens)
-                  :text-transform "uppercase"
-                  :letter-spacing "0.5px"}}
-    [:div {:style {:flex "1 1 35%" :padding "5px 8px"}} "sub"]
-    [:div {:style {:flex "1 1 35%" :padding "5px 8px"}} "inputs"]
-    [:div {:style {:flex "1 1 30%" :padding "5px 8px"}} "changed"]]
+   [:div {:style table-header-row-style}
+    [:div {:style subs-th-35-style} "sub"]
+    [:div {:style subs-th-35-style} "inputs"]
+    [:div {:style subs-th-30-style} "changed"]]
    ;; rows
    (for [[i {:keys [sub-id sub-vec inputs changed? before after]}] (map-indexed vector rows)]
      [:div {:key (str "sub-" i)
             :data-testid (str "rf-xray-epoch-sub-row-" i)
             :data-sub-changed (str (boolean changed?))
-            :style {:display "flex"
-                    :align-items "stretch"
-                    :border-bottom (when (< i (dec (count rows)))
-                                     (str "1px solid " (:border-subtle tokens)))}}
-      [:div {:style {:flex "1 1 35%" :padding "5px 8px" :min-width 0
-                     :font-family mono-stack :font-size "12px"
-                     :word-break "break-word"}}
+            :style (if (< i (dec (count rows)))
+                     subs-row-style-with-border
+                     subs-row-style)}
+      [:div {:style subs-cell-id-style}
        ;; rf2-8w8er — sub-vec renders through `mini` so the vector's
        ;; keywords paint magenta, scalars orange, etc. Sub-id-only
        ;; fallback keeps the keyword-token chrome via `mini` too.
-       [:span {:style {:color (:accent tokens) :display "inline-flex"
-                       :align-items "center" :gap "4px"}}
+       [:span {:style subs-cell-id-span-style}
         (if (vector? sub-vec)
           [ei/mini sub-vec 40]
           [ei/mini sub-id 40])
         (icons/external-link)]]
-      [:div {:style {:flex "1 1 35%" :padding "5px 8px" :min-width 0
-                     :font-family mono-stack :font-size "12px"
-                     :color (:text-tertiary tokens)
-                     :word-break "break-word"}}
+      [:div {:style subs-cell-inputs-style}
        ;; rf2-8w8er — each input keyword routes through `mini` so
        ;; the input column lights up as keywords, not plain text.
        ;; "app-db" stays as a label (it's a source descriptor, not
        ;; a CLJS value).
        (cond
          (vector? inputs)
-         (into [:div {:style {:display "flex" :flex-direction "column" :gap "2px"}}]
+         (into [:div {:style subs-inputs-list-style}]
                (map (fn [i] [:div [ei/mini i 40]]) inputs))
          (some? inputs) [ei/mini inputs 40]
          :else          "app-db")]
-      [:div {:style {:flex "1 1 30%" :padding "5px 8px" :min-width 0
-                     :font-family mono-stack :font-size "12px"}}
+      [:div {:style subs-cell-changed-style}
        (if changed?
-         [:div {:style {:display "flex" :gap "6px" :flex-wrap "wrap"
-                        :align-items "center"}}
-          [:span {:style {:color (:success tokens) :font-weight 700}} "✓"]
+         [:div {:style subs-changed-row-style}
+          [:span {:style subs-changed-tick-style} "✓"]
           ;; rf2-8w8er — before/after through `mini` so numbers
           ;; paint orange, keywords magenta, etc.
           (when (some? before)
-            [:span {:style {:color (:error tokens)}} [ei/mini before 24]])
+            [:span {:style diff-before-style} [ei/mini before 24]])
           (when (and (some? before) (some? after))
-            [:span {:style {:color (:text-tertiary tokens)}} "→"])
+            [:span {:style cascade-detail-label-style} "→"])
           (when (some? after)
-            [:span {:style {:color (:success tokens)}} [ei/mini after 24]])]
-         [:span {:style {:color (:text-tertiary tokens) :font-weight 700}} "✗"])]])])
+            [:span {:style diff-after-success-style} [ei/mini after 24]])]
+         [:span {:style subs-unchanged-tick-style} "✗"])]])])
 
 (defn- dispose-reason-label
   "Render a `:rf.sub/dispose` `:reason` keyword as a UI label
@@ -1821,57 +2579,32 @@
   reason chip carries the dispose path."
   [rows]
   [:div {:data-testid "rf-xray-epoch-subscriptions-disposed-table"
-         :style {:margin-top "8px"
-                 :border (str "1px solid " (:border-subtle tokens))
-                 :border-radius "3px"
-                 :overflow "hidden"}}
-   [:div {:style {:display "flex"
-                  :align-items "stretch"
-                  :background (:bg-3 tokens)
-                  :border-bottom (str "1px solid " (:border-subtle tokens))
-                  :font-family sans-stack
-                  :font-size "10px"
-                  :font-weight 700
-                  :color (:text-tertiary tokens)
-                  :text-transform "uppercase"
-                  :letter-spacing "0.5px"}}
-    [:div {:style {:flex "0 0 24px" :padding "5px 8px"}} ""]
-    [:div {:style {:flex "1 1 60%" :padding "5px 8px"}} "disposed sub"]
-    [:div {:style {:flex "1 1 40%" :padding "5px 8px"}} "reason"]]
+         :style disposed-subs-table-style}
+   [:div {:style table-header-row-style}
+    [:div {:style table-glyph-cell-header-style} ""]
+    [:div {:style disposed-th-60-style} "disposed sub"]
+    [:div {:style disposed-th-40-style} "reason"]]
    (for [[i {:keys [sub-id query reason]}] (map-indexed vector rows)]
      [:div {:key (str "disposed-" i)
             :data-testid (str "rf-xray-epoch-sub-disposed-row-" i)
             :data-sub-reason (when reason (pr-str reason))
-            :style {:display "flex"
-                    :align-items "stretch"
-                    :border-bottom (when (< i (dec (count rows)))
-                                     (str "1px solid " (:border-subtle tokens)))}}
-      [:div {:style {:flex "0 0 24px" :padding "5px 8px"
-                     :color (:error tokens)
-                     :font-family mono-stack :font-size "12px"
-                     :font-weight 700
-                     :text-align "center"}}
+            :style (if (< i (dec (count rows)))
+                     subs-row-style-with-border
+                     subs-row-style)}
+      [:div {:style disposed-glyph-cell-style}
        ;; Eviction glyph — `✗` red/error tone conveys "removed from
        ;; the reactive graph" (rf2-wpfjo).
        "✗"]
-      [:div {:style {:flex "1 1 60%" :padding "5px 8px" :min-width 0
-                     :font-family mono-stack :font-size "12px"
-                     :word-break "break-word"}}
+      [:div {:style disposed-id-cell-style}
        [:span {:data-testid (str "rf-xray-epoch-sub-disposed-row-id-" i)
-               :style {:color (:text-secondary tokens)
-                       :display "inline-flex"
-                       :align-items "center" :gap "4px"}}
+               :style disposed-id-span-style}
         (cond
           (vector? query) [ei/mini query 40]
           (some? sub-id)  [ei/mini sub-id 40]
-          :else           [:span {:style {:color (:text-tertiary tokens)
-                                          :font-style "italic"}}
+          :else           [:span {:style disposed-anonymous-style}
                            "<anonymous sub>"])]]
       [:div {:data-testid (str "rf-xray-epoch-sub-disposed-row-reason-" i)
-             :style {:flex "1 1 40%" :padding "5px 8px" :min-width 0
-                     :font-family mono-stack :font-size "11px"
-                     :color (:text-tertiary tokens)
-                     :word-break "break-word"}}
+             :style disposed-reason-cell-style}
        (dispose-reason-label reason)]])])
 
 (defn render-subscriptions-step
@@ -1919,14 +2652,11 @@
         ;; disposed-clause stays because there's no button-bar
         ;; affordance for that surface (and the count is small
         ;; enough that "L disposed" still reads at a glance).
-        :verb [:span {:style {:display "inline-flex" :align-items "center"
-                              :gap "8px" :flex-wrap "wrap"}}
+        :verb [:span {:style subs-verb-style}
                (when (pos? n)
                  (subs-filter-button-bar mode))
                (when (pos? l)
-                 [:span {:style {:color (:text-tertiary tokens)
-                                 :font-family mono-stack
-                                 :font-size "11px"}}
+                 [:span {:style subs-disposed-count-style}
                   (str l " disposed")])]
         :expandable? false
         :testid "rf-xray-epoch-subscriptions"}
@@ -1959,22 +2689,10 @@
       vectors via `pr-str`, scalars via `ns-keyword`)."
   [rows]
   [:div {:data-testid "rf-xray-epoch-views-table"
-         :style {:margin-top "5px"
-                 :border (str "1px solid " (:border-subtle tokens))
-                 :border-radius "3px"
-                 :overflow "hidden"}}
-   [:div {:style {:display "flex"
-                  :align-items "stretch"
-                  :background (:bg-3 tokens)
-                  :border-bottom (str "1px solid " (:border-subtle tokens))
-                  :font-family sans-stack
-                  :font-size "10px"
-                  :font-weight 700
-                  :color (:text-tertiary tokens)
-                  :text-transform "uppercase"
-                  :letter-spacing "0.5px"}}
-    [:div {:style {:flex "1 1 50%" :padding "5px 8px"}} "view"]
-    [:div {:style {:flex "1 1 50%" :padding "5px 8px"}} "subs"]]
+         :style views-table-style}
+   [:div {:style table-header-row-style}
+    [:div {:style views-th-50-style} "view"]
+    [:div {:style views-th-50-style} "subs"]]
    (for [[i {:keys [view-id subs-read duration-ms]}] (map-indexed vector rows)]
      [:div {:key (str "view-" i)
             :data-testid (str "rf-xray-epoch-view-row-" i)
@@ -1987,47 +2705,38 @@
             ;; rf2-8l03l). Pure DOM side-effect; no layout perturbation.
             :on-mouse-enter (fn [_e] (apply-view-highlight! view-id))
             :on-mouse-leave (fn [_e] (clear-view-highlight! view-id))
-            :style {:display "flex"
-                    :align-items "stretch"
-                    :border-bottom (when (< i (dec (count rows)))
-                                     (str "1px solid " (:border-subtle tokens)))}}
-      [:div {:style {:flex "1 1 50%" :padding "5px 8px" :min-width 0
-                     :font-family mono-stack :font-size "12px"
-                     :word-break "break-word"}}
+            :style (if (< i (dec (count rows)))
+                     subs-row-style-with-border
+                     subs-row-style)}
+      [:div {:style views-cell-view-style}
        [:span {:data-testid (str "rf-xray-epoch-view-row-id-" i)
-               :style {:color (:accent tokens) :display "inline-flex"
-                       :align-items "center" :gap "4px"
-                       :cursor (when view-id "pointer")}}
+               :style (if view-id
+                        views-cell-id-clickable-style
+                        views-cell-id-span-style)}
         (if (some? view-id)
           (proj/ns-keyword view-id)
-          [:span {:style {:color (:text-tertiary tokens)
-                          :font-style "italic"}}
+          [:span {:style views-anonymous-style}
            "<anonymous view>"])
         (coord-chip/coord-chip (view-coord view-id)
                                (str "rf-xray-epoch-view-row-coord-" i))]
        (when (number? duration-ms)
-         [:span {:style {:color (:text-tertiary tokens)
-                         :margin-left "8px"
-                         :font-size "10px"}}
+         [:span {:style views-row-duration-style}
           (proj/format-duration-ms duration-ms)])]
       [:div {:data-testid (str "rf-xray-epoch-view-row-subs-" i)
-             :style {:flex "1 1 50%" :padding "5px 8px" :min-width 0
-                     :font-family mono-stack :font-size "12px"
-                     :color (:text-tertiary tokens)
-                     :word-break "break-word"}}
+             :style views-cell-subs-style}
        ;; rf2-8w8er — each sub-id (keyword or sub-vector) renders
        ;; through `mini` so the column reads as syntax-highlighted
        ;; tokens (keywords magenta, vectors with their bracket
        ;; chrome) rather than plain pr-str / `:foo` text.
        (cond
          (and (sequential? subs-read) (seq subs-read))
-         (into [:div {:style {:display "flex" :flex-direction "column" :gap "2px"}}]
+         (into [:div {:style views-subs-list-style}]
                (for [s subs-read]
                  [:div [ei/mini s 60]]))
          (some? subs-read)
          [ei/mini subs-read 60]
          :else
-         [:span {:style {:font-style "italic"}} "(none)"])]])])
+         [:span {:style italic-style} "(none)"])]])])
 
 (defn- unmounted-views-table
   "Render the UNMOUNTED VIEWS sub-section (rf2-gmw1i) — one row per
@@ -2038,49 +2747,27 @@
   view's definition even when the instance is gone."
   [rows]
   [:div {:data-testid "rf-xray-epoch-views-unmounted-table"
-         :style {:margin-top "8px"
-                 :border (str "1px solid " (:border-subtle tokens))
-                 :border-radius "3px"
-                 :overflow "hidden"}}
-   [:div {:style {:display "flex"
-                  :align-items "stretch"
-                  :background (:bg-3 tokens)
-                  :border-bottom (str "1px solid " (:border-subtle tokens))
-                  :font-family sans-stack
-                  :font-size "10px"
-                  :font-weight 700
-                  :color (:text-tertiary tokens)
-                  :text-transform "uppercase"
-                  :letter-spacing "0.5px"}}
-    [:div {:style {:flex "0 0 24px" :padding "5px 8px"}} ""]
-    [:div {:style {:flex "1 1 auto" :padding "5px 8px"}} "unmounted view"]]
+         :style unmounted-views-table-style}
+   [:div {:style table-header-row-style}
+    [:div {:style table-glyph-cell-header-style} ""]
+    [:div {:style unmounted-th-auto-style} "unmounted view"]]
    (for [[i {:keys [view-id]}] (map-indexed vector rows)]
      [:div {:key (str "unmounted-" i)
             :data-testid (str "rf-xray-epoch-view-unmounted-row-" i)
             :data-view-id (when view-id (pr-str view-id))
-            :style {:display "flex"
-                    :align-items "stretch"
-                    :border-bottom (when (< i (dec (count rows)))
-                                     (str "1px solid " (:border-subtle tokens)))}}
-      [:div {:style {:flex "0 0 24px" :padding "5px 8px"
-                     :color (:error tokens)
-                     :font-family mono-stack :font-size "12px"
-                     :font-weight 700
-                     :text-align "center"}}
+            :style (if (< i (dec (count rows)))
+                     subs-row-style-with-border
+                     subs-row-style)}
+      [:div {:style unmounted-glyph-cell-style}
        ;; Teardown glyph — `✗` red/error tone conveys the view came
        ;; off the reactive graph (rf2-gmw1i).
        "✗"]
-      [:div {:style {:flex "1 1 auto" :padding "5px 8px" :min-width 0
-                     :font-family mono-stack :font-size "12px"
-                     :word-break "break-word"}}
+      [:div {:style unmounted-id-cell-style}
        [:span {:data-testid (str "rf-xray-epoch-view-unmounted-row-id-" i)
-               :style {:color (:text-secondary tokens)
-                       :display "inline-flex"
-                       :align-items "center" :gap "4px"}}
+               :style unmounted-id-span-style}
         (if (some? view-id)
           (proj/ns-keyword view-id)
-          [:span {:style {:color (:text-tertiary tokens)
-                          :font-style "italic"}}
+          [:span {:style disposed-anonymous-style}
            "<anonymous view>"])
         (coord-chip/coord-chip (view-coord view-id)
                                (str "rf-xray-epoch-view-unmounted-row-coord-" i))]]])])
@@ -2148,79 +2835,46 @@
          :data-testid (str "rf-xray-epoch-schema-violation-row-" idx)
          :data-violation-kind (when kind (name kind))
          :data-rollback (str (boolean rollback?))
-         :style {:display "flex"
-                 :flex-direction "column"
-                 :gap "3px"
-                 :padding "5px 8px"
-                 :background    (:bg-3 tokens)
-                 :border-left   (str "2px solid " (:warning tokens))
-                 :margin-bottom "5px"
-                 :border-radius "0 3px 3px 0"
-                 :font-family   mono-stack
-                 :font-size     "12px"}}
+         :style schema-violation-row-style}
    ;; head row: where + failing-id + rollback chip
-   [:div {:style {:display "flex"
-                  :align-items "center"
-                  :gap "8px"
-                  :flex-wrap "wrap"}}
+   [:div {:style schema-violation-head-style}
     [:span {:data-testid (str "rf-xray-epoch-schema-violation-where-" idx)
-            :style {:color       (:warning tokens)
-                    :font-weight 700
-                    :text-transform "uppercase"
-                    :font-size   "10px"
-                    :letter-spacing "0.5px"}}
+            :style schema-violation-where-style}
      (schema-violation-where-label where)]
     (when failing-id
       [:span {:data-testid (str "rf-xray-epoch-schema-violation-id-" idx)
-              :style {:color (:accent tokens)}}
+              :style schema-violation-id-style}
        (proj/ns-keyword failing-id)])
     (when rollback?
       [:span {:data-testid (str "rf-xray-epoch-schema-violation-rollback-" idx)
               :title "this cascade was rolled back"
-              :style {:padding "2px 5px"
-                      :border-radius "3px"
-                      :background (:error tokens)
-                      :color (:white tokens)
-                      :font-size "10px"
-                      :font-weight 700
-                      :text-transform "uppercase"
-                      :letter-spacing "0.5px"}}
+              :style schema-violation-rollback-style}
        "rolled back"])
     (when (and recovery (not rollback?))
-      [:span {:style {:color (:text-tertiary tokens)
-                      :font-size "10px"
-                      :font-style "italic"}}
+      [:span {:style schema-violation-recovery-style}
        (str "recovery: " (name recovery))])]
    ;; path (when present)
    (when (sequential? path)
      [:div {:data-testid (str "rf-xray-epoch-schema-violation-path-" idx)
-            :style {:color (:text-tertiary tokens)
-                    :padding-left "16px"}}
+            :style schema-violation-path-style}
       (proj/path-display path)])
    ;; failing value
    (when (some? value)
      [:div {:data-testid (str "rf-xray-epoch-schema-violation-value-" idx)
-            :style {:color (:text-primary tokens)
-                    :padding-left "16px"
-                    :word-break "break-word"}}
+            :style schema-violation-value-style}
       (edn/inspect-inline value)])
    ;; sensitive marker (the substrate already redacted; surface that the
    ;; value WAS redacted so the operator doesn't read the placeholder
    ;; as the actual failing value)
    (when sensitive?
-     [:div {:style {:color (:text-tertiary tokens)
-                    :font-style "italic"
-                    :font-size "10px"
-                    :padding-left "16px"}}
+     [:div {:style schema-violation-sensitive-style}
       "(value redacted — slot declared :sensitive?)"])
    ;; explain detail (Malli explain map, when stamped) — rf2-8w8er
    ;; routes through `mini` so the explain map's keyword keys + value
    ;; tokens carry syntax-token chrome rather than plain pr-str text.
    (when (some? explain)
      [:div {:data-testid (str "rf-xray-epoch-schema-violation-explain-" idx)
-            :style {:color (:text-secondary tokens)
-                    :padding-left "16px"
-                    :font-size "11px"}}
+            :style schema-violation-explain-style}
       [ei/mini explain 120]])])
 
 (defn render-schema-violations-step
@@ -2240,18 +2894,13 @@
    (step-header
      {:step :schema-violations
       :badge :SCHEMA-VIOLATIONS
-      :verb [:span {:style {:display "inline-flex" :align-items "center"
-                            :gap "8px" :flex-wrap "wrap"}}
-             [:span {:style {:display "inline-flex"
-                             :align-items "center"
-                             :gap "4px"
-                             :color (:warning tokens)}}
+      :verb [:span {:style schema-violations-verb-style}
+             [:span {:style schema-violations-count-style}
               (icons/alert-triangle)
               (str (count rows) " violation"
                    (when (not= 1 (count rows)) "s"))]
              (when (pos? (or rollbacks 0))
-               [:span {:style {:color (:error tokens)
-                               :font-weight 700}}
+               [:span {:style schema-violations-rollback-count-style}
                 (str rollbacks " rollback"
                      (when (not= 1 rollbacks) "s"))])
              [:button {:data-testid "rf-xray-epoch-schema-violations-open-issues"
@@ -2260,22 +2909,12 @@
                                    (.stopPropagation e)
                                    (rf/dispatch [:rf.xray/select-tab :issues]
                                                 {:frame :rf/xray}))
-                       :style {:background "transparent"
-                               :border (str "1px solid " (:border-default tokens))
-                               :border-radius "3px"
-                               :color (:text-secondary tokens)
-                               :cursor "pointer"
-                               :font-family sans-stack
-                               :font-size "10px"
-                               :padding "2px 8px"
-                               :margin-left "8px"
-                               :text-transform "uppercase"
-                               :letter-spacing "0.5px"}}
+                       :style schema-violations-open-issues-style}
               "open issues →"]]
       :expandable? false
       :testid "rf-xray-epoch-schema-violations"}
      nil)
-   [:div {:style {:margin-top "5px"}}
+   [:div {:style margin-top-5-style}
     (map-indexed schema-violation-row-view rows)]])
 
 ;; ---- APP-DB DIFF step — REMOVED pair-debug 2026-05-26 -------------------
@@ -2313,34 +2952,20 @@
     [:div {:key (str "child-dispatch-" idx)
            :data-testid (str "rf-xray-epoch-child-dispatch-row-" idx)
            :data-child-resolved (str (some? child-epoch-id))
-           :style {:display "flex"
-                   :align-items "center"
-                   :gap "8px"
-                   :padding "3px 0"
-                   :font-family mono-stack
-                   :font-size "12px"
-                   :flex-wrap "wrap"}}
+           :style child-dispatch-row-style}
      ;; via fx-id chip (muted)
      [:span {:data-testid (str "rf-xray-epoch-child-dispatch-via-" idx)
-             :style {:color (:text-tertiary tokens)
-                     :font-size "10px"
-                     :text-transform "uppercase"
-                     :letter-spacing "0.5px"
-                     :font-weight 600}}
+             :style child-dispatch-via-style}
       (child-dispatch-via-label via)]
      ;; event vector (primary) — rf2-8w8er routes through `mini` so
      ;; the dispatched event vector carries syntax-token chrome.
      [:span {:data-testid (str "rf-xray-epoch-child-dispatch-event-" idx)
-             :style {:color (:text-primary tokens)
-                     :min-width 0
-                     :flex 1
-                     :word-break "break-word"}}
+             :style child-dispatch-event-style}
       [ei/mini event 80]]
      ;; delay chip (for :dispatch-later)
      (when (number? delay-ms)
        [:span {:data-testid (str "rf-xray-epoch-child-dispatch-delay-" idx)
-               :style {:color (:text-tertiary tokens)
-                       :font-size "10px"}}
+               :style child-dispatch-delay-style}
         (str "+" delay-ms "ms")])
      ;; jump-to or "not in buffer"
      (if child-epoch-id
@@ -2351,26 +2976,12 @@
                              (.stopPropagation e)
                              (rf/dispatch [:rf.xray/select-epoch child-epoch-id]
                                           {:frame :rf/xray}))
-                 :style {:background "transparent"
-                         :border (str "1px solid " (:border-default tokens))
-                         :border-radius "3px"
-                         :color (:accent tokens)
-                         :cursor "pointer"
-                         :font-family sans-stack
-                         :font-size "10px"
-                         :padding "2px 8px"
-                         :display "inline-flex"
-                         :align-items "center"
-                         :gap "4px"
-                         :text-transform "uppercase"
-                         :letter-spacing "0.5px"}}
+                 :style child-dispatch-jump-style}
         (icons/arrow-right)
         "jump"]
        [:span {:data-testid (str "rf-xray-epoch-child-dispatch-missing-" idx)
                :title "the child cascade has aged out of the epoch buffer (or has not yet completed)"
-               :style {:color (:text-tertiary tokens)
-                       :font-size "10px"
-                       :font-style "italic"}}
+               :style child-dispatch-missing-style}
         "not in buffer"])]))
 
 (defn render-child-dispatches-step
@@ -2397,7 +3008,7 @@
       :expandable? false
       :testid "rf-xray-epoch-child-dispatches"}
      nil)
-   [:div {:style {:margin-top "5px"}}
+   [:div {:style margin-top-5-style}
     (map-indexed (fn [idx row]
                    (child-dispatch-row-view ctx idx row))
                  rows)]])
@@ -2453,40 +3064,19 @@
     (when (number? total)
       [:div {:data-testid "rf-xray-epoch-cascade-summary"
              :data-long-step-count (str long-count)
-             :style {:display       "flex"
-                     :align-items   "center"
-                     :gap           "13px"
-                     :margin-bottom "13px"
-                     :padding       "5px 8px"
-                     :border        (str "1px solid " (:border-subtle tokens))
-                     :border-radius "3px"
-                     :background    (:bg-3 tokens)
-                     :font-family   sans-stack
-                     :font-size     "11px"
-                     :color         (:text-secondary tokens)}}
-       [:span {:style {:color (:text-tertiary tokens)
-                       :text-transform "uppercase"
-                       :letter-spacing "0.5px"
-                       :font-weight 600
-                       :font-size "10px"}}
+             :style cascade-summary-style}
+       [:span {:style cascade-summary-label-style}
         "cascade total"]
        [:span {:data-testid "rf-xray-epoch-cascade-summary-total"
-               :style {:color       (:text-primary tokens)
-                       :font-family mono-stack
-                       :font-weight 700}}
+               :style cascade-summary-total-style}
         (proj/format-duration-ms total)]
        (when (pos? long-count)
          [:span {:data-testid "rf-xray-epoch-cascade-summary-long-count"
                  :title       (str long-count " step"
                                    (when (not= 1 long-count) "s")
                                    " over " proj/long-step-threshold-ms "ms")
-                 :style {:color (:warning tokens)
-                         :font-family mono-stack
-                         :margin-left "auto"
-                         :display "inline-flex"
-                         :align-items "center"
-                         :gap "4px"}}
-          [:span {:aria-hidden true :style {:font-size "10px"}} "▲"]
+                 :style cascade-summary-long-style}
+          [:span {:aria-hidden true :style cascade-summary-long-glyph-style} "▲"]
           (str long-count " over " proj/long-step-threshold-ms "ms")])])))
 
 (defn pipeline-view
@@ -2518,22 +3108,14 @@
     ;; elides; the cascade still renders normally.
     (cascade-summary steps)
     [:div {:data-testid "rf-xray-epoch-pipeline"
-           :style {:position    "relative"
-                   :padding-left "55px"
-                   :padding-top  "0"}}
+           :style pipeline-host-style}
      ;; The vertical rail — absolute-positioned line behind the
      ;; numbered circles. Top = numbered-circle radius (so the line
      ;; starts at the centre of step-1's circle); bottom = the foot
      ;; of the last step's circle.
      [:div {:data-testid "rf-xray-epoch-rail"
             :aria-hidden true
-            :style {:position    "absolute"
-                    :left        (str (+ 55 badge/line-left-offset-px) "px")
-                    :top         (str badge/vertical-line-offset-px "px")
-                    :bottom      "13px"
-                    :width       "1px"
-                    :background  (:border-default tokens)
-                    :pointer-events "none"}}]
+            :style pipeline-rail-style}]
      ;; Steps — `doall` forces the lazy `for` to realise INSIDE the
      ;; reg-view's render scope (rf2-atqkg). `render-step` returns
      ;; hiccup whose descendants (e.g. `handler-db-diff-block`,
@@ -2553,9 +3135,7 @@
          ^{:key (str "step-" (:step step) "-" i)}
          [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
                 :data-step (when (:step step) (name (:step step)))
-                :style {:position     "relative"
-                        :margin-bottom "23px"
-                        :min-height   "21px"}}
+                :style pipeline-step-style}
           (render-step step ctx)]))]]))
 
 ;; ---- empty states --------------------------------------------------------
@@ -2570,10 +3150,7 @@
               :no-events     "The focused epoch has no recorded trace events."
               "No data available.")]
     [:div {:data-testid (str "rf-xray-epoch-empty-" (name status))
-           :style {:padding     "21px"
-                   :color       (:text-tertiary tokens)
-                   :font-family sans-stack
-                   :font-size   "13px"}}
+           :style empty-state-style}
      msg]))
 
 ;; ---- public Panel --------------------------------------------------------
@@ -2588,19 +3165,10 @@
   (let [{:keys [status steps dispatch-id epoch-history]}
         @(rf/subscribe [:rf.xray/epoch-pipeline])]
     [:section {:data-testid "rf-xray-epoch-panel"
-               :style {:height          "100%"
-                       :display         "flex"
-                       :flex-direction  "column"
-                       :background      (:bg-2 tokens)
-                       :color           (:text-primary tokens)
-                       :font-family     sans-stack
-                       :font-size       "13px"}}
-     [:div {:style {:flex 1 :overflow "auto" :padding "21px"}}
+               :style panel-root-style}
+     [:div {:style panel-scroll-style}
       [:div {:data-testid "rf-xray-epoch-panel-header"
-             :style {:color       (:text-tertiary tokens)
-                     :font-family sans-stack
-                     :font-size   "11px"
-                     :margin-bottom "21px"}}
+             :style panel-header-style}
        "The computational timeline for the event"]
       (cond
         (= :focused status)
