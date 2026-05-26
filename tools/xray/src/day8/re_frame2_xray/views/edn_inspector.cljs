@@ -1049,6 +1049,149 @@
 (defn- container? [kind]
   (contains? #{:map :vector :list :set :seq :map-entry :record} kind))
 
+(defn children-of-pair
+  "Diff-aware children walk — return a seq of `[child-key after-value
+  before-value]` triples covering the UNION of `before` + `after` so
+  removed children (present in BEFORE, absent from AFTER) are visible
+  to the diff renderer (rf2-zuh1e).
+
+  Slots that don't exist in their side carry `::missing` (the same
+  `missing-sentinel` `diff-op` consumes), so the recursive renderer
+  routes through `render-leaf-with-diff`'s `:added` / `:removed` paths
+  unchanged.
+
+  Per collection kind:
+  - **Map / record** — AFTER's keys in their natural order, then
+    BEFORE-only keys appended at the end. Appended-at-end was picked
+    over interleaved-at-original-position because CLJS hash-maps don't
+    carry stable order across boundaries anyway (array-map vs hash-
+    map crossover, `dissoc` rehashing); appended-at-end is simple,
+    predictable, and reads as 'the post-image, then a deletions
+    section' in the rendered tree (rf2-zuh1e decision).
+  - **Vector / list / seq** — index-align up to the longer side's
+    count; trailing BEFORE-only positions render as `:removed`.
+  - **Set** — UNION of members, sorted by `pr-str` for stable render
+    (sets have no natural ordering).
+  - **Map-entry** — fixed two positions `[0 k] [1 v]`, with AFTER /
+    BEFORE per-side values.
+
+  When the BEFORE side's collection kind does not match AFTER's (e.g.
+  AFTER is a map, BEFORE is a vector), the function falls back to
+  AFTER's children only — the parent row's `:modified` classification
+  carries the structural-change signal and `← changed from <prior>`
+  renders the BEFORE side via `render-scalar`.
+
+  Returns `nil` when `kind` is not a container kind.
+
+  Public so tests + downstream renderers can probe the union without
+  re-deriving the walk."
+  [before after kind]
+  (case kind
+    (:map :record)
+    (let [a (when (map? after) after)
+          b (when (map? before) before)]
+      (cond
+        ;; Both maps: union of keys, AFTER-order then BEFORE-only.
+        (and a b)
+        (let [a-keys (vec (keys a))
+              a-key-set (set a-keys)
+              extra-keys (remove a-key-set (keys b))]
+          (concat
+            (for [k a-keys]
+              [k (get a k) (get b k ::missing)])
+            (for [k extra-keys]
+              [k ::missing (get b k)])))
+        ;; Only AFTER is a map (BEFORE missing / different kind): all-added.
+        a
+        (for [[k v] a]
+          [k v ::missing])
+        ;; Only BEFORE is a map (shouldn't normally happen — render-node
+        ;; routes value=::missing through render-leaf-with-diff). Defensive.
+        b
+        (for [[k v] b]
+          [k ::missing v])
+        :else nil))
+
+    (:vector :list :seq)
+    (let [a-vec (when (sequential? after)  (vec after))
+          b-vec (when (sequential? before) (vec before))]
+      (cond
+        (and a-vec b-vec)
+        (let [n (max (count a-vec) (count b-vec))]
+          (for [i (range n)]
+            [i
+             (if (< i (count a-vec)) (nth a-vec i) ::missing)
+             (if (< i (count b-vec)) (nth b-vec i) ::missing)]))
+        a-vec
+        (map-indexed (fn [i x] [i x ::missing]) a-vec)
+        b-vec
+        (map-indexed (fn [i x] [i ::missing x]) b-vec)
+        :else nil))
+
+    :set
+    (let [a (when (set? after)  after)
+          b (when (set? before) before)]
+      (cond
+        (and a b)
+        (let [members (vec (sort-by pr-str (into a b)))]
+          (for [x members]
+            [x
+             (if (contains? a x) x ::missing)
+             (if (contains? b x) x ::missing)]))
+        a (for [x a] [x x ::missing])
+        b (for [x b] [x ::missing x])
+        :else nil))
+
+    :map-entry
+    (let [a (when (map-entry?* after)  after)
+          b (when (map-entry?* before) before)]
+      (cond
+        (and a b)
+        (list [0 (first a) (first b)]
+              [1 (second a) (second b)])
+        a (list [0 (first a) ::missing] [1 (second a) ::missing])
+        b (list [0 ::missing (first b)] [1 ::missing (second b)])
+        :else nil))
+
+    nil))
+
+(defn- diff-pair-count
+  "Cheap union-aware child count for diff mode. Returns the number of
+  rows the union walk will emit so the header logic (`empty?` /
+  `expanded?` gating) reflects both sides. Falls back to AFTER's
+  `child-count` when the kinds don't line up. Pure."
+  [before after kind]
+  (case kind
+    (:map :record)
+    (let [a (when (map? after) after)
+          b (when (map? before) before)]
+      (cond
+        (and a b)
+        (let [a-keys (set (keys a))
+              extra  (count (remove a-keys (keys b)))]
+          (+ (count a) extra))
+        a (count a)
+        b (count b)
+        :else 0))
+    (:vector :list :seq)
+    (let [a (when (sequential? after)  after)
+          b (when (sequential? before) before)]
+      (cond
+        (and a b) (max (count (vec a)) (count (vec b)))
+        a (count (vec a))
+        b (count (vec b))
+        :else 0))
+    :set
+    (let [a (when (set? after)  after)
+          b (when (set? before) before)]
+      (cond
+        (and a b) (count (into a b))
+        a (count a)
+        b (count b)
+        :else 0))
+    :map-entry 2
+    0))
+
 (defn- child-count
   "Count children safely (don't realise lazy infinite seqs)."
   [v kind]
@@ -1483,7 +1626,13 @@
          :or {default-expanded-depth default-ceiling-depth
               max-depth 16
               max-inline-width 60}} opts
-        cnt           (child-count value kind)
+        ;; rf2-zuh1e — in diff mode `cnt` reflects the UNION of BEFORE +
+        ;; AFTER so an AFTER-side `{}` with a BEFORE side carrying keys
+        ;; still expands + renders the removed rows. Outside diff mode
+        ;; the original AFTER-only count drives the header.
+        cnt           (if diff?
+                        (diff-pair-count before value kind)
+                        (child-count value kind))
         empty?        (zero? cnt)
         depth-capped? (>= depth max-depth)
         ;; Diff: classify this container's op vs `before`. Only
@@ -1542,8 +1691,16 @@
         ;; the visible state on the first click.
         toggle-fn     (on-toggle dispatch-fn panel-id mount-id path
                                  (boolean (and expanded? (not depth-capped?))))
+        ;; rf2-zuh1e — in diff mode the body walks the UNION of BEFORE +
+        ;; AFTER children via `children-of-pair`. Plain browse keeps the
+        ;; original AFTER-only `children-of` walk. The pair-list shape
+        ;; differs (`[k v]` for browse vs `[k v b]` for diff) so the
+        ;; downstream child-pair construction below normalises into a
+        ;; uniform `[k v b]` triple for the recursive render call.
         children      (when (and (not empty?) (not depth-capped?) expanded? (not inline-fit?))
-                        (children-of value))
+                        (if diff?
+                          (children-of-pair before value kind)
+                          (children-of value)))
         ;; rf2-h71e0 — zoom affordance is rendered next to the expand
         ;; triangle on every non-empty container at a NON-ROOT relative
         ;; path. The root (`[]`) skips the affordance because zooming
@@ -1695,29 +1852,17 @@
      ;; grid template wouldn't add anything.
      (when (seq children)
        (let [labelled?    (#{:map :record :map-entry} kind)
+             ;; rf2-zuh1e — `children` is already the diff-aware triple
+             ;; `[k after-value before-value]` when `diff?` is true (from
+             ;; `children-of-pair`); plain browse hands back the legacy
+             ;; `[k v]` pair which we lift into a uniform triple with
+             ;; `::missing` on the `before` slot so the downstream
+             ;; `render-node` call site reads one shape.
              child-pairs
-             (cond
-               (and diff? (= kind :map) (map? before))
-               ;; Map: walk union of keys; carry both v and b per key.
-               (let [all-keys (vec (into (set (keys value)) (keys before)))]
-                 (for [k all-keys]
-                   [k (get value k ::missing) (get before k ::missing)]))
-
-               (and diff? (#{:vector :list :seq} kind) (sequential? before))
-               ;; Sequential: index-align; treat extra trailing items.
-               (let [a-vec (vec value)
-                     b-vec (vec before)
-                     n     (max (count a-vec) (count b-vec))]
-                 (for [i (range n)]
-                   [i
-                    (if (< i (count a-vec)) (nth a-vec i) ::missing)
-                    (if (< i (count b-vec)) (nth b-vec i) ::missing)]))
-
-               :else
-               ;; Non-diff path, or diff with no comparable structure
-               ;; on the `before` side — render the present children as-is.
+             (if diff?
+               children
                (for [[k cv] children]
-                 [k cv (if diff? ::missing ::missing)]))]
+                 [k cv ::missing]))]
          (if labelled?
            ;; --- CSS Grid body for labelled-key kinds ---
            ;; Each row contributes key (col 1) + value (col 2) as direct
