@@ -300,48 +300,47 @@
   [^js node]
   (.querySelector node "[data-testid^=\"rf-mv-chart-node-\"]"))
 
-(deftest chart-tags-surface-as-title-attr-not-pills
-  (testing "rf2-so5b0 — user-declared `:tags` (Spec 005) MUST NOT render
-            as visible pill chrome on the chart canvas. The xstate /
-            Stately convention reserves the chart for STRUCTURAL chrome
-            (state name, nesting, transitions). Tags are a programmatic
-            concept the host surfaces in its inspector list — not on the
-            topology — so a nested compound substate is not inflated by
-            a per-tag row that visually competes with the structural
-            label + entry/exit rows.
+(deftest chart-tags-surface-as-visible-pills-below-state-name
+  (testing "rf2-a2b55 — user-declared `:tags` (Spec 005) render as a
+            VISIBLE pill row positioned BELOW the state name (Stately
+            graph view convention). rf2-so5b0 retired the visible row
+            on a diagnostic that misread Stately's tag chrome as
+            ancestor-path clutter; rf2-a2b55 restores the row.
+
+            The `:data-tags` + `:title` attr surface rf2-so5b0
+            introduced is RETAINED in parallel so host-side
+            introspection + the native HTML hover tooltip still
+            resolve a state's tags in bulk without parsing per-pill
+            DOM.
 
             Pins:
 
-            1. NO `rf-mv-chart-state-tag-*` pill testid is rendered.
-            2. NO `rf-mv-chart-state-tags` container row is rendered.
-            3. The tag set surfaces on the state-node's `data-tags`
-               attr as a sorted space-joined string (so DOM tests +
-               host introspection still read the tags off the chart).
-            4. The tag set surfaces on the state-node's `title` attr
-               (native HTML hover tooltip) so the operator can still
-               see what tags the state declared, on demand."
+            1. The `rf-mv-chart-state-tags` container row IS rendered.
+            2. Each declared tag has a `rf-mv-chart-state-tag-<name>`
+               pill chip rendered inside the row.
+            3. The tag set still surfaces on the state-node's
+               `data-tags` attr (sorted space-joined string) for the
+               host-introspection contract.
+            4. The tag set still surfaces on the state-node's `title`
+               attr (native HTML hover tooltip)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/tags :definition tagged-machine}
         (fn [_root node]
-          ;; 1 + 2 — no visible pill row or pill chips.
-          (is (zero? (count-sel node "[data-testid=\"rf-mv-chart-state-tags\"]"))
-              "no visible tag-row container is rendered")
-          (is (zero? (count-sel node "[data-testid^=\"rf-mv-chart-state-tag-\"]"))
-              "no per-tag pill chip is rendered")
-          ;; 3 — data-tags carries the sorted joined tag set on the
-          ;; state-node. `tagged-machine`'s `:idle` declares `[:initial-tag]`.
+          ;; 1 + 2 — visible pill row + per-tag chip.
+          (is (pos? (count-sel node "[data-testid=\"rf-mv-chart-state-tags\"]"))
+              "the visible tag-row container is rendered")
+          (is (pos? (count-sel node "[data-testid=\"rf-mv-chart-state-tag-initial-tag\"]"))
+              "the `:initial-tag` pill chip is rendered")
+          ;; 3 — data-tags retains the sorted joined tag set.
           (let [n (state-node-el node)]
             (is (some? n) "a state-node mounted")
             (is (= "initial-tag" (.getAttribute n "data-tags"))
                 "data-tags carries the sorted joined tag set")
-            ;; 4 — title attr carries the same string for the hover
-            ;; tooltip affordance.
+            ;; 4 — title attr retains the same string for hover.
             (is (= "initial-tag" (.getAttribute n "title"))
                 "title attr exposes tags for the native hover tooltip")
-            ;; data-tag-count remains for DOM tests that want to assert
-            ;; the count without parsing data-tags.
             (is (= "1" (.getAttribute n "data-tag-count"))
                 "data-tag-count reflects the tag set's size")))))))
 

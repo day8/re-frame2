@@ -126,33 +126,92 @@
     :else           (:border-default tokens/tokens)))
 
 (defn- tag-title-attr
-  "rf2-so5b0 — render a state's `:tags` set (Spec 005 user-declared
-  semantic tags) as a native HTML tooltip on the state-node body
-  instead of a visible pill row.
+  "Compose a state's `:tags` set (Spec 005 user-declared semantic
+  tags) into a sorted space-joined string for the state-node's
+  `:title` (HTML hover tooltip) + `:data-tags` (DOM tests + host
+  introspection) attrs. Returns `nil` when the set is empty so the
+  title attr is simply omitted (no \"\" tooltip flicker).
 
-  xstate/Stately convention: the chart canvas shows STRUCTURAL chrome
-  (state name, nesting, active highlight, entry/exit actions, transition
-  arrows + labels). User-declared semantic tags are a PROGRAMMATIC
-  concept — they parameterise sub queries (`:rf/machine-has-tag?`) and
-  surface in the host's inspector list/panel — NOT on the chart. A
-  visible per-tag pill row inflated each state-node's footprint (worst
-  on nested compound substates whose tag set restated the parent's
-  ancestry, e.g. `:websocket/active :websocket/connecting` on
-  `:active.connecting`) and visually competed with the structural label
-  and entry/exit rows.
-
-  Tags remain accessible without taking chrome real-estate: each
-  state-node carries them on a `title` attribute (HTML's native hover
-  tooltip) plus a `data-tags` data-attr so DOM tests, the host
-  inspector, and any external introspection tool still read them off
-  the chart. Returns `nil` when the set is empty so the title attr is
-  simply omitted (no \"\" tooltip flicker)."
+  rf2-so5b0 retired the visible per-tag pill row; rf2-a2b55 reinstates
+  it BELOW the state name (Stately graph view convention) via the
+  `tag-pill` helper. The title + data-tags attrs remain so the host
+  inspector + DOM introspection still resolve a state's tags in
+  bulk without parsing the per-pill DOM."
   [tags]
   (when (seq tags)
     (->> tags
          (map (fn [t] (if (keyword? t) (name t) (str t))))
          sort
          (str/join " "))))
+
+(defn- tag-pill
+  "rf2-a2b55 — render a single state-tag pill positioned BELOW the
+  state name per Stately graph view convention. Hiccup. Geometry +
+  typography read off the resolved density `vc` map (height / pad-x
+  / px / radius / gap) so the chrome scales with `:density`. Colour
+  comes from the deterministic `tokens/tag-pill-color` rotation so a
+  given tag id paints the same hue across renders.
+
+  Pre-rf2-so5b0 the pill row sat ABOVE the label and the diagnostic
+  in that bead misread the resulting clutter as ancestor-path tag
+  chips. Stately's graph view paints descriptive tags BELOW the
+  state name as a quiet pill row — rf2-a2b55 follows that pattern."
+  [tag {:keys [tag-pill-height tag-pill-pad-x tag-pill-px
+               tag-pill-radius tag-pill-gap]}]
+  (let [label   (if (keyword? tag) (name tag) (str tag))
+        token-k (tokens/tag-pill-color tag)
+        fill    (tokens/with-alpha token-k 0.18)
+        stroke  (get tokens/tokens token-k)]
+    [:span {:key   label
+            :title (str tag)
+            :data-testid (str "rf-mv-chart-state-tag-" label)
+            :data-tag    label
+            :style {:display          "inline-flex"
+                    :align-items      "center"
+                    :height           (str tag-pill-height "px")
+                    :padding          (str "0 " tag-pill-pad-x "px")
+                    :margin-right     (str tag-pill-gap "px")
+                    :background       fill
+                    :border           (str "1px solid " stroke)
+                    :border-radius    (str tag-pill-radius "px")
+                    :font-family      sans-stack
+                    :font-size        (str tag-pill-px "px")
+                    :font-weight      600
+                    :color            stroke
+                    :line-height      "1"
+                    :white-space      "nowrap"}}
+     label]))
+
+(defn- action-pill
+  "rf2-a2b55 — render an entry / exit action as a `+ <name>` (entry)
+  or `- <name>` (exit) pill, the Stately graph view convention for
+  state-actions. Geometry + typography read off the resolved density
+  `vc` map. Colour uses the `:advisory` token so the pill reads as
+  a subordinate annotation against the state name."
+  [{:keys [kind name-str vc]}]
+  (let [{:keys [action-pill-height action-pill-pad-x action-pill-px
+                action-pill-radius action-pill-gap]} vc
+        prefix (case kind :entry "+ " :exit "- ")]
+    [:span {:data-testid (case kind
+                           :entry "rf-mv-chart-state-entry"
+                           :exit  "rf-mv-chart-state-exit")
+            (case kind :entry :data-entry :exit :data-exit) name-str
+            :style {:display          "inline-flex"
+                    :align-items      "center"
+                    :height           (str action-pill-height "px")
+                    :padding          (str "0 " action-pill-pad-x "px")
+                    :margin-right     (str action-pill-gap "px")
+                    :background       (tokens/with-alpha :advisory 0.18)
+                    :border           (str "1px solid "
+                                            (tokens/with-alpha :advisory 0.6))
+                    :border-radius    (str action-pill-radius "px")
+                    :font-family      mono-stack
+                    :font-size        (str action-pill-px "px")
+                    :font-weight      500
+                    :color            (:advisory tokens/tokens)
+                    :line-height      "1"
+                    :white-space      "nowrap"}}
+     (str prefix name-str)]))
 
 ;; ---- state node ---------------------------------------------------------
 
@@ -165,18 +224,21 @@
   Visual identity:
 
     - Rounded-rect body, corner-radius 6 (the rf2-g6cig lock).
-    - Mono state label centred.
+    - Mono state label centred at the top.
+    - User-declared `:tags` (Spec 005) render as a pill row directly
+      BELOW the state name (rf2-a2b55, Stately graph view convention)
+      with deterministic per-tag colours from `tokens/tag-pill-color`.
+      The same set surfaces on the state-node's `:data-tags` +
+      `:title` attrs (rf2-so5b0 contract) so host introspection +
+      hover tooltips still resolve the tag set in bulk.
     - Active state: cyan tint + emphasised stroke.
     - From-highlight (focused-event lens origin): violet dashed.
     - To-highlight (focused-event lens landing): emphasised cyan.
     - Final state: doubled border + small check glyph.
-    - Entry / exit action rows below the label (Stately parity, rf2-ee38b.21).
-    - User-declared `:tags` (Spec 005) surface as a native HTML hover
-      tooltip + a `data-tags` attr (rf2-so5b0) — NOT as visible pill
-      chrome on the chart canvas. xstate/Stately convention reserves
-      the chart for STRUCTURAL chrome (state name, nesting, transitions);
-      tags are a programmatic concept that surface in the host's
-      inspector list, not on the topology."
+    - Entry / exit actions render as `+ <name>` (entry) / `- <name>`
+      (exit) pills BELOW the tag row (rf2-a2b55 — Stately graph view
+      `Entry actions` convention; replaces the prior `entry / <name>`
+      text rows from rf2-ee38b.21)."
   [^js props]
   (let [d              (.-data props)
         vc             (chart-constants d)
@@ -188,10 +250,12 @@
         sim?           (boolean (.-sim d))
         final?         (boolean (.-final d))
         tags           (js->clj (.-tags d))
-        ;; rf2-so5b0 — tag pills retired; tags surface as a sorted
-        ;; space-joined string on `:title` (HTML hover tooltip) +
-        ;; `:data-tags` (DOM tests + host introspection). nil when
-        ;; the state has no tags.
+        ;; rf2-so5b0 + rf2-a2b55 — tags surface BOTH as a visible pill
+        ;; row BELOW the state name (Stately graph view convention,
+        ;; restored in rf2-a2b55) AND as the sorted space-joined
+        ;; tooltip / data-attr surface rf2-so5b0 added for host
+        ;; introspection. `tags-attr` is nil when the state has no
+        ;; tags so the title attr is simply omitted.
         tags-attr      (tag-title-attr tags)
         entry          (.-entry d)
         exit           (.-exit d)
@@ -266,26 +330,39 @@
                        :pointer-events "none"}}])
        ;; Label
        [:div {:style {:line-height "1.2"}} label]
-       ;; rf2-ee38b.21 — :entry / :exit action rows (Stately parity:
-       ;; `entry / <name>` / `exit / <name>` below the label, mono, dim).
+       ;; rf2-a2b55 — tag pill row positioned BELOW the state name
+       ;; (Stately graph view convention). Pre-rf2-so5b0 the row sat
+       ;; ABOVE the label; that bead diagnosed the resulting clutter
+       ;; as ancestor-path tag chips and retired the row. rf2-a2b55
+       ;; reinstates the row in its Stately-canonical position.
+       (when (seq tags)
+         [:div {:data-testid "rf-mv-chart-state-tags"
+                :style {:display        "flex"
+                        :flex-wrap      "wrap"
+                        :justify-content "center"
+                        :align-items    "center"
+                        :margin-top     (str (:tag-pill-row-gap vc) "px")
+                        :gap            "0"}}
+          (->> tags
+               sort
+               (map (fn [t] (tag-pill t vc))))])
+       ;; rf2-a2b55 — :entry / :exit actions render as `+ <name>` /
+       ;; `- <name>` pills BELOW the tag row (Stately graph view
+       ;; `Entry actions` convention; replaces the prior `entry /
+       ;; <name>` text rows shipped by rf2-ee38b.21).
        (when (or entry exit)
          [:div {:data-testid "rf-mv-chart-state-actions"
                 :style {:display        "flex"
-                        :flex-direction "column"
+                        :flex-direction "row"
+                        :flex-wrap      "wrap"
+                        :justify-content "center"
                         :align-items    "center"
-                        :margin-top     "3px"
-                        :font-family    mono-stack
-                        :font-size      (str (max 8 (- state-label-px 3)) "px")
-                        :color          (:text-tertiary tokens/tokens)
-                        :line-height    "1.3"}}
+                        :margin-top     (str (:action-pill-row-gap vc) "px")
+                        :gap            "0"}}
           (when entry
-            [:div {:data-testid "rf-mv-chart-state-entry"
-                   :data-entry  entry}
-             (str "entry / " entry)])
+            (action-pill {:kind :entry :name-str entry :vc vc}))
           (when exit
-            [:div {:data-testid "rf-mv-chart-state-exit"
-                   :data-exit   exit}
-             (str "exit / " exit)])])
+            (action-pill {:kind :exit  :name-str exit  :vc vc}))])
        ;; Final-state check glyph
        (when final?
          [:div {:style {:position    "absolute"

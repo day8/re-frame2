@@ -312,24 +312,53 @@
 
 (defn event-segment
   "Render the leading event segment of an edge label per the
-  xstate-stately convention.
+  xstate / Stately graph view convention.
 
     - `:*` wildcard         → `\"* (any)\"` (Spec 005 §Wildcard — the
                               `:on` key that matches any otherwise-
                               unhandled event; NOT a real fireable
                               event, so it reads as an 'otherwise' arm)
     - regular event keyword → `\"event-id\"` (with namespace when present)
-    - `:after` transition   → `\"after(<delay>)\"`
-    - `:always` transition  → `\"always\"`"
+    - `:after` transition   → `\"⌚ <delay>ms\"` (rf2-a2b55 — Stately
+                              graph view convention: clock glyph
+                              prefix + `ms` suffix replaces the prior
+                              `after(<delay>)` xstate-textual form so
+                              an `:after` edge's role reads at a glance
+                              against ordinary event arrows)
+    - `:always` transition  → `\"∞\"` (rf2-a2b55 — Stately graph view
+                              convention: infinity glyph replaces the
+                              prior `\"always\"` word so an eventless
+                              transition reads as a continuation glyph
+                              against ordinary event-labelled arrows)"
   [{:keys [event after always?]}]
   (cond
-    after            (str "after(" after ")")
-    always?          "always"
+    after            (str "⌚ " after "ms")
+    always?          "∞"
     (= :* event)     "* (any)"
     (keyword? event) (if-let [n (namespace event)]
                        (str n "/" (name event))
                        (name event))
     :else            (str event)))
+
+(defn event-line
+  "Render an edge's visible event line — the event segment plus a
+  guard bracket when present. Stately graph view convention: the event
+  + guard sit on ONE line; the action renders as a `+ <action>` pill
+  on a separate row BELOW it (composed by the renderer, not by this
+  pure-data helper).
+
+  Shape: `\"event [guard]\"`. The bracket appears only when a guard is
+  declared. `:after` and `:always` substitute for the event segment
+  using the same bracket rule (`event-segment` paints the ⌚ / ∞
+  glyphs per rf2-a2b55).
+
+  rf2-a2b55 — the action no longer joins the visible event line. Pure
+  data → string."
+  [{:keys [guard] :as edge}]
+  (let [evt   (event-segment edge)
+        g-str (name-of guard)]
+    (cond-> evt
+      g-str (str " [" g-str "]"))))
 
 (defn edge-label
   "Compose an xstate-stately-convention edge label from an edge map.
@@ -348,13 +377,18 @@
   `:after` and `:always` substitute for the event segment using the
   same bracket/slash rules.
 
+  rf2-a2b55 — the visible edge label PAINTS `event-line` (event +
+  guard only) on the canvas with the action as a `+ <action>` pill
+  below it (Stately graph view convention). This text-composed form
+  remains the canonical `data-event` value + edge-id-collision tie-
+  break + host-side label-collision-overlay testing surface; consumers
+  that want the visible-line variant call `event-line` directly.
+
   Pure data → string."
-  [{:keys [guard action] :as edge}]
-  (let [evt   (event-segment edge)
-        g-str (name-of guard)
+  [{:keys [action] :as edge}]
+  (let [evt   (event-line edge)
         a-str (name-of action)]
     (cond-> evt
-      g-str (str " [" g-str "]")
       a-str (str " / " a-str))))
 
 (defn- edge-id

@@ -449,8 +449,12 @@ For the supplied `:definition`, the chart shows:
   render every region as a distinct orthogonal zone — see
   [§Parallel-region rendering](#parallel-region-rendering-rf2-lkwev-xyflow-phase-2)).
   Edges are transitions, labelled with their triggering event id;
-  `:after` edges read `after(<delay>)` and `:always` edges read
-  `always` (per `chart.layout/edge-label`).
+  `:after` edges read `⌚ <delay>ms` and `:always` edges read `∞`
+  (per `chart.layout/event-segment`, the Stately graph view glyph
+  conventions — rf2-a2b55). When a transition declares an `:action`,
+  the action renders as a `+ <action-name>` pill on a separate row
+  below the event line (the action no longer joins the event-line
+  text as `/ action`).
 - **The current state highlights.** When `:current-state` is set every
   active leaf carries a static active tint + bolder stroke. A flat /
   compound snapshot has one active leaf; a **parallel** snapshot (a
@@ -467,19 +471,25 @@ For the supplied `:definition`, the chart shows:
   flips that palette to amber for the simulator path.
 - **`:final?` states.** Rendered with a doubled border + checkmark
   glyph (per `chart.nodes/state-node`).
-- **State tags surface as a hover tooltip (rf2-so5b0).** A state's
-  declared `:tags` set (Spec 005 §State tags) renders on the state
-  node as a sorted space-joined string on both the `title` attr
-  (native HTML hover tooltip) and the `data-tags` attr (DOM tests +
-  host introspection). The chart canvas is reserved for STRUCTURAL
-  chrome (state name, nesting, transitions) per the xstate / Stately
-  convention; tags are a programmatic concept the host surfaces in
-  its inspector list, NOT as visible per-tag pills on each state node
-  (the historical pill row was retired because a per-tag chip row
-  inflated each state node's footprint — most acutely on nested
-  compound substates whose tag set restated the parent's ancestry —
-  and visually competed with the structural label + entry/exit
-  rows).
+- **State tags render as a visible pill row + hover tooltip
+  (rf2-a2b55; rf2-so5b0).** A state's declared `:tags` set (Spec 005
+  §State tags) renders as a row of `tag-pill-color`-coloured pills
+  positioned BELOW the state name (Stately graph view convention).
+  Each pill carries a `rf-mv-chart-state-tag-<name>` testid + a
+  `data-tag` attr. In parallel, the whole set surfaces on the
+  state-node's `title` attr (native HTML hover tooltip) + `data-tags`
+  attr (sorted space-joined string for DOM tests + host
+  introspection) — the rf2-so5b0 host-introspection contract. (The
+  rf2-so5b0 retirement of the visible row was reverted by rf2-a2b55
+  on a paradigm-matched look at Stately's graph view, which paints
+  the row.)
+- **Entry / exit actions render as `+ <name>` (entry) / `- <name>`
+  (exit) pills (rf2-a2b55).** Declared `:entry` / `:exit` state
+  actions surface as action pills BELOW the tag row inside the state
+  box (Stately graph view `Entry actions` convention; replaces the
+  prior `entry / <name>` text rows from rf2-ee38b.21). Each pill
+  carries an `rf-mv-chart-state-entry` / `rf-mv-chart-state-exit`
+  testid + the action name on a `data-entry` / `data-exit` attr.
 - **`:after` countdown rings (overlay, host-fed).** When the host
   passes a non-empty `:after-ring-specs` vector the chart mounts the
   `chart.overlays.after-rings` overlay as a sibling of the canvas; it
@@ -511,7 +521,7 @@ supplies the data and decides on the callbacks):
 - A machine picker dropdown (the host owns machine selection and pulls
   `:definition` + `:current-state` itself).
 - Microstep flashes for an `:always` cascade — the shipped chart renders
-  `:always` transitions as plain `always`-labelled edges; per-microstep
+  `:always` transitions as plain `∞`-labelled edges; per-microstep
   flash animation is not part of the presentation-only component.
 
 ### Data sources
