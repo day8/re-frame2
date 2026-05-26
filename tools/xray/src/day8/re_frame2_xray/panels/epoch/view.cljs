@@ -1291,10 +1291,19 @@
      (step-header
        {:step :fx
         :badge :FX
-        :verb (when (pos? k)
-                [:span {:style {:color (:error tokens)
-                                :font-weight 700}}
-                 (str k " threw")])
+        :verb [:span {:style {:display "inline-flex"
+                              :align-items "center"
+                              :gap "8px"}}
+               [:span {:data-testid "rf-xray-epoch-fx-caption"
+                       :style {:color (:text-tertiary tokens)
+                               :font-family sans-stack
+                               :font-size "11px"
+                               :font-style "italic"}}
+                "(side effects)"]
+               (when (pos? k)
+                 [:span {:style {:color (:error tokens)
+                                 :font-weight 700}}
+                  (str k " threw")])]
         :expandable? false
         :testid "rf-xray-epoch-fx"}
        nil)
