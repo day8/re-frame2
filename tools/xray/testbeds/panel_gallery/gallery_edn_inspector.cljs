@@ -1,0 +1,299 @@
+(ns panel-gallery.gallery-edn-inspector
+  "Story coverage for the **edn-inspector widget**
+  (rf2-hp4ow — widget-isolation gallery).
+
+  The edn-inspector widget (`day8.re-frame2-xray.views.edn-inspector`)
+  is the single renderer behind every Xray surface that shows a CLJS
+  value: App-DB, Trace per-event payload, Reactive sub value,
+  Machines snapshot drill-in, Routing diff. Every L4 panel gallery
+  therefore exercises it indirectly. This gallery exercises it
+  *directly* — one variant per input shape / opts combination,
+  with no surrounding panel chrome — so the widget's response to
+  scalars, containers, sentinels, records, uuid/inst, diff mode,
+  and the full opts surface (`:zoomable?`, `:popup-affordance?`,
+  `:card?`, `:header`, `:site-id`, `:default-expanded-depth`) is
+  visible in isolation.
+
+  ## Frame isolation
+
+  Story wraps every variant in `[frame-provider {:frame variant-id}]`.
+  Each variant fires a testbed-only `:panel-gallery.edn-inspector/seed!`
+  event that stores its fixture under `:panel-gallery.edn-inspector
+  /fixture` in the variant frame's app-db. The registered view
+  (`:panel-gallery.edn-inspector/Panel`, mounted via `panel-views`)
+  subscribes to that slot, destructures `{:value :before :opts}`,
+  and renders `[edn-inspector value (assoc opts :before before)]`.
+
+  Each variant therefore observes its own fixture in isolation — no
+  two variants share state, and the widget's own expansion / zoom
+  slots (`:rf.xray.edn-inspector/expansion`, `…/zoom`) likewise live
+  on the variant frame so two side-by-side cards don't share
+  expansion overrides.
+
+  ## Why testbed-local seed event
+
+  The widget itself ships no public seed event for `:value` — its
+  inputs come from the call site as Reagent args. The gallery would
+  otherwise have to pass `:args` through Story's `args` resolver,
+  which works but conflicts with the dominant convention in this
+  testbed (`:rf.xray/sync-trace-buffer`,
+  `:rf.xray/sync-epoch-history` — all L4 gallery namespaces seed
+  via events). A small testbed-local reducer (registered here,
+  idempotent under namespace reload) keeps the surface uniform
+  across all eight gallery namespaces."
+  (:require [re-frame.core :as rf]
+            [re-frame.story :as story]
+            [panel-gallery.fixtures-edn-inspector :as fixtures]
+            [panel-gallery.panel-views :as panel-views]))
+
+;; =========================================================================
+;; testbed-local seed event + sub
+;; =========================================================================
+;;
+;; Stored on the variant frame's app-db; the registered view subscribes
+;; from inside the variant's frame-provider so reads + writes resolve to
+;; the same frame.
+
+(def fixture-slot
+  ":panel-gallery.edn-inspector/fixture — variant-frame slot carrying
+  the active fixture map `{:value :before :opts}`. Public so the
+  gallery view and the sub can share the keyword without typo drift."
+  :panel-gallery.edn-inspector/fixture)
+
+(rf/reg-event-db :panel-gallery.edn-inspector/seed!
+  (fn [db [_ fixture]]
+    (assoc db fixture-slot fixture)))
+
+(rf/reg-sub fixture-slot
+  (fn [db _] (get db fixture-slot)))
+
+(defn register-gallery-view! []
+  (panel-views/register!))
+
+(defn register-all!
+  "Register the edn-inspector widget Story surface. Idempotent
+  under `install-canonical-vocabulary!` resets so the namespace is
+  reloadable."
+  []
+  (story/install-canonical-vocabulary!)
+  (register-gallery-view!)
+
+  (story/reg-tag :feature/xray-edn-inspector
+    {:axis :feature
+     :doc  "Xray edn-inspector widget — first-class CLJS-value
+            renderer (`day8.re-frame2-xray.views.edn-inspector`)."})
+
+  (story/reg-story :story.xray.edn-inspector
+    {:doc        "Visual gallery of the edn-inspector widget under
+                 varying input shapes + opts combinations. One
+                 variant per shape / opts pin; side-by-side in the
+                 workspace so the renderer's response is visible at
+                 a glance."
+     :component  :panel-gallery.edn-inspector/Panel
+     :tags       #{:dev :feature/xray-edn-inspector}
+     :substrates #{:reagent}})
+
+  ;; ----- scalars ------------------------------------------------------
+  (story/reg-variant :story.xray.edn-inspector/scalar-mix
+    {:doc        "Every scalar kind the widget classifies — nil,
+                 booleans, ints, floats, strings (with escape),
+                 simple + qualified keywords, plain + qualified
+                 symbols. Pins the syntax-highlight palette."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/scalar-mix)]]
+     :tags       #{:dev :state/small}
+     :substrates #{:reagent}})
+
+  ;; ----- maps ---------------------------------------------------------
+  (story/reg-variant :story.xray.edn-inspector/map-small
+    {:doc        "Three-key map. Inline-preview territory."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-small)]]
+     :tags       #{:dev :state/small}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/map-medium
+    {:doc        "Twelve-key flat map. Wide enough to force
+                 expansion past `:max-inline-width`."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-medium)]]
+     :tags       #{:dev :state/medium}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/map-large
+    {:doc        "Fifty-key flat map. Exercises the expanded-body
+                 scroll behaviour."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-large)]]
+     :tags       #{:dev :state/large}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/map-nested
+    {:doc        "Six-level nested map. Exercises the depth ceiling
+                 — deeper nodes render `▸ {…N keys}` summaries
+                 (rf2-kbdk8)."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-nested)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/map-large-elided
+    {:doc        "Single-key map carrying the `:rf.size/large-elided`
+                 sentinel (Spec 015). Widget routes through the
+                 sentinel chip renderer."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-large-elided)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- containers ---------------------------------------------------
+  (story/reg-variant :story.xray.edn-inspector/vector-mixed
+    {:doc        "Vector of mixed-scalar elements + a nested map.
+                 Pins the `[ ]` bracket pair colour."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/vector-mixed)]]
+     :tags       #{:dev :state/small}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/list-of-events
+    {:doc        "List of event vectors. Pins the `( )` bracket
+                 pair colour."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/list-of-events)]]
+     :tags       #{:dev :state/small}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/lazy-seq-fib
+    {:doc        "Realised prefix of an infinite fib lazy-seq.
+                 Widget walks a finite seq — no force-of-tail."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/lazy-seq-fib)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/set-of-tags
+    {:doc        "Eight-element keyword set. Pins the `#{ }`
+                 bracket pair + unordered-iteration path."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/set-of-tags)]]
+     :tags       #{:dev :state/small}
+     :substrates #{:reagent}})
+
+  ;; ----- record -------------------------------------------------------
+  (story/reg-variant :story.xray.edn-inspector/record-instance
+    {:doc        "Single `GalleryUser` defrecord. Header renders
+                 `#…GalleryUser{…}`; slots lay out below."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/record-instance)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- uuid + inst (default IXrayEdnInspector formatters) -----------
+  (story/reg-variant :story.xray.edn-inspector/uuid
+    {:doc        "Single random UUID. Default formatter (rf2-x16b1)
+                 renders compact `#uuid \"…<last-8>\"` header with
+                 full canonical form on hover + expand."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/uuid-instance)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/insts
+    {:doc        "Five insts spanning the default formatter's
+                 relative-time bucketing — just-now, mins ago,
+                 hours ago, days ago, ISO fallback (>30d), future."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/inst-instances)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- diff mode ----------------------------------------------------
+  (story/reg-variant :story.xray.edn-inspector/diff-map-mixed-ops
+    {:doc        "Diff pair surfacing every op in one map:
+                 `:added` (new `:flash`), `:modified` (`:counter`
+                 bump + nested `:name` change), `:removed`
+                 (`:legacy-flag`), `:same` (untouched `:user/id`).
+                 Pins the gutter-glyph + colour ladder under
+                 rf2-zuh1e's `children-of-pair` walk."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-map-mixed-ops)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/diff-vector-element-changes
+    {:doc        "Diff on a vector — `:added` tail, `:modified`
+                 middle element, `:same` head. Pair-walk respects
+                 position."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-vector-element-changes)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/diff-deep-children-changed
+    {:doc        "Deep diff: change sits six levels down. Ancestor
+                 chain force-expands; intermediate maps paint the
+                 `◴` children-changed glyph in the gutter."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-deep-children-changed)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- opts demos ---------------------------------------------------
+  (story/reg-variant :story.xray.edn-inspector/opts-zoomable
+    {:doc        "`:zoomable? true` (rf2-h71e0) — each container
+                 gains a `⊙` zoom button beside the expand triangle."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-zoomable)]]
+     :tags       #{:dev :feature/opts}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/opts-popup-affordance
+    {:doc        "`:popup-affordance? true` (rf2-l4625) — `↗` icon
+                 button sits at the widget's top-right corner."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-popup-affordance)]]
+     :tags       #{:dev :feature/opts}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/opts-card
+    {:doc        "`:card? true` (rf2-63ie5) — outer container picks
+                 up inspector-card chrome (bg, border, radius)."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-card)]]
+     :tags       #{:dev :feature/opts}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/opts-header
+    {:doc        "`:header \"…\"` (rf2-okq7p) — three-shade card
+                 chrome with a string ribbon label."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header)]]
+     :tags       #{:dev :feature/opts}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/opts-header-hiccup
+    {:doc        "`:header [:span …]` (rf2-okq7p) — composed
+                 hiccup ribbon (label + code chip)."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header-hiccup)]]
+     :tags       #{:dev :feature/opts}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/opts-site-id
+    {:doc        "`:site-id` (rf2-pvsxs) — stable site-id survives
+                 a remount. Visually identical to the unkeyed
+                 mount; the difference shows on remount cadence."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-site-id)]]
+     :tags       #{:dev :feature/opts}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/opts-shallow-depth
+    {:doc        "`:default-expanded-depth 1` (rf2-kbdk8) — legacy
+                 depth-driven behaviour. Depth ≥ 1 renders
+                 `▸ {…N keys}` collapsed summaries."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-shallow-depth)]]
+     :tags       #{:dev :feature/opts}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/opts-combined
+    {:doc        "Composed opts — `:header` + `:popup-affordance?`
+                 + `:zoomable?` together. Pins the affordance
+                 layout when all three coexist."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-combined)]]
+     :tags       #{:dev :feature/opts}
+     :substrates #{:reagent}})
+
+  ;; ----- workspace ----------------------------------------------------
+  (story/reg-workspace :Workspace.xray.edn-inspector/all
+    {:doc      "All edn-inspector widget variants in one auto-grid.
+                Scroll to see the renderer's response across scalar
+                / map (small / medium / large / nested / sentinel)
+                / vector / list / lazy-seq / set / record / uuid /
+                inst / diff (mixed-ops / vector / deep) / opts
+                (zoomable / popup / card / header / header-hiccup
+                / site-id / shallow-depth / combined)."
+     :layout   :variants-grid
+     :story    :story.xray.edn-inspector
+     :columns  2
+     :tags     #{:dev}}))
+
+(register-all!)

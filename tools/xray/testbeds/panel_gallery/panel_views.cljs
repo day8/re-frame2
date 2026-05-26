@@ -59,7 +59,8 @@
             [day8.re-frame2-xray.panels.trace :as trace]
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-xray.shell :as shell]
-            [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
+            [day8.re-frame2-xray.theme.tokens :refer [tokens]]
+            [day8.re-frame2-xray.views.edn-inspector :as edn-inspector]))
 
 (def ^:private card-style
   "Card chrome around an embedded panel — gives the variants-grid a
@@ -142,6 +143,40 @@
          :data-testid "panel-gallery-issues-card"}
    [issues-ribbon/Panel]])
 
+;; ---- widget gallery (rf2-hp4ow) -----------------------------------------
+;;
+;; The edn-inspector is a widget, not a tab — but the panel-views
+;; convention is the cleanest mounting surface for it too. The
+;; variant frame's fixture slot is read by the gallery ns's
+;; `:panel-gallery.edn-inspector/fixture` sub (declared in
+;; `gallery_edn_inspector.cljs`); we read it here via a string keyword
+;; rather than a namespace alias so this ns has no compile-time
+;; dependency on the gallery namespace (the reverse direction —
+;; gallery → panel-views — is the dependency edge we keep).
+
+(defn- edn-inspector-tab-panel
+  "Embedded mount of the edn-inspector widget. Reads the variant
+  frame's `:panel-gallery.edn-inspector/fixture` slot, destructures
+  `{:value :before :opts}`, and renders the widget with diff mode
+  engaged when `:before` is present."
+  [_args]
+  (let [fixture @(rf/subscribe [:panel-gallery.edn-inspector/fixture])
+        {:keys [value before opts]} fixture
+        merged-opts (cond-> (or opts {})
+                      (some? before) (assoc :before before))]
+    [:div {:style       card-style
+           :data-testid "panel-gallery-edn-inspector-card"}
+     (if (some? fixture)
+       [edn-inspector/edn-inspector value merged-opts]
+       [:div {:style {:padding "16px"
+                      :color (:text-tertiary tokens)
+                      :font-family "system-ui, sans-serif"
+                      :font-size "12px"}}
+        "No fixture seeded into "
+        [:code ":panel-gallery.edn-inspector/fixture"]
+        " — variant `:events` did not run, or this view is mounted
+        outside a variant frame."])]))
+
 ;; ---- full chrome wrapper -------------------------------------------------
 
 (defn- chrome-shell
@@ -188,5 +223,6 @@
   (rf/reg-view* :panel-gallery.machines/Panel machines-tab-panel)
   (rf/reg-view* :panel-gallery.routing/Panel  routing-tab-panel)
   (rf/reg-view* :panel-gallery.issues/Panel   issues-tab-panel)
+  (rf/reg-view* :panel-gallery.edn-inspector/Panel edn-inspector-tab-panel)
   (rf/reg-view* :panel-gallery.chrome/Shell   chrome-shell)
   nil)

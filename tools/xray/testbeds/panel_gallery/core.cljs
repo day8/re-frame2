@@ -72,7 +72,13 @@
             ;; Chrome follow-on galleries — rf2-mpn8m settings popup,
             ;; rf2-kbrkx auto-filter pill / edit-popup.
             [panel-gallery.gallery-settings]
-            [panel-gallery.gallery-filters]))
+            [panel-gallery.gallery-filters]
+            ;; Widget galleries — rf2-hp4ow edn-inspector isolation
+            ;; coverage. The widget is exercised indirectly by every
+            ;; L4 panel that mounts it; this gallery gives it a
+            ;; dedicated harness with one variant per input shape /
+            ;; opts combination.
+            [panel-gallery.gallery-edn-inspector]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
