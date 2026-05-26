@@ -1,29 +1,15 @@
 (ns day8.re-frame2-xray.panels.app-db-diff-subs
   "Subscriptions and read-models for the App-DB Diff panel.
 
-  ## rf2-gfxmk Phase 1 — sections-per-cluster
-
-  Three additional subs land here for the structural-diff engine:
-
-    `:rf.xray/selected-epoch-annotated-tree` — annotated-tree shape
-      from `day8.re-frame2-xray.diff.annotated-tree/diff-tree` for the
-      currently-focused epoch. Cached per `:epoch-id` for the same
-      reason the legacy `:selected-epoch-diff` is: cascades replay the
-      same `db-before` / `db-after` pair across the inspector's life.
-
-    `:rf.xray/selected-epoch-sections` — section-grouping pass output
-      consumed by the new renderer. Derived from the annotated tree
-      above; lexicographic ordering per design §3.1.1.
-
-  The legacy `:rf.xray/selected-epoch-diff` (flat triples) stays
-  registered for back-compat consumers — the pin-store, MCP exporter,
-  and `show me when this changed` walker continue to read it. It
-  computes its flat triples directly via
-  `app-db-diff-helpers/diff-paths` (independent of the annotated
-  tree above)."
+  The diff projection itself is computed by the Editscript-backed
+  engine at `day8.re-frame2-xray.diff.engine` — invoked inside
+  `views/edn_inspector.cljs` from `:db-before` threaded through the
+  composite. The subs here surface the flat-triple lens (legacy
+  consumers — pin-store, MCP exporter, `show me when this changed`
+  walker) plus the per-epoch derived projections the panel composite
+  depends on (focused slice + redacted-modified count + flow-writes
+  origin attribution)."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.diff.annotated-tree :as at]
-            [day8.re-frame2-xray.diff.section-grouping :as sg]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]))
 
 (defn- find-epoch-in-history
@@ -40,12 +26,6 @@
   ;; Per-`:epoch-id` cache for the diff triples computed by the
   ;; `:rf.xray/selected-epoch-diff` sub. Tests reset this atom
   ;; between cases; production callers should only write via the sub.
-  (atom {}))
-
-(defonce annotated-tree-cache
-  ;; Per-`:epoch-id` cache for the annotated-tree shape computed by
-  ;; `:rf.xray/selected-epoch-annotated-tree`. Same caching contract
-  ;; as `diff-cache` above. Tests reset this atom between cases.
   (atom {}))
 
 (defonce redacted-modified-cache
@@ -151,43 +131,6 @@
                              (select-keys live)
                              (assoc epoch-id diff))))
                 diff)))))))
-
-  ;; ---- rf2-gfxmk Phase 1 — annotated-tree + sections -------------------
-  ;;
-  ;; The structural-diff engine produces an annotated mirror tree (every
-  ;; node tagged `:added`/`:removed`/`:modified`/`:same`/`:children`).
-  ;; The grouping pass decomposes that tree into N path-headed sections
-  ;; for the renderer. Both are cached per `:epoch-id` for the same
-  ;; reason `:selected-epoch-diff` is — cascades replay the same
-  ;; `db-before`/`db-after` pair as the inspector navigates.
-  (rf/reg-sub :rf.xray/selected-epoch-annotated-tree
-    :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/focus-epoch-id]
-    (fn [[history selected-id] _query]
-      (let [record (or (when selected-id
-                         (find-epoch-in-history history selected-id))
-                       (peek history))]
-        (when record
-          (let [epoch-id (:epoch-id record)
-                cached   (get @annotated-tree-cache epoch-id ::miss)]
-            (if (not= ::miss cached)
-              cached
-              (let [tree (at/diff-tree (:db-before record)
-                                       (:db-after  record))
-                    live (into #{} (map :epoch-id) history)]
-                (swap! annotated-tree-cache
-                       (fn [m]
-                         (-> m
-                             (select-keys live)
-                             (assoc epoch-id tree))))
-                tree)))))))
-
-  (rf/reg-sub :rf.xray/selected-epoch-sections
-    :<- [:rf.xray/selected-epoch-annotated-tree]
-    (fn [annotated _query]
-      (if annotated
-        (sg/group-into-sections annotated)
-        [])))
 
   ;; ---- rf2-bz1cl / rf2-dl3gx — redacted-paths-modified count ----------
   ;;
@@ -343,14 +286,13 @@
     :<- [:rf.xray/observed-frame]
     :<- [:rf.xray/target-frame-db]
     :<- [:rf.xray/selected-epoch-diff]
-    :<- [:rf.xray/selected-epoch-sections]
     :<- [:rf.xray/focused-slice-path]
     :<- [:rf.xray/show-me-when-this-changed-result]
     :<- [:rf.xray/epoch-history]
     :<- [:rf.xray/selected-epoch-redacted-modified-count]
     :<- [:rf.xray/selected-epoch-flow-writes]
     :<- [:rf.xray/focus-epoch-id]
-    (fn [[target db diff-triples sections focused-path focused-hits
+    (fn [[target db diff-triples focused-path focused-hits
           history redacted-modified-count flow-writes selected-epoch-id]
          _query]
       (let [{:keys [non-reserved]} (h/partition-reserved
@@ -358,7 +300,6 @@
         {:target-frame              target
          :history-empty?            (empty? history)
          :changed-non-reserved      non-reserved
-         :changed-sections          sections
          :changed-reserved          (h/reserved-summary db)
          :focused-path              focused-path
          :focused-hits              focused-hits
@@ -368,9 +309,8 @@
          ;; `:db-after` at the same path inside a mutated subtree.
          :redacted-modified-count   redacted-modified-count
          ;; rf2-s8r6c — per-path origin attribution input. The renderer
-         ;; combines `:changed-sections` + the full triples + this vec
-         ;; to tag each section header with `[fx :db]` /
-         ;; `[flow :flow-id]` / mixed.
+         ;; combines the full triples + this vec to tag each section
+         ;; header with `[fx :db]` / `[flow :flow-id]` / mixed.
          :flow-writes               (or flow-writes [])
          :diff-triples              (or diff-triples [])
          ;; rf2-5kfxe.2 — surfaced so the renderer can key each

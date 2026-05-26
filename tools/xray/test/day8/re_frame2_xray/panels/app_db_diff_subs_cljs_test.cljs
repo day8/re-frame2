@@ -17,7 +17,6 @@
     {:adapter plain-atom/adapter
      :init-fn (fn []
                 (reset! subs/diff-cache {})
-                (reset! subs/annotated-tree-cache {})
                 (reset! subs/redacted-modified-cache {})
                 (reset! subs/flow-writes-cache {}))}))
 
@@ -30,8 +29,6 @@
   (is (some? (registrar/handler :sub :rf.xray/target-frame-db)))
   (is (some? (registrar/handler :sub :rf.xray/selected-epoch-record)))
   (is (some? (registrar/handler :sub :rf.xray/selected-epoch-diff)))
-  (is (some? (registrar/handler :sub :rf.xray/selected-epoch-annotated-tree)))
-  (is (some? (registrar/handler :sub :rf.xray/selected-epoch-sections)))
   (is (some? (registrar/handler :sub :rf.xray/focused-slice-path)))
   (is (some? (registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
   ;; rf2-bz1cl — redacted-paths-modified hint sub.
@@ -48,8 +45,6 @@
 (deftest diff-caches-are-leaf-level-atoms
   (is (some? subs/diff-cache))
   (is (map? @subs/diff-cache))
-  (is (some? subs/annotated-tree-cache))
-  (is (map? @subs/annotated-tree-cache))
   ;; rf2-bz1cl — redacted-modified count cache mirrors the existing
   ;; per-`:epoch-id` caching contract.
   (is (some? subs/redacted-modified-cache))

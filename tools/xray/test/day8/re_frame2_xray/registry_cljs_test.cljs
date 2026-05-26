@@ -287,7 +287,6 @@
    :rf.xray.static.interceptors/registry
    :rf.xray.static.interceptors/registry-override
    :rf.xray.static.interceptors/tab-data
-   :rf.xray/selected-epoch-annotated-tree
    :rf.xray/selected-epoch-diff
    ;; rf2-39n8h discovered — selected-epoch composites: per-flow writes
    ;; lens + redacted-modified-count surface for the App-DB diff panel.
@@ -295,7 +294,6 @@
    :rf.xray/selected-epoch-id
    :rf.xray/selected-epoch-record
    :rf.xray/selected-epoch-redacted-modified-count
-   :rf.xray/selected-epoch-sections
    :rf.xray/selected-machine-id
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.xray/modal-positioning

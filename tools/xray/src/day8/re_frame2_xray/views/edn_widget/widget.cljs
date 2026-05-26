@@ -78,7 +78,8 @@
 ;;
 ;; re-frame-10x makes every value copyable. Pre-f026h the only copy
 ;; gesture in Xray lived on the App-DB diff panel's section headers
-;; (`diff/render.cljs` → `:rf.xray/copy-{path,value}-to-clipboard`);
+;; (the now-deleted structural-diff renderer →
+;; `:rf.xray/copy-{path,value}-to-clipboard`);
 ;; the Event lens, Trace, segment-inspector, and the Static panels —
 ;; 7 of 8 EDN surfaces — had none. Rather than thread a copy button
 ;; into each panel, the affordance rides on the WIDGET ROOT so it

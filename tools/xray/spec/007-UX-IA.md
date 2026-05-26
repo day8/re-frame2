@@ -972,10 +972,11 @@ A11y dogfooding is now Story's concern per rf2-18t6p + rf2-qgms1.)
 
 ### Cascade gutter (rf2-5kfxe + the diff renderer)
 
-The App-db diff renderer (`diff/render.cljs`) and the `inspect-diff`
-mode of the detail-panel renderer both ship a **per-node gutter**: a
-3-px coloured left-border + glyph that telegraphs the operation at a
-glance.
+The App-db diff renderer (in `views/edn_inspector.cljs`, driven by
+the Editscript-backed projection from `diff/engine.cljc`) and the
+`inspect-diff` mode of the detail-panel renderer both ship a
+**per-node gutter**: a 3-px coloured left-border + glyph that
+telegraphs the operation at a glance.
 
 | Op | Glyph | Tone | Token |
 |---|---|---|---|

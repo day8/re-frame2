@@ -560,9 +560,9 @@
 
   The Xray app-db carries a single `:epoch-history` slot keyed by the
   legacy `:target-frame`. Every per-frame composite (App-DB Diff's
-  selected-epoch-diff / sections / annotated-tree; Reactive panel's
-  focused-cascade trace projection (rf2-wyvf2); the machine-inspector
-  scrubber) reads off that slot. Pre-fix the slot stayed on whatever
+  selected-epoch-diff; Reactive panel's focused-cascade trace
+  projection (rf2-wyvf2); the machine-inspector scrubber) reads off
+  that slot. Pre-fix the slot stayed on whatever
   `:target-frame` was at boot (`:rf/default`) even when the user picked
   a different frame in the ribbon picker — so:
 
