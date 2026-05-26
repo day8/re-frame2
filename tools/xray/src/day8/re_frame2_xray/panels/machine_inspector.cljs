@@ -91,6 +91,99 @@
    :align-items "center"
    :gap "8px"})
 
+;; ---- section-level layout styles (rf2-alsnz · audit F6) ----------------
+;;
+;; Hoisted to ns-top defs so the Panel + focused-event-section render
+;; paths do not mint fresh `:style {...}` maps on every re-render. The
+;; machine-inspector is event-driven (renders one focused-event-section
+;; per cascade that transitioned a machine; BLANK otherwise), so the
+;; allocation count per render is small relative to the per-row panels
+;; (Trace, Event-detail, Cancellation cascade — F1/F2/F4) — but the
+;; hoist still removes ~10–15 layout/header allocations per Panel
+;; re-render + keeps the file consistent with the rf2-qx414 / rf2-xjgdk
+;; / rf2-gjiog hoist pattern.
+;;
+;; `tokens` values resolve to `var(--rf-xray-*)` CSS strings at ns load,
+;; so the active theme toggle continues to flip palette in lockstep
+;; without re-evaluation.
+
+(def ^:private panel-root-style
+  "Outer `[:section]` chrome for the Machine Inspector panel."
+  {:height         "100%"
+   :display        "flex"
+   :flex-direction "column"
+   :background     (:bg-2 tokens)
+   :color          (:text-primary tokens)
+   :font-family    sans-stack
+   :font-size      "14px"})
+
+(def ^:private panel-header-style
+  "Top header strip — carries the prev/next nav + share affordance on
+  the right (the L4 tab strip is the panel-name source-of-truth, so
+  there is no large title; rf2-6xezz)."
+  {:padding         "16px 16px 8px 16px"
+   :display         "flex"
+   :align-items     "center"
+   :justify-content "space-between"
+   :gap             "12px"})
+
+(def ^:private panel-header-toolbar-style
+  "Right-hand affordance cluster inside the panel header (prev/next +
+  share). Suppressed when `:no-machines` empty-state is rendering."
+  {:display     "flex"
+   :align-items "center"
+   :gap         "8px"})
+
+(def ^:private focused-event-host-style
+  "Wrapper around the focused-event view inside the Panel `cond`'s
+  `(seq records)` branch. rf2-zdfbm — flex column so the focused-event
+  view fills the host and the topology chart grows into the panel
+  height."
+  {:flex           1
+   :overflow       "auto"
+   :display        "flex"
+   :flex-direction "column"})
+
+(def ^:private focused-event-view-host-style
+  "Wrapper around the single focused-event-section the
+  `focused-event-view` renders. Mirrors the host wrapper above so the
+  section's `flex 1` rule has a tall column to grow into."
+  {:display        "flex"
+   :flex-direction "column"
+   :flex           1
+   :min-height     0})
+
+(def ^:private focused-event-section-style
+  "Outer `[:section]` chrome for one per-machine focused-event
+  section. rf2-3d987 issue #1 (gap between sibling sub-panels), #8
+  (16px margin from the panel host edge), + rf2-zdfbm (flex column so
+  the topology chart can grow)."
+  {:margin         (:gap-4 spacing)
+   :border         (str "1px solid " (:border-default tokens))
+   :border-radius  "4px"
+   :background     (:bg-2 tokens)
+   :flex           "1 1 0"
+   :min-height     0
+   :display        "flex"
+   :flex-direction "column"
+   :gap            (:gap-2 spacing)})
+
+(def ^:private focused-event-section-header-style
+  "OUTER section header — ribbon background + slightly larger font
+  than nested headers (rf2-3d987 issue #7 differential). Carries the
+  machine-id + from→to transition path; right-click filters the
+  event list to this machine (rf2-piye4)."
+  {:padding                 "10px 12px"
+   :display                 "flex"
+   :align-items             "center"
+   :gap                     "10px"
+   :background              (:bg-3 tokens)
+   :font-family             mono-stack
+   :font-size               "13px"
+   :color                   (:text-primary tokens)
+   :border-top-left-radius  "4px"
+   :border-top-right-radius "4px"})
+
 ;; ---- safe-name helper ---------------------------------------------------
 
 (defn- safe-name
@@ -624,15 +717,7 @@
       ;; rf2-3d987 issue #8 — outer margin bumped from 12px → 16px so
       ;; the section has visible breathing room from the panel host
       ;; edge at every viewport width.
-      :style {:margin (:gap-4 spacing)
-              :border (str "1px solid " (:border-default tokens))
-              :border-radius "4px"
-              :background (:bg-2 tokens)
-              :flex "1 1 0"
-              :min-height 0
-              :display "flex"
-              :flex-direction "column"
-              :gap (:gap-2 spacing)}}
+      :style focused-event-section-style}
      ;; Right-click on the per-machine section header fires
      ;; `:rf.xray/filter-by-machine` with this section's machine-id
      ;; (rf2-piye4) — drops a typed `:machine` IN pill into the ribbon
@@ -647,16 +732,7 @@
                :title "Right-click to filter the event list to this machine"
                ;; OUTER header — ribbon background + slightly larger
                ;; font than nested headers (issue #7 differential).
-               :style {:padding "10px 12px"
-                       :display "flex"
-                       :align-items "center"
-                       :gap "10px"
-                       :background (:bg-3 tokens)
-                       :font-family mono-stack
-                       :font-size "13px"
-                       :color (:text-primary tokens)
-                       :border-top-left-radius "4px"
-                       :border-top-right-radius "4px"}}
+               :style focused-event-section-header-style}
       (when microstep?
         [:span {:style {:color (:text-tertiary tokens) :font-size "10px"}}
          "↳"])
@@ -861,21 +937,26 @@
 ;; ---- focused-event view + blank state ----------------------------------
 
 (defn- focused-event-view
-  "Top-level focused-event lens. Reads the
-  `:rf.xray/machine-transitions-for-focused-event` composite sub and
-  binds the panel to **exactly one** machine instance per the
-  Dynamic-mode single-instance rule (rf2-8og3k): the first transition
-  record in trace order. Returns nil when no machine transitioned in
-  the focused event's cascade — the panel renders the empty-state
-  placeholder in that case (see `blank-state`)."
-  []
-  (let [records @(rf/subscribe
-                   [:rf.xray/machine-transitions-for-focused-event])
-        ;; Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
+  "Top-level focused-event lens. Accepts the focused-event lens'
+  `records` (pre-derefed by `Panel` from
+  `:rf.xray/machine-transitions-for-focused-event`) and binds the
+  panel to **exactly one** machine instance per the Dynamic-mode
+  single-instance rule (rf2-8og3k): the first transition record in
+  trace order. Returns nil when no machine transitioned in the
+  focused event's cascade — the panel renders the empty-state
+  placeholder in that case (see `blank-state`).
+
+  rf2-alsnz — `records` flows in as an arg so the panel makes one
+  Reaction handle per render instead of two; Panel already derefs the
+  composite sub for its `:data-has-records` flag + the scope-machine-
+  id-driven prev/next nav, so this view re-derefing the same handle
+  was a duplicate sub-graph touch."
+  [records]
+  (let [;; Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
         ;; single-instance, event-driven, rf2-8og3k): pick the first
         ;; transition by trace order. The upstream projection already
         ;; sorts cascade-document-order, so `first` is the tiebreaker.
-        record  (h/pick-focused-transition records)]
+        record (h/pick-focused-transition records)]
     (when record
       [:div {:data-testid "rf-xray-machine-focused-event"
              ;; The host carries the count of records the cascade
@@ -884,13 +965,7 @@
              ;; section even when N > 1).
              :data-section-count "1"
              :data-cascade-transition-count (str (count records))
-             ;; rf2-zdfbm — fill the focused-event host so the section
-             ;; (`flex 1`) can grow its topology chart into the panel's
-             ;; available height.
-             :style {:display "flex"
-                     :flex-direction "column"
-                     :flex 1
-                     :min-height 0}}
+             :style focused-event-view-host-style}
        (with-meta (focused-event-section record)
          {:key (str (:machine-id record) "-"
                     (:id record) "-"
@@ -987,28 +1062,16 @@
     [:section {:data-testid "rf-xray-machine-inspector"
                :data-view-mode "focused-event"
                :data-has-records (str (boolean (seq records)))
-               :style {:height         "100%"
-                       :display        "flex"
-                       :flex-direction "column"
-                       :background     (:bg-2 tokens)
-                       :color          (:text-primary tokens)
-                       :font-family    sans-stack
-                       :font-size      "14px"}}
+               :style panel-root-style}
      [:header {:data-testid "rf-xray-machine-inspector-header"
-               :style {:padding "16px 16px 8px 16px"
-                       :display "flex"
-                       :align-items "center"
-                       :justify-content "space-between"
-                       :gap "12px"}}
+               :style panel-header-style}
       ;; rf2-6xezz — Mike-direction 2026-05-21: the large h1 "Machine
       ;; inspector" heading is scrubbed; the L4 tab strip is the
       ;; panel-name source-of-truth. The header row keeps the nav +
       ;; share affordances on the right.
       [:div]
       (when (not= :no-machines empty-kind)
-        [:div {:style {:display "flex"
-                       :align-items "center"
-                       :gap "8px"}}
+        [:div {:style panel-header-toolbar-style}
          (prev-next-nav scope-machine-id)
          (share-button)])]
      (cond
@@ -1018,12 +1081,11 @@
        (seq records)
        ;; rf2-zdfbm — flex column so the focused-event view fills the
        ;; host and the topology chart grows into the panel height.
+       ;; rf2-alsnz — pass `records` through so `focused-event-view`
+       ;; does not duplicate-subscribe the same composite handle.
        [:div {:data-testid "rf-xray-machine-inspector-focused-event-host"
-              :style {:flex 1
-                      :overflow "auto"
-                      :display "flex"
-                      :flex-direction "column"}}
-        (focused-event-view)]
+              :style focused-event-host-style}
+        (focused-event-view records)]
 
        :else
        (blank-state))]))
