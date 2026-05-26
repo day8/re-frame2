@@ -140,6 +140,24 @@
          ;; gate's `cljs-devtools` checks still run as defence-in-depth
          ;; (a stray re-introduction would re-fail the gate).
 
+         ;; Editscript — canonical diff engine for Xray (rf2-n2jig).
+         ;; A* algorithm producing optimally-small edit scripts as pure
+         ;; EDN — `[[[path] :+ value] [[path] :- ] [[path] :r value]]`.
+         ;; Replaces the home-grown classifier at
+         ;; `views/edn_inspector.cljs:533-664` (10 fns; pre-alpha clean
+         ;; delete, no shim). Vector shift-detection comes free from
+         ;; A*'s Myers underpinnings — an insert in a 30-element vector
+         ;; renders as 1 `:+` op + N-1 shifted-but-equal rows rather
+         ;; than N spurious modifications. Pure-data output aligns
+         ;; with re-frame2's spec-is-data ethos; the same edit script
+         ;; feeds Xray's renderer, the legacy flat-diff line view, and
+         ;; (future) Story's snapshot lens + MCP wire surfaces — one
+         ;; diff representation, many consumers. Bundle-isolated: Xray
+         ;; is dev-only via `:devtools/preloads`; the bundle-isolation
+         ;; gate verifies `editscript.*` does not reach production
+         ;; bundles.
+         juji/editscript {:mvn/version "0.6.5"}
+
          ;; zprint — canonical pretty-printer for the EDN widget's
          ;; `code-block` rendering of handler-source strings. The Event
          ;; panel's HANDLER section reads `:rf.handler/source` off the

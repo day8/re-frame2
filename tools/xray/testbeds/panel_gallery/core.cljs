@@ -89,7 +89,14 @@
             ;; L4 panel that mounts it; this gallery gives it a
             ;; dedicated harness with one variant per input shape /
             ;; opts combination.
-            [panel-gallery.gallery-edn-inspector]))
+            [panel-gallery.gallery-edn-inspector]
+            ;; rf2-n2jig — mode-3 diff grammar Story set (R1-R8 +
+            ;; combination + edge + theme/density). Shares the
+            ;; `:panel-gallery.edn-inspector/fixture` slot + Panel
+            ;; mount with the edn-inspector gallery above; the
+            ;; variants pass `:full-with-diff? true` to opt into
+            ;; the mode-3 chrome (R3 chip + R4 rail).
+            [panel-gallery.gallery-diff-mode-3]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)

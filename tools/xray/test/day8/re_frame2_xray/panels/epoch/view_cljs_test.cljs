@@ -371,34 +371,46 @@
   (testing "rf2-93436 — `:db diff` sub-section is ALWAYS present
             inside the HANDLER body for reg-event-db / reg-event-fx.
             Empty diff renders `— (no changes)`; populated diff
-            renders the path-changes."
+            renders the path-changes.
+
+            rf2-n2jig — the toggle's default flipped to `:full+diff`
+            (mode-3). These tests pin `:diff` explicitly via the
+            persistence slot so the diff-list assertions remain
+            authoritative against the explicit-pin path."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray.epoch/set-db-view-mode :diff]))
     (testing "reg-event-db with empty diff"
-      (let [tree (view/render-handler-step
-                   {:step :handler :badge :HANDLER :step-number 3
-                    :flavour :reg-event-db :event-id :nop
-                    :db-diff [] :fx [] :machine nil})
+      (let [tree (rf/with-frame :rf/xray
+                   (view/render-handler-step
+                     {:step :handler :badge :HANDLER :step-number 3
+                      :flavour :reg-event-db :event-id :nop
+                      :db-diff [] :fx [] :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot)
             ":db diff sub-section is always present even when empty")
         (is (string/includes? (or (th/text-content slot) "") "no changes")
             "empty diff renders `— (no changes)` per design §Empty edge cases")))
     (testing "reg-event-db with populated diff"
-      (let [tree (view/render-handler-step
-                   {:step :handler :badge :HANDLER :step-number 3
-                    :flavour :reg-event-db :event-id :counter/inc
-                    :db-diff [[[:counter :value] 5 6 :modified]]
-                    :fx [] :machine nil})
+      (let [tree (rf/with-frame :rf/xray
+                   (view/render-handler-step
+                     {:step :handler :badge :HANDLER :step-number 3
+                      :flavour :reg-event-db :event-id :counter/inc
+                      :db-diff [[[:counter :value] 5 6 :modified]]
+                      :fx [] :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot))
         (is (some? (th/find-by-testid
                      tree "rf-xray-epoch-handler-diff-row-0"))
             "the populated diff row renders inside the sub-section")))
     (testing "reg-event-fx with empty diff"
-      (let [tree (view/render-handler-step
-                   {:step :handler :badge :HANDLER :step-number 3
-                    :flavour :reg-event-fx :event-id :navigate
-                    :db-diff [] :fx [{:fx-id :navigate :value "/x"}]
-                    :machine nil})
+      (let [tree (rf/with-frame :rf/xray
+                   (view/render-handler-step
+                     {:step :handler :badge :HANDLER :step-number 3
+                      :flavour :reg-event-fx :event-id :navigate
+                      :db-diff [] :fx [{:fx-id :navigate :value "/x"}]
+                      :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot)
             "even reg-event-fx that returned no :db gets the sub-section")
@@ -1110,12 +1122,20 @@
 (deftest handler-db-diff-values-route-through-mini-test
   (testing "rf2-8w8er — HANDLER step's :db diff rows render before /
             after values through `ei/mini` so per-token chrome paints
-            (numbers orange, sentinels chip)."
-    (let [tree (view/render-handler-step
-                 {:step :handler :badge :HANDLER :step-number 3
-                  :flavour :reg-event-db :event-id :counter/inc
-                  :db-diff [[[:counter :value] 5 6 :modified]]
-                  :fx [] :machine nil})]
+            (numbers orange, sentinels chip).
+
+            rf2-n2jig — pin `:diff` mode explicitly since the default
+            flipped to `:full+diff`."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray.epoch/set-db-view-mode :diff]))
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-handler-step
+                   {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-event-db :event-id :counter/inc
+                    :db-diff [[[:counter :value] 5 6 :modified]]
+                    :fx [] :machine nil}))]
       (is (pos? (count (mini-mounts tree)))
           "the :db diff row mounts at least one mini-render"))))
 

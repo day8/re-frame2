@@ -2221,22 +2221,34 @@
         "<source not yet captured>"])]))
 
 (defn- db-view-mode-toggle
-  "Two-button toggle bar `[diff][all]` for the HANDLER `:db`
-  sub-section. Active button paints in `:accent`; inactive button
-  is transparent with muted text. Click dispatches
+  "Three-button toggle bar `[diff][full][full+diff]` for the HANDLER
+  `:db` sub-section. Active button paints in `:accent`; inactive
+  buttons are transparent with muted text. Click dispatches
   `:rf.xray.epoch/set-db-view-mode`.
 
-  Pair-debug 2026-05-26 — operator wants the choice between
-  cascade-attributable diff and the full post-cascade app-db
-  without leaving the HANDLER step."
+  rf2-n2jig — replaces the two-button `[diff][all]` toggle. The new
+  mode-3 `:full+diff` is the operator's most-useful default (shape +
+  delta in one read); per-mode labels:
+
+  - `diff` — flat path-prefixed change list (what changed).
+  - `full` — full data tree, no diff chrome (the shape; renamed
+             from `all` for clarity).
+  - `full+diff` — full tree WITH inline diff annotations (R1-R8
+             grammar per findings doc; mode-3 default)."
   [mode]
   [:span {:data-testid "rf-xray-epoch-handler-db-view-mode"
           :data-mode (name mode)
           :style mode-toggle-bar-style}
-   (for [m [:diff :all]
-         :let [active? (= mode m)]]
+   (for [m [:diff :full :full+diff]
+         :let [active? (= mode m)
+               ;; Use a sanitised name for the testid so the `+` in
+               ;; `:full+diff` doesn't end up in a CSS selector
+               ;; downstream.
+               testid-suffix (case m
+                               :full+diff "full-with-diff"
+                               (name m))]]
      ^{:key (name m)}
-     [:button {:data-testid (str "rf-xray-epoch-handler-db-view-" (name m))
+     [:button {:data-testid (str "rf-xray-epoch-handler-db-view-" testid-suffix)
                :aria-pressed (str active?)
                :on-click (fn [e]
                            (.stopPropagation e)
@@ -2255,33 +2267,41 @@
                :style (if active?
                         mode-toggle-button-active-style
                         mode-toggle-button-inactive-style)}
-      (name m)])])
+      ;; Label — `full+diff` uses a `+` joiner per Mike's pair-debug
+      ;; 2026-05-27 grammar locking (the literal symbol is the cue).
+      (case m
+        :diff      "diff"
+        :full      "full"
+        :full+diff "full+diff")])])
 
 (defn- handler-db-diff-block
   "Render the HANDLER step's `:db` sub-section (rf2-93436 / design
   doc §Section 1 + §Section 2). Always renders for non-machine
   handlers.
 
-  Per pair-debug 2026-05-26 the sub-section carries a `[diff][all]`
-  view-mode toggle:
+  rf2-n2jig — the sub-section carries a three-button toggle
+  `[diff][full][full+diff]`:
 
-  - `:diff` (default) — render only the path-changes this handler
-    produced. When empty, reads `— (no changes)` per the design's
-    §Empty edge-case rendering table (reg-event-db returning
-    identical db / reg-event-fx returning nil — explicit empty
-    state, not an omitted slot).
-  - `:all` — render the full post-cascade `:db-after` via the
-    edn-inspector widget. Operator sees the entire app-db value
-    without leaving the HANDLER step.
+  - `:diff` — flat path-changes this handler produced. When empty,
+    reads `— (no changes)` per the design's §Empty edge-case
+    rendering table (reg-event-db returning identical db / reg-
+    event-fx returning nil — explicit empty state, not an omitted
+    slot).
+  - `:full` — full post-cascade `:db-after` via the edn-inspector
+    widget, no diff chrome (renamed from `:all` for clarity).
+    Operator sees the entire app-db value without diff annotations.
+  - `:full+diff` — mode-3 default (per pair-debug 2026-05-27): the
+    full data tree WITH inline diff annotations. Operator sees the
+    shape AND the delta in one read. Implements the R1-R8 grammar
+    rules per the findings doc `diff-mode-3-key-and-triangle-
+    grammar-2026-05-27.md` §5.1 (revised per §7).
 
   Mode persists via `:rf.xray.epoch/db-view-mode` so the operator's
   preference survives focus shifts.
 
-  Distinct from the top-level APP-DB DIFF step (rf2-rrykz) — same
-  source data, different lens. HANDLER's `:db` attributes the
-  change to THIS handler's return value; APP-DB DIFF surfaces the
-  cascade-wide accumulated change (which can include fx-triggered
-  child handlers' writes).
+  Distinct from the (retired) top-level APP-DB DIFF step (rf2-rrykz)
+  — same source data, different lens. HANDLER's `:db` attributes the
+  change to THIS handler's return value.
 
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
   the snapshot IS the db change (at `[:rf/machines <id>]`) so the
@@ -2308,16 +2328,42 @@
          (for [[i row] (map-indexed vector db-diff)]
            (db-diff-line row i)))
 
-       :all
+       :full
        (let [record  @(rf/subscribe [:rf.xray/selected-epoch-record])
              db-after (:db-after record)]
          (if (some? db-after)
-           [:div {:data-testid "rf-xray-epoch-handler-db-all"
+           [:div {:data-testid "rf-xray-epoch-handler-db-full"
                   :style handler-db-all-style}
             [ei/edn-inspector db-after
-             {:site-id [:rf.xray.epoch/handler-db-all (:epoch-id record)]
+             {:site-id [:rf.xray.epoch/handler-db-full (:epoch-id record)]
               :default-expanded-depth 2}]]
-           [:span {:data-testid "rf-xray-epoch-handler-db-all-missing"
+           [:span {:data-testid "rf-xray-epoch-handler-db-full-missing"
+                   :style handler-db-all-missing-style}
+            "— db-after not available in epoch record"]))
+
+       :full+diff
+       ;; Mode-3 (rf2-n2jig): render the full :db-after tree with
+       ;; inline diff annotations driven off `:db-before`. The
+       ;; edn-inspector picks up the Editscript-backed projection
+       ;; via `:before`; `:full-with-diff?` opts the renderer into
+       ;; R3 chip + R4 vertical-rail chrome (R1/R2/R5/R6/R7/R8 fire
+       ;; off the projection alone). Default-expanded-depth 3 per
+       ;; Mike's pair-debug Q4 answer (between browse's 1 and diff's
+       ;; 2 — deep enough to surface most app-db top-level shards).
+       (let [record    @(rf/subscribe [:rf.xray/selected-epoch-record])
+             db-before (:db-before record)
+             db-after  (:db-after record)]
+         (cond
+           (some? db-after)
+           [:div {:data-testid "rf-xray-epoch-handler-db-full-with-diff"
+                  :style handler-db-all-style}
+            [ei/edn-inspector db-after
+             {:site-id [:rf.xray.epoch/handler-db-full-with-diff (:epoch-id record)]
+              :before db-before
+              :full-with-diff? true
+              :default-expanded-depth 3}]]
+           :else
+           [:span {:data-testid "rf-xray-epoch-handler-db-full-with-diff-missing"
                    :style handler-db-all-missing-style}
             "— db-after not available in epoch record"])))]))
 

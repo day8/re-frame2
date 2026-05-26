@@ -224,6 +224,15 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-xray.views.edn-inspector-protocol :as ddp]
+            ;; rf2-n2jig — Editscript-backed diff projection engine.
+            ;; Replaces the home-grown leaf-walker classifier that
+            ;; used to live at lines 533-664 of this file. The
+            ;; engine produces `{:path-ops :container-ops :flat-rows
+            ;; :wholly-changed-roots :shift-suffix :vector-removals}`
+            ;; — the renderer chrome below consumes it via
+            ;; `engine/op-at`, `engine/wholly-changed-ancestor`,
+            ;; `engine/shifted-was-index`, etc.
+            [day8.re-frame2-xray.diff.engine :as engine]
             ;; rf2-x16b1 — load default IXrayEdnInspector formatters
             ;; for uuid + inst. Requiring for side-effect (extend-type).
             ;; Consumers that extend the same types win — `extend-type`
@@ -512,169 +521,91 @@
     :else                          :other))
 
 ;; =========================================================================
-;; diff mode — pure helpers (op classification, gutter mapping)
+;; diff mode — projection-aware chrome
 ;; =========================================================================
 ;;
-;; Phase 5 (rf2-q3dzw, D5=a per rf2-sndui) subsumes the legacy
-;; `edn-inspector.render` diff engine into this widget. Diff is an
-;; opt-in MODE on the same renderer: when the caller passes `:before`
-;; the widget paints gutter glyphs + `← changed from <prior>`
-;; annotations in place, force-expands the ancestor chain over any
-;; changed descendant, and dims `:same` rows so the eye lands on the
-;; change.
+;; rf2-n2jig — Editscript-backed projection engine replaces the home-
+;; grown classifier wholesale (no shim, no transitional double-engine
+;; state). The 10 pre-existing fns (`diff-op` / `children-descendant?` /
+;; `op->gutter-glyph` / `op->gutter-tone-key` / `op->row-wash-key` /
+;; `op->row-stripe-key` / `gutter-colour` / `row-wash-bg` /
+;; `row-stripe-colour` / `container-op`) were retired here in favour of
+;; `day8.re-frame2-xray.diff.engine`'s pre-computed projection
+;; (`engine/project`) + the path-keyed lookup helpers (`engine/op-at`,
+;; `engine/wholly-changed-ancestor`, `engine/shifted-was-index`,
+;; `engine/type-change?`, `engine/redaction-side`,
+;; `engine/change-count-at`).
+;;
+;; The legacy `::missing` sentinel is re-exported below for compatibility
+;; with the existing diff-aware container-iteration logic
+;; (`children-of-pair`, `diff-pair-count`) — those walkers thread
+;; `::missing` to represent slots that exist on one side of the diff
+;; only. The CLASSIFIER side of that interaction (which op to attach to
+;; the leaf) now flows through the engine's projection map.
 
 (def missing-sentinel
   "Marker for a `:before` / `:after` slot that does not exist in its
-  side of the diff (e.g. an added key has `::missing` for `:before`).
-  Distinct from `nil` (which is a real CLJS value). Public so tests
-  can assert the diff-op classification against it."
+  side of the diff. Public so the `children-of-pair` / `diff-pair-count`
+  walkers can thread it without colliding with a real `nil` slot. The
+  CLASSIFIER side of the diff (which op to attach to each leaf) lives
+  in `day8.re-frame2-xray.diff.engine` per rf2-n2jig."
   ::missing)
 
-(defn diff-op
-  "Classify a (before, after) pair into a diff op keyword:
+;; ---- per-op token tables ------------------------------------------------
+;;
+;; These five `op-*` lookups carry the rendering chrome rules. They are
+;; PURE — given an op keyword (one of `:added / :removed / :modified /
+;; :same / :same-shifted / :children`) they return the glyph / token-
+;; key / colour the renderer paints. The projection layer is upstream
+;; of these — the renderer hands the engine an op tag, then this
+;; table maps to chrome. R5-tinted (suppress glyph + stripe; retain
+;; wash) is implemented at the call site in `gutter-row` by the caller
+;; passing `:suppress-glyph?` / `:suppress-stripe?` flags.
 
-    :added    — before is `::missing`, after exists
-    :removed  — before exists, after is `::missing`
-    :modified — both exist and differ (leaf-level)
-    :same     — both exist and are equal
-
-  Pure data; JVM-portable."
-  [before after]
-  (cond
-    (= before ::missing) (if (= after ::missing) :same :added)
-    (= after  ::missing) :removed
-    (= before after)     :same
-    :else                :modified))
-
-(declare changed-descendant?*)
-
-(defn changed-descendant?
-  "True when at least one descendant in (before, after) differs.
-  Walks maps + sequentials + sets; pure. Returns true for primitive
-  mismatches at the root too — so a caller can use this to drive
-  ancestor-open.
-
-  Always returns a primitive boolean (never nil) so callers can
-  dispatch on `true?` / `false?` without nil-coercion."
-  [before after]
-  (boolean (changed-descendant?* before after)))
-
-(defn- changed-descendant?*
-  [before after]
-  (cond
-    ;; Either side missing → caller treats this as added / removed,
-    ;; which is itself a change.
-    (or (= before ::missing) (= after ::missing))
-    (not (and (= before ::missing) (= after ::missing)))
-
-    (and (map? before) (map? after))
-    (or (not= (set (keys before)) (set (keys after)))
-        (some (fn [k] (changed-descendant?* (get before k ::missing)
-                                            (get after  k ::missing)))
-              (into (set (keys before)) (keys after))))
-
-    (and (sequential? before) (sequential? after))
-    (let [a-vec (vec after)
-          b-vec (vec before)
-          n     (max (count a-vec) (count b-vec))]
-      (or (not= (count a-vec) (count b-vec))
-          (boolean
-            (some true?
-                  (for [i (range n)]
-                    (changed-descendant?*
-                      (if (< i (count b-vec)) (nth b-vec i) ::missing)
-                      (if (< i (count a-vec)) (nth a-vec i) ::missing)))))))
-
-    (and (set? before) (set? after))
-    (not= before after)
-
-    :else (not= before after)))
-
-(def op->gutter-glyph
-  "Per-op gutter glyph (§10.3 cascade-gutter mapping). Public so tests
-  can assert the mapping without re-deriving."
-  {:added    "+"
-   :removed  "-"
-   :modified "~"
-   :children "◴"
-   :same     " "})
-
-(def op->gutter-tone-key
-  "Per-op token-key for the gutter GLYPH colour.
-
-  rf2-awqts — every diff-active op now reads the SAME reserved
-  `:diff-gutter` token (cyan-teal in dark / darker-teal in light); the
-  glyph carries the per-op shape (`+ / - / ~ / ◴`) and the row wash
-  carries the per-op hue. Pre-fix the glyph colour mapped per-op to
-  `:green` / `:red` / `:yellow` / `:accent`, which collided with the
-  Calva-aligned `:syntax-*` palette (numbers orange ≡ modified yellow,
-  booleans gold ≡ modified yellow, etc.) — the operator could not
-  distinguish 'this is a number' from 'this is modified'. The reserved
-  diff-gutter hue sits outside every `:syntax-*` family by design.
-
-  `:same` keeps `:text-tertiary` so the transparent-border non-diff
-  shape composes unchanged."
-  {:added    :diff-gutter
-   :removed  :diff-gutter
-   :modified :diff-gutter
-   :children :diff-gutter
-   :same     :text-tertiary})
-
-(def op->row-wash-key
-  "Per-op token-key for the row-background wash. rf2-awqts —
-  GitHub-style low-opacity tinge across the whole diff row, so the eye
-  reads diff state at row level while per-token text colour reads type
-  semantics. `:same` and `:children` get NO wash (`nil`) — the row sits
-  flush with the canvas. Public so tests can assert the mapping
-  without re-deriving."
-  {:added    :diff-added-wash
-   :removed  :diff-removed-wash
-   :modified :diff-modified-wash
-   :children nil
-   :same     nil})
-
-(def op->row-stripe-key
-  "Per-op token-key for the 2px left-edge stripe. Reinforces the row
-  wash at the column-1 anchor — same hue family, more saturated.
-  `:same` and `:children` produce a transparent stripe."
-  {:added    :diff-added-stripe
-   :removed  :diff-removed-stripe
-   :modified :diff-modified-stripe
-   :children nil
-   :same     nil})
-
-(defn- gutter-colour
-  "Resolve the gutter GLYPH colour for an op via the token table.
-  rf2-awqts — every active op reads `:diff-gutter`; `:same` reads
-  `:text-tertiary`."
+(defn- op-glyph
+  "Gutter glyph per op. `:same-shifted` shows NO glyph (per R6) — the
+  `(was N)` suffix carries the identity signal alone."
   [op]
-  (get tokens (op->gutter-tone-key op) (:text-tertiary tokens)))
+  (case op
+    :added        "+"
+    :removed      "-"
+    :modified     "~"
+    :children     "◴"
+    :same-shifted " "
+    :same         " "
+    " "))
 
-(defn- row-wash-bg
-  "Resolve the per-op row-background wash CSS string (or `nil` when no
-  wash applies). rf2-awqts."
+(defn- op-gutter-colour
+  "Gutter glyph colour. Active ops paint `:diff-gutter` (reserved cyan-
+  teal, distinct from every `:syntax-*` family); `:same` and
+  `:same-shifted` paint `:text-tertiary`."
   [op]
-  (when-let [k (get op->row-wash-key op)]
-    (get tokens k)))
+  (case op
+    (:added :removed :modified :children) (:diff-gutter tokens)
+    (:text-tertiary tokens)))
 
-(defn- row-stripe-colour
-  "Resolve the per-op 2px-stripe CSS string (or `nil` when no stripe
-  applies). rf2-awqts."
+(defn- op-wash-bg
+  "Row-background wash CSS string. R5-tinted: descendants of a wholly-
+  changed root inherit the wash for their parent op (so a scrolled-in
+  view of a 20-leaf added shard still reads as green) but the caller
+  decides via `:effective-op` what op the wash should reflect."
   [op]
-  (when-let [k (get op->row-stripe-key op)]
-    (get tokens k)))
+  (case op
+    :added    (:diff-added-wash tokens)
+    :removed  (:diff-removed-wash tokens)
+    :modified (:diff-modified-wash tokens)
+    nil))
 
-(defn- container-op
-  "Classify a container's diff op given (before, after). Returns
-  `:added`/`:removed`/`:children`/`:same` (containers never report
-  `:modified` directly — a per-leaf modification surfaces as
-  `:modified` on the leaf row, with `:children` on the ancestor)."
-  [before after]
-  (cond
-    (= before ::missing)                       :added
-    (= after  ::missing)                       :removed
-    (changed-descendant? before after)         :children
-    :else                                      :same))
+(defn- op-stripe-colour
+  "2px left-edge stripe colour. Suppressed for `:children` (the change
+  is below — the descendants carry the signal), `:same`, and
+  `:same-shifted`."
+  [op]
+  (case op
+    :added    (:diff-added-stripe tokens)
+    :removed  (:diff-removed-stripe tokens)
+    :modified (:diff-modified-stripe tokens)
+    nil))
 
 (defn- gutter-row
   "Wrap `body` with the diff row chrome: gutter glyph + low-opacity
@@ -714,40 +645,57 @@
   measured at ~28.79px against the inline ~17.79px sibling rows).
 
   Returns an `[:span ...]` (display: inline-flex) so it nests inside a
-  grid cell without breaking the row."
-  [op body]
-  (let [active? (not= :same op)
-        wash    (row-wash-bg op)
-        stripe  (row-stripe-colour op)]
-    [:span {:data-rf-diff-op (name op)
-            :data-rf-diff-wash (when wash "1")
-            :data-rf-diff-stripe (when stripe "1")
-            :style (cond-> {:display      "inline-flex"
-                            :align-items  "baseline"
-                            :gap          "4px"
-                            :padding-left "6px"
-                            ;; rf2-awqts — stripe colour comes from
-                            ;; `:diff-*-stripe`; on `:same` / `:children`
-                            ;; the border stays transparent so the row
-                            ;; chrome aligns column-wise without paint.
-                            :border-left  (str "2px solid "
-                                               (if (and active? stripe)
-                                                 stripe
-                                                 "transparent"))}
-                     ;; rf2-awqts — row wash applied as background on
-                     ;; the wrapping span so the tint extends behind
-                     ;; both gutter glyph + value. Opacity baked into
-                     ;; the token's rgba() string (~10-12%) so the
-                     ;; wash reads as environmental, not obscuring.
-                     wash (assoc :background wash))}
-     [:span {:style {:flex          "0 0 12px"
-                     :color         (gutter-colour op)
-                     :font-size     "11px"
-                     :font-weight   700
-                     :text-align    "center"
-                     :user-select   "none"}}
-      (op->gutter-glyph op)]
-     [:span {:style {:flex 1 :min-width 0}} body]]))
+  grid cell without breaking the row.
+
+  ## rf2-n2jig — R5-tinted suppression
+
+  The optional `chrome-opts` map carries R5-tinted overrides:
+
+  - `:suppress-glyph?` — paint a blank gutter cell (no `+ / − / ~`).
+    Set by the renderer for descendants of a wholly-changed root.
+  - `:suppress-stripe?` — paint a transparent left-edge stripe.
+    Same R5 suppression rule.
+  - `:wash-op` — paint the wash for THIS op even when the row's own
+    op is `:same` or `:same-shifted` (so descendants of a wholly-
+    new subtree still read as green).
+
+  When `chrome-opts` is omitted the chrome falls back to the per-op
+  defaults (added=green, modified=amber, removed=red, same=invisible).
+  All three optional keys default to nil, so existing call sites
+  (non-mode-3 diff renders) reach the same hiccup shape unchanged."
+  ([op body] (gutter-row op body nil))
+  ([op body {:keys [suppress-glyph? suppress-stripe? wash-op]}]
+   (let [active?       (and (not (#{:same :same-shifted} op))
+                            (not suppress-stripe?))
+         effective-wash-op (or wash-op
+                               (when-not (#{:same :same-shifted} op) op))
+         wash          (op-wash-bg effective-wash-op)
+         stripe        (when-not suppress-stripe? (op-stripe-colour op))
+         glyph         (if suppress-glyph? " " (op-glyph op))
+         glyph-colour  (if suppress-glyph?
+                         (:text-tertiary tokens)
+                         (op-gutter-colour op))]
+     [:span {:data-rf-diff-op (name op)
+             :data-rf-diff-wash (when wash "1")
+             :data-rf-diff-stripe (when stripe "1")
+             :data-rf-diff-suppressed (when suppress-glyph? "1")
+             :style (cond-> {:display      "inline-flex"
+                             :align-items  "baseline"
+                             :gap          "4px"
+                             :padding-left "6px"
+                             :border-left  (str "2px solid "
+                                                (if (and active? stripe)
+                                                  stripe
+                                                  "transparent"))}
+                      wash (assoc :background wash))}
+      [:span {:style {:flex          "0 0 12px"
+                      :color         glyph-colour
+                      :font-size     "11px"
+                      :font-weight   700
+                      :text-align    "center"
+                      :user-select   "none"}}
+       glyph]
+      [:span {:style {:flex 1 :min-width 0}} body]])))
 
 (def ^:private change-annotation-style
   "Style for the inline `← changed from <prior>` chip rendered to the
@@ -1030,6 +978,10 @@
 ;; =========================================================================
 
 (declare render-node)
+;; rf2-n2jig — `render-leaf-with-diff` uses `mini` for R7 type-change
+;; suffix rendering; `mini` is defined later in the file (it's the
+;; public 1-arg inline render). Forward declare so the compiler resolves.
+(declare mini)
 
 (defn- children-of
   "Return a seq of `[child-key child-value]` pairs for a collection.
@@ -1620,9 +1572,9 @@
                                     zoom-path-prefix path)` so the
                                     zoom-slot stores the full path."
   [{:keys [value kind panel-id mount-id path depth expansion-map opts
-           dispatch-fn diff? before zoomable? zoom-path-prefix]}]
+           dispatch-fn diff? before zoomable? zoom-path-prefix projection]}]
   (let [{:keys [default-expanded-depth max-depth max-inline-width
-                available-width-px]
+                available-width-px full-with-diff?]
          :or {default-expanded-depth default-ceiling-depth
               max-depth 16
               max-inline-width 60}} opts
@@ -1635,12 +1587,47 @@
                         (child-count value kind))
         empty?        (zero? cnt)
         depth-capped? (>= depth max-depth)
-        ;; Diff: classify this container's op vs `before`. Only
-        ;; meaningful when diff? is true; otherwise everything is
-        ;; `:same` and the gutter rows collapse to a transparent
-        ;; left border.
-        op            (if diff? (container-op before value) :same)
-        has-change?   (and diff? (not= op :same))
+        ;; Diff: classify this container's op via the rf2-n2jig
+        ;; Editscript-backed projection map. The projection is computed
+        ;; once at the top of `render-edn-inspector` and threaded down
+        ;; via `opts`; the per-path lookup is constant-time. When the
+        ;; projection is absent (non-diff mode), every path reads `:same`
+        ;; and the gutter rows collapse to a transparent left border.
+        ;;
+        ;; rf2-n2jig — tests that drive `render-node` directly without
+        ;; going through `render-edn-inspector` skip the top-level
+        ;; projection compute. We fall back to a lightweight local op
+        ;; classifier in that case so the ancestor-chain force-open +
+        ;; chrome wiring still functions (the engine is the canonical
+        ;; classifier, but a 6-line `(cond ...)` fallback is no shim —
+        ;; it's the same answer for the (before, value) pair, with the
+        ;; engine's superset of `:same-shifted` / R7 / R8 nuances
+        ;; unreachable from this call path).
+        op            (cond
+                        (and diff? projection)
+                        (engine/op-at projection path)
+
+                        (and diff? (or (= before missing-sentinel)
+                                       (= value missing-sentinel)))
+                        (cond
+                          (= before missing-sentinel) :added
+                          :else                       :removed)
+
+                        (and diff? (not= before value))
+                        :children
+
+                        :else :same)
+        has-change?   (and diff? (not (#{:same :same-shifted} op)))
+        ;; R5-tinted: when this container is INSIDE a wholly-changed
+        ;; ancestor, the renderer suppresses per-leaf gutter glyphs +
+        ;; stripes on its descendants (the parent's marking covers them).
+        ;; The descendant row WASH is retained so a partial-visibility
+        ;; scroll into the middle of a 20-leaf added shard still reads
+        ;; as green. The ancestor itself is the wholly-changed-root and
+        ;; gets the full chrome — only deeper descendants suppress.
+        wholly-anc    (when (and diff? projection)
+                        (engine/wholly-changed-ancestor projection path))
+        inside-wholly? (and wholly-anc (not= wholly-anc (vec path)))
         default?      (and (not depth-capped?)
                            (default-expanded?
                              {:depth                   depth
@@ -1818,18 +1805,49 @@
           true        (conj (bracket kind :open value)))
 
         :else
-        (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
-                 [:span {:on-click   toggle-fn
-                         :role       "button"
-                         :tabindex   0
-                         :aria-expanded false
-                         :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                         ;; rf2-tzvk9 — ≥24×24 click target via the shared
-                         ;; `triangle-style`.
-                         :style triangle-style}
-                  "▸"]]
-          zoom-button (conj zoom-button)
-          true        (conj (collapsed-summary value kind))))]
+        (let [;; R3-revised (rf2-n2jig, per findings §7 Q3): collapsed
+              ;; containers carrying ANY descendant change show a
+              ;; `[N∆]` count chip after the closing ellipsis. The
+              ;; triangle itself stays default `:text-tertiary` (no
+              ;; colour swap) so the click affordance is unmuddied.
+              n-changes (when (and diff? projection)
+                          (engine/change-count-at projection path))
+              show-chip? (and (pos? (or n-changes 0))
+                              (not (#{:added :removed} op)))]
+          (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
+                   [:span {:on-click   toggle-fn
+                           :role       "button"
+                           :tabindex   0
+                           :aria-expanded false
+                           :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                           ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                           ;; `triangle-style`.
+                           :style triangle-style}
+                    "▸"]]
+            zoom-button (conj zoom-button)
+            true        (conj (collapsed-summary value kind))
+            show-chip?
+            (conj [:span {:data-rf-diff-chip "1"
+                          :data-rf-diff-chip-count (str n-changes)
+                          :style {:margin-left  "6px"
+                                  :padding      "1px 6px"
+                                  :background   (op-wash-bg (or (engine/op-at projection path)
+                                                                :modified))
+                                  :border       (str "1px solid "
+                                                     (or (op-stripe-colour
+                                                           (or (engine/op-at projection path)
+                                                               :modified))
+                                                         "transparent"))
+                                  :border-radius "8px"
+                                  :font-family  sans-stack
+                                  :font-size    "10px"
+                                  :font-weight  700
+                                  :color        (or (op-stripe-colour
+                                                      (or (engine/op-at projection path)
+                                                          :modified))
+                                                    (:text-secondary tokens))
+                                  :line-height  1.2}}
+                   (str n-changes "∆")]))))]
 
      ;; ---- body — children rendered indented -----------------------------
      ;;
@@ -1884,16 +1902,40 @@
            ;; `padding-left 16px` — line + first-key column + closing-
            ;; brace column all converge on one vertical column, so the
            ;; tree reads as `▾ { │ keys │ }` recursively at every depth.
-           (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
-                        :data-rf-body-layout "grid"
-                        :style body-grid-style}]
+           ;; R4 rail (rf2-n2jig): when this container is change-
+           ;; bearing AND we're in mode-3 (full+diff), promote the
+           ;; body's left border to a 2px coloured rail in the dominant-
+           ;; op hue. Outside mode-3 (or no change) the subtle guide
+           ;; line stays.
+           (into [:div (let [rail-stripe (when (and full-with-diff? has-change?)
+                                           (op-stripe-colour op))]
+                         {:data-testid (str (testid-for panel-id mount-id path) "-body")
+                          :data-rf-body-layout "grid"
+                          :data-rf-rail (when rail-stripe "1")
+                          :style (cond-> body-grid-style
+                                   rail-stripe
+                                   (assoc :border-left (str "2px solid " rail-stripe)))})]
                  (mapcat
                    (fn [[k cv cb]]
                      (let [child-path (conj (vec path) k)
+                           ;; R2 — when the KEY itself is new/removed
+                           ;; (the parent map sees this k for the first
+                           ;; time or this k is gone) paint a `+` / `−`
+                           ;; glyph in column 1 of the KEY ROW. Distinct
+                           ;; from "an existing key whose value changed"
+                           ;; which paints on the value cell. Pulled off
+                           ;; the projection's op at the child path.
+                           child-op (when (and diff? projection)
+                                      (engine/op-at projection child-path))
+                           key-side-glyph (case child-op
+                                            :added   "+"
+                                            :removed "−"
+                                            nil)
                            value-node (render-node
                                         {:value cv
                                          :before cb
                                          :diff? diff?
+                                         :projection projection
                                          :panel-id panel-id
                                          :mount-id mount-id
                                          :path child-path
@@ -1909,9 +1951,26 @@
                           ;; space: nowrap` prevents long keys (e.g. a
                           ;; deeply-namespaced `:rf.x.with.many.parts/k`)
                           ;; from wrapping inside the key column.
-                          [:div {:data-rf-cell "key"
-                                 :style key-cell-style}
-                           (key-segment k)]
+                          [:div (cond-> {:data-rf-cell "key"
+                                         :style key-cell-style}
+                                  key-side-glyph
+                                  (assoc :data-rf-key-glyph key-side-glyph))
+                           ;; R2 key-side glyph — paint `+` / `−` in
+                           ;; column 1 of the key row when the KEY itself
+                           ;; is new/removed. The key text picks up the
+                           ;; per-op decoration (`:removed` gets strike-
+                           ;; through; `:added` paints the key bright).
+                           (when key-side-glyph
+                             [:span {:data-rf-key-glyph "1"
+                                     :style {:color       (:diff-gutter tokens)
+                                             :font-weight 700
+                                             :margin-right "4px"
+                                             :user-select  "none"}}
+                              key-side-glyph])
+                           (cond-> (key-segment k)
+                             (= child-op :removed)
+                             (->>
+                               (conj [:span {:style {:text-decoration "line-through"}}])))]
                           {:key (str "k-" (pr-str k))})
                         (with-meta
                           [:div {:data-rf-cell "value"
@@ -1928,9 +1987,14 @@
            ;; the vertical guide line sits at the triangle's visual
            ;; centre. Closing bracket below shares the same `16px`
            ;; padding-left.
-           (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
-                        :data-rf-body-layout "block"
-                        :style body-block-style}]
+           (into [:div (let [rail-stripe (when (and full-with-diff? has-change?)
+                                           (op-stripe-colour op))]
+                         {:data-testid (str (testid-for panel-id mount-id path) "-body")
+                          :data-rf-body-layout "block"
+                          :data-rf-rail (when rail-stripe "1")
+                          :style (cond-> body-block-style
+                                   rail-stripe
+                                   (assoc :border-left (str "2px solid " rail-stripe)))})]
                  (map
                    (fn [[k cv cb]]
                      (let [child-path (conj (vec path) k)]
@@ -1938,6 +2002,7 @@
                          (render-node {:value cv
                                        :before cb
                                        :diff? diff?
+                                       :projection projection
                                        :panel-id panel-id
                                        :mount-id mount-id
                                        :path child-path
@@ -2025,35 +2090,71 @@
   are non-colour signals — strike-through is a TEXT-DECORATION
   channel; the chip is a separate inline element.
 
-  - `:added`    — render `value`,  gutter `+`, green wash + stripe
-  - `:removed`  — render `before` (strike-through), gutter `-`,
-                  red wash + stripe
-  - `:modified` — render `value` + `← changed from <prior>` chip,
-                  gutter `~`, amber wash + stripe
-  - `:same`     — render `value` (dimmed via `:text-tertiary` so the
-                  eye lands on the changes)"
-  [{:keys [value before diff?]}]
+  - `:added`        — render `value`,  gutter `+`, green wash + stripe
+  - `:removed`      — render `before` (strike-through), gutter `−`,
+                      red wash + stripe
+  - `:modified`     — render `value` + `← changed from <prior>` chip,
+                      gutter `~`, amber wash + stripe
+  - `:same`         — render `value` (dimmed via `:text-tertiary` so the
+                      eye lands on the changes)
+  - `:same-shifted` — render `value` (no dimming) + `(was N)` muted
+                      suffix per R6 vector shift-detection.
+
+  ## rf2-n2jig — projection-aware
+
+  When `:projection` is supplied (mode-3 / full+diff path), the
+  `op` for this leaf is read off `engine/op-at projection path`.
+  Otherwise the call falls back to the legacy (before, after) pair-
+  based op classification via `engine/op-at` over a 1-shot projection
+  computed at the leaf level — same answer, more allocation.
+
+  R5-tinted: when the leaf sits inside a wholly-changed ancestor, the
+  glyph + stripe are suppressed (only the wash + parent's marking
+  carry the signal). Implemented via `gutter-row` chrome-opts."
+  [{:keys [value before diff? projection path]}]
   (if-not diff?
     (render-scalar value)
-    (let [op (diff-op before value)]
+    (let [;; Resolve op: prefer the projection at this path; else
+          ;; fall back to a 1-shot (before, after) op classification.
+          op (if projection
+               (engine/op-at projection (vec (or path [])))
+               (cond
+                 (= before ::missing) (if (= value ::missing) :same :added)
+                 (= value ::missing)  :removed
+                 (= before value)     :same
+                 :else                :modified))
+          ;; R5-tinted: descendant of wholly-changed root?
+          wholly-anc (when projection
+                       (engine/wholly-changed-ancestor projection (vec (or path []))))
+          inside-wholly? (and wholly-anc (not= wholly-anc (vec (or path []))))
+          ;; R5: suppress glyph + stripe on descendants of a wholly-
+          ;; changed root, but RETAIN the wash for partial-visibility.
+          chrome-opts (when inside-wholly?
+                        {:suppress-glyph? true
+                         :suppress-stripe? true
+                         :wash-op (engine/op-at projection wholly-anc)})
+          ;; R6: shifted-was-index for vector elements at a different
+          ;; position than they were in the before-tree.
+          was-index (when (= op :same-shifted)
+                      (engine/shifted-was-index projection (vec (or path []))))
+          ;; R7: type-change suffix uses the `mini` renderer.
+          type-change? (when projection
+                         (engine/type-change? projection (vec (or path []))))
+          ;; R8: redaction-side dictates curated suffix.
+          redaction-side (when projection
+                           (engine/redaction-side projection (vec (or path []))))]
       (case op
         :added
         (gutter-row :added
                     [:span {:data-rf-diff-op "added"}
-                     ;; rf2-awqts — render-scalar paints per-token
-                     ;; syntax colour; wash + stripe carry the diff
-                     ;; signal at the row level.
-                     (render-scalar value)])
+                     (render-scalar value)]
+                    chrome-opts)
         :removed
         (gutter-row :removed
                     [:span {:data-rf-diff-op "removed"
-                            ;; rf2-awqts — strike-through is a
-                            ;; non-colour signal that survives the
-                            ;; move to row chrome; keep it so a
-                            ;; removed leaf still reads as deleted at
-                            ;; the glyph level.
                             :style {:text-decoration "line-through"}}
-                     (render-scalar before)])
+                     (render-scalar (if (= before ::missing) value before))]
+                    chrome-opts)
         :modified
         (gutter-row :modified
                     [:span {:data-rf-diff-op "modified"
@@ -2061,23 +2162,67 @@
                                     :align-items "baseline"
                                     :flex-wrap "wrap"
                                     :gap "4px"}}
-                     ;; rf2-awqts — drop the per-leaf colour override;
-                     ;; render-scalar emits the value with its
-                     ;; `:syntax-*` token colour intact.
                      (render-scalar value)
-                     (change-annotation before)])
+                     ;; R8 curated suffix for one-sided redaction; R7
+                     ;; mini-rendered suffix for type changes; R1
+                     ;; default for plain scalar mods.
+                     (cond
+                       (= redaction-side :before)
+                       [:span {:data-rf-diff-annotation "redacted-before"
+                               :style change-annotation-style}
+                        "← was redacted"]
+                       (= redaction-side :after)
+                       [:span {:data-rf-diff-annotation "redacted-after"
+                               :style change-annotation-style}
+                        "← now redacted"]
+                       type-change?
+                       [:span {:data-rf-diff-annotation "type-change"
+                               :style change-annotation-style}
+                        "← was "
+                        [:span {:style {:font-family mono-stack}}
+                         (let [prior (if projection
+                                       (:before (engine/entry-at projection
+                                                                  (vec (or path []))))
+                                       before)]
+                           ;; Use the mini renderer for compact prior;
+                           ;; fall back to a type-summary when it
+                           ;; would overflow.
+                           [mini prior 40])]]
+                       :else
+                       (change-annotation
+                         (if projection
+                           (or (:before (engine/entry-at projection
+                                                          (vec (or path []))))
+                               before)
+                           before)))]
+                    chrome-opts)
+        :same-shifted
+        (gutter-row :same-shifted
+                    [:span {:data-rf-diff-op "same-shifted"
+                            :style {:display "inline-flex"
+                                    :align-items "baseline"
+                                    :gap "8px"}}
+                     (render-scalar value)
+                     ;; R6: `(was N)` muted suffix.
+                     (when was-index
+                       [:span {:data-rf-diff-was-index (str was-index)
+                               :style {:color       (:text-tertiary tokens)
+                                       :font-family sans-stack
+                                       :font-size   "11px"
+                                       :font-style  "italic"}}
+                        (str "(was " was-index ")")])]
+                    chrome-opts)
         :same
         (gutter-row :same
                     [:span {:data-rf-diff-op "same"
-                            ;; rf2-awqts — `:same` keeps the dim
-                            ;; `:text-tertiary` override on purpose:
-                            ;; in a diff context the unchanged rows
-                            ;; SHOULD recede so the eye lands on the
-                            ;; changes. This is the only op where the
-                            ;; diff path still tints text colour, and
-                            ;; the choice is dimming-not-replacing.
                             :style {:color (:text-tertiary tokens)}}
-                     (render-scalar value)])))))
+                     (render-scalar value)]
+                    chrome-opts)
+        ;; Default — paint as :same so unknown ops degrade gracefully.
+        (gutter-row :same
+                    [:span {:data-rf-diff-op (name op)}
+                     (render-scalar value)]
+                    chrome-opts)))))
 
 (defn render-node
   "Recursive entry. Picks container vs scalar; threads the
@@ -2101,7 +2246,7 @@
   container-renderer falls back to the global `rf/dispatch`.
 
   Public so unit tests can drive the renderer without mounting."
-  [{:keys [value before diff? panel-id mount-id path depth expansion-map
+  [{:keys [value before diff? projection panel-id mount-id path depth expansion-map
            dispatch-fn zoomable? zoom-path-prefix opts]
     :or   {depth 0 path [] zoom-path-prefix []}}]
   (or
@@ -2124,7 +2269,8 @@
       ;; collapse to one removed line — operator follows the gutter, not
       ;; the structure, for deletions).
       (and diff? (= value ::missing))
-      (render-leaf-with-diff {:value ::missing :before before :diff? true})
+      (render-leaf-with-diff {:value ::missing :before before :diff? true
+                              :projection projection :path path})
 
       ;; Diff mode: added slot at a container → render the new
       ;; container in green via the normal recursive path with `op
@@ -2144,8 +2290,10 @@
                              :zoom-path-prefix zoom-path-prefix
                              :opts opts
                              :diff? true
-                             :before ::missing})
-          (render-leaf-with-diff {:value value :before ::missing :diff? true})))
+                             :before ::missing
+                             :projection projection})
+          (render-leaf-with-diff {:value value :before ::missing :diff? true
+                                  :projection projection :path path})))
 
       :else
       (let [kind (collection-kind value)]
@@ -2162,10 +2310,13 @@
                              :zoom-path-prefix zoom-path-prefix
                              :opts opts
                              :diff? (boolean diff?)
-                             :before before})
+                             :before before
+                             :projection projection})
           (render-leaf-with-diff {:value value
                                   :before before
-                                  :diff? (boolean diff?)}))))))
+                                  :diff? (boolean diff?)
+                                  :projection projection
+                                  :path path}))))))
 
 ;; =========================================================================
 ;; mount-id generator + public entry — edn-inspector (form-2 component)
@@ -2633,7 +2784,8 @@
       [value & rest-args]
       (let [opts          (first rest-args)
             {:keys [panel-id site-id default-expanded-depth max-inline-width
-                    max-depth before popup-affordance? card? header zoomable?]
+                    max-depth before popup-affordance? card? header zoomable?
+                    full-with-diff?]
              :or   {panel-id :rf.xray.edn-inspector/anon
                     ;; rf2-kbdk8 — default raised from 2 → 8. Under the
                     ;; width-aware heuristic this opt is a CEILING (never
@@ -2731,46 +2883,44 @@
             ;; sleeve. The mount-id testid + ref still anchor at the
             ;; root of whichever shape renders (section in chromed
             ;; mode; div otherwise).
+            ;; rf2-n2jig — compute the Editscript-backed projection
+            ;; once at the top so every recursive render-node descends
+            ;; with the same `{path → op}` table. Outside diff mode the
+            ;; projection is nil and the renderer's path-keyed lookups
+            ;; return `:same` for everything. Pure data — same value
+            ;; key composability as `expansion-map`.
+            projection    (when diff?
+                            (engine/project displayed-before displayed-value))
             body-content  (render-node
                             {:value displayed-value
                              :before (if diff? displayed-before ::missing)
                              :diff? diff?
+                             :projection projection
                              :panel-id panel-id
-                             ;; rf2-pvsxs — `mount-id` slot in
-                             ;; render-node's key carries the
-                             ;; EFFECTIVE id (site-id if supplied;
-                             ;; auto-mount-id otherwise). Callbacks
-                             ;; deep in the recursion thread the same
-                             ;; value, so toggle dispatches store +
-                             ;; read overrides under the persistence-
-                             ;; friendly key.
                              :mount-id effective-id
                              :path []
                              :depth 0
                              :expansion-map expansion-map
                              :dispatch-fn dispatch-fn
-                             ;; rf2-h71e0 — `:zoomable?` enables the
-                             ;; per-container `⊙` affordance during the
-                             ;; recursive walk. `:zoom-path-prefix` is
-                             ;; the absolute path of the displayed-
-                             ;; subtree's root within the original
-                             ;; value; per-container affordances
-                             ;; compose this prefix with their relative
-                             ;; `:path` to produce the absolute path
-                             ;; the dispatched event stores.
                              :zoomable? zoomable?
                              :zoom-path-prefix zoom-path-prefix
                              :opts {:default-expanded-depth default-expanded-depth
                                     :max-inline-width max-inline-width
                                     :max-depth max-depth
-                                    ;; rf2-kbdk8 — threaded so every
-                                    ;; recursive render-node decides
-                                    ;; expansion against the same
-                                    ;; available column width. Nil
-                                    ;; until the ref measures, after
-                                    ;; which ResizeObserver keeps it
-                                    ;; live.
-                                    :available-width-px available-width-px}})
+                                    :available-width-px available-width-px
+                                    ;; rf2-n2jig — `:full-with-diff?` is
+                                    ;; threaded through opts so the
+                                    ;; recursive render-container path
+                                    ;; can promote the R4 rail + R3
+                                    ;; chip chrome. Mode-2 (plain
+                                    ;; `:diff` lens) does NOT set this
+                                    ;; flag — it walks the same
+                                    ;; renderer but suppresses the
+                                    ;; rail + chip (per pair-debug
+                                    ;; 2026-05-27 the diff lens stays
+                                    ;; per-leaf focused; mode-3 adds
+                                    ;; the structural-context chrome).
+                                    :full-with-diff? (boolean full-with-diff?)}})
             ;; rf2-h71e0 — breadcrumb row above the body, only when a
             ;; zoom is active. Home label uses the consumer's `:header`
             ;; if supplied (mirrors §10.0.10's "header is the natural

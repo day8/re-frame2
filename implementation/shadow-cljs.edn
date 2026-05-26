@@ -188,7 +188,15 @@
                 ;; verifies `zprint.core` does not reach production
                 ;; bundles. See tools/xray/deps.edn for the artefact-side
                 ;; rationale.
-                [zprint "1.3.0"]]
+                [zprint "1.3.0"]
+                ;; Editscript — Xray's diff engine (rf2-n2jig). A*
+                ;; algorithm producing optimally-small EDN edit scripts.
+                ;; Replaces Xray's home-grown leaf-walker diff at
+                ;; `tools/xray/src/.../views/edn_inspector.cljs:533-664`.
+                ;; Dev-only via the same `:devtools/preloads` gate as
+                ;; the rest of Xray; bundle-isolation verifies
+                ;; `editscript.*` does not reach production bundles.
+                [juji/editscript "0.6.5"]]
 
  ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades

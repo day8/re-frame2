@@ -1098,67 +1098,17 @@
 ;; force-opens over any changed descendant.
 
 ;; ---- pure helpers --------------------------------------------------------
-
-(deftest diff-op-classification
-  (is (= :same     (ei/diff-op 1 1)))
-  (is (= :same     (ei/diff-op nil nil)))
-  (is (= :modified (ei/diff-op 1 2)))
-  (is (= :modified (ei/diff-op :a :b)))
-  (is (= :added    (ei/diff-op ei/missing-sentinel 1)))
-  (is (= :removed  (ei/diff-op 1 ei/missing-sentinel)))
-  (is (= :same     (ei/diff-op ei/missing-sentinel ei/missing-sentinel))))
-
-(deftest changed-descendant?-walks-maps
-  (is (false? (ei/changed-descendant? {:a 1 :b 2} {:a 1 :b 2})))
-  (is (true?  (ei/changed-descendant? {:a 1 :b 2} {:a 1 :b 3})))
-  (is (true?  (ei/changed-descendant? {:a {:x 1}} {:a {:x 2}}))
-      "deep change propagates to root")
-  (is (true?  (ei/changed-descendant? {:a 1} {:a 1 :b 2}))
-      "key added"))
-
-(deftest changed-descendant?-walks-sequentials
-  (is (false? (ei/changed-descendant? [1 2 3] [1 2 3])))
-  (is (true?  (ei/changed-descendant? [1 2 3] [1 2 4])))
-  (is (true?  (ei/changed-descendant? [1 2] [1 2 3]))))
-
-(deftest gutter-glyph-mapping
-  (is (= "+" (ei/op->gutter-glyph :added)))
-  (is (= "-" (ei/op->gutter-glyph :removed)))
-  (is (= "~" (ei/op->gutter-glyph :modified)))
-  (is (= "◴" (ei/op->gutter-glyph :children)))
-  (is (= " " (ei/op->gutter-glyph :same))))
-
-(deftest gutter-tone-mapping
-  (testing "rf2-awqts — every active diff op now reads the SAME
-            reserved `:diff-gutter` token; the glyph's hue is no longer
-            per-op (per-op signal lives in the wash + stripe + shape).
-            `:same` keeps `:text-tertiary` so the transparent non-diff
-            shape composes unchanged."
-    (is (= :diff-gutter   (ei/op->gutter-tone-key :added)))
-    (is (= :diff-gutter   (ei/op->gutter-tone-key :removed)))
-    (is (= :diff-gutter   (ei/op->gutter-tone-key :modified)))
-    (is (= :diff-gutter   (ei/op->gutter-tone-key :children)))
-    (is (= :text-tertiary (ei/op->gutter-tone-key :same)))))
-
-;; ---- rf2-awqts — row chrome (wash + stripe) -----------------------------
-
-(deftest row-wash-mapping
-  (testing "rf2-awqts — per-op row-background wash token-key mapping"
-    (is (= :diff-added-wash    (ei/op->row-wash-key :added)))
-    (is (= :diff-removed-wash  (ei/op->row-wash-key :removed)))
-    (is (= :diff-modified-wash (ei/op->row-wash-key :modified)))
-    (is (nil? (ei/op->row-wash-key :children))
-        "`:children` rows carry NO wash — the colour-coded descendants below do")
-    (is (nil? (ei/op->row-wash-key :same))
-        "`:same` rows sit flush with the canvas")))
-
-(deftest row-stripe-mapping
-  (testing "rf2-awqts — per-op 2px-stripe token-key mapping"
-    (is (= :diff-added-stripe    (ei/op->row-stripe-key :added)))
-    (is (= :diff-removed-stripe  (ei/op->row-stripe-key :removed)))
-    (is (= :diff-modified-stripe (ei/op->row-stripe-key :modified)))
-    (is (nil? (ei/op->row-stripe-key :children)))
-    (is (nil? (ei/op->row-stripe-key :same)))))
+;;
+;; rf2-n2jig — the home-grown classifier (`diff-op`,
+;; `changed-descendant?`, `op->gutter-glyph`, `op->gutter-tone-key`,
+;; `op->row-wash-key`, `op->row-stripe-key`) was retired in favour of
+;; the Editscript-backed projection engine at
+;; `day8.re-frame2-xray.diff.engine`. Per the bead's pre-alpha posture:
+;; clean delete, no shim. The engine's own test suite at
+;; `day8.re-frame2-xray.diff.engine-cljs-test` carries the classification
+;; pins (R1-R8 grammar rules). The diff-leaf rendering tests below
+;; continue to drive `render-node` end-to-end with `:before` and assert
+;; against the resulting DOM chrome attributes.
 
 (deftest gutter-glyph-colour-is-syntax-palette-disjoint
   (testing "rf2-awqts — the reserved `:diff-gutter` hue must NOT match
