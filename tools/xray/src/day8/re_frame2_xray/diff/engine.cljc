@@ -218,26 +218,6 @@
     {:op :modified :before before :after after}))
 
 ;; =========================================================================
-;; container op (children-resolution)
-;; =========================================================================
-
-(defn- container-op-tag
-  "Classify a container pair. `:same` when identical (covered before
-  reaching here in normal flow). `:added` when before is missing,
-  `:removed` when after is missing, `:modified` when the kind flipped
-  (R7), `:children` when both are present and same-kind. Pure."
-  [before after]
-  (cond
-    (= before missing-sentinel) :added
-    (= after missing-sentinel)  :removed
-    (= before after)            :same
-    (or (and (container? before) (not (container? after)))
-        (and (not (container? before)) (container? after))
-        (not= (container-kind before) (container-kind after)))
-    :modified
-    :else :children))
-
-;; =========================================================================
 ;; vector shift detection (R6)
 ;; =========================================================================
 ;;
