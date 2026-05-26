@@ -19,6 +19,8 @@
       {:path-ops      {[path] {:op <kw> ...}}     ; leaf-resolution ops
        :container-ops {[path] {:op <kw> :change-count <n>}} ; container ops
        :flat-rows     [{:path :op :before :after} ...]      ; pure-diff lens
+       :vector-removals {[parent-path] [{:before-index :before-value} ...]}
+                                                            ; R6 vector deletes
        :wholly-changed-roots #{[path] ...}                  ; R5 reclassification
        :shift-suffix  {[path] (was N)}                      ; R6 :same-shifted
       }
