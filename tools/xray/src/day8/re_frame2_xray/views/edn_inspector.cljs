@@ -612,7 +612,6 @@
                      wash (assoc :background wash))}
      [:span {:style {:flex          "0 0 12px"
                      :color         (gutter-colour op)
-                     :font-family   mono-stack
                      :font-size     "11px"
                      :font-weight   700
                      :text-align    "center"
@@ -646,9 +645,11 @@
     (catch :default _ (str "\"" s "\""))))
 
 (defn- token-style
+  ;; `:font-family` not set — inherits `mono-stack` from the widget's
+  ;; outer wrapper (and from `mini`'s wrapping span when called from
+  ;; there). Single-property style keeps the per-call hiccup small.
   [token-key]
-  {:color       (get tokens token-key)
-   :font-family mono-stack})
+  {:color (get tokens token-key)})
 
 (defn render-scalar
   "Render a single non-collection value as `[:span ...]` hiccup. Pure
@@ -688,7 +689,6 @@
                     :border-radius "3px"
                     :background    "color-mix(in srgb, var(--rf-xray-magenta) 12%, transparent)"
                     :color         (:magenta tokens)
-                    :font-family   mono-stack
                     :font-size     "11px"
                     :font-style    "italic"
                     :text-transform "lowercase"
@@ -708,7 +708,6 @@
                       :border-radius "3px"
                       :background    "color-mix(in srgb, var(--rf-xray-magenta) 12%, transparent)"
                       :color         (:magenta tokens)
-                      :font-family   mono-stack
                       :font-size     "11px"
                       :font-style    "italic"
                       :user-select   "none"}}
@@ -731,7 +730,6 @@
                       :border-radius "3px"
                       :background    "color-mix(in srgb, var(--rf-xray-yellow) 12%, transparent)"
                       :color         (:yellow tokens)
-                      :font-family   mono-stack
                       :font-size     "11px"
                       :user-select   "none"}}
        [:span {:style {:font-size "10px"}} "●"]
@@ -783,8 +781,7 @@
         text (cond
                (and (= kind :record) (= edge :open)) (str (record-tag value) ch)
                :else ch)]
-    [:span {:style       {:color       (get tokens tone-key)
-                          :font-family mono-stack}
+    [:span {:style       {:color (get tokens tone-key)}
             :data-rf-bracket (name edge)}
      text]))
 
@@ -1118,9 +1115,12 @@
   - `min-width` + `min-height` pin the hit-box to ≥24px in both axes
     even if the glyph's natural metrics fall short (Chromium renders
     `▸` slightly narrower than `▾`).
-  - `padding 4px 8px` grows the hit-box WITHOUT pushing the key
-    column right — the padding sits inside the existing 4-6px gap
-    between the triangle and the first key.
+  - No `padding` — the `min-width`/`min-height` 24px + inline-flex
+    centring deliver the ≥24×24 hit-box without padding overhead.
+    Mike's live call (pair-debug 2026-05-26): the prior 4px 8px
+    padding read as wasted space around the glyph; the min-* sizing
+    alone keeps the click target large while the visual footprint
+    matches the glyph itself.
   - `font-size 22px` (rf2-4aiaq) overrides the widget's inherited
     12px so the glyph reads as the primary expand/collapse affordance
     — Mike's live A/B (pair-debug 2026-05-26) found the prior 14px
@@ -1128,7 +1128,7 @@
     in the operator-preferred 22-24px band where the triangle 'feels
     clickable'.
   - `line-height 1` collapses inline leading so the height comes
-    purely from font + padding, not from inherited 1.4 leading.
+    purely from font + min-height, not from inherited 1.4 leading.
 
   The colour stays on the subdued `:text-secondary` token — the
   glyph's job is to be *findable*, not loud."
@@ -1139,7 +1139,6 @@
    :justify-content "center"
    :min-width       (str triangle-min-target-px "px")
    :min-height      (str triangle-min-target-px "px")
-   :padding         "4px 8px"
    :font-size       "22px"
    :line-height     1
    :color           (:text-secondary tokens)})
@@ -1171,8 +1170,7 @@
   `{…N keys}` shape."
   [v kind]
   (let [preview (inline-preview-string v 3 60)]
-    [:span {:style       {:color       (get tokens (:tone-key (delim kind)))
-                          :font-family mono-stack}
+    [:span {:style       {:color (get tokens (:tone-key (delim kind)))}
             :data-rf-preview "1"}
      preview]))
 
@@ -1232,8 +1230,7 @@
               (= kind :record) (str (record-tag value)))
             bracket-span
             (fn [text]
-              [:span {:style {:color       (get tokens tone-key)
-                              :font-family mono-stack}
+              [:span {:style {:color (get tokens tone-key)}
                       :data-rf-bracket "1"}
                text])
             sep
@@ -1252,8 +1249,7 @@
                      pairs))]
         (into [:span {:data-rf-inline    "1"
                       :data-rf-kind      (name kind)
-                      :style {:font-family mono-stack
-                              :white-space "nowrap"}}
+                      :style {:white-space "nowrap"}}
                (bracket-span open-bracket)]
               (concat item-children [(bracket-span close)]))))))
 
@@ -1497,19 +1493,16 @@
            ;; container — the value cell grows down, the key stays
            ;; baseline-aligned to the value's first line.
            ;; rf2-726ol — `margin-left 16px` puts the 1px guide line at
-           ;; the triangle's visual center (the 22px glyph + 8px-side
-           ;; padding renders the triangle box ~31-34px wide; centre
-           ;; lands at ~16px from the row's left edge). `padding-left
-           ;; 6px` gives the key a small breath beyond the line so the
-           ;; line + key column read as a discrete bracket pair instead
-           ;; of fused text. The closing brace below sits at the same
+           ;; the triangle's visual center (the 22px glyph renders the
+           ;; triangle box ~24-26px wide via `triangle-style`'s
+           ;; min-width; centre lands at ~12-16px from the row's left
+           ;; edge). The closing brace below sits at the same
            ;; `padding-left 16px` — line + first-key column + closing-
            ;; brace column all converge on one vertical column, so the
            ;; tree reads as `▾ { │ keys │ }` recursively at every depth.
            (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
                         :data-rf-body-layout "grid"
-                        :style {:padding-left         "6px"
-                                :margin-left          "16px"
+                        :style {:margin-left          "16px"
                                 :border-left          (str "1px solid "
                                                            (:border-subtle tokens))
                                 :display              "grid"
@@ -1561,15 +1554,13 @@
            ;; — each entry sits below the previous; nested containers
            ;; recurse with their own grid/block decision.
            ;;
-           ;; rf2-726ol — same `margin-left 16px` + `padding-left 6px` as
-           ;; the grid body so the vertical guide line sits at the
-           ;; triangle's visual centre (~16px from row left at the 22px
-           ;; glyph metric). Closing bracket below shares the same `16px`
+           ;; rf2-726ol — same `margin-left 16px` as the grid body so
+           ;; the vertical guide line sits at the triangle's visual
+           ;; centre. Closing bracket below shares the same `16px`
            ;; padding-left.
            (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
                         :data-rf-body-layout "block"
-                        :style {:padding-left "6px"
-                                :margin-left  "16px"
+                        :style {:margin-left  "16px"
                                 :border-left  (str "1px solid "
                                                    (:border-subtle tokens))}}]
                  (map
@@ -1602,8 +1593,7 @@
      (when (and expanded? (not empty?) (not depth-capped?) (not inline-fit?))
        [:div {:data-rf-cell "close"
               :style {:padding-left "16px"
-                      :color (get tokens (:tone-key (delim kind)))
-                      :font-family mono-stack}}
+                      :color (get tokens (:tone-key (delim kind)))}}
         (let [{:keys [close]} (delim kind)] close)])]))
 
 (defn- render-protocol-node
@@ -1643,8 +1633,7 @@
            ;; visual centre (~16px from row left), body content with a
            ;; 6px breath beyond the line.
            [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
-                  :style {:padding-left "6px"
-                          :margin-left  "16px"
+                  :style {:margin-left  "16px"
                           :border-left  (str "1px solid " (:border-subtle tokens))}}
             body])]))))
 
@@ -1681,8 +1670,7 @@
       (case op
         :added
         (gutter-row :added
-                    [:span {:data-rf-diff-op "added"
-                            :style {:font-family mono-stack}}
+                    [:span {:data-rf-diff-op "added"}
                      ;; rf2-awqts — render-scalar paints per-token
                      ;; syntax colour; wash + stripe carry the diff
                      ;; signal at the row level.
@@ -1690,13 +1678,12 @@
         :removed
         (gutter-row :removed
                     [:span {:data-rf-diff-op "removed"
-                            :style {:font-family mono-stack
-                                    ;; rf2-awqts — strike-through is a
-                                    ;; non-colour signal that survives
-                                    ;; the move to row chrome; keep it
-                                    ;; so a removed leaf still reads as
-                                    ;; deleted at the glyph level.
-                                    :text-decoration "line-through"}}
+                            ;; rf2-awqts — strike-through is a
+                            ;; non-colour signal that survives the
+                            ;; move to row chrome; keep it so a
+                            ;; removed leaf still reads as deleted at
+                            ;; the glyph level.
+                            :style {:text-decoration "line-through"}}
                      (render-scalar before)])
         :modified
         (gutter-row :modified
@@ -1704,8 +1691,7 @@
                             :style {:display "inline-flex"
                                     :align-items "baseline"
                                     :flex-wrap "wrap"
-                                    :gap "4px"
-                                    :font-family mono-stack}}
+                                    :gap "4px"}}
                      ;; rf2-awqts — drop the per-leaf colour override;
                      ;; render-scalar emits the value with its
                      ;; `:syntax-*` token colour intact.
@@ -1721,8 +1707,7 @@
                             ;; changes. This is the only op where the
                             ;; diff path still tints text colour, and
                             ;; the choice is dimming-not-replacing.
-                            :style {:color (:text-tertiary tokens)
-                                    :font-family mono-stack}}
+                            :style {:color (:text-tertiary tokens)}}
                      (render-scalar value)])))))
 
 (defn render-node
@@ -2194,11 +2179,7 @@
                      :style {:padding       "10px 12px"
                              :background    (:bg-3 tokens)
                              :border-bottom (str "1px solid "
-                                                 (:border-subtle tokens))
-                             :font-family   mono-stack
-                             :font-size     "12px"
-                             :color         (:text-primary tokens)
-                             :line-height   1.4}}
+                                                 (:border-subtle tokens))}}
             header]
            [:div {:data-testid (str container-id "-body")
                   :data-rf-body-role "card-body"
