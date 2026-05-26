@@ -147,5 +147,8 @@
      :label "Epoch"
      :mnem  "e"
      :modes #{:dynamic}
-     :order 5
+     ;; -1 places Epoch leftmost (before Handler's :order 0). Mike's
+     ;; pair-debug call 2026-05-26: the cascade-pipeline view is the
+     ;; primary "what just happened" surface; it belongs first.
+     :order -1
      :panel Panel}))
