@@ -233,6 +233,25 @@
       (is (string/includes? id "<anonymous view>")
           "missing view-id reads as `<anonymous view>` placeholder"))))
 
+(deftest views-row-carries-pink-stripe-hover-handlers-test
+  (testing "rf2-2f962 — VIEWS row carries on-mouse-enter / on-mouse-leave
+            handlers that drive the `.rf-xray-view-highlight` pink-stripe
+            class on the live `data-rf-view` DOM node (rf2-e33ad /
+            rf2-8l03l convention). The handlers are present whether or
+            not view-id is non-nil — they no-op safely when the row's
+            view-id is absent."
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id :app.counter/Counter
+                        :subs-read [[:counter/total]] :duration-ms 0.5}]}
+          tree (view/render-views-step step)
+          row  (th/find-by-testid tree "rf-xray-epoch-view-row-0")
+          attrs (when (vector? row) (second row))]
+      (is (some? row) "the view row renders")
+      (is (fn? (:on-mouse-enter attrs))
+          "row carries an on-mouse-enter handler (pink-stripe affordance)")
+      (is (fn? (:on-mouse-leave attrs))
+          "row carries an on-mouse-leave handler"))))
+
 ;; ---- rf2-nqt3d — per-step elapsed time + cascade total ----------------
 
 (deftest cascade-summary-renders-total-test

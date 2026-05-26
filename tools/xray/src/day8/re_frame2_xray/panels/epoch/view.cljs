@@ -73,6 +73,44 @@
 ;; the body via `:zoomable? true` + `:header "<step>"` (rf2-h71e0 /
 ;; rf2-okq7p) per the bead body's §edn-inspector composition.
 
+;; ---- view-name hover-highlight (rf2-2f962) ------------------------------
+;;
+;; Hovering a view-id in the VIEWS step toggles the
+;; `.rf-xray-view-highlight` class on the rendered view's root DOM node
+;; (matched by Spec 006's `data-rf-view` attribute) — the same pink
+;; diagonal-stripe affordance the Reactive panel's view-node carries
+;; (rf2-e33ad / rf2-8l03l). The class lives in
+;; `theme/global-styles` and is intentionally UNSCOPED so it reaches
+;; the host app's frame outside the Xray shell. Pure DOM side-effect;
+;; cleared on mouseleave; no layout perturbation.
+
+(def ^:private view-highlight-class "rf-xray-view-highlight")
+
+(defn- view-highlight-selector
+  "DOM selector for a view-id (Spec 006 stamps `data-rf-view (str id)`)."
+  [view-id]
+  (str "[data-rf-view='" view-id "']"))
+
+(defn- apply-view-highlight!
+  [view-id]
+  (when (and (exists? js/document) (some? view-id))
+    (let [nodes (.querySelectorAll js/document
+                                   (view-highlight-selector view-id))]
+      (.forEach nodes
+                (fn [^js node]
+                  (.add (.-classList node) view-highlight-class)))
+      nil)))
+
+(defn- clear-view-highlight!
+  [view-id]
+  (when (and (exists? js/document) (some? view-id))
+    (let [nodes (.querySelectorAll js/document
+                                   (view-highlight-selector view-id))]
+      (.forEach nodes
+                (fn [^js node]
+                  (.remove (.-classList node) view-highlight-class)))
+      nil)))
+
 ;; ---- chrome helpers ------------------------------------------------------
 
 (defn- badge-pill
@@ -1137,6 +1175,14 @@
      [:div {:key (str "view-" i)
             :data-testid (str "rf-xray-epoch-view-row-" i)
             :data-view-id (when view-id (pr-str view-id))
+            ;; rf2-2f962 — pink-stripe view-name hover affordance. The
+            ;; row-level mouse-enter/leave stamps the
+            ;; `.rf-xray-view-highlight` class onto the live DOM node
+            ;; tagged by Spec 006's `data-rf-view`, mirroring the
+            ;; Reactive panel's view-node treatment (rf2-e33ad /
+            ;; rf2-8l03l). Pure DOM side-effect; no layout perturbation.
+            :on-mouse-enter (fn [_e] (apply-view-highlight! view-id))
+            :on-mouse-leave (fn [_e] (clear-view-highlight! view-id))
             :style {:display "flex"
                     :align-items "stretch"
                     :border-bottom (when (< i (dec (count rows)))
@@ -1146,7 +1192,8 @@
                      :word-break "break-word"}}
        [:span {:data-testid (str "rf-xray-epoch-view-row-id-" i)
                :style {:color (:accent tokens) :display "inline-flex"
-                       :align-items "center" :gap "4px"}}
+                       :align-items "center" :gap "4px"
+                       :cursor (when view-id "pointer")}}
         (if (some? view-id)
           (proj/ns-keyword view-id)
           [:span {:style {:color (:text-tertiary tokens)
