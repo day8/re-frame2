@@ -794,6 +794,19 @@ A layout invalidation (any of the four triggers above) implicitly
 re-fits, by design — the topology shape has changed and the
 operator's prior framing is no longer meaningful.
 
+The `.fitView` call MUST be deferred through **two** nested
+`requestAnimationFrame` tasks (rf2-s5kyp). A single rAF races
+xyflow's internal node-measurement on the focused-machine-change
+path: React commits the new prop set with the new machine's
+positions; the single rAF fires before xyflow has finished
+measuring the just-mounted node DOM; `.fitView` then reads stale
+or zero-size bounds and frames the viewport on either the prior
+topology's extent or a degenerate box. Two rAFs guarantee the fit
+runs in the frame AFTER React's commit AND xyflow's measurement
+pass — the same trick xyflow's own examples use for post-load fit
+calls. Test runtimes without rAF (Node) MAY fire the fit
+immediately as a fallback.
+
 ### One chart-level, visibility-gated animation clock
 
 `:after` countdown rings and any continuous animation in the chart
