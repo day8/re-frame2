@@ -24,13 +24,24 @@
         (is (re-find #"var\(--rf-xray-" c)
             (str "expected CSS variable for " b ", got " c))))))
 
-(deftest badge-labels-uppercase-test
-  (testing "every badge label is the uppercase keyword name"
+(deftest badge-labels-resolve-test
+  (testing "every badge label resolves to a non-blank string.
+
+  Labels are uppercase keyword names by default (DISPATCH, COEFFECT,
+  HANDLER, ...). Labels that lead with `:` are EDN-key-style and
+  render through `badge-pill`'s mono-font, no-uppercase path
+  (post-rf2-xu5iv: `:FX` now renders as `\":fx\"` per commit
+  862288aca's badge-styling change). Both styles are valid; this
+  test just pins that every badge has a label."
     (doseq [b proj/badge-set]
       (let [l (badge/label b)]
-        (is (string? l))
-        (is (= (str/upper-case l) l)
-            (str "badge label for " b " not uppercase: " l))))))
+        (is (string? l)
+            (str "badge label for " b " is a string"))
+        (is (seq l)
+            (str "badge label for " b " is non-blank"))
+        (is (or (= (str/upper-case l) l)
+                (str/starts-with? l ":"))
+            (str "badge label for " b " is uppercase OR EDN-key style: " l))))))
 
 (deftest token-key-fallback-test
   (testing "unknown badge falls back to :text-tertiary"

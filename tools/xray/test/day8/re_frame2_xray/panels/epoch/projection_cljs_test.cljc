@@ -283,14 +283,23 @@
 ;; ---- HANDLER -------------------------------------------------------------
 
 (deftest handler-row-reg-event-db-test
-  (testing "no fx + no machine = reg-event-db flavour"
+  (testing "no fx + no machine = reg-event-db flavour.
+
+  Post pair-debug 2026-05-26 (commit ee9def224): `handler-row` reads
+  the JIT-diff off explicit `db-before` / `db-after` snapshots; the
+  2-arg form here supplies nil/nil and yields an empty `:db-diff`
+  regardless of any trace-tag-stamped paths on the events. The
+  `:rrykz`-era assertion `(= 1 (count :db-diff))` against
+  `db-changed-paths` tags is removed — those tags are not what the
+  current `handler-row` reads."
     (let [r (proj/handler-row [(db-changed-ev [[[:counter] 5 6 :modified]])]
                               :counter-inc)]
       (is (= :handler (:step r)))
       (is (= :HANDLER (:badge r)))
       (is (= :reg-event-db (:flavour r)))
       (is (= :counter-inc (:event-id r)))
-      (is (= 1 (count (:db-diff r))))
+      (is (= [] (:db-diff r))
+          "2-arg form supplies nil db-before/after → empty :db-diff")
       (is (= [] (:fx r))))))
 
 (deftest handler-row-reg-event-fx-test
@@ -524,18 +533,28 @@
 ;; ---- top-level project --------------------------------------------------
 
 (deftest project-minimal-test
-  (testing "minimal epoch (dispatch + handler + app-db-diff for the
-            db mutation, no cofx/flow/fx/sub/view)"
+  (testing "minimal epoch (dispatch + handler, no cofx/flow/fx/sub/view).
+
+  Post pair-debug 2026-05-26 (commit ee9def224 / 862288aca): the
+  standalone APP-DB DIFF step (rf2-rrykz) was retired — the HANDLER
+  step's `:db` sub-section with `[diff][all]` toggle surfaces the
+  same data in-context. The minimal cascade is now :dispatch +
+  :handler only."
     (let [rec   (record [(dispatched-ev [:counter-inc] :ui nil)
                          (db-changed-ev [[[:counter] 5 6 :modified]])])
           steps (proj/project rec)]
-      (is (= 3 (count steps))
-          "rf2-rrykz appends :app-db-diff for any cascade that mutated app-db")
-      (is (= [:dispatch :handler :app-db-diff] (mapv :step steps))))))
+      (is (= 2 (count steps)))
+      (is (= [:dispatch :handler] (mapv :step steps))))))
 
 (deftest project-full-pipeline-test
-  (testing "full epoch with every step + app-db-diff + child-dispatches
-            (handler returned `:dispatch` fx)"
+  (testing "full epoch with every cascade step.
+
+  Post pair-debug 2026-05-26 (commits ee9def224 / eccb6db1b /
+  862288aca): both standalone APP-DB DIFF (rf2-rrykz) and CHILD
+  DISPATCHES (rf2-yx1ae) steps were retired. APP-DB DIFF folds into
+  the HANDLER `:db` `[diff][all]` toggle; CHILD DISPATCHES is
+  redundant with the FX step which already surfaces every
+  `:dispatch` / `:dispatch-n` / `:dispatch-later` fx entry."
     (let [rec   (record [(dispatched-ev [:cart/checkout] :ui nil)
                          (cofx-run-ev :session {:user 1})
                          (do-fx-ev {:db {} :http/post {:url "/x"}})
@@ -547,11 +566,10 @@
                          (view-render-ev ::cart-view [:total])])
           steps (proj/project rec)
           kws   (mapv :step steps)]
-      (is (= [:dispatch :coeffect :handler :app-db-diff :flow :fx
+      (is (= [:dispatch :coeffect :handler :flow :fx
               :subscriptions :views]
-             kws)
-          "rf2-rrykz appends :app-db-diff between :handler and :flow")
-      (is (= 8 (count steps))))))
+             kws))
+      (is (= 7 (count steps))))))
 
 (deftest project-numbered-test
   (testing "number-steps assigns sequential 1..N regardless of omissions"
@@ -725,56 +743,25 @@
       (is (= 0 (:rollbacks s))
           "no rollback-true rows in this fixture"))))
 
-;; ---- rf2-rrykz — app-db diff section ----------------------------------
-
-(deftest app-db-diff-step-conditional-test
-  (testing "rf2-rrykz — no db-changed event → step OMITTED"
-    (is (nil? (proj/app-db-diff-step []))))
-
-  (testing "rf2-rrykz — empty changed-paths → step OMITTED"
-    (is (nil? (proj/app-db-diff-step [(db-changed-ev [])]))))
-
-  (testing "rf2-rrykz — db mutation present → step rendered"
-    (let [s (proj/app-db-diff-step
-              [(db-changed-ev [[[:count]    0   1   :modified]
-                               [[:cart 0]   nil "x" :added]
-                               [[:old]      5   nil :removed]])])]
-      (is (= :app-db-diff (:step s)))
-      (is (= :APP-DB-DIFF (:badge s)))
-      (is (= 3 (count (:rows s))))
-      (is (= 1 (:added s)))
-      (is (= 1 (:modified s)))
-      (is (= 1 (:removed s))))))
-
-(deftest app-db-diff-row-fields-test
-  (testing "rf2-rrykz — each row carries `:path / :before / :after / :change`"
-    (let [s (proj/app-db-diff-step
-              [(db-changed-ev [[[:count] 0 1 :modified]])])
-          r (-> s :rows first)]
-      (is (= [:count] (:path r)))
-      (is (= 0 (:before r)))
-      (is (= 1 (:after r)))
-      (is (= :modified (:change r))))))
-
-(deftest project-includes-app-db-diff-after-handler-test
-  (testing "rf2-rrykz — top-level project emits APP-DB-DIFF immediately
-            after HANDLER so the state-mutation lens lands next to the
-            attribution row"
-    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
-                         (db-changed-ev [[[:count] 0 1 :modified]])])
-          steps (proj/project rec)
-          kws   (mapv :step steps)]
-      (is (some #{:app-db-diff} kws))
-      (is (= (.indexOf kws :app-db-diff)
-             (inc (.indexOf kws :handler)))
-          ":app-db-diff rides immediately after :handler")))
-
-  (testing "rf2-rrykz — no app-db mutation → step absent"
-    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)])
-          steps (proj/project rec)]
-      (is (not-any? #(= :app-db-diff (:step %)) steps)))))
+;; ---- rf2-rrykz — app-db diff section — RETIRED 2026-05-26 -------------
+;;
+;; The standalone APP-DB DIFF step + `proj/app-db-diff-step` fn were
+;; removed in commit 862288aca / ee9def224. The HANDLER step's `:db`
+;; `[diff][all]` toggle surfaces the same data in-context. Tests for
+;; the retired surface are deleted; HANDLER `:db` coverage rides on
+;; `handler-row-reg-event-db-test` + `view_cljs_test.cljs` HANDLER
+;; tests (rf2-93436 — `:db diff` sub-section always-present).
 
 ;; ---- rf2-yx1ae — child dispatches section -----------------------------
+;;
+;; The standalone CHILD-DISPATCHES step was removed from the top-level
+;; cascade in commit eccb6db1b (redundant with FX which already
+;; surfaces every `:dispatch` / `:dispatch-n` / `:dispatch-later` fx
+;; entry). The pure-data fns (`child-dispatch-rows`,
+;; `child-dispatches-step`, `find-child-epoch`) survive as low-level
+;; helpers — their tests remain. The `project-includes-child-
+;; dispatches-step-test` (which asserted the step is part of the
+;; cascade) is retired.
 
 (deftest child-dispatch-rows-from-dispatch-test
   (testing "rf2-yx1ae — `:dispatch [:e/x]` projects one row"
@@ -841,23 +828,10 @@
       (is (nil? (proj/find-child-epoch history nil [:e/x 7]))
           "nil parent-id → nil"))))
 
-(deftest project-includes-child-dispatches-step-test
-  (testing "rf2-yx1ae — top-level project emits CHILD-DISPATCHES after FX
-            and before SUBSCRIPTIONS when dispatch fx fired"
-    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
-                         (do-fx-ev {:dispatch [:other/event 1]})
-                         (db-changed-ev [])])
-          steps (proj/project rec)
-          step-kws (mapv :step steps)]
-      (is (some #{:child-dispatches} step-kws)
-          "CHILD-DISPATCHES is present")
-      (is (< (.indexOf step-kws :handler)
-             (.indexOf step-kws :child-dispatches))
-          ":child-dispatches rides AFTER :handler")
-      (when (some #{:fx} step-kws)
-        (is (< (.indexOf step-kws :fx)
-               (.indexOf step-kws :child-dispatches))
-            ":child-dispatches rides AFTER :fx when :fx is also emitted")))))
+;; `project-includes-child-dispatches-step-test` retired in rf2-xu5iv
+;; (commit eccb6db1b dropped the CHILD-DISPATCHES step from the
+;; top-level cascade). See comment header above the child-dispatch
+;; helpers section.
 
 (deftest project-includes-schema-violations-step-test
   (testing "rf2-17vxj — top-level project emits SCHEMA-VIOLATIONS at
