@@ -392,6 +392,39 @@
         (is (nil? (:border-left style))
             "chrome ribbon root has no :border-left in its inline style")))))
 
+(deftest chrome-ribbon-left-cluster-does-not-wrap
+  (testing "rf2-axpq2 — the chrome ribbon's LEFT cluster must NOT carry
+            `:flex-wrap \"wrap\"`. At narrow viewports (~420px) wrapping
+            pushed the [+] add-pill (the cluster's last child) onto a
+            second line that overflowed the fixed 34px ribbon height,
+            where it was vertically occluded by the events-ribbon below
+            and click-blocked. The Figma authority chrome-ribbon does NOT
+            wrap (`design-reference/xray_devtools_reference.cljs`
+            `chrome-ribbon` uses plain non-wrapping flex), so the LEFT
+            cluster keeps the [+] inline at y=ribbon-centre and lets the
+            cluster overflow horizontally when necessary."
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [ribbon    (shell/ribbon nil)
+            selectors (find-by-testid ribbon "rf-xray-ribbon-selectors")
+            style     (:style (second selectors))]
+        (is (some? selectors)
+            "the LEFT cluster (rf-xray-ribbon-selectors) renders")
+        (is (not= "wrap" (:flex-wrap style))
+            "the LEFT cluster must NOT wrap (rf2-axpq2) — `wrap` pushes the [+] add-pill into an occluded second row at narrow viewports")
+        ;; positive assertion: nowrap is explicit so future edits that drop
+        ;; the prop entirely also stay safe (flex's default is nowrap, but
+        ;; making it explicit documents the intent + survives lint sweeps
+        ;; that re-shape style maps).
+        (is (= "nowrap" (:flex-wrap style))
+            "the LEFT cluster sets `:flex-wrap \"nowrap\"` explicitly")
+        ;; the [+] add-pill button MUST live inside the LEFT cluster so it
+        ;; rides the same flex row — if it migrated out of the selectors
+        ;; cluster the wrap-occlusion failure mode could reappear in a
+        ;; different shape.
+        (is (some? (find-by-testid selectors "rf-xray-filter-add"))
+            "the [+] add-pill is nested INSIDE the LEFT cluster (so the nowrap covers it)")))))
+
 (deftest events-ribbon-carries-warning-and-committed-pills
   (testing "rf2-3f2di A5/A6 — reconciled to the authority reference
             events-ribbon (bar-2). It carries the `N events filtered out`
