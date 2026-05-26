@@ -99,7 +99,7 @@ op-family legends — and are **not** collapsed into the accent.
 | token | role | dark | light |
 |---|---|---|---|
 | `green` | success / additions / machine-active | `#3fb950` | `#1a7f37` |
-| `yellow` | warnings / schema-replaced / `:rf/large` elision | `#d29922` | `#9a6700` |
+| `yellow` | warnings / schema-replaced / `:rf.size/large-elided` elision | `#d29922` | `#9a6700` |
 | `orange` | functional amber — long-task / perf-slow tier | `#FB923C` | `#C2570F` |
 | `red` | errors / schema-violations / hydration-mismatches | `#F87171` | `#C84444` |
 | `magenta` | classification: `:rf/redacted` | `#E879F9` | `#B146C2` |

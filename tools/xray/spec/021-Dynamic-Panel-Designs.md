@@ -1411,7 +1411,7 @@ the renderer, not separate chrome wrappers:
 
 - `:rf/redacted` (bare keyword) — magenta chip with `●` indicator;
   never expandable.
-- `{:rf/large {:bytes N :head s}}` — yellow chip showing bytes;
+- `{:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint s :handle [:rf.elision/at <path>]}}` — yellow chip showing bytes;
   click-to-reveal is deferred (was in the now-deleted
   `theme.data-inspector` ns; the popup phase D6=a returns it).
 - `{:rf/redacted {:bytes N}}` — combined sensitive+size; magenta

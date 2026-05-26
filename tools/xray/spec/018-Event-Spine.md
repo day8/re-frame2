@@ -1403,7 +1403,12 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 {:user/ssn :rf/redacted}
 
 ;; Large only — drillable; click-to-expand with size warning
-{:docs/csv-upload :rf/large {:bytes 4523198 :head "ID,Name,Email\n42,Alice,…"}}
+{:docs/csv-upload {:rf.size/large-elided {:path   [:docs/csv-upload]
+                                          :bytes  4523198
+                                          :type   :string
+                                          :reason :schema
+                                          :hint   "CSV upload — fetch via :handle"
+                                          :handle [:rf.elision/at [:docs/csv-upload]]}}}
 
 ;; Both — sensitive dominates content visibility; size still informative
 {:internal/diff-blob :rf/redacted {:bytes 4523198}}
@@ -1415,7 +1420,7 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 |---|---|---|---|---|
 | `:rf/redacted` (bare) | `[● REDACTED 1]` magenta | NO | Path of redaction · mark source (`add-marks` / `set-marks` / event-handler / sub / fx / cofx / machine / flow) · local count | One-way disclosure of STRUCTURE only (path + source). **NO "reveal value" button.** **NO fetch handle.** The value is GONE at the source. |
 | `:rf/redacted {:bytes N}` | `[● REDACTED · N bytes]` magenta | NO | Same as above + size | Same as above; size disclosed (helps debug "is the redacted thing big enough to be the problem?") |
-| `:rf/large {:bytes N :head "…"}` | `[● ELIDED · N bytes]` yellow | YES | Path · mark source · byte size · head preview | Popover with `:head` preview + **"Fetch full value" button**. Fetch routes via `get-path` per [Tool-Pair.md](../../../spec/Tool-Pair.md) (round-trip the marker's handle). Size-warned via confirm modal when bytes > threshold (default 100KB). |
+| `:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint "…" :handle [:rf.elision/at <path>]}` | `[● ELIDED · N bytes]` yellow | YES | Path · mark source · byte size · `:hint` text · `:type` (`:map`/`:vector`/`:set`/`:string`/`:scalar`) | Popover with `:hint` text + **"Fetch full value" button**. Fetch routes via `get-path` per [Tool-Pair.md](../../../spec/Tool-Pair.md) (round-trips the marker's `:handle`). Size-warned via confirm modal when bytes > threshold (default 100KB). |
 
 ### Per-surface enumeration
 
@@ -1433,7 +1438,7 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 
 ### Combination semantics
 
-When `:rf/redacted` and `:rf/large` co-mark the same value (`{:internal/diff-blob :rf/redacted {:bytes N}}`), **sensitive dominates content visibility**:
+When `:rf/redacted` and `:rf.size/large-elided` co-mark the same value (`{:internal/diff-blob :rf/redacted {:bytes N}}`), **sensitive dominates content visibility**:
 
 - Renders as `[● REDACTED · N bytes]` magenta.
 - NO expand affordance (sensitive wins; you can't drill).
@@ -1442,11 +1447,11 @@ When `:rf/redacted` and `:rf/large` co-mark the same value (`{:internal/diff-blo
 The two sentinels MUST have different affordances or the model collapses:
 
 - `:rf/redacted` = privacy-dropped, gone, magenta, no fetch.
-- `:rf/large` = size-elided, on-box, yellow, fetch-on-click.
+- `:rf.size/large-elided` = size-elided, on-box, yellow, fetch-on-click.
 
-### Size-warned drill (`:rf/large`)
+### Size-warned drill (`:rf.size/large-elided`)
 
-Click `[● ELIDED · N bytes]` → popover with `:head` preview + "Fetch full value" button. When `N > :large/fetch-warn-threshold-bytes` (default 100KB), the click first surfaces a confirm modal:
+Click `[● ELIDED · N bytes]` → popover with `:hint` text + "Fetch full value" button that round-trips the marker's `:handle` through `get-path`. When `N > :large/fetch-warn-threshold-bytes` (default 100KB), the click first surfaces a confirm modal:
 
 ```
 ┌─ Fetch large value ──────────────────────┐
@@ -1466,7 +1471,7 @@ Without the modal, large drill-ins can blow out the renderer and degrade INP. Th
 ### What Xray does NOT do
 
 - **No "reveal redacted value" button.** Ever. The only path to seeing sensitive payloads is the host-level opt-in `(xray-config/configure! {:rf.privacy/show-sensitive? true})` which is a deliberate code-level act gating FUTURE events. The walker drops the value before the trace bus buffers it; the value is unrecoverable at render time. Drop-and-forget is the contract.
-- **No fetch button for `:rf/redacted`.** Distinguishes from `:rf/large`. The two sentinels MUST have different affordances.
+- **No fetch button for `:rf/redacted`.** Distinguishes from `:rf.size/large-elided`. The two sentinels MUST have different affordances.
 - **No schema-based marking** (rejected per [spec/015](../../../spec/015-Data-Classification.md)). Xray renders sentinels from the seven first-class marking sites only.
 
 ### The seven first-class marking sites (framework contract; Xray consumes)
@@ -1496,7 +1501,7 @@ Coverage is enumerated in [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matr
 | **Filter IN/OUT pills round-trip** | `tools/xray/test/.../filter_pills_test.cljs` — asserts pill add/edit/delete via popup; asserts AND-across-modes / OR-within-mode semantics; asserts localStorage persistence; asserts Recommended-filters quick-add |
 | **Event-driven Dynamic Machines panel (rf2-y9xmf)** | per-feature in `tools/xray/test/.../machines/runtime_test.cljs` — asserts BLANK state on no-activity; per-machine section rendered on transition; topology highlight + guards + actions + cancellation + `:after` rings; prev/next nav walks spine to other events touching the focused machine |
 | **UC1 Sim engine + UC2 Mode A/B/C (rf2-r4nao — Static re-host, landed)** | NOT a Dynamic test row. The Sim engine subs/events (`:rf.xray.static.machines/sim-*`) + the `static/machines/sim.cljs` view ship under the Static Machines surface's Sim sub-mode per [`003-Machine-Inspector.md`](003-Machine-Inspector.md); Static-side tests gate those surfaces. UC2 Mode A/B/C remains Dynamic-side (reached via the per-row → Dynamic JUMP). |
-| **Data classification rendering** | `tools/xray/test/.../classification_rendering_test.cljs` — asserts `:rf/redacted` opaque (no reveal button); asserts `:rf/large` drillable with size-confirm modal; asserts combination semantics (`:rf/redacted` dominates `:rf/large`); asserts per-surface rendering across L2/L4 |
+| **Data classification rendering** | `tools/xray/test/.../classification_rendering_test.cljs` — asserts `:rf/redacted` opaque (no reveal button); asserts `:rf.size/large-elided` drillable with size-confirm modal; asserts combination semantics (`:rf/redacted` dominates `:rf.size/large-elided`); asserts per-surface rendering across L2/L4 |
 | **Frame-isolation invariants** | `tools/xray/test/.../isolation_test.cljs` (NEW; spec §8) — asserts I1 (picker excludes `:rf/xray`) + I3 (Views scoped to selected frame) + I4 (Xray hover doesn't leak into `:rf/default` Views); runs under `npm run test:browser`; **failure blocks merge** |
 | **Sub-graph isolation lint** | `tools/xray/test/.../sub_graph_lint_test.cljs` (NEW; spec §8 I2) — asserts dev-time lint predicate throws on misconfigured Xray-namespaced sub feeding host data |
 | **Settings modal popup** | `tools/xray/test/.../settings_popup_test.cljs` — asserts modal open/close via `,`/`s`/`⚙`/`Esc`/outside-click; asserts section navigation; asserts every field maps to a configure! key; asserts "Show tool frames in picker" toggle flips picker option list |
