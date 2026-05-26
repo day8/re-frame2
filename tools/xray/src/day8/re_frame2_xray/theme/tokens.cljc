@@ -124,7 +124,18 @@
    :yellow         "#d29922"
    :orange         "#FB923C"   ; functional amber — long-task / perf-slow tier
    :red            "#F87171"
-   :magenta        "#E879F9"
+   ;; Two pink/violet-family hues differentiated by hue, not just lightness
+   ;; (rf2-cgm4f). The original Epoch-panel mock split COEFFECT (violet
+   ;; #a855f7) and SUBSCRIPTIONS (pink #ec4899); pre-rf2-cgm4f both were
+   ;; collapsed onto the lighter fuchsia `#E879F9`, which made the two
+   ;; pipeline pills near-indistinguishable. Mike-ruled 2026-05-26: the
+   ;; visual-distinguishability win earns one new token. Other consumers
+   ;; (redacted sentinel chip, filter "out" mode, palette frame indicator,
+   ;; diff colour, static-routes/schemas letter chips, machine-inspector)
+   ;; read `:magenta` as the "exotic / categorical" hue — `#a855f7` reads
+   ;; the same role with marginally more purple saturation.
+   :magenta        "#a855f7"   ; violet-500 — Epoch COEFFECT mock; redacted sentinel
+   :magenta-pink   "#ec4899"   ; pink-500 — Epoch SUBSCRIPTIONS mock (rf2-cgm4f)
    :info           "#79c0ff"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
    ;; ── syntax-highlighter palette (rf2-79ojx · One Dark / Calva default) ──
@@ -280,7 +291,13 @@
    :yellow         "#9a6700"
    :orange         "#C2570F"   ; functional amber — long-task / perf-slow tier
    :red            "#C84444"
-   :magenta        "#B146C2"
+   ;; Two pink/violet-family hues for the rf2-cgm4f Epoch-pill split — see
+   ;; the dark-palette `:magenta` / `:magenta-pink` block for rationale.
+   ;; Light values are darkness-shifted to clear WCAG AA on the white canvas
+   ;; while keeping the same hue family as the dark variants so a theme
+   ;; toggle preserves the semantic colour assignment.
+   :magenta        "#9333ea"   ; violet-600 — AA on white; mock #a855f7 hue family
+   :magenta-pink   "#db2777"   ; pink-600 — AA on white; mock #ec4899 hue family
    :info           "#0550ae"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
    ;; ── syntax-highlighter palette (rf2-79ojx · One Light / Atom-One-Light) ──

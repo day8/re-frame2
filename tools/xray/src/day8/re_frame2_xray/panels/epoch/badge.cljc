@@ -37,18 +37,24 @@
 ;;
 ;;     #8c959f                — `:text-tertiary` (the muted grey already
 ;;                              in the palette)
-;;     #a855f7                — :magenta (close enough hue family)
+;;     #a855f7                — :magenta (violet-500; the COEFFECT mock
+;;                              hue. The dark `:magenta` token's hex was
+;;                              tuned to this exact value in rf2-cgm4f so
+;;                              the badge and the mock match — and the
+;;                              shared `:magenta` consumers (redacted
+;;                              sentinel chip, filter "out" mode, etc.)
+;;                              continue to read a violet-family hue.)
 ;;     var(--devtools-active) — `:accent` (the single blue identity)
 ;;     rgb(154,103,0)         — :orange (functional amber, perf-slow
 ;;                              tier — close enough hue for the FX
 ;;                              step's irreversible/post-commit signal)
-;;     #ec4899                — :magenta-pink (we ship :magenta, which
-;;                              spans the pink/purple family on both
-;;                              themes; the COEFFECT badge above also
-;;                              reads magenta, so we differentiate
-;;                              SUBSCRIPTIONS by reading :magenta with
-;;                              a slightly different lookup to keep
-;;                              the two distinct at a glance)
+;;     #ec4899                — :magenta-pink (the SUBSCRIPTIONS mock
+;;                              hue, added as a new palette token in
+;;                              rf2-cgm4f so the SUBSCRIPTIONS pill is
+;;                              visually distinct from COEFFECT's
+;;                              violet-magenta. Pre-rf2-cgm4f both pills
+;;                              collapsed onto `:magenta` and the eye
+;;                              couldn't separate them at a glance.)
 ;;     var(--devtools-success) — `:success` / `:green`
 ;;
 ;; The 7-badge inventory is binding: the view never paints a badge
@@ -59,13 +65,16 @@
   `tokens/tokens` so the badge background reads off the active
   theme's CSS variable (one badge across light + dark).
 
-  Two badges intentionally pull magenta-family tokens (`:magenta` for
-  COEFFECT, `:magenta` for SUBSCRIPTIONS) per the bead body — the
-  view differentiates them with their text label rather than a
-  hue split; the project's palette doesn't carry a separate pink hue
-  and adding to it for this single use site would erode the palette's
-  single-source-of-truth posture (per spec/022). HANDLER + FLOW share
-  `:accent` — the Figma export's single-accent identity (rf2-ad7zx.13).
+  COEFFECT pulls `:magenta` (violet `#a855f7`); SUBSCRIPTIONS pulls
+  `:magenta-pink` (`#ec4899`). The two were collapsed onto the same
+  token pre-rf2-cgm4f and operators couldn't separate them at a
+  glance — Mike-ruled 2026-05-26: visual distinguishability earns
+  one extra palette token. The two hues map onto the original mock's
+  assignment, which the implementer had folded for palette-minimality
+  reasons that the mock didn't actually support.
+
+  HANDLER + FLOW share `:accent` — the Figma export's single-accent
+  identity (rf2-ad7zx.13).
 
   rf2-17vxj — SCHEMA-VIOLATIONS pulls `:warning` so the section
   reads as load-bearing without rising to `:error`'s alarmist tone.
@@ -78,7 +87,7 @@
    :HANDLER           :accent
    :FLOW              :accent
    :FX                :orange
-   :SUBSCRIPTIONS     :magenta
+   :SUBSCRIPTIONS     :magenta-pink
    :VIEWS             :success
    :SCHEMA-VIOLATIONS :warning
    :CHILD-DISPATCHES  :text-tertiary

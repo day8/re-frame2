@@ -41,6 +41,25 @@
     (is (= :orange (badge/token-key :FX)))
     (is (= :success (badge/token-key :VIEWS)))))
 
+(deftest coeffect-and-subscriptions-pull-distinct-tokens-test
+  ;; rf2-cgm4f — pre-fix both badges shared `:magenta`, so the
+  ;; pipeline pills were near-indistinguishable in the live panel.
+  ;; The 5 pipeline pills (DISPATCH / COEFFECT / HANDLER /
+  ;; SUBSCRIPTIONS / VIEWS) MUST map to 5 distinct theme tokens.
+  (testing "COEFFECT pulls a different token-key from SUBSCRIPTIONS"
+    (is (not= (badge/token-key :COEFFECT)
+              (badge/token-key :SUBSCRIPTIONS))
+        "COEFFECT and SUBSCRIPTIONS must be visually distinct"))
+  (testing "COEFFECT pulls :magenta (violet — mock #a855f7)"
+    (is (= :magenta (badge/token-key :COEFFECT))))
+  (testing "SUBSCRIPTIONS pulls :magenta-pink (pink — mock #ec4899)"
+    (is (= :magenta-pink (badge/token-key :SUBSCRIPTIONS))))
+  (testing "the five core pipeline pills carry five distinct token keys"
+    (let [core-pills #{:DISPATCH :COEFFECT :HANDLER :SUBSCRIPTIONS :VIEWS}
+          token-keys (set (map badge/token-key core-pills))]
+      (is (= 5 (count token-keys))
+          (str "expected 5 distinct token-keys, got " token-keys)))))
+
 (deftest fib-px-test
   (testing "fibonacci helper resolves to px strings"
     (is (= "3px"  (badge/fib-px :f3)))
