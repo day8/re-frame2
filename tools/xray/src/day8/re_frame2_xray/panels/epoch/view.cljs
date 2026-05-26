@@ -241,53 +241,43 @@
 ;; ---- DISPATCH step -------------------------------------------------------
 
 (defn dispatch-body
-  "Render the DISPATCH step's expanded body — the event vector + the
-  source pill. Per the bead body's §DISPATCH (Step 1).
+  "Render the DISPATCH step's expanded body — the event vector as a
+  boxed monospace block. Per the bead body's §DISPATCH (Step 1).
 
-  Target line (event vector) is rendered as a boxed monospace block;
-  the FROM row carries an inline click-to-source link with the
-  external-link chip when a call-site coord was captured."
-  [{:keys [event source coord]}]
-  [:div
-   ;; Target — the dispatched event vector.
-   [:div {:data-testid "rf-xray-epoch-dispatch-event"
-          :style {:font-family   mono-stack
-                  :font-size     "12px"
-                  :color         (:text-primary tokens)
-                  :background    (:bg-3 tokens)
-                  :border        (str "1px solid " (:border-subtle tokens))
-                  :border-radius "3px"
-                  :padding       "5px 8px"
-                  :margin-top    "5px"
-                  :overflow-x    "auto"}}
-    (proj/event-display event)]
-   ;; FROM <source>
-   (when source
-     [:div {:data-testid "rf-xray-epoch-dispatch-source"
-            :style {:display      "flex"
-                    :align-items  "center"
-                    :gap          "4px"
-                    :margin-top   "5px"
-                    :font-family  sans-stack
-                    :font-size    "11px"
-                    :color        (:text-tertiary tokens)}}
-      "from "
-      [:span {:style {:color (:accent tokens) :font-family mono-stack}}
-       (name source)]
-      (coord-chip coord "rf-xray-epoch-dispatch-coord")])])
+  Per rf2-9jvx1 the body no longer repeats the `from <source>` line —
+  the header already carries that descriptor; the body is detail-only.
+  The click-to-source affordance rides on the header (rf2-93a7s)."
+  [{:keys [event]}]
+  (when (vector? event)
+    [:div {:data-testid "rf-xray-epoch-dispatch-event"
+           :style {:font-family   mono-stack
+                   :font-size     "12px"
+                   :color         (:text-primary tokens)
+                   :background    (:bg-3 tokens)
+                   :border        (str "1px solid " (:border-subtle tokens))
+                   :border-radius "3px"
+                   :padding       "5px 8px"
+                   :margin-top    "5px"
+                   :overflow-x    "auto"}}
+     (proj/event-display event)]))
 
 (defn render-dispatch-step
-  "Render the DISPATCH step (always present)."
-  [{:keys [source duration-ms step-number] :as step}]
+  "Render the DISPATCH step (always present). Header summarises `from
+  <source>` with the call-site chip when a coord was captured;
+  body renders the dispatched event vector as a boxed monospace
+  block (rf2-93a7s · rf2-9jvx1)."
+  [{:keys [source coord duration-ms step-number] :as step}]
   [:div {:data-testid "rf-xray-epoch-step-dispatch"
          :data-step-kw "dispatch"}
    (numbered-circle step-number :DISPATCH)
    (step-header
      {:step :dispatch
       :badge :DISPATCH
-      :verb [:span "from "
+      :verb [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
+             "from "
              [:span {:style {:color (:accent tokens)}}
-              (if source (name source) "unknown")]]
+              (if source (name source) "unknown")]
+             (coord-chip coord "rf-xray-epoch-dispatch-coord")]
       :expandable? false
       :testid "rf-xray-epoch-dispatch"
       :duration-ms duration-ms}
@@ -516,24 +506,14 @@
           (proj/timer-reason-label reason)]])])])
 
 (defn handler-body
-  "Render the HANDLER step's body — flavour label + db-diff + fx + the
-  machine block when the handler is a machine-event-handler."
-  [{:keys [flavour event-id db-diff fx machine] :as _row}]
+  "Render the HANDLER step's body — db-diff + fx + the machine block
+  when the handler is a machine-event-handler.
+
+  Per rf2-9jvx1 the flavour + event-id row is dropped from the body —
+  the header already carries that descriptor. The body is detail-only:
+  db-diff, fx entries, machine extras."
+  [{:keys [db-diff fx machine] :as _row}]
   [:div {:data-testid "rf-xray-epoch-handler-body"}
-   ;; Flavour + event-id
-   [:div {:style {:display      "flex"
-                  :align-items  "center"
-                  :gap          "6px"
-                  :margin-top   "5px"
-                  :font-family  mono-stack
-                  :font-size    "12px"
-                  :color        (:text-primary tokens)}}
-    [:span {:style {:color (:accent tokens)}}
-     (proj/handler-flavour-label flavour)]
-    (icons/external-link)
-    (when event-id
-      [:span {:style {:color (:text-tertiary tokens)}}
-       (proj/ns-keyword event-id)])]
    ;; Machine extras BEFORE db diff (lifecycle is the story for machines)
    (when machine
      (machine-block machine))
