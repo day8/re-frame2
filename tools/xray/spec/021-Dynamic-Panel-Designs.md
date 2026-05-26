@@ -1288,7 +1288,7 @@ is rendered iff its driving trace events surfaced in this epoch:
 | Step | Driving trace | Conditional |
 |------|---------------|-------------|
 | **DISPATCH** | `:rf.event/dispatched` | always (every epoch starts here) |
-| **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | only when user-injected coeffects fired |
+| **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | **one COEFFECT step per user-injected coeffect** (rf2-s1jw4 · Mike pair-debug 2026-05-26, commit `ee9def224`). SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered at projection time (rf2-cq0ch). A cascade with 3 user cofx injections renders 3 numbered COEFFECT entries, not 1 entry containing 3 rows. |
 | **HANDLER** | every epoch settles through a handler | always |
 | **FLOW** | `:rf.flow/recomputed` | only when flows fired |
 | **FX** | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | only when fx-handlers fired |
@@ -1301,7 +1301,7 @@ empty-state line. This matches the §2.2 dynamic-numbering contract
 from the Event lens — both panels share the same "absence is
 silence" rhythm.
 
-### §9.1.4 Badge taxonomy (the 10-badge inventory)
+### §9.1.4 Badge taxonomy (the 8-badge inventory)
 
 Each step renders a uppercase badge pill at its numbered circle:
 
@@ -1312,11 +1312,18 @@ Each step renders a uppercase badge pill at its numbered circle:
 | `:HANDLER`            | `:accent`        | blue (single Xray accent) |
 | `:FLOW`               | `:accent`        | blue (paired with HANDLER) |
 | `:FX`                 | `:orange`        | functional amber (post-commit irreversible) |
-| `:SUBSCRIPTIONS`      | `:magenta`       | pink/magenta family |
+| `:SUBSCRIPTIONS`      | `:magenta-pink`  | pink (rf2-cgm4f split from COEFFECT violet) |
 | `:VIEWS`              | `:success`       | green |
 | `:SCHEMA-VIOLATIONS`  | `:warning`       | warning amber (rf2-17vxj) |
-| `:CHILD-DISPATCHES`   | `:text-tertiary` | muted grey (same as DISPATCH — cascade-link semantics, rf2-yx1ae) |
-| `:APP-DB-DIFF`        | `:accent`        | blue (state-mutation lens, rf2-rrykz) |
+
+> **Retired 2026-05-26 (pair-debug, rf2-zkiu5):** the prior `:CHILD-DISPATCHES`
+> + `:APP-DB-DIFF` rows were dropped. CHILD DISPATCHES (originally rf2-yx1ae,
+> Mike commit `eccb6db1b`) is redundant with the FX step, which already
+> surfaces every `:dispatch` / `:dispatch-n` / `:dispatch-later` fx entry
+> per row. APP-DB DIFF (originally rf2-rrykz, dropped earlier same session
+> in commit `ee9def224`) is redundant with the HANDLER step's `:db`
+> sub-section + its `[diff][all]` toggle, which surfaces the same data
+> in-context. The projection's `badge-set` enforces the 8-entry inventory.
 
 The inventory is LOCKED — the projection's `badge-set` enforces
 that every emitted step's `:badge` is a member, and the view's
@@ -1447,7 +1454,7 @@ and silently rendered empty rows. The binding inventory:
 | Step | Trace operation | Canonical tags |
 |------|-----------------|----------------|
 | `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source`, `:rf.trace/call-site` |
-| `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value` — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch) |
+| `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value` — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch). **Projection splits each surviving cofx into its own numbered step** (rf2-s1jw4 · pair-debug 2026-05-26): `cofx-steps` is a `mapv` over `cofx-rows` producing `{:step :coeffect :badge :COEFFECT :id <kw> :value <v>}` per entry, spliced into the steps vec before HANDLER. |
 | `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta) |
 | `:flow` | `:rf.flow/recomputed` | `:rf.flow/id`, `:rf.flow/path`, `:rf.flow/before`, `:rf.flow/after` |
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:duration-ms` |
@@ -1522,21 +1529,25 @@ cross-session triage.
 
 Section is conditional — omitted when no violation events fired.
 
-### §9.1.10.6 FX section header + per-action attribution (rf2-uffov)
+### §9.1.10.6 FX section header + per-action attribution (rf2-uffov · rf2-m8ac9)
 
 The FX step has rendered per-fx rows since rf2-sc3r1. rf2-uffov
-extends it with:
+extends it with header + attribution; Mike's pair-debug commit
+`adaabb8aa` (2026-05-26, rf2-m8ac9) reshaped the header. Current
+shape:
 
-- **Header outcome split** — `N fired (M succeeded, K threw,
-  L skipped)`. Counters are projection-side aggregations of the
-  per-row `:status` keyword (`:ok / :overridden → :succeeded`,
-  `:error → :threw`, `:skipped → :skipped`). The view consumes
-  the projected counters directly so the header reads as
-  at-a-glance correctness.
+- **Header chrome** — badge `:FX` (uppercase pill, single-token
+  hue per §9.1.4), a muted-italic `(side effects)` caption beside
+  the badge, and a threw-count chip in `:error` tone that surfaces
+  **only when non-zero**. The prior `N fired (M succeeded, K threw,
+  L skipped)` count summary was dropped per Mike's pair-debug
+  rationale: the per-row glyphs (`✓ / ✗`) already convey per-fx
+  outcome, so the count summary was noise in the step header. The
+  threw chip is the at-a-glance error signal that survives.
 - **Per-action attribution** — when the cascade was driven by a
   machine handler, each FX row that maps to a fx-id emitted by an
   action's outcome `:fx` slot carries `:attributed-to {:action-id
-  …, :phase …}` (rf2-9c27r + this bead). The view renders an
+  …, :phase …}` (rf2-9c27r + rf2-uffov). The view renders an
   italic `← <action-id> (<phase>)` chip alongside the row so the
   operator reads `fx X emitted by action Y in phase Z` in one
   line. Best-effort: first-attribution wins when the same fx-id
@@ -1545,78 +1556,50 @@ extends it with:
 - **Conditional emit unchanged** — section omits when no fx-handler
   events fired.
 
-### §9.1.10.5 App-db diff section (rf2-rrykz)
+### §9.1.10.7 COEFFECT step chrome (rf2-s1jw4 · pair-debug 2026-05-26)
 
-An APP-DB DIFF step rides immediately after HANDLER when the
-cascade mutated app-db. The section answers the most fundamental
-"what happened?" question — what changed in app-db this cascade —
-as a top-level cascade element rather than buried in the HANDLER
-body.
+Mike's commit `ee9def224` reshaped the COEFFECT step from "one
+step with N rows" to "N steps, one per injected cofx" (see §9.1.3
++ §9.1.10.1). The accompanying view-layer chrome:
 
-Two surfaces coexist by design:
+- **Header** — `:COEFFECT` badge + cofx-id button to the right of
+  the badge. The button is clickable when
+  `(rf/handler-meta :cofx <id>)` returns a coordinate (click-to-source
+  jumps through the shared `:rf.xray/open-in-editor` allowlist —
+  see §9.1.11); otherwise the id renders as a plain coloured span.
+  An external-link glyph trails the id when source-jump is wired.
+- **Body** — `+ [:cofx-id] <value>` diff-style line, left-aligned
+  with the badge (no indent), mirroring HANDLER's `:db` diff-line
+  idiom. Value rendered via `edn/inspect-inline`.
+- **Verb dropped** — the prior `N coeffect(s) injected` summary
+  verb is gone; the per-step expansion of cofx makes the count
+  visible in the cascade numbering itself.
+- **SYSTEM-default filter** — `:db / :event / :frame / :source /
+  :trace-id` are filtered before splitting (rf2-cq0ch). A cascade
+  with no surviving user-cofx renders zero COEFFECT steps.
 
-- HANDLER body's `:db-diff` slot — **attribution** lens ("this
-  handler caused these changes"). Renders the same diff inline
-  with the source code block, machine block, and `:fx` slot.
-- APP-DB DIFF step — **state-mutation** lens ("these are app-db's
-  changes this cascade"). Renders as its own numbered step with
-  the header carrying the change-count split.
+### §9.1.10.5 App-db diff section — RETIRED 2026-05-26 (rf2-rrykz · rf2-zkiu5)
 
-Same data (`:rf.event/db-changed-paths` on `:rf.event/db-changed`),
-two chrome treatments. The pre-roll for "show me app-db deltas"
-now matches every cascade — same shape, same place.
+> **Retired pair-debug 2026-05-26** in Mike's commit `ee9def224`. The
+> APP-DB DIFF step was a state-mutation lens that rode immediately after
+> HANDLER. It was redundant with HANDLER's `:db` sub-section + its
+> `[diff][all]` toggle, which surfaces the same data in-context. The
+> projection no longer emits this step and the `badge-set` no longer
+> carries `:APP-DB-DIFF`. Section retained as a stub for searchability;
+> historical design intent is reachable via the bead history (rf2-rrykz
+> original + rf2-zkiu5 retirement).
 
-Header: `N paths changed (+M / ~K / -L)` (added / modified /
-removed split). Per-row chrome mirrors HANDLER's `db-diff-line`
-(glyph + path + value(s)).
+### §9.1.10.4 Cascading-dispatches section — RETIRED 2026-05-26 (rf2-yx1ae · rf2-zkiu5)
 
-Section is conditional — omitted when no app-db mutation fired.
-
-### §9.1.10.4 Cascading-dispatches section (rf2-yx1ae)
-
-A CHILD-DISPATCHES step rides between FX and SUBSCRIPTIONS when the
-handler returned dispatch-family fx (`:dispatch`, `:dispatch-n`,
-`:dispatch-later`). The section surfaces the parent→child cascade
-link inline so the operator can pivot to a child epoch's view
-directly.
-
-Projection source: the handler's returned `:rf.event/fx` payload on
-`:rf.fx/do-fx` (Spec 009). The projector normalises the three
-substrate shapes into a uniform row schema:
-
-- `:dispatch [:e/x]`                    → `{:event [:e/x] :delay-ms nil :via :dispatch}`
-- `:dispatch-n [[:a] [:b]]`             → one row per element with `:via :dispatch-n`
-- `:dispatch-later {:ms 250 :dispatch [:r]}` → `{:event [:r] :delay-ms 250 :via :dispatch-later}`
-- `:dispatch-later [{…} {…}]`           → one row per element
-
-Per-row chrome:
-
-- `:via` chip (`dispatch` / `dispatch-n` / `dispatch-later` — muted
-  uppercase label).
-- The child event vector (operator's primary read).
-- `+<N>ms` delay chip for `:dispatch-later`.
-- Jump-to button when the child cascade is in the epoch buffer;
-  muted `not in buffer` marker otherwise.
-
-The child-epoch resolution lives in `projection/find-child-epoch`,
-which scans the `:rf.xray/epoch-history` for records whose
-`:parent-dispatch-id` matches THIS cascade's `:dispatch-id`. The
-substrate pins the parent link on the child's epoch-record per
-Spec-Schemas §`:rf/epoch-record` + Spec 009 §Dispatch correlation.
-When the trigger-event matches exactly we prefer that record; on
-sibling collisions the first child under the same parent-id is
-returned so the operator still has a forwarding link.
-
-Jump-to dispatches `[:rf.xray/select-epoch <child-epoch-id>]`
-(the shared spine shim from `xray.epoch/install!`) so the focus
-flips to the child cascade and the panel re-renders against the
-child's pipeline.
-
-The composite sub `:rf.xray/epoch-pipeline` now also exposes
-`:dispatch-id` + `:epoch-history` so the view's per-row resolver
-runs without a secondary subscription in the hot path.
-
-Section is conditional — omitted when no dispatch-family fx fired.
+> **Retired pair-debug 2026-05-26** in Mike's commit `eccb6db1b`. The
+> CHILD-DISPATCHES step was a parent→child cascade-link lens that rode
+> between FX and SUBSCRIPTIONS. It was redundant with the FX step, which
+> already surfaces every `:dispatch` / `:dispatch-n` / `:dispatch-later`
+> fx entry per row — the cascade-link affordance now lives on the FX rows
+> themselves. The projection no longer emits this step and the
+> `badge-set` no longer carries `:CHILD-DISPATCHES`. Section retained as
+> a stub for searchability; historical design intent is reachable via the
+> bead history (rf2-yx1ae original + rf2-zkiu5 retirement).
 
 ### §9.1.11 Cross-panel navigation
 

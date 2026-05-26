@@ -102,10 +102,19 @@ op-family legends — and are **not** collapsed into the accent.
 | `yellow` | warnings / schema-replaced / `:rf.size/large-elided` elision | `#d29922` | `#9a6700` |
 | `orange` | functional amber — long-task / perf-slow tier | `#FB923C` | `#C2570F` |
 | `red` | errors / schema-violations / hydration-mismatches | `#F87171` | `#C84444` |
-| `magenta` | classification: `:rf/redacted` | `#E879F9` | `#B146C2` |
+| `magenta` | classification: `:rf/redacted` chip · Epoch COEFFECT badge · palette frame indicator · filter OUT pill · diff colour family · static-routes/schemas letter chips · machine-inspector | `#a855f7` | `#9333ea` |
+| `magenta-pink` | Epoch SUBSCRIPTIONS badge (rf2-cgm4f split from `magenta`) | `#ec4899` | `#db2777` |
 
 `orange` here is the **functional perf-amber** (`#FB923C` / `#C2570F`) — it is NOT a brand
 colour and is distinct from the removed orange brand identity.
+
+`magenta` + `magenta-pink` are two distinct hues in the pink/violet family (rf2-cgm4f,
+Mike-ruled 2026-05-26). The original Epoch-panel mock split COEFFECT (violet `#a855f7`)
+and SUBSCRIPTIONS (pink `#ec4899`); pre-rf2-cgm4f both collapsed onto the lighter fuchsia
+`#E879F9` and the two pipeline pills read near-identically. Splitting hue (not just
+lightness) restores the operator's ability to distinguish the two cascade steps at a
+glance. Source of truth: `tools/xray/src/day8/re_frame2_xray/theme/tokens.cljc`
+(`:magenta` + `:magenta-pink` keys in both the dark and light maps).
 
 ### Syntax highlighting (Figma `devtools-css` block)
 
