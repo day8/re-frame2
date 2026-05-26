@@ -7,6 +7,7 @@
   every step body."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
+            [re-frame.core :as rf]
             [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -43,18 +44,29 @@
         (is (string/includes? header-text "ui"))))))
 
 (deftest handler-flavour-renders-once-test
-  (testing "rf2-9jvx1 — HANDLER header carries the flavour + event-id;
-            the body MUST NOT also render the same flavour pill"
+  (testing "rf2-9jvx1 — HANDLER header carries the flavour + event-id
+            once; the body's pre-rf2-9jvx1 stand-alone flavour row is
+            removed. Body's first slot is the source block (rf2-66wis),
+            not a flavour pill."
     (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-event-db :event-id :counter/inc
+                :flavour :reg-event-db :event-id :no-such/handler
                 :db-diff [] :fx [] :machine nil}
           tree (view/render-handler-step step)
-          header-text (text-of tree "rf-xray-epoch-handler-header")
-          body-text   (text-of tree "rf-xray-epoch-handler-body")]
+          header-text (text-of tree "rf-xray-epoch-handler-header")]
       (is (string/includes? header-text "reg-event-db"))
-      (is (string/includes? header-text ":counter/inc"))
-      (is (not (string/includes? (or body-text "") "reg-event-db"))
-          "body MUST NOT duplicate the flavour pill"))))
+      (is (string/includes? header-text ":no-such/handler"))
+      ;; The body's first slot is now the source block — never a
+      ;; duplicate flavour pill.
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source"))
+          "the body leads with the source block (rf2-66wis)")
+      ;; Confirm the body never carries a redundant flavour-only span.
+      ;; The body text for an unknown handler resolves to the
+      ;; placeholder; it MUST NOT contain the bare flavour keyword.
+      (is (not (string/includes?
+                 (or (text-of tree "rf-xray-epoch-handler-source-placeholder")
+                     "")
+                 "reg-event-db"))
+          "the source-placeholder slot MUST NOT echo the flavour pill"))))
 
 ;; ---- rf2-93a7s — DISPATCH body shows the event vector ----------------
 
@@ -97,3 +109,41 @@
         (is (string/includes? r0-id ":session"))
         (is (string/includes? r0-value "42"))
         (is (string/includes? r1-id ":rf/now"))))))
+
+;; ---- rf2-66wis — HANDLER source code block ---------------------------
+
+(deftest handler-body-renders-source-placeholder-test
+  (testing "rf2-66wis — HANDLER body carries a source-code slot.
+            When no handler-meta has been stamped the slot renders
+            a clear `<source not yet captured>` placeholder rather
+            than collapsing silently — operator learns where to
+            look and when the substrate hasn't captured."
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-event-db :event-id :no-such/handler
+                :db-diff [] :fx [] :machine nil}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source"))
+          "the source slot is present even on graceful-degrade")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
+          "no-source state renders the placeholder")
+      (is (string/includes?
+            (or (text-of tree "rf-xray-epoch-handler-source-placeholder") "")
+            "<source not yet captured>")))))
+
+(deftest handler-body-renders-captured-source-test
+  (testing "rf2-66wis — when the registrar carries an
+            `:rf.handler/source`, the body renders it via the
+            canonical `edn/code-block` widget"
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :rf.test.epoch.view/srctest-handler
+                       {:rf.handler/source "(reg-event-db :rf.test.epoch.view/srctest-handler\n  (fn [db _] (assoc db :ok true)))"}
+                       (fn [db _] db))
+      (let [step {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db
+                  :event-id :rf.test.epoch.view/srctest-handler
+                  :db-diff [] :fx [] :machine nil}
+            tree (view/render-handler-step step)]
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source-body"))
+            "the code-block widget mounts under the source slot")
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
+            "no placeholder when source IS captured")))))

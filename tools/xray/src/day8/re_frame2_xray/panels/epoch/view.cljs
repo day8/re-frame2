@@ -516,15 +516,98 @@
                          :margin-left "8px"}}
           (proj/timer-reason-label reason)]])])])
 
+;; ---- handler source --------------------------------------------------
+;;
+;; Per rf2-66wis the HANDLER body carries the registered handler's
+;; source code as a syntax-highlighted block under the header — same
+;; widget as the Event panel uses (rf2-n4ad0 routed to `edn/code-block`
+;; with the same per-token palette as the Figma authority's
+;; `.syntax-*` classes, rf2-93jp0). The substrate stamps source under
+;; the `:rf.handler/source` meta key (Spec 009 / rf2-xgfuy) via a
+;; DEBUG-gated macro; production goog.DEBUG=false builds carry no
+;; source, so the slot renders a clear placeholder rather than
+;; collapsing silently.
+;;
+;; For machine handlers the "source" is the machine spec — read via
+;; `rf/handler-meta :machine event-id`. The spec renders through the
+;; same `edn/inspect` widget every other top-level EDN map uses.
+
+(defn- handler-source-string
+  "Return the registered event-handler's source string from the
+  `:rf.handler/source` meta key, or nil when the substrate hasn't
+  captured one (production builds, registrations that pre-date the
+  coord-annotation pass)."
+  [meta]
+  (let [s (:rf.handler/source meta)]
+    (when (and (string? s) (seq s))
+      s)))
+
+(defn- machine-spec-value
+  "Return the registered machine handler's spec data. Read off the
+  `:machine-spec` slot (the substrate stashes the original
+  `(reg-machine id spec ...)` argument here) so the panel can render
+  it via the canonical edn-inspector."
+  [meta]
+  (or (:machine-spec meta)
+      (:spec meta)
+      (:rf.machine/spec meta)))
+
+(defn- handler-source-block
+  "Render the source-code block under the HANDLER header. Three
+  cases:
+
+    1. Machine handler — render the machine spec via the canonical
+       `edn/inspect` widget.
+    2. Event handler with a captured source string — render via
+       `edn/code-block` (clojure-syntax highlight).
+    3. Otherwise — render a clear `<source not yet captured>`
+       placeholder so the slot is always present (operator learns
+       where to look + when the substrate didn't stamp)."
+  [flavour event-id]
+  (let [machine? (= :reg-machine flavour)
+        meta     (when (some? event-id)
+                   (try (rf/handler-meta (if machine? :machine :event) event-id)
+                        (catch :default _ nil)))
+        spec     (when machine? (machine-spec-value meta))
+        src      (when-not machine? (handler-source-string meta))]
+    [:div {:data-testid "rf-xray-epoch-handler-source"
+           :style {:margin-top "8px"
+                   :min-width  "0"}}
+     (sub-header (if machine? "machine spec" "source"))
+     (cond
+       (and machine? (some? spec))
+       [:div {:data-testid "rf-xray-epoch-handler-source-spec"
+              :style {:padding-left "16px"}}
+        (edn/inspect spec)]
+
+       src
+       (edn/code-block
+         {:source src
+          :lang   :clojure
+          :testid "rf-xray-epoch-handler-source-body"})
+
+       :else
+       [:span {:data-testid "rf-xray-epoch-handler-source-placeholder"
+               :style {:font-style "italic"
+                       :font-family mono-stack
+                       :font-size   "11px"
+                       :color       (:text-tertiary tokens)
+                       :padding-left "16px"}}
+        "<source not yet captured>"])]))
+
 (defn handler-body
-  "Render the HANDLER step's body — db-diff + fx + the machine block
-  when the handler is a machine-event-handler.
+  "Render the HANDLER step's body — source block + db-diff + fx + the
+  machine block when the handler is a machine-event-handler.
 
   Per rf2-9jvx1 the flavour + event-id row is dropped from the body —
-  the header already carries that descriptor. The body is detail-only:
-  db-diff, fx entries, machine extras."
-  [{:keys [db-diff fx machine] :as _row}]
+  the header already carries that descriptor. Per rf2-66wis the body
+  now leads with the handler's source code (or machine spec) so the
+  operator can answer 'why did this handler do X' without leaving the
+  panel."
+  [{:keys [flavour event-id db-diff fx machine] :as _row}]
   [:div {:data-testid "rf-xray-epoch-handler-body"}
+   ;; Source / machine spec block — rf2-66wis
+   (handler-source-block flavour event-id)
    ;; Machine extras BEFORE db diff (lifecycle is the story for machines)
    (when machine
      (machine-block machine))
