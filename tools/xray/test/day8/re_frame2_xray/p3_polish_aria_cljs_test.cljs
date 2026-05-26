@@ -202,9 +202,10 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
     (let [tree     (rf/with-frame :rf/xray (settings-view/popup-view))
-          ;; Theme tab removed rf2-ou3pn; the five remaining tabs each
-          ;; carry the full WAI-ARIA tab contract.
-          tab-ids  [:general :filters :keybindings :buffer :diff]]
+          ;; Theme tab removed rf2-ou3pn; Filters tab removed
+          ;; rf2-wknb3. The four remaining tabs each carry the full
+          ;; WAI-ARIA tab contract.
+          tab-ids  [:general :keybindings :buffer :diff]]
       (doseq [tid tab-ids]
         (let [button (find-by-testid tree
                        (str "rf-xray-settings-tab-" (name tid)))
@@ -222,11 +223,11 @@
                    "its body tabpanel"))))
       ;; Default active tab is :general; selected reflects that.
       (let [general (find-by-testid tree "rf-xray-settings-tab-general")
-            filters (find-by-testid tree "rf-xray-settings-tab-filters")]
+            buffer  (find-by-testid tree "rf-xray-settings-tab-buffer")]
         (is (= "true" (:aria-selected (props general)))
             "active tab (:general) carries aria-selected=\"true\"")
-        (is (= "false" (:aria-selected (props filters)))
-            "inactive tab (:filters) carries aria-selected=\"false\"")))))
+        (is (= "false" (:aria-selected (props buffer)))
+            "inactive tab (:buffer) carries aria-selected=\"false\"")))))
 
 (deftest settings-body-is-a-labelled-tabpanel
   (testing "rf2-h4mnh — Settings body carries role=\"tabpanel\" + an

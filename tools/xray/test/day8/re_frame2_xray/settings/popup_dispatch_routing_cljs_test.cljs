@@ -204,18 +204,23 @@
             :rf/xray frame-provider's render context still updates
             :rf/xray's :settings-active-tab. Without the explicit
             frame opt, every tab click would land on :rf/default and
-            the popup would stay frozen on the :general default."
+            the popup would stay frozen on the :general default.
+
+            Targets the Buffer tab (rf2-wknb3 retired the Filters
+            tab that this test originally exercised; the routing
+            assertion is independent of which tab is clicked as long
+            as it differs from the default :general)."
     (let [rendered (render-open-modal)
-          tab-node (find-by-testid rendered "rf-xray-settings-tab-filters")
+          tab-node (find-by-testid rendered "rf-xray-settings-tab-buffer")
           handler  (on-click tab-node)]
-      (is (some? handler) "filters tab exposes an :on-click handler")
+      (is (some? handler) "buffer tab exposes an :on-click handler")
       (handler (fake-event))
       (async done
-        (-> (await-xray-db #(= :filters (:settings-active-tab %))
-                            "active-tab flips :filters after click")
+        (-> (await-xray-db #(= :buffer (:settings-active-tab %))
+                            "active-tab flips :buffer after click")
             (.then (fn [_]
-                     (is (= :filters (:settings-active-tab (rf/get-frame-db :rf/xray)))
-                         "tab click flips :settings-active-tab to :filters")
+                     (is (= :buffer (:settings-active-tab (rf/get-frame-db :rf/xray)))
+                         "tab click flips :settings-active-tab to :buffer")
                      (is (nil? (:settings-active-tab (rf/get-frame-db :rf/default)))
                          ":rf/default's db is NOT polluted by the tab dispatch")
                      (done)))

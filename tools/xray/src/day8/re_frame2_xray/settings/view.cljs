@@ -38,22 +38,6 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
 
-;; ---- feature detection --------------------------------------------------
-;;
-;; The auto-filter pills feature lives in a sibling ns
-;; `day8.re-frame2-xray.filters` (rf2-ak4ms). If the ns is on the
-;; classpath the Filters tab renders an "Open auto-filter UI" button
-;; that dispatches the feature's open event; otherwise the tab shows
-;; an "Install auto-filter pills feature first" hint. The detection
-;; rides through `find-ns` so the popup loads cleanly whether or not
-;; the sibling artefact is present.
-
-(defn- filters-feature-present? []
-  ;; Resolve at render time so a late-loaded feature lights up the
-  ;; button on next render. `find-ns` is cheap; the cost is dwarfed
-  ;; by the popup's other paint.
-  (boolean (find-ns 'day8.re-frame2-xray.filters)))
-
 ;; ---- styles --------------------------------------------------------------
 ;;
 ;; The backdrop's `:position` and `:z-index` honour the
@@ -177,13 +161,13 @@
 ;; ---- tab strip ----------------------------------------------------------
 
 (def ^:private tabs
-  "Ordered tab list. The modal carries five sections
-  (General | Filters | Keybindings | Buffer | Diff).
+  "Ordered tab list. The modal carries four sections
+  (General | Keybindings | Buffer | Diff).
   Tab id matches the `:rf.xray/settings-update` `section` for
   sections that map 1:1 to a settings slot.
 
   Each tab carries a `:mnemonic` — a single bare letter the dialog's
-  keydown handler captures while the modal is open (g/f/k/b/d).
+  keydown handler captures while the modal is open (g/k/b/d).
   Modal-only; the outer global mnemonics (`,` / `s` / `c` / `?`)
   never fire while the dialog has focus because the dialog's
   `on-key-down` stops propagation on every consumed key. Per
@@ -203,6 +187,18 @@
   `:general` slot — its cosmetic home in the Theme tab is gone
   with the tab).
 
+  Filters tab was removed (rf2-wknb3): v1 spec 016-Auxiliary-
+  Panels.md called it a discoverability pointer into the ribbon
+  pill UI, but the only affordance it exposed was an 'Open auto-
+  filter UI' button dispatching `:rf.xray.filters/open` — an event
+  with no handler registered anywhere. Filter management is fully
+  covered by the canonical surfaces: the top-ribbon filter pill
+  strip (`filters/pills.cljs`), the per-pill edit popup
+  (`:rf.xray.filters/edit-popup-*` events in
+  `filters/edit_popup.cljs`), and the mute manager modal
+  (rf2-ikuwt). The popup tab carried no unique state and no
+  working dispatch — pure redundancy.
+
   Diff (rf2-i39w2 Phase 3) carries the hiccup-diff micro-engine's
   opt-in fn-ref-changes toggle.
 
@@ -215,7 +211,6 @@
   inspector-collapse-threshold knobs + a 'Clear buffer now' button
   with a confirmation modal (destructive action)."
   [{:id :general     :label "General"     :mnemonic "g"}
-   {:id :filters     :label "Filters"     :mnemonic "f"}
    {:id :keybindings :label "Keybindings" :mnemonic "k"}
    {:id :buffer      :label "Buffer"      :mnemonic "b"}
    {:id :diff        :label "Diff"        :mnemonic "d"}])
@@ -647,38 +642,24 @@
        "Light/dark theme is now driven by the sun/moon icon in the "
        "top ribbon (rf2-ou3pn)."]]]))
 
-;; ---- section: Filters ---------------------------------------------------
-
-(defn- filters-section []
-  (let [present? (filters-feature-present?)]
-    [:div {:data-testid "rf-xray-settings-section-filters"}
-     [:h2 {:style (section-heading-style)} "Filters"]
-     [:p {:style {:color (:text-secondary tokens)
-                  :line-height 1.5
-                  :margin "0 0 16px 0"}}
-      "Auto-filter pills hide high-volume noise (mouse-move, "
-      "anim-frame, etc.) from the event list so you can focus on the "
-      "events that actually drive your app. Pills live in the top "
-      "ribbon; this section is the management surface."]
-     (if present?
-       [:button {:data-testid "rf-xray-settings-filters-open"
-                 :on-click    #(rf/dispatch [:rf.xray.filters/open]
-                                            {:frame :rf/xray})
-                 :style       (primary-button-style)}
-        "Open auto-filter UI"]
-       [:div {:data-testid "rf-xray-settings-filters-install-hint"
-              :style       {:padding       "12px 14px"
-                            :background    (:bg-2 tokens)
-                            :border        (str "1px solid " (:border-subtle tokens))
-                            :border-radius "4px"
-                            :color         (:text-secondary tokens)
-                            :font-size     (:caption type-scale)
-                            :line-height   1.5}}
-        "Install the auto-filter pills feature first. The "
-        [:code {:style {:font-family mono-stack
-                        :color (:text-tertiary tokens)}}
-         "day8.re-frame2-xray.filters"]
-        " namespace is not on the classpath."])]))
+;; ---- section: Filters (removed rf2-wknb3) ------------------------------
+;;
+;; The Filters tab was retired in rf2-wknb3. It carried no unique
+;; affordance: the only widget was an "Open auto-filter UI" button
+;; dispatching `:rf.xray.filters/open` — an event with no handler
+;; registered anywhere — plus a static explainer paragraph. Filter
+;; management is fully covered by the canonical surfaces:
+;;
+;;   * Top-ribbon filter pill strip (`filters/pills.cljs`) — full
+;;     pill management (add/remove/toggle) lives here per
+;;     spec/018-Event-Spine.md §7.
+;;   * Per-pill edit popup (`filters/edit_popup.cljs`) — the
+;;     `:rf.xray.filters/edit-popup-*` event family.
+;;   * Mute manager modal (rf2-ikuwt).
+;;
+;; The settings tab was a discoverability pointer per the v1 spec;
+;; with the ribbon already exposing the management surface and the
+;; tab's only button being dead chrome, the pointer was redundant.
 
 ;; ---- section: Theme (removed rf2-ou3pn) --------------------------------
 ;;
@@ -789,7 +770,6 @@
             ["Ctrl+→ / Ctrl+←" "Next / previous tab"]]}
    {:group "Settings popup (modal-only)"
     :rows  [["g" "General tab"]
-            ["f" "Filters tab"]
             ["k" "Keybindings tab"]
             ["b" "Buffer tab"]
             ["d" "Diff tab"]]}])
@@ -1194,7 +1174,6 @@
              :style           (body-style)}
        (case active-tab
          :general     (general-section)
-         :filters     (filters-section)
          :diff        (diff-section)
          :keybindings (keybindings-section)
          :buffer      (buffer-section)

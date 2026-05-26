@@ -5,13 +5,13 @@
   Asserts:
   - `apply-text-size!` writes the CSS custom property
   - `apply-theme!` toggles the CSS class on the shell root + <html>
-  - The Filters tab feature-detect shows the install hint when the
-    sibling ns is absent (covered indirectly via popup test;
-    re-asserted here against the predicate)
   - `update-setting!` dispatched through events drives the matching
     `apply-*!` side effect
   - The auto-open watcher edge-fires on empty→non-empty when toggle
     is on AND Xray is hidden
+
+  (The Filters tab feature-detect bullet was removed when the
+  Filters tab itself retired in rf2-wknb3.)
 
   No DOM-shell mount happens — we create a stub `#rf-xray-root`
   element + a stub `<html>` for the CSS-var assertions; the auto-
@@ -26,7 +26,6 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as effects]
-            [day8.re-frame2-xray.settings.view :as view]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.theme.tokens :as tokens]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -129,20 +128,13 @@
   (when-let [el (shell-root)]
     (is (true? (.contains (.-classList el) "rf-xray-theme-light")))))
 
-;; ---- filters feature detect --------------------------------------------
-
-(deftest filters-section-feature-detect-reports-present-when-ns-loaded
-  ;; Post rf2-ak4ms the auto-filter ns ships in the same bundle as
-  ;; the Settings popup; the view's `filters-feature-present?` uses
-  ;; `find-ns` against `day8.re-frame2-xray.filters` and should
-  ;; return true. The presence branch surfaces the "Open auto-filter
-  ;; UI" button rather than the install hint (covered in
-  ;; popup_cljs_test/filters-section-renders).
-  (is (some? (find-ns 'day8.re-frame2-xray.filters))
-      "filters ns is loaded post rf2-ak4ms")
-  (let [_section (view/popup-view)]
-    (is (true? (#'view/filters-feature-present?))
-        "feature detect reports present")))
+;; ---- filters feature detect (removed rf2-wknb3) ------------------------
+;;
+;; The Settings popup Filters tab was retired in rf2-wknb3 — the
+;; ribbon strip + per-pill edit popup + mute manager are the
+;; canonical pill-management surfaces. The view's
+;; `filters-feature-present?` helper that the previous test
+;; exercised is gone with the tab.
 
 ;; ---- auto-open watcher --------------------------------------------------
 ;;

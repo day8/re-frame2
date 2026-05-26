@@ -44,13 +44,15 @@
 
   (story/reg-tag :feature/xray-settings-popup
     {:axis :feature
-     :doc  "Xray Settings popup modal — 5-tab strip (General /
-            Filters / Keybindings / Buffer / Diff) per
+     :doc  "Xray Settings popup modal — 4-tab strip (General /
+            Keybindings / Buffer / Diff) per
             spec/007-UX-IA.md §Settings popup (rf2-ttnst expansion of
             the original 3-tab strip from rf2-9poxq). Telemetry tab
             was removed earlier per rf2-jh9ws (no endpoint exists);
             Theme tab retired per rf2-ou3pn — the ribbon's sun/moon
-            icon is now the canonical light/dark affordance."})
+            icon is now the canonical light/dark affordance; Filters
+            tab retired per rf2-wknb3 — full pill management lives
+            in the ribbon + per-pill edit popup + mute manager."})
 
   (story/reg-story :story.xray.settings-popup
     {:doc        "Visual gallery of the Xray Settings popup modal.
@@ -84,29 +86,18 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 2. Filters tab — auto-filter ns is on the classpath in
-  ;; main (rf2-ak4ms landed) so the feature-detect surfaces the
-  ;; 'Open auto-filter UI' button rather than the install-hint.
-  (story/reg-variant :story.xray.settings-popup/filters-present
-    {:doc        "Settings popup open on Filters tab — auto-filter
-                 ns is on the classpath so the section renders the
-                 'Open auto-filter UI' button (feature-detect path
-                 from `settings/view.cljs` §filters-section)."
-     :events     [[:panel-gallery.chrome/seed!
-                   {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
-                    :after-seeds
-                    [[:rf.xray/settings-open]
-                     [:rf.xray/settings-select-tab :filters]]}]]
-     :tags       #{:dev :state/special}
-     :substrates #{:reagent}})
+  ;; (Filters tab variant retired per rf2-wknb3 — the popup no
+  ;; longer carries a Filters tab. Full pill management lives in
+  ;; the top-ribbon pill strip + per-pill edit popup + mute manager
+  ;; modal; the settings tab was a discoverability pointer whose
+  ;; only button dispatched an unregistered event.)
 
   ;; (Theme tab variant retired per rf2-ou3pn — the popup no longer
   ;; carries a Theme tab. The light/dark cycle is driven by the
   ;; top-ribbon sun/moon icon, which already has its own Story
   ;; coverage under the chrome gallery.)
 
-  ;; ----- 3. Keybindings tab — read-only chord catalogue (rf2-ttnst).
+  ;; ----- 2. Keybindings tab — read-only chord catalogue (rf2-ttnst).
   (story/reg-variant :story.xray.settings-popup/keybindings
     {:doc        "Settings popup open on Keybindings tab. v1 is
                  READ-ONLY — a chord catalogue mirroring spec/007-
@@ -121,7 +112,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 4. Buffer tab — three numeric knobs + destructive Clear
+  ;; ----- 3. Buffer tab — three numeric knobs + destructive Clear
   ;; (rf2-ttnst).
   (story/reg-variant :story.xray.settings-popup/buffer
     {:doc        "Settings popup open on Buffer tab. Three numeric
@@ -138,7 +129,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 5. Diff tab — opt-in fn-ref-changes toggle (rf2-i39w2).
+  ;; ----- 4. Diff tab — opt-in fn-ref-changes toggle (rf2-i39w2).
   (story/reg-variant :story.xray.settings-popup/diff
     {:doc        "Settings popup open on Diff tab. The opt-in
                  :highlight-fn-ref-changes? toggle for the hiccup-diff
@@ -162,13 +153,16 @@
   ;; The last variant to seed wins the shared interior; canvas-mode
   ;; (sidebar pick) is where per-variant fidelity is fully observable.
   (story/reg-workspace :Workspace.xray.settings-popup/all
-    {:doc      "All Settings popup variants (General / Filters /
-                Keybindings / Buffer / Diff). The chrome internally
-                wraps :rf/xray via a hardcoded frame-provider, so
-                workspace cells share interior state — see
-                canvas-mode (sidebar pick) for per-variant fidelity.
-                The Theme tab retired per rf2-ou3pn — the ribbon's
-                sun/moon icon is the canonical light/dark affordance."
+    {:doc      "All Settings popup variants (General / Keybindings
+                / Buffer / Diff). The chrome internally wraps
+                :rf/xray via a hardcoded frame-provider, so
+                workspace cells share interior state — see canvas-
+                mode (sidebar pick) for per-variant fidelity. The
+                Theme tab retired per rf2-ou3pn — the ribbon's
+                sun/moon icon is the canonical light/dark
+                affordance. The Filters tab retired per rf2-wknb3
+                — full pill management lives in the ribbon strip +
+                per-pill edit popup + mute manager modal."
      :layout   :variants-grid
      :story    :story.xray.settings-popup
      :columns  1

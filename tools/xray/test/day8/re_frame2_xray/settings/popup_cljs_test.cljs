@@ -113,20 +113,26 @@
       (is (find-by-testid rendered "rf-xray-settings-epoch-history-value")
           "Epoch history numeric readout renders alongside the slider"))))
 
-(deftest filters-section-renders
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-open])
-    (rf/dispatch-sync [:rf.xray/settings-select-tab :filters]))
-  (rf/with-frame :rf/xray
-    (let [rendered (popup/Modal)]
-      (is (find-by-testid rendered "rf-xray-settings-section-filters"))
-      ;; The filters ns is loaded (rf2-ak4ms landed) — the section
-      ;; surfaces the open button rather than the install hint.
-      (is (find-by-testid rendered "rf-xray-settings-filters-open")
-          "open button renders when filters feature is present")
-      (is (nil? (find-by-testid rendered "rf-xray-settings-filters-install-hint"))
-          "install hint hidden when filters feature is present"))))
+;; Filters tab removed (rf2-wknb3) — filter management lives in the
+;; top-ribbon pill strip (`filters/pills.cljs`), the per-pill edit
+;; popup (`filters/edit_popup.cljs`), and the mute manager modal
+;; (rf2-ikuwt). The settings tab's only widget was a dead-chrome
+;; 'Open auto-filter UI' button dispatching an unregistered event.
+
+(deftest filters-section-is-gone
+  (testing "rf2-wknb3 — selecting `:filters` no longer surfaces a
+            section; the body falls through to the General section's
+            fallback (default branch of the body case)."
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-open])
+      (rf/dispatch-sync [:rf.xray/settings-select-tab :filters]))
+    (rf/with-frame :rf/xray
+      (let [rendered (popup/Modal)]
+        (is (nil? (find-by-testid rendered "rf-xray-settings-section-filters"))
+            "Filters section is gone")
+        (is (nil? (find-by-testid rendered "rf-xray-settings-tab-filters"))
+            "Filters tab button is gone from the strip")))))
 
 ;; Theme tab removed (rf2-ou3pn) — the top-ribbon sun/moon icon is
 ;; now the canonical light/dark affordance. The previous
@@ -160,7 +166,6 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
   (doseq [[tab-id section-testid] [[:general     "rf-xray-settings-section-general"]
-                                   [:filters     "rf-xray-settings-section-filters"]
                                    [:keybindings "rf-xray-settings-section-keybindings"]
                                    [:buffer      "rf-xray-settings-section-buffer"]
                                    [:diff        "rf-xray-settings-section-diff"]]]
@@ -175,10 +180,10 @@
 
 (deftest open-resets-active-tab-to-general
   (setup!)
-  ;; Pre-set tab to filters
+  ;; Pre-set tab to a non-default; reopen must reset to :general.
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open])
-    (rf/dispatch-sync [:rf.xray/settings-select-tab :filters])
+    (rf/dispatch-sync [:rf.xray/settings-select-tab :buffer])
     (rf/dispatch-sync [:rf.xray/settings-close])
     (rf/dispatch-sync [:rf.xray/settings-open]))
   (is (= :general (:settings-active-tab (rf/get-frame-db :rf/xray)))

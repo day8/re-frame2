@@ -1169,7 +1169,7 @@ frame composed into `filtered-cascades`" framing in §6):
   head-frame default on load (rf2-swclw) and is excluded from the
   hidden-by-filters count + `Clear Filters` (above).
 
-The Settings popup §9 exposes the pill set + Recommended quick-add + factory-reset (the §9 Filters tab in v1 is a pointer into the ribbon pill UI — full per-pill management surface lives in the ribbon per spec §3; see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup — v1 ships).
+Full per-pill management lives in the ribbon strip + per-pill edit popup + mute manager modal (rf2-ikuwt) per spec §3. The Settings popup carried no Filters tab in v1 ship (the discoverability-pointer tab from earlier drafts was retired per rf2-wknb3 — see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup — v1 ships).
 
 ### Error overrides
 
@@ -1320,8 +1320,8 @@ suites pin the panel render bodies post-reseed.
 
 ### v1 ships
 
-**v1 ships five sections, NOT six** (rf2-9poxq + rf2-jh9ws +
-rf2-ttnst + rf2-ou3pn): **General**, **Filters**, **Keybindings**,
+**v1 ships four sections, NOT six** (rf2-9poxq + rf2-jh9ws +
+rf2-ttnst + rf2-ou3pn + rf2-wknb3): **General**, **Keybindings**,
 **Buffer**, **Diff** — a top tab strip (not left-rail nav) drives
 which body section renders. Defaults: auto-open-on-error OFF,
 panel-position `:right-rail`, theme `:light` (Figma authority;
@@ -1335,18 +1335,23 @@ landing but was removed per rf2-jh9ws — Xray transmits no telemetry
 and the toggle was a broken affordance. The Theme tab was retired
 per rf2-ou3pn — the ribbon's sun/moon icon dispatches the same
 `[:rf.xray/settings-update :theme nil <kw>]` event the popup radio
-used to drive; the popup copy was pure redundancy.)
+used to drive; the popup copy was pure redundancy. The Filters tab
+was retired per rf2-wknb3 — full pill management lives in the
+ribbon strip + per-pill edit popup + mute manager modal; the
+popup's tab was a discoverability pointer whose only widget
+dispatched an unregistered event.)
 
-The Keybindings, Buffer, Popout, and Actions sections (the bottom
-four rows of the table above) are the **full §9 catalogue intent**
-and remain the target for follow-on beads. v1's Filters tab is a
-discoverability pointer into the ribbon pill UI — not a full
-management surface — because that surface already lives in the
-ribbon and re-implementing it in two places would invite drift.
+The Popout and Actions sections (rows of the table above) are
+**full §9 catalogue intent** and remain the target for follow-on
+beads; Keybindings, Buffer, and Diff already ship per rf2-ttnst +
+rf2-i39w2. The Filters tab is no longer part of v1 — full pill
+management lives in the ribbon strip + per-pill edit popup + mute
+manager modal; re-implementing it in two places would invite drift
+(retired per rf2-wknb3).
 
 ### "Show tool frames in picker" toggle
 
-- **Section:** View (NOT Filters — it's about what the picker shows, which is a view concern).
+- **Section:** General → Power user (the View tab from earlier drafts was folded into General per rf2-ttnst, and the toggle has always read from the `:general` settings slot).
 - **Sub-section:** Power user (visually separated by `── Power user ──` divider).
 - **Label:** "Show tool frames in picker" (literal).
 - **Sub-label:** "Reveals `:rf/xray` (and `:rf/re-frame2-pair` etc.) in the ribbon's frame dropdown. Only useful when debugging Xray itself."
