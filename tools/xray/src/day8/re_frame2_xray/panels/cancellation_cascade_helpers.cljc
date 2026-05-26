@@ -225,7 +225,7 @@
      :actor-id       (or (:actor-id tags) (:machine-id tags) (:spawned-id tags))
      :correlation-id (or (:request-id tags) (:correlation-id tags))
      :trace-id       (:id ev)
-     :dispatch-id    (:dispatch-id tags)}))
+     :dispatch-id    (:rf.trace/dispatch-id tags)}))
 
 (defn- teardown-row
   "Build one child-teardown row from a destroy trace event."
@@ -240,7 +240,7 @@
      :last-state     (:last-state tags)
      :inflight-count nil  ;; populated downstream from the gathered aborts
      :trace-id       (:id ev)
-     :dispatch-id    (:dispatch-id tags)}))
+     :dispatch-id    (:rf.trace/dispatch-id tags)}))
 
 (defn- decision-row
   "Build the parent-decision row from a `:rf.event/dispatched` trace
