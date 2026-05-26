@@ -130,18 +130,41 @@
 (defn- duration-chip
   "Right-aligned duration chip rendered alongside a step's header.
   Returns nil for non-number durations so the view can elide the
-  slot when the substrate didn't stamp one."
+  slot when the substrate didn't stamp one.
+
+  Per rf2-nqt3d the chip carries a subtle long-step warning when
+  the duration exceeds 16ms (one 60Hz frame). The warning is
+  conveyed by a warning-tone colour + a small `▲` marker —
+  alarmist `✗` chrome would crowd the cascade with noise on the
+  common case where one step is naturally heavy."
   [duration-ms]
   (when (number? duration-ms)
-    [:span {:data-testid "rf-xray-epoch-duration"
-            :style {:color       (:text-tertiary tokens)
-                    :font-family mono-stack
-                    :font-size   "11px"
-                    :font-weight 500
-                    :white-space "nowrap"
-                    :margin-left "auto"
-                    :padding-left "8px"}}
-     (proj/format-duration-ms duration-ms)]))
+    (let [long? (> duration-ms proj/long-step-threshold-ms)]
+      [:span {:data-testid (if long?
+                             "rf-xray-epoch-duration-long"
+                             "rf-xray-epoch-duration")
+              :data-long-step (str long?)
+              :title (when long?
+                       (str "step exceeded "
+                            proj/long-step-threshold-ms
+                            "ms (one 60Hz frame)"))
+              :style {:color       (if long?
+                                     (:warning tokens)
+                                     (:text-tertiary tokens))
+                      :font-family mono-stack
+                      :font-size   "11px"
+                      :font-weight (if long? 700 500)
+                      :white-space "nowrap"
+                      :margin-left "auto"
+                      :padding-left "8px"
+                      :display     "inline-flex"
+                      :align-items "center"
+                      :gap         "4px"}}
+       (when long?
+         [:span {:aria-hidden true
+                 :style {:font-size "10px"}}
+          "▲"])
+       (proj/format-duration-ms duration-ms)])))
 
 (defn- coord-chip
   "External-link affordance — opens the editor at `coord` via the
@@ -1011,6 +1034,63 @@
 
 ;; ---- pipeline view -------------------------------------------------------
 
+(defn cascade-summary
+  "Render the cascade-summary chip at the top of the pipeline (rf2-nqt3d).
+
+  Two pieces of information:
+
+    1. **Cascade total** — sum of every projected step's `:duration-ms`,
+       formatted via `format-duration-ms`. Operator's first read —
+       'how heavy was this whole cascade'.
+    2. **Long-step count** — number of steps whose `:duration-ms`
+       exceeded `proj/long-step-threshold-ms` (16ms — one 60Hz frame).
+       Rendered with warning tone when > 0; absent when 0.
+
+  Returns nil when the cascade carries no durations (cold start
+  records, fixtures synthesised without timing). The view elides
+  the slot rather than rendering `total: —`."
+  [steps]
+  (let [total       (proj/cascade-total-ms steps)
+        long-count  (proj/long-step-count steps)]
+    (when (number? total)
+      [:div {:data-testid "rf-xray-epoch-cascade-summary"
+             :data-long-step-count (str long-count)
+             :style {:display       "flex"
+                     :align-items   "center"
+                     :gap           "13px"
+                     :margin-bottom "13px"
+                     :padding       "5px 8px"
+                     :border        (str "1px solid " (:border-subtle tokens))
+                     :border-radius "3px"
+                     :background    (:bg-3 tokens)
+                     :font-family   sans-stack
+                     :font-size     "11px"
+                     :color         (:text-secondary tokens)}}
+       [:span {:style {:color (:text-tertiary tokens)
+                       :text-transform "uppercase"
+                       :letter-spacing "0.5px"
+                       :font-weight 600
+                       :font-size "10px"}}
+        "cascade total"]
+       [:span {:data-testid "rf-xray-epoch-cascade-summary-total"
+               :style {:color       (:text-primary tokens)
+                       :font-family mono-stack
+                       :font-weight 700}}
+        (proj/format-duration-ms total)]
+       (when (pos? long-count)
+         [:span {:data-testid "rf-xray-epoch-cascade-summary-long-count"
+                 :title       (str long-count " step"
+                                   (when (not= 1 long-count) "s")
+                                   " over " proj/long-step-threshold-ms "ms")
+                 :style {:color (:warning tokens)
+                         :font-family mono-stack
+                         :margin-left "auto"
+                         :display "inline-flex"
+                         :align-items "center"
+                         :gap "4px"}}
+          [:span {:aria-hidden true :style {:font-size "10px"}} "▲"]
+          (str long-count " over " proj/long-step-threshold-ms "ms")])])))
+
 (defn pipeline-view
   "Render the numbered pipeline cascade for `steps` (already
   numbered via `project-numbered`). Each step renders as a
@@ -1026,10 +1106,15 @@
                      13px from top, positioned at -34px from left edge
       Row spacing: 13px vertical gap between entries"
   [steps]
-  [:div {:data-testid "rf-xray-epoch-pipeline"
-         :style {:position    "relative"
-                 :padding-left "55px"
-                 :padding-top  "0"}}
+  [:div {:data-testid "rf-xray-epoch-pipeline-container"}
+   ;; rf2-nqt3d — cascade-summary chip rides above the numbered
+   ;; cascade. When the projection carries no durations the chip
+   ;; elides; the cascade still renders normally.
+   (cascade-summary steps)
+   [:div {:data-testid "rf-xray-epoch-pipeline"
+          :style {:position    "relative"
+                  :padding-left "55px"
+                  :padding-top  "0"}}
    ;; The vertical rail — absolute-positioned line behind the
    ;; numbered circles. Top = numbered-circle radius (so the line
    ;; starts at the centre of step-1's circle); bottom = the foot
@@ -1051,7 +1136,7 @@
             :style {:position     "relative"
                     :margin-bottom "13px"
                     :min-height   "21px"}}
-      (render-step step)])])
+      (render-step step)])]])
 
 ;; ---- empty states --------------------------------------------------------
 

@@ -233,6 +233,68 @@
       (is (string/includes? id "<anonymous view>")
           "missing view-id reads as `<anonymous view>` placeholder"))))
 
+;; ---- rf2-nqt3d — per-step elapsed time + cascade total ----------------
+
+(deftest cascade-summary-renders-total-test
+  (testing "rf2-nqt3d — cascade-summary chip carries the cascade total
+            formatted via `format-duration-ms`"
+    (let [tree (view/cascade-summary [{:step :dispatch :duration-ms 0.5}
+                                      {:step :handler  :duration-ms 12}])
+          chip (th/find-by-testid tree "rf-xray-epoch-cascade-summary")]
+      (is (some? chip) "the summary chip renders when any step carries a duration")
+      (is (string/includes? (th/text-content chip) "cascade total"))
+      (is (string/includes? (th/text-content chip) "13ms")
+          "total reads as the rounded sum of every step's :duration-ms"))))
+
+(deftest cascade-summary-elides-when-no-durations-test
+  (testing "rf2-nqt3d — projection without any duration returns nil so
+            the view never renders an empty `total: —` chip"
+    (let [tree (view/cascade-summary [{:step :dispatch}
+                                      {:step :handler}])]
+      (is (nil? tree)
+          "no durations → no summary chip (graceful-degrade)"))))
+
+(deftest cascade-summary-shows-long-step-count-test
+  (testing "rf2-nqt3d — when any step exceeds 16ms the summary surfaces
+            a warning-tone count chip"
+    (let [tree (view/cascade-summary [{:step :handler :duration-ms 12}
+                                      {:step :views   :duration-ms 25}
+                                      {:step :fx      :duration-ms 30}])
+          long-chip (th/find-by-testid tree "rf-xray-epoch-cascade-summary-long-count")]
+      (is (some? long-chip) "long-count chip present when any step is over 16ms")
+      (is (string/includes? (th/text-content long-chip) "2 over 16ms")
+          "count + threshold are visible in the chip text"))))
+
+(deftest cascade-summary-omits-long-count-when-zero-test
+  (testing "rf2-nqt3d — clean cascade (every step under threshold) → no
+            long-count chip in the summary"
+    (let [tree (view/cascade-summary [{:step :handler :duration-ms 0.5}
+                                      {:step :views   :duration-ms 1.2}])]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-cascade-summary-long-count"))
+          "no long-count chip on a fast cascade"))))
+
+(deftest duration-chip-renders-long-step-warning-test
+  (testing "rf2-nqt3d — a step header's duration chip paints warning
+            chrome when over 16ms"
+    (let [tree (view/render-handler-step
+                 {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db :event-id :rf.test.epoch.view/slow-handler
+                  :db-diff [] :fx [] :machine nil
+                  :duration-ms 42})]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-duration-long"))
+          "the long-duration testid is stamped on slow steps")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-duration"))
+          "the bare-duration testid is NOT stamped on long steps")))
+
+  (testing "rf2-nqt3d — a fast step keeps the bare-duration chip"
+    (let [tree (view/render-handler-step
+                 {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db :event-id :rf.test.epoch.view/fast-handler
+                  :db-diff [] :fx [] :machine nil
+                  :duration-ms 0.1})]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-duration"))
+          "fast step keeps the standard duration testid"))))
+
 (deftest handler-body-renders-captured-source-test
   (testing "rf2-66wis — when the registrar carries an
             `:rf.handler/source`, the body renders it via the

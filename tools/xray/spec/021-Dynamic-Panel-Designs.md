@@ -1429,6 +1429,36 @@ and silently rendered empty rows. The binding inventory:
 | `:subscriptions` | `:rf.sub/run` / `:rf.sub/skip` | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/elapsed-ms` (rf2-kfh1v aligned the reads against these) |
 | `:views` | `:rf.view/rendered` (NOT the simpler `:rf.view/render` marker) | `:rf.view/id`, `:rf.view/deref-subs`, `:rf.view/elapsed-ms`, `:rf.view/mount?`, `:rf.view/triggered-by` (rf2-6djth aligned the read against the rich marker) |
 
+### §9.1.10.2 Per-step elapsed time + cascade total (rf2-nqt3d)
+
+Each step row carries `:duration-ms` (a number when the substrate
+stamped it; nil otherwise). The view paints it as a right-aligned
+monospace chip on every step's header — pure-data via
+`projection/format-duration-ms`, which formats `0.1ms` / `12ms` /
+`1.2s` per scale.
+
+Pure-data aggregations layered on top of the projected step vector
+drive the cascade-level chrome:
+
+| Helper | Returns | Used for |
+|--------|---------|----------|
+| `projection/cascade-total-ms steps` | number (sum of `:duration-ms`) or nil | top-of-cascade summary chip total |
+| `projection/long-step? step` | boolean (`:duration-ms > 16ms`) | per-step warning chrome |
+| `projection/long-step-count steps` | integer | summary chip secondary count |
+
+`projection/long-step-threshold-ms` is **16ms** — one display frame
+at 60Hz, the natural marker for "this single step will visibly
+jank the next paint". Crossing the threshold paints the chip in the
+warning tone with a `▲` glyph; the cascade-summary chip surfaces a
+secondary `N over 16ms` count when any step is long. Below
+threshold the chip is muted with no glyph — alarmist `✗` chrome
+would crowd the cascade on the common case where one step is
+naturally heavy.
+
+The summary chip elides when no step carries a numeric duration
+(cold-start records, fixtures synthesised without timing); the
+cascade renders normally.
+
 ### §9.1.11 Cross-panel navigation
 
 Every click-to-source affordance in the cascade flows through the

@@ -594,6 +594,58 @@
       :else        (let [rounded (/ (Math/round (double (* ms 10))) 10.0)]
                      (str rounded "ms")))))
 
+;; ---- timing aggregation (rf2-nqt3d) -------------------------------------
+;;
+;; Per-step `:duration-ms` is stamped at projection time (each step row
+;; reads its substrate-emitted duration off the matching trace event:
+;; `:rf.event/run-end` for HANDLER, `:rf.fx/handled` for FX rows, etc).
+;; The cascade total + long-step predicate are pure aggregations over
+;; the already-projected step rows so the view layer never re-walks the
+;; trace stream for chrome decisions.
+
+(def long-step-threshold-ms
+  "Threshold above which a single step is rendered with long-step
+  warning chrome. 16ms = one display frame at 60Hz — the natural
+  marker per the bead body's `N ms` slot (worker picks; documented
+  here as the contract).
+
+  Crossing 16ms in any single step means the cascade will visibly
+  jank the next paint, so the operator wants the row chromed as
+  load-bearing for perf debugging. Subtler than an `:error` glyph —
+  the spec body's posture is 'subtle, not alarmist'."
+  16)
+
+(defn long-step?
+  "True iff `step`'s `:duration-ms` exceeds `long-step-threshold-ms`.
+  Pure predicate over a projected step row; the view consumes this
+  to decide whether to paint the long-step warning chrome on the
+  duration chip."
+  [step]
+  (let [ms (:duration-ms step)]
+    (and (number? ms) (> ms long-step-threshold-ms))))
+
+(defn cascade-total-ms
+  "Sum of every step's `:duration-ms` over the projected step vector,
+  or nil when no step carries a numeric duration. Pure aggregation;
+  the view renders this in the cascade-summary chip at the top of
+  the panel.
+
+  Per rf2-nqt3d the summary is the operator's first read — the
+  cascade total tells them whether to even start drilling per-step.
+  Returns a number (so the chip can format via
+  `format-duration-ms`)."
+  [steps]
+  (let [nums (keep :duration-ms steps)]
+    (when (seq nums)
+      (reduce + 0 nums))))
+
+(defn long-step-count
+  "Count of projected steps whose `:duration-ms` exceeds the long-step
+  threshold. Drives the cascade-summary's secondary chip
+  (`N step over 16ms`)."
+  [steps]
+  (count (filter long-step? steps)))
+
 (defn event-display
   "Render the dispatched event vector as a one-line monospace string
   for the DISPATCH row's target slot."

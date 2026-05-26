@@ -477,3 +477,43 @@
     (is (= "on-resolution"    (proj/timer-reason-label :on-resolution)))
     (is (= "on-supersede"     (proj/timer-reason-label :on-supersede)))
     (is (= "on-frame-destroy" (proj/timer-reason-label :on-frame-destroy)))))
+
+;; ---- rf2-nqt3d — per-step elapsed time + cascade total ------------------
+
+(deftest long-step-threshold-test
+  (testing "rf2-nqt3d — 16ms = one display frame at 60Hz; the threshold
+            documents the long-step warning boundary"
+    (is (= 16 proj/long-step-threshold-ms))))
+
+(deftest long-step-predicate-test
+  (testing "rf2-nqt3d — `long-step?` is true iff duration > 16ms"
+    (is (false? (proj/long-step? {:duration-ms 0.1})))
+    (is (false? (proj/long-step? {:duration-ms 16})))
+    (is (true?  (proj/long-step? {:duration-ms 16.1})))
+    (is (true?  (proj/long-step? {:duration-ms 250})))
+    (is (false? (proj/long-step? {:duration-ms nil}))
+        "nil duration is NOT a long step (the chip elides instead)")
+    (is (false? (proj/long-step? {}))
+        "missing duration returns false")))
+
+(deftest cascade-total-ms-test
+  (testing "rf2-nqt3d — sum of every step's :duration-ms"
+    (is (= 12.5 (proj/cascade-total-ms [{:duration-ms 0.5}
+                                        {:duration-ms 12}])))
+    (is (nil? (proj/cascade-total-ms []))
+        "empty step vec returns nil so the view can elide the chip")
+    (is (nil? (proj/cascade-total-ms [{:step :dispatch} {:step :handler}]))
+        "no step carries a duration → nil")
+    (is (= 5 (proj/cascade-total-ms [{:step :dispatch}
+                                     {:duration-ms 5}
+                                     {:step :views}]))
+        "mixed presence: missing durations skipped, sum returned")))
+
+(deftest long-step-count-test
+  (testing "rf2-nqt3d — count of steps over the 16ms threshold"
+    (is (= 0 (proj/long-step-count [])))
+    (is (= 0 (proj/long-step-count [{:duration-ms 0.1}
+                                    {:duration-ms 10}])))
+    (is (= 2 (proj/long-step-count [{:duration-ms 18}
+                                    {:duration-ms 1}
+                                    {:duration-ms 50}])))))
