@@ -51,7 +51,8 @@
   Walks the epoch-history, diffing each epoch's `:db-before` and
   `:db-after` and filtering to those that touched the focused path.
   Pure data → vector of hit maps. Per spec §'Show me when this
-  changed'.")
+  changed'."
+  (:require [clojure.string :as str]))
 
 ;; ---- reserved keys --------------------------------------------------------
 
@@ -291,12 +292,33 @@
   slices rendered as one section. Pure data."
   #{:rf/machines :rf/spawned})
 
+(defn reserved-namespace-key?
+  "True when `k` is a qualified keyword in the reserved `:rf/*` or
+  `:rf.<subns>/*` namespace family per spec/Conventions.md §Reserved
+  namespaces. Catches BOTH the six explicit reserved-app-db-keys
+  (`:rf/machines` etc.) AND any other framework-internal key the
+  runtime stashes at the app-db root (e.g. `:rf.route/nav-token-
+  counter`, `:rf.machine/*` slots). The user-domain TOP section
+  must hide all of these — they're framework plumbing, not user-
+  domain state. Pure data → bool."
+  [k]
+  (boolean
+    (when (qualified-keyword? k)
+      (let [ns (namespace k)]
+        (or (= ns "rf")
+            (str/starts-with? ns "rf."))))))
+
 (defn user-domain-db
-  "Return `db` with every reserved `:rf/*` key removed — the
-  user-domain app-db that heads the inspector's TOP section. Pure data
-  → map. nil-safe (nil db → empty map)."
+  "Return `db` with every reserved `:rf*`-namespaced key removed —
+  the user-domain app-db that heads the inspector's TOP section. The
+  filter catches both the six explicit reserved-app-db-keys
+  (`:rf/machines` etc., per spec/Conventions.md §Reserved app-db keys)
+  AND any framework-internal slot the runtime stashes under the
+  broader reserved-namespace family (e.g. `:rf.route/nav-token-
+  counter`, `:rf.machine/*`). Pure data → map. nil-safe (nil db →
+  empty map)."
   [db]
-  (apply dissoc (or db {}) reserved-app-db-keys))
+  (into {} (remove (fn [[k _v]] (reserved-namespace-key? k))) (or db {})))
 
 (def no-diff
   "Sentinel `:before` value meaning 'no pre-image available, render
