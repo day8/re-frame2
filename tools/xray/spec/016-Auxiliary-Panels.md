@@ -506,9 +506,10 @@ backfills what v1 actually ships.
 |---|---|
 | **General** (default) | Text-size slider (range 10–18 px; writes the `--rf-xray-text-size` CSS custom property on the shell root + `<html>` — the **user knob**, pre-existing) · Density radio (`:compact` / `:cosy`; writes the `--rf-xray-font-size` CSS custom property — the **type-scale anchor** per rf2-n8i2c, separately tracked from `--rf-xray-text-size`) · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen` — routes to `mount/open!` / `mount/popout!` / `mount/open-overlay!` via the browser API exports) · Panel-width-px slot (number; default 480; written by the resize handle per [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance); no in-popup widget — the panel's drag handle is the affordance) · "Auto-open Xray when an issue is observed" checkbox |
 | **Filters** | Pointer into the auto-filter pills feature. When the `day8.re-frame2-xray.filters` ns is on the classpath the tab renders an "Open auto-filter UI" button that dispatches `:rf.xray.filters/open`; otherwise it shows the "install the feature first" hint. The full pill management surface lives in the ribbon (per [`018-Event-Spine.md`](./018-Event-Spine.md) §7) — this tab is a discoverability handle. |
-| **Theme** | Dark (default) / Light radio. Toggles the `rf-xray-theme-{dark,light}` class on the shell root + `<html>`. Accent picker deferred. |
 
-**v1 ships:** three tabs (General / Filters / Theme). The fuller
+The Theme tab was retired per rf2-ou3pn — the top-ribbon sun/moon icon (`ribbon-theme-toggle` in `shell.cljs`) is now the canonical light/dark affordance. Both surfaces dispatched the identical `[:rf.xray/settings-update :theme nil <kw>]` event; the popup copy was pure redundancy. The `:use-system-colors?` HCM-override toggle relocated to **General → Power user** — the setting slot has always been `:general :use-system-colors?`; only its cosmetic home in the Theme section is gone with the tab.
+
+**v1 ships:** two tabs visible above (General / Filters). The Theme tab listed earlier was retired per rf2-ou3pn — see the note immediately under the table. The fuller
 [`018-Event-Spine.md`](./018-Event-Spine.md) §9 catalogue
 (Keybindings, Buffer, Popout, Actions) is deferred to follow-on
 beads. A Telemetry tab shipped briefly in the initial popup landing

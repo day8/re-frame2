@@ -17,7 +17,6 @@
   `shell_cljs_test.cljs` so the test surface stays Reagent-free
   on the assertion side."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -26,7 +25,6 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.popup :as popup]
-            [day8.re-frame2-xray.settings.view :as view]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -130,65 +128,30 @@
       (is (nil? (find-by-testid rendered "rf-xray-settings-filters-install-hint"))
           "install hint hidden when filters feature is present"))))
 
-(deftest theme-section-renders
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-open])
-    (rf/dispatch-sync [:rf.xray/settings-select-tab :theme]))
-  (rf/with-frame :rf/xray
-    (let [rendered (popup/Modal)]
-      (is (find-by-testid rendered "rf-xray-settings-section-theme"))
-      (is (find-by-testid rendered "rf-xray-settings-theme-dark"))
-      (is (find-by-testid rendered "rf-xray-settings-theme-light"))
-      ;; rf2-846h2 — the Theme section also houses the operator-side
-      ;; "Use system colors" opt-in checkbox so HCM-style chrome is
-      ;; reachable without flipping the OS-level switch.
-      (is (find-by-testid rendered "rf-xray-settings-use-system-colors")
-          "Use system colors toggle renders in the Theme section"))))
+;; Theme tab removed (rf2-ou3pn) — the top-ribbon sun/moon icon is
+;; now the canonical light/dark affordance. The previous
+;; `theme-section-renders` + `theme-label-matches-actual-default`
+;; tests are gone with the tab. `config/default-settings :theme` is
+;; still pinned `:light` by `theme/effects_cljs_test.cljs` (canonical
+;; default + apply-theme! fallback). The `:use-system-colors?`
+;; HCM-override checkbox moved to General → Power user and is now
+;; exercised by `use-system-colors-renders-in-general`.
 
-(deftest theme-label-matches-actual-default
-  (testing "rf2-pfx4u — the `(default)` annotation in the Theme section
-            labels MUST sit next to the actually-default option per
-            `config/default-settings`, not be hard-coded against Dark.
-            The default is `:light` (Figma authority + `config.cljc`
-            + `effects/apply-theme!` fallback), so the Light label
-            carries `(default)` and the Dark label does NOT.
-
-            Asserted by walking the radio's parent `<label>` and
-            asking `text-content` for the visible copy. The parent
-            label is the SECOND ancestor of the `<input>` — the
-            tree shape is `[:label ... [:input {...}] \"Dark\"]`."
+(deftest use-system-colors-renders-in-general
+  (testing "rf2-ou3pn — `:use-system-colors?` HCM-override checkbox
+            relocated from the retired Theme tab to General → Power
+            user. The settings slot has always been `:general
+            :use-system-colors?` — only the cosmetic home moved."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open])
-      (rf/dispatch-sync [:rf.xray/settings-select-tab :theme]))
+      (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
     (rf/with-frame :rf/xray
-      (let [rendered    (popup/Modal)
-            section     (find-by-testid rendered "rf-xray-settings-section-theme")
-            ;; the visible copy of each radio's row is the concatenation
-            ;; of strings in the section that share its sibling line;
-            ;; checking via `text-content` on the section is the
-            ;; simplest faithful read of what the operator sees.
-            section-txt (th/text-content section)
-            default-theme (:theme config/default-settings)]
-        ;; the canonical default must be `:light` (Figma authority).
-        ;; Pinning this here means a future flip of the default
-        ;; surfaces as a deliberate edit to this test, not as a silent
-        ;; label drift.
-        (is (= :light default-theme)
-            "config/default-settings :theme is :light (Figma authority)")
-        ;; the `(default)` annotation sits next to Light, not Dark.
-        (is (re-find #"Light \(default\)" section-txt)
-            "Light option is labelled `Light (default)` (rf2-pfx4u)")
-        (is (not (re-find #"Dark \(default\)" section-txt))
-            "Dark option is NOT labelled `Dark (default)` — the prior stale label is gone (rf2-pfx4u)")
-        ;; Dark still surfaces as a `Dark` label (base copy preserved
-        ;; — only the `(default)` marker moved). Use a substring check
-        ;; rather than `\bDark\b` because the section's text-content
-        ;; concatenates sibling strings without separators (the radio
-        ;; rows render adjacent, so the joined leaves read `DarkLight`).
-        (is (str/includes? section-txt "Dark")
-            "Dark option still labelled `Dark` (without the default marker)")))))
+      (let [rendered (popup/Modal)]
+        (is (find-by-testid rendered "rf-xray-settings-use-system-colors")
+            "Use system colors toggle renders in the General section")
+        (is (nil? (find-by-testid rendered "rf-xray-settings-section-theme"))
+            "Theme section is gone")))))
 
 ;; ---- Tab switching ------------------------------------------------------
 
@@ -196,9 +159,11 @@
   (setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (doseq [[tab-id section-testid] [[:general "rf-xray-settings-section-general"]
-                                   [:filters "rf-xray-settings-section-filters"]
-                                   [:theme   "rf-xray-settings-section-theme"]]]
+  (doseq [[tab-id section-testid] [[:general     "rf-xray-settings-section-general"]
+                                   [:filters     "rf-xray-settings-section-filters"]
+                                   [:keybindings "rf-xray-settings-section-keybindings"]
+                                   [:buffer      "rf-xray-settings-section-buffer"]
+                                   [:diff        "rf-xray-settings-section-diff"]]]
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-select-tab tab-id]))
     (rf/with-frame :rf/xray

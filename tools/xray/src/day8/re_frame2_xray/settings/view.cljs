@@ -177,13 +177,13 @@
 ;; ---- tab strip ----------------------------------------------------------
 
 (def ^:private tabs
-  "Ordered tab list. The modal carries six sections
-  (General | Filters | Theme | Diff | Keybindings | Buffer).
+  "Ordered tab list. The modal carries five sections
+  (General | Filters | Keybindings | Buffer | Diff).
   Tab id matches the `:rf.xray/settings-update` `section` for
   sections that map 1:1 to a settings slot.
 
   Each tab carries a `:mnemonic` — a single bare letter the dialog's
-  keydown handler captures while the modal is open (g/t/f/k/b/d).
+  keydown handler captures while the modal is open (g/f/k/b/d).
   Modal-only; the outer global mnemonics (`,` / `s` / `c` / `?`)
   never fire while the dialog has focus because the dialog's
   `on-key-down` stops propagation on every consumed key. Per
@@ -193,6 +193,15 @@
   endpoint, and the toggle in v1 was a broken affordance — silent
   by default, no broken claims (per text-audit rf2-yn86j). When
   telemetry actually ships, the tab returns with real wiring.
+
+  Theme tab was removed (rf2-ou3pn): the top-ribbon Theme icon
+  (`ribbon-theme-toggle` in `shell.cljs`) is the canonical
+  light/dark affordance and dispatches the same
+  `:rf.xray/settings-update :theme nil <kw>` event the popup's
+  radio used to drive. The `:use-system-colors?` HCM-override
+  checkbox migrated to General → Power user (it always was a
+  `:general` slot — its cosmetic home in the Theme tab is gone
+  with the tab).
 
   Diff (rf2-i39w2 Phase 3) carries the hiccup-diff micro-engine's
   opt-in fn-ref-changes toggle.
@@ -206,7 +215,6 @@
   inspector-collapse-threshold knobs + a 'Clear buffer now' button
   with a confirmation modal (destructive action)."
   [{:id :general     :label "General"     :mnemonic "g"}
-   {:id :theme       :label "Theme"       :mnemonic "t"}
    {:id :filters     :label "Filters"     :mnemonic "f"}
    {:id :keybindings :label "Keybindings" :mnemonic "k"}
    {:id :buffer      :label "Buffer"      :mnemonic "b"}
@@ -263,6 +271,8 @@
         show-tool?      @(rf/subscribe [:rf.xray/show-tool-frames?])
         show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
         show-unchanged-subs? @(rf/subscribe [:rf.xray/setting :general :show-unchanged-subs?])
+        use-system?     @(rf/subscribe [:rf.xray/setting
+                                        :general :use-system-colors?])
         epoch-history   @(rf/subscribe [:rf.xray/setting :general :epoch-history])]
     [:div {:data-testid "rf-xray-settings-section-general"}
      [:h2 {:style (section-heading-style)} "General"]
@@ -585,7 +595,57 @@
                        :color (:text-tertiary tokens)}}
         ":rf.sub/skipped"]
        ") is always inline-expanded. Default OFF — unchanged subs "
-       "stay collapsed behind a footer disclosure (spec/021 §3.4)."]]]))
+       "stay collapsed behind a footer disclosure (spec/021 §3.4)."]]
+
+     ;; ── Use system colors toggle (rf2-846h2; relocated rf2-ou3pn) ─
+     ;;
+     ;; Opt-in surface for the same system-token chrome the
+     ;; `@media (forced-colors: active)` block paints under Windows
+     ;; HCM. Default OFF; flipping ON stamps `data-rf-force-colors=
+     ;; "active"` on the shell root + `<html>` so the sibling
+     ;; selectors in `theme/global-styles/motion-css` fire too —
+     ;; identical chrome to the OS HCM path, no OS-level switch
+     ;; required. Additive: the OS detection still works; this is a
+     ;; parallel activator the operator controls.
+     ;;
+     ;; Originally lived in the Theme tab; relocated to General →
+     ;; Power user when the Theme tab was retired (rf2-ou3pn). The
+     ;; settings slot has always been `:general :use-system-colors?`
+     ;; — only the cosmetic home moved.
+     [:div {:style (field-style)}
+      [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                       :cursor "pointer"
+                       :font-size (:body type-scale)
+                       :color (:text-primary tokens)}}
+       [:input {:data-testid "rf-xray-settings-use-system-colors"
+                :type        "checkbox"
+                :checked     (boolean use-system?)
+                :on-change   #(rf/dispatch
+                                [:rf.xray/settings-update
+                                 :general :use-system-colors?
+                                 (boolean (.. % -target -checked))]
+                                {:frame :rf/xray})}]
+       "Use system colors"]
+      [:p {:style (hint-style)}
+       "Render the Xray chrome using your OS' high-contrast palette "
+       "(CSS system colour keywords: "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "Highlight"] ", "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "CanvasText"] ", "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "Mark"] ", "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "GrayText"]
+       ") — the same chrome Windows High Contrast Mode paints, "
+       "available on demand without flipping the OS-level switch. "
+       "Default OFF; the OS HCM detection still works either way. "
+       "Light/dark theme is now driven by the sun/moon icon in the "
+       "top ribbon (rf2-ou3pn)."]]]))
 
 ;; ---- section: Filters ---------------------------------------------------
 
@@ -620,88 +680,19 @@
          "day8.re-frame2-xray.filters"]
         " namespace is not on the classpath."])]))
 
-;; ---- section: Theme -----------------------------------------------------
-
-(defn- theme-section []
-  (let [theme            @(rf/subscribe [:rf.xray/setting :theme nil])
-        use-system?      @(rf/subscribe [:rf.xray/setting
-                                         :general :use-system-colors?])
-        ;; rf2-pfx4u — the "(default)" annotation is derived from the
-        ;; canonical default in `config/default-settings`, not hard-coded
-        ;; against `:dark`. The prior labels paired the annotation with
-        ;; Dark while the actual default is `:light` (per
-        ;; `config.cljc :theme :light` and `effects/apply-theme!` which
-        ;; falls back to `:light` when no theme is set) — the Figma
-        ;; authority reference also opens on Light. Sourcing the marker
-        ;; from config keeps the label in lock-step with the default and
-        ;; survives any future flip without a separate copy-edit.
-        default-theme    (:theme config/default-settings)]
-    [:div {:data-testid "rf-xray-settings-section-theme"}
-     [:h2 {:style (section-heading-style)} "Theme"]
-     [:div {:style (field-style)}
-      [:span {:style (label-style)} "Colour theme"]
-      (for [[t base-label] [[:dark  "Dark"]
-                            [:light "Light"]]
-            :let [label (if (= t default-theme)
-                          (str base-label " (default)")
-                          base-label)]]
-        ^{:key t}
-        [:label {:style {:display "flex" :align-items "center" :gap "8px"
-                         :cursor "pointer"
-                         :font-size (:body type-scale)
-                         :color (:text-primary tokens)}}
-         [:input {:data-testid (str "rf-xray-settings-theme-" (name t))
-                  :type        "radio"
-                  :name        "rf-xray-settings-theme"
-                  :checked     (= theme t)
-                  :on-change   #(rf/dispatch
-                                  [:rf.xray/settings-update
-                                   :theme nil t]
-                                  {:frame :rf/xray})}]
-         label])]
-
-     ;; ── Use system colors toggle (rf2-846h2) ───────────────────
-     ;;
-     ;; Opt-in surface for the same system-token chrome the
-     ;; `@media (forced-colors: active)` block paints under Windows
-     ;; HCM. Default OFF; flipping ON stamps `data-rf-force-colors=
-     ;; "active"` on the shell root + `<html>` so the sibling
-     ;; selectors in `theme/global-styles/motion-css` fire too —
-     ;; identical chrome to the OS HCM path, no OS-level switch
-     ;; required. Additive: the OS detection still works; this is a
-     ;; parallel activator the operator controls.
-     [:div {:style (field-style)}
-      [:label {:style {:display "flex" :align-items "center" :gap "8px"
-                       :cursor "pointer"
-                       :font-size (:body type-scale)
-                       :color (:text-primary tokens)}}
-       [:input {:data-testid "rf-xray-settings-use-system-colors"
-                :type        "checkbox"
-                :checked     (boolean use-system?)
-                :on-change   #(rf/dispatch
-                                [:rf.xray/settings-update
-                                 :general :use-system-colors?
-                                 (boolean (.. % -target -checked))]
-                                {:frame :rf/xray})}]
-       "Use system colors"]
-      [:p {:style (hint-style)}
-       "Render the Xray chrome using your OS' high-contrast palette "
-       "(CSS system colour keywords: "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        "Highlight"] ", "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        "CanvasText"] ", "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        "Mark"] ", "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        "GrayText"]
-       ") — the same chrome Windows High Contrast Mode paints, "
-       "available on demand without flipping the OS-level switch. "
-       "Default OFF; the OS HCM detection still works either way."]]]))
+;; ---- section: Theme (removed rf2-ou3pn) --------------------------------
+;;
+;; The Theme tab was retired in rf2-ou3pn — the top-ribbon Theme icon
+;; (`ribbon-theme-toggle` in `shell.cljs`) is now the canonical
+;; light/dark affordance and dispatches the same
+;; `:rf.xray/settings-update :theme nil <kw>` event the popup radio
+;; used to drive. Both affordances persisted via the identical event,
+;; so removing the popup's copy is a pure-redundancy cleanup. The
+;; `:use-system-colors?` HCM-override checkbox moved to
+;; General → Power user — it has always been a `:general` slot; only
+;; its cosmetic home in the Theme section is gone with the tab.
+;; `config/default-settings :theme` (`:light`, Figma authority) and
+;; `settings/effects/apply-theme!` are unchanged.
 
 ;; ---- section: Diff (rf2-i39w2 Phase 3) ----------------------------------
 
@@ -798,7 +789,6 @@
             ["Ctrl+→ / Ctrl+←" "Next / previous tab"]]}
    {:group "Settings popup (modal-only)"
     :rows  [["g" "General tab"]
-            ["t" "Theme tab"]
             ["f" "Filters tab"]
             ["k" "Keybindings tab"]
             ["b" "Buffer tab"]
@@ -1205,7 +1195,6 @@
        (case active-tab
          :general     (general-section)
          :filters     (filters-section)
-         :theme       (theme-section)
          :diff        (diff-section)
          :keybindings (keybindings-section)
          :buffer      (buffer-section)

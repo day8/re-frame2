@@ -8,14 +8,18 @@
   `:rf.xray/settings-open?` is false; closed-state cost is one
   subscribe + a `when`.
 
-  ## Sections (rf2-9poxq + rf2-jh9ws + rf2-ttnst)
+  ## Sections (rf2-9poxq + rf2-jh9ws + rf2-ttnst + rf2-ou3pn)
 
-  Six inner tabs:
-  General | Theme | Filters | Keybindings | Buffer | Diff. The top
-  tab strip drives which body section renders. Inner mnemonics
-  (`g` / `t` / `f` / `k` / `b` / `d`) switch tabs while the modal
-  is focused — captured by the dialog's `on-key-down`, gated against
-  the editable-target case so numeric inputs are not interrupted.
+  Five inner tabs:
+  General | Filters | Keybindings | Buffer | Diff. The top tab strip
+  drives which body section renders. Inner mnemonics (`g` / `f` /
+  `k` / `b` / `d`) switch tabs while the modal is focused — captured
+  by the dialog's `on-key-down`, gated against the editable-target
+  case so numeric inputs are not interrupted.
+
+  The Theme tab was retired (rf2-ou3pn) — the ribbon's sun/moon icon
+  is now the canonical light/dark affordance. The `:use-system-colors?`
+  HCM-override checkbox moved to General → Power user.
 
   Keybindings (rf2-ttnst) v1 is READ-ONLY — a chord catalogue plus
   the master `:rf.xray/keybinding-enabled?` toggle. Rebind UI is the

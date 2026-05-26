@@ -33,11 +33,14 @@
 
   ## Active tab
 
-  The modal's top tab strip (General | Filters | Theme) tracks
-  `:settings-active-tab` in app-db. Default is `:general`.
-  `:rf.xray/settings-open` resets the tab to `:general` so each
-  reopen starts in a predictable place (the modal is transient per
-  spec/018 §9 — the user is not 'browsing' it)."
+  The modal's top tab strip (General | Filters | Keybindings |
+  Buffer | Diff) tracks `:settings-active-tab` in app-db. Default
+  is `:general`. `:rf.xray/settings-open` resets the tab to
+  `:general` so each reopen starts in a predictable place (the
+  modal is transient per spec/018 §9 — the user is not 'browsing'
+  it). The Theme tab was retired in rf2-ou3pn — the ribbon's
+  sun/moon icon now drives `[:rf.xray/settings-update :theme nil
+  <kw>]` directly."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.settings.effects :as effects]

@@ -1320,17 +1320,22 @@ suites pin the panel render bodies post-reseed.
 
 ### v1 ships
 
-**v1 ships three sections, NOT six** (rf2-9poxq + rf2-jh9ws):
-**General**, **Filters**, **Theme** — a top tab strip (not left-rail
-nav) drives which body section renders. Defaults: auto-open-on-error
-OFF, panel-position `:right-rail`, theme `:dark`, text-size 13 px.
-Storage key `re-frame2.xray.settings.v1` (single nested map, one
-round-trip through `pr-str`). Full per-knob inventory + persistence
-rationale + auto-open-watcher semantics are in
+**v1 ships five sections, NOT six** (rf2-9poxq + rf2-jh9ws +
+rf2-ttnst + rf2-ou3pn): **General**, **Filters**, **Keybindings**,
+**Buffer**, **Diff** — a top tab strip (not left-rail nav) drives
+which body section renders. Defaults: auto-open-on-error OFF,
+panel-position `:right-rail`, theme `:light` (Figma authority;
+toggled by the top-ribbon sun/moon icon), text-size 13 px. Storage
+key `re-frame2.xray.settings.v1` (single nested map, one round-trip
+through `pr-str`). Full per-knob inventory + persistence rationale +
+auto-open-watcher semantics are in
 [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup
 — v1 ships. (A Telemetry tab shipped briefly with the initial popup
 landing but was removed per rf2-jh9ws — Xray transmits no telemetry
-and the toggle was a broken affordance.)
+and the toggle was a broken affordance. The Theme tab was retired
+per rf2-ou3pn — the ribbon's sun/moon icon dispatches the same
+`[:rf.xray/settings-update :theme nil <kw>]` event the popup radio
+used to drive; the popup copy was pure redundancy.)
 
 The Keybindings, Buffer, Popout, and Actions sections (the bottom
 four rows of the table above) are the **full §9 catalogue intent**
