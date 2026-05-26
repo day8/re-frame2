@@ -79,27 +79,28 @@
   surface. Adjacent sections are separated by a 1px hairline drawn as a
   `border-top` on every section after the first (Figma's `border-t`
   dividers). Reuses Xray's token CSS variables so light/dark resolve."
-  [{:keys [testid title body first?]}]
+  [{:keys [testid title body first? hide-header?]}]
   [:section {:data-testid testid
              :style       (cond-> {:padding "12px 12px 4px"}
                             (not first?)
                             (assoc :border-top
                                    (str "1px solid " (:border-subtle tokens))))}
-   [:h3 {:style {:display         "flex"
-                 :align-items     "center"
-                 :gap             "8px"
-                 :margin          "0 0 8px"
-                 :font-family     sans-stack
-                 :font-size       "11px"
-                 :font-weight     600
-                 :text-transform  "uppercase"
-                 :letter-spacing  "0.5px"
-                 :color           (:text-secondary tokens)}}
-    [:span {:style {:overflow      "hidden"
-                    :text-overflow "ellipsis"
-                    :white-space   "nowrap"
-                    :flex          1}}
-     title]]
+   (when-not hide-header?
+     [:h3 {:style {:display         "flex"
+                   :align-items     "center"
+                   :gap             "8px"
+                   :margin          "0 0 8px"
+                   :font-family     sans-stack
+                   :font-size       "11px"
+                   :font-weight     600
+                   :text-transform  "uppercase"
+                   :letter-spacing  "0.5px"
+                   :color           (:text-secondary tokens)}}
+      [:span {:style {:overflow      "hidden"
+                      :text-overflow "ellipsis"
+                      :white-space   "nowrap"
+                      :flex          1}}
+       title]])
    [:div body]])
 
 (defn- empty-body
@@ -136,7 +137,7 @@
   §10.4). App-db's depth heuristic is depth-3-collapsed by default
   (§10.4). The keyword-accent is already orange (owned by
   rf2-ad7zx.3)."
-  [value before render-id]
+  [value before render-id title]
   (let [_node-key (str "app-db-state/" render-id)
         ;; rf2-pvsxs — stable `:site-id` so expansion overrides survive
         ;; a tab-switch round-trip. `render-id` already identifies the
@@ -163,14 +164,16 @@
         ;; block; the opt-in chrome gives each mount a distinct card
         ;; affordance so the operator sees them as discrete inspector
         ;; cards.
-        :card? true}]
+        :card? true
+        :header title}]
       [ei/edn-inspector
        (f/display-value value)
        {:panel-id :rf.xray/app-db
         :site-id  site-id
         :default-expanded-depth 3
         :before (f/display-value before)
-        :card? true}])))
+        :card? true
+        :header title}])))
 
 ;; ---- top (user-domain) section ------------------------------------------
 
@@ -183,13 +186,16 @@
   panel-leading hairline."
   ([top] (top-section top h/no-diff true))
   ([top before first?]
-   (section-shell
-     {:testid "rf-xray-app-db-state-top"
-      :first? first?
-      :title  [:span "app-db"]
-      :body   (if (and (map? top) (empty? top))
-                (empty-body "app-db has no user-domain keys yet.")
-                (value-body top before "top"))})))
+   (let [title  [:span "app-db"]
+         empty? (and (map? top) (empty? top))]
+     (section-shell
+       {:testid       "rf-xray-app-db-state-top"
+        :first?       first?
+        :title        title
+        :hide-header? (not empty?)
+        :body         (if empty?
+                        (empty-body "app-db has no user-domain keys yet.")
+                        (value-body top before "top" title))}))))
 
 ;; ---- reserved-area sections ---------------------------------------------
 
@@ -209,19 +215,22 @@
   snapshot in place. Each instance section draws the leading hairline
   (it is never the panel's first section — the TOP precedes it)."
   [area {:keys [id value] :as inst}]
-  (section-shell
-    {:testid (str "rf-xray-app-db-state-instance-"
-                  (pr-str area) "-" (pr-str id))
-     :first? false
-     :title  [:span
-              (area-label area)
-              [:span {:style {:margin "0 6px" :color (:text-tertiary tokens)}}
-               "›"]
-              [:span {:style {:font-family mono-stack
-                              :color       (:text-primary tokens)}}
-               (pr-str id)]]
-     :body   (value-body value (get inst :before h/no-diff)
-                         (str (pr-str area) "/" (pr-str id)))}))
+  (let [title [:span
+               (area-label area)
+               [:span {:style {:margin "0 6px" :color (:text-tertiary tokens)}}
+                "›"]
+               [:span {:style {:font-family mono-stack
+                               :color       (:text-primary tokens)}}
+                (pr-str id)]]]
+    (section-shell
+      {:testid       (str "rf-xray-app-db-state-instance-"
+                          (pr-str area) "-" (pr-str id))
+       :first?       false
+       :title        title
+       :hide-header? true
+       :body         (value-body value (get inst :before h/no-diff)
+                                 (str (pr-str area) "/" (pr-str id))
+                                 title)})))
 
 (defn instances-area
   "Render a map-of-instances reserved area (`:rf/machines`,
@@ -252,20 +261,23 @@
   populated slices carry their `:before` pre-image for the inline diff
   annotation."
   [{:keys [area empty? value] :as area-entry}]
-  (section-shell
-    {:testid (str "rf-xray-app-db-state-area-" (pr-str area))
-     :first? false
-     :title  (area-label area)
-     :body   (if empty?
-               (empty-body
-                 (case area
-                   :rf/route              "No active route."
-                   :rf/system-ids         "No system-id bindings."
-                   :rf/pending-navigation "No navigation pending."
-                   :rf/elision            "No elision declarations."
-                   "Empty."))
-               (value-body value (get area-entry :before h/no-diff)
-                           (pr-str area)))}))
+  (let [title (area-label area)]
+    (section-shell
+      {:testid       (str "rf-xray-app-db-state-area-" (pr-str area))
+       :first?       false
+       :title        title
+       :hide-header? (not empty?)
+       :body         (if empty?
+                       (empty-body
+                         (case area
+                           :rf/route              "No active route."
+                           :rf/system-ids         "No system-id bindings."
+                           :rf/pending-navigation "No navigation pending."
+                           :rf/elision            "No elision declarations."
+                           "Empty."))
+                       (value-body value (get area-entry :before h/no-diff)
+                                   (pr-str area)
+                                   title))})))
 
 (defn area-section
   "Dispatch one reserved-area section entry (from
