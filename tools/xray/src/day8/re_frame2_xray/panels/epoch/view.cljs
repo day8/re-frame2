@@ -1173,14 +1173,137 @@
    [:div {:style {:margin-top "5px"}}
     (map-indexed schema-violation-row-view rows)]])
 
+;; ---- CHILD DISPATCHES step (rf2-yx1ae) ----------------------------------
+
+(defn- child-dispatch-via-label
+  "Render the `:via` slot (the fx-id that emitted the row) as a UI
+  chip label (rf2-yx1ae)."
+  [via]
+  (case via
+    :dispatch        "dispatch"
+    :dispatch-n      "dispatch-n"
+    :dispatch-later  "dispatch-later"
+    (when (keyword? via) (name via))))
+
+(defn- child-dispatch-row-view
+  "Render one child-dispatch row. Carries:
+
+  - child event vector (the operator's primary read)
+  - `:via` chip (which fx-id emitted the row)
+  - `:delay-ms` chip (for `:dispatch-later`)
+  - jump-to button when the child epoch is in the buffer; otherwise
+    a muted `not in buffer` marker
+
+  rf2-yx1ae. The jump-to dispatches `:rf.xray/select-epoch` against
+  the resolved child `:epoch-id`."
+  [{:keys [dispatch-id epoch-history]} idx {:keys [event delay-ms via]}]
+  (let [child-epoch-id (proj/find-child-epoch epoch-history dispatch-id event)]
+    [:div {:key (str "child-dispatch-" idx)
+           :data-testid (str "rf-xray-epoch-child-dispatch-row-" idx)
+           :data-child-resolved (str (some? child-epoch-id))
+           :style {:display "flex"
+                   :align-items "center"
+                   :gap "8px"
+                   :padding "3px 0"
+                   :font-family mono-stack
+                   :font-size "12px"
+                   :flex-wrap "wrap"}}
+     ;; via fx-id chip (muted)
+     [:span {:data-testid (str "rf-xray-epoch-child-dispatch-via-" idx)
+             :style {:color (:text-tertiary tokens)
+                     :font-size "10px"
+                     :text-transform "uppercase"
+                     :letter-spacing "0.5px"
+                     :font-weight 600}}
+      (child-dispatch-via-label via)]
+     ;; event vector (primary)
+     [:span {:data-testid (str "rf-xray-epoch-child-dispatch-event-" idx)
+             :style {:color (:text-primary tokens)
+                     :min-width 0
+                     :flex 1
+                     :word-break "break-word"}}
+      (pr-str event)]
+     ;; delay chip (for :dispatch-later)
+     (when (number? delay-ms)
+       [:span {:data-testid (str "rf-xray-epoch-child-dispatch-delay-" idx)
+               :style {:color (:text-tertiary tokens)
+                       :font-size "10px"}}
+        (str "+" delay-ms "ms")])
+     ;; jump-to or "not in buffer"
+     (if child-epoch-id
+       [:button {:data-testid (str "rf-xray-epoch-child-dispatch-jump-" idx)
+                 :data-child-epoch-id (str child-epoch-id)
+                 :aria-label "jump to child cascade"
+                 :on-click (fn [e]
+                             (.stopPropagation e)
+                             (rf/dispatch [:rf.xray/select-epoch child-epoch-id]
+                                          {:frame :rf/xray}))
+                 :style {:background "transparent"
+                         :border (str "1px solid " (:border-default tokens))
+                         :border-radius "3px"
+                         :color (:accent tokens)
+                         :cursor "pointer"
+                         :font-family sans-stack
+                         :font-size "10px"
+                         :padding "2px 8px"
+                         :display "inline-flex"
+                         :align-items "center"
+                         :gap "4px"
+                         :text-transform "uppercase"
+                         :letter-spacing "0.5px"}}
+        (icons/arrow-right)
+        "jump"]
+       [:span {:data-testid (str "rf-xray-epoch-child-dispatch-missing-" idx)
+               :title "the child cascade has aged out of the epoch buffer (or has not yet completed)"
+               :style {:color (:text-tertiary tokens)
+                       :font-size "10px"
+                       :font-style "italic"}}
+        "not in buffer"])]))
+
+(defn render-child-dispatches-step
+  "Render the CHILD-DISPATCHES step (rf2-yx1ae — only present when
+  the handler returned dispatch-family fx).
+
+  Header: `N events dispatched` (per the bead's acceptance §4).
+  Per-row: event vector + via-fx chip + delay chip + jump-to
+  affordance (resolves child epoch via `proj/find-child-epoch`).
+
+  `ctx` carries this cascade's `:dispatch-id` + the
+  `:epoch-history` slice; the row-view uses both to find the
+  child's `:epoch-id`."
+  [{:keys [rows step-number]} ctx]
+  [:div {:data-testid "rf-xray-epoch-step-child-dispatches"
+         :data-step-kw "child-dispatches"}
+   (numbered-circle step-number :CHILD-DISPATCHES)
+   (step-header
+     {:step :child-dispatches
+      :badge :CHILD-DISPATCHES
+      :verb (str (count rows) " event"
+                 (when (not= 1 (count rows)) "s")
+                 " dispatched")
+      :expandable? false
+      :testid "rf-xray-epoch-child-dispatches"}
+     nil)
+   [:div {:style {:margin-top "5px"}}
+    (map-indexed (fn [idx row]
+                   (child-dispatch-row-view ctx idx row))
+                 rows)]])
+
 ;; ---- step dispatcher -----------------------------------------------------
+
+(declare render-child-dispatches-step)
 
 (defn- render-step
   "Dispatch a step row to its renderer. Returns hiccup; nil for
   unknown step kinds (defensive — every step the projection produces
   is in the canonical inventory; rf2-17vxj added SCHEMA-VIOLATIONS,
-  rf2-yx1ae added CHILD-DISPATCHES, rf2-rrykz added APP-DB-DIFF)."
-  [step]
+  rf2-yx1ae added CHILD-DISPATCHES, rf2-rrykz added APP-DB-DIFF).
+
+  `ctx` carries the cascade-level pieces a row may need (e.g. the
+  parent `:dispatch-id` + the `:epoch-history` slice for the
+  CHILD-DISPATCHES section's child-epoch resolution). Most steps
+  ignore it."
+  [step ctx]
   (case (:step step)
     :dispatch          (render-dispatch-step step)
     :coeffect          (render-coeffect-step step)
@@ -1190,6 +1313,7 @@
     :subscriptions     (render-subscriptions-step step)
     :views             (render-views-step step)
     :schema-violations (render-schema-violations-step step)
+    :child-dispatches  (render-child-dispatches-step step ctx)
     nil))
 
 ;; ---- pipeline view -------------------------------------------------------
@@ -1264,39 +1388,47 @@
       Pipeline: left margin 55px to accommodate numbered circles
       Vertical line: absolute positioned, 0.5px width, starts at
                      13px from top, positioned at -34px from left edge
-      Row spacing: 13px vertical gap between entries"
-  [steps]
-  [:div {:data-testid "rf-xray-epoch-pipeline-container"}
-   ;; rf2-nqt3d — cascade-summary chip rides above the numbered
-   ;; cascade. When the projection carries no durations the chip
-   ;; elides; the cascade still renders normally.
-   (cascade-summary steps)
-   [:div {:data-testid "rf-xray-epoch-pipeline"
-          :style {:position    "relative"
-                  :padding-left "55px"
-                  :padding-top  "0"}}
-   ;; The vertical rail — absolute-positioned line behind the
-   ;; numbered circles. Top = numbered-circle radius (so the line
-   ;; starts at the centre of step-1's circle); bottom = the foot
-   ;; of the last step's circle.
-   [:div {:data-testid "rf-xray-epoch-rail"
-          :aria-hidden true
-          :style {:position    "absolute"
-                  :left        (str (+ 55 badge/line-left-offset-px) "px")
-                  :top         (str badge/vertical-line-offset-px "px")
-                  :bottom      "13px"
-                  :width       "1px"
-                  :background  (:border-default tokens)
-                  :pointer-events "none"}}]
-   ;; Steps
-   (for [[i step] (map-indexed vector steps)]
-     ^{:key (str "step-" (:step step) "-" i)}
-     [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
-            :data-step (when (:step step) (name (:step step)))
-            :style {:position     "relative"
-                    :margin-bottom "13px"
-                    :min-height   "21px"}}
-      (render-step step)])]])
+      Row spacing: 13px vertical gap between entries
+
+  `ctx` is an optional map carrying cascade-level pieces individual
+  step renderers may need (`:dispatch-id`, `:epoch-history` — used
+  by the CHILD-DISPATCHES section to resolve child epochs via
+  `proj/find-child-epoch`). Defaulted to `{}` for back-compat with
+  direct test callers."
+  ([steps]
+   (pipeline-view steps {}))
+  ([steps ctx]
+   [:div {:data-testid "rf-xray-epoch-pipeline-container"}
+    ;; rf2-nqt3d — cascade-summary chip rides above the numbered
+    ;; cascade. When the projection carries no durations the chip
+    ;; elides; the cascade still renders normally.
+    (cascade-summary steps)
+    [:div {:data-testid "rf-xray-epoch-pipeline"
+           :style {:position    "relative"
+                   :padding-left "55px"
+                   :padding-top  "0"}}
+     ;; The vertical rail — absolute-positioned line behind the
+     ;; numbered circles. Top = numbered-circle radius (so the line
+     ;; starts at the centre of step-1's circle); bottom = the foot
+     ;; of the last step's circle.
+     [:div {:data-testid "rf-xray-epoch-rail"
+            :aria-hidden true
+            :style {:position    "absolute"
+                    :left        (str (+ 55 badge/line-left-offset-px) "px")
+                    :top         (str badge/vertical-line-offset-px "px")
+                    :bottom      "13px"
+                    :width       "1px"
+                    :background  (:border-default tokens)
+                    :pointer-events "none"}}]
+     ;; Steps
+     (for [[i step] (map-indexed vector steps)]
+       ^{:key (str "step-" (:step step) "-" i)}
+       [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
+              :data-step (when (:step step) (name (:step step)))
+              :style {:position     "relative"
+                      :margin-bottom "13px"
+                      :min-height   "21px"}}
+        (render-step step ctx)])]]))
 
 ;; ---- empty states --------------------------------------------------------
 
@@ -1325,7 +1457,8 @@
   the numbered cascade when steps are present; an empty-state when
   the focus carries no record or the record carries no trace events."
   []
-  (let [{:keys [status steps]} @(rf/subscribe [:rf.xray/epoch-pipeline])]
+  (let [{:keys [status steps dispatch-id epoch-history]}
+        @(rf/subscribe [:rf.xray/epoch-pipeline])]
     [:section {:data-testid "rf-xray-epoch-panel"
                :style {:height          "100%"
                        :display         "flex"
@@ -1344,7 +1477,9 @@
       (cond
         (= :focused status)
         (if (seq steps)
-          (pipeline-view steps)
+          (pipeline-view steps
+                         {:dispatch-id   dispatch-id
+                          :epoch-history epoch-history})
           (empty-state-view :no-events))
 
         :else

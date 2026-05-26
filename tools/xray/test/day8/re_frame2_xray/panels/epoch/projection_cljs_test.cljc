@@ -589,6 +589,91 @@
       (is (= 0 (:rollbacks s))
           "no rollback-true rows in this fixture"))))
 
+;; ---- rf2-yx1ae — child dispatches section -----------------------------
+
+(deftest child-dispatch-rows-from-dispatch-test
+  (testing "rf2-yx1ae — `:dispatch [:e/x]` projects one row"
+    (let [rows (proj/child-dispatch-rows
+                 [(do-fx-ev {:dispatch [:e/x 7]})])]
+      (is (= 1 (count rows)))
+      (is (= [:e/x 7]   (-> rows first :event)))
+      (is (= :dispatch  (-> rows first :via)))
+      (is (nil? (-> rows first :delay-ms))))))
+
+(deftest child-dispatch-rows-from-dispatch-n-test
+  (testing "rf2-yx1ae — `:dispatch-n [[:a] [:b]]` projects one row each"
+    (let [rows (proj/child-dispatch-rows
+                 [(do-fx-ev {:dispatch-n [[:a] [:b 1]]})])]
+      (is (= 2 (count rows)))
+      (is (= [:a]   (-> rows (nth 0) :event)))
+      (is (= [:b 1] (-> rows (nth 1) :event)))
+      (is (every? #(= :dispatch-n (:via %)) rows)))))
+
+(deftest child-dispatch-rows-from-dispatch-later-test
+  (testing "rf2-yx1ae — `:dispatch-later {:ms 250 :dispatch [:retry]}`
+            projects one row with `:delay-ms`"
+    (let [rows (proj/child-dispatch-rows
+                 [(do-fx-ev {:dispatch-later {:ms 250 :dispatch [:retry]}})])]
+      (is (= 1 (count rows)))
+      (is (= [:retry] (-> rows first :event)))
+      (is (= 250 (-> rows first :delay-ms)))
+      (is (= :dispatch-later (-> rows first :via)))))
+
+  (testing "rf2-yx1ae — `:dispatch-later` accepts a vec form too"
+    (let [rows (proj/child-dispatch-rows
+                 [(do-fx-ev {:dispatch-later
+                             [{:ms 100 :dispatch [:a]}
+                              {:ms 500 :dispatch [:b]}]})])]
+      (is (= 2 (count rows)))
+      (is (= 100 (-> rows (nth 0) :delay-ms)))
+      (is (= 500 (-> rows (nth 1) :delay-ms))))))
+
+(deftest child-dispatches-step-conditional-test
+  (testing "rf2-yx1ae — no dispatch fx → step OMITTED"
+    (is (nil? (proj/child-dispatches-step
+                [(do-fx-ev {:http/post {:url "/x"}})]))))
+
+  (testing "rf2-yx1ae — dispatch fx present → step rendered"
+    (let [s (proj/child-dispatches-step
+              [(do-fx-ev {:dispatch [:e/x]})])]
+      (is (= :child-dispatches (:step s)))
+      (is (= :CHILD-DISPATCHES (:badge s)))
+      (is (= 1 (count (:rows s)))))))
+
+(deftest find-child-epoch-by-parent-dispatch-id-test
+  (testing "rf2-yx1ae — find-child-epoch matches on `:parent-dispatch-id`"
+    (let [history [{:epoch-id 11 :parent-dispatch-id 1 :trigger-event [:other]}
+                   {:epoch-id 12 :parent-dispatch-id 1 :trigger-event [:e/x 7]}
+                   {:epoch-id 13 :parent-dispatch-id 2 :trigger-event [:e/x 7]}]]
+      (is (= 12 (proj/find-child-epoch history 1 [:e/x 7]))
+          "exact trigger-event + parent-id match wins")
+      (is (= 11 (proj/find-child-epoch history 1 [:other]))
+          "exact match on a different sibling")
+      (is (nil? (proj/find-child-epoch history 99 [:e/x 7]))
+          "no parent-id match → nil")
+      (is (nil? (proj/find-child-epoch nil 1 [:e/x 7]))
+          "nil history → nil")
+      (is (nil? (proj/find-child-epoch history nil [:e/x 7]))
+          "nil parent-id → nil"))))
+
+(deftest project-includes-child-dispatches-step-test
+  (testing "rf2-yx1ae — top-level project emits CHILD-DISPATCHES after FX
+            and before SUBSCRIPTIONS when dispatch fx fired"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (do-fx-ev {:dispatch [:other/event 1]})
+                         (db-changed-ev [])])
+          steps (proj/project rec)
+          step-kws (mapv :step steps)]
+      (is (some #{:child-dispatches} step-kws)
+          "CHILD-DISPATCHES is present")
+      (is (< (.indexOf step-kws :handler)
+             (.indexOf step-kws :child-dispatches))
+          ":child-dispatches rides AFTER :handler")
+      (when (some #{:fx} step-kws)
+        (is (< (.indexOf step-kws :fx)
+               (.indexOf step-kws :child-dispatches))
+            ":child-dispatches rides AFTER :fx when :fx is also emitted")))))
+
 (deftest project-includes-schema-violations-step-test
   (testing "rf2-17vxj — top-level project emits SCHEMA-VIOLATIONS at
             the END of the cascade when violations fired"

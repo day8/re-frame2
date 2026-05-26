@@ -335,6 +335,63 @@
         (is (string/includes? id ":counter/total"))
         (is (string/includes? path "[:total]"))))))
 
+;; ---- rf2-yx1ae — child-dispatches section -----------------------------
+
+(deftest child-dispatches-step-renders-rows-test
+  (testing "rf2-yx1ae — CHILD-DISPATCHES step renders one row per child
+            with via-chip + event vector"
+    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
+                :step-number 5
+                :rows [{:event [:other/x 1] :via :dispatch :delay-ms nil}
+                       {:event [:retry]     :via :dispatch-later :delay-ms 250}]}
+          ctx  {:dispatch-id   1
+                :epoch-history [{:epoch-id 99 :parent-dispatch-id 1
+                                 :trigger-event [:other/x 1]}]}
+          tree (view/render-child-dispatches-step step ctx)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-child-dispatches")))
+      (is (= 2 (count (th/find-by-testid-prefix
+                        tree "rf-xray-epoch-child-dispatch-row-"))))
+      (let [header (text-of tree "rf-xray-epoch-child-dispatches-header")]
+        (is (string/includes? header "2 events dispatched")))
+      (let [via0 (text-of tree "rf-xray-epoch-child-dispatch-via-0")
+            via1 (text-of tree "rf-xray-epoch-child-dispatch-via-1")
+            ev0  (text-of tree "rf-xray-epoch-child-dispatch-event-0")
+            ev1  (text-of tree "rf-xray-epoch-child-dispatch-event-1")]
+        (is (string/includes? via0 "dispatch"))
+        (is (string/includes? via1 "dispatch-later"))
+        (is (string/includes? ev0  ":other/x"))
+        (is (string/includes? ev1  ":retry")))
+      ;; delay chip on the dispatch-later row only
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-delay-1")))
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-delay-0"))))))
+
+(deftest child-dispatches-jump-resolves-when-in-buffer-test
+  (testing "rf2-yx1ae — child epoch in the buffer renders a jump button
+            with the child's :epoch-id"
+    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
+                :step-number 5
+                :rows [{:event [:other/x 1] :via :dispatch}]}
+          ctx  {:dispatch-id   1
+                :epoch-history [{:epoch-id 99 :parent-dispatch-id 1
+                                 :trigger-event [:other/x 1]}]}
+          tree (view/render-child-dispatches-step step ctx)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-jump-0"))
+          "jump button is present when child is resolvable")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-missing-0"))
+          "no `not in buffer` marker when child is resolved"))))
+
+(deftest child-dispatches-missing-when-not-in-buffer-test
+  (testing "rf2-yx1ae — child not in buffer (aged out / never landed)
+            renders the muted `not in buffer` marker"
+    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
+                :step-number 5
+                :rows [{:event [:other/x 1] :via :dispatch}]}
+          ctx  {:dispatch-id   1
+                :epoch-history []}
+          tree (view/render-child-dispatches-step step ctx)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-missing-0")))
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-jump-0"))))))
+
 (deftest duration-chip-renders-long-step-warning-test
   (testing "rf2-nqt3d — a step header's duration chip paints warning
             chrome when over 16ms"

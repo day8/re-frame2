@@ -587,6 +587,120 @@
        :rows      rows
        :rollbacks (count (filter :rollback? rows))})))
 
+;; ---- CHILD DISPATCHES step (rf2-yx1ae) -----------------------------------
+;;
+;; When a handler returns `:dispatch / :dispatch-n / :dispatch-later`
+;; fx, the cascade triggers child cascades — each child rides its own
+;; epoch-record. The CHILD-DISPATCHES section surfaces those children
+;; off THIS cascade's returned fx so the operator sees them inline.
+;;
+;; Source: the `:rf.event/fx` payload on `:rf.fx/do-fx` (the handler's
+;; returned fx map / vec — Spec 009 §`:rf.fx/do-fx`). We harvest ONLY
+;; the dispatch-family fx (`:dispatch / :dispatch-n / :dispatch-later`);
+;; other fx are the FX step's concern.
+;;
+;; Each row carries the child event vector + optional delay; the view
+;; layer joins this against the epoch-history at render time to find
+;; the child cascade's `:epoch-id` for the "jump to" affordance
+;; (children that have aged out of the ring buffer render with the
+;; "not in buffer" marker — the row still surfaces the event vector).
+
+(defn- normalise-child-dispatch
+  "Coerce a dispatch / dispatch-later fx arg into row fragments. Four
+  substrate shapes per Spec 009 / re-frame.fx:
+
+    1. `:dispatch [:event/x 7]`              → one row
+    2. `:dispatch-n [[:a] [:b]]`             → one row per element
+    3. `:dispatch-later {:ms 250 :dispatch [:retry]}` → one row + delay
+    4. `:dispatch-later [{:ms 250 :dispatch …} {:ms 500 :dispatch …}]`
+                                             → one row per element
+
+  Returns a vec of `{:event vec :delay-ms num-or-nil}` maps."
+  [fx-id value]
+  (case fx-id
+    :dispatch
+    (when (vector? value)
+      [{:event value :delay-ms nil}])
+
+    :dispatch-n
+    (when (sequential? value)
+      (vec (for [e value
+                 :when (vector? e)]
+             {:event e :delay-ms nil})))
+
+    :dispatch-later
+    (cond
+      (map? value)
+      (when (vector? (:dispatch value))
+        [{:event    (:dispatch value)
+          :delay-ms (or (:ms value) (:delay-ms value))}])
+      (sequential? value)
+      (vec (for [e value
+                 :when (and (map? e) (vector? (:dispatch e)))]
+             {:event (:dispatch e) :delay-ms (or (:ms e) (:delay-ms e))})))
+
+    nil))
+
+(def child-dispatch-fx-ids
+  "Closed set of fx-ids that produce child cascades (rf2-yx1ae)."
+  #{:dispatch :dispatch-n :dispatch-later})
+
+(defn child-dispatch-rows
+  "Project this cascade's child dispatches into rows (rf2-yx1ae).
+
+  Walks the `:rf.fx/do-fx` `:rf.event/fx` payload; harvests only the
+  dispatch-family entries. Each row carries:
+
+    :event    — the child's event vector
+    :delay-ms — delay (for `:dispatch-later`) or nil
+    :via      — the fx-id that emitted the row (`:dispatch /
+                 :dispatch-n / :dispatch-later`)
+
+  Empty vec when no dispatch-family fx fired."
+  [events]
+  (let [entries (fx-entries events)]
+    (vec
+      (for [{:keys [fx-id value]} entries
+            :when (contains? child-dispatch-fx-ids fx-id)
+            row (or (normalise-child-dispatch fx-id value) [])
+            :when (vector? (:event row))]
+        (assoc row :via fx-id)))))
+
+(defn child-dispatches-step
+  "Build the CHILD-DISPATCHES step row, or nil when no dispatch-family
+  fx fired (the step is OMITTED — conditional)."
+  [events]
+  (let [rows (child-dispatch-rows events)]
+    (when (seq rows)
+      {:step  :child-dispatches
+       :badge :CHILD-DISPATCHES
+       :rows  rows})))
+
+(defn find-child-epoch
+  "Resolve a child epoch's `:epoch-id` against the epoch-history given
+  THIS cascade's `:dispatch-id` + the child's event vector (rf2-yx1ae).
+
+  The parent→child link is the substrate-canonical
+  `:rf.trace/parent-dispatch-id` slot on the child's
+  `:rf.event/dispatched` trace (carrying THIS cascade's
+  `:dispatch-id` — Spec 009 §Dispatch correlation). The epoch-record
+  pins this on `:parent-dispatch-id` (Spec-Schemas §`:rf/epoch-record`,
+  rf2-rly4a).
+
+  We prefer matches with both `:parent-dispatch-id` AND a matching
+  trigger-event; when the trigger-event doesn't match (a sibling
+  dispatch with the same parent), the row falls back to whichever
+  child rides the same parent dispatch-id. Returns the matched
+  epoch's `:epoch-id` or nil when no child epoch is in the buffer
+  yet (or has aged out)."
+  [epoch-history parent-dispatch-id child-event]
+  (when (and (some? parent-dispatch-id) (vector? child-event))
+    (let [candidates (filter #(= parent-dispatch-id (:parent-dispatch-id %))
+                             epoch-history)
+          exact      (some #(when (= child-event (:trigger-event %)) %)
+                           candidates)]
+      (:epoch-id (or exact (first candidates))))))
+
 ;; ---- top-level projection ------------------------------------------------
 
 (defn project
@@ -646,6 +760,12 @@
                        (handler-row events event-id)
                        (flow-step events)
                        (fx-step events)
+                       ;; rf2-yx1ae — child dispatches sit after FX (they
+                       ;; are themselves fx, but a dedicated section makes
+                       ;; the parent→child cascade-link affordance the
+                       ;; primary read; the FX step still surfaces every
+                       ;; fx for completeness).
+                       (child-dispatches-step events)
                        (subscriptions-step events)
                        (views-step events)
                        ;; rf2-17vxj — schema violations ride at the end of

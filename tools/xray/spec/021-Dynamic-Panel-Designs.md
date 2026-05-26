@@ -1500,6 +1500,52 @@ cross-session triage.
 
 Section is conditional — omitted when no violation events fired.
 
+### §9.1.10.4 Cascading-dispatches section (rf2-yx1ae)
+
+A CHILD-DISPATCHES step rides between FX and SUBSCRIPTIONS when the
+handler returned dispatch-family fx (`:dispatch`, `:dispatch-n`,
+`:dispatch-later`). The section surfaces the parent→child cascade
+link inline so the operator can pivot to a child epoch's view
+directly.
+
+Projection source: the handler's returned `:rf.event/fx` payload on
+`:rf.fx/do-fx` (Spec 009). The projector normalises the three
+substrate shapes into a uniform row schema:
+
+- `:dispatch [:e/x]`                    → `{:event [:e/x] :delay-ms nil :via :dispatch}`
+- `:dispatch-n [[:a] [:b]]`             → one row per element with `:via :dispatch-n`
+- `:dispatch-later {:ms 250 :dispatch [:r]}` → `{:event [:r] :delay-ms 250 :via :dispatch-later}`
+- `:dispatch-later [{…} {…}]`           → one row per element
+
+Per-row chrome:
+
+- `:via` chip (`dispatch` / `dispatch-n` / `dispatch-later` — muted
+  uppercase label).
+- The child event vector (operator's primary read).
+- `+<N>ms` delay chip for `:dispatch-later`.
+- Jump-to button when the child cascade is in the epoch buffer;
+  muted `not in buffer` marker otherwise.
+
+The child-epoch resolution lives in `projection/find-child-epoch`,
+which scans the `:rf.xray/epoch-history` for records whose
+`:parent-dispatch-id` matches THIS cascade's `:dispatch-id`. The
+substrate pins the parent link on the child's epoch-record per
+Spec-Schemas §`:rf/epoch-record` + Spec 009 §Dispatch correlation.
+When the trigger-event matches exactly we prefer that record; on
+sibling collisions the first child under the same parent-id is
+returned so the operator still has a forwarding link.
+
+Jump-to dispatches `[:rf.xray/select-epoch <child-epoch-id>]`
+(the shared spine shim from `xray.epoch/install!`) so the focus
+flips to the child cascade and the panel re-renders against the
+child's pipeline.
+
+The composite sub `:rf.xray/epoch-pipeline` now also exposes
+`:dispatch-id` + `:epoch-history` so the view's per-row resolver
+runs without a secondary subscription in the hot path.
+
+Section is conditional — omitted when no dispatch-family fx fired.
+
 ### §9.1.11 Cross-panel navigation
 
 Every click-to-source affordance in the cascade flows through the
