@@ -1399,16 +1399,48 @@ member of `machine-cascade-trace-ops` as a row in the same order:
   - `:transition` → `N microstep(s)` (the headline)
   - `:timer` → `· cancelled (<reason>)`
 
-**Per-row body — interleaved source code (always visible).** For
-`:action` and `:guard` rows the body renders the source form pulled
-from the registered machine spec (`(rf/handler-meta :machine
-event-id) → :rf/machine → [:actions <id>] | [:guards <id>]`) via
+**Per-row body — interleaved source code (always visible).** Every
+cascade row carries source visibility (rf2-wwc3j extends rf2-u69j7's
+named-only coverage to inline-fn / transition / timer rows). The body
+renders the source form pulled from the registered machine spec via
 `edn/code-block` (clojure-syntax highlight; same widget the HANDLER
-source block uses). Always visible by default per the bead body's
-"interleaved source code" requirement — the operator reads what ran
-AND its code at the same vertical position without expand/collapse
-gestures. Source-missing fallback renders a muted `<source not yet
-captured>` placeholder so the slot is consistently present.
+source block uses). Source-key dispatch (`projection/cascade-row-
+source-key`) returns the spec-path tuple under which the macro
+stamped the per-element source-coord (rf2-8bp3):
+
+| Row kind | id flavour              | spec-path key                                         |
+|----------|-------------------------|-------------------------------------------------------|
+| `:action`| keyword `action-id`     | `[:actions <id>]` (definition-site stamp)             |
+| `:action`| inline-fn, `:entry`     | `[:states <target-state>... :entry]`                  |
+| `:action`| inline-fn, `:exit`      | `[:states <source-state>... :exit]`                   |
+| `:action`| inline-fn, `:transition`| `[:states <source-state>... :on <event> :action]`     |
+| `:guard` | keyword `guard-id`      | `[:guards <id>]` (definition-site stamp)              |
+| `:guard` | inline-fn               | `[:states <source-state>... :on <event> :guard]`      |
+| `:transition` | —                  | `[:states <source-state>... :on <event>]`             |
+| `:timer` | —                       | `[:states <state>...]` (parent state-node, D1 shape)  |
+
+The per-row `:source-state` / `:target-state` / `:event-id` slots are
+stamped by `machine-cascade-rows`'s `enrich-cascade-rows` pass —
+walks the cascade in trace order and for each non-transition row
+copies the surrounding `:transition` row's `:from-state` / `:to-state`
+/ `:event` (substrate emits actions BEFORE the macrostep's
+`:transition` emit; the next transition ahead is the surrounding
+one). Multi-microstep cascades carry one transition emit per
+macrostep — intermediate-state inline-fns fall back to the
+headline state; source-key resolution degrades to the macrostep's
+source/target.
+
+For `:transition` rows, the body renders the transition map literal
+(EDN). For `:timer` rows, the body is elided (the parent state-node
+is too verbose to render verbatim); the click-to-source chip on the
+verb is the primary affordance, opening the operator on the state
+that owns the `:after` slot.
+
+Always visible by default per the bead body's "interleaved source
+code" requirement — the operator reads what ran AND its code at the
+same vertical position without expand/collapse gestures. Source-
+missing fallback renders a muted `<source not yet captured>`
+placeholder so the slot is consistently present.
 
 **Per-row outcome detail.** Action rows surface inline:
 
@@ -1421,8 +1453,10 @@ captured>` placeholder so the slot is consistently present.
   message.
 
 Transition rows surface the `state {:from} → {:to}` chrome with the
-event vector that drove the cascade. Timer rows surface only the
-header (no inline body — cancellations are housekeeping).
+event vector that drove the cascade plus the transition-map source
+body (rf2-wwc3j). Timer rows surface only the header + click-to-
+source chip (no inline body — cancellations are housekeeping; the
+chip routes to the `:after`-bearing state node).
 
 **Empty-state correctness** (acceptance #4 — rf2-u69j7). A vanilla
 `reg-event-db` cascade (or any non-`:reg-machine` flavour) renders

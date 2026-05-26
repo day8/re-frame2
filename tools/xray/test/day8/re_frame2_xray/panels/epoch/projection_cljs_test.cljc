@@ -657,7 +657,7 @@
 
 (deftest cascade-row-source-key-test
   (testing "rf2-u69j7 — `cascade-row-source-key` returns the spec-path
-            tuple for source-coord lookup"
+            tuple for source-coord lookup (named cases)"
     (is (= [:actions :open-socket]
            (proj/cascade-row-source-key
              {:kind :action :action-id :open-socket})))
@@ -665,9 +665,168 @@
            (proj/cascade-row-source-key
              {:kind :guard :guard-id :ready?})))
     (is (nil? (proj/cascade-row-source-key {:kind :transition}))
-        "transitions have no definition site → nil")
+        "transitions with no state/event context → nil")
     (is (nil? (proj/cascade-row-source-key {:kind :timer}))
-        "timers have no definition site → nil")))
+        "timers with no state context → nil")))
+
+;; ---- rf2-wwc3j — inline-fn / transition / timer source-key extensions -----
+
+(deftest cascade-row-source-key-inline-entry-action-test
+  (testing "rf2-wwc3j — inline-fn `:entry` action resolves to its
+            target-state's `[:states <s> :entry]` slot"
+    (let [inline-fn (fn [_] {})]
+      (is (= [:states :connected :entry]
+             (proj/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :entry
+                :target-state :connected}))
+          "flat machine: entry action under target-state slot")
+      (is (= [:states :connected :entry]
+             (proj/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :entry
+                :target-state [:connected]}))
+          "vector target-state coerces to the same path")
+      (is (= [:states :outer :states :inner :entry]
+             (proj/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :entry
+                :target-state [:outer :inner]}))
+          "hierarchical target-state expands to nested :states path"))))
+
+(deftest cascade-row-source-key-inline-exit-action-test
+  (testing "rf2-wwc3j — inline-fn `:exit` action resolves to its
+            source-state's `[:states <s> :exit]` slot"
+    (let [inline-fn (fn [_] {})]
+      (is (= [:states :idle :exit]
+             (proj/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :exit
+                :source-state :idle})))
+      (is (= [:states :idle :exit]
+             (proj/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :destroy-exit
+                :source-state :idle}))
+          ":destroy-exit phase also maps to the :exit slot"))))
+
+(deftest cascade-row-source-key-inline-transition-action-test
+  (testing "rf2-wwc3j — inline-fn transition `:action` resolves to
+            `[:states <src> :on <event> :action]`"
+    (let [inline-fn (fn [_] {})]
+      (is (= [:states :idle :on :submit :action]
+             (proj/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :transition
+                :source-state :idle :event-id :submit}))))))
+
+(deftest cascade-row-source-key-inline-guard-test
+  (testing "rf2-wwc3j — inline-fn `:guard` resolves to
+            `[:states <src> :on <event> :guard]`"
+    (let [inline-fn (fn [_] true)]
+      (is (= [:states :idle :on :submit :guard]
+             (proj/cascade-row-source-key
+               {:kind :guard :guard-id inline-fn
+                :source-state :idle :event-id :submit}))
+          "inline guard on a state's :on transition")
+      (is (nil? (proj/cascade-row-source-key
+                  {:kind :guard :guard-id inline-fn
+                   :source-state :idle}))
+          "missing event-id → nil (the source-key cannot be built)"))))
+
+(deftest cascade-row-source-key-transition-row-test
+  (testing "rf2-wwc3j — `:transition` row resolves to `[:states <src>
+            :on <event>]` so the click-through opens the transition map
+            literal in the spec"
+    (is (= [:states :idle :on :submit]
+           (proj/cascade-row-source-key
+             {:kind :transition :source-state :idle :event-id :submit})))
+    (is (= [:states :outer :states :inner :on :go]
+           (proj/cascade-row-source-key
+             {:kind :transition :source-state [:outer :inner]
+              :event-id :go}))
+        "hierarchical from-state expands to nested :states path")
+    (is (nil? (proj/cascade-row-source-key
+                {:kind :transition :source-state :idle}))
+        "missing event-id → nil")))
+
+(deftest cascade-row-source-key-timer-row-test
+  (testing "rf2-wwc3j — `:timer` row resolves to `[:states <state>]`
+            (D1 minimum-viable: parent state's source-coord chip)"
+    (is (= [:states :idle]
+           (proj/cascade-row-source-key
+             {:kind :timer :state :idle})))
+    (is (= [:states :idle]
+           (proj/cascade-row-source-key
+             {:kind :timer :state [:idle]})))
+    (is (nil? (proj/cascade-row-source-key {:kind :timer}))
+        "missing state → nil")))
+
+(deftest cascade-row-source-key-named-shadows-inline-test
+  (testing "rf2-wwc3j — a named action-id keyword always wins over the
+            inline derivation (the existing definition-site path covers
+            the named case end-to-end)"
+    (is (= [:actions :open-socket]
+           (proj/cascade-row-source-key
+             {:kind :action :action-id :open-socket :phase :entry
+              :target-state :connected}))
+        ":action-id keyword → definition-site path, ignores :phase / :target-state")
+    (is (= [:guards :ready?]
+           (proj/cascade-row-source-key
+             {:kind :guard :guard-id :ready? :source-state :idle
+              :event-id :submit}))
+        ":guard-id keyword → definition-site path, ignores :source-state / :event-id")))
+
+(deftest machine-cascade-rows-enriches-rows-with-states-test
+  (testing "rf2-wwc3j — `machine-cascade-rows` stamps `:source-state` /
+            `:target-state` / `:event-id` onto each non-transition row
+            from the surrounding transition emit so inline-fn source-
+            key lookup can resolve spec-path tuples"
+    (let [evs [(machine-guard-ev :ready? :pass)
+               (machine-action-ev :clear-buffer :exit :ok)
+               (machine-action-ev :open-socket :entry :ok)
+               (machine-transition-ev :ws/conn
+                                       {:state :idle :data {}}
+                                       {:state :connected :data {}}
+                                       [:ws/start] 0)]
+          rows (proj/machine-cascade-rows evs)]
+      (is (= :idle      (-> rows (nth 0) :source-state))
+          "guard row carries the source-state from the surrounding transition")
+      (is (= :connected (-> rows (nth 0) :target-state))
+          "guard row carries the target-state from the surrounding transition")
+      (is (= :ws/start  (-> rows (nth 0) :event-id))
+          "guard row carries the event-id (first elem of :event)")
+      (is (= :idle      (-> rows (nth 1) :source-state))
+          "exit-phase action carries source-state")
+      (is (= :connected (-> rows (nth 2) :target-state))
+          "entry-phase action carries target-state")
+      (is (= :idle      (-> rows (nth 3) :source-state))
+          "transition row stamps its own :source-state from :from-state")
+      (is (= :connected (-> rows (nth 3) :target-state))
+          "transition row stamps its own :target-state from :to-state"))))
+
+(deftest machine-cascade-rows-no-transition-leaves-state-slots-nil-test
+  (testing "rf2-wwc3j — when the cascade fires no transition row
+            (e.g. a guard-only failed cascade), state-slots remain nil"
+    (let [evs [(machine-guard-ev :ready? :fail)]
+          rows (proj/machine-cascade-rows evs)]
+      (is (nil? (:source-state (first rows)))
+          "no surrounding transition → no source-state stamp")
+      (is (nil? (:event-id (first rows)))))))
+
+(deftest state-spec-path-prefix-test
+  (testing "rf2-wwc3j — `state-spec-path-prefix` coerces a state form
+            into the spec-path prefix the macro's source-coord index uses"
+    (is (= [:states :idle]
+           (proj/state-spec-path-prefix :idle))
+        "flat keyword state → [:states <id>]")
+    (is (= [:states :idle]
+           (proj/state-spec-path-prefix [:idle]))
+        "1-element vector state → [:states <id>]")
+    (is (= [:states :outer :states :inner]
+           (proj/state-spec-path-prefix [:outer :inner]))
+        "hierarchical vector → nested :states prefix")
+    (is (= [:states :a :states :b :states :c]
+           (proj/state-spec-path-prefix [:a :b :c]))
+        "deep hierarchical vector → fully-nested :states prefix")
+    (is (nil? (proj/state-spec-path-prefix nil))
+        "nil state → nil")
+    (is (nil? (proj/state-spec-path-prefix []))
+        "empty vector → nil")))
 
 (deftest cascade-outcome-label-test
   (testing "rf2-u69j7 — `cascade-outcome-label` renders kind-specific

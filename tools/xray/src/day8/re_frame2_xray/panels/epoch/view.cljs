@@ -1671,18 +1671,52 @@
       (when (and (map? c) (string? (:file c)) (seq (:file c)))
         {:file (:file c) :line (:line c)}))))
 
+(defn- machine-spec-from-meta
+  "Lift the machine spec map from a `handler-meta` lookup return. The
+  registrar stores the spec under `:rf/machine` (the wrapper shape); the
+  legacy `:machine-spec` / `:rf.machine/spec` keys are fallbacks for
+  fixture-emitted shapes used in unit tests."
+  [machine-meta]
+  (or (:rf/machine machine-meta)
+      (:machine-spec machine-meta)
+      (:rf.machine/spec machine-meta)
+      machine-meta))
+
 (defn- cascade-row-source-form
-  "Lift the source form (a CLJS fn literal or sugar form) for a cascade
-  row's action/guard from the registered machine spec (rf2-u69j7).
-  The form lives in the spec map at `[:actions <id>]` / `[:guards
-  <id>]`. Returns nil for kinds without a definition site
-  (`:transition`, `:timer`)."
+  "Lift the source form for a cascade row from the registered machine
+  spec (rf2-u69j7 baseline + rf2-wwc3j inline-fn extensions). The form
+  resolves at `cascade-row-source-key`'s spec-path tuple:
+
+  - Named guard/action rows: `[:guards <id>]` / `[:actions <id>]`.
+    Prefer the captured PR-STR source string under
+    `:rf.machine/handler-source` (rf2-ypu5i; macro stamps source strings
+    at compile time). Falls back to the runtime value at the spec path
+    (a compiled fn object) when no source-string was captured (production
+    builds, fixture fn-form machines).
+  - Inline-fn `:entry` / `:exit` / `:guard` / `:action` rows: the spec
+    path returns the runtime value at that slot — a compiled fn object
+    or, when the user wrote a keyword reference (`:entry :enter-a`),
+    that keyword (the caller's render path will dispatch on shape).
+  - Transition rows: the spec path returns the transition map literal
+    (a renderable EDN map).
+  - Timer rows: the spec path returns the entire state-node map (the
+    `:after`-bearing node); too verbose to render verbatim, so the
+    caller elides the body and renders only the click-to-source chip.
+
+  Returns nil for rows whose source-key is nil (no spec-path could be
+  derived — e.g. transition rows with no `:event-id`)."
   [machine-meta row]
   (when-let [k (proj/cascade-row-source-key row)]
-    (let [spec (or (:rf/machine machine-meta)
-                   (:machine-spec machine-meta)
-                   (:rf.machine/spec machine-meta))]
-      (get-in spec k))))
+    (let [spec        (machine-spec-from-meta machine-meta)
+          ;; rf2-ypu5i — named-handler source-string preferred for
+          ;; `[:actions <id>]` / `[:guards <id>]`. The macro stamps
+          ;; pr-str strings under `:rf.machine/handler-source` so the
+          ;; render is real source text, not a fn-object pr-str.
+          named-src   (case (and (= 2 (count k)) (first k))
+                        :actions (get-in spec [:rf.machine/handler-source :actions (second k)])
+                        :guards  (get-in spec [:rf.machine/handler-source :guards  (second k)])
+                        nil)]
+      (or named-src (get-in spec k)))))
 
 (defn- cascade-outcome-chip
   "Render the outcome chip for a cascade row (rf2-u69j7). Pulls glyph
@@ -1770,43 +1804,71 @@
               :style cascade-verb-plain-style}
        verb-string])))
 
-(defn- cascade-row-source-body
-  "Render the source code body for a cascade row (rf2-u69j7). Always
-  visible per the bead body's 'interleaved source code' requirement —
-  the operator reads what ran AND its code at the same vertical
-  position without scrolling.
+(defn- source-form->string
+  "Coerce a cascade-row source-form value into a printable Clojure
+  source string for `edn/code-block`. Per rf2-wwc3j the source-form may
+  arrive in one of several shapes:
 
-  - For `:action` / `:guard` rows that resolve a source form (via
-    `cascade-row-source-form` reading the registered machine spec),
-    render the form through the canonical `edn/code-block` widget
-    (the same widget the HANDLER step uses).
+  - String — already a captured pr-str (rf2-ypu5i `:rf.machine/handler-
+    source` value). Return as-is.
+  - Keyword — the user wrote a named-ref slot (`:entry :enter-a`).
+    Render the keyword form; downstream the named-id slot's own row
+    carries the body proper.
+  - Map (the transition map literal or a state-node) — pr-str renders
+    the EDN.
+  - Anything else (a compiled fn object) — fall back to pr-str. In
+    production CLJS builds this surfaces a `#object[...]` token; the
+    operator can still pivot to the click-to-source affordance.
+
+  Returns nil for nil input so the caller can render the source-missing
+  placeholder."
+  [source-form]
+  (cond
+    (nil? source-form) nil
+    (string? source-form) source-form
+    :else (pr-str source-form)))
+
+(defn- cascade-row-source-body
+  "Render the source code body for a cascade row (rf2-u69j7 baseline +
+  rf2-wwc3j inline-fn extensions). Always visible per the bead body's
+  'interleaved source code' requirement — the operator reads what ran
+  AND its code at the same vertical position without scrolling.
+
+  - `:action` / `:guard` rows: render the captured source form (named-
+    handler pr-str string OR inline-fn slot value) through the
+    canonical `edn/code-block` widget.
+  - `:transition` rows (rf2-wwc3j): render the transition map literal
+    (renderable EDN). This is the bead's 'delight shape' for the
+    transition cascade — the operator reads the `{:target :guard
+    :action}` form inline.
+  - `:timer` rows: no body (the spec value at the parent state path is
+    a verbose state-node map; the click-to-source chip on the verb is
+    the primary affordance).
   - When no source form is captured (production builds with
-    `goog.DEBUG=false`, fixture machines that pre-date the
-    source-coord stamping pass), render a muted placeholder so the
-    operator sees the slot consistently.
-  - `:transition` / `:timer` rows have no definition site — they ARE
-    the substrate's chrome, not user code. The body slot elides for
-    those kinds.
+    `goog.DEBUG=false`, fixture machines that pre-date the source-
+    coord stamping pass), render a muted placeholder so the operator
+    sees the slot consistently.
 
   rf2-66wis / rf2-93jp0 — `edn/code-block` paints clojure-syntax
   tokens with the same per-token palette as the Figma authority's
   `.syntax-*` classes, so the cascade code body matches the HANDLER
   step's source body."
   [row source-form]
-  (when (contains? #{:action :guard} (:kind row))
-    [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-"
-                             (:step row))
-           :style cascade-row-source-style}
-     (if (some? source-form)
-       (edn/code-block
-         {:source (pr-str source-form)
-          :lang   :clojure
-          :testid (str "rf-xray-epoch-machine-cascade-source-body-"
-                       (:step row))})
-       [:span {:data-testid (str "rf-xray-epoch-machine-cascade-source-missing-"
-                                 (:step row))
-               :style cascade-row-source-missing-style}
-        "<source not yet captured>"])]))
+  (when (contains? #{:action :guard :transition} (:kind row))
+    (let [src-str (source-form->string source-form)]
+      [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-"
+                               (:step row))
+             :style cascade-row-source-style}
+       (if (some? src-str)
+         (edn/code-block
+           {:source src-str
+            :lang   :clojure
+            :testid (str "rf-xray-epoch-machine-cascade-source-body-"
+                         (:step row))})
+         [:span {:data-testid (str "rf-xray-epoch-machine-cascade-source-missing-"
+                                   (:step row))
+                 :style cascade-row-source-missing-style}
+          "<source not yet captured>"])])))
 
 (defn- cascade-row-action-outcome-details
   "Render the per-action outcome details for an `:action` cascade row

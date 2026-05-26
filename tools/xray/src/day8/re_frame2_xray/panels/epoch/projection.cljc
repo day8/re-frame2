@@ -485,6 +485,130 @@
     :rf.machine.timer/cancelled  (timer-cascade-row ev)
     nil))
 
+;; ---- inline-fn source-path enrichment (rf2-wwc3j) ----------------------
+;;
+;; Cascade rows arriving from the substrate carry no `:state-id` / `:event-id`
+;; — those are implicit in the macrostep that surrounds them. To resolve
+;; the spec-path under which the macro stamped a per-element source-coord
+;; (rf2-8bp3), we walk the cascade and stamp each non-transition row with
+;; the surrounding transition's source/target state + event-id:
+;;
+;;   :exit / :transition / :destroy-exit   → :source-state of the surrounding transition
+;;   :entry / :initial-entry / :always /
+;;   :after-action                          → :target-state of the surrounding transition
+;;
+;; The "surrounding transition" is the next `:rf.machine/transition` row in
+;; cascade order (substrate emits actions BEFORE the transition emit; for
+;; the post-macrostep cascade, the prior transition emit's :after is used
+;; as a fallback when no following transition exists).
+;;
+;; This is best-effort: multi-microstep cascades carry one transition emit
+;; per macrostep (the headline rollup), so intermediate-state inline-fn
+;; entries fall back to the macrostep's headline state. Source resolution
+;; falls through to nil for those cases — the existing source-missing
+;; placeholder renders in the view (graceful degradation; correct for the
+;; common flat / single-microstep case).
+
+(defn- state-keyword-or-leaf
+  "Coerce a state form (keyword or vector path) to its leaf keyword. Used
+  as the state-id key in spec-path tuples for flat machines."
+  [state]
+  (cond
+    (keyword? state)            state
+    (and (vector? state)
+         (seq state))           (last state)
+    :else                       nil))
+
+(defn- state-vector
+  "Coerce a state form (keyword or vector path) to its full vector path.
+  Used when constructing hierarchical spec-paths (`[:states :outer :states
+  :inner]`)."
+  [state]
+  (cond
+    (vector? state) (vec state)
+    (keyword? state) [state]
+    :else            nil))
+
+(defn state-spec-path-prefix
+  "Build the spec-path prefix for a state form. Flat: `:foo` →
+  `[:states :foo]`. Hierarchical: `[:a :b]` → `[:states :a :states :b]`.
+  Used by `cascade-row-source-key` to construct inline-fn slot keys.
+
+  Returns nil for empty / nil states (defensive — the cascade row's
+  source-key lookup elides cleanly when the spec-path can't be built)."
+  [state]
+  (when-let [v (state-vector state)]
+    (when (seq v)
+      (vec (mapcat (fn [s] [:states s]) v)))))
+
+(defn- event-id-of
+  "Lift the event-id (first element of the event vector) off a transition
+  row or trace-derived event vector. Used as the `:on <event-id>` key in
+  spec-path tuples for transition / inline-guard / inline-action rows."
+  [event]
+  (when (and (vector? event) (seq event) (keyword? (first event)))
+    (first event)))
+
+(defn- enrich-cascade-rows
+  "Stamp `:source-state` / `:target-state` / `:event-id` onto each
+  cascade row (rf2-wwc3j). Used by `cascade-row-source-key` to construct
+  inline-fn / transition / timer spec-path tuples.
+
+  ALGORITHM. Walk the cascade rows in order, partitioning at each
+  `:transition` row. Each partition's non-transition rows share the
+  enclosing transition's source/target state + event-id. The transition
+  row itself carries the same info on its own slots.
+
+  Edge cases:
+  - Pre-transition rows (before any `:transition` emit) — `:initial-entry`
+    bootstrap cascade. Use the FIRST upcoming transition's `:before` as
+    source-state and the FIRST upcoming transition's `:after` as target-
+    state. When no transition fires (cascade emitted no transition row),
+    leave the slots nil.
+  - Post-transition rows (after the last `:transition` emit) — usually
+    timer-cancels emitted after macrostep commit; fall back to the
+    preceding transition's `:after` for both source and target.
+  - Rows on a phase that maps to nil (e.g. `:always` with no transition
+    in the cascade) — keep slots nil; source lookup degrades gracefully."
+  [rows]
+  (let [v   (vec rows)
+        n   (count v)
+        ;; For each row index, find the surrounding transition row:
+        ;; prefer the NEXT transition ahead (substrate emits actions
+        ;; before the transition), else fall back to the most recent
+        ;; preceding transition (post-commit timer-cancels).
+        next-tx (loop [i 0 prior nil acc (transient (vec (repeat n nil)))]
+                  (if (>= i n)
+                    (persistent! acc)
+                    (let [row (nth v i)
+                          surrounding (cond
+                                        (= :transition (:kind row)) row
+                                        :else (or
+                                                (some #(when (= :transition (:kind %)) %)
+                                                      (subvec v i))
+                                                prior))]
+                      (recur (inc i)
+                             (if (= :transition (:kind row)) row prior)
+                             (assoc! acc i surrounding)))))]
+    (mapv
+      (fn [row tx]
+        (if (= :transition (:kind row))
+          (cond-> row
+            (some? (:from-state row))
+            (assoc :source-state (:from-state row))
+            (some? (:to-state row))
+            (assoc :target-state (:to-state row))
+            (some? (:event row))
+            (assoc :event-id (event-id-of (:event row))))
+          (cond-> row
+            (and tx (some? (:from-state tx)))
+            (assoc :source-state (:from-state tx))
+            (and tx (some? (:to-state tx)))
+            (assoc :target-state (:to-state tx))
+            (and tx (some? (:event tx)))
+            (assoc :event-id (event-id-of (:event tx))))))
+      rows next-tx)))
+
 (defn machine-cascade-rows
   "Project the focused epoch's machine-related trace events into a
   single time-ordered cascade row vector (rf2-u69j7). Each row carries
@@ -500,18 +624,25 @@
   view layer numbers rows 1..N via `:step` (assigned here, contiguous
   over only the rows that fired).
 
+  Per rf2-wwc3j: post-build each row is enriched with `:source-state` /
+  `:target-state` / `:event-id` derived from the surrounding `:transition`
+  emit. These slots feed `cascade-row-source-key` so inline-fn `:entry` /
+  `:exit` / `:guard` / transition / timer rows can resolve their spec-
+  path tuple under `:rf.machine/source-coords` (rf2-8bp3).
+
   Returns an empty vec when no machine-cascade events fired (vanilla
   reg-event-db / reg-event-fx cascades — the redesign is
   machine-specific and the empty vec drives the view's empty-state
   branch off the prior handler-step rendering unchanged)."
   [events]
-  (vec
-    (map-indexed
-      (fn [i row]
-        (assoc row :step (inc i) :trace-index i))
-      (keep ev->cascade-row
-            (filter (fn [ev] (contains? machine-cascade-trace-ops (op ev)))
-                    events)))))
+  (let [base (vec
+               (map-indexed
+                 (fn [i row]
+                   (assoc row :step (inc i) :trace-index i))
+                 (keep ev->cascade-row
+                       (filter (fn [ev] (contains? machine-cascade-trace-ops (op ev)))
+                               events))))]
+    (enrich-cascade-rows base)))
 
 (defn machine-cascade-total-ms
   "Sum of every cascade row's `:duration-ms` (rf2-u69j7). nil when no
@@ -1381,15 +1512,82 @@
 (defn cascade-row-source-key
   "Spec-path tuple used to look up a cascade row's source-coord on the
   registered machine's `:rf.machine/source-coords` index (rf2-8bp3).
-  Returns nil for rows whose kind has no spec-path mapping (e.g.
-  `:transition`, `:timer`). Pure-data; the view layer reuses this for
-  the coord lookup so the source-link affordance reads off ONE
-  authoritative key."
-  [{:keys [kind action-id guard-id]}]
-  (case kind
-    :action (when action-id [:actions action-id])
-    :guard  (when guard-id  [:guards guard-id])
-    nil))
+  Pure-data; the view layer reuses this for the coord lookup so the
+  source-link affordance reads off ONE authoritative key.
+
+  Dispatch (rf2-u69j7 baseline + rf2-wwc3j inline-fn extensions):
+
+  - `:action` with a keyword `:action-id` → `[:actions <id>]`
+    (definition-site stamp; the named-handler path).
+  - `:action` with an inline `:action-id` (fn) — derive from the row's
+    `:phase` + state slot (`:source-state` / `:target-state`, stamped
+    by `enrich-cascade-rows`):
+    - `:entry` / `:initial-entry` → `[:states <state>... :entry]`
+      (target-state)
+    - `:exit` / `:destroy-exit`   → `[:states <state>... :exit]`
+      (source-state)
+    - `:transition`               → `[:states <state>... :on <event> :action]`
+      (source-state + event-id)
+    - `:always`                   → `[:states <state>... :always 0 :action]`
+      (best-effort: index 0; richer index resolution requires
+      substrate-side carrier of the always-index, deferred)
+    - `:after-action`             → `[:states <state>... :after :action]`
+      (best-effort: timer fn-form path; the macro doesn't yet stamp
+      per-delay `:after` coords; D2 follow-on bead handles richer index).
+  - `:guard` with a keyword `:guard-id` → `[:guards <id>]`
+    (definition-site stamp; the named-guard path).
+  - `:guard` with an inline `:guard-id` (fn) — derive from state +
+    event-id:
+    `[:states <state>... :on <event> :guard]` (best-effort: no vector
+    transition-option index — for the common single-map transition).
+  - `:transition` → `[:states <from-state>... :on <event>]`
+    (the transition map's spec-path; opens the operator on the
+    transition literal in the spec).
+  - `:timer` → `[:states <state>...]`
+    (D1 minimum-viable: the parent state's source-coord chip; richer
+    per-`:after` coord is the D2 follow-on bead's surface)."
+  [{:keys [kind action-id guard-id phase source-state target-state event-id]
+    timer-state :state}]
+  (let [source-prefix (state-spec-path-prefix source-state)
+        target-prefix (state-spec-path-prefix target-state)
+        timer-prefix  (state-spec-path-prefix timer-state)]
+    (case kind
+      :action
+      (cond
+        ;; Named-handler path (keyword id) — definition-site stamp.
+        (keyword? action-id) [:actions action-id]
+        ;; Inline-fn path — slot stamp under the relevant state.
+        (contains? #{:entry :initial-entry} phase)
+        (when target-prefix (conj target-prefix :entry))
+        (contains? #{:exit :destroy-exit} phase)
+        (when source-prefix (conj source-prefix :exit))
+        (= :transition phase)
+        (when (and source-prefix event-id)
+          (conj source-prefix :on event-id :action))
+        (= :always phase)
+        (when source-prefix (conj source-prefix :always 0 :action))
+        (= :after-action phase)
+        (when source-prefix (conj source-prefix :after :action))
+        :else nil)
+
+      :guard
+      (cond
+        (keyword? guard-id) [:guards guard-id]
+        :else
+        (when (and source-prefix event-id)
+          (conj source-prefix :on event-id :guard)))
+
+      :transition
+      (when (and source-prefix event-id)
+        (conj source-prefix :on event-id))
+
+      :timer
+      ;; The row's `:state` is the cancelled state vector (substrate
+      ;; payload). D1 minimum-viable shape: point at the parent state's
+      ;; spec-path so the operator orients on the `:after`-bearing node.
+      (or timer-prefix source-prefix target-prefix)
+
+      nil)))
 
 (defn cascade-outcome-label
   "Render a cascade row's outcome for the view's outcome chip
