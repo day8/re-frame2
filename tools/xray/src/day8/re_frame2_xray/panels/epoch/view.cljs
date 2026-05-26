@@ -323,11 +323,69 @@
                    :overflow-x    "auto"}}
      (proj/event-display event)]))
 
+(defn- dispatch-source-label
+  "Render the dispatch source label — `<source>` text. When the
+  envelope carried a `:rf.trace/call-site` coord (rf2-80u5a), the
+  label renders as a clickable button that opens the editor at the
+  dispatch call-site (the React onClick / handler line that called
+  `rf/dispatch`); the external-link icon rides alongside as a
+  secondary cue. When no coord is available (fn-form dispatch,
+  production builds with `goog.DEBUG=false`), the label renders as
+  plain text — no broken / clickable-but-dead affordance.
+
+  Click-through pattern mirrors the cross-panel
+  `:rf.xray/open-in-editor` event (the same fx-id every other
+  open-in-editor surface dispatches via)."
+  [source coord]
+  (let [label (if source (name source) "unknown")
+        clickable? (and (map? coord) (seq (:file coord)))]
+    (if clickable?
+      [:button {:data-testid "rf-xray-epoch-dispatch-source-label"
+                :aria-label  (str "open dispatch call-site for " label)
+                :title       (str "open " (:file coord)
+                                  (when (:line coord)
+                                    (str ":" (:line coord)))
+                                  " in editor")
+                :on-click    (fn [e]
+                               (.stopPropagation e)
+                               (rf/dispatch
+                                 [:rf.xray/open-in-editor
+                                  {:source-coord coord}]
+                                 {:frame :rf/xray}))
+                :style {:background "transparent"
+                        :border     "none"
+                        :padding    0
+                        :margin     0
+                        :color      (:accent tokens)
+                        :cursor     "pointer"
+                        :font-family mono-stack
+                        :font-size  "12px"
+                        :text-decoration "underline"
+                        :text-decoration-style "dotted"
+                        :text-underline-offset "2px"
+                        :display    "inline-flex"
+                        :align-items "center"
+                        :gap        "4px"}}
+       label
+       (icons/external-link)]
+      [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
+              :style {:color (:accent tokens)
+                      :display "inline-flex"
+                      :align-items "center"}}
+       label])))
+
 (defn render-dispatch-step
   "Render the DISPATCH step (always present). Header summarises `from
   <source>` with the call-site chip when a coord was captured;
   body renders the dispatched event vector as a boxed monospace
-  block (rf2-93a7s · rf2-9jvx1)."
+  block (rf2-93a7s · rf2-9jvx1).
+
+  Per rf2-80u5a the `<source>` label itself is the goto-source
+  affordance — clickable button when `:rf.trace/call-site` was
+  captured by the macro form (`rf/dispatch [...] [opts]`); plain
+  text otherwise. The external-link icon rides INSIDE the button
+  as a secondary cue so the affordance reads as a single labelled
+  link rather than a label-with-trailing-icon."
   [{:keys [source coord duration-ms step-number] :as step}]
   [:div {:data-testid "rf-xray-epoch-step-dispatch"
          :data-step-kw "dispatch"}
@@ -337,9 +395,7 @@
       :badge :DISPATCH
       :verb [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
              "from "
-             [:span {:style {:color (:accent tokens)}}
-              (if source (name source) "unknown")]
-             (coord-chip coord "rf-xray-epoch-dispatch-coord")]
+             (dispatch-source-label source coord)]
       :expandable? false
       :testid "rf-xray-epoch-dispatch"
       :duration-ms duration-ms}

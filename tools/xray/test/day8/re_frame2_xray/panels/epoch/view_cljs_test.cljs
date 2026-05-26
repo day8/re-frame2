@@ -94,6 +94,41 @@
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-dispatch-event"))
           "no body row when no event vector was captured"))))
 
+(deftest dispatch-source-label-is-clickable-button-when-coord-present-test
+  (testing "rf2-80u5a — when the dispatch envelope carried a
+            :rf.trace/call-site coord, the `<source>` label in the
+            DISPATCH header renders as a clickable button that opens
+            the editor at the dispatch call-site. The button carries
+            the standard external-link icon as a secondary cue."
+    (let [coord {:file "src/app/counter.cljs" :line 42 :ns 'app.counter}
+          tree  (view/render-dispatch-step
+                  {:step :dispatch :badge :DISPATCH :step-number 1
+                   :event [:counter/inc] :source :ui :coord coord})
+          label (th/find-by-testid tree "rf-xray-epoch-dispatch-source-label")]
+      (is (some? label) "the dispatch source-label slot is present")
+      (is (= :button (first label))
+          "with a coord, the label renders as a real button (clickable)")
+      (let [attrs (second label)]
+        (is (fn? (:on-click attrs))
+            "click handler is attached")
+        (is (string/includes? (or (:title attrs) "") "counter.cljs")
+            "title hints which file will open")))))
+
+(deftest dispatch-source-label-degrades-to-plain-span-when-coord-absent-test
+  (testing "rf2-80u5a — when no call-site coord is available
+            (fn-form dispatch, production builds), the label
+            renders as a plain `<span>` with no fake / dead
+            click affordance."
+    (let [tree (view/render-dispatch-step
+                 {:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:counter/inc] :source :ui :coord nil})
+          label (th/find-by-testid tree "rf-xray-epoch-dispatch-source-label")]
+      (is (some? label) "the source-label slot is still rendered")
+      (is (= :span (first label))
+          "no coord → plain span (no broken button)")
+      (is (nil? (:on-click (second label)))
+          "no click handler on the degraded label"))))
+
 ;; ---- rf2-cq0ch — COEFFECT body --------------------------------------
 
 (deftest coeffect-body-renders-labelled-value-test
