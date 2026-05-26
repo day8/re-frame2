@@ -705,13 +705,17 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category        [:= :rf.error/schema-validation-failure]]
    [:failing-id      :keyword]
    [:reason          {:optional true} :string]
-   [:where           [:enum :event :sub-return :app-db :fx-args :cofx :on-create]]
+   [:where           [:enum :event :sub-return :app-db :fx-args :cofx :on-create :machine-data]] ;; rf2-jbbp7 — :machine-data is the `reg-machine` :schema boundary (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7)
    [:path            {:optional true} [:vector :any]]
    [:value           {:optional true} :any]
    [:explain         {:optional true} :any]            ;; Malli explanation shape
    [:rf.sub/query-v  {:optional true} :any]            ;; (:where :sub-return only) caller-supplied query vector; redacted to :rf/redacted when sub is :sensitive? — see Spec/010
-   [:rollback?       {:optional true} :boolean]        ;; (:where :app-db only) true when :db was rolled back to pre-handler value
-   [:registered-path {:optional true} [:vector :any]]]) ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
+   [:rollback?       {:optional true} :boolean]        ;; (:where :app-db / :machine-data) true when :db was rolled back to pre-handler value; false for :where :machine-data :phase :spawn (nothing committed)
+   [:registered-path {:optional true} [:vector :any]]  ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
+   [:machine-id      {:optional true} :keyword]        ;; (:where :machine-data only) the failing machine's id; mirrors :failing-id for domain clarity. Per rf2-jbbp7.
+   [:phase           {:optional true} [:enum :macrostep :bootstrap :spawn]] ;; (:where :machine-data only) lifecycle position of the violation: :macrostep (post-transition commit), :bootstrap (initial :data install on the first dispatch), :spawn (pre-install spawn rejection). Per rf2-jbbp7.
+   [:received        {:optional true} :any]            ;; (:where :machine-data / :app-db / :event / :cofx / :sub-return / :fx-args) parallel to :value; the value the validator received. Per rf2-4fbsd.
+   [:schema          {:optional true} :any]])           ;; (:where :machine-data only) the registered schema verbatim, so consumers can render it inline next to the failing :data. Per rf2-jbbp7.
 
 (def DrainDepthExceededTags
   [:map

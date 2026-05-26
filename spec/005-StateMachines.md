@@ -175,6 +175,7 @@ A transition table is pure data. Top-level shape:
 ```clojure
 {:initial <fsm-keyword>                     ;; required — initial state
  :data    {<initial data>}                  ;; optional — initial data map
+ :schema  <validator-schema>                ;; optional — validates `:data` at the `:where :machine-data` boundary (see §Schema validation)
  :guards  {<keyword> <fn>, ...}             ;; optional — machine-local named guard impls
  :actions {<keyword> <fn>, ...}             ;; optional — machine-local named action impls
  :states  {<fsm-keyword> <state-node>, ...} ;; required
@@ -192,6 +193,7 @@ The snapshot's location in `app-db` is `[:rf/machines <id>]` — runtime-managed
 |---|---|---|
 | `:initial` | top-level | required — the initial FSM-keyword |
 | `:data` | top-level | optional — initial data map |
+| `:schema` | top-level | optional — validates the machine's `:data` slot at every macrostep boundary + at bootstrap; failures emit `:rf.error/schema-validation-failure :where :machine-data` and roll back the cascade. See [§Schema validation](#schema-validation). |
 | `:guards` | top-level | optional — `{<keyword> <fn>}` map of machine-local named guards; referenced by keyword from `:guard` slots |
 | `:actions` | top-level | optional — `{<keyword> <fn>}` map of machine-local named actions; referenced by keyword from `:action` / `:entry` / `:exit` slots |
 | `:meta` | top-level | optional — e.g. `:rf/snapshot-version` |
@@ -373,6 +375,53 @@ If the composition is reused, name it in the machine's `:actions` map:
 ```
 
 This is the design rule from above: imperative composition is fns, not data DSLs; named entries in the machine's `:actions` map add semantic content visualisers and AIs can read. Resolution is machine-scoped per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler); unresolved references fail registration with `:rf.error/machine-unresolved-action`. Cross-machine reuse: define a Clojure var and reference it from each machine's `:actions` map.
+
+### Schema validation
+
+Per rf2-jbbp7, a machine spec MAY declare a top-level **`:schema`** key. The schema validates the machine's `:data` slot — the user-domain extended state. Mirrors how `:schema` rides on every other registration kind (`reg-event-*`, `reg-cofx`, `reg-fx`, `reg-sub`):
+
+```clojure
+(rf/reg-machine :drawer/editor
+  {:initial :idle
+   :data    {:circles [] :undo [] :redo []}
+   :schema  DrawerData                ;; validates :data
+   :guards  {...}
+   :actions {...}
+   :states  {...}})
+```
+
+The schema's job is exactly the user-domain `:data` shape. The snapshot's `:state` slot is already validated at registration time (a transition targeting an unknown state fails registration); the snapshot's reserved `:rf/*` slots are framework-owned.
+
+**Validation timing — the macrostep boundary.** `:data` is mutated at six sites (initial install, `:on-spawn-actions`, `:entry` actions, `:exit` actions, transition `:action`, `:always` / `:after` actions). The natural validation point is the **macrostep commit** — after the exit → transition-action → entry sequence settles and the runtime is about to write the new snapshot back to `app-db`. One validation per macrostep regardless of how many actions fired; the snapshot the framework would write is the value validated. This is the same lifecycle position as the existing `:where :app-db` check.
+
+**Initial-data installation.** At machine bootstrap the initial `:data` is installed into the snapshot. The bootstrap cascade fires the initial state's `:entry` actions on the first event, then commits — the macrostep validator catches both the bootstrap typo (`:data {:circles []}` declared but the schema requires `:cirles`) and any initial-`:entry` action that returns a violating `:data`.
+
+**Spawn-time validation.** A spawned actor's initial `:data` is validated **before the snapshot lands in app-db** (rather than at the next macrostep commit). A failing spawn never installs — the actor never enters the runtime, and no parent state observes a half-installed child. The failure emits with `:phase :spawn` and `:rollback? false` (no commit to roll back).
+
+**Failure trace.** The boundary reuses the existing `:rf.error/schema-validation-failure` op with a new `:where` value:
+
+```clojure
+{:op   :rf.error/schema-validation-failure
+ :tags {:where           :machine-data
+        :failing-id      <machine-id>           ;; uniform error-emit alias
+        :machine-id      <machine-id>           ;; domain-specific synonym
+        :phase           :macrostep             ;; or :spawn
+        :value           <failing-:data-map>    ;; redactable per Spec 010 §`:sensitive?`
+        :received        <failing-:data-map>    ;; parallels :where :app-db
+        :schema          <the registered schema verbatim>
+        :explain         <validator's explainer output>
+        :rollback?       true                   ;; false for :phase :spawn
+        :recovery        :no-recovery
+        :reason          "Machine <id> :data failed schema..."}}
+```
+
+Consumers route on `:where` — the existing Issues triage, Xray projections, schema-violation-row plumbing, and the per-step attachment bead (rf2-xgeag) all flow through one row shape with one new `:where` case.
+
+**Recovery — full-cascade rollback.** Machine state lives in `app-db`; the cascade's `:db-before` / `:db-after` capture the pre/post snapshot of EVERY machine along with the rest of `app-db`. A failure at the `:where :machine-data` boundary rolls back the entire commit (same mechanism the `:where :app-db` boundary uses). The framework cannot surgically roll back just one machine's macrostep without affecting other state mutations the handler performed; full-cascade rollback is the only consistent option. For the Epoch panel: same blast-radius muting treatment as `:where :app-db` rollback.
+
+**Production builds.** Per [010 §Production builds](010-Schemas.md#production-builds), the validation site is gated by `re-frame.interop/debug-enabled?` and DCEs to a no-op under `:advanced` + `goog.DEBUG=false`. The boundary is dev-only by default; apps needing production validation at system boundaries reach for the `:rf.schema/at-boundary` interceptor on the specific events that ingest untrusted machine `:data` (e.g. an SSR-hydrate that restores machine snapshots from the wire).
+
+**Cross-reference.** Per [010 §Per-step recovery row 7](010-Schemas.md#per-step-recovery), this boundary is row 7 of the per-step recovery table; the `:where :machine-data` value is the closed-set extension to [Spec-Schemas §`SchemaValidationTags`](Spec-Schemas.md#per-category-tags-schemas). The aspirational paragraphs at [§Where snapshots live](#where-snapshots-live) and the §What the Single Store gives us for free Schema-validation bullet become factual with this surface; the sibling bead (rf2-mr1ei) reconciles the prose.
 
 ### Trace events — guard evaluations and action runs
 

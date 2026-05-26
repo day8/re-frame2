@@ -334,22 +334,42 @@
   ;; DCEs the entire `:rf.machine/source-coords` literal — every spec-
   ;; element string fragment must elide.
   ;;
+  ;; Per rf2-jbbp7 the `:schema` key on `reg-machine` adds a second
+  ;; gated surface: the `re-frame.machines.data-validation` ns's
+  ;; emit-failure! body sits inside `(if interop/debug-enabled? ...)`
+  ;; and its " :data failed schema at boundary :where :machine-data "
+  ;; reason-string fragment must also elide under :advanced.
+  ;;
   ;; The probe roots reachability for the machines surface by:
   ;;   1. requiring re-frame.machines (forces ns body — the late-bind
   ;;      hook registration, the :rf/machine sub, the spawn / destroy
-  ;;      fx handlers — into the bundle);
+  ;;      fx handlers, the data-validation emit body — into the bundle);
   ;;   2. registering a machine via `rf/reg-machine` so the macro's
   ;;      gated source-coord-stamping branch is in reachable code, not
   ;;      just declared-but-dead.
+  ;;   3. registering a machine WITH `:schema` and forcing a violation
+  ;;      so the emit-failure! call site is reached in the control build
+  ;;      (DEBUG=true) and its sentinel string lands in the bundle.
   ;;
-  ;; The sentinel string is the keyword `:rf.machine/source-coords` (the
-  ;; spec map key the macro injects under the gate). It must NOT appear
-  ;; in the production bundle.
+  ;; The sentinel strings are `:rf.machine/source-coords` (macro-time
+  ;; source-coord stamp) and " :data failed schema at boundary
+  ;; :where :machine-data " (data-validation emit body). Both must NOT
+  ;; appear in the production bundle.
   (rf/reg-machine :rf.probe/machine
     {:initial :idle
      :guards  {:never? (fn [_] false)}
      :actions {:noop   (fn [_] {})}
-     :states  {:idle {:on {:tick {:target :idle :guard :never? :action :noop}}}}}))
+     :states  {:idle {:on {:tick {:target :idle :guard :never? :action :noop}}}}})
+  ;; Force a `:where :machine-data` failure to root the data-validation
+  ;; emit body for the elision control. The validator never installs
+  ;; (the spawn-time gate or post-commit gate emits + rejects), so the
+  ;; failing machine leaves no state behind.
+  (rf/reg-machine :rf.probe/machine-with-schema
+    {:initial :idle
+     :data    {:n 0}                                  ;; 0 violates pos-int?
+     :schema  [:map [:n pos-int?]]
+     :states  {:idle {}}})
+  (rf/dispatch-sync [:rf.probe/machine-with-schema [:noop]]))
 
 ;; ---- rf2-ts1a: call-site source-coord macros ------------------------------
 ;;

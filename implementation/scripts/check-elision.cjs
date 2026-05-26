@@ -68,6 +68,13 @@ const DEV_ONLY_SENTINELS = [
   // re-frame.schemas — validate-fx! reason string.
   { source: 're-frame.schemas/validate-fx!',
     sentinel: ' args failed schema ' },
+  // re-frame.machines.data-validation — :where :machine-data reason
+  // string (rf2-jbbp7). The post-commit / spawn-time machine `:data`
+  // validators both sit inside `(when interop/debug-enabled? ...)`
+  // gates; the distinctive substring " :data failed schema at boundary
+  // :where :machine-data " must elide under :advanced + goog.DEBUG=false.
+  { source: 're-frame.machines.data-validation/emit-failure!',
+    sentinel: ' :data failed schema at boundary :where :machine-data ' },
   // re-frame.registrar — handler-replaced trace op (only emitted from a
   // gated branch in registrar/register!).  Keywords survive :advanced
   // as string literals; this is a structural sentinel.
