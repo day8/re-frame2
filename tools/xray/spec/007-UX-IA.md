@@ -652,7 +652,7 @@ mute manager modal). The Buffer tab inherited the
 
 | # | Tab | Mnemonic | Content |
 |---|---|---|---|
-| 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Power user:** "Show tool frames in picker" toggle (off by default) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot is `:general :use-system-colors?`) |
+| 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Editor override** (rf2-dudqz — per-machine click-to-source picker; nil / `:vscode` / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <tpl>}`; default nil = use host default) · **Power user:** "Show tool frames in picker" toggle (off by default) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot is `:general :use-system-colors?`) |
 | 2 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
 | 3 | **Buffer** | `b` | `:general :epoch-history` (slider, relocated from General per rf2-pu9sb — slot stays under `:general` for the persisted-settings shape, only the popup home moved) · `:buffer/cascades-retained` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" button with confirm modal |
 | 4 | **Diff** | `d` | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; section-grouping threshold fixed defaults — both dropped from the user surface) |
@@ -1307,6 +1307,43 @@ panel may inline its own URI assembly.
 - The preference is **session-scoped**, persisted via the same Xray
   config substrate as theme / density. No cloud-sync.
 - Xray's preference is **independent** of Story's `:rf.story/editor`.
+
+### End-user override (rf2-dudqz)
+
+Mixed-editor teams: the host app's `:rf.xray/editor` is project-wide,
+but an individual operator MAY want a different click-to-source target
+on their machine (e.g. a JetBrains user on a VS-Code-default team).
+The **Settings popup → General tab → "Click-to-source links open in"
+picker** is the per-machine override.
+
+- **Slot:** `[:general :editor-override]` inside the persisted
+  settings map. Persists via the same localStorage round-trip every
+  other operator preference uses (`re-frame2.xray.settings.v1`); no
+  new storage key.
+- **Default:** `nil` — no override; the host's `:rf.xray/editor`
+  default wins.
+- **Accepted values:** identical to `:rf.xray/editor` — `nil`,
+  `:vscode`, `:cursor`, `:windsurf`, `:zed`, `:idea`, or `{:custom
+  "<tpl>"}`. The picker surfaces every enumerated keyword as a radio
+  plus a "(project default)" radio (writes `nil`) plus a "Custom URI
+  template" radio + text input (writes the `{:custom …}` shape).
+- **Resolution order:** `config/get-editor` returns the FIRST
+  non-nil tier of `[end-user-override → host default → :vscode]`.
+  Selection is immediate — the next click-to-source affordance uses
+  the override URI without a reload.
+- **Reset:** the "Reset to project default" button clears the
+  override (writes `nil`); the picker shows "Project default:
+  <host-editor-name>" so the operator knows what flipping back
+  lands on.
+- **Scope:** purely client-side. The override does NOT mutate the
+  host's atom and does NOT reach other browsers / tabs / users.
+  Clearing the override falls back to the host's `configure!` value.
+- **Security boundary:** the `{:custom …}` template still passes
+  through the rf2-cm93v / rf2-p887o positive scheme allowlist at
+  click time. A template that resolves to a disallowed scheme
+  (`http:` / `https:` / `javascript:` / `data:` / `vbscript:`)
+  silently no-ops at the chip — the picker is NOT a route around the
+  allowlist.
 
 ### Cross-references
 

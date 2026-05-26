@@ -212,6 +212,26 @@ running both tools MAY route each to a different editor — e.g.
 `:vscode` for the application code Xray points at, `:idea` for the
 Story test corpus.
 
+#### End-user override (rf2-dudqz)
+
+`:rf.xray/editor` is the **project-wide default** set by the host
+app's boot. Individual operators on a mixed-editor team MAY override
+it for their machine via the **Settings popup → General tab →
+"Click-to-source links open in" picker** ([`007-UX-IA.md` §End-user
+override](./007-UX-IA.md#end-user-override-rf2-dudqz)).
+
+The override lives in the persisted-settings map at
+`[:general :editor-override]`; it accepts the same value shape as
+`:rf.xray/editor` (`nil` / enumerated keyword / `{:custom <tpl>}`).
+`config/get-editor` returns the FIRST non-nil tier of
+`[end-user-override → host default → :vscode]`. The override is
+purely client-side — it does NOT mutate the host's atom and does NOT
+reach other browsers / tabs / users.
+
+Tests cover the resolution order, the localStorage round-trip, and
+the `open-chip` / `:rf.xray/open-in-editor` consumers under
+`tools/xray/test/day8/re_frame2_xray/settings/editor_override_cljs_test.cljs`.
+
 ### `:rf.xray/project-root`
 
 The on-disk root prepended to the source-coord's classpath-relative

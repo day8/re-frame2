@@ -67,6 +67,17 @@
         {:highlight-fn-ref-changes? (boolean
                                       (:highlight-fn-ref-changes? diff))})))
 
+  ;; rf2-dudqz — host editor default (the `editor` atom set by
+  ;; `set-editor!` / `(xray-config/configure! {:rf.xray/editor …})`).
+  ;; Read by the Settings popup's editor-override picker so the
+  ;; "Project default: <name>" hint shows what flipping back to the
+  ;; default will land on. Reads the atom directly — there is no
+  ;; app-db mirror because the host atom is single-write at boot, not
+  ;; a per-cascade reactive surface.
+  (rf/reg-sub :rf.xray/editor-host-default
+    (fn [_db _query]
+      (config/get-host-editor-default)))
+
   ;; rf2-ttnst — convenience sub for the density knob. Reads
   ;; `:general :density` (`:cosy` or `:compact`). Views detail rows
   ;; + App-db diff rows branch padding/line-height off this value.

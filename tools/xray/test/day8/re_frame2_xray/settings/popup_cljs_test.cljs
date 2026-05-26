@@ -173,6 +173,87 @@
 ;; HCM-override checkbox moved to General → Power user and is now
 ;; exercised by `use-system-colors-renders-in-general`.
 
+(deftest editor-override-picker-renders-in-general
+  (testing "rf2-dudqz — General tab carries the editor-override picker
+            (radio set + Reset button + host-default hint). One radio
+            per enumerated editor plus '(project default)' and
+            Custom; the custom URI-template input is gated on the
+            Custom radio being active."
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-open])
+      (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
+    (rf/with-frame :rf/xray
+      (let [rendered (popup/Modal)]
+        ;; Picker container.
+        (is (find-by-testid rendered "rf-xray-settings-editor-override")
+            "editor-override field group renders")
+        ;; Enumerated radios + the (project default) + custom radio.
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-default"))
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-vscode"))
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-cursor"))
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-windsurf"))
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-zed"))
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-idea"))
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-custom"))
+        ;; Reset-to-host button + host-default hint.
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-reset"))
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-host-default"))
+        ;; Custom-template input hidden on a fresh install (no
+        ;; override → :default radio is active).
+        (is (nil? (find-by-testid rendered "rf-xray-settings-editor-override-custom-input"))
+            "custom template input hidden until Custom radio is active")))))
+
+(deftest editor-override-custom-input-surfaces-when-custom-selected
+  (testing "rf2-dudqz — selecting Custom (writing `{:custom <tpl>}`
+            to the slot) reveals the URI-template input on the next
+            render"
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-open])
+      (rf/dispatch-sync [:rf.xray/settings-select-tab :general])
+      (rf/dispatch-sync [:rf.xray/settings-update
+                         :general :editor-override {:custom ""}]))
+    (rf/with-frame :rf/xray
+      (let [rendered (popup/Modal)]
+        (is (find-by-testid rendered "rf-xray-settings-editor-override-custom-input")
+            "custom template input renders once the override is the
+             :custom shape")))))
+
+(deftest editor-override-default-radio-is-checked-on-fresh-install
+  (testing "rf2-dudqz — with no override, the '(project default)'
+            radio is the selected option"
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-open])
+      (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
+    (rf/with-frame :rf/xray
+      (let [rendered (popup/Modal)
+            default-radio (find-by-testid rendered "rf-xray-settings-editor-override-default")
+            vscode-radio  (find-by-testid rendered "rf-xray-settings-editor-override-vscode")]
+        (is (true? (:checked (second default-radio)))
+            "(project default) radio is checked")
+        (is (false? (:checked (second vscode-radio)))
+            "VS Code radio is unchecked")))))
+
+(deftest editor-override-enumerated-radio-reflects-active-override
+  (testing "rf2-dudqz — writing an enumerated-keyword override
+            (`:idea`) flips the checked radio to that option"
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-open])
+      (rf/dispatch-sync [:rf.xray/settings-select-tab :general])
+      (rf/dispatch-sync [:rf.xray/settings-update
+                         :general :editor-override :idea]))
+    (rf/with-frame :rf/xray
+      (let [rendered (popup/Modal)
+            default-radio (find-by-testid rendered "rf-xray-settings-editor-override-default")
+            idea-radio    (find-by-testid rendered "rf-xray-settings-editor-override-idea")]
+        (is (false? (:checked (second default-radio))))
+        (is (true? (:checked (second idea-radio)))
+            "the :idea radio is the checked option after the override
+             writes")))))
+
 (deftest use-system-colors-renders-in-general
   (testing "rf2-ou3pn — `:use-system-colors?` HCM-override checkbox
             relocated from the retired Theme tab to General → Power

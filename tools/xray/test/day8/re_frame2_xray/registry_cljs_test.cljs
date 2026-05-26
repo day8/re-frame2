@@ -153,6 +153,10 @@
    :rf.xray/edit-popup-draft
    :rf.xray/edit-popup-open?
    :rf.xray/edit-popup-trigger
+   ;; rf2-dudqz — host-side editor default exposed to the Settings
+   ;; popup's editor-override picker so the "Project default: <name>"
+   ;; hint renders. Reads `config/editor` atom directly.
+   :rf.xray/editor-host-default
    :rf.xray/epoch-history
    ;; rf2-sc3r1 — Epoch panel composite (focused epoch's pipeline
    ;; rows) + per-row expansion-set sub.
