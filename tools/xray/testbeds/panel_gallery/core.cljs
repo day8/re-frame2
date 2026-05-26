@@ -57,6 +57,14 @@
             [re-frame.core :as rf]
             [re-frame.story :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
+            ;; rf2-2c5xb — Xray's `configure!` to seed `:project-root`
+            ;; so the source-coord chips on registered handlers /
+            ;; views / machines resolve their classpath-relative
+            ;; `:file` slot to an absolute on-disk URI. Without this
+            ;; the panel-gallery's `[open]` affordances ship the bare
+            ;; classpath-relative path (`panel_gallery/foo.cljs`) to
+            ;; the OS scheme handler, which rejects it.
+            [day8.re-frame2-xray.config :as xray-config]
             [day8.re-frame2-xray.registry :as xray-registry]
             [panel-gallery.panel-views :as panel-views]
             ;; Side-effecting story registrations — namespaces fire
@@ -107,6 +115,48 @@
 ;; ============================================================================
 ;; MOUNT
 ;; ============================================================================
+
+;; ----------------------------------------------------------------------------
+;; Project-root resolution (rf2-2c5xb)
+;; ----------------------------------------------------------------------------
+;;
+;; Source-coord `:file` slots captured at registration time are classpath-
+;; relative — the panel-gallery's source root is
+;; `tools/xray/testbeds/panel_gallery/`, so a coord on a panel-gallery handler
+;; carries `:file "panel_gallery/foo.cljs"`. Xray's open-in-editor URI builder
+;; (`re-frame.source-coords.editor-uri/editor-uri`) requires an on-disk root
+;; to prepend — without it, the URI ships the bare relative path and the
+;; OS-side editor handler rejects it ("Path does not exist").
+;;
+;; Per the rf2-5m5n2 contract Xray exposes `:rf.xray/project-root`. The
+;; panel-gallery boots with its known on-disk repo position by default; a
+;; `?project-root=<path>` query string overrides for cross-machine portability
+;; (mirroring the `step_deck` testbed's resolver).
+;;
+;; The URI build is invariant to the host page URL — `resolve-uri` reads the
+;; configured root, not `window.location`. The query-param branch only
+;; influences which root we PASS to the configure! call; the resolver itself
+;; never reaches into the document. The unit test
+;; `panel-gallery-project-root-invariant-to-host-url` pins that contract.
+
+(def ^:private default-project-root
+  "Default on-disk root for the panel-gallery testbed. Matches the source-
+  path declared in `implementation/shadow-cljs.edn` for the
+  `:testbeds/panel-gallery` build."
+  "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
+
+(defn- query-param
+  "Return the named URL query param as a string, or nil when absent /
+  blank. Pure data helper — kept private to this testbed since the
+  query-string override is a per-host knob (not a Xray-API surface)."
+  [param-name]
+  (when (exists? js/window)
+    (let [params (-> js/window .-location .-search (js/URLSearchParams.))
+          v      (.get params param-name)]
+      (when (and (string? v) (seq v)) v))))
+
+(defn- resolve-project-root []
+  (or (query-param "project-root") default-project-root))
 
 (defonce ^:private app-root (atom nil))
 
@@ -225,6 +275,13 @@
   (rf/reg-frame :rf/xray {}))
 
 (defn ^:export run []
+  ;; rf2-2c5xb — seed `:rf.xray/project-root` BEFORE the Xray handlers
+  ;; register so the first chip render reads the configured root. The
+  ;; resolver reads only the configured atom; the URI build is independent
+  ;; of `window.location`, so the panel-gallery's source links resolve to
+  ;; the same on-disk paths regardless of which port shadow-cljs serves
+  ;; the testbed from.
+  (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Xray's :rf.xray/* events / subs / fxs land on the registry once.
   ;; The handlers operate on the current frame's app-db, so each
