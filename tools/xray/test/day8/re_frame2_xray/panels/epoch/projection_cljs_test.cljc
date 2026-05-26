@@ -378,6 +378,46 @@
       (is (= 2 (count (:rows s))))
       (is (= :ok (-> s :rows first :status))))))
 
+;; ---- rf2-uffov — FX section header split + per-action attribution -----
+
+(deftest fx-step-header-counter-split-test
+  (testing "rf2-uffov — FX step header carries split counts
+            (succeeded / threw / skipped)"
+    (let [s (proj/fx-step
+              [(fx-handled-ev :db nil 0.1)
+               (fx-handled-ev :http/post {} 1.0)
+               (ev :error :rf.error/fx-handler-exception
+                   {:rf.fx/id :bad-fx})])]
+      (is (= 2 (:succeeded s))
+          ":ok rows roll into :succeeded")
+      (is (= 1 (:threw s))
+          ":error rows roll into :threw"))))
+
+(deftest fx-step-attribution-from-machine-actions-test
+  (testing "rf2-uffov — when a machine action's outcome :fx emits a
+            fx-id, the corresponding FX row carries :attributed-to"
+    (let [evs [(ev :rf.machine :rf.machine/action-ran
+                   {:action-id :open-socket
+                    :phase     :entry
+                    :outcome   {:fx [[:http/get {:url "/x"}]]}
+                    :input     {:data {} :event nil}})
+               (fx-handled-ev :http/get {:url "/x"} 5.0)]
+          s   (proj/fx-step evs)
+          row (-> s :rows first)]
+      (is (= :http/get (:fx-id row)))
+      (is (some? (:attributed-to row))
+          "FX row carries :attributed-to for machine-emitted fx")
+      (is (= :open-socket (-> row :attributed-to :action-id)))
+      (is (= :entry       (-> row :attributed-to :phase))))))
+
+(deftest fx-step-no-attribution-for-non-machine-cascades-test
+  (testing "rf2-uffov — pure reg-event-fx cascades have no per-action
+            attribution; the slot stays absent"
+    (let [s (proj/fx-step [(fx-handled-ev :db nil 0.1)])
+          row (-> s :rows first)]
+      (is (not (contains? row :attributed-to))
+          "no machine actions → no :attributed-to slot"))))
+
 ;; ---- SUBSCRIPTIONS ------------------------------------------------------
 
 (deftest subscriptions-step-conditional-test

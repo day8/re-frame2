@@ -1522,6 +1522,29 @@ cross-session triage.
 
 Section is conditional — omitted when no violation events fired.
 
+### §9.1.10.6 FX section header + per-action attribution (rf2-uffov)
+
+The FX step has rendered per-fx rows since rf2-sc3r1. rf2-uffov
+extends it with:
+
+- **Header outcome split** — `N fired (M succeeded, K threw,
+  L skipped)`. Counters are projection-side aggregations of the
+  per-row `:status` keyword (`:ok / :overridden → :succeeded`,
+  `:error → :threw`, `:skipped → :skipped`). The view consumes
+  the projected counters directly so the header reads as
+  at-a-glance correctness.
+- **Per-action attribution** — when the cascade was driven by a
+  machine handler, each FX row that maps to a fx-id emitted by an
+  action's outcome `:fx` slot carries `:attributed-to {:action-id
+  …, :phase …}` (rf2-9c27r + this bead). The view renders an
+  italic `← <action-id> (<phase>)` chip alongside the row so the
+  operator reads `fx X emitted by action Y in phase Z` in one
+  line. Best-effort: first-attribution wins when the same fx-id
+  is emitted by multiple actions in the same cascade (cascade
+  order).
+- **Conditional emit unchanged** — section omits when no fx-handler
+  events fired.
+
 ### §9.1.10.5 App-db diff section (rf2-rrykz)
 
 An APP-DB DIFF step rides immediately after HANDLER when the

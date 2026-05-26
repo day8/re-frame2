@@ -869,8 +869,12 @@
 
   Argument order matches `map-indexed`'s `(f idx item)` convention
   (rf2-cq0ch — companion swap with `coeffect-row-view` /
-  `flow-row-view`)."
-  [idx {:keys [fx-id status args duration-ms]}]
+  `flow-row-view`).
+
+  Per rf2-uffov: when the row carries `:attributed-to`, a muted
+  `← <action-id>` attribution chip rides alongside so the operator
+  reads `fx X emitted by action Y` in one line."
+  [idx {:keys [fx-id status args duration-ms attributed-to]}]
   (let [glyph    (case status
                    :ok          "✓"
                    :overridden  "↺"
@@ -886,12 +890,14 @@
     [:div {:key (str "fx-" idx)
            :data-testid (str "rf-xray-epoch-fx-row-" idx)
            :data-fx-status (when (keyword? status) (name status))
+           :data-fx-attributed (str (some? attributed-to))
            :style {:display "flex"
                    :align-items "flex-start"
                    :gap "8px"
                    :padding "2px 0"
                    :font-family mono-stack
-                   :font-size "12px"}}
+                   :font-size "12px"
+                   :flex-wrap "wrap"}}
      [:span {:style {:color colour :font-weight 700}} glyph]
      [:span {:style {:color (:accent tokens)}}
       (proj/ns-keyword fx-id)]
@@ -903,24 +909,62 @@
        [:span {:style {:color (:text-tertiary tokens)
                        :margin-left "8px"
                        :white-space "nowrap"}}
-        (proj/format-duration-ms duration-ms)])]))
+        (proj/format-duration-ms duration-ms)])
+     ;; rf2-uffov — per-action attribution chip (for machine cascades)
+     (when-let [{:keys [action-id phase]} attributed-to]
+       [:span {:data-testid (str "rf-xray-epoch-fx-row-attribution-" idx)
+               :title (str "emitted by " (proj/ns-keyword action-id)
+                           (when phase (str " (" (name phase) " action)")))
+               :style {:color (:text-tertiary tokens)
+                       :font-size "10px"
+                       :margin-left "auto"
+                       :white-space "nowrap"
+                       :display "inline-flex"
+                       :align-items "center"
+                       :gap "4px"
+                       :font-style "italic"}}
+        [:span {:aria-hidden true} "←"]
+        (proj/ns-keyword action-id)
+        (when phase
+          [:span {:style {:color (:text-tertiary tokens)}}
+           (str "(" (name phase) ")")])])]))
 
 (defn render-fx-step
-  "Render the FX step (only present when fx-handlers fired)."
-  [{:keys [rows step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-fx"
-         :data-step-kw "fx"}
-   (numbered-circle step-number :FX)
-   (step-header
-     {:step :fx
-      :badge :FX
-      :verb (str (count rows) " side-effect"
-                 (when (not= 1 (count rows)) "s"))
-      :expandable? false
-      :testid "rf-xray-epoch-fx"}
-     nil)
-   [:div {:style {:margin-top "5px"}}
-    (map-indexed fx-row-view rows)]])
+  "Render the FX step (only present when fx-handlers fired).
+
+  Per rf2-uffov: header carries the outcome split — `N fired (M
+  succeeded, K threw)` — so the operator reads at-a-glance
+  correctness without scanning every row's glyph. The `:succeeded`
+  count rolls `:ok + :overridden`; `:skipped` rides as its own
+  chip when non-zero."
+  [{:keys [rows step-number succeeded skipped threw]}]
+  (let [n (count rows)
+        m (or succeeded n)
+        k (or threw 0)
+        s (or skipped 0)]
+    [:div {:data-testid "rf-xray-epoch-step-fx"
+           :data-step-kw "fx"
+           :data-fx-threw (str k)}
+     (numbered-circle step-number :FX)
+     (step-header
+       {:step :fx
+        :badge :FX
+        :verb [:span {:style {:display "inline-flex" :align-items "center"
+                              :gap "8px" :flex-wrap "wrap"}}
+               (str n " fired (" m " succeeded")
+               (when (pos? k)
+                 [:span {:style {:color (:error tokens)
+                                 :font-weight 700}}
+                  (str ", " k " threw")])
+               (when (pos? s)
+                 [:span {:style {:color (:text-tertiary tokens)}}
+                  (str ", " s " skipped")])
+               ")"]
+        :expandable? false
+        :testid "rf-xray-epoch-fx"}
+       nil)
+     [:div {:style {:margin-top "5px"}}
+      (map-indexed fx-row-view rows)]]))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 

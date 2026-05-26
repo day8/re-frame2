@@ -335,6 +335,44 @@
         (is (string/includes? id ":counter/total"))
         (is (string/includes? path "[:total]"))))))
 
+;; ---- rf2-uffov — FX section header + per-action attribution ----------
+
+(deftest fx-step-header-shows-outcome-split-test
+  (testing "rf2-uffov — FX step header reads
+            `N fired (M succeeded, K threw)`"
+    (let [step {:step :fx :badge :FX :step-number 4
+                :rows [{:fx-id :db :status :ok}
+                       {:fx-id :http/get :status :ok}
+                       {:fx-id :bad :status :error}]
+                :succeeded 2 :threw 1 :skipped 0}
+          tree (view/render-fx-step step)
+          header (text-of tree "rf-xray-epoch-fx-header")]
+      (is (string/includes? header "3 fired"))
+      (is (string/includes? header "2 succeeded"))
+      (is (string/includes? header "1 threw")))))
+
+(deftest fx-row-shows-attribution-chip-test
+  (testing "rf2-uffov — when an FX row carries :attributed-to, the
+            attribution chip renders alongside"
+    (let [step {:step :fx :badge :FX :step-number 4
+                :rows [{:fx-id :http/get :status :ok
+                        :attributed-to {:action-id :open-socket
+                                        :phase :entry}}]
+                :succeeded 1 :threw 0 :skipped 0}
+          tree (view/render-fx-step step)
+          chip (th/find-by-testid tree "rf-xray-epoch-fx-row-attribution-0")]
+      (is (some? chip) "the attribution chip is present")
+      (is (string/includes? (th/text-content chip) ":open-socket")
+          "the action-id rides the chip"))))
+
+(deftest fx-row-omits-attribution-chip-when-none-test
+  (testing "rf2-uffov — FX row without :attributed-to omits the chip"
+    (let [step {:step :fx :badge :FX :step-number 4
+                :rows [{:fx-id :db :status :ok}]
+                :succeeded 1 :threw 0 :skipped 0}
+          tree (view/render-fx-step step)]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-fx-row-attribution-0"))))))
+
 ;; ---- rf2-rrykz — app-db diff section ---------------------------------
 
 (deftest app-db-diff-step-renders-rows-test

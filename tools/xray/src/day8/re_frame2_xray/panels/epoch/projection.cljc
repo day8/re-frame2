@@ -384,7 +384,15 @@
   "Project the `:rf.fx/handled` / `:rf.fx/override-applied` /
   `:rf.fx/skipped-on-platform` stream into per-handler rows. Each row
   carries `:fx-id`, `:status` (`:ok / :overridden / :skipped /
-  :error`), `:args`, and `:duration-ms`."
+  :error`), `:args`, and `:duration-ms`.
+
+  Per rf2-uffov: each row also carries `:attributed-to` (the
+  machine action that emitted the fx) when the cascade was driven
+  by a machine handler — sourced from `:rf.machine/action-ran`'s
+  `:outcome :fx` slot (rf2-9c27r). The attribution is best-effort:
+  matched by `(= fx-id (first fx-tuple))` against the action's
+  emitted fx vector. When a fx-id is emitted by multiple actions
+  in the same cascade, the FIRST attribution wins (cascade order)."
   [events]
   (let [status-fn (fn [op-kw]
                     (case op-kw
@@ -393,27 +401,69 @@
                       :rf.fx/skipped-on-platform   :skipped
                       :rf.error/fx-handler-exception :error
                       :rf.error/no-such-fx         :error
-                      :ok))]
+                      :ok))
+        ;; Per rf2-uffov — build the per-action fx attribution map
+        ;; once for this projection pass. Each entry maps a fx-id
+        ;; (the first element of the action's emitted fx tuple) to
+        ;; the FIRST machine action that emitted it. This is the
+        ;; per-action attribution surfaced on the FX section's rows.
+        attribution-map
+        (reduce
+          (fn [acc ev]
+            (if (and (= :rf.machine/action-ran (op ev))
+                     (map? (common/tag-of ev :outcome)))
+              (let [{:keys [fx]} (common/tag-of ev :outcome)
+                    action-id    (common/tag-of ev :action-id)
+                    phase        (common/tag-of ev :phase)]
+                (reduce
+                  (fn [a entry]
+                    (let [fx-id (cond
+                                  (and (vector? entry) (pos? (count entry)))
+                                  (first entry)
+                                  (keyword? entry) entry)]
+                      (if (and fx-id (not (contains? a fx-id)))
+                        (assoc a fx-id {:action-id action-id :phase phase})
+                        a)))
+                  acc
+                  (or fx [])))
+              acc))
+          {}
+          events)]
     (vec
       (for [ev events
-            :let [o (op ev)]
+            :let [o (op ev)
+                  fx-id (common/tag-of ev :rf.fx/id)]
             :when (or (= "rf.fx" (op-ns ev))
                       (contains? #{:rf.error/fx-handler-exception
                                    :rf.error/no-such-fx} o))]
-        {:fx-id       (common/tag-of ev :rf.fx/id)
-         :status      (status-fn o)
-         :args        (common/tag-of ev :rf.fx/args)
-         :duration-ms (common/tag-of ev :duration-ms)}))))
+        (cond-> {:fx-id       fx-id
+                 :status      (status-fn o)
+                 :args        (common/tag-of ev :rf.fx/args)
+                 :duration-ms (common/tag-of ev :duration-ms)}
+          (get attribution-map fx-id)
+          (assoc :attributed-to (get attribution-map fx-id)))))))
 
 (defn fx-step
   "FX step row (one row aggregating every fx-handler invocation). nil
-  when no fx-handler events fired (the step is OMITTED — conditional)."
+  when no fx-handler events fired (the step is OMITTED — conditional).
+
+  Per rf2-uffov the step carries header counters splitting the rows
+  by outcome — `N fired (M succeeded, K threw)`. The view consumes
+  these directly so the header reads as 'at-a-glance correctness'."
   [events]
   (let [rows (fx-rows events)]
     (when (seq rows)
-      {:step  :fx
-       :badge :FX
-       :rows  rows})))
+      (let [by-status  (frequencies (map :status rows))
+            succeeded  (+ (get by-status :ok 0)
+                          (get by-status :overridden 0))
+            skipped    (get by-status :skipped 0)
+            threw      (get by-status :error 0)]
+        {:step      :fx
+         :badge     :FX
+         :rows      rows
+         :succeeded succeeded
+         :skipped   skipped
+         :threw     threw}))))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
