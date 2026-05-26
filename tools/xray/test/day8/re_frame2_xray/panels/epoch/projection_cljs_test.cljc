@@ -66,12 +66,14 @@
                                                       coeffects)))))
 
 (defn- cofx-run-ev
-  ;; rf2-e0xjx — substrate stamps `:rf.cofx/elapsed-ms` on
-  ;; `:rf.cofx/run` (rf2-hhh92 · `re-frame.cofx`). The fixture stamps
-  ;; the canonical name; the bead rf2-w2r4p reader-fix swaps the
-  ;; projection's read to prefer it over `:duration-ms`.
-  [id value]
-  (ev :rf.cofx :rf.cofx/run {:rf.cofx/id id :rf.cofx/value value}))
+  ;; rf2-w2r4p — substrate stamps `:rf.cofx/elapsed-ms` on
+  ;; `:rf.cofx/run` (rf2-hhh92 · `re-frame.cofx`; spec 009 §243). The
+  ;; 3-arg form supplies a duration; the 2-arg legacy form omits it.
+  ([id value] (ev :rf.cofx :rf.cofx/run {:rf.cofx/id id :rf.cofx/value value}))
+  ([id value duration-ms]
+   (ev :rf.cofx :rf.cofx/run {:rf.cofx/id         id
+                              :rf.cofx/value      value
+                              :rf.cofx/elapsed-ms duration-ms})))
 
 (defn- db-changed-ev
   [paths]
@@ -277,6 +279,52 @@
 (deftest coeffect-rows-empty-test
   (testing "no cofx events + no run-end stamp returns empty vec"
     (is (= [] (proj/coeffect-rows [])))))
+
+(deftest coeffect-rows-reads-canonical-elapsed-ms-test
+  (testing "rf2-w2r4p — substrate stamps the per-cofx invocation
+            duration as `:rf.cofx/elapsed-ms` on `:rf.cofx/run`
+            (rf2-hhh92 · `re-frame.cofx`; spec 009 §243). The
+            pre-rf2-w2r4p reader looked for the never-emitted
+            `:duration-ms` — every cofx row showed nil duration."
+    (let [cofx-ev  {:op-type   :rf.cofx
+                    :operation :rf.cofx/run
+                    :tags      {:rf.cofx/id         :session
+                                :rf.cofx/value      :auth-token
+                                :rf.cofx/elapsed-ms 0.6}}
+          rows     (proj/coeffect-rows
+                     [cofx-ev (run-end-ev 0.5 {:session {:user-id 1}})])]
+      (is (= 0.6 (-> rows first :duration-ms))
+          "cofx row duration resolves through canonical :rf.cofx/elapsed-ms"))))
+
+(deftest project-threads-cofx-duration-through-cofx-steps-test
+  (testing "rf2-w2r4p — the `cofx-steps` flattening in `project` MUST
+            thread the row's `:duration-ms` through to the step map.
+            The pre-rf2-w2r4p flattening built each step with only
+            `:id` + `:value` and dropped the duration — even with the
+            reader stamping the canonical tag, the cascade'"'"'s COEFFECT
+            step rendered nil and never crossed the long-step
+            threshold."
+    (let [rec   (record [(dispatched-ev [:cart/load] :ui nil)
+                         (cofx-run-ev :session {:user-id 1} 18.5)
+                         (run-end-ev 0.5)])
+          steps (proj/project rec)
+          cofx  (some #(when (= :coeffect (:step %)) %) steps)]
+      (is (some? cofx) "COEFFECT step is present")
+      (is (= 18.5 (:duration-ms cofx))
+          ":duration-ms threaded from cofx-row into cofx-step")
+      (is (true? (proj/long-step? cofx))
+          "long-step? predicate now keys off the threaded duration"))))
+
+(deftest project-cofx-step-omits-duration-when-absent-test
+  (testing "rf2-w2r4p — cofx with no duration produces a step without
+            `:duration-ms` (clean absence vs. explicit nil), matching
+            the row's `cond-> (some? duration-ms)` shape"
+    (let [rec   (record [(dispatched-ev [:cart/load] :ui nil)
+                         (cofx-run-ev :session {:user-id 1})
+                         (run-end-ev 0.5)])
+          cofx  (some #(when (= :coeffect (:step %)) %) (proj/project rec))]
+      (is (not (contains? cofx :duration-ms))
+          "no duration on the row → :duration-ms absent on the step"))))
 
 (deftest coeffect-rows-skip-system-cofx-test
   (testing "rf2-cq0ch — system-injected defaults (:db / :event / :frame /

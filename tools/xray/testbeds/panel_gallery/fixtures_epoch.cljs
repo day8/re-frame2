@@ -79,14 +79,13 @@
   out by the projection (rf2-cq0ch), so fixtures only need to emit
   the user-injected ids the COEFFECT step should surface.
 
-  rf2-e0xjx — substrate stamps the canonical `:rf.cofx/elapsed-ms`
-  duration tag (rf2-hhh92 · `re-frame.cofx`); fixture mirrors that.
-  The legacy `:duration-ms` companion stays for the still-buggy
-  reader until rf2-w2r4p lands."
+  rf2-w2r4p — substrate stamps the canonical `:rf.cofx/elapsed-ms`
+  duration tag (rf2-hhh92 · `re-frame.cofx`; spec 009 §243); fixture
+  mirrors that. The reader retains a legacy `:duration-ms` fallback
+  for older runtimes / external test fixtures."
   [id value]
   (ev :rf.cofx :rf.cofx/run {:rf.cofx/id          id
                              :rf.cofx/value       value
-                             :duration-ms         0.1
                              :rf.cofx/elapsed-ms  0.1}))
 
 (defn- run-end-ev

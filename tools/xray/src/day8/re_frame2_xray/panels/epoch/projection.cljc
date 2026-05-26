@@ -168,7 +168,13 @@
                  :badge       :COEFFECT
                  :id          id
                  :value       resolved
-                 :duration-ms (common/tag-of ev :duration-ms)}
+                 ;; rf2-w2r4p — substrate stamps the per-cofx
+                 ;; invocation duration as `:rf.cofx/elapsed-ms` on
+                 ;; `:rf.cofx/run` (rf2-hhh92 · `re-frame.cofx`;
+                 ;; spec 009 §243). Legacy `:duration-ms` retained
+                 ;; as a fixture-compat fallback for older runtimes.
+                 :duration-ms (or (common/tag-of ev :rf.cofx/elapsed-ms)
+                                  (common/tag-of ev :duration-ms))}
           ;; preserve the per-call input arg for 2-arity cofx so the
           ;; view can surface it when distinct from the resolved value
           (some? input-arg) (assoc :input input-arg))))))
@@ -1098,11 +1104,22 @@
             ;; rows). The view layer numbers each as its own step
             ;; in the cascade so the operator reads them as
             ;; first-class pipeline entries.
-            cofx-steps (mapv (fn [{:keys [id value]}]
-                               {:step  :coeffect
-                                :badge :COEFFECT
-                                :id    id
-                                :value value})
+            ;;
+            ;; rf2-w2r4p — the flattening MUST thread the row's
+            ;; `:duration-ms` through to the step map; the prior
+            ;; shape silently dropped it, so even with `coeffect-
+            ;; rows-from-runs` correctly stamping the canonical
+            ;; `:rf.cofx/elapsed-ms` the duration never reached the
+            ;; numbered cascade. `long-step?` keys off `:duration-ms`
+            ;; on the step row, so the cofx step now participates
+            ;; in long-step chrome detection.
+            cofx-steps (mapv (fn [{:keys [id value duration-ms]}]
+                               (cond-> {:step  :coeffect
+                                        :badge :COEFFECT
+                                        :id    id
+                                        :value value}
+                                 (some? duration-ms)
+                                 (assoc :duration-ms duration-ms)))
                              cofx-rows)
             steps     (vec
                         (concat
