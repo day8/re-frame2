@@ -207,13 +207,43 @@
 ;; ---- COEFFECT ------------------------------------------------------------
 
 (deftest coeffect-rows-granular-test
-  (testing "granular :rf.cofx/run events are preferred when present"
-    (let [evs [(cofx-run-ev :session {:user-id 42})
-               (cofx-run-ev :now #inst "2026-01-01")]
+  (testing "rf2-mmlgk — granular `:rf.cofx/run` events are walked; each
+            row carries the RESOLVED INJECTED VALUE off the run-end's
+            `:rf.event/coeffects` map (NOT the input arg). The
+            `:rf.cofx/value` tag rides on the row as `:input` when
+            present so the per-call arg of a 2-arity cofx
+            (`(inject-cofx :session :auth-token)`) is preserved."
+    (let [evs [(cofx-run-ev :session :auth-token)
+               (cofx-run-ev :now nil)
+               (run-end-ev 0.1 {:session {:user-id 42}
+                                :now     #inst "2026-01-01"})]
           rows (proj/coeffect-rows evs)]
       (is (= 2 (count rows)))
       (is (= :session (-> rows first :id)))
-      (is (= {:user-id 42} (-> rows first :value))))))
+      (is (= {:user-id 42} (-> rows first :value))
+          ":value is the RESOLVED injected value (from run-end)")
+      (is (= :auth-token (-> rows first :input))
+          ":input preserves the 2-arity cofx's per-call arg")
+      (is (= :now (-> rows second :id)))
+      (is (= #inst "2026-01-01" (-> rows second :value))
+          "1-arity cofx (no `:rf.cofx/value` on the run op) still
+           resolves its injected value off the run-end map")
+      (is (nil? (-> rows second :input))
+          "1-arity cofx carries no :input (no per-call arg)"))))
+
+(deftest coeffect-rows-granular-without-run-end-test
+  (testing "rf2-mmlgk — when granular `:rf.cofx/run` events exist but
+            no `:rf.event/run-end` carries the coeffects map (older
+            runtimes / interrupted cascades), the row still surfaces
+            with `:value nil`; the operator reads `nil` honestly
+            rather than 'reading the per-call input arg as if it
+            were the result'."
+    (let [evs  [(cofx-run-ev :testdeck/now nil)]
+          rows (proj/coeffect-rows evs)]
+      (is (= 1 (count rows)))
+      (is (= :testdeck/now (-> rows first :id)))
+      (is (nil? (-> rows first :value))
+          "no run-end → :value is nil (no false readings of input as result)"))))
 
 (deftest coeffect-rows-run-end-fallback-test
   (testing "no granular cofx events: fall back to run-end's stamp"
