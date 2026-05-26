@@ -17,6 +17,7 @@
   `shell_cljs_test.cljs` so the test surface stays Reagent-free
   on the assertion side."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -144,6 +145,50 @@
       ;; reachable without flipping the OS-level switch.
       (is (find-by-testid rendered "rf-xray-settings-use-system-colors")
           "Use system colors toggle renders in the Theme section"))))
+
+(deftest theme-label-matches-actual-default
+  (testing "rf2-pfx4u — the `(default)` annotation in the Theme section
+            labels MUST sit next to the actually-default option per
+            `config/default-settings`, not be hard-coded against Dark.
+            The default is `:light` (Figma authority + `config.cljc`
+            + `effects/apply-theme!` fallback), so the Light label
+            carries `(default)` and the Dark label does NOT.
+
+            Asserted by walking the radio's parent `<label>` and
+            asking `text-content` for the visible copy. The parent
+            label is the SECOND ancestor of the `<input>` — the
+            tree shape is `[:label ... [:input {...}] \"Dark\"]`."
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-open])
+      (rf/dispatch-sync [:rf.xray/settings-select-tab :theme]))
+    (rf/with-frame :rf/xray
+      (let [rendered    (popup/Modal)
+            section     (find-by-testid rendered "rf-xray-settings-section-theme")
+            ;; the visible copy of each radio's row is the concatenation
+            ;; of strings in the section that share its sibling line;
+            ;; checking via `text-content` on the section is the
+            ;; simplest faithful read of what the operator sees.
+            section-txt (th/text-content section)
+            default-theme (:theme config/default-settings)]
+        ;; the canonical default must be `:light` (Figma authority).
+        ;; Pinning this here means a future flip of the default
+        ;; surfaces as a deliberate edit to this test, not as a silent
+        ;; label drift.
+        (is (= :light default-theme)
+            "config/default-settings :theme is :light (Figma authority)")
+        ;; the `(default)` annotation sits next to Light, not Dark.
+        (is (re-find #"Light \(default\)" section-txt)
+            "Light option is labelled `Light (default)` (rf2-pfx4u)")
+        (is (not (re-find #"Dark \(default\)" section-txt))
+            "Dark option is NOT labelled `Dark (default)` — the prior stale label is gone (rf2-pfx4u)")
+        ;; Dark still surfaces as a `Dark` label (base copy preserved
+        ;; — only the `(default)` marker moved). Use a substring check
+        ;; rather than `\bDark\b` because the section's text-content
+        ;; concatenates sibling strings without separators (the radio
+        ;; rows render adjacent, so the joined leaves read `DarkLight`).
+        (is (str/includes? section-txt "Dark")
+            "Dark option still labelled `Dark` (without the default marker)")))))
 
 ;; ---- Tab switching ------------------------------------------------------
 
