@@ -552,18 +552,69 @@ The context's value is the **keyword**, not the frame record: each consumer reso
 
 Form-1/2/3 component handling, plain Reagent fns and the `(rf/dispatcher)`/`(rf/subscriber)` affordance, and composing registered views across nested `frame-provider`s — all live in [004-Views.md](004-Views.md). 002 owns the frame-side mechanics; 004 owns the view registration surface.
 
-### `bound-fn` for non-callback async closures (CLJS reference)
+### `bound-fn` / `frame-bound-fn` — frame-capturing closures (CLJS reference)
 
-Sometimes a function created during render isn't a hiccup callback but is invoked later — an async result handler set up inside `r/with-let`, an interval handle, a websocket subscription. For these, `bound-fn` captures the surrounding frame at definition time and re-establishes it when the fn is later invoked:
+Sometimes a function created during render isn't a hiccup callback but is invoked later — an async result handler set up inside `r/with-let`, an interval handle, a websocket subscription. Other times the function IS a hiccup callback (`:on-click`, `:on-key-down`, `:on-change`) but the surrounding render-time frame must still ride through to the click-time dispatch. Two siblings cover both:
 
 ```clojure
+;; Macro form — convenient `(fn ...)` syntax built in.
 (rf/bound-fn [msg]
-  (rf/dispatch [:incoming msg]))    ;; closure carries the captured frame
+  (rf/dispatch [:incoming msg]))          ;; closure carries the captured frame
+
+;; Fn form — wrap an existing fn (or one returned by another helper / lib).
+(rf/frame-bound-fn
+  (fn [msg] (rf/dispatch [:incoming msg])))
+
+;; Fn form with explicit frame-id — no surrounding `with-frame` / provider
+;; needed at wrap time. Useful at module top level, in install! routines.
+(rf/frame-bound-fn :rf/xray
+  (fn [_e mode] (rf/dispatch [:set-mode mode])))
 ```
 
-`bound-fn` produces a `(fn ...)` that, when called, runs in a `binding [*current-frame* <captured-frame>]` block — `*current-frame*` is the dynamic-binding tier of the resolution chain (above), so plain `dispatch`/`subscribe` inside the closure pick up the right frame.
+Both produce a fn that, when called, runs in a `binding [*current-frame* <captured-frame>]` block — `*current-frame*` is the dynamic-binding tier of the resolution chain (above), so plain `dispatch`/`subscribe` inside the wrapped body pick up the right frame regardless of when the call fires.
 
-The dynamic var (`*current-frame*`) is the primary mechanism for `bound-fn`, `with-frame`, and the router's per-handler binding: these constructs deliberately use the dynamic-binding tier as their definition, so synchronous dispatches inside their bodies pick up the right frame without an explicit `:frame` opt at the call site. Async callbacks that escape the binding (timers, promises, websocket messages) need an explicit hand-off — capture `(rf/dispatcher)` inside the body or thread `{:frame frame}` into the callback.
+The dynamic var (`*current-frame*`) is the primary mechanism for `bound-fn`, `frame-bound-fn`, `with-frame`, and the router's per-handler binding: these constructs deliberately use the dynamic-binding tier as their definition, so synchronous dispatches inside their bodies pick up the right frame without an explicit `:frame` opt at the call site.
+
+#### React click-handler routing — the canonical pattern (rf2-tvu99)
+
+A React onClick / onKeyDown / onChange callback is built during render but fires LATER, on a fresh JS turn after React has popped its render commit. Whatever mechanism a view uses to know "the surrounding frame is `:rf/xray`" must survive that boundary. Four routing patterns satisfy the contract — each captures the frame at a synchronous moment when it's still resolvable, so the click-time dispatch carries the right frame regardless of when React invokes it:
+
+| Pattern | Where the frame is captured | Best for |
+|---|---|---|
+| `(rf/frame-bound-fn frame-id f)` | wrap-time, explicit frame-id | top-level utilities (install! routines, module helpers); subscribe + dispatch sites alike |
+| `(rf/frame-bound-fn f)` | wrap-time, current frame | inside a reg-view body / under a frame-provider — the surrounding context supplies the frame |
+| `(rf/bound-fn [args] body)` | lex-binding moment | when you want `(fn ...)` syntax and frame-capture in one form |
+| `(rf/dispatch [...] {:frame :id})` | dispatch call time, explicit envelope | one-off dispatches where wrapping the whole callback would be heavier than threading a single opt |
+
+All four feed `:frame` into the dispatch envelope synchronously (during the binding window). The router queue carries `:frame` on the envelope through the microtask boundary — the drain reads frame off the envelope, never re-resolves the dynamic var at drain time — so the dispatch is routed correctly even after React has popped its render and unwound the binding.
+
+What does NOT survive: a raw `(rf/dispatch [...])` from inside a React click handler where the frame is not explicitly captured at the call site. The dynamic var is gone, the React-context tier reads through `current-component` which is nil outside render, and the resolution falls through to `:rf/default`. The "I'm running under a `frame-provider`" knowledge is render-only — converting it to closure-bound state is the wrap step every robust callback takes.
+
+Example (Xray's HANDLER `:db` view-mode toggle, the bead's bug-class instance):
+
+```clojure
+(rf/reg-view DbViewModeToggle [mode]
+  (let [on-click (rf/frame-bound-fn
+                   (fn [e new-mode]
+                     (.stopPropagation e)
+                     (rf/dispatch [:rf.xray.epoch/set-db-view-mode new-mode])))]
+    [:span
+     (for [m [:diff :all]]
+       ^{:key (name m)}
+       [:button {:on-click #(on-click % m)} (name m)])]))
+```
+
+Without `frame-bound-fn`, every dispatch site needs `{:frame :rf/xray}` opt explicitly — a per-call discipline that has repeatedly failed (sibling beads rf2-7sdja popup, rf2-kcaiz zoom, rf2-p56sk subs-toggle, rf2-tvu99 epoch :db toggle). The wrap makes the surface impossible to misuse: the callback ALWAYS dispatches in the wrapped frame, regardless of how many dispatches happen inside it or how deep the call chain goes.
+
+#### Other async callbacks (timers, promises, websocket messages)
+
+For non-React async callbacks — `setTimeout`, `setInterval`, `Promise.then`, websocket `onmessage`, intersection-observer callbacks — the same `bound-fn` / `frame-bound-fn` pattern applies. Alternative affordances:
+
+- **`(rf/dispatcher)`** — a 0-arity helper that returns a dispatch fn closed over the current frame. Call inside a render body or under `with-frame`, store the returned fn, invoke from any later async context.
+- **`:fx [[:dispatch ...]]`** — the canonical pattern for handler-emitted dispatches; the fx-walker threads the frame through automatically.
+- **`:fx [[:dispatch-later ...]]`** — closure-captured frame, survives the timer.
+
+All five (`bound-fn`, `frame-bound-fn`, `dispatcher`, `:dispatch`, `:dispatch-later`) share the same shape: render/handler-time capture of the frame as a closure value, which then rides through to call time. The bare-dispatch-from-an-async-callback case is the *only* one where the frame falls through — and it triggers the `:rf.warning/dispatch-from-async-callback-fell-through-to-default` warning (rf2-nmusx) to surface the misuse.
 
 ### Subscriptions composing across the signal graph
 

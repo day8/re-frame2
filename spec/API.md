@@ -125,13 +125,14 @@ The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, 
 | `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | 002 |
 | `with-frame` | M | `(with-frame :keyword body)` *or* `(with-frame [sym expr] body)` | v1 | 002 |
 | `bound-fn` | M | `(bound-fn [args] body)` | v1 | 002 |
+| `frame-bound-fn` | Fn | `(frame-bound-fn f)` *or* `(frame-bound-fn frame-id f)` → frame-rebinding closure. Higher-order sibling of `bound-fn` — wrap an existing callback so its body always runs with `*current-frame*` re-bound. Canonical React click-handler shape (rf2-tvu99) | v1 | 002 |
 | `dispatcher` | Fn | `(dispatcher)` → `(fn [event] ...)` — captures the current frame at call time and returns a frame-bound dispatch fn. Safe to call during render AND from async callbacks where the dynamic-var binding has unwound | v1 | 002, 004 |
 | `subscriber` | Fn | `(subscriber)` → `(fn [query-v] ...)` — companion to `dispatcher` for subscribe. Captures the current frame at call time | v1 | 002, 004 |
 | `view` | Fn | `(view view-id)` → **render-fn** (runtime-lookup handle; returns the registered render-fn, *not* hiccup). Use in hiccup as `[(rf/view :id) args...]` — the lookup form for late-binding a registered view by id. | v1 | 001, 004 |
 
 `with-frame`'s two shapes (bare keyword vs let-binding) are documented in [002 §with-frame](002-Frames.md#with-frame).
 
-`bound-fn` is a CLJS-only macro; CLJS users either reach it via `rf/bound-fn` (after `(:require [re-frame.core :as rf])`) or `:require-macros [re-frame.core :refer [bound-fn]]`.
+`bound-fn` is a CLJS-only macro; CLJS users either reach it via `rf/bound-fn` (after `(:require [re-frame.core :as rf])`) or `:require-macros [re-frame.core :refer [bound-fn]]`. `frame-bound-fn` is a plain fn, available on both CLJS and JVM (no macro indirection).
 
 ---
 

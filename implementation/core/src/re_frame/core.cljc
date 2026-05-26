@@ -786,6 +786,50 @@
      [argv & body]
      (rvm/expand-bound-fn argv body)))
 
+(defn frame-bound-fn
+  "Higher-order callback wrapper: take an existing fn `f` and return a
+  new fn that re-establishes `*current-frame*` for `f`'s body. The
+  captured frame value is closed over — no dynamic-var read at call
+  time, no fragility across the React click-handler / setTimeout /
+  Promise.then / requestAnimationFrame microtask boundary.
+
+  Two arities:
+    (frame-bound-fn f)            — capture `(current-frame)` at wrap time.
+    (frame-bound-fn frame-id f)   — explicit frame-id; no surrounding
+                                    `with-frame` or frame-provider needed
+                                    at wrap time.
+
+  This is the canonical pattern for React onClick / onKeyDown / onChange
+  callbacks that need to dispatch to a non-default frame. Pair with
+  the `bound-fn` macro (the macro form is sugar over this fn when you
+  want both `fn` syntax and frame-capture in one step).
+
+  Example (Reagent / UIx / Helix view body, all substrates):
+
+      (rf/reg-view MyToggle [mode]
+        (let [on-click (rf/frame-bound-fn
+                         (fn [_e new-mode]
+                           (rf/dispatch [:set-mode new-mode])))]
+          [:button {:on-click #(on-click % :all)} \"all\"]))
+
+  Why this is more robust than `(rf/dispatch [...] {:frame :id})` at
+  the call site: the explicit-opt pattern is correct but discipline-
+  dependent — every dispatch site must remember to thread the opt, and
+  the bug class (rf2-7sdja popup, rf2-kcaiz zoom, rf2-p56sk subs-toggle,
+  rf2-tvu99 epoch :db toggle) keeps cycling because the discipline
+  fails. `frame-bound-fn` makes the surface impossible to misuse: the
+  callback ALWAYS dispatches in the wrapped frame, regardless of how
+  many dispatches happen inside it or how deep the call chain goes."
+  ([f]
+   (let [frame (current-frame)]
+     (fn [& args]
+       (binding [frame/*current-frame* frame]
+         (apply f args)))))
+  ([frame-id f]
+   (fn [& args]
+     (binding [frame/*current-frame* frame-id]
+       (apply f args)))))
+
 #?(:clj
    (defmacro with-fx-overrides
      "Bind a per-call `:fx-overrides` map for `body`'s lexical scope —
