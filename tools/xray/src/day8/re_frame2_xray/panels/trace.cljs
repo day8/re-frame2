@@ -104,6 +104,271 @@
   "The 5-column grid template for an op row (spec/023 §3)."
   "56px 64px 92px minmax(0, 1fr) auto")
 
+;; ---- style primitives (rf2-5venq) ---------------------------------------
+;;
+;; All inline `:style {...}` maps in the row + band + envelope renderers
+;; below are hoisted to ns-level defs (rf2-qx414 / rf2-xjgdk / rf2-gjiog
+;; / rf2-alsnz pattern). The Trace panel arc routinely renders ~200 op
+;; rows × ~9 style cells per row — without hoisting each Panel re-render
+;; allocated ~1800 fresh JS objects to feed the React reconciler (audit
+;; F1 of rf2-qa75r).
+;;
+;; Stable shapes live as plain maps; per-row variation (severity colour,
+;; op-family border, outcome verb tint, expansion-state background) is
+;; layered in via `cond->`-merged overlays at call sites. Tokens resolve
+;; to `var(--rf-xray-*)` strings at ns load — the active theme class
+;; (light / dark) picks the hex at paint time, so resolution-once is
+;; correct across themes (spec/007 §CSS custom-property).
+
+;; ---- render-payload (spec/023 §3) ---------------------------------------
+
+(def ^:private payload-container-style
+  {:padding       "6px 16px 10px 56px"
+   :background    (:bg-1 tokens)
+   :border-radius "0 0 4px 4px"})
+
+;; ---- db-diff-row (spec/023 §APP-DB CHANGES) -----------------------------
+
+(def ^:private db-diff-row-container-style
+  {:display     "flex"
+   :align-items "baseline"
+   :flex-wrap   "wrap"
+   :gap         "8px"
+   :padding     "1px 16px 1px 56px"
+   :font-family mono-stack
+   :font-size   "11px"})
+
+(def ^:private db-diff-glyph-base-style
+  {:flex        "0 0 12px"
+   :font-weight 700
+   :text-align  "center"
+   :user-select "none"})
+
+(def ^:private db-diff-modified-cell-style
+  {:display     "inline-flex"
+   :align-items "baseline"
+   :flex-wrap   "wrap"
+   :gap         "6px"
+   :min-width   0})
+
+(def ^:private db-diff-modified-before-style
+  {:color           (:text-tertiary tokens)
+   :text-decoration "line-through"})
+
+(def ^:private db-diff-modified-arrow-style
+  {:color (:text-tertiary tokens)})
+
+(def ^:private db-diff-modified-after-style
+  {:color (:text-primary tokens)})
+
+(def ^:private db-diff-added-value-style
+  {:color (:text-primary tokens) :min-width 0})
+
+(def ^:private db-diff-rows-container-style
+  {:padding "2px 0 6px 0"})
+
+;; ---- op-row (the hot path · spec/023 §3) --------------------------------
+
+(def ^:private op-row-container-base-style
+  "Shared shape for an op row's outer `:li`. The op-family / severity
+  left-border + the severity / expansion background are layered in via
+  a `cond->` overlay at the call site (per-row variation)."
+  {:display       "block"
+   :border-radius "4px"
+   :margin-bottom "1px"
+   :cursor        "pointer"
+   :color         (:text-primary tokens)
+   :font-family   mono-stack
+   :font-size     "12px"
+   :line-height   1.35})
+
+(def ^:private op-row-summary-grid-style
+  {:display               "grid"
+   :grid-template-columns row-grid-columns
+   :gap                   "10px"
+   :align-items           "baseline"
+   :padding               "5px 16px 5px 8px"})
+
+(def ^:private op-row-time-base-style
+  {:font-size   "11px"
+   :white-space "nowrap"
+   :text-align  "right"})
+
+;; Default (non-severity) Δt style pre-merged so the common case pays
+;; no per-row allocation; severity rows compose `sev-colour` + bold via
+;; `assoc` over the base.
+(def ^:private op-row-time-default-style
+  (assoc op-row-time-base-style :color (:text-tertiary tokens)))
+
+(def ^:private op-row-badge-base-style
+  {:font-size      "10px"
+   :font-weight    600
+   :letter-spacing "0.4px"
+   :white-space    "nowrap"})
+
+;; The default (non-severity) badge merges base + the tertiary colour
+;; ahead of time so non-severity rows pay zero allocation for the badge
+;; style (the common case in a normal arc — only error / warning rows
+;; need to compose `sev-colour` per render).
+(def ^:private op-row-badge-default-style
+  (assoc op-row-badge-base-style :color (:text-tertiary tokens)))
+
+(def ^:private op-row-verb-base-style
+  {:white-space   "nowrap"
+   :overflow      "hidden"
+   :text-overflow "ellipsis"})
+
+(def ^:private op-row-target-container-style
+  {:display     "flex"
+   :align-items "baseline"
+   :gap         "8px"
+   :min-width   0})
+
+(def ^:private op-row-target-text-style
+  {:color         (:text-secondary tokens)
+   :overflow      "hidden"
+   :text-overflow "ellipsis"
+   :white-space   "nowrap"
+   :min-width     0})
+
+(def ^:private op-row-source-coord-button-style
+  {:flex-shrink 0
+   :background  "transparent"
+   :color       (:accent tokens)
+   :border      "none"
+   :padding     0
+   :cursor      "pointer"
+   :font-family mono-stack
+   :font-size   "11px"})
+
+(def ^:private op-row-cancellation-button-style
+  {:flex-shrink 0
+   :background  "transparent"
+   :color       (or (:red tokens) (:text-secondary tokens))
+   :border      "none"
+   :padding     0
+   :cursor      "pointer"
+   :font-family mono-stack
+   :font-size   "11px"})
+
+(def ^:private op-row-duration-style
+  {:color       (:text-tertiary tokens)
+   :font-size   "11px"
+   :white-space "nowrap"
+   :text-align  "right"})
+
+;; Severity row tints — `color-mix` over the semantic CSS-var keeps
+;; light/dark theme correct (the var resolves at paint time).
+(def ^:private op-row-bg-error
+  "color-mix(in srgb, var(--rf-xray-red) 9%, transparent)")
+
+(def ^:private op-row-bg-warning
+  "color-mix(in srgb, var(--rf-xray-yellow) 9%, transparent)")
+
+;; ---- band-header (spec/023 §13 · §14) -----------------------------------
+
+(def ^:private band-header-base-style
+  {:position       "sticky"
+   :top            0
+   :z-index        1
+   :display        "flex"
+   :align-items    "center"
+   :gap            "8px"
+   :padding        "6px 16px 6px 8px"
+   :background     (:bg-2 tokens)
+   :border-bottom  (str "1px solid " (:border-subtle tokens))
+   :user-select    "none"
+   :font-family    sans-stack
+   :font-size      "11px"
+   :font-weight    600
+   :letter-spacing "0.6px"
+   :text-transform "uppercase"})
+
+(def ^:private band-header-chevron-style
+  {:color (:text-tertiary tokens) :font-size "10px"})
+
+(def ^:private band-header-count-style
+  {:color          (:text-tertiary tokens)
+   :font-weight    400
+   :font-size      "10px"
+   :letter-spacing "0"
+   :text-transform "none"})
+
+;; ---- phase-band (spec/023 §8 · §13) -------------------------------------
+
+(def ^:private phase-band-container-style
+  {:margin-bottom "4px"})
+
+(def ^:private phase-band-rows-style
+  {:list-style  "none"
+   :margin      0
+   :padding     "4px 8px 4px 8px"
+   :border-left (str "1px solid " (:border-subtle tokens))
+   :margin-left "8px"})
+
+;; ---- envelope-row (spec/023 §2) -----------------------------------------
+
+(def ^:private envelope-container-style
+  {:display        "flex"
+   :align-items    "center"
+   :gap            "10px"
+   :padding        "8px 16px 8px 8px"
+   :font-family    sans-stack
+   :font-size      "12px"
+   :font-weight    600
+   :letter-spacing "0.4px"
+   :color          (:text-primary tokens)})
+
+(def ^:private envelope-marker-base-style
+  {:font-size "14px"})
+
+(def ^:private envelope-label-style
+  {:text-transform "uppercase" :font-size "11px"})
+
+(def ^:private envelope-outcome-base-style
+  {:font-family    mono-stack
+   :font-size      "11px"
+   :font-weight    600
+   :letter-spacing "0"})
+
+(def ^:private envelope-rows-list-style
+  {:list-style "none" :margin 0 :padding 0 :flex 1 :min-width 0})
+
+;; ---- empty-state-message (spec/023 §14) ---------------------------------
+
+(def ^:private empty-state-container-style
+  {:padding     "24px"
+   :font-family sans-stack
+   :font-size   "13px"
+   :line-height 1.5
+   :color       (:text-secondary tokens)})
+
+(def ^:private empty-state-copy-style
+  {:margin 0 :color (:text-tertiary tokens)})
+
+;; ---- cascade-status-bar -------------------------------------------------
+
+(def ^:private cascade-status-bar-base-style
+  {:height      "3px"
+   :flex-shrink 0})
+
+;; ---- Panel root ---------------------------------------------------------
+
+(def ^:private panel-root-style
+  {:height         "100%"
+   :display        "flex"
+   :flex-direction "column"
+   :background     (:bg-2 tokens)
+   :color          (:text-primary tokens)
+   :font-family    sans-stack
+   :font-size      "14px"})
+
+(def ^:private panel-scroll-container-style
+  {:flex 1 :overflow "auto"})
+
+(def ^:private panel-feed-container-style
+  {:padding "8px 8px 16px 8px"})
+
 ;; ---- payload renderer (spec/023 §3) -------------------------------------
 ;;
 ;; Row click → expand the full raw trace-event EDN inline via the
@@ -125,9 +390,7 @@
   the first-class edn-inspector widget."
   [{:keys [id raw] :as _row}]
   [:div {:data-testid (str "rf-xray-trace-row-" id "-payload")
-         :style       {:padding       "6px 16px 10px 56px"
-                       :background    (:bg-1 tokens)
-                       :border-radius "0 0 4px 4px"}}
+         :style       payload-container-style}
    [ei/edn-inspector raw
     {:panel-id (keyword "rf.xray.trace" (str "row-" id))
      ;; rf2-pvsxs — trace rows survive tab leave-and-return because
@@ -214,39 +477,24 @@
     [:div {:data-testid row-test-id
            :data-op     (name op)
            :on-click    (fn [e] (.stopPropagation e))
-           :style       {:display       "flex"
-                         :align-items   "baseline"
-                         :flex-wrap     "wrap"
-                         :gap           "8px"
-                         :padding       "1px 16px 1px 56px"
-                         :font-family   mono-stack
-                         :font-size     "11px"}}
+           :style       db-diff-row-container-style}
      [:span {:data-testid (str row-test-id "-glyph")
-             :style       {:flex        "0 0 12px"
-                           :color       tone
-                           :font-weight 700
-                           :text-align  "center"
-                           :user-select "none"}}
+             :style       (assoc db-diff-glyph-base-style :color tone)}
       glyph]
      [:span {:data-testid (str row-test-id "-path")
              :style {:color tone}}
       path-label]
      (case op
        :modified
-       [:span {:style {:display     "inline-flex"
-                       :align-items "baseline"
-                       :flex-wrap   "wrap"
-                       :gap         "6px"
-                       :min-width   0}}
-        [:span {:style {:color           (:text-tertiary tokens)
-                        :text-decoration "line-through"}}
+       [:span {:style db-diff-modified-cell-style}
+        [:span {:style db-diff-modified-before-style}
          (edn/inspect-inline before)]
-        [:span {:style {:color (:text-tertiary tokens)}} "→"]
-        [:span {:style {:color (:text-primary tokens)}}
+        [:span {:style db-diff-modified-arrow-style} "→"]
+        [:span {:style db-diff-modified-after-style}
          (edn/inspect-inline after)]]
 
        :added
-       [:span {:style {:color (:text-primary tokens) :min-width 0}}
+       [:span {:style db-diff-added-value-style}
         (edn/inspect-inline after)]
 
        ;; :removed — path alone (spec/021 line 229 / event_detail `db-change-row`).
@@ -262,7 +510,7 @@
   [parent-row-id triples]
   (when (seq triples)
     (into [:div {:data-testid (str "rf-xray-trace-row-" parent-row-id "-db-diff")
-                 :style       {:padding "2px 0 6px 0"}}]
+                 :style       db-diff-rows-container-style}]
           (for [{:keys [path] :as triple} triples]
             (with-meta (db-diff-row parent-row-id triple)
                        {:key (pr-str path)})))))
@@ -313,43 +561,30 @@
                                  [:rf.xray/cancellation-cascade-open
                                   {:kind :dispatch-id :id dispatch-id}]
                                  {:frame :rf/xray})))
-          :style       {:display       "block"
-                        ;; op-family colour band — 3px LEFT-BORDER
-                        ;; (error / warning override the band so a
-                        ;; failure stands out · spec/023 §7).
-                        :border-left   (str "3px solid "
-                                            (or sev-colour band-colour))
-                        :border-radius "4px"
-                        :margin-bottom "1px"
-                        ;; severity rows carry a faint tinted fill so the
-                        ;; failure reads while scanning (spec/023 §7).
-                        :background    (cond
-                                         expanded? (:bg-1 tokens)
-                                         (= area :error)
-                                         "color-mix(in srgb, var(--rf-xray-red) 9%, transparent)"
-                                         (= area :warning)
-                                         "color-mix(in srgb, var(--rf-xray-yellow) 9%, transparent)"
-                                         :else nil)
-                        :cursor        "pointer"
-                        :color         (:text-primary tokens)
-                        :font-family   mono-stack
-                        :font-size     "12px"
-                        :line-height   1.35}}
+          ;; op-family colour band — 3px LEFT-BORDER (error / warning
+          ;; override the band so a failure stands out · spec/023 §7).
+          ;; Severity rows carry a faint tinted fill (spec/023 §7);
+          ;; expanded rows show a bg-1 backdrop.
+          :style       (cond-> (assoc op-row-container-base-style
+                                      :border-left
+                                      (str "3px solid "
+                                           (or sev-colour band-colour)))
+                         expanded?
+                         (assoc :background (:bg-1 tokens))
+                         (and (not expanded?) (= area :error))
+                         (assoc :background op-row-bg-error)
+                         (and (not expanded?) (= area :warning))
+                         (assoc :background op-row-bg-warning))}
      [:div {:data-testid (str row-test-id "-summary")
-            :style       {:display               "grid"
-                          :grid-template-columns row-grid-columns
-                          :gap                   "10px"
-                          :align-items           "baseline"
-                          :padding               "5px 16px 5px 8px"}}
+            :style       op-row-summary-grid-style}
       ;; ① Δt — ms offset from EPOCH OPEN; `!` lead for severity rows.
       [:span {:data-testid (str row-test-id "-time")
               :title       (or (h/format-time time) "")
-              :style       {:color       (if severity? sev-colour
-                                             (:text-tertiary tokens))
-                            :font-size   "11px"
-                            :font-weight (when severity? 700)
-                            :white-space "nowrap"
-                            :text-align  "right"}}
+              :style       (if severity?
+                             (assoc op-row-time-base-style
+                                    :color sev-colour
+                                    :font-weight 700)
+                             op-row-time-default-style)}
        (cond
          (and severity? rel-time) (str "!" (subs rel-time 1))
          rel-time                 rel-time
@@ -358,32 +593,21 @@
       ;; severity tiers ride their semantic colour so a failure's family
       ;; is unmistakeable (spec/023 §7 / §8).
       [:span {:data-testid (str row-test-id "-badge")
-              :style       {:color          (or sev-colour (:text-tertiary tokens))
-                            :font-size      "10px"
-                            :font-weight    600
-                            :letter-spacing "0.4px"
-                            :white-space    "nowrap"}}
+              :style       (if sev-colour
+                             (assoc op-row-badge-base-style :color sev-colour)
+                             op-row-badge-default-style)}
        area-badge]
       ;; ③ what-happened — the per-area verb, tinted by outcome tier.
       [:span {:data-testid (str row-test-id "-verb")
-              :style       {:color         (if severity? sev-colour verb-colour)
-                            :white-space   "nowrap"
-                            :overflow      "hidden"
-                            :text-overflow "ellipsis"}
+              :style       (assoc op-row-verb-base-style
+                                  :color (if severity? sev-colour verb-colour))
               :title       verb}
        verb]
       ;; ④ target / detail — the op's subject; the flexible column that
       ;; truncates first (spec/023 §14). Source-coord ↗ rides at its end.
       [:span {:data-testid (str row-test-id "-target")
-              :style       {:display     "flex"
-                            :align-items "baseline"
-                            :gap         "8px"
-                            :min-width   0}}
-       [:span {:style {:color         (:text-secondary tokens)
-                       :overflow      "hidden"
-                       :text-overflow "ellipsis"
-                       :white-space   "nowrap"
-                       :min-width     0}
+              :style       op-row-target-container-style}
+       [:span {:style op-row-target-text-style
                :title (or target "")}
         (or target "—")]
        (when source-coord
@@ -397,14 +621,7 @@
                                   (rf/dispatch [:rf.xray/open-in-editor
                                                 {:source-coord source-coord}]
                                                {:frame :rf/xray}))
-                   :style       {:flex-shrink   0
-                                 :background    "transparent"
-                                 :color         (:accent tokens)
-                                 :border        "none"
-                                 :padding       0
-                                 :cursor        "pointer"
-                                 :font-family   mono-stack
-                                 :font-size     "11px"}}
+                   :style       op-row-source-coord-button-style}
           "↗"])
        (when destroy?
          [:button {:data-testid (str row-test-id "-cancellation-cascade")
@@ -415,22 +632,11 @@
                                     [:rf.xray/cancellation-cascade-open
                                      {:kind :dispatch-id :id dispatch-id}]
                                     {:frame :rf/xray}))
-                   :style       {:flex-shrink 0
-                                 :background  "transparent"
-                                 :color       (or (:red tokens)
-                                                  (:text-secondary tokens))
-                                 :border      "none"
-                                 :padding     0
-                                 :cursor      "pointer"
-                                 :font-family mono-stack
-                                 :font-size   "11px"}}
+                   :style       op-row-cancellation-button-style}
           "⟲"])]
       ;; ⑤ duration — `N.N ms` when timed, em-dash otherwise (spec/023 §6).
       [:span {:data-testid (str row-test-id "-duration")
-              :style       {:color       (:text-tertiary tokens)
-                            :font-size   "11px"
-                            :white-space "nowrap"
-                            :text-align  "right"}}
+              :style       op-row-duration-style}
        (or (h/format-duration duration-ms) "—")]]
      ;; Per-path db-changed diff rows (rf2-b3zw2 / rf2-8q8i4 = (b)) —
      ;; only present on `:rf.event/db-changed` rows; derived panel-side
@@ -457,36 +663,18 @@
                         (fn []
                           (rf/dispatch [:rf.xray/toggle-trace-band-collapse id]
                                        {:frame :rf/xray})))
-         :style       {:position       "sticky"
-                       :top            0
-                       :z-index        1
-                       :display        "flex"
-                       :align-items    "center"
-                       :gap            "8px"
-                       :padding        "6px 16px 6px 8px"
-                       :background     (:bg-2 tokens)
-                       :border-bottom  (str "1px solid " (:border-subtle tokens))
-                       :cursor         (if empty? "default" "pointer")
-                       :user-select    "none"
-                       :font-family    sans-stack
-                       :font-size      "11px"
-                       :font-weight    600
-                       :letter-spacing "0.6px"
-                       :text-transform "uppercase"
-                       :color          (if empty?
-                                         (:text-tertiary tokens)
-                                         (:text-secondary tokens))}}
+         :style       (assoc band-header-base-style
+                             :cursor (if empty? "default" "pointer")
+                             :color  (if empty?
+                                       (:text-tertiary tokens)
+                                       (:text-secondary tokens)))}
    (when-not empty?
      [:span {:aria-hidden "true"
-             :style {:color (:text-tertiary tokens) :font-size "10px"}}
+             :style band-header-chevron-style}
       (if expanded? "▾" "▸")])
    [:span label]
    [:span {:data-testid (str "rf-xray-trace-band-count-" (name id))
-           :style {:color       (:text-tertiary tokens)
-                   :font-weight 400
-                   :font-size   "10px"
-                   :letter-spacing "0"
-                   :text-transform "none"}}
+           :style band-header-count-style}
     (if empty? "(none)" (str count))]])
 
 (defn- phase-band
@@ -499,16 +687,11 @@
   [{:keys [id rows empty?] :as band} {:keys [expanded? expanded-row-ids]}]
   [:section {:data-testid (str "rf-xray-trace-band-" (name id))
              :data-rf-xray-band id
-             :style {:margin-bottom "4px"}}
+             :style phase-band-container-style}
    (band-header band expanded?)
    (when (and expanded? (not empty?))
      [:ul {:data-testid (str "rf-xray-trace-band-rows-" (name id))
-           :style {:list-style  "none"
-                   :margin      0
-                   :padding     "4px 8px 4px 8px"
-                   ;; thin left rail per the arc-segment cue (spec/023 §8).
-                   :border-left (str "1px solid " (:border-subtle tokens))
-                   :margin-left "8px"}}
+           :style phase-band-rows-style}
       (for [row rows]
         ^{:key (h/row-key row)}
         (op-row row {:expanded? (contains? (or expanded-row-ids #{})
@@ -533,33 +716,21 @@
                       (:text-tertiary tokens))]
     [:div {:data-testid (str "rf-xray-trace-envelope-" (name kind))
            :data-rf-xray-envelope kind
-           :style {:display       "flex"
-                   :align-items   "center"
-                   :gap           "10px"
-                   :padding       "8px 16px 8px 8px"
-                   :font-family   sans-stack
-                   :font-size     "12px"
-                   :font-weight   600
-                   :letter-spacing "0.4px"
-                   :color         (:text-primary tokens)}}
+           :style envelope-container-style}
      [:span {:aria-hidden "true"
-             :style {:color     (if open? (:accent tokens) outcome-hex)
-                     :font-size "14px"}}
+             :style (assoc envelope-marker-base-style
+                           :color (if open? (:accent tokens) outcome-hex))}
       (if open? "○" "●")]
-     [:span {:style {:text-transform "uppercase" :font-size "11px"}}
+     [:span {:style envelope-label-style}
       label]
      (when (and (not open?) outcome-kw)
        [:span {:data-testid (str "rf-xray-trace-outcome-" (name outcome-kw))
                :data-rf-xray-outcome outcome-kw
-               :style {:color          outcome-hex
-                       :font-family    mono-stack
-                       :font-size      "11px"
-                       :font-weight    600
-                       :letter-spacing "0"}}
+               :style (assoc envelope-outcome-base-style :color outcome-hex)}
         (str "outcome " outcome-kw)])
      (when (seq rows)
        [:ul {:data-testid (str "rf-xray-trace-envelope-rows-" (name kind))
-             :style {:list-style "none" :margin 0 :padding 0 :flex 1 :min-width 0}}
+             :style envelope-rows-list-style}
         (for [row rows]
           ^{:key (h/row-key row)}
           (op-row row {:expanded? (contains? (or expanded-row-ids #{})
@@ -571,12 +742,8 @@
   "Shared terse empty-state block. `kind` drives the data-testid + copy."
   [kind copy]
   [:div {:data-testid (str "rf-xray-trace-empty-" (name kind))
-         :style       {:padding     "24px"
-                       :font-family sans-stack
-                       :font-size   "13px"
-                       :line-height 1.5
-                       :color       (:text-secondary tokens)}}
-   [:p {:style {:margin 0 :color (:text-tertiary tokens)}}
+         :style       empty-state-container-style}
+   [:p {:style empty-state-copy-style}
     copy]])
 
 (defn- empty-state-no-events []
@@ -613,9 +780,7 @@
                     :paused-by-tool  "Focused cascade — paused by tool"
                     :stale           "Focused cascade — stale (replayed / RETRO)"
                     (str "Focused cascade — " (name status-kw)))
-           :style {:height      "3px"
-                   :background  status-hex
-                   :flex-shrink 0}}]))
+           :style (assoc cascade-status-bar-base-style :background status-hex)}]))
 
 ;; ---- public view --------------------------------------------------------
 
@@ -640,16 +805,10 @@
         expanded-ids    @(rf/subscribe [:rf.xray/trace-expanded-row-ids])
         collapsed-bands @(rf/subscribe [:rf.xray/trace-collapsed-band-ids])]
     [:section {:data-testid "rf-xray-trace"
-               :style       {:height         "100%"
-                             :display        "flex"
-                             :flex-direction "column"
-                             :background     (:bg-2 tokens)
-                             :color          (:text-primary tokens)
-                             :font-family    sans-stack
-                             :font-size      "14px"}}
+               :style       panel-root-style}
      (when focused-cascade
        (cascade-status-bar {:cascade focused-cascade :focus focus}))
-     [:div {:style {:flex 1 :overflow "auto"}}
+     [:div {:style panel-scroll-container-style}
       (case empty-kind
         :no-events     (empty-state-no-events)
         :no-focus      (empty-state-no-focus)
@@ -662,7 +821,7 @@
         ;; sibling list uniformly.
         (into
           [:div {:data-testid "rf-xray-trace-feed"
-                 :style {:padding "8px 8px 16px 8px"}}
+                 :style panel-feed-container-style}
            ;; ○ EPOCH OPEN — the arc's opening bracket (spec/023 §2).
            ^{:key "envelope-open"}
            (envelope-row {:kind            :open
