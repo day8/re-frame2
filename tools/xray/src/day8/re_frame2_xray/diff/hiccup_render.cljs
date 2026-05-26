@@ -37,6 +37,226 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
+;; ---- hoisted row-level styles (rf2-xjgdk · audit F5) -------------------
+;;
+;; Hiccup-diff renderers walk per element + per attr + per child;
+;; allocating fresh `:style` maps per node makes deep trees expensive.
+;; The maps below capture the static shape once; op-keyed colour
+;; variation is applied as a tiny `assoc`-overlay where it varies.
+
+(def ^:private key-label-keyed-style
+  {:color        (:accent tokens)
+   :font-family  mono-stack
+   :font-size    "11px"
+   :margin-right "6px"})
+
+(def ^:private key-label-indexed-style
+  {:color        (:text-tertiary tokens)
+   :font-family  mono-stack
+   :font-size    "11px"
+   :margin-right "6px"})
+
+(def ^:private gutter-row-style-base
+  "Outer gutter row — only the `:border-left` varies per call."
+  {:display      "flex"
+   :align-items  "flex-start"
+   :gap          "4px"
+   :padding      "2px 0"
+   :padding-left "6px"})
+
+(def ^:private gutter-glyph-style-base
+  "Per-row glyph span — only `:color` varies."
+  {:flex        "0 0 14px"
+   :font-family mono-stack
+   :font-size   "12px"
+   :font-weight 700
+   :text-align  "center"
+   :user-select "none"})
+
+(def ^:private gutter-body-style
+  {:flex 1 :min-width 0})
+
+;; --- attr-row shapes ---------------------------------------------------
+
+(def ^:private attr-same-row-style
+  {:display     "flex"
+   :gap         "6px"
+   :color       (:text-tertiary tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private attr-key-accent-style
+  {:color (:accent tokens)})
+
+(def ^:private attr-key-mono-style
+  {:color       (:accent tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private attr-row-flex-style
+  {:display "flex" :gap "6px"})
+
+(def ^:private attr-row-flex-strike-style
+  {:display "flex" :gap "6px" :text-decoration "line-through"})
+
+(def ^:private attr-row-flex-wrap-style
+  {:display "flex" :flex-wrap "wrap" :gap "6px" :align-items "baseline"})
+
+(def ^:private attr-value-added-style
+  {:color       (:green tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private attr-value-removed-style
+  {:color       (:red tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private attr-value-before-strike-style
+  {:color           (:text-tertiary tokens)
+   :font-family     mono-stack
+   :font-size       "12px"
+   :text-decoration "line-through"})
+
+(def ^:private attr-arrow-style
+  {:color       (:text-tertiary tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private attr-value-modified-after-style
+  {:color       (:yellow tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private fn-ref-changed-chip-style
+  {:color       (:accent tokens)
+   :font-family mono-stack
+   :font-size   "11px"
+   :font-style  "italic"})
+
+(def ^:private unknown-op-style
+  {:color (:red tokens)})
+
+(def ^:private attrs-container-style
+  {:padding-left "12px"
+   :margin       "2px 0"})
+
+(def ^:private children-container-style
+  {:padding-left "12px"
+   :border-left  (str "1px solid " (:border-subtle tokens))
+   :margin       "2px 0"})
+
+;; --- element header + outer element-changed row -----------------------
+
+(def ^:private element-row-style
+  {:display        "flex"
+   :flex-direction "column"
+   :margin         "2px 0"})
+
+(def ^:private element-header-flex-style
+  {:display     "flex"
+   :align-items "baseline"
+   :gap         "6px"
+   :font-family mono-stack
+   :font-size   "12px"
+   :color       (:text-primary tokens)})
+
+(def ^:private element-tag-style
+  {:color (:text-tertiary tokens)})
+
+(def ^:private element-changed-marker-style
+  {:color       (:text-tertiary tokens)
+   :font-family sans-stack
+   :font-size   "11px"})
+
+;; --- element-moved row -------------------------------------------------
+
+(def ^:private moved-row-style
+  {:display        "flex"
+   :flex-direction "column"
+   :margin         "2px 0"})
+
+(def ^:private moved-body-style
+  {:display     "flex"
+   :flex-wrap   "wrap"
+   :gap         "6px"
+   :align-items "baseline"
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private moved-label-style
+  {:color       (:accent tokens)
+   :font-weight 600})
+
+(def ^:private moved-meta-style
+  {:color      (:text-tertiary tokens)
+   :font-size  "11px"
+   :font-style "italic"})
+
+(def ^:private moved-value-style
+  {:color (:text-secondary tokens)})
+
+;; --- scalar leaf rows --------------------------------------------------
+
+(def ^:private leaf-same-row-style
+  {:display     "flex"
+   :gap         "6px"
+   :color       (:text-tertiary tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private leaf-row-flex-style
+  {:display "flex" :gap "6px"})
+
+(def ^:private leaf-row-flex-strike-style
+  {:display "flex" :gap "6px" :text-decoration "line-through"})
+
+(def ^:private leaf-row-flex-wrap-style
+  {:display "flex" :flex-wrap "wrap" :gap "6px" :align-items "baseline"})
+
+(def ^:private leaf-value-added-style
+  {:color       (:green tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private leaf-value-removed-style
+  {:color       (:red tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private leaf-value-before-strike-style
+  {:color           (:text-tertiary tokens)
+   :font-family     mono-stack
+   :font-size       "12px"
+   :text-decoration "line-through"})
+
+(def ^:private leaf-arrow-style
+  {:color       (:text-tertiary tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private leaf-value-modified-after-style
+  {:color       (:yellow tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private leaf-fn-ref-changed-row-style
+  {:display     "flex"
+   :gap         "6px"
+   :align-items "baseline"
+   :font-family mono-stack
+   :font-size   "12px"
+   :color       (:accent tokens)
+   :font-style  "italic"})
+
+;; --- root wrapper ------------------------------------------------------
+
+(def ^:private root-wrapper-style
+  {:font-family mono-stack
+   :font-size   "12px"
+   :color       (:text-primary tokens)
+   :line-height "1.5"})
+
 ;; ---- node-key helper ---------------------------------------------------
 
 (defn- node-key-for
@@ -50,17 +270,11 @@
   [node]
   (cond
     (some? (:key node))
-    [:span {:style {:color       (:accent tokens)
-                    :font-family mono-stack
-                    :font-size   "11px"
-                    :margin-right "6px"}}
+    [:span {:style key-label-keyed-style}
      (str ":key " (pr-str (:key node)))]
 
     (some? (:index node))
-    [:span {:style {:color       (:text-tertiary tokens)
-                    :font-family mono-stack
-                    :font-size   "11px"
-                    :margin-right "6px"}}
+    [:span {:style key-label-indexed-style}
      (str "[" (:index node) "]")]
 
     :else nil))
@@ -75,23 +289,15 @@
       :default-expanded-depth 1}]))
 
 (defn- gutter
-  "Coloured-glyph + left-border wrapper for an annotated row."
+  "Coloured-glyph + left-border wrapper for an annotated row. The two
+  per-op-variant pixels (`:border-left` tone, glyph `:color`) ride on
+  hoisted base styles."
   [glyph tone body]
-  [:div {:style {:display      "flex"
-                 :align-items  "flex-start"
-                 :gap          "4px"
-                 :padding      "2px 0"
-                 :padding-left "6px"
-                 :border-left  (str "3px solid " tone)}}
-   [:span {:style {:flex          "0 0 14px"
-                   :color         tone
-                   :font-family   mono-stack
-                   :font-size     "12px"
-                   :font-weight   700
-                   :text-align    "center"
-                   :user-select   "none"}}
+  [:div {:style (assoc gutter-row-style-base
+                       :border-left (str "3px solid " tone))}
+   [:span {:style (assoc gutter-glyph-style-base :color tone)}
     glyph]
-   [:div {:style {:flex 1 :min-width 0}}
+   [:div {:style gutter-body-style}
     body]])
 
 ;; ---- annotated-attrs rendering -----------------------------------------
@@ -107,76 +313,49 @@
         nkey  (str parent-key "/attr/" (pr-str k))]
     (case op
       :same
-      [:div {:style {:display "flex" :gap "6px"
-                     :color (:text-tertiary tokens)
-                     :font-family mono-stack :font-size "12px"}}
-       [:span {:style {:color (:accent tokens)}} (pr-str k)]
+      [:div {:style attr-same-row-style}
+       [:span {:style attr-key-accent-style} (pr-str k)]
        (inspect-value (:value attr-node) nkey)]
 
       :added
       (gutter "+" (:green tokens)
-              [:div {:style {:display "flex" :gap "6px"}}
-               [:span {:style {:color (:accent tokens)
-                               :font-family mono-stack
-                               :font-size "12px"}}
+              [:div {:style attr-row-flex-style}
+               [:span {:style attr-key-mono-style}
                 (pr-str k)]
-               [:span {:style {:color (:green tokens)
-                               :font-family mono-stack
-                               :font-size "12px"}}
+               [:span {:style attr-value-added-style}
                 (inspect-value (:value attr-node) nkey)]])
 
       :removed
       (gutter "-" (:red tokens)
-              [:div {:style {:display "flex" :gap "6px"
-                             :text-decoration "line-through"}}
-               [:span {:style {:color (:accent tokens)
-                               :font-family mono-stack
-                               :font-size "12px"}}
+              [:div {:style attr-row-flex-strike-style}
+               [:span {:style attr-key-mono-style}
                 (pr-str k)]
-               [:span {:style {:color (:red tokens)
-                               :font-family mono-stack
-                               :font-size "12px"}}
+               [:span {:style attr-value-removed-style}
                 (inspect-value (:value attr-node) nkey)]])
 
       :modified
       (gutter "~" (:yellow tokens)
-              [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px"
-                             :align-items "baseline"}}
-               [:span {:style {:color (:accent tokens)
-                               :font-family mono-stack
-                               :font-size "12px"}}
+              [:div {:style attr-row-flex-wrap-style}
+               [:span {:style attr-key-mono-style}
                 (pr-str k)]
-               [:span {:style {:color (:text-tertiary tokens)
-                               :font-family mono-stack
-                               :font-size "12px"
-                               :text-decoration "line-through"}}
+               [:span {:style attr-value-before-strike-style}
                 (inspect-value (:before attr-node) (str nkey "/before"))]
-               [:span {:style {:color (:text-tertiary tokens)
-                               :font-family mono-stack
-                               :font-size "12px"}}
+               [:span {:style attr-arrow-style}
                 "→"]
-               [:span {:style {:color (:yellow tokens)
-                               :font-family mono-stack
-                               :font-size "12px"}}
+               [:span {:style attr-value-modified-after-style}
                 (inspect-value (:after attr-node) (str nkey "/after"))]])
 
       :fn-ref-changed
       (gutter "◴" (:accent tokens)
-              [:div {:style {:display "flex" :gap "6px"
-                             :align-items "baseline"}}
-               [:span {:style {:color (:accent tokens)
-                               :font-family mono-stack
-                               :font-size "12px"}}
+              [:div {:style attr-row-flex-wrap-style}
+               [:span {:style attr-key-mono-style}
                 (pr-str k)]
                [:span {:data-testid "rf-xray-diff-fn-ref-changed-chip"
-                       :style {:color (:accent tokens)
-                               :font-family mono-stack
-                               :font-size "11px"
-                               :font-style "italic"}}
+                       :style fn-ref-changed-chip-style}
                 "(fn ref changed)"]])
 
       ;; Fallback — unknown op (defensive).
-      [:span {:style {:color (:red tokens)}}
+      [:span {:style unknown-op-style}
        (str "unknown attr op: " (pr-str op))])))
 
 (defn- render-attrs-diff
@@ -188,8 +367,7 @@
         changed (filter #(not= :same (hd/op-of %)) kids)]
     (when (seq changed)
       (into [:div {:data-testid "rf-xray-diff-hiccup-attrs"
-                   :style {:padding-left "12px"
-                           :margin "2px 0"}}]
+                   :style attrs-container-style}]
             (for [c changed]
               ^{:key (pr-str (:key c))}
               (render-attr-row c parent-key))))))
@@ -202,10 +380,7 @@
   [children-diff surface parent-path depth]
   (when (seq children-diff)
     (into [:div {:data-testid "rf-xray-diff-hiccup-children"
-                 :style {:padding-left "12px"
-                         :border-left (str "1px solid "
-                                           (:border-subtle tokens))
-                         :margin "2px 0"}}]
+                 :style children-container-style}]
           (map-indexed
             (fn [i c]
               (let [k    (or (:key c) (:index c) i)
@@ -220,11 +395,9 @@
   "Render `[tag attrs-summary …]` as the per-element row label. The
   attrs detail rolls out below."
   [tag attrs-count children-count node-label]
-  [:div {:style {:display "flex" :align-items "baseline" :gap "6px"
-                 :font-family mono-stack :font-size "12px"
-                 :color (:text-primary tokens)}}
+  [:div {:style element-header-flex-style}
    (when node-label node-label)
-   [:span {:style {:color (:text-tertiary tokens)}}
+   [:span {:style element-tag-style}
     (str "[" (pr-str tag)
          (when (pos? attrs-count) " {…}")
          (when (pos? children-count) " …")
@@ -241,18 +414,12 @@
         any-changes? (or (some #(not= :same (hd/op-of %)) (:children attrs-diff))
                          (some #(not= :same (hd/op-of %)) children-diff))]
     [:div {:data-testid (str "rf-xray-diff-hiccup-element-" nkey)
-           :style {:display "flex"
-                   :flex-direction "column"
-                   :margin "2px 0"}}
-     [:div {:style {:display "flex" :align-items "baseline" :gap "6px"
-                    :font-family mono-stack :font-size "12px"
-                    :color (:text-primary tokens)}}
+           :style element-row-style}
+     [:div {:style element-header-flex-style}
       (key-or-index-label node)
       (element-header tag attrs-count kids-count nil)
       (when any-changes?
-        [:span {:style {:color (:text-tertiary tokens)
-                        :font-family sans-stack
-                        :font-size "11px"}}
+        [:span {:style element-changed-marker-style}
          "◴ changed"])]
      (render-attrs-diff attrs-diff nkey)
      (render-children-diff children-diff surface path depth)]))
@@ -264,22 +431,15 @@
   (let [{:keys [value key from-index to-index inner-diff]} node
         nkey (node-key-for surface path)]
     [:div {:data-testid "rf-xray-diff-hiccup-moved"
-           :style {:display "flex"
-                   :flex-direction "column"
-                   :margin "2px 0"}}
+           :style moved-row-style}
      (gutter "↻" (:accent tokens)
-             [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px"
-                            :align-items "baseline"
-                            :font-family mono-stack :font-size "12px"}}
+             [:div {:style moved-body-style}
               (key-or-index-label node)
-              [:span {:style {:color (:accent tokens)
-                              :font-weight 600}}
+              [:span {:style moved-label-style}
                (str "moved")]
-              [:span {:style {:color (:text-tertiary tokens)
-                              :font-size "11px"
-                              :font-style "italic"}}
+              [:span {:style moved-meta-style}
                (str "(was at index " from-index ", now at " to-index ")")]
-              [:span {:style {:color (:text-secondary tokens)}}
+              [:span {:style moved-value-style}
                (inspect-value value nkey)]])
      (when inner-diff
        (render-hiccup-annotated inner-diff surface
@@ -289,63 +449,43 @@
 
 (defn- render-same-leaf
   [node nkey]
-  [:div {:style {:display "flex" :gap "6px"
-                 :color (:text-tertiary tokens)
-                 :font-family mono-stack :font-size "12px"}}
+  [:div {:style leaf-same-row-style}
    (key-or-index-label node)
    (inspect-value (:value node) nkey)])
 
 (defn- render-added-leaf
   [node nkey]
   (gutter "+" (:green tokens)
-          [:div {:style {:display "flex" :gap "6px"}}
+          [:div {:style leaf-row-flex-style}
            (key-or-index-label node)
-           [:span {:style {:color (:green tokens)
-                           :font-family mono-stack
-                           :font-size "12px"}}
+           [:span {:style leaf-value-added-style}
             (inspect-value (:value node) nkey)]]))
 
 (defn- render-removed-leaf
   [node nkey]
   (gutter "-" (:red tokens)
-          [:div {:style {:display "flex" :gap "6px"
-                         :text-decoration "line-through"}}
+          [:div {:style leaf-row-flex-strike-style}
            (key-or-index-label node)
-           [:span {:style {:color (:red tokens)
-                           :font-family mono-stack
-                           :font-size "12px"}}
+           [:span {:style leaf-value-removed-style}
             (inspect-value (:value node) nkey)]]))
 
 (defn- render-modified-leaf
   [node nkey]
   (gutter "~" (:yellow tokens)
-          [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px"
-                         :align-items "baseline"}}
+          [:div {:style leaf-row-flex-wrap-style}
            (key-or-index-label node)
-           [:span {:style {:color (:text-tertiary tokens)
-                           :font-family mono-stack
-                           :font-size "12px"
-                           :text-decoration "line-through"}}
+           [:span {:style leaf-value-before-strike-style}
             (inspect-value (:before node) (str nkey "/before"))]
-           [:span {:style {:color (:text-tertiary tokens)
-                           :font-family mono-stack
-                           :font-size "12px"}}
+           [:span {:style leaf-arrow-style}
             "→"]
-           [:span {:style {:color (:yellow tokens)
-                           :font-family mono-stack
-                           :font-size "12px"}}
+           [:span {:style leaf-value-modified-after-style}
             (inspect-value (:after node) (str nkey "/after"))]]))
 
 (defn- render-fn-ref-changed-leaf
   [node nkey]
   (gutter "◴" (:accent tokens)
           [:div {:data-testid "rf-xray-diff-fn-ref-changed-chip"
-                 :style {:display "flex" :gap "6px"
-                         :align-items "baseline"
-                         :font-family mono-stack
-                         :font-size "12px"
-                         :color (:accent tokens)
-                         :font-style "italic"}}
+                 :style leaf-fn-ref-changed-row-style}
            (key-or-index-label node)
            "(fn ref changed)"]))
 
@@ -377,7 +517,7 @@
       :removed         (render-removed-leaf  node nkey)
       :modified        (render-modified-leaf node nkey)
       ;; Fallback — shouldn't happen for well-formed input.
-      [:span {:style {:color (:red tokens)}}
+      [:span {:style unknown-op-style}
        (str "unknown hiccup op: " (pr-str op))])))
 
 (defn render-root
@@ -387,8 +527,5 @@
    (render-root annotated surface []))
   ([annotated surface path]
    [:div {:data-testid "rf-xray-diff-hiccup-root"
-          :style {:font-family mono-stack
-                  :font-size "12px"
-                  :color (:text-primary tokens)
-                  :line-height "1.5"}}
+          :style root-wrapper-style}
     (render-hiccup-annotated annotated surface path 0)]))

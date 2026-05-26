@@ -77,6 +77,224 @@
   than this. Below the threshold, render inline so context stays."
   3)
 
+;; ---- hoisted row-level styles (rf2-xjgdk · audit F5) -------------------
+;;
+;; The diff renderer iterates per `breadcrumb` segment + per annotated
+;; tree row; a typical render walks 5 sections × 30 changed paths × 3
+;; styled spans per row (~450 `:style` allocations). The maps below
+;; hoist the per-iteration shape to ns-load constants so each row
+;; reuses a single reference. Per-op colour variation is applied as a
+;; tiny `assoc`-overlay where needed. Token reads resolve at ns-load
+;; (`tokens` is a static const map per spec/007-UX-IA §CSS
+;; custom-property surface) so theme switching still rides the CSS
+;; vars seam, not Clojure value swaps.
+
+(def ^:private header-button-style-base
+  {:background    "transparent"
+   :border        (str "1px solid " (:border-default tokens))
+   :padding       "1px 6px"
+   :border-radius "4px"
+   :cursor        "pointer"
+   :font-family   sans-stack
+   :font-size     "10px"})
+
+(def ^:private breadcrumb-empty-style
+  {:color (:accent tokens)})
+
+(def ^:private breadcrumb-container-style
+  {:color     (:accent tokens)
+   :display   "inline-flex"
+   :flex-wrap "wrap"
+   :gap       "2px"})
+
+(def ^:private breadcrumb-segment-style
+  {:cursor                 "pointer"
+   :color                  (:accent tokens)
+   :text-decoration        "underline"
+   :text-decoration-style  "dotted"
+   :text-underline-offset  "2px"
+   :text-decoration-color  (:border-default tokens)})
+
+(def ^:private origin-tag-chip-base-style
+  "Per-section origin-tag chip — only `:color` varies per kind."
+  {:display       "inline-flex"
+   :align-items   "center"
+   :gap           "4px"
+   :padding       "1px 6px"
+   :background    (:bg-2 tokens)
+   :border        (str "1px solid " (:border-subtle tokens))
+   :border-radius "3px"
+   :font-family   mono-stack
+   :font-size     "10px"
+   :font-weight   600
+   :user-select   "none"
+   :cursor        "help"})
+
+(def ^:private breadcrumb-header-style
+  {:position       "sticky"
+   :top            0
+   :z-index        1
+   :display        "flex"
+   :align-items    "center"
+   :flex-wrap      "wrap"
+   :gap            "8px"
+   :padding        "6px 12px"
+   :background     (:bg-3 tokens)
+   :border-bottom  (str "1px solid " (:border-subtle tokens))
+   :font-family    mono-stack
+   :font-size      "12px"
+   :color          (:text-primary tokens)
+   :font-weight    600})
+
+(def ^:private breadcrumb-affordances-style
+  {:display     "inline-flex"
+   :gap         "4px"
+   :align-items "center"})
+
+(def ^:private breadcrumb-changes-summary-style
+  {:font-family sans-stack
+   :font-size   "11px"
+   :color       (:text-tertiary tokens)
+   :font-weight 400
+   :margin-left "auto"})
+
+(def ^:private gutter-row-style-base
+  "Outer flex container for a single annotated row — only the
+  `:border-left` colour varies per op."
+  {:display      "flex"
+   :align-items  "flex-start"
+   :gap          "4px"
+   :padding      "2px 0"
+   :padding-left "6px"})
+
+(def ^:private gutter-glyph-style-base
+  "Per-row glyph span — only `:color` varies per op."
+  {:flex        "0 0 14px"
+   :font-family mono-stack
+   :font-size   "12px"
+   :font-weight 700
+   :text-align  "center"
+   :user-select "none"})
+
+(def ^:private gutter-body-style
+  {:flex 1 :min-width 0})
+
+(def ^:private key-label-style
+  {:color        (:accent tokens)
+   :font-family  mono-stack
+   :font-size    "12px"
+   :margin-right "6px"})
+
+(def ^:private leaf-row-style
+  "Per-leaf row container — shared by added / removed / modified /
+  same renderers. The leaf-specific colour/strikethrough lives inside
+  the leaf's value span."
+  {:display     "flex"
+   :flex-wrap   "wrap"
+   :align-items "baseline"
+   :gap         "6px"})
+
+(def ^:private removed-leaf-row-style
+  (assoc leaf-row-style :text-decoration "line-through"))
+
+(def ^:private modified-before-value-style
+  {:color           (:text-tertiary tokens)
+   :font-family     mono-stack
+   :font-size       "12px"
+   :text-decoration "line-through"})
+
+(def ^:private modified-arrow-style
+  {:color       (:text-tertiary tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private modified-after-value-style
+  {:color       (:yellow tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private added-leaf-value-style
+  {:color       (:green tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private removed-leaf-value-style
+  {:color       (:red tokens)
+   :font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private same-leaf-row-style
+  (assoc leaf-row-style :color (:text-tertiary tokens)))
+
+(def ^:private unchanged-chip-style
+  {:display       "inline-flex"
+   :align-items   "center"
+   :gap           "6px"
+   :padding       "2px 8px"
+   :background    (:bg-2 tokens)
+   :border-radius "3px"
+   :color         (:text-tertiary tokens)
+   :font-family   mono-stack
+   :font-size     "11px"
+   :font-style    "italic"})
+
+(def ^:private container-row-style
+  {:display        "flex"
+   :flex-direction "column"
+   :margin         "2px 0"})
+
+(def ^:private container-header-style
+  {:display     "flex"
+   :align-items "baseline"
+   :gap         "6px"
+   :font-family mono-stack
+   :font-size   "12px"
+   :color       (:text-primary tokens)})
+
+(def ^:private container-tag-glyph-style
+  {:color (:text-tertiary tokens)})
+
+(def ^:private container-summary-style
+  {:color       (:text-tertiary tokens)
+   :font-family sans-stack
+   :font-size   "11px"})
+
+(def ^:private container-body-expanded-style
+  {:padding-left "12px"
+   :border-left  (str "1px solid " (:border-subtle tokens))})
+
+(def ^:private container-body-collapsed-style
+  {:padding-left "12px"})
+
+(def ^:private container-body-collapsed-caption-style
+  {:color       (:text-tertiary tokens)
+   :font-family sans-stack
+   :font-size   "11px"
+   :font-style  "italic"})
+
+(def ^:private section-base-style
+  {:margin        "8px 12px"
+   :background    (:bg-3 tokens)
+   :border        (str "1px solid " (:border-subtle tokens))
+   :border-radius "4px"
+   :overflow      "hidden"})
+
+(def ^:private section-body-style
+  {:padding     "8px 12px"
+   :font-family mono-stack
+   :font-size   "12px"
+   :color       (:text-primary tokens)
+   :line-height "1.5"})
+
+(def ^:private diff-empty-style
+  {:padding     "12px"
+   :color       (:text-tertiary tokens)
+   :font-family sans-stack
+   :font-size   "12px"})
+
+(def ^:private unknown-op-style
+  {:color (:red tokens)})
+
 ;; ---- gutter / colour mapping --------------------------------------------
 
 (def ^:private op->gutter-glyph
@@ -134,15 +352,8 @@
   [{:keys [testid label colour on-click]}]
   [:button {:data-testid testid
             :on-click    on-click
-            :style       {:background    "transparent"
-                          :color         (or colour (:text-secondary tokens))
-                          :border        (str "1px solid "
-                                              (:border-default tokens))
-                          :padding       "1px 6px"
-                          :border-radius "4px"
-                          :cursor        "pointer"
-                          :font-family   sans-stack
-                          :font-size     "10px"}}
+            :style       (assoc header-button-style-base
+                                :color (or colour (:text-secondary tokens)))}
    label])
 
 (defn- breadcrumb-segments
@@ -161,14 +372,11 @@
   (if (empty? section-path)
     [:span {:data-testid (str "rf-xray-diff-section-path-"
                               (pr-str section-path))
-            :style       {:color (:accent tokens)}}
+            :style       breadcrumb-empty-style}
      "(root)"]
     (into [:span {:data-testid (str "rf-xray-diff-section-path-"
                                     (pr-str section-path))
-                  :style       {:color (:accent tokens)
-                                :display "inline-flex"
-                                :flex-wrap "wrap"
-                                :gap "2px"}}]
+                  :style       breadcrumb-container-style}]
           (for [i (range (count section-path))]
             (let [seg        (nth section-path i)
                   prefix     (vec (take (inc i) section-path))
@@ -184,12 +392,7 @@
                       :on-click    on-click
                       :title       (str "Inspect app-db at "
                                         (pr-str prefix))
-                      :style       {:cursor          "pointer"
-                                    :color           (:accent tokens)
-                                    :text-decoration "underline"
-                                    :text-decoration-style "dotted"
-                                    :text-underline-offset "2px"
-                                    :text-decoration-color (:border-default tokens)}}
+                      :style       breadcrumb-segment-style}
                (pr-str seg)])))))
 
 ;; ---- rf2-s8r6c — per-section origin tag chip ---------------------------
@@ -264,20 +467,7 @@
                               (pr-str section-path))
             :data-origin kind
             :title       (origin-tag-tooltip tag)
-            :style       {:display       "inline-flex"
-                          :align-items   "center"
-                          :gap           "4px"
-                          :padding       "1px 6px"
-                          :background    (:bg-2 tokens)
-                          :border        (str "1px solid "
-                                              (:border-subtle tokens))
-                          :border-radius "3px"
-                          :color         colour
-                          :font-family   mono-stack
-                          :font-size     "10px"
-                          :font-weight   600
-                          :user-select   "none"
-                          :cursor        "help"}}
+            :style       (assoc origin-tag-chip-base-style :color colour)}
      label]))
 
 (defn breadcrumb
@@ -332,21 +522,7 @@
          path-vec      (vec section-path)]
      [:header {:data-testid (str "rf-xray-diff-section-header-"
                                  (pr-str section-path))
-               :style {:position       "sticky"
-                       :top            0
-                       :z-index        1
-                       :display        "flex"
-                       :align-items    "center"
-                       :flex-wrap      "wrap"
-                       :gap            "8px"
-                       :padding        "6px 12px"
-                       :background     (:bg-3 tokens)
-                       :border-bottom  (str "1px solid "
-                                            (:border-subtle tokens))
-                       :font-family    mono-stack
-                       :font-size      "12px"
-                       :color          (:text-primary tokens)
-                       :font-weight    600}}
+               :style breadcrumb-header-style}
       (breadcrumb-segments section-path)
       ;; rf2-s8r6c — origin-tag chip identifying the writer(s) for the
       ;; paths under this section. Always rendered when `origin-tag`
@@ -366,9 +542,7 @@
       ;; superseded by the clickable-segment inspector popup.
       [:div {:data-testid (str "rf-xray-diff-section-affordances-"
                                (pr-str section-path))
-             :style       {:display     "inline-flex"
-                           :gap         "4px"
-                           :align-items "center"}}
+             :style       breadcrumb-affordances-style}
        (header-button
          {:testid   (str "rf-xray-diff-section-show-when-"
                          (pr-str section-path))
@@ -390,11 +564,7 @@
                                    subtree-value]
                                   {:frame :rf/xray})})]
       (when (pos? total-changes)
-        [:span {:style {:font-family sans-stack
-                        :font-size "11px"
-                        :color (:text-tertiary tokens)
-                        :font-weight 400
-                        :margin-left "auto"}}
+        [:span {:style breadcrumb-changes-summary-style}
          (str "◴ "
               total-changes
               (if (= total-changes 1) " change" " changes"))])])))
@@ -404,34 +574,25 @@
 (declare render-annotated)
 
 (defn- gutter
-  "Coloured-glyph + left-border wrapper for a single annotated row."
+  "Coloured-glyph + left-border wrapper for a single annotated row.
+  The two op-keyed colour reads (`gutter-colour`, used for both the
+  left-border and the glyph) are interpolated into a single string and
+  the static row + glyph shape come from ns-top defs."
   [op body]
-  [:div {:style {:display      "flex"
-                 :align-items  "flex-start"
-                 :gap          "4px"
-                 :padding      "2px 0"
-                 :padding-left "6px"
-                 :border-left  (str "3px solid " (gutter-colour op))}}
-   [:span {:style {:flex          "0 0 14px"
-                   :color         (gutter-colour op)
-                   :font-family   mono-stack
-                   :font-size     "12px"
-                   :font-weight   700
-                   :text-align    "center"
-                   :user-select   "none"}}
-    (or (op->gutter-glyph op) " ")]
-   [:div {:style {:flex 1 :min-width 0}}
-    body]])
+  (let [colour (gutter-colour op)]
+    [:div {:style (assoc gutter-row-style-base
+                         :border-left (str "3px solid " colour))}
+     [:span {:style (assoc gutter-glyph-style-base :color colour)}
+      (or (op->gutter-glyph op) " ")]
+     [:div {:style gutter-body-style}
+      body]]))
 
 (defn- key-label
   "Render the `:key` or `:index` slot for a child as `:k ` / `2 ` so
   the value sits inline with its identifier."
   [child]
   (when-let [k (at/child-key child)]
-    [:span {:style {:color       (:accent tokens)
-                    :font-family mono-stack
-                    :font-size   "12px"
-                    :margin-right "6px"}}
+    [:span {:style key-label-style}
      (str (pr-str k) " ")]))
 
 (defn- inspect-value
@@ -459,42 +620,27 @@
   (design §3.1.2 — 'side-by-side vs unified')."
   [node node-key]
   (let [{:keys [before after]} node]
-    [:div {:style {:display "flex" :flex-wrap "wrap" :align-items "baseline"
-                   :gap "6px"}}
+    [:div {:style leaf-row-style}
      (key-label node)
-     [:span {:style {:color (:text-tertiary tokens)
-                     :font-family mono-stack
-                     :font-size "12px"
-                     :text-decoration "line-through"}}
+     [:span {:style modified-before-value-style}
       (inspect-value before (str node-key "/before"))]
-     [:span {:style {:color (:text-tertiary tokens)
-                     :font-family mono-stack
-                     :font-size "12px"}}
+     [:span {:style modified-arrow-style}
       "→"]
-     [:span {:style {:color (:yellow tokens)
-                     :font-family mono-stack
-                     :font-size "12px"}}
+     [:span {:style modified-after-value-style}
       (inspect-value after (str node-key "/after"))]]))
 
 (defn- render-added-leaf
   [node node-key]
-  [:div {:style {:display "flex" :flex-wrap "wrap" :align-items "baseline"
-                 :gap "6px"}}
+  [:div {:style leaf-row-style}
    (key-label node)
-   [:span {:style {:color (:green tokens)
-                   :font-family mono-stack
-                   :font-size "12px"}}
+   [:span {:style added-leaf-value-style}
     (inspect-value (:value node) node-key)]])
 
 (defn- render-removed-leaf
   [node node-key]
-  [:div {:style {:display "flex" :flex-wrap "wrap" :align-items "baseline"
-                 :gap "6px"
-                 :text-decoration "line-through"}}
+  [:div {:style removed-leaf-row-style}
    (key-label node)
-   [:span {:style {:color (:red tokens)
-                   :font-family mono-stack
-                   :font-size "12px"}}
+   [:span {:style removed-leaf-value-style}
     (inspect-value (:value node) node-key)]])
 
 (defn- unchanged-chip
@@ -502,16 +648,7 @@
   unchanged-subtrees default (§5.3)."
   [n container-tag]
   [:div {:data-testid "rf-xray-diff-unchanged-chip"
-         :style {:display       "inline-flex"
-                 :align-items   "center"
-                 :gap           "6px"
-                 :padding       "2px 8px"
-                 :background    (:bg-2 tokens)
-                 :border-radius "3px"
-                 :color         (:text-tertiary tokens)
-                 :font-family   mono-stack
-                 :font-size     "11px"
-                 :font-style    "italic"}}
+         :style unchanged-chip-style}
    (str "(" n
         (case container-tag
           :map " entries unchanged"
@@ -525,9 +662,7 @@
   collapse threshold). Uses the data-inspector but with greyed-out
   colour."
   [node node-key]
-  [:div {:style {:display "flex" :flex-wrap "wrap" :align-items "baseline"
-                 :gap "6px"
-                 :color (:text-tertiary tokens)}}
+  [:div {:style same-leaf-row-style}
    (key-label node)
    (inspect-value (:value node) node-key)])
 
@@ -550,27 +685,17 @@
         same-kids      (filter #(= :same (at/op-of %)) children)
         many-same?     (> (count same-kids) collapse-unchanged-threshold)]
     [:div {:data-testid (str "rf-xray-diff-container-" node-key)
-           :style {:display "flex"
-                   :flex-direction "column"
-                   :margin "2px 0"}}
+           :style container-row-style}
      ;; Header — key (if any) + container summary chip.
-     [:div {:style {:display "flex" :align-items "baseline"
-                    :gap "6px"
-                    :font-family mono-stack
-                    :font-size "12px"
-                    :color (:text-primary tokens)}}
+     [:div {:style container-header-style}
       (key-label node)
-      [:span {:style {:color (:text-tertiary tokens)}}
+      [:span {:style container-tag-glyph-style}
        (case tag :map "{…}" :vec "[…]" :set "#{…}" "…")]
-      [:span {:style {:color (:text-tertiary tokens)
-                      :font-family sans-stack
-                      :font-size "11px"}}
+      [:span {:style container-summary-style}
        (str "◴ " (children-summary-changed-count child-summary) " changed")]]
      ;; Body — either auto-expanded (depth-budgeted) or chip-collapsed.
      (if auto-expand?
-       [:div {:style {:padding-left "12px"
-                      :border-left (str "1px solid "
-                                        (:border-subtle tokens))}}
+       [:div {:style container-body-expanded-style}
         ;; Changed children — render each with appropriate gutter.
         (into [:div]
               (map-indexed
@@ -599,11 +724,8 @@
        ;; Past depth budget — collapse the whole container to a chip
        ;; with a click-to-expand affordance handled by inspector's
        ;; existing toggle.
-       [:div {:style {:padding-left "12px"}}
-        [:span {:style {:color (:text-tertiary tokens)
-                        :font-family sans-stack
-                        :font-size "11px"
-                        :font-style "italic"}}
+       [:div {:style container-body-collapsed-style}
+        [:span {:style container-body-collapsed-caption-style}
          (str "(" (children-summary-changed-count child-summary)
               " nested changes — expand by drilling: "
               (case tag :map "map" :vec "vec" :set "set" "value") ")")]
@@ -647,7 +769,7 @@
         :removed  (gutter :removed  (render-removed-leaf  node node-key))
         :same     (render-same-inline node node-key)
         ;; Fallback — shouldn't happen for well-formed input.
-        [:span {:style {:color (:red tokens)}}
+        [:span {:style unknown-op-style}
          (str "unknown op: " (pr-str op))]))))
 
 ;; ---- section + panel ---------------------------------------------------
@@ -691,12 +813,6 @@
                          (:child-summary subtree)
                          nil)
          after-value   (subtree->after-value subtree)
-         base-style    {:margin         "8px 12px"
-                        :background     (:bg-3 tokens)
-                        :border         (str "1px solid "
-                                             (:border-subtle tokens))
-                        :border-radius  "4px"
-                        :overflow       "hidden"}
          flash-style   (when flash?
                          ;; Duration is interpolated through the
                          ;; `--rf-xray-motion-scale` seam (rf2-5kfxe.5
@@ -712,13 +828,11 @@
                                " ease-out forwards")})]
      [:section {:data-testid (str "rf-xray-diff-section-"
                                   (pr-str path))
-                :style (merge base-style flash-style)}
+                :style (if flash-style
+                         (merge section-base-style flash-style)
+                         section-base-style)}
       (breadcrumb path child-summary after-value origin-tag extra-affordance)
-      [:div {:style {:padding "8px 12px"
-                     :font-family mono-stack
-                     :font-size "12px"
-                     :color (:text-primary tokens)
-                     :line-height "1.5"}}
+      [:div {:style section-body-style}
        (render-annotated subtree path [] surface 0)]])))
 
 (defn render-sections
@@ -745,10 +859,7 @@
                              extra-affordance-fn] :as _opts}]
    (if (empty? sections)
      [:div {:data-testid "rf-xray-diff-empty"
-            :style {:padding "12px"
-                    :color (:text-tertiary tokens)
-                    :font-family sans-stack
-                    :font-size "12px"}}
+            :style diff-empty-style}
       "No structural changes in the selected epoch."]
      (let [origin-for (fn [section-path]
                         (when (or (seq flow-writes) (seq diff-triples))

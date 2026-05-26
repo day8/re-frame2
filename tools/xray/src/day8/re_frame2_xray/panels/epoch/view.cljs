@@ -57,6 +57,7 @@
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
+            [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.theme.tokens
@@ -213,30 +214,11 @@
           "▲"])
        (proj/format-duration-ms duration-ms)])))
 
-(defn- coord-chip
-  "External-link affordance — opens the editor at `coord` via the
-  cross-panel `:rf.xray/open-in-editor` event. Returns nil when
-  `coord` has no `:file`."
-  [coord testid]
-  (when (and (map? coord) (seq (:file coord)))
-    [:button {:data-testid testid
-              :aria-label  "open in editor"
-              :title       "open in editor"
-              :on-click    (fn [e]
-                             (.stopPropagation e)
-                             (rf/dispatch [:rf.xray/open-in-editor
-                                           {:source-coord coord}]
-                                          {:frame :rf/xray}))
-              :style       {:background      "transparent"
-                            :color           "inherit"
-                            :border          "none"
-                            :padding         "0 4px"
-                            :margin-left     "4px"
-                            :cursor          "pointer"
-                            :display         "inline-flex"
-                            :align-items     "center"
-                            :line-height     1}}
-     (icons/external-link)]))
+;; coord-chip moved to `panels.shared.coord-chip/coord-chip` (rf2-xjgdk
+;; audit L2 — the icon-only chip was duplicated across panels; one
+;; canonical home + per-site overlays now). The Epoch panel renders
+;; with the default `:color "inherit"` + `:margin-left "4px"` knobs,
+;; which match this panel's prior shape exactly.
 
 (defn- step-header
   "Render a step's header row — badge pill + verb/label + optional
@@ -1907,8 +1889,8 @@
           [:span {:style {:color (:text-tertiary tokens)
                           :font-style "italic"}}
            "<anonymous view>"])
-        (coord-chip (view-coord view-id)
-                    (str "rf-xray-epoch-view-row-coord-" i))]
+        (coord-chip/coord-chip (view-coord view-id)
+                               (str "rf-xray-epoch-view-row-coord-" i))]
        (when (number? duration-ms)
          [:span {:style {:color (:text-tertiary tokens)
                          :margin-left "8px"
