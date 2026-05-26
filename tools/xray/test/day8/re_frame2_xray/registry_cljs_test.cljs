@@ -154,6 +154,10 @@
    :rf.xray/edit-popup-open?
    :rf.xray/edit-popup-trigger
    :rf.xray/epoch-history
+   ;; rf2-sc3r1 — Epoch panel composite (focused epoch's pipeline
+   ;; rows) + per-row expansion-set sub.
+   :rf.xray/epoch-pipeline
+   :rf.xray.epoch/expanded-rows
    :rf.xray/event-detail
    :rf.xray/filtered-cascades
    ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
@@ -437,6 +441,9 @@
    :rf.xray/delete-edit-popup
    :rf.xray/edit-popup-set-mode
    :rf.xray/edit-popup-set-pattern
+   ;; rf2-sc3r1 — Epoch panel per-row expansion events.
+   :rf.xray.epoch/toggle-row-expand
+   :rf.xray.epoch/clear-row-expand
    :rf.xray/epoch-recorded
    ;; rf2-piye4 — typed-predicate filter events. Each appends a
    ;; typed `{:kind <kw> :params {…}}` IN pill from a right-click

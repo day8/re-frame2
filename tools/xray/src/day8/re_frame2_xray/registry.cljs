@@ -74,6 +74,7 @@
             [day8.re-frame2-xray.panels.app-db-segment-inspector
              :as app-db-segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
+            [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
             [day8.re-frame2-xray.panels.event-detail :as event-detail]
             [day8.re-frame2-xray.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
@@ -663,6 +664,14 @@
     ;; `:rf.xray/focus` + `:rf.xray/trace-buffer`); registry order is
     ;; cosmetic since re-frame resolves `:<-` chains lazily.
     (cancellation-cascade/install!)
+    ;; Epoch panel (rf2-sc3r1) — the canonical "what happened in this
+    ;; epoch" surface; numbered cascade of every pipeline step. Reads
+    ;; the spine's `:rf.xray/focus` + `:rf.xray/epoch-history`,
+    ;; projects the focused record's `:trace-events` into ordered
+    ;; step rows. Registers at order 5, between Machines (4) and
+    ;; Routing (6). Co-exists with the existing Event lens
+    ;; initially per the bead body's pre-alpha posture.
+    (epoch-panel/install!)
     (event-detail/install!)
     (issues-ribbon/install!)
     (machine-inspector/install!)

@@ -166,8 +166,8 @@
     (let [panels (palette-subs/palette-panels)
           ids    (set (map :id panels))]
       (is (contains? ids :routing) ":routing in palette-panels")
-      (is (= 7 (count panels))
-          "exactly 7 entries — Event / App DB / Views / Trace / Machines / Routing / Issues (rf2-4v67l removed the Chrome A11y dogfood in favour of Story's shipped panel; rf2-ga16q removed the Machines Canvas tab — its browse-all canvas relocated to the Static Machines sub-tab)"))))
+      (is (= 8 (count panels))
+          "exactly 8 entries — Event / App DB / Views / Trace / Machines / Epoch / Routing / Issues (rf2-sc3r1 added the Epoch tab at order 5; rf2-4v67l removed the Chrome A11y dogfood in favour of Story's shipped panel; rf2-ga16q removed the Machines Canvas tab — its browse-all canvas relocated to the Static Machines sub-tab)"))))
 
 ;; ---- (2) three sections render (always-visible base layer) --------------
 

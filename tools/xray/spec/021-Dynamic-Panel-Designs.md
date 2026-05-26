@@ -1247,6 +1247,177 @@ keeps the dogfood in Story.
 
 ---
 
+## §9.1 The Epoch panel (numbered cascade · rf2-sc3r1)
+
+### §9.1.1 Question
+
+> **"What happened in this epoch?"**
+
+The Epoch panel renders the focused epoch's complete computational
+timeline as a numbered vertical cascade — dispatch → coeffects →
+handler → flow → fx → subscriptions → views. It is the canonical
+"one timeline, one event" surface; every L4 panel answers a slice of
+the same question, but the Epoch panel renders the WHOLE chain in
+fire order.
+
+### §9.1.2 Co-existence with the Event panel (initial landing)
+
+Per the rf2-sc3r1 bead body's pre-alpha posture: the Epoch panel
+co-exists with the existing Event lens (§2). Both surface the focused
+epoch — but through different lenses:
+
+- **Event** (`:event` tab, §2) — the Figma-locked operational-order
+  handling pipeline (rf2-ynnre B+); reads more like a spec-shaped
+  attribution document.
+- **Epoch** (`:epoch` tab) — the full timeline as a delightful
+  numbered cascade including the reactive trailing edge
+  (SUBSCRIPTIONS + VIEWS) that the Event lens routes to its own
+  Reactive tab (§3).
+
+A follow-on bead deprecates the older Event + Reactive split once
+the new Epoch panel is exercised in production.
+
+Tab placement: `:epoch`, mnemonic `e`, order 5 (between `:machines`
+at 4 and `:routing` at 6). Registered against `:dynamic` mode only.
+
+### §9.1.3 Conditional cascade — only-the-steps-that-fired
+
+The cascade is a **faithful projection of the trace stream**. A step
+is rendered iff its driving trace events surfaced in this epoch:
+
+| Step | Driving trace | Conditional |
+|------|---------------|-------------|
+| **DISPATCH** | `:rf.event/dispatched` | always (every epoch starts here) |
+| **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | only when user-injected coeffects fired |
+| **HANDLER** | every epoch settles through a handler | always |
+| **FLOW** | `:rf.flow/recomputed` | only when flows fired |
+| **FX** | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | only when fx-handlers fired |
+| **SUBSCRIPTIONS** | `:rf.sub/run` / `:rf.sub/skip` | only when subs recomputed |
+| **VIEWS** | `:rf.view/render` | only when views re-rendered |
+
+Steps are numbered DYNAMICALLY 1..N — an absent OPTIONAL step
+consumes no number; absence is conveyed by OMISSION, not an
+empty-state line. This matches the §2.2 dynamic-numbering contract
+from the Event lens — both panels share the same "absence is
+silence" rhythm.
+
+### §9.1.4 Badge taxonomy (the 7-badge inventory)
+
+Each step renders a uppercase badge pill at its numbered circle:
+
+| Badge | Token | Hue family |
+|-------|-------|------------|
+| `:DISPATCH`      | `:text-tertiary` | muted grey |
+| `:COEFFECT`      | `:magenta`       | purple |
+| `:HANDLER`       | `:accent`        | blue (single Xray accent) |
+| `:FLOW`          | `:accent`        | blue (paired with HANDLER) |
+| `:FX`            | `:orange`        | functional amber (post-commit irreversible) |
+| `:SUBSCRIPTIONS` | `:magenta`       | pink/magenta family |
+| `:VIEWS`         | `:success`       | green |
+
+The inventory is LOCKED — the projection's `badge-set` enforces
+that every emitted step's `:badge` is a member, and the view's
+colour resolver bails to `:text-tertiary` on an unknown badge so a
+future taxonomy extension paints something but tests catch the
+omission.
+
+### §9.1.5 Handler-type adaptation (rf2-82a0u prerequisites)
+
+The HANDLER step's body adapts to the handler's flavour, discovered
+from the trace stream:
+
+- **`:reg-event-db`** — `:db` diff only (the simplest case).
+- **`:reg-event-fx`** — `:db` diff + per-fx-entry block.
+- **`:reg-machine`** — full machine block: transition summary
+  (machine-id + before/after state vectors), guard rows
+  (`:pass / :fail / :threw` outcomes), per-phase lifecycle rows
+  (phases drawn from the closed set
+  `:exit / :transition / :entry / :always / :after-action /
+  :initial-entry / :destroy-exit`, per rf2-82a0u's `:phase` stamp
+  on `:rf.machine/action-ran`), and timer-cancellation rows
+  (reasons drawn from the closed set
+  `:on-exit / :on-destroy / :on-resolution / :on-supersede /
+  :on-frame-destroy`, per the unified `:rf.machine.timer/cancelled`
+  trace).
+
+The flavour discriminator runs at projection time as a pure-data
+check against the trace stream — no spec read, no registry lookup,
+no replay. The substrate enhancements in #2155 (rf2-82a0u) are the
+prerequisite that lets the LIFECYCLE / TIMERS sub-blocks read
+directly off the trace.
+
+### §9.1.6 Numbered cascade chrome
+
+Per the bead body's §Visual Structure:
+
+- Container: padding `21px`, overflow auto, full height.
+- Header text: "The computational timeline for the event"
+  (muted, `margin-bottom: 21px`).
+- Pipeline: left margin `55px` to accommodate numbered circles.
+- Vertical line: absolute-positioned, 1px width, starts at `13px`
+  from top, positioned at `-34px` from the content column's left
+  edge.
+- Row spacing: `13px` vertical gap between entries.
+
+Each step's row carries:
+
+1. Numbered circle: `21px` diameter, positioned at `-44px` left,
+   colour-matched to the step's badge.
+2. Badge pill: uppercase 10px font, rounded, `5px/3px` padding.
+3. Verb/label: monospace, click-to-source hyperlink for any
+   source-bearing target (cofx ids, handler flavour, flow ids,
+   fx ids, sub vectors, view ids).
+4. Duration: right-aligned, muted, monospace (e.g. `0.1ms`).
+5. Per-step body content: code blocks, tables, diff displays.
+
+Fibonacci spacing system (3 · 5 · 8 · 13 · 21 · 34 · 55 · 89) drives
+every gap / pad value. Tabulated in `panels.epoch.badge/fib` for one
+source of truth.
+
+### §9.1.7 Composition with the edn-inspector widget
+
+Per the bead body's §Implementation Notes, expandable rows mount the
+edn-inspector widget with `:zoomable? true` (rf2-h71e0) and
+`:header "<step-name>"` (rf2-okq7p) so nested data drill-down composes
+naturally with the §10 widget's contract. The initial landing of
+the panel renders default-visible content for every step (the
+cascade's punch is its always-visible rhythm); per-row drill-down
+state lives on the `:rf.xray/epoch-panel-expanded-rows` set via the
+`:rf.xray.epoch/toggle-row-expand` event, ready for the follow-on
+rich-expansion pass.
+
+### §9.1.8 Pure-data projection (testable in isolation)
+
+The projection lives at `tools/xray/src/day8/re_frame2_xray/panels/
+epoch/projection.cljc` — `.cljc` so JVM unit tests (`clojure -M:test`)
+exercise the algebra without spinning a CLJS runtime. The view
+layer (`panels/epoch/view.cljs`) consumes the projection's output
+verbatim; no DOM concern bleeds into the data layer.
+
+### §9.1.9 Queries
+
+| Sub | Reads | Yields |
+|-----|-------|--------|
+| `:rf.xray/epoch-pipeline` | `:rf.xray/focus` · `:rf.xray/epoch-history` (via the shared `panels.shared.focus-resolver`) | `{:status :no-focus | :focused | :epoch-evicted, :epoch-id, :record, :steps}` |
+| `:rf.xray.epoch/expanded-rows` | `:epoch-panel-expanded-rows` slot | `#{[step-kw row-id] …}` |
+
+### §9.1.10 Events
+
+| Event | Effect |
+|-------|--------|
+| `:rf.xray.epoch/toggle-row-expand step-kw row-id` | flip the row's pair in `:epoch-panel-expanded-rows` |
+| `:rf.xray.epoch/clear-row-expand` | drop the expansion set |
+
+### §9.1.11 Cross-panel navigation
+
+Every click-to-source affordance in the cascade flows through the
+shared `:rf.xray/open-in-editor` event (rf2-cm93v allowlist) — the
+same surface every other L4 panel uses for source jumps. The Epoch
+panel emits no panel-internal navigation; spine focus drives every
+data axis.
+
+---
+
 ## §10 Shared edn-inspector renderer
 
 The renderer is **ONE canonical component used everywhere data appears**
