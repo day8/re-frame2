@@ -1502,7 +1502,8 @@
            ;; tree reads as `▾ { │ keys │ }` recursively at every depth.
            (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
                         :data-rf-body-layout "grid"
-                        :style {:margin-left          "16px"
+                        :style {:margin-left          "11px"
+                                :padding-left         "6px"
                                 :border-left          (str "1px solid "
                                                            (:border-subtle tokens))
                                 :display              "grid"
@@ -1560,7 +1561,8 @@
            ;; padding-left.
            (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
                         :data-rf-body-layout "block"
-                        :style {:margin-left  "16px"
+                        :style {:margin-left  "11px"
+                                :padding-left "6px"
                                 :border-left  (str "1px solid "
                                                    (:border-subtle tokens))}}]
                  (map
@@ -1592,7 +1594,7 @@
      ;; this attr).
      (when (and expanded? (not empty?) (not depth-capped?) (not inline-fit?))
        [:div {:data-rf-cell "close"
-              :style {:padding-left "16px"
+              :style {:padding-left "10px"
                       :color (get tokens (:tone-key (delim kind)))}}
         (let [{:keys [close]} (delim kind)] close)])]))
 
@@ -1633,7 +1635,8 @@
            ;; visual centre (~16px from row left), body content with a
            ;; 6px breath beyond the line.
            [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
-                  :style {:margin-left  "16px"
+                  :style {:margin-left  "11px"
+                          :padding-left "6px"
                           :border-left  (str "1px solid " (:border-subtle tokens))}}
             body])]))))
 
