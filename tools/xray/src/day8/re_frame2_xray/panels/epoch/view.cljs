@@ -331,8 +331,8 @@
   [{:keys [event]}]
   (when (vector? event)
     [:div {:data-testid "rf-xray-epoch-dispatch-event"
-           :style {:background    (:bg-3 tokens)
-                   :border        (str "1px solid " (:border-subtle tokens))
+           :style {:background    (:bg-1 tokens)
+                   :border        (str "1px solid " (:border-default tokens))
                    :border-radius "3px"
                    :padding       "5px 8px"
                    :margin-top    "5px"
@@ -432,54 +432,168 @@
   `:session {:user-id 42}` rather than the legacy cryptic
   `+[]<value>` diff-row.
 
+  Pair-debug 2026-05-26: the cofx-id is a CLICKABLE button when the
+  registered cofx carries `:file`/`:line` meta — clicking opens the
+  editor at the `reg-cofx` source. The external-link icon rides
+  INSIDE the button so the affordance reads as a single labelled
+  link. When no coord is captured the label renders as a plain
+  coloured span (no broken / dead-link affordance).
+
   Argument order matches `map-indexed`'s `(f idx item)` calling
   convention; the pre-rf2-cq0ch shape transposed these and silently
   destructured a number as the row map (`_row` was the index, `idx`
   the row map — hence the legacy `+[]nil` symptom)."
   [idx {:keys [id value] :as _row}]
-  [:div {:key (str "cofx-" idx)
-         :data-testid (str "rf-xray-epoch-coeffect-row-" idx)
-         :style {:padding "3px 0"
-                 :display "flex"
-                 :align-items "flex-start"
-                 :gap "8px"
-                 :font-family mono-stack
-                 :font-size "12px"}}
-   ;; id label
-   [:span {:data-testid (str "rf-xray-epoch-coeffect-row-id-" idx)
-           :style {:color (:accent tokens)
-                   :white-space "nowrap"
-                   :display "inline-flex"
-                   :align-items "center"
-                   :gap "4px"}}
-    (proj/ns-keyword id)
-    (icons/external-link)]
-   ;; injected value (labelled — no cryptic `+[]nil` line)
-   [:span {:data-testid (str "rf-xray-epoch-coeffect-row-value-" idx)
-           :style {:color (:text-primary tokens)
-                   :min-width 0
-                   :flex 1
-                   :word-break "break-word"}}
-    (edn/inspect-inline value)]])
+  (let [cofx-meta  (when (keyword? id)
+                     (try (rf/handler-meta :cofx id)
+                          (catch :default _ nil)))
+        coord      (when (and cofx-meta (string? (:file cofx-meta)))
+                     {:file (:file cofx-meta) :line (:line cofx-meta)})
+        clickable? (and (map? coord) (seq (:file coord)))
+        label      (proj/ns-keyword id)]
+    [:div {:key (str "cofx-" idx)
+           :data-testid (str "rf-xray-epoch-coeffect-row-" idx)
+           :style {:padding "3px 0"
+                   :display "flex"
+                   :align-items "flex-start"
+                   :gap "8px"
+                   :font-family mono-stack
+                   :font-size "12px"}}
+     ;; id — clickable button when coord captured; plain span otherwise
+     (if clickable?
+       [:button {:data-testid (str "rf-xray-epoch-coeffect-row-id-" idx)
+                 :aria-label  (str "open " (:file coord)
+                                   (when (:line coord) (str ":" (:line coord)))
+                                   " in editor")
+                 :title       (str "open " (:file coord)
+                                   (when (:line coord) (str ":" (:line coord)))
+                                   " in editor")
+                 :on-click    (fn [e]
+                                (.stopPropagation e)
+                                (rf/dispatch [:rf.xray/open-in-editor
+                                              {:source-coord coord}]
+                                             {:frame :rf/xray}))
+                 :style {:background  "transparent"
+                         :border      "none"
+                         :padding     0
+                         :margin      0
+                         :color       (:accent tokens)
+                         :cursor      "pointer"
+                         :font-family "inherit"
+                         :font-size   "inherit"
+                         :font-weight "inherit"
+                         :text-decoration "underline"
+                         :text-decoration-style "dotted"
+                         :text-underline-offset "2px"
+                         :display     "inline-flex"
+                         :align-items "center"
+                         :gap         "4px"
+                         :white-space "nowrap"}}
+        label
+        (icons/external-link)]
+       [:span {:data-testid (str "rf-xray-epoch-coeffect-row-id-" idx)
+               :style {:color (:accent tokens)
+                       :white-space "nowrap"}}
+        label])
+     ;; injected value (labelled — no cryptic `+[]nil` line)
+     [:span {:data-testid (str "rf-xray-epoch-coeffect-row-value-" idx)
+             :style {:color (:text-primary tokens)
+                     :min-width 0
+                     :flex 1
+                     :word-break "break-word"}}
+      (edn/inspect-inline value)]]))
 
 (defn render-coeffect-step
-  "Render the COEFFECT step (single step with N rows — one per
-  user-injected coeffect). Always conditional — present only when the
-  projection emitted the step."
-  [{:keys [rows step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-coeffect"
-         :data-step-kw "coeffect"}
-   (numbered-circle step-number :COEFFECT)
-   (step-header
-     {:step :coeffect
-      :badge :COEFFECT
-      :verb (str (count rows) " coeffect"
-                 (when (not= 1 (count rows)) "s") " injected")
-      :expandable? false
-      :testid "rf-xray-epoch-coeffect"}
-     nil)
-   [:div {:style {:margin-top "5px"}}
-    (map-indexed coeffect-row-view rows)]])
+  "Render one COEFFECT step — one PER injected coeffect (pair-debug
+  2026-05-26). Each coeffect installation gets its own numbered
+  pipeline entry with the cofx-id + value rendered as the verb
+  (cofx-id is a click-to-source button when the registered cofx
+  carries `:file`/`:line` meta).
+
+  The projection emits N coeffect step maps for a cascade
+  injecting N user-defined cofx; system-injected cofx (e.g.
+  framework-auto `:db`, `:event`) are filtered at projection time
+  (rf2-cq0ch + the `system-cofx-ids` set)."
+  [{:keys [id value step-number]}]
+  (let [cofx-meta  (when (keyword? id)
+                     (try (rf/handler-meta :cofx id)
+                          (catch :default _ nil)))
+        coord      (when (and cofx-meta (string? (:file cofx-meta)))
+                     {:file (:file cofx-meta) :line (:line cofx-meta)})
+        clickable? (and (map? coord) (seq (:file coord)))
+        label      (proj/ns-keyword id)]
+    [:div {:data-testid (str "rf-xray-epoch-step-coeffect-" (name id))
+           :data-step-kw "coeffect"
+           :data-cofx-id (name id)}
+     (numbered-circle step-number :COEFFECT)
+     (step-header
+       {:step :coeffect
+        :badge :COEFFECT
+        ;; Verb = cofx-id (clickable when coord captured), nothing
+        ;; else. The injected value renders in the BODY below the
+        ;; badge per pair-debug 2026-05-26.
+        :verb (if clickable?
+                [:button {:data-testid (str "rf-xray-epoch-coeffect-id-" (name id))
+                          :aria-label  (str "open " (:file coord)
+                                            (when (:line coord)
+                                              (str ":" (:line coord)))
+                                            " in editor")
+                          :title       (str "open " (:file coord)
+                                            (when (:line coord)
+                                              (str ":" (:line coord)))
+                                            " in editor")
+                          :on-click    (fn [e]
+                                         (.stopPropagation e)
+                                         (rf/dispatch
+                                           [:rf.xray/open-in-editor
+                                            {:source-coord coord}]
+                                           {:frame :rf/xray}))
+                          :style {:background "transparent"
+                                  :border     "none"
+                                  :padding    0
+                                  :margin     0
+                                  :color      (:accent tokens)
+                                  :cursor     "pointer"
+                                  :font-family mono-stack
+                                  :font-size  "12px"
+                                  :font-weight "inherit"
+                                  :text-decoration "underline"
+                                  :text-decoration-style "dotted"
+                                  :text-underline-offset "2px"
+                                  :display    "inline-flex"
+                                  :align-items "center"
+                                  :gap        "4px"
+                                  :white-space "nowrap"}}
+                 label
+                 (icons/external-link)]
+                [:span {:data-testid (str "rf-xray-epoch-coeffect-id-" (name id))
+                        :style {:color (:accent tokens)
+                                :font-family mono-stack
+                                :font-size "12px"
+                                :white-space "nowrap"}}
+                 label])
+        :expandable? false
+        :testid (str "rf-xray-epoch-coeffect-" (name id))}
+       nil)
+     ;; Body — `+ [:cofx-id] <value>` diff-style line. Per pair-debug
+     ;; 2026-05-26 the body sits left-aligned with the badge (no
+     ;; indent) so the diff-line reads at the same column as the
+     ;; header's badge pill.
+     [:div {:data-testid (str "rf-xray-epoch-coeffect-value-" (name id))
+            :style {:margin-top "5px"
+                    :display "flex"
+                    :align-items "flex-start"
+                    :gap "8px"
+                    :font-family mono-stack
+                    :font-size "12px"}}
+      [:span {:style {:color (:success tokens) :font-weight 700}} "+"]
+      [:span {:style {:color (:text-tertiary tokens) :white-space "nowrap"}}
+       (str "[" (proj/ns-keyword id) "]")]
+      [:span {:style {:color (:text-primary tokens)
+                      :min-width 0
+                      :flex 1
+                      :word-break "break-word"}}
+       [ei/mini value 80]]]]))
 
 ;; ---- HANDLER step --------------------------------------------------------
 
@@ -1991,7 +2105,7 @@
        [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
               :data-step (when (:step step) (name (:step step)))
               :style {:position     "relative"
-                      :margin-bottom "13px"
+                      :margin-bottom "23px"
                       :min-height   "21px"}}
         (render-step step ctx)])]]))
 

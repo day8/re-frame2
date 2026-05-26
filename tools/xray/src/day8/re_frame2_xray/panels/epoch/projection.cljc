@@ -895,12 +895,22 @@
       ;; :no-events empty-state line.
       []
       (let [cofx-rows (coeffect-rows events)
-            steps     [(dispatch-row events fallback)
-                       (when (seq cofx-rows)
-                         {:step  :coeffect
-                          :badge :COEFFECT
-                          :rows  cofx-rows})
-                       (handler-row events event-id db-before db-after)
+            ;; Pair-debug 2026-05-26 — one COEFFECT step per
+            ;; installed cofx (vs. the prior single step with N
+            ;; rows). The view layer numbers each as its own step
+            ;; in the cascade so the operator reads them as
+            ;; first-class pipeline entries.
+            cofx-steps (mapv (fn [{:keys [id value]}]
+                               {:step  :coeffect
+                                :badge :COEFFECT
+                                :id    id
+                                :value value})
+                             cofx-rows)
+            steps     (vec
+                        (concat
+                          [(dispatch-row events fallback)]
+                          cofx-steps
+                          [(handler-row events event-id db-before db-after)
                        ;; APP-DB DIFF removed pair-debug 2026-05-26 —
                        ;; redundant with the HANDLER step's `:db`
                        ;; sub-section's [diff][all] toggle which
@@ -917,7 +927,7 @@
                        ;; the cascade so the operator sees the boundary
                        ;; check that may have rolled back THIS cascade
                        ;; AFTER reading the steps that drove it.
-                       (schema-violations-step events)]]
+                       (schema-violations-step events)]))]
         (filterv some? steps)))))
 
 (defn number-steps

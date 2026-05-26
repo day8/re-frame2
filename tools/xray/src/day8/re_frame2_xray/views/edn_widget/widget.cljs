@@ -443,8 +443,8 @@
                      :font-size   "11px"
                      :line-height 1.5
                      :color       (:text-primary tokens)
-                     :background  (:bg-3 tokens)
-                     :border      (str "1px solid " (:border-subtle tokens))
+                     :background  (:bg-1 tokens)
+                     :border      (str "1px solid " (:border-default tokens))
                      :border-radius "3px"
                      :padding     "8px 10px"
                      :margin      0
