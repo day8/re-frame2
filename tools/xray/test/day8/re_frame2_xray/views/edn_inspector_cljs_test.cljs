@@ -1460,11 +1460,11 @@
 
 ;; ---- rf2-726ol — map column alignment (triangle / line / keys / close) --
 ;;
-;; The map body's left padding + margin position the vertical guide line
-;; at the triangle's visual centre (~16px from the row's left edge at
-;; the 22px glyph metric — rf2-4aiaq). Keys sit 6px past the line. The
-;; closing brace sits at the same `padding-left 16px` so the triangle /
-;; line / keys / closing-brace converge on one column structure.
+;; The map body's left margin + 1px border position the vertical guide
+;; line at the triangle's visual centre (`margin-left 11px` per
+;; `body-grid-style` in impl). Keys sit 6px past the line. The closing
+;; brace sits at `padding-left 10px` so the triangle / line / keys /
+;; closing-brace converge on one column structure.
 
 (defn- find-body-divs
   "Return every body-div the renderer emits (every node whose
@@ -1486,10 +1486,10 @@
           (walk-hiccup tree)))
 
 (deftest map-body-guide-line-at-triangle-center
-  (testing "rf2-726ol — the body div's `margin-left 16px` + `border-left
-            1px` puts the vertical guide line at x=16px from the row's
-            left edge, which is approximately the centre of the 22px
-            triangle box (~31-34px wide, centre at ~16px)"
+  (testing "rf2-726ol — the body div's `margin-left 11px` + `border-left
+            1px` puts the vertical guide line at the triangle-centred
+            column (matching `body-grid-style` in impl); keys sit 6px
+            past the line for a small breath"
     (let [v   {:counter 1 :async nil :machine-ui {:open? true}}
           k0  (ei/expansion-key :test "m" [])
           h   (ei/render-node {:value v
@@ -1501,15 +1501,15 @@
       (is (seq bodies) "expanded map renders body div(s)")
       (doseq [body bodies]
         (let [style (:style (second body))]
-          (is (= "16px" (:margin-left style))
-              "body's margin-left puts the 1px border at x=16 (= triangle centre)")
+          (is (= "11px" (:margin-left style))
+              "body's margin-left puts the 1px border at the triangle-centred guide column")
           (is (= "6px" (:padding-left style))
               "keys sit 6px past the line for a small breath"))))))
 
 (deftest closing-brace-aligns-with-guide-line
   (testing "rf2-726ol — the closing-bracket div sits at `padding-left
-            16px`, the same x-position as the vertical guide line, so
-            the bracket pair `▾ { … }` reads as a coherent vertical
+            10px`, column-aligned with the vertical guide line above,
+            so the bracket pair `▾ { … }` reads as a coherent vertical
             column at every nesting depth"
     (let [;; 4+ keys in each map defeats inline-fit (which requires
           ;; ≤3 children) so both outer + inner expand-render.
@@ -1529,12 +1529,12 @@
           "outer + inner expanded maps each contribute a close-brace cell")
       (doseq [c closes]
         (let [style (:style (second c))]
-          (is (= "16px" (:padding-left style))
-              "close-brace `padding-left 16px` matches the guide-line x"))))))
+          (is (= "10px" (:padding-left style))
+              "close-brace `padding-left 10px` matches the guide-line x"))))))
 
 (deftest block-body-shares-alignment-with-grid-body
   (testing "rf2-726ol — sequential (vector / list / set) bodies use the
-            same `margin-left 16px` + `padding-left 6px` as map bodies
+            same `margin-left 11px` + `padding-left 6px` as map bodies
             so a vector's guide line / first item / closing bracket all
             converge on the same column structure"
     (let [;; 4 elements + a nested container defeats inline-fit so the
@@ -1552,7 +1552,7 @@
       (is (seq block-bodies)
           "vector container emits a block-layout body when expanded")
       (let [style (:style (second (first block-bodies)))]
-        (is (= "16px" (:margin-left style)) "same 16px margin as grid body")
+        (is (= "11px" (:margin-left style)) "same 11px margin as grid body")
         (is (= "6px"  (:padding-left style)) "same 6px padding as grid body")))))
 
 (deftest card-opt-theme-aware-via-tokens
