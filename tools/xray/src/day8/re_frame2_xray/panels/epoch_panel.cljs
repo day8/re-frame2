@@ -164,17 +164,44 @@
     (fn [db [_ mode]]
       (assoc db :epoch-panel-subs-filter-mode mode)))
 
-  ;; ---- HANDLER :db view-mode toggle (pair-debug 2026-05-26) -------------
+  ;; ---- HANDLER :db view-mode toggle (pair-debug 2026-05-26 + rf2-n2jig 2026-05-27) ----
   ;;
-  ;; The HANDLER step's `:db` sub-section carries a `[diff][all]` button
-  ;; bar. `:diff` (default) renders only the path-changes the handler
-  ;; produced; `:all` renders the full post-cascade app-db via the
-  ;; edn-inspector. Mode is persisted so the operator's preference
-  ;; survives focus shifts.
+  ;; The HANDLER step's `:db` sub-section carries a three-button toggle
+  ;; `[diff][full][full+diff]` (per rf2-n2jig — was a two-button
+  ;; `[diff][all]` prior to 2026-05-27).
+  ;;
+  ;; - `:diff`      — pure-diff lens: a flat path-prefixed list of
+  ;;                  changes produced by this handler (e.g.
+  ;;                  `+ [:counter] 6` / `~ [:user :name] "Ada" → "Ada
+  ;;                  Lovelace"`). Operator sees ONLY what changed.
+  ;; - `:full`      — pure-data lens (renamed from `:all` for clarity):
+  ;;                  the full post-cascade `:db-after` via the
+  ;;                  edn-inspector. Operator sees the entire app-db
+  ;;                  shape with no diff chrome.
+  ;; - `:full+diff` — combined lens (mode-3): the full data tree WITH
+  ;;                  inline diff annotations (gutter glyphs, row
+  ;;                  washes, R3 `[N∆]` chips on collapsed containers,
+  ;;                  R4 vertical rails, R5-tinted descendant washes,
+  ;;                  R6 `(was N)` vector-shift suffixes, R7 type-
+  ;;                  change `← was <prior>` suffixes, R8 redaction-
+  ;;                  curated suffixes). Default per pair-debug
+  ;;                  2026-05-27: this is the operator's most-useful
+  ;;                  default — shape + delta in one read.
+  ;;
+  ;; Mode persists via `:rf.xray.epoch/db-view-mode` so the operator's
+  ;; preference survives focus shifts.
 
   (rf/reg-sub :rf.xray.epoch/db-view-mode
     (fn [db _query]
-      (get db :epoch-panel-db-view-mode :diff)))
+      ;; rf2-n2jig — default flipped from `:diff` to `:full+diff` per
+      ;; pair-debug 2026-05-27. Mode-3 carries the most operator-
+      ;; useful signal (shape + delta together).
+      (let [mode (get db :epoch-panel-db-view-mode :full+diff)]
+        ;; Migrate the legacy `:all` enum value to `:full` for any
+        ;; persisted-app-db reads from a pre-rf2-n2jig session.
+        (case mode
+          :all      :full
+          mode))))
 
   (rf/reg-event-db :rf.xray.epoch/set-db-view-mode
     (fn [db [_ mode]]

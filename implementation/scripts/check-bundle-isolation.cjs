@@ -484,6 +484,35 @@ const ARTEFACTS = [
     consumerAllowList: null,
     expectedAllowListHits: 0,
   },
+
+  // editscript — Xray's diff engine (rf2-n2jig). A* algorithm
+  // producing optimally-small EDN edit scripts; replaces the home-grown
+  // leaf-walker classifier. Same posture as zprint and cljs-devtools:
+  // dev-only, consumed only by tools/ (Xray), gated behind Xray's
+  // `:devtools/preloads`. Production bundles MUST NOT pull editscript
+  // — the engine ships ~25KB of source over multiple cljc files +
+  // pulls in a priority-map dep; the operator inspection UX is a dev-
+  // only concern, never a production one.
+  //
+  // Sentinels are distinctive identifiers from editscript's source —
+  // the `editscript.core` + `editscript.diff.a-star` namespaces both
+  // appear in editscript's goog.provide-equivalent + internal
+  // references. A non-zero hit means a `:require` slipped from
+  // tools/xray/* into implementation/*, or the EDN widget's diff path
+  // got referenced outside the Xray preload-gated tree.
+  {
+    name: 'editscript',
+    internalSentinels: [
+      // editscript's core namespace name as a literal string.
+      { source: 'editscript diff engine core namespace (editscript.core)',
+        sentinel: 'editscript.core' },
+      // editscript's A* diff algorithm namespace.
+      { source: 'editscript A* diff algorithm namespace (editscript.diff.a_star)',
+        sentinel: 'editscript.diff.a_star' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
 ];
 
 // ----- helpers ---------------------------------------------------------------

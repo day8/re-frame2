@@ -1336,7 +1336,7 @@ Each step renders a uppercase badge pill at its numbered circle:
 > surfaces every `:dispatch` / `:dispatch-n` / `:dispatch-later` fx entry
 > per row. APP-DB DIFF (originally rf2-rrykz, dropped earlier same session
 > in commit `ee9def224`) is redundant with the HANDLER step's `:db`
-> sub-section + its `[diff][all]` toggle, which surfaces the same data
+> sub-section + its `[diff][full][full+diff]` toggle (§9.1.5.1), which surfaces the same data
 > in-context. The projection's `badge-set` enforces the 8-entry inventory.
 
 The inventory is LOCKED — the projection's `badge-set` enforces
@@ -1490,6 +1490,86 @@ check against the trace stream — no spec read, no registry lookup,
 no replay. The substrate enhancements in #2155 (rf2-82a0u) are the
 prerequisite that lets every cascade row read directly off the
 trace.
+
+#### §9.1.5.1 HANDLER `:db` view-mode toggle — three-mode `[diff][full][full+diff]` (rf2-n2jig)
+
+The HANDLER step's `:db` sub-section carries a three-button toggle:
+
+| Mode | Label | Renders |
+|------|-------|---------|
+| `:diff`      | `diff`      | Flat path-prefixed change list (one row per change). |
+| `:full`      | `full`      | Full post-cascade `:db-after` via the edn-inspector. No diff chrome. |
+| `:full+diff` | `full+diff` | **Mode-3** — full data tree WITH inline diff annotations per the R1-R8 grammar below. |
+
+**Default**: `:full+diff` (Mike pair-debug 2026-05-27 — the operator's
+most-useful default; shape + delta in one read). Mode persists via
+`:rf.xray.epoch/db-view-mode` so the operator's preference survives
+focus shifts.
+
+> **Migration**: the prior two-button `[diff][all]` toggle was retired
+> 2026-05-27 (pre-alpha, no shim). The `:all` enum value migrates to
+> `:full` at sub-read time so any persisted-app-db reads from a pre-
+> rf2-n2jig session resolve cleanly.
+
+**Diff engine**: Editscript A* (`juji/editscript` 0.6.5). Replaces the
+home-grown leaf-walker classifier wholesale (10 fns retired at
+`tools/xray/src/.../views/edn_inspector.cljs:533-664`). Pure-data
+edit-script output as EDN — `[[[path] :+ value] [[path] :- ]
+[[path] :r value]]` — feeds the projection layer at
+`day8.re-frame2-xray.diff.engine`, which emits `{:path-ops
+:container-ops :flat-rows :wholly-changed-roots :shift-suffix
+:vector-removals}`. The renderer chrome reads off this projection;
+the engine swap is invisible to the chrome, only the classifier
+flips.
+
+**Mode-3 grammar (R1-R8)** — implements the rules from
+`diff-mode-3-key-and-triangle-grammar` findings doc §5.1 (revised
+per §7 with Mike's pair-debug answers):
+
+- **R1**: value-side `~` gutter glyph for modified scalars + `←
+  changed from <prior>` italic muted suffix.
+- **R2**: key-side `+` / `−` glyph at column 1 of the key row
+  when the KEY itself is `:added` / `:removed`. Strike-through
+  reaches the key text for `:removed`.
+- **R3 (revised)**: container triangle stays default
+  `:text-tertiary` always (no colour swap). When COLLAPSED (`▶`)
+  AND the subtree carries change, a `[N∆]` count chip appears
+  after the closing ellipsis: `▶ :user {…} [3∆]`. No per-op
+  breakdown — single count only.
+- **R4**: single 2px vertical rail in the gutter through each
+  change-bearing subtree, in the dominant-op hue. Drawn at each
+  container body's left border; no nested rails at the same
+  indent because each container's body is indented further than
+  its parent.
+- **R5 (revised)**: wholly-new / wholly-removed subtrees
+  reclassify to `:added` / `:removed` at the parent. Descendant
+  gutter GLYPHS + 2px STRIPES are suppressed; descendant row
+  WASHES are RETAINED (low-opacity tint). Operator scrolled into
+  the middle of a 20-leaf added shard still reads green.
+- **R6**: vector shift-detection via Editscript's A* + Myers
+  underpinnings. Shifted-but-equal rows carry a `(was N)` muted
+  suffix in `:text-tertiary` and NO gutter glyph (new op
+  classification `:same-shifted`). Removed elements live on a
+  separate `:vector-removals` channel keyed by parent path
+  (the after-tree has no stable path identity for the deleted
+  element).
+- **R7**: type-change containers reclassify to `:modified`. New
+  value renders in the value column; `← was <prior>` suffix via
+  the `mini` renderer (falling back to "<type> with N keys"
+  when `mini` overflows).
+- **R8**: one-sided `:rf/redacted` renders as `:modified` with
+  curated `← was redacted` / `← now redacted` suffix (no
+  sentinel text leak). Two-sided redacted classifies as `:same`
+  for v1; propagating "underlying-differs" is a follow-on bead.
+
+**Default-expanded-depth**: 3 in mode-3 specifically (per Q4 — between
+browse's 1 and diff's 2; deep enough to surface most app-db top-level
+shards). Other modes keep their existing defaults.
+
+**Canonical visual reference**: the Story variants under
+`tools/xray/testbeds/panel_gallery/` exercise every R-rule + scenario
++ theme/density case. To see what R5 looks like, see story
+`diff-mode-3/r5-wholly-new-subtree`.
 
 ### §9.1.6 Numbered cascade chrome
 
@@ -1875,7 +1955,7 @@ The accompanying view-layer chrome:
 > **Retired pair-debug 2026-05-26** in Mike's commit `ee9def224`. The
 > APP-DB DIFF step was a state-mutation lens that rode immediately after
 > HANDLER. It was redundant with HANDLER's `:db` sub-section + its
-> `[diff][all]` toggle, which surfaces the same data in-context. The
+> `[diff][full][full+diff]` toggle (§9.1.5.1), which surfaces the same data in-context. The
 > projection no longer emits this step and the `badge-set` no longer
 > carries `:APP-DB-DIFF`. Section retained as a stub for searchability;
 > historical design intent is reachable via the bead history (rf2-rrykz
