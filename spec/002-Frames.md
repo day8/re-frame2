@@ -606,7 +606,9 @@ Example (Xray's HANDLER `:db` view-mode toggle, the bead's bug-class instance):
        [:button {:on-click #(on-click % m)} (name m)])]))
 ```
 
-Without `frame-bound-fn`, every dispatch site needs `{:frame :rf/xray}` opt explicitly — a per-call discipline that has repeatedly failed (sibling beads rf2-7sdja popup, rf2-kcaiz zoom, rf2-p56sk subs-toggle, rf2-tvu99 epoch :db toggle). The wrap makes the surface impossible to misuse: the callback ALWAYS dispatches in the wrapped frame, regardless of how many dispatches happen inside it or how deep the call chain goes.
+Without `frame-bound-fn`, every dispatch site needs `{:frame :rf/xray}` opt explicitly — verbose at every callsite, and brittle in any case where `*current-frame*` is genuinely lost across an async boundary that fires after the surrounding `with-frame` / `frame-provider` has unwound. The wrap captures the frame at construction time and closes over it: the callback ALWAYS dispatches in the wrapped frame, regardless of how many dispatches happen inside it or how deep the async / call chain goes.
+
+> **See also**: [006 §Lazy-seq deref tracking (Reagent adapter)](006-ReactiveSubstrate.md#lazy-seq-deref-tracking-reagent-adapter-rf2-atqkg) for an adjacent but DIFFERENT bug class — "view doesn't update on click" that looks superficially like "frame lost across React onClick" but is actually a Reagent reactive-tracking failure. Reach for `frame-bound-fn` when you have a genuine async-boundary case (timer, promise, websocket); reach for `doall` / `mapv` when a `(for …)` in a `reg-view` body holds the deref. Per rf2-atqkg the two failure modes are not interchangeable.
 
 #### Other async callbacks (timers, promises, websocket messages)
 
