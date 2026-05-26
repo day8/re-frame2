@@ -619,16 +619,21 @@
       (op->gutter-glyph op)]
      [:span {:style {:flex 1 :min-width 0}} body]]))
 
+(def ^:private change-annotation-style
+  "Style for the inline `← changed from <prior>` chip rendered to the
+  right of a diff'd leaf."
+  {:margin-left "8px"
+   :color       (:text-secondary tokens)
+   :font-family sans-stack
+   :font-size   "11px"
+   :font-style  "italic"})
+
 (defn- change-annotation
   "Inline `← changed from <prior>` chip rendered to the right of a
   diff'd leaf. Pure hiccup."
   [before]
   [:span {:data-rf-diff-annotation "1"
-          :style {:margin-left "8px"
-                  :color       (:text-secondary tokens)
-                  :font-family sans-stack
-                  :font-size   "11px"
-                  :font-style  "italic"}}
+          :style change-annotation-style}
    (str "← changed from " (try (pr-str before)
                                (catch :default _ (str before))))])
 
@@ -644,12 +649,20 @@
     (pr-str s)
     (catch :default _ (str "\"" s "\""))))
 
-(defn- token-style
+(def ^:private token-style
+  ;; Memoized — `tokens` is a static const map of CSS-variable strings
+  ;; (e.g. `:syntax-keyword` resolves to `"var(--rf-xray-syntax-keyword)"`)
+  ;; so the returned map is identity-stable per `token-key`; the cache
+  ;; is bounded by the size of the syntax-token vocabulary (~10 keys).
+  ;; Called 25+ times per dense-tree render — the memo elides the
+  ;; per-call map allocation and `get` lookup.
+  ;;
   ;; `:font-family` not set — inherits `mono-stack` from the widget's
   ;; outer wrapper (and from `mini`'s wrapping span when called from
   ;; there). Single-property style keeps the per-call hiccup small.
-  [token-key]
-  {:color (get tokens token-key)})
+  (memoize
+    (fn [token-key]
+      {:color (get tokens token-key)})))
 
 (defn render-scalar
   "Render a single non-collection value as `[:span ...]` hiccup. Pure
@@ -1143,6 +1156,48 @@
    :line-height     1
    :color           (:text-secondary tokens)})
 
+;; ---- recurring style maps lifted to module-level defs --------------------
+;;
+;; The body wrappers + grid cells render once per expanded container — at
+;; depth N with M children that's N*M map allocations per render.
+;; Hoisting the static map out of the call site eliminates the per-call
+;; rebuild and gives Reagent stable identity for the style attr (lets
+;; React skip the inline-style diff when the value hasn't changed).
+;; `tokens` reads resolve to CSS-variable strings (theme-aware at paint
+;; time), so the captured value stays valid across theme switches.
+
+(def ^:private body-grid-style
+  "Style for an expanded map / record / map-entry body — children laid
+  out on a 2-column grid (key | value) so values column-align across
+  rows of the same map."
+  {:margin-left          "11px"
+   :padding-left         "6px"
+   :border-left          (str "1px solid " (:border-subtle tokens))
+   :display              "grid"
+   :grid-template-columns "max-content 1fr"
+   :column-gap           "8px"
+   :row-gap              "0"
+   :align-items          "baseline"})
+
+(def ^:private body-block-style
+  "Style for an expanded sequential body (vector / list / set / seq) —
+  block flow, no key column. Shared with the protocol-render body so
+  the indent + guide line are consistent across both paths."
+  {:margin-left  "11px"
+   :padding-left "6px"
+   :border-left  (str "1px solid " (:border-subtle tokens))})
+
+(def ^:private key-cell-style
+  "Style for a key cell inside `body-grid-style`. `nowrap` prevents a
+  long namespaced key from wrapping inside the key column."
+  {:white-space "nowrap"})
+
+(def ^:private value-cell-style
+  "Style for a value cell inside `body-grid-style`. `min-width 0` lets
+  the `1fr` track honour wider intrinsic-content values without
+  pushing past the grid's allotment."
+  {:min-width 0})
+
 (defn- on-toggle
   "Build the click handler for a node's `▸`/`▾` glyph.
   Dispatches the toggle event via `dispatch-fn` — the lexically-
@@ -1502,15 +1557,7 @@
            ;; tree reads as `▾ { │ keys │ }` recursively at every depth.
            (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
                         :data-rf-body-layout "grid"
-                        :style {:margin-left          "11px"
-                                :padding-left         "6px"
-                                :border-left          (str "1px solid "
-                                                           (:border-subtle tokens))
-                                :display              "grid"
-                                :grid-template-columns "max-content 1fr"
-                                :column-gap           "8px"
-                                :row-gap              "0"
-                                :align-items          "baseline"}}]
+                        :style body-grid-style}]
                  (mapcat
                    (fn [[k cv cb]]
                      (let [child-path (conj (vec path) k)
@@ -1532,21 +1579,12 @@
                           ;; deeply-namespaced `:rf.x.with.many.parts/k`)
                           ;; from wrapping inside the key column.
                           [:div {:data-rf-cell "key"
-                                 :style {:white-space "nowrap"}}
+                                 :style key-cell-style}
                            (key-segment k)]
                           {:key (str "k-" (pr-str k))})
                         (with-meta
-                          ;; Value cell — `div` so nested containers
-                          ;; (their own block-level expanded body)
-                          ;; place inside this cell without span-vs-
-                          ;; block validation issues. `min-width 0`
-                          ;; protects against overflow when the value
-                          ;; is wider than the grid column allotment
-                          ;; (the `1fr` track stretches but won't
-                          ;; shrink below the value's intrinsic width
-                          ;; without this).
                           [:div {:data-rf-cell "value"
-                                 :style {:min-width 0}}
+                                 :style value-cell-style}
                            value-node]
                           {:key (str "v-" (pr-str k))})]))
                    child-pairs))
@@ -1561,10 +1599,7 @@
            ;; padding-left.
            (into [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
                         :data-rf-body-layout "block"
-                        :style {:margin-left  "11px"
-                                :padding-left "6px"
-                                :border-left  (str "1px solid "
-                                                   (:border-subtle tokens))}}]
+                        :style body-block-style}]
                  (map
                    (fn [[k cv cb]]
                      (let [child-path (conj (vec path) k)]
@@ -1635,9 +1670,7 @@
            ;; visual centre (~16px from row left), body content with a
            ;; 6px breath beyond the line.
            [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
-                  :style {:margin-left  "11px"
-                          :padding-left "6px"
-                          :border-left  (str "1px solid " (:border-subtle tokens))}}
+                  :style body-block-style}
             body])]))))
 
 (defn- render-leaf-with-diff
