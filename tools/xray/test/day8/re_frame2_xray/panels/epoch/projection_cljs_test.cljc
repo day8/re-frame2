@@ -18,8 +18,8 @@
        `:rf.event/run-end` stamp fallback.
     3. `handler-row` — flavour discrimination (reg-event-db /
        reg-event-fx / reg-machine) from the trace stream.
-    4. `flow-step` — conditional: present iff `:rf.flow/recomputed`
-       fired.
+    4. `flow-step` — conditional: present iff `:rf.flow/computed`
+       fired (rf2-yhgk8 — substrate-canonical op-name).
     5. `fx-step` — conditional: present iff any `:rf.fx/*` event fired.
     6. `subscriptions-step` — conditional: present iff `:rf.sub/*`
        events fired.
@@ -95,24 +95,18 @@
                              :rf.fx/elapsed-ms  duration-ms}))
 
 (defn- flow-recomputed-ev
-  ;; rf2-e0xjx — substrate stamps flow-recomputes under the
+  ;; rf2-yhgk8 — substrate stamps flow-recomputes under the
   ;; `:rf.flow/computed` operation with bare `:flow-id`, `:path`,
-  ;; `:before`, `:result`, `:elapsed-ms` (Spec 009 §Flow trace events
-  ;; · `re-frame.flows`). The pre-bead-2 fixture mirrored the buggy
-  ;; reader's `:rf.flow/recomputed` op + `:rf.flow/id|path|before|after`
-  ;; tags — the fixture-co-bug pattern that hid rf2-yhgk8 from tests
-  ;; and gallery. This builder now stamps the canonical op + tags
-  ;; alongside the legacy ones so the still-buggy reader keeps
-  ;; passing existing tests; rf2-yhgk8 drops the legacy companion.
+  ;; `:before`, `:result`, `:elapsed-ms` tags (Spec 009 §Flow trace
+  ;; events · `re-frame.flows`). Fixture mirrors substrate shape; the
+  ;; reader now reads against canonical names. Name retained as
+  ;; `flow-recomputed-ev` for call-site stability; the operation /
+  ;; tags are canonical.
   [flow-id path before after]
-  (ev :rf.flow :rf.flow/recomputed {:rf.flow/id     flow-id
-                                    :rf.flow/path   path
-                                    :rf.flow/before before
-                                    :rf.flow/after  after
-                                    :flow-id        flow-id
-                                    :path           path
-                                    :before         before
-                                    :result         after}))
+  (ev :rf.flow :rf.flow/computed {:flow-id flow-id
+                                  :path    path
+                                  :before  before
+                                  :result  after}))
 
 (defn- sub-run-ev
   [sub-vec changed? before after]
@@ -605,6 +599,44 @@
       (is (= :FLOW (:badge s)))
       (is (= 1 (count (:rows s))))
       (is (= :total-parity (-> s :rows first :flow-id))))))
+
+(deftest flow-rows-reads-canonical-substrate-shape-test
+  (testing "rf2-yhgk8 — substrate emits `:rf.flow/computed` with BARE
+            `:flow-id` / `:path` / `:before` / `:result` / `:elapsed-ms`
+            tags (Spec 009 §Flow trace events · `re-frame.flows`). The
+            pre-rf2-yhgk8 reader looked for `:rf.flow/recomputed` op +
+            `:rf.flow/{id,path,before,after}` tags — every slot
+            returned nil and the FLOW step silently dropped. The
+            view-side `:after` maps to the substrate's `:result`."
+    (let [ev {:op-type   :rf.flow
+              :operation :rf.flow/computed
+              :tags      {:flow-id    :cart/total
+                          :path       [:cart :total]
+                          :before     120
+                          :result     195
+                          :elapsed-ms 0.7}}
+          rows (proj/flow-rows [ev])]
+      (is (= 1 (count rows)))
+      (let [r (first rows)]
+        (is (= :cart/total      (:flow-id r)))
+        (is (= [:cart :total]   (:path r)))
+        (is (= 120              (:before r)))
+        (is (= 195              (:after r))
+            ":after is the view-side label; substrate stamps `:result`")
+        (is (= 0.7              (:duration-ms r))
+            "duration reads `:elapsed-ms`")))))
+
+(deftest flow-rows-empty-against-legacy-shape-test
+  (testing "rf2-yhgk8 — a trace event under the LEGACY `:rf.flow/recomputed`
+            op (pre-canonical fixture shape) produces no flow rows; the
+            reader is canonical-only post-fix"
+    (let [ev {:op-type   :rf.flow
+              :operation :rf.flow/recomputed
+              :tags      {:rf.flow/id    :legacy/flow
+                          :rf.flow/path  [:x]
+                          :rf.flow/after 1}}]
+      (is (= [] (proj/flow-rows [ev]))
+          "legacy op-name produces zero rows — no silent fallthrough"))))
 
 ;; ---- FX -----------------------------------------------------------------
 

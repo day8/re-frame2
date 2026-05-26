@@ -132,28 +132,19 @@
                               :rf.fx/elapsed-ms  duration-ms})))
 
 (defn- flow-recomputed-ev
-  "`:rf.flow/recomputed` trace — drives the FLOW step.
+  "`:rf.flow/computed` trace — drives the FLOW step.
 
-  rf2-e0xjx — the substrate actually stamps the `:rf.flow/computed`
-  operation (NOT `:rf.flow/recomputed`) with bare `:flow-id`,
-  `:path`, `:before`, `:result`, `:elapsed-ms` tags (Spec 009 §Flow
-  trace events · `re-frame.flows`). The pre-rf2-e0xjx fixture mirrored
-  the buggy reader's drifted tag-names — the fixture-co-bug pattern
-  that hid rf2-yhgk8 from the test suite + gallery. This builder now
-  stamps the canonical op-name + tags alongside the legacy ones so
-  the still-buggy reader keeps passing existing tests; rf2-yhgk8
-  swaps the reader to canonical and drops the legacy companion."
+  rf2-yhgk8 — substrate stamps the `:rf.flow/computed` operation with
+  bare `:flow-id` / `:path` / `:before` / `:result` / `:elapsed-ms`
+  tags (Spec 009 §Flow trace events · `re-frame.flows`). The name
+  `flow-recomputed-ev` is retained for call-site stability; the
+  payload is canonical."
   [flow-id path before after]
-  (ev :rf.flow :rf.flow/recomputed {:rf.flow/id     flow-id
-                                    :rf.flow/path   path
-                                    :rf.flow/before before
-                                    :rf.flow/after  after
-                                    :duration-ms    0.4
-                                    :flow-id        flow-id
-                                    :path           path
-                                    :before         before
-                                    :result         after
-                                    :elapsed-ms     0.4}))
+  (ev :rf.flow :rf.flow/computed {:flow-id    flow-id
+                                  :path       path
+                                  :before     before
+                                  :result     after
+                                  :elapsed-ms 0.4}))
 
 (defn- sub-run-ev
   "`:rf.sub/run` trace — drives one SUBSCRIPTIONS row. Per rf2-kfh1v

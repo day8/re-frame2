@@ -10,7 +10,7 @@
   surfaced in this epoch:
 
   - no `:rf.cofx/run` events → no COEFFECT rows
-  - no `:rf.flow/recomputed` events → no FLOW step
+  - no `:rf.flow/computed` events → no FLOW step
   - no `:rf.fx/handled` events → no FX step
   - HANDLER step adapts to the handler's flavour:
       reg-event-db / reg-event-fx / reg-machine
@@ -583,21 +583,25 @@
 (defn flow-rows
   "Project flow-recompute events into rows. Each row carries
   `:flow-id`, `:path` (the db path the flow wrote), and optional
-  before/after values when the substrate stamps them. Empty vec when
-  no flow fired this epoch.
+  before/after values. Empty vec when no flow fired this epoch.
 
-  Reads `:rf.flow/recomputed` (the standard recompute trace) +
-  `:rf.flow/run-end` (the per-flow duration carrier) defensively so
-  fixtures that emit either op surface a row."
+  Per rf2-yhgk8 the substrate stamps the canonical
+  `:rf.flow/computed` operation with BARE `:flow-id` / `:path` /
+  `:before` / `:result` / `:elapsed-ms` tags (Spec 009 §Flow trace
+  events · `re-frame.flows`). The pre-rf2-yhgk8 reader looked for
+  the never-emitted `:rf.flow/recomputed` op + `:rf.flow/{id,path,
+  before,after}` tags — every FLOW slot returned nil and the cascade
+  silently dropped the step (the row's view-side `:after` maps to the
+  substrate's `:result`)."
   [events]
-  (let [evs (filter-op events :rf.flow/recomputed)]
+  (let [evs (filter-op events :rf.flow/computed)]
     (vec
       (for [ev evs]
-        {:flow-id     (common/tag-of ev :rf.flow/id)
-         :path        (common/tag-of ev :rf.flow/path)
-         :before      (common/tag-of ev :rf.flow/before)
-         :after       (common/tag-of ev :rf.flow/after)
-         :duration-ms (common/tag-of ev :duration-ms)}))))
+        {:flow-id     (common/tag-of ev :flow-id)
+         :path        (common/tag-of ev :path)
+         :before      (common/tag-of ev :before)
+         :after       (common/tag-of ev :result)
+         :duration-ms (common/tag-of ev :elapsed-ms)}))))
 
 (defn flow-step
   "Top-level FLOW step (single row carrying the flow-rows). nil when no
