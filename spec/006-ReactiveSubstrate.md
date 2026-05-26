@@ -1071,6 +1071,31 @@ The tracking is "when source X changes, recompute everyone who depends on X" —
 
 In CLJS dev-mode tests, you often want sub computation without tracking: `(compute-sub [:total] db-value)` runs the sub's body against a static `app-db` value and returns the computed result. Pure function. No Reagent, no reactions. This is the "JVM-runnable" path that [008-Testing](008-Testing.md) and [011-SSR](011-SSR.md) use.
 
+### Lazy-seq deref tracking (Reagent adapter; rf2-atqkg)
+
+The Reagent adapter (and any React-shaped adapter whose render-time deref tracking uses a thread-local / dynamic-var reactive scope) only watches `@(rf/subscribe …)` derefs that fire **while the parent reg-view's render-fn is on the stack**. A `(for [x xs] [child …])` form returns a *lazy seq*; if the seq is still unrealised at the moment the render-fn returns, every deref hiding in its body fires later — when React eventually walks the hiccup — at which point the reactive scope is gone and Reagent doesn't register the dependency. Symptom: the app-db slot flips, the sub recomputes, the view does NOT re-render until an external repaint forces a fresh render-pass. Reagent surfaces the case with a console warning at render time:
+
+```
+Reactive deref not supported in lazy seq, it should be wrapped in doall: (…)
+```
+
+The fix is to **realise the seq inside the render-fn** so derefs reachable through it fire while the reactive scope is still live. Three idiomatic shapes, pick whichever reads cleanest at the call site:
+
+```clojure
+;; (1) doall — minimum change, keeps the (for …) shape
+(doall (for [row @some-sub] [row-view row]))
+
+;; (2) mapv — eager vector; reads well when no :when / :let / :while
+(mapv row-view @some-sub)
+
+;; (3) into … with-transducer or fragment — eager, composes with siblings
+(into [:<>] (map row-view) @some-sub)
+```
+
+Pure helpers called from inside the seq's body inherit the same rule: any `@(rf/subscribe …)` reachable transitively from a *function call* (not a `[component args]` Reagent component-vector — those get their own reactive scope when React mounts them) MUST be reachable through a realised seq. Reagent components ride their own reactive scopes; raw render helpers ride the parent's. The audit shape is "follow every plain-fn call inside a `(for …)` body; if any of them — directly or via further helpers — derefs a sub, the `for` MUST be realised".
+
+This is a Reagent-substrate concern, not a core-framework one. Non-React substrates that wire reactivity through hooks (UIx, Helix) use `use-subscribe` per-call-site, which captures the dependency at hook-call time regardless of when the surrounding seq realises — they are immune to the lazy-seq trap by construction. Core's `compute-sub` is pure and orthogonal: no tracking, no scope.
+
 ## SSR-specific behaviour
 
 Per [011](011-SSR.md), the server-side render path doesn't use the adapter's reactivity machinery at all. The flow:

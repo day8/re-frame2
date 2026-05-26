@@ -2347,15 +2347,29 @@
                     :width       "1px"
                     :background  (:border-default tokens)
                     :pointer-events "none"}}]
-     ;; Steps
-     (for [[i step] (map-indexed vector steps)]
-       ^{:key (str "step-" (:step step) "-" i)}
-       [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
-              :data-step (when (:step step) (name (:step step)))
-              :style {:position     "relative"
-                      :margin-bottom "23px"
-                      :min-height   "21px"}}
-        (render-step step ctx)])]]))
+     ;; Steps — `doall` forces the lazy `for` to realise INSIDE the
+     ;; reg-view's render scope (rf2-atqkg). `render-step` returns
+     ;; hiccup whose descendants (e.g. `handler-db-diff-block`,
+     ;; `render-subscriptions-step`) deref subs directly via
+     ;; `@(rf/subscribe …)`. Reagent only tracks derefs that fire
+     ;; while the parent reg-view's reactive context is live; a
+     ;; lazy seq realised AFTER the render pass leaves those derefs
+     ;; outside the scope, so sub-value changes don't trigger a
+     ;; re-render (symptom: the operator clicks `[diff][all]`, the
+     ;; sub flips in app-db, the cascade reads the new value, but
+     ;; the panel hiccup stays stale). `doall` plus the `(for …)`
+     ;; preserves the original code shape; the realised seq lets
+     ;; Reagent see every nested deref at render time. See spec/006
+     ;; §Lazy-seq deref tracking.
+     (doall
+       (for [[i step] (map-indexed vector steps)]
+         ^{:key (str "step-" (:step step) "-" i)}
+         [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
+                :data-step (when (:step step) (name (:step step)))
+                :style {:position     "relative"
+                        :margin-bottom "23px"
+                        :min-height   "21px"}}
+          (render-step step ctx)]))]]))
 
 ;; ---- empty states --------------------------------------------------------
 
