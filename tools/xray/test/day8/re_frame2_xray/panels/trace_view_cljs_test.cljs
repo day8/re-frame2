@@ -49,6 +49,7 @@
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.trace :as trace]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -143,6 +144,8 @@
     (registry/register-xray-handlers!)
     (is (some? (registrar/handler :sub :rf.xray/trace-feed))
         ":rf.xray/trace-feed sub registered")
+    (is (some? (registrar/handler :sub :rf.xray.trace/focused-cascade))
+        ":rf.xray.trace/focused-cascade layer-3 sub registered (rf2-wcfsy)")
     (is (some? (registrar/handler :sub :rf.xray/trace-expanded-row-ids))
         ":rf.xray/trace-expanded-row-ids sub registered")
     (is (some? (registrar/handler :sub :rf.xray/trace-collapsed-band-ids))
@@ -521,6 +524,87 @@
       (let [feed @(rf/subscribe [:rf.xray/trace-feed])]
         (is (= #{3 4 5} (set (map :id (:rows feed)))))
         (is (= 2 (:epoch-id feed)))))))
+
+;; ---- (4b) focused-cascade layer-3 sub (rf2-wcfsy) ----------------------
+;;
+;; The Trace panel reads the focused cascade record via the layer-3
+;; composite `:rf.xray.trace/focused-cascade` rather than scanning the
+;; full cascades vector inline in its render body. The sub composes
+;; over `:rf.xray/cascades` + `:rf.xray/focus`; its result is the
+;; cascade whose `:dispatch-id` matches the focus' `:dispatch-id`, or
+;; nil when no focus is pinned.
+
+(defn- mk-cascade-trace
+  "Seed a synthetic `:rf.event/dispatched` trace event into Xray's
+  trace buffer so `group-cascades` yields one cascade record per
+  dispatch-id. Mirrors the seeding pattern in registry_cljs_test.cljs
+  so the data-layer pipe matches production."
+  [dispatch-id event-vec]
+  (trace-collector/seed-trace-for-test!
+    {:operation :rf.event/dispatched
+     :op-type   :rf.event
+     :id        dispatch-id
+     :time      (* dispatch-id 1000)
+     :tags      {:rf.trace/dispatch-id dispatch-id
+                 :rf.event/v           event-vec
+                 :rf.trace/event-id    (first event-vec)
+                 :frame                :rf/default}}))
+
+(deftest focused-cascade-sub-nil-when-cascades-empty
+  (testing "rf2-wcfsy — with no cascades + no focus the composite
+            returns nil (the inline scan's
+            `(when focused-id ...)` guard preserved). The spine
+            composer auto-snaps focus to head only when cascades
+            exist, so the truly-empty case is the structural nil
+            path."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (is (= 0 (count @(rf/subscribe [:rf.xray/cascades])))
+          "no cascades in the input signal")
+      (is (nil? (:dispatch-id @(rf/subscribe [:rf.xray/focus])))
+          "no focus pinned + no head → focused-id is nil")
+      (is (nil? @(rf/subscribe [:rf.xray.trace/focused-cascade]))
+          "focused-id nil → composite returns nil"))))
+
+(deftest focused-cascade-sub-returns-matching-cascade
+  (testing "rf2-wcfsy — when focus is pinned the composite returns the
+            cascade whose :dispatch-id matches focus :dispatch-id;
+            same record-shape the previous inline scan returned"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (mk-cascade-trace 1 [:cart/add])
+      (mk-cascade-trace 2 [:cart/remove])
+      (mk-cascade-trace 3 [:checkout/start])
+      (focus! 2)
+      (let [result @(rf/subscribe [:rf.xray.trace/focused-cascade])]
+        (is (some? result) "the focused cascade record is returned")
+        (is (= 2 (:dispatch-id result))
+            "the returned cascade's :dispatch-id matches the focus")
+        (is (= [:cart/remove] (:event result))
+            "the returned record carries the cascade's :event vector")))))
+
+(deftest focused-cascade-sub-nil-when-focus-misses
+  (testing "rf2-wcfsy — focus pinned to a :dispatch-id that's not in
+            the cascades vector → nil (the previous inline scan's
+            `some` returned nil in this case; same shape)"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (mk-cascade-trace 1 [:cart/add])
+      (focus! 999)
+      (is (nil? @(rf/subscribe [:rf.xray.trace/focused-cascade]))
+          "focused-id with no matching cascade → nil"))))
+
+(deftest focused-cascade-sub-rescopes-on-refocus
+  (testing "rf2-wcfsy — refocusing changes the returned cascade
+            record (reactivity wired through the composite signals)"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (mk-cascade-trace 1 [:cart/add])
+      (mk-cascade-trace 2 [:cart/remove])
+      (focus! 1)
+      (is (= 1 (:dispatch-id @(rf/subscribe [:rf.xray.trace/focused-cascade]))))
+      (focus! 2)
+      (is (= 2 (:dispatch-id @(rf/subscribe [:rf.xray.trace/focused-cascade])))))))
 
 ;; ---- (5) row interactions -----------------------------------------------
 

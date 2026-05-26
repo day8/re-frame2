@@ -630,12 +630,13 @@
   []
   (let [{:keys [envelope outcome bands empty-kind] :as _data}
         @(rf/subscribe [:rf.xray/trace-feed])
-        cascades        @(rf/subscribe [:rf.xray/cascades])
+        ;; rf2-wcfsy — focused-cascade is a layer-3 composite over
+        ;; `:rf.xray/cascades` + `:rf.xray/focus`, NOT an inline scan in
+        ;; the render body. The composite memoises on its two input
+        ;; signals so the scan only re-runs when cascades / focus
+        ;; actually change (rather than every Panel render).
         focus           @(rf/subscribe [:rf.xray/focus])
-        focused-id      (:dispatch-id focus)
-        focused-cascade (when focused-id
-                          (some #(when (= focused-id (:dispatch-id %)) %)
-                                cascades))
+        focused-cascade @(rf/subscribe [:rf.xray.trace/focused-cascade])
         expanded-ids    @(rf/subscribe [:rf.xray/trace-expanded-row-ids])
         collapsed-bands @(rf/subscribe [:rf.xray/trace-collapsed-band-ids])]
     [:section {:data-testid "rf-xray-trace"
@@ -728,6 +729,35 @@
             record         (focus/find-epoch-record focus-epoch-id
                                                     epoch-history)]
         (h/project-feed-from-epoch record focus-status))))
+
+  ;; ---- focused cascade (rf2-wcfsy) -----------------------------------
+  ;;
+  ;; Layer-3 composite over `:rf.xray/cascades` + `:rf.xray/focus`. The
+  ;; Trace panel reads this directly instead of scanning the cascades
+  ;; vector in its render body (the previous shape: a linear
+  ;; `(some #(when (= focused-id (:dispatch-id %)) %) cascades)` that
+  ;; ran on every Panel render — O(N) over the cascades vector, defeats
+  ;; memoisation because the result was reconstructed per render).
+  ;;
+  ;; As a layer-3 composite the scan only re-runs when its input
+  ;; signals (cascades or focus) actually change. The result is the
+  ;; same record `(some #(= focused-id (:dispatch-id %)) cascades)`
+  ;; would return — so the downstream `cascade-status-bar` call site
+  ;; continues to work verbatim.
+  ;;
+  ;; Why both input subs are still subscribed in the Panel: the Panel
+  ;; passes `focus` itself (not just the focused-cascade) into
+  ;; `cascade-status-bar`, so it still needs the focus signal. The
+  ;; cascades sub feeds many other panels (L2 list, Issues ribbon, …);
+  ;; reg-sub de-dupes the underlying signal so subscribing here costs
+  ;; nothing extra.
+  (rf/reg-sub :rf.xray.trace/focused-cascade
+    :<- [:rf.xray/cascades]
+    :<- [:rf.xray/focus]
+    (fn [[cascades focus] _query]
+      (let [focused-id (:dispatch-id focus)]
+        (when focused-id
+          (some #(when (= focused-id (:dispatch-id %)) %) cascades)))))
 
   ;; ---- per-row inline payload expansion (spec/023 §3) ----------------
   ;;
