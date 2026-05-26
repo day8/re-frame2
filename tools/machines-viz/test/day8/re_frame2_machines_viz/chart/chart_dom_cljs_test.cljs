@@ -42,8 +42,7 @@
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-machines-viz.adapters.react-chart :as react-chart]
-            [day8.re-frame2-machines-viz.chart.layout :as layout]
-            [day8.re-frame2-machines-viz.visual-constants :as vc]))
+            [day8.re-frame2-machines-viz.chart.layout :as layout]))
 
 ;; ---- sample machines ----------------------------------------------------
 
@@ -56,9 +55,11 @@
              :failed  {:final? true}}})
 
 (def ^:private tagged-machine
-  "A machine whose idle state carries a state-tag, so the tag-pill DOM
-  (whose height/px/radius track the resolved density) is assertable
-  (rf2-k647w density-render pin)."
+  "A machine whose idle state carries a state-tag, so the tags surface
+  on the state-node (data-tags + title attr, rf2-so5b0) is assertable.
+  Pre-rf2-so5b0 this machine drove the visible tag-pill density tests
+  (rf2-k647w); since tag pills retired in favour of a hover-only
+  tooltip, the same fixture exercises the new attr-surface."
   {:initial :idle
    :states  {:idle    {:tags [:initial-tag] :on {:start :loading}}
              :loading {:on {:done :idle}}}})
@@ -264,15 +265,6 @@
 
 ;; ---- :density prop (rf2-k647w) ------------------------------------------
 
-(defn- tag-pill-height-px
-  "Read the integer px height off the first state-tag pill's inline
-  style (the pill's height tracks the resolved density per rf2-k647w).
-  Returns nil when no pill is present."
-  [^js node]
-  (when-let [pill (.querySelector node "[data-testid^=\"rf-mv-chart-state-tag-\"]")]
-    (let [h (.. pill -style -height)]            ;; e.g. "16px"
-      (js/parseInt h 10))))
-
 (deftest chart-data-density-defaults-to-regular
   (testing "rf2-k647w — omitting :density surfaces data-density=\"regular\"
             on the chart root (nil ≡ regular, the historical default)"
@@ -300,43 +292,76 @@
           (fn [root _node]
             (is (= "cosy" (.getAttribute root "data-density")))))))))
 
-(deftest chart-density-changes-tag-pill-geometry
-  (testing "rf2-k647w — :density actually changes the RENDER, not just
-            the attr: the state-tag pill height equals the resolved
-            density's :tag-pill-height (regular 16 / compact 13 / cosy
-            19), proving the renderer reads geometry off the threaded
-            visual-constants instead of a hardcoded literal"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (do
-        (with-mounted-chart
-          {:machine-id :test/tags :definition tagged-machine :density :regular}
-          (fn [_root node]
-            (is (= (:tag-pill-height vc/chart-regular) (tag-pill-height-px node))
-                "regular pill height matches chart-regular")))
-        (with-mounted-chart
-          {:machine-id :test/tags :definition tagged-machine :density :compact}
-          (fn [_root node]
-            (is (= (:tag-pill-height vc/chart-compact) (tag-pill-height-px node))
-                "compact pill height matches chart-compact")))
-        (with-mounted-chart
-          {:machine-id :test/tags :definition tagged-machine :density :cosy}
-          (fn [_root node]
-            (is (= (:tag-pill-height vc/chart-cosy) (tag-pill-height-px node))
-                "cosy pill height matches chart-cosy")))))))
+;; ---- state-node :tags surface (rf2-so5b0) -------------------------------
 
-(deftest chart-default-tag-pill-is-pixel-identical
-  (testing "rf2-k647w — the DEFAULT (no :density) tag-pill height is the
-            shipped-reality 16px. This is the no-visual-regression pin:
-            a host that never passes :density gets exactly the
-            pre-rf2-k647w chart."
+(defn- state-node-el
+  "Return the first `rf-mv-chart-node-*` state-node element in `node`.
+  Returns nil when none is present (e.g. an empty / placeholder chart)."
+  [^js node]
+  (.querySelector node "[data-testid^=\"rf-mv-chart-node-\"]"))
+
+(deftest chart-tags-surface-as-title-attr-not-pills
+  (testing "rf2-so5b0 — user-declared `:tags` (Spec 005) MUST NOT render
+            as visible pill chrome on the chart canvas. The xstate /
+            Stately convention reserves the chart for STRUCTURAL chrome
+            (state name, nesting, transitions). Tags are a programmatic
+            concept the host surfaces in its inspector list — not on the
+            topology — so a nested compound substate is not inflated by
+            a per-tag row that visually competes with the structural
+            label + entry/exit rows.
+
+            Pins:
+
+            1. NO `rf-mv-chart-state-tag-*` pill testid is rendered.
+            2. NO `rf-mv-chart-state-tags` container row is rendered.
+            3. The tag set surfaces on the state-node's `data-tags`
+               attr as a sorted space-joined string (so DOM tests +
+               host introspection still read the tags off the chart).
+            4. The tag set surfaces on the state-node's `title` attr
+               (native HTML hover tooltip) so the operator can still
+               see what tags the state declared, on demand."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/tags :definition tagged-machine}
         (fn [_root node]
-          (is (= 16 (tag-pill-height-px node))
-              "default tag-pill height is the shipped 16px"))))))
+          ;; 1 + 2 — no visible pill row or pill chips.
+          (is (zero? (count-sel node "[data-testid=\"rf-mv-chart-state-tags\"]"))
+              "no visible tag-row container is rendered")
+          (is (zero? (count-sel node "[data-testid^=\"rf-mv-chart-state-tag-\"]"))
+              "no per-tag pill chip is rendered")
+          ;; 3 — data-tags carries the sorted joined tag set on the
+          ;; state-node. `tagged-machine`'s `:idle` declares `[:initial-tag]`.
+          (let [n (state-node-el node)]
+            (is (some? n) "a state-node mounted")
+            (is (= "initial-tag" (.getAttribute n "data-tags"))
+                "data-tags carries the sorted joined tag set")
+            ;; 4 — title attr carries the same string for the hover
+            ;; tooltip affordance.
+            (is (= "initial-tag" (.getAttribute n "title"))
+                "title attr exposes tags for the native hover tooltip")
+            ;; data-tag-count remains for DOM tests that want to assert
+            ;; the count without parsing data-tags.
+            (is (= "1" (.getAttribute n "data-tag-count"))
+                "data-tag-count reflects the tag set's size")))))))
+
+(deftest chart-empty-tag-set-omits-attr
+  (testing "rf2-so5b0 — a state with no declared tags renders an empty
+            `data-tags` attr + no `title` (tags-driven tooltip). The
+            empty-attr posture means DOM tests can pin presence-or-
+            absence by attribute equality without an extra
+            `hasAttribute` round-trip."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/flow :definition idle-loading-done}
+        (fn [_root node]
+          (let [n (state-node-el node)]
+            (is (some? n) "a state-node mounted")
+            (is (= "" (.getAttribute n "data-tags"))
+                "data-tags is the empty string when no tags declared")
+            (is (= "0" (.getAttribute n "data-tag-count"))
+                "data-tag-count is 0 when no tags declared")))))))
 
 ;; ---- empty / nil definition placeholders --------------------------------
 

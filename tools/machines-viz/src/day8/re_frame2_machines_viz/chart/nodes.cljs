@@ -48,6 +48,7 @@
   every substrate; only the Reagent `as-element` glue needs a
   substrate-specific shim."
   (:require ["@xyflow/react" :as xyflow]
+            [clojure.string :as str]
             [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.nodes.parallel-region-node
              :as parallel-region-node]
@@ -124,35 +125,34 @@
     final?          (:green tokens/tokens)
     :else           (:border-default tokens/tokens)))
 
-(defn- tag-pill
-  "Render a single state-tag pill. Hiccup. rf2-k647w — geometry +
-  typography read off the resolved density `vc` map (height / pad-x /
-  px / radius / gap) instead of hardcoded literals."
-  [tag {:keys [tag-pill-height tag-pill-pad-x tag-pill-px
-               tag-pill-radius tag-pill-gap]}]
-  (let [label   (if (keyword? tag) (name tag) (str tag))
-        token-k (tokens/tag-pill-color tag)
-        fill    (tokens/with-alpha token-k 0.18)
-        stroke  (get tokens/tokens token-k)]
-    [:span {:key   label
-            :title (str tag)
-            :data-testid (str "rf-mv-chart-state-tag-" label)
-            :data-tag    label
-            :style {:display          "inline-flex"
-                    :align-items      "center"
-                    :height           (str tag-pill-height "px")
-                    :padding          (str "0 " tag-pill-pad-x "px")
-                    :margin-right     (str tag-pill-gap "px")
-                    :background       fill
-                    :border           (str "1px solid " stroke)
-                    :border-radius    (str tag-pill-radius "px")
-                    :font-family      sans-stack
-                    :font-size        (str tag-pill-px "px")
-                    :font-weight      600
-                    :color            stroke
-                    :line-height      "1"
-                    :white-space      "nowrap"}}
-     label]))
+(defn- tag-title-attr
+  "rf2-so5b0 — render a state's `:tags` set (Spec 005 user-declared
+  semantic tags) as a native HTML tooltip on the state-node body
+  instead of a visible pill row.
+
+  xstate/Stately convention: the chart canvas shows STRUCTURAL chrome
+  (state name, nesting, active highlight, entry/exit actions, transition
+  arrows + labels). User-declared semantic tags are a PROGRAMMATIC
+  concept — they parameterise sub queries (`:rf/machine-has-tag?`) and
+  surface in the host's inspector list/panel — NOT on the chart. A
+  visible per-tag pill row inflated each state-node's footprint (worst
+  on nested compound substates whose tag set restated the parent's
+  ancestry, e.g. `:websocket/active :websocket/connecting` on
+  `:active.connecting`) and visually competed with the structural label
+  and entry/exit rows.
+
+  Tags remain accessible without taking chrome real-estate: each
+  state-node carries them on a `title` attribute (HTML's native hover
+  tooltip) plus a `data-tags` data-attr so DOM tests, the host
+  inspector, and any external introspection tool still read them off
+  the chart. Returns `nil` when the set is empty so the title attr is
+  simply omitted (no \"\" tooltip flicker)."
+  [tags]
+  (when (seq tags)
+    (->> tags
+         (map (fn [t] (if (keyword? t) (name t) (str t))))
+         sort
+         (str/join " "))))
 
 ;; ---- state node ---------------------------------------------------------
 
@@ -166,11 +166,17 @@
 
     - Rounded-rect body, corner-radius 6 (the rf2-g6cig lock).
     - Mono state label centred.
-    - State-tag pills above the label.
     - Active state: cyan tint + emphasised stroke.
     - From-highlight (focused-event lens origin): violet dashed.
     - To-highlight (focused-event lens landing): emphasised cyan.
-    - Final state: doubled border + small check glyph."
+    - Final state: doubled border + small check glyph.
+    - Entry / exit action rows below the label (Stately parity, rf2-ee38b.21).
+    - User-declared `:tags` (Spec 005) surface as a native HTML hover
+      tooltip + a `data-tags` attr (rf2-so5b0) — NOT as visible pill
+      chrome on the chart canvas. xstate/Stately convention reserves
+      the chart for STRUCTURAL chrome (state name, nesting, transitions);
+      tags are a programmatic concept that surface in the host's
+      inspector list, not on the topology."
   [^js props]
   (let [d              (.-data props)
         vc             (chart-constants d)
@@ -182,6 +188,11 @@
         sim?           (boolean (.-sim d))
         final?         (boolean (.-final d))
         tags           (js->clj (.-tags d))
+        ;; rf2-so5b0 — tag pills retired; tags surface as a sorted
+        ;; space-joined string on `:title` (HTML hover tooltip) +
+        ;; `:data-tags` (DOM tests + host introspection). nil when
+        ;; the state has no tags.
+        tags-attr      (tag-title-attr tags)
         entry          (.-entry d)
         exit           (.-exit d)
         on-click       (.-onClick d)
@@ -199,7 +210,7 @@
         ;; emphasis stroke (active-affordance = emphasis + 0.75,
         ;; preserving the shipped regular relationship 2.5 → 3.25).
         {:keys [corner-radius stroke-width stroke-width-emphasis
-                state-label-px final-glyph-px tag-pill-row-gap]} vc
+                state-label-px final-glyph-px]} vc
         stroke-w       (cond
                          active-affordance? (+ stroke-width-emphasis 0.75)
                          emphasised?        stroke-width-emphasis
@@ -211,6 +222,11 @@
              :data-to-highlight (str to-highlight?)
              :data-active-affordance (str active-affordance?)
              :data-state-path (when path (pr-str (js->clj path)))
+             ;; rf2-so5b0 — user-declared `:tags` exposed for DOM tests +
+             ;; host introspection without visible chart chrome.
+             :data-tags (or tags-attr "")
+             :data-tag-count (count (or tags []))
+             :title (or tags-attr (when on-click "Click for details"))
              :on-click (when on-click
                          (fn [_ev]
                            (on-click (js->clj path))))
@@ -248,16 +264,6 @@
                        ;; outer ring sits 1px proud of the node corner
                        :border-radius (str (inc corner-radius) "px")
                        :pointer-events "none"}}])
-       ;; State-tag pills
-       (when (seq tags)
-         (into [:div {:data-testid "rf-mv-chart-state-tags"
-                      :data-tag-count (count tags)
-                      :style {:display        "flex"
-                              :flex-direction "row"
-                              :justify-content "center"
-                              :align-items    "center"
-                              :margin-bottom  (str tag-pill-row-gap "px")}}]
-               (for [t tags] (tag-pill t vc))))
        ;; Label
        [:div {:style {:line-height "1.2"}} label]
        ;; rf2-ee38b.21 — :entry / :exit action rows (Stately parity:

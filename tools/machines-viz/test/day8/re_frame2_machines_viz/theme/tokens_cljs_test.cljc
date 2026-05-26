@@ -1,7 +1,12 @@
 (ns day8.re-frame2-machines-viz.theme.tokens-cljs-test
   "Pure-data tests for the machines-viz theme/tokens helpers
-  (rf2-pyvmr — with-alpha; rf2-m1b88 — tag-pill-color;
-   rf2-xfx6l — motion/duration-css)."
+  (rf2-pyvmr — with-alpha;
+   rf2-xfx6l — motion/duration-css).
+
+  rf2-so5b0 — the `tag-pill-color` / `tag-pill-palette` tests retired
+  with the visible state-tag pill row; tags now surface as a hover
+  tooltip + data-tags attr on the state-node body (no per-tag chip →
+  no per-tag colour to map)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
@@ -27,24 +32,6 @@
     (let [custom {:info "#000000"}]
       (is (= "rgba(0, 0, 0, 0.25)"
              (tokens/with-alpha :info 0.25 custom))))))
-
-;; ---- tag-pill-color (rf2-m1b88) ----------------------------------------
-
-(deftest tag-pill-color-deterministic
-  (testing "tag-pill-color is deterministic — same tag → same palette
-            entry across renders"
-    (is (= (tokens/tag-pill-color :risky)   (tokens/tag-pill-color :risky)))
-    (is (= (tokens/tag-pill-color :paid)    (tokens/tag-pill-color :paid)))
-    (is (= (tokens/tag-pill-color :auth/ok) (tokens/tag-pill-color :auth/ok)))))
-
-(deftest tag-pill-color-skips-reserved-tokens
-  (testing "tag-pill-color never returns :red, :accent or :info
-            — all reserved for chart semantics (rf2-ad7zx.13)"
-    ;; Walk every palette entry; assert none is reserved.
-    (is (every? (fn [t]
-                  (not (#{:red :accent :info} (tokens/tag-pill-color t))))
-                [:risky :paid :auth/ok :final :loading :error
-                 :rec :checkout :session/active :flow/start]))))
 
 ;; ---- light palette (rf2-usord) -----------------------------------------
 
