@@ -94,6 +94,41 @@
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-dispatch-event"))
           "no body row when no event vector was captured"))))
 
+(deftest dispatch-source-label-is-clickable-button-when-coord-present-test
+  (testing "rf2-80u5a — when the dispatch envelope carried a
+            :rf.trace/call-site coord, the `<source>` label in the
+            DISPATCH header renders as a clickable button that opens
+            the editor at the dispatch call-site. The button carries
+            the standard external-link icon as a secondary cue."
+    (let [coord {:file "src/app/counter.cljs" :line 42 :ns 'app.counter}
+          tree  (view/render-dispatch-step
+                  {:step :dispatch :badge :DISPATCH :step-number 1
+                   :event [:counter/inc] :source :ui :coord coord})
+          label (th/find-by-testid tree "rf-xray-epoch-dispatch-source-label")]
+      (is (some? label) "the dispatch source-label slot is present")
+      (is (= :button (first label))
+          "with a coord, the label renders as a real button (clickable)")
+      (let [attrs (second label)]
+        (is (fn? (:on-click attrs))
+            "click handler is attached")
+        (is (string/includes? (or (:title attrs) "") "counter.cljs")
+            "title hints which file will open")))))
+
+(deftest dispatch-source-label-degrades-to-plain-span-when-coord-absent-test
+  (testing "rf2-80u5a — when no call-site coord is available
+            (fn-form dispatch, production builds), the label
+            renders as a plain `<span>` with no fake / dead
+            click affordance."
+    (let [tree (view/render-dispatch-step
+                 {:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:counter/inc] :source :ui :coord nil})
+          label (th/find-by-testid tree "rf-xray-epoch-dispatch-source-label")]
+      (is (some? label) "the source-label slot is still rendered")
+      (is (= :span (first label))
+          "no coord → plain span (no broken button)")
+      (is (nil? (:on-click (second label)))
+          "no click handler on the degraded label"))))
+
 ;; ---- rf2-cq0ch — COEFFECT body --------------------------------------
 
 (deftest coeffect-body-renders-labelled-value-test
@@ -180,7 +215,100 @@
           (is (= 1 (count-prefix tree "rf-xray-epoch-sub-row-"))
               "unchanged hidden again after second toggle"))))))
 
+(deftest sub-toggle-anchors-to-xray-frame-test
+  (testing "rf2-p56sk — fourth frame-leak class (rf2-7sdja popup +
+            rf2-y59tb triangle + rf2-kcaiz zoom). The Show unchanged
+            toggle's dispatch carries explicit `{:frame :rf/xray}`
+            envelope AND the read uses the 2-arity subscribe form
+            so the sub-write + sub-read are anchored to the same
+            frame regardless of the surrounding render context.
+            Without both anchors, the dispatch lands in `:rf/xray`'s
+            app-db while the read accidentally resolves `:rf/default`
+            (or any other frame) — mutation never visible to the row
+            filter."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    ;; Run OUTSIDE `with-frame :rf/xray` so the dispatch path is
+    ;; exercised exactly as the live shell's React onClick fires it —
+    ;; the dispatch-time frame must be the envelope, NOT a lexical
+    ;; binding the test artificially supplies.
+    (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
+                       {:sub-id :b :sub-vec [:b] :changed? false}]
+                :changed 1 :unchanged 1}]
+      ;; The button's onClick dispatches with envelope; mirror that.
+      (rf/with-frame :rf/xray
+        ;; Confirm the toggle button is rendered and carries the envelope.
+        (let [tree (view/render-subscriptions-step step)
+              btn  (th/find-by-testid tree "rf-xray-epoch-subscriptions-toggle")]
+          (is (some? btn) "toggle button is present")
+          (is (fn? (:on-click (second btn))))))
+      ;; Dispatch with the envelope — same shape as the click handler.
+      (rf/dispatch-sync [:rf.xray.epoch/toggle-subs-show-unchanged]
+                        {:frame :rf/xray})
+      (rf/with-frame :rf/xray
+        (let [tree (view/render-subscriptions-step step)]
+          (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
+              "envelope-anchored dispatch flips the :rf/xray slot the
+               2-arity sub reads"))))))
+
 ;; ---- rf2-66wis — HANDLER source code block ---------------------------
+
+;; ---- rf2-93436 — HANDLER :db diff sub-section (design §Section 1+2) -----
+
+(deftest handler-db-diff-always-renders-for-non-machine-handlers-test
+  (testing "rf2-93436 — `:db diff` sub-section is ALWAYS present
+            inside the HANDLER body for reg-event-db / reg-event-fx.
+            Empty diff renders `— (no changes)`; populated diff
+            renders the path-changes."
+    (testing "reg-event-db with empty diff"
+      (let [tree (view/render-handler-step
+                   {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-event-db :event-id :nop
+                    :db-diff [] :fx [] :machine nil})
+            slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
+        (is (some? slot)
+            ":db diff sub-section is always present even when empty")
+        (is (string/includes? (or (th/text-content slot) "") "no changes")
+            "empty diff renders `— (no changes)` per design §Empty edge cases")))
+    (testing "reg-event-db with populated diff"
+      (let [tree (view/render-handler-step
+                   {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-event-db :event-id :counter/inc
+                    :db-diff [[[:counter :value] 5 6 :modified]]
+                    :fx [] :machine nil})
+            slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
+        (is (some? slot))
+        (is (some? (th/find-by-testid
+                     tree "rf-xray-epoch-handler-diff-row-0"))
+            "the populated diff row renders inside the sub-section")))
+    (testing "reg-event-fx with empty diff"
+      (let [tree (view/render-handler-step
+                   {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-event-fx :event-id :navigate
+                    :db-diff [] :fx [{:fx-id :navigate :value "/x"}]
+                    :machine nil})
+            slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
+        (is (some? slot)
+            "even reg-event-fx that returned no :db gets the sub-section")
+        (is (string/includes? (or (th/text-content slot) "") "no changes"))))))
+
+(deftest handler-db-diff-suppressed-for-machine-handlers-test
+  (testing "rf2-93436 — for machine handlers the standalone `:db diff`
+            sub-section is suppressed (design §Section 3 §DB DIFF —
+            folds into SNAPSHOT DIFF since the snapshot IS the
+            db change at `[:rf/machines <id>]`). Avoids the redundant
+            slot duplicating data already shown in SNAPSHOT DIFF."
+    (let [tree (view/render-handler-step
+                 {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-machine :event-id :ws/start
+                  :db-diff [[[:rf/machines :ws/conn] {} {} :modified]]
+                  :fx []
+                  :machine {:transition nil :guards []
+                            :lifecycle [] :timers []}})]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-db-diff"))
+          "no standalone :db diff under machine handlers — folded into
+           SNAPSHOT DIFF per design"))))
 
 (deftest handler-body-renders-source-placeholder-test
   (testing "rf2-66wis — HANDLER body carries a source-code slot.
@@ -232,6 +360,25 @@
           id   (text-of tree "rf-xray-epoch-view-row-id-0")]
       (is (string/includes? id "<anonymous view>")
           "missing view-id reads as `<anonymous view>` placeholder"))))
+
+(deftest views-row-carries-pink-stripe-hover-handlers-test
+  (testing "rf2-2f962 — VIEWS row carries on-mouse-enter / on-mouse-leave
+            handlers that drive the `.rf-xray-view-highlight` pink-stripe
+            class on the live `data-rf-view` DOM node (rf2-e33ad /
+            rf2-8l03l convention). The handlers are present whether or
+            not view-id is non-nil — they no-op safely when the row's
+            view-id is absent."
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id :app.counter/Counter
+                        :subs-read [[:counter/total]] :duration-ms 0.5}]}
+          tree (view/render-views-step step)
+          row  (th/find-by-testid tree "rf-xray-epoch-view-row-0")
+          attrs (when (vector? row) (second row))]
+      (is (some? row) "the view row renders")
+      (is (fn? (:on-mouse-enter attrs))
+          "row carries an on-mouse-enter handler (pink-stripe affordance)")
+      (is (fn? (:on-mouse-leave attrs))
+          "row carries an on-mouse-leave handler"))))
 
 ;; ---- rf2-nqt3d — per-step elapsed time + cascade total ----------------
 

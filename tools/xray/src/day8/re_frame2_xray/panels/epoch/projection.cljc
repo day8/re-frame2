@@ -128,24 +128,51 @@
   [id]
   (and (some? id) (not (contains? system-cofx-ids id))))
 
+(defn- run-end-coeffects
+  "Read the `:rf.event/coeffects` slot off the `:rf.event/run-end`
+  trace (rf2-9dk9y). The substrate places the post-cofx-chain
+  coeffects map there — every user-injected cofx-id maps to the
+  RESULT VALUE the cofx put into ctx under its id. Empty map when no
+  run-end fired."
+  [events]
+  (or (some-> (find-op events :rf.event/run-end)
+              (common/tag-of :rf.event/coeffects))
+      {}))
+
 (defn- coeffect-rows-from-runs
   "Walk every `:rf.cofx/run` event (rf2-hhh92) and project one row per
-  user-injected coeffect — each row carries the cofx id and the value
-  it added to ctx. Empty seq when no `:rf.cofx/run` events fired.
+  user-injected coeffect.
 
-  System-injected defaults (`:db`, `:event`, `:frame`, `:source`,
-  `:trace-id`) are filtered out per rf2-cq0ch."
+  Each row carries the cofx id and the RESOLVED INJECTED VALUE — what
+  the cofx put into the handler's `:coeffects` map under its id. The
+  resolved value comes off the `:rf.event/run-end :rf.event/coeffects`
+  map (rf2-9dk9y); the `:rf.cofx/value` tag on the granular
+  `:rf.cofx/run` op carries the per-call INPUT ARG for the 2-arity
+  cofx form (e.g. `(inject-cofx :session :auth-token)` stamps
+  `:auth-token` there), and is preserved alongside as `:input` so the
+  operator can read both 'what was asked of the cofx' and 'what it
+  produced'. Per rf2-mmlgk — the result value is what the operator
+  reads first; the input arg is secondary.
+
+  Empty seq when no `:rf.cofx/run` events fired. System-injected
+  defaults (`:db`, `:event`, `:frame`, `:source`, `:trace-id`) are
+  filtered out per rf2-cq0ch."
   [events]
-  (vec
-    (for [ev (filter-op events :rf.cofx/run)
-          :let [id    (common/tag-of ev :rf.cofx/id)
-                value (common/tag-of ev :rf.cofx/value)]
-          :when (user-cofx? id)]
-      {:step        :coeffect
-       :badge       :COEFFECT
-       :id          id
-       :value       value
-       :duration-ms (common/tag-of ev :duration-ms)})))
+  (let [cofx-map (run-end-coeffects events)]
+    (vec
+      (for [ev (filter-op events :rf.cofx/run)
+            :let [id        (common/tag-of ev :rf.cofx/id)
+                  input-arg (common/tag-of ev :rf.cofx/value)
+                  resolved  (get cofx-map id)]
+            :when (user-cofx? id)]
+        (cond-> {:step        :coeffect
+                 :badge       :COEFFECT
+                 :id          id
+                 :value       resolved
+                 :duration-ms (common/tag-of ev :duration-ms)}
+          ;; preserve the per-call input arg for 2-arity cofx so the
+          ;; view can surface it when distinct from the resolved value
+          (some? input-arg) (assoc :input input-arg))))))
 
 (defn- coeffect-rows-from-run-end
   "Fallback: read user-injected coeffects from the `:rf.event/run-end`

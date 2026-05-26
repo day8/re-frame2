@@ -73,6 +73,44 @@
 ;; the body via `:zoomable? true` + `:header "<step>"` (rf2-h71e0 /
 ;; rf2-okq7p) per the bead body's §edn-inspector composition.
 
+;; ---- view-name hover-highlight (rf2-2f962) ------------------------------
+;;
+;; Hovering a view-id in the VIEWS step toggles the
+;; `.rf-xray-view-highlight` class on the rendered view's root DOM node
+;; (matched by Spec 006's `data-rf-view` attribute) — the same pink
+;; diagonal-stripe affordance the Reactive panel's view-node carries
+;; (rf2-e33ad / rf2-8l03l). The class lives in
+;; `theme/global-styles` and is intentionally UNSCOPED so it reaches
+;; the host app's frame outside the Xray shell. Pure DOM side-effect;
+;; cleared on mouseleave; no layout perturbation.
+
+(def ^:private view-highlight-class "rf-xray-view-highlight")
+
+(defn- view-highlight-selector
+  "DOM selector for a view-id (Spec 006 stamps `data-rf-view (str id)`)."
+  [view-id]
+  (str "[data-rf-view='" view-id "']"))
+
+(defn- apply-view-highlight!
+  [view-id]
+  (when (and (exists? js/document) (some? view-id))
+    (let [nodes (.querySelectorAll js/document
+                                   (view-highlight-selector view-id))]
+      (.forEach nodes
+                (fn [^js node]
+                  (.add (.-classList node) view-highlight-class)))
+      nil)))
+
+(defn- clear-view-highlight!
+  [view-id]
+  (when (and (exists? js/document) (some? view-id))
+    (let [nodes (.querySelectorAll js/document
+                                   (view-highlight-selector view-id))]
+      (.forEach nodes
+                (fn [^js node]
+                  (.remove (.-classList node) view-highlight-class)))
+      nil)))
+
 ;; ---- chrome helpers ------------------------------------------------------
 
 (defn- badge-pill
@@ -285,11 +323,69 @@
                    :overflow-x    "auto"}}
      (proj/event-display event)]))
 
+(defn- dispatch-source-label
+  "Render the dispatch source label — `<source>` text. When the
+  envelope carried a `:rf.trace/call-site` coord (rf2-80u5a), the
+  label renders as a clickable button that opens the editor at the
+  dispatch call-site (the React onClick / handler line that called
+  `rf/dispatch`); the external-link icon rides alongside as a
+  secondary cue. When no coord is available (fn-form dispatch,
+  production builds with `goog.DEBUG=false`), the label renders as
+  plain text — no broken / clickable-but-dead affordance.
+
+  Click-through pattern mirrors the cross-panel
+  `:rf.xray/open-in-editor` event (the same fx-id every other
+  open-in-editor surface dispatches via)."
+  [source coord]
+  (let [label (if source (name source) "unknown")
+        clickable? (and (map? coord) (seq (:file coord)))]
+    (if clickable?
+      [:button {:data-testid "rf-xray-epoch-dispatch-source-label"
+                :aria-label  (str "open dispatch call-site for " label)
+                :title       (str "open " (:file coord)
+                                  (when (:line coord)
+                                    (str ":" (:line coord)))
+                                  " in editor")
+                :on-click    (fn [e]
+                               (.stopPropagation e)
+                               (rf/dispatch
+                                 [:rf.xray/open-in-editor
+                                  {:source-coord coord}]
+                                 {:frame :rf/xray}))
+                :style {:background "transparent"
+                        :border     "none"
+                        :padding    0
+                        :margin     0
+                        :color      (:accent tokens)
+                        :cursor     "pointer"
+                        :font-family mono-stack
+                        :font-size  "12px"
+                        :text-decoration "underline"
+                        :text-decoration-style "dotted"
+                        :text-underline-offset "2px"
+                        :display    "inline-flex"
+                        :align-items "center"
+                        :gap        "4px"}}
+       label
+       (icons/external-link)]
+      [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
+              :style {:color (:accent tokens)
+                      :display "inline-flex"
+                      :align-items "center"}}
+       label])))
+
 (defn render-dispatch-step
   "Render the DISPATCH step (always present). Header summarises `from
   <source>` with the call-site chip when a coord was captured;
   body renders the dispatched event vector as a boxed monospace
-  block (rf2-93a7s · rf2-9jvx1)."
+  block (rf2-93a7s · rf2-9jvx1).
+
+  Per rf2-80u5a the `<source>` label itself is the goto-source
+  affordance — clickable button when `:rf.trace/call-site` was
+  captured by the macro form (`rf/dispatch [...] [opts]`); plain
+  text otherwise. The external-link icon rides INSIDE the button
+  as a secondary cue so the affordance reads as a single labelled
+  link rather than a label-with-trailing-icon."
   [{:keys [source coord duration-ms step-number] :as step}]
   [:div {:data-testid "rf-xray-epoch-step-dispatch"
          :data-step-kw "dispatch"}
@@ -299,9 +395,7 @@
       :badge :DISPATCH
       :verb [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
              "from "
-             [:span {:style {:color (:accent tokens)}}
-              (if source (name source) "unknown")]
-             (coord-chip coord "rf-xray-epoch-dispatch-coord")]
+             (dispatch-source-label source coord)]
       :expandable? false
       :testid "rf-xray-epoch-dispatch"
       :duration-ms duration-ms}
@@ -749,6 +843,39 @@
                        :padding-left "16px"}}
         "<source not yet captured>"])]))
 
+(defn- handler-db-diff-block
+  "Render the HANDLER step's `:db diff` sub-section (rf2-93436 / design
+  doc §Section 1 + §Section 2). Always renders for non-machine
+  handlers — when `db-diff` is empty, the body reads `— (no changes)`
+  per the design's §Empty edge-case rendering table (reg-event-db
+  returning identical db / reg-event-fx returning nil → explicit empty
+  state, not an omitted slot). Operator learns 'the handler ran but
+  wrote nothing to app-db' as a first-class outcome rather than
+  inferring it from absence.
+
+  Distinct from the top-level APP-DB DIFF step (rf2-rrykz) — same
+  source data, different lens. HANDLER's `:db diff` attributes the
+  change to THIS handler's return value; APP-DB DIFF surfaces the
+  cascade-wide accumulated change (which can include fx-triggered
+  child handlers' writes).
+
+  Suppressed for machine handlers — per design §Section 3 §DB DIFF
+  the snapshot IS the db change (at `[:rf/machines <id>]`) so DB DIFF
+  folds into SNAPSHOT DIFF rather than carrying a redundant standalone
+  slot."
+  [db-diff]
+  (let [empty? (not (seq db-diff))
+        n      (count db-diff)]
+    [:div {:data-testid "rf-xray-epoch-handler-db-diff"
+           :data-empty (str empty?)}
+     (sub-header ":db diff"
+                 (if empty?
+                   "— (no changes)"
+                   (str n " path" (when (not= 1 n) "s"))))
+     (when-not empty?
+       (for [[i row] (map-indexed vector db-diff)]
+         (db-diff-line row i)))]))
+
 (defn handler-body
   "Render the HANDLER step's body — source block + db-diff + fx + the
   machine block when the handler is a machine-event-handler.
@@ -757,30 +884,33 @@
   the header already carries that descriptor. Per rf2-66wis the body
   now leads with the handler's source code (or machine spec) so the
   operator can answer 'why did this handler do X' without leaving the
-  panel."
+  panel.
+
+  Per rf2-93436 the `:db diff` sub-section is ALWAYS present for
+  non-machine handlers (design doc §Section 1 + §Section 2) — empty
+  diff renders `— (no changes)` rather than collapsing the slot. For
+  machine handlers the standalone `:db diff` is suppressed (folded
+  into SNAPSHOT DIFF per design §Section 3)."
   [{:keys [flavour event-id db-diff fx machine] :as _row}]
-  [:div {:data-testid "rf-xray-epoch-handler-body"}
-   ;; Source / machine spec block — rf2-66wis
-   (handler-source-block flavour event-id)
-   ;; Machine extras BEFORE db diff (lifecycle is the story for machines)
-   (when machine
-     (machine-block machine))
-   ;; :db diff
-   (when (seq db-diff)
-     [:div {:data-testid "rf-xray-epoch-handler-db-diff"}
-      (sub-header ":db diff"
-                  (str (count db-diff) " path"
-                       (when (not= 1 (count db-diff)) "s")))
-      (for [[i row] (map-indexed vector db-diff)]
-        (db-diff-line row i))])
-   ;; :fx entries
-   (when (seq fx)
-     [:div {:data-testid "rf-xray-epoch-handler-fx"}
-      (sub-header ":fx"
-                  (str (count fx) " entr"
-                       (if (= 1 (count fx)) "y" "ies")))
-      (for [[i entry] (map-indexed vector fx)]
-        (fx-entry-line entry i))])])
+  (let [machine? (= :reg-machine flavour)]
+    [:div {:data-testid "rf-xray-epoch-handler-body"}
+     ;; Source / machine spec block — rf2-66wis
+     (handler-source-block flavour event-id)
+     ;; Machine extras BEFORE db diff (lifecycle is the story for machines)
+     (when machine
+       (machine-block machine))
+     ;; :db diff — always present for non-machine handlers (rf2-93436);
+     ;; folded into SNAPSHOT DIFF for machines
+     (when-not machine?
+       (handler-db-diff-block db-diff))
+     ;; :fx entries
+     (when (seq fx)
+       [:div {:data-testid "rf-xray-epoch-handler-fx"}
+        (sub-header ":fx"
+                    (str (count fx) " entr"
+                         (if (= 1 (count fx)) "y" "ies")))
+        (for [[i entry] (map-indexed vector fx)]
+          (fx-entry-line entry i))])]))
 
 (defn render-handler-step
   "Render the HANDLER step (always present)."
@@ -1070,9 +1200,23 @@
   header shows the split count `N recomputed (M changed, K unchanged)`.
 
   Mirrors the filter-toggle posture Chrome devtools' network panel
-  uses (the precedent the bead body cites)."
+  uses (the precedent the bead body cites).
+
+  Per rf2-p56sk — fourth frame-leak in this class (after rf2-7sdja
+  popup, rf2-y59tb triangle, rf2-kcaiz zoom). The toggle event is
+  dispatched with explicit `{:frame :rf/xray}` envelope in
+  `subscriptions-toggle-button`, and the read here uses the
+  2-arity `subscribe` form so the sub anchors to `:rf/xray`
+  regardless of where the plain hiccup render dereffs from. Without
+  the explicit frame anchor, a non-`reg-view`-internal subscribe
+  resolves through the React-context tier — which is `:rf/xray` in
+  the Xray shell but is NOT guaranteed when the panel renders
+  inside a different frame-provider (story testbeds, embedded
+  surfaces). The toggle slot lives on `:rf/xray`'s app-db; the
+  matching read MUST also target `:rf/xray`'s db."
   [{:keys [rows changed unchanged step-number]}]
-  (let [show-unchanged? @(rf/subscribe [:rf.xray.epoch/subs-show-unchanged?])
+  (let [show-unchanged? @(rf/subscribe :rf/xray
+                                       [:rf.xray.epoch/subs-show-unchanged?])
         visible-rows    (if show-unchanged?
                           rows
                           (filterv :changed? rows))
@@ -1137,6 +1281,14 @@
      [:div {:key (str "view-" i)
             :data-testid (str "rf-xray-epoch-view-row-" i)
             :data-view-id (when view-id (pr-str view-id))
+            ;; rf2-2f962 — pink-stripe view-name hover affordance. The
+            ;; row-level mouse-enter/leave stamps the
+            ;; `.rf-xray-view-highlight` class onto the live DOM node
+            ;; tagged by Spec 006's `data-rf-view`, mirroring the
+            ;; Reactive panel's view-node treatment (rf2-e33ad /
+            ;; rf2-8l03l). Pure DOM side-effect; no layout perturbation.
+            :on-mouse-enter (fn [_e] (apply-view-highlight! view-id))
+            :on-mouse-leave (fn [_e] (clear-view-highlight! view-id))
             :style {:display "flex"
                     :align-items "stretch"
                     :border-bottom (when (< i (dec (count rows)))
@@ -1146,7 +1298,8 @@
                      :word-break "break-word"}}
        [:span {:data-testid (str "rf-xray-epoch-view-row-id-" i)
                :style {:color (:accent tokens) :display "inline-flex"
-                       :align-items "center" :gap "4px"}}
+                       :align-items "center" :gap "4px"
+                       :cursor (when view-id "pointer")}}
         (if (some? view-id)
           (proj/ns-keyword view-id)
           [:span {:style {:color (:text-tertiary tokens)
