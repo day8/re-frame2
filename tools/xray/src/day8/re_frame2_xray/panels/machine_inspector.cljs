@@ -373,10 +373,17 @@
   `snapshot-drill-in` drops the `before / after` suffix since it's now
   visually obvious from the two columns.
 
+  When `before-snapshot` is supplied (the AFTER block receives the
+  BEFORE snapshot as the diff pre-image), the inspector renders in
+  diff mode — changed leaves get the `← changed from X` annotation
+  and the row chrome (wash + stripe) marks added / modified /
+  removed paths. The BEFORE block does not get a pre-image (it's the
+  baseline; there's nothing to diff against).
+
   Returns `nil` when the snapshot is absent — the empty-state is
   handled by the caller (a top-level placeholder is more legible than
   a per-block nil chip)."
-  [{:keys [machine-id phase label snapshot]}]
+  [{:keys [machine-id phase label snapshot before-snapshot]}]
   (when (some? snapshot)
     [:div {:data-testid    (str "rf-xray-machine-snapshot-block-"
                                 (machine-id-suffix machine-id)
@@ -402,16 +409,21 @@
                     :margin-bottom "4px"}}
       label]
      [ei/edn-inspector snapshot
-      {:panel-id (snapshot-panel-id machine-id phase)
-       ;; rf2-pvsxs — machine + phase are stable identifiers; the
-       ;; operator's drill-into-data choices survive a Machines tab
-       ;; leave-and-return round-trip.
-       :site-id  [:rf.xray.machines/inspector-snapshot machine-id phase]
-       :default-expanded-depth 2
-       ;; rf2-l4625 — machine snapshots routinely carry deeply-nested
-       ;; `:data` maps; the popup gives the operator a full-modal
-       ;; inspection surface alongside the per-machine drill-in.
-       :popup-affordance? true}]]))
+      (cond-> {:panel-id (snapshot-panel-id machine-id phase)
+               ;; rf2-pvsxs — machine + phase are stable identifiers; the
+               ;; operator's drill-into-data choices survive a Machines tab
+               ;; leave-and-return round-trip.
+               :site-id  [:rf.xray.machines/inspector-snapshot machine-id phase]
+               :default-expanded-depth 2
+               ;; rf2-l4625 — machine snapshots routinely carry deeply-nested
+               ;; `:data` maps; the popup gives the operator a full-modal
+               ;; inspection surface alongside the per-machine drill-in.
+               :popup-affordance? true}
+        ;; Diff mode kicks in when the AFTER block carries the BEFORE
+        ;; snapshot as its pre-image — the widget paints the row
+        ;; chrome (added / modified / removed) + the inline
+        ;; `← changed from X` annotations against the changed paths.
+        (some? before-snapshot) (assoc :before before-snapshot))]]))
 
 (defn- snapshot-drill-in
   "Snapshot drill-in section beneath the focused-event chart. Renders
@@ -480,7 +492,8 @@
       (snapshot-block {:machine-id machine-id
                        :phase :after
                        :label "After"
-                       :snapshot after})]]))
+                       :snapshot after
+                       :before-snapshot before})]]))
 
 ;; ---- per-machine focused-event section ---------------------------------
 
