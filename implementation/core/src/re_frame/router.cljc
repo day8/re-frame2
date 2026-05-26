@@ -414,6 +414,14 @@
   registered against THIS dispatch's frame only — sibling frames'
   schemas don't fire here.
 
+  Per rf2-jbbp7 / Spec 010 §Per-step recovery row 7: AND-conjoins the
+  app-db validator with `:machines/validate-machine-data!` (the
+  `:where :machine-data` boundary). The machine walker iterates
+  `[:rf/machines]` and validates each snapshot's `:data` against the
+  registered machine's top-level `:schema`. Both validators run on
+  every commit so the operator gets the full failure surface; the
+  conjunction means a `false` from either rolls back the cascade.
+
   Defensive truth-coercion: a host-thrown validator (e.g. a buggy
   user-supplied :schemas/set-schema-validator! fn) is caught and
   treated as `true` (no rollback) — the validator is failing on
@@ -421,16 +429,33 @@
   actual app-db state from the rest of the cascade. Real schema
   failures route through the in-band false return."
   [db-after event-id frame]
-  ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
-  (if-let [validate (late-bind/get-fn-cached :schemas/validate-app-schema!)]
-    (try
-      ;; nil-coerce: pre-rf2-6m0se the fn returned nil on success.
-      ;; Treat nil as true (don't roll back) so a hosted port that
-      ;; still ships the older contract keeps working.
-      (let [r (validate db-after event-id frame)]
-        (if (nil? r) true r))
-      (catch #?(:clj Throwable :cljs :default) _ true))
-    true))
+  (let [app-ok?
+        ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
+        (if-let [validate (late-bind/get-fn-cached :schemas/validate-app-schema!)]
+          (try
+            ;; nil-coerce: pre-rf2-6m0se the fn returned nil on success.
+            ;; Treat nil as true (don't roll back) so a hosted port that
+            ;; still ships the older contract keeps working.
+            (let [r (validate db-after event-id frame)]
+              (if (nil? r) true r))
+            (catch #?(:clj Throwable :cljs :default) _ true))
+          true)
+        machines-ok?
+        ;; Per rf2-jbbp7 — the machine-data boundary (Spec 005 §Schema
+        ;; validation). The hook is absent when the machines artefact
+        ;; isn't on the classpath; absent → true (no machines means no
+        ;; machine-data to validate).
+        (if-let [validate-md (late-bind/get-fn-cached
+                               :machines/validate-machine-data!)]
+          (try
+            (let [r (validate-md db-after event-id frame)]
+              (if (nil? r) true r))
+            (catch #?(:clj Throwable :cljs :default) _ true))
+          true)]
+    ;; Both must conform for the cascade to keep its commit; the per-
+    ;; failure traces have already been emitted independently so the
+    ;; operator sees every violation, not just the first.
+    (and app-ok? machines-ok?)))
 
 (defn- commit-db-effect!
   "Apply :db atomically: replace the app-db container, emit the

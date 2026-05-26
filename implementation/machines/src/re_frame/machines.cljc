@@ -44,6 +44,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
+            [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
             [re-frame.machines.lifecycle-fx.frame-destroy :as frame-destroy]
             [re-frame.machines.lifecycle-fx.registration :as registration]
@@ -76,6 +77,13 @@
 
 (def reg-machine*           registration/reg-machine*)
 (def make-machine-handler registration/make-machine-handler)
+;; Per rf2-jbbp7 — boundary-validation surface for the `:schema` key
+;; on `reg-machine` (Spec 005 §Schema validation, Spec 010 §Per-step
+;; recovery row 7). The post-commit walker validates every snapshot's
+;; `:data` against its registered machine's `:schema`; the spawn-time
+;; sibling validates a spawned actor's initial `:data` before install.
+(def validate-machine-data! data-validation/validate-machine-data!)
+(def validate-spawn-data!   data-validation/validate-spawn-data!)
 ;; The pure registration-time validator (Spec 005 §registration validators,
 ;; rf2-f9tu). Re-exported so the conformance corpus's `:reg-machine` Mode-B
 ;; call op can pin the registration-error taxonomy (Spec 009 §thrown-error
@@ -267,6 +275,11 @@
                    spawn-order/reset-all!)
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
+;; Per rf2-jbbp7 — the post-commit walker the router AND-conjoins with
+;; `validate-app-schema!` to gate the `:db` commit on the
+;; `:where :machine-data` boundary (Spec 005 §Schema validation, Spec
+;; 010 §Per-step recovery row 7).
+(late-bind/set-fn! :machines/validate-machine-data! validate-machine-data!)
 (late-bind/set-fn! :machines/spawn-all-init-fx      invoke-all-init-fx)
 (late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
 (late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
