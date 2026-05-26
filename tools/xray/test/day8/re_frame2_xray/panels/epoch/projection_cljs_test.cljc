@@ -111,10 +111,15 @@
          (assoc :rf.view/elapsed-ms elapsed-ms)))))
 
 (defn- machine-transition-ev
-  [machine-id before after]
-  (ev :rf.machine :rf.machine/transition {:machine-id machine-id
-                                          :before before
-                                          :after after}))
+  ([machine-id before after]
+   (machine-transition-ev machine-id before after nil 0))
+  ([machine-id before after event microsteps]
+   (ev :rf.machine :rf.machine/transition
+       (cond-> {:machine-id machine-id
+                :before before
+                :after after}
+         event       (assoc :event event)
+         microsteps  (assoc :microsteps microsteps)))))
 
 (defn- machine-guard-ev
   [guard-id outcome]
@@ -122,11 +127,13 @@
                                                :outcome outcome}))
 
 (defn- machine-action-ev
-  [action-id phase outcome]
-  (ev :rf.machine :rf.machine/action-ran {:action-id action-id
-                                          :phase phase
-                                          :outcome outcome
-                                          :input {:data {} :event nil}}))
+  ([action-id phase outcome]
+   (machine-action-ev action-id phase outcome nil))
+  ([action-id phase outcome data]
+   (ev :rf.machine :rf.machine/action-ran {:action-id action-id
+                                           :phase phase
+                                           :outcome outcome
+                                           :input {:data (or data {}) :event nil}})))
 
 (defn- machine-timer-cancel-ev
   [machine-id state delay reason]
@@ -134,6 +141,25 @@
                                                :state state
                                                :delay delay
                                                :reason reason}))
+
+(defn- schema-violation-ev
+  ([where failing-id path value]
+   (schema-violation-ev where failing-id path value nil))
+  ([where failing-id path value rollback?]
+   (ev :error :rf.error/schema-validation-failure
+       (cond-> {:where where
+                :failing-id failing-id
+                :path path
+                :value value}
+         (some? rollback?) (assoc :rollback? rollback?)))))
+
+(defn- schema-hot-reload-ev
+  [frame-id path mismatching-value]
+  (ev :warning :rf.schema/violation
+      {:frame frame-id
+       :path path
+       :mismatching-value mismatching-value
+       :recovery :logged-and-skipped}))
 
 (defn- record
   "Build a synthetic `:rf/epoch-record` for projection."
@@ -263,6 +289,59 @@
       (is (= 1 (count (:timers m))))
       (is (= :on-exit (-> m :timers first :reason))))))
 
+(deftest machine-transition-row-hoists-data-snapshots-test
+  (testing "rf2-9c27r — `machine-transition-row` exposes `:data-before /
+            :data-after` from the `:before / :after` snapshots, plus the
+            `:event` + `:microsteps` slots for the design's TRANSITION sub"
+    (let [snap-before {:state [:idle]      :data {:count 0}}
+          snap-after  {:state [:connected] :data {:count 1}}
+          evs [(machine-transition-ev :ws/conn snap-before snap-after
+                                       [:ws/start] 2)
+               ;; action-ran event drives the :reg-machine flavour
+               ;; discriminator so handler-row populates the machine
+               ;; block (rf2-9c27r — the transition row only lands
+               ;; when the flavour is :reg-machine).
+               (machine-action-ev :open-socket :entry :ok)]
+          r   (proj/handler-row evs :ws/start)
+          mt  (-> r :machine :transition)]
+      (is (= [:ws/start]    (:event mt)))
+      (is (= 2              (:microsteps mt)))
+      (is (= snap-before    (:before mt)))
+      (is (= snap-after     (:after mt)))
+      (is (= {:count 0}     (:data-before mt))
+          ":data-before hoisted off the before snapshot")
+      (is (= {:count 1}     (:data-after mt))
+          ":data-after hoisted off the after snapshot"))))
+
+(deftest machine-action-fx-attribution-test
+  (testing "rf2-9c27r — when a lifecycle action returns a map carrying
+            `:fx`, the row exposes the per-action fx attribution"
+    (let [outcome {:fx [[:http/get {:url "/x"}]
+                        [:dispatch [:other]]]
+                   :data {:n 1}}
+          evs [(ev :rf.machine :rf.machine/action-ran
+                   {:action-id :open-socket
+                    :phase     :entry
+                    :outcome   outcome
+                    :input     {:data {} :event nil}})]
+          r   (proj/handler-row evs :ws/start)
+          row (-> r :machine :lifecycle first)]
+      (is (= 2 (count (:fx row)))
+          "per-action fx tuple list rides on the lifecycle row")
+      (is (= :http/get (-> row :fx (nth 0) first))
+          "first fx-id is :http/get")
+      (is (= {:n 1} (:data-write row))
+          "the action's :data write is also surfaced for attribution"))))
+
+(deftest machine-action-without-fx-omits-slot-test
+  (testing "rf2-9c27r — actions whose outcome carries no :fx leave the
+            `:fx` slot ABSENT (not nil) so the row stays minimal"
+    (let [evs [(machine-action-ev :open-socket :entry :ok)]
+          r   (proj/handler-row evs :ws/start)
+          row (-> r :machine :lifecycle first)]
+      (is (not (contains? row :fx))
+          ":fx slot absent on actions without per-action fx"))))
+
 (deftest machine-lifecycle-grouped-by-phase-test
   (testing "group-lifecycle-by-phase produces phase → rows map"
     (let [rows [{:action-id :a1 :phase :exit}
@@ -298,6 +377,46 @@
       (is (= :FX (:badge s)))
       (is (= 2 (count (:rows s))))
       (is (= :ok (-> s :rows first :status))))))
+
+;; ---- rf2-uffov — FX section header split + per-action attribution -----
+
+(deftest fx-step-header-counter-split-test
+  (testing "rf2-uffov — FX step header carries split counts
+            (succeeded / threw / skipped)"
+    (let [s (proj/fx-step
+              [(fx-handled-ev :db nil 0.1)
+               (fx-handled-ev :http/post {} 1.0)
+               (ev :error :rf.error/fx-handler-exception
+                   {:rf.fx/id :bad-fx})])]
+      (is (= 2 (:succeeded s))
+          ":ok rows roll into :succeeded")
+      (is (= 1 (:threw s))
+          ":error rows roll into :threw"))))
+
+(deftest fx-step-attribution-from-machine-actions-test
+  (testing "rf2-uffov — when a machine action's outcome :fx emits a
+            fx-id, the corresponding FX row carries :attributed-to"
+    (let [evs [(ev :rf.machine :rf.machine/action-ran
+                   {:action-id :open-socket
+                    :phase     :entry
+                    :outcome   {:fx [[:http/get {:url "/x"}]]}
+                    :input     {:data {} :event nil}})
+               (fx-handled-ev :http/get {:url "/x"} 5.0)]
+          s   (proj/fx-step evs)
+          row (-> s :rows first)]
+      (is (= :http/get (:fx-id row)))
+      (is (some? (:attributed-to row))
+          "FX row carries :attributed-to for machine-emitted fx")
+      (is (= :open-socket (-> row :attributed-to :action-id)))
+      (is (= :entry       (-> row :attributed-to :phase))))))
+
+(deftest fx-step-no-attribution-for-non-machine-cascades-test
+  (testing "rf2-uffov — pure reg-event-fx cascades have no per-action
+            attribution; the slot stays absent"
+    (let [s (proj/fx-step [(fx-handled-ev :db nil 0.1)])
+          row (-> s :rows first)]
+      (is (not (contains? row :attributed-to))
+          "no machine actions → no :attributed-to slot"))))
 
 ;; ---- SUBSCRIPTIONS ------------------------------------------------------
 
@@ -375,15 +494,18 @@
 ;; ---- top-level project --------------------------------------------------
 
 (deftest project-minimal-test
-  (testing "minimal epoch (dispatch + handler, no cofx/flow/fx/sub/view)"
+  (testing "minimal epoch (dispatch + handler + app-db-diff for the
+            db mutation, no cofx/flow/fx/sub/view)"
     (let [rec   (record [(dispatched-ev [:counter-inc] :ui nil)
                          (db-changed-ev [[[:counter] 5 6 :modified]])])
           steps (proj/project rec)]
-      (is (= 2 (count steps)))
-      (is (= [:dispatch :handler] (mapv :step steps))))))
+      (is (= 3 (count steps))
+          "rf2-rrykz appends :app-db-diff for any cascade that mutated app-db")
+      (is (= [:dispatch :handler :app-db-diff] (mapv :step steps))))))
 
 (deftest project-full-pipeline-test
-  (testing "full epoch with every step → 7 steps emitted"
+  (testing "full epoch with every step + app-db-diff + child-dispatches
+            (handler returned `:dispatch` fx)"
     (let [rec   (record [(dispatched-ev [:cart/checkout] :ui nil)
                          (cofx-run-ev :session {:user 1})
                          (do-fx-ev {:db {} :http/post {:url "/x"}})
@@ -393,10 +515,13 @@
                          (fx-handled-ev :http/post {} 12.0)
                          (sub-run-ev [:total] true 10 20)
                          (view-render-ev ::cart-view [:total])])
-          steps (proj/project rec)]
-      (is (= 7 (count steps)))
-      (is (= [:dispatch :coeffect :handler :flow :fx :subscriptions :views]
-             (mapv :step steps))))))
+          steps (proj/project rec)
+          kws   (mapv :step steps)]
+      (is (= [:dispatch :coeffect :handler :app-db-diff :flow :fx
+              :subscriptions :views]
+             kws)
+          "rf2-rrykz appends :app-db-diff between :handler and :flow")
+      (is (= 8 (count steps))))))
 
 (deftest project-numbered-test
   (testing "number-steps assigns sequential 1..N regardless of omissions"
@@ -437,7 +562,8 @@
                          (view-render-ev ::v [:s])])
           steps (proj/project rec)]
       (is (every? proj/valid-badge? (map :badge steps)))
-      (is (= 7 (count proj/badge-set))))))
+      (is (= 10 (count proj/badge-set))
+          "rf2-sc3r1 + rf2-17vxj + rf2-yx1ae + rf2-rrykz = 7 + 3 = 10 badges"))))
 
 ;; ---- formatting helpers --------------------------------------------------
 
@@ -477,3 +603,245 @@
     (is (= "on-resolution"    (proj/timer-reason-label :on-resolution)))
     (is (= "on-supersede"     (proj/timer-reason-label :on-supersede)))
     (is (= "on-frame-destroy" (proj/timer-reason-label :on-frame-destroy)))))
+
+;; ---- rf2-nqt3d — per-step elapsed time + cascade total ------------------
+
+(deftest long-step-threshold-test
+  (testing "rf2-nqt3d — 16ms = one display frame at 60Hz; the threshold
+            documents the long-step warning boundary"
+    (is (= 16 proj/long-step-threshold-ms))))
+
+(deftest long-step-predicate-test
+  (testing "rf2-nqt3d — `long-step?` is true iff duration > 16ms"
+    (is (false? (proj/long-step? {:duration-ms 0.1})))
+    (is (false? (proj/long-step? {:duration-ms 16})))
+    (is (true?  (proj/long-step? {:duration-ms 16.1})))
+    (is (true?  (proj/long-step? {:duration-ms 250})))
+    (is (false? (proj/long-step? {:duration-ms nil}))
+        "nil duration is NOT a long step (the chip elides instead)")
+    (is (false? (proj/long-step? {}))
+        "missing duration returns false")))
+
+(deftest cascade-total-ms-test
+  (testing "rf2-nqt3d — sum of every step's :duration-ms"
+    (is (= 12.5 (proj/cascade-total-ms [{:duration-ms 0.5}
+                                        {:duration-ms 12}])))
+    (is (nil? (proj/cascade-total-ms []))
+        "empty step vec returns nil so the view can elide the chip")
+    (is (nil? (proj/cascade-total-ms [{:step :dispatch} {:step :handler}]))
+        "no step carries a duration → nil")
+    (is (= 5 (proj/cascade-total-ms [{:step :dispatch}
+                                     {:duration-ms 5}
+                                     {:step :views}]))
+        "mixed presence: missing durations skipped, sum returned")))
+
+(deftest long-step-count-test
+  (testing "rf2-nqt3d — count of steps over the 16ms threshold"
+    (is (= 0 (proj/long-step-count [])))
+    (is (= 0 (proj/long-step-count [{:duration-ms 0.1}
+                                    {:duration-ms 10}])))
+    (is (= 2 (proj/long-step-count [{:duration-ms 18}
+                                    {:duration-ms 1}
+                                    {:duration-ms 50}])))))
+
+;; ---- rf2-17vxj — schema-violations step ---------------------------------
+
+(deftest schema-violations-step-conditional-test
+  (testing "rf2-17vxj — no violation events → step is OMITTED"
+    (is (nil? (proj/schema-violations-step []))))
+
+  (testing "rf2-17vxj — `:rf.error/schema-validation-failure` event
+            surfaces a row"
+    (let [s (proj/schema-violations-step
+              [(schema-violation-ev :app-db :counter/inc [:count]
+                                    "not-an-int" true)])]
+      (is (= :schema-violations (:step s)))
+      (is (= :SCHEMA-VIOLATIONS (:badge s)))
+      (is (= 1 (count (:rows s))))
+      (is (= 1 (:rollbacks s))
+          ":rollbacks counts rows where :rollback? is true")
+      (let [r (-> s :rows first)]
+        (is (= :app-db (:where r)))
+        (is (= :counter/inc (:failing-id r)))
+        (is (= [:count] (:path r)))
+        (is (= "not-an-int" (:value r)))
+        (is (true? (:rollback? r)))
+        (is (= :rf.error/schema-validation-failure (:kind r)))))))
+
+(deftest schema-violations-hot-reload-event-test
+  (testing "rf2-17vxj — `:rf.schema/violation` event (hot-reload drift)
+            also produces a row; `:where` defaults to `:hot-reload`"
+    (let [s (proj/schema-violations-step
+              [(schema-hot-reload-ev :rf/default [:count]
+                                     "not-an-int")])]
+      (is (= 1 (count (:rows s))))
+      (let [r (-> s :rows first)]
+        (is (= :hot-reload (:where r)))
+        (is (= :rf.schema/violation (:kind r)))
+        (is (= [:count] (:path r)))
+        (is (= "not-an-int" (:value r)))
+        (is (= :logged-and-skipped (:recovery r)))))))
+
+(deftest schema-violations-mixed-rows-test
+  (testing "rf2-17vxj — runtime + hot-reload events project into the
+            same row schema"
+    (let [s (proj/schema-violations-step
+              [(schema-violation-ev :sub-return :counter/total nil
+                                    {:bad :data})
+               (schema-hot-reload-ev :rf/default [:counter :n]
+                                     "boom")])]
+      (is (= 2 (count (:rows s)))
+          "both events project into rows")
+      (is (= 0 (:rollbacks s))
+          "no rollback-true rows in this fixture"))))
+
+;; ---- rf2-rrykz — app-db diff section ----------------------------------
+
+(deftest app-db-diff-step-conditional-test
+  (testing "rf2-rrykz — no db-changed event → step OMITTED"
+    (is (nil? (proj/app-db-diff-step []))))
+
+  (testing "rf2-rrykz — empty changed-paths → step OMITTED"
+    (is (nil? (proj/app-db-diff-step [(db-changed-ev [])]))))
+
+  (testing "rf2-rrykz — db mutation present → step rendered"
+    (let [s (proj/app-db-diff-step
+              [(db-changed-ev [[[:count]    0   1   :modified]
+                               [[:cart 0]   nil "x" :added]
+                               [[:old]      5   nil :removed]])])]
+      (is (= :app-db-diff (:step s)))
+      (is (= :APP-DB-DIFF (:badge s)))
+      (is (= 3 (count (:rows s))))
+      (is (= 1 (:added s)))
+      (is (= 1 (:modified s)))
+      (is (= 1 (:removed s))))))
+
+(deftest app-db-diff-row-fields-test
+  (testing "rf2-rrykz — each row carries `:path / :before / :after / :change`"
+    (let [s (proj/app-db-diff-step
+              [(db-changed-ev [[[:count] 0 1 :modified]])])
+          r (-> s :rows first)]
+      (is (= [:count] (:path r)))
+      (is (= 0 (:before r)))
+      (is (= 1 (:after r)))
+      (is (= :modified (:change r))))))
+
+(deftest project-includes-app-db-diff-after-handler-test
+  (testing "rf2-rrykz — top-level project emits APP-DB-DIFF immediately
+            after HANDLER so the state-mutation lens lands next to the
+            attribution row"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (db-changed-ev [[[:count] 0 1 :modified]])])
+          steps (proj/project rec)
+          kws   (mapv :step steps)]
+      (is (some #{:app-db-diff} kws))
+      (is (= (.indexOf kws :app-db-diff)
+             (inc (.indexOf kws :handler)))
+          ":app-db-diff rides immediately after :handler")))
+
+  (testing "rf2-rrykz — no app-db mutation → step absent"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)])
+          steps (proj/project rec)]
+      (is (not-any? #(= :app-db-diff (:step %)) steps)))))
+
+;; ---- rf2-yx1ae — child dispatches section -----------------------------
+
+(deftest child-dispatch-rows-from-dispatch-test
+  (testing "rf2-yx1ae — `:dispatch [:e/x]` projects one row"
+    (let [rows (proj/child-dispatch-rows
+                 [(do-fx-ev {:dispatch [:e/x 7]})])]
+      (is (= 1 (count rows)))
+      (is (= [:e/x 7]   (-> rows first :event)))
+      (is (= :dispatch  (-> rows first :via)))
+      (is (nil? (-> rows first :delay-ms))))))
+
+(deftest child-dispatch-rows-from-dispatch-n-test
+  (testing "rf2-yx1ae — `:dispatch-n [[:a] [:b]]` projects one row each"
+    (let [rows (proj/child-dispatch-rows
+                 [(do-fx-ev {:dispatch-n [[:a] [:b 1]]})])]
+      (is (= 2 (count rows)))
+      (is (= [:a]   (-> rows (nth 0) :event)))
+      (is (= [:b 1] (-> rows (nth 1) :event)))
+      (is (every? #(= :dispatch-n (:via %)) rows)))))
+
+(deftest child-dispatch-rows-from-dispatch-later-test
+  (testing "rf2-yx1ae — `:dispatch-later {:ms 250 :dispatch [:retry]}`
+            projects one row with `:delay-ms`"
+    (let [rows (proj/child-dispatch-rows
+                 [(do-fx-ev {:dispatch-later {:ms 250 :dispatch [:retry]}})])]
+      (is (= 1 (count rows)))
+      (is (= [:retry] (-> rows first :event)))
+      (is (= 250 (-> rows first :delay-ms)))
+      (is (= :dispatch-later (-> rows first :via)))))
+
+  (testing "rf2-yx1ae — `:dispatch-later` accepts a vec form too"
+    (let [rows (proj/child-dispatch-rows
+                 [(do-fx-ev {:dispatch-later
+                             [{:ms 100 :dispatch [:a]}
+                              {:ms 500 :dispatch [:b]}]})])]
+      (is (= 2 (count rows)))
+      (is (= 100 (-> rows (nth 0) :delay-ms)))
+      (is (= 500 (-> rows (nth 1) :delay-ms))))))
+
+(deftest child-dispatches-step-conditional-test
+  (testing "rf2-yx1ae — no dispatch fx → step OMITTED"
+    (is (nil? (proj/child-dispatches-step
+                [(do-fx-ev {:http/post {:url "/x"}})]))))
+
+  (testing "rf2-yx1ae — dispatch fx present → step rendered"
+    (let [s (proj/child-dispatches-step
+              [(do-fx-ev {:dispatch [:e/x]})])]
+      (is (= :child-dispatches (:step s)))
+      (is (= :CHILD-DISPATCHES (:badge s)))
+      (is (= 1 (count (:rows s)))))))
+
+(deftest find-child-epoch-by-parent-dispatch-id-test
+  (testing "rf2-yx1ae — find-child-epoch matches on `:parent-dispatch-id`"
+    (let [history [{:epoch-id 11 :parent-dispatch-id 1 :trigger-event [:other]}
+                   {:epoch-id 12 :parent-dispatch-id 1 :trigger-event [:e/x 7]}
+                   {:epoch-id 13 :parent-dispatch-id 2 :trigger-event [:e/x 7]}]]
+      (is (= 12 (proj/find-child-epoch history 1 [:e/x 7]))
+          "exact trigger-event + parent-id match wins")
+      (is (= 11 (proj/find-child-epoch history 1 [:other]))
+          "exact match on a different sibling")
+      (is (nil? (proj/find-child-epoch history 99 [:e/x 7]))
+          "no parent-id match → nil")
+      (is (nil? (proj/find-child-epoch nil 1 [:e/x 7]))
+          "nil history → nil")
+      (is (nil? (proj/find-child-epoch history nil [:e/x 7]))
+          "nil parent-id → nil"))))
+
+(deftest project-includes-child-dispatches-step-test
+  (testing "rf2-yx1ae — top-level project emits CHILD-DISPATCHES after FX
+            and before SUBSCRIPTIONS when dispatch fx fired"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (do-fx-ev {:dispatch [:other/event 1]})
+                         (db-changed-ev [])])
+          steps (proj/project rec)
+          step-kws (mapv :step steps)]
+      (is (some #{:child-dispatches} step-kws)
+          "CHILD-DISPATCHES is present")
+      (is (< (.indexOf step-kws :handler)
+             (.indexOf step-kws :child-dispatches))
+          ":child-dispatches rides AFTER :handler")
+      (when (some #{:fx} step-kws)
+        (is (< (.indexOf step-kws :fx)
+               (.indexOf step-kws :child-dispatches))
+            ":child-dispatches rides AFTER :fx when :fx is also emitted")))))
+
+(deftest project-includes-schema-violations-step-test
+  (testing "rf2-17vxj — top-level project emits SCHEMA-VIOLATIONS at
+            the END of the cascade when violations fired"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (db-changed-ev [[[:count] 0 "boom" :modified]])
+                         (schema-violation-ev :app-db :counter/inc
+                                              [:count] "boom" true)])
+          steps (proj/project rec)]
+      (is (= :schema-violations (-> steps last :step))
+          "SCHEMA-VIOLATIONS rides at the end of the cascade")))
+
+  (testing "rf2-17vxj — no violations → step absent"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (db-changed-ev [[[:count] 0 1 :modified]])])
+          steps (proj/project rec)]
+      (is (not-any? #(= :schema-violations (:step %)) steps)))))

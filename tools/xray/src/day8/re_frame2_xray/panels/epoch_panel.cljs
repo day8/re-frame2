@@ -95,10 +95,18 @@
             record         (focus/find-epoch-record focus-epoch-id
                                                     epoch-history)
             steps          (when record (proj/project-numbered record))]
-        {:status   status
-         :epoch-id (or focus-epoch-id (:epoch-id record))
-         :record   record
-         :steps    (vec (or steps []))})))
+        {:status         status
+         :epoch-id       (or focus-epoch-id (:epoch-id record))
+         :record         record
+         ;; rf2-yx1ae — the CHILD-DISPATCHES section's view resolves
+         ;; child epoch-ids via `find-child-epoch` against this cascade's
+         ;; `:dispatch-id` + the epoch-history. Pinning them on the
+         ;; composite sub keeps the view side a pure render — no
+         ;; secondary sub against `:rf.xray/epoch-history` in the
+         ;; per-row hot path.
+         :dispatch-id    (:dispatch-id record)
+         :epoch-history  epoch-history
+         :steps          (vec (or steps []))})))
 
   ;; ---- per-row expand state ---------------------------------------------
   ;;

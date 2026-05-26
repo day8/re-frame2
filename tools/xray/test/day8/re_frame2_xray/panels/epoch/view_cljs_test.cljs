@@ -233,6 +233,332 @@
       (is (string/includes? id "<anonymous view>")
           "missing view-id reads as `<anonymous view>` placeholder"))))
 
+;; ---- rf2-nqt3d — per-step elapsed time + cascade total ----------------
+
+(deftest cascade-summary-renders-total-test
+  (testing "rf2-nqt3d — cascade-summary chip carries the cascade total
+            formatted via `format-duration-ms`"
+    (let [tree (view/cascade-summary [{:step :dispatch :duration-ms 0.5}
+                                      {:step :handler  :duration-ms 12}])
+          chip (th/find-by-testid tree "rf-xray-epoch-cascade-summary")]
+      (is (some? chip) "the summary chip renders when any step carries a duration")
+      (is (string/includes? (th/text-content chip) "cascade total"))
+      (is (string/includes? (th/text-content chip) "13ms")
+          "total reads as the rounded sum of every step's :duration-ms"))))
+
+(deftest cascade-summary-elides-when-no-durations-test
+  (testing "rf2-nqt3d — projection without any duration returns nil so
+            the view never renders an empty `total: —` chip"
+    (let [tree (view/cascade-summary [{:step :dispatch}
+                                      {:step :handler}])]
+      (is (nil? tree)
+          "no durations → no summary chip (graceful-degrade)"))))
+
+(deftest cascade-summary-shows-long-step-count-test
+  (testing "rf2-nqt3d — when any step exceeds 16ms the summary surfaces
+            a warning-tone count chip"
+    (let [tree (view/cascade-summary [{:step :handler :duration-ms 12}
+                                      {:step :views   :duration-ms 25}
+                                      {:step :fx      :duration-ms 30}])
+          long-chip (th/find-by-testid tree "rf-xray-epoch-cascade-summary-long-count")]
+      (is (some? long-chip) "long-count chip present when any step is over 16ms")
+      (is (string/includes? (th/text-content long-chip) "2 over 16ms")
+          "count + threshold are visible in the chip text"))))
+
+(deftest cascade-summary-omits-long-count-when-zero-test
+  (testing "rf2-nqt3d — clean cascade (every step under threshold) → no
+            long-count chip in the summary"
+    (let [tree (view/cascade-summary [{:step :handler :duration-ms 0.5}
+                                      {:step :views   :duration-ms 1.2}])]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-cascade-summary-long-count"))
+          "no long-count chip on a fast cascade"))))
+
+;; ---- rf2-17vxj — schema-violations section ----------------------------
+
+(deftest schema-violations-step-renders-rows-test
+  (testing "rf2-17vxj — SCHEMA VIOLATIONS step renders one row per
+            violation; rollback chip rides any rollback? row"
+    (let [step {:step :schema-violations :badge :SCHEMA-VIOLATIONS
+                :step-number 8
+                :rows [{:kind :rf.error/schema-validation-failure
+                        :where :app-db
+                        :failing-id :counter/inc
+                        :path [:count]
+                        :value "not-an-int"
+                        :rollback? true
+                        :sensitive? false}
+                       {:kind :rf.schema/violation
+                        :where :hot-reload
+                        :frame :rf/default
+                        :failing-id :rf/default
+                        :path [:count]
+                        :value "boom"
+                        :recovery :logged-and-skipped
+                        :rollback? false
+                        :sensitive? false}]
+                :rollbacks 1}
+          tree (view/render-schema-violations-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-schema-violations"))
+          "the step wrapper renders")
+      (is (= 2 (count (th/find-by-testid-prefix
+                        tree "rf-xray-epoch-schema-violation-row-"))))
+      (is (some? (th/find-by-testid
+                   tree "rf-xray-epoch-schema-violation-rollback-0"))
+          "the rollback chip rides the rollback? row")
+      (is (nil? (th/find-by-testid
+                  tree "rf-xray-epoch-schema-violation-rollback-1"))
+          "no rollback chip on a clean recovery row")
+      (let [header (text-of tree "rf-xray-epoch-schema-violations-header")]
+        (is (string/includes? header "2 violation"))
+        (is (string/includes? header "1 rollback")))
+      (is (some? (th/find-by-testid
+                   tree "rf-xray-epoch-schema-violations-open-issues"))
+          "the open-issues affordance is present"))))
+
+(deftest schema-violations-row-shows-fields-test
+  (testing "rf2-17vxj — per-row body shows where + failing-id + path + value"
+    (let [step {:step :schema-violations :badge :SCHEMA-VIOLATIONS
+                :step-number 8
+                :rows [{:kind :rf.error/schema-validation-failure
+                        :where :sub-return
+                        :failing-id :counter/total
+                        :path [:total]
+                        :value {:bad :data}
+                        :rollback? false
+                        :sensitive? false}]
+                :rollbacks 0}
+          tree (view/render-schema-violations-step step)]
+      (let [where (text-of tree "rf-xray-epoch-schema-violation-where-0")
+            id    (text-of tree "rf-xray-epoch-schema-violation-id-0")
+            path  (text-of tree "rf-xray-epoch-schema-violation-path-0")]
+        (is (string/includes? where "sub return"))
+        (is (string/includes? id ":counter/total"))
+        (is (string/includes? path "[:total]"))))))
+
+;; ---- rf2-uffov — FX section header + per-action attribution ----------
+
+(deftest fx-step-header-shows-outcome-split-test
+  (testing "rf2-uffov — FX step header reads
+            `N fired (M succeeded, K threw)`"
+    (let [step {:step :fx :badge :FX :step-number 4
+                :rows [{:fx-id :db :status :ok}
+                       {:fx-id :http/get :status :ok}
+                       {:fx-id :bad :status :error}]
+                :succeeded 2 :threw 1 :skipped 0}
+          tree (view/render-fx-step step)
+          header (text-of tree "rf-xray-epoch-fx-header")]
+      (is (string/includes? header "3 fired"))
+      (is (string/includes? header "2 succeeded"))
+      (is (string/includes? header "1 threw")))))
+
+(deftest fx-row-shows-attribution-chip-test
+  (testing "rf2-uffov — when an FX row carries :attributed-to, the
+            attribution chip renders alongside"
+    (let [step {:step :fx :badge :FX :step-number 4
+                :rows [{:fx-id :http/get :status :ok
+                        :attributed-to {:action-id :open-socket
+                                        :phase :entry}}]
+                :succeeded 1 :threw 0 :skipped 0}
+          tree (view/render-fx-step step)
+          chip (th/find-by-testid tree "rf-xray-epoch-fx-row-attribution-0")]
+      (is (some? chip) "the attribution chip is present")
+      (is (string/includes? (th/text-content chip) ":open-socket")
+          "the action-id rides the chip"))))
+
+(deftest fx-row-omits-attribution-chip-when-none-test
+  (testing "rf2-uffov — FX row without :attributed-to omits the chip"
+    (let [step {:step :fx :badge :FX :step-number 4
+                :rows [{:fx-id :db :status :ok}]
+                :succeeded 1 :threw 0 :skipped 0}
+          tree (view/render-fx-step step)]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-fx-row-attribution-0"))))))
+
+;; ---- rf2-rrykz — app-db diff section ---------------------------------
+
+(deftest app-db-diff-step-renders-rows-test
+  (testing "rf2-rrykz — APP-DB DIFF step renders one row per changed
+            path with the change kind reflected on the row data attr"
+    (let [step {:step :app-db-diff :badge :APP-DB-DIFF :step-number 4
+                :rows [{:path [:count] :before 0 :after 1 :change :modified}
+                       {:path [:new]   :before nil :after "v" :change :added}
+                       {:path [:gone]  :before 5 :after nil :change :removed}]
+                :added 1 :modified 1 :removed 1}
+          tree (view/render-app-db-diff-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-app-db-diff")))
+      (is (= 3 (count (th/find-by-testid-prefix
+                        tree "rf-xray-epoch-app-db-diff-row-"))))
+      (let [header (text-of tree "rf-xray-epoch-app-db-diff-header")]
+        (is (string/includes? header "3 paths changed"))
+        (is (string/includes? header "+1 / ~1 / -1"))))))
+
+(deftest app-db-diff-row-shows-path-and-values-test
+  (testing "rf2-rrykz — :modified row shows before → after"
+    (let [step {:step :app-db-diff :badge :APP-DB-DIFF :step-number 4
+                :rows [{:path [:counter :value] :before 5 :after 6
+                        :change :modified}]
+                :added 0 :modified 1 :removed 0}
+          tree (view/render-app-db-diff-step step)
+          row  (th/find-by-testid tree "rf-xray-epoch-app-db-diff-row-0")]
+      (is (some? row))
+      (let [txt (th/text-content row)]
+        (is (string/includes? txt "[:counter :value]")
+            "path is visible")
+        (is (string/includes? txt "5"))
+        (is (string/includes? txt "6"))))))
+
+;; ---- rf2-yx1ae — child-dispatches section -----------------------------
+
+(deftest child-dispatches-step-renders-rows-test
+  (testing "rf2-yx1ae — CHILD-DISPATCHES step renders one row per child
+            with via-chip + event vector"
+    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
+                :step-number 5
+                :rows [{:event [:other/x 1] :via :dispatch :delay-ms nil}
+                       {:event [:retry]     :via :dispatch-later :delay-ms 250}]}
+          ctx  {:dispatch-id   1
+                :epoch-history [{:epoch-id 99 :parent-dispatch-id 1
+                                 :trigger-event [:other/x 1]}]}
+          tree (view/render-child-dispatches-step step ctx)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-child-dispatches")))
+      (is (= 2 (count (th/find-by-testid-prefix
+                        tree "rf-xray-epoch-child-dispatch-row-"))))
+      (let [header (text-of tree "rf-xray-epoch-child-dispatches-header")]
+        (is (string/includes? header "2 events dispatched")))
+      (let [via0 (text-of tree "rf-xray-epoch-child-dispatch-via-0")
+            via1 (text-of tree "rf-xray-epoch-child-dispatch-via-1")
+            ev0  (text-of tree "rf-xray-epoch-child-dispatch-event-0")
+            ev1  (text-of tree "rf-xray-epoch-child-dispatch-event-1")]
+        (is (string/includes? via0 "dispatch"))
+        (is (string/includes? via1 "dispatch-later"))
+        (is (string/includes? ev0  ":other/x"))
+        (is (string/includes? ev1  ":retry")))
+      ;; delay chip on the dispatch-later row only
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-delay-1")))
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-delay-0"))))))
+
+(deftest child-dispatches-jump-resolves-when-in-buffer-test
+  (testing "rf2-yx1ae — child epoch in the buffer renders a jump button
+            with the child's :epoch-id"
+    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
+                :step-number 5
+                :rows [{:event [:other/x 1] :via :dispatch}]}
+          ctx  {:dispatch-id   1
+                :epoch-history [{:epoch-id 99 :parent-dispatch-id 1
+                                 :trigger-event [:other/x 1]}]}
+          tree (view/render-child-dispatches-step step ctx)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-jump-0"))
+          "jump button is present when child is resolvable")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-missing-0"))
+          "no `not in buffer` marker when child is resolved"))))
+
+(deftest child-dispatches-missing-when-not-in-buffer-test
+  (testing "rf2-yx1ae — child not in buffer (aged out / never landed)
+            renders the muted `not in buffer` marker"
+    (let [step {:step :child-dispatches :badge :CHILD-DISPATCHES
+                :step-number 5
+                :rows [{:event [:other/x 1] :via :dispatch}]}
+          ctx  {:dispatch-id   1
+                :epoch-history []}
+          tree (view/render-child-dispatches-step step ctx)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-missing-0")))
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-child-dispatch-jump-0"))))))
+
+;; ---- rf2-9c27r — machine handler section -------------------------------
+
+(deftest machine-handler-renders-data-reduction-test
+  (testing "rf2-9c27r — DATA REDUCTION sub-section renders `:data`
+            before / after when they differ"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:transition {:machine-id :ws/conn
+                                       :before {:state [:idle]      :data {:count 0}}
+                                       :after  {:state [:connected] :data {:count 1}}
+                                       :data-before {:count 0}
+                                       :data-after  {:count 1}
+                                       :microsteps 0}
+                          :guards []
+                          :lifecycle []
+                          :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-reduction"))
+          "DATA REDUCTION block renders when data changed")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-before")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-after"))))))
+
+(deftest machine-handler-renders-snapshot-diff-test
+  (testing "rf2-9c27r — SNAPSHOT DIFF sub-section renders the full
+            machine snapshot before / after"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:transition {:machine-id :ws/conn
+                                       :before {:state [:idle]}
+                                       :after  {:state [:connected]}
+                                       :microsteps 1}
+                          :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-snapshot-diff")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-microsteps"))
+          "microsteps slot is surfaced under the transition summary"))))
+
+(deftest machine-handler-omits-data-reduction-when-unchanged-test
+  (testing "rf2-9c27r — DATA REDUCTION elides when before == after"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:transition {:machine-id :ws/conn
+                                       :before {:state [:idle] :data {:n 1}}
+                                       :after  {:state [:connected] :data {:n 1}}
+                                       :data-before {:n 1}
+                                       :data-after  {:n 1}
+                                       :microsteps 0}
+                          :guards [] :lifecycle [] :timers []}}
+          tree (view/render-handler-step step)]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine-data-reduction"))
+          "no DATA REDUCTION block when both sides are identical"))))
+
+(deftest machine-handler-per-action-fx-attribution-test
+  (testing "rf2-9c27r — per-action fx attribution renders under the
+            lifecycle row when the action returned :fx"
+    (let [step {:step :handler :badge :HANDLER :step-number 3
+                :flavour :reg-machine :event-id :ws/start
+                :db-diff [] :fx []
+                :machine {:transition nil
+                          :guards []
+                          :lifecycle [{:action-id :open-socket
+                                       :phase :entry
+                                       :outcome {:fx [[:http/get {:url "/x"}]]}
+                                       :fx [[:http/get {:url "/x"}]]}]
+                          :timers []}}
+          tree (view/render-handler-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-phase-entry-row-0"))
+          "the lifecycle row renders")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-phase-entry-fx-0"))
+          "per-action fx attribution shows under the row"))))
+
+(deftest duration-chip-renders-long-step-warning-test
+  (testing "rf2-nqt3d — a step header's duration chip paints warning
+            chrome when over 16ms"
+    (let [tree (view/render-handler-step
+                 {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db :event-id :rf.test.epoch.view/slow-handler
+                  :db-diff [] :fx [] :machine nil
+                  :duration-ms 42})]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-duration-long"))
+          "the long-duration testid is stamped on slow steps")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-duration"))
+          "the bare-duration testid is NOT stamped on long steps")))
+
+  (testing "rf2-nqt3d — a fast step keeps the bare-duration chip"
+    (let [tree (view/render-handler-step
+                 {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db :event-id :rf.test.epoch.view/fast-handler
+                  :db-diff [] :fx [] :machine nil
+                  :duration-ms 0.1})]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-duration"))
+          "fast step keeps the standard duration testid"))))
+
 (deftest handler-body-renders-captured-source-test
   (testing "rf2-66wis — when the registrar carries an
             `:rf.handler/source`, the body renders it via the

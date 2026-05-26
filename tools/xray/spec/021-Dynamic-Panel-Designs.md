@@ -1301,19 +1301,22 @@ empty-state line. This matches the §2.2 dynamic-numbering contract
 from the Event lens — both panels share the same "absence is
 silence" rhythm.
 
-### §9.1.4 Badge taxonomy (the 7-badge inventory)
+### §9.1.4 Badge taxonomy (the 10-badge inventory)
 
 Each step renders a uppercase badge pill at its numbered circle:
 
 | Badge | Token | Hue family |
 |-------|-------|------------|
-| `:DISPATCH`      | `:text-tertiary` | muted grey |
-| `:COEFFECT`      | `:magenta`       | purple |
-| `:HANDLER`       | `:accent`        | blue (single Xray accent) |
-| `:FLOW`          | `:accent`        | blue (paired with HANDLER) |
-| `:FX`            | `:orange`        | functional amber (post-commit irreversible) |
-| `:SUBSCRIPTIONS` | `:magenta`       | pink/magenta family |
-| `:VIEWS`         | `:success`       | green |
+| `:DISPATCH`           | `:text-tertiary` | muted grey |
+| `:COEFFECT`           | `:magenta`       | purple |
+| `:HANDLER`            | `:accent`        | blue (single Xray accent) |
+| `:FLOW`               | `:accent`        | blue (paired with HANDLER) |
+| `:FX`                 | `:orange`        | functional amber (post-commit irreversible) |
+| `:SUBSCRIPTIONS`      | `:magenta`       | pink/magenta family |
+| `:VIEWS`              | `:success`       | green |
+| `:SCHEMA-VIOLATIONS`  | `:warning`       | warning amber (rf2-17vxj) |
+| `:CHILD-DISPATCHES`   | `:text-tertiary` | muted grey (same as DISPATCH — cascade-link semantics, rf2-yx1ae) |
+| `:APP-DB-DIFF`        | `:accent`        | blue (state-mutation lens, rf2-rrykz) |
 
 The inventory is LOCKED — the projection's `badge-set` enforces
 that every emitted step's `:badge` is a member, and the view's
@@ -1321,30 +1324,52 @@ colour resolver bails to `:text-tertiary` on an unknown badge so a
 future taxonomy extension paints something but tests catch the
 omission.
 
-### §9.1.5 Handler-type adaptation (rf2-82a0u prerequisites)
+### §9.1.5 Handler-type adaptation (rf2-82a0u prerequisites · rf2-9c27r full design)
 
 The HANDLER step's body adapts to the handler's flavour, discovered
 from the trace stream:
 
 - **`:reg-event-db`** — `:db` diff only (the simplest case).
 - **`:reg-event-fx`** — `:db` diff + per-fx-entry block.
-- **`:reg-machine`** — full machine block: transition summary
-  (machine-id + before/after state vectors), guard rows
-  (`:pass / :fail / :threw` outcomes), per-phase lifecycle rows
-  (phases drawn from the closed set
-  `:exit / :transition / :entry / :always / :after-action /
-  :initial-entry / :destroy-exit`, per rf2-82a0u's `:phase` stamp
-  on `:rf.machine/action-ran`), and timer-cancellation rows
-  (reasons drawn from the closed set
-  `:on-exit / :on-destroy / :on-resolution / :on-supersede /
-  :on-frame-destroy`, per the unified `:rf.machine.timer/cancelled`
-  trace).
+- **`:reg-machine`** — the full machine block per the rf2-9c27r
+  design doc, with all seven sub-sections (rf2-9c27r):
+
+  1. **TRANSITION** — `before-state → after-state`, machine-id,
+     event vector, microstep count (one `:rf.machine/transition` per
+     macrostep — Spec 005 §Trace events).
+  2. **GUARDS** — per-guard row from `:rf.machine/guard-evaluated`:
+     guard-id + `:outcome` from the closed set `:pass / :fail /
+     :threw` (rf2-82a0u).
+  3. **LIFECYCLE** — phase-grouped rows from `:rf.machine/action-ran`
+     (rf2-82a0u — every emit carries `:phase` from the closed set
+     `:exit / :transition / :entry / :always / :after-action /
+     :initial-entry / :destroy-exit`). Each row carries action-id,
+     outcome, and **per-action fx attribution** when the action's
+     outcome map carried `:fx` — the operator reads `action X
+     emitted fx Y` inline (rf2-9c27r §7 folds the FX sub-section
+     into LIFECYCLE for compactness).
+  4. **AFTER TIMERS** — armed + cancelled rows with
+     `:rf.machine.timer/cancelled` `:reason` from the closed set
+     `:on-exit / :on-destroy / :on-resolution / :on-supersede /
+     :on-frame-destroy`.
+  5. **DATA REDUCTION** — `:data` before / after via
+     `edn/inspect-inline`. Source: the `:before / :after` snapshots
+     on `:rf.machine/transition`; the projection hoists `:data-before
+     / :data-after` from those maps. Elides when before == after.
+  6. **SNAPSHOT DIFF** — full snapshot before / after via
+     `edn/inspect-inline`. Source: same trace; renders the WHOLE
+     snapshot map (state vector + data map + parallel-region tags)
+     so the operator can drill into any slot. Elides when snapshots
+     are identical.
+  7. **FX** — per-action attribution folded into LIFECYCLE (above).
+     The HANDLER step's top-level `:fx` slot still surfaces the
+     handler's returned fx for completeness.
 
 The flavour discriminator runs at projection time as a pure-data
 check against the trace stream — no spec read, no registry lookup,
 no replay. The substrate enhancements in #2155 (rf2-82a0u) are the
-prerequisite that lets the LIFECYCLE / TIMERS sub-blocks read
-directly off the trace.
+prerequisite that lets the LIFECYCLE / TIMERS / DATA REDUCTION /
+SNAPSHOT DIFF sub-blocks read directly off the trace.
 
 ### §9.1.6 Numbered cascade chrome
 
@@ -1428,6 +1453,170 @@ and silently rendered empty rows. The binding inventory:
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:duration-ms` |
 | `:subscriptions` | `:rf.sub/run` / `:rf.sub/skip` | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/elapsed-ms` (rf2-kfh1v aligned the reads against these) |
 | `:views` | `:rf.view/rendered` (NOT the simpler `:rf.view/render` marker) | `:rf.view/id`, `:rf.view/deref-subs`, `:rf.view/elapsed-ms`, `:rf.view/mount?`, `:rf.view/triggered-by` (rf2-6djth aligned the read against the rich marker) |
+
+### §9.1.10.2 Per-step elapsed time + cascade total (rf2-nqt3d)
+
+Each step row carries `:duration-ms` (a number when the substrate
+stamped it; nil otherwise). The view paints it as a right-aligned
+monospace chip on every step's header — pure-data via
+`projection/format-duration-ms`, which formats `0.1ms` / `12ms` /
+`1.2s` per scale.
+
+Pure-data aggregations layered on top of the projected step vector
+drive the cascade-level chrome:
+
+| Helper | Returns | Used for |
+|--------|---------|----------|
+| `projection/cascade-total-ms steps` | number (sum of `:duration-ms`) or nil | top-of-cascade summary chip total |
+| `projection/long-step? step` | boolean (`:duration-ms > 16ms`) | per-step warning chrome |
+| `projection/long-step-count steps` | integer | summary chip secondary count |
+
+`projection/long-step-threshold-ms` is **16ms** — one display frame
+at 60Hz, the natural marker for "this single step will visibly
+jank the next paint". Crossing the threshold paints the chip in the
+warning tone with a `▲` glyph; the cascade-summary chip surfaces a
+secondary `N over 16ms` count when any step is long. Below
+threshold the chip is muted with no glyph — alarmist `✗` chrome
+would crowd the cascade on the common case where one step is
+naturally heavy.
+
+The summary chip elides when no step carries a numeric duration
+(cold-start records, fixtures synthesised without timing); the
+cascade renders normally.
+
+### §9.1.10.3 Schema-violations section (rf2-17vxj)
+
+A SCHEMA VIOLATIONS step is appended to the cascade when the
+focused epoch's trace stream carried at least one of:
+
+- `:rf.error/schema-validation-failure` — runtime per-boundary
+  validation failure (app-db commit / cofx / sub-return / fx-args /
+  event payload). Tags: `:where`, `:path`, `:value`, `:failing-id`,
+  `:rollback?`, `:explain`, `:sensitive?`.
+- `:rf.schema/violation` — hot-reload drift: a re-registration
+  changed the schema at `(frame-id, path)` and the live app-db
+  value fails the new schema. Tags: `:path`, `:frame`,
+  `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`,
+  `:recovery`, `:sensitive?`.
+
+Both ops project into the same row schema, with `:kind` flagging
+the source. Section chrome is warning-tone (`:warning` colour
+token + `▲` glyph) — load-bearing without rising to alarmist
+`:error` tone. Per-row body:
+
+- `:where` label (e.g. `app-db commit`, `sub return`, `hot-reload`).
+- `:failing-id` (the registered name whose boundary failed).
+- `:path` (when present).
+- failing value via `edn/inspect-inline` (already redacted at the
+  substrate emit site when the slot is `:sensitive?`).
+- `rolled back` chip when `:rollback?` is true.
+- `recovery: <reason>` chip when `:rollback?` is false (the
+  cascade ran through despite the violation).
+- `(value redacted — slot declared :sensitive?)` marker when the
+  substrate redacted the value.
+
+Header carries the violation count + a per-rollback split + an
+`open issues →` affordance that dispatches `[:rf.xray/select-tab
+:issues]` so the operator can pivot to the Issues panel for
+cross-session triage.
+
+Section is conditional — omitted when no violation events fired.
+
+### §9.1.10.6 FX section header + per-action attribution (rf2-uffov)
+
+The FX step has rendered per-fx rows since rf2-sc3r1. rf2-uffov
+extends it with:
+
+- **Header outcome split** — `N fired (M succeeded, K threw,
+  L skipped)`. Counters are projection-side aggregations of the
+  per-row `:status` keyword (`:ok / :overridden → :succeeded`,
+  `:error → :threw`, `:skipped → :skipped`). The view consumes
+  the projected counters directly so the header reads as
+  at-a-glance correctness.
+- **Per-action attribution** — when the cascade was driven by a
+  machine handler, each FX row that maps to a fx-id emitted by an
+  action's outcome `:fx` slot carries `:attributed-to {:action-id
+  …, :phase …}` (rf2-9c27r + this bead). The view renders an
+  italic `← <action-id> (<phase>)` chip alongside the row so the
+  operator reads `fx X emitted by action Y in phase Z` in one
+  line. Best-effort: first-attribution wins when the same fx-id
+  is emitted by multiple actions in the same cascade (cascade
+  order).
+- **Conditional emit unchanged** — section omits when no fx-handler
+  events fired.
+
+### §9.1.10.5 App-db diff section (rf2-rrykz)
+
+An APP-DB DIFF step rides immediately after HANDLER when the
+cascade mutated app-db. The section answers the most fundamental
+"what happened?" question — what changed in app-db this cascade —
+as a top-level cascade element rather than buried in the HANDLER
+body.
+
+Two surfaces coexist by design:
+
+- HANDLER body's `:db-diff` slot — **attribution** lens ("this
+  handler caused these changes"). Renders the same diff inline
+  with the source code block, machine block, and `:fx` slot.
+- APP-DB DIFF step — **state-mutation** lens ("these are app-db's
+  changes this cascade"). Renders as its own numbered step with
+  the header carrying the change-count split.
+
+Same data (`:rf.event/db-changed-paths` on `:rf.event/db-changed`),
+two chrome treatments. The pre-roll for "show me app-db deltas"
+now matches every cascade — same shape, same place.
+
+Header: `N paths changed (+M / ~K / -L)` (added / modified /
+removed split). Per-row chrome mirrors HANDLER's `db-diff-line`
+(glyph + path + value(s)).
+
+Section is conditional — omitted when no app-db mutation fired.
+
+### §9.1.10.4 Cascading-dispatches section (rf2-yx1ae)
+
+A CHILD-DISPATCHES step rides between FX and SUBSCRIPTIONS when the
+handler returned dispatch-family fx (`:dispatch`, `:dispatch-n`,
+`:dispatch-later`). The section surfaces the parent→child cascade
+link inline so the operator can pivot to a child epoch's view
+directly.
+
+Projection source: the handler's returned `:rf.event/fx` payload on
+`:rf.fx/do-fx` (Spec 009). The projector normalises the three
+substrate shapes into a uniform row schema:
+
+- `:dispatch [:e/x]`                    → `{:event [:e/x] :delay-ms nil :via :dispatch}`
+- `:dispatch-n [[:a] [:b]]`             → one row per element with `:via :dispatch-n`
+- `:dispatch-later {:ms 250 :dispatch [:r]}` → `{:event [:r] :delay-ms 250 :via :dispatch-later}`
+- `:dispatch-later [{…} {…}]`           → one row per element
+
+Per-row chrome:
+
+- `:via` chip (`dispatch` / `dispatch-n` / `dispatch-later` — muted
+  uppercase label).
+- The child event vector (operator's primary read).
+- `+<N>ms` delay chip for `:dispatch-later`.
+- Jump-to button when the child cascade is in the epoch buffer;
+  muted `not in buffer` marker otherwise.
+
+The child-epoch resolution lives in `projection/find-child-epoch`,
+which scans the `:rf.xray/epoch-history` for records whose
+`:parent-dispatch-id` matches THIS cascade's `:dispatch-id`. The
+substrate pins the parent link on the child's epoch-record per
+Spec-Schemas §`:rf/epoch-record` + Spec 009 §Dispatch correlation.
+When the trigger-event matches exactly we prefer that record; on
+sibling collisions the first child under the same parent-id is
+returned so the operator still has a forwarding link.
+
+Jump-to dispatches `[:rf.xray/select-epoch <child-epoch-id>]`
+(the shared spine shim from `xray.epoch/install!`) so the focus
+flips to the child cascade and the panel re-renders against the
+child's pipeline.
+
+The composite sub `:rf.xray/epoch-pipeline` now also exposes
+`:dispatch-id` + `:epoch-history` so the view's per-row resolver
+runs without a secondary subscription in the hot path.
+
+Section is conditional — omitted when no dispatch-family fx fired.
 
 ### §9.1.11 Cross-panel navigation
 

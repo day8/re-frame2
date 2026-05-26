@@ -238,29 +238,51 @@
 
   Each row carries `:action-id`, `:phase`, `:outcome`, optional
   `:threw?` + `:exception` (action-throw path emits
-  `:outcome :rf.error/action-threw` + an `:exception` slot). Rendered
-  in trace order — the substrate emits in execution order
-  (exit → transition → entry → always …)."
+  `:outcome :rf.error/action-threw` + an `:exception` slot), and
+  optional `:fx` (per-action fx attribution per rf2-9c27r — the
+  vector of `[fx-id args]` the action returned in its outcome map's
+  `:fx` slot). Rendered in trace order — the substrate emits in
+  execution order (exit → transition → entry → always …)."
   [events]
   (vec
     (for [ev (filter-op events :rf.machine/action-ran)]
-      {:action-id (common/tag-of ev :action-id)
-       :phase     (common/tag-of ev :phase)
-       :outcome   (common/tag-of ev :outcome)
-       :threw?    (= :rf.error/action-threw (common/tag-of ev :outcome))
-       :exception (common/tag-of ev :exception)
-       :input     (common/tag-of ev :input)})))
+      (let [outcome (common/tag-of ev :outcome)
+            ;; Per-action fx attribution (rf2-9c27r) — when the
+            ;; action returned a map carrying `:fx`, surface the
+            ;; tuple list so the LIFECYCLE row can show which fx
+            ;; the operator should attribute to this action.
+            action-fx (when (map? outcome) (:fx outcome))
+            action-data (when (map? outcome) (:data outcome))]
+        (cond-> {:action-id (common/tag-of ev :action-id)
+                 :phase     (common/tag-of ev :phase)
+                 :outcome   outcome
+                 :threw?    (= :rf.error/action-threw outcome)
+                 :exception (common/tag-of ev :exception)
+                 :input     (common/tag-of ev :input)}
+          (seq action-fx) (assoc :fx (vec action-fx))
+          (some? action-data) (assoc :data-write action-data))))))
 
 (defn- machine-transition-row
   "Project the `:rf.machine/transition` event (one per macrostep) into a
-  summary `{:machine-id :before :after :microsteps}` row. nil when no
-  transition trace fired."
+  summary `{:machine-id :before :after :microsteps :event :data-before
+            :data-after}` row. nil when no transition trace fired.
+
+  Per Spec 005 §Trace events the `:before` / `:after` slots carry
+  the full machine snapshot maps (`:state` + `:data` + …); the row
+  hoists `:data-before` / `:data-after` for the rf2-9c27r DATA
+  REDUCTION sub-section so the view layer doesn't re-walk the
+  snapshot map."
   [events]
   (when-let [ev (find-op events :rf.machine/transition)]
-    {:machine-id (common/tag-of ev :machine-id)
-     :before     (common/tag-of ev :before)
-     :after      (common/tag-of ev :after)
-     :microsteps (common/tag-of ev :microsteps)}))
+    (let [before (common/tag-of ev :before)
+          after  (common/tag-of ev :after)]
+      {:machine-id   (common/tag-of ev :machine-id)
+       :event        (common/tag-of ev :event)
+       :before       before
+       :after        after
+       :data-before  (when (map? before) (:data before))
+       :data-after   (when (map? after)  (:data after))
+       :microsteps   (common/tag-of ev :microsteps)})))
 
 (defn- machine-guard-rows
   "Project the `:rf.machine/guard-evaluated` stream into rows. Each
@@ -362,7 +384,15 @@
   "Project the `:rf.fx/handled` / `:rf.fx/override-applied` /
   `:rf.fx/skipped-on-platform` stream into per-handler rows. Each row
   carries `:fx-id`, `:status` (`:ok / :overridden / :skipped /
-  :error`), `:args`, and `:duration-ms`."
+  :error`), `:args`, and `:duration-ms`.
+
+  Per rf2-uffov: each row also carries `:attributed-to` (the
+  machine action that emitted the fx) when the cascade was driven
+  by a machine handler — sourced from `:rf.machine/action-ran`'s
+  `:outcome :fx` slot (rf2-9c27r). The attribution is best-effort:
+  matched by `(= fx-id (first fx-tuple))` against the action's
+  emitted fx vector. When a fx-id is emitted by multiple actions
+  in the same cascade, the FIRST attribution wins (cascade order)."
   [events]
   (let [status-fn (fn [op-kw]
                     (case op-kw
@@ -371,27 +401,69 @@
                       :rf.fx/skipped-on-platform   :skipped
                       :rf.error/fx-handler-exception :error
                       :rf.error/no-such-fx         :error
-                      :ok))]
+                      :ok))
+        ;; Per rf2-uffov — build the per-action fx attribution map
+        ;; once for this projection pass. Each entry maps a fx-id
+        ;; (the first element of the action's emitted fx tuple) to
+        ;; the FIRST machine action that emitted it. This is the
+        ;; per-action attribution surfaced on the FX section's rows.
+        attribution-map
+        (reduce
+          (fn [acc ev]
+            (if (and (= :rf.machine/action-ran (op ev))
+                     (map? (common/tag-of ev :outcome)))
+              (let [{:keys [fx]} (common/tag-of ev :outcome)
+                    action-id    (common/tag-of ev :action-id)
+                    phase        (common/tag-of ev :phase)]
+                (reduce
+                  (fn [a entry]
+                    (let [fx-id (cond
+                                  (and (vector? entry) (pos? (count entry)))
+                                  (first entry)
+                                  (keyword? entry) entry)]
+                      (if (and fx-id (not (contains? a fx-id)))
+                        (assoc a fx-id {:action-id action-id :phase phase})
+                        a)))
+                  acc
+                  (or fx [])))
+              acc))
+          {}
+          events)]
     (vec
       (for [ev events
-            :let [o (op ev)]
+            :let [o (op ev)
+                  fx-id (common/tag-of ev :rf.fx/id)]
             :when (or (= "rf.fx" (op-ns ev))
                       (contains? #{:rf.error/fx-handler-exception
                                    :rf.error/no-such-fx} o))]
-        {:fx-id       (common/tag-of ev :rf.fx/id)
-         :status      (status-fn o)
-         :args        (common/tag-of ev :rf.fx/args)
-         :duration-ms (common/tag-of ev :duration-ms)}))))
+        (cond-> {:fx-id       fx-id
+                 :status      (status-fn o)
+                 :args        (common/tag-of ev :rf.fx/args)
+                 :duration-ms (common/tag-of ev :duration-ms)}
+          (get attribution-map fx-id)
+          (assoc :attributed-to (get attribution-map fx-id)))))))
 
 (defn fx-step
   "FX step row (one row aggregating every fx-handler invocation). nil
-  when no fx-handler events fired (the step is OMITTED — conditional)."
+  when no fx-handler events fired (the step is OMITTED — conditional).
+
+  Per rf2-uffov the step carries header counters splitting the rows
+  by outcome — `N fired (M succeeded, K threw)`. The view consumes
+  these directly so the header reads as 'at-a-glance correctness'."
   [events]
   (let [rows (fx-rows events)]
     (when (seq rows)
-      {:step  :fx
-       :badge :FX
-       :rows  rows})))
+      (let [by-status  (frequencies (map :status rows))
+            succeeded  (+ (get by-status :ok 0)
+                          (get by-status :overridden 0))
+            skipped    (get by-status :skipped 0)
+            threw      (get by-status :error 0)]
+        {:step      :fx
+         :badge     :FX
+         :rows      rows
+         :succeeded succeeded
+         :skipped   skipped
+         :threw     threw}))))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
@@ -505,6 +577,262 @@
        :badge :VIEWS
        :rows  rows})))
 
+;; ---- SCHEMA VIOLATIONS step ----------------------------------------------
+;;
+;; rf2-17vxj — surface schema violations that fired during this epoch.
+;; Two trace operations carry violations:
+;;
+;;   :rf.error/schema-validation-failure — runtime per-event boundary
+;;     check (app-db / cofx / sub-return / fx-args). Tags:
+;;       :where       — `:app-db | :cofx | :sub-return | :fx-args | …`
+;;       :path        — `[k k …]` (where applicable)
+;;       :value       — failing value (already redacted to `:rf/redacted`
+;;                       when slot was `:sensitive?`)
+;;       :failing-id  — the handler / cofx / sub / fx whose boundary
+;;                       failed
+;;       :rollback?   — true when app-db was rolled back
+;;       :explain     — Malli explain data (optional)
+;;
+;;   :rf.schema/violation — hot-reload check: a re-registration changed
+;;     the schema at a `(frame-id, path)` AND the live `app-db` value at
+;;     `path` fails the new schema. Tags:
+;;       :path / :frame
+;;       :pre-reload-schema / :post-reload-schema
+;;       :mismatching-value (or `:rf/redacted`)
+;;       :recovery — `:logged-and-skipped`
+;;       :sensitive?
+;;
+;; Surfaced when the cascade carried at least one of either op.
+
+(def schema-violation-ops
+  "Closed set of trace ops the SCHEMA-VIOLATIONS step harvests
+  (rf2-17vxj). The runtime per-boundary failure and the hot-reload
+  drift check ride distinct ops + tag shapes; both project into the
+  same row schema with `:kind` flagging the source."
+  #{:rf.error/schema-validation-failure
+    :rf.schema/violation})
+
+(defn- schema-violation-row
+  "Project one schema-violation trace event into the per-row data
+  shape (rf2-17vxj). Empty / nil values are kept absent so the view
+  can elide slots cleanly."
+  [ev]
+  (let [op-kw (op ev)
+        tags  (:tags ev)]
+    (cond-> {:kind        op-kw
+             :where       (or (:where tags)
+                              (when (= :rf.schema/violation op-kw) :hot-reload))
+             :path        (:path tags)
+             :failing-id  (or (:failing-id tags)
+                              (when (= :rf.schema/violation op-kw)
+                                (:frame tags)))
+             :value       (or (:value tags) (:mismatching-value tags))
+             :explain     (:explain tags)
+             :rollback?   (boolean (:rollback? tags))
+             :recovery    (:recovery tags)
+             :sensitive?  (boolean (:sensitive? tags))}
+      (= :rf.schema/violation op-kw)
+      (assoc :pre-reload-schema  (:pre-reload-schema tags)
+             :post-reload-schema (:post-reload-schema tags)
+             :frame              (:frame tags)))))
+
+(defn schema-violation-rows
+  "Walk every schema-violation trace event in `events` (both runtime
+  per-event validation failures + hot-reload drift) into a vec of
+  per-row maps (rf2-17vxj). Empty vec when none fired."
+  [events]
+  (vec
+    (for [ev events
+          :when (contains? schema-violation-ops (op ev))]
+      (schema-violation-row ev))))
+
+(defn schema-violations-step
+  "Build the SCHEMA-VIOLATIONS step row, or nil when no violations
+  fired (the step is OMITTED — conditional). Header carries the
+  total count + a per-rollback split so the operator can tell at a
+  glance whether the cascade was REJECTED by the validator."
+  [events]
+  (let [rows (schema-violation-rows events)]
+    (when (seq rows)
+      {:step      :schema-violations
+       :badge     :SCHEMA-VIOLATIONS
+       :rows      rows
+       :rollbacks (count (filter :rollback? rows))})))
+
+;; ---- APP-DB DIFF step (rf2-rrykz) ----------------------------------------
+;;
+;; The `:rf.event/db-changed` trace (Spec 009) carries the changed-
+;; paths vector under `:rf.event/db-changed-paths` — each element
+;; is `[path before after change-kind]`. The HANDLER step's
+;; `:db-diff` slot has read this since rf2-sc3r1 (carrying the
+;; same data); the APP-DB DIFF step is a dedicated section so the
+;; operator's "what changed in app-db?" question lands the same
+;; pre-roll as any cascade, separately from the HANDLER body.
+;;
+;; The two surfaces coexist intentionally — HANDLER's diff is an
+;; attribution-row (which handler caused this change), the APP-DB
+;; DIFF step is the canonical "state-mutation" lens (parallel to
+;; the App-DB Diff panel).
+;;
+;; Conditional: rendered only when the cascade actually mutated
+;; app-db.
+
+(defn- categorise-diff-path
+  "Classify one `[path before after change-kind]` triple into
+  `:added / :modified / :removed`. Defaults from before/after
+  nullity when `change-kind` is absent (older fixtures)."
+  [[_path before after change-kind]]
+  (cond
+    (= change-kind :added)    :added
+    (= change-kind :removed)  :removed
+    (= change-kind :modified) :modified
+    (and (nil? before) (some? after))   :added
+    (and (some? before) (nil? after))   :removed
+    :else                                :modified))
+
+(defn app-db-diff-step
+  "Build the APP-DB DIFF step row (rf2-rrykz). nil when the cascade
+  mutated no app-db paths (the step is OMITTED — conditional).
+
+  Reads the same `:rf.event/db-changed-paths` payload the HANDLER
+  step's `:db-diff` slot does — no re-derivation. Each row:
+
+    {:path <path-vec> :before <val> :after <val> :change <kind>}
+
+  Header counters split into `:added / :modified / :removed` so
+  the view can render `N changes (+M / ~K / -L)` at a glance."
+  [events]
+  (let [paths (db-diff-paths events)]
+    (when (seq paths)
+      (let [rows  (mapv (fn [triple]
+                          (let [[p before after change-kind] triple]
+                            {:path    p
+                             :before  before
+                             :after   after
+                             :change  (or change-kind (categorise-diff-path triple))}))
+                        paths)
+            kinds (frequencies (map :change rows))]
+        {:step     :app-db-diff
+         :badge    :APP-DB-DIFF
+         :rows     rows
+         :added    (get kinds :added    0)
+         :modified (get kinds :modified 0)
+         :removed  (get kinds :removed  0)}))))
+
+;; ---- CHILD DISPATCHES step (rf2-yx1ae) -----------------------------------
+;;
+;; When a handler returns `:dispatch / :dispatch-n / :dispatch-later`
+;; fx, the cascade triggers child cascades — each child rides its own
+;; epoch-record. The CHILD-DISPATCHES section surfaces those children
+;; off THIS cascade's returned fx so the operator sees them inline.
+;;
+;; Source: the `:rf.event/fx` payload on `:rf.fx/do-fx` (the handler's
+;; returned fx map / vec — Spec 009 §`:rf.fx/do-fx`). We harvest ONLY
+;; the dispatch-family fx (`:dispatch / :dispatch-n / :dispatch-later`);
+;; other fx are the FX step's concern.
+;;
+;; Each row carries the child event vector + optional delay; the view
+;; layer joins this against the epoch-history at render time to find
+;; the child cascade's `:epoch-id` for the "jump to" affordance
+;; (children that have aged out of the ring buffer render with the
+;; "not in buffer" marker — the row still surfaces the event vector).
+
+(defn- normalise-child-dispatch
+  "Coerce a dispatch / dispatch-later fx arg into row fragments. Four
+  substrate shapes per Spec 009 / re-frame.fx:
+
+    1. `:dispatch [:event/x 7]`              → one row
+    2. `:dispatch-n [[:a] [:b]]`             → one row per element
+    3. `:dispatch-later {:ms 250 :dispatch [:retry]}` → one row + delay
+    4. `:dispatch-later [{:ms 250 :dispatch …} {:ms 500 :dispatch …}]`
+                                             → one row per element
+
+  Returns a vec of `{:event vec :delay-ms num-or-nil}` maps."
+  [fx-id value]
+  (case fx-id
+    :dispatch
+    (when (vector? value)
+      [{:event value :delay-ms nil}])
+
+    :dispatch-n
+    (when (sequential? value)
+      (vec (for [e value
+                 :when (vector? e)]
+             {:event e :delay-ms nil})))
+
+    :dispatch-later
+    (cond
+      (map? value)
+      (when (vector? (:dispatch value))
+        [{:event    (:dispatch value)
+          :delay-ms (or (:ms value) (:delay-ms value))}])
+      (sequential? value)
+      (vec (for [e value
+                 :when (and (map? e) (vector? (:dispatch e)))]
+             {:event (:dispatch e) :delay-ms (or (:ms e) (:delay-ms e))})))
+
+    nil))
+
+(def child-dispatch-fx-ids
+  "Closed set of fx-ids that produce child cascades (rf2-yx1ae)."
+  #{:dispatch :dispatch-n :dispatch-later})
+
+(defn child-dispatch-rows
+  "Project this cascade's child dispatches into rows (rf2-yx1ae).
+
+  Walks the `:rf.fx/do-fx` `:rf.event/fx` payload; harvests only the
+  dispatch-family entries. Each row carries:
+
+    :event    — the child's event vector
+    :delay-ms — delay (for `:dispatch-later`) or nil
+    :via      — the fx-id that emitted the row (`:dispatch /
+                 :dispatch-n / :dispatch-later`)
+
+  Empty vec when no dispatch-family fx fired."
+  [events]
+  (let [entries (fx-entries events)]
+    (vec
+      (for [{:keys [fx-id value]} entries
+            :when (contains? child-dispatch-fx-ids fx-id)
+            row (or (normalise-child-dispatch fx-id value) [])
+            :when (vector? (:event row))]
+        (assoc row :via fx-id)))))
+
+(defn child-dispatches-step
+  "Build the CHILD-DISPATCHES step row, or nil when no dispatch-family
+  fx fired (the step is OMITTED — conditional)."
+  [events]
+  (let [rows (child-dispatch-rows events)]
+    (when (seq rows)
+      {:step  :child-dispatches
+       :badge :CHILD-DISPATCHES
+       :rows  rows})))
+
+(defn find-child-epoch
+  "Resolve a child epoch's `:epoch-id` against the epoch-history given
+  THIS cascade's `:dispatch-id` + the child's event vector (rf2-yx1ae).
+
+  The parent→child link is the substrate-canonical
+  `:rf.trace/parent-dispatch-id` slot on the child's
+  `:rf.event/dispatched` trace (carrying THIS cascade's
+  `:dispatch-id` — Spec 009 §Dispatch correlation). The epoch-record
+  pins this on `:parent-dispatch-id` (Spec-Schemas §`:rf/epoch-record`,
+  rf2-rly4a).
+
+  We prefer matches with both `:parent-dispatch-id` AND a matching
+  trigger-event; when the trigger-event doesn't match (a sibling
+  dispatch with the same parent), the row falls back to whichever
+  child rides the same parent dispatch-id. Returns the matched
+  epoch's `:epoch-id` or nil when no child epoch is in the buffer
+  yet (or has aged out)."
+  [epoch-history parent-dispatch-id child-event]
+  (when (and (some? parent-dispatch-id) (vector? child-event))
+    (let [candidates (filter #(= parent-dispatch-id (:parent-dispatch-id %))
+                             epoch-history)
+          exact      (some #(when (= child-event (:trigger-event %)) %)
+                           candidates)]
+      (:epoch-id (or exact (first candidates))))))
+
 ;; ---- top-level projection ------------------------------------------------
 
 (defn project
@@ -562,10 +890,27 @@
                           :badge :COEFFECT
                           :rows  cofx-rows})
                        (handler-row events event-id)
+                       ;; rf2-rrykz — APP-DB DIFF rides immediately after
+                       ;; HANDLER so the "what mutated in app-db?" lens
+                       ;; lands right after the attribution-row (the
+                       ;; HANDLER body's :db-diff). Same data, different
+                       ;; chrome — one cross-cascade canonical.
+                       (app-db-diff-step events)
                        (flow-step events)
                        (fx-step events)
+                       ;; rf2-yx1ae — child dispatches sit after FX (they
+                       ;; are themselves fx, but a dedicated section makes
+                       ;; the parent→child cascade-link affordance the
+                       ;; primary read; the FX step still surfaces every
+                       ;; fx for completeness).
+                       (child-dispatches-step events)
                        (subscriptions-step events)
-                       (views-step events)]]
+                       (views-step events)
+                       ;; rf2-17vxj — schema violations ride at the end of
+                       ;; the cascade so the operator sees the boundary
+                       ;; check that may have rolled back THIS cascade
+                       ;; AFTER reading the steps that drove it.
+                       (schema-violations-step events)]]
         (filterv some? steps)))))
 
 (defn number-steps
@@ -593,6 +938,58 @@
       (>= ms 10)   (str (Math/round (double ms)) "ms")
       :else        (let [rounded (/ (Math/round (double (* ms 10))) 10.0)]
                      (str rounded "ms")))))
+
+;; ---- timing aggregation (rf2-nqt3d) -------------------------------------
+;;
+;; Per-step `:duration-ms` is stamped at projection time (each step row
+;; reads its substrate-emitted duration off the matching trace event:
+;; `:rf.event/run-end` for HANDLER, `:rf.fx/handled` for FX rows, etc).
+;; The cascade total + long-step predicate are pure aggregations over
+;; the already-projected step rows so the view layer never re-walks the
+;; trace stream for chrome decisions.
+
+(def long-step-threshold-ms
+  "Threshold above which a single step is rendered with long-step
+  warning chrome. 16ms = one display frame at 60Hz — the natural
+  marker per the bead body's `N ms` slot (worker picks; documented
+  here as the contract).
+
+  Crossing 16ms in any single step means the cascade will visibly
+  jank the next paint, so the operator wants the row chromed as
+  load-bearing for perf debugging. Subtler than an `:error` glyph —
+  the spec body's posture is 'subtle, not alarmist'."
+  16)
+
+(defn long-step?
+  "True iff `step`'s `:duration-ms` exceeds `long-step-threshold-ms`.
+  Pure predicate over a projected step row; the view consumes this
+  to decide whether to paint the long-step warning chrome on the
+  duration chip."
+  [step]
+  (let [ms (:duration-ms step)]
+    (and (number? ms) (> ms long-step-threshold-ms))))
+
+(defn cascade-total-ms
+  "Sum of every step's `:duration-ms` over the projected step vector,
+  or nil when no step carries a numeric duration. Pure aggregation;
+  the view renders this in the cascade-summary chip at the top of
+  the panel.
+
+  Per rf2-nqt3d the summary is the operator's first read — the
+  cascade total tells them whether to even start drilling per-step.
+  Returns a number (so the chip can format via
+  `format-duration-ms`)."
+  [steps]
+  (let [nums (keep :duration-ms steps)]
+    (when (seq nums)
+      (reduce + 0 nums))))
+
+(defn long-step-count
+  "Count of projected steps whose `:duration-ms` exceeds the long-step
+  threshold. Drives the cascade-summary's secondary chip
+  (`N step over 16ms`)."
+  [steps]
+  (count (filter long-step? steps)))
 
 (defn event-display
   "Render the dispatched event vector as a one-line monospace string
@@ -692,12 +1089,20 @@
 ;; ---- public mapping table -----------------------------------------------
 
 (def badge-set
-  "The 7 badges produced by the projection — every projected step's
-  `:badge` is a member of this set. Catalogued separately so tests
-  + the view's colour resolver have one authoritative inventory.
+  "The badge inventory produced by the projection — every projected
+  step's `:badge` is a member of this set. Catalogued separately so
+  tests + the view's colour resolver have one authoritative inventory.
 
-  Per the bead body's badge taxonomy (rf2-sc3r1)."
-  #{:DISPATCH :COEFFECT :HANDLER :FLOW :FX :SUBSCRIPTIONS :VIEWS})
+  - Original 7 (rf2-sc3r1): DISPATCH · COEFFECT · HANDLER · FLOW · FX ·
+    SUBSCRIPTIONS · VIEWS.
+  - rf2-17vxj: + SCHEMA-VIOLATIONS (warning chrome, conditional).
+  - rf2-yx1ae: + CHILD-DISPATCHES (cascade-link section, conditional).
+  - rf2-rrykz: + APP-DB-DIFF (state-mutation lens, conditional).
+
+  The view's badge resolver bails to `:text-tertiary` on an unknown
+  badge, so adding to this set is purely additive."
+  #{:DISPATCH :COEFFECT :HANDLER :FLOW :FX :SUBSCRIPTIONS :VIEWS
+    :SCHEMA-VIOLATIONS :CHILD-DISPATCHES :APP-DB-DIFF})
 
 (defn valid-badge?
   "Predicate — `:badge` keyword is a member of `badge-set`."

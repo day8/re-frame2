@@ -130,18 +130,41 @@
 (defn- duration-chip
   "Right-aligned duration chip rendered alongside a step's header.
   Returns nil for non-number durations so the view can elide the
-  slot when the substrate didn't stamp one."
+  slot when the substrate didn't stamp one.
+
+  Per rf2-nqt3d the chip carries a subtle long-step warning when
+  the duration exceeds 16ms (one 60Hz frame). The warning is
+  conveyed by a warning-tone colour + a small `▲` marker —
+  alarmist `✗` chrome would crowd the cascade with noise on the
+  common case where one step is naturally heavy."
   [duration-ms]
   (when (number? duration-ms)
-    [:span {:data-testid "rf-xray-epoch-duration"
-            :style {:color       (:text-tertiary tokens)
-                    :font-family mono-stack
-                    :font-size   "11px"
-                    :font-weight 500
-                    :white-space "nowrap"
-                    :margin-left "auto"
-                    :padding-left "8px"}}
-     (proj/format-duration-ms duration-ms)]))
+    (let [long? (> duration-ms proj/long-step-threshold-ms)]
+      [:span {:data-testid (if long?
+                             "rf-xray-epoch-duration-long"
+                             "rf-xray-epoch-duration")
+              :data-long-step (str long?)
+              :title (when long?
+                       (str "step exceeded "
+                            proj/long-step-threshold-ms
+                            "ms (one 60Hz frame)"))
+              :style {:color       (if long?
+                                     (:warning tokens)
+                                     (:text-tertiary tokens))
+                      :font-family mono-stack
+                      :font-size   "11px"
+                      :font-weight (if long? 700 500)
+                      :white-space "nowrap"
+                      :margin-left "auto"
+                      :padding-left "8px"
+                      :display     "inline-flex"
+                      :align-items "center"
+                      :gap         "4px"}}
+       (when long?
+         [:span {:aria-hidden true
+                 :style {:font-size "10px"}}
+          "▲"])
+       (proj/format-duration-ms duration-ms)])))
 
 (defn- coord-chip
   "External-link affordance — opens the editor at `coord` via the
@@ -409,7 +432,11 @@
   phases render dimmed `(none)` so the model reads as the full
   exit → transition → entry shape even when one phase carries no
   actions (the panel doubles as a teaching surface — bead body §What
-  this panel teaches)."
+  this panel teaches).
+
+  Per rf2-9c27r each row also surfaces per-action fx attribution
+  when the action returned a map carrying `:fx` — the operator can
+  trace each fx back to its emitting action without spec-walking."
   [lifecycle-rows]
   (let [grouped (proj/group-lifecycle-by-phase lifecycle-rows)
         phases  [:exit :transition :entry :always
@@ -434,28 +461,138 @@
                        :margin-bottom "2px"}}
          (proj/phase-label phase)]
         (for [[i row] (map-indexed vector rows)]
-          [:div {:key (str "lc-" i)
+          ^{:key (str "lc-" (name phase) "-" i)}
+          [:div {:data-testid (str "rf-xray-epoch-handler-phase-" (name phase) "-row-" i)
                  :style {:display "flex"
-                         :gap "8px"
+                         :flex-direction "column"
                          :padding "1px 0"
                          :color (if (:threw? row) (:error tokens)
                                     (:text-primary tokens))}}
-           [:span {:style {:color (:text-tertiary tokens)}} "↓"]
-           [:span (proj/ns-keyword (:action-id row))]
-           (when (:threw? row)
-             [:span {:style {:color (:error tokens) :margin-left "8px"}}
-              "(threw)"])])])]))
+           [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
+            [:span {:style {:color (:text-tertiary tokens)}} "↓"]
+            [:span (proj/ns-keyword (:action-id row))]
+            (when (:threw? row)
+              [:span {:style {:color (:error tokens) :margin-left "8px"}}
+               "(threw)"])]
+           ;; rf2-9c27r — per-action fx attribution
+           (when (seq (:fx row))
+             [:div {:data-testid (str "rf-xray-epoch-handler-phase-" (name phase) "-fx-" i)
+                    :style {:padding-left "21px"
+                            :color (:text-tertiary tokens)
+                            :font-size "11px"}}
+              (for [[j entry] (map-indexed vector (:fx row))
+                    :let [[fx-id _args] (if (vector? entry) entry [entry nil])]]
+                ^{:key (str "lc-fx-" (name phase) "-" i "-" j)}
+                [:div {:style {:display "inline-flex"
+                               :align-items "center"
+                               :gap "4px"
+                               :margin-right "8px"}}
+                 "→ fx "
+                 [:span {:style {:color (:accent tokens)}}
+                  (proj/ns-keyword fx-id)]])])])])]))
+
+(defn- machine-data-reduction-block
+  "Render the DATA REDUCTION sub-section (rf2-9c27r §5). Renders
+  `:data` before / after via `edn/inspect`. Elides when both sides
+  are absent / identical."
+  [{:keys [data-before data-after]}]
+  (when (or (some? data-before) (some? data-after))
+    (when (not= data-before data-after)
+      [:div {:data-testid "rf-xray-epoch-handler-machine-data-reduction"
+             :style {:padding "3px 0 3px 16px"}}
+       (sub-header "data reduction")
+       [:div {:style {:display "flex"
+                      :gap "13px"
+                      :padding-left "16px"
+                      :font-family mono-stack
+                      :font-size "12px"
+                      :flex-wrap "wrap"}}
+        [:div {:data-testid "rf-xray-epoch-handler-machine-data-before"
+               :style {:flex 1 :min-width "120px"}}
+         [:div {:style {:color (:text-tertiary tokens)
+                        :font-size "10px"
+                        :text-transform "uppercase"
+                        :letter-spacing "0.5px"
+                        :margin-bottom "2px"}}
+          "before"]
+         [:div {:style {:color (:error tokens)}}
+          (edn/inspect-inline data-before)]]
+        [:div {:data-testid "rf-xray-epoch-handler-machine-data-after"
+               :style {:flex 1 :min-width "120px"}}
+         [:div {:style {:color (:text-tertiary tokens)
+                        :font-size "10px"
+                        :text-transform "uppercase"
+                        :letter-spacing "0.5px"
+                        :margin-bottom "2px"}}
+          "after"]
+         [:div {:style {:color (:success tokens)}}
+          (edn/inspect-inline data-after)]]]])))
+
+(defn- machine-snapshot-diff-block
+  "Render the SNAPSHOT DIFF sub-section (rf2-9c27r §6). The Spec 005
+  snapshot is the full `{:state … :data … …}` map; we render
+  `before` + `after` via `edn/inspect` so the operator can drill into
+  any slot (data, state, parallel-region tags). Elides when the
+  snapshots are identical."
+  [{:keys [before after]}]
+  (when (and (some? before) (some? after) (not= before after))
+    [:div {:data-testid "rf-xray-epoch-handler-machine-snapshot-diff"
+           :style {:padding "3px 0 3px 16px"}}
+     (sub-header "snapshot diff")
+     [:div {:style {:display "flex"
+                    :gap "13px"
+                    :padding-left "16px"
+                    :flex-wrap "wrap"}}
+      [:div {:data-testid "rf-xray-epoch-handler-machine-snapshot-before"
+             :style {:flex 1 :min-width "120px"
+                     :font-family mono-stack
+                     :font-size "12px"}}
+       [:div {:style {:color (:text-tertiary tokens)
+                      :font-size "10px"
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"
+                      :margin-bottom "2px"}}
+        "before"]
+       [:div {:style {:color (:error tokens) :word-break "break-word"}}
+        (edn/inspect-inline before)]]
+      [:div {:data-testid "rf-xray-epoch-handler-machine-snapshot-after"
+             :style {:flex 1 :min-width "120px"
+                     :font-family mono-stack
+                     :font-size "12px"}}
+       [:div {:style {:color (:text-tertiary tokens)
+                      :font-size "10px"
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"
+                      :margin-bottom "2px"}}
+        "after"]
+       [:div {:style {:color (:success tokens) :word-break "break-word"}}
+        (edn/inspect-inline after)]]]]))
 
 (defn- machine-block
   "Render the machine-handler-specific extras (transition summary,
-  guards, lifecycle, timer cancellations). Per the bead body §HANDLER
-  (Step 4) machine handler branch — uses the rf2-82a0u trace
-  enhancements (phase + outcome + reason)."
+  guards, lifecycle, timer cancellations, data reduction, snapshot
+  diff). Per the bead body §HANDLER (Step 4) machine handler branch —
+  uses the rf2-82a0u trace enhancements (phase + outcome + reason).
+
+  Per rf2-9c27r the section now carries all 7 sub-sections per the
+  design doc:
+
+    1. TRANSITION — `before-state → after-state`, event, microsteps
+    2. GUARDS — per-guard pass/fail/threw outcomes
+    3. LIFECYCLE — phase-grouped action rows with per-action fx
+       attribution
+    4. AFTER TIMERS — armed/cancelled with reasons
+    5. DATA REDUCTION — `:data` before / after via edn-inspector
+    6. SNAPSHOT DIFF — full snapshot before / after
+    7. FX — per-action fx attribution surfaces inline in LIFECYCLE
+       (rather than as a sibling sub-section) so the operator reads
+       'action X emitted fx Y' in one line."
   [{:keys [transition guards lifecycle timers]}]
   [:div {:data-testid "rf-xray-epoch-handler-machine"}
    ;; Transition summary
    (when transition
-     [:div {:style {:padding "3px 0 3px 16px"
+     [:div {:data-testid "rf-xray-epoch-handler-machine-transition"
+            :style {:padding "3px 0 3px 16px"
                     :font-family mono-stack
                     :font-size "12px"
                     :color (:text-primary tokens)}}
@@ -467,13 +604,24 @@
       [:div {:style {:padding-left "16px"}}
        (let [before (or (some-> (:before transition) :state) (:before transition))
              after  (or (some-> (:after transition) :state) (:after transition))]
-         (str (pr-str before) " → " (pr-str after)))]])
+         (str (pr-str before) " → " (pr-str after)))]
+      ;; rf2-9c27r — microsteps + event slots ride alongside the
+      ;; before→after pair so the operator can tell at a glance how
+      ;; many always-microsteps fired + which event drove the cascade.
+      (when (number? (:microsteps transition))
+        [:div {:data-testid "rf-xray-epoch-handler-machine-microsteps"
+               :style {:padding-left "16px"
+                       :color (:text-tertiary tokens)
+                       :font-size "10px"}}
+         (str (:microsteps transition) " microstep"
+              (when (not= 1 (:microsteps transition)) "s"))])])
    ;; Guards
    (when (seq guards)
      [:div {:style {:padding "3px 0 3px 16px"}}
       (sub-header "guards" (str (count guards) " evaluated"))
       (for [[i {:keys [guard-id outcome]}] (map-indexed vector guards)]
         [:div {:key (str "g-" i)
+               :data-testid (str "rf-xray-epoch-handler-guard-row-" i)
                :style {:display "flex"
                        :gap "8px"
                        :padding "1px 0 1px 21px"
@@ -493,7 +641,7 @@
          [:span (proj/ns-keyword guard-id)]
          [:span {:style {:color (:text-tertiary tokens) :margin-left "8px"}}
           (when (keyword? outcome) (name outcome))]])])
-   ;; Lifecycle
+   ;; Lifecycle (with per-action fx attribution — rf2-9c27r)
    (when (seq lifecycle)
      (machine-lifecycle-block lifecycle))
    ;; Timers
@@ -514,7 +662,13 @@
             (str delay "ms")])
          [:span {:style {:color (:text-tertiary tokens) :font-style "italic"
                          :margin-left "8px"}}
-          (proj/timer-reason-label reason)]])])])
+          (proj/timer-reason-label reason)]])])
+   ;; rf2-9c27r — DATA REDUCTION + SNAPSHOT DIFF sub-sections, fed
+   ;; by the `:data-before / :data-after` + `:before / :after`
+   ;; slots the projection hoists off the `:rf.machine/transition`
+   ;; trace.
+   (machine-data-reduction-block transition)
+   (machine-snapshot-diff-block transition)])
 
 ;; ---- handler source --------------------------------------------------
 ;;
@@ -715,8 +869,12 @@
 
   Argument order matches `map-indexed`'s `(f idx item)` convention
   (rf2-cq0ch — companion swap with `coeffect-row-view` /
-  `flow-row-view`)."
-  [idx {:keys [fx-id status args duration-ms]}]
+  `flow-row-view`).
+
+  Per rf2-uffov: when the row carries `:attributed-to`, a muted
+  `← <action-id>` attribution chip rides alongside so the operator
+  reads `fx X emitted by action Y` in one line."
+  [idx {:keys [fx-id status args duration-ms attributed-to]}]
   (let [glyph    (case status
                    :ok          "✓"
                    :overridden  "↺"
@@ -732,12 +890,14 @@
     [:div {:key (str "fx-" idx)
            :data-testid (str "rf-xray-epoch-fx-row-" idx)
            :data-fx-status (when (keyword? status) (name status))
+           :data-fx-attributed (str (some? attributed-to))
            :style {:display "flex"
                    :align-items "flex-start"
                    :gap "8px"
                    :padding "2px 0"
                    :font-family mono-stack
-                   :font-size "12px"}}
+                   :font-size "12px"
+                   :flex-wrap "wrap"}}
      [:span {:style {:color colour :font-weight 700}} glyph]
      [:span {:style {:color (:accent tokens)}}
       (proj/ns-keyword fx-id)]
@@ -749,24 +909,62 @@
        [:span {:style {:color (:text-tertiary tokens)
                        :margin-left "8px"
                        :white-space "nowrap"}}
-        (proj/format-duration-ms duration-ms)])]))
+        (proj/format-duration-ms duration-ms)])
+     ;; rf2-uffov — per-action attribution chip (for machine cascades)
+     (when-let [{:keys [action-id phase]} attributed-to]
+       [:span {:data-testid (str "rf-xray-epoch-fx-row-attribution-" idx)
+               :title (str "emitted by " (proj/ns-keyword action-id)
+                           (when phase (str " (" (name phase) " action)")))
+               :style {:color (:text-tertiary tokens)
+                       :font-size "10px"
+                       :margin-left "auto"
+                       :white-space "nowrap"
+                       :display "inline-flex"
+                       :align-items "center"
+                       :gap "4px"
+                       :font-style "italic"}}
+        [:span {:aria-hidden true} "←"]
+        (proj/ns-keyword action-id)
+        (when phase
+          [:span {:style {:color (:text-tertiary tokens)}}
+           (str "(" (name phase) ")")])])]))
 
 (defn render-fx-step
-  "Render the FX step (only present when fx-handlers fired)."
-  [{:keys [rows step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-fx"
-         :data-step-kw "fx"}
-   (numbered-circle step-number :FX)
-   (step-header
-     {:step :fx
-      :badge :FX
-      :verb (str (count rows) " side-effect"
-                 (when (not= 1 (count rows)) "s"))
-      :expandable? false
-      :testid "rf-xray-epoch-fx"}
-     nil)
-   [:div {:style {:margin-top "5px"}}
-    (map-indexed fx-row-view rows)]])
+  "Render the FX step (only present when fx-handlers fired).
+
+  Per rf2-uffov: header carries the outcome split — `N fired (M
+  succeeded, K threw)` — so the operator reads at-a-glance
+  correctness without scanning every row's glyph. The `:succeeded`
+  count rolls `:ok + :overridden`; `:skipped` rides as its own
+  chip when non-zero."
+  [{:keys [rows step-number succeeded skipped threw]}]
+  (let [n (count rows)
+        m (or succeeded n)
+        k (or threw 0)
+        s (or skipped 0)]
+    [:div {:data-testid "rf-xray-epoch-step-fx"
+           :data-step-kw "fx"
+           :data-fx-threw (str k)}
+     (numbered-circle step-number :FX)
+     (step-header
+       {:step :fx
+        :badge :FX
+        :verb [:span {:style {:display "inline-flex" :align-items "center"
+                              :gap "8px" :flex-wrap "wrap"}}
+               (str n " fired (" m " succeeded")
+               (when (pos? k)
+                 [:span {:style {:color (:error tokens)
+                                 :font-weight 700}}
+                  (str ", " k " threw")])
+               (when (pos? s)
+                 [:span {:style {:color (:text-tertiary tokens)}}
+                  (str ", " s " skipped")])
+               ")"]
+        :expandable? false
+        :testid "rf-xray-epoch-fx"}
+       nil)
+     [:div {:style {:margin-top "5px"}}
+      (map-indexed fx-row-view rows)]]))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
@@ -992,24 +1190,442 @@
      nil)
    (views-table rows)])
 
+;; ---- SCHEMA-VIOLATIONS step (rf2-17vxj) ----------------------------------
+
+(defn- schema-violation-where-label
+  "Render a violation's `:where` slot as a UI label (rf2-17vxj). Closed
+  set is per Spec 008 / 010; defaults to the keyword name."
+  [where]
+  (case where
+    :app-db      "app-db commit"
+    :cofx        "coeffect"
+    :sub-return  "sub return"
+    :fx-args     "fx args"
+    :event       "event payload"
+    :hot-reload  "schema hot-reload"
+    (when (keyword? where) (name where))))
+
+(defn- schema-violation-row-view
+  "Render one schema-violation row (rf2-17vxj). Per-row fields:
+
+    - `:where` label
+    - `:failing-id` / `:frame` (the registered name whose boundary failed)
+    - `:path` (the db / payload path, when available)
+    - failing value via `edn/inspect-inline` (already redacted at the
+      substrate emit site when `:sensitive?`)
+    - `:rollback?` chip when the cascade was rejected"
+  [idx {:keys [where failing-id path value rollback? recovery sensitive?
+               kind explain] :as _row}]
+  [:div {:key (str "schema-violation-" idx)
+         :data-testid (str "rf-xray-epoch-schema-violation-row-" idx)
+         :data-violation-kind (when kind (name kind))
+         :data-rollback (str (boolean rollback?))
+         :style {:display "flex"
+                 :flex-direction "column"
+                 :gap "3px"
+                 :padding "5px 8px"
+                 :background    (:bg-3 tokens)
+                 :border-left   (str "2px solid " (:warning tokens))
+                 :margin-bottom "5px"
+                 :border-radius "0 3px 3px 0"
+                 :font-family   mono-stack
+                 :font-size     "12px"}}
+   ;; head row: where + failing-id + rollback chip
+   [:div {:style {:display "flex"
+                  :align-items "center"
+                  :gap "8px"
+                  :flex-wrap "wrap"}}
+    [:span {:data-testid (str "rf-xray-epoch-schema-violation-where-" idx)
+            :style {:color       (:warning tokens)
+                    :font-weight 700
+                    :text-transform "uppercase"
+                    :font-size   "10px"
+                    :letter-spacing "0.5px"}}
+     (schema-violation-where-label where)]
+    (when failing-id
+      [:span {:data-testid (str "rf-xray-epoch-schema-violation-id-" idx)
+              :style {:color (:accent tokens)}}
+       (proj/ns-keyword failing-id)])
+    (when rollback?
+      [:span {:data-testid (str "rf-xray-epoch-schema-violation-rollback-" idx)
+              :title "this cascade was rolled back"
+              :style {:padding "2px 5px"
+                      :border-radius "3px"
+                      :background (:error tokens)
+                      :color (:white tokens)
+                      :font-size "10px"
+                      :font-weight 700
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"}}
+       "rolled back"])
+    (when (and recovery (not rollback?))
+      [:span {:style {:color (:text-tertiary tokens)
+                      :font-size "10px"
+                      :font-style "italic"}}
+       (str "recovery: " (name recovery))])]
+   ;; path (when present)
+   (when (sequential? path)
+     [:div {:data-testid (str "rf-xray-epoch-schema-violation-path-" idx)
+            :style {:color (:text-tertiary tokens)
+                    :padding-left "16px"}}
+      (proj/path-display path)])
+   ;; failing value
+   (when (some? value)
+     [:div {:data-testid (str "rf-xray-epoch-schema-violation-value-" idx)
+            :style {:color (:text-primary tokens)
+                    :padding-left "16px"
+                    :word-break "break-word"}}
+      (edn/inspect-inline value)])
+   ;; sensitive marker (the substrate already redacted; surface that the
+   ;; value WAS redacted so the operator doesn't read the placeholder
+   ;; as the actual failing value)
+   (when sensitive?
+     [:div {:style {:color (:text-tertiary tokens)
+                    :font-style "italic"
+                    :font-size "10px"
+                    :padding-left "16px"}}
+      "(value redacted — slot declared :sensitive?)"])
+   ;; explain detail (Malli explain map, when stamped)
+   (when (some? explain)
+     [:div {:data-testid (str "rf-xray-epoch-schema-violation-explain-" idx)
+            :style {:color (:text-secondary tokens)
+                    :padding-left "16px"
+                    :font-size "11px"}}
+      (proj/truncate (pr-str explain) 120)])])
+
+(defn render-schema-violations-step
+  "Render the SCHEMA VIOLATIONS step (rf2-17vxj — only present when
+  the cascade carried `:rf.error/schema-validation-failure` or
+  `:rf.schema/violation` trace events).
+
+  Header carries the violation count + a per-rollback split + a
+  click-affordance that navigates to the Issues panel for full
+  triage (the per-row data shows the cascade-local view; Issues
+  holds the cross-session list)."
+  [{:keys [rows rollbacks step-number]}]
+  [:div {:data-testid "rf-xray-epoch-step-schema-violations"
+         :data-step-kw "schema-violations"
+         :data-rollback-count (str (or rollbacks 0))}
+   (numbered-circle step-number :SCHEMA-VIOLATIONS)
+   (step-header
+     {:step :schema-violations
+      :badge :SCHEMA-VIOLATIONS
+      :verb [:span {:style {:display "inline-flex" :align-items "center"
+                            :gap "8px" :flex-wrap "wrap"}}
+             [:span {:style {:display "inline-flex"
+                             :align-items "center"
+                             :gap "4px"
+                             :color (:warning tokens)}}
+              (icons/alert-triangle)
+              (str (count rows) " violation"
+                   (when (not= 1 (count rows)) "s"))]
+             (when (pos? (or rollbacks 0))
+               [:span {:style {:color (:error tokens)
+                               :font-weight 700}}
+                (str rollbacks " rollback"
+                     (when (not= 1 rollbacks) "s"))])
+             [:button {:data-testid "rf-xray-epoch-schema-violations-open-issues"
+                       :aria-label "open the Issues panel for full triage"
+                       :on-click (fn [e]
+                                   (.stopPropagation e)
+                                   (rf/dispatch [:rf.xray/select-tab :issues]
+                                                {:frame :rf/xray}))
+                       :style {:background "transparent"
+                               :border (str "1px solid " (:border-default tokens))
+                               :border-radius "3px"
+                               :color (:text-secondary tokens)
+                               :cursor "pointer"
+                               :font-family sans-stack
+                               :font-size "10px"
+                               :padding "2px 8px"
+                               :margin-left "8px"
+                               :text-transform "uppercase"
+                               :letter-spacing "0.5px"}}
+              "open issues →"]]
+      :expandable? false
+      :testid "rf-xray-epoch-schema-violations"}
+     nil)
+   [:div {:style {:margin-top "5px"}}
+    (map-indexed schema-violation-row-view rows)]])
+
+;; ---- APP-DB DIFF step (rf2-rrykz) ---------------------------------------
+
+(defn- app-db-diff-row-view
+  "Render one app-db diff row (rf2-rrykz). Per-row chrome mirrors the
+  HANDLER step's existing `db-diff-line` posture (+ for added, ~ for
+  modified, - for removed)."
+  [idx {:keys [path before after change]}]
+  (let [glyph (case change
+                :added    "+"
+                :removed  "-"
+                :modified "~"
+                "~")
+        glyph-colour (case change
+                       :added    (:success tokens)
+                       :removed  (:error tokens)
+                       (:warning tokens))]
+    [:div {:key (str "app-db-diff-" idx)
+           :data-testid (str "rf-xray-epoch-app-db-diff-row-" idx)
+           :data-change (when (keyword? change) (name change))
+           :style {:display      "flex"
+                   :align-items  "flex-start"
+                   :gap          "8px"
+                   :padding      "2px 0"
+                   :font-family  mono-stack
+                   :font-size    "12px"}}
+     [:span {:style {:color glyph-colour :font-weight 700}} glyph]
+     [:span {:style {:color (:text-tertiary tokens) :white-space "nowrap"}}
+      (proj/path-display path)]
+     (case change
+       :added
+       [:span {:style {:color (:success tokens) :min-width 0 :flex 1
+                       :word-break "break-word"}}
+        (proj/truncate (pr-str after) 80)]
+
+       :removed
+       [:span {:style {:color (:error tokens) :min-width 0 :flex 1
+                       :word-break "break-word"}}
+        (proj/truncate (pr-str before) 80)]
+
+       ;; modified (default)
+       [:<>
+        [:span {:style {:color (:error tokens)}}
+         (proj/truncate (pr-str before) 40)]
+        [:span {:style {:color (:text-tertiary tokens)}} "→"]
+        [:span {:style {:color (:success tokens)}}
+         (proj/truncate (pr-str after) 40)]])]))
+
+(defn render-app-db-diff-step
+  "Render the APP-DB DIFF step (rf2-rrykz — only present when the
+  cascade mutated app-db).
+
+  Header carries the change-count split `N changes (+M / ~K / -L)`
+  so the operator reads structure at a glance. Per-row body is
+  the same diff-line posture HANDLER's `:db-diff` uses (same data,
+  different lens — HANDLER attributes, APP-DB DIFF surfaces)."
+  [{:keys [rows added modified removed step-number]}]
+  [:div {:data-testid "rf-xray-epoch-step-app-db-diff"
+         :data-step-kw "app-db-diff"}
+   (numbered-circle step-number :APP-DB-DIFF)
+   (step-header
+     {:step :app-db-diff
+      :badge :APP-DB-DIFF
+      :verb [:span {:style {:display "inline-flex" :align-items "center"
+                            :gap "8px" :flex-wrap "wrap"}}
+             (str (count rows) " path"
+                  (when (not= 1 (count rows)) "s") " changed")
+             [:span {:style {:color (:text-tertiary tokens)
+                             :font-size "10px"
+                             :font-family mono-stack}}
+              (str "(+" added " / ~" modified " / -" removed ")")]]
+      :expandable? false
+      :testid "rf-xray-epoch-app-db-diff"}
+     nil)
+   [:div {:style {:margin-top "5px"}}
+    (map-indexed app-db-diff-row-view rows)]])
+
+;; ---- CHILD DISPATCHES step (rf2-yx1ae) ----------------------------------
+
+(defn- child-dispatch-via-label
+  "Render the `:via` slot (the fx-id that emitted the row) as a UI
+  chip label (rf2-yx1ae)."
+  [via]
+  (case via
+    :dispatch        "dispatch"
+    :dispatch-n      "dispatch-n"
+    :dispatch-later  "dispatch-later"
+    (when (keyword? via) (name via))))
+
+(defn- child-dispatch-row-view
+  "Render one child-dispatch row. Carries:
+
+  - child event vector (the operator's primary read)
+  - `:via` chip (which fx-id emitted the row)
+  - `:delay-ms` chip (for `:dispatch-later`)
+  - jump-to button when the child epoch is in the buffer; otherwise
+    a muted `not in buffer` marker
+
+  rf2-yx1ae. The jump-to dispatches `:rf.xray/select-epoch` against
+  the resolved child `:epoch-id`."
+  [{:keys [dispatch-id epoch-history]} idx {:keys [event delay-ms via]}]
+  (let [child-epoch-id (proj/find-child-epoch epoch-history dispatch-id event)]
+    [:div {:key (str "child-dispatch-" idx)
+           :data-testid (str "rf-xray-epoch-child-dispatch-row-" idx)
+           :data-child-resolved (str (some? child-epoch-id))
+           :style {:display "flex"
+                   :align-items "center"
+                   :gap "8px"
+                   :padding "3px 0"
+                   :font-family mono-stack
+                   :font-size "12px"
+                   :flex-wrap "wrap"}}
+     ;; via fx-id chip (muted)
+     [:span {:data-testid (str "rf-xray-epoch-child-dispatch-via-" idx)
+             :style {:color (:text-tertiary tokens)
+                     :font-size "10px"
+                     :text-transform "uppercase"
+                     :letter-spacing "0.5px"
+                     :font-weight 600}}
+      (child-dispatch-via-label via)]
+     ;; event vector (primary)
+     [:span {:data-testid (str "rf-xray-epoch-child-dispatch-event-" idx)
+             :style {:color (:text-primary tokens)
+                     :min-width 0
+                     :flex 1
+                     :word-break "break-word"}}
+      (pr-str event)]
+     ;; delay chip (for :dispatch-later)
+     (when (number? delay-ms)
+       [:span {:data-testid (str "rf-xray-epoch-child-dispatch-delay-" idx)
+               :style {:color (:text-tertiary tokens)
+                       :font-size "10px"}}
+        (str "+" delay-ms "ms")])
+     ;; jump-to or "not in buffer"
+     (if child-epoch-id
+       [:button {:data-testid (str "rf-xray-epoch-child-dispatch-jump-" idx)
+                 :data-child-epoch-id (str child-epoch-id)
+                 :aria-label "jump to child cascade"
+                 :on-click (fn [e]
+                             (.stopPropagation e)
+                             (rf/dispatch [:rf.xray/select-epoch child-epoch-id]
+                                          {:frame :rf/xray}))
+                 :style {:background "transparent"
+                         :border (str "1px solid " (:border-default tokens))
+                         :border-radius "3px"
+                         :color (:accent tokens)
+                         :cursor "pointer"
+                         :font-family sans-stack
+                         :font-size "10px"
+                         :padding "2px 8px"
+                         :display "inline-flex"
+                         :align-items "center"
+                         :gap "4px"
+                         :text-transform "uppercase"
+                         :letter-spacing "0.5px"}}
+        (icons/arrow-right)
+        "jump"]
+       [:span {:data-testid (str "rf-xray-epoch-child-dispatch-missing-" idx)
+               :title "the child cascade has aged out of the epoch buffer (or has not yet completed)"
+               :style {:color (:text-tertiary tokens)
+                       :font-size "10px"
+                       :font-style "italic"}}
+        "not in buffer"])]))
+
+(defn render-child-dispatches-step
+  "Render the CHILD-DISPATCHES step (rf2-yx1ae — only present when
+  the handler returned dispatch-family fx).
+
+  Header: `N events dispatched` (per the bead's acceptance §4).
+  Per-row: event vector + via-fx chip + delay chip + jump-to
+  affordance (resolves child epoch via `proj/find-child-epoch`).
+
+  `ctx` carries this cascade's `:dispatch-id` + the
+  `:epoch-history` slice; the row-view uses both to find the
+  child's `:epoch-id`."
+  [{:keys [rows step-number]} ctx]
+  [:div {:data-testid "rf-xray-epoch-step-child-dispatches"
+         :data-step-kw "child-dispatches"}
+   (numbered-circle step-number :CHILD-DISPATCHES)
+   (step-header
+     {:step :child-dispatches
+      :badge :CHILD-DISPATCHES
+      :verb (str (count rows) " event"
+                 (when (not= 1 (count rows)) "s")
+                 " dispatched")
+      :expandable? false
+      :testid "rf-xray-epoch-child-dispatches"}
+     nil)
+   [:div {:style {:margin-top "5px"}}
+    (map-indexed (fn [idx row]
+                   (child-dispatch-row-view ctx idx row))
+                 rows)]])
+
 ;; ---- step dispatcher -----------------------------------------------------
+
+(declare render-child-dispatches-step)
 
 (defn- render-step
   "Dispatch a step row to its renderer. Returns hiccup; nil for
   unknown step kinds (defensive — every step the projection produces
-  is in the seven-step inventory)."
-  [step]
+  is in the canonical inventory; rf2-17vxj added SCHEMA-VIOLATIONS,
+  rf2-yx1ae added CHILD-DISPATCHES, rf2-rrykz added APP-DB-DIFF).
+
+  `ctx` carries the cascade-level pieces a row may need (e.g. the
+  parent `:dispatch-id` + the `:epoch-history` slice for the
+  CHILD-DISPATCHES section's child-epoch resolution). Most steps
+  ignore it."
+  [step ctx]
   (case (:step step)
-    :dispatch       (render-dispatch-step step)
-    :coeffect       (render-coeffect-step step)
-    :handler        (render-handler-step step)
-    :flow           (render-flow-step step)
-    :fx             (render-fx-step step)
-    :subscriptions  (render-subscriptions-step step)
-    :views          (render-views-step step)
+    :dispatch          (render-dispatch-step step)
+    :coeffect          (render-coeffect-step step)
+    :handler           (render-handler-step step)
+    :flow              (render-flow-step step)
+    :fx                (render-fx-step step)
+    :subscriptions     (render-subscriptions-step step)
+    :views             (render-views-step step)
+    :schema-violations (render-schema-violations-step step)
+    :child-dispatches  (render-child-dispatches-step step ctx)
+    :app-db-diff       (render-app-db-diff-step step)
     nil))
 
 ;; ---- pipeline view -------------------------------------------------------
+
+(defn cascade-summary
+  "Render the cascade-summary chip at the top of the pipeline (rf2-nqt3d).
+
+  Two pieces of information:
+
+    1. **Cascade total** — sum of every projected step's `:duration-ms`,
+       formatted via `format-duration-ms`. Operator's first read —
+       'how heavy was this whole cascade'.
+    2. **Long-step count** — number of steps whose `:duration-ms`
+       exceeded `proj/long-step-threshold-ms` (16ms — one 60Hz frame).
+       Rendered with warning tone when > 0; absent when 0.
+
+  Returns nil when the cascade carries no durations (cold start
+  records, fixtures synthesised without timing). The view elides
+  the slot rather than rendering `total: —`."
+  [steps]
+  (let [total       (proj/cascade-total-ms steps)
+        long-count  (proj/long-step-count steps)]
+    (when (number? total)
+      [:div {:data-testid "rf-xray-epoch-cascade-summary"
+             :data-long-step-count (str long-count)
+             :style {:display       "flex"
+                     :align-items   "center"
+                     :gap           "13px"
+                     :margin-bottom "13px"
+                     :padding       "5px 8px"
+                     :border        (str "1px solid " (:border-subtle tokens))
+                     :border-radius "3px"
+                     :background    (:bg-3 tokens)
+                     :font-family   sans-stack
+                     :font-size     "11px"
+                     :color         (:text-secondary tokens)}}
+       [:span {:style {:color (:text-tertiary tokens)
+                       :text-transform "uppercase"
+                       :letter-spacing "0.5px"
+                       :font-weight 600
+                       :font-size "10px"}}
+        "cascade total"]
+       [:span {:data-testid "rf-xray-epoch-cascade-summary-total"
+               :style {:color       (:text-primary tokens)
+                       :font-family mono-stack
+                       :font-weight 700}}
+        (proj/format-duration-ms total)]
+       (when (pos? long-count)
+         [:span {:data-testid "rf-xray-epoch-cascade-summary-long-count"
+                 :title       (str long-count " step"
+                                   (when (not= 1 long-count) "s")
+                                   " over " proj/long-step-threshold-ms "ms")
+                 :style {:color (:warning tokens)
+                         :font-family mono-stack
+                         :margin-left "auto"
+                         :display "inline-flex"
+                         :align-items "center"
+                         :gap "4px"}}
+          [:span {:aria-hidden true :style {:font-size "10px"}} "▲"]
+          (str long-count " over " proj/long-step-threshold-ms "ms")])])))
 
 (defn pipeline-view
   "Render the numbered pipeline cascade for `steps` (already
@@ -1024,34 +1640,47 @@
       Pipeline: left margin 55px to accommodate numbered circles
       Vertical line: absolute positioned, 0.5px width, starts at
                      13px from top, positioned at -34px from left edge
-      Row spacing: 13px vertical gap between entries"
-  [steps]
-  [:div {:data-testid "rf-xray-epoch-pipeline"
-         :style {:position    "relative"
-                 :padding-left "55px"
-                 :padding-top  "0"}}
-   ;; The vertical rail — absolute-positioned line behind the
-   ;; numbered circles. Top = numbered-circle radius (so the line
-   ;; starts at the centre of step-1's circle); bottom = the foot
-   ;; of the last step's circle.
-   [:div {:data-testid "rf-xray-epoch-rail"
-          :aria-hidden true
-          :style {:position    "absolute"
-                  :left        (str (+ 55 badge/line-left-offset-px) "px")
-                  :top         (str badge/vertical-line-offset-px "px")
-                  :bottom      "13px"
-                  :width       "1px"
-                  :background  (:border-default tokens)
-                  :pointer-events "none"}}]
-   ;; Steps
-   (for [[i step] (map-indexed vector steps)]
-     ^{:key (str "step-" (:step step) "-" i)}
-     [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
-            :data-step (when (:step step) (name (:step step)))
-            :style {:position     "relative"
-                    :margin-bottom "13px"
-                    :min-height   "21px"}}
-      (render-step step)])])
+      Row spacing: 13px vertical gap between entries
+
+  `ctx` is an optional map carrying cascade-level pieces individual
+  step renderers may need (`:dispatch-id`, `:epoch-history` — used
+  by the CHILD-DISPATCHES section to resolve child epochs via
+  `proj/find-child-epoch`). Defaulted to `{}` for back-compat with
+  direct test callers."
+  ([steps]
+   (pipeline-view steps {}))
+  ([steps ctx]
+   [:div {:data-testid "rf-xray-epoch-pipeline-container"}
+    ;; rf2-nqt3d — cascade-summary chip rides above the numbered
+    ;; cascade. When the projection carries no durations the chip
+    ;; elides; the cascade still renders normally.
+    (cascade-summary steps)
+    [:div {:data-testid "rf-xray-epoch-pipeline"
+           :style {:position    "relative"
+                   :padding-left "55px"
+                   :padding-top  "0"}}
+     ;; The vertical rail — absolute-positioned line behind the
+     ;; numbered circles. Top = numbered-circle radius (so the line
+     ;; starts at the centre of step-1's circle); bottom = the foot
+     ;; of the last step's circle.
+     [:div {:data-testid "rf-xray-epoch-rail"
+            :aria-hidden true
+            :style {:position    "absolute"
+                    :left        (str (+ 55 badge/line-left-offset-px) "px")
+                    :top         (str badge/vertical-line-offset-px "px")
+                    :bottom      "13px"
+                    :width       "1px"
+                    :background  (:border-default tokens)
+                    :pointer-events "none"}}]
+     ;; Steps
+     (for [[i step] (map-indexed vector steps)]
+       ^{:key (str "step-" (:step step) "-" i)}
+       [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
+              :data-step (when (:step step) (name (:step step)))
+              :style {:position     "relative"
+                      :margin-bottom "13px"
+                      :min-height   "21px"}}
+        (render-step step ctx)])]]))
 
 ;; ---- empty states --------------------------------------------------------
 
@@ -1080,7 +1709,8 @@
   the numbered cascade when steps are present; an empty-state when
   the focus carries no record or the record carries no trace events."
   []
-  (let [{:keys [status steps]} @(rf/subscribe [:rf.xray/epoch-pipeline])]
+  (let [{:keys [status steps dispatch-id epoch-history]}
+        @(rf/subscribe [:rf.xray/epoch-pipeline])]
     [:section {:data-testid "rf-xray-epoch-panel"
                :style {:height          "100%"
                        :display         "flex"
@@ -1099,7 +1729,9 @@
       (cond
         (= :focused status)
         (if (seq steps)
-          (pipeline-view steps)
+          (pipeline-view steps
+                         {:dispatch-id   dispatch-id
+                          :epoch-history epoch-history})
           (empty-state-view :no-events))
 
         :else
