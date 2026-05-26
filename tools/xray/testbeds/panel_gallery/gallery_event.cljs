@@ -272,14 +272,16 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 18. event-lens user-injected COEFFECTS (rf2-jhhqt) ------------
+  ;; ----- 18. event-lens user-injected COEFFECTS (rf2-jhhqt, rf2-9dk9y) -
   (story/reg-variant :story.xray.event/lens-with-coeffects
     {:doc        "Event lens with the §3 COEFFECTS section populated by
                  two user-injected coeffects (`:now` + `:local-storage`)
-                 stamped on `:rf.fx/do-fx :tags :coeffects`. The
-                 substrate has already filtered the framework defaults
-                 (`:db` `:event` `:frame` `:source` `:trace-id`) so the
-                 panel just renders what arrived."
+                 stamped on `:rf.event/run-end :tags :rf.event/coeffects`
+                 (rf2-9dk9y — the stamp lives on run-end, not do-fx,
+                 because do-fx never fires for handlers that return only
+                 `:db`). The substrate has already filtered the
+                 framework defaults (`:db` `:event` `:frame` `:source`
+                 `:trace-id`) so the panel just renders what arrived."
      :events     [[:rf.xray/sync-trace-buffer (fixtures/event-lens-with-coeffects-buffer)]
                   [:rf.xray/select-dispatch-id 110 nil]]
      :tags       #{:dev :state/small}
