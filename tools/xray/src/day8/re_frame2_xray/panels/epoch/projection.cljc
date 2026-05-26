@@ -75,14 +75,25 @@
   "Build the step-1 DISPATCH row from the epoch's `:rf.event/dispatched`
   trace. Returns nil when the epoch carries no dispatched trace (test
   fixtures that synthesise an epoch from a literal `:event` vector
-  surface this path)."
+  surface this path).
+
+  Per rf2-93a7s the event vector is read from the substrate's canonical
+  `:rf.event/v` tag (see `re-frame.router/emit-dispatched-trace`). The
+  pre-rf2-93a7s read against `:event` silently returned `nil` for
+  every dispatched event because the substrate has never stamped under
+  that name; the result was a DISPATCH step with no event-vector body.
+  Legacy `:event` + `(:event ev)` reads are retained as fallbacks for
+  fixture compatibility."
   [events fallback-event]
   (let [ev (find-op events :rf.event/dispatched)]
     (cond
       ev
       {:step        :dispatch
        :badge       :DISPATCH
-       :event       (or (common/tag-of ev :event) (:event ev) fallback-event)
+       :event       (or (common/tag-of ev :rf.event/v)
+                        (common/tag-of ev :event)
+                        (:event ev)
+                        fallback-event)
        :source      (or (common/tag-of ev :source)
                         (common/tag-of ev :rf.event/source))
        :coord       (or (common/tag-of ev :rf.trace/call-site)
@@ -98,16 +109,38 @@
 
 ;; ---- COEFFECT rows -------------------------------------------------------
 
+(def system-cofx-ids
+  "Coeffect ids the substrate auto-injects on every event handler — the
+  user did not register them via `reg-cofx` and the operator does not
+  benefit from seeing them. Filtered out of the COEFFECT step at
+  projection time (rf2-cq0ch).
+
+  Mirrors `re-frame.fx/framework-coeffect-keys`; the substrate already
+  filters these out of the `:rf.event/run-end :rf.event/coeffects`
+  stamp (rf2-9dk9y), but we filter here too as a belt-and-braces
+  defence — older runtimes / test fixtures that supply a raw cofx-map
+  through the fallback still get clean output."
+  #{:db :event :frame :source :trace-id})
+
+(defn- user-cofx?
+  "True iff `id` is a user-defined coeffect (i.e. not a system-injected
+  default). Used to gate per-row visibility."
+  [id]
+  (and (some? id) (not (contains? system-cofx-ids id))))
+
 (defn- coeffect-rows-from-runs
   "Walk every `:rf.cofx/run` event (rf2-hhh92) and project one row per
   user-injected coeffect — each row carries the cofx id and the value
-  it added to ctx. Empty seq when no `:rf.cofx/run` events fired."
+  it added to ctx. Empty seq when no `:rf.cofx/run` events fired.
+
+  System-injected defaults (`:db`, `:event`, `:frame`, `:source`,
+  `:trace-id`) are filtered out per rf2-cq0ch."
   [events]
   (vec
     (for [ev (filter-op events :rf.cofx/run)
           :let [id    (common/tag-of ev :rf.cofx/id)
                 value (common/tag-of ev :rf.cofx/value)]
-          :when (some? id)]
+          :when (user-cofx? id)]
       {:step        :coeffect
        :badge       :COEFFECT
        :id          id
@@ -119,22 +152,30 @@
   trace's `:rf.event/coeffects` stamp (rf2-9dk9y). The substrate places
   the user-injected subset there so events that return only `:db`
   still surface their cofx. Returns a vec of rows in map order; this
-  fallback is used only when no granular `:rf.cofx/run` events exist."
+  fallback is used only when no granular `:rf.cofx/run` events exist.
+
+  System-injected defaults are filtered out per rf2-cq0ch (belt-and-
+  braces — the substrate already filters at the run-end emit site)."
   [events]
   (when-let [run-end (find-op events :rf.event/run-end)]
     (let [m (common/tag-of run-end :rf.event/coeffects)]
       (when (map? m)
-        (vec (for [[id value] m]
+        (vec (for [[id value] m
+                   :when (user-cofx? id)]
                {:step  :coeffect
                 :badge :COEFFECT
                 :id    id
                 :value value}))))))
 
 (defn coeffect-rows
-  "All COEFFECT rows for the epoch — one per user-injected coeffect.
+  "All COEFFECT rows for the epoch — one per USER-defined coeffect
+  (system defaults like `:db` / `:event` are filtered out — rf2-cq0ch).
   Prefers granular `:rf.cofx/run` events; falls back to the run-end
   coeffect stamp when no granular events exist (older runtimes / test
-  fixtures). Returns an empty vec when neither surface is present."
+  fixtures). Returns an empty vec when neither surface is present, or
+  when every coeffect is system-injected — the latter is the typical
+  reg-event-db case where the operator gains nothing from a `:db`
+  presence-pill."
   [events]
   (let [granular (coeffect-rows-from-runs events)]
     (if (seq granular)
@@ -357,59 +398,106 @@
 (defn subscription-rows
   "Project `:rf.sub/run` events into rows. Each row carries:
 
-      :sub-id      — the sub vector's first element (the registered id)
-      :sub-vec     — the full sub query vector (`[:foo arg1 arg2]`)
-      :inputs      — the sub's input keywords (for input-fn subs)
-      :changed?    — true iff the sub's output value differed from
-                     the prior run (`:rf.sub/changed?` tag)
-      :before / :after — the sub's prior/new values when stamped
-      :duration-ms — the sub's recompute duration
+      :sub-id      — the registered sub id (`:rf.sub/id` tag).
+      :sub-vec     — the full sub query vector (`:rf.sub/query-v` tag).
+      :inputs      — the sub's input-signal query-vectors (when stamped).
+                     For layer-2+ subs the substrate stamps the
+                     upstream `:rf.sub/cause-sub` (the input whose
+                     value changed); layer-1 subs read app-db directly
+                     and surface as `:db`.
+      :changed?    — true iff the sub's output value differed from the
+                     prior run (`:rf.sub/value-changed?` tag).
+      :before      — the prior value (`:rf.sub/prev-value` tag).
+      :after       — the freshly-computed value (`:rf.sub/value` tag).
+      :cascade?    — true for layer-2+ recomputes (an upstream SUB drove
+                     this re-run); false for layer-1 subs.
+      :duration-ms — the sub's recompute duration (`:rf.sub/elapsed-ms` tag).
 
-  Pure projection; the view layer renders the row table."
+  Per rf2-kfh1v the tag names match the substrate emit-site
+  (`re-frame.subs.memo`); pre-rf2-kfh1v the projection read against
+  legacy names (`:rf.sub/query`, `:rf.sub/changed?`, `:rf.sub/before`)
+  that the substrate has never stamped — every payload slot returned
+  nil → every row showed `app-db ✗` with no id."
   [events]
   (let [evs (filterv #(or (= :rf.sub/run (op %))
                           (= :rf.sub/skip (op %)))
                      events)]
     (vec
       (for [ev evs
-            :let [sub-vec (or (common/tag-of ev :rf.sub/query)
-                              (common/tag-of ev :query))]]
-        {:sub-id      (when (vector? sub-vec) (first sub-vec))
+            :let [sub-vec (or (common/tag-of ev :rf.sub/query-v)
+                              (common/tag-of ev :rf.sub/query)
+                              (common/tag-of ev :query))
+                  sub-id  (or (common/tag-of ev :rf.sub/id)
+                              (when (vector? sub-vec) (first sub-vec)))
+                  cause   (common/tag-of ev :rf.sub/cause-sub)
+                  cascade? (common/tag-of ev :rf.sub/cascade?)]]
+        {:sub-id      sub-id
          :sub-vec     sub-vec
-         :inputs      (common/tag-of ev :rf.sub/inputs)
-         :changed?    (boolean (common/tag-of ev :rf.sub/changed?))
-         :before      (common/tag-of ev :rf.sub/before)
-         :after       (common/tag-of ev :rf.sub/after)
-         :duration-ms (common/tag-of ev :duration-ms)}))))
+         :inputs      (or cause
+                          (common/tag-of ev :rf.sub/inputs))
+         :changed?    (boolean
+                        (or (common/tag-of ev :rf.sub/value-changed?)
+                            (common/tag-of ev :rf.sub/changed?)))
+         :before      (or (common/tag-of ev :rf.sub/prev-value)
+                          (common/tag-of ev :rf.sub/before))
+         :after       (or (common/tag-of ev :rf.sub/value)
+                          (common/tag-of ev :rf.sub/after))
+         :cascade?    (boolean cascade?)
+         :duration-ms (or (common/tag-of ev :rf.sub/elapsed-ms)
+                          (common/tag-of ev :duration-ms))}))))
 
 (defn subscriptions-step
   "SUBSCRIPTIONS step row. nil when no `:rf.sub/*` events fired (the
-  step is OMITTED — conditional)."
+  step is OMITTED — conditional).
+
+  Per rf2-kfh1v the step header counts split the rows by
+  `:changed?` so the operator sees `N recomputed (M changed,
+  K unchanged)` at a glance — the unchanged rows are hidden behind
+  a toggle in the view, the count makes the toggle's value
+  predictable."
   [events]
   (let [rows (subscription-rows events)]
     (when (seq rows)
-      {:step  :subscriptions
-       :badge :SUBSCRIPTIONS
-       :rows  rows})))
+      (let [changed   (count (filter :changed? rows))
+            unchanged (- (count rows) changed)]
+        {:step      :subscriptions
+         :badge     :SUBSCRIPTIONS
+         :rows      rows
+         :changed   changed
+         :unchanged unchanged}))))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 
 (defn view-rows
-  "Project `:rf.view/render` events into rows. Each row carries the
-  view id + the subs it read during the render."
+  "Project view-render events into rows. Each row carries the view-id,
+  the subs the view dereffed during this render, and the wall-clock
+  duration of the render-fn.
+
+  Per rf2-6djth the projection reads `:rf.view/rendered` (the rich
+  per-render marker — rf2-25zo2 / rf2-9hoos / rf2-8wrzz.1) rather than
+  the simpler `:rf.view/render` marker; only `:rf.view/rendered`
+  carries `:rf.view/id`, `:rf.view/deref-subs`, and `:rf.view/elapsed-ms`.
+  The pre-rf2-6djth read against the bare `render` marker returned nil
+  for every payload slot, hence the VIEWS step rendered a count with
+  no per-row detail. Legacy `:view-id` / `:subs-read` reads are
+  retained as fixture-compatibility fallbacks."
   [events]
   (vec
-    (for [ev (filter-op events :rf.view/render)]
-      {:view-id     (or (common/tag-of ev :rf.view/id)
-                        (common/tag-of ev :view-id))
-       :subs-read   (or (common/tag-of ev :rf.view/subs)
-                        (common/tag-of ev :subs-read)
-                        [])
-       :duration-ms (common/tag-of ev :duration-ms)})))
+    (for [ev (filter-op events :rf.view/rendered)]
+      {:view-id      (or (common/tag-of ev :rf.view/id)
+                         (common/tag-of ev :view-id))
+       :subs-read    (or (common/tag-of ev :rf.view/deref-subs)
+                         (common/tag-of ev :rf.view/subs)
+                         (common/tag-of ev :subs-read)
+                         [])
+       :mount?       (common/tag-of ev :rf.view/mount?)
+       :triggered-by (common/tag-of ev :rf.view/triggered-by)
+       :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
+                         (common/tag-of ev :duration-ms))})))
 
 (defn views-step
-  "VIEWS step row. nil when no `:rf.view/render` events fired (the
-  step is OMITTED — conditional)."
+  "VIEWS step row. nil when no view-render events fired (the step is
+  OMITTED — conditional)."
   [events]
   (let [rows (view-rows events)]
     (when (seq rows)
@@ -452,10 +540,14 @@
   (let [events    (or (:trace-events epoch-record) [])
         event-id  (or (:event-id epoch-record)
                       (when-let [ev (find-op events :rf.event/dispatched)]
-                        (let [v (or (common/tag-of ev :event) (:event ev))]
+                        (let [v (or (common/tag-of ev :rf.event/v)
+                                    (common/tag-of ev :event)
+                                    (:event ev))]
                           (when (vector? v) (first v)))))
         fallback  (or (when-let [ev (find-op events :rf.event/dispatched)]
-                        (or (common/tag-of ev :event) (:event ev)))
+                        (or (common/tag-of ev :rf.event/v)
+                            (common/tag-of ev :event)
+                            (:event ev)))
                       (:event epoch-record))]
     (if (and (empty? events) (nil? fallback))
       ;; Truly empty epoch: no dispatched trace, no fallback event,

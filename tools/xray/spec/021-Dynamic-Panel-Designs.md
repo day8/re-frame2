@@ -1400,6 +1400,7 @@ verbatim; no DOM concern bleeds into the data layer.
 |-----|-------|--------|
 | `:rf.xray/epoch-pipeline` | `:rf.xray/focus` · `:rf.xray/epoch-history` (via the shared `panels.shared.focus-resolver`) | `{:status :no-focus | :focused | :epoch-evicted, :epoch-id, :record, :steps}` |
 | `:rf.xray.epoch/expanded-rows` | `:epoch-panel-expanded-rows` slot | `#{[step-kw row-id] …}` |
+| `:rf.xray.epoch/subs-show-unchanged?` | `:epoch-panel-subs-show-unchanged?` slot | boolean (rf2-kfh1v — SUBSCRIPTIONS step filters unchanged rows by default; this flag opts in to seeing all) |
 
 ### §9.1.10 Events
 
@@ -1407,6 +1408,26 @@ verbatim; no DOM concern bleeds into the data layer.
 |-------|--------|
 | `:rf.xray.epoch/toggle-row-expand step-kw row-id` | flip the row's pair in `:epoch-panel-expanded-rows` |
 | `:rf.xray.epoch/clear-row-expand` | drop the expansion set |
+| `:rf.xray.epoch/toggle-subs-show-unchanged` | flip the SUBSCRIPTIONS show-unchanged flag (rf2-kfh1v) |
+
+### §9.1.10.1 Substrate tag dependencies (the trace-stamp contract)
+
+The projection is a pure-data fn over the focused epoch's `:trace-events`.
+Each step row reads ONE OR MORE substrate-emitted tags; the panel only
+renders the slot when its driving tag is present. The 6-bead bug-fix
+sweep (2026-05-26) aligned every projection read with the substrate's
+canonical tag names — earlier reads against legacy names returned nil
+and silently rendered empty rows. The binding inventory:
+
+| Step | Trace operation | Canonical tags |
+|------|-----------------|----------------|
+| `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source`, `:rf.trace/call-site` |
+| `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value` — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch) |
+| `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta) |
+| `:flow` | `:rf.flow/recomputed` | `:rf.flow/id`, `:rf.flow/path`, `:rf.flow/before`, `:rf.flow/after` |
+| `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:duration-ms` |
+| `:subscriptions` | `:rf.sub/run` / `:rf.sub/skip` | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/elapsed-ms` (rf2-kfh1v aligned the reads against these) |
+| `:views` | `:rf.view/rendered` (NOT the simpler `:rf.view/render` marker) | `:rf.view/id`, `:rf.view/deref-subs`, `:rf.view/elapsed-ms`, `:rf.view/mount?`, `:rf.view/triggered-by` (rf2-6djth aligned the read against the rich marker) |
 
 ### §9.1.11 Cross-panel navigation
 

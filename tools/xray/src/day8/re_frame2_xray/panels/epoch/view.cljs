@@ -57,6 +57,7 @@
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
+            [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -241,53 +242,43 @@
 ;; ---- DISPATCH step -------------------------------------------------------
 
 (defn dispatch-body
-  "Render the DISPATCH step's expanded body — the event vector + the
-  source pill. Per the bead body's §DISPATCH (Step 1).
+  "Render the DISPATCH step's expanded body — the event vector as a
+  boxed monospace block. Per the bead body's §DISPATCH (Step 1).
 
-  Target line (event vector) is rendered as a boxed monospace block;
-  the FROM row carries an inline click-to-source link with the
-  external-link chip when a call-site coord was captured."
-  [{:keys [event source coord]}]
-  [:div
-   ;; Target — the dispatched event vector.
-   [:div {:data-testid "rf-xray-epoch-dispatch-event"
-          :style {:font-family   mono-stack
-                  :font-size     "12px"
-                  :color         (:text-primary tokens)
-                  :background    (:bg-3 tokens)
-                  :border        (str "1px solid " (:border-subtle tokens))
-                  :border-radius "3px"
-                  :padding       "5px 8px"
-                  :margin-top    "5px"
-                  :overflow-x    "auto"}}
-    (proj/event-display event)]
-   ;; FROM <source>
-   (when source
-     [:div {:data-testid "rf-xray-epoch-dispatch-source"
-            :style {:display      "flex"
-                    :align-items  "center"
-                    :gap          "4px"
-                    :margin-top   "5px"
-                    :font-family  sans-stack
-                    :font-size    "11px"
-                    :color        (:text-tertiary tokens)}}
-      "from "
-      [:span {:style {:color (:accent tokens) :font-family mono-stack}}
-       (name source)]
-      (coord-chip coord "rf-xray-epoch-dispatch-coord")])])
+  Per rf2-9jvx1 the body no longer repeats the `from <source>` line —
+  the header already carries that descriptor; the body is detail-only.
+  The click-to-source affordance rides on the header (rf2-93a7s)."
+  [{:keys [event]}]
+  (when (vector? event)
+    [:div {:data-testid "rf-xray-epoch-dispatch-event"
+           :style {:font-family   mono-stack
+                   :font-size     "12px"
+                   :color         (:text-primary tokens)
+                   :background    (:bg-3 tokens)
+                   :border        (str "1px solid " (:border-subtle tokens))
+                   :border-radius "3px"
+                   :padding       "5px 8px"
+                   :margin-top    "5px"
+                   :overflow-x    "auto"}}
+     (proj/event-display event)]))
 
 (defn render-dispatch-step
-  "Render the DISPATCH step (always present)."
-  [{:keys [source duration-ms step-number] :as step}]
+  "Render the DISPATCH step (always present). Header summarises `from
+  <source>` with the call-site chip when a coord was captured;
+  body renders the dispatched event vector as a boxed monospace
+  block (rf2-93a7s · rf2-9jvx1)."
+  [{:keys [source coord duration-ms step-number] :as step}]
   [:div {:data-testid "rf-xray-epoch-step-dispatch"
          :data-step-kw "dispatch"}
    (numbered-circle step-number :DISPATCH)
    (step-header
      {:step :dispatch
       :badge :DISPATCH
-      :verb [:span "from "
+      :verb [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
+             "from "
              [:span {:style {:color (:accent tokens)}}
-              (if source (name source) "unknown")]]
+              (if source (name source) "unknown")]
+             (coord-chip coord "rf-xray-epoch-dispatch-coord")]
       :expandable? false
       :testid "rf-xray-epoch-dispatch"
       :duration-ms duration-ms}
@@ -297,34 +288,44 @@
 ;; ---- COEFFECT step -------------------------------------------------------
 
 (defn- coeffect-row-view
-  "Render one COEFFECT row (id link + diff-style add-row) per the bead
-  body's §COEFFECT shape."
-  [{:keys [id value] :as _row} idx]
+  "Render one COEFFECT row (id link + labelled value via edn-inspector)
+  per the bead body's §COEFFECT shape (rf2-cq0ch).
+
+  The injected value renders via the canonical edn-inspector widget —
+  scalars one-line through `edn/inspect-inline`; nested structures get
+  the labelled cofx-id header so the row reads `:rf/now <inst>` /
+  `:session {:user-id 42}` rather than the legacy cryptic
+  `+[]<value>` diff-row.
+
+  Argument order matches `map-indexed`'s `(f idx item)` calling
+  convention; the pre-rf2-cq0ch shape transposed these and silently
+  destructured a number as the row map (`_row` was the index, `idx`
+  the row map — hence the legacy `+[]nil` symptom)."
+  [idx {:keys [id value] :as _row}]
   [:div {:key (str "cofx-" idx)
          :data-testid (str "rf-xray-epoch-coeffect-row-" idx)
-         :style {:padding "3px 0"}}
-   ;; id link
-   [:div {:style {:display "inline-flex"
-                  :align-items "center"
-                  :gap "4px"
-                  :font-family mono-stack
-                  :font-size "12px"
-                  :color (:accent tokens)}}
+         :style {:padding "3px 0"
+                 :display "flex"
+                 :align-items "flex-start"
+                 :gap "8px"
+                 :font-family mono-stack
+                 :font-size "12px"}}
+   ;; id label
+   [:span {:data-testid (str "rf-xray-epoch-coeffect-row-id-" idx)
+           :style {:color (:accent tokens)
+                   :white-space "nowrap"
+                   :display "inline-flex"
+                   :align-items "center"
+                   :gap "4px"}}
     (proj/ns-keyword id)
     (icons/external-link)]
-   ;; diff-style add row
-   [:div {:style {:display      "flex"
-                  :align-items  "flex-start"
-                  :gap          "8px"
-                  :padding      "2px 0 2px 16px"
-                  :font-family  mono-stack
-                  :font-size    "12px"}}
-    [:span {:style {:color (:success tokens) :font-weight 700}} "+"]
-    [:span {:style {:color (:text-tertiary tokens) :white-space "nowrap"}}
-     (str "[" (proj/ns-keyword id) "]")]
-    [:span {:style {:color (:success tokens) :min-width 0 :flex 1
-                    :word-break "break-word"}}
-     (proj/truncate (pr-str value) 100)]]])
+   ;; injected value (labelled — no cryptic `+[]nil` line)
+   [:span {:data-testid (str "rf-xray-epoch-coeffect-row-value-" idx)
+           :style {:color (:text-primary tokens)
+                   :min-width 0
+                   :flex 1
+                   :word-break "break-word"}}
+    (edn/inspect-inline value)]])
 
 (defn render-coeffect-step
   "Render the COEFFECT step (single step with N rows — one per
@@ -515,25 +516,98 @@
                          :margin-left "8px"}}
           (proj/timer-reason-label reason)]])])])
 
+;; ---- handler source --------------------------------------------------
+;;
+;; Per rf2-66wis the HANDLER body carries the registered handler's
+;; source code as a syntax-highlighted block under the header — same
+;; widget as the Event panel uses (rf2-n4ad0 routed to `edn/code-block`
+;; with the same per-token palette as the Figma authority's
+;; `.syntax-*` classes, rf2-93jp0). The substrate stamps source under
+;; the `:rf.handler/source` meta key (Spec 009 / rf2-xgfuy) via a
+;; DEBUG-gated macro; production goog.DEBUG=false builds carry no
+;; source, so the slot renders a clear placeholder rather than
+;; collapsing silently.
+;;
+;; For machine handlers the "source" is the machine spec — read via
+;; `rf/handler-meta :machine event-id`. The spec renders through the
+;; same `edn/inspect` widget every other top-level EDN map uses.
+
+(defn- handler-source-string
+  "Return the registered event-handler's source string from the
+  `:rf.handler/source` meta key, or nil when the substrate hasn't
+  captured one (production builds, registrations that pre-date the
+  coord-annotation pass)."
+  [meta]
+  (let [s (:rf.handler/source meta)]
+    (when (and (string? s) (seq s))
+      s)))
+
+(defn- machine-spec-value
+  "Return the registered machine handler's spec data. Read off the
+  `:machine-spec` slot (the substrate stashes the original
+  `(reg-machine id spec ...)` argument here) so the panel can render
+  it via the canonical edn-inspector."
+  [meta]
+  (or (:machine-spec meta)
+      (:spec meta)
+      (:rf.machine/spec meta)))
+
+(defn- handler-source-block
+  "Render the source-code block under the HANDLER header. Three
+  cases:
+
+    1. Machine handler — render the machine spec via the canonical
+       `edn/inspect` widget.
+    2. Event handler with a captured source string — render via
+       `edn/code-block` (clojure-syntax highlight).
+    3. Otherwise — render a clear `<source not yet captured>`
+       placeholder so the slot is always present (operator learns
+       where to look + when the substrate didn't stamp)."
+  [flavour event-id]
+  (let [machine? (= :reg-machine flavour)
+        meta     (when (some? event-id)
+                   (try (rf/handler-meta (if machine? :machine :event) event-id)
+                        (catch :default _ nil)))
+        spec     (when machine? (machine-spec-value meta))
+        src      (when-not machine? (handler-source-string meta))]
+    [:div {:data-testid "rf-xray-epoch-handler-source"
+           :style {:margin-top "8px"
+                   :min-width  "0"}}
+     (sub-header (if machine? "machine spec" "source"))
+     (cond
+       (and machine? (some? spec))
+       [:div {:data-testid "rf-xray-epoch-handler-source-spec"
+              :style {:padding-left "16px"}}
+        (edn/inspect spec)]
+
+       src
+       (edn/code-block
+         {:source src
+          :lang   :clojure
+          :testid "rf-xray-epoch-handler-source-body"})
+
+       :else
+       [:span {:data-testid "rf-xray-epoch-handler-source-placeholder"
+               :style {:font-style "italic"
+                       :font-family mono-stack
+                       :font-size   "11px"
+                       :color       (:text-tertiary tokens)
+                       :padding-left "16px"}}
+        "<source not yet captured>"])]))
+
 (defn handler-body
-  "Render the HANDLER step's body — flavour label + db-diff + fx + the
-  machine block when the handler is a machine-event-handler."
+  "Render the HANDLER step's body — source block + db-diff + fx + the
+  machine block when the handler is a machine-event-handler.
+
+  Per rf2-9jvx1 the flavour + event-id row is dropped from the body —
+  the header already carries that descriptor. Per rf2-66wis the body
+  now leads with the handler's source code (or machine spec) so the
+  operator can answer 'why did this handler do X' without leaving the
+  panel."
   [{:keys [flavour event-id db-diff fx machine] :as _row}]
   [:div {:data-testid "rf-xray-epoch-handler-body"}
-   ;; Flavour + event-id
-   [:div {:style {:display      "flex"
-                  :align-items  "center"
-                  :gap          "6px"
-                  :margin-top   "5px"
-                  :font-family  mono-stack
-                  :font-size    "12px"
-                  :color        (:text-primary tokens)}}
-    [:span {:style {:color (:accent tokens)}}
-     (proj/handler-flavour-label flavour)]
-    (icons/external-link)
-    (when event-id
-      [:span {:style {:color (:text-tertiary tokens)}}
-       (proj/ns-keyword event-id)])]
+   ;; Source / machine spec block — rf2-66wis
+   (handler-source-block flavour event-id)
    ;; Machine extras BEFORE db diff (lifecycle is the story for machines)
    (when machine
      (machine-block machine))
@@ -579,8 +653,11 @@
 ;; ---- FLOW step -----------------------------------------------------------
 
 (defn- flow-row-view
-  "Render one flow recompute row — id link + diff-style line."
-  [{:keys [flow-id path before after duration-ms]} idx]
+  "Render one flow recompute row — id link + diff-style line.
+
+  Argument order matches `map-indexed`'s `(f idx item)` convention
+  (rf2-cq0ch — companion swap with `coeffect-row-view` / `fx-row-view`)."
+  [idx {:keys [flow-id path before after duration-ms]}]
   [:div {:key (str "flow-" idx)
          :data-testid (str "rf-xray-epoch-flow-row-" idx)
          :style {:padding "3px 0"}}
@@ -634,8 +711,12 @@
 
 (defn- fx-row-view
   "Render one fx-handler row inside the FX step — green check + fx-id
-  + truncated args."
-  [{:keys [fx-id status args duration-ms]} idx]
+  + truncated args.
+
+  Argument order matches `map-indexed`'s `(f idx item)` convention
+  (rf2-cq0ch — companion swap with `coeffect-row-view` /
+  `flow-row-view`)."
+  [idx {:keys [fx-id status args duration-ms]}]
   (let [glyph    (case status
                    :ok          "✓"
                    :overridden  "↺"
@@ -689,9 +770,33 @@
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
+(defn- subscriptions-toggle-button
+  "Render the `Show unchanged` toggle button — flips the
+  `:rf.xray.epoch/subs-show-unchanged?` slot on the Xray app-db.
+  When `show?` is true the label reads `Hide unchanged`."
+  [show? unchanged]
+  (when (pos? unchanged)
+    [:button {:data-testid "rf-xray-epoch-subscriptions-toggle"
+              :aria-pressed (str (boolean show?))
+              :on-click (fn [e]
+                          (.stopPropagation e)
+                          (rf/dispatch
+                            [:rf.xray.epoch/toggle-subs-show-unchanged]
+                            {:frame :rf/xray}))
+              :style {:background  "transparent"
+                      :border      (str "1px solid " (:border-default tokens))
+                      :border-radius "3px"
+                      :color       (:text-secondary tokens)
+                      :cursor      "pointer"
+                      :font-family sans-stack
+                      :font-size   "11px"
+                      :padding     "2px 8px"
+                      :margin-left "8px"}}
+     (if show? "Hide unchanged" "Show unchanged")]))
+
 (defn- subscriptions-table
   "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
-  Per the bead body's §SUBSCRIPTIONS (Step 7) shape."
+  Per the bead body's §SUBSCRIPTIONS (Step 7) shape (rf2-kfh1v)."
   [rows]
   [:div {:data-testid "rf-xray-epoch-subscriptions-table"
          :style {:margin-top "5px"
@@ -756,26 +861,62 @@
          [:span {:style {:color (:text-tertiary tokens) :font-weight 700}} "✗"])]])])
 
 (defn render-subscriptions-step
-  "Render the SUBSCRIPTIONS step (only present when subs recomputed)."
-  [{:keys [rows step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-subscriptions"
-         :data-step-kw "subscriptions"}
-   (numbered-circle step-number :SUBSCRIPTIONS)
-   (step-header
-     {:step :subscriptions
-      :badge :SUBSCRIPTIONS
-      :verb (str (count rows) " sub" (when (not= 1 (count rows)) "s")
-                 " recomputed")
-      :expandable? false
-      :testid "rf-xray-epoch-subscriptions"}
-     nil)
-   (subscriptions-table rows)])
+  "Render the SUBSCRIPTIONS step (only present when subs recomputed).
+
+  Per rf2-kfh1v unchanged-input rows are HIDDEN BY DEFAULT — most
+  subs recompute on a cascade but report no value change, so the
+  noisy `N rows of ✗` legacy display was crowding out the rows the
+  operator actually cares about. A `Show unchanged` toggle reveals
+  the full list; the toggle's state lives in
+  `:rf.xray.epoch/subs-show-unchanged?` on the Xray app-db. Step
+  header shows the split count `N recomputed (M changed, K unchanged)`.
+
+  Mirrors the filter-toggle posture Chrome devtools' network panel
+  uses (the precedent the bead body cites)."
+  [{:keys [rows changed unchanged step-number]}]
+  (let [show-unchanged? @(rf/subscribe [:rf.xray.epoch/subs-show-unchanged?])
+        visible-rows    (if show-unchanged?
+                          rows
+                          (filterv :changed? rows))
+        n               (count rows)
+        m               (or changed (count (filter :changed? rows)))
+        k               (or unchanged (- n m))]
+    [:div {:data-testid "rf-xray-epoch-step-subscriptions"
+           :data-step-kw "subscriptions"}
+     (numbered-circle step-number :SUBSCRIPTIONS)
+     (step-header
+       {:step :subscriptions
+        :badge :SUBSCRIPTIONS
+        :verb [:span {:style {:display "inline-flex" :align-items "center"
+                              :gap "8px" :flex-wrap "wrap"}}
+               (str n " recomputed (" m " changed, " k " unchanged)")
+               (subscriptions-toggle-button show-unchanged? k)]
+        :expandable? false
+        :testid "rf-xray-epoch-subscriptions"}
+       nil)
+     (subscriptions-table visible-rows)]))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 
+(defn- view-coord
+  "Pull the registered view's source coord off
+  `(rf/handler-meta :view view-id)`. Returns nil when no meta is
+  captured. Matches the reactive panel's resolver shape."
+  [view-id]
+  (when (some? view-id)
+    (let [m (try (rf/handler-meta :view view-id) (catch :default _ nil))]
+      (when (and m (string? (:file m)))
+        {:file (:file m) :line (:line m) :ns (:ns m)}))))
+
 (defn- views-table
   "Render the VIEWS table — 2 columns (views / subs). Per the bead
-  body's §VIEWS (Step 8) shape."
+  body's §VIEWS (Step 8) shape (rf2-6djth).
+
+  Each row carries:
+    - view-id (hyperlinked via the registrar's `:view` meta coord)
+    - duration (when stamped, rendered as a muted chip below the id)
+    - the subs the view dereffed during this render (one per line —
+      vectors via `pr-str`, scalars via `ns-keyword`)."
   [rows]
   [:div {:data-testid "rf-xray-epoch-views-table"
          :style {:margin-top "5px"
@@ -797,6 +938,7 @@
    (for [[i {:keys [view-id subs-read duration-ms]}] (map-indexed vector rows)]
      [:div {:key (str "view-" i)
             :data-testid (str "rf-xray-epoch-view-row-" i)
+            :data-view-id (when view-id (pr-str view-id))
             :style {:display "flex"
                     :align-items "stretch"
                     :border-bottom (when (< i (dec (count rows)))
@@ -804,28 +946,35 @@
       [:div {:style {:flex "1 1 50%" :padding "5px 8px" :min-width 0
                      :font-family mono-stack :font-size "12px"
                      :word-break "break-word"}}
-       [:span {:style {:color (:accent tokens) :display "inline-flex"
+       [:span {:data-testid (str "rf-xray-epoch-view-row-id-" i)
+               :style {:color (:accent tokens) :display "inline-flex"
                        :align-items "center" :gap "4px"}}
-        (proj/ns-keyword view-id)
-        (icons/external-link)]
+        (if (some? view-id)
+          (proj/ns-keyword view-id)
+          [:span {:style {:color (:text-tertiary tokens)
+                          :font-style "italic"}}
+           "<anonymous view>"])
+        (coord-chip (view-coord view-id)
+                    (str "rf-xray-epoch-view-row-coord-" i))]
        (when (number? duration-ms)
          [:span {:style {:color (:text-tertiary tokens)
                          :margin-left "8px"
                          :font-size "10px"}}
           (proj/format-duration-ms duration-ms)])]
-      [:div {:style {:flex "1 1 50%" :padding "5px 8px" :min-width 0
+      [:div {:data-testid (str "rf-xray-epoch-view-row-subs-" i)
+             :style {:flex "1 1 50%" :padding "5px 8px" :min-width 0
                      :font-family mono-stack :font-size "12px"
                      :color (:text-tertiary tokens)
                      :word-break "break-word"}}
        (cond
-         (sequential? subs-read)
+         (and (sequential? subs-read) (seq subs-read))
          (into [:div {:style {:display "flex" :flex-direction "column" :gap "2px"}}]
                (for [s subs-read]
                  [:div (if (vector? s) (pr-str s) (proj/ns-keyword s))]))
          (some? subs-read)
          (proj/ns-keyword subs-read)
          :else
-         "(none)")]])])
+         [:span {:style {:font-style "italic"}} "(none)"])]])])
 
 (defn render-views-step
   "Render the VIEWS step (only present when views re-rendered)."

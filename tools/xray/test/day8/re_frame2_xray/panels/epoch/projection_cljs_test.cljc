@@ -87,15 +87,28 @@
 
 (defn- sub-run-ev
   [sub-vec changed? before after]
-  (ev :rf.sub :rf.sub/run {:rf.sub/query sub-vec
-                           :rf.sub/changed? changed?
-                           :rf.sub/before before
-                           :rf.sub/after after}))
+  ;; Per rf2-kfh1v the substrate stamps `:rf.sub/id`, `:rf.sub/query-v`,
+  ;; `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value` —
+  ;; NOT the legacy `:rf.sub/query` / `:rf.sub/changed?` / `:rf.sub/before`
+  ;; the projection used to read. Fixture mirrors substrate shape.
+  (ev :rf.sub :rf.sub/run {:rf.sub/id             (when (vector? sub-vec) (first sub-vec))
+                           :rf.sub/query-v        sub-vec
+                           :rf.sub/value-changed? changed?
+                           :rf.sub/prev-value     before
+                           :rf.sub/value          after}))
 
 (defn- view-render-ev
-  [view-id subs-read]
-  (ev :rf.view :rf.view/render {:rf.view/id view-id
-                                :rf.view/subs subs-read}))
+  ([view-id subs-read]
+   (view-render-ev view-id subs-read nil))
+  ([view-id subs-read elapsed-ms]
+   ;; Per rf2-6djth the substrate stamps the rich per-render marker as
+   ;; `:rf.view/rendered` (not `:rf.view/render`) with `:rf.view/id` +
+   ;; `:rf.view/deref-subs`. Fixture mirrors substrate shape.
+   (ev :rf.view :rf.view/rendered
+       (cond-> {:rf.view/id          view-id
+                :rf.view/deref-subs  subs-read}
+         (some? elapsed-ms)
+         (assoc :rf.view/elapsed-ms elapsed-ms)))))
 
 (defn- machine-transition-ev
   [machine-id before after]
@@ -150,6 +163,21 @@
   (testing "no dispatched + no fallback returns nil"
     (is (nil? (proj/dispatch-row [] nil)))))
 
+(deftest dispatch-row-reads-canonical-event-v-tag-test
+  (testing "rf2-93a7s — the dispatched trace stamps the event vector at
+            the substrate-canonical `:rf.event/v` tag; the projection
+            must read that tag (the pre-rf2-93a7s read against `:event`
+            silently returned nil — DISPATCH step appeared without its
+            event-vector body)"
+    (let [ev {:op-type   :rf.event
+              :operation :rf.event/dispatched
+              :tags      {:rf.event/v [:counter/inc 7]
+                          :source     :ui}}
+          r  (proj/dispatch-row [ev] nil)]
+      (is (= [:counter/inc 7] (:event r))
+          "event vector resolves through :rf.event/v")
+      (is (= :ui (:source r))))))
+
 ;; ---- COEFFECT ------------------------------------------------------------
 
 (deftest coeffect-rows-granular-test
@@ -172,6 +200,29 @@
 (deftest coeffect-rows-empty-test
   (testing "no cofx events + no run-end stamp returns empty vec"
     (is (= [] (proj/coeffect-rows [])))))
+
+(deftest coeffect-rows-skip-system-cofx-test
+  (testing "rf2-cq0ch — system-injected defaults (:db / :event / :frame /
+            :source / :trace-id) are filtered out at projection time"
+    (let [evs  (concat (mapv #(cofx-run-ev % nil) [:db :event :frame :source :trace-id])
+                       [(cofx-run-ev :session {:user-id 42})])
+          rows (proj/coeffect-rows evs)]
+      (is (= 1 (count rows)) "only the user-defined :session row survives")
+      (is (= :session (-> rows first :id)))))
+
+  (testing "rf2-cq0ch — fallback path also filters system defaults"
+    (let [evs  [(run-end-ev 0.1 {:db {} :event [:x] :session {:user-id 7}})]
+          rows (proj/coeffect-rows evs)]
+      (is (= 1 (count rows)))
+      (is (= :session (-> rows first :id)))))
+
+  (testing "rf2-cq0ch — pure reg-event-db (only system cofx) emits NO step"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (cofx-run-ev :db nil)
+                         (db-changed-ev [[[:counter] 5 6 :modified]])])
+          steps (proj/project rec)]
+      (is (not-any? #(= :coeffect (:step %)) steps)
+          "no COEFFECT step is emitted when every cofx is system-injected"))))
 
 ;; ---- HANDLER -------------------------------------------------------------
 
@@ -263,6 +314,35 @@
       (is (true? (-> s :rows first :changed?)))
       (is (false? (-> s :rows second :changed?))))))
 
+(deftest subscriptions-row-reads-canonical-substrate-tags-test
+  (testing "rf2-kfh1v — projection reads the substrate's canonical
+            `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`,
+            `:rf.sub/prev-value`, `:rf.sub/value` tags (NOT the legacy
+            `:rf.sub/changed?` / `:rf.sub/before` / `:rf.sub/after`
+            shape the pre-rf2-kfh1v projection read against)"
+    (let [s (proj/subscriptions-step [(sub-run-ev [:counter/total] true 5 6)])
+          row (-> s :rows first)]
+      (is (= :counter/total (:sub-id row))
+          "sub-id is read from `:rf.sub/id`")
+      (is (= [:counter/total] (:sub-vec row))
+          "sub-vec is read from `:rf.sub/query-v`")
+      (is (true? (:changed? row))
+          "changed? is read from `:rf.sub/value-changed?`")
+      (is (= 5 (:before row))
+          "before is read from `:rf.sub/prev-value`")
+      (is (= 6 (:after row))
+          "after is read from `:rf.sub/value`"))))
+
+(deftest subscriptions-step-counts-changed-vs-unchanged-test
+  (testing "rf2-kfh1v — step header carries `changed` + `unchanged`
+            counts so the view can render `N recomputed (M changed,
+            K unchanged)` without re-walking the rows"
+    (let [s (proj/subscriptions-step [(sub-run-ev [:a] true 1 2)
+                                      (sub-run-ev [:b] false :x :x)
+                                      (sub-run-ev [:c] false :y :y)])]
+      (is (= 1 (:changed s)))
+      (is (= 2 (:unchanged s))))))
+
 ;; ---- VIEWS --------------------------------------------------------------
 
 (deftest views-step-conditional-test
@@ -275,6 +355,22 @@
       (is (= :VIEWS (:badge s)))
       (is (= 1 (count (:rows s))))
       (is (= ::counter-view (-> s :rows first :view-id))))))
+
+(deftest views-step-reads-rich-rendered-marker-test
+  (testing "rf2-6djth — projection reads the substrate's rich
+            `:rf.view/rendered` marker (carries `:rf.view/id`,
+            `:rf.view/deref-subs`, `:rf.view/elapsed-ms`). The
+            previously-read `:rf.view/render` marker only carried
+            `:rf.view/render-key` — read against it the row had nil
+            view-id + empty subs-read"
+    (let [s   (proj/views-step
+                [(view-render-ev :app.counter/Counter
+                                 [[:counter/total] [:counter/threshold]]
+                                 1.2)])
+          row (-> s :rows first)]
+      (is (= :app.counter/Counter (:view-id row)))
+      (is (= [[:counter/total] [:counter/threshold]] (:subs-read row)))
+      (is (= 1.2 (:duration-ms row))))))
 
 ;; ---- top-level project --------------------------------------------------
 

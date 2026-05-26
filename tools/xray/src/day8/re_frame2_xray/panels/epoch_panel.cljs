@@ -128,6 +128,22 @@
     (fn [db _event]
       (dissoc db :epoch-panel-expanded-rows)))
 
+  ;; ---- SUBSCRIPTIONS show-unchanged toggle (rf2-kfh1v) -----------------
+  ;;
+  ;; Per the bead body the SUBSCRIPTIONS step hides unchanged-input rows
+  ;; by default — N rows of mostly-unchanged subs is noisy. The operator
+  ;; opts in to see all rows via this flag (mirrors Chrome devtools'
+  ;; network panel's filter toggle). Slot lives on the Xray app-db so the
+  ;; preference survives focus shifts.
+
+  (rf/reg-sub :rf.xray.epoch/subs-show-unchanged?
+    (fn [db _query]
+      (boolean (get db :epoch-panel-subs-show-unchanged?))))
+
+  (rf/reg-event-db :rf.xray.epoch/toggle-subs-show-unchanged
+    (fn [db _event]
+      (update db :epoch-panel-subs-show-unchanged? not)))
+
   ;; ---- L4 tab registration ----------------------------------------------
   ;;
   ;; The Epoch tab lands between Machines (order 4) and Routing

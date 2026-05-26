@@ -158,6 +158,8 @@
    ;; rows) + per-row expansion-set sub.
    :rf.xray/epoch-pipeline
    :rf.xray.epoch/expanded-rows
+   ;; rf2-kfh1v — Epoch panel SUBSCRIPTIONS show-unchanged flag.
+   :rf.xray.epoch/subs-show-unchanged?
    :rf.xray/event-detail
    :rf.xray/filtered-cascades
    ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
@@ -444,6 +446,8 @@
    ;; rf2-sc3r1 — Epoch panel per-row expansion events.
    :rf.xray.epoch/toggle-row-expand
    :rf.xray.epoch/clear-row-expand
+   ;; rf2-kfh1v — Epoch panel SUBSCRIPTIONS show-unchanged toggle.
+   :rf.xray.epoch/toggle-subs-show-unchanged
    :rf.xray/epoch-recorded
    ;; rf2-piye4 — typed-predicate filter events. Each appends a
    ;; typed `{:kind <kw> :params {…}}` IN pill from a right-click
