@@ -93,6 +93,7 @@
 (def ^:private bg-1-colour         (:bg-1            tokens))
 (def ^:private bg-2-colour         (:bg-2            tokens))
 (def ^:private bg-3-colour         (:bg-3            tokens))
+(def ^:private bg-violation-colour (:bg-violation    tokens))
 (def ^:private border-subtle-colour  (:border-subtle  tokens))
 (def ^:private border-default-colour (:border-default tokens))
 
@@ -939,97 +940,131 @@
 (def ^:private unmounted-id-span-style
   disposed-id-span-style)
 
-;; -- SCHEMA VIOLATIONS ----------------------------------------------------
+;; -- SCHEMA VIOLATION sub-block (rf2-xgeag) -------------------------------
+;;
+;; Pink-wash sub-block that rides INSIDE its owning pipeline step's
+;; body. The aggregate trailing SCHEMA-VIOLATIONS step retired with
+;; rf2-xgeag in favour of this attached shape — the operator reads
+;; the failing boundary inline with the work it failed on. Hot-reload
+;; drift still rides a standalone tail step (no owning cascade step
+;; exists); see `render-schema-hot-reload-step`.
 
-(def ^:private schema-violation-row-style
+(def ^:private schema-violation-block-style
   {:display        "flex"
    :flex-direction "column"
-   :gap            "3px"
-   :padding        "5px 8px"
-   :background     bg-3-colour
-   :border-left    (str "2px solid " warning-colour)
-   :margin-bottom  "5px"
-   :border-radius  "0 3px 3px 0"
+   :gap            "5px"
+   :padding        "8px 10px"
+   :margin         "5px 0"
+   :background     bg-violation-colour
+   :border         (str "1px solid " warning-colour)
+   :border-radius  "3px"
    :font-family    mono-stack
    :font-size      "12px"})
 
-(def ^:private schema-violation-head-style
+(def ^:private schema-violation-title-style
   {:display     "flex"
    :align-items "center"
    :gap         "8px"
-   :flex-wrap   "wrap"})
-
-(def ^:private schema-violation-where-style
-  {:color          warning-colour
-   :font-weight    700
+   :color       warning-colour
+   :font-weight 700
+   :font-size   "11px"
    :text-transform "uppercase"
-   :font-size      "10px"
    :letter-spacing "0.5px"})
 
-(def ^:private schema-violation-id-style
+(def ^:private schema-violation-title-spacer-style
+  {:flex 1})
+
+(def ^:private schema-violation-recovery-chip-style
+  {:padding        "2px 6px"
+   :border-radius  "3px"
+   :background     bg-3-colour
+   :color          text-secondary-colour
+   :font-size      "10px"
+   :font-weight    600
+   :text-transform "lowercase"
+   :letter-spacing "0.3px"})
+
+(def ^:private schema-violation-rollback-chip-style
+  (assoc schema-violation-recovery-chip-style
+         :background error-colour
+         :color      white-colour
+         :text-transform "uppercase"))
+
+(def ^:private schema-violation-headline-style
+  {:color       text-primary-colour
+   :font-weight 600})
+
+(def ^:private schema-violation-headline-id-style
   {:color accent-colour})
 
-(def ^:private schema-violation-rollback-style
-  {:padding        "2px 5px"
-   :border-radius  "3px"
-   :background     error-colour
-   :color          white-colour
-   :font-size      "10px"
-   :font-weight    700
-   :text-transform "uppercase"
-   :letter-spacing "0.5px"})
+(def ^:private schema-violation-line-style
+  {:display "flex" :gap "8px" :align-items "baseline"})
 
-(def ^:private schema-violation-recovery-style
-  {:color      text-tertiary-colour
-   :font-size  "10px"
-   :font-style "italic"})
+(def ^:private schema-violation-line-label-style
+  {:color       text-tertiary-colour
+   :min-width   "65px"
+   :font-size   "11px"})
 
-(def ^:private schema-violation-path-style
-  {:color text-tertiary-colour :padding-left "16px"})
-
-(def ^:private schema-violation-value-style
-  {:color        text-primary-colour
-   :padding-left "16px"
-   :word-break   "break-word"})
+(def ^:private schema-violation-line-value-style
+  {:color      text-primary-colour
+   :word-break "break-word"})
 
 (def ^:private schema-violation-sensitive-style
-  {:color        text-tertiary-colour
-   :font-style   "italic"
-   :font-size    "10px"
-   :padding-left "16px"})
+  {:color      text-tertiary-colour
+   :font-style "italic"
+   :font-size  "10px"})
 
-(def ^:private schema-violation-explain-style
-  {:color        text-secondary-colour
-   :padding-left "16px"
-   :font-size    "11px"})
+(def ^:private schema-violation-action-link-style
+  {:background    "transparent"
+   :border        "none"
+   :padding       0
+   :margin        0
+   :color         accent-colour
+   :cursor        "pointer"
+   :font-family   mono-stack
+   :font-size     "11px"
+   :display       "inline-flex"
+   :align-items   "center"
+   :gap           "4px"
+   :text-align    "left"})
 
-(def ^:private schema-violations-verb-style
-  {:display     "inline-flex"
-   :align-items "center"
-   :gap         "8px"
+(def ^:private schema-violation-actions-style
+  {:display     "flex"
+   :gap         "16px"
    :flex-wrap   "wrap"})
 
-(def ^:private schema-violations-count-style
-  {:display     "inline-flex"
+(def ^:private schema-violation-explain-toggle-style
+  {:background  "transparent"
+   :border      "none"
+   :padding     0
+   :margin      0
+   :color       text-tertiary-colour
+   :cursor      "pointer"
+   :font-family mono-stack
+   :font-size   "11px"
+   :text-align  "left"})
+
+(def ^:private schema-violation-explain-body-style
+  {:color text-secondary-colour
+   :font-size "11px"
+   :background bg-2-colour
+   :border border-subtle-1px
+   :border-radius "3px"
+   :padding "6px 8px"})
+
+(def ^:private rolled-back-mute-style
+  {:opacity 0.55})
+
+(def ^:private rolled-back-banner-style
+  {:display     "flex"
    :align-items "center"
-   :gap         "4px"
-   :color       warning-colour})
-
-(def ^:private schema-violations-rollback-count-style
-  {:color error-colour :font-weight 700})
-
-(def ^:private schema-violations-open-issues-style
-  {:background     "transparent"
-   :border         border-default-1px
-   :border-radius  "3px"
-   :color          text-secondary-colour
-   :cursor         "pointer"
-   :font-family    sans-stack
-   :font-size      "10px"
-   :padding        "2px 8px"
-   :margin-left    "8px"
-   :text-transform "uppercase"
-   :letter-spacing "0.5px"})
+   :gap         "8px"
+   :margin-top  "5px"
+   :padding     "4px 8px"
+   :color       error-colour
+   :font-family sans-stack
+   :font-size   "11px"
+   :font-style  "italic"})
 
 ;; -- CHILD DISPATCHES -----------------------------------------------------
 
@@ -1199,6 +1234,15 @@
                             badge-pill-text-overlay))}
      label]))
 
+;; rf2-xgeag — violation sub-block + rolled-back banner are defined
+;; further down the file (in the §SCHEMA VIOLATION sub-block section)
+;; but each step renderer above attaches a `(violation-blocks ...)`
+;; sub-block to its body. Forward-declared here so the namespace
+;; compiles in source order without warnings.
+(declare violation-blocks)
+(declare violation-block)
+(declare rolled-back-banner)
+
 (defn- numbered-circle
   "Render the numbered circle — 21px diameter, painted in the step's
   badge colour with white numerals. Positioned absolutely at -44px
@@ -1363,7 +1407,7 @@
   text otherwise. The external-link icon rides INSIDE the button
   as a secondary cue so the affordance reads as a single labelled
   link rather than a label-with-trailing-icon."
-  [{:keys [source coord duration-ms step-number] :as step}]
+  [{:keys [source coord duration-ms step-number violations] :as step}]
   [:div {:data-testid "rf-xray-epoch-step-dispatch"
          :data-step-kw "dispatch"}
    (numbered-circle step-number :DISPATCH)
@@ -1377,7 +1421,9 @@
       :testid "rf-xray-epoch-dispatch"
       :duration-ms duration-ms}
      nil)
-   (dispatch-body step)])
+   (dispatch-body step)
+   ;; rf2-xgeag — `:event` boundary violations attach to DISPATCH.
+   (violation-blocks :dispatch violations)])
 
 ;; ---- COEFFECT step -------------------------------------------------------
 
@@ -1449,7 +1495,7 @@
   injecting N user-defined cofx; system-injected cofx (e.g.
   framework-auto `:db`, `:event`) are filtered at projection time
   (rf2-cq0ch + the `system-cofx-ids` set)."
-  [{:keys [id value step-number]}]
+  [{:keys [id value step-number violations]}]
   (let [cofx-meta  (when (keyword? id)
                      (try (rf/handler-meta :cofx id)
                           (catch :default _ nil)))
@@ -1502,7 +1548,10 @@
       [:span {:style coeffect-body-path-style}
        (str "[" (proj/ns-keyword id) "]")]
       [:span {:style coeffect-body-value-style}
-       [ei/mini value 80]]]]))
+       [ei/mini value 80]]]
+     ;; rf2-xgeag — `:cofx` boundary violations attach to the matching
+     ;; COEFFECT step by cofx-id.
+     (violation-blocks :coeffect violations)]))
 
 ;; ---- HANDLER step --------------------------------------------------------
 
@@ -2314,21 +2363,32 @@
   2026-05-26: the verb (reg-event-db / reg-event-fx / reg-event-ctx
   / reg-machine flavour label) is the click-to-source hyperlink;
   the event-id is NOT repeated in the HANDLER line because the
-  DISPATCH step's header already names it."
-  [{:keys [flavour event-id duration-ms step-number] :as step}]
-  [:div {:data-testid "rf-xray-epoch-step-handler"
-         :data-step-kw "handler"
-         :data-handler-flavour (when flavour (name flavour))}
-   (numbered-circle step-number :HANDLER)
-   (step-header
-     {:step :handler
-      :badge :HANDLER
-      :verb (handler-verb-link flavour event-id)
-      :expandable? false
-      :testid "rf-xray-epoch-handler"
-      :duration-ms duration-ms}
-     nil)
-   (handler-body step)])
+  DISPATCH step's header already names it.
+
+  rf2-xgeag — `:app-db` boundary violations attach here as pink
+  sub-blocks (the handler is what wrote the bad app-db); when any
+  carries `:rollback? true` the downstream cascade gets muted via
+  the projection's `mark-rolled-back-downstream` pass."
+  [{:keys [flavour event-id duration-ms step-number violations]
+    :as step}]
+  (let [rolled-back? (boolean (some :rollback? violations))]
+    [:div {:data-testid "rf-xray-epoch-step-handler"
+           :data-step-kw "handler"
+           :data-handler-flavour (when flavour (name flavour))
+           :data-rolled-back (str rolled-back?)}
+     (numbered-circle step-number :HANDLER)
+     (step-header
+       {:step :handler
+        :badge :HANDLER
+        :verb (handler-verb-link flavour event-id)
+        :expandable? false
+        :testid "rf-xray-epoch-handler"
+        :duration-ms duration-ms}
+       nil)
+     (handler-body step)
+     (violation-blocks :handler violations)
+     (when rolled-back?
+       (rolled-back-banner))]))
 
 ;; ---- FLOW step -----------------------------------------------------------
 
@@ -2456,6 +2516,17 @@
           [:span {:style fx-row-attribution-phase-style}
            (str "(" (name phase) ")")])])]))
 
+(defn- fx-row-with-violations
+  "Render one fx row + any violations attached to that row (rf2-xgeag).
+  Per-row attachment matches when the projection's `attach-to-fx-row`
+  resolved the violation's `:failing-id` against an `fx-id` in the
+  FX step's `:rows`."
+  [idx row]
+  [:div {:key (str "fx-row-" idx)
+         :data-testid (str "rf-xray-epoch-fx-row-wrapper-" idx)}
+   (fx-row-view idx row)
+   (violation-blocks (keyword (str "fx-row-" idx)) (:violations row))])
+
 (defn render-fx-step
   "Render the FX step (only present when fx-handlers fired).
 
@@ -2463,8 +2534,13 @@
   succeeded, K threw)` is dropped — the row glyphs (✓/✗) already
   convey per-fx outcome; the count summary is noise in the
   step header. Threw-count surfaces as a chip only if non-zero so
-  the operator still sees errors at-a-glance."
-  [{:keys [rows step-number threw]}]
+  the operator still sees errors at-a-glance.
+
+  rf2-xgeag — `:fx-args` boundary violations attach per-row when
+  `:failing-id` matches an fx-id; otherwise they attach to the
+  step-level `:violations` slot (rendered at the foot of the
+  step)."
+  [{:keys [rows step-number threw violations]}]
   (let [k (or threw 0)]
     [:div {:data-testid "rf-xray-epoch-step-fx"
            :data-step-kw "fx"
@@ -2484,7 +2560,8 @@
         :testid "rf-xray-epoch-fx"}
        nil)
      [:div {:style margin-top-5-style}
-      (map-indexed fx-row-view rows)]]))
+      (map-indexed fx-row-with-violations rows)]
+     (violation-blocks :fx violations)]))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
@@ -2649,7 +2726,7 @@
   `with-frame :rf/xray` envelope (matches the HANDLER `[diff][all]`
   toggle pattern). Both halves are anchored so toggle writes + reads
   hit the same app-db regardless of host frame-provider."
-  [{:keys [rows disposed-rows step-number]}]
+  [{:keys [rows disposed-rows step-number violations]}]
   (let [mode          @(rf/subscribe :rf/xray
                                      [:rf.xray.epoch/subs-filter-mode])
         visible-rows  (case mode
@@ -2660,7 +2737,8 @@
                         ;; renders an empty filter.
                         (filterv :changed? rows))
         n             (count rows)
-        l             (count disposed-rows)]
+        l             (count disposed-rows)
+        per-row-vio   (filter (fn [r] (seq (:violations r))) rows)]
     [:div {:data-testid "rf-xray-epoch-step-subscriptions"
            :data-step-kw "subscriptions"}
      (numbered-circle step-number :SUBSCRIPTIONS)
@@ -2684,7 +2762,16 @@
      (when (pos? n)
        (subscriptions-table visible-rows))
      (when (pos? l)
-       (disposed-subs-table disposed-rows))]))
+       (disposed-subs-table disposed-rows))
+     ;; rf2-xgeag — `:sub-return` boundary violations. Per-row
+     ;; attachments are rendered below their matching sub row;
+     ;; step-level violations (indirect recomputes that don't
+     ;; surface a row) ride at the foot.
+     (for [row per-row-vio]
+       (violation-blocks
+         (keyword (str "sub-row-" (some-> row :sub-id name)))
+         (:violations row)))
+     (violation-blocks :subscriptions violations)]))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 
@@ -2825,11 +2912,17 @@
      (when (pos? m)
        (unmounted-views-table unmounted-rows))]))
 
-;; ---- SCHEMA-VIOLATIONS step (rf2-17vxj) ----------------------------------
+;; ---- SCHEMA VIOLATION sub-block (rf2-xgeag) -----------------------------
+;;
+;; The violation sub-block rides INSIDE its owning pipeline step's
+;; body. Each step renderer (DISPATCH / COEFFECT / HANDLER / FX /
+;; SUBSCRIPTIONS) injects `(violation-blocks (:violations step))`
+;; under its primary body; FX / SUBSCRIPTIONS additionally inject
+;; per-row blocks via the row's own `:violations` slot.
 
 (defn- schema-violation-where-label
-  "Render a violation's `:where` slot as a UI label (rf2-17vxj). Closed
-  set is per Spec 008 / 010; defaults to the keyword name."
+  "Render a violation's `:where` slot as a UI label. Closed set per
+  Spec 008 / 010; defaults to the keyword name."
   [where]
   (case where
     :app-db      "app-db commit"
@@ -2840,102 +2933,195 @@
     :hot-reload  "schema hot-reload"
     (when (keyword? where) (name where))))
 
-(defn- schema-violation-row-view
-  "Render one schema-violation row (rf2-17vxj). Per-row fields:
+(defn- violation-recovery-label
+  "Render the recovery posture chip on a violation's title bar."
+  [where rollback? recovery]
+  (cond
+    rollback?              "rolled back"
+    (= where :fx-args)     "fx skipped"
+    (= where :sub-return)  "returned nil"
+    (= where :hot-reload)  "logged + skipped"
+    (keyword? recovery)    (name recovery)
+    :else                  nil))
 
-    - `:where` label
-    - `:failing-id` / `:frame` (the registered name whose boundary failed)
-    - `:path` (the db / payload path, when available)
-    - failing value via `edn/inspect-inline` (already redacted at the
-      substrate emit site when `:sensitive?`)
-    - `:rollback?` chip when the cascade was rejected"
-  [idx {:keys [where failing-id path value rollback? recovery sensitive?
-               kind explain] :as _row}]
-  [:div {:key (str "schema-violation-" idx)
-         :data-testid (str "rf-xray-epoch-schema-violation-row-" idx)
-         :data-violation-kind (when kind (name kind))
-         :data-rollback (str (boolean rollback?))
-         :style schema-violation-row-style}
-   ;; head row: where + failing-id + rollback chip
-   [:div {:style schema-violation-head-style}
-    [:span {:data-testid (str "rf-xray-epoch-schema-violation-where-" idx)
-            :style schema-violation-where-style}
-     (schema-violation-where-label where)]
-    (when failing-id
-      [:span {:data-testid (str "rf-xray-epoch-schema-violation-id-" idx)
-              :style schema-violation-id-style}
-       (proj/ns-keyword failing-id)])
-    (when rollback?
-      [:span {:data-testid (str "rf-xray-epoch-schema-violation-rollback-" idx)
-              :title "this cascade was rolled back"
-              :style schema-violation-rollback-style}
-       "rolled back"])
-    (when (and recovery (not rollback?))
-      [:span {:style schema-violation-recovery-style}
-       (str "recovery: " (name recovery))])]
-   ;; path (when present)
-   (when (sequential? path)
-     [:div {:data-testid (str "rf-xray-epoch-schema-violation-path-" idx)
-            :style schema-violation-path-style}
-      (proj/path-display path)])
-   ;; failing value
-   (when (some? value)
-     [:div {:data-testid (str "rf-xray-epoch-schema-violation-value-" idx)
-            :style schema-violation-value-style}
-      (edn/inspect-inline value)])
-   ;; sensitive marker (the substrate already redacted; surface that the
-   ;; value WAS redacted so the operator doesn't read the placeholder
-   ;; as the actual failing value)
-   (when sensitive?
-     [:div {:style schema-violation-sensitive-style}
-      "(value redacted — slot declared :sensitive?)"])
-   ;; explain detail (Malli explain map, when stamped) — rf2-8w8er
-   ;; routes through `mini` so the explain map's keyword keys + value
-   ;; tokens carry syntax-token chrome rather than plain pr-str text.
-   (when (some? explain)
-     [:div {:data-testid (str "rf-xray-epoch-schema-violation-explain-" idx)
-            :style schema-violation-explain-style}
-      [ei/mini explain 120]])])
+(defn- violation-open-source-action
+  "Click-to-source button. `coord` is `{:file :line}` or nil; when
+  nil renders a muted plain-text fallback (graceful degrade — the
+  framework may not yet stamp coords for some surfaces)."
+  [{:keys [label coord testid]}]
+  (if (and (map? coord) (string? (:file coord)) (seq (:file coord)))
+    [:button {:data-testid testid
+              :aria-label  (str "open " (:file coord)
+                                (when (:line coord)
+                                  (str ":" (:line coord)))
+                                " in editor")
+              :title       (str "open " (:file coord)
+                                (when (:line coord)
+                                  (str ":" (:line coord)))
+                                " in editor")
+              :on-click    (fn [e]
+                             (.stopPropagation e)
+                             (rf/dispatch [:rf.xray/open-in-editor
+                                           {:source-coord coord}]
+                                          {:frame :rf/xray}))
+              :style schema-violation-action-link-style}
+     (icons/external-link)
+     label]
+    [:span {:data-testid testid
+            :style (assoc schema-violation-action-link-style
+                          :color text-tertiary-colour
+                          :cursor "default")}
+     label]))
 
-(defn render-schema-violations-step
-  "Render the SCHEMA VIOLATIONS step (rf2-17vxj — only present when
-  the cascade carried `:rf.error/schema-validation-failure` or
-  `:rf.schema/violation` trace events).
+(defn- violation-kind-coord
+  "Resolve a `(rf/handler-meta <kind> <id>)` coord, returning
+  `{:file :line}` or nil. Catches CLJS errors so missing kinds /
+  ids never bubble; rendering must degrade gracefully."
+  [kind id]
+  (when (keyword? id)
+    (let [m (try (rf/handler-meta kind id)
+                 (catch :default _ nil))]
+      (when (and m (string? (:file m)))
+        {:file (:file m) :line (:line m)}))))
 
-  Header carries the violation count + a per-rollback split + a
-  click-affordance that navigates to the Issues panel for full
-  triage (the per-row data shows the cascade-local view; Issues
-  holds the cross-session list)."
-  [{:keys [rows rollbacks step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-schema-violations"
-         :data-step-kw "schema-violations"
-         :data-rollback-count (str (or rollbacks 0))}
-   (numbered-circle step-number :SCHEMA-VIOLATIONS)
+(defn- where->handler-kind
+  "Map a violation's `:where` slot to the registrar kind whose
+  source-coord we want to open. nil for slots with no canonical kind."
+  [where]
+  (case where
+    :event       :event
+    :cofx        :cofx
+    :app-db      :event   ;; the event handler that wrote the bad app-db
+    :fx-args     :fx
+    :sub-return  :sub
+    nil))
+
+(defn violation-block
+  "Render one schema-violation sub-block (rf2-xgeag). Pink-wash card
+  carrying:
+
+    - Title (⚠ SCHEMA VIOLATION) + right-aligned recovery chip
+    - Headline (`<where-label> · <failing-id>`)
+    - Path (when present)
+    - Failing value (already redacted upstream when `:sensitive?`)
+    - Two click-to-source links (failing handler + schema name)
+    - Full-explain map (rendered inline via `ei/mini`)"
+  [step-key idx {:keys [where failing-id path value sensitive?
+                        rollback? recovery explain kind] :as _row}]
+  (let [where-label    (schema-violation-where-label where)
+        recovery-label (violation-recovery-label where rollback? recovery)
+        handler-kind   (where->handler-kind where)
+        handler-coord  (when handler-kind
+                         (violation-kind-coord handler-kind failing-id))
+        schema-coord   (violation-kind-coord :schema failing-id)
+        testid-base    (str "rf-xray-epoch-violation-" (name (or step-key :unknown)) "-" idx)]
+    [:div {:key (str "violation-" step-key "-" idx)
+           :data-testid testid-base
+           :data-violation-where (when where (name where))
+           :data-violation-kind (when kind (name kind))
+           :data-rollback (str (boolean rollback?))
+           :style schema-violation-block-style}
+     ;; Title bar
+     [:div {:style schema-violation-title-style}
+      [:span {:aria-hidden true} "⚠"]
+      [:span {:data-testid (str testid-base "-title")} "SCHEMA VIOLATION"]
+      [:span {:style schema-violation-title-spacer-style}]
+      (when recovery-label
+        [:span {:data-testid (str testid-base "-recovery")
+                :style (if rollback?
+                         schema-violation-rollback-chip-style
+                         schema-violation-recovery-chip-style)}
+         recovery-label])]
+     ;; Headline
+     [:div {:data-testid (str testid-base "-headline")
+            :style schema-violation-headline-style}
+      where-label
+      (when failing-id
+        [:<>
+         [:span " · "]
+         [:span {:style schema-violation-headline-id-style}
+          (proj/ns-keyword failing-id)]])]
+     ;; Path
+     (when (sequential? path)
+       [:div {:data-testid (str testid-base "-path")
+              :style schema-violation-line-style}
+        [:span {:style schema-violation-line-label-style} "path:"]
+        [:span {:style schema-violation-line-value-style}
+         (proj/path-display path)]])
+     ;; Failing value
+     (when (some? value)
+       [:div {:data-testid (str testid-base "-value")
+              :style schema-violation-line-style}
+        [:span {:style schema-violation-line-label-style} "value:"]
+        [:span {:style schema-violation-line-value-style}
+         [ei/mini value 80]]])
+     ;; Sensitive marker
+     (when sensitive?
+       [:div {:style schema-violation-sensitive-style}
+        "(value redacted — slot declared :sensitive?)"])
+     ;; Click-to-source actions
+     (when (or handler-kind schema-coord)
+       [:div {:style schema-violation-actions-style}
+        (when handler-kind
+          (violation-open-source-action
+            {:label  (str "open " (when failing-id (proj/ns-keyword failing-id)))
+             :coord  handler-coord
+             :testid (str testid-base "-open-handler")}))
+        (when (some? failing-id)
+          (violation-open-source-action
+            {:label  (str "open schema " (proj/ns-keyword failing-id))
+             :coord  schema-coord
+             :testid (str testid-base "-open-schema")}))])
+     ;; Full explain map
+     (when (some? explain)
+       [:div {:data-testid (str testid-base "-explain")
+              :style schema-violation-explain-body-style}
+        [ei/mini explain 120]])]))
+
+(defn violation-blocks
+  "Render every violation in `violations` as a sub-block inside the
+  current step's body. `step-key` is the owning step keyword (used
+  for stable test ids). nil-safe."
+  [step-key violations]
+  (when (seq violations)
+    [:div {:data-testid (str "rf-xray-epoch-violations-" (name step-key))}
+     (map-indexed (fn [i v] (violation-block step-key i v))
+                  violations)]))
+
+(defn- rolled-back-banner
+  "One-line banner shown immediately under the HANDLER step body
+  when the cascade is rolled-back, signposting the downstream-mute
+  treatment to the operator."
+  []
+  [:div {:data-testid "rf-xray-epoch-rolled-back-banner"
+         :style rolled-back-banner-style}
+   [:span {:aria-hidden true} "↓"]
+   "cascade rolled back — downstream effects skipped"])
+
+;; ---- SCHEMA HOT-RELOAD step (rf2-xgeag — was SCHEMA-VIOLATIONS) --------
+
+(defn render-schema-hot-reload-step
+  "Render the standalone SCHEMA HOT-RELOAD step (rf2-xgeag · Option A).
+  Carries ONLY hot-reload drift rows — those have no owning cascade
+  step so they ride at the END of the cascade. Each row renders as
+  a pink sub-block via `violation-block` for visual consistency
+  with the per-step attachments."
+  [{:keys [rows step-number]}]
+  [:div {:data-testid "rf-xray-epoch-step-schema-hot-reload"
+         :data-step-kw "schema-hot-reload"}
+   (numbered-circle step-number :SCHEMA-HOT-RELOAD)
    (step-header
-     {:step :schema-violations
-      :badge :SCHEMA-VIOLATIONS
-      :verb [:span {:style schema-violations-verb-style}
-             [:span {:style schema-violations-count-style}
-              (icons/alert-triangle)
-              (str (count rows) " violation"
-                   (when (not= 1 (count rows)) "s"))]
-             (when (pos? (or rollbacks 0))
-               [:span {:style schema-violations-rollback-count-style}
-                (str rollbacks " rollback"
-                     (when (not= 1 rollbacks) "s"))])
-             [:button {:data-testid "rf-xray-epoch-schema-violations-open-issues"
-                       :aria-label "open the Issues panel for full triage"
-                       :on-click (fn [e]
-                                   (.stopPropagation e)
-                                   (rf/dispatch [:rf.xray/select-tab :issues]
-                                                {:frame :rf/xray}))
-                       :style schema-violations-open-issues-style}
-              "open issues →"]]
+     {:step :schema-hot-reload
+      :badge :SCHEMA-HOT-RELOAD
+      :verb (str (count rows) " hot-reload drift"
+                 (when (not= 1 (count rows)) "s"))
       :expandable? false
-      :testid "rf-xray-epoch-schema-violations"}
+      :testid "rf-xray-epoch-schema-hot-reload"}
      nil)
    [:div {:style margin-top-5-style}
-    (map-indexed schema-violation-row-view rows)]])
+    (map-indexed (fn [i row]
+                   (violation-block :hot-reload i row))
+                 rows)]])
 
 ;; ---- APP-DB DIFF step — REMOVED pair-debug 2026-05-26 -------------------
 ;;
@@ -3040,8 +3226,10 @@
 (defn- render-step
   "Dispatch a step row to its renderer. Returns hiccup; nil for
   unknown step kinds (defensive — every step the projection produces
-  is in the canonical inventory; rf2-17vxj added SCHEMA-VIOLATIONS,
-  rf2-yx1ae added CHILD-DISPATCHES, rf2-rrykz added APP-DB-DIFF).
+  is in the canonical inventory; rf2-17vxj added SCHEMA-VIOLATIONS
+  later retired by rf2-xgeag in favour of inline attachment + a
+  hot-reload-only tail step; rf2-yx1ae added CHILD-DISPATCHES;
+  rf2-rrykz added APP-DB-DIFF).
 
   `ctx` carries the cascade-level pieces a row may need (e.g. the
   parent `:dispatch-id` + the `:epoch-history` slice for the
@@ -3056,7 +3244,7 @@
     :fx                (render-fx-step step)
     :subscriptions     (render-subscriptions-step step)
     :views             (render-views-step step)
-    :schema-violations (render-schema-violations-step step)
+    :schema-hot-reload (render-schema-hot-reload-step step)
     :child-dispatches  (render-child-dispatches-step step ctx)
     ;; :app-db-diff removed pair-debug 2026-05-26 — see comment above.
     nil))
@@ -3115,7 +3303,14 @@
          ^{:key (str "step-" (:step step) "-" i)}
          [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
                 :data-step (when (:step step) (name (:step step)))
-                :style pipeline-step-style}
+                :data-rolled-back (str (boolean (:rolled-back? step)))
+                ;; rf2-xgeag — when an `:app-db` violation rolled back
+                ;; the cascade, every step downstream of HANDLER paints
+                ;; with mute chrome so the operator sees the blast
+                ;; radius at-a-glance.
+                :style (if (:rolled-back? step)
+                         (merge pipeline-step-style rolled-back-mute-style)
+                         pipeline-step-style)}
           (render-step step ctx)]))]]))
 
 ;; ---- empty states --------------------------------------------------------

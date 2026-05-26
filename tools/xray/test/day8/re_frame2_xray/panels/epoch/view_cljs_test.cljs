@@ -551,67 +551,67 @@
       (is (string/includes? header "1 unmounted")
           "header reads the unmount-only shape"))))
 
-;; ---- rf2-17vxj — schema-violations section ----------------------------
+;; ---- rf2-xgeag — inline violation sub-block + hot-reload tail step ----
 
-(deftest schema-violations-step-renders-rows-test
-  (testing "rf2-17vxj — SCHEMA VIOLATIONS step renders one row per
-            violation; rollback chip rides any rollback? row"
-    (let [step {:step :schema-violations :badge :SCHEMA-VIOLATIONS
+(deftest violation-block-renders-headline-+-fields-test
+  (testing "rf2-xgeag — `violation-block` renders the pink sub-block
+            with title, recovery chip, headline, path, and value rows"
+    (let [row  {:kind :rf.error/schema-validation-failure
+                :where :app-db
+                :failing-id :counter/inc
+                :path [:count]
+                :value "not-an-int"
+                :rollback? true
+                :sensitive? false}
+          tree (view/violation-block :handler 0 row)
+          base "rf-xray-epoch-violation-handler-0"]
+      (is (some? (th/find-by-testid tree base))
+          "the sub-block wrapper renders")
+      (let [title    (text-of tree (str base "-title"))
+            recovery (text-of tree (str base "-recovery"))
+            headline (text-of tree (str base "-headline"))
+            path     (text-of tree (str base "-path"))]
+        (is (string/includes? title "SCHEMA VIOLATION"))
+        (is (string/includes? recovery "rolled back"))
+        (is (string/includes? headline "app-db commit"))
+        (is (string/includes? headline ":counter/inc"))
+        (is (string/includes? path "[:count]"))))))
+
+(deftest violation-block-recovery-chip-test
+  (testing "rf2-xgeag — recovery chip surfaces a per-where label when
+            no rollback fired"
+    (let [tree (view/violation-block :fx 0
+                 {:where :fx-args :failing-id :http/post
+                  :rollback? false})
+          recovery (text-of tree "rf-xray-epoch-violation-fx-0-recovery")]
+      (is (string/includes? recovery "fx skipped"))))
+
+  (testing "rf2-xgeag — sub-return → 'returned nil'"
+    (let [tree (view/violation-block :subscriptions 0
+                 {:where :sub-return :failing-id :user/profile
+                  :rollback? false})
+          recovery (text-of tree
+                            "rf-xray-epoch-violation-subscriptions-0-recovery")]
+      (is (string/includes? recovery "returned nil")))))
+
+(deftest render-schema-hot-reload-step-test
+  (testing "rf2-xgeag — standalone SCHEMA HOT-RELOAD step renders one
+            sub-block per drift row + the badge label is the renamed
+            'SCHEMA HOT-RELOAD' (not the retired 'SCHEMA VIOLATIONS')"
+    (let [step {:step :schema-hot-reload :badge :SCHEMA-HOT-RELOAD
                 :step-number 8
-                :rows [{:kind :rf.error/schema-validation-failure
-                        :where :app-db
-                        :failing-id :counter/inc
-                        :path [:count]
-                        :value "not-an-int"
-                        :rollback? true
-                        :sensitive? false}
-                       {:kind :rf.schema/violation
+                :rows [{:kind :rf.schema/violation
                         :where :hot-reload
-                        :frame :rf/default
                         :failing-id :rf/default
                         :path [:count]
                         :value "boom"
-                        :recovery :logged-and-skipped
-                        :rollback? false
-                        :sensitive? false}]
-                :rollbacks 1}
-          tree (view/render-schema-violations-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-schema-violations"))
-          "the step wrapper renders")
-      (is (= 2 (count (th/find-by-testid-prefix
-                        tree "rf-xray-epoch-schema-violation-row-"))))
-      (is (some? (th/find-by-testid
-                   tree "rf-xray-epoch-schema-violation-rollback-0"))
-          "the rollback chip rides the rollback? row")
-      (is (nil? (th/find-by-testid
-                  tree "rf-xray-epoch-schema-violation-rollback-1"))
-          "no rollback chip on a clean recovery row")
-      (let [header (text-of tree "rf-xray-epoch-schema-violations-header")]
-        (is (string/includes? header "2 violation"))
-        (is (string/includes? header "1 rollback")))
-      (is (some? (th/find-by-testid
-                   tree "rf-xray-epoch-schema-violations-open-issues"))
-          "the open-issues affordance is present"))))
-
-(deftest schema-violations-row-shows-fields-test
-  (testing "rf2-17vxj — per-row body shows where + failing-id + path + value"
-    (let [step {:step :schema-violations :badge :SCHEMA-VIOLATIONS
-                :step-number 8
-                :rows [{:kind :rf.error/schema-validation-failure
-                        :where :sub-return
-                        :failing-id :counter/total
-                        :path [:total]
-                        :value {:bad :data}
-                        :rollback? false
-                        :sensitive? false}]
-                :rollbacks 0}
-          tree (view/render-schema-violations-step step)]
-      (let [where (text-of tree "rf-xray-epoch-schema-violation-where-0")
-            id    (text-of tree "rf-xray-epoch-schema-violation-id-0")
-            path  (text-of tree "rf-xray-epoch-schema-violation-path-0")]
-        (is (string/includes? where "sub return"))
-        (is (string/includes? id ":counter/total"))
-        (is (string/includes? path "[:total]"))))))
+                        :recovery :logged-and-skipped}]}
+          tree (view/render-schema-hot-reload-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-schema-hot-reload")))
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-violation-hot-reload-0"))
+          "the drift row renders as a violation sub-block")
+      (let [header (text-of tree "rf-xray-epoch-schema-hot-reload-header")]
+        (is (string/includes? header "1 hot-reload drift"))))))
 
 ;; ---- rf2-uffov — FX section header + per-action attribution ----------
 

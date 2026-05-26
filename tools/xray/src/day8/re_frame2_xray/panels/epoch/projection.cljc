@@ -1099,18 +1099,184 @@
           :when (contains? schema-violation-ops (op ev))]
       (schema-violation-row ev))))
 
-(defn schema-violations-step
-  "Build the SCHEMA-VIOLATIONS step row, or nil when no violations
-  fired (the step is OMITTED — conditional). Header carries the
-  total count + a per-rollback split so the operator can tell at a
-  glance whether the cascade was REJECTED by the validator."
-  [events]
-  (let [rows (schema-violation-rows events)]
-    (when (seq rows)
-      {:step      :schema-violations
-       :badge     :SCHEMA-VIOLATIONS
-       :rows      rows
-       :rollbacks (count (filter :rollback? rows))})))
+;; rf2-xgeag — the trailing SCHEMA-VIOLATIONS aggregate step retired
+;; pair-debug 2026-05-27. Violations now attach to their owning
+;; pipeline step via `attach-violations`; hot-reload drift (no
+;; owning cascade step) rides on a standalone `:schema-hot-reload`
+;; step. The per-row data (`schema-violation-rows`) is unchanged —
+;; only the aggregation + view shape moved.
+
+;; Per the attachment mapping in the rf2-xgeag bead body:
+;;
+;;   :where slot    | owning step
+;;   ---------------|-----------------------------------------------
+;;   :event         | DISPATCH (one step)
+;;   :cofx          | COEFFECT step matching :failing-id against :id
+;;   :app-db        | HANDLER (the step's HEADER, surfaces above :db)
+;;   :fx-args       | FX step (row-level :fx-id match)
+;;   :sub-return    | SUBSCRIPTIONS step (row-level :sub-id match)
+;;   :hot-reload    | standalone :schema-hot-reload step (Option A)
+
+(defn- attach-step-violation
+  "Append `row` to `step`'s `:violations` vec when `step` is non-nil."
+  [step row]
+  (when step
+    (update step :violations (fnil conj []) row)))
+
+(defn- attach-row-violation
+  "Update `row`'s `:violations` vec, appending `violation`."
+  [row violation]
+  (update row :violations (fnil conj []) violation))
+
+(defn- attach-to-fx-row
+  "When `step` is the FX step + the violation's `:failing-id` matches
+  an `fx-id` in the step's `:rows`, attach the violation to that
+  row's `:violations` vec. Otherwise attach to the step-level
+  `:violations`. Returns the updated step."
+  [step row]
+  (let [fx-id (:failing-id row)]
+    (if (some #(= fx-id (:fx-id %)) (:rows step))
+      (update step :rows
+              (fn [rows]
+                (mapv (fn [r]
+                        (if (= fx-id (:fx-id r))
+                          (attach-row-violation r row)
+                          r))
+                      rows)))
+      (attach-step-violation step row))))
+
+(defn- attach-to-sub-row
+  "When `step` is the SUBSCRIPTIONS step + the violation's `:failing-id`
+  matches a `sub-id` in the step's `:rows`, attach to that row.
+  Otherwise attach to the step-level `:violations` (per the bead's
+  edge case: indirect recompute outside the cascade's surfaced rows)."
+  [step row]
+  (let [sub-id (:failing-id row)]
+    (if (some #(= sub-id (:sub-id %)) (:rows step))
+      (update step :rows
+              (fn [rows]
+                (mapv (fn [r]
+                        (if (= sub-id (:sub-id r))
+                          (attach-row-violation r row)
+                          r))
+                      rows)))
+      (attach-step-violation step row))))
+
+(defn- index-of
+  "First index in `coll` for which `pred` is truthy, or nil."
+  [pred coll]
+  (first (keep-indexed (fn [i x] (when (pred x) i)) coll)))
+
+(defn attach-violations
+  "Take a projected step vector + a vec of schema-violation rows (post-
+  `schema-violation-rows`) and return the step vector with each
+  violation attached to its owning step (per the rf2-xgeag
+  attachment mapping). Returns `steps` unchanged when `rows` is
+  empty.
+
+  The hot-reload subset is NOT attached here — those violations have
+  no owning cascade step and ride a standalone SCHEMA-HOT-RELOAD
+  step appended via `hot-reload-step`."
+  [steps rows]
+  (if (empty? rows)
+    steps
+    (reduce
+      (fn [s row]
+        (case (:where row)
+          :event
+          (let [i (index-of #(= :dispatch (:step %)) s)]
+            (if i
+              (update s i attach-step-violation row)
+              s))
+
+          :cofx
+          (let [fid (:failing-id row)
+                i   (index-of #(and (= :coeffect (:step %))
+                                    (= fid (:id %))) s)]
+            (if i
+              (update s i attach-step-violation row)
+              ;; Fallback: attach to the FIRST COEFFECT step so the
+              ;; violation still surfaces (the operator at least
+              ;; sees it nested in the cofx region of the cascade
+              ;; rather than disappearing).
+              (if-let [j (index-of #(= :coeffect (:step %)) s)]
+                (update s j attach-step-violation row)
+                s)))
+
+          :app-db
+          (let [i (index-of #(= :handler (:step %)) s)]
+            (if i
+              (update s i attach-step-violation row)
+              s))
+
+          :fx-args
+          (let [i (index-of #(= :fx (:step %)) s)]
+            (if i
+              (update s i attach-to-fx-row row)
+              s))
+
+          :sub-return
+          (let [i (index-of #(= :subscriptions (:step %)) s)]
+            (if i
+              (update s i attach-to-sub-row row)
+              s))
+
+          ;; hot-reload + unknowns: untouched here; ride the
+          ;; standalone hot-reload step.
+          s))
+      steps
+      (remove #(= :hot-reload (:where %)) rows))))
+
+(defn hot-reload-step
+  "Build the standalone SCHEMA-HOT-RELOAD step from the hot-reload-
+  subset of `schema-violation-rows`. Returns nil when no hot-reload
+  drift fired (the step is OMITTED — conditional). Option A from
+  the rf2-xgeag bead body: hot-reload violations have no owning
+  cascade step so they ride at the END of the cascade rather than
+  attaching to a pipeline step they don't belong to.
+
+  The step carries the SAME `:schema-hot-reload` step keyword + a
+  dedicated `:SCHEMA-HOT-RELOAD` badge, NOT the retired
+  `:SCHEMA-VIOLATIONS` aggregate badge."
+  [rows]
+  (let [hot (filterv #(= :hot-reload (:where %)) rows)]
+    (when (seq hot)
+      {:step  :schema-hot-reload
+       :badge :SCHEMA-HOT-RELOAD
+       :rows  hot})))
+
+(defn cascade-rolled-back?
+  "True iff any `:app-db` schema violation in `rows` carries
+  `:rollback? true`. The view layer reads this off the cascade
+  context to visually mute every step DOWNSTREAM of the rollback
+  point (FX / SUBSCRIPTIONS / VIEWS) so the operator reads 'the
+  rest of this cascade didn't really run' at a glance."
+  [rows]
+  (boolean
+    (some (fn [r]
+            (and (= :app-db (:where r))
+                 (true? (:rollback? r))))
+          rows)))
+
+(defn mark-rolled-back-downstream
+  "When the cascade carries an `:app-db` rollback violation, mark
+  every step downstream of the HANDLER (FX / SUBSCRIPTIONS / VIEWS /
+  any standalone hot-reload tail) with `:rolled-back? true`. The
+  view paints those steps with mute chrome + a 'cascade rolled
+  back here ↓' indicator at the rollback point. Pure fn over the
+  step vector."
+  [steps rows]
+  (if (cascade-rolled-back? rows)
+    (let [handler-idx (index-of #(= :handler (:step %)) steps)]
+      (if (number? handler-idx)
+        (vec
+          (map-indexed (fn [i step]
+                         (if (> i handler-idx)
+                           (assoc step :rolled-back? true)
+                           step))
+                       steps))
+        steps))
+    steps))
 
 ;; ---- APP-DB DIFF step — REMOVED pair-debug 2026-05-26 --------------------
 ;;
@@ -1325,7 +1491,8 @@
                                  (some? duration-ms)
                                  (assoc :duration-ms duration-ms)))
                              (flow-rows events))
-            steps     (vec
+            violations (schema-violation-rows events)
+            base-steps (vec
                         (concat
                           [(dispatch-row events fallback)]
                           cofx-steps
@@ -1342,12 +1509,16 @@
                            ;; `:dispatch-n` / `:dispatch-later` fx entry.
                            (subscriptions-step events)
                            (views-step events)
-                           ;; rf2-17vxj — schema violations ride at the end of
-                           ;; the cascade so the operator sees the boundary
-                           ;; check that may have rolled back THIS cascade
-                           ;; AFTER reading the steps that drove it.
-                           (schema-violations-step events)]))]
-        (filterv some? steps)))))
+                           ;; rf2-xgeag — hot-reload drift rides on a
+                           ;; standalone tail step (Option A). All
+                           ;; OTHER violations attach to their owning
+                           ;; pipeline step via `attach-violations`
+                           ;; below.
+                           (hot-reload-step violations)]))
+            present    (filterv some? base-steps)
+            attached   (attach-violations present violations)
+            steps      (mark-rolled-back-downstream attached violations)]
+        steps))))
 
 (defn number-steps
   "Stamp each step with a sequential `:step-number` (1..N). The view
@@ -1638,11 +1809,14 @@
   - rf2-17vxj: + SCHEMA-VIOLATIONS (warning chrome, conditional).
   - rf2-yx1ae: + CHILD-DISPATCHES (cascade-link section, conditional).
   - rf2-rrykz: + APP-DB-DIFF (state-mutation lens, conditional).
+  - rf2-xgeag: SCHEMA-VIOLATIONS retired (violations attach to owning
+    pipeline step inline); + SCHEMA-HOT-RELOAD for the hot-reload-only
+    standalone tail step (drift has no owning cascade step).
 
   The view's badge resolver bails to `:text-tertiary` on an unknown
   badge, so adding to this set is purely additive."
   #{:DISPATCH :COEFFECT :HANDLER :FLOW :FX :SUBSCRIPTIONS :VIEWS
-    :SCHEMA-VIOLATIONS :CHILD-DISPATCHES :APP-DB-DIFF})
+    :SCHEMA-HOT-RELOAD :CHILD-DISPATCHES :APP-DB-DIFF})
 
 (defn valid-badge?
   "Predicate — `:badge` keyword is a member of `badge-set`."

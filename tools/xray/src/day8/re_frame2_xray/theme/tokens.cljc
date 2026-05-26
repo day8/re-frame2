@@ -114,6 +114,15 @@
    :dim            "#6e7681"   ; dimmed / inert / unchanged (Figma --devtools-unchanged)
    :hover          "#2a2a2a"   ; hover background (Figma --devtools-hover, = bg-3)
 
+   ;; ── violation wash (rf2-xgeag) ──
+   ;; Soft pink wash for the inline SCHEMA VIOLATION sub-block that
+   ;; rides under its owning pipeline step. Distinct from the
+   ;; `:magenta-pink` SUBSCRIPTIONS badge (a saturated chip) and from
+   ;; `:warning`'s amber (the retired aggregate step's chrome).
+   ;; The dark-theme value is a deeply muted rose — alert-grade
+   ;; without overpowering the cascade.
+   :bg-violation   "#3a1f25"   ; deep-rose-muted (dark)
+
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
    ;; These do REAL semantic work — perf tiers, machine state, route
    ;; side-channel, redaction, op-family legends — and are NOT collapsed
@@ -285,6 +294,11 @@
    :success        "#1a7f37"   ; Figma --devtools-success
    :dim            "#8c959f"   ; Figma --devtools-unchanged
    :hover          "#e8e8e8"   ; Figma --devtools-hover
+
+   ;; ── violation wash (rf2-xgeag) ──
+   ;; Light-theme mirror of the dark `:bg-violation`. A soft rose
+   ;; pink — alert-grade on white without overpowering the cascade.
+   :bg-violation   "#fde0e3"   ; soft-rose (light)
 
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
    :green          "#1a7f37"

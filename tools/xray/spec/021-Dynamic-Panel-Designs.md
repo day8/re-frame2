@@ -1328,7 +1328,7 @@ Each step renders a uppercase badge pill at its numbered circle:
 | `:FX`                 | `:orange`        | functional amber (post-commit irreversible) |
 | `:SUBSCRIPTIONS`      | `:magenta-pink`  | pink (rf2-cgm4f split from COEFFECT violet) |
 | `:VIEWS`              | `:success`       | green |
-| `:SCHEMA-VIOLATIONS`  | `:warning`       | warning amber (rf2-17vxj) |
+| `:SCHEMA-HOT-RELOAD`  | `:warning`       | warning amber (rf2-17vxj · renamed rf2-xgeag for the narrowed hot-reload-only scope) |
 
 > **Retired 2026-05-26 (pair-debug, rf2-zkiu5):** the prior `:CHILD-DISPATCHES`
 > + `:APP-DB-DIFF` rows were dropped. CHILD DISPATCHES (originally rf2-yx1ae,
@@ -1691,10 +1691,16 @@ steps from the per-row chips, not the sum. The per-row chip + the
 per-row `▲` long-step warning are the cascade's complete timing
 surface.
 
-### §9.1.10.3 Schema-violations section (rf2-17vxj)
+### §9.1.10.3 Violation attachment contract (rf2-17vxj · rf2-xgeag)
 
-A SCHEMA VIOLATIONS step is appended to the cascade when the
-focused epoch's trace stream carried at least one of:
+> **Reshaped pair-debug 2026-05-27 (rf2-xgeag).** The trailing
+> aggregate SCHEMA VIOLATIONS step retired in favour of per-step
+> inline attachment. Each violation now renders as a pink-wash
+> sub-block INSIDE its owning pipeline step — the operator reads
+> the failing boundary alongside the work it failed on rather than
+> jumping to a trailing footnote.
+
+The substrate still emits the same two trace ops:
 
 - `:rf.error/schema-validation-failure` — runtime per-boundary
   validation failure (app-db commit / cofx / sub-return / fx-args /
@@ -1706,28 +1712,84 @@ focused epoch's trace stream carried at least one of:
   `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`,
   `:recovery`, `:sensitive?`.
 
-Both ops project into the same row schema, with `:kind` flagging
-the source. Section chrome is warning-tone (`:warning` colour
-token + `▲` glyph) — load-bearing without rising to alarmist
-`:error` tone. Per-row body:
+Both ops project into the same row schema (`schema-violation-row` —
+unchanged); only the aggregation moved.
 
-- `:where` label (e.g. `app-db commit`, `sub return`, `hot-reload`).
-- `:failing-id` (the registered name whose boundary failed).
-- `:path` (when present).
-- failing value via `edn/inspect-inline` (already redacted at the
-  substrate emit site when the slot is `:sensitive?`).
-- `rolled back` chip when `:rollback?` is true.
-- `recovery: <reason>` chip when `:rollback?` is false (the
-  cascade ran through despite the violation).
-- `(value redacted — slot declared :sensitive?)` marker when the
-  substrate redacted the value.
+#### Attachment mapping (the new contract)
 
-Header carries the violation count + a per-rollback split + an
-`open issues →` affordance that dispatches `[:rf.xray/select-tab
-:issues]` so the operator can pivot to the Issues panel for
-cross-session triage.
+| `:where` slot | Owning pipeline step                                | Granularity              |
+|---------------|-----------------------------------------------------|--------------------------|
+| `:event`      | DISPATCH                                            | step-level               |
+| `:cofx`       | COEFFECT step whose `:id` = `:failing-id`           | step-level (per cofx)    |
+| `:app-db`     | HANDLER                                             | step-level               |
+| `:fx-args`    | FX step, row whose `:fx-id` = `:failing-id`         | row-level (fallback step)|
+| `:sub-return` | SUBSCRIPTIONS step, row whose `:sub-id` = `:failing-id` | row-level (fallback step) |
+| `:hot-reload` | standalone SCHEMA HOT-RELOAD tail step              | step-level               |
 
-Section is conditional — omitted when no violation events fired.
+The projection pass `attach-violations` walks the
+`schema-violation-rows` once and binds each row onto its owning
+step (or the step's matching row for FX / SUBSCRIPTIONS); step
+maps gain a `:violations` slot, row maps gain their own
+`:violations` slot. The view's per-step renderers inject
+`(violation-blocks step-key violations)` under their primary
+body. Hot-reload drift has no owning cascade step so it rides
+on a STANDALONE `SCHEMA HOT-RELOAD` tail step (Option A from the
+bead body; the badge is renamed from the retired
+`SCHEMA-VIOLATIONS` to flag the narrowed scope).
+
+#### Sub-block visual contract
+
+Each violation renders as a pink-wash card under its host step
+carrying:
+
+- Title row — `⚠ SCHEMA VIOLATION` (warning glyph + title in
+  warning colour) with a right-aligned recovery chip
+  (`rolled back` / `fx skipped` / `returned nil` /
+  `logged + skipped`).
+- Headline — `<where-label> · <failing-id>` (e.g. `app-db commit
+  · :counter/inc`).
+- `path:` row (when present).
+- `value:` row — failing value via `ei/mini` (already redacted
+  upstream when `:sensitive?`).
+- Click-to-source actions — `↗ open <failing-id>` opens the
+  failing-handler registration; `↗ open schema <failing-id>`
+  opens the `reg-app-schema` declaration. Both degrade gracefully
+  to muted plain-text when the framework hasn't stamped the coord.
+- Full explain map (via `ei/mini`) when the substrate stamped one.
+
+Background = `:bg-violation` palette token (soft-rose on light,
+deep-rose-muted on dark — distinct from `:magenta-pink`
+SUBSCRIPTIONS chrome and from the retired aggregate step's
+`:warning` amber). Border in `:warning` for cross-theme legibility.
+
+#### Rollback blast-radius mute
+
+When the cascade carries an `:app-db` violation with
+`:rollback? true`, the projection's
+`mark-rolled-back-downstream` pass flags every step AFTER the
+HANDLER with `:rolled-back? true`. The view's pipeline wrapper
+applies a `:opacity 0.55` overlay to those steps, and the
+HANDLER step renders a one-line banner reading "↓ cascade
+rolled back — downstream effects skipped" immediately under its
+body. The operator sees the blast radius at a glance instead of
+reading FX rows that claim success for fx that never actually
+fired.
+
+#### What does NOT change
+
+- Substrate trace op shapes (`:rf.error/schema-validation-failure`
+  + `:rf.schema/violation`) — same.
+- Per-row data projected from those ops (`schema-violation-row`
+  + `schema-violation-rows`) — same.
+- The Issues panel's cross-session list — same.
+- Spec 010 (Schemas) boundary contract — unchanged; the
+  cascade-side presentation changes, the underlying contract is
+  identical. See spec/010 §Tooling surface — Xray attachment for
+  the cross-reference.
+
+Sections / step are conditional — `:violations` slot is absent
+when no violation attached to that step; the SCHEMA HOT-RELOAD
+tail step is OMITTED when no hot-reload drift fired.
 
 ### §9.1.10.6 FX section header + per-action attribution (rf2-uffov · rf2-m8ac9)
 

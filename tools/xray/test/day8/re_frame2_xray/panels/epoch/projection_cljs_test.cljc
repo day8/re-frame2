@@ -1256,7 +1256,8 @@
           steps (proj/project rec)]
       (is (every? proj/valid-badge? (map :badge steps)))
       (is (= 10 (count proj/badge-set))
-          "rf2-sc3r1 + rf2-17vxj + rf2-yx1ae + rf2-rrykz = 7 + 3 = 10 badges"))))
+          "rf2-sc3r1 7 + rf2-yx1ae + rf2-rrykz + rf2-xgeag (SCHEMA-HOT-RELOAD,
+           renamed from SCHEMA-VIOLATIONS) = 10 badges"))))
 
 ;; ---- formatting helpers --------------------------------------------------
 
@@ -1315,56 +1316,152 @@
     (is (false? (proj/long-step? {}))
         "missing duration returns false")))
 
-;; ---- rf2-17vxj — schema-violations step ---------------------------------
+;; ---- rf2-17vxj / rf2-xgeag — schema violations -------------------------
+;;
+;; rf2-xgeag retired the trailing aggregate SCHEMA-VIOLATIONS step in
+;; favour of per-step inline attachment + a hot-reload-only tail step.
+;; The per-row data shape (`schema-violation-rows`) is unchanged; only
+;; the aggregation moved.
 
-(deftest schema-violations-step-conditional-test
-  (testing "rf2-17vxj — no violation events → step is OMITTED"
-    (is (nil? (proj/schema-violations-step []))))
+(deftest schema-violation-rows-basic-test
+  (testing "no violation events → empty rows vec"
+    (is (= [] (proj/schema-violation-rows []))))
 
   (testing "rf2-17vxj — `:rf.error/schema-validation-failure` event
-            surfaces a row"
-    (let [s (proj/schema-violations-step
-              [(schema-violation-ev :app-db :counter/inc [:count]
-                                    "not-an-int" true)])]
-      (is (= :schema-violations (:step s)))
-      (is (= :SCHEMA-VIOLATIONS (:badge s)))
-      (is (= 1 (count (:rows s))))
-      (is (= 1 (:rollbacks s))
-          ":rollbacks counts rows where :rollback? is true")
-      (let [r (-> s :rows first)]
-        (is (= :app-db (:where r)))
-        (is (= :counter/inc (:failing-id r)))
-        (is (= [:count] (:path r)))
-        (is (= "not-an-int" (:value r)))
-        (is (true? (:rollback? r)))
-        (is (= :rf.error/schema-validation-failure (:kind r)))))))
+            surfaces a row with canonical fields"
+    (let [rows (proj/schema-violation-rows
+                 [(schema-violation-ev :app-db :counter/inc [:count]
+                                       "not-an-int" true)])]
+      (is (= 1 (count rows)))
+      (let [r (first rows)]
+        (is (= :app-db                                (:where r)))
+        (is (= :counter/inc                           (:failing-id r)))
+        (is (= [:count]                               (:path r)))
+        (is (= "not-an-int"                           (:value r)))
+        (is (true?                                    (:rollback? r)))
+        (is (= :rf.error/schema-validation-failure    (:kind r)))))))
 
-(deftest schema-violations-hot-reload-event-test
+(deftest schema-violation-rows-hot-reload-test
   (testing "rf2-17vxj — `:rf.schema/violation` event (hot-reload drift)
             also produces a row; `:where` defaults to `:hot-reload`"
-    (let [s (proj/schema-violations-step
-              [(schema-hot-reload-ev :rf/default [:count]
-                                     "not-an-int")])]
-      (is (= 1 (count (:rows s))))
-      (let [r (-> s :rows first)]
-        (is (= :hot-reload (:where r)))
+    (let [rows (proj/schema-violation-rows
+                 [(schema-hot-reload-ev :rf/default [:count]
+                                        "not-an-int")])]
+      (is (= 1 (count rows)))
+      (let [r (first rows)]
+        (is (= :hot-reload          (:where r)))
         (is (= :rf.schema/violation (:kind r)))
-        (is (= [:count] (:path r)))
-        (is (= "not-an-int" (:value r)))
-        (is (= :logged-and-skipped (:recovery r)))))))
+        (is (= [:count]             (:path r)))
+        (is (= "not-an-int"         (:value r)))
+        (is (= :logged-and-skipped  (:recovery r)))))))
 
-(deftest schema-violations-mixed-rows-test
-  (testing "rf2-17vxj — runtime + hot-reload events project into the
-            same row schema"
-    (let [s (proj/schema-violations-step
-              [(schema-violation-ev :sub-return :counter/total nil
-                                    {:bad :data})
-               (schema-hot-reload-ev :rf/default [:counter :n]
-                                     "boom")])]
-      (is (= 2 (count (:rows s)))
-          "both events project into rows")
-      (is (= 0 (:rollbacks s))
-          "no rollback-true rows in this fixture"))))
+(deftest hot-reload-step-conditional-test
+  (testing "rf2-xgeag — no hot-reload events → standalone step OMITTED"
+    (is (nil? (proj/hot-reload-step []))))
+
+  (testing "rf2-xgeag — hot-reload-only event surfaces the standalone
+            SCHEMA-HOT-RELOAD step"
+    (let [rows (proj/schema-violation-rows
+                 [(schema-hot-reload-ev :rf/default [:count] "boom")])
+          s    (proj/hot-reload-step rows)]
+      (is (= :schema-hot-reload (:step s)))
+      (is (= :SCHEMA-HOT-RELOAD (:badge s)))
+      (is (= 1 (count (:rows s))))))
+
+  (testing "rf2-xgeag — runtime-boundary violations are NOT routed to
+            the hot-reload step (they attach to their owning step)"
+    (let [rows (proj/schema-violation-rows
+                 [(schema-violation-ev :app-db :counter/inc [:count]
+                                       "not-an-int" true)])]
+      (is (nil? (proj/hot-reload-step rows))))))
+
+(deftest attach-violations-event-test
+  (testing "rf2-xgeag — `:event` violation attaches to the DISPATCH step"
+    (let [steps  [{:step :dispatch :badge :DISPATCH}
+                  {:step :handler  :badge :HANDLER}]
+          rows   [{:where :event :failing-id :counter/inc}]
+          out    (proj/attach-violations steps rows)]
+      (is (= 1 (count (:violations (first out)))))
+      (is (nil? (:violations (second out)))))))
+
+(deftest attach-violations-cofx-by-id-test
+  (testing "rf2-xgeag — `:cofx` violation attaches to the COEFFECT step
+            whose `:id` matches `:failing-id`"
+    (let [steps  [{:step :coeffect :badge :COEFFECT :id :session}
+                  {:step :coeffect :badge :COEFFECT :id :session/now}
+                  {:step :handler  :badge :HANDLER}]
+          rows   [{:where :cofx :failing-id :session/now}]
+          out    (proj/attach-violations steps rows)]
+      (is (nil? (:violations (nth out 0)))
+          "non-matching cofx step untouched")
+      (is (= 1 (count (:violations (nth out 1))))
+          "matching cofx step attached"))))
+
+(deftest attach-violations-app-db-to-handler-test
+  (testing "rf2-xgeag — `:app-db` violation attaches to the HANDLER step"
+    (let [steps  [{:step :dispatch :badge :DISPATCH}
+                  {:step :handler  :badge :HANDLER}]
+          rows   [{:where :app-db :failing-id :counter/inc :rollback? true}]
+          out    (proj/attach-violations steps rows)]
+      (is (nil? (:violations (first out))))
+      (is (= 1 (count (:violations (second out))))))))
+
+(deftest attach-violations-fx-row-test
+  (testing "rf2-xgeag — `:fx-args` violation attaches to the FX row whose
+            `:fx-id` matches `:failing-id`"
+    (let [steps  [{:step :fx :badge :FX
+                   :rows [{:fx-id :http/post :status :ok}
+                          {:fx-id :db        :status :ok}]}]
+          rows   [{:where :fx-args :failing-id :http/post}]
+          out    (proj/attach-violations steps rows)
+          fx     (first out)]
+      (is (= 1 (count (:violations (first  (:rows fx)))))
+          "http/post fx row has the attached violation")
+      (is (nil? (:violations (second (:rows fx))))
+          ":db fx row untouched"))))
+
+(deftest attach-violations-sub-row-test
+  (testing "rf2-xgeag — `:sub-return` violation attaches to the
+            SUBSCRIPTIONS row whose `:sub-id` matches `:failing-id`"
+    (let [steps  [{:step :subscriptions :badge :SUBSCRIPTIONS
+                   :rows [{:sub-id :user/profile}
+                          {:sub-id :cart/total}]}]
+          rows   [{:where :sub-return :failing-id :cart/total}]
+          out    (proj/attach-violations steps rows)
+          subs   (first out)]
+      (is (nil? (:violations (first  (:rows subs)))))
+      (is (= 1 (count (:violations (second (:rows subs)))))))))
+
+(deftest cascade-rolled-back?-test
+  (testing "rf2-xgeag — true iff any `:app-db` violation carries
+            `:rollback? true`"
+    (is (false? (proj/cascade-rolled-back? [])))
+    (is (false? (proj/cascade-rolled-back?
+                  [{:where :sub-return :rollback? true}]))
+        "non-app-db rollback doesn't count")
+    (is (false? (proj/cascade-rolled-back?
+                  [{:where :app-db :rollback? false}])))
+    (is (true?  (proj/cascade-rolled-back?
+                  [{:where :app-db :rollback? true}])))))
+
+(deftest mark-rolled-back-downstream-test
+  (testing "rf2-xgeag — rollback flags every step AFTER the HANDLER"
+    (let [steps [{:step :dispatch} {:step :handler}
+                 {:step :fx}       {:step :subscriptions}]
+          rows  [{:where :app-db :rollback? true}]
+          out   (proj/mark-rolled-back-downstream steps rows)]
+      (is (nil? (:rolled-back? (nth out 0))))
+      (is (nil? (:rolled-back? (nth out 1)))
+          "the HANDLER step itself is NOT muted (the violation
+           sub-block already shows the rollback in-place)")
+      (is (true? (:rolled-back? (nth out 2))))
+      (is (true? (:rolled-back? (nth out 3))))))
+
+  (testing "rf2-xgeag — no rollback → no `:rolled-back?` flags"
+    (let [steps [{:step :dispatch} {:step :handler} {:step :fx}]
+          rows  [{:where :sub-return :rollback? true}]
+          out   (proj/mark-rolled-back-downstream steps rows)]
+      (is (every? #(nil? (:rolled-back? %)) out)))))
 
 ;; ---- rf2-rrykz — app-db diff section — RETIRED 2026-05-26 -------------
 ;;
@@ -1456,19 +1553,36 @@
 ;; top-level cascade). See comment header above the child-dispatch
 ;; helpers section.
 
-(deftest project-includes-schema-violations-step-test
-  (testing "rf2-17vxj — top-level project emits SCHEMA-VIOLATIONS at
-            the END of the cascade when violations fired"
+(deftest project-attaches-app-db-violation-to-handler-test
+  (testing "rf2-xgeag — top-level `project` attaches `:app-db`
+            boundary violations to the HANDLER step inline and
+            mutes the downstream cascade with `:rolled-back? true`"
     (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
                          (db-changed-ev [[[:count] 0 "boom" :modified]])
                          (schema-violation-ev :app-db :counter/inc
                                               [:count] "boom" true)])
-          steps (proj/project rec)]
-      (is (= :schema-violations (-> steps last :step))
-          "SCHEMA-VIOLATIONS rides at the end of the cascade")))
+          steps (proj/project rec)
+          handler (some #(when (= :handler (:step %)) %) steps)]
+      (is (some? handler))
+      (is (= 1 (count (:violations handler))))
+      (is (true? (-> handler :violations first :rollback?)))
+      (is (not-any? #(= :schema-violations (:step %)) steps)
+          "the retired aggregate SCHEMA-VIOLATIONS step never appears")
+      (is (not-any? #(= :schema-hot-reload (:step %)) steps)
+          "no hot-reload tail step when violation is runtime-boundary")))
 
-  (testing "rf2-17vxj — no violations → step absent"
+  (testing "rf2-xgeag — no violations → no attached `:violations` +
+            no `:rolled-back?` flags"
     (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
                          (db-changed-ev [[[:count] 0 1 :modified]])])
           steps (proj/project rec)]
-      (is (not-any? #(= :schema-violations (:step %)) steps)))))
+      (is (every? #(nil? (:violations %)) steps))
+      (is (every? #(nil? (:rolled-back? %)) steps))))
+
+  (testing "rf2-xgeag — hot-reload drift rides on the standalone
+            SCHEMA-HOT-RELOAD tail step (Option A)"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (schema-hot-reload-ev :rf/default
+                                               [:counter :n] "boom")])
+          steps (proj/project rec)]
+      (is (= :schema-hot-reload (-> steps last :step))))))

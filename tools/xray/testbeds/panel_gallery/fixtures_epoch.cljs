@@ -5,10 +5,12 @@
 
   `tools/xray/spec/021-Dynamic-Panel-Designs.md` §9.1 — the focused
   epoch's complete computational timeline as a numbered vertical
-  cascade: DISPATCH → COEFFECT → HANDLER → APP-DB DIFF → FLOW → FX →
-  CHILD DISPATCHES → SUBSCRIPTIONS → VIEWS → SCHEMA VIOLATIONS. Each
-  step is CONDITIONAL — only the steps whose driving trace events
-  surfaced get rendered (per
+  cascade: DISPATCH → COEFFECT (one per cofx) → HANDLER → FLOW
+  (one per flow, rf2-xnb1x) → FX → SUBSCRIPTIONS → VIEWS →
+  SCHEMA HOT-RELOAD (rf2-xgeag — hot-reload drift only;
+  runtime-boundary violations attach as inline sub-blocks under
+  their owning step). Each step is CONDITIONAL — only the steps
+  whose driving trace events surfaced get rendered (per
   `tools/xray/src/day8/re_frame2_xray/panels/epoch/projection.cljc`).
 
   The 10-entry badge inventory + 16ms long-step threshold ride on
@@ -262,8 +264,8 @@
   "`:rf.schema/violation` trace (rf2-17vxj) — the hot-reload drift
   check fires when a re-registration changed the schema at a
   `(frame-id, path)` AND the live `app-db` value at `path` fails the
-  new schema. Distinct from the runtime per-event failure; same
-  SCHEMA VIOLATIONS section."
+  new schema. Distinct from the runtime per-event failure; rides on
+  the standalone SCHEMA HOT-RELOAD tail step (rf2-xgeag · Option A)."
   [frame-id path mismatching-value]
   (ev :warning :rf.schema/violation
       {:frame              frame-id
@@ -463,16 +465,25 @@
 
 ;; ---- VARIANT 4: schema-violation cascade --------------------------------
 ;;
-;; Section coverage: SCHEMA VIOLATIONS step (warning chrome +
-;; `open issues →` button). Mix of runtime per-boundary failure
-;; (with rollback?) AND hot-reload drift to exercise both ops in
-;; `schema-violation-ops`.
+;; Section coverage: rf2-xgeag inline violation sub-blocks. Each
+;; runtime per-boundary failure attaches to its OWNING pipeline step
+;; (HANDLER for :app-db, FX row for :fx-args, SUBSCRIPTIONS row for
+;; :sub-return). Hot-reload drift rides on the standalone
+;; SCHEMA HOT-RELOAD tail step (Option A) since drift has no owning
+;; cascade step.
+;;
+;; The fixture covers the most operator-visible cases:
+;;   - `:app-db` rolled back → HANDLER sub-block + downstream mute
+;;   - `:fx-args` skipped    → FX row sub-block (per-row attachment)
+;;   - `:sub-return` nil     → SUBSCRIPTIONS row sub-block
+;;   - hot-reload drift      → tail SCHEMA HOT-RELOAD step
 
 (defn schema-violations-history
-  "Cascade where the app-db boundary check fired (validation failure
-  + rollback) AND a hot-reload drift surfaced. Exercises the
-  SCHEMA VIOLATIONS section's `:rollback?` chrome + the two
-  distinct row :kind sources."
+  "Cascade exercising the rf2-xgeag inline violation attachment. The
+  `:app-db` violation rolls back the cascade, muting the FX /
+  SUBSCRIPTIONS / VIEWS chrome downstream; the FX-args + sub-return
+  violations land on their matching rows; the hot-reload drift rides
+  on the tail SCHEMA HOT-RELOAD step."
   []
   (single-epoch-history
     {:epoch-id 4
@@ -481,13 +492,14 @@
      [(dispatched-ev [:counter/set "not-a-number"] :ui)
       ;; Validation failure: the handler tried to set :counter to
       ;; a string; the app-db boundary schema rejected the write
-      ;; and rolled the cascade back.
+      ;; and rolled the cascade back. Attaches to HANDLER + flips
+      ;; downstream steps muted.
       (schema-violation-ev :app-db :counter/set [:counter]
                            "not-a-number" true)
       ;; Hot-reload drift: a separate schema (the :user/profile
       ;; map) was re-registered tighter, and the live app-db value
-      ;; now fails the new shape. The framework logs and skips —
-      ;; the operator gets a warning row.
+      ;; now fails the new shape. Rides on the tail SCHEMA HOT-RELOAD
+      ;; step (Option A — drift has no owning cascade step).
       (schema-hot-reload-ev :rf/default [:user/profile :age] -3)
       (run-end-ev 0.3)]}))
 

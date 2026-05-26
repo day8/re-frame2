@@ -209,6 +209,10 @@ Tools and agents read these to:
 - Generate JSON Schema or OpenAPI from registered schemas — useful for cross-platform contracts.
 - Diff schemas across versions to detect breaking shape changes in app-db structure.
 
+### Tooling surface — Xray attachment (rf2-xgeag)
+
+The Xray Epoch panel attaches each schema violation to its owning pipeline step rather than collecting them in a trailing footnote. The five runtime boundaries (`:event` / `:cofx` / `:app-db` / `:fx-args` / `:sub-return`) map onto DISPATCH / matching COEFFECT / HANDLER / matching FX row / matching SUBSCRIPTIONS row respectively; hot-reload drift (which has no owning cascade step) rides on a standalone SCHEMA HOT-RELOAD tail step. When an `:app-db` violation carries `:rollback? true`, every step downstream of HANDLER renders muted and the HANDLER step surfaces a "cascade rolled back — downstream effects skipped" banner so the operator reads the blast radius at a glance. See [tools/xray/spec/021-Dynamic-Panel-Designs.md §9.1.10.3 Violation attachment contract](../tools/xray/spec/021-Dynamic-Panel-Designs.md) for the cascade-side rendering details; the substrate-side contract (the two trace ops + their tag shapes) is unchanged.
+
 ## Per-slot metadata vocabulary
 
 Inside the schema value passed to `reg-app-schema`, individual slots may carry per-slot metadata maps — the `{...}` properties map Malli accepts on every slot. The reserved per-slot key vocabulary is catalogued normatively in [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta); the reserved set is fixed-and-additive. Today's reserved keys are `:large?`, `:hint`, and (reserved-for-future) `:sensitive?`.

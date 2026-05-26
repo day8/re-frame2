@@ -17,7 +17,7 @@
   | `vanilla-db`           | DISPATCH · COEFFECT · HANDLER (db) · APP-DB DIFF · SUBSCRIPTIONS · VIEWS |
   | `reg-event-fx`         | DISPATCH · HANDLER (fx) · APP-DB DIFF · FX (✓ + ✗ + header counters) |
   | `machine-driven`       | DISPATCH · HANDLER (machine: TRANSITION · GUARDS · LIFECYCLE · AFTER-TIMERS · DATA-REDUCTION · SNAPSHOT-DIFF) · APP-DB DIFF · FX |
-  | `schema-violations`    | DISPATCH · HANDLER (db) · SCHEMA VIOLATIONS (runtime + hot-reload, with rollback) |
+  | `schema-violations`    | DISPATCH · HANDLER (db, with rolled-back app-db violation sub-block + downstream mute) · SCHEMA HOT-RELOAD tail (rf2-xgeag) |
   | `child-dispatches`     | DISPATCH · HANDLER (fx) · APP-DB DIFF · FX · CHILD DISPATCHES (resolved + not-in-buffer) |
   | `long-step`            | DISPATCH · HANDLER (fx, 42ms · long-step chrome) · APP-DB DIFF · FX (28ms long-step) · SUBSCRIPTIONS · VIEWS |
   | `flow-firing`          | DISPATCH · HANDLER (db) · APP-DB DIFF · FLOW · FX · SUBSCRIPTIONS · VIEWS |
@@ -111,9 +111,11 @@
   (story/reg-variant :story.xray.epoch/schema-violations
     {:doc        "Cascade where the app-db boundary check fired
                  (validation failure with rollback) AND a hot-reload
-                 drift surfaced. Exercises the SCHEMA VIOLATIONS
-                 section's warning chrome + the `open issues →`
-                 affordance + the rollback indicator (rf2-17vxj)."
+                 drift surfaced. Exercises the rf2-xgeag inline
+                 violation sub-block: the :app-db violation attaches
+                 to HANDLER with a pink sub-block + rolled-back banner,
+                 and downstream steps mute. The hot-reload drift rides
+                 on the standalone SCHEMA HOT-RELOAD tail step."
      :events     [[:rf.xray/sync-epoch-history (fixtures/schema-violations-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
