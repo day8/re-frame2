@@ -83,15 +83,16 @@
         (is (re-find #":title/flow" (pr-str flow-section))
             "section title carries the machine id")))))
 
-(deftest machines-empty-renders-single-empty-state-section
-  (testing "absent / empty :rf/machines → one empty-state area section,
-            NOT one-section-per-id (there are no ids)"
+(deftest machines-empty-is-omitted-entirely
+  (testing "rf2-jcdvo — absent / empty :rf/machines is OMITTED from the
+            rendered tree entirely (no placeholder card with 'No
+            machines registered.' copy)"
     (let [model (h/current-state-sections {:counter 1})
-          tree  (state/state-body model)
-          area  (find-by-testid tree "rf-xray-app-db-state-area-:rf/machines")]
-      (is (some? area) "machines area section is present even when empty")
-      (is (re-find #"No machines" (pr-str area))
-          "empty-state copy for machines"))))
+          tree  (state/state-body model)]
+      (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/machines"))
+          "no machines area section in the tree")
+      (is (not (re-find #"No machines" (pr-str tree)))
+          "the dead 'No machines registered.' empty-state copy is gone"))))
 
 ;; ---- route singleton ----------------------------------------------------
 
@@ -105,39 +106,61 @@
       (is (some? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
           "route singleton section present"))))
 
-(deftest route-absent-renders-empty-section
-  (testing "absent :rf/route → singleton section in the empty-state
-            (blank, not omitted)"
+(deftest route-absent-is-omitted-entirely
+  (testing "rf2-jcdvo — absent :rf/route is OMITTED from the rendered
+            tree entirely (no placeholder card with 'No active route.'
+            copy)"
     (let [model (h/current-state-sections {:counter 1})
-          tree  (state/state-body model)
-          area  (find-by-testid tree "rf-xray-app-db-state-area-:rf/route")]
-      (is (some? area) "route section present even when no active route")
-      (is (re-find #"No active route" (pr-str area))
-          "route empty-state copy"))))
+          tree  (state/state-body model)]
+      (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
+          "no route area section in the tree")
+      (is (not (re-find #"No active route" (pr-str tree)))
+          "the dead 'No active route.' empty-state copy is gone"))))
 
 ;; ---- full reserved inventory always present -----------------------------
 
-(deftest every-reserved-area-section-renders
-  (testing "the inventory is complete — every reserved :rf/* area has a
-            section even on an empty db (none omitted)"
+(deftest empty-db-renders-only-the-top-section
+  (testing "rf2-jcdvo — an empty db renders ONLY the TOP user-domain
+            section; every reserved-area card is omitted (data-driven
+            visibility — sections appear as state accrues, not as
+            persistent placeholders)"
     (let [model (h/current-state-sections {})
           tree  (state/state-body model)
           ids   (testids tree)]
-      ;; Singleton areas surface as `…-area-<key>`; machines/spawned do
-      ;; too when empty (single empty-state section).
+      (is (contains? ids "rf-xray-app-db-state-top")
+          "TOP is the panel's anchor — always renders")
       (doseq [area h/reserved-app-db-keys]
-        (is (contains? ids (str "rf-xray-app-db-state-area-" (pr-str area)))
-            (str "section present for reserved area " area))))))
+        (is (not (contains? ids (str "rf-xray-app-db-state-area-"
+                                     (pr-str area))))
+            (str "no placeholder card for empty reserved area " area))))))
+
+(deftest populated-reserved-areas-render
+  (testing "rf2-jcdvo — populated reserved areas render exactly as before
+            (only the empty-area filtering changed); each populated area
+            still gets a card the operator can read"
+    (let [model (h/current-state-sections
+                  {:counter 1
+                   :rf/route    {:id :home}
+                   :rf/machines {:auth {:state :idle}}})
+          tree  (state/state-body model)
+          ids   (testids tree)]
+      (is (contains? ids "rf-xray-app-db-state-area-:rf/route")
+          "populated route → area section present")
+      (is (contains? ids "rf-xray-app-db-state-instance-:rf/machines-:auth")
+          "populated machines → instance section present"))))
 
 ;; ---- nil-safety ---------------------------------------------------------
 
 (deftest state-body-nil-safe
-  (testing "nil / empty db model renders without throwing — TOP empty +
-            full reserved inventory empty-state"
+  (testing "rf2-jcdvo — nil / empty db model renders without throwing —
+            TOP empty + zero reserved-area cards (every reserved slot is
+            empty so every entry is filtered out at projection time)"
     (doseq [db [nil {}]]
       (let [tree (state/state-body (h/current-state-sections db))]
-        (is (some? (find-by-testid tree "rf-xray-app-db-state-top")))
-        (is (some? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route")))))))
+        (is (some? (find-by-testid tree "rf-xray-app-db-state-top"))
+            "TOP is the panel's anchor — always renders")
+        (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
+            "absent route → no placeholder card")))))
 
 ;; ---- affordance strip (rf2-kbxgj + rf2-ilubp) ---------------------------
 ;;
@@ -183,11 +206,14 @@
       (is (not-any? #(.endsWith % "-copy") ids)
           "no copy affordance on any app-db section value block"))))
 
-;; ---- flat-hairline structure (spec/021 §4.2, Figma · rf2-ad7zx.11) -------
+;; ---- section-shell chrome (rf2-jcdvo) ------------------------------------
 ;;
-;; Sections render FLAT — no bordered cards. The panel's first section
-;; (TOP) draws NO leading hairline; every section after it draws a 1px
-;; `border-top` hairline as the divider (the Figma `border-t` rule).
+;; rf2-jcdvo dropped the inter-section hairline divider — each card's
+;; own border (from the edn-inspector widget's `:card?` chrome) plus the
+;; inter-card vertical gap is sufficient visual separation. The
+;; section-shell wrapper draws padding only; no `border-top`, no
+;; `border`, no `background`, no `border-radius`. The card chrome lives
+;; inside the section body (the edn-inspector widget owns it).
 
 (defn- section-styles
   "Collect the inline `:style` map of every `<section>` node in the tree."
@@ -199,41 +225,55 @@
                           (map? (second node)))
                  (:style (second node)))))))
 
-(deftest sections-are-flat-not-cards
-  (testing "no section carries the old card chrome (bg / border-radius /
-            full 1px border); the flat layout uses caption + body only"
-    (let [model (h/current-state-sections
-                  {:counter 1
-                   :rf/route    {:id :home}
-                   :rf/machines {:title/flow {:state :idle}}})
-          tree  (state/state-body model)
+(deftest section-shells-draw-no-chrome
+  (testing "rf2-jcdvo — no `<section>` wrapper carries any chrome
+            (background / border / border-radius / border-top). The
+            section is a transparent padded container; the card chrome
+            lives inside the body via the edn-inspector widget's
+            `:card? true` opt"
+    (let [model  (h/current-state-sections
+                   {:counter 1
+                    :rf/route    {:id :home}
+                    :rf/machines {:title/flow {:state :idle}}})
+          tree   (state/state-body model)
           styles (section-styles tree)]
       (is (seq styles) "sections render")
       (doseq [s styles]
-        (is (nil? (:background s)) "no card background")
-        (is (nil? (:border-radius s)) "no card radius")
-        (is (nil? (:border s)) "no full card border (hairline is border-top)")))))
+        (is (nil? (:background s)) "no card background on section")
+        (is (nil? (:border-radius s)) "no card radius on section")
+        (is (nil? (:border s)) "no full border on section")
+        (is (nil? (:border-top s))
+            "rf2-jcdvo — no hairline border-top on any section")))))
 
-(deftest top-section-has-no-leading-hairline
-  (testing "the panel's first section (TOP) draws no leading hairline"
+(deftest top-section-draws-no-border-top
+  (testing "rf2-jcdvo — the TOP section's wrapper carries no border-top
+            (consistent with every other section now that the divider
+            was dropped)"
     (let [model (h/current-state-sections {:counter 1})
           tree  (state/state-body model)
           top   (find-by-testid tree "rf-xray-app-db-state-top")]
       (is (some? top))
       (is (nil? (:border-top (:style (second top))))
-          "TOP is first → no divider above it"))))
+          "TOP → no border-top divider"))))
 
-(deftest reserved-area-sections-draw-hairline-divider
-  (testing "every reserved-area section after the TOP draws a 1px
-            `border-top` hairline divider"
-    (let [model (h/current-state-sections {:counter 1})
-          tree  (state/state-body model)]
-      (doseq [area h/reserved-app-db-keys]
-        (let [sec (find-by-testid tree (str "rf-xray-app-db-state-area-"
-                                            (pr-str area)))]
-          (is (some? sec) (str "section present for " area))
-          (is (re-find #"1px solid" (str (:border-top (:style (second sec)))))
-              (str area " draws a 1px border-top hairline")))))))
+(deftest reserved-area-sections-draw-no-border-top
+  (testing "rf2-jcdvo — no populated reserved-area section draws a
+            hairline border-top divider above it (the card chrome alone
+            self-separates adjacent cards). With every reserved slot
+            populated, every section renders without a divider."
+    (let [model (h/current-state-sections
+                  {:rf/machines           {:title/flow {:state :idle}}
+                   :rf/spawned            {:parent     {:invoke :child}}
+                   :rf/route              {:id :home}
+                   :rf/system-ids         #{:app}
+                   :rf/pending-navigation {:to :next}
+                   :rf/elision            {:declarations {}}})
+          tree   (state/state-body model)
+          styles (section-styles tree)]
+      (is (seq styles) "sections render")
+      (doseq [s styles]
+        (is (nil? (:border-top s))
+            "no hairline divider on any section")))))
 
 ;; ---- inline diff annotation (spec/021 §4.3 · rf2-ad7zx.11) ---------------
 ;;

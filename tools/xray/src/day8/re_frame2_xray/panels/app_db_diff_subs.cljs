@@ -323,8 +323,9 @@
   ;; sections render plain current-state — `current-state-sections`
   ;; falls back to its `no-diff` sentinel automatically.
   ;;
-  ;; nil-safe — an absent / empty db yields an empty TOP + every
-  ;; reserved area flagged `:empty?`.
+  ;; nil-safe — an absent / empty db yields an empty TOP + zero
+  ;; reserved-area entries (rf2-jcdvo — empty areas are filtered at
+  ;; projection time so the renderer never draws placeholder cards).
   (rf/reg-sub :rf.xray/app-db-state
     :<- [:rf.xray/target-frame-db]
     :<- [:rf.xray/selected-epoch-record]
