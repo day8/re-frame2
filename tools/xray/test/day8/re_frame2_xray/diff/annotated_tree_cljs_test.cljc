@@ -224,8 +224,19 @@
       (is (= "alice@example.com" (:after child))))))
 
 (deftest sentinel-large-same-both-sides
-  (testing "{:rf/large {:bytes N :head ...}} same both sides → :same"
-    (let [sentinel {:rf/large {:bytes 1024 :head "abc"}}
+  ;; rf2-ndb13 — sentinel shape is the spec/015 §Wire elision marker
+  ;; emitted by `implementation/core/src/re_frame/elision.cljc`. The
+  ;; diff op classification is opaque to the marker's body slots — any
+  ;; equal-both-sides value lands `:same` — but we use the framework-
+  ;; current shape so the corpus is uniform.
+  (testing "{:rf.size/large-elided <body>} same both sides → :same"
+    (let [sentinel {:rf.size/large-elided
+                    {:path   [:blob]
+                     :bytes  1024
+                     :type   :string
+                     :reason :schema
+                     :hint   nil
+                     :handle [:rf.elision/at [:blob]]}}
           tree (at/diff-tree sentinel sentinel)]
       (is (= :same (at/op-of tree))))))
 

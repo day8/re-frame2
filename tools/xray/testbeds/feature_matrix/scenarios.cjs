@@ -1606,9 +1606,21 @@ async function runLargeDispatcher(page, state) {
   const traceEvents = await readTrace(page);
   await clickSidebar(page, 'app-db', 'rf-xray-app-db-diff');
   await expectVisible(page.locator('[data-testid="rf-xray-app-db-diff"]'), 5000);
+  // rf2-ndb13 — large markers render as first-class chip chrome inside
+  // the edn-inspector (the predicate previously mis-matched `:rf/large`
+  // and the marker fell through to ordinary map rendering, surfacing
+  // the `:rf.size/large-elided` keyword as plain text). With the
+  // predicate now keyed off the spec/015 marker, the chip appears under
+  // `[data-testid="rf-xray-edn-inspector-large"]`. Assert chip presence
+  // and absence of the raw payload — the two together cover "elision
+  // marker surfaced" and "raw value never leaks".
+  const largeChips = page.locator(
+    '[data-testid="rf-xray-app-db-diff"] [data-testid="rf-xray-edn-inspector-large"]',
+  );
+  const largeChipCount = await largeChips.count();
   const appDbText = ((await page.locator('[data-testid="rf-xray-app-db-diff"]').textContent()) || '').trim();
-  if (!appDbText.includes(':rf.size/large-elided')) {
-    failWithDetails('Large-value 20-dispatch load did not surface elision markers in App-DB Diff', {
+  if (largeChipCount === 0) {
+    failWithDetails('Large-value 20-dispatch load did not render elision chip chrome in App-DB Diff', {
       traceCount: traceEvents.length,
       tail: traceEvents.slice(-20),
       appDbText: appDbText.slice(0, 1200),

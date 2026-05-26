@@ -16,9 +16,9 @@
   - `views/edn-widget/widget` — superseded for current-state browse
     (phase 1 wires the App-DB panel here directly; phases 2-5 migrate
     the remaining call sites).
-  - `theme/data-inspector` — sentinels (`:rf/redacted`, `:rf/large`)
-    become first-class types INSIDE this widget; the chrome wrapper
-    goes away (D3=a per rf2-sndui).
+  - `theme/data-inspector` — sentinels (`:rf/redacted`,
+    `:rf.size/large-elided`) become first-class types INSIDE this
+    widget; the chrome wrapper goes away (D3=a per rf2-sndui).
   - `edn-inspector/render` — diff renderer subsumed (phase 5; D5=a per
     rf2-sndui). The diff path is now an opt-in mode on this same
     widget — pass `:before` to render with gutter glyphs +
@@ -448,12 +448,15 @@
   (= :rf/redacted v))
 
 (defn large-sentinel?
-  "`{:rf/large {:bytes N :head s}}` size-elision sentinel."
+  "`{:rf.size/large-elided <body>}` size-elision sentinel per Spec 015.
+  `<body>` carries `:path :bytes :type :reason :hint :handle` (plus
+  optional `:digest` when `:include-digests?` is set on the elision
+  walk). Emitted by `implementation/core/src/re_frame/elision.cljc`."
   [v]
   (and (map? v)
        (= 1 (count v))
        (let [[k m] (first v)]
-         (and (= :rf/large k) (map? m)))))
+         (and (= :rf.size/large-elided k) (map? m)))))
 
 (defn redacted+size-sentinel?
   "Combined `{:rf/redacted {:bytes N}}` — sensitive + size-aware."
@@ -859,10 +862,18 @@
                          :margin-left "4px"}}
           (str "· " bytes " bytes")])])
     :sentinel-large
-    (let [{:keys [bytes head]} (val (first v))]
-      [:span {:data-rf-type "rf-large"
+    ;; rf2-ndb13 — body keys per Spec 015 §Wire elision:
+    ;; `:path :bytes :type :reason :hint :handle`. `:type` is the
+    ;; original-value type tag (`:map :vector :string …`); `:hint`
+    ;; carries the schema-author's docstring; `:handle` is the
+    ;; structured fetch handle for a future drill-in affordance
+    ;; (deferred — see rf2-ndb13 "Out of scope").
+    (let [{:keys [bytes type hint]} (val (first v))]
+      [:span {:data-rf-type "rf-size-large-elided"
               :data-testid  "rf-xray-edn-inspector-large"
-              :title        (when head (str "Head preview: " head))
+              :title        (cond-> "Large value elided (spec/015)"
+                              type (str " · " (name type))
+                              hint (str "\n" hint))
               :style {:display       "inline-flex"
                       :align-items   "center"
                       :gap           "4px"
