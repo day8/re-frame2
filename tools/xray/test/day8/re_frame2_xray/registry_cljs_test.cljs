@@ -129,6 +129,10 @@
    ;; expansion heuristic. Keyed by mount-id; updated via ResizeObserver
    ;; in the widget's ref callback.
    :rf.xray.edn-inspector/widths
+   ;; rf2-h71e0 — per-mount zoom-into-node path. Keyed by [panel-id
+   ;; site-or-mount-id]; non-empty vec stores the path the widget zooms
+   ;; into; nil / empty renders the full tree (un-zoomed default).
+   :rf.xray.edn-inspector/zoom
    ;; rf2-l4625 — edn-inspector popup overlay subs (stack + entries +
    ;; projection subs for open? / top / per-mount-id entry).
    :rf.xray.edn-inspector-popup/stack
@@ -417,6 +421,13 @@
    ;; ResizeObserver measurement; clear-width is dispatched on unmount.
    :rf.xray.edn-inspector/set-width
    :rf.xray.edn-inspector/clear-width
+   ;; rf2-h71e0 — zoom-into-node + breadcrumb navigation events.
+   ;; zoom-to stores an absolute path under the per-mount slot; zoom-up
+   ;; pops one segment; zoom-reset clears (per-mount when args given,
+   ;; otherwise the whole slot).
+   :rf.xray.edn-inspector/zoom-to
+   :rf.xray.edn-inspector/zoom-up
+   :rf.xray.edn-inspector/zoom-reset
    ;; rf2-l4625 — edn-inspector popup overlay events (open / close /
    ;; close-top / close-all).
    :rf.xray.edn-inspector-popup/open

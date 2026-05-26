@@ -165,6 +165,13 @@
         ;; affordance so the operator sees them as discrete inspector
         ;; cards.
         :card? true
+        ;; rf2-h71e0 — App-DB is the canonical zoom-into-node consumer.
+        ;; Dense top-level trees benefit hugely from focusing on a
+        ;; single subtree; the breadcrumb row keeps the operator's
+        ;; bearings. Diff mode (`before` present) suppresses zoom
+        ;; resolution because diff's force-expand-over-changes logic
+        ;; and zoom's hide-everything-outside-the-subtree conflict.
+        :zoomable? true
         :header title}]
       [ei/edn-inspector
        (f/display-value value)
@@ -173,6 +180,11 @@
         :default-expanded-depth 3
         :before (f/display-value before)
         :card? true
+        ;; rf2-h71e0 — zoomable opt is preserved here for symmetry;
+        ;; the widget self-suppresses zoom resolution in diff mode so
+        ;; the affordance + breadcrumb stay off until the operator
+        ;; returns to current-state (non-diff) browse.
+        :zoomable? true
         :header title}])))
 
 ;; ---- top (user-domain) section ------------------------------------------
