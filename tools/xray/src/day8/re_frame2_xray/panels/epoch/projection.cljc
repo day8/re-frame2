@@ -78,13 +78,12 @@
   fixtures that synthesise an epoch from a literal `:event` vector
   surface this path).
 
-  Per rf2-93a7s the event vector is read from the substrate's canonical
-  `:rf.event/v` tag (see `re-frame.router/emit-dispatched-trace`). The
-  pre-rf2-93a7s read against `:event` silently returned `nil` for
-  every dispatched event because the substrate has never stamped under
-  that name; the result was a DISPATCH step with no event-vector body.
-  Legacy `:event` + `(:event ev)` reads are retained as fallbacks for
-  fixture compatibility."
+  Per rf2-93a7s the event vector lives under `[:tags :rf.event/v]` on
+  the dispatched trace (see `re-frame.router/emit-dispatched-trace`);
+  the canonical projection-side reader is `common/tag-of`. The legacy
+  bare `:event` tag is retained as a fixture-compat fallback only —
+  trace events never carry `:event` at top-level (the pre-rf2-509pq
+  `(:event ev)` arm was dead and removed)."
   [events fallback-event]
   (let [ev (find-op events :rf.event/dispatched)]
     (cond
@@ -93,7 +92,6 @@
        :badge       :DISPATCH
        :event       (or (common/tag-of ev :rf.event/v)
                         (common/tag-of ev :event)
-                        (:event ev)
                         fallback-event)
        :source      (or (common/tag-of ev :source)
                         (common/tag-of ev :rf.event/source))
@@ -1062,13 +1060,11 @@
         event-id  (or (:event-id epoch-record)
                       (when-let [ev (find-op events :rf.event/dispatched)]
                         (let [v (or (common/tag-of ev :rf.event/v)
-                                    (common/tag-of ev :event)
-                                    (:event ev))]
+                                    (common/tag-of ev :event))]
                           (when (vector? v) (first v)))))
         fallback  (or (when-let [ev (find-op events :rf.event/dispatched)]
                         (or (common/tag-of ev :rf.event/v)
-                            (common/tag-of ev :event)
-                            (:event ev)))
+                            (common/tag-of ev :event)))
                       (:event epoch-record))]
     (if (and (empty? events) (nil? fallback))
       ;; Truly empty epoch: no dispatched trace, no fallback event,
