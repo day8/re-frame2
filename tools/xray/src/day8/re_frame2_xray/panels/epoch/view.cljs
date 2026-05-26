@@ -800,6 +800,29 @@
       (:spec meta)
       (:rf.machine/spec meta)))
 
+(defn- coord-from-handler-meta
+  "Lift a `{:file :line}` source-coord off a registered handler's meta
+  map (`rf/handler-meta` return shape). Returns nil when the meta
+  carries no `:file` (production builds, registrations that pre-date
+  the coord-annotation pass).
+
+  rf2-ehd8v — shared by the HANDLER source-block (event + machine
+  handlers) so the `file:line + [open]` affordance reads the same
+  shape both render-paths use."
+  [m]
+  (when (and m (string? (:file m)) (seq (:file m)))
+    {:file (:file m) :line (:line m)}))
+
+(defn- source-coord-display
+  "Render a structured source-coord `{:file :line}` as the display
+  string `\"file:line\"` (or just `\"file\"`). nil when the coord
+  lacks `:file`. Mirrors `event_detail/format-coord-display` so the
+  HANDLER source row reads the same chrome the Event panel ships."
+  [{:keys [file line]}]
+  (when (and (string? file) (seq file))
+    (cond-> file
+      line (str ":" line))))
+
 (defn- handler-source-block
   "Render the source-code block under the HANDLER header. Three
   cases:
@@ -810,18 +833,41 @@
        `edn/code-block` (clojure-syntax highlight).
     3. Otherwise — render a clear `<source not yet captured>`
        placeholder so the slot is always present (operator learns
-       where to look + when the substrate didn't stamp)."
+       where to look + when the substrate didn't stamp).
+
+  rf2-ehd8v — the `SOURCE` / `MACHINE SPEC` sub-header carries a
+  `file:line` chrome + `[open]` affordance when the handler's
+  registered meta carries `:file` / `:line`. The open-button reuses
+  `coord-chip` — the same click-to-source machinery the DISPATCH
+  source-label (rf2-80u5a) + the VIEWS row coord chip already ride.
+  When coord-annotation is unavailable (production builds, fn-form
+  registrations without `:file` meta) the chrome simply elides — no
+  broken / dead-link affordance."
   [flavour event-id]
   (let [machine? (= :reg-machine flavour)
         meta     (when (some? event-id)
                    (try (rf/handler-meta (if machine? :machine :event) event-id)
                         (catch :default _ nil)))
         spec     (when machine? (machine-spec-value meta))
-        src      (when-not machine? (handler-source-string meta))]
+        src      (when-not machine? (handler-source-string meta))
+        coord    (coord-from-handler-meta meta)
+        coord-display (source-coord-display coord)
+        header-trailing
+        (when coord-display
+          [:span {:data-testid "rf-xray-epoch-handler-source-coord"
+                  :style {:display     "inline-flex"
+                          :align-items "center"
+                          :gap         "0"}}
+           [:span {:data-testid "rf-xray-epoch-handler-source-coord-text"
+                   :title       coord-display
+                   :style {:color       (:text-tertiary tokens)
+                           :font-family mono-stack}}
+            coord-display]
+           (coord-chip coord "rf-xray-epoch-handler-source-open")])]
     [:div {:data-testid "rf-xray-epoch-handler-source"
            :style {:margin-top "8px"
                    :min-width  "0"}}
-     (sub-header (if machine? "machine spec" "source"))
+     (sub-header (if machine? "machine spec" "source") header-trailing)
      (cond
        (and machine? (some? spec))
        [:div {:data-testid "rf-xray-epoch-handler-source-spec"

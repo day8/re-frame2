@@ -723,3 +723,71 @@
             "the code-block widget mounts under the source slot")
         (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
             "no placeholder when source IS captured")))))
+
+;; ---- rf2-ehd8v — HANDLER source carries file:line + [open] ----------
+
+(deftest handler-source-renders-file-line-and-open-affordance-test
+  (testing "rf2-ehd8v — when the handler-meta carries :file + :line the
+            HANDLER source sub-header renders `file:line` text and a
+            clickable `[open]` button next to the SOURCE label.
+            Reuses the cross-panel coord-chip (same affordance Static
+            Handler + Event panels ship)."
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :rf.test.epoch.view/ehd8v-srctest-handler
+                       {:rf.handler/source "(reg-event-db :rf.test.epoch.view/ehd8v-srctest-handler\n  (fn [db _] (update db :n inc)))"
+                        :file "src/app/counter.cljs"
+                        :line 42}
+                       (fn [db _] db))
+      (let [step {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db
+                  :event-id :rf.test.epoch.view/ehd8v-srctest-handler
+                  :db-diff [] :fx [] :machine nil}
+            tree (view/render-handler-step step)
+            coord (th/find-by-testid tree "rf-xray-epoch-handler-source-coord")
+            text  (th/find-by-testid tree "rf-xray-epoch-handler-source-coord-text")
+            open  (th/find-by-testid tree "rf-xray-epoch-handler-source-open")]
+        (is (some? coord)
+            "the source-coord chrome row is present alongside the label")
+        (is (some? text)
+            "the file:line text element is present")
+        (is (string/includes? (or (th/text-content text) "") "src/app/counter.cljs")
+            "the file path appears in the text")
+        (is (string/includes? (or (th/text-content text) "") "42")
+            "the line number appears in the text")
+        (is (some? open)
+            "the [open] coord-chip is present when :file is captured")
+        (is (= :button (first open))
+            "the open affordance is a real button (clickable)")
+        (is (fn? (:on-click (second open)))
+            "the open button has a click handler")))))
+
+(deftest handler-source-elides-affordance-when-coord-absent-test
+  (testing "rf2-ehd8v — when no handler-meta is registered for the
+            event-id (unregistered handler, production builds with
+            goog.DEBUG=false where source-coords elide), the
+            file:line text + [open] button simply do not render. No
+            broken / dead-link affordance.
+
+            Reg-event-* macros automatically stamp :file/:line at
+            expansion time, so the empty-coord state is most cleanly
+            reproduced by pointing at an event-id with no registered
+            handler at all."
+    (rf/with-frame :rf/default
+      (let [step {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-event-db
+                  :event-id :rf.test.epoch.view/ehd8v-never-registered
+                  :db-diff [] :fx [] :machine nil}
+            tree (view/render-handler-step step)]
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-coord"))
+            "no coord-row when :file meta is absent")
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-source-open"))
+            "no [open] affordance without a coord")))))
+
+;; Machine-handler path is exercised by the rf2-66wis tests above; the
+;; coord-resolution is a shared helper (`coord-from-handler-meta`) so the
+;; event-handler test above pins the affordance shape, and the machine
+;; render-path inherits it without a separate test. Reg-machine stamps
+;; source coords under the `:event` kind (Spec 005 §Registration —
+;; see core/test/.../source_coords_test.clj) while the source-spec
+;; lookup walks the `:machine` slot, so a tight machine-path coord test
+;; would have to re-create both halves of that side-table dance.
