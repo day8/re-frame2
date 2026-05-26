@@ -371,7 +371,7 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
  :frame        :todo                   ;; resolved frame keyword
  :fx-overrides {:my-app/http stub-fn}  ;; per-dispatch fx replacements (master's dispatch-with)
  :trace-id     "..."                   ;; tooling/agent fields
- :source       :ui                     ;; trigger kind — the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui :timer :http :machine :repl :ssr-hydration :test :other`)
+ :source       :ui                     ;; trigger kind — the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui :frame-init :fx :machine :dispatch-later :timer :http :repl :ssr-hydration :test :unknown :other`); defaults to `:unknown` per rf2-hxj0d (previously `:ui`)
  :origin       :pair                   ;; actor identity — open vocabulary, defaults to `:app`; e.g. `:pair`, `:claude`, `:story`, `:test`
  :dispatched-at <ts>}
 ```
@@ -424,7 +424,9 @@ The dispatch opts map accepts an optional `:origin` key — a tag identifying th
 
 Pair-shaped tools and other tooling surfaces set `:origin` to filter their own activity in post-mortem trace views — "show me only the dispatches the pair tool issued during this session" becomes a one-key filter on the trace stream. User application code typically omits the opt; framework code (the SSR boot path, the router, the machine timer) sets it to a runtime-reserved value (`:rf/router`, `:rf/ssr`, etc.) where the distinction is useful.
 
-`:origin` is **distinct from `:source`** (the existing envelope key). `:source` describes the trigger kind — what *woke* the runtime; the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui`, `:timer`, `:http`, `:machine`, `:repl`, `:ssr-hydration`, `:test`, `:other`). `:origin` describes the actor identity — *who* issued the dispatch. Both can be set independently; tools commonly set `:origin :pair` and let `:source` default to `:repl`.
+`:origin` is **distinct from `:source`** (the existing envelope key). `:source` describes the trigger kind — what *woke* the runtime; the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui`, `:frame-init`, `:fx`, `:machine`, `:dispatch-later`, `:timer`, `:http`, `:repl`, `:ssr-hydration`, `:test`, `:unknown`, `:other`). `:origin` describes the actor identity — *who* issued the dispatch. Both can be set independently; tools commonly set `:origin :pair` and let `:source` default to `:unknown`.
+
+Per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d), the default `:source` value is **`:unknown`** — previously `:ui`, which silently misattributed every un-stamped dispatch (frame-init, REPL eval, internal continuation) as UI-driven. Frame-init dispatches (the `:on-create` event fired by `reg-frame`) explicitly stamp `:source :frame-init` and carry the `reg-frame` call-site coord under `:rf.trace/call-site` so click-to-source jumps to the `(rf/reg-frame ...)` line. UI handler call-sites that previously relied on the `:ui` default now either explicitly stamp `:source :ui` or render as `:unknown` — the framework no longer assumes UI provenance.
 
 ## View ergonomics (the hard part)
 

@@ -79,7 +79,14 @@
     :fx-overrides       per-call fx-id-to-fx-id remapping
     :interceptor-overrides
     :trace-id           tooling
-    :source             :ui :timer :http :repl :machine ...
+    :source             trigger-kind classifier — closed set
+                        `:ui :frame-init :fx :machine :dispatch-later
+                        :test :unknown`. Default `:unknown` per
+                        rf2-hxj0d (changed from `:ui` to avoid false
+                        attribution of unstamped dispatches as
+                        UI-driven). UI handler call-sites stamp
+                        `:source :ui` explicitly; other origins
+                        stamp per the documented vocabulary.
     :origin             actor identity tag (:app default; :pair, :story,
                         :test, ... per Spec 002 §Dispatch origin tagging)
     :rf/dispatch-origin closed-enum functional source per Xray A.5 /
@@ -155,7 +162,17 @@
              :fx-overrides           (merge *fx-overrides* (:fx-overrides opts {}))
              :interceptor-overrides  (:interceptor-overrides opts {})
              :trace-id               (:trace-id opts)
-             :source                 (:source opts :ui)
+             ;; Per rf2-hxj0d: default `:source` is `:unknown` —
+             ;; previously defaulted to `:ui`, which silently
+             ;; misattributed every unstamped dispatch (frame-init,
+             ;; internal continuations, REPL eval) as UI-driven. UI
+             ;; handler call-sites stamp `:source :ui` explicitly; the
+             ;; `:on-create` frame-init dispatch (frame.cljc) stamps
+             ;; `:source :frame-init`; fx-emit dispatches (fx.cljc)
+             ;; inherit the parent's `:source`; tests / REPL stamp
+             ;; their own kind. `:unknown` surfaces "we lost track"
+             ;; rather than fabricating an origin.
+             :source                 (:source opts :unknown)
              :origin                 (:origin opts :app)
              ;; Per rf2-t1lxr: the closed-enum functional source per
              ;; Xray A.5 / Spec 009 §Dispatch-origin tagging. The 10-value

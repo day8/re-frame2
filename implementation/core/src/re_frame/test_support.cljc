@@ -403,10 +403,21 @@
          ;; :rf/dispatch-origin :test-harness so Xray's L2 timeline +
          ;; per-origin filters can discriminate test-driven cascades
          ;; from user-origin events. Caller may override.
-         dispatch-opts (cond-> {:frame frame-id :rf/dispatch-origin :test-harness}
+         ;;
+         ;; Per rf2-hxj0d: also stamp `:source :test` so the Epoch
+         ;; panel's DISPATCH step labels these dispatches as "from
+         ;; test" instead of "from unknown" (the new default).
+         ;; `:rf/dispatch-origin :test-harness` and `:source :test`
+         ;; both classify origin; together they let the operator
+         ;; filter either axis. Caller may override `:source` too.
+         dispatch-opts (cond-> {:frame frame-id
+                                :rf/dispatch-origin :test-harness
+                                :source :test}
                          (contains? opts :origin) (assoc :origin (:origin opts))
                          (contains? opts :rf/dispatch-origin)
-                         (assoc :rf/dispatch-origin (:rf/dispatch-origin opts)))]
+                         (assoc :rf/dispatch-origin (:rf/dispatch-origin opts))
+                         (contains? opts :source)
+                         (assoc :source (:source opts)))]
      (doseq [ev events]
        (router/dispatch-sync! ev dispatch-opts)
        (when after-each
