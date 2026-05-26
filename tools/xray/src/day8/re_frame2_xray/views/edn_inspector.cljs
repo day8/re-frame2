@@ -2284,28 +2284,57 @@
   the absolute path from the original root (composed by the caller as
   `(into zoom-path-prefix path)`).
 
-  `dispatch-fn` is the lexically-captured frame-aware dispatcher (so the
-  event lands on the same frame the widget is mounted under). `panel-id`
-  + `mount-id` (or `site-id`) key the zoom slot. `absolute-path` is the
-  vec the reducer stores verbatim.
+  ## Dispatch asymmetry (rf2-kcaiz — same class as rf2-7sdja)
+
+  The zoom-to event dispatches against `:rf/xray` EXPLICITLY via the
+  established `(rf/dispatch event {:frame :rf/xray})` pattern. The
+  zoom slot lives in `:rf/xray`'s app-db (see `zoom-slot` docstring);
+  every consumer of `:zoomable? true` mounts inside Xray. Routing the
+  dispatch through the lexically-captured `dispatch-fn` looked safe
+  because the surrounding `reg-view` body inherits `:rf/xray` from
+  React context — but React's synthetic-event timing pops the frame
+  context before the click fires, so the dispatch leaks to
+  `:rf/default`. Pinning the frame at call time fixes it.
+
+  Same root cause as rf2-7sdja (popup-affordance) + rf2-y59tb (triangle
+  toggle) — every dispatch crossing the React/event boundary must carry
+  the `{:frame :rf/xray}` envelope at call time.
+
+  The `dispatch-fn` parameter is retained as a no-op for back-compat
+  with the existing render-call site shape. Production callers should
+  pass `nil` — `zoom-affordance-button` ignores it and dispatches
+  directly.
 
   Public so unit tests can drive the button without mounting."
-  [{:keys [dispatch-fn panel-id mount-id absolute-path testid]}]
-  (let [dispatch-fn (or dispatch-fn rf/dispatch*)]
-    [:button
-     {:data-testid        testid
-      :data-rf-affordance "zoom"
-      :aria-label         "Zoom into this node"
-      :title              "Zoom into this node"
-      :on-click           (fn [^js e]
-                            (when e
-                              (.preventDefault e)
-                              (.stopPropagation e))
-                            (dispatch-fn
-                              [:rf.xray.edn-inspector/zoom-to
-                               panel-id mount-id (vec absolute-path)]))
-      :style              zoom-affordance-button-style}
-     zoom-affordance-glyph]))
+  [{:keys [panel-id mount-id absolute-path testid]}]
+  ;; Note: callers historically supplied `:dispatch-fn`; we ignore it
+  ;; per the rf2-kcaiz fix (see docstring above). The key is left in
+  ;; the destructuring contract to keep the call-site shape stable.
+  [:button
+   {:data-testid        testid
+    :data-rf-affordance "zoom"
+    :aria-label         "Zoom into this node"
+    :title              "Zoom into this node"
+    :on-click           (fn [^js e]
+                          (when e
+                            (.preventDefault e)
+                            (.stopPropagation e))
+                          ;; rf2-kcaiz — zoom state is Xray-global.
+                          ;; Pin the dispatch frame to `:rf/xray`
+                          ;; regardless of the surrounding mount
+                          ;; frame so the zoom-slot subscription
+                          ;; (which only reads `:rf/xray`'s app-db)
+                          ;; sees the write. Without this pin the
+                          ;; dispatch leaks to `:rf/default`
+                          ;; because React synthetic-event timing
+                          ;; pops the frame context before the
+                          ;; click handler fires.
+                          (rf/dispatch
+                            [:rf.xray.edn-inspector/zoom-to
+                             panel-id mount-id (vec absolute-path)]
+                            {:frame :rf/xray}))
+    :style              zoom-affordance-button-style}
+   zoom-affordance-glyph])
 
 (defn- breadcrumb-segment-label
   "Render a single path-segment label using the syntax-palette colour
