@@ -833,15 +833,43 @@
        :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
                          (common/tag-of ev :duration-ms))})))
 
-(defn views-step
-  "VIEWS step row. nil when no view-render events fired (the step is
-  OMITTED — conditional)."
+(defn unmounted-views-rows
+  "Project `:rf.view/unmounted` events into rows (rf2-gmw1i). Each row
+  carries the view-id of an instance that tore down during this
+  cascade.
+
+  Per `re-frame.views/emit-view-unmounted!` (Spec 006 / rf2-9hoos /
+  rf2-te71r) the substrate stamps:
+
+      :rf.view/id          — the registered view-id
+      :rf.view/render-key  — the per-instance tuple (used as :instance)
+      :frame               — the originating frame
+
+  Returns an empty vec when no view-unmount events fired."
   [events]
-  (let [rows (view-rows events)]
-    (when (seq rows)
-      {:step  :views
-       :badge :VIEWS
-       :rows  rows})))
+  (vec
+    (for [ev (filter-op events :rf.view/unmounted)]
+      {:view-id  (common/tag-of ev :rf.view/id)
+       :instance (common/tag-of ev :rf.view/render-key)
+       :frame    (common/tag-of ev :frame)})))
+
+(defn views-step
+  "VIEWS step row. nil when no view-render events fired AND no view-
+  unmount events fired (the step is OMITTED — conditional).
+
+  Per rf2-gmw1i — `:unmounted-rows` carries one row per
+  `:rf.view/unmounted` trace event so the operator sees which views
+  tore down alongside the re-render rows. The step surfaces when
+  either side has content; empty rows are absent (omit-by-absence)."
+  [events]
+  (let [rows           (view-rows events)
+        unmounted-rows (unmounted-views-rows events)]
+    (when (or (seq rows) (seq unmounted-rows))
+      (cond-> {:step  :views
+               :badge :VIEWS
+               :rows  rows}
+        (seq unmounted-rows)
+        (assoc :unmounted-rows unmounted-rows)))))
 
 ;; ---- SCHEMA VIOLATIONS step ----------------------------------------------
 ;;

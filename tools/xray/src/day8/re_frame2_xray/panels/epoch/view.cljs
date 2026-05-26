@@ -1915,21 +1915,94 @@
          :else
          [:span {:style {:font-style "italic"}} "(none)"])]])])
 
+(defn- unmounted-views-table
+  "Render the UNMOUNTED VIEWS sub-section (rf2-gmw1i) — one row per
+  `:rf.view/unmounted` trace event. Visually distinct from the
+  re-render rows: a red/error glyph conveys the teardown semantic.
+  Click-to-source uses the same `(rf/handler-meta :view view-id)`
+  resolver the re-render rows use, so the operator can jump to the
+  view's definition even when the instance is gone."
+  [rows]
+  [:div {:data-testid "rf-xray-epoch-views-unmounted-table"
+         :style {:margin-top "8px"
+                 :border (str "1px solid " (:border-subtle tokens))
+                 :border-radius "3px"
+                 :overflow "hidden"}}
+   [:div {:style {:display "flex"
+                  :align-items "stretch"
+                  :background (:bg-3 tokens)
+                  :border-bottom (str "1px solid " (:border-subtle tokens))
+                  :font-family sans-stack
+                  :font-size "10px"
+                  :font-weight 700
+                  :color (:text-tertiary tokens)
+                  :text-transform "uppercase"
+                  :letter-spacing "0.5px"}}
+    [:div {:style {:flex "0 0 24px" :padding "5px 8px"}} ""]
+    [:div {:style {:flex "1 1 auto" :padding "5px 8px"}} "unmounted view"]]
+   (for [[i {:keys [view-id]}] (map-indexed vector rows)]
+     [:div {:key (str "unmounted-" i)
+            :data-testid (str "rf-xray-epoch-view-unmounted-row-" i)
+            :data-view-id (when view-id (pr-str view-id))
+            :style {:display "flex"
+                    :align-items "stretch"
+                    :border-bottom (when (< i (dec (count rows)))
+                                     (str "1px solid " (:border-subtle tokens)))}}
+      [:div {:style {:flex "0 0 24px" :padding "5px 8px"
+                     :color (:error tokens)
+                     :font-family mono-stack :font-size "12px"
+                     :font-weight 700
+                     :text-align "center"}}
+       ;; Teardown glyph — `✗` red/error tone conveys the view came
+       ;; off the reactive graph (rf2-gmw1i).
+       "✗"]
+      [:div {:style {:flex "1 1 auto" :padding "5px 8px" :min-width 0
+                     :font-family mono-stack :font-size "12px"
+                     :word-break "break-word"}}
+       [:span {:data-testid (str "rf-xray-epoch-view-unmounted-row-id-" i)
+               :style {:color (:text-secondary tokens)
+                       :display "inline-flex"
+                       :align-items "center" :gap "4px"}}
+        (if (some? view-id)
+          (proj/ns-keyword view-id)
+          [:span {:style {:color (:text-tertiary tokens)
+                          :font-style "italic"}}
+           "<anonymous view>"])
+        (coord-chip/coord-chip (view-coord view-id)
+                               (str "rf-xray-epoch-view-unmounted-row-coord-" i))]]])])
+
 (defn render-views-step
-  "Render the VIEWS step (only present when views re-rendered)."
-  [{:keys [rows step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-views"
-         :data-step-kw "views"}
-   (numbered-circle step-number :VIEWS)
-   (step-header
-     {:step :views
-      :badge :VIEWS
-      :verb (str (count rows) " view"
-                 (when (not= 1 (count rows)) "s") " re-rendered")
-      :expandable? false
-      :testid "rf-xray-epoch-views"}
-     nil)
-   (views-table rows)])
+  "Render the VIEWS step (present when views re-rendered OR when
+  views unmounted during the cascade — rf2-gmw1i).
+
+  Header counter reads `N re-rendered; M unmounted` when both
+  surfaces are non-empty; collapses to `N re-rendered` or `M
+  unmounted` when one half is absent. The unmounted sub-section
+  is omitted entirely when no unmount-trace events fired."
+  [{:keys [rows unmounted-rows step-number]}]
+  (let [n (count rows)
+        m (count unmounted-rows)
+        verb (cond
+               (and (pos? n) (pos? m))
+               (str n " re-rendered; " m " unmounted")
+               (pos? m)
+               (str m " unmounted")
+               :else
+               (str n " view" (when (not= 1 n) "s") " re-rendered"))]
+    [:div {:data-testid "rf-xray-epoch-step-views"
+           :data-step-kw "views"}
+     (numbered-circle step-number :VIEWS)
+     (step-header
+       {:step :views
+        :badge :VIEWS
+        :verb verb
+        :expandable? false
+        :testid "rf-xray-epoch-views"}
+       nil)
+     (when (pos? n)
+       (views-table rows))
+     (when (pos? m)
+       (unmounted-views-table unmounted-rows))]))
 
 ;; ---- SCHEMA-VIOLATIONS step (rf2-17vxj) ----------------------------------
 

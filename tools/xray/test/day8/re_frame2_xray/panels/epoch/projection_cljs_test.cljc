@@ -133,6 +133,19 @@
          (some? elapsed-ms)
          (assoc :rf.view/elapsed-ms elapsed-ms)))))
 
+(defn- view-unmounted-ev
+  "`:rf.view/unmounted` trace event — drives the VIEWS step's
+  UNMOUNTED sub-section (rf2-gmw1i). Per
+  `re-frame.views/emit-view-unmounted!` the substrate stamps
+  `:rf.view/id` + `:rf.view/render-key` + `:frame`."
+  ([view-id]
+   (view-unmounted-ev view-id nil :rf/default))
+  ([view-id render-key frame]
+   (ev :rf.view :rf.view/unmounted
+       {:rf.view/id         view-id
+        :rf.view/render-key render-key
+        :frame              frame})))
+
 (defn- machine-transition-ev
   ([machine-id before after]
    (machine-transition-ev machine-id before after nil 0))
@@ -860,6 +873,52 @@
       (is (= :app.counter/Counter (:view-id row)))
       (is (= [[:counter/total] [:counter/threshold]] (:subs-read row)))
       (is (= 1.2 (:duration-ms row))))))
+
+(deftest unmounted-views-rows-test
+  (testing "rf2-gmw1i — `unmounted-views-rows` projects each
+            `:rf.view/unmounted` trace event into a row with `:view-id`,
+            `:instance`, `:frame`"
+    (let [rows (proj/unmounted-views-rows
+                 [(view-unmounted-ev :app/Counter [:Counter 0] :rf/default)
+                  (view-unmounted-ev :app/Sidebar [:Sidebar 0] :rf/default)])]
+      (is (= 2 (count rows)))
+      (is (= :app/Counter (-> rows first :view-id)))
+      (is (= [:Counter 0] (-> rows first :instance)))
+      (is (= :rf/default (-> rows first :frame)))
+      (is (= :app/Sidebar (-> rows second :view-id)))))
+
+  (testing "rf2-gmw1i — no `:rf.view/unmounted` events → empty vec"
+    (is (= [] (proj/unmounted-views-rows
+                [(view-render-ev :app/Counter [])])))))
+
+(deftest views-step-surfaces-unmounted-rows-test
+  (testing "rf2-gmw1i — `views-step` carries `:unmounted-rows` when
+            `:rf.view/unmounted` events fired alongside re-renders"
+    (let [s (proj/views-step
+              [(view-render-ev :app/Counter [])
+               (view-unmounted-ev :app/SidebarItem [:SidebarItem 0]
+                                  :rf/default)])]
+      (is (= 1 (count (:rows s))))
+      (is (= 1 (count (:unmounted-rows s))))
+      (is (= :app/SidebarItem (-> s :unmounted-rows first :view-id)))))
+
+  (testing "rf2-gmw1i — unmount-only cascade (no renders) → step still
+            present; `:rows` empty, `:unmounted-rows` populated"
+    (let [s (proj/views-step
+              [(view-unmounted-ev :app/Tooltip [:Tooltip 0] :rf/default)])]
+      (is (some? s) "step rendered even when no re-renders fired")
+      (is (= :views (:step s)))
+      (is (= [] (:rows s)))
+      (is (= 1 (count (:unmounted-rows s))))))
+
+  (testing "rf2-gmw1i — no view events at all → step OMITTED"
+    (is (nil? (proj/views-step []))))
+
+  (testing "rf2-gmw1i — only re-renders, no unmounts → `:unmounted-rows`
+            slot ABSENT (omit-by-absence)"
+    (let [s (proj/views-step [(view-render-ev :app/Counter [])])]
+      (is (not (contains? s :unmounted-rows))
+          "absent slot conveys absence, not an empty vec"))))
 
 ;; ---- top-level project --------------------------------------------------
 

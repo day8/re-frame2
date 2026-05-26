@@ -167,6 +167,16 @@
                                   :rf.view/deref-subs deref-subs
                                   :rf.view/elapsed-ms elapsed-ms}))
 
+(defn- view-unmounted-ev
+  "`:rf.view/unmounted` trace (per rf2-9hoos / rf2-te71r) — drives
+  the VIEWS step's UNMOUNTED sub-section (rf2-gmw1i). Substrate
+  stamps `:rf.view/id` + `:rf.view/render-key` + `:frame` on every
+  view-instance teardown."
+  [view-id render-key]
+  (ev :rf.view :rf.view/unmounted {:rf.view/id         view-id
+                                   :rf.view/render-key render-key
+                                   :frame              :rf/default}))
+
 ;; ---- machine-handler trace primitives -----------------------------------
 
 (defn- machine-transition-ev
@@ -607,3 +617,27 @@
     {:epoch-id 7
      :event    [:counter/init]
      :trace-events []}))
+
+;; ---- VARIANT 10: unmounted-views cascade (rf2-gmw1i) --------------------
+;;
+;; Section coverage: VIEWS step's UNMOUNTED sub-section (rf2-gmw1i).
+;; A route change tears down two views; one new view mounts. Exercises
+;; the `N re-rendered; M unmounted` header counter + the per-row red
+;; `✗` glyph chrome on the unmounted entries.
+
+(defn unmounted-views-history
+  "Cascade where two view instances unmount (route change tears down
+  the modal + a sidebar item) while one new view re-renders.
+  Exercises the VIEWS step's UNMOUNTED sub-section (rf2-gmw1i)."
+  []
+  (single-epoch-history
+    {:epoch-id 10
+     :event    [:route/change :dashboard]
+     :trace-events
+     [(dispatched-ev [:route/change :dashboard] :ui)
+      (db-changed-ev [[[:route] :checkout :dashboard :modified]])
+      (sub-run-ev [:route/current] true :checkout :dashboard)
+      (view-rendered-ev :app.dashboard/Page [[:route/current]] 1.1)
+      (view-unmounted-ev :app.checkout/Modal      [:Modal 0])
+      (view-unmounted-ev :app.sidebar/CheckoutItem [:CheckoutItem 0])
+      (run-end-ev 0.6)]}))

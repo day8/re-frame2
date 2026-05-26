@@ -23,6 +23,7 @@
   | `flow-firing`          | DISPATCH · HANDLER (db) · APP-DB DIFF · FLOW · FX · SUBSCRIPTIONS · VIEWS |
   | `empty`                | empty-state — no epochs (`:no-focus`)              |
   | `no-events`            | cold pipeline — one epoch with empty `:trace-events` |
+  | `unmounted-views`      | DISPATCH · HANDLER (db) · SUBSCRIPTIONS · VIEWS (re-renders + UNMOUNTED sub-section — rf2-gmw1i) |
 
   ## Why seed via `:rf.xray/sync-epoch-history`
 
@@ -168,13 +169,24 @@
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
+  ;; ----- 10. unmounted-views cascade (rf2-gmw1i) ---------------------
+  (story/reg-variant :story.xray.epoch/unmounted-views
+    {:doc        "Route-change cascade where two view instances unmount
+                 (modal + sidebar item) while a new view re-renders.
+                 Exercises the VIEWS step's UNMOUNTED sub-section
+                 (rf2-gmw1i) — header reads `N re-rendered; M unmounted`,
+                 each unmounted-row paints the red ✗ teardown glyph."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/unmounted-views-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
   ;; ----- workspace ---------------------------------------------------
   (story/reg-workspace :Workspace.xray.epoch/all
-    {:doc      "All nine Epoch panel variants in one auto-grid.
+    {:doc      "All ten Epoch panel variants in one auto-grid.
                 Scroll to see the cascade across vanilla-db /
                 reg-event-fx / machine-driven / schema-violations /
                 child-dispatches / long-step / flow-firing / empty /
-                no-events."
+                no-events / unmounted-views."
      :layout   :variants-grid
      :story    :story.xray.epoch
      :columns  2

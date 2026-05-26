@@ -389,6 +389,66 @@
       (is (fn? (:on-mouse-leave attrs))
           "row carries an on-mouse-leave handler"))))
 
+;; ---- rf2-gmw1i — VIEWS step surfaces unmounted views ------------------
+
+(deftest views-unmounted-section-renders-when-rows-present-test
+  (testing "rf2-gmw1i — when projection carries `:unmounted-rows`, the
+            VIEWS step renders an UNMOUNTED sub-section listing each
+            torn-down view; header reads `N re-rendered; M unmounted`"
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id :app.counter/Counter
+                        :subs-read [[:counter/total]] :duration-ms 0.5}]
+                :unmounted-rows [{:view-id :app.sidebar/Item
+                                  :instance [:Item 0]
+                                  :frame :rf/default}]}
+          tree (view/render-views-step step)
+          header (text-of tree "rf-xray-epoch-views-header")
+          unmounted-tbl (th/find-by-testid tree "rf-xray-epoch-views-unmounted-table")
+          row0 (th/find-by-testid tree "rf-xray-epoch-view-unmounted-row-0")]
+      (is (some? unmounted-tbl)
+          "the UNMOUNTED sub-section is present when unmounted-rows are present")
+      (is (some? row0)
+          "the per-unmounted-view row renders")
+      (is (string/includes? header "1 re-rendered")
+          "header reads `1 re-rendered`")
+      (is (string/includes? header "1 unmounted")
+          "header reads `... 1 unmounted`")
+      (let [id-text (text-of tree "rf-xray-epoch-view-unmounted-row-id-0")]
+        (is (string/includes? id-text ":app.sidebar/Item")
+            "unmounted view's id renders in the row")))))
+
+(deftest views-unmounted-section-omitted-without-rows-test
+  (testing "rf2-gmw1i — when no `:unmounted-rows`, no UNMOUNTED
+            sub-section renders; header reads the legacy `N views
+            re-rendered` shape"
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id :app.counter/Counter
+                        :subs-read [[:counter/total]] :duration-ms 0.5}]}
+          tree (view/render-views-step step)
+          header (text-of tree "rf-xray-epoch-views-header")]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-views-unmounted-table"))
+          "no UNMOUNTED table renders when unmounted-rows is absent")
+      (is (string/includes? header "1 view re-rendered")
+          "header reads `1 view re-rendered` (no unmount tail)"))))
+
+(deftest views-step-unmount-only-cascade-renders-test
+  (testing "rf2-gmw1i — when the cascade is unmount-only (no re-renders)
+            the step still renders; the re-render table is absent;
+            header reads `M unmounted`"
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows []
+                :unmounted-rows [{:view-id :app/Tooltip
+                                  :instance [:Tooltip 0]
+                                  :frame :rf/default}]}
+          tree (view/render-views-step step)
+          header (text-of tree "rf-xray-epoch-views-header")]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-views-table"))
+          "the re-render table is omitted when no rows fired")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-views-unmounted-table"))
+          "the UNMOUNTED table renders")
+      (is (string/includes? header "1 unmounted")
+          "header reads the unmount-only shape"))))
+
 ;; ---- rf2-nqt3d — per-step elapsed time + cascade total ----------------
 
 (deftest cascade-summary-renders-total-test
