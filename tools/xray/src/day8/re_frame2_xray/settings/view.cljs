@@ -260,6 +260,180 @@
 
 ;; ---- section: General ---------------------------------------------------
 
+;; Forward declarations for style helpers defined further down the
+;; file (the ghost-button + danger-button styles are colocated with
+;; the Buffer-tab affordances). The editor-override picker reaches
+;; for `ghost-button-style` to render the "Reset to project default"
+;; button.
+(declare ghost-button-style)
+
+;; ---- editor-override picker (rf2-dudqz) ---------------------------------
+;;
+;; Enumerated radio set + Custom escape hatch. Selecting an editor
+;; writes `[:general :editor-override <value>]` via the same
+;; `:rf.xray/settings-update` event every other General-tab knob uses
+;; — round-trips through localStorage and the override wins
+;; immediately because `config/get-editor` (the read seam) consults
+;; the slot before the host's `editor` atom.
+;;
+;; The picker carries six options:
+;;   - "(project default)" — clears the override (writes `nil`)
+;;   - VS Code / Cursor / Windsurf / Zed / IntelliJ IDEA — the
+;;     enumerated keywords `re-frame.source-coords.editor-uri` knows
+;;     natively (one option per keyword in `:rf.xray/editor`)
+;;   - Custom — reveals the URI-template input so users on Sublime /
+;;     Emacs / Vim / etc. can paste their own template (`{path}` /
+;;     `{file}` / `{line}` / `{column}` placeholders)
+;;
+;; The "(project default)" radio is the default selection when the
+;; override is nil; selecting it clears the override so the host's
+;; `configure!` choice wins again.
+
+(def ^:private editor-override-options
+  "Ordered list of the radio options. `:value` is the slot value
+  the option writes (a keyword, nil, or a `{:custom <tpl>}` sentinel
+  the picker recognises). The Custom option does NOT write through
+  on radio click — it just reveals the URI-template input; the
+  template input writes the actual `{:custom <tpl>}` slot value on
+  change."
+  [{:id :default  :value nil       :label "(project default)"}
+   {:id :vscode   :value :vscode   :label "VS Code"}
+   {:id :cursor   :value :cursor   :label "Cursor"}
+   {:id :windsurf :value :windsurf :label "Windsurf"}
+   {:id :zed      :value :zed      :label "Zed"}
+   {:id :idea     :value :idea     :label "IntelliJ IDEA (any JetBrains IDE)"}
+   {:id :custom   :value :custom   :label "Custom URI template"}])
+
+(defn- override->radio-id
+  "Map the persisted override slot value back to the radio option id
+  it represents. `nil` selects `:default`; map (custom) selects
+  `:custom`; an enumerated keyword selects its matching id; anything
+  unrecognised falls back to `:default` so a stale persisted payload
+  cannot leave the radio set unselected."
+  [override]
+  (cond
+    (nil? override)                                   :default
+    (map? override)                                   :custom
+    (#{:vscode :cursor :windsurf :zed :idea} override) override
+    :else                                              :default))
+
+(defn- dispatch-editor-override! [value]
+  (rf/dispatch [:rf.xray/settings-update
+                :general :editor-override value]
+               {:frame :rf/xray}))
+
+(defn- editor-override-section [override host-default]
+  (let [active-id   (override->radio-id override)
+        custom-tpl  (when (map? override) (:custom override))
+        host-label  (cond
+                      (map? host-default)
+                      (str "Custom (" (or (:custom host-default) "—") ")")
+
+                      :else
+                      (case host-default
+                        :vscode   "VS Code"
+                        :cursor   "Cursor"
+                        :windsurf "Windsurf"
+                        :zed      "Zed"
+                        :idea     "IntelliJ IDEA"
+                        (str (or host-default :vscode))))]
+    [:div {:data-testid "rf-xray-settings-editor-override"
+           :style       (field-style)}
+     [:span {:style (label-style)} "Click-to-source links open in"]
+     (for [{:keys [id value label]} editor-override-options]
+       ^{:key id}
+       [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                        :cursor "pointer"
+                        :font-size (:body type-scale)
+                        :color (:text-primary tokens)}}
+        [:input {:data-testid (str "rf-xray-settings-editor-override-" (name id))
+                 :type        "radio"
+                 :name        "rf-xray-settings-editor-override"
+                 :checked     (= id active-id)
+                 :on-change   (fn [_]
+                                (cond
+                                  ;; Custom: don't write the override
+                                  ;; until the template input lands —
+                                  ;; selecting the radio just reveals
+                                  ;; the input. If there is no prior
+                                  ;; custom template, seed an empty
+                                  ;; `{:custom ""}` so the parent slot
+                                  ;; recognises Custom and the input
+                                  ;; renders.
+                                  (= id :custom)
+                                  (when-not (map? override)
+                                    (dispatch-editor-override! {:custom ""}))
+
+                                  :else
+                                  (dispatch-editor-override! value)))}]
+        label])
+
+     ;; Custom URI-template input — visible only when Custom is the
+     ;; active option. The input is uncontrolled-style (value tracks
+     ;; the slot) so the user's typing lands on every keystroke.
+     (when (= active-id :custom)
+       [:div {:style {:margin "8px 0 0 24px"}}
+        [:input {:data-testid "rf-xray-settings-editor-override-custom-input"
+                 :type        "text"
+                 :value       (str (or custom-tpl ""))
+                 :placeholder "subl://open?url=file://{path}&line={line}"
+                 :on-change   (fn [^js e]
+                                (let [tpl (.. e -target -value)]
+                                  (dispatch-editor-override!
+                                    {:custom tpl})))
+                 :style       {:width        "100%"
+                               :padding      "4px 8px"
+                               :background   (:bg-2 tokens)
+                               :color        (:text-primary tokens)
+                               :border       (str "1px solid " (:border-default tokens))
+                               :border-radius "4px"
+                               :font-family  mono-stack
+                               :font-size    (:caption type-scale)}}]
+        [:p {:style (hint-style)}
+         "Placeholders: "
+         [:code {:style {:font-family mono-stack
+                         :color (:text-tertiary tokens)}}
+          "{path}"] " "
+         [:code {:style {:font-family mono-stack
+                         :color (:text-tertiary tokens)}}
+          "{file}"] " "
+         [:code {:style {:font-family mono-stack
+                         :color (:text-tertiary tokens)}}
+          "{line}"] " "
+         [:code {:style {:font-family mono-stack
+                         :color (:text-tertiary tokens)}}
+          "{column}"] ". "
+         "Schemes outside the allowlist (`http:` / `https:` / "
+         "`javascript:` / `data:`) are refused at click-time."]])
+
+     [:div {:style {:display "flex"
+                    :align-items "center"
+                    :gap "12px"
+                    :margin-top "8px"}}
+      [:button {:data-testid "rf-xray-settings-editor-override-reset"
+                :on-click    (fn [^js e]
+                               (.stopPropagation e)
+                               (dispatch-editor-override! nil))
+                :disabled    (nil? override)
+                :style       (merge (ghost-button-style)
+                                    (when (nil? override)
+                                      {:opacity 0.5
+                                       :cursor "default"}))}
+       "Reset to project default"]
+      [:span {:data-testid "rf-xray-settings-editor-override-host-default"
+              :style       {:font-size (:caption type-scale)
+                            :color (:text-tertiary tokens)
+                            :font-family sans-stack}}
+       "Project default: " host-label]]
+     [:p {:style (hint-style)}
+      "Override the project's editor preference for your machine. "
+      "Stored locally — never shared with the host app or your "
+      "teammates. Useful when the project's "
+      [:code {:style {:font-family mono-stack
+                      :color (:text-tertiary tokens)}}
+       ":rf.xray/editor"]
+      " default doesn't match your installed editor."]]))
+
 (defn- general-section []
   (let [text-size       @(rf/subscribe [:rf.xray/setting :general :text-size])
         panel-position  @(rf/subscribe [:rf.xray/setting :general :panel-position])
@@ -270,6 +444,8 @@
         show-tool?      @(rf/subscribe [:rf.xray/show-tool-frames?])
         show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
         show-unchanged-subs? @(rf/subscribe [:rf.xray/setting :general :show-unchanged-subs?])
+        editor-override @(rf/subscribe [:rf.xray/setting :general :editor-override])
+        host-editor     @(rf/subscribe [:rf.xray/editor-host-default])
         use-system?     @(rf/subscribe [:rf.xray/setting
                                         :general :use-system-colors?])]
     [:div {:data-testid "rf-xray-settings-section-general"}
@@ -439,6 +615,16 @@
                               :font-family  mono-stack}}]]
       [:p {:style (hint-style)}
        "Fully-qualified keywords longer than this elide in compact list cells."]]
+
+     ;; ── Editor override (rf2-dudqz) ─────────────────────────────
+     ;;
+     ;; Per-operator override for Xray's 'Open in editor' click-to-
+     ;; source target. Default `nil` (use the project's
+     ;; `:rf.xray/editor` default). Selecting an editor here writes
+     ;; the slot via `:rf.xray/settings-update` and `config/get-editor`
+     ;; consults the slot before the host atom — the next chip click
+     ;; uses the override URI without a reload.
+     (editor-override-section editor-override host-editor)
 
      ;; ── Epoch history slider (rf2-3zyyx; relocated rf2-pu9sb) ──
      ;;

@@ -32,6 +32,14 @@
                        [re-frame.core :as rf]
                        [re-frame.frame :as frame]])))
 
+;; Forward declarations. The `editor preference` block (`get-editor`)
+;; reads the `settings` atom defined further down the file (the popup
+;; persistence layer); the `declare` pacifies the analyser's warning
+;; without changing initialization order — the atom's runtime value
+;; is what matters when `get-editor` is called, and the file's
+;; top-to-bottom `defonce` order guarantees the atom is bound by then.
+(declare settings)
+
 ;; ---- editor preference ---------------------------------------------------
 
 (def default-layout-host-selector
@@ -386,10 +394,43 @@
   (reset! editor (or e :vscode))
   nil)
 
-(defn get-editor
-  "Return the current editor preference."
+(defn get-host-editor-default
+  "Return the host's `:rf.xray/editor` default — the value
+  `set-editor!` (or `xray-config/configure! {:rf.xray/editor …}`)
+  pushed into the atom at boot. Settings popup's editor-override
+  picker reads this to render the 'Project default: <name>' hint
+  next to the Reset button (per rf2-dudqz).
+
+  This is NOT the value `get-editor` returns when an end-user override
+  is in play — it is the BASE the override sits on top of."
   []
   @editor)
+
+(defn get-editor
+  "Return the editor preference Xray's 'Open in editor' affordance
+  should target.
+
+  Three-tier resolution (per rf2-dudqz):
+
+    1. **End-user override** — the `[:general :editor-override]`
+       settings slot. Settable via the Settings popup → General tab
+       'Click-to-source opens in' picker; round-trips through
+       localStorage like every other operator preference. Wins when
+       non-nil so a mixed-editor teammate can flip their machine to
+       a different editor without touching the host app's boot config.
+    2. **Host default** — the `editor` atom set by
+       `set-editor!` / `(xray-config/configure! {:rf.xray/editor …})`.
+       The team's project-wide pick.
+    3. **Framework default** — `:vscode`, the most-installed editor
+       in 2026 (per spec/007-UX-IA.md §URI construction).
+
+  The override is purely client-side — it does NOT mutate the host's
+  atom. Clearing the override (selecting '(project default)' in the
+  picker) restores the host default."
+  []
+  (let [override (try (get-in @settings [:general :editor-override])
+                      (catch #?(:clj Throwable :cljs :default) _ nil))]
+    (or override @editor)))
 
 ;; ---- *project-root* (rf2-5m5n2 — 'Open in editor' path prefix) ----------
 ;;
@@ -872,7 +913,27 @@
                ;; persisted payload is always in-range.
                :event-list-col-widths   {:source    52
                                          :timestamp 76
-                                         :duration  60}}
+                                         :duration  60}
+               ;; rf2-dudqz — end-user editor override for Xray's
+               ;; 'Open in editor' click-to-source links. Mixed-editor
+               ;; teams: the host app sets `:rf.xray/editor` once at
+               ;; boot via `xray-config/configure!`, but individual
+               ;; operators on the team can override per-machine via
+               ;; the Settings popup → General tab. Default `nil` —
+               ;; no override; `get-editor` returns the host default.
+               ;;
+               ;; Accepted values mirror `set-editor!` exactly so the
+               ;; override is interchangeable with the host atom:
+               ;;   nil          — no override (use host default)
+               ;;   :vscode | :cursor | :windsurf | :zed | :idea
+               ;;   {:custom "<uri-template>"}
+               ;;
+               ;; Persists via the existing settings localStorage
+               ;; round-trip — one key + one merge path for every
+               ;; per-user preference. The override lives entirely
+               ;; client-side; it never mutates the host's atom and
+               ;; never reaches other browsers / tabs / users.
+               :editor-override         nil}
    :theme     :light                                 ; :light | :dark (rf2-3f2di — light default per the authority reference)
    :diff      {:highlight-fn-ref-changes? false}
    :buffer    {:retained-epochs                    200
