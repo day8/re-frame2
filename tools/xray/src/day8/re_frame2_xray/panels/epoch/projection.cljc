@@ -10,7 +10,7 @@
   surfaced in this epoch:
 
   - no `:rf.cofx/run` events → no COEFFECT rows
-  - no `:rf.flow/recomputed` events → no FLOW step
+  - no `:rf.flow/computed` events → no FLOW step
   - no `:rf.fx/handled` events → no FX step
   - HANDLER step adapts to the handler's flavour:
       reg-event-db / reg-event-fx / reg-machine
@@ -78,13 +78,12 @@
   fixtures that synthesise an epoch from a literal `:event` vector
   surface this path).
 
-  Per rf2-93a7s the event vector is read from the substrate's canonical
-  `:rf.event/v` tag (see `re-frame.router/emit-dispatched-trace`). The
-  pre-rf2-93a7s read against `:event` silently returned `nil` for
-  every dispatched event because the substrate has never stamped under
-  that name; the result was a DISPATCH step with no event-vector body.
-  Legacy `:event` + `(:event ev)` reads are retained as fallbacks for
-  fixture compatibility."
+  Per rf2-93a7s the event vector lives under `[:tags :rf.event/v]` on
+  the dispatched trace (see `re-frame.router/emit-dispatched-trace`);
+  the canonical projection-side reader is `common/tag-of`. The legacy
+  bare `:event` tag is retained as a fixture-compat fallback only —
+  trace events never carry `:event` at top-level (the pre-rf2-509pq
+  `(:event ev)` arm was dead and removed)."
   [events fallback-event]
   (let [ev (find-op events :rf.event/dispatched)]
     (cond
@@ -93,7 +92,6 @@
        :badge       :DISPATCH
        :event       (or (common/tag-of ev :rf.event/v)
                         (common/tag-of ev :event)
-                        (:event ev)
                         fallback-event)
        :source      (or (common/tag-of ev :source)
                         (common/tag-of ev :rf.event/source))
@@ -170,7 +168,13 @@
                  :badge       :COEFFECT
                  :id          id
                  :value       resolved
-                 :duration-ms (common/tag-of ev :duration-ms)}
+                 ;; rf2-w2r4p — substrate stamps the per-cofx
+                 ;; invocation duration as `:rf.cofx/elapsed-ms` on
+                 ;; `:rf.cofx/run` (rf2-hhh92 · `re-frame.cofx`;
+                 ;; spec 009 §243). Legacy `:duration-ms` retained
+                 ;; as a fixture-compat fallback for older runtimes.
+                 :duration-ms (or (common/tag-of ev :rf.cofx/elapsed-ms)
+                                  (common/tag-of ev :duration-ms))}
           ;; preserve the per-call input arg for 2-arity cofx so the
           ;; view can surface it when distinct from the resolved value
           (some? input-arg) (assoc :input input-arg))))))
@@ -552,7 +556,17 @@
         run-end     (run-end-tags events)
         db-changed  (find-op events :rf.event/db-changed)
         do-fx       (find-op events :rf.fx/do-fx)
-        duration-ms (or (:duration-ms run-end)
+        ;; rf2-slnce — substrate stamps the per-handler wall-clock
+        ;; duration as `:rf.event/elapsed-ms` on `:rf.event/run-end`
+        ;; (rf2-hhh92 · `re-frame.router/emit-run-end-trace`); spec
+        ;; 009 §238. The pre-rf2-slnce reader looked for the
+        ;; never-emitted `:duration-ms` / `:rf.event/duration-ms` →
+        ;; HANDLER duration was always nil and the cascade-summary
+        ;; chip total was systematically under-counted. Legacy
+        ;; names retained as fixture-compat fallbacks; the
+        ;; db-changed / do-fx slot fallbacks are similarly defensive.
+        duration-ms (or (:rf.event/elapsed-ms run-end)
+                        (:duration-ms run-end)
                         (:rf.event/duration-ms run-end)
                         (some-> db-changed :tags :duration-ms)
                         (some-> do-fx :tags :duration-ms))
@@ -585,21 +599,25 @@
 (defn flow-rows
   "Project flow-recompute events into rows. Each row carries
   `:flow-id`, `:path` (the db path the flow wrote), and optional
-  before/after values when the substrate stamps them. Empty vec when
-  no flow fired this epoch.
+  before/after values. Empty vec when no flow fired this epoch.
 
-  Reads `:rf.flow/recomputed` (the standard recompute trace) +
-  `:rf.flow/run-end` (the per-flow duration carrier) defensively so
-  fixtures that emit either op surface a row."
+  Per rf2-yhgk8 the substrate stamps the canonical
+  `:rf.flow/computed` operation with BARE `:flow-id` / `:path` /
+  `:before` / `:result` / `:elapsed-ms` tags (Spec 009 §Flow trace
+  events · `re-frame.flows`). The pre-rf2-yhgk8 reader looked for
+  the never-emitted `:rf.flow/recomputed` op + `:rf.flow/{id,path,
+  before,after}` tags — every FLOW slot returned nil and the cascade
+  silently dropped the step (the row's view-side `:after` maps to the
+  substrate's `:result`)."
   [events]
-  (let [evs (filter-op events :rf.flow/recomputed)]
+  (let [evs (filter-op events :rf.flow/computed)]
     (vec
       (for [ev evs]
-        {:flow-id     (common/tag-of ev :rf.flow/id)
-         :path        (common/tag-of ev :rf.flow/path)
-         :before      (common/tag-of ev :rf.flow/before)
-         :after       (common/tag-of ev :rf.flow/after)
-         :duration-ms (common/tag-of ev :duration-ms)}))))
+        {:flow-id     (common/tag-of ev :flow-id)
+         :path        (common/tag-of ev :path)
+         :before      (common/tag-of ev :before)
+         :after       (common/tag-of ev :result)
+         :duration-ms (common/tag-of ev :elapsed-ms)}))))
 
 (defn flow-step
   "Top-level FLOW step (single row carrying the flow-rows). nil when no
@@ -681,7 +699,13 @@
         (cond-> {:fx-id       fx-id
                  :status      (status-fn o)
                  :args        (common/tag-of ev :rf.fx/args)
-                 :duration-ms (common/tag-of ev :duration-ms)}
+                 ;; rf2-ipaza — substrate stamps the per-fx-handler
+                 ;; invocation duration as `:rf.fx/elapsed-ms` on
+                 ;; `:rf.fx/handled` (rf2-hhh92 · `re-frame.fx`;
+                 ;; spec 009 §241). Legacy `:duration-ms` retained
+                 ;; as a fixture-compat fallback for older runtimes.
+                 :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
+                                  (common/tag-of ev :duration-ms))}
           (get attribution-map fx-id)
           (assoc :attributed-to (get attribution-map fx-id)))))))
 
@@ -1062,13 +1086,11 @@
         event-id  (or (:event-id epoch-record)
                       (when-let [ev (find-op events :rf.event/dispatched)]
                         (let [v (or (common/tag-of ev :rf.event/v)
-                                    (common/tag-of ev :event)
-                                    (:event ev))]
+                                    (common/tag-of ev :event))]
                           (when (vector? v) (first v)))))
         fallback  (or (when-let [ev (find-op events :rf.event/dispatched)]
                         (or (common/tag-of ev :rf.event/v)
-                            (common/tag-of ev :event)
-                            (:event ev)))
+                            (common/tag-of ev :event)))
                       (:event epoch-record))]
     (if (and (empty? events) (nil? fallback))
       ;; Truly empty epoch: no dispatched trace, no fallback event,
@@ -1082,11 +1104,22 @@
             ;; rows). The view layer numbers each as its own step
             ;; in the cascade so the operator reads them as
             ;; first-class pipeline entries.
-            cofx-steps (mapv (fn [{:keys [id value]}]
-                               {:step  :coeffect
-                                :badge :COEFFECT
-                                :id    id
-                                :value value})
+            ;;
+            ;; rf2-w2r4p — the flattening MUST thread the row's
+            ;; `:duration-ms` through to the step map; the prior
+            ;; shape silently dropped it, so even with `coeffect-
+            ;; rows-from-runs` correctly stamping the canonical
+            ;; `:rf.cofx/elapsed-ms` the duration never reached the
+            ;; numbered cascade. `long-step?` keys off `:duration-ms`
+            ;; on the step row, so the cofx step now participates
+            ;; in long-step chrome detection.
+            cofx-steps (mapv (fn [{:keys [id value duration-ms]}]
+                               (cond-> {:step  :coeffect
+                                        :badge :COEFFECT
+                                        :id    id
+                                        :value value}
+                                 (some? duration-ms)
+                                 (assoc :duration-ms duration-ms)))
                              cofx-rows)
             steps     (vec
                         (concat

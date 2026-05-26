@@ -18,8 +18,8 @@
        `:rf.event/run-end` stamp fallback.
     3. `handler-row` — flavour discrimination (reg-event-db /
        reg-event-fx / reg-machine) from the trace stream.
-    4. `flow-step` — conditional: present iff `:rf.flow/recomputed`
-       fired.
+    4. `flow-step` — conditional: present iff `:rf.flow/computed`
+       fired (rf2-yhgk8 — substrate-canonical op-name).
     5. `fx-step` — conditional: present iff any `:rf.fx/*` event fired.
     6. `subscriptions-step` — conditional: present iff `:rf.sub/*`
        events fired.
@@ -53,16 +53,27 @@
      true (assoc :event event :source source))))
 
 (defn- run-end-ev
+  ;; rf2-slnce — substrate stamps the handler's wall-clock duration
+  ;; as `:rf.event/elapsed-ms` on `:rf.event/run-end` (rf2-hhh92 ·
+  ;; `re-frame.router/emit-run-end-trace`). Fixture stamps the
+  ;; canonical name only; the reader's legacy fallbacks remain for
+  ;; older runtimes / external test fixtures.
   ([] (run-end-ev nil nil))
   ([duration-ms] (run-end-ev duration-ms nil))
   ([duration-ms coeffects]
-   (ev :rf.event :rf.event/run-end (cond-> {:duration-ms duration-ms}
+   (ev :rf.event :rf.event/run-end (cond-> {:rf.event/elapsed-ms duration-ms}
                                      coeffects (assoc :rf.event/coeffects
                                                       coeffects)))))
 
 (defn- cofx-run-ev
-  [id value]
-  (ev :rf.cofx :rf.cofx/run {:rf.cofx/id id :rf.cofx/value value}))
+  ;; rf2-w2r4p — substrate stamps `:rf.cofx/elapsed-ms` on
+  ;; `:rf.cofx/run` (rf2-hhh92 · `re-frame.cofx`; spec 009 §243). The
+  ;; 3-arg form supplies a duration; the 2-arg legacy form omits it.
+  ([id value] (ev :rf.cofx :rf.cofx/run {:rf.cofx/id id :rf.cofx/value value}))
+  ([id value duration-ms]
+   (ev :rf.cofx :rf.cofx/run {:rf.cofx/id         id
+                              :rf.cofx/value      value
+                              :rf.cofx/elapsed-ms duration-ms})))
 
 (defn- db-changed-ev
   [paths]
@@ -73,17 +84,29 @@
   (ev :rf.fx :rf.fx/do-fx {:rf.event/fx fx}))
 
 (defn- fx-handled-ev
+  ;; rf2-ipaza — substrate stamps the per-fx-handler invocation
+  ;; duration as `:rf.fx/elapsed-ms` on `:rf.fx/handled` (rf2-hhh92 ·
+  ;; `re-frame.fx`; spec 009 §241). Fixture stamps the canonical name
+  ;; only; the reader's legacy `:duration-ms` fallback remains for
+  ;; older runtimes / external test fixtures.
   [fx-id args duration-ms]
-  (ev :rf.fx :rf.fx/handled {:rf.fx/id fx-id
-                             :rf.fx/args args
-                             :duration-ms duration-ms}))
+  (ev :rf.fx :rf.fx/handled {:rf.fx/id          fx-id
+                             :rf.fx/args        args
+                             :rf.fx/elapsed-ms  duration-ms}))
 
 (defn- flow-recomputed-ev
+  ;; rf2-yhgk8 — substrate stamps flow-recomputes under the
+  ;; `:rf.flow/computed` operation with bare `:flow-id`, `:path`,
+  ;; `:before`, `:result`, `:elapsed-ms` tags (Spec 009 §Flow trace
+  ;; events · `re-frame.flows`). Fixture mirrors substrate shape; the
+  ;; reader now reads against canonical names. Name retained as
+  ;; `flow-recomputed-ev` for call-site stability; the operation /
+  ;; tags are canonical.
   [flow-id path before after]
-  (ev :rf.flow :rf.flow/recomputed {:rf.flow/id flow-id
-                                    :rf.flow/path path
-                                    :rf.flow/before before
-                                    :rf.flow/after after}))
+  (ev :rf.flow :rf.flow/computed {:flow-id flow-id
+                                  :path    path
+                                  :before  before
+                                  :result  after}))
 
 (defn- sub-run-ev
   [sub-vec changed? before after]
@@ -257,6 +280,52 @@
   (testing "no cofx events + no run-end stamp returns empty vec"
     (is (= [] (proj/coeffect-rows [])))))
 
+(deftest coeffect-rows-reads-canonical-elapsed-ms-test
+  (testing "rf2-w2r4p — substrate stamps the per-cofx invocation
+            duration as `:rf.cofx/elapsed-ms` on `:rf.cofx/run`
+            (rf2-hhh92 · `re-frame.cofx`; spec 009 §243). The
+            pre-rf2-w2r4p reader looked for the never-emitted
+            `:duration-ms` — every cofx row showed nil duration."
+    (let [cofx-ev  {:op-type   :rf.cofx
+                    :operation :rf.cofx/run
+                    :tags      {:rf.cofx/id         :session
+                                :rf.cofx/value      :auth-token
+                                :rf.cofx/elapsed-ms 0.6}}
+          rows     (proj/coeffect-rows
+                     [cofx-ev (run-end-ev 0.5 {:session {:user-id 1}})])]
+      (is (= 0.6 (-> rows first :duration-ms))
+          "cofx row duration resolves through canonical :rf.cofx/elapsed-ms"))))
+
+(deftest project-threads-cofx-duration-through-cofx-steps-test
+  (testing "rf2-w2r4p — the `cofx-steps` flattening in `project` MUST
+            thread the row's `:duration-ms` through to the step map.
+            The pre-rf2-w2r4p flattening built each step with only
+            `:id` + `:value` and dropped the duration — even with the
+            reader stamping the canonical tag, the cascade'"'"'s COEFFECT
+            step rendered nil and never crossed the long-step
+            threshold."
+    (let [rec   (record [(dispatched-ev [:cart/load] :ui nil)
+                         (cofx-run-ev :session {:user-id 1} 18.5)
+                         (run-end-ev 0.5)])
+          steps (proj/project rec)
+          cofx  (some #(when (= :coeffect (:step %)) %) steps)]
+      (is (some? cofx) "COEFFECT step is present")
+      (is (= 18.5 (:duration-ms cofx))
+          ":duration-ms threaded from cofx-row into cofx-step")
+      (is (true? (proj/long-step? cofx))
+          "long-step? predicate now keys off the threaded duration"))))
+
+(deftest project-cofx-step-omits-duration-when-absent-test
+  (testing "rf2-w2r4p — cofx with no duration produces a step without
+            `:duration-ms` (clean absence vs. explicit nil), matching
+            the row's `cond-> (some? duration-ms)` shape"
+    (let [rec   (record [(dispatched-ev [:cart/load] :ui nil)
+                         (cofx-run-ev :session {:user-id 1})
+                         (run-end-ev 0.5)])
+          cofx  (some #(when (= :coeffect (:step %)) %) (proj/project rec))]
+      (is (not (contains? cofx :duration-ms))
+          "no duration on the row → :duration-ms absent on the step"))))
+
 (deftest coeffect-rows-skip-system-cofx-test
   (testing "rf2-cq0ch — system-injected defaults (:db / :event / :frame /
             :source / :trace-id) are filtered out at projection time"
@@ -281,6 +350,31 @@
           "no COEFFECT step is emitted when every cofx is system-injected"))))
 
 ;; ---- HANDLER -------------------------------------------------------------
+
+(deftest handler-row-reads-canonical-elapsed-ms-test
+  (testing "rf2-slnce — substrate stamps the per-handler duration as
+            `:rf.event/elapsed-ms` on `:rf.event/run-end` (rf2-hhh92 ·
+            `re-frame.router/emit-run-end-trace`; spec 009 §238). The
+            pre-rf2-slnce reader looked for the never-emitted
+            `:duration-ms` / `:rf.event/duration-ms` — HANDLER duration
+            was always nil and the cascade-summary chip total was
+            systematically under-counted."
+    (let [run-end {:op-type   :rf.event
+                   :operation :rf.event/run-end
+                   :tags      {:rf.event/elapsed-ms 4.2}}
+          r       (proj/handler-row [run-end] :counter-inc)]
+      (is (= 4.2 (:duration-ms r))
+          "handler duration resolves through canonical :rf.event/elapsed-ms")))
+
+  (testing "rf2-slnce — fixture-compat: a runtime that still stamps
+            `:duration-ms` (older or external) falls through the
+            preserved fallback chain"
+    (let [run-end {:op-type   :rf.event
+                   :operation :rf.event/run-end
+                   :tags      {:duration-ms 9.9}}
+          r       (proj/handler-row [run-end] :counter-inc)]
+      (is (= 9.9 (:duration-ms r))
+          "legacy :duration-ms fallback retained for older fixtures"))))
 
 (deftest handler-row-reg-event-db-test
   (testing "no fx + no machine = reg-event-db flavour.
@@ -577,6 +671,44 @@
       (is (= 1 (count (:rows s))))
       (is (= :total-parity (-> s :rows first :flow-id))))))
 
+(deftest flow-rows-reads-canonical-substrate-shape-test
+  (testing "rf2-yhgk8 — substrate emits `:rf.flow/computed` with BARE
+            `:flow-id` / `:path` / `:before` / `:result` / `:elapsed-ms`
+            tags (Spec 009 §Flow trace events · `re-frame.flows`). The
+            pre-rf2-yhgk8 reader looked for `:rf.flow/recomputed` op +
+            `:rf.flow/{id,path,before,after}` tags — every slot
+            returned nil and the FLOW step silently dropped. The
+            view-side `:after` maps to the substrate's `:result`."
+    (let [ev {:op-type   :rf.flow
+              :operation :rf.flow/computed
+              :tags      {:flow-id    :cart/total
+                          :path       [:cart :total]
+                          :before     120
+                          :result     195
+                          :elapsed-ms 0.7}}
+          rows (proj/flow-rows [ev])]
+      (is (= 1 (count rows)))
+      (let [r (first rows)]
+        (is (= :cart/total      (:flow-id r)))
+        (is (= [:cart :total]   (:path r)))
+        (is (= 120              (:before r)))
+        (is (= 195              (:after r))
+            ":after is the view-side label; substrate stamps `:result`")
+        (is (= 0.7              (:duration-ms r))
+            "duration reads `:elapsed-ms`")))))
+
+(deftest flow-rows-empty-against-legacy-shape-test
+  (testing "rf2-yhgk8 — a trace event under the LEGACY `:rf.flow/recomputed`
+            op (pre-canonical fixture shape) produces no flow rows; the
+            reader is canonical-only post-fix"
+    (let [ev {:op-type   :rf.flow
+              :operation :rf.flow/recomputed
+              :tags      {:rf.flow/id    :legacy/flow
+                          :rf.flow/path  [:x]
+                          :rf.flow/after 1}}]
+      (is (= [] (proj/flow-rows [ev]))
+          "legacy op-name produces zero rows — no silent fallthrough"))))
+
 ;; ---- FX -----------------------------------------------------------------
 
 (deftest fx-step-conditional-test
@@ -590,6 +722,31 @@
       (is (= :FX (:badge s)))
       (is (= 2 (count (:rows s))))
       (is (= :ok (-> s :rows first :status))))))
+
+(deftest fx-rows-reads-canonical-elapsed-ms-test
+  (testing "rf2-ipaza — substrate stamps the per-fx-handler invocation
+            duration as `:rf.fx/elapsed-ms` on `:rf.fx/handled`
+            (rf2-hhh92 · `re-frame.fx`; spec 009 §241). The pre-rf2-ipaza
+            reader looked for the never-emitted `:duration-ms` — every
+            FX row showed nil duration."
+    (let [ev {:op-type   :rf.fx
+              :operation :rf.fx/handled
+              :tags      {:rf.fx/id         :http/post
+                          :rf.fx/args       {:url "/x"}
+                          :rf.fx/elapsed-ms 3.4}}
+          s (proj/fx-step [ev])]
+      (is (= 3.4 (-> s :rows first :duration-ms))
+          "FX row duration resolves through canonical :rf.fx/elapsed-ms")))
+
+  (testing "rf2-ipaza — fixture-compat: a runtime that still stamps
+            `:duration-ms` falls through the preserved fallback"
+    (let [ev {:op-type   :rf.fx
+              :operation :rf.fx/handled
+              :tags      {:rf.fx/id    :http/get
+                          :duration-ms 7.7}}
+          s (proj/fx-step [ev])]
+      (is (= 7.7 (-> s :rows first :duration-ms))
+          "legacy :duration-ms fallback retained for older fixtures"))))
 
 ;; ---- rf2-uffov — FX section header split + per-action attribution -----
 

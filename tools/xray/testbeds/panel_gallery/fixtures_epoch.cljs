@@ -77,17 +77,27 @@
   "`:rf.cofx/run` trace — one per USER-injected coeffect. System
   cofx (`:db / :event / :frame / :source / :trace-id`) are filtered
   out by the projection (rf2-cq0ch), so fixtures only need to emit
-  the user-injected ids the COEFFECT step should surface."
+  the user-injected ids the COEFFECT step should surface.
+
+  rf2-w2r4p — substrate stamps the canonical `:rf.cofx/elapsed-ms`
+  duration tag (rf2-hhh92 · `re-frame.cofx`; spec 009 §243); fixture
+  mirrors that. The reader retains a legacy `:duration-ms` fallback
+  for older runtimes / external test fixtures."
   [id value]
-  (ev :rf.cofx :rf.cofx/run {:rf.cofx/id    id
-                             :rf.cofx/value value
-                             :duration-ms   0.1}))
+  (ev :rf.cofx :rf.cofx/run {:rf.cofx/id          id
+                             :rf.cofx/value       value
+                             :rf.cofx/elapsed-ms  0.1}))
 
 (defn- run-end-ev
   "`:rf.event/run-end` trace — the projection reads the handler's
-  finalised duration here."
+  finalised duration here.
+
+  rf2-slnce — substrate stamps the canonical `:rf.event/elapsed-ms`
+  (rf2-hhh92 · `re-frame.router/emit-run-end-trace`); fixture mirrors
+  that. The reader retains legacy `:duration-ms` fallbacks for older
+  runtimes / external test fixtures."
   [duration-ms]
-  (ev :rf.event :rf.event/run-end {:duration-ms duration-ms}))
+  (ev :rf.event :rf.event/run-end {:rf.event/elapsed-ms duration-ms}))
 
 (defn- db-changed-ev
   "`:rf.event/db-changed` trace — drives both HANDLER's `:db-diff`
@@ -109,21 +119,31 @@
 (defn- fx-handled-ev
   "`:rf.fx/handled` trace — one per fx-handler invocation. The FX
   step's per-row outcome reads `:rf.fx/id` + `:rf.fx/args` +
-  `:duration-ms` here."
+  `:rf.fx/elapsed-ms` here.
+
+  rf2-ipaza — substrate stamps the canonical `:rf.fx/elapsed-ms`
+  (rf2-hhh92 · `re-frame.fx`; spec 009 §241); fixture mirrors that.
+  The reader retains a legacy `:duration-ms` fallback for older
+  runtimes / external test fixtures."
   ([fx-id args duration-ms]
-   (ev :rf.fx :rf.fx/handled {:rf.fx/id    fx-id
-                              :rf.fx/args  args
-                              :duration-ms duration-ms})))
+   (ev :rf.fx :rf.fx/handled {:rf.fx/id          fx-id
+                              :rf.fx/args        args
+                              :rf.fx/elapsed-ms  duration-ms})))
 
 (defn- flow-recomputed-ev
-  "`:rf.flow/recomputed` trace — drives the FLOW step. The projection
-  reads `:rf.flow/id` + `:rf.flow/path` + before/after."
+  "`:rf.flow/computed` trace — drives the FLOW step.
+
+  rf2-yhgk8 — substrate stamps the `:rf.flow/computed` operation with
+  bare `:flow-id` / `:path` / `:before` / `:result` / `:elapsed-ms`
+  tags (Spec 009 §Flow trace events · `re-frame.flows`). The name
+  `flow-recomputed-ev` is retained for call-site stability; the
+  payload is canonical."
   [flow-id path before after]
-  (ev :rf.flow :rf.flow/recomputed {:rf.flow/id     flow-id
-                                    :rf.flow/path   path
-                                    :rf.flow/before before
-                                    :rf.flow/after  after
-                                    :duration-ms    0.4}))
+  (ev :rf.flow :rf.flow/computed {:flow-id    flow-id
+                                  :path       path
+                                  :before     before
+                                  :result     after
+                                  :elapsed-ms 0.4}))
 
 (defn- sub-run-ev
   "`:rf.sub/run` trace — drives one SUBSCRIPTIONS row. Per rf2-kfh1v
