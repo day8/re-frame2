@@ -344,14 +344,38 @@
           ;; The signal for "inside a handler" is `*current-frame*`
           ;; being bound — the router binds it in `process-event!`
           ;; for the duration of the cascade.
+          ;; Per rf2-hxj0d: stamp the frame-init dispatch with
+          ;; `:source :frame-init` so the Epoch panel's DISPATCH step
+          ;; renders "from frame-init" instead of being mislabelled
+          ;; via the previous `:ui` default. Additionally, capture the
+          ;; `reg-frame` call-site coord as `:rf.trace/call-site` so
+          ;; the click-to-source affordance jumps to the
+          ;; `(rf/reg-frame :foo {:on-create [...]})` line. The macro
+          ;; form of `reg-frame` (via `defreg-macro`) binds
+          ;; `*pending-coords*`, which `source-coords/merge-coords`
+          ;; merges directly INTO `config` as `:ns`/`:file`/`:line`/
+          ;; `:column` — so the call-site is already on the config
+          ;; map, no separate capture path needed. Gated on
+          ;; `interop/debug-enabled?` so production CLJS builds DCE
+          ;; the call-site read.
           (when-let [on-create (:on-create config)]
-            (if *current-frame*
-              ;; Handler-created child frame: async-queue on the child.
-              (when-let [dispatch (late-bind/get-fn :router/dispatch!)]
-                (dispatch on-create {:frame id}))
-              ;; Top-level (no in-flight cascade): synchronous, as before.
-              (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
-                (dispatch-sync on-create {:frame id}))))
+            (let [init-opts (cond-> {:frame  id
+                                     :source :frame-init}
+                              (and interop/debug-enabled?
+                                   (or (:file config) (:line config)))
+                              (assoc :rf.trace/call-site
+                                     (cond-> {}
+                                       (:ns     config) (assoc :ns     (:ns     config))
+                                       (:file   config) (assoc :file   (:file   config))
+                                       (:line   config) (assoc :line   (:line   config))
+                                       (:column config) (assoc :column (:column config)))))]
+              (if *current-frame*
+                ;; Handler-created child frame: async-queue on the child.
+                (when-let [dispatch (late-bind/get-fn :router/dispatch!)]
+                  (dispatch on-create init-opts))
+                ;; Top-level (no in-flight cascade): synchronous, as before.
+                (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
+                  (dispatch-sync on-create init-opts)))))
           (trace/emit! :rf.frame :rf.frame/created
                        {:frame id :config config})
           id)
