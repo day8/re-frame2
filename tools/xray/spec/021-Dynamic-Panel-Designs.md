@@ -1288,7 +1288,7 @@ is rendered iff its driving trace events surfaced in this epoch:
 | Step | Driving trace | Conditional |
 |------|---------------|-------------|
 | **DISPATCH** | `:rf.event/dispatched` | always (every epoch starts here) |
-| **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | only when user-injected coeffects fired |
+| **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | **one COEFFECT step per user-injected coeffect** (rf2-s1jw4 · Mike pair-debug 2026-05-26, commit `ee9def224`). SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered at projection time (rf2-cq0ch). A cascade with 3 user cofx injections renders 3 numbered COEFFECT entries, not 1 entry containing 3 rows. |
 | **HANDLER** | every epoch settles through a handler | always |
 | **FLOW** | `:rf.flow/recomputed` | only when flows fired |
 | **FX** | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | only when fx-handlers fired |
@@ -1454,7 +1454,7 @@ and silently rendered empty rows. The binding inventory:
 | Step | Trace operation | Canonical tags |
 |------|-----------------|----------------|
 | `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source`, `:rf.trace/call-site` |
-| `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value` — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch) |
+| `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value` — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch). **Projection splits each surviving cofx into its own numbered step** (rf2-s1jw4 · pair-debug 2026-05-26): `cofx-steps` is a `mapv` over `cofx-rows` producing `{:step :coeffect :badge :COEFFECT :id <kw> :value <v>}` per entry, spliced into the steps vec before HANDLER. |
 | `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta) |
 | `:flow` | `:rf.flow/recomputed` | `:rf.flow/id`, `:rf.flow/path`, `:rf.flow/before`, `:rf.flow/after` |
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:duration-ms` |
@@ -1555,6 +1555,28 @@ shape:
   order).
 - **Conditional emit unchanged** — section omits when no fx-handler
   events fired.
+
+### §9.1.10.7 COEFFECT step chrome (rf2-s1jw4 · pair-debug 2026-05-26)
+
+Mike's commit `ee9def224` reshaped the COEFFECT step from "one
+step with N rows" to "N steps, one per injected cofx" (see §9.1.3
++ §9.1.10.1). The accompanying view-layer chrome:
+
+- **Header** — `:COEFFECT` badge + cofx-id button to the right of
+  the badge. The button is clickable when
+  `(rf/handler-meta :cofx <id>)` returns a coordinate (click-to-source
+  jumps through the shared `:rf.xray/open-in-editor` allowlist —
+  see §9.1.11); otherwise the id renders as a plain coloured span.
+  An external-link glyph trails the id when source-jump is wired.
+- **Body** — `+ [:cofx-id] <value>` diff-style line, left-aligned
+  with the badge (no indent), mirroring HANDLER's `:db` diff-line
+  idiom. Value rendered via `edn/inspect-inline`.
+- **Verb dropped** — the prior `N coeffect(s) injected` summary
+  verb is gone; the per-step expansion of cofx makes the count
+  visible in the cascade numbering itself.
+- **SYSTEM-default filter** — `:db / :event / :frame / :source /
+  :trace-id` are filtered before splitting (rf2-cq0ch). A cascade
+  with no surviving user-cofx renders zero COEFFECT steps.
 
 ### §9.1.10.5 App-db diff section — RETIRED 2026-05-26 (rf2-rrykz · rf2-zkiu5)
 
