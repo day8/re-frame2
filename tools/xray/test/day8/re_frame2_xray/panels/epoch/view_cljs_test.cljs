@@ -888,6 +888,124 @@
       (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-from-to-1"))
           "from → to state chrome renders"))))
 
+;; ---- rf2-wwc3j — inline-fn / transition source-body rendering ------------
+
+(deftest cascade-row-renders-inline-entry-source-body-test
+  (testing "rf2-wwc3j — an inline-fn `:entry` action row renders an
+            always-visible source-body the same way named actions do.
+            The fixture registers a machine with an inline `:entry`
+            slot; the row carries the resolved fn object as :action-id
+            (substrate behaviour); the view layer pulls the spec value
+            at `[:states <s> :entry]` via the rf2-wwc3j source-key
+            extension."
+    (rf/with-frame :rf/default
+      (let [inline-fn (fn [_ctx] {})]
+        (rf/reg-event-fx :rf2-wwc3j.view/inline-entry
+                         {:rf/machine? true
+                          :rf/machine {:initial :a
+                                       :states  {:a {:entry inline-fn
+                                                     :on    {:go :b}}
+                                                 :b {}}}}
+                         (fn [_ _] {}))
+        (let [step {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-machine
+                    :event-id :rf2-wwc3j.view/inline-entry
+                    :db-diff [] :fx []
+                    :machine {:cascade [{:kind :action :step 1
+                                         :action-id inline-fn
+                                         :phase :entry
+                                         :target-state :a
+                                         :source-state :a
+                                         :event-id :go}]
+                              :transition nil :guards [] :lifecycle [] :timers []}}
+              tree (view/render-handler-step step)]
+          (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
+              "inline-entry row renders")
+          (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
+              "source slot is present (rf2-wwc3j inline-fn surfacing)"))))))
+
+(deftest cascade-row-renders-inline-guard-source-body-test
+  (testing "rf2-wwc3j — an inline-fn `:guard` row renders a source-body
+            slot from the spec value at `[:states <s> :on <ev> :guard]`."
+    (rf/with-frame :rf/default
+      (let [inline-guard (fn [_ctx] true)]
+        (rf/reg-event-fx :rf2-wwc3j.view/inline-guard
+                         {:rf/machine? true
+                          :rf/machine {:initial :idle
+                                       :states  {:idle {:on {:submit {:target :done
+                                                                       :guard inline-guard}}}
+                                                 :done {}}}}
+                         (fn [_ _] {}))
+        (let [step {:step :handler :badge :HANDLER :step-number 3
+                    :flavour :reg-machine
+                    :event-id :rf2-wwc3j.view/inline-guard
+                    :db-diff [] :fx []
+                    :machine {:cascade [{:kind :guard :step 1
+                                         :guard-id inline-guard
+                                         :outcome :pass
+                                         :source-state :idle
+                                         :event-id :submit}]
+                              :transition nil :guards [] :lifecycle [] :timers []}}
+              tree (view/render-handler-step step)]
+          (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
+          (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
+              "inline-guard source slot is present"))))))
+
+(deftest cascade-transition-row-renders-source-body-test
+  (testing "rf2-wwc3j — a `:transition` row renders the transition map
+            literal as a source body (the bead's `:delight shape` for
+            transitions: render the EDN form inline)."
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :rf2-wwc3j.view/transition-row
+                       {:rf/machine? true
+                        :rf/machine {:initial :idle
+                                     :states  {:idle {:on {:go {:target :done}}}
+                                               :done {}}}}
+                       (fn [_ _] {}))
+      (let [step {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-machine
+                  :event-id :rf2-wwc3j.view/transition-row
+                  :db-diff [] :fx []
+                  :machine {:cascade [{:kind :transition :step 1
+                                       :machine-id :rf2-wwc3j.view/transition-row
+                                       :from-state :idle
+                                       :to-state   :done
+                                       :event [:go]
+                                       :source-state :idle
+                                       :target-state :done
+                                       :event-id :go
+                                       :microsteps 1}]
+                            :transition nil :guards [] :lifecycle [] :timers []}}
+            tree (view/render-handler-step step)]
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
+            "transition source slot is present (renders the transition map)")))))
+
+(deftest cascade-timer-row-elides-source-body-test
+  (testing "rf2-wwc3j — `:timer` rows render the click-to-source coord
+            chip on the verb but elide the inline source-body slot
+            (the parent state-node value is too verbose to render
+            verbatim)."
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :rf2-wwc3j.view/timer-row
+                       {:rf/machine? true
+                        :rf/machine {:initial :idle
+                                     :states  {:idle {:after {500 {:target :done}}}
+                                               :done {}}}}
+                       (fn [_ _] {}))
+      (let [step {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :reg-machine
+                  :event-id :rf2-wwc3j.view/timer-row
+                  :db-diff [] :fx []
+                  :machine {:cascade [{:kind :timer :step 1
+                                       :state :idle :delay 500
+                                       :reason :on-exit}]
+                            :transition nil :guards [] :lifecycle [] :timers []}}
+            tree (view/render-handler-step step)]
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
+            "timer rows have no inline source-body slot")))))
+
 (deftest machine-handler-cascade-empty-state-test
   (testing "rf2-u69j7 — empty cascade (no machine cascade events fired)
             renders the empty-state line rather than blowing up. This
