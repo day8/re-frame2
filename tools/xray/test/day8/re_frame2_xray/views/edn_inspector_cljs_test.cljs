@@ -1346,6 +1346,196 @@
     (is (= {:a 1} (:before (nth h 2))))))
 
 ;; =========================================================================
+;; rf2-zuh1e — diff renders REMOVED items (children-of walks the union of
+;; BEFORE + AFTER, not just AFTER)
+;; =========================================================================
+;;
+;; Pre-fix the render-container body walked `(children-of value)` (AFTER
+;; only). Items present in BEFORE but absent from AFTER — the common
+;; `dissoc` / set-`disj` / vector-`pop` case — silently disappeared from
+;; the rendered tree. Now `children-of-pair` returns the UNION of BEFORE
+;; + AFTER triples; removed slots render with the existing rf2-awqts
+;; removed chrome (strike-through + red wash + `-` gutter glyph).
+
+(deftest children-of-pair-map-union
+  (testing "AFTER's keys in order then BEFORE-only keys appended"
+    (let [pairs (ei/children-of-pair {:a 1 :gone "g"} {:a 1 :added 9} :map)]
+      ;; Each triple is [k after-value before-value].
+      (is (= [:a 1 1]                        (nth (vec pairs) 0)))
+      (is (= [:added 9 ei/missing-sentinel]  (nth (vec pairs) 1)))
+      (is (= [:gone ei/missing-sentinel "g"] (nth (vec pairs) 2)))))
+  (testing "all-added when BEFORE not a map"
+    (let [pairs (vec (ei/children-of-pair nil {:a 1} :map))]
+      (is (= [:a 1 ei/missing-sentinel] (first pairs)))))
+  (testing "all-removed when AFTER empty"
+    (let [pairs (vec (ei/children-of-pair {:a 1 :b 2} {} :map))]
+      (is (= 2 (count pairs)))
+      (is (every? #(= ei/missing-sentinel (second %)) pairs))
+      (is (= #{:a :b} (set (map first pairs)))))))
+
+(deftest children-of-pair-vector-tail
+  (testing "BEFORE-tail items past AFTER render as removed slots"
+    (let [pairs (vec (ei/children-of-pair [:x :y :z] [:x] :vector))]
+      (is (= [0 :x :x]                       (nth pairs 0)))
+      (is (= [1 ei/missing-sentinel :y]      (nth pairs 1)))
+      (is (= [2 ei/missing-sentinel :z]      (nth pairs 2)))))
+  (testing "ADDED tail items appear too"
+    (let [pairs (vec (ei/children-of-pair [:x] [:x :y :z] :vector))]
+      (is (= [1 :y ei/missing-sentinel] (nth pairs 1)))
+      (is (= [2 :z ei/missing-sentinel] (nth pairs 2))))))
+
+(deftest children-of-pair-set-union-sorted
+  (testing "set members render alongside survivors; sort by pr-str"
+    (let [pairs (vec (ei/children-of-pair #{:a :b :ws/authenticating}
+                                          #{:a :b}
+                                          :set))
+          keys  (mapv first pairs)]
+      (is (= 3 (count pairs)))
+      ;; pr-str sort is stable: `:a` < `:b` < `:ws/authenticating`.
+      (is (= [:a :b :ws/authenticating] keys))
+      ;; The removed member's AFTER slot is ::missing; BEFORE side
+      ;; carries the prior value.
+      (is (= [:ws/authenticating ei/missing-sentinel :ws/authenticating]
+             (last pairs))
+          "removed-only member appears with after=::missing, before=value"))))
+
+(deftest diff-renders-removed-map-key
+  ;; Map dissoc case — `:tags` would also be a map at one level up,
+  ;; but the simplest assertion is at the top level: AFTER drops a key
+  ;; and the rendered hiccup carries the removed-chrome marker for
+  ;; that row.
+  (let [before {:a 1 :b 2}
+        after  {:a 1}
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 2}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (re-find #":b" all)
+        "removed key :b still appears in the rendered hiccup")
+    (is (re-find #":a" all)
+        "surviving key :a still renders (no regression)")
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "a row carries the removed diff-op marker")
+    (is (re-find #"line-through" s)
+        "removed row carries the strike-through text-decoration")))
+
+(deftest diff-renders-fully-dissocd-map
+  ;; Edge case — AFTER is `{}` (all keys dropped). Pre-fix the empty
+  ;; AFTER short-circuited the header into the `{}` empty-bracket-pair
+  ;; render, hiding every removed row. Now the union count drives the
+  ;; header so the body still expands.
+  (let [before {:a 1 :b 2}
+        after  {}
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 2}})
+        all (collect-text h)]
+    (is (re-find #":a" all)
+        "both removed keys appear when AFTER is fully dissoc'd")
+    (is (re-find #":b" all))))
+
+(deftest diff-renders-removed-vector-tail
+  (let [before [:x :y :z]
+        after  [:x]
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 2}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (re-find #":y" all) "popped tail item :y still appears")
+    (is (re-find #":z" all) "popped tail item :z still appears")
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "a row carries the removed diff-op marker")))
+
+(deftest diff-renders-removed-set-member
+  ;; Canonical machine-snapshot reproduction (rf2-zuh1e bead body):
+  ;; `:tags` set loses `:ws/authenticating`. Before this fix the AFTER
+  ;; column rendered with no indication anything was removed; now the
+  ;; struck-through row appears alongside the survivors.
+  (let [before #{:a :b :ws/authenticating}
+        after  #{:a :b}
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 2}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (re-find #":ws/authenticating" all)
+        "removed set member rendered alongside survivors")
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "the removed-member row carries the removed diff-op marker")
+    (is (re-find #"line-through" s)
+        "the removed row carries strike-through text-decoration")))
+
+(deftest diff-renders-machine-snapshot-tags-transition
+  ;; Mike's live repro 2026-05-26 — a Machine snapshot transition
+  ;; `[:active :authenticating] → [:active :connected]` where `:tags`
+  ;; loses `:ws/authenticating`. The operator sees the post-image with
+  ;; the removed tag struck-through.
+  (let [before {:state [:active :authenticating]
+                :tags  #{:ws/authenticating :ws/online}
+                :context {:retries 0}}
+        after  {:state [:active :connected]
+                :tags  #{:ws/online}
+                :context {:retries 0}}
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 4}})
+        all (collect-text h)
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (re-find #":ws/authenticating" all)
+        "removed :tags member rendered with the AFTER column")
+    (is (re-find #":connected" all) "AFTER's :state member visible")
+    (is (re-find #":authenticating" all)
+        "BEFORE's :state member rendered via the modified-leaf annotation")
+    (is (re-find #"line-through" s)
+        "at least one row carries strike-through (the removed tag)")))
+
+(deftest diff-preserves-added-modified-same-rows
+  ;; No regression — added / modified / same rows still render
+  ;; alongside the new removed rows.
+  (let [before {:same 1   :modify 2 :gone "g"}
+        after  {:same 1   :modify 9 :added :new}
+        h (ei/render-node {:value after
+                           :before before
+                           :diff? true
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 2}})
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (re-find #"data-rf-diff-op.*added" s)
+        "added row marker present")
+    (is (re-find #"data-rf-diff-op.*removed" s)
+        "removed row marker present")
+    (is (re-find #"data-rf-diff-op.*modified" s)
+        "modified row marker present")
+    (is (re-find #"data-rf-diff-op.*same" s)
+        "same row marker still present for unchanged rows")
+    (is (re-find #"← changed from 2" s)
+        "modified leaf still carries the change annotation")))
+
+;; =========================================================================
 ;; rf2-y59tb — frame-leak + first-click regression guards
 ;; =========================================================================
 ;;
