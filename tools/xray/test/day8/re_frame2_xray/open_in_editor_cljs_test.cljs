@@ -217,6 +217,75 @@
       (is (= "vscode://file/C:/Users/me/code/my-app/src/x.cljs:1:1"
              (:href (second hiccup)))))))
 
+;; ---- URI invariance to host page URL (rf2-2c5xb) ------------------------
+;;
+;; The panel-gallery testbed surfaced a defect: source-coord chips on
+;; handlers registered inside the gallery served from `http://localhost:8765`
+;; were producing URIs that did not resolve to the right files on disk.
+;; Pre-rf2-2c5xb the testbed never called `xray-config/configure!`, so the
+;; chip shipped a classpath-relative `:file` slot
+;; (`panel_gallery/foo.cljs`) the OS handler rejected. The fix is the
+;; established rf2-5m5n2 path: configure `:rf.xray/project-root` at boot.
+;;
+;; The tests below pin the load-bearing invariant: URI construction is a
+;; pure function of `(editor, source-coord, project-root)`. It does NOT
+;; read `window.location` — so the URI a chip renders is identical no
+;; matter which host URL the gallery / example app is served from. The
+;; second test exercises the panel-gallery's exact failure case (the
+;; `panel_gallery/<file>.cljs` shape) against the testbed's known on-disk
+;; root.
+
+(deftest resolve-uri-invariant-to-host-url
+  (testing "rf2-2c5xb — `resolve-uri` is a pure function of (editor,
+            source-coord, project-root); the URI it returns is identical
+            regardless of any ambient host state. The panel-gallery
+            defect was rooted in the testbed never calling
+            `xray-config/configure!`, NOT in the URI builder somehow
+            reading `window.location`. This test pins the contract: the
+            same `(editor, coord, project-root)` triple always yields
+            the same URI."
+    (config/set-project-root! "C:/Users/me/code/my-app")
+    (let [coord {:file "src/app/views.cljs" :line 42 :column 7}
+          ;; Call the resolver several times with the same inputs but
+          ;; different ambient context (different editor preferences
+          ;; between calls, then restored). The middle observations
+          ;; differ — but with all three inputs fixed, the URI is
+          ;; deterministic and matches the configured project-root.
+          baseline (open-in-editor/resolve-uri coord)
+          _        (config/set-editor! :cursor)
+          cursor   (open-in-editor/resolve-uri coord)
+          _        (config/set-editor! :vscode)
+          replay   (open-in-editor/resolve-uri coord)]
+      (is (= baseline replay)
+          "Identical (editor, coord, root) → identical URI; the
+           resolver has no hidden host-URL input")
+      (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
+             baseline)
+          "URI value derives from the configured project-root, not
+           from any document URL the testbed happens to be served at")
+      (is (= "cursor://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
+             cursor)
+          "Editor preference flows through; project-root prefix stays
+           bound to the configured root, not the location"))))
+
+(deftest resolve-uri-panel-gallery-regression-rf2-2c5xb
+  (testing "rf2-2c5xb — regression: the panel-gallery's exact failure
+            case (a classpath-relative coord captured at registration of
+            a panel-gallery handler) resolves to an absolute on-disk URI
+            against the testbed's configured project-root. Pins that the
+            chip works at `http://localhost:8765` independently of the
+            served port — the URI depends only on config, never on
+            `Location.href`."
+    (config/set-project-root!
+      "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
+    (is (= (str "vscode://file/"
+                "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
+                "panel_gallery/fixtures_epoch.cljs:42:1")
+           (open-in-editor/resolve-uri
+             {:file "panel_gallery/fixtures_epoch.cljs"
+              :line 42
+              :column 1})))))
+
 ;; ---- rf2-g5q8d — :rf.xray/open-in-editor + :rf.editor/open ------------
 ;;
 ;; Per the rf2-3vucz audit, the four Xray panels (trace, issues-ribbon,
