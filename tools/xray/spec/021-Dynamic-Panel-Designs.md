@@ -1331,52 +1331,117 @@ colour resolver bails to `:text-tertiary` on an unknown badge so a
 future taxonomy extension paints something but tests catch the
 omission.
 
-### §9.1.5 Handler-type adaptation (rf2-82a0u prerequisites · rf2-9c27r full design)
+### §9.1.5 Handler-type adaptation (rf2-82a0u prerequisites · rf2-u69j7 cascade redesign)
 
 The HANDLER step's body adapts to the handler's flavour, discovered
 from the trace stream:
 
 - **`:reg-event-db`** — `:db` diff only (the simplest case).
 - **`:reg-event-fx`** — `:db` diff + per-fx-entry block.
-- **`:reg-machine`** — the full machine block per the rf2-9c27r
-  design doc, with all seven sub-sections (rf2-9c27r):
+- **`:reg-machine`** — **TIME-ORDERED MACHINE CASCADE** per rf2-u69j7.
 
-  1. **TRANSITION** — `before-state → after-state`, machine-id,
-     event vector, microstep count (one `:rf.machine/transition` per
-     macrostep — Spec 005 §Trace events).
-  2. **GUARDS** — per-guard row from `:rf.machine/guard-evaluated`:
-     guard-id + `:outcome` from the closed set `:pass / :fail /
-     :threw` (rf2-82a0u).
-  3. **LIFECYCLE** — phase-grouped rows from `:rf.machine/action-ran`
-     (rf2-82a0u — every emit carries `:phase` from the closed set
-     `:exit / :transition / :entry / :always / :after-action /
-     :initial-entry / :destroy-exit`). Each row carries action-id,
-     outcome, and **per-action fx attribution** when the action's
-     outcome map carried `:fx` — the operator reads `action X
-     emitted fx Y` inline (rf2-9c27r §7 folds the FX sub-section
-     into LIFECYCLE for compactness).
-  4. **AFTER TIMERS** — armed + cancelled rows with
-     `:rf.machine.timer/cancelled` `:reason` from the closed set
-     `:on-exit / :on-destroy / :on-resolution / :on-supersede /
-     :on-frame-destroy`.
-  5. **DATA REDUCTION** — `:data` before / after via
-     `edn/inspect-inline`. Source: the `:before / :after` snapshots
-     on `:rf.machine/transition`; the projection hoists `:data-before
-     / :data-after` from those maps. Elides when before == after.
-  6. **SNAPSHOT DIFF** — full snapshot before / after via
-     `edn/inspect-inline`. Source: same trace; renders the WHOLE
-     snapshot map (state vector + data map + parallel-region tags)
-     so the operator can drill into any slot. Elides when snapshots
-     are identical.
-  7. **FX** — per-action attribution folded into LIFECYCLE (above).
-     The HANDLER step's top-level `:fx` slot still surfaces the
-     handler's returned fx for completeness.
+#### Machine cascade (rf2-u69j7)
+
+**Stance.** The pre-rf2-u69j7 layout grouped machine activity into 7
+category sub-sections (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS
+/ DATA REDUCTION / SNAPSHOT DIFF / FX). That was a roll-up — the
+operator had to scroll up/down across categories to reconstruct what
+actually fired in what order. The redesign replaces the category-
+grouped layout with a single **time-ordered cascade view**: one row
+per substrate emit, ordered by the trace buffer's insertion order.
+
+**Order is the substrate's.** The substrate already emits in cascade
+order (guards → exit actions → transition → entry actions → always →
+after-action → timer-cancels — Spec 005 §Trace events + rf2-82a0u).
+The panel never re-sorts; it walks `:trace-events` and surfaces every
+member of `machine-cascade-trace-ops` as a row in the same order:
+
+  | Trace op                          | Row `:kind`     |
+  |-----------------------------------|------------------|
+  | `:rf.machine/guard-evaluated`     | `:guard`         |
+  | `:rf.machine/action-ran`          | `:action`        |
+  | `:rf.machine/transition`          | `:transition`    |
+  | `:rf.machine.timer/cancelled`     | `:timer`         |
+
+**Per-row chrome.** Each row carries:
+
+- **Step ordinal** (1..N) — left-rail compact monospace chip.
+- **Kind pill** — colour-coded (`:guard / :action / :transition /
+  :timer`) — see `badge.cljc` for the hue assignments.
+- **Phase chip** (`:action` rows only) — one of the rf2-82a0u closed
+  set `:exit / :transition / :entry / :always / :after-action /
+  :initial-entry / :destroy-exit`.
+- **Verb** — the action-id / guard-id / transition headline / timer
+  state, rendered as a click-to-source button when the machine spec's
+  `:rf.machine/source-coords` index (rf2-8bp3) carries a `{:file :line}`
+  for the row's spec-path. Falls back to a plain coloured span when
+  no coord was captured.
+- **Duration chip** — right-aligned monospace; paints long-step
+  warning chrome (`▲` + warning tone) when `:duration-ms` exceeds
+  `projection/long-step-threshold-ms` (16ms — one 60Hz frame).
+- **Outcome chip** — kind-specific:
+  - `:guard` → `✓ pass / ▲ fail / ✗ threw`
+  - `:action` → `✓ ok / ✗ threw`
+  - `:transition` → `N microstep(s)` (the headline)
+  - `:timer` → `· cancelled (<reason>)`
+
+**Per-row body — interleaved source code (always visible).** For
+`:action` and `:guard` rows the body renders the source form pulled
+from the registered machine spec (`(rf/handler-meta :machine
+event-id) → :rf/machine → [:actions <id>] | [:guards <id>]`) via
+`edn/code-block` (clojure-syntax highlight; same widget the HANDLER
+source block uses). Always visible by default per the bead body's
+"interleaved source code" requirement — the operator reads what ran
+AND its code at the same vertical position without expand/collapse
+gestures. Source-missing fallback renders a muted `<source not yet
+captured>` placeholder so the slot is consistently present.
+
+**Per-row outcome detail.** Action rows surface inline:
+
+- **`↳ data Δ`** — when the action returned a `:data` map, the delta
+  the action contributed (via `ei/mini`).
+- **`↳ fx`** — per-action fx-id chips for each effect the action
+  emitted (same data the FX step's `:attributed-to` chip surfaces,
+  now visible IN the action's row).
+- **`✗ threw`** — when the action threw, an error chip + exception
+  message.
+
+Transition rows surface the `state {:from} → {:to}` chrome with the
+event vector that drove the cascade. Timer rows surface only the
+header (no inline body — cancellations are housekeeping).
+
+**Empty-state correctness** (acceptance #4 — rf2-u69j7). A vanilla
+`reg-event-db` cascade (or any non-`:reg-machine` flavour) renders
+the existing pipeline UNCHANGED — the cascade view is gated on
+`:flavour = :reg-machine`. The redesign is machine-specific.
+
+**Why this lands cleanly.** The cascade view composes with existing
+Epoch infrastructure:
+
+- `proj/long-step-threshold-ms` (16ms — rf2-nqt3d) drives the per-row
+  duration chip's warning chrome.
+- `ei/mini` (rf2-8w8er) renders every CLJS value (data write, fx
+  args, state vectors) so the cascade syntax-tokens match the rest
+  of the panel.
+- The shared `coord-chip` affordance (rf2-80u5a / rf2-ehd8v) is the
+  source-link grammar; the cascade-row verb-link reuses the same
+  `:rf.xray/open-in-editor` dispatch.
+
+**The legacy category-grouped sub-sections are REPLACED, not
+augmented** (per Mike, pre-alpha posture). The full state-change
+story is now told inline by the cascade: transitions render their
+`from → to` snapshots; actions render their data-write + fx
+attribution + source body; no separate DATA REDUCTION / SNAPSHOT
+DIFF block lands. The FX section's per-action `:attributed-to`
+chip stays in place (the FX step is the post-commit lens; the
+cascade row is the action-attribution lens — same data, two
+surfaces).
 
 The flavour discriminator runs at projection time as a pure-data
 check against the trace stream — no spec read, no registry lookup,
 no replay. The substrate enhancements in #2155 (rf2-82a0u) are the
-prerequisite that lets the LIFECYCLE / TIMERS / DATA REDUCTION /
-SNAPSHOT DIFF sub-blocks read directly off the trace.
+prerequisite that lets every cascade row read directly off the
+trace.
 
 ### §9.1.6 Numbered cascade chrome
 
@@ -1456,6 +1521,7 @@ and silently rendered empty rows. The binding inventory:
 | `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source`, `:rf.trace/call-site` |
 | `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value` — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch). **Projection splits each surviving cofx into its own numbered step** (rf2-s1jw4 · pair-debug 2026-05-26): `cofx-steps` is a `mapv` over `cofx-rows` producing `{:step :coeffect :badge :COEFFECT :id <kw> :value <v>}` per entry, spliced into the steps vec before HANDLER. |
 | `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta) |
+| `:handler` machine cascade (rf2-u69j7) | `:rf.machine/guard-evaluated` · `:rf.machine/action-ran` · `:rf.machine/transition` · `:rf.machine.timer/cancelled` (closed set: `machine-cascade-trace-ops`) | guard rows read `:guard-id`, `:outcome` (closed set `:pass / :fail / :threw` — rf2-82a0u); action rows read `:action-id`, `:phase` (closed set `:exit / :transition / :entry / :always / :after-action / :initial-entry / :destroy-exit` — rf2-82a0u), `:outcome` (rich map; `:fx` + `:data` hoisted onto the row), `:input`, `:exception`; transition rows read `:machine-id`, `:event`, `:before`, `:after`, `:microsteps` (state vectors hoisted off `:before`/`:after`); timer rows read `:state`, `:delay`, `:reason` (closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede / :on-frame-destroy` — rf2-82a0u). Source-coord lookup reads `(rf/handler-meta :machine id) → :rf/machine → :rf.machine/source-coords` (rf2-8bp3), keyed by `[:actions <id>] | [:guards <id>]`. |
 | `:flow` | `:rf.flow/recomputed` | `:rf.flow/id`, `:rf.flow/path`, `:rf.flow/before`, `:rf.flow/after` |
 | `:fx` | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | `:rf.fx/id`, `:rf.fx/args`, `:duration-ms` |
 | `:subscriptions` | `:rf.sub/run` / `:rf.sub/skip` | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/elapsed-ms` (rf2-kfh1v aligned the reads against these) |

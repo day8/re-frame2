@@ -90,3 +90,67 @@
     (is (= 13  badge/vertical-line-offset-px))
     (is (= -44 badge/circle-left-offset-px))
     (is (= -34 badge/line-left-offset-px))))
+
+;; ---- rf2-u69j7 — machine-cascade row chrome ----------------------------
+
+(deftest cascade-kind-set-test
+  (testing "rf2-u69j7 — the cascade-kind inventory matches the
+            substrate trace ops the projection harvests"
+    (is (= #{:guard :action :transition :timer}
+           badge/cascade-kind-set))
+    (is (badge/cascade-kind? :guard))
+    (is (badge/cascade-kind? :action))
+    (is (badge/cascade-kind? :transition))
+    (is (badge/cascade-kind? :timer))
+    (is (not (badge/cascade-kind? :NOT-A-KIND)))))
+
+(deftest cascade-kind-resolver-test
+  (testing "rf2-u69j7 — every cascade kind resolves to a non-blank
+            CSS-variable colour + uppercase label"
+    (doseq [k badge/cascade-kind-set]
+      (let [c (badge/cascade-kind-colour k)
+            l (badge/cascade-kind-label k)]
+        (is (string? c))
+        (is (re-find #"var\(--rf-xray-" c)
+            (str "expected CSS variable for " k ", got " c))
+        (is (string? l))
+        (is (= (str/upper-case l) l)
+            (str "kind label for " k " not uppercase: " l))))))
+
+(deftest cascade-kind-token-key-mappings-test
+  (testing "rf2-u69j7 — kind → token-key mappings are stable"
+    (is (= :text-tertiary (badge/cascade-kind-token-key :guard)))
+    (is (= :accent        (badge/cascade-kind-token-key :action)))
+    (is (= :magenta       (badge/cascade-kind-token-key :transition)))
+    (is (= :warning       (badge/cascade-kind-token-key :timer))))
+  (testing "rf2-u69j7 — unknown kind falls back to :text-tertiary"
+    (is (= :text-tertiary (badge/cascade-kind-token-key :NOT-A-KIND)))))
+
+(deftest cascade-phase-set-test
+  (testing "rf2-u69j7 — the cascade-phase closed set matches rf2-82a0u"
+    (is (= #{:exit :transition :entry :always
+             :after-action :initial-entry :destroy-exit}
+           badge/cascade-phase-set))
+    (doseq [p badge/cascade-phase-set]
+      (is (badge/cascade-phase? p)))
+    (is (not (badge/cascade-phase? :NOT-A-PHASE)))))
+
+(deftest cascade-phase-label-test
+  (testing "rf2-u69j7 — every phase produces a non-blank label"
+    (doseq [p badge/cascade-phase-set]
+      (let [l (badge/cascade-phase-label p)]
+        (is (string? l))
+        (is (seq l))))))
+
+(deftest cascade-outcome-resolver-test
+  (testing "rf2-u69j7 — outcome → token-key + glyph mappings"
+    (is (= :success       (badge/cascade-outcome-token-key :pass)))
+    (is (= :success       (badge/cascade-outcome-token-key :ok)))
+    (is (= :warning       (badge/cascade-outcome-token-key :fail)))
+    (is (= :error         (badge/cascade-outcome-token-key :threw)))
+    (is (= :text-tertiary (badge/cascade-outcome-token-key :cancelled)))
+    (is (= "✓" (badge/cascade-outcome-glyph :pass)))
+    (is (= "✓" (badge/cascade-outcome-glyph :ok)))
+    (is (= "▲" (badge/cascade-outcome-glyph :fail)))
+    (is (= "✗" (badge/cascade-outcome-glyph :threw)))
+    (is (= "·" (badge/cascade-outcome-glyph :cancelled)))))

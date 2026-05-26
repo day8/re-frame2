@@ -347,6 +347,178 @@
        :delay      (common/tag-of ev :delay)
        :reason     (common/tag-of ev :reason)})))
 
+;; ---- machine cascade (time-ordered) -- rf2-u69j7 ------------------------
+;;
+;; The pre-rf2-u69j7 machine-handler render grouped the substrate's per-event
+;; emit stream into 7 categories (TRANSITION / GUARDS / LIFECYCLE / AFTER-
+;; TIMERS / DATA-REDUCTION / SNAPSHOT-DIFF / FX). That layout buried the
+;; CASCADE — the operator had to read TRANSITION (top), then scroll down to
+;; LIFECYCLE, then back up to GUARDS, to reconstruct what actually happened
+;; in what order. The substrate already emits in cascade order (guards →
+;; exit actions → transition → entry actions → always → …); the projection
+;; just needs to thread the same INSERTION ORDER into a single row vector.
+;;
+;; The cascade row vector replaces the category-grouped `:machine` map
+;; entirely (rf2-u69j7). One row per substrate emit that participated in
+;; the machine cascade:
+;;
+;;   :rf.machine/guard-evaluated     → row :kind :guard
+;;   :rf.machine/action-ran          → row :kind :action  (carries :phase)
+;;   :rf.machine/transition          → row :kind :transition
+;;   :rf.machine.timer/cancelled     → row :kind :timer
+;;
+;; Each row carries enough data for the view to render its phase + outcome
+;; + source-coord + duration + interleaved code body WITHOUT a second pass
+;; over the trace stream.
+
+(def machine-cascade-trace-ops
+  "Closed set of trace ops the cascade projection harvests in trace order
+  (rf2-u69j7). Each op maps to a row :kind via `op->row-kind`. New ops
+  must be added here AND in the `op->row-kind` table; the view's
+  unknown-kind bail-out keeps drift visible."
+  #{:rf.machine/guard-evaluated
+    :rf.machine/action-ran
+    :rf.machine/transition
+    :rf.machine.timer/cancelled})
+
+(def ^:private op->row-kind
+  "Map a machine trace op → cascade-row `:kind` keyword (rf2-u69j7).
+  The view's badge / chrome resolver keys off `:kind`."
+  {:rf.machine/guard-evaluated  :guard
+   :rf.machine/action-ran       :action
+   :rf.machine/transition       :transition
+   :rf.machine.timer/cancelled  :timer})
+
+(defn- guard-cascade-row
+  "Build a cascade row from a `:rf.machine/guard-evaluated` trace event
+  (rf2-u69j7). Outcome is one of `:pass / :fail / :threw` (rf2-82a0u
+  closed set)."
+  [ev]
+  (cond-> {:kind        :guard
+           :guard-id    (common/tag-of ev :guard-id)
+           :outcome     (common/tag-of ev :outcome)
+           :duration-ms (common/tag-of ev :duration-ms)
+           :machine-id  (common/tag-of ev :machine-id)}
+    (common/tag-of ev :spec-path)
+    (assoc :spec-path (common/tag-of ev :spec-path))
+    (common/tag-of ev :exception)
+    (assoc :exception (common/tag-of ev :exception))))
+
+(defn- action-cascade-row
+  "Build a cascade row from a `:rf.machine/action-ran` trace event
+  (rf2-u69j7). Each row carries `:phase` (rf2-82a0u closed set:
+  `:exit / :transition / :entry / :always / :after-action /
+  :initial-entry / :destroy-exit`), the action-id, the input snapshot,
+  per-action fx attribution, the data-write the action returned, and
+  the threw? signal."
+  [ev]
+  (let [outcome     (common/tag-of ev :outcome)
+        action-fx   (when (map? outcome) (:fx outcome))
+        action-data (when (map? outcome) (:data outcome))]
+    (cond-> {:kind        :action
+             :action-id   (common/tag-of ev :action-id)
+             :phase       (common/tag-of ev :phase)
+             :outcome     outcome
+             :threw?      (= :rf.error/action-threw outcome)
+             :duration-ms (common/tag-of ev :duration-ms)
+             :machine-id  (common/tag-of ev :machine-id)
+             :input       (common/tag-of ev :input)}
+      (common/tag-of ev :exception)
+      (assoc :exception (common/tag-of ev :exception))
+      (seq action-fx)
+      (assoc :fx (vec action-fx))
+      (some? action-data)
+      (assoc :data-write action-data))))
+
+(defn- transition-cascade-row
+  "Build a cascade row from a `:rf.machine/transition` trace event
+  (rf2-u69j7). Hoists `:from-state` / `:to-state` off the `:before` /
+  `:after` snapshot maps; preserves `:event` + `:microsteps` for the
+  view's transition chrome (`{:from} → {:to}`, `{n} microstep(s)`).
+
+  Per Spec 005 §Trace events the substrate fires ONE transition emit
+  per macrostep — so the cascade carries at most one `:transition`
+  row, and it lands AFTER the exit-phase actions + the transition-
+  phase actions (substrate emit order)."
+  [ev]
+  (let [before (common/tag-of ev :before)
+        after  (common/tag-of ev :after)]
+    {:kind         :transition
+     :machine-id   (common/tag-of ev :machine-id)
+     :event        (common/tag-of ev :event)
+     :before       before
+     :after        after
+     :from-state   (when (map? before) (:state before))
+     :to-state     (when (map? after)  (:state after))
+     :data-before  (when (map? before) (:data before))
+     :data-after   (when (map? after)  (:data after))
+     :microsteps   (common/tag-of ev :microsteps)
+     :duration-ms  (common/tag-of ev :duration-ms)}))
+
+(defn- timer-cascade-row
+  "Build a cascade row from a `:rf.machine.timer/cancelled` trace event
+  (rf2-u69j7). Carries the cancelled state, the original delay, and
+  the closed-set `:reason` (rf2-82a0u: `:on-exit / :on-destroy /
+  :on-resolution / :on-supersede / :on-frame-destroy`)."
+  [ev]
+  {:kind        :timer
+   :machine-id  (common/tag-of ev :machine-id)
+   :state       (common/tag-of ev :state)
+   :delay       (common/tag-of ev :delay)
+   :reason      (common/tag-of ev :reason)
+   :duration-ms (common/tag-of ev :duration-ms)})
+
+(defn- ev->cascade-row
+  "Dispatch one trace event to its cascade-row builder. Returns nil for
+  events whose op is not in `machine-cascade-trace-ops` (the caller
+  filters but the helper double-guards so a future op insertion is a
+  one-line table change)."
+  [ev]
+  (case (op ev)
+    :rf.machine/guard-evaluated  (guard-cascade-row ev)
+    :rf.machine/action-ran       (action-cascade-row ev)
+    :rf.machine/transition       (transition-cascade-row ev)
+    :rf.machine.timer/cancelled  (timer-cascade-row ev)
+    nil))
+
+(defn machine-cascade-rows
+  "Project the focused epoch's machine-related trace events into a
+  single time-ordered cascade row vector (rf2-u69j7). Each row carries
+  enough data for the view to render its phase / outcome / source-coord
+  / duration / interleaved code body WITHOUT a second pass over the
+  trace stream.
+
+  ORDER COMES FROM SUBSTRATE INSERTION ORDER — the substrate already
+  emits guards / exit actions / transition / entry actions / always /
+  after-action / timer-cancels in cascade order (Spec 005 §Trace events
+  + rf2-82a0u). We just walk the same `:trace-events` vector in order
+  and surface every `machine-cascade-trace-ops` member as a row. The
+  view layer numbers rows 1..N via `:step` (assigned here, contiguous
+  over only the rows that fired).
+
+  Returns an empty vec when no machine-cascade events fired (vanilla
+  reg-event-db / reg-event-fx cascades — the redesign is
+  machine-specific and the empty vec drives the view's empty-state
+  branch off the prior handler-step rendering unchanged)."
+  [events]
+  (vec
+    (map-indexed
+      (fn [i row]
+        (assoc row :step (inc i) :trace-index i))
+      (keep ev->cascade-row
+            (filter (fn [ev] (contains? machine-cascade-trace-ops (op ev)))
+                    events)))))
+
+(defn machine-cascade-total-ms
+  "Sum of every cascade row's `:duration-ms` (rf2-u69j7). nil when no
+  row carries a numeric duration; the view elides the chip in that
+  case. Pure-data aggregation; the view layer never re-walks the
+  trace stream for chrome decisions."
+  [cascade-rows]
+  (let [nums (keep :duration-ms cascade-rows)]
+    (when (seq nums)
+      (reduce + 0 nums))))
+
 (defn- run-end-tags
   "Tags off the `:rf.event/run-end` trace — carries the handler's
   finalised duration + flavour-discriminating slots. Empty map when no
@@ -393,10 +565,20 @@
                      :fx          (or (fx-entries events) [])}]
     (cond-> base
       (= :reg-machine flavour)
-      (assoc :machine {:transition  (machine-transition-row events)
-                       :guards      (machine-guard-rows events)
-                       :lifecycle   (machine-lifecycle-rows events)
-                       :timers      (machine-timer-rows events)})))))
+      (assoc :machine
+             ;; rf2-u69j7 — `:cascade` is the time-ordered row vector the
+             ;; view layer renders. The legacy category-grouped slots
+             ;; (`:transition / :guards / :lifecycle / :timers`) are KEPT
+             ;; on the row as projection-side derived data so test fixtures
+             ;; + callers that pre-date the cascade redesign still read
+             ;; the substrate's per-category aggregations cleanly. The
+             ;; view layer reads ONLY `:cascade` post-rf2-u69j7; the
+             ;; legacy slots ride the row as a pure-data convenience.
+             {:cascade     (machine-cascade-rows events)
+              :transition  (machine-transition-row events)
+              :guards      (machine-guard-rows events)
+              :lifecycle   (machine-lifecycle-rows events)
+              :timers      (machine-timer-rows events)})))))
 
 ;; ---- FLOW step -----------------------------------------------------------
 
@@ -1083,6 +1265,65 @@
             (update acc (or (:phase row) :unknown) (fnil conj []) row))
           {}
           (or lifecycle-rows [])))
+
+(defn cascade-row-label
+  "Render a cascade row's human-readable verb (rf2-u69j7). Used by the
+  view's per-row header. Pure-data; the view never reaches into a
+  row's slots to compute its label."
+  [{:keys [kind action-id guard-id phase from-state to-state state reason
+           machine-id]}]
+  (case kind
+    :guard       (str "guard " (ns-keyword guard-id))
+    :action      (str (when phase (str (name phase) " "))
+                      "action " (ns-keyword action-id))
+    :transition  (str "transition "
+                      (when machine-id
+                        (str (ns-keyword machine-id) " · "))
+                      (if from-state (pr-str from-state) "?")
+                      " → "
+                      (if to-state (pr-str to-state) "?"))
+    :timer       (str "timer " (when state (pr-str state))
+                      (when reason (str " · " (name reason))))
+    (str (when kind (name kind)))))
+
+(defn cascade-row-source-key
+  "Spec-path tuple used to look up a cascade row's source-coord on the
+  registered machine's `:rf.machine/source-coords` index (rf2-8bp3).
+  Returns nil for rows whose kind has no spec-path mapping (e.g.
+  `:transition`, `:timer`). Pure-data; the view layer reuses this for
+  the coord lookup so the source-link affordance reads off ONE
+  authoritative key."
+  [{:keys [kind action-id guard-id]}]
+  (case kind
+    :action (when action-id [:actions action-id])
+    :guard  (when guard-id  [:guards guard-id])
+    nil))
+
+(defn cascade-outcome-label
+  "Render a cascade row's outcome for the view's outcome chip
+  (rf2-u69j7). Pure-data.
+
+    :guard       → `pass | fail | threw`
+    :action      → `ok | threw` (the action's outcome map is rich;
+                                 the chip carries only the headline)
+    :transition  → `→ N microstep(s)` (the headline reads off
+                                       `:microsteps`)
+    :timer       → `cancelled (<reason>)`"
+  [{:keys [kind outcome threw? microsteps reason]}]
+  (case kind
+    :guard      (if (keyword? outcome) (name outcome) nil)
+    :action     (cond
+                  threw?                "threw"
+                  (= :ok outcome)       "ok"
+                  (map? outcome)        "ok"
+                  (keyword? outcome)    (name outcome)
+                  :else                 nil)
+    :transition (when (number? microsteps)
+                  (str microsteps " microstep"
+                       (when (not= 1 microsteps) "s")))
+    :timer      (str "cancelled"
+                     (when reason (str " (" (name reason) ")")))
+    nil))
 
 ;; ---- spec helpers --------------------------------------------------------
 
