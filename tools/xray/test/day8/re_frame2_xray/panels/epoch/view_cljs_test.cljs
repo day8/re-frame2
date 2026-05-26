@@ -215,6 +215,43 @@
           (is (= 1 (count-prefix tree "rf-xray-epoch-sub-row-"))
               "unchanged hidden again after second toggle"))))))
 
+(deftest sub-toggle-anchors-to-xray-frame-test
+  (testing "rf2-p56sk — fourth frame-leak class (rf2-7sdja popup +
+            rf2-y59tb triangle + rf2-kcaiz zoom). The Show unchanged
+            toggle's dispatch carries explicit `{:frame :rf/xray}`
+            envelope AND the read uses the 2-arity subscribe form
+            so the sub-write + sub-read are anchored to the same
+            frame regardless of the surrounding render context.
+            Without both anchors, the dispatch lands in `:rf/xray`'s
+            app-db while the read accidentally resolves `:rf/default`
+            (or any other frame) — mutation never visible to the row
+            filter."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    ;; Run OUTSIDE `with-frame :rf/xray` so the dispatch path is
+    ;; exercised exactly as the live shell's React onClick fires it —
+    ;; the dispatch-time frame must be the envelope, NOT a lexical
+    ;; binding the test artificially supplies.
+    (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
+                       {:sub-id :b :sub-vec [:b] :changed? false}]
+                :changed 1 :unchanged 1}]
+      ;; The button's onClick dispatches with envelope; mirror that.
+      (rf/with-frame :rf/xray
+        ;; Confirm the toggle button is rendered and carries the envelope.
+        (let [tree (view/render-subscriptions-step step)
+              btn  (th/find-by-testid tree "rf-xray-epoch-subscriptions-toggle")]
+          (is (some? btn) "toggle button is present")
+          (is (fn? (:on-click (second btn))))))
+      ;; Dispatch with the envelope — same shape as the click handler.
+      (rf/dispatch-sync [:rf.xray.epoch/toggle-subs-show-unchanged]
+                        {:frame :rf/xray})
+      (rf/with-frame :rf/xray
+        (let [tree (view/render-subscriptions-step step)]
+          (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
+              "envelope-anchored dispatch flips the :rf/xray slot the
+               2-arity sub reads"))))))
+
 ;; ---- rf2-66wis — HANDLER source code block ---------------------------
 
 (deftest handler-body-renders-source-placeholder-test

@@ -1164,9 +1164,23 @@
   header shows the split count `N recomputed (M changed, K unchanged)`.
 
   Mirrors the filter-toggle posture Chrome devtools' network panel
-  uses (the precedent the bead body cites)."
+  uses (the precedent the bead body cites).
+
+  Per rf2-p56sk — fourth frame-leak in this class (after rf2-7sdja
+  popup, rf2-y59tb triangle, rf2-kcaiz zoom). The toggle event is
+  dispatched with explicit `{:frame :rf/xray}` envelope in
+  `subscriptions-toggle-button`, and the read here uses the
+  2-arity `subscribe` form so the sub anchors to `:rf/xray`
+  regardless of where the plain hiccup render dereffs from. Without
+  the explicit frame anchor, a non-`reg-view`-internal subscribe
+  resolves through the React-context tier — which is `:rf/xray` in
+  the Xray shell but is NOT guaranteed when the panel renders
+  inside a different frame-provider (story testbeds, embedded
+  surfaces). The toggle slot lives on `:rf/xray`'s app-db; the
+  matching read MUST also target `:rf/xray`'s db."
   [{:keys [rows changed unchanged step-number]}]
-  (let [show-unchanged? @(rf/subscribe [:rf.xray.epoch/subs-show-unchanged?])
+  (let [show-unchanged? @(rf/subscribe :rf/xray
+                                       [:rf.xray.epoch/subs-show-unchanged?])
         visible-rows    (if show-unchanged?
                           rows
                           (filterv :changed? rows))
