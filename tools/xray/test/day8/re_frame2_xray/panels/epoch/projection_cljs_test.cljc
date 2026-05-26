@@ -53,17 +53,15 @@
      true (assoc :event event :source source))))
 
 (defn- run-end-ev
-  ;; rf2-e0xjx — substrate stamps the handler's wall-clock duration as
-  ;; `:rf.event/elapsed-ms` on `:rf.event/run-end` (rf2-hhh92 ·
-  ;; `re-frame.router/emit-run-end-trace`). The fixture stamps both
-  ;; the canonical name and the legacy `:duration-ms` while the
-  ;; reader still falls back to `:duration-ms`; once the rf2-slnce
-  ;; reader-fix lands the legacy stamp is removed.
+  ;; rf2-slnce — substrate stamps the handler's wall-clock duration
+  ;; as `:rf.event/elapsed-ms` on `:rf.event/run-end` (rf2-hhh92 ·
+  ;; `re-frame.router/emit-run-end-trace`). Fixture stamps the
+  ;; canonical name only; the reader's legacy fallbacks remain for
+  ;; older runtimes / external test fixtures.
   ([] (run-end-ev nil nil))
   ([duration-ms] (run-end-ev duration-ms nil))
   ([duration-ms coeffects]
-   (ev :rf.event :rf.event/run-end (cond-> {:duration-ms        duration-ms
-                                            :rf.event/elapsed-ms duration-ms}
+   (ev :rf.event :rf.event/run-end (cond-> {:rf.event/elapsed-ms duration-ms}
                                      coeffects (assoc :rf.event/coeffects
                                                       coeffects)))))
 
@@ -304,6 +302,31 @@
           "no COEFFECT step is emitted when every cofx is system-injected"))))
 
 ;; ---- HANDLER -------------------------------------------------------------
+
+(deftest handler-row-reads-canonical-elapsed-ms-test
+  (testing "rf2-slnce — substrate stamps the per-handler duration as
+            `:rf.event/elapsed-ms` on `:rf.event/run-end` (rf2-hhh92 ·
+            `re-frame.router/emit-run-end-trace`; spec 009 §238). The
+            pre-rf2-slnce reader looked for the never-emitted
+            `:duration-ms` / `:rf.event/duration-ms` — HANDLER duration
+            was always nil and the cascade-summary chip total was
+            systematically under-counted."
+    (let [run-end {:op-type   :rf.event
+                   :operation :rf.event/run-end
+                   :tags      {:rf.event/elapsed-ms 4.2}}
+          r       (proj/handler-row [run-end] :counter-inc)]
+      (is (= 4.2 (:duration-ms r))
+          "handler duration resolves through canonical :rf.event/elapsed-ms")))
+
+  (testing "rf2-slnce — fixture-compat: a runtime that still stamps
+            `:duration-ms` (older or external) falls through the
+            preserved fallback chain"
+    (let [run-end {:op-type   :rf.event
+                   :operation :rf.event/run-end
+                   :tags      {:duration-ms 9.9}}
+          r       (proj/handler-row [run-end] :counter-inc)]
+      (is (= 9.9 (:duration-ms r))
+          "legacy :duration-ms fallback retained for older fixtures"))))
 
 (deftest handler-row-reg-event-db-test
   (testing "no fx + no machine = reg-event-db flavour.

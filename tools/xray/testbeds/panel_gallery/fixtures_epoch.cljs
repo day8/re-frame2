@@ -93,12 +93,12 @@
   "`:rf.event/run-end` trace — the projection reads the handler's
   finalised duration here.
 
-  rf2-e0xjx — substrate stamps the canonical `:rf.event/elapsed-ms`
+  rf2-slnce — substrate stamps the canonical `:rf.event/elapsed-ms`
   (rf2-hhh92 · `re-frame.router/emit-run-end-trace`); fixture mirrors
-  that. Legacy `:duration-ms` companion stays until rf2-slnce lands."
+  that. The reader retains legacy `:duration-ms` fallbacks for older
+  runtimes / external test fixtures."
   [duration-ms]
-  (ev :rf.event :rf.event/run-end {:duration-ms         duration-ms
-                                   :rf.event/elapsed-ms duration-ms}))
+  (ev :rf.event :rf.event/run-end {:rf.event/elapsed-ms duration-ms}))
 
 (defn- db-changed-ev
   "`:rf.event/db-changed` trace — drives both HANDLER's `:db-diff`

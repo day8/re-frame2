@@ -550,7 +550,17 @@
         run-end     (run-end-tags events)
         db-changed  (find-op events :rf.event/db-changed)
         do-fx       (find-op events :rf.fx/do-fx)
-        duration-ms (or (:duration-ms run-end)
+        ;; rf2-slnce — substrate stamps the per-handler wall-clock
+        ;; duration as `:rf.event/elapsed-ms` on `:rf.event/run-end`
+        ;; (rf2-hhh92 · `re-frame.router/emit-run-end-trace`); spec
+        ;; 009 §238. The pre-rf2-slnce reader looked for the
+        ;; never-emitted `:duration-ms` / `:rf.event/duration-ms` →
+        ;; HANDLER duration was always nil and the cascade-summary
+        ;; chip total was systematically under-counted. Legacy
+        ;; names retained as fixture-compat fallbacks; the
+        ;; db-changed / do-fx slot fallbacks are similarly defensive.
+        duration-ms (or (:rf.event/elapsed-ms run-end)
+                        (:duration-ms run-end)
                         (:rf.event/duration-ms run-end)
                         (some-> db-changed :tags :duration-ms)
                         (some-> do-fx :tags :duration-ms))
