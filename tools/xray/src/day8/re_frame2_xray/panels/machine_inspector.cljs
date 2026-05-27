@@ -607,7 +607,7 @@
     :testid    "rf-xray-machine-snapshot-view-mode"
     :on-change (fn [m]
                  (rf/with-frame :rf/xray
-                   (rf/dispatch [:rf.xray.machine-inspector/set-view-mode m])))}])
+                   (rf/dispatch [:rf.xray.machine-inspector/set-diff-mode m])))}])
 
 (defn- snapshot-drill-in
   "Snapshot drill-in section beneath the focused-event chart. Renders
@@ -636,7 +636,7 @@
   [{:keys [machine-id before after]}]
   (when (or (some? before) (some? after))
     (let [mode @(rf/subscribe :rf/xray
-                              [:rf.xray.machine-inspector/view-mode])]
+                              [:rf.xray.machine-inspector/diff-mode])]
       [:section
        {:data-testid     "rf-xray-machine-snapshot-drill-in"
         :data-machine-id (str machine-id)
@@ -1194,19 +1194,16 @@
   `static.machines.sim` — installed via
   `static.machines.panel/install!` further down the registry."
   []
-  ;; ---- Machine Inspector snapshot view-mode toggle (rf2-yqjrd) -----
+  ;; ---- Machine Inspector snapshot diff-mode toggle (rf2-yqjrd / rf2-0cyjm) -----
   ;;
   ;; Universal three-mode toggle for the snapshot drill-in section.
   ;; Replaces the prior Before/After side-by-side grid — one mount,
   ;; one toggle, same R1-R8 grammar every other Xray diff surface
-  ;; uses (rf2-n2jig).
-  (rf/reg-sub :rf.xray.machine-inspector/view-mode
-    (fn [db _query]
-      (get db :machine-inspector-view-mode :full+diff)))
-
-  (rf/reg-event-db :rf.xray.machine-inspector/set-view-mode
-    (fn [db [_ mode]]
-      (assoc db :machine-inspector-view-mode mode)))
+  ;; uses (rf2-n2jig). Sub `:rf.xray.machine-inspector/diff-mode` +
+  ;; event `:rf.xray.machine-inspector/set-diff-mode` + slot are
+  ;; installed by the shared helper from `views.diff-mode-toggle` so
+  ;; every Xray diff surface uses identical naming.
+  (diff-mode/reg-mode-sub+event! :rf.xray.machine-inspector)
 
   ;; Registered-machine vector (reads `(rf/machines)`).
   (rf/reg-sub :rf.xray/registered-machines

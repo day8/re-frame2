@@ -1503,7 +1503,7 @@ The HANDLER step's `:db` sub-section carries a three-button toggle:
 
 **Default**: `:full+diff` (Mike pair-debug 2026-05-27 — the operator's
 most-useful default; shape + delta in one read). Mode persists via
-`:rf.xray.epoch/db-view-mode` so the operator's preference survives
+`:rf.xray.epoch/db-diff-mode` so the operator's preference survives
 focus shifts.
 
 > **Migration**: the prior two-button `[diff][all]` toggle was retired
@@ -1583,12 +1583,17 @@ regardless of panel.
 
 **Affected surfaces** (post-rf2-yqjrd):
 
-| Surface                           | Mode slot                              | Default |
-|-----------------------------------|----------------------------------------|---------|
-| Epoch HANDLER step `:db`          | `:rf.xray.epoch/db-view-mode`          | `:full+diff` |
-| App-DB panel (panel-wide)         | `:rf.xray.app-db/view-mode`            | `:full+diff` |
-| Machine Inspector snapshot drill-in | `:rf.xray.machine-inspector/view-mode` | `:full+diff` |
-| Epoch SUBSCRIPTIONS step value cells | `:rf.xray.epoch/subs-value-mode`     | `:full+diff` |
+| Surface                           | Sub                                       | Set event                                       | Default |
+|-----------------------------------|-------------------------------------------|-------------------------------------------------|---------|
+| Epoch HANDLER step `:db`          | `:rf.xray.epoch/db-diff-mode`             | `:rf.xray.epoch/set-db-diff-mode`               | `:full+diff` |
+| App-DB panel (panel-wide)         | `:rf.xray.app-db/diff-mode`               | `:rf.xray.app-db/set-diff-mode`                 | `:full+diff` |
+| Machine Inspector snapshot drill-in | `:rf.xray.machine-inspector/diff-mode`  | `:rf.xray.machine-inspector/set-diff-mode`      | `:full+diff` |
+| Epoch SUBSCRIPTIONS step value cells | `:rf.xray.epoch/subs-value-diff-mode`  | `:rf.xray.epoch/set-subs-value-diff-mode`       | `:full+diff` |
+
+All four surfaces install their sub + event pair via the shared
+`day8.re-frame2-xray.views.diff-mode-toggle/reg-mode-sub+event!`
+helper (rf2-0cyjm / rf2-44xya) — one call per surface, identical
+naming convention enforced at the source.
 
 Per-surface mode behaviour follows the same vocabulary as §9.1.5.1's
 HANDLER `:db`:

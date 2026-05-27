@@ -166,18 +166,22 @@
    ;; (`[all][changed][unchanged]` button-bar; supersedes
    ;; rf2-kfh1v's boolean `subs-show-unchanged?`).
    :rf.xray.epoch/subs-filter-mode
-   ;; pair-debug 2026-05-26 (ee9def224) — HANDLER `:db` `[diff][all]`
-   ;; toggle slot. Persists the operator's preferred view-mode for
-   ;; the HANDLER step's `:db` sub-section. Defaults to `:diff`.
-   :rf.xray.epoch/db-view-mode
-   ;; rf2-yqjrd — SUBSCRIPTIONS value-mode toggle. Orthogonal to the
-   ;; row-filter `:subs-filter-mode`; governs how each `:changed?`
-   ;; row's value cell renders (`:diff` / `:full` / `:full+diff`).
-   :rf.xray.epoch/subs-value-mode
-   ;; rf2-yqjrd — App-DB panel universal view-mode toggle slot.
-   :rf.xray.app-db/view-mode
-   ;; rf2-yqjrd — Machine Inspector snapshot view-mode toggle slot.
-   :rf.xray.machine-inspector/view-mode
+   ;; pair-debug 2026-05-26 (ee9def224) + rf2-0cyjm 2026-05-27 — HANDLER
+   ;; `:db` three-mode toggle sub. Persists the operator's preferred
+   ;; diff-mode for the HANDLER step's `:db` sub-section. Installed via
+   ;; the shared `views.diff-mode-toggle/reg-mode-sub+event!` helper.
+   :rf.xray.epoch/db-diff-mode
+   ;; rf2-yqjrd / rf2-0cyjm — SUBSCRIPTIONS value-cell diff-mode toggle.
+   ;; Orthogonal to the row-filter `:subs-filter-mode`; governs how each
+   ;; `:changed?` row's value cell renders (`:diff` / `:full` /
+   ;; `:full+diff`). Installed via the shared helper.
+   :rf.xray.epoch/subs-value-diff-mode
+   ;; rf2-yqjrd / rf2-0cyjm — App-DB panel universal diff-mode toggle
+   ;; sub. Installed via the shared helper.
+   :rf.xray.app-db/diff-mode
+   ;; rf2-yqjrd / rf2-0cyjm — Machine Inspector snapshot diff-mode
+   ;; toggle sub. Installed via the shared helper.
+   :rf.xray.machine-inspector/diff-mode
    :rf.xray/event-detail
    :rf.xray/filtered-cascades
    ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
@@ -476,16 +480,18 @@
    ;; (`[all][changed][unchanged]` button-bar; supersedes
    ;; rf2-kfh1v's `toggle-subs-show-unchanged`).
    :rf.xray.epoch/set-subs-filter-mode
-   ;; pair-debug 2026-05-26 (ee9def224) — HANDLER `:db` `[diff][all]`
-   ;; toggle write event. Sets the persisted view-mode slot the
-   ;; `:rf.xray.epoch/db-view-mode` sub reads.
-   :rf.xray.epoch/set-db-view-mode
-   ;; rf2-yqjrd — universal three-mode toggle write events. Each
-   ;; surface registers its own pair so per-surface mode persistence
-   ;; stays isolated.
-   :rf.xray.epoch/set-subs-value-mode
-   :rf.xray.app-db/set-view-mode
-   :rf.xray.machine-inspector/set-view-mode
+   ;; pair-debug 2026-05-26 (ee9def224) + rf2-0cyjm 2026-05-27 — HANDLER
+   ;; `:db` three-mode toggle write event. Sets the persisted diff-mode
+   ;; slot the `:rf.xray.epoch/db-diff-mode` sub reads. Installed via
+   ;; the shared `views.diff-mode-toggle/reg-mode-sub+event!` helper.
+   :rf.xray.epoch/set-db-diff-mode
+   ;; rf2-yqjrd / rf2-0cyjm — universal three-mode toggle write events.
+   ;; Each surface registers its own pair so per-surface mode
+   ;; persistence stays isolated; all four installed via the shared
+   ;; helper for uniform naming.
+   :rf.xray.epoch/set-subs-value-diff-mode
+   :rf.xray.app-db/set-diff-mode
+   :rf.xray.machine-inspector/set-diff-mode
    :rf.xray/epoch-recorded
    ;; rf2-piye4 — typed-predicate filter events. Each appends a
    ;; typed `{:kind <kw> :params {…}}` IN pill from a right-click

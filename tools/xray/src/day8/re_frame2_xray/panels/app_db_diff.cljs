@@ -67,10 +67,10 @@
                    focused epoch's `:db-before` threaded so inline
                    diff annotations paint (default; mode-3).
 
-  Mode persists in `:rf.xray.app-db/view-mode` on Xray's app-db so the
+  Mode persists in `:rf.xray.app-db/diff-mode` on Xray's app-db so the
   operator's preference survives focus shifts."
   []
-  (let [mode          @(rf/subscribe [:rf.xray.app-db/view-mode])
+  (let [mode          @(rf/subscribe [:rf.xray.app-db/diff-mode])
         section-model @(rf/subscribe [:rf.xray/app-db-state])
         diff-triples  @(rf/subscribe [:rf.xray/selected-epoch-diff])]
     [:section {:data-testid "rf-xray-app-db-diff"
@@ -103,7 +103,7 @@
         :testid "rf-xray-app-db-view-mode"
         :on-change (fn [m]
                      (rf/with-frame :rf/xray
-                       (rf/dispatch [:rf.xray.app-db/set-view-mode m])))}]]
+                       (rf/dispatch [:rf.xray.app-db/set-diff-mode m])))}]]
      ;; rf2-6xezz — the L4 tab strip is the panel-name source-of-truth;
      ;; content starts immediately under the tab bar.
      [:div {:style {:flex 1 :overflow "auto"}}

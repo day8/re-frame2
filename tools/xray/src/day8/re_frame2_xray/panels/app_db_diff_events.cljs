@@ -8,7 +8,8 @@
   pinned-watches strip was superseded by the path-segment inspector
   popup (Mike 2026-05-19 Q13). The matching `pin-path` / `unpin-path`
   / `reorder-paths` helpers were pulled in lockstep."
-  (:require [re-frame.core :as rf]))
+  (:require [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]
+            [re-frame.core :as rf]))
 
 (defn install!
   "Install the App-DB Diff events and effects."
@@ -21,7 +22,7 @@
     (fn [db _event]
       (dissoc db :focused-slice-path)))
 
-  ;; ---- App-DB panel view-mode toggle (rf2-yqjrd) ----
+  ;; ---- App-DB panel diff-mode toggle (rf2-yqjrd / rf2-0cyjm) ----
   ;;
   ;; Three-mode toggle `[diff][full][full+diff]` that drives every section
   ;; (top + per-`:rf/*` area) in the App-DB panel. Per pair-debug
@@ -41,15 +42,11 @@
   ;;                  the operator's most-useful default; shape + delta
   ;;                  together.
   ;;
-  ;; Mode persists via `:rf.xray.app-db/view-mode` so the operator's
-  ;; preference survives focus shifts.
-  (rf/reg-sub :rf.xray.app-db/view-mode
-    (fn [db _query]
-      (get db :app-db-panel-view-mode :full+diff)))
-
-  (rf/reg-event-db :rf.xray.app-db/set-view-mode
-    (fn [db [_ mode]]
-      (assoc db :app-db-panel-view-mode mode)))
+  ;; Mode persists via `:rf.xray.app-db/diff-mode` so the operator's
+  ;; preference survives focus shifts. The sub + event pair + slot are
+  ;; installed by the shared helper from `views.diff-mode-toggle` so
+  ;; every Xray diff surface uses identical naming.
+  (diff-mode/reg-mode-sub+event! :rf.xray.app-db)
 
   (rf/reg-fx :rf.xray.fx/copy-to-clipboard
     (fn [_ctx {:keys [text]}]

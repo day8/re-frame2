@@ -611,7 +611,7 @@
    :color        text-tertiary-colour
    :padding-left "16px"})
 
-;; -- db-view-mode toggle / db-diff ----------------------------------------
+;; -- db-diff-mode toggle / db-diff ----------------------------------------
 
 (def ^:private mode-toggle-bar-style
   {:display       "inline-flex"
@@ -2221,7 +2221,7 @@
                :style handler-source-placeholder-style}
         "<source not yet captured>"])]))
 
-(defn- db-view-mode-toggle
+(defn- db-diff-mode-toggle
   "Thin wrapper around the shared `views.diff-mode-toggle/diff-mode-toggle`
   widget (rf2-yqjrd extraction of the rf2-n2jig toggle). The button-bar
   chrome + per-mode labels + R1-R8 grammar default mode (`:full+diff`)
@@ -2240,7 +2240,7 @@
     :testid    "rf-xray-epoch-handler-db-view-mode"
     :on-change (fn [m]
                  (rf/with-frame :rf/xray
-                   (rf/dispatch [:rf.xray.epoch/set-db-view-mode m])))}])
+                   (rf/dispatch [:rf.xray.epoch/set-db-diff-mode m])))}])
 
 (defn- handler-db-diff-block
   "Render the HANDLER step's `:db` sub-section (rf2-93436 / design
@@ -2264,7 +2264,7 @@
     rules per the findings doc `diff-mode-3-key-and-triangle-
     grammar-2026-05-27.md` §5.1 (revised per §7).
 
-  Mode persists via `:rf.xray.epoch/db-view-mode` so the operator's
+  Mode persists via `:rf.xray.epoch/db-diff-mode` so the operator's
   preference survives focus shifts.
 
   Distinct from the (retired) top-level APP-DB DIFF step (rf2-rrykz)
@@ -2276,7 +2276,7 @@
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
   standalone slot."
   [db-diff]
-  (let [mode      @(rf/subscribe [:rf.xray.epoch/db-view-mode])
+  (let [mode      @(rf/subscribe [:rf.xray.epoch/db-diff-mode])
         empty?    (not (seq db-diff))
         n         (count db-diff)
         diff-summary (cond
@@ -2285,11 +2285,11 @@
                        :else  (str n " path" (when (not= 1 n) "s")))]
     [:div {:data-testid "rf-xray-epoch-handler-db-diff"
            :data-empty (str empty?)
-           :data-db-view-mode (name mode)}
+           :data-db-diff-mode (name mode)}
      (sub-header ":db"
                  [:span {:style inline-flex-center-style}
                   (when diff-summary diff-summary)
-                  (db-view-mode-toggle mode)])
+                  (db-diff-mode-toggle mode)])
      (case mode
        :diff
        (when-not empty?
@@ -2622,7 +2622,7 @@
   "Render the `changed` cell for one sub recomputation row using the
   universal three-mode toggle (rf2-yqjrd).
 
-  `mode` is the panel-wide `:rf.xray.epoch/subs-value-mode` keyword:
+  `mode` is the panel-wide `:rf.xray.epoch/subs-value-diff-mode` keyword:
 
   - `:diff`      — `✓ before → after` row (the prior shape; surfaces
                    only the value pair via `mini`).
@@ -2676,10 +2676,10 @@
 
   rf2-yqjrd — the `changed` cell now routes through `subs-value-cell`
   so the universal three-mode toggle drives value rendering. `mode`
-  carries the resolved `:rf.xray.epoch/subs-value-mode` keyword."
+  carries the resolved `:rf.xray.epoch/subs-value-diff-mode` keyword."
   [rows mode]
   [:div {:data-testid "rf-xray-epoch-subscriptions-table"
-         :data-subs-value-mode (when (keyword? mode) (name mode))
+         :data-subs-value-diff-mode (when (keyword? mode) (name mode))
          :style subscriptions-table-style}
    ;; header
    [:div {:style table-header-row-style}
@@ -2790,7 +2790,7 @@
   (let [mode          @(rf/subscribe :rf/xray
                                      [:rf.xray.epoch/subs-filter-mode])
         value-mode    @(rf/subscribe :rf/xray
-                                     [:rf.xray.epoch/subs-value-mode])
+                                     [:rf.xray.epoch/subs-value-diff-mode])
         visible-rows  (case mode
                         :all       rows
                         :unchanged (filterv (complement :changed?) rows)
@@ -2827,7 +2827,7 @@
                    :on-change (fn [m]
                                 (rf/with-frame :rf/xray
                                   (rf/dispatch
-                                    [:rf.xray.epoch/set-subs-value-mode m])))}])
+                                    [:rf.xray.epoch/set-subs-value-diff-mode m])))}])
                (when (pos? l)
                  [:span {:style subs-disposed-count-style}
                   (str l " disposed")])]
