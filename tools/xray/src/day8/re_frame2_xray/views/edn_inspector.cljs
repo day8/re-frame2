@@ -1310,13 +1310,31 @@
   rf2-kbdk8: `default-expanded-depth` is the EXPAND CEILING — never
   auto-expand past depth N (show a collapsed summary instead). When no
   available-width is yet measured the legacy depth-driven path runs as
-  the fallback so unit tests + first-paint behaviour stay deterministic."
+  the fallback so unit tests + first-paint behaviour stay deterministic.
+
+  rf2-fqcdd — FULL+DIFF posture: when `:full-with-diff?` is true the
+  depth/width heuristics are SUPPRESSED for unchanged subtrees.
+  Only two reasons to auto-expand a container:
+
+    1. depth = 0 (always show the root's keys)
+    2. `:has-changed-descendant?` true (an ancestor of a change)
+
+  Otherwise collapse — the operator sees only the changed slices
+  plus the root, no surrounding context noise. Sticky override via
+  `resolve-expanded?` still wins for ad-hoc inspection."
   [{:keys [depth child-count default-expanded-depth available-width-px value
-           has-changed-descendant?]
+           has-changed-descendant? full-with-diff?]
     :or   {default-expanded-depth default-ceiling-depth}}]
   (cond
     has-changed-descendant?
     true
+
+    ;; rf2-fqcdd — FULL+DIFF: collapse unchanged subtrees regardless of
+    ;; depth/width. Root (depth 0) still expands so the operator sees
+    ;; the top-level keys; everything below collapses unless an
+    ;; ancestor of a change.
+    full-with-diff?
+    (zero? depth)
 
     ;; Width-aware path — once a measurement exists, width drives the
     ;; decision. Containers that fit inline DON'T auto-expand (caller's
@@ -1703,6 +1721,7 @@
                               :child-count             cnt
                               :default-expanded-depth  default-expanded-depth
                               :has-changed-descendant? has-change?
+                              :full-with-diff?         full-with-diff?
                               :available-width-px      available-width-px
                               :value                   value}))
         expanded?     (and (not empty?)

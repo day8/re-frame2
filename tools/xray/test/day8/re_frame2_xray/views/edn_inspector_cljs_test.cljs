@@ -2312,6 +2312,34 @@
                   {:depth 5 :child-count 2 :value {:a 1 :b 2}
                    :default-expanded-depth 2})))))
 
+(deftest default-expanded-full-with-diff-collapses-unchanged
+  (testing "rf2-fqcdd — FULL+DIFF mode: unchanged subtrees collapse
+            regardless of depth/width. Only the root + ancestors of
+            a change auto-expand."
+    ;; Root (depth 0) always expands so the operator sees the keys.
+    (is (true? (ei/default-expanded?
+                 {:depth 0 :child-count 5 :value {:a 1 :b 2}
+                  :default-expanded-depth 3
+                  :full-with-diff? true})))
+    ;; Depth 1 with NO changed descendant + FULL+DIFF on → collapse,
+    ;; even though depth ≤ default-expanded-depth (would normally expand).
+    (is (false? (ei/default-expanded?
+                  {:depth 1 :child-count 5 :value {:a 1 :b 2}
+                   :default-expanded-depth 3
+                   :full-with-diff? true})))
+    ;; Depth 1 WITH changed descendant + FULL+DIFF on → expand (the
+    ;; force-expand rule for diff readability wins).
+    (is (true? (ei/default-expanded?
+                 {:depth 1 :child-count 5 :value {:a 1 :b 2}
+                  :default-expanded-depth 3
+                  :full-with-diff? true
+                  :has-changed-descendant? true})))
+    ;; FULL+DIFF off — width/depth heuristic applies (the regression
+    ;; pin: the new branch is gated on `:full-with-diff?`).
+    (is (true? (ei/default-expanded?
+                 {:depth 1 :child-count 5 :value {:a 1 :b 2}
+                  :default-expanded-depth 3})))))
+
 (deftest render-container-width-fit-renders-inline-recursively
   (testing "rf2-kbdk8 — when measured width fits the value's pr-str,
             the renderer emits the FULL value (including nested
