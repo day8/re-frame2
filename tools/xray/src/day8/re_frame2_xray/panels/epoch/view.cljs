@@ -2990,7 +2990,7 @@
    [:div {:style table-header-row-style}
     [:div {:style subs-th-35-style} "sub"]
     [:div {:style subs-th-35-style} "inputs"]
-    [:div {:style subs-th-30-style} "changed"]]
+    [:div {:style subs-th-30-style} "value"]]
    ;; rows
    (for [[i {:keys [sub-id sub-vec inputs] :as row}] (map-indexed vector rows)]
      [:div {:key (str "sub-" i)
