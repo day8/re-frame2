@@ -61,6 +61,7 @@
             [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]
+            [day8.re-frame2-xray.views.resizable-table :as rt]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -766,12 +767,6 @@
    :color          text-tertiary-colour
    :text-transform "uppercase"
    :letter-spacing "0.5px"})
-
-(def ^:private subs-th-35-style
-  {:flex "1 1 35%" :padding "5px 8px"})
-
-(def ^:private subs-th-30-style
-  {:flex "1 1 30%" :padding "5px 8px"})
 
 (def ^:private subs-row-style
   {:display     "flex"
@@ -2979,48 +2974,61 @@
 
   rf2-yqjrd — the `changed` cell now routes through `subs-value-cell`
   so the universal three-mode toggle drives value rendering. `mode`
-  carries the resolved `:rf.xray.epoch/subs-value-diff-mode` keyword."
+  carries the resolved `:rf.xray.epoch/subs-value-diff-mode` keyword.
+
+  rf2-uji72 — table now mounts through the shared `rt/resizable-table`
+  view; columns are user-draggable via the gutters between adjacent
+  headers. Per-row layout becomes a CSS grid driven by the table's
+  column-widths state slot (in-memory; reset on reload — localStorage
+  persistence is a follow-up bead)."
   [rows mode]
-  [:div {:data-testid "rf-xray-epoch-subscriptions-table"
-         ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis (was
-         ;; the drifted `data-subs-value-diff-mode`).
-         :data-rf-xray-diff-mode (when (keyword? mode) (name mode))
-         :style subscriptions-table-style}
-   ;; header
-   [:div {:style table-header-row-style}
-    [:div {:style subs-th-35-style} "sub"]
-    [:div {:style subs-th-35-style} "inputs"]
-    [:div {:style subs-th-30-style} "value"]]
-   ;; rows
-   (for [[i {:keys [sub-id sub-vec inputs] :as row}] (map-indexed vector rows)]
-     [:div {:key (str "sub-" i)
-            :data-testid (str "rf-xray-epoch-sub-row-" i)
-            :data-sub-changed (str (boolean (:changed? row)))
-            :style (if (< i (dec (count rows)))
-                     subs-row-style-with-border
-                     subs-row-style)}
-      [:div {:style subs-cell-id-style}
-       ;; rf2-8w8er — sub-vec renders through `mini` so the vector's
-       ;; keywords paint magenta, scalars orange, etc. Sub-id-only
-       ;; fallback keeps the keyword-token chrome via `mini` too.
-       [:span {:style subs-cell-id-span-style}
-        (if (vector? sub-vec)
-          [ei/mini sub-vec 40]
-          [ei/mini sub-id 40])
-        (icons/external-link)]]
-      [:div {:style subs-cell-inputs-style}
-       ;; rf2-8w8er — each input keyword routes through `mini` so
-       ;; the input column lights up as keywords, not plain text.
-       ;; "app-db" stays as a label (it's a source descriptor, not
-       ;; a CLJS value).
-       (cond
-         (vector? inputs)
-         (into [:div {:style subs-inputs-list-style}]
-               (map (fn [i] [:div [ei/mini i 40]]) inputs))
-         (some? inputs) [ei/mini inputs 40]
-         :else          "app-db")]
-      [:div {:style subs-cell-changed-style}
-       (subs-value-cell row mode i)]])])
+  (let [columns [{:id :sub    :label "sub"    :default-flex "1fr"}
+                 {:id :inputs :label "inputs" :default-flex "1fr"}
+                 {:id :value  :label "value"  :default-flex "1fr"}]]
+    [rt/resizable-table
+     {:table-id        :rf.xray.epoch/subscriptions
+      :container-attrs {:data-testid              "rf-xray-epoch-subscriptions-table"
+                        :data-rf-xray-diff-mode   (when (keyword? mode) (name mode))
+                        :style                    subscriptions-table-style}
+      :header-attrs    {:style table-header-row-style}
+      :columns         columns
+      :rows            rows
+      :row-key         (fn [_ i] (str "sub-" i))
+      :row-attrs       (fn [_row i] {:data-testid       (str "rf-xray-epoch-sub-row-" i)
+                                     :data-sub-changed  (str (boolean (:changed? (nth rows i))))
+                                     :style (if (< i (dec (count rows)))
+                                              subs-row-style-with-border
+                                              subs-row-style)})
+      :row-cells
+      (fn [{:keys [sub-id sub-vec inputs] :as row} i]
+        [;; sub cell
+         [:div {:data-rf-xray-resizable-col "sub"
+                :style subs-cell-id-style}
+          ;; rf2-8w8er — sub-vec renders through `mini` so the vector's
+          ;; keywords paint magenta, scalars orange, etc. Sub-id-only
+          ;; fallback keeps the keyword-token chrome via `mini` too.
+          [:span {:style subs-cell-id-span-style}
+           (if (vector? sub-vec)
+             [ei/mini sub-vec 40]
+             [ei/mini sub-id 40])
+           (icons/external-link)]]
+         ;; inputs cell
+         [:div {:data-rf-xray-resizable-col "inputs"
+                :style subs-cell-inputs-style}
+          ;; rf2-8w8er — each input keyword routes through `mini` so
+          ;; the input column lights up as keywords, not plain text.
+          ;; "app-db" stays as a label (it's a source descriptor, not
+          ;; a CLJS value).
+          (cond
+            (vector? inputs)
+            (into [:div {:style subs-inputs-list-style}]
+                  (map (fn [i] [:div [ei/mini i 40]]) inputs))
+            (some? inputs) [ei/mini inputs 40]
+            :else          "app-db")]
+         ;; value cell
+         [:div {:data-rf-xray-resizable-col "value"
+                :style subs-cell-changed-style}
+          (subs-value-cell row mode i)]])}]))
 
 (defn- dispose-reason-label
   "Render a `:rf.sub/dispose` `:reason` keyword as a UI label

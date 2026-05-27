@@ -124,6 +124,9 @@
    ;; and `:rf.xray.data-inspector/{expansion,all-expansion}`) are
    ;; deleted with the legacy `edn-inspector.render` +
    ;; `theme.data-inspector` engines.
+   ;; rf2-uji72 — shared draggable column-resize. Sub returns
+   ;; the per-table {col-id → px} override map.
+   :rf.xray.column-widths/for-table
    :rf.xray.edn-inspector/expansion
    ;; rf2-kbdk8 — per-mount measured container widths for the width-aware
    ;; expansion heuristic. Keyed by mount-id; updated via ResizeObserver
@@ -423,6 +426,11 @@
    ;; Issues panel's filter-chrome reconcile to the Figma design (pure
    ;; rows, no filtering — spec/021 §8.2).
    :rf.xray/add-filter
+   ;; rf2-uji72 — shared draggable column-resize events. `resize-pair`
+   ;; updates both adjacent column widths in one writeback so the
+   ;; sum is conserved; `reset` clears all overrides for a table.
+   :rf.xray.column-widths/resize-pair
+   :rf.xray.column-widths/reset
    ;; rf2-59e7k — Cancellation-cascade visualiser events. Per
    ;; `tools/xray/spec/019-Cross-Cutting-Insight.md` §M.3.
    :rf.xray/cancellation-cascade-close

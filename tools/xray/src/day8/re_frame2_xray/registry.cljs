@@ -51,6 +51,10 @@
             ;; `:rf/xray` frame.
             [day8.re-frame2-xray.views.edn-inspector-popup
              :as edn-inspector-popup]
+            ;; rf2-uji72 — shared draggable-column-resize affordance.
+            ;; `install!` registers the `:rf.xray.column-widths/*`
+            ;; events + sub that drive the per-table grid template.
+            [day8.re-frame2-xray.views.resizable-table :as resizable-table]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.epoch :as epoch]
             [day8.re-frame2-xray.filters :as filters]
@@ -745,6 +749,10 @@
     ;; dispatch the `:rf.xray.edn-inspector-popup/open` event registered
     ;; here.
     (edn-inspector-popup/install!)
+    ;; rf2-uji72 — shared draggable column-resize state for Xray
+    ;; tables. Registers :rf.xray.column-widths/{for-table,resize-pair,
+    ;; reset}. Day-1 widths are in-memory; persistence is a follow-up.
+    (resizable-table/install!)
     ;; Filters install AFTER `:rf.xray/active-filters` + the
     ;; add-filter / remove-filter events above are registered (the
     ;; filters facade adds `:rf.xray/filtered-cascades` + the edit-
