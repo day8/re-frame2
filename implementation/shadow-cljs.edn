@@ -630,11 +630,19 @@
   ;;
   ;; Served at http://localhost:8765 via the top-level `:dev-http` map
   ;; (rf2-aqcix) — see the docstring on that key for the cascade rationale.
+  ;;
+  ;; rf2-54jz4 — the re-frame2-pair.runtime preload is wired so the
+  ;; pair-MCP can probe this testbed's live runtime (discover-app /
+  ;; eval-cljs / snapshot / subscribe / etc.). Dev-only: `:devtools`
+  ;; preloads are honoured by `shadow-cljs watch` / `compile` but NOT
+  ;; by `release`, so the preload never reaches a production bundle
+  ;; (testbed isn't released anyway — it's served via dev-http only).
   :testbeds/panel-gallery
   {:target     :browser
    :output-dir "out/testbeds/panel-gallery"
    :asset-path "."
-   :modules    {:main {:init-fn panel-gallery.core/run}}}
+   :modules    {:main {:init-fn panel-gallery.core/run}}
+   :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   :examples/temperature
   {:target     :browser
@@ -954,85 +962,109 @@
 
   ;; rf2-kzcim — deliberate-throw testbed (the throw-from-each-layer
   ;; surface; four buttons, four :rf.error/* categories).
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/deliberate-throw
   {:target     :browser
    :output-dir "out/testbeds/deliberate-throw"
    :asset-path "."
    :modules    {:main {:init-fn deliberate-throw.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; rf2-kzcim — schema-violation testbed (the four :where surfaces of
   ;; :rf.error/schema-validation-failure; one button per :where).
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/schema-violation
   {:target     :browser
    :output-dir "out/testbeds/schema-violation"
    :asset-path "."
    :modules    {:main {:init-fn schema-violation.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; rf2-kzcim — http-toggle testbed (single button + outcome dropdown
   ;; enumerating the eight :rf.http/* categories per Spec 014).
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/http-toggle
   {:target     :browser
    :output-dir "out/testbeds/http-toggle"
    :asset-path "."
    :modules    {:main {:init-fn http-toggle.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; rf2-kzcim Tier 2 — multi-frame testbed (three frames coexisting:
   ;; :counter/a, :counter/b, :log; the Cross-bump button fans out a
   ;; handler running on :counter/a to dispatches against :counter/b
   ;; and :log via cross-frame `:dispatch` fx per Spec 002).
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/multi-frame
   {:target     :browser
    :output-dir "out/testbeds/multi-frame"
    :asset-path "."
    :modules    {:main {:init-fn multi-frame.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; rf2-kzcim Tier 2 — deep-machine testbed (one machine exercising
   ;; every Spec 005 grammar surface: parallel regions, hierarchical
   ;; compound 5+ levels deep, :always, :after, :spawn, :spawn-all).
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/deep-machine
   {:target     :browser
    :output-dir "out/testbeds/deep-machine"
    :asset-path "."
    :modules    {:main {:init-fn deep-machine.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; rf2-kzcim Tier 2 — long-flow-w-failure testbed (a multi-second
   ;; cascade of app-db writes driving three flows in topo order; the
   ;; middle flow throws on a configurable input threshold to
   ;; exercise the atomicity contract per Spec 013 §Failure semantics
   ;; rf2-hrqvg).
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/long-flow-w-failure
   {:target     :browser
    :output-dir "out/testbeds/long-flow-w-failure"
    :asset-path "."
    :modules    {:main {:init-fn long-flow-w-failure.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; rf2-kzcim Tier 3 — drain-depth-trigger testbed (one handler that
   ;; recursively dispatches itself; the runtime's run-to-completion
   ;; drain halts at the frame's :drain-depth ceiling and rolls back
   ;; per Spec 002 rule 3 + Spec 009 :rf.error/drain-depth-exceeded).
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/drain-depth-trigger
   {:target     :browser
    :output-dir "out/testbeds/drain-depth-trigger"
    :asset-path "."
    :modules    {:main {:init-fn drain-depth-trigger.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; rf2-kzcim Tier 3 — non-trivial-app-db testbed (a 55-leaf app-db
   ;; nested up to 5 levels deep; six buttons each trigger a
   ;; structurally distinct diff shape at a known path — exercises the
   ;; consumer's diff visualisation under realistic depth).
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/non-trivial-app-db
   {:target     :browser
    :output-dir "out/testbeds/non-trivial-app-db"
    :asset-path "."
    :modules    {:main {:init-fn non-trivial-app-db.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; (removed) rf2-kzcim sensitive-dispatcher testbed — the handler-meta
   ;; :sensitive? annotation has been removed; path-marked classification
@@ -1042,12 +1074,15 @@
   ;; commit a value to a path whose wire elision is governed by a
   ;; different nomination path — schema-driven :large? on a Malli slot
   ;; — per Spec 009 §Size elision in traces).
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/large-dispatcher
   {:target     :browser
    :output-dir "out/testbeds/large-dispatcher"
    :asset-path "."
    :modules    {:main {:init-fn large-dispatcher.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; (removed rf2-9jfo1.1) known-bad-a11y testbed — the a11y-panel
   ;; scope contract (rf2-qgms1 / PR #1080) is now exercised inside
@@ -1076,7 +1111,10 @@
    :output-dir "out/examples/testbed-ssr-basic"
    :asset-path "."
    :modules    {:main {:init-fn ssr-basic.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+   ;; probe this dev testbed's live runtime alongside Xray.
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; rf2-ik4io — ssr-hydration-mismatch testbed (the deliberate-mismatch
   ;; surface). The payload bakes a known-wrong :rf/render-hash so
@@ -1089,7 +1127,10 @@
    :output-dir "out/examples/testbed-ssr-hydration-mismatch"
    :asset-path "."
    :modules    {:main {:init-fn ssr-hydration-mismatch.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+   ;; probe this dev testbed's live runtime alongside Xray.
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; rf2-ik4io — ssr-multi-frame testbed (per-frame hydration isolation).
   ;; Three frames each receive their own :rf/hydrate dispatch with a
@@ -1102,7 +1143,10 @@
    :output-dir "out/examples/testbed-ssr-multi-frame"
    :asset-path "."
    :modules    {:main {:init-fn ssr-multi-frame.core/run}}
-   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
+   ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+   ;; probe this dev testbed's live runtime alongside Xray.
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
 
   ;; ============================================================================
   ;; Per-adapter testbeds (rf2-eceuv).
@@ -1119,23 +1163,31 @@
   ;; (discovered by the runner via SPEC_ROOTS).
   ;; ============================================================================
 
+  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
+  ;; probe each adapter testbed's live runtime. These are dev-only
+  ;; smoke fixtures (the browser smoke runs them under
+  ;; `shadow-cljs compile`); `:devtools` preloads DCE from `release`
+  ;; builds so this never reaches a production bundle.
   :adapters/reagent-testbed
   {:target     :browser
    :output-dir "out/examples/adapter-testbeds/reagent"
    :asset-path "."
-   :modules    {:main {:init-fn adapter-testbed-reagent.core/init}}}
+   :modules    {:main {:init-fn adapter-testbed-reagent.core/init}}
+   :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   :adapters/uix-testbed
   {:target     :browser
    :output-dir "out/examples/adapter-testbeds/uix"
    :asset-path "."
-   :modules    {:main {:init-fn adapter-testbed-uix.core/init}}}
+   :modules    {:main {:init-fn adapter-testbed-uix.core/init}}
+   :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   :adapters/helix-testbed
   {:target     :browser
    :output-dir "out/examples/adapter-testbeds/helix"
    :asset-path "."
-   :modules    {:main {:init-fn adapter-testbed-helix.core/init}}}
+   :modules    {:main {:init-fn adapter-testbed-helix.core/init}}
+   :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   ;; ============================================================================
   ;; Machines-Viz read-only viewer (rf2-8wrzz.2 — wires PR #2013's viewer
