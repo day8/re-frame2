@@ -52,7 +52,7 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 
 | Sub | Returns |
 |---|---|
-| `:rf/route` | The full `:rf/route` map. |
+| `:rf/route` | The current route slice (`:id` `:params` `:query` `:fragment` `:transition` `:error` `:nav-token`). |
 | `:rf.route/id` | The active route id. |
 | `:rf.route/params` | Path params. |
 | `:rf.route/query` | Query params. |
@@ -395,10 +395,15 @@ Users who want plain anchors to be interceptable register their own delegating h
 
 ### Reading the route is a sub
 
+The `:rf/route` sub projects the published slice keys via `select-keys` over the routing-runtime container at `(:rf/route db)`. Internal routing-runtime keys (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`, `:pending-nav-counter`) live inside the container in `app-db` but do not surface through the sub — consumers that `deref` `[:rf/route]` see only the slice and do not re-render on internal counter ticks.
+
 ```clojure
+(def route-slice-keys
+  [:id :params :query :transition :error :fragment :nav-token])
+
 (rf/reg-sub :rf/route
-  {:doc "The current route map: {:id :params :query :transition :error}"}
-  (fn sub-route [db _] (:rf/route db)))
+  {:doc "The current route slice: {:id :params :query :fragment :transition :error :nav-token}."}
+  (fn sub-route [db _] (select-keys (:rf/route db) route-slice-keys)))
 
 (rf/reg-sub :rf.route/id
   :<- [:rf/route]
