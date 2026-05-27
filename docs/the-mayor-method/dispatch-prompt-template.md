@@ -151,6 +151,43 @@ prose. The pre-PR lint `python scripts/check_doc_slugs.py` flags violations
 under defect category AI_FINDINGS_LINK.
 ```
 
+## Canonical pre-checkin quality gates
+
+Every editing dispatch MUST run the canonical pre-checkin spine before
+opening a PR:
+
+```bash
+bash scripts/test-fast-pr.sh
+```
+
+The spine bundles lockstep drift, skill/MCP drift, core JVM, JS harness
+helpers, CLJS node integration, AND — when the diff touches any `.md`
+file — the markdown link/anchor validators. **Markdown auto-detection
+runs `python scripts/check_readme_links.py` + `python
+scripts/check_doc_slugs.py` + `mkdocs build --strict` (mkdocs
+soft-skipped on Windows when not on PATH).**
+
+**If your diff touches any markdown file**, you MUST verify the
+markdown gates ran (they auto-trigger; pass `--with-docs` to force).
+Failure to do so is a recurring source of red CI — #2232 (`#trace-events-1`
+vs `#trace-events_1` slug-disambiguation underscore) and #2233
+(`#cljs-reference-helix-as-alternative-substrate` missing the
+`-rf2-2qit` suffix that the heading actually carries) both bit in one
+hour on 2026-05-27 because workers pushed without running the markdown
+gates locally. The `test-fast-pr.sh` spine now catches both.
+
+Manual invocation if you want to run only the markdown gates:
+
+```bash
+python scripts/check_readme_links.py
+python scripts/check_doc_slugs.py
+mkdocs build --strict        # Linux/CI; on Windows mkdocs may not be installed
+```
+
+If you skipped `mkdocs build --strict` locally because mkdocs isn't on
+PATH (common on Windows), call it out in the PR body so the mayor knows
+to watch CI.
+
 ## Worktree path convention
 
 Worker worktrees live under `<WORKTREE_ROOT>`. Not inside the mayor checkout
