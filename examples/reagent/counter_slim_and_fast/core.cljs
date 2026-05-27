@@ -40,25 +40,17 @@
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
-(defonce counter-log (atom []))
-
-(rf/reg-fx :counter/log
-  (fn [_ctx args]
-    (swap! counter-log conj args)))
-
-(rf/reg-event-fx :counter/initialise
-  (fn [_ctx _event]
-    {:db {:count 5}
-     :fx [[:counter/log :initialised]]}))
+(rf/reg-event-db :counter/initialise
+  (fn [_db _event] {:counter/value 5}))
 
 (rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :count inc)))
+  (fn [db _event] (update db :counter/value inc)))
 
 (rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :count dec)))
+  (fn [db _event] (update db :counter/value dec)))
 
-(rf/reg-sub :count
-  (fn [db _query] (:count db)))
+(rf/reg-sub :counter/value
+  (fn [db _query] (:counter/value db)))
 
 ;; -- Views -------------------------------------------------------------------
 ;;
@@ -72,7 +64,7 @@
 (reg-view counter-buttons []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "-"]
-   [:span {:style {:margin "0 1em"} :data-testid "counter-value"} @(subscribe [:count])]
+   [:span {:style {:margin "0 1em"} :data-testid "counter-value"} @(subscribe [:counter/value])]
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
 (reg-view counter-app []
@@ -94,7 +86,11 @@
   ;; the bundle still must NOT contain `react-dom/server` symbols,
   ;; because reagent2.dom.server is pure-CLJS (no
   ;; `["react-dom/server" :as ...]` import — see IMPL-SPEC §8).
-  ;; The result is retained in `counter-log` so the closure compiler
-  ;; can't DCE the call (a no-op `js/console.log` would be elided).
-  (swap! counter-log conj [:pre-rendered (rds/render-to-static-markup [counter-app])])
+  ;;
+  ;; DCE protection: write the rendered string onto a host-global
+  ;; property. The closure compiler treats writes to extern-shaped
+  ;; properties on `globalThis` as side effects; the call survives
+  ;; `:advanced`. (A no-op like `js/console.log` would be elided.)
+  (set! (.-counterSlimPrerender js/globalThis)
+        (rds/render-to-static-markup [counter-app]))
   (rdc/render root [counter-app]))
