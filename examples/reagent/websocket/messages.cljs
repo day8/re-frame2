@@ -320,13 +320,13 @@
 ;;
 ;; All the `reg-*` calls live inside `register-all!` so the test fixture
 ;; can re-fire them after an upstream `clear-all!` wiped the registrar
-;; (see `websocket.core/register-all!` for context). The function is
+;; (see `websocket.test-helpers/register-all!` for context). The function is
 ;; idempotent (every `reg-*` is last-write-wins) and gets called at
 ;; ns-load via the trailing form below.
 
 (defn register-all!
   "Idempotent re-registration of every event handler / sub this ns
-   owns. See `websocket.core/register-all!`."
+   owns. See `websocket.test-helpers/register-all!`."
   []
   ;; The socket actor — Pattern-WebSocket §The connection state machine
   ;; names this as the child actor the parent invokes.

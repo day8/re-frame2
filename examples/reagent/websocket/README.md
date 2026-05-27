@@ -19,12 +19,13 @@
 
 | File | Notes |
 |---|---|
-| `core.cljs` | Entry point — mounts the React root, runs `:app/initialise`. |
+| `core.cljs` | Entry point — mounts the React root, runs `:ws.app/initialise`. |
 | `connection.cljs` | The `:ws/connection` machine — the heart of the example. Read alongside `spec/Pattern-WebSocket.md` §Worked example — the shapes are identical. |
 | `messages.cljs` | The `:websocket/socket` actor (the spawned child) + an in-process mock WebSocket server + `:ws/handle-message` + the app-level send/request/subscribe events. |
 | `views.cljs` | UI — status pill driven by tags, lifecycle buttons, send form, request/subscribe/server-push demo trio, inbox. |
 | `schema.cljs` | Malli schemas for the connection-machine snapshot, the `:data` slice, and the `[:messages]` slice. |
 | `index.html` | Minimal harness. |
+| `test/websocket/test_helpers.cljs` | Test-only re-registration scaffolding (recovers from upstream `clear-all!` callers). Not loaded by the production bundle; the wrapper test ns's `:each` fixture calls it. |
 | `test/websocket/connection_test.cljs` | Headless tests: initial state, happy-path lifecycle, offline-queue + drain, reconnect cascade, max-retries → `:failed`, connection-epoch staleness, `:ws/refresh-token`, clean `:ws/disconnect`. |
 | `test/websocket/messages_test.cljs` | Headless tests: request-reply correlation, server-push routing, subscription tracking, `[:messages :received]` newest-first invariant. |
 

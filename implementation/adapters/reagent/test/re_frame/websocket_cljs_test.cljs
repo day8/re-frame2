@@ -20,6 +20,7 @@
             [re-frame.views]
             [websocket.core]
             [websocket.messages]
+            [websocket.test-helpers :as ws-test-helpers]
             [websocket.connection-test :as conn-t]
             [websocket.messages-test :as msg-t]))
 
@@ -27,7 +28,9 @@
 ;; ns-load registrations the tests depend on are present even when
 ;; an alphabetically-earlier test ns (e.g. the Story `:rf.assert/*`
 ;; fixture) has called `re-frame.registrar/clear-all!` without
-;; restoring afterwards. Idempotent — last-write-wins.
+;; restoring afterwards. Idempotent — last-write-wins. The recovery
+;; dance lives in the test-only `websocket.test-helpers` ns so the
+;; example's production source stays test-free (per rf2-88mf8).
 ;;
 ;; Also resets the mock WebSocket server's `:sockets` table — since
 ;; the spawn-counter resets to 1 each test, every test's actor lands
@@ -38,7 +41,7 @@
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter
      :init-fn (fn []
-                (websocket.core/register-all!)
+                (ws-test-helpers/register-all!)
                 (websocket.messages/reset-mock-server!))}))
 
 ;; ---- connection lifecycle ------------------------------------------------
