@@ -489,7 +489,7 @@
 ;; stack view — renders every open popup over the active panel
 ;; =========================================================================
 
-(defn edn-inspector-popup-stack
+(rf/reg-view edn-inspector-popup-stack
   "Stack view that renders every open popup in z-index order. Mount
   this once at the shell's overlay container (follow-on bead wires
   it into `mount.cljs`); each entry's payload is the value + opts
@@ -504,7 +504,16 @@
   and this view picks the entry up and renders it. The plain
   `[edn-inspector-popup v opts]` component is the entry point for
   **inline** opens (a panel that wants to control the popup
-  imperatively from its own view tree)."
+  imperatively from its own view tree).
+
+  Per rf2-1yif8 `reg-view`-registered (was a plain Reagent `defn`
+  prior, which silently routed `subscribe` / `dispatch` to
+  `:rf/default` when mounted under a non-default frame — the exact
+  class of bug `:rf.warning/plain-fn-under-non-default-frame-once`
+  was added to catch). The view-id is auto-derived from the symbol
+  per the canonical reg-view convention; the surrounding shell mounts
+  this stack under `:rf/xray`, so all its `subscribe` calls now
+  resolve through the React-context tier to the surrounding frame."
   []
   (let [stack   @(rf/subscribe [stack-slot])
         entries @(rf/subscribe [entries-slot])
