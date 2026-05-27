@@ -137,10 +137,24 @@
 (def ^:private teardown-glyph-style {:color teardown-colour :font-weight 700})
 (def ^:private abort-glyph-style    {:color abort-colour    :font-weight 700})
 
-;; Cursor overlays for the row container — clickable rows get
-;; `pointer`, non-clickable rows get the browser default.
-(def ^:private cursor-pointer-overlay {:cursor "pointer"})
-(def ^:private cursor-default-overlay {:cursor "default"})
+;; rf2-wuwu3 — pre-computed row-style × cursor variants. The three
+;; row types × {clickable, static} fan out to exactly 6 final
+;; container maps; per-render `(merge … cursor-overlay)` allocations
+;; are gone. With ~50 abort rows that's ~50 fewer fresh objects per
+;; cascade re-render (on top of the rf2-qx414 hoists). Each pair
+;; folds `:cursor` into the row's chrome at ns load.
+(def ^:private decision-row-style-clickable
+  (assoc decision-row-style :cursor "pointer"))
+(def ^:private decision-row-style-static
+  (assoc decision-row-style :cursor "default"))
+(def ^:private teardown-row-style-clickable
+  (assoc teardown-row-style :cursor "pointer"))
+(def ^:private teardown-row-style-static
+  (assoc teardown-row-style :cursor "default"))
+(def ^:private abort-row-style-clickable
+  (assoc abort-row-style :cursor "pointer"))
+(def ^:private abort-row-style-static
+  (assoc abort-row-style :cursor "default"))
 
 ;; ---- header --------------------------------------------------------------
 
@@ -207,10 +221,9 @@
                                {:dispatch-id (:dispatch-id decision)
                                 :trace-id    (:trace-id decision)}]
                               {:frame :rf/xray})))
-           :style       (merge decision-row-style
-                                (if clickable?
-                                  cursor-pointer-overlay
-                                  cursor-default-overlay))}
+           :style       (if clickable?
+                          decision-row-style-clickable
+                          decision-row-style-static)}
      [:span {:style decision-glyph-style}
       (:parent-decision row-glyph)]
      [:span {:style time-chip-style}
@@ -237,10 +250,9 @@
                                {:dispatch-id dispatch-id
                                 :trace-id    trace-id}]
                               {:frame :rf/xray})))
-           :style       (merge teardown-row-style
-                                (if clickable?
-                                  cursor-pointer-overlay
-                                  cursor-default-overlay))}
+           :style       (if clickable?
+                          teardown-row-style-clickable
+                          teardown-row-style-static)}
      [:span {:style teardown-glyph-style}
       (:child-teardown row-glyph)]
      [:span {:style time-chip-style}
@@ -277,10 +289,9 @@
                                {:dispatch-id dispatch-id
                                 :trace-id    trace-id}]
                               {:frame :rf/xray})))
-           :style       (merge abort-row-style
-                                (if clickable?
-                                  cursor-pointer-overlay
-                                  cursor-default-overlay))}
+           :style       (if clickable?
+                          abort-row-style-clickable
+                          abort-row-style-static)}
      [:span {:style abort-glyph-style}
       (if last?
         (:effect-abort-last row-glyph)
