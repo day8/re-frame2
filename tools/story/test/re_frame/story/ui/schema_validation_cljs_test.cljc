@@ -369,6 +369,27 @@
        (is (some? (rf/view sv/panel-render-id))))))
 
 #?(:cljs
+   (deftest ^:cljs panel-render-view-roots-in-dom-element
+     (testing "the schema-validation panel-render view returns hiccup
+              whose root is a DOM element keyword (`:div`), not a bare
+              component reference.
+
+              Per Spec 006 §Source-coord annotation the annotator can
+              only attach `data-rf2-source-coord` to hiccup DOM roots;
+              a bare `[panel variant-id]` root makes the panel
+              invisible to Story Inspect Mode + Xray Inspect Mode
+              (rf2-iwny7). The `[:div]` wrap is load-bearing."
+       (reset-all!)
+       (let [view-fn (rf/view sv/panel-render-id)
+             out     (view-fn :story.unknown/y)]
+         (is (vector? out)
+             "panel-render returns a hiccup vector")
+         (is (keyword? (first out))
+             "hiccup root must be a keyword (DOM element), not a component ref")
+         (is (= :div (first out))
+             "hiccup root is specifically `:div` per the source-coord-annotator wrap")))))
+
+#?(:cljs
    (deftest ^:cljs panel-renders-hiccup
      (testing "the panel render fn returns a hiccup vector for an
               unregistered variant id (graceful empty state)"
