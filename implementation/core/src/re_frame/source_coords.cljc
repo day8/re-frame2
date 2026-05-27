@@ -45,7 +45,8 @@
 
   The DOM-annotation hook (per Tool-Pair §Source-mapping) is the dev-only
   piece, gated separately."
-  (:require [re-frame.interop :as interop]))
+  (:require [re-frame.interop :as interop]
+            [re-frame.source-coords.editor-uri :as editor-uri]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -235,9 +236,9 @@
 ;; Failure modes that fall through to the unchanged input:
 ;;   - Already-absolute path (e.g. a JVM-compile `*file*` that
 ;;     happened to be absolute, or a synthetic coord with an absolute
-;;     `:file`): detected by the same `absolute-path?` predicate
-;;     `editor-uri/compose-path` uses (leading `/`, leading drive
-;;     letter, leading `file:` scheme, leading backslash).
+;;     `:file`): detected by `editor-uri/absolute-path?` — the same
+;;     predicate `editor-uri/compose-path` uses (leading `/`, leading
+;;     drive letter, leading `file:` scheme, leading backslash).
 ;;   - File not resolvable on classpath (REPL-eval forms with synthetic
 ;;     `:file`, a test fixture's fabricated path, a path under a
 ;;     classpath root the JVM doesn't have when the macro expands):
@@ -247,22 +248,6 @@
 ;;   - CLJS-side calls (no class-loader access): no-op pass-through;
 ;;     the macro path is JVM-side by construction so this branch only
 ;;     fires when callers reach the fn from CLJS runtime code (rare).
-
-#?(:clj
-   (defn ^:private absolute-file-path?
-     "Mirrors `re-frame.source-coords.editor-uri/absolute-path?` (kept
-     local to avoid a JVM-side dep on a CLJS-only ns). True iff `path`
-     should NOT be absolutised — already-absolute paths, `file:` URLs,
-     or drive-letter prefixes pass through unchanged."
-     [^String path]
-     (or (.startsWith path "/")
-         (.startsWith path "\\")
-         (.startsWith (.toLowerCase path) "file:")
-         (and (>= (.length path) 2)
-              (= \: (.charAt path 1))
-              (let [c (.charAt path 0)]
-                (or (and (>= (int c) (int \a)) (<= (int c) (int \z)))
-                    (and (>= (int c) (int \A)) (<= (int c) (int \Z)))))))))
 
 #?(:clj
    (defn ^:private context-class-loader ^ClassLoader []
@@ -286,7 +271,7 @@
 
      Per rf2-wvsxg."
      [path]
-     (if (or (nil? path) (.isEmpty ^String path) (absolute-file-path? path))
+     (if (or (nil? path) (.isEmpty ^String path) (editor-uri/absolute-path? path))
        path
        (try
          (if-let [url (.getResource (context-class-loader) path)]

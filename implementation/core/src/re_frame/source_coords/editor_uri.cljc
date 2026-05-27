@@ -266,14 +266,17 @@
 ;; `:project-root` knob — set once at boot by the host — and prepend it
 ;; here before the URI ships.
 
-(defn- absolute-path?
+(defn absolute-path?
   "Predicate — true iff `path` is already absolute (i.e. should NOT be
   prefixed by `:project-root`). Detects:
 
     - leading `/` (POSIX)
     - leading backslash on Windows (`\\Users\\...`)
     - drive-letter prefix (`C:` / `c:/...`)
-    - explicit `file:` URI"
+    - explicit `file:` URI
+
+  Public so the JVM-side `re-frame.source-coords/absolutise-file` reuses
+  the same predicate (rf2-20w3s) — the `.cljc` ns is JVM-loadable."
   [^String path]
   (or (str/starts-with? path "/")
       (str/starts-with? path "\\")
