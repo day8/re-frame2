@@ -66,6 +66,15 @@
             ;; the OS scheme handler, which rejects it.
             [day8.re-frame2-xray.config :as xray-config]
             [day8.re-frame2-xray.registry :as xray-registry]
+            ;; rf2-pqulr — Xray's `:root` CSS-variable installer. Required
+            ;; here because the panel-gallery embeds bare Xray widgets
+            ;; without mounting the Xray shell; the shell normally calls
+            ;; `global-styles/install!` from its `shell-view` reg-view body.
+            ;; Without this call the tokens in
+            ;; `day8.re-frame2-xray.theme.tokens` resolve their
+            ;; `var(--rf-xray-*)` references to CSS fallback defaults and
+            ;; every variant paints unstyled.
+            [day8.re-frame2-xray.theme.global-styles :as global-styles]
             [panel-gallery.panel-views :as panel-views]
             ;; Side-effecting story registrations — namespaces fire
             ;; their `register-all!` at namespace load.
@@ -309,6 +318,14 @@
   ;; Register `:rf/xray` so the chrome's hardcoded frame-provider
   ;; resolves to a real frame (not nil → throw on subscribe).
   (ensure-xray-frame!)
+  ;; rf2-pqulr — install Xray theme CSS variables on :root so
+  ;; embedded widgets paint with the themed palette rather than
+  ;; browser defaults. Shell normally calls this from shell-view;
+  ;; the gallery bypasses the shell so we call directly.
+  ;; `global-styles/install!` is idempotent (defonce-guarded +
+  ;; DOM-probed via fixed id attributes per its docstring) so this
+  ;; call is safe to make regardless of boot order or hot-reload.
+  (global-styles/install!)
   (register-testbed-seed-events!)
   ;; Story's canonical vocabulary (seven reg-* macros / tags / modes
   ;; / canvas decorators) installed once at boot. Each
