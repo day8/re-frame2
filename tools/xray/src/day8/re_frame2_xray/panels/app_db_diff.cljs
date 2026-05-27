@@ -50,6 +50,37 @@
              :refer [tokens sans-stack]]
             [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]))
 
+;; ---- style hoists (rf2-mndut) -------------------------------------------
+;;
+;; Every literal `:style {...}` map in the Panel view below is hoisted to
+;; ns-top defs so React's reconciler sees stable object identities across
+;; re-renders (follow-on to rf2-qx414 / rf2-zlk6h / rf2-xjgdk / rf2-gjiog
+;; / rf2-alsnz). `tokens` values resolve to `var(--rf-xray-*)` CSS strings
+;; at ns load so the light/dark theme toggle continues to flip palette in
+;; lockstep without re-evaluation (spec/007 §UX-IA).
+
+(def ^:private panel-root-style
+  "Outer `[:section]` chrome for the app-db Panel view."
+  {:height         "100%"
+   :display        "flex"
+   :flex-direction "column"
+   :background     (:bg-2 tokens)
+   :color          (:text-primary tokens)
+   :font-family    sans-stack
+   :font-size      "14px"})
+
+(def ^:private panel-top-bar-style
+  "Top-bar wrapper around the universal three-mode toggle (rf2-yqjrd)."
+  {:padding     "12px 12px 0"
+   :display     "flex"
+   :align-items "center"
+   :gap         "8px"})
+
+(def ^:private panel-body-host-style
+  "Scrolling host for the section list / flat-diff body."
+  {:flex     1
+   :overflow "auto"})
+
 (rf/reg-view Panel
   "The app-db tab's root view — a current-state inspector sectioned by
   reserved `:rf/*` area.
@@ -78,13 +109,7 @@
                ;; every diff-mode-toggle consumer's enclosing section
                ;; (was the per-surface drifted `data-view-mode`).
                :data-rf-xray-diff-mode (name mode)
-               :style       {:height         "100%"
-                             :display        "flex"
-                             :flex-direction "column"
-                             :background     (:bg-2 tokens)
-                             :color          (:text-primary tokens)
-                             :font-family    sans-stack
-                             :font-size      "14px"}}
+               :style       panel-root-style}
      ;; rf2-yqjrd — universal three-mode toggle. Sits at the top of the
      ;; panel above the section list; one mode applies to every
      ;; section's body. Frame-anchored to `:rf/xray` per the same
@@ -93,10 +118,7 @@
      ;;
      ;; rf2-fytu4 — discoverability label `View` is owned by the shared
      ;; widget via the `:label` opt (was a hand-rolled span here).
-     [:div {:style {:padding "12px 12px 0"
-                    :display "flex"
-                    :align-items "center"
-                    :gap "8px"}}
+     [:div {:style panel-top-bar-style}
       [diff-mode/diff-mode-toggle
        {:mode mode
         ;; rf2-7vv8f — testid prefix normalised across all four
@@ -108,7 +130,7 @@
                        (rf/dispatch [:rf.xray.app-db/set-diff-mode m])))}]]
      ;; rf2-6xezz — the L4 tab strip is the panel-name source-of-truth;
      ;; content starts immediately under the tab bar.
-     [:div {:style {:flex 1 :overflow "auto"}}
+     [:div {:style panel-body-host-style}
       (state/state-body section-model {:mode mode :diff-triples diff-triples})]]))
 
 (defn install!
