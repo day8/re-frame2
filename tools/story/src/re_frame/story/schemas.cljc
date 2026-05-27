@@ -121,14 +121,21 @@
 ;; ---- canonical facet axes (rf2-7ncf9 — SB9 facet taxonomy) ---------------
 
 (def canonical-axes
-  "Pure data → data: the four canonical facet axes Story documents for
+  "Pure data → data: the canonical facet axes Story documents for
   the sidebar tag-filter UI. Mirrors Storybook 9's status / role /
-  team / feature axes (rf2-v05qb SB9 parity).
+  team / feature axes (rf2-v05qb SB9 parity) plus the operator-
+  facing `:state` magnitude axis (rf2-k1k87).
 
-  Two axes ship with a recommended vocabulary:
+  Three axes ship with a recommended vocabulary:
 
   - `:status` → `#{:alpha :beta :stable :deprecated}` — release maturity.
   - `:role`   → `#{:design :dev :product}` — audience role.
+  - `:state`  → `#{:empty :small :medium :large :special}` — operator-
+    facing state magnitude / fixture richness classification. Variants
+    use this axis to communicate the SHAPE of the seeded state (an
+    empty buffer vs. a small fixture vs. a stress-sized payload vs.
+    a corner-case curio) so a reviewer can scan a gallery by data
+    density rather than by feature.
 
   Two axes are user-extensible (no canonical enum):
 
@@ -141,14 +148,16 @@
   shape without further coordination.
 
   The preferred faceted-tag shape is the namespaced keyword:
-  `:status/alpha`, `:role/dev`, `:team/checkout`, `:feature/payment` —
-  the namespace mirrors the `:axis` slot, the name is the value. This
-  is lighter than wrapping tags in maps and survives EDN round-trip
-  without ceremony."
+  `:status/alpha`, `:role/dev`, `:team/checkout`, `:feature/payment`,
+  `:state/large` — the namespace mirrors the `:axis` slot, the name
+  is the value. This is lighter than wrapping tags in maps and
+  survives EDN round-trip without ceremony."
   {:status  {:user-extensible? false
              :values           #{:alpha :beta :stable :deprecated}}
    :role    {:user-extensible? false
              :values           #{:design :dev :product}}
+   :state   {:user-extensible? false
+             :values           #{:empty :small :medium :large :special}}
    :team    {:user-extensible? true}
    :feature {:user-extensible? true}})
 
@@ -162,6 +171,23 @@
   "The recommended `:role` axis vocabulary — audience roles Storybook 9
   documents. Projects MAY use other role keywords."
   (get-in canonical-axes [:role :values]))
+
+(def canonical-state-values
+  "The canonical `:state` axis vocabulary (rf2-k1k87) — operator-
+  facing state magnitude / fixture richness classifications. The
+  faceted-tag shape is `:state/<value>`."
+  (get-in canonical-axes [:state :values]))
+
+(def canonical-state-tags
+  "The canonical `:state/*` faceted tags Story registers at load
+  (rf2-k1k87). Built from `canonical-state-values` by namespacing
+  each value under `:state` — `:empty` → `:state/empty`, etc.
+
+  These tags are projected onto variant `:tags` sets by gallery
+  authors to communicate fixture richness. Registration here means
+  authors can reach for `:state/large` without a project-side
+  `reg-tag` call — same convenience as the seven inclusion tags."
+  (into #{} (map #(keyword "state" (name %))) canonical-state-values))
 
 ;; ---- shared shapes --------------------------------------------------------
 

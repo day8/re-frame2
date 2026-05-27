@@ -38,9 +38,16 @@
 ;; ---- canonical-vocabulary install ---------------------------------------
 
 (deftest canonical-tags-installed
-  (testing "the seven canonical tags are registered after boot"
-    (is (= schemas/canonical-tags (story/list-tags)))
-    (is (every? #(story/registered? :tag %) schemas/canonical-tags))))
+  (testing "the seven canonical inclusion tags + five canonical :state/* magnitude tags are registered after boot"
+    (let [expected (into schemas/canonical-tags schemas/canonical-state-tags)]
+      (is (= expected (story/list-tags)))
+      (is (every? #(story/registered? :tag %) schemas/canonical-tags))
+      (is (every? #(story/registered? :tag %) schemas/canonical-state-tags)))))
+
+(deftest canonical-state-axis-installed
+  (testing "the five :state/* tags carry the :state axis (rf2-k1k87)"
+    (let [by-axis (story/tags-by-axis :state)]
+      (is (= schemas/canonical-state-tags by-axis)))))
 
 ;; ---- auto-install on first reg-* call (rf2-p1ydc) ----------------------
 ;;
@@ -65,8 +72,9 @@
       {:doc  "Auto-install probe."
        :tags #{:dev :docs}})
     (is (true? @canonical/installed?) "the gate flips true after auto-install")
-    (is (= schemas/canonical-tags (story/list-tags))
-        "all seven canonical tags are registered post-auto-install")
+    (is (= (into schemas/canonical-tags schemas/canonical-state-tags)
+           (story/list-tags))
+        "all seven canonical inclusion tags + five :state/* magnitude tags are registered post-auto-install")
     (is (story/registered? :story :story.auto-install.probe))))
 
 (deftest auto-install-fires-on-first-reg-variant
@@ -480,13 +488,16 @@
 
 (deftest reg-tag-without-axis-defaults-sanely
   (testing "tags without :axis / :default-filter remain valid and queryable"
-    ;; Canonical tags carry neither slot — they're pre-installed by the
-    ;; fixture's `install-canonical-vocabulary!`. Confirm they're absent
-    ;; from every axis-keyed lookup and the default-excluded set.
+    ;; Canonical inclusion tags carry neither slot — they're pre-installed
+    ;; by the fixture's `install-canonical-vocabulary!`. Confirm they're
+    ;; absent from every non-:state axis-keyed lookup and the
+    ;; default-excluded set. (The :state axis is populated by the rf2-k1k87
+    ;; install-canonical-tags! extension and is covered separately.)
     (is (= #{} (story/tags-by-axis :status)))
     (is (= #{} (story/tags-by-axis :role)))
     (is (= #{} (story/tags-default-excluded)))
-    ;; And the canonical seven all live in the un-axis-grouped bucket.
+    ;; The seven canonical INCLUSION tags live in the un-axis-grouped bucket.
+    ;; (The :state/* tags carry :axis :state so they're NOT in tags-without-axis.)
     (is (= schemas/canonical-tags (story/tags-without-axis)))))
 
 (deftest tags-by-axis-filters-correctly
@@ -622,7 +633,9 @@
     (let [counts (story/all-kinds-with-counts)]
       (is (= 1 (:story   counts)))
       (is (= 1 (:variant counts)))
-      (is (= (count schemas/canonical-tags) (:tag counts))))))
+      (is (= (+ (count schemas/canonical-tags)
+                (count schemas/canonical-state-tags))
+             (:tag counts))))))
 
 ;; ---- variant->edn ----------------------------------------------------
 

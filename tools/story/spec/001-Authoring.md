@@ -7,9 +7,12 @@
 
 ## Boot — auto-install of the canonical vocabulary (rf2-p1ydc)
 
-The canonical Story vocabulary — the seven canonical tags (`:dev`,
-`:docs`, `:test`, `:screenshot`, `:experimental`, `:internal`,
-`:agent`), the `:rf.assert/*` event handlers, the built-in
+The canonical Story vocabulary — the seven canonical inclusion tags
+(`:dev`, `:docs`, `:test`, `:screenshot`, `:experimental`,
+`:internal`, `:agent`), the five canonical `:state/*` magnitude tags
+(`:state/empty`, `:state/small`, `:state/medium`, `:state/large`,
+`:state/special` — rf2-k1k87, on the `:state` axis), the
+`:rf.assert/*` event handlers, the built-in
 `:rf.story/force-fx-stub` decorator, the layout-debug decorator trio,
 the toolbar cofx + subs, the lifecycle machine, the v1.0 SOTA panel
 set, and (CLJS only) the multi-substrate Reagent default —
@@ -801,19 +804,25 @@ Body (all slots optional):
  :default-filter :exclude}                      ; optional — :include (default) | :exclude
 ```
 
-The seven canonical tags (`:dev`, `:docs`, `:test`, `:screenshot`,
-`:experimental`, `:internal`, `:agent`) register at Story load.
-Project tags must be registered before use. An unregistered tag on a
-variant's `:tags` set raises `:rf.error/unknown-tag` at registration.
+The seven canonical inclusion tags (`:dev`, `:docs`, `:test`,
+`:screenshot`, `:experimental`, `:internal`, `:agent`) register at
+Story load, alongside the five canonical `:state/*` magnitude tags
+(`:state/empty`, `:state/small`, `:state/medium`, `:state/large`,
+`:state/special` — rf2-k1k87) on the `:state` axis. Project tags
+must be registered before use. An unregistered tag on a variant's
+`:tags` set raises `:rf.error/unknown-tag` at registration.
 
 #### `:axis` — facet grouping (SB9 parity)
 
 The optional `:axis` slot is a keyword classifier (e.g. `:status`,
-`:role`, `:team`, `:feature`) that groups registered tags into
-collapsible facet rows in the sidebar tag-filter UI. Tags registered
-without `:axis` render in a trailing un-grouped row. Mirrors
-Storybook 9's status / role / team / feature axes (rf2-v05qb SB9
-parity).
+`:role`, `:team`, `:feature`, `:state`) that groups registered tags
+into collapsible facet rows in the sidebar tag-filter UI. Tags
+registered without `:axis` render in a trailing un-grouped row.
+Mirrors Storybook 9's status / role / team / feature axes (rf2-v05qb
+SB9 parity); the `:state` axis (rf2-k1k87) communicates operator-
+facing fixture richness — variants use it to advertise the SHAPE of
+their seeded state (an empty buffer vs. a small fixture vs. a stress-
+sized payload vs. a corner-case curio).
 
 Query the axis grouping via:
 

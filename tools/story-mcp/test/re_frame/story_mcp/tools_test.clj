@@ -481,7 +481,10 @@
         s (:structuredContent r)]
     (is (success? r))
     (is (every? (set (:canonical s))
-                [:dev :docs :test :screenshot :experimental :internal :agent]))))
+                [:dev :docs :test :screenshot :experimental :internal :agent]))
+    (testing "the canonical :state/* magnitude axis (rf2-k1k87) is part of the canonical set"
+      (is (every? (set (:canonical s))
+                  [:state/empty :state/small :state/medium :state/large :state/special])))))
 
 (deftest list-modes-returns-fixture-mode
   (let [r (invoke "list-modes" {})
@@ -717,15 +720,15 @@
       (is (true? (:has-more? s))))))
 
 (deftest list-tags-canonical-stays-full-under-pagination
-  (testing "the canonical-tag slot is bounded (7) so it never paginates"
+  (testing "the canonical-tag slot is bounded (7 inclusion + 5 :state/* magnitude = 12) so it never paginates"
     ;; Register lots of custom tags.
     (doseq [n (range 50)]
       (story/reg-tag (keyword (str "tag/pager" n)) {:doc ""}))
     (let [r (invoke "list-tags" {:limit 5})
           s (:structuredContent r)]
       (is (success? r))
-      (is (= 7 (count (:canonical s)))
-          "the 7-entry canonical set always lands in full")
+      (is (= 12 (count (:canonical s)))
+          "the 12-entry canonical set (7 inclusion + 5 :state/* magnitude) always lands in full")
       (is (= 5 (count (:custom s))) ":custom honours :limit")
       (is (true? (:has-more? s))))))
 

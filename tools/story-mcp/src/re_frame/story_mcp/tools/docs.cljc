@@ -99,14 +99,16 @@
   "Docs: canonical tags + custom tags.
 
   rf2-76sf6: the bifurcated `{:canonical :custom :all}` shape is
-  retained; `:canonical` is always the full 7-tag set (it is bounded
-  and not a function of registry size, so the pagination MUST does not
-  apply). `:custom` (project-registered tags) and `:all` (their union)
-  are paginated when the count exceeds `:limit`. Small registries see
-  no pagination metadata."
+  retained; `:canonical` is always the full canonical set (the seven
+  spec/007 inclusion tags + the five rf2-k1k87 `:state/*` magnitude
+  tags = 12 entries total; bounded and not a function of registry
+  size, so pagination does not apply). `:custom` (project-registered
+  tags) and `:all` (their union) are paginated when the count exceeds
+  `:limit`. Small registries see no pagination metadata."
   [args]
   (let [registered (story/list-tags)
-        canonical  (vec (sort-by str story/canonical-tags))
+        canonical  (vec (sort-by str (into story/canonical-tags
+                                           story/canonical-state-tags)))
         custom-set (set/difference (set registered) (set canonical))
         custom     (vec (sort-by str custom-set))
         [res page meta] (cursor/page custom custom-set args "list-tags")]
