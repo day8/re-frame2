@@ -54,7 +54,6 @@
             ;; `:rf/hydrate`. Without the require those calls raise
             ;; :rf.error/ssr-artefact-missing.
             [re-frame.ssr]
-            [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [realworld.schema]
             [realworld.http]
@@ -309,36 +308,47 @@
 
       :else {})))
 
-(rf/reg-fx :conduit.demo/http-stub
-  {:doc       "Demo override for :rf.http/managed: routes by URL to canned
-               Conduit-shaped responses so the example runs standalone
-               without a backend. Delegates to :rf.http/managed-canned-success
-               with a synthesised :value per Spec 014 §Testing.
+(rf/reg-event-fx :conduit.demo/schedule-reply
+  {:doc "Private — entered via dispatch from :conduit.demo/http-stub.
+         Uses `:dispatch-later` so framework time controls (Tool-Pair
+         time-travel, the documented `:dispatch-later` nil-override
+         seam) apply to the demo latency. No user dispatches this
+         directly."}
+  (fn handler-conduit-demo-schedule-reply [_ [_ args-map payload]]
+    {:fx [[:dispatch-later
+           {:ms    20
+            :event [:conduit.demo/deliver-reply args-map payload]}]]}))
 
-               NOTE on the raw js/setTimeout below. The deferred work
-               is an fx invocation (`:rf.http/managed-canned-success`),
-               not a dispatch, so the framework's `:dispatch-later`
-               path is not a 1:1 swap. The timer is here ONLY to delay
-               the canned reply long enough for the `:loading` UI state
-               to be observable in the demo; production app code should
-               never use raw `js/setTimeout` — use `:dispatch-later` or
-               (for an fx invocation) drive it through a tiny
-               framework dispatch (e.g. dispatch-later to a private
-               event whose handler issues the fx) so framework time
-               controls (Tool-Pair time-travel, the documented
-               `:dispatch-later` nil-override seam) still apply."
+(rf/reg-event-fx :conduit.demo/deliver-reply
+  {:doc "Private — fired by the :dispatch-later scheduled in
+         :conduit.demo/schedule-reply. Delegates to the
+         framework-shipped `:rf.http/managed-canned-success` with the
+         per-URL canned Conduit payload."}
+  (fn handler-conduit-demo-deliver-reply [_ [_ args-map payload]]
+    {:fx [[:rf.http/managed-canned-success (assoc args-map :value payload)]]}))
+
+(rf/reg-fx :conduit.demo/http-stub
+  {:doc       "Demo override for :rf.http/managed: routes by URL to
+               canned Conduit-shaped responses so the example runs
+               standalone without a backend.
+
+               Dispatches into the private :conduit.demo/schedule-reply
+               event so the deferred reply rides framework
+               `:dispatch-later` (20 ms) rather than raw
+               `js/setTimeout`. The delay lets the `:loading` UI state
+               be observable in the demo; the reply itself lands via
+               the framework-shipped `:rf.http/managed-canned-success`
+               (Spec 014 §Testing).
+
+               Framework time controls (Tool-Pair time-travel, the
+               documented `:dispatch-later` nil-override seam) apply
+               automatically."
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
     (let [payload (demo-payload-for-args args-map)
-          stub-fn (registrar/handler :fx :rf.http/managed-canned-success)]
-      ;; Drive the framework-shipped canned-success stub to get the
-      ;; correct reply shape (default reply addressing or explicit
-      ;; :on-success — Spec 014 §Reply addressing).
-      (when stub-fn
-        ;; Demo-only artificial latency — see the fx doc above.
-        (js/setTimeout
-          (fn [] (stub-fn frame-ctx (assoc args-map :value payload)))
-          20)))))
+          frame   (:frame frame-ctx)]
+      (rf/dispatch [:conduit.demo/schedule-reply args-map payload]
+                   {:frame frame}))))
 
 ;; React root named `react-root` (not `root`) so it does NOT collide with
 ;; the `root-view` reg-view above. Held in an atom and populated lazily

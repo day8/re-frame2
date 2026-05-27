@@ -18,7 +18,6 @@
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
             [re-frame.schemas]
             [re-frame.machines]
             [re-frame.http-managed]
@@ -58,38 +57,57 @@
     (when-let [ls (.-localStorage js/globalThis)]
       (.setItem ls "auth/token" token))))
 
+(rf/reg-event-fx :auth.login.demo/schedule-reply
+  {:doc "Private — entered via dispatch from :auth.login.demo/managed-stub.
+         Uses `:dispatch-later` so framework time controls apply to the
+         demo latency. See examples/reagent/login for the full rationale."}
+  (fn handler-auth-login-demo-schedule-reply [_ [_ outcome args-map]]
+    {:fx [[:dispatch-later
+           {:ms    50
+            :event [:auth.login.demo/deliver-reply outcome args-map]}]]}))
+
+(rf/reg-event-fx :auth.login.demo/deliver-reply
+  {:doc "Private — fired by the :dispatch-later scheduled in
+         :auth.login.demo/schedule-reply. Delegates to the framework-
+         shipped canned-success / canned-failure fxs (Spec 014 §Testing)."}
+  (fn handler-auth-login-demo-deliver-reply [_ [_ outcome args-map]]
+    (case outcome
+      :success
+      {:fx [[:rf.http/managed-canned-success
+             (assoc args-map
+                    :value {:user  {:id    (random-uuid)
+                                    :email (-> args-map :request :body :email)}
+                            :token "demo-token-123"})]]}
+
+      :failure-401
+      {:fx [[:rf.http/managed-canned-failure
+             (assoc args-map
+                    :kind :rf.http/http-4xx
+                    :tags {:status  401
+                           :message "Invalid credentials."})]]}
+
+      :empty-success
+      {:fx [[:rf.http/managed-canned-success (assoc args-map :value {})]]})))
+
 (rf/reg-fx :auth.login.demo/managed-stub
   {:doc       "Demo override for `:rf.http/managed`. Identical behaviour
-               to the Reagent example's stub. The raw `js/setTimeout`
-               below is demo-only latency so the `:submitting` UI state
-               is observable — see examples/reagent/login for the full
-               rationale on why production code uses `:dispatch-later`."
+               to the Reagent example's stub — dispatches into the
+               private :auth.login.demo/schedule-reply event so the
+               deferred reply rides framework `:dispatch-later` (50 ms)
+               rather than raw `js/setTimeout`. Framework time controls
+               (Tool-Pair time-travel, `:dispatch-later` nil-override)
+               apply automatically."
    :platforms #{:server :client}}
   (fn fx-managed-login-demo [frame-ctx args-map]
     (let [{:keys [url body]} (:request args-map)
-          login?    (= "/api/login" url)
-          success?  (and login? (= good-password (:password body)))
-          ok-stub   (registrar/handler :fx :rf.http/managed-canned-success)
-          fail-stub (registrar/handler :fx :rf.http/managed-canned-failure)]
-      ;; Demo-only artificial latency — see the fx doc above.
-      (js/setTimeout
-        (fn []
-          (cond
-            success?
-            (ok-stub frame-ctx (assoc args-map
-                                      :value {:user  {:id    (random-uuid)
-                                                      :email (:email body)}
-                                              :token "demo-token-123"}))
-
-            login?
-            (fail-stub frame-ctx (assoc args-map
-                                        :kind :rf.http/http-4xx
-                                        :tags {:status 401
-                                               :message "Invalid credentials."}))
-
-            :else
-            (ok-stub frame-ctx (assoc args-map :value {}))))
-        50))))
+          login?  (= "/api/login" url)
+          outcome (cond
+                    (and login? (= good-password (:password body))) :success
+                    login?                                          :failure-401
+                    :else                                           :empty-success)
+          frame   (:frame frame-ctx)]
+      (rf/dispatch [:auth.login.demo/schedule-reply outcome args-map]
+                   {:frame frame}))))
 
 ;; ============================================================================
 ;; STATE MACHINE
