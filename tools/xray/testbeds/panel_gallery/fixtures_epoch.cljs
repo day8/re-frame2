@@ -250,15 +250,28 @@
   "`:rf.error/schema-validation-failure` trace (rf2-17vxj) — the
   runtime per-event boundary check (`:where` in
   `:app-db / :cofx / :sub-return / :fx-args`). Drives the SCHEMA
-  VIOLATIONS step."
+  VIOLATIONS step.
+
+  Per rf2-2ek7t the trace event also carries `:explain-humanized` —
+  the Malli-humanized form of the raw `:explain` map. The substrate
+  populates this slot via the late-bind `:schemas/humanize-explain!`
+  hook (Malli adapter publishes `malli.error/humanize` under it).
+  For fixture-replay tests (which bypass the substrate's
+  `emit-validation-failure!` helper) we seed a representative
+  humanized shape directly so the violation block demonstrates the
+  new chrome — `{<path-leaf> [<message>]}` is the canonical
+  humanize output for a single-error explain."
   [where failing-id path value rollback?]
-  (ev :error :rf.error/schema-validation-failure
-      {:where      where
-       :failing-id failing-id
-       :path       path
-       :value      value
-       :rollback?  (boolean rollback?)
-       :explain    {:errors [{:path path :message "expected int"}]}}))
+  (let [path-leaf (if (sequential? path) (last path) path)]
+    (ev :error :rf.error/schema-validation-failure
+        {:where             where
+         :failing-id        failing-id
+         :path              path
+         :value             value
+         :rollback?         (boolean rollback?)
+         :explain           {:errors [{:path path :message "expected int"}]}
+         :explain-humanized {path-leaf [(str "should be an integer, got "
+                                              (pr-str value))]}})))
 
 (defn- schema-hot-reload-ev
   "`:rf.schema/violation` trace (rf2-17vxj) — the hot-reload drift
