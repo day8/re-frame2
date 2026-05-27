@@ -569,7 +569,9 @@
     [:div {:data-testid    (str "rf-xray-machine-snapshot-block-"
                                 (machine-id-suffix machine-id))
            :data-machine-id (str machine-id)
-           :data-view-mode  (when (keyword? mode) (name mode))
+           ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis (was
+           ;; the drifted `data-view-mode`).
+           :data-rf-xray-diff-mode (when (keyword? mode) (name mode))
            ;; Issue #2 (option b): match the outer section's `bg-2`
            ;; rather than the brighter `bg-1` so the snapshot reads as
            ;; continuation of the body, not as a second card layer.
@@ -604,7 +606,10 @@
   [mode]
   [diff-mode/diff-mode-toggle
    {:mode      mode
-    :testid    "rf-xray-machine-snapshot-view-mode"
+    ;; rf2-7vv8f — testid prefix normalised to `rf-xray-<surface>-diff-mode`.
+    :testid    "rf-xray-machine-snapshot-diff-mode"
+    ;; rf2-fytu4 — uniform "View" discoverability label.
+    :label     "View"
     :on-change (fn [m]
                  (rf/with-frame :rf/xray
                    (rf/dispatch [:rf.xray.machine-inspector/set-diff-mode m])))}])
@@ -642,7 +647,9 @@
         :data-machine-id (str machine-id)
         :data-has-before (str (some? before))
         :data-has-after  (str (some? after))
-        :data-view-mode  (when (keyword? mode) (name mode))
+        ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis (was
+        ;; the drifted `data-view-mode`).
+        :data-rf-xray-diff-mode (when (keyword? mode) (name mode))
         :style {:background (:bg-2 tokens)}}
        ;; Header carries the section label + the universal three-mode
        ;; toggle. Same shape as the Epoch HANDLER `:db` and App-DB

@@ -2237,7 +2237,10 @@
   [mode]
   [diff-mode/diff-mode-toggle
    {:mode      mode
-    :testid    "rf-xray-epoch-handler-db-view-mode"
+    ;; rf2-7vv8f — testid prefix normalised to `rf-xray-<surface>-diff-mode`.
+    :testid    "rf-xray-epoch-handler-db-diff-mode"
+    ;; rf2-fytu4 — uniform "View" discoverability label.
+    :label     "View"
     :on-change (fn [m]
                  (rf/with-frame :rf/xray
                    (rf/dispatch [:rf.xray.epoch/set-db-diff-mode m])))}])
@@ -2285,7 +2288,9 @@
                        :else  (str n " path" (when (not= 1 n) "s")))]
     [:div {:data-testid "rf-xray-epoch-handler-db-diff"
            :data-empty (str empty?)
-           :data-db-diff-mode (name mode)}
+           ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis (was
+           ;; the drifted `data-db-diff-mode`).
+           :data-rf-xray-diff-mode (name mode)}
      (sub-header ":db"
                  [:span {:style inline-flex-center-style}
                   (when diff-summary diff-summary)
@@ -2679,7 +2684,9 @@
   carries the resolved `:rf.xray.epoch/subs-value-diff-mode` keyword."
   [rows mode]
   [:div {:data-testid "rf-xray-epoch-subscriptions-table"
-         :data-subs-value-diff-mode (when (keyword? mode) (name mode))
+         ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis (was
+         ;; the drifted `data-subs-value-diff-mode`).
+         :data-rf-xray-diff-mode (when (keyword? mode) (name mode))
          :style subscriptions-table-style}
    ;; header
    [:div {:style table-header-row-style}
@@ -2823,7 +2830,11 @@
                (when (pos? n)
                  [diff-mode/diff-mode-toggle
                   {:mode      value-mode
-                   :testid    "rf-xray-epoch-subscriptions-value-mode"
+                   ;; rf2-7vv8f — testid prefix normalised to
+                   ;; `rf-xray-<surface>-diff-mode`.
+                   :testid    "rf-xray-epoch-subs-value-diff-mode"
+                   ;; rf2-fytu4 — uniform "View" discoverability label.
+                   :label     "View"
                    :on-change (fn [m]
                                 (rf/with-frame :rf/xray
                                   (rf/dispatch

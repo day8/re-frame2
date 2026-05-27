@@ -74,7 +74,10 @@
         section-model @(rf/subscribe [:rf.xray/app-db-state])
         diff-triples  @(rf/subscribe [:rf.xray/selected-epoch-diff])]
     [:section {:data-testid "rf-xray-app-db-diff"
-               :data-view-mode (name mode)
+               ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis on
+               ;; every diff-mode-toggle consumer's enclosing section
+               ;; (was the per-surface drifted `data-view-mode`).
+               :data-rf-xray-diff-mode (name mode)
                :style       {:height         "100%"
                              :display        "flex"
                              :flex-direction "column"
@@ -87,20 +90,19 @@
      ;; section's body. Frame-anchored to `:rf/xray` per the same
      ;; rf2-p56sk / rf2-7sdja / rf2-kcaiz pattern the HANDLER `:db`
      ;; toggle uses.
+     ;;
+     ;; rf2-fytu4 — discoverability label `View` is owned by the shared
+     ;; widget via the `:label` opt (was a hand-rolled span here).
      [:div {:style {:padding "12px 12px 0"
                     :display "flex"
                     :align-items "center"
                     :gap "8px"}}
-      [:span {:style {:font-family sans-stack
-                      :font-size "11px"
-                      :font-weight 600
-                      :text-transform "uppercase"
-                      :letter-spacing "0.5px"
-                      :color (:text-secondary tokens)}}
-       "View"]
       [diff-mode/diff-mode-toggle
        {:mode mode
-        :testid "rf-xray-app-db-view-mode"
+        ;; rf2-7vv8f — testid prefix normalised across all four
+        ;; toggle consumers to `rf-xray-<surface>-diff-mode`.
+        :testid "rf-xray-app-db-diff-mode"
+        :label "View"
         :on-change (fn [m]
                      (rf/with-frame :rf/xray
                        (rf/dispatch [:rf.xray.app-db/set-diff-mode m])))}]]

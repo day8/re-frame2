@@ -11,7 +11,7 @@
 
   ## Surfaces
 
-  - **App-DB panel** — universal panel-wide view-mode at the top.
+  - **App-DB panel** — universal panel-wide diff-mode toggle at the top.
     Variants seed an epoch into the spine so the App-DB panel's
     sections paint with diff annotations, then exercise each mode
     keyword via the toggle.
