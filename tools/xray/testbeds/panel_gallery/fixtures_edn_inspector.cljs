@@ -426,3 +426,57 @@
             :status  :ok}
    :value  {:session {:user {:id 7 :password "hunter2"}}
             :status  :ok}})
+
+;; =========================================================================
+;; additional grammar-edge diff fixtures (rf2-r7xf7)
+;; =========================================================================
+;;
+;; Three further before/after pairs that pin grammar edges the
+;; rf2-yaajg six don't reach: pure-add set diff (no remove signal
+;; clouding the `+` glyph), long-string truncation under diff
+;; annotation, and symbol-value mutation (distinct from keyword
+;; mutation, which the canonical maps already cover). Each fixture
+;; pins ONE engine behaviour so visual regressions surface in
+;; isolation.
+
+(defn diff-set-add
+  "Pure-add set diff — `#{:a :b}` → `#{:a :b :c}`. Distinct from
+  `diff-set-mixed`'s add+remove pair: here only `:c` is new and
+  nothing is removed, so the engine paints a single `+` glyph
+  against unchanged `:a` and `:b`. Verifies the key-side glyph
+  treatment under pure-add (no remove signal cluttering the
+  per-member walk)."
+  []
+  {:before #{:a :b}
+   :value  #{:a :b :c}})
+
+(defn diff-long-string-truncation
+  "Long-string mutation — `{:bio \"short\"}` → `{:bio
+  \"<>200-char essay>\"}`. Verifies the widget's truncation
+  chrome (ellipsis / hover-expand / overflow handling) renders
+  cleanly when a long string also carries a `:modified` diff
+  annotation: the `~` glyph, the truncated rendering, and the
+  `← changed from \"short\"` suffix must coexist without one
+  clobbering the other."
+  []
+  (let [long-text (str "Lorem ipsum dolor sit amet, consectetur "
+                       "adipiscing elit, sed do eiusmod tempor "
+                       "incididunt ut labore et dolore magna aliqua. "
+                       "Ut enim ad minim veniam, quis nostrud "
+                       "exercitation ullamco laboris nisi ut aliquip "
+                       "ex ea commodo consequat.")]
+    {:before {:bio "short"}
+     :value  {:bio long-text}}))
+
+(defn diff-symbol-value
+  "Symbol-value mutation — `{:fn-name 'old-handler}` →
+  `{:fn-name 'new-handler}`. Verifies the inspector handles
+  symbols correctly under diff annotation (distinct from
+  keywords, which the canonical map diffs already exercise).
+  Symbols carry the `:syntax-symbol` token; under modification
+  the `~` glyph + `← changed from old-handler` suffix must
+  render against the symbol palette without falling back to
+  the keyword or string token."
+  []
+  {:before {:fn-name 'old-handler}
+   :value  {:fn-name 'new-handler}})

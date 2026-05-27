@@ -358,6 +358,53 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
+  ;; ----- additional grammar-edge diffs (rf2-r7xf7) --------------------
+  ;;
+  ;; Three further diff variants the rf2-yaajg six don't reach:
+  ;; pure-add set diff (distinct from set-mixed's add+remove pair),
+  ;; long-string truncation under diff annotation, and symbol-value
+  ;; mutation (distinct from keyword mutation already covered by
+  ;; the canonical map diffs). Each variant pins ONE engine
+  ;; behaviour for visual-regression isolation.
+
+  (story/reg-variant :story.xray.edn-inspector/diff-set-add
+    {:doc        "Pure-add set diff: `#{:a :b}` → `#{:a :b :c}`.
+                 Distinct from `diff-set-mixed`'s add+remove pair —
+                 only `:c` is new and nothing is removed, so the
+                 engine paints a single `+` glyph cleanly without
+                 the remove signal cluttering the per-member walk."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-set-add)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/diff-long-string-truncation
+    {:doc        "Long-string mutation — `{:bio \"short\"}` →
+                 `{:bio \"<>200-char essay>\"}`. Verifies the
+                 widget's truncation chrome (ellipsis / hover-
+                 expand / overflow handling) renders cleanly when
+                 a long string also carries a `:modified` diff
+                 annotation: the `~` glyph, the truncated
+                 rendering, and the `← changed from \"short\"`
+                 suffix must coexist without one clobbering the
+                 other."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-long-string-truncation)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/diff-symbol-value
+    {:doc        "Symbol-value mutation — `{:fn-name 'old-handler}`
+                 → `{:fn-name 'new-handler}`. Verifies the
+                 inspector handles symbols correctly under diff
+                 annotation (distinct from keyword mutation).
+                 Symbols carry the `:syntax-symbol` token; under
+                 modification the `~` glyph + `← changed from
+                 old-handler` suffix must render against the
+                 symbol palette without falling back to the
+                 keyword or string token."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-symbol-value)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
   ;; ----- workspace ----------------------------------------------------
   (story/reg-workspace :Workspace.xray.edn-inspector/all
     {:doc      "All edn-inspector widget variants in one auto-grid.
@@ -366,7 +413,8 @@
                 / vector / list / lazy-seq / set / record / uuid /
                 inst / diff (mixed-ops / vector / deep / set-mixed
                 / boolean-toggle / vector-of-maps / nil-vs-missing
-                / numeric-near-equal / redacted-context) / opts
+                / numeric-near-equal / redacted-context / set-add
+                / long-string-truncation / symbol-value) / opts
                 (zoomable / popup / card / header / header-hiccup
                 / site-id / shallow-depth / combined)."
      :layout   :variants-grid
