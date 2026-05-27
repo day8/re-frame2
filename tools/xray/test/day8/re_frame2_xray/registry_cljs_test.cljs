@@ -429,6 +429,9 @@
    ;; rf2-uji72 — shared draggable column-resize events. `resize-pair`
    ;; updates both adjacent column widths in one writeback so the
    ;; sum is conserved; `reset` clears all overrides for a table.
+   ;; rf2-xzg1y — `hydrate` lifts the persisted column-widths map from
+   ;; localStorage into app-db at first-mount time.
+   :rf.xray.column-widths/hydrate
    :rf.xray.column-widths/resize-pair
    :rf.xray.column-widths/reset
    ;; rf2-59e7k — Cancellation-cascade visualiser events. Per
@@ -724,6 +727,12 @@
    ;; by `:rf.xray/close-shell`. Registered via `mount/install-fx!` from
    ;; the orchestrator; calls `mount/close!`.
    :rf.xray.fx/hide-shell
+   ;; rf2-xzg1y — shared draggable column-widths persistence fx.
+   ;; Attached to every `resize-pair` + `reset` event so the
+   ;; post-mutation `{table-id {col-id px}}` map round-trips to
+   ;; localStorage in one place (mirrors the filter-persistence shape
+   ;; below).
+   :rf.xray.column-widths/persist
    ;; rf2-ak4ms — auto-filter persistence side-effect. Lives under the
    ;; filter-specific prefix because the localStorage write is bound
    ;; to the filter-mutating events (add-filter / remove-filter /

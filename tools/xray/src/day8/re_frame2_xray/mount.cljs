@@ -58,7 +58,8 @@
             [day8.re-frame2-xray.static.persistence :as static-persistence]
             [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.theme.tokens :as tokens]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
+            [day8.re-frame2-xray.views.resizable-table :as resizable-table]))
 
 ;; ---- mount state ---------------------------------------------------------
 
@@ -488,6 +489,19 @@
     (filters-persistence/clear!)
     (spine-filters/clear-raw!)
     (frame-switcher/clear!)))
+
+(register-first-mount-hook!
+  ::hydrate-column-widths
+  ;; Hydrate the per-table column-widths slot from localStorage
+  ;; (rf2-xzg1y). Durable preference (NOT a transient filter) — the
+  ;; user's column reading-shape choices persist across reloads. The
+  ;; `resizable-table/hydrate!` fn guards on `(frame/frame :rf/xray)`
+  ;; being registered, so this hook is the canonical landing site
+  ;; (the orchestrator-time call from `registry/register-xray-
+  ;; handlers!` happens BEFORE the frame is mounted and short-
+  ;; circuits cleanly). Re-entrant — same source → same slot.
+  (fn []
+    (resizable-table/hydrate!)))
 
 (register-first-mount-hook!
   ::hydrate-static-mode

@@ -3046,36 +3046,52 @@
   "Render the DISPOSED sub-section (rf2-wpfjo) — one row per
   `:rf.sub/dispose` trace event. Visually distinct from the
   recompute rows: a red/error glyph conveys eviction; a muted
-  reason chip carries the dispose path."
+  reason chip carries the dispose path.
+
+  rf2-jnxfj — mounts through the shared `rt/resizable-table` so
+  column widths are user-draggable + persist across reloads via
+  the `:rf.xray.epoch/subscriptions-disposed` table-id slot."
   [rows]
-  [:div {:data-testid "rf-xray-epoch-subscriptions-disposed-table"
-         :style disposed-subs-table-style}
-   [:div {:style table-header-row-style}
-    [:div {:style table-glyph-cell-header-style} ""]
-    [:div {:style disposed-th-60-style} "disposed sub"]
-    [:div {:style disposed-th-40-style} "reason"]]
-   (for [[i {:keys [sub-id query reason]}] (map-indexed vector rows)]
-     [:div {:key (str "disposed-" i)
-            :data-testid (str "rf-xray-epoch-sub-disposed-row-" i)
-            :data-sub-reason (when reason (pr-str reason))
-            :style (if (< i (dec (count rows)))
-                     subs-row-style-with-border
-                     subs-row-style)}
-      [:div {:style disposed-glyph-cell-style}
-       ;; Eviction glyph — `✗` red/error tone conveys "removed from
-       ;; the reactive graph" (rf2-wpfjo).
-       "✗"]
-      [:div {:style disposed-id-cell-style}
-       [:span {:data-testid (str "rf-xray-epoch-sub-disposed-row-id-" i)
-               :style disposed-id-span-style}
-        (cond
-          (vector? query) [ei/mini query 40]
-          (some? sub-id)  [ei/mini sub-id 40]
-          :else           [:span {:style disposed-anonymous-style}
-                           "<anonymous sub>"])]]
-      [:div {:data-testid (str "rf-xray-epoch-sub-disposed-row-reason-" i)
-             :style disposed-reason-cell-style}
-       (dispose-reason-label reason)]])])
+  (let [columns [{:id :glyph    :label ""             :default-flex "24px"}
+                 {:id :disposed :label "disposed sub" :default-flex "1.5fr"}
+                 {:id :reason   :label "reason"       :default-flex "1fr"}]]
+    [rt/resizable-table
+     {:table-id        :rf.xray.epoch/subscriptions-disposed
+      :container-attrs {:data-testid "rf-xray-epoch-subscriptions-disposed-table"
+                        :style       disposed-subs-table-style}
+      :header-attrs    {:style table-header-row-style}
+      :columns         columns
+      :rows            rows
+      :row-key         (fn [_ i] (str "disposed-" i))
+      :row-attrs       (fn [{:keys [reason]} i]
+                         {:data-testid     (str "rf-xray-epoch-sub-disposed-row-" i)
+                          :data-sub-reason (when reason (pr-str reason))
+                          :style (if (< i (dec (count rows)))
+                                   subs-row-style-with-border
+                                   subs-row-style)})
+      :row-cells
+      (fn [{:keys [sub-id query reason]} i]
+        [;; glyph cell
+         [:div {:data-rf-xray-resizable-col "glyph"
+                :style disposed-glyph-cell-style}
+          ;; Eviction glyph — `✗` red/error tone conveys "removed from
+          ;; the reactive graph" (rf2-wpfjo).
+          "✗"]
+         ;; disposed-sub cell
+         [:div {:data-rf-xray-resizable-col "disposed"
+                :style disposed-id-cell-style}
+          [:span {:data-testid (str "rf-xray-epoch-sub-disposed-row-id-" i)
+                  :style disposed-id-span-style}
+           (cond
+             (vector? query) [ei/mini query 40]
+             (some? sub-id)  [ei/mini sub-id 40]
+             :else           [:span {:style disposed-anonymous-style}
+                              "<anonymous sub>"])]]
+         ;; reason cell
+         [:div {:data-rf-xray-resizable-col "reason"
+                :data-testid (str "rf-xray-epoch-sub-disposed-row-reason-" i)
+                :style disposed-reason-cell-style}
+          (dispose-reason-label reason)]])}]))
 
 (defn render-subscriptions-step
   "Render the SUBSCRIPTIONS step (present when subs recomputed OR
@@ -3185,57 +3201,66 @@
     - view-id (hyperlinked via the registrar's `:view` meta coord)
     - duration (when stamped, rendered as a muted chip below the id)
     - the subs the view dereffed during this render (one per line —
-      vectors via `pr-str`, scalars via `ns-keyword`)."
+      vectors via `pr-str`, scalars via `ns-keyword`).
+
+  rf2-jnxfj — mounts through the shared `rt/resizable-table` so
+  column widths are user-draggable + persist across reloads via
+  the `:rf.xray.epoch/views` table-id slot."
   [rows]
-  [:div {:data-testid "rf-xray-epoch-views-table"
-         :style views-table-style}
-   [:div {:style table-header-row-style}
-    [:div {:style views-th-50-style} "view"]
-    [:div {:style views-th-50-style} "subs"]]
-   (for [[i {:keys [view-id subs-read duration-ms]}] (map-indexed vector rows)]
-     [:div {:key (str "view-" i)
-            :data-testid (str "rf-xray-epoch-view-row-" i)
-            :data-view-id (when view-id (pr-str view-id))
-            ;; rf2-2f962 — pink-stripe view-name hover affordance. The
-            ;; row-level mouse-enter/leave stamps the
-            ;; `.rf-xray-view-highlight` class onto the live DOM node
-            ;; tagged by Spec 006's `data-rf-view`, mirroring the
-            ;; Reactive panel's view-node treatment (rf2-e33ad /
-            ;; rf2-8l03l). Pure DOM side-effect; no layout perturbation.
-            :on-mouse-enter (fn [_e] (apply-view-highlight! view-id))
-            :on-mouse-leave (fn [_e] (clear-view-highlight! view-id))
-            :style (if (< i (dec (count rows)))
-                     subs-row-style-with-border
-                     subs-row-style)}
-      [:div {:style views-cell-view-style}
-       [:span {:data-testid (str "rf-xray-epoch-view-row-id-" i)
-               :style (if view-id
-                        views-cell-id-clickable-style
-                        views-cell-id-span-style)}
-        (if (some? view-id)
-          (proj/ns-keyword view-id)
-          [:span {:style views-anonymous-style}
-           "<anonymous view>"])
-        (coord-chip/coord-chip (view-coord view-id)
-                               (str "rf-xray-epoch-view-row-coord-" i))]
-       (when (number? duration-ms)
-         [:span {:style views-row-duration-style}
-          (proj/format-duration-ms duration-ms)])]
-      [:div {:data-testid (str "rf-xray-epoch-view-row-subs-" i)
-             :style views-cell-subs-style}
-       ;; rf2-8w8er — each sub-id (keyword or sub-vector) renders
-       ;; through `mini` so the column reads as syntax-highlighted
-       ;; tokens (keywords magenta, vectors with their bracket
-       ;; chrome) rather than plain pr-str / `:foo` text.
-       (cond
-         (and (sequential? subs-read) (seq subs-read))
-         (into [:div {:style views-subs-list-style}]
-               (for [s subs-read]
-                 [:div [ei/mini s 60]]))
-         (some? subs-read)
-         [ei/mini subs-read 60]
-         :else
-         [:span {:style italic-style} "(none)"])]])])
+  (let [columns [{:id :view :label "view" :default-flex "1fr"}
+                 {:id :subs :label "subs" :default-flex "1fr"}]]
+    [rt/resizable-table
+     {:table-id        :rf.xray.epoch/views
+      :container-attrs {:data-testid "rf-xray-epoch-views-table"
+                        :style       views-table-style}
+      :header-attrs    {:style table-header-row-style}
+      :columns         columns
+      :rows            rows
+      :row-key         (fn [_ i] (str "view-" i))
+      :row-attrs       (fn [{:keys [view-id]} i]
+                         {:data-testid (str "rf-xray-epoch-view-row-" i)
+                          :data-view-id (when view-id (pr-str view-id))
+                          ;; rf2-2f962 — pink-stripe view-name hover
+                          ;; affordance. Pure DOM side-effect on the
+                          ;; row wrapper; no layout perturbation.
+                          :on-mouse-enter (fn [_e] (apply-view-highlight! view-id))
+                          :on-mouse-leave (fn [_e] (clear-view-highlight! view-id))
+                          :style (if (< i (dec (count rows)))
+                                   subs-row-style-with-border
+                                   subs-row-style)})
+      :row-cells
+      (fn [{:keys [view-id subs-read duration-ms]} i]
+        [;; view cell
+         [:div {:data-rf-xray-resizable-col "view"
+                :style views-cell-view-style}
+          [:span {:data-testid (str "rf-xray-epoch-view-row-id-" i)
+                  :style (if view-id
+                           views-cell-id-clickable-style
+                           views-cell-id-span-style)}
+           (if (some? view-id)
+             (proj/ns-keyword view-id)
+             [:span {:style views-anonymous-style}
+              "<anonymous view>"])
+           (coord-chip/coord-chip (view-coord view-id)
+                                  (str "rf-xray-epoch-view-row-coord-" i))]
+          (when (number? duration-ms)
+            [:span {:style views-row-duration-style}
+             (proj/format-duration-ms duration-ms)])]
+         ;; subs cell
+         [:div {:data-rf-xray-resizable-col "subs"
+                :data-testid (str "rf-xray-epoch-view-row-subs-" i)
+                :style views-cell-subs-style}
+          ;; rf2-8w8er — each sub-id renders through `mini` so the
+          ;; column reads as syntax-highlighted tokens.
+          (cond
+            (and (sequential? subs-read) (seq subs-read))
+            (into [:div {:style views-subs-list-style}]
+                  (for [s subs-read]
+                    [:div [ei/mini s 60]]))
+            (some? subs-read)
+            [ei/mini subs-read 60]
+            :else
+            [:span {:style italic-style} "(none)"])]])}]))
 
 (defn- unmounted-views-table
   "Render the UNMOUNTED VIEWS sub-section (rf2-gmw1i) — one row per
@@ -3243,33 +3268,47 @@
   re-render rows: a red/error glyph conveys the teardown semantic.
   Click-to-source uses the same `(rf/handler-meta :view view-id)`
   resolver the re-render rows use, so the operator can jump to the
-  view's definition even when the instance is gone."
+  view's definition even when the instance is gone.
+
+  rf2-jnxfj — mounts through the shared `rt/resizable-table` so
+  column widths are user-draggable + persist across reloads via
+  the `:rf.xray.epoch/views-unmounted` table-id slot."
   [rows]
-  [:div {:data-testid "rf-xray-epoch-views-unmounted-table"
-         :style unmounted-views-table-style}
-   [:div {:style table-header-row-style}
-    [:div {:style table-glyph-cell-header-style} ""]
-    [:div {:style unmounted-th-auto-style} "unmounted view"]]
-   (for [[i {:keys [view-id]}] (map-indexed vector rows)]
-     [:div {:key (str "unmounted-" i)
-            :data-testid (str "rf-xray-epoch-view-unmounted-row-" i)
-            :data-view-id (when view-id (pr-str view-id))
-            :style (if (< i (dec (count rows)))
-                     subs-row-style-with-border
-                     subs-row-style)}
-      [:div {:style unmounted-glyph-cell-style}
-       ;; Teardown glyph — `✗` red/error tone conveys the view came
-       ;; off the reactive graph (rf2-gmw1i).
-       "✗"]
-      [:div {:style unmounted-id-cell-style}
-       [:span {:data-testid (str "rf-xray-epoch-view-unmounted-row-id-" i)
-               :style unmounted-id-span-style}
-        (if (some? view-id)
-          (proj/ns-keyword view-id)
-          [:span {:style disposed-anonymous-style}
-           "<anonymous view>"])
-        (coord-chip/coord-chip (view-coord view-id)
-                               (str "rf-xray-epoch-view-unmounted-row-coord-" i))]]])])
+  (let [columns [{:id :glyph     :label ""               :default-flex "24px"}
+                 {:id :unmounted :label "unmounted view" :default-flex "1fr"}]]
+    [rt/resizable-table
+     {:table-id        :rf.xray.epoch/views-unmounted
+      :container-attrs {:data-testid "rf-xray-epoch-views-unmounted-table"
+                        :style       unmounted-views-table-style}
+      :header-attrs    {:style table-header-row-style}
+      :columns         columns
+      :rows            rows
+      :row-key         (fn [_ i] (str "unmounted-" i))
+      :row-attrs       (fn [{:keys [view-id]} i]
+                         {:data-testid  (str "rf-xray-epoch-view-unmounted-row-" i)
+                          :data-view-id (when view-id (pr-str view-id))
+                          :style (if (< i (dec (count rows)))
+                                   subs-row-style-with-border
+                                   subs-row-style)})
+      :row-cells
+      (fn [{:keys [view-id]} i]
+        [;; glyph cell
+         [:div {:data-rf-xray-resizable-col "glyph"
+                :style unmounted-glyph-cell-style}
+          ;; Teardown glyph — `✗` red/error tone conveys the view
+          ;; came off the reactive graph (rf2-gmw1i).
+          "✗"]
+         ;; unmounted-view cell
+         [:div {:data-rf-xray-resizable-col "unmounted"
+                :style unmounted-id-cell-style}
+          [:span {:data-testid (str "rf-xray-epoch-view-unmounted-row-id-" i)
+                  :style unmounted-id-span-style}
+           (if (some? view-id)
+             (proj/ns-keyword view-id)
+             [:span {:style disposed-anonymous-style}
+              "<anonymous view>"])
+           (coord-chip/coord-chip (view-coord view-id)
+                                  (str "rf-xray-epoch-view-unmounted-row-coord-" i))]]])}]))
 
 (defn render-views-step
   "Render the VIEWS step (present when views re-rendered OR when

@@ -90,7 +90,8 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
-            [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
+            [day8.re-frame2-xray.views.edn-widget.widget :as edn]
+            [day8.re-frame2-xray.views.resizable-table :as rt]))
 
 ;; ---- row grid template (spec/023 §3 · §14) -----------------------------
 ;;
@@ -102,6 +103,49 @@
 (def ^:private row-grid-columns
   "The 5-column grid template for an op row (spec/023 §3)."
   "56px 64px 92px minmax(0, 1fr) auto")
+
+;; ---- resizable-table columns (rf2-jnxfj) --------------------------------
+;;
+;; The op-row's 5-column grid is now driven by the shared
+;; `rt/resizable-table` view. One `:table-id :rf.xray.trace/ops` is
+;; shared between the single header bar at the top of the panel and
+;; every phase band's rows, so a drag in the header live-resizes every
+;; row in the arc. Column widths persist via the rf2-xzg1y
+;; localStorage round-trip.
+;;
+;; Defaults mirror the pre-conversion `row-grid-columns` template so
+;; the first paint reads identically. The `minmax(0, 1fr)` on the
+;; target column survives the resolver because `build-template` passes
+;; the `:default-flex` string through verbatim when no px override is
+;; in the slot.
+
+(def ^:private trace-op-columns
+  [{:id :time     :label "Δt"       :default-flex "56px"}
+   {:id :badge    :label "area"     :default-flex "64px"}
+   {:id :verb     :label "what"     :default-flex "92px"}
+   {:id :target   :label "target"   :default-flex "minmax(0, 1fr)"}
+   {:id :duration :label "duration" :default-flex "70px"}])
+
+(def trace-ops-table-id
+  "Shared table-id every band reads against so a drag updates one slot
+  that the header + every row reads."
+  :rf.xray.trace/ops)
+
+(def ^:private trace-header-cell-style
+  {:padding        "4px 8px"
+   :color          (:text-tertiary tokens)
+   :font-family    sans-stack
+   :font-size      "10px"
+   :font-weight    600
+   :text-transform "uppercase"
+   :letter-spacing "0.4px"
+   :min-width      0})
+
+(def ^:private trace-header-attrs
+  {:data-testid "rf-xray-trace-ops-header"
+   :style       {:background    (:bg-2 tokens)
+                 :border-bottom (str "1px solid " (:border-subtle tokens))
+                 :margin-bottom "4px"}})
 
 ;; ---- style primitives (rf2-5venq) ---------------------------------------
 ;;
@@ -515,137 +559,160 @@
                        {:key (pr-str path)})))))
 
 ;; ---- one op row (spec/023 §3) -------------------------------------------
+;;
+;; rf2-jnxfj — the op row's 5-column grid is now driven by the shared
+;; `rt/resizable-table` view (one `:table-id :rf.xray.trace/ops` per
+;; arc, shared by header + every band so a drag re-aligns every row).
+;; The pre-conversion `op-row` returned a single `:li` containing the
+;; grid + db-diff + payload; resizable-table now owns the `:div` row
+;; wrapper, and the per-row attrs / cells / extras are produced by the
+;; three helpers below. testids land verbatim on the new structure so
+;; the existing trace_view_cljs_test corpus still resolves them.
 
-(defn- op-row
-  "One op row in the arc — the five columns of spec/023 §3
-  (Δt · area badge · what-happened · target/detail · duration) with the
-  op-family colour as a 3px left-border band and the outcome tier tinting
-  the what-happened column (spec/023 §8).
+(defn- op-row-attrs
+  "Per-row attrs for the resizable-table — preserves the click /
+  context-menu handlers + the op-family colour band + severity /
+  expansion backgrounds.
 
-  The React `:key` is the row's stable trace `:id` (via `h/row-key`) so
-  a trace push doesn't remount the viewport. The row testid keeps the
-  `rf-xray-trace-row-` prefix so the shell's scoped rounded-pill hover
-  rule (theme/global-styles) lights it.
-
-  Row click → toggle inline raw-EDN payload expansion (spec/023 §3); no
-  nav (the panel is already scoped to the focused epoch). Error /
-  warning rows are visually emphasised inline (spec/023 §7) — the Δt
-  leads with `!`, the badge + verb ride the semantic colour, and the row
-  carries a tinted left rail."
-  [{:keys [id operation rel-time time area area-badge verb target
-           duration-ms source-coord dispatch-id db-diff]
-    :as row}
-   {:keys [expanded?]}]
+  Stamps `:key` into the attrs map alongside the meta-key
+  resizable-table emits, so the rf2-l2f2g React-key contract surface
+  (rf-xray-trace-row-N row vectors stably keyed by `(h/row-key row)`)
+  is observable in the rendered hiccup — the test corpus reads
+  `:key` from the row attrs map because the framework hiccup walker
+  rebuilds inner vectors via `mapv` and drops their metadata."
+  [{:keys [id operation area dispatch-id] :as row} expanded?]
   (let [row-test-id (str "rf-xray-trace-row-" id)
         band-colour (h/op-family-colour row)
+        severity?   (#{:error :warning} area)
+        sev-colour  (when severity?
+                      (get tokens (if (= area :error) :red :yellow)))
+        destroy?    (cch/destroy-event? {:operation operation})]
+    {:key                   (h/row-key row)
+     :data-testid           row-test-id
+     :data-rf-xray-expanded (boolean expanded?)
+     :data-rf-xray-area     (some-> area name)
+     :data-rf-xray-op-family (some-> (h/op-family row) name)
+     :data-rf-xray-severity (when severity? (name area))
+     :on-click              (fn []
+                              (rf/dispatch [:rf.xray/toggle-trace-row-expand id]
+                                           {:frame :rf/xray}))
+     :on-context-menu       (when destroy?
+                              (fn [e]
+                                (.preventDefault e)
+                                (.stopPropagation e)
+                                (rf/dispatch
+                                  [:rf.xray/cancellation-cascade-open
+                                   {:kind :dispatch-id :id dispatch-id}]
+                                  {:frame :rf/xray})))
+     ;; op-family colour band — 3px LEFT-BORDER (error / warning
+     ;; override the band so a failure stands out · spec/023 §7).
+     ;; Severity rows carry a faint tinted fill (spec/023 §7);
+     ;; expanded rows show a bg-1 backdrop.
+     :style                 (cond-> (assoc op-row-container-base-style
+                                           :border-left
+                                           (str "3px solid "
+                                                (or sev-colour band-colour)))
+                              expanded?
+                              (assoc :background (:bg-1 tokens))
+                              (and (not expanded?) (= area :error))
+                              (assoc :background op-row-bg-error)
+                              (and (not expanded?) (= area :warning))
+                              (assoc :background op-row-bg-warning))}))
+
+(defn- op-row-cells
+  "Per-row cells — the 5 hiccup nodes resizable-table interleaves into
+  the grid template. Each carries `data-rf-xray-resizable-col` so the
+  pointer-down handler can locate the adjacent cell off the live DOM,
+  AND keeps the original `data-testid` so the trace_view tests resolve
+  unchanged."
+  [{:keys [id operation rel-time time area area-badge verb target
+           duration-ms source-coord dispatch-id]
+    :as row}]
+  (let [row-test-id (str "rf-xray-trace-row-" id)
         verb-colour (h/outcome-colour row)
         severity?   (#{:error :warning} area)
         sev-colour  (when severity?
                       (get tokens (if (= area :error) :red :yellow)))
         destroy?    (cch/destroy-event? {:operation operation})]
-    [:li {:key         (h/row-key row)
-          :data-testid row-test-id
-          :data-rf-xray-expanded (boolean expanded?)
-          :data-rf-xray-area     (some-> area name)
-          :data-rf-xray-op-family (some-> (h/op-family row) name)
-          :data-rf-xray-severity (when severity? (name area))
-          :on-click    (fn []
-                         (rf/dispatch [:rf.xray/toggle-trace-row-expand id]
-                                      {:frame :rf/xray}))
-          :on-context-menu (when destroy?
-                             (fn [e]
-                               (.preventDefault e)
-                               (.stopPropagation e)
-                               (rf/dispatch
-                                 [:rf.xray/cancellation-cascade-open
-                                  {:kind :dispatch-id :id dispatch-id}]
-                                 {:frame :rf/xray})))
-          ;; op-family colour band — 3px LEFT-BORDER (error / warning
-          ;; override the band so a failure stands out · spec/023 §7).
-          ;; Severity rows carry a faint tinted fill (spec/023 §7);
-          ;; expanded rows show a bg-1 backdrop.
-          :style       (cond-> (assoc op-row-container-base-style
-                                      :border-left
-                                      (str "3px solid "
-                                           (or sev-colour band-colour)))
-                         expanded?
-                         (assoc :background (:bg-1 tokens))
-                         (and (not expanded?) (= area :error))
-                         (assoc :background op-row-bg-error)
-                         (and (not expanded?) (= area :warning))
-                         (assoc :background op-row-bg-warning))}
-     [:div {:data-testid (str row-test-id "-summary")
-            :style       op-row-summary-grid-style}
-      ;; ① Δt — ms offset from EPOCH OPEN; `!` lead for severity rows.
-      [:span {:data-testid (str row-test-id "-time")
-              :title       (or (h/format-time time) "")
-              :style       (if severity?
-                             (assoc op-row-time-base-style
-                                    :color sev-colour
-                                    :font-weight 700)
-                             op-row-time-default-style)}
-       (cond
-         (and severity? rel-time) (str "!" (subs rel-time 1))
-         rel-time                 rel-time
-         :else                    "—")]
-      ;; ② area badge — neutral uppercase text badge (spec/023 §3); the
-      ;; severity tiers ride their semantic colour so a failure's family
-      ;; is unmistakeable (spec/023 §7 / §8).
-      [:span {:data-testid (str row-test-id "-badge")
-              :style       (if sev-colour
-                             (assoc op-row-badge-base-style :color sev-colour)
-                             op-row-badge-default-style)}
-       area-badge]
-      ;; ③ what-happened — the per-area verb, tinted by outcome tier.
-      [:span {:data-testid (str row-test-id "-verb")
-              :style       (assoc op-row-verb-base-style
-                                  :color (if severity? sev-colour verb-colour))
-              :title       verb}
-       verb]
-      ;; ④ target / detail — the op's subject; the flexible column that
-      ;; truncates first (spec/023 §14). Source-coord ↗ rides at its end.
-      [:span {:data-testid (str row-test-id "-target")
-              :style       op-row-target-container-style}
-       [:span {:style op-row-target-text-style
-               :title (or target "")}
-        (or target "—")]
-       (when source-coord
-         [:button {:data-testid (str row-test-id "-source-coord")
-                   ;; The bare `file:line` coord rides the button's title
-                   ;; (the ↗ icon is the affordance); the open-in-editor
-                   ;; bridge reads this title verbatim.
-                   :title       source-coord
-                   :on-click    (fn [e]
-                                  (.stopPropagation e)
-                                  (rf/dispatch [:rf.xray/open-in-editor
-                                                {:source-coord source-coord}]
-                                               {:frame :rf/xray}))
-                   :style       op-row-source-coord-button-style}
-          "↗"])
-       (when destroy?
-         [:button {:data-testid (str row-test-id "-cancellation-cascade")
-                   :title       "Show cancellation cascade"
-                   :on-click    (fn [e]
-                                  (.stopPropagation e)
-                                  (rf/dispatch
-                                    [:rf.xray/cancellation-cascade-open
-                                     {:kind :dispatch-id :id dispatch-id}]
-                                    {:frame :rf/xray}))
-                   :style       op-row-cancellation-button-style}
-          "⟲"])]
-      ;; ⑤ duration — `N.N ms` when timed, em-dash otherwise (spec/023 §6).
-      [:span {:data-testid (str row-test-id "-duration")
-              :style       op-row-duration-style}
-       (or (h/format-duration duration-ms) "—")]]
-     ;; Per-path db-changed diff rows (rf2-b3zw2 / rf2-8q8i4 = (b)) —
-     ;; only present on `:rf.event/db-changed` rows; derived panel-side
-     ;; from the focused epoch record's `:db-before` / `:db-after` by
-     ;; `trace_helpers/db-changed-diff-triples`. Empty diffs render no
-     ;; sub-list per spec/023 §APP-DB CHANGES (the empty-diff case).
-     (when (= operation :rf.event/db-changed)
-       (db-diff-rows id db-diff))
-     ;; Row click → raw trace-event EDN inline (spec/023 §3).
-     (when expanded? (render-payload row))]))
+    [;; ① Δt — ms offset from EPOCH OPEN; `!` lead for severity rows.
+     [:span {:data-rf-xray-resizable-col "time"
+             :data-testid (str row-test-id "-time")
+             :title       (or (h/format-time time) "")
+             :style       (if severity?
+                            (assoc op-row-time-base-style
+                                   :color sev-colour
+                                   :font-weight 700)
+                            op-row-time-default-style)}
+      (cond
+        (and severity? rel-time) (str "!" (subs rel-time 1))
+        rel-time                 rel-time
+        :else                    "—")]
+     ;; ② area badge — neutral uppercase text badge (spec/023 §3); the
+     ;; severity tiers ride their semantic colour so a failure's family
+     ;; is unmistakeable (spec/023 §7 / §8).
+     [:span {:data-rf-xray-resizable-col "badge"
+             :data-testid (str row-test-id "-badge")
+             :style       (if sev-colour
+                            (assoc op-row-badge-base-style :color sev-colour)
+                            op-row-badge-default-style)}
+      area-badge]
+     ;; ③ what-happened — the per-area verb, tinted by outcome tier.
+     [:span {:data-rf-xray-resizable-col "verb"
+             :data-testid (str row-test-id "-verb")
+             :style       (assoc op-row-verb-base-style
+                                 :color (if severity? sev-colour verb-colour))
+             :title       verb}
+      verb]
+     ;; ④ target / detail — the op's subject; the flexible column that
+     ;; truncates first (spec/023 §14). Source-coord ↗ rides at its end.
+     [:span {:data-rf-xray-resizable-col "target"
+             :data-testid (str row-test-id "-target")
+             :style       op-row-target-container-style}
+      [:span {:style op-row-target-text-style
+              :title (or target "")}
+       (or target "—")]
+      (when source-coord
+        [:button {:data-testid (str row-test-id "-source-coord")
+                  :title       source-coord
+                  :on-click    (fn [e]
+                                 (.stopPropagation e)
+                                 (rf/dispatch [:rf.xray/open-in-editor
+                                               {:source-coord source-coord}]
+                                              {:frame :rf/xray}))
+                  :style       op-row-source-coord-button-style}
+         "↗"])
+      (when destroy?
+        [:button {:data-testid (str row-test-id "-cancellation-cascade")
+                  :title       "Show cancellation cascade"
+                  :on-click    (fn [e]
+                                 (.stopPropagation e)
+                                 (rf/dispatch
+                                   [:rf.xray/cancellation-cascade-open
+                                    {:kind :dispatch-id :id dispatch-id}]
+                                   {:frame :rf/xray}))
+                  :style       op-row-cancellation-button-style}
+         "⟲"])]
+     ;; ⑤ duration — `N.N ms` when timed, em-dash otherwise (spec/023 §6).
+     [:span {:data-rf-xray-resizable-col "duration"
+             :data-testid (str row-test-id "-duration")
+             :style       op-row-duration-style}
+      (or (h/format-duration duration-ms) "—")]]))
+
+(defn- op-row-extras
+  "Per-row extras rendered BELOW the grid (the resizable-table's
+  `:row-extras` slot — see ns docstring of `views.resizable-table`).
+  Returns the per-path db-diff sub-list (rf2-b3zw2) when the row is a
+  `:rf.event/db-changed` op AND/OR the raw-EDN payload (spec/023 §3)
+  when the row is expanded."
+  [{:keys [id operation db-diff] :as row} expanded?]
+  (let [diff?    (= operation :rf.event/db-changed)
+        diff-h   (when diff? (db-diff-rows id db-diff))
+        payload  (when expanded? (render-payload row))]
+    (cond
+      (and diff-h payload) [:<> diff-h payload]
+      diff-h               diff-h
+      payload              payload
+      :else                nil)))
 
 ;; ---- phase band (spec/023 §2 · §13 · §14) -------------------------------
 
@@ -682,19 +749,35 @@
   `(none)` and no rows (spec/023 §13); collapsed bands render the header
   alone. A thin left rail (mirroring the Handler panel's pipeline rail)
   runs down the band's rows so the phase reads as a distinct segment of
-  the arc (spec/023 §8)."
+  the arc (spec/023 §8).
+
+  rf2-jnxfj — rows mount through `rt/resizable-table` with `:header?
+  false` (the header lives once at the top of the panel) so every band
+  shares the same `:rf.xray.trace/ops` column-widths slot — a drag on
+  the panel header re-aligns every band's rows live."
   [{:keys [id rows empty?] :as band} {:keys [expanded? expanded-row-ids]}]
   [:section {:data-testid (str "rf-xray-trace-band-" (name id))
              :data-rf-xray-band id
              :style phase-band-container-style}
    (band-header band expanded?)
    (when (and expanded? (not empty?))
-     [:ul {:data-testid (str "rf-xray-trace-band-rows-" (name id))
-           :style phase-band-rows-style}
-      (for [row rows]
-        ^{:key (h/row-key row)}
-        (op-row row {:expanded? (contains? (or expanded-row-ids #{})
-                                           (:id row))}))])])
+     [rt/resizable-table
+      {:table-id        trace-ops-table-id
+       :header?         false
+       :columns         trace-op-columns
+       :container-attrs {:data-testid (str "rf-xray-trace-band-rows-" (name id))
+                         :style       phase-band-rows-style}
+       :rows            rows
+       :row-key         (fn [row _i] (h/row-key row))
+       :row-attrs       (fn [row _i]
+                          (op-row-attrs row
+                                        (contains? (or expanded-row-ids #{})
+                                                   (:id row))))
+       :row-cells       (fn [row _i] (op-row-cells row))
+       :row-extras      (fn [row _i]
+                          (op-row-extras row
+                                         (contains? (or expanded-row-ids #{})
+                                                    (:id row))))}])])
 
 ;; ---- epoch envelope (spec/023 §2) ---------------------------------------
 
@@ -728,12 +811,27 @@
                :style (assoc envelope-outcome-base-style :color outcome-hex)}
         (str "outcome " outcome-kw)])
      (when (seq rows)
-       [:ul {:data-testid (str "rf-xray-trace-envelope-rows-" (name kind))
-             :style envelope-rows-list-style}
-        (for [row rows]
-          ^{:key (h/row-key row)}
-          (op-row row {:expanded? (contains? (or expanded-row-ids #{})
-                                             (:id row))}))])]))
+       ;; rf2-jnxfj — envelope rows mount through the shared resizable-
+       ;; table view (same `:rf.xray.trace/ops` table-id every band reads)
+       ;; so a single drag on the panel header re-aligns the OPEN/CLOSE
+       ;; envelope rows alongside every phase band.
+       [rt/resizable-table
+        {:table-id        trace-ops-table-id
+         :header?         false
+         :columns         trace-op-columns
+         :container-attrs {:data-testid (str "rf-xray-trace-envelope-rows-" (name kind))
+                           :style       envelope-rows-list-style}
+         :rows            rows
+         :row-key         (fn [row _i] (h/row-key row))
+         :row-attrs       (fn [row _i]
+                            (op-row-attrs row
+                                          (contains? (or expanded-row-ids #{})
+                                                     (:id row))))
+         :row-cells       (fn [row _i] (op-row-cells row))
+         :row-extras      (fn [row _i]
+                            (op-row-extras row
+                                           (contains? (or expanded-row-ids #{})
+                                                      (:id row))))}])]))
 
 ;; ---- empty states (spec/023 §14) ----------------------------------------
 
@@ -814,12 +912,27 @@
         nil
         ;; The arc container keeps the `rf-xray-trace-feed` testid as the
         ;; external "the arc rendered rows" contract surface. Every arc
-        ;; child carries an explicit React key (envelope-open · the four
-        ;; bands · envelope-close) so the reconciler keys the whole
-        ;; sibling list uniformly.
+        ;; child carries an explicit React key (the column-widths
+        ;; header · envelope-open · the four bands · envelope-close) so
+        ;; the reconciler keys the whole sibling list uniformly.
         (into
           [:div {:data-testid "rf-xray-trace-feed"
                  :style panel-feed-container-style}
+           ;; rf2-jnxfj — column-widths drag-handle bar. One header
+           ;; bar at the top of the arc carries the gutter handles for
+           ;; the shared `:rf.xray.trace/ops` table-id; every band's
+           ;; rows render their own resizable-tables with `:header?
+           ;; false` reading the SAME slot, so a drag here re-aligns
+           ;; every row in the arc.
+           ^{:key "ops-header"}
+           [rt/resizable-table
+            {:table-id        trace-ops-table-id
+             :columns         trace-op-columns
+             :rows            []
+             :row-key         (fn [_ _] "")
+             :row-cells       (fn [_ _] [])
+             :header-attrs    trace-header-attrs
+             :header-cell-style trace-header-cell-style}]
            ;; ○ EPOCH OPEN — the arc's opening bracket (spec/023 §2).
            ^{:key "envelope-open"}
            (envelope-row {:kind            :open

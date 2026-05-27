@@ -68,99 +68,92 @@
   empty-state classification — lives in `issues_ribbon_helpers.cljc`
   so the algebra runs under the JVM unit-test target."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as h]
             [day8.re-frame2-xray.panels.overflow-indicator :as overflow]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens mono-stack sans-stack]]))
+             :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-xray.views.resizable-table :as rt]))
 
 ;; ---- per-row -------------------------------------------------------------
 
-(defn- issue-row
-  "One row in the issues feed, reconciled to the Figma design
-  (`design-reference/xray_devtools_reference.cljs`, the `issues-panel`
-  component + spec/021 §8.2):
+(def ^:private issue-columns
+  "Resizable column defs for the Issues feed (rf2-jnxfj).
 
-      ▌ SEVERITY  category   short description       timestamp  ↗
+  Defaults mirror the pre-conversion fixed/fr template — severity (78px),
+  category (144px), description (1fr), time (auto-ish — fixed 100px since
+  resizable-table needs each track resolvable), source-icon (18px). Once
+  the user drags a column the override (px) wins."
+  [{:id :severity    :label "severity"    :default-flex "78px"}
+   {:id :category    :label "category"    :default-flex "144px"}
+   {:id :description :label "description" :default-flex "minmax(0, 1fr)"}
+   {:id :time        :label "time"        :default-flex "100px"}
+   {:id :source      :label ""            :default-flex "18px"}])
 
-  The leading `▌` is a 3px severity-coloured LEFT-BORDER; the SEVERITY
-  cell is an uppercase TEXT badge in its severity colour; the category
-  is muted; the description fills; the timestamp is mono + RIGHT-aligned;
-  and `↗` is the open-in-editor source affordance.
+(def ^:private issues-header-cell-style
+  {:padding       "6px 12px"
+   :color         (:text-tertiary tokens)
+   :font-family   sans-stack
+   :font-size     "10px"
+   :font-weight   600
+   :letter-spacing "0.4px"
+   :text-transform "uppercase"})
 
-  Click the row → pivot to the Event panel. Click `↗` → open in editor.
-  Within a focused-epoch lens the parent cascade is the focused epoch
-  itself, so the row pivot lands on the panel that already drives the
-  focus — the click is a convenience surface, not a cascade switch.
-  Source-coord click stops propagation so the source affordance stays
-  distinct from the row pivot."
-  [{:keys [id time severity category description source-coord]
-    :as _issue}]
+(defn- issue-row-cells
+  "Pure cell renderer — returns the 5 hiccup nodes for the resizable-
+  table grid (one per column). Mirrors the pre-conversion content
+  verbatim; the wrapper `:li`'s click handler + border-styles now
+  live on the resizable-table's `:row-attrs`."
+  [{:keys [id time severity category description source-coord] :as _issue}]
   (let [row-test-id (str "rf-xray-issues-row-" id)
         colour      (h/severity-colour severity)]
-    [:li {:key         id
-          :data-testid row-test-id
-          :on-click    (fn []
-                         ;; Flip the visible tab to Event so the row
-                         ;; pivot lands in the event lens.
-                         (rf/dispatch [:rf.xray/select-tab :event] {:frame :rf/xray}))
-          ;; rf2-tha26 — the category column is a FIXED width (≈ Figma
-          ;; `w-36`) so the description column is the SOLE flexible track
-          ;; (`1fr` = the reference's `flex-1`). The prior `0.6fr`
-          ;; category shared the flexible width with the description, so
-          ;; a long category starved the description into a `:r…`
-          ;; ellipsis even when the row had room — the description now
-          ;; fills all the space the fixed columns leave.
-          :style       {:display       "grid"
-                        :grid-template-columns "78px 144px minmax(0, 1fr) auto 18px"
-                        :gap           "16px"
-                        :align-items   "center"
-                        :padding       "8px 12px"
-                        :border        (str "1px solid " (:border-default tokens))
-                        :border-left   (str "3px solid " colour)
-                        :border-radius "4px"
-                        :margin-bottom "8px"
-                        :cursor        "pointer"
-                        :color         (:text-primary tokens)
-                        :font-family   sans-stack
-                        :font-size     "12px"
-                        :line-height   1.35}}
-     ;; Severity TEXT badge (uppercase, in its severity colour)
-     [:span {:data-testid (str row-test-id "-severity")
+    [;; Severity TEXT badge (uppercase, in its severity colour)
+     [:span {:data-rf-xray-resizable-col "severity"
+             :data-testid (str row-test-id "-severity")
              :title       (name severity)
              :style       {:color          colour
                            :font-weight    600
                            :font-size      "10px"
                            :letter-spacing "0.4px"
-                           :white-space    "nowrap"}}
+                           :white-space    "nowrap"
+                           :padding        "8px 0 8px 12px"}}
       (h/severity-badge-label severity)]
      ;; Category (muted)
-     [:span {:data-testid (str row-test-id "-category")
+     [:span {:data-rf-xray-resizable-col "category"
+             :data-testid (str row-test-id "-category")
              :style       {:color         (:text-tertiary tokens)
                            :overflow      "hidden"
                            :text-overflow "ellipsis"
-                           :white-space   "nowrap"}
+                           :white-space   "nowrap"
+                           :padding       "8px 0"}
              :title       (str category)}
       (or category "—")]
      ;; Description (primary)
-     [:span {:data-testid (str row-test-id "-description")
+     [:span {:data-rf-xray-resizable-col "description"
+             :data-testid (str row-test-id "-description")
              :style       {:color         (:text-primary tokens)
                            :overflow      "hidden"
                            :text-overflow "ellipsis"
-                           :white-space   "nowrap"}
+                           :white-space   "nowrap"
+                           :padding       "8px 0"
+                           :min-width     0}
              :title       description}
       description]
      ;; Timestamp (mono, muted, RIGHT-aligned)
-     [:span {:data-testid (str row-test-id "-time")
+     [:span {:data-rf-xray-resizable-col "time"
+             :data-testid (str row-test-id "-time")
              :style {:color       (:text-tertiary tokens)
                      :font-family mono-stack
                      :font-size   "11px"
                      :text-align  "right"
-                     :white-space "nowrap"}}
+                     :white-space "nowrap"
+                     :padding     "8px 0"}}
       (or (h/format-time time) "—")]
      ;; Source-coord affordance (`↗`, when present)
      (if source-coord
-       [:button {:data-testid (str row-test-id "-source")
+       [:button {:data-rf-xray-resizable-col "source"
+                 :data-testid (str row-test-id "-source")
                  :title       source-coord
                  :on-click    (fn [e]
                                 ;; Stop propagation so the row's pivot
@@ -173,14 +166,16 @@
                  :style       {:background  "transparent"
                                :color       (:accent tokens)
                                :border      "none"
-                               :padding     0
+                               :padding     "8px 12px 8px 0"
                                :cursor      "pointer"
                                :font-size   "13px"
                                :line-height 1}}
         "↗"]
-       [:span {:style {:color (:text-tertiary tokens)
+       [:span {:data-rf-xray-resizable-col "source"
+               :style {:color (:text-tertiary tokens)
                        :font-size "13px"
-                       :text-align "center"}}
+                       :text-align "center"
+                       :padding "8px 12px 8px 0"}}
         "·"])]))
 
 ;; ---- footer hint --------------------------------------------------------
@@ -276,7 +271,14 @@
   global firehose / aggregate view, and no `:ungrouped` escape-hatch
   lane (those navigation needs live on the L2 timeline's per-row
   badges per §1.2). No filter chrome (rf2-ad7zx.9) — pure rows per
-  the Figma design."
+  the Figma design.
+
+  rf2-jnxfj — the issue feed now mounts through the shared
+  `rt/resizable-table` view so each row's 5 columns share one drag-
+  resize affordance and the widths persist across reloads via the
+  `:rf.xray.issues/feed` table-id slot. The pre-conversion `:ul`/
+  `:li` shape is gone; the 200-row cap + overflow indicator are
+  applied to the rows fed to the resizable-table."
   []
   (let [{:keys [issues epoch-id empty-kind] :as _data}
         @(rf/subscribe [:rf.xray/issues-ribbon])]
@@ -293,16 +295,51 @@
         :no-focus      (empty-state-no-focus)
         :epoch-evicted (empty-state-epoch-evicted epoch-id)
         :no-issues     (empty-state-no-issues)
-        nil            [:<>
-                        (overflow/capped-list
-                          issues
-                          {:panel-id "issues"
-                           :ul-attrs {:data-testid "rf-xray-issues-feed"
-                                      :style       {:list-style "none"
-                                                    :margin     0
-                                                    :padding    0}}
-                           :row-fn   issue-row})
-                        (footer-hint)])]]))
+        nil            (let [[capped over-cap? hidden] (common/cap-rows issues)]
+                         [:<>
+                          [rt/resizable-table
+                           {:table-id        :rf.xray.issues/feed
+                            :container-attrs {:data-testid "rf-xray-issues-feed"
+                                              :style       {:margin 0
+                                                            :padding 0}}
+                            :header-attrs    {:style {:background    (:bg-3 tokens)
+                                                      :border        (str "1px solid "
+                                                                          (:border-default tokens))
+                                                      :border-radius "4px"
+                                                      :margin-bottom "8px"}}
+                            :header-cell-style issues-header-cell-style
+                            :columns         issue-columns
+                            :rows            capped
+                            :row-key         (fn [{:keys [id]} _i] (str "issues-row-" id))
+                            :row-attrs       (fn [{:keys [id severity]} _i]
+                                               {:data-testid (str "rf-xray-issues-row-" id)
+                                                :on-click    (fn []
+                                                               (rf/dispatch [:rf.xray/select-tab :event]
+                                                                            {:frame :rf/xray}))
+                                                :style       {:border        (str "1px solid "
+                                                                                   (:border-default tokens))
+                                                              :border-left   (str "3px solid "
+                                                                                   (h/severity-colour severity))
+                                                              :border-radius "4px"
+                                                              :margin-bottom "8px"
+                                                              :cursor        "pointer"
+                                                              :color         (:text-primary tokens)
+                                                              :font-family   sans-stack
+                                                              :font-size     "12px"
+                                                              :line-height   1.35}})
+                            :row-cells       issue-row-cells}]
+                          (when over-cap?
+                            ;; overflow-row returns an `:li` (designed
+                            ;; for the legacy `:ul`-wrapped path); wrap
+                            ;; in a minimal `:ul` so the document tree
+                            ;; stays well-formed.
+                            [:ul {:style {:list-style "none"
+                                          :margin     0
+                                          :padding    0}}
+                             (overflow/overflow-row {:panel-id     "issues"
+                                                     :over-cap?    over-cap?
+                                                     :hidden-count hidden})])
+                          (footer-hint)]))]]))
 
 ;; ---- registration entry --------------------------------------------------
 
