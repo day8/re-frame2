@@ -3401,7 +3401,13 @@
     nil))
 
 (def ^:private violation-prose-style
+  ;; sans-stack overrides the outer block's monospace inheritance —
+  ;; the prose is natural-language ('This value failed a schema
+  ;; check…'), not code/data. Monospace was reading as if the
+  ;; framework was quoting a literal expression. Mono stays for the
+  ;; humanized explain map below (which IS data).
   {:color       (:text-primary tokens)
+   :font-family sans-stack
    :font-size   "12px"
    :line-height 1.5
    :margin      "4px 0"})
