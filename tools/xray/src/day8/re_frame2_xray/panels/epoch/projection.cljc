@@ -918,16 +918,6 @@
                       :rf.error/fx-handler-exception :error
                       :rf.error/no-such-fx         :error
                       :ok))
-        ;; rf2-8resu — detect the implicit `:db` commit. The framework
-        ;; emits an `:rf.fx/handled` trace WITHOUT `:rf.fx/id` for the
-        ;; implicit `:db` commit path; presence of such a trace is the
-        ;; signal that a `:db` effect was committed (or attempted +
-        ;; rolled back).
-        db-commit?
-        (some (fn [ev]
-                (and (= :rf.fx/handled (op ev))
-                     (nil? (common/tag-of ev :rf.fx/id))))
-              events)
         ;; rf2-8resu — `:db` row status. A `:where :app-db` schema
         ;; violation with `:rollback? true` means the commit was
         ;; rolled back; otherwise the commit succeeded.
@@ -937,6 +927,22 @@
                      (= :app-db (common/tag-of ev :where))
                      (true? (common/tag-of ev :rollback?))))
               events)
+        ;; rf2-8resu — detect that an implicit `:db` commit was
+        ;; attempted (or fired) in this cascade. Two signals, EITHER
+        ;; sufficient:
+        ;;   (a) An `:rf.fx/handled` trace WITHOUT `:rf.fx/id` — the
+        ;;       framework's emission for the implicit `:db` commit
+        ;;       path when the commit succeeds.
+        ;;   (b) A `:where :app-db` schema violation — implies a
+        ;;       `:db` commit WAS attempted (even if it rolled back +
+        ;;       the framework suppressed the `:rf.fx/handled` emit).
+        ;; Either signal means the operator's :db row should render.
+        db-commit?
+        (or db-rolled-back?
+            (some (fn [ev]
+                    (and (= :rf.fx/handled (op ev))
+                         (nil? (common/tag-of ev :rf.fx/id))))
+                  events))
         ;; Per rf2-uffov — build the per-action fx attribution map
         ;; once for this projection pass. Each entry maps a fx-id
         ;; (the first element of the action's emitted fx tuple) to
