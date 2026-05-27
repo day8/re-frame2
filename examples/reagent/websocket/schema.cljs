@@ -120,11 +120,9 @@
    ;; Monotonic counter feeding each message's stable :rx-seq.
    [:rx-count :int]])
 
-(defn register-all!
-  "Idempotent re-registration of every schema attached in this ns.
-   See `websocket.test-helpers/register-all!` for why this exists."
-  []
-  (rf/reg-app-schema [:rf/machines :ws/connection] ConnectionSnapshot)
-  (rf/reg-app-schema [:messages]                   MessagesSlice))
+;; ============================================================================
+;; SCHEMA REGISTRATIONS  (ns-load — the production-app idiom)
+;; ============================================================================
 
-(register-all!)
+(rf/reg-app-schema [:rf/machines :ws/connection] ConnectionSnapshot)
+(rf/reg-app-schema [:messages]                   MessagesSlice)

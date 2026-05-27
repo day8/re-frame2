@@ -8,7 +8,7 @@
   (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn articles-load-test []
-  (th/reg-canned-success! :conduit.test/canned-articles
+  (th/reg-canned-success! :realworld.test/canned-articles
                           {:articles [{:slug "hello-world"
                                        :title "Hello, world"
                                        :description "An intro"
@@ -23,7 +23,7 @@
                            :articlesCount 1})
 
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:rf.http/managed :conduit.test/canned-articles}})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-articles}})]
     (assert (= :idle (:status (rf/compute-sub [:articles] (rf/get-frame-db f)))))
     (rf/dispatch-sync [:articles/load] {:frame f})
     (let [slice (rf/compute-sub [:articles] (rf/get-frame-db f))]
@@ -36,13 +36,13 @@
       (assert (= 2 (:attempt slice))))))
 
 (defn articles-load-failure-test []
-  (th/reg-canned-failure! :conduit.test/canned-articles-failure
+  (th/reg-canned-failure! :realworld.test/canned-articles-failure
                           :rf.http/http-5xx
                           {:status 500
                            :body   "server error"})
 
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:rf.http/managed :conduit.test/canned-articles-failure}})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-articles-failure}})]
     (rf/dispatch-sync [:articles/load] {:frame f})
     (assert (= :error (:status (rf/compute-sub [:articles] (rf/get-frame-db f)))))
     (assert (some? (rf/compute-sub [:articles/error] (rf/get-frame-db f))))))

@@ -9,7 +9,7 @@
   (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn profile-load-test []
-  (th/reg-canned-success-by-url! :conduit.test/canned-profile
+  (th/reg-canned-success-by-url! :realworld.test/canned-profile
                                  (fn [url]
                                    (if (str/includes? url "/profiles/")
                                      {:profile {:username "eve" :bio "Writes things" :image nil :following false}}
@@ -25,7 +25,7 @@
                                                   :author {:username "eve" :bio nil :image nil :following false}}]})))
 
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:rf.http/managed :conduit.test/canned-profile}})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-profile}})]
     (rf/dispatch-sync [:profile/initialise] {:frame f})
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
     (assert (= "eve" (:username (rf/compute-sub [:profile/data] (rf/get-frame-db f)))))

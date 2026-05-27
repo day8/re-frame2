@@ -315,104 +315,90 @@
       {}}})
 
 ;; ============================================================================
-;; REGISTRATIONS — wrapped in `register-all!` for hot-reload + test re-run
+;; REGISTRATIONS  (ns-load — the production-app idiom)
 ;; ============================================================================
-;;
-;; All the `reg-*` calls live inside `register-all!` so the test fixture
-;; can re-fire them after an upstream `clear-all!` wiped the registrar
-;; (see `websocket.test-helpers/register-all!` for context). The function is
-;; idempotent (every `reg-*` is last-write-wins) and gets called at
-;; ns-load via the trailing form below.
 
-(defn register-all!
-  "Idempotent re-registration of every event handler / sub this ns
-   owns. See `websocket.test-helpers/register-all!`."
-  []
-  ;; The socket actor — Pattern-WebSocket §The connection state machine
-  ;; names this as the child actor the parent invokes.
-  ;; The socket actor — Pattern-WebSocket §The connection state machine
-  ;; names this as the child actor the parent invokes. Use `rf/reg-machine`
-  ;; so the registration metadata carries `:rf/machine? true` (required
-  ;; by the spawn-fx's `resolve-spawn-machine` lookup).
-  (rf/reg-machine :websocket/socket socket-actor-machine)
+;; The socket actor — Pattern-WebSocket §The connection state machine
+;; names this as the child actor the parent invokes. Use `rf/reg-machine`
+;; so the registration metadata carries `:rf/machine? true` (required
+;; by the spawn-fx's `resolve-spawn-machine` lookup).
+(rf/reg-machine :websocket/socket socket-actor-machine)
 
-  ;; Server-pushed events — Pattern-WebSocket §Server-pushed events.
-  ;; The connection machine dispatches [:ws/handle-message body] for
-  ;; every received message (correlated or server-pushed); this
-  ;; handler folds it into app-db for the views.
-  (rf/reg-event-db :ws/handle-message
-    {:doc "Translate an inbound `:ws/received` body into an app-db write.
-           Records the message in the [:messages :received] log + stashes
-           the latest correlated reply at [:messages :last-reply] when
-           applicable. Each message is stamped with a monotonic `:rx-seq`
-           so the inbox view can give every <li> a stable React :key —
-           server pushes carry no `:request-id`, so position can't be used
-           as identity once the newest-first list grows."}
-    (fn handler-ws-handle-message [db [_ body]]
-      (let [rx-seq (get-in db [:messages :rx-count] 0)]
-        (-> db
-            (update-in [:messages :received]
-                       (fn [received]
-                         (vec (cons (assoc body :rx-seq rx-seq) (or received [])))))
-            (assoc-in [:messages :rx-count] (inc rx-seq))
-            (cond-> (:request-id body)
-              (assoc-in [:messages :last-reply] body))))))
+;; Server-pushed events — Pattern-WebSocket §Server-pushed events.
+;; The connection machine dispatches [:ws/handle-message body] for
+;; every received message (correlated or server-pushed); this
+;; handler folds it into app-db for the views.
+(rf/reg-event-db :ws/handle-message
+  {:doc "Translate an inbound `:ws/received` body into an app-db write.
+         Records the message in the [:messages :received] log + stashes
+         the latest correlated reply at [:messages :last-reply] when
+         applicable. Each message is stamped with a monotonic `:rx-seq`
+         so the inbox view can give every <li> a stable React :key —
+         server pushes carry no `:request-id`, so position can't be used
+         as identity once the newest-first list grows."}
+  (fn handler-ws-handle-message [db [_ body]]
+    (let [rx-seq (get-in db [:messages :rx-count] 0)]
+      (-> db
+          (update-in [:messages :received]
+                     (fn [received]
+                       (vec (cons (assoc body :rx-seq rx-seq) (or received [])))))
+          (assoc-in [:messages :rx-count] (inc rx-seq))
+          (cond-> (:request-id body)
+            (assoc-in [:messages :last-reply] body))))))
 
-  ;; --- app-level events ---------------------------------------------
-  (rf/reg-event-fx :ws.app/send
-    {:doc "Submit the form's draft as an outbound message."}
-    (fn handler-app-send [{:keys [db]} [_ body]]
-      {:db (assoc-in db [:messages :draft] "")
-       :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
+;; --- app-level events -------------------------------------------------
+(rf/reg-event-fx :ws.app/send
+  {:doc "Submit the form's draft as an outbound message."}
+  (fn handler-app-send [{:keys [db]} [_ body]]
+    {:db (assoc-in db [:messages :draft] "")
+     :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
 
-  (rf/reg-event-fx :ws.app/request
-    {:doc "Issue a request-reply via the connection machine's
-           correlation slot. The reply lands at [:messages :last-reply]
-           once the mock server echoes back."}
-    (fn handler-app-request [_ [_ body]]
-      (let [rid (random-uuid)]
-        {:fx [[:dispatch [:ws/connection
-                          [:ws/request {:request-id rid
-                                        :body       {:type :request
-                                                     :body body}
-                                        :reply      [:ws.app/request-reply]
-                                        :timeout-ms 5000}]]]]})))
+(rf/reg-event-fx :ws.app/request
+  {:doc "Issue a request-reply via the connection machine's
+         correlation slot. The reply lands at [:messages :last-reply]
+         once the mock server echoes back."}
+  (fn handler-app-request [_ [_ body]]
+    (let [rid (random-uuid)]
+      {:fx [[:dispatch [:ws/connection
+                        [:ws/request {:request-id rid
+                                      :body       {:type :request
+                                                   :body body}
+                                      :reply      [:ws.app/request-reply]
+                                      :timeout-ms 5000}]]]]})))
 
-  (rf/reg-event-db :ws.app/request-reply
-    {:doc "Reply event fired by the connection machine's :register-request
-           flow once the correlated reply lands."}
-    (fn handler-app-request-reply [db [_ body]]
-      (assoc-in db [:messages :last-reply] body)))
+(rf/reg-event-db :ws.app/request-reply
+  {:doc "Reply event fired by the connection machine's :register-request
+         flow once the correlated reply lands."}
+  (fn handler-app-request-reply [db [_ body]]
+    (assoc-in db [:messages :last-reply] body)))
 
-  (rf/reg-event-fx :ws.app/subscribe-demo
-    {:doc "Demo subscription — the mock server acks with a synthetic
-           server push so the app demonstrates the subscribe-then-push
-           shape."}
-    (fn handler-app-subscribe-demo [_ _]
-      {:fx [[:dispatch [:ws/connection [:ws/subscribe :demo-topic]]]]}))
+(rf/reg-event-fx :ws.app/subscribe-demo
+  {:doc "Demo subscription — the mock server acks with a synthetic
+         server push so the app demonstrates the subscribe-then-push
+         shape."}
+  (fn handler-app-subscribe-demo [_ _]
+    {:fx [[:dispatch [:ws/connection [:ws/subscribe :demo-topic]]]]}))
 
-  (rf/reg-event-db :ws.app/edit-draft
-    (fn handler-app-edit-draft [db [_ text]]
-      (assoc-in db [:messages :draft] text)))
+(rf/reg-event-db :ws.app/edit-draft
+  (fn handler-app-edit-draft [db [_ text]]
+    (assoc-in db [:messages :draft] text)))
 
-  (rf/reg-event-fx :ws.messages/initialise
-    (fn handler-messages-initialise [{:keys [db]} _]
-      {:db (assoc db :messages {:draft "" :received [] :last-reply nil :rx-count 0})}))
+(rf/reg-event-fx :ws.messages/initialise
+  (fn handler-messages-initialise [{:keys [db]} _]
+    {:db (assoc db :messages {:draft "" :received [] :last-reply nil :rx-count 0})}))
 
-  ;; --- subs ---------------------------------------------------------
-  (rf/reg-sub :messages
-    (fn [db _] (:messages db)))
+;; --- subs -------------------------------------------------------------
+(rf/reg-sub :messages
+  (fn [db _] (:messages db)))
 
-  (rf/reg-sub :messages/draft
-    :<- [:messages]
-    (fn [m _] (:draft m)))
+(rf/reg-sub :messages/draft
+  :<- [:messages]
+  (fn [m _] (:draft m)))
 
-  (rf/reg-sub :messages/received
-    :<- [:messages]
-    (fn [m _] (:received m)))
+(rf/reg-sub :messages/received
+  :<- [:messages]
+  (fn [m _] (:received m)))
 
-  (rf/reg-sub :messages/last-reply
-    :<- [:messages]
-    (fn [m _] (:last-reply m))))
-
-(register-all!)
+(rf/reg-sub :messages/last-reply
+  :<- [:messages]
+  (fn [m _] (:last-reply m)))

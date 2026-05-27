@@ -79,7 +79,7 @@ The example's behaviour is verified by its CLJS test fixtures (see
 npm run test:cljs
 ```
 
-In production point `realworld.http/api-base` at <https://api.realworld.io/api>; for local development, the upstream spec ships a Node/Postgres reference backend that listens on `http://localhost:3000/api`. The demo entry installs an in-process `:rf.http/managed` override (`:conduit.demo/http-stub`) that synthesises canned responses for the common reads (global feed, tags, profile) — Spec 014 §Testing — so the fixtures run without a network.
+In production point `realworld.http/api-base` at <https://api.realworld.io/api>; for local development, the upstream spec ships a Node/Postgres reference backend that listens on `http://localhost:3000/api`. The demo entry installs an in-process `:rf.http/managed` override (`:realworld.demo/http-stub`) that synthesises canned responses for the common reads (global feed, tags, profile) — Spec 014 §Testing — so the fixtures run without a network.
 
 To view the app in a browser, build it under shadow-cljs id `examples/realworld` from `implementation/`:
 
@@ -117,7 +117,7 @@ at `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`
 (run with `npm run test:cljs` from the `implementation/` directory).
 
 Together the fixtures exercise the user-visible flow against the
-`:conduit.demo/http-stub` override: the initial-load shell
+`:realworld.demo/http-stub` override: the initial-load shell
 (navbar, global feed, sidebar tags), article-detail navigation, the
 auth machine end-to-end (login → authed navbar), and an optimistic
 comment-submission round-trip through the comment form.

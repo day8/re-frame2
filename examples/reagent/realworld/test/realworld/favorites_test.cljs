@@ -8,13 +8,13 @@
   (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn favorite-toggle-test []
-  (th/reg-canned-failure! :conduit.test/favorite-rollback
+  (th/reg-canned-failure! :realworld.test/favorite-rollback
                           :rf.http/http-4xx
                           {:status 400
                            :body   {:errors {:body ["rollback"]}}})
 
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:rf.http/managed :conduit.test/favorite-rollback}})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/favorite-rollback}})]
     (rf/dispatch-sync [:articles/initialise] {:frame f})
     (rf/dispatch-sync [:articles/loaded
                        {:kind :success

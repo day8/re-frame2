@@ -131,7 +131,7 @@
           {:data {:error nil}
            :fx [[:dispatch [:auth/store-session user]]
                 [:auth.session/persist {:token (:token user)}]
-                [:dispatch [:rf.route/navigate :conduit/home]]]}))
+                [:dispatch [:rf.route/navigate :realworld/home]]]}))
 
       :record-error
       (fn [{[_ {:keys [failure]}] :event}]
@@ -142,7 +142,7 @@
         {:data {:error nil}
          :fx [[:dispatch [:auth/clear-session]]
               [:auth.session/persist {:token nil}]
-              [:dispatch [:rf.route/navigate :conduit/home]]]})}
+              [:dispatch [:rf.route/navigate :realworld/home]]]})}
      :states
      {:idle
       {:on {:auth/login    {:target :submitting :action :begin-login}
@@ -314,7 +314,7 @@
         err         @(subscribe [:auth/error])]
     [:div.auth-page {:data-testid "login-page"}
      [:h1 "Sign in"]
-     [rf/route-link {:to :conduit.auth/register} "Need an account?"]
+     [rf/route-link {:to :realworld.auth/register} "Need an account?"]
      (when err [:ul.error-messages [:li err]])
      [:form
       {:data-testid "login-form"
@@ -348,7 +348,7 @@
         err         @(subscribe [:auth/error])]
     [:div.auth-page
      [:h1 "Sign up"]
-     [rf/route-link {:to :conduit.auth/login} "Have an account?"]
+     [rf/route-link {:to :realworld.auth/login} "Have an account?"]
      (when err [:ul.error-messages [:li err]])
      [:form
       {:on-submit (fn [e]

@@ -352,66 +352,54 @@
                                  :action :reset-retries}}}}})
 
 ;; ============================================================================
-;; SUBSCRIPTIONS + INIT EVENT + MACHINE HANDLER
+;; MACHINE HANDLER + SUBSCRIPTIONS + INIT EVENT  (ns-load — the production-app idiom)
 ;; ============================================================================
-;;
-;; All the `reg-*` calls are inside `register-all!` so the test fixture
-;; can re-fire them after an upstream `clear-all!` wiped the registrar
-;; (see `websocket.test-helpers/register-all!` for context). At ns-load the
-;; function is called once via the trailing `(register-all!)` form.
 
-(defn register-all!
-  "Idempotent re-registration of every event handler / sub this ns
-   owns. See `websocket.test-helpers/register-all!`."
-  []
-  ;; Use `rf/reg-machine` (not `reg-event-fx` + `make-machine-handler`)
-  ;; so the registration metadata carries `:rf/machine? true` —
-  ;; declarative `:spawn` resolves the spawn target via this
-  ;; metadata, and without it the spawn-fx silently no-ops (the
-  ;; spawned actor's handler never registers, and its snapshot is
-  ;; never written).
-  (rf/reg-machine :ws/connection connection-machine)
+;; Use `rf/reg-machine` (not `reg-event-fx` + `make-machine-handler`) so
+;; the registration metadata carries `:rf/machine? true` — declarative
+;; `:spawn` resolves the spawn target via this metadata, and without it
+;; the spawn-fx silently no-ops (the spawned actor's handler never
+;; registers, and its snapshot is never written).
+(rf/reg-machine :ws/connection connection-machine)
 
-  ;; --- subs ---------------------------------------------------------
-  (rf/reg-sub :ws/snapshot
-    (fn [db _] (get-in db [:rf/machines :ws/connection])))
+;; --- subs -------------------------------------------------------------
+(rf/reg-sub :ws/snapshot
+  (fn [db _] (get-in db [:rf/machines :ws/connection])))
 
-  (rf/reg-sub :ws/state
-    :<- [:ws/snapshot]
-    (fn [snap _] (:state snap)))
+(rf/reg-sub :ws/state
+  :<- [:ws/snapshot]
+  (fn [snap _] (:state snap)))
 
-  (rf/reg-sub :ws/connected?
-    :<- [:ws/snapshot]
-    (fn [snap _] (contains? (:tags snap) :websocket/connected)))
+(rf/reg-sub :ws/connected?
+  :<- [:ws/snapshot]
+  (fn [snap _] (contains? (:tags snap) :websocket/connected)))
 
-  (rf/reg-sub :ws/reconnecting?
-    :<- [:ws/snapshot]
-    (fn [snap _] (contains? (:tags snap) :websocket/reconnecting)))
+(rf/reg-sub :ws/reconnecting?
+  :<- [:ws/snapshot]
+  (fn [snap _] (contains? (:tags snap) :websocket/reconnecting)))
 
-  (rf/reg-sub :ws/failed?
-    :<- [:ws/snapshot]
-    (fn [snap _] (contains? (:tags snap) :websocket/failed)))
+(rf/reg-sub :ws/failed?
+  :<- [:ws/snapshot]
+  (fn [snap _] (contains? (:tags snap) :websocket/failed)))
 
-  (rf/reg-sub :ws/queue-depth
-    :<- [:ws/snapshot]
-    (fn [snap _] (count (get-in snap [:data :queue]))))
+(rf/reg-sub :ws/queue-depth
+  :<- [:ws/snapshot]
+  (fn [snap _] (count (get-in snap [:data :queue]))))
 
-  (rf/reg-sub :ws/retries
-    :<- [:ws/snapshot]
-    (fn [snap _] (get-in snap [:data :retries])))
+(rf/reg-sub :ws/retries
+  :<- [:ws/snapshot]
+  (fn [snap _] (get-in snap [:data :retries])))
 
-  (rf/reg-sub :ws/error
-    :<- [:ws/snapshot]
-    (fn [snap _] (get-in snap [:data :error])))
+(rf/reg-sub :ws/error
+  :<- [:ws/snapshot]
+  (fn [snap _] (get-in snap [:data :error])))
 
-  ;; --- init event ---------------------------------------------------
-  (rf/reg-event-fx :ws.connection/initialise
-    {:doc "Seed the connection machine into its `:disconnected` initial
-           state — the lazy initial materialises on the first dispatch."}
-    (fn handler-ws-connection-initialise [_ _]
-      ;; A no-op dispatch through the machine forces snapshot
-      ;; materialisation so the headless tests can read the initial
-      ;; :disconnected state without first calling `:ws/connect`.
-      {:fx [[:dispatch [:ws/connection [:ws/noop]]]]})))
-
-(register-all!)
+;; --- init event -------------------------------------------------------
+(rf/reg-event-fx :ws.connection/initialise
+  {:doc "Seed the connection machine into its `:disconnected` initial
+         state — the lazy initial materialises on the first dispatch."}
+  (fn handler-ws-connection-initialise [_ _]
+    ;; A no-op dispatch through the machine forces snapshot
+    ;; materialisation so the headless tests can read the initial
+    ;; :disconnected state without first calling `:ws/connect`.
+    {:fx [[:dispatch [:ws/connection [:ws/noop]]]]}))

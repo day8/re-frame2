@@ -101,20 +101,20 @@
         user    @(subscribe [:auth/user])]
     [:nav.navbar.navbar-light
      [:div.container
-      [rf/route-link {:to :conduit/home :class "navbar-brand"} "conduit"]
+      [rf/route-link {:to :realworld/home :class "navbar-brand"} "conduit"]
       [:ul.nav.navbar-nav.pull-xs-right
        [:li.nav-item
-        [rf/route-link {:to :conduit/home :class "nav-link"} "Home"]]
+        [rf/route-link {:to :realworld/home :class "nav-link"} "Home"]]
        (if authed?
          [:<>
           [:li.nav-item
-           [rf/route-link {:to :conduit.editor/new :class "nav-link"}
+           [rf/route-link {:to :realworld.editor/new :class "nav-link"}
             [:i.ion-compose] " New Article"]]
           [:li.nav-item
-           [rf/route-link {:to :conduit.user/settings :class "nav-link"}
+           [rf/route-link {:to :realworld.user/settings :class "nav-link"}
             [:i.ion-gear-a] " Settings"]]
           [:li.nav-item
-           [rf/route-link {:to :conduit.profile/show
+           [rf/route-link {:to :realworld.profile/show
                                 :params {:username (:username user)}
                                 :class "nav-link"
                                 :data-testid "nav-username"}
@@ -127,12 +127,12 @@
             "Logout"]]]
          [:<>
           [:li.nav-item
-           [rf/route-link {:to :conduit.auth/login
+           [rf/route-link {:to :realworld.auth/login
                                 :class "nav-link"
                                 :data-testid "nav-signin"}
             "Sign in"]]
           [:li.nav-item
-           [rf/route-link {:to :conduit.auth/register
+           [rf/route-link {:to :realworld.auth/register
                                 :class "nav-link"
                                 :data-testid "nav-signup"}
             "Sign up"]]])]]]))
@@ -140,14 +140,14 @@
 (reg-view footer []
   [:footer
    [:div.container
-    [rf/route-link {:to :conduit/home :class "logo-font"} "conduit"]
+    [rf/route-link {:to :realworld/home :class "logo-font"} "conduit"]
     [:span.attribution "An interactive learning project from Thinkster."
      " Code & design licensed under MIT."]]])
 
 (reg-view ^{:doc "Renders a confirm dialog when navigation is blocked by a
                   :can-leave guard. Reads the :rf/pending-navigation slot."}
           pending-nav-dialog []
-  (when-let [pending @(subscribe [:conduit.routing/pending-navigation])]
+  (when-let [pending @(subscribe [:rf/pending-navigation])]
     [:div.pending-nav-overlay
      [:div.pending-nav-dialog
       [:p (or (:reason pending) "You have unsaved changes. Leave anyway?")]
@@ -161,7 +161,7 @@
     [:div.not-found-page
      [:h1 "Page not found"]
      (when url [:p (str "No route matches: " url)])
-     [rf/route-link {:to :conduit/home} "Home"]]))
+     [rf/route-link {:to :realworld/home} "Home"]]))
 
 (reg-view ^{:doc "App-level root. Switches on :rf.route/id to render the active page."}
           root-view []
@@ -169,15 +169,15 @@
    [header]
    [pending-nav-dialog]
    (case @(subscribe [:rf.route/id])
-     :conduit/home              [articles/home-page]
-     :conduit.auth/login             [auth/login-page]
-     :conduit.auth/register          [auth/register-page]
-     :conduit.article/show           [comments/article-page]
-     :conduit.editor/new            [editor/editor-page]
-     :conduit.editor/edit       [editor/editor-page]
-     :conduit.profile/show           [profile/profile-page]
-     :conduit.profile/favorites [profile/profile-page]
-     :conduit.user/settings          [settings/settings-page]
+     :realworld/home              [articles/home-page]
+     :realworld.auth/login             [auth/login-page]
+     :realworld.auth/register          [auth/register-page]
+     :realworld.article/show           [comments/article-page]
+     :realworld.editor/new            [editor/editor-page]
+     :realworld.editor/edit       [editor/editor-page]
+     :realworld.profile/show           [profile/profile-page]
+     :realworld.profile/favorites [profile/profile-page]
+     :realworld.user/settings          [settings/settings-page]
      [not-found-page])
    [footer]])
 
@@ -308,8 +308,8 @@
 
       :else {})))
 
-(rf/reg-event-fx :conduit.demo/schedule-reply
-  {:doc "Private — entered via dispatch from :conduit.demo/http-stub.
+(rf/reg-event-fx :realworld.demo/schedule-reply
+  {:doc "Private — entered via dispatch from :realworld.demo/http-stub.
          Uses `:dispatch-later` so framework time controls (Tool-Pair
          time-travel, the documented `:dispatch-later` nil-override
          seam) apply to the demo latency. No user dispatches this
@@ -317,22 +317,22 @@
   (fn handler-conduit-demo-schedule-reply [_ [_ args-map payload]]
     {:fx [[:dispatch-later
            {:ms    20
-            :event [:conduit.demo/deliver-reply args-map payload]}]]}))
+            :event [:realworld.demo/deliver-reply args-map payload]}]]}))
 
-(rf/reg-event-fx :conduit.demo/deliver-reply
+(rf/reg-event-fx :realworld.demo/deliver-reply
   {:doc "Private — fired by the :dispatch-later scheduled in
-         :conduit.demo/schedule-reply. Delegates to the
+         :realworld.demo/schedule-reply. Delegates to the
          framework-shipped `:rf.http/managed-canned-success` with the
          per-URL canned Conduit payload."}
   (fn handler-conduit-demo-deliver-reply [_ [_ args-map payload]]
     {:fx [[:rf.http/managed-canned-success (assoc args-map :value payload)]]}))
 
-(rf/reg-fx :conduit.demo/http-stub
+(rf/reg-fx :realworld.demo/http-stub
   {:doc       "Demo override for :rf.http/managed: routes by URL to
                canned Conduit-shaped responses so the example runs
                standalone without a backend.
 
-               Dispatches into the private :conduit.demo/schedule-reply
+               Dispatches into the private :realworld.demo/schedule-reply
                event so the deferred reply rides framework
                `:dispatch-later` (20 ms) rather than raw
                `js/setTimeout`. The delay lets the `:loading` UI state
@@ -347,7 +347,7 @@
   (fn fx-managed-demo-stub [frame-ctx args-map]
     (let [payload (demo-payload-for-args args-map)
           frame   (:frame frame-ctx)]
-      (rf/dispatch [:conduit.demo/schedule-reply args-map payload]
+      (rf/dispatch [:realworld.demo/schedule-reply args-map payload]
                    {:frame frame}))))
 
 ;; React root named `react-root` (not `root`) so it does NOT collide with
@@ -398,17 +398,17 @@
   ;; for all non-navigation events and redirects unauthenticated
   ;; `:rf.route/navigate` to `:requires-auth`-tagged routes to login (Spec
   ;; 012 §Redirects and guards). This is what makes the `:requires-auth`
-  ;; tags on :conduit.user/settings / :conduit.editor/new / :conduit.editor/edit actually
+  ;; tags on :realworld.user/settings / :realworld.editor/new / :realworld.editor/edit actually
   ;; protect those routes.
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
                              :interceptors [routing/auth-guard]
-                             :fx-overrides {:rf.http/managed :conduit.demo/http-stub}})
+                             :fx-overrides {:rf.http/managed :realworld.demo/http-stub}})
   ;; Register the Bearer-auth interceptor at app boot. Order matters:
   ;; before :app/initialise dispatches, since session-restore will fire
   ;; authenticated requests as soon as the JWT is hydrated.
   (rf/reg-http-interceptor :realworld/bearer-auth bearer-auth-interceptor)
   ;; The orchestrator serves this example at /realworld/; strip that
-  ;; prefix before the route matcher sees the URL so :conduit/home (path "/")
+  ;; prefix before the route matcher sees the URL so :realworld/home (path "/")
   ;; matches.
   (routing/set-base-path! "/realworld")
   (rf/dispatch-sync [:app/initialise])
