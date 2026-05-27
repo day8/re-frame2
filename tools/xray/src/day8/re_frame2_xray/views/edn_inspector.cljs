@@ -1905,7 +1905,7 @@
                           :style r3-chip-style}
                    (str n-changes "∆")])
             zoom-button (conj zoom-button)
-            true        (conj (collapsed-summary value kind))))]
+            true        (conj (collapsed-summary value kind)))))]
 
      ;; ---- body — children rendered indented -----------------------------
      ;;
