@@ -64,6 +64,18 @@
             ;; the panel-gallery's `[open]` affordances ship the bare
             ;; classpath-relative path (`panel_gallery/foo.cljs`) to
             ;; the OS scheme handler, which rejects it.
+            ;;
+            ;; rf2-ymnfx (Issue A) — Story's parallel slot
+            ;; (`:rf.story/project-root`) is seeded via
+            ;; `story/configure!` below so the Story variant-toolbar
+            ;; 'Open' button (which reads `re-frame.story.config/
+            ;; project-root`, not Xray's slot) also ships an absolute
+            ;; on-disk path. The Story → Xray bridge in
+            ;; `xray-preset/propagate-project-root!` would otherwise
+            ;; mean the Story configure! call ALSO writes Xray's slot;
+            ;; we keep the explicit xray-config call so the load order
+            ;; is unambiguous (Xray seeded first; Story's idempotent
+            ;; re-seed of Xray is a no-op via `reset!`).
             [day8.re-frame2-xray.config :as xray-config]
             [day8.re-frame2-xray.registry :as xray-registry]
             ;; rf2-pqulr — Xray's `:root` CSS-variable installer. Required
@@ -306,6 +318,18 @@
   ;; the same on-disk paths regardless of which port shadow-cljs serves
   ;; the testbed from.
   (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
+  ;; rf2-ymnfx (Issue A) — seed `:rf.story/project-root` for the SAME
+  ;; on-disk root so the Story shell's variant-toolbar 'Open' button
+  ;; (re-frame.story.ui.open-in-editor/open-chip) ships an absolute
+  ;; path. Story's own atom is independent of Xray's; without this
+  ;; call Story's project-root stays nil and the Open chip falls back
+  ;; to the bare classpath-relative `:file` (which the OS-side editor
+  ;; URI handler rejects). The Story → Xray bridge re-writes Xray's
+  ;; slot to the same value — idempotent under `set-project-root!`'s
+  ;; `reset!`. Mirrors the pattern in
+  ;; `tools/story/testbeds/login_form/core.cljs` and
+  ;; `tools/story/testbeds/counter_with_stories/core.cljs`.
+  (story/configure! {:rf.story/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Xray's :rf.xray/* events / subs / fxs land on the registry once.
   ;; The handlers operate on the current frame's app-db, so each
