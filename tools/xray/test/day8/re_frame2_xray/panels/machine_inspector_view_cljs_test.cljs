@@ -1027,14 +1027,23 @@
       (focus-epoch! 1)
       (let [tree   (machine-inspector/Panel)
             drill  (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
+            ;; rf2-7vv8f — testid prefix normalised across all four
+            ;; diff-mode-toggle consumers to `rf-xray-<surface>-diff-mode`.
             toggle (find-by-testid
-                     tree "rf-xray-machine-snapshot-view-mode")]
+                     tree "rf-xray-machine-snapshot-diff-mode")
+            ;; rf2-xlmhh — the toggle bar no longer carries `:data-mode`
+            ;; (retired axis name per spec/Conventions.md §264). Read the
+            ;; active mode off the active button's `aria-pressed="true"`
+            ;; + canonical testid suffix instead.
+            active-btn (find-by-testid
+                         tree "rf-xray-machine-snapshot-diff-mode-full-with-diff")]
         (is (some? drill)
             "drill-in section mounts")
         (is (some? toggle)
             "three-mode toggle paints in the drill-in header")
-        (is (= "full+diff" (:data-mode (second toggle)))
-            "default mode is :full+diff per pair-debug 2026-05-27")
+        (is (= "true" (:aria-pressed (second active-btn)))
+            "default mode is :full+diff per pair-debug 2026-05-27 — the
+            `full-with-diff` button reports `aria-pressed=\"true\"`")
         ;; The grid container retired with the side-by-side layout.
         (is (nil? (find-by-testid
                     tree "rf-xray-machine-snapshot-drill-in-grid"))
