@@ -129,7 +129,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | React context as the frame-routing mechanism for views | encouraged | yes | yes — every in-scope port targets React, so each port's React binding supplies a context-provider; explicit-frame-id remains the underlying contract | the *CLJS-Reagent shape* |
 | `re-frame-10x` epoch buffer integration | — | yes | yes — equivalent dev tool per host | yes |
 | Chrome Performance Timeline bridge (per [009](009-Instrumentation.md)) | — | yes | yes — equivalent profiler integration | yes |
-| ~~`re-frame.alpha` namespace~~ — *dissolved (rf2-7cb2 / rf2-s9dn); not shipped in v2* | — | — | — | — |
+| ~~`re-frame.alpha` namespace~~ — *dissolved; not shipped in v2* | — | — | — | — |
 | DOM source annotations for view-to-source navigation | — | yes (CLJS optimisation) | yes — host equivalent | yes |
 | Function-valued overrides (`:fx-overrides {:http stub-fn}`) | — | yes | yes — id-valued overrides are the portable form; function values are a CLJS convenience | the *function-valued* form |
 | `route-link` view + `:rf.nav/push-url` registered fx (per [012](012-Routing.md)) | yes (substrate) | yes | host registers the platform-appropriate fx; `route-link` per host's view idiom | — |
@@ -139,7 +139,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | `re-frame-pair-improver` Claude skill (Layer 3 of the AI surface) | — | v1 deliverable | not host-specific | — |
 | **FSM-richness capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions` | yes — host picks its claimed list from the matrix in [005 §Capability matrix](005-StateMachines.md#capability-matrix) | — |
 | **Actor-model capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | own-state + spawn/destroy + cross-actor `:fx` + declarative `:spawn` + spawn-and-join (`:spawn-all`) + `:system-id` | yes — host picks its claimed list | — |
-| **Parallel regions** (FSM-richness) — `:type :parallel` with a `:regions` map; orthogonal axes of one feature sharing one `:data` blob; per rf2-l67o | yes | yes (claimed as `:fsm/parallel-regions` per [005 §Capability matrix](005-StateMachines.md#capability-matrix)) | yes — host can claim or skip | — |
+| **Parallel regions** (FSM-richness) — `:type :parallel` with a `:regions` map; orthogonal axes of one feature sharing one `:data` blob; per | yes | yes (claimed as `:fsm/parallel-regions` per [005 §Capability matrix](005-StateMachines.md#capability-matrix)) | yes — host can claim or skip | — |
 | **History states** (FSM-richness) — out of v1 scope; substitute is snapshot-as-value capture | post-v1 | not claimed | not claimed | — |
 
 Reading the matrix:
@@ -340,8 +340,8 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 - **Hierarchical compound states** — main new work: entry/exit cascading along the path; deep state-id resolution; transition resolution across compound levels.
 - **Eventless `:always`** — transitions that fire as soon as a guard becomes true.
 - **Delayed `:after`** — transitions that fire after a time delay (timing semantics need care for SSR/testing).
-- **State tags** (`:fsm/tags`) — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union; `:rf/machine-has-tag?` framework sub. Per rf2-ee0d (Nine States Stage 1).
-- **Parallel regions** (`:fsm/parallel-regions`) — `:type :parallel` machines with multiple concurrent regions sharing one `:data` blob; per-region scoping for `:spawn` / `:after` / `:always`; transitions broadcast across regions; tags union across regions. Per rf2-l67o (Nine States Stage 2). The N-machines-per-region substitute remains valid when regions are conceptually independent features — see [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features).
+- **State tags** (`:fsm/tags`) — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union; `:rf/machine-has-tag?` framework sub. Per (Nine States Stage 1).
+- **Parallel regions** (`:fsm/parallel-regions`) — `:type :parallel` machines with multiple concurrent regions sharing one `:data` blob; per-region scoping for `:spawn` / `:after` / `:always`; transitions broadcast across regions; tags union across regions. Per (Nine States Stage 2). The N-machines-per-region substitute remains valid when regions are conceptually independent features — see [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features).
 
 **FSM-richness — v1 SKIPS, with documented substitutes:**
 
@@ -353,8 +353,8 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 - Imperative spawn / destroy — ✓ specced.
 - Cross-actor send via `:fx` — ✓ specced.
 - **Declarative `:spawn`** (sugar over spawn) — runtime translates a state's `:spawn` into entry/exit actions that spawn / destroy a child actor. No new mechanics; pure sugar.
-- **Spawn-and-join via `:spawn-all`** — sugar over N parallel `:spawn`s with `:all` / `:any` / `{:n N}` / `{:fn ...}` join condition; cancel-on-decision default. Per rf2-6vmw.
-- **`:system-id` named-machine addressing** — per-frame reverse index from user-supplied `:system-id` to actor id; `(rf/machine-by-system-id sid)` resolves. Per rf2-suue / rf2-ecv4.
+- **Spawn-and-join via `:spawn-all`** — sugar over N parallel `:spawn`s with `:all` / `:any` / `{:n N}` / `{:fn ...}` join condition; cancel-on-decision default. Per.
+- **`:system-id` named-machine addressing** — per-frame reverse index from user-supplied `:system-id` to actor id; `(rf/machine-by-system-id sid)` resolves. Per.
 
 **Actor-model — out of v1 scope (possibly never):**
 
@@ -364,7 +364,7 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 
 - **Ports differ in ambition.** A small TS port may ship flat FSMs only; a Kotlin port may match the CLJS reference's full capability set. Both can be conformant *for their claimed set*.
 - **Conformance is graded, not binary.** "Passes 47/47 of the flat-FSM fixtures and 0/12 of the hierarchical-states fixtures" is more honest than "fails the conformance corpus." Implementors and users see exactly what works and what doesn't.
-- **Substitutes are first-class.** History remains an explicit "out of pattern scope; here's the documented substitute" case — the snapshot-as-value foundation makes history-state machinery unnecessary. Parallel regions were on the substitute list pre rf2-l67o; per Nine States Stage 2 they are now a first-class capability claimed by the v1 reference, with the N-machines-per-region substitute retained for the conceptually-independent-features case.
+- **Substitutes are first-class.** History remains an explicit "out of pattern scope; here's the documented substitute" case — the snapshot-as-value foundation makes history-state machinery unnecessary. Parallel regions were on the substitute list pre ; per Nine States Stage 2 they are now a first-class capability claimed by the v1 reference, with the N-machines-per-region substitute retained for the conceptually-independent-features case.
 
 #### Failure mode
 
@@ -508,7 +508,7 @@ Layers 2 and 3 are tooling, not specification, but are first-class deliverables 
 
 These remain open at 000. Per-Spec documents track narrower open questions in their own appendices.
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Event-id re-registration warnings" classifies as **`:still-blocking`** for design polish at the 000-Vision tier — the load-bearing prose lives at [002 §Open questions — Event-id collisions on re-registration](002-Frames.md#event-id-collisions-on-re-registration), where the same item is classified the same way. The `~~Audit the re-frame.alpha namespace~~` entry that previously lived here as a strike-through pointer has been migrated to `## Resolved decisions` per SA-4's migration rule.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Event-id re-registration warnings" classifies as **`:still-blocking`** for design polish at the 000-Vision tier — the load-bearing prose lives at [002 §Open questions — Event-id collisions on re-registration](002-Frames.md#event-id-collisions-on-re-registration), where the same item is classified the same way. The `~~Audit the re-frame.alpha namespace~~` entry that previously lived here as a strike-through pointer has been migrated to `## Resolved decisions` per SA-4's migration rule.
 
 ### Event-id re-registration warnings
 
@@ -518,7 +518,7 @@ Hot-reloading the same handler under the same id is normal and expected (figwhee
 
 Decisions taken at 000-level. Each resolution is summarised here; the load-bearing prose lives in the per-Spec documents linked below.
 
-### `re-frame.alpha` is dissolved (rf2-7cb2 / rf2-s9dn)
+### `re-frame.alpha` is dissolved
 
 The `re-frame.alpha` namespace is **not part of v2**. The alpha experiment was an audit candidate at 000-Vision; the audit decision is **drop** for the experimental surface and **promote to canonical core** for the parts that earned their keep. Specifically:
 

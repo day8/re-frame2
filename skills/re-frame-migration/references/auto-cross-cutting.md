@@ -148,7 +148,7 @@ the `:retry :on` set on `:rf.http/managed` requests no longer accepts arbitrary 
 
 Any keyword outside this set in `:retry :on` raises `:rf.error/http-bad-retry-on` at fx-call time, before the request is issued. The three excluded `:rf.http/*` categories (`:rf.http/aborted` / `:rf.http/decode-failure` / `:rf.http/accept-failure`) are deterministic on retry and were silently retrying as a no-op. Sweep `:retry :on` sets, drop excluded categories. v1 had no `:rf.http/managed` fx; v2-pre-rename codebases only.
 
-**Cross-references.** [`MIGRATION.md` §M-31b](../../../migration/from-re-frame-v1/README.md#m-31b-rfhttpmanaged-retry-on-is-a-closed-set); [Spec 014 §Closed-set `:retry :on` validation](../../../spec/014-HTTPRequests.md#closed-set-retry-on-validation--rf2-apwkm).
+**Cross-references.** [`MIGRATION.md` §M-31b](../../../migration/from-re-frame-v1/README.md#m-31b-rfhttpmanaged-retry-on-is-a-closed-set); [Spec 014 §Closed-set `:retry :on` validation](../../../spec/014-HTTPRequests.md#closed-set-retry-on-validation).
 
 ---
 

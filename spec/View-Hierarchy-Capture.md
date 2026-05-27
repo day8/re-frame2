@@ -46,9 +46,9 @@ The walker is also dev-only by classpath: Xray's preload is `:devtools/preloads`
 **Each React major bump (16 → 17 → 18 → 19 → …) MUST run a smoke test that confirms the walker still reads parent/child correctly.** The smoke test lives in `tools/xray/test/day8/re_frame2_xray/views/fiber_walker_cljs_test.cljs` and stubs a minimal Fiber-shaped object graph that mirrors the React version's published structure. If the smoke breaks, the choice is binary:
 
 1. **Ship a fix** — update the walker to the new Fiber slot names / shape. This is the expected path when React renames a slot but keeps the structural model.
-2. **Fall back to data-attribute tagging** — switch the consuming tool to the fallback in bead `rf2-01il5`. Each `reg-view` mutates its first element's attribute map to include `data-rf-view="<name>"`; the walker queries `document.querySelectorAll('[data-rf-view]')` and infers parent ⊃ children by DOM containment. This is the React-version-independent escape hatch.
+2. **Fall back to data-attribute tagging** — each `reg-view` mutates its first element's attribute map to include `data-rf-view="<name>"`; the walker queries `document.querySelectorAll('[data-rf-view]')` and infers parent ⊃ children by DOM containment. This is the React-version-independent escape hatch.
 
-The fallback is **shipped and dormant** — the tagging is wired into every adapter's render-time wrapper (Reagent via the inline hiccup walk, UIx + Helix via the spine's React.cloneElement wrapper); the contract pins the attribute format and the documented edge cases at [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback-rf2-01il5). It is the second-best option (fragments invisible, portals teleport-broken, requires per-adapter wrap-view cost in dev builds) and consumers should default to the Fiber walker.
+The fallback is **shipped and dormant** — the tagging is wired into every adapter's render-time wrapper (Reagent via the inline hiccup walk, UIx + Helix via the spine's React.cloneElement wrapper); the contract pins the attribute format and the documented edge cases at [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback). It is the second-best option (fragments invisible, portals teleport-broken, requires per-adapter wrap-view cost in dev builds) and consumers should default to the Fiber walker.
 
 ## View-id tagging convention
 
@@ -106,11 +106,11 @@ Per the findings §12 lock-in:
 | Views panel toggle wiring              | `tools/xray/src/day8/re_frame2_xray/panels/views_view.cljs`          |
 | React-version regression smoke         | `tools/xray/test/day8/re_frame2_xray/views/fiber_walker_cljs_test.cljs` |
 | Production DCE contract                | `implementation/scripts/check-bundle-isolation.cjs`                    |
-| Fallback (data-attribute tagging)      | Bead `rf2-01il5`; documented in findings §12.1                         |
+| Fallback (data-attribute tagging)      | Bead ``; documented in findings §12.1                         |
 | Reactive-substrate adapter API         | [`006-ReactiveSubstrate.md`](006-ReactiveSubstrate.md) (Fiber is the *contract*, not an adapter-side surface) |
 | Xray Views panel                      | `tools/xray/spec/012-Views.md`                                        |
 
 ## Decisions log
 
-- **2026-05-19 ~14:55 AUSEST** — Mike LOCKS Fiber-reading for parent/child hierarchy capture. Per-component metadata reads STAY REJECTED. Comments 4–5 (data-attribute tagging as primary) deprecated to fallback status. (Findings doc §11 Comment 6, §12; bead `rf2-mxkq7`.)
-- **2026-05-19** — Walker implementation lands behind `interop/debug-enabled?` gate; React-version smoke test seeded for React 16 + 17+. Production DCE verified via `npm run test:bundle-isolation`. (Bead `rf2-mxkq7`.)
+- **2026-05-19 ~14:55 AUSEST** — Mike LOCKS Fiber-reading for parent/child hierarchy capture. Per-component metadata reads STAY REJECTED. Comments 4–5 (data-attribute tagging as primary) deprecated to fallback status. (Findings doc §11 Comment 6, §12; bead ``.)
+- **2026-05-19** — Walker implementation lands behind `interop/debug-enabled?` gate; React-version smoke test seeded for React 16 + 17+. Production DCE verified via `npm run test:bundle-isolation`. (Bead ``.)

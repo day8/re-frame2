@@ -15,7 +15,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 **Canonical homes.**
 - [009-Instrumentation.md §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the `rf/elide-wire-value` walker, the `:rf.size/large-elided` marker shape, the per-call `:rf.size/elision-policy` map, the predicate cascade with sensitivity precedence, and the `:rf.warning/large-value-unschema'd` dev-mode advisory.
-- [010-Schemas.md §`:large?`](010-Schemas.md) and [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces (rf2-kj51z)](010-Schemas.md) — schema-driven nominations: per-slot Malli props that feed the unified elision registry at `app-db [:rf/elision :declarations]` / `app-db [:rf/elision :sensitive-declarations]`.
+- [010-Schemas.md §`:large?`](010-Schemas.md) and [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md) — schema-driven nominations: per-slot Malli props that feed the unified elision registry at `app-db [:rf/elision :declarations]` / `app-db [:rf/elision :sensitive-declarations]`.
 - [009 §The `redact-interceptor` interceptor](009-Instrumentation.md) — handler-side drop-on-trace surface for sensitive event vector keys and downstream cofx.
 - [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.size/*` and `:rf.elision/*` reserved-namespace rows.
 - [Spec-Schemas.md §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker) — the marker's Malli shape.
@@ -25,7 +25,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - `tools/re-frame2-pair-mcp/` — applies the walker in `tools.cljs` invoke pipeline; the `elision_test.cljs` suite pins the wire shape.
 - `tools/xray/` — on-box trace listener panels default `:rf.size/include-large?` to `false`; the `[● ELIDED N]` indicator surfaces the marker.
 - `tools/story/` — variant snapshots and trace scrubbers consume the same walker.
-- `implementation/schemas/` — publishes `extract-large-paths-from-schema` / `extract-sensitive-paths-from-schema` through the late-bind hook table; `re-frame.elision` consumes them to populate the unified registry (Option A per rf2-ynnq0 — schemas owns the deep walker, elision owns the app-db write).
+- `implementation/schemas/` — publishes `extract-large-paths-from-schema` / `extract-sensitive-paths-from-schema` through the late-bind hook table; `re-frame.elision` consumes them to populate the unified registry (Option A per — schemas owns the deep walker, elision owns the app-db write).
 
 **The result.** One walker, one marker vocabulary, one composition order (`sensitive? > redacted > large? > pass-through`). A consumer that wants to elide a value of either kind picks `rf/elide-wire-value` and never reinvents the predicate or the marker shape. Production builds elide the walker's wire surface along with the rest of the trace surface; the underlying declaration registry survives.
 
@@ -48,11 +48,11 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 **Canonical homes.**
 - [`tools/re-frame2-pair-mcp/spec/Principles.md` §Tight token budget per response](../tools/re-frame2-pair-mcp/spec/Principles.md) — the 5,000-token default, the per-call `max-tokens` override slot, the `{:rf.mcp/overflow ...}` over-budget shape, the egress-centralised enforcement decision, and the eight mechanisms (wire-boundary cap → path slicing → per-tool budget → diff encoding → dedup → size elision → cursor pagination → streaming subscribe byte+event budget) in order.
-- [`tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md` §Lock #7 — Wire-boundary token cap](../tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md) — the locked decision record (rf2-rvyzy): egress-centralised, pluggable strategy, truncate-with-marker, default 5K, per-tool override, cumulative across multi-content responses.
+- [`tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md` §Lock #7 — Wire-boundary token cap](../tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md) — the locked decision record: egress-centralised, pluggable strategy, truncate-with-marker, default 5K, per-tool override, cumulative across multi-content responses.
 
 **Consumers.**
 - `tools/re-frame2-pair-mcp/` — enforces the cap in `tools.cljs` at the `invoke` boundary; fourteen tools each declare their typical-token hint and cap-reached behaviour in their tool spec.
-- `tools/story-mcp/` — enforces the cap in `tools/cap.cljc` at the `invoke-tool` egress (rf2-zavp5); nineteen tools each declare their typical-token hint and inherit the `:max-tokens` per-call override.
+- `tools/story-mcp/` — enforces the cap in `tools/cap.cljc` at the `invoke-tool` egress; nineteen tools each declare their typical-token hint and inherit the `:max-tokens` per-call override.
 
 **The result.** Cross-MCP, the token-cap shape is one decision applied uniformly. New MCP tools land against the catalogued cap (5K default), the catalogued override slot (`:max-tokens` per-call, `0` to disable), and the catalogued overflow marker shape (`{:rf.mcp/overflow {:limit :reached :token-count … :cap-tokens … :tool … :hint …}}`). The mechanisms above the cap (path slicing, lazy summary, dedup, pagination) shape the response so the cap rarely trips; the cap stays the backstop.
 
@@ -95,4 +95,4 @@ When a new cross-cutting concern appears — a sixth recurring shape across arte
 - [Ownership.md](Ownership.md) — contract-surface → owning-Spec table (every contract surface).
 - [Conventions.md](Conventions.md) — locked runtime conventions (reserved namespaces, fx-ids, app-db keys).
 - [Cross-Spec-Interactions.md](Cross-Spec-Interactions.md) — edge cases at boundaries between Specs.
-- Source bead: rf2-i7bvy (META filing); upstream session-13 investigations rf2-vnmt6, rf2-ok47g, rf2-dhe9v, rf2-ll0yq, rf2-fvy7o, rf2-mzf1r.
+- Source bead: (META filing); upstream session-13 investigations.

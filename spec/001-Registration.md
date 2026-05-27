@@ -78,7 +78,7 @@ The middle slot of `reg-event-*` is either:
      (fn [m _] ...))
    ```
 
-The function discriminates on the type of each argument: a map is metadata, a vector is interceptors. `:interceptors` inside the metadata-map is not a valid position — the runtime emits `:rf.warning/interceptors-in-metadata-map` at registration time and the chain is silently ignored. (Form 2 in earlier drafts of this Spec accepted `:interceptors` inside the metadata-map; that path was removed per rf2-bbea — one canonical position is simpler than two.)
+The function discriminates on the type of each argument: a map is metadata, a vector is interceptors. `:interceptors` inside the metadata-map is not a valid position — the runtime emits `:rf.warning/interceptors-in-metadata-map` at registration time and the chain is silently ignored. (Form 2 in earlier drafts of this Spec accepted `:interceptors` inside the metadata-map; that path was removed per — one canonical position is simpler than two.)
 
 For `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-app-schema`, etc., the middle-slot is the metadata map only — there's no legacy vector form to compete with. `reg-view` is the **only registration that ships as a macro** (defn-shape — auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is asymmetric.
 
@@ -122,7 +122,7 @@ The handler's name shows up in stack traces, the [trace stream](009-Instrumentat
 
 ## Source-coordinate capture (CLJS reference)
 
-The CLJS reference uses macros to capture `:ns` / `:line` / `:column` / `:file` at compile time. The four keys are the canonical source-coord shape — `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta). `:column` is captured wherever the host's compile-time form metadata exposes it (CLJS's `&form`/`&env` does); ports whose macro layer has no column information omit the key. Per [Tool-Pair §Source-mapping](Tool-Pair.md) and [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1):
+The CLJS reference uses macros to capture `:ns` / `:line` / `:column` / `:file` at compile time. The four keys are the canonical source-coord shape — `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta). `:column` is captured wherever the host's compile-time form metadata exposes it (CLJS's `&form`/`&env` does); ports whose macro layer has no column information omit the key. Per [Tool-Pair §Source-mapping](Tool-Pair.md) and [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory):
 
 ```clojure
 (defmacro reg-event-db
@@ -147,7 +147,7 @@ This is a CLJS-implementation choice. Other in-scope JS-cross-compile language p
 
 Source coords are valuable for navigation (jump-to-source from a tool, navigate-from-error, AI-source-cite) but their absence does not violate conformance. Per [Principles.md §Optional capabilities](Principles.md), source-coord capture is opt-in.
 
-### Production elision contract (rf2-3un2g)
+### Production elision contract
 
 Source-coord capture has TWO sinks; each obeys a different production-elision policy. The split lets dev tooling (Xray Open-in-editor, re-frame-pair, IDE jump-to-source) read coords from `(rf/handler-meta ...)` in dev while keeping the public registry-meta surface cheap in production AND retaining source-line info on the always-on error-emit substrate for off-box observability (Sentry, Honeybadger, Rollbar).
 
@@ -319,7 +319,7 @@ The dev nudge is deliberate: documented handlers are the difference between a re
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the only item that previously lived here ("Per-kind metadata schemas") was labelled `(RESOLVED rf2-kxs6j)` and has been migrated to `## Resolved decisions` per SA-4's migration rule. No items remain open at the 001-Registration tier.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the only item that previously lived here ("Per-kind metadata schemas") was labelled `(RESOLVED)` and has been migrated to `## Resolved decisions` per SA-4's migration rule. No items remain open at the 001-Registration tier.
 
 ## Resolved decisions
 
@@ -333,7 +333,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Re-registration is non-destructive to in-flight work; cached values invalidate on relevant re-registration; active machine instances continue with their captured spec; dispatch is not paused | [§The hot-reload contract](#the-hot-reload-contract) |
 | Re-registration with a *different* fn is silent last-write-wins by default; the runtime can warn at registration time via `:rf.warning/registration-collision` (recommended on in dev) | [§Re-registration of a different function — collision warning](#re-registration-of-a-different-function--collision-warning) |
 | Machine guards and actions are NOT registry kinds — they are machine-local declarations inside each `make-machine-handler` spec's `:guards` / `:actions` maps; hot-reload flows through the enclosing machine's `:event` slot | [§Canonical ownership boundaries](#canonical-ownership-boundaries), [§Registry model — the canonical `kind` keyword set](#registry-model--the-canonical-kind-keyword-set) |
-| Per-kind metadata schemas — the metadata map is open, but each kind has a documented set of keys it cares about; the catalogue ships per-kind narrowed schemas (`:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata`), each `:merge`-composed with the base `:rf/registration-metadata` open shape (rf2-kxs6j) | [Spec-Schemas §Per-kind refinements](Spec-Schemas.md#per-kind-refinements) |
+| Per-kind metadata schemas — the metadata map is open, but each kind has a documented set of keys it cares about; the catalogue ships per-kind narrowed schemas (`:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata`), each `:merge`-composed with the base `:rf/registration-metadata` open shape | [Spec-Schemas §Per-kind refinements](Spec-Schemas.md#per-kind-refinements) |
 
 ## Cross-references
 

@@ -25,7 +25,7 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 ### Events
 
-Audience column (rf2-576on): **user** = an event apps dispatch or handle directly; **runtime** = an internal plumbing event the runtime fires at itself, sub-namespaced under `:rf.route.internal/*` so the user-facing `:rf.route/*` surface stays tidy. Apps and tools should never dispatch `:rf.route.internal/*` events. The same audience-split principle scopes `:rf.route.nav-token/*` and `:rf.machine.internal/*`.
+Audience column: **user** = an event apps dispatch or handle directly; **runtime** = an internal plumbing event the runtime fires at itself, sub-namespaced under `:rf.route.internal/*` so the user-facing `:rf.route/*` surface stays tidy. Apps and tools should never dispatch `:rf.route.internal/*` events. The same audience-split principle scopes `:rf.route.nav-token/*` and `:rf.machine.internal/*`.
 
 | Event | Audience | Purpose | Source |
 |---|---|---|---|
@@ -82,14 +82,14 @@ Audience column (rf2-576on): **user** = an event apps dispatch or handle directl
 
 Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 
-- `:rf.route/registered` — first-time `reg-route`. Re-registration rides the cross-kind `:rf.registry/handler-replaced` trace; not re-emitted here. Mirrors the `:rf.flow/registered` symmetry (per rf2-dn26r).
-- `:rf.route/cleared` — explicit `unregister-route!`. Mirrors the `:rf.flow/cleared` symmetry (per rf2-dn26r).
-- `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route). Per rf2-dn26r.
+- `:rf.route/registered` — first-time `reg-route`. Re-registration rides the cross-kind `:rf.registry/handler-replaced` trace; not re-emitted here. Mirrors the `:rf.flow/registered` symmetry.
+- `:rf.route/cleared` — explicit `unregister-route!`. Mirrors the `:rf.flow/cleared` symmetry.
+- `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route). Per.
 - `:rf.route.nav-token/allocated` — fresh nav-token cascade begins.
 - `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
-- `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf.route/transitioned`, which fires on every URL transition. The op-name says what fires it (only a `#fragment` differed) and disambiguates from the runtime event (rf2-cj9fn).
+- `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf.route/transitioned`, which fires on every URL transition. The op-name says what fires it (only a `#fragment` differed) and disambiguates from the runtime event.
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
-- `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract per rf2-5pyyl; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
+- `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6.
 - `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
@@ -224,7 +224,7 @@ The twelve keys cluster into three axes by what each key controls:
 | **Lifecycle hooks** — events the runtime dispatches at navigation boundaries | `:on-match`, `:on-error`, `:can-leave` | Events the runtime fires on route activation (`:on-match`), on `:on-match` errors (`:on-error`), and a sub-id consulted before navigation away (`:can-leave`). These are the route's reactive surface — handlers run from app code, the runtime owns the dispatch points. |
 | **Layout** — how the route fits with neighbours | `:doc`, `:parent`, `:tags`, `:scroll` | How the route is described (`:doc`), composed with others (`:parent` chains layout shells; see [§Nested layouts](#nested-layouts)), grouped for interceptors (`:tags`), and visually transitioned (`:scroll`; see [§Scroll restoration](#scroll-restoration)). |
 
-The axes are documentation, not data structure — the keys remain flat on the metadata map. An earlier sketch (audit rf2-u94dd Finding 1) considered nesting lifecycle hooks under `:hooks {...}`; v1 keeps the flat shape because (a) the registration metadata is read by `(rf/handler-meta :route id)` and tools enumerate top-level keys; nesting would require every consumer to know the nesting; (b) the v1 surface is settled, a nested shape is a v2.x candidate at most. The cluster headings are the carry — a generator scaffolding a route picks the axis first, then the keys.
+The axes are documentation, not data structure — the keys remain flat on the metadata map. An earlier sketch (audit Finding 1) considered nesting lifecycle hooks under `:hooks {...}`; v1 keeps the flat shape because (a) the registration metadata is read by `(rf/handler-meta :route id)` and tools enumerate top-level keys; nesting would require every consumer to know the nesting; (b) the v1 surface is settled, a nested shape is a v2.x candidate at most. The cluster headings are the carry — a generator scaffolding a route picks the axis first, then the keys.
 
 ##### Per-key table
 
@@ -240,7 +240,7 @@ The axes are documentation, not data structure — the keys remain flat on the m
 | `:parent` | layout | route-id | Parent route id (for the nested-layout convention; see "Nested layouts"). |
 | `:on-match` | lifecycle | vector of event vectors | Events the runtime dispatches every time this route becomes the active route (server- and client-side). See "Per-route data loading". |
 | `:on-error` | lifecycle | event vector | Event the runtime dispatches if any `:on-match` event errors. See "Per-route error handling". |
-| `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation away from this route. **Strict contract** (rf2-5pyyl): `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-leave-non-boolean`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
+| `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation away from this route. **Strict contract**: `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-leave-non-boolean`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
 | `:scroll` | layout | enum or map | Declarative scroll behaviour on entering this route. See "Scroll restoration". |
 
 ### The `:rf/route` slice
@@ -357,7 +357,7 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
                                   :nav-token nav-token})}
 
         ;; Fragment-only change — update the slice; emit
-        ;; :rf.route/fragment-changed trace (rf2-cj9fn); do NOT re-fire
+        ;; :rf.route/fragment-changed trace; do NOT re-fire
         ;; :on-match. See "Fragments" below.
         fragment-only?
         {:db (assoc-in db [:rf/route :fragment] fragment)
@@ -478,7 +478,7 @@ The event-boundary validation for `:rf.route/navigate` is a re-use of the standa
 
 ##### Validation-error surfacing across the three paths
 
-The three validation paths surface failures through **three different error/no-error shapes**. The table below names what an observer sees on each path so tools and handlers branch on the right surface. Audit rf2-u94dd Finding 3.
+The three validation paths surface failures through **three different error/no-error shapes**. The table below names what an observer sees on each path so tools and handlers branch on the right surface. Audit Finding 3.
 
 | Path | Error id | Trace `:operation` | Cascade-level error fired? | Slice discriminator |
 |---|---|---|---|---|
@@ -533,7 +533,7 @@ Semantics:
 2. **Same machinery.** `:rf.route/not-found` is an ordinary `reg-route`. It can declare `:on-match`, `:on-error`, `:scroll`, `:head`, `:tags` — all behave normally. The view tree's `case` over `:rf.route/id` renders the not-found view from the leaf.
 3. **Required by contract.** Apps **must** register a `:rf.route/not-found` route. If no `:rf.route/not-found` is registered when an unmatched URL arrives, the runtime emits a `:rf.warning/no-not-found-route` trace event and falls back to a built-in placeholder view (a minimal `<h1>Not Found</h1>` page) so the request still produces a response. Test fixtures and the conformance corpus assume the user-registered shape.
 4. **Validation failures.** A URL that matches a route's path but fails the route's `:params` / `:query` schema also routes to `:rf.route/not-found`, with `:reason :validation` in the `:params` slice (per [§URL changes are events](#url-changes-are-events)).
-5. **Malformed percent-encoding.** A URL carrying malformed `%`-sequences (`%`, `%a`, `%XX`, …) produces a route-miss, **never an exception**. Malformed encoding anywhere in the URL — captured path segments, query keys, query values, or the `#fragment` portion — fails the whole match closed: `match-url` returns nil and `:rf.route/transitioned` writes `:rf.route/not-found` with `{:url url :reason :malformed-url}` in the slice's `:params`. A `:rf.warning/malformed-url` trace fires alongside the standard `:rf.error/no-such-handler`. The `:reason` discriminator distinguishes the malformed-URL case from a bare miss (`{:url url}`) and from a validation failure (`{:url url :reason :validation}`). Pre-rf2-4ic0f the query branch was lenient (silently dropped the bad pair, preserving the rest of the URL); that let hostile URLs land in the routing slice when the host route had no required query keys. Hostile URLs, partner integrations with broken escaping, and back-button to a malformed link must never crash a request handler on SSR.
+5. **Malformed percent-encoding.** A URL carrying malformed `%`-sequences (`%`, `%a`, `%XX`, …) produces a route-miss, **never an exception**. Malformed encoding anywhere in the URL — captured path segments, query keys, query values, or the `#fragment` portion — fails the whole match closed: `match-url` returns nil and `:rf.route/transitioned` writes `:rf.route/not-found` with `{:url url :reason :malformed-url}` in the slice's `:params`. A `:rf.warning/malformed-url` trace fires alongside the standard `:rf.error/no-such-handler`. The `:reason` discriminator distinguishes the malformed-URL case from a bare miss (`{:url url}`) and from a validation failure (`{:url url :reason :validation}`) Hostile URLs, partner integrations with broken escaping, and back-button to a malformed link must never crash a request handler on SSR.
 6. **Reserved id.** `:rf.route/not-found` is the **single locked id** for this purpose. Implementations and tools depend on it; users do not redefine the meaning of the keyword. Hosts that want a different visual treatment per error kind branch inside the `:rf.route/not-found` view (e.g., on `:reason`).
 
 Tooling enumerates `(rf/handler-meta :route :rf.route/not-found)` to confirm the route is registered; the registrar emits the warning trace event at the first unmatched URL if it isn't.
@@ -561,7 +561,7 @@ If any event in `:on-match` errors (a handler throws, a registered fx errors, or
 
 `:on-error` is **route-scoped** error handling, layered over [009](009-Instrumentation.md)'s structured error contract — it doesn't replace it. The structured error trace event still fires; `:on-error` is the route's response to it. Routes without an `:on-error` slot leave `:rf.route/transition :error` set; views may inspect `:rf.route/error` and render an error banner.
 
-### `:on-match` exception attribution (rf2-m78lu)
+### `:on-match` exception attribution
 
 The error map written to `:rf.route/error` carries two routing-domain attribution slots in addition to the standard [009](009-Instrumentation.md#error-contract) shape:
 
@@ -570,7 +570,7 @@ The error map written to `:rf.route/error` carries two routing-domain attributio
 | `:rf.route/on-match-id` | the failing event-id | Identifies the `:on-match` event vector whose handler threw. |
 | `:rf.route/on-match-frame` | the dispatching frame-id | Identifies the frame whose `:on-match` cascade was mid-drain. |
 
-These slots ride on the structured error so downstream consumers — Xray's event lens, an off-box Sentry/Honeybadger shipper, the SSR error projection per [011](011-SSR.md), an `:on-error` handler — can identify the throw as `:on-match`-attributed **without** re-running the corpus-wide `register-error-listener!` discrimination logic that the runtime uses to wire the trap. Mirrors the flow-attribution slots `:rf.flow/failed-id` / `:rf.flow/failed-frame` (per [013 §Failure semantics](013-Flows.md#failure-semantics) and rf2-je5p8). Tools that read `:rf.error/handler-exception` outside the routing listener's discrimination context get the same attribution the trap itself uses.
+These slots ride on the structured error so downstream consumers — Xray's event lens, an off-box Sentry/Honeybadger shipper, the SSR error projection per [011](011-SSR.md), an `:on-error` handler — can identify the throw as `:on-match`-attributed **without** re-running the corpus-wide `register-error-listener!` discrimination logic that the runtime uses to wire the trap. Mirrors the flow-attribution slots `:rf.flow/failed-id` / `:rf.flow/failed-frame` (per [013 §Failure semantics](013-Flows.md#failure-semantics) and). Tools that read `:rf.error/handler-exception` outside the routing listener's discrimination context get the same attribution the trap itself uses.
 
 ## Navigation tokens — stale-result suppression
 
@@ -745,11 +745,11 @@ The path syntax is the *primary* binding. Query strings are bound separately via
 
 Coercion is data-shaped (the `:query` schema is the coercion specification — `:int` coerces `"2"` → `2`); per-key middleware functions are not part of the contract — data over functions.
 
-`:int` coercion is **strict and host-identical** (rf2-oyw04). A value is coerced to a number only when the *whole* string is an integer literal — `#"^-?\d+$"` (an optional sign followed by ASCII digits); partial-numeric, radix-prefixed, or whitespace-padded input (`"12abc"`, `"0x10"`, `" 12"`) is **left as a string on every host**. The route's `:query` schema then catches the type mismatch — a string in an `:int`-typed slot fails validation and surfaces `:validation-failed? true` (per [Spec 010](010-Schemas.md)), identically server- and client-side. This rule exists because `match-url` runs on both the JVM (SSR) and CLJS (browser); a host-divergent integer parser (`Long/parseLong` is strict, `js/parseInt` is lenient) would yield a different `:query` slice for the same URL on each host — exactly the [Spec 011](011-SSR.md) hydration-mismatch class, and a violation of the "same handler runs server- and client-side" contract and [Goal 2's cross-host conformance bar](000-Vision.md#ai-implementable-from-the-spec-alone). The strict regex makes the parse decision a pure function of the input string, host-independent. The conformance corpus pins `?page=12abc` and `?page=12` across both harnesses in [`routing-query-string-coercion.edn`](conformance/fixtures/routing-query-string-coercion.edn).
+`:int` coercion is **strict and host-identical**. A value is coerced to a number only when the *whole* string is an integer literal — `#"^-?\d+$"` (an optional sign followed by ASCII digits); partial-numeric, radix-prefixed, or whitespace-padded input (`"12abc"`, `"0x10"`, `" 12"`) is **left as a string on every host**. The route's `:query` schema then catches the type mismatch — a string in an `:int`-typed slot fails validation and surfaces `:validation-failed? true` (per [Spec 010](010-Schemas.md)), identically server- and client-side. This rule exists because `match-url` runs on both the JVM (SSR) and CLJS (browser); a host-divergent integer parser (`Long/parseLong` is strict, `js/parseInt` is lenient) would yield a different `:query` slice for the same URL on each host — exactly the [Spec 011](011-SSR.md) hydration-mismatch class, and a violation of the "same handler runs server- and client-side" contract and [Goal 2's cross-host conformance bar](000-Vision.md#ai-implementable-from-the-spec-alone). The strict regex makes the parse decision a pure function of the input string, host-independent. The conformance corpus pins `?page=12abc` and `?page=12` across both harnesses in [`routing-query-string-coercion.edn`](conformance/fixtures/routing-query-string-coercion.edn).
 
-### Keyword-interning cap on query keys + values (rf2-3k3o7)
+### Keyword-interning cap on query keys + values
 
-URL query strings are an attacker-influenceable input — caller-controlled, often deep-linked from third parties (search results, partner sites, share links). JVM keywords intern into a process-global, never-GC'd table; a routing layer that turns every URL query key into a keyword permanently extends that table on every unique hostile key, eventually exhausting the host. Long-running SSR JVMs are the worst case. This is the routing-side analogue of the HTTP-side keyword-interning DoS (per [Spec 014 §Keyword-interning cap (rf2-wu1n5)](014-HTTPRequests.md#keyword-interning-cap-rf2-wu1n5)).
+URL query strings are an attacker-influenceable input — caller-controlled, often deep-linked from third parties (search results, partner sites, share links). JVM keywords intern into a process-global, never-GC'd table; a routing layer that turns every URL query key into a keyword permanently extends that table on every unique hostile key, eventually exhausting the host. Long-running SSR JVMs are the worst case. This is the routing-side analogue of the HTTP-side keyword-interning DoS (per [Spec 014 §Keyword-interning cap](014-HTTPRequests.md#keyword-interning-cap)).
 
 Three layered defenses, all on by default:
 
@@ -762,7 +762,7 @@ Three layered defenses, all on by default:
 Routes that declare **no** `:query` schema at all fall back to the legacy keyword-all behaviour for query keys — the URL-level cap (defense #1) is the DoS guard for that path. The selective-keywording rule (defense #2) and the `:keyword`-value gate (defense #3) only activate once the route opts in by declaring a `:query` schema, defaults, or retain set.
 
 ```clojure
-;; rf2-3k3o7 — safe enum allowlist for a keyword-typed query value.
+;; safe enum allowlist for a keyword-typed query value.
 (rf/reg-route :route/sorted
   {:path  "/items"
    :query [:map
@@ -772,7 +772,7 @@ Routes that declare **no** `:query` schema at all fall back to the legacy keywor
 ;; URL: /items?sort=hostile    → :query {:sort "hostile"} ;; outside enum → stays as string
 ```
 
-Cross-references: [Security.md §DoS by input](Security.md#dos-by-input) for the framework-wide stance (slot catalogue cross-ref TBD post-Security.md anchor stabilisation), and [014 §Keyword-interning cap](014-HTTPRequests.md#keyword-interning-cap-rf2-wu1n5) for the symmetric HTTP-side cap.
+Cross-references: [Security.md §DoS by input](Security.md#dos-by-input) for the framework-wide stance (slot catalogue cross-ref TBD post-Security.md anchor stabilisation), and [014 §Keyword-interning cap](014-HTTPRequests.md#keyword-interning-cap) for the symmetric HTTP-side cap.
 
 ## Fragments
 
@@ -797,7 +797,7 @@ Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url`
 When the new URL differs from the current URL **only** in its fragment (same `:route-id`, same `:params`, same `:query`, but different `:fragment`), the runtime:
 
 1. Updates `:fragment` in the `:rf/route` slice.
-2. Emits a `:rf.route/fragment-changed` trace event (rf2-cj9fn) with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
+2. Emits a `:rf.route/fragment-changed` trace event with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
 3. Does **NOT** allocate a new `:nav-token`.
 4. Does **NOT** re-fire `:on-match`.
 
@@ -847,7 +847,7 @@ The server does NOT scroll (no DOM); `:rf.nav/scroll` is `:platforms #{:client}`
 
 Fixture `route-fragment-change.edn` exercises:
 1. Navigate to `/docs/routing#scroll-restoration`. Verify the slice's `:fragment` is `"scroll-restoration"`.
-2. Navigate to `/docs/routing#caching` (same path/query, different fragment). Verify `:on-match` does NOT re-fire and `:rf.route/fragment-changed` trace event fires (rf2-cj9fn).
+2. Navigate to `/docs/routing#caching` (same path/query, different fragment). Verify `:on-match` does NOT re-fire and `:rf.route/fragment-changed` trace event fires.
 3. Navigate to `/docs/instrumentation#scroll-restoration` (different path, same fragment). Verify `:on-match` DOES re-fire (path changed; fragment-only rule does not apply).
 
 ## Nested layouts
@@ -936,7 +936,7 @@ A standard pending-navigation slot in `app-db`, three named events, and an optio
 
 The sub returns `true` when the route is OK to leave; `false` to block. The convention: the *sub's name* describes the positive case (`:can-leave`), so `false` means "can NOT leave" — block.
 
-**Closed contract (rf2-5pyyl).** The runtime accepts only the literals `true` and `false` from the guard sub. Any other value (`42`, a non-empty string, `nil`, a map) BLOCKS the navigation and emits the structured trace `:rf.error/can-leave-non-boolean` with `:tags {:route-id :query :value :reason :recovery :blocked-navigation}`. Pre-rf2-5pyyl any truthy non-boolean was tolerated with the warning `:rf.warning/can-leave-guard-non-boolean` and treated as **allow**; that hid the classic polarity bug — a sub `(fn [db _] (:form/dirty? db))` returning truthy-when-dirty silently let the user navigate away and lose form state. The closed contract forces the route author to write `(boolean ...)` / `(not ...)` rather than warn-and-let-through. Pre-alpha posture: no shim, no soft transition; the warning slot is removed entirely.
+**Closed contract.** The runtime accepts only the literals `true` and `false` from the guard sub. Any other value (`42`, a non-empty string, `nil`, a map) BLOCKS the navigation and emits the structured trace `:rf.error/can-leave-non-boolean` with `:tags {:route-id :query :value :reason :recovery :blocked-navigation}` The closed contract forces the route author to write `(boolean ...)` / `(not ...)` rather than warn-and-let-through. Pre-alpha posture: no shim, no soft transition; the warning slot is removed entirely.
 
 ### Default flow
 
@@ -1030,7 +1030,7 @@ Routing's per-frame state — the `:rf/route` slice, `:rf/pending-navigation`, t
 - [Machines](005-StateMachines.md) — the machine snapshots live at `[:rf/machines <id>]` inside `app-db` so they die naturally, but the artefact additionally publishes `:machines/teardown-on-frame-destroy!` for the per-frame timer registry and `:after` epoch counters held outside `app-db`.
 - [Schemas](010-Schemas.md) — publishes `:schemas/on-frame-destroyed!` for the per-frame validator caches held in module-private atoms.
 
-Routing fits the "all per-frame state in `app-db`" pattern in full — there is no module-private per-frame structure to clear, and so no hook to publish. Audit rf2-u94dd Finding 8.
+Routing fits the "all per-frame state in `app-db`" pattern in full — there is no module-private per-frame structure to clear, and so no hook to publish. Audit Finding 8.
 
 ### Process-global slots are intentionally not per-frame
 
@@ -1059,14 +1059,14 @@ Each frame has its own `:rf/route` slice. Only the default frame is URL-bound. N
 3. Non-default frames are **not URL-bound** by default. `:rf.route/navigate` updates their `:rf/route` slice (state changes) but does not fire `:rf.nav/push-url`. This is the right default for story-variant frames, devcards, per-test fixtures.
 4. Opt-in URL binding for non-default frames via `(rf/reg-frame :my-frame {:url-bound? true})`. The runtime enforces "only one frame can own the URL at a time" — re-registering a second `:url-bound? true` frame is a `:rf.error/duplicate-url-binding` trace event. When the default frame opts out (`{:url-bound? false}`) and a single non-default frame opts in, that frame becomes the sole URL owner.
 
-### popstate drives the URL-owner frame, both directions (rf2-6qgbs.4)
+### popstate drives the URL-owner frame, both directions
 
 URL ownership is symmetric across the app↔browser boundary, and resolves to the **same single owner** in both directions:
 
 - **Outbound (app → browser).** `:rf.nav/push-url` / `:rf.nav/replace-url` consult `url-owner-frame-id` (public) and only the owner mutates browser history. A non-owner's navigation updates its own `:rf/route` slice but no-ops the history push.
 - **Inbound (browser → app).** A `popstate` listener fires `[:rf.route/handle-url-change url] {:frame (url-owner-frame-id)}` — targeted at the **current** owner resolved at pop time, NOT hard-coded to `:rf/default`. So Back/Forward restores the owner frame's `:rf/route` slice (and the body rendered off it), whether the owner is `:rf/default` or a non-default `:url-bound? true` frame.
 
-The routing artefact ships `install-history-listener!` (CLJS) — re-exported as `rf/install-history-listener!` — which wires this `popstate` listener and does the initial URL → owner-slice sync. Apps boot it once after registering frames. It is idempotent (re-install replaces the listener, hot-reload safe) and is the inbound counterpart of the `:rf.nav/push-url` gate; `rf/remove-history-listener!` tears it down. Targeting `url-owner-frame-id` at pop time means default-owned apps and url-bound-non-default-frame apps behave identically through the same helper — a popstate dispatched at the old owner (`:rf/default`) after ownership transferred would update a frozen slice and leave Back/Forward broken (the bug rf2-6qgbs.4 fixed).
+The routing artefact ships `install-history-listener!` (CLJS) — re-exported as `rf/install-history-listener!` — which wires this `popstate` listener and does the initial URL → owner-slice sync. Apps boot it once after registering frames. It is idempotent (re-install replaces the listener, hot-reload safe) and is the inbound counterpart of the `:rf.nav/push-url` gate; `rf/remove-history-listener!` tears it down. Targeting `url-owner-frame-id` at pop time means default-owned apps and url-bound-non-default-frame apps behave identically through the same helper — a popstate dispatched at the old owner (`:rf/default`) after ownership transferred would update a frozen slice and leave Back/Forward broken (the bug.4 fixed).
 
 The story / devcard / SSR cases all benefit:
 
@@ -1076,33 +1076,33 @@ The story / devcard / SSR cases all benefit:
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all five items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all five items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
 
-### Native nested layouts (post-v1, rf2-ohupw)
+### Native nested layouts (post-v1)
 
-Per [§Nested layouts](#nested-layouts) the v1 surface is `:parent` + the `:rf.route/chain` sub — the rendering side reads the layout chain as data and composes shells top-down. A richer mechanism — true `<Outlet/>`-style render slots, parent-loader cascades, and partial revalidation on child-only navigations (parent doesn't re-run when only the leaf changes) — is a substrate-shaped addition rather than a data convention. Deferred to rf2-ohupw until apps surface a real cost the chain-sub pattern can't carry; the `:parent` convention does not preclude a richer slot mechanism later.
+Per [§Nested layouts](#nested-layouts) the v1 surface is `:parent` + the `:rf.route/chain` sub — the rendering side reads the layout chain as data and composes shells top-down. A richer mechanism — true `<Outlet/>`-style render slots, parent-loader cascades, and partial revalidation on child-only navigations (parent doesn't re-run when only the leaf changes) — is a substrate-shaped addition rather than a data convention. Deferred to until apps surface a real cost the chain-sub pattern can't carry; the `:parent` convention does not preclude a richer slot mechanism later.
 
-### Data-form path patterns (post-v1, rf2-r6049)
+### Data-form path patterns (post-v1)
 
-Per [§The route table is data](#the-route-table-is-data) the v1 canonical wire form for `:path` is the string grammar (`"/account/:id/orders/*rest"`). A formally-specified vector-of-segments alternative (e.g. `[:account [:id :int] "orders" [:rest :catchall]]`) would carry per-segment schema inline and survive copy-paste better than embedded sigils. Deferred to rf2-r6049 — the string grammar is the v1 wire form and tools, conformance fixtures, and `match-url` all key off it; the data form would be an additive parser front-end.
+Per [§The route table is data](#the-route-table-is-data) the v1 canonical wire form for `:path` is the string grammar (`"/account/:id/orders/*rest"`). A formally-specified vector-of-segments alternative (e.g. `[:account [:id :int] "orders" [:rest :catchall]]`) would carry per-segment schema inline and survive copy-paste better than embedded sigils. Deferred to — the string grammar is the v1 wire form and tools, conformance fixtures, and `match-url` all key off it; the data form would be an additive parser front-end.
 
-### Custom scroll-strategy registry (post-v1, rf2-3tjl8)
+### Custom scroll-strategy registry (post-v1)
 
-Per [§Scroll restoration](#scroll-restoration) the v1 contract is the closed three-enum set (`:top`, `:restore`, `:preserve`) plus the map-form opt-in for host-specific shapes. A first-class registry (apps `register-scroll-strategy!` named entries; routes / nav opts name them by keyword) is an additive composition surface that keeps strategy registration enumerable for tools. Deferred to rf2-3tjl8 — the three enums cover the documented cases and locking them keeps tools' enumeration of scroll behaviour decidable.
+Per [§Scroll restoration](#scroll-restoration) the v1 contract is the closed three-enum set (`:top`, `:restore`, `:preserve`) plus the map-form opt-in for host-specific shapes. A first-class registry (apps `register-scroll-strategy!` named entries; routes / nav opts name them by keyword) is an additive composition surface that keeps strategy registration enumerable for tools. Deferred to — the three enums cover the documented cases and locking them keeps tools' enumeration of scroll behaviour decidable.
 
-### URL-state-as-source-of-truth (post-v1, rf2-kbozz)
+### URL-state-as-source-of-truth (post-v1)
 
-Per [§State-first, URL-second update order is locked](#state-first-url-second-update-order-is-locked) the v1 model is `app-db`-canonical, URL-derived: navigation mutates state first, then syncs the URL. The inverse — URL canonical, `app-db` derived (the browser URL is the single source of truth; subscriptions parse it on demand) — is a substantial design change with downstream impact on SSR, multi-frame, stale-suppression, and the navigation cascade ordering. Deferred to rf2-kbozz; v1's direction is locked because the URL update can fail (browser denies, offline) and state must remain consistent.
+Per [§State-first, URL-second update order is locked](#state-first-url-second-update-order-is-locked) the v1 model is `app-db`-canonical, URL-derived: navigation mutates state first, then syncs the URL. The inverse — URL canonical, `app-db` derived (the browser URL is the single source of truth; subscriptions parse it on demand) — is a substantial design change with downstream impact on SSR, multi-frame, stale-suppression, and the navigation cascade ordering. Deferred to ; v1's direction is locked because the URL update can fail (browser denies, offline) and state must remain consistent.
 
-### Declarative redirect rules in route metadata (post-v1, rf2-lpjzj)
+### Declarative redirect rules in route metadata (post-v1)
 
-Per [§Redirects and guards](#redirects-and-guards) v1 redirects compose as interceptors — guards are ordinary middleware over `:rf.route/navigate`, with full access to `app-db` and the event vector. A declarative metadata key (e.g. `:redirect-to :route/login`, optionally a fn of the route map) would let the simple "always redirect this route" cases skip interceptor boilerplate. Deferred to rf2-lpjzj — the interceptor form is the universal carry; the declarative key is sugar over it once the common shapes have settled in real apps.
+Per [§Redirects and guards](#redirects-and-guards) v1 redirects compose as interceptors — guards are ordinary middleware over `:rf.route/navigate`, with full access to `app-db` and the event vector. A declarative metadata key (e.g. `:redirect-to :route/login`, optionally a fn of the route map) would let the simple "always redirect this route" cases skip interceptor boilerplate. Deferred to — the interceptor form is the universal carry; the declarative key is sugar over it once the common shapes have settled in real apps.
 
 ## Resolved decisions
 
-### `:rf.route.nav-token/*` trace-operation namespace (rf2-o39mn)
+### `:rf.route.nav-token/*` trace-operation namespace
 
-The two nav-token trace operations — `:rf.route.nav-token/allocated` and `:rf.route.nav-token/stale-suppressed` (per [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression)) — live under `:rf.route.nav-token/*`. An earlier carve-out grandfathered the bare `:route.nav-token/*` prefix as the sole framework trace-operation namespace outside `:rf.*` (per the now-removed paragraph in [Conventions](Conventions.md)); rf2-o39mn closed that single-bit-of-difference exception, mechanically renaming all 91 occurrences across spec, conformance fixtures, implementation, docs, skills, and tools. The Conventions single-root rule (every framework-owned keyword sits under `:rf.*`) now holds without exception.
+The two nav-token trace operations — `:rf.route.nav-token/allocated` and `:rf.route.nav-token/stale-suppressed` (per [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression)) — live under `:rf.route.nav-token/*`. An earlier carve-out grandfathered the bare `:route.nav-token/*` prefix as the sole framework trace-operation namespace outside `:rf.*` (per the now-removed paragraph in [Conventions](Conventions.md)); closed that single-bit-of-difference exception, mechanically renaming all 91 occurrences across spec, conformance fixtures, implementation, docs, skills, and tools. The Conventions single-root rule (every framework-owned keyword sits under `:rf.*`) now holds without exception.
 
 ### Default frame is URL-bound; non-default frames opt in
 

@@ -85,7 +85,7 @@ When the request resolves, the runtime dispatches `[:article/load (assoc msg :rf
 | `:decode` | no | spec / fn / `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto` | How to parse the response body (see [§Decoding](#decoding)). Default: `:auto` (content-type sniffing). |
 | `:accept` | no | fn `(decoded → {:ok v} | {:failure m})` | Post-decode normalisation; lets a handler treat a structurally-valid 200 as a domain failure. Default: `(fn [v] {:ok v})` for 2xx, structural failure otherwise. |
 | `:retry` | no | map | Retry policy (see [§Retry and backoff](#retry-and-backoff)). Default: no retry. |
-| `:timeout-ms` | no | int / `nil` / `0` | Wall-clock timeout per attempt. **Default: 30000** when the key is absent. Per [§`:timeout-ms` security defaults](#timeout-ms-security-defaults-rf2-it1cd) — `:timeout-ms nil` and `:timeout-ms 0` are explicit opt-outs (no per-attempt timeout). Apps facing untrusted upstreams SHOULD leave the default in place. |
+| `:timeout-ms` | no | int / `nil` / `0` | Wall-clock timeout per attempt. **Default: 30000** when the key is absent. Per [§`:timeout-ms` security defaults](#timeout-ms-security-defaults) — `:timeout-ms nil` and `:timeout-ms 0` are explicit opt-outs (no per-attempt timeout). Apps facing untrusted upstreams SHOULD leave the default in place. |
 | `:on-success` | no | event vector | Where to dispatch on success. Default: back to originating event id with `:rf/reply` merged. |
 | `:on-failure` | no | event vector or `nil` | Where to dispatch on failure. Default: back to originating event id with `:rf/reply` merged. `nil` means swallow silently. |
 | `:request-id` | no | any `=`-comparable value | Stable id for abort + correlation (see [§Aborts](#aborts)). Keywords (`:search`), strings (`"req-42"`), vectors (`[:articles :load 7]`), uuids — anything the runtime can `=`-compare. The fx stores in-flight requests in a `{request-id → request-handle}` map; identity is structural. |
@@ -101,7 +101,7 @@ The `:request` map carries the wire shape. Keys are minimal and chosen to be hos
 | `:url` | yes | string | May contain `:params`-derived query string (see below). |
 | `:headers` | no | map of string → string (or string → vector of strings for multi-valued) | Headers to send. Names are case-insensitive. |
 | `:params` | no | map | Query-string params. Encoded URL-safely; merged onto `:url`. Per Spec 012 §URL-encoding rules. |
-| `:body` | no | clj coll / string / `FormData` / `Blob` / `ArrayBuffer` / **thunk `(fn [] body)`** | The request body. See [§Body encoding](#body-encoding). A thunk is invoked at request-send time (after backoff delays elapse), so very-large payloads aren't held in memory between dispatch and send and retries can re-invoke for a fresh handle. |
+| `:body` | no | clj coll / string / `FormData` / `Blob` / `ArrayBuffer` / **thunk `(fn body)`** | The request body. See [§Body encoding](#body-encoding). A thunk is invoked at request-send time (after backoff delays elapse), so very-large payloads aren't held in memory between dispatch and send and retries can re-invoke for a fresh handle. |
 | `:request-content-type` | no | `:json` / `:form` / `:text` / explicit MIME / `nil` | Sugar for setting `Content-Type` + serialising `:body`. `:json` runs `pr-str → JSON.stringify` (CLJS) / Cheshire (JVM). `:form` URL-encodes a clj map. |
 | `:credentials` | no | `:omit` / `:same-origin` / `:include` | Default: `:same-origin`. CLJS-only; JVM ignores (see [§JVM transport](#jvm-transport--degraded-behaviour-for-cljs-only-options)). |
 | `:mode` | no | `:cors` / `:no-cors` / `:same-origin` / `:navigate` | CLJS-only; Fetch passthrough. JVM ignores. |
@@ -127,7 +127,7 @@ The trace event's `:tags` carry the key name, the request URL, and `:sensitive?`
 
 ### Body encoding
 
-If `:body` is a thunk `(fn [] body)`, the fx invokes it just before sending (after `:retry :backoff` delays elapse). Each retry re-invokes the thunk to obtain a fresh handle — useful when `:body` is a single-shot stream that can't be replayed. Whatever the thunk returns is then encoded per the rules below.
+If `:body` is a thunk `(fn body)`, the fx invokes it just before sending (after `:retry :backoff` delays elapse). Each retry re-invokes the thunk to obtain a fresh handle — useful when `:body` is a single-shot stream that can't be replayed. Whatever the thunk returns is then encoded per the rules below.
 
 If `:body` is a Clojure collection AND `:request-content-type` is unset, the fx inspects:
 
@@ -222,7 +222,7 @@ Then `(rf/handler-meta :event :article/load)` returns a map carrying `:rf.http/d
 
 For handlers that issue multiple `:rf.http/managed` requests with different schemas, list all of them: `:rf.http/decode-schemas [ArticleResponse CommentList Profile]`.
 
-### Keyword-interning cap (rf2-wu1n5)
+### Keyword-interning cap
 
 JSON object keys are decoded as Clojure keywords. On the JVM, keywords are interned and never garbage-collected — a compromised upstream returning N unique-key JSON per response would permanently burn N keyword slots per response. Long-running JVMs (SSR, webhook receivers, agent-controlled fetches) are the worst case.
 
@@ -245,15 +245,14 @@ The cap is the SECOND line of defence; the FIRST line is `:request-content-type`
 
 > Cross-reference: see [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) and [Security.md §DoS by input](Security.md#dos-by-input) for the framework-wide posture this section grounds.
 
-### JSON decoder hardening (rf2-263km, rf2-dgsu1)
+### JSON decoder hardening
+The CLJS reference depends on a **hardened third-party JSON parser** (Cheshire on the JVM; the host's native `JSON.parse` on the browser) rather than a hand-rolled reader. Per : the project's hand-rolled JSON fallback was deleted in favour of the hardened dep; the framework does not own a parser it would have to keep hardened against malformed-input classes.
 
-The CLJS reference depends on a **hardened third-party JSON parser** (Cheshire on the JVM; the host's native `JSON.parse` on the browser) rather than a hand-rolled reader. Per rf2-dgsu1: the project's hand-rolled JSON fallback was deleted in favour of the hardened dep; the framework does not own a parser it would have to keep hardened against malformed-input classes.
+Ports that ship a **hand-rolled** JSON / EDN reader (rather than depending on a hardened third-party parser) own the input-bounds contract directly. the reader MUST bounds-check unicode-escape sequences (`\uXXXX`) and surface structured `:rf.error/malformed-json` with `:reason` slots (e.g., `:reason :truncated-unicode-escape`, `:reason :invalid-hex-digit`) rather than letting truncated or invalid escapes become opaque host errors.
 
-Ports that ship a **hand-rolled** JSON / EDN reader (rather than depending on a hardened third-party parser) own the input-bounds contract directly. Per rf2-263km, the reader MUST bounds-check unicode-escape sequences (`\uXXXX`) and surface structured `:rf.error/malformed-json` with `:reason` slots (e.g., `:reason :truncated-unicode-escape`, `:reason :invalid-hex-digit`) rather than letting truncated or invalid escapes become opaque host errors.
+These contracts compose with the keyword-interning cap above: hardened parser → bounds-checks → cap on cardinality → caller-controllable per-request override. Per and [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing).
 
-These contracts compose with the keyword-interning cap above: hardened parser → bounds-checks → cap on cardinality → caller-controllable per-request override. Per rf2-263km / rf2-dgsu1 and [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing).
-
-### `:timeout-ms` security defaults (rf2-it1cd)
+### `:timeout-ms` security defaults
 
 The fx applies a 30000 ms per-attempt wall-clock timeout when `:timeout-ms` is absent from the args map. This is a security default: a slow-loris upstream (compromised partner, hostile webhook recipient, stalled CDN edge) that never completes the response body would otherwise pin a `CompletableFuture` (JVM) / Fetch promise (CLJS) indefinitely; in a long-running JVM the in-flight registry fills with hung requests until the connection pool is exhausted. With the default in place, every attempt has a finite deadline.
 
@@ -304,7 +303,7 @@ This is deliberate. Retry decisions that depend on more than category + attempt 
 
 | Key | Type | Purpose |
 |---|---|---|
-| `:on` | set of retryable-category keywords | Which failure categories trigger a retry. **Closed set** — must be drawn exclusively from the *retryable* subset of [§Failure categories](#failure-categories-closed-set): `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Common defaults: `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`. See [§Closed-set `:retry :on` validation](#closed-set-retry-on-validation--rf2-apwkm) below. |
+| `:on` | set of retryable-category keywords | Which failure categories trigger a retry. **Closed set** — must be drawn exclusively from the *retryable* subset of [§Failure categories](#failure-categories-closed-set): `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Common defaults: `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`. See [§Closed-set `:retry :on` validation](#closed-set-retry-on-validation) below. |
 | `:max-attempts` | int | Total attempts including the first. `1` = no retry. Default: 1. |
 | `:backoff` | map | Exponential backoff config. |
 | `:backoff.:base-ms` | int | Initial delay (ms). |
@@ -312,7 +311,7 @@ This is deliberate. Retry decisions that depend on more than category + attempt 
 | `:backoff.:max-ms` | int | Cap on delay. |
 | `:backoff.:jitter` | bool | Add random ±25% jitter to each delay. |
 
-#### Closed-set `:retry :on` validation — rf2-apwkm
+#### Closed-set `:retry :on` validation
 
 `:retry :on` is restricted to the **retryable subset** of the failure-category vocabulary:
 
@@ -330,7 +329,7 @@ The other `:rf.http/*` categories from [§Failure categories](#failure-categorie
 
 Implementations **MUST validate `:retry :on` at fx-call time** (when the `:rf.http/managed` fx body is invoked, before any attempt is issued). A non-empty intersection between `:on` and the rejected set throws an `:rf.error/http-bad-retry-on` ex-info, per [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). This catches the misuse at the dispatch site rather than silently letting a useless retry policy ride for the request's lifetime (or, for `:rf.http/aborted`, deferring the rejection to retry-attempt time inside the transport loop). Membership outside the full `:rf.http/*` namespace is also rejected — the set is closed.
 
-Per the rf2-apwkm spec tighten: implementations MUST NOT accept the old open `:rf.http/*` set. The rejection is hard, not advisory.
+Per the spec tighten: implementations MUST NOT accept the old open `:rf.http/*` set. The rejection is hard, not advisory.
 
 Each retry advances the carried epoch (per Pattern-StaleDetection); a stale request (e.g. one whose target route changed mid-retry) is suppressed without dispatching the reply.
 
@@ -376,7 +375,7 @@ Pair tools and 10x panels surface the per-attempt trace; user code only sees the
 
 When a response arrives, the runtime classifies the outcome in this fixed order:
 
-1. **Transport / timeout / abort.** A network error, per-attempt timeout, or abort short-circuits the rest. Classified as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, or `:rf.http/aborted`. The body never enters the picture. Per [§Abort precedence (abort always wins)](#abort-precedence-abort-always-wins--rf2-wez75) abort dominates the rest of this list — a request marked aborted always classifies as `:rf.http/aborted` regardless of any later-arriving decode / status / transport observation for the same request.
+1. **Transport / timeout / abort.** A network error, per-attempt timeout, or abort short-circuits the rest. Classified as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, or `:rf.http/aborted`. The body never enters the picture. Per [§Abort precedence (abort always wins)](#abort-precedence-abort-always-wins) abort dominates the rest of this list — a request marked aborted always classifies as `:rf.http/aborted` regardless of any later-arriving decode / status / transport observation for the same request.
 2. **HTTP status.** Once a response lands, status is checked **before** the body is touched.
    - `2xx` → success-eligible; proceed to decode.
    - `4xx` → `:rf.http/http-4xx`; the raw response text is surfaced at `:body`. Decode is skipped.
@@ -389,7 +388,7 @@ The order is **status-before-decode by design**: a JSON-API endpoint that return
 
 If a caller wants to see the structured error body that an API returns alongside a non-2xx (e.g., `{"error": "..."}` JSON on a 4xx), the caller decodes the raw `:body` themselves in the failure-handling branch — the framework hands you the bytes and the status, and you decide what to do with them.
 
-### Abort precedence (abort always wins) — rf2-wez75
+### Abort precedence (abort always wins)
 
 **Abort always wins.** Once a request is marked aborted (via [`:rf.http/managed-abort`](#request-id-internal), an external [`:abort-signal`](#abort-signal-external), or the [actor-destroy hook](#abort-on-actor-destroy)), classification short-circuits to `:rf.http/aborted` / `:reason :actor-destroyed` regardless of any subsequent decode, transport, status, or accept-projection state observed for the same request — including outcomes whose underlying transport completion arrived in the same scheduler tick as the abort. Implementations MUST NOT surface `:rf.http/decode-failure`, `:rf.http/transport`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, or `:rf.http/accept-failure` on a request that has been aborted; the abort observation wins by classification, not by race ordering.
 
@@ -414,9 +413,9 @@ Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/
 
 The category vocabulary is **closed for v1** — additions require a Spec change. The `:rf.http/*` namespace makes these unambiguous wherever they leak: trace events, error projector, `:retry :on` sets, epoch records.
 
-#### CORS classification — heuristic emission (rf2-r40km)
+#### CORS classification — heuristic emission
 
-`:rf.http/cors` was specced as a distinct category from `:rf.http/transport` but went un-emitted for a release cycle: browsers opaque CORS rejections and the runtime classified every browser-side rejection as `:rf.http/transport`. Per rf2-r40km (Option a — heuristic emission), the CLJS reference now emits `:rf.http/cors` when the rejection shape is a `TypeError` against a cross-origin URL (the strongest signal the browser surfaces without dropping to the network panel). The classifier ships with conformance tests that pin the heuristic + the `:rf.http/cors` `:retry :on` membership. JVM never emits this category — host CORS belongs to the browser fetch stack. Per rf2-r40km and [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) (CORS classification row in the catalogue references).
+`:rf.http/cors` was specced as a distinct category from `:rf.http/transport` but went un-emitted for a release cycle: browsers opaque CORS rejections and the runtime classified every browser-side rejection as `:rf.http/transport`. Per (Option a — heuristic emission), the CLJS reference now emits `:rf.http/cors` when the rejection shape is a `TypeError` against a cross-origin URL (the strongest signal the browser surfaces without dropping to the network panel). The classifier ships with conformance tests that pin the heuristic + the `:rf.http/cors` `:retry :on` membership. JVM never emits this category — host CORS belongs to the browser fetch stack. Per and [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) (CORS classification row in the catalogue references).
 
 > Cross-reference: see [Security.md §What is explicitly out of scope](Security.md#what-is-explicitly-out-of-scope) — CORS itself is a host-platform concern; the framework classifies the rejection but does not configure CORS.
 
@@ -519,7 +518,7 @@ The two are mutually exclusive — pick one.
 
 ### Abort on actor destroy
 
-Per [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) (rf2-wvkn), `:rf.http/managed` requests issued from inside a spawned state-machine actor are aborted automatically when the actor is destroyed.
+Per [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts), `:rf.http/managed` requests issued from inside a spawned state-machine actor are aborted automatically when the actor is destroyed.
 
 #### The contract
 
@@ -570,7 +569,7 @@ Apps that want HTTP requests tied to the lifetime of a state-machine state shoul
 - [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) — the machine side of the contract.
 - [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — `:rf.http/aborted-on-actor-destroy` taxonomy entry.
 - [`:request-id` (internal)](#request-id-internal) — the orthogonal app-level abort surface.
-- Boot-as-state-machine §M2 (rf2-wvkn) — the original gap analysis motivating this contract.
+- Boot-as-state-machine §M2 — the original gap analysis motivating this contract.
 
 ## Frame awareness
 
@@ -578,11 +577,11 @@ The reply dispatch lands in the **same frame** the request was issued from. The 
 
 ## Middleware
 
-Per [rf2-6y3q](#) — apps repeatedly want to apply a transform to every outgoing `:rf.http/managed` request: attach a Bearer token, stamp a correlation-id, rewrite a base URL in dev. v1 ships a **per-frame request-side interceptor chain** that sits between the user's args and the transport.
+Per — apps repeatedly want to apply a transform to every outgoing `:rf.http/managed` request: attach a Bearer token, stamp a correlation-id, rewrite a base URL in dev. v1 ships a **per-frame request-side interceptor chain** that sits between the user's args and the transport.
 
 ### Shape
 
-Per rf2-eyjbn the public surface is `(reg-http-interceptor id opts? before)` — positional `id` keyword, positional `before` fn `(fn [ctx] ctx')`, and an optional `opts` map carrying `:frame` (default `:rf/default`) plus `:rf/registration-metadata` (per [Spec-Schemas §`:rf/http-interceptor-meta`](Spec-Schemas.md#rfhttp-interceptor-meta)): `:doc` / `:tags` / `:schema` / `:sensitive?`. Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured at the call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The shape aligns with the rest of the `reg-*` family — matching `reg-flow`'s precedent.
+the public surface is `(reg-http-interceptor id opts? before)` — positional `id` keyword, positional `before` fn `(fn [ctx] ctx')`, and an optional `opts` map carrying `:frame` (default `:rf/default`) plus `:rf/registration-metadata` (per [Spec-Schemas §`:rf/http-interceptor-meta`](Spec-Schemas.md#rfhttp-interceptor-meta)): `:doc` / `:tags` / `:schema` / `:sensitive?`. Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured at the call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The shape aligns with the rest of the `reg-*` family — matching `reg-flow`'s precedent.
 
 ```clojure
 (rf/reg-http-interceptor
@@ -666,7 +665,7 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 
 | API | Kind | Signature |
 |---|---|---|
-| `reg-http-interceptor` | Fn | `(rf/reg-http-interceptor id before)` / `(rf/reg-http-interceptor id opts before)` — per rf2-eyjbn (positional id + opts kwarg + positional handler) |
+| `reg-http-interceptor` | Fn | `(rf/reg-http-interceptor id before)` / `(rf/reg-http-interceptor id opts before)` — per (positional id + opts kwarg + positional handler) |
 | `clear-http-interceptor` | Fn | `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)` |
 
 Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
@@ -883,7 +882,7 @@ The fx vectors the helpers synthesise are exactly the same shape as the hand-wri
 
 The stubs reuse the same dispatch shape the real fx produces so the test handler's reply branch sees the canonical envelope. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
 
-### Test-support require — the HTTP test surface gate (rf2-cdmle + rf2-lwmgw)
+### Test-support require — the HTTP test surface gate
 
 The canned-stub fxs above AND the `with-managed-request-stubs` family of macros / fns are **test-only**; production / SSR code paths must not be able to reach them. The framework gates registration behind an explicit require:
 
@@ -898,7 +897,7 @@ Loading `re-frame.http-test-support` registers `:rf.http/managed-canned-success`
 - on JVM / SSR the canned-stub fx ids are unregistered (classpath absence through the normal artefact require boundary), so any handler that tries `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` will surface the framework's no-such-fx error; the stub-family `rf/install-managed-request-stubs!` / `rf/uninstall-managed-request-stubs!` / `rf/with-managed-request-stubs*` call sites raise `:rf.error/http-artefact-missing` through `re-frame.core-http`'s defwrapper surface (the hooks are nil);
 - on CLJS `:advanced + goog.DEBUG=false` the test-support module is unreferenced from any production module, so the compiler trims it wholesale (the canned-stub fx-id keyword string fragments do not appear in the production bundle — pinned by `scripts/check-elision.cjs`).
 
-Earlier the gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` itself; on the JVM that gate folded to `true`, leaving the canned-stub fx ids reachable as production-default API. Per [rf2-zk08x](#)'s audit and the [rf2-cdmle](#) remediation, the gate moved to the require boundary so the absence is enforced on every host. Per [rf2-lwmgw](#) (audit-of-audits #15) the stub macros consolidated into `re-frame.http-test-support` alongside the canned-stub fxs — one namespace, one require, the namespace name finally matches its content.
+Earlier the gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` itself; on the JVM that gate folded to `true`, leaving the canned-stub fx ids reachable as production-default API. Per's audit and the remediation, the gate moved to the require boundary so the absence is enforced on every host. Per (audit-of-audits #15) the stub macros consolidated into `re-frame.http-test-support` alongside the canned-stub fxs — one namespace, one require, the namespace name finally matches its content.
 
 For test suites that exercise many requests, a higher-level helper ships:
 
@@ -919,13 +918,13 @@ For test suites that need to inspect or reset the in-flight request registry dir
 |---|---|---|
 | `clear-all-in-flight!` | `(clear-all-in-flight!)` → nil | Drops both the request-id-keyed and actor-id-keyed in-flight maps. Consumed by `re-frame.test-support/make-reset-runtime-fixture` to restore a clean registry between tests; the `:http/clear-all-in-flight!` hook is published via the late-bind table so `test-support` can call it without statically requiring the http artefact. |
 | `in-flight-snapshot` | `(in-flight-snapshot)` → map | Reads the current value of the request-id-keyed in-flight map. For tests that need to assert "this request-id is in flight" without poking the atom directly. |
-| `actor-in-flight-snapshot` | `(actor-in-flight-snapshot)` → map | Reads the current value of the actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy) and rf2-wvkn). For tests that need to assert the actor → request-id reverse index. |
+| `actor-in-flight-snapshot` | `(actor-in-flight-snapshot)` → map | Reads the current value of the actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy) and). For tests that need to assert the actor → request-id reverse index. |
 
 These are **test-only** surfaces — not part of the user-facing API for production code paths. Application code SHOULD route through `:rf.http/managed` and the dispatch-shape replies; the helpers exist so test fixtures can observe and reset registry state without reaching into the namespace's atoms.
 
 ## Machine-shape wrapper
 
-Per [rf2-ijm7](#) — `:rf.http/managed` is **also** registered as a child-invokable state machine, so a parent machine ca `:spawn` it without writing any glue. The wrapper is **additive** on top of the fx surface: `:fx [[:rf.http/managed args]]` continues to work unchanged ([§The shape](#the-shape) is the canonical user-facing surface); the machine wrapper is a second affordance for callers who are already inside a state-machine envelope and want a child machine they can compose with `:spawn`, `:after`, and the cancellation cascade.
+Per — `:rf.http/managed` is **also** registered as a child-invokable state machine, so a parent machine ca `:spawn` it without writing any glue. The wrapper is **additive** on top of the fx surface: `:fx [[:rf.http/managed args]]` continues to work unchanged ([§The shape](#the-shape) is the canonical user-facing surface); the machine wrapper is a second affordance for callers who are already inside a state-machine envelope and want a child machine they can compose with `:spawn`, `:after`, and the cancellation cascade.
 
 ### The pattern
 
@@ -992,7 +991,7 @@ The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf
 
 ### Cancellation cascade
 
-Per [§Abort on actor destroy](#abort-on-actor-destroy) (rf2-wvkn), the wrapper actor's in-flight request is automatically aborted when the wrapper is destroyed. The wrapper is destroyed:
+Per [§Abort on actor destroy](#abort-on-actor-destroy), the wrapper actor's in-flight request is automatically aborted when the wrapper is destroyed. The wrapper is destroyed:
 
 - On any transition out of the parent's `:spawn`-bearing state (per [Spec 005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)) — including the parent's `:after` firing (per [Spec 005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after)).
 - On parent-frame destroy.
@@ -1032,7 +1031,7 @@ Apps may mix both freely. The two registrations coexist under `:rf.http/managed`
 
 ## Privacy
 
-Per [rf2-bma05](#) (motivated by the [rf2-ok47g §Completeness matrix G3](#) — the sensitive-elision audit). HTTP is the canonical privacy surface in any application: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. Without honouring [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)'s `:sensitive?` contract on the `:rf.http/*` trace events, the HTTP cascade is the biggest leakage vector the framework ships.
+Per (motivated by the [ §Completeness matrix G3](#) — the sensitive-elision audit). HTTP is the canonical privacy surface in any application: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. Without honouring [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)'s `:sensitive?` contract on the `:rf.http/*` trace events, the HTTP cascade is the biggest leakage vector the framework ships.
 
 Spec 014 specifies HTTP-side honouring on top of the Spec 009 contract: every `:rf.http/*` trace event MUST stamp `:sensitive?` when the originating handler is sensitive, MUST redact known-sensitive request headers regardless of handler sensitivity, and MUST redact request / response bodies when the request is sensitive. The contract layers as three cooperating pieces.
 
@@ -1065,7 +1064,7 @@ Apps extend the denylist for app-specific tokens (e.g. `X-Honeycomb-Team`, `X-St
 
 Names stored lower-cased; matching is case-insensitive. The default denylist is fixed at boot; the app-extended set is mutable and clearable for test ergonomics via `(rf.http/clear-sensitive-headers!)`.
 
-### 2. Query-param denylist (always-on) (rf2-2p8wr)
+### 2. Query-param denylist (always-on)
 
 A parallel-axis canonical set of HTTP query-string **parameter names** is **always sensitive** — the names themselves declare the value secret regardless of the surrounding handler's `:sensitive?` flag. URLs in `:rf.http/*` trace events that carry a denylisted query-string parameter have the **value** redacted inline: `?api_key=SECRET&page=2` → `?api_key=:rf/redacted&page=2`. The parameter name and position are preserved so the operator can still see which endpoint was called and which parameters were present, but the secret value is replaced with the framework-reserved sentinel text. Parameter-name matching is **case-insensitive**.
 
@@ -1103,7 +1102,7 @@ Two OR-reduced sources contribute the request-side `:sensitive?` flag for a give
 
 Either source set to `true` makes the request sensitive; both sources defaulting to `false`/absent means not sensitive. The runtime resolves the effective flag once at fx-invocation time and threads it through the attempt-and-retry loop so every `:rf.http/*` trace event the cascade emits sees the same flag (no per-emit re-resolution).
 
-Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/registration-metadata` annotation has been removed (per rf2-hjs2d, see [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Sensitivity is now declared per-request / per-call (the request-side opt-ins here) and, on the trace surface, schema-derived (Spec 009 §Schema-installed redaction). A query-param denylist hit ([§2](#2-query-param-denylist-always-on-rf2-2p8wr)) is a third, automatic stamping signal independent of these opt-ins.
+Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/registration-metadata` annotation has been removed (per, see [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Sensitivity is now declared per-request / per-call (the request-side opt-ins here) and, on the trace surface, schema-derived (Spec 009 §Schema-installed redaction). A query-param denylist hit ([§2](#2-query-param-denylist-always-on)) is a third, automatic stamping signal independent of these opt-ins.
 
 ```clojure
 ;; Per-request — opt a single request in:
@@ -1126,11 +1125,11 @@ Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/regist
 For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the eight `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/decode-defaulted`), implementations MUST:
 
 1. **Redact denylisted headers** in `:headers` slots regardless of the effective `:sensitive?` flag.
-2. **Redact denylisted query-string parameter values** in `:url` slots regardless of the effective `:sensitive?` flag (rf2-2p8wr). Param-name + position preserved; the value is replaced inline with the `:rf/redacted` text token.
+2. **Redact denylisted query-string parameter values** in `:url` slots regardless of the effective `:sensitive?` flag. Param-name + position preserved; the value is replaced inline with the `:rf/redacted` text token.
 3. **Redact body / body-text / decoded / detail** slots when the effective `:sensitive?` is true. Specifically: `:body` (request and response), `:body-text` (decode-failure raw text), `:decoded` (the pre-`:accept` decoded value carried by `:rf.http/accept-failure`), and `:detail` (the user-supplied failure map carried by `:rf.http/accept-failure`). All slot values become `:rf/redacted`.
 4. **Redact `:params`** (the structured query-string params map on the request side) when the effective `:sensitive?` is true. The whole `:params` map value becomes `:rf/redacted`.
 5. **Redact ALL `:url` query-string param values** when the effective `:sensitive?` is true (broader rule than the always-on denylist) — when the request is sensitive, anything that rides the wire is. Non-denylisted params (e.g. `user_id=42`) are scrubbed alongside denylisted ones.
-6. **Stamp `:sensitive?`** on the trace event per [Spec 009 §Trace-event field](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level). The canonical contract is that the flag rides at the top level of the trace envelope (consumers consult `(:sensitive? ev)` for a one-keyword read). The HTTP layer stamps `:sensitive? true` on the tags map passed to `trace/emit!` / `trace/emit-error!`. A **query-param denylist hit alone** (no per-request / per-call `:sensitive?`) also stamps `:sensitive? true` — the denylisted name is itself the signal. If the core trace surface implements the [rf2-isdwf](#) hoist (Spec 009 §Privacy core-stamping), the flag is moved from tags to top-level by the emit walker; if core does not yet hoist, the flag stays under `:tags`. Once core lands the hoist universally, the tags-slot becomes redundant but harmless. Absent (NOT `false`) when not sensitive — per Spec 009 line 1176 "Consumers treat absent as false."
+6. **Stamp `:sensitive?`** on the trace event per [Spec 009 §Trace-event field](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level). The canonical contract is that the flag rides at the top level of the trace envelope (consumers consult `(:sensitive? ev)` for a one-keyword read). The HTTP layer stamps `:sensitive? true` on the tags map passed to `trace/emit!` / `trace/emit-error!`. A **query-param denylist hit alone** (no per-request / per-call `:sensitive?`) also stamps `:sensitive? true` — the denylisted name is itself the signal. If the core trace surface implements the hoist (Spec 009 §Privacy core-stamping), the flag is moved from tags to top-level by the emit walker; if core does not yet hoist, the flag stays under `:tags`. Once core lands the hoist universally, the tags-slot becomes redundant but harmless. Absent (NOT `false`) when not sensitive — per Spec 009 line 1176 "Consumers treat absent as false."
 
 The `:sensitive?` flag a `:rf.http/*` trace event carries is the one resolved for **that specific request** from its per-request / per-call opt-ins (plus any automatic query-param-denylist stamp). Sensitivity does not transitively propagate across a dispatch cascade — a request fired from a non-sensitive call stays non-sensitive even when an ancestor handler in the cascade fired a sensitive request, and vice versa. The OR-reduce-by-cascade rollup, if a consumer wants one, is the consumer's responsibility (group by `:dispatch-id`).
 
@@ -1151,7 +1150,7 @@ The HTTP privacy machinery rides the trace surface and elides with it:
 
 - The redact / stamp helpers all gate on `interop/debug-enabled?` at their call sites (the same gate as `trace/emit!` and `trace/emit-error!`). In `:advanced` + `goog.DEBUG=false` builds Closure DCE removes the trace emits AND the redaction step that prepares them.
 - The header denylist atom itself ships in production (it's read by `declare-sensitive-header!`). The walker only runs against it when a trace emit fires, so production builds that elide the trace surface incur no runtime cost.
-- Handler-meta `:sensitive?` is no longer consulted (the annotation has been removed per rf2-hjs2d). Per-call `:sensitive?` on the `:rf.http/managed` args map is the supported per-request sensitivity opt-in.
+- Handler-meta `:sensitive?` is no longer consulted (the annotation has been removed). Per-call `:sensitive?` on the `:rf.http/managed` args map is the supported per-request sensitivity opt-in.
 
 ### Cross-references
 
@@ -1168,23 +1167,23 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 - **WebSocket** — bidirectional. Lives in [Pattern-WebSocket](Pattern-WebSocket.md); state-machine-shaped.
 - **GraphQL-specific batching / persisted queries.** Layer on top — `:rf.http/managed` hands you the decoded response, your application wraps for batching.
 - **HTTP/2 server push.** Not a re-frame2 concern; the platform handles it transparently.
-- **Response-side interceptors (`:after`).** v1's middleware contract is request-side only ([§Middleware](#middleware), rf2-6y3q). Apps that want to project / log / retry on response paths use `:accept` (domain-failure normalisation) and the trace stream; a future `:after` slot composes additively when it lands.
+- **Response-side interceptors (`:after`).** v1's middleware contract is request-side only ([§Middleware](#middleware)). Apps that want to project / log / retry on response paths use `:accept` (domain-failure normalisation) and the trace stream; a future `:after` slot composes additively when it lands.
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items classify as **`:post-v1 tracked`** — additive surfaces that do not block v1.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items classify as **`:post-v1 tracked`** — additive surfaces that do not block v1.
 
-### Response-side middleware composition (post-v1, rf2-ean6m)
+### Response-side middleware composition (post-v1)
 
-Per [§Middleware](#middleware) (rf2-6y3q) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred to rf2-ean6m until the request-side surface settles in practice and the composition order with `:accept` is decided.
+Per [§Middleware](#middleware) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred to until the request-side surface settles in practice and the composition order with `:accept` is decided.
 
-### Streaming responses (`:rf.http/streaming`) (post-v1, rf2-jg6by)
+### Streaming responses (`:rf.http/streaming`) (post-v1)
 
-Per [§What Spec 014 does NOT cover](#what-spec-014-does-not-cover) streaming responses (chunked HTTP, server-sent events) ship in a sibling spec. The per-chunk event model is a different shape from the single-reply `:rf.http/managed` contract and needs its own envelope; the contract here remains the request → single-reply shape. Deferred to rf2-jg6by.
+Per [§What Spec 014 does NOT cover](#what-spec-014-does-not-cover) streaming responses (chunked HTTP, server-sent events) ship in a sibling spec. The per-chunk event model is a different shape from the single-reply `:rf.http/managed` contract and needs its own envelope; the contract here remains the request → single-reply shape. Deferred to.
 
-### Pluggable backoff strategy (post-v1, rf2-iul15)
+### Pluggable backoff strategy (post-v1)
 
-Per [§Retry and backoff](#retry-and-backoff) v1 ships a fixed exponential-with-jitter backoff. Pluggable backoff (per-call strategy fn, registered named strategies, host-customisable defaults) is an additive surface — deferred to rf2-iul15 until apps surface a real need that the default doesn't cover.
+Per [§Retry and backoff](#retry-and-backoff) v1 ships a fixed exponential-with-jitter backoff. Pluggable backoff (per-call strategy fn, registered named strategies, host-customisable defaults) is an additive surface — deferred to until apps surface a real need that the default doesn't cover.
 
 ## Resolved decisions
 
@@ -1200,25 +1199,25 @@ Per [§Failure categories (closed set)](#failure-categories-closed-set) the fail
 
 Per [§Failure categories (closed set)](#failure-categories-closed-set) the `:rf.http/cors` row is CLJS-only — JVM transports never emit it. CORS is a browser-policy concern; the JVM has no cross-origin policy to enforce. The asymmetry is documented so tools that consume the trace stream don't assume the row exists on every host.
 
-### Request-side middleware only in v1 (rf2-6y3q)
+### Request-side middleware only in v1
 
-Per [§Middleware](#middleware) (rf2-6y3q) the v1 middleware contract is per-frame request-side only — the interceptor chain sits between the user's args and the transport, not between the transport and the reply. The request-side cases (Bearer token, correlation-id, base-URL rewrite) all surfaced as the high-frequency pattern; response-side composition is deferred to [§Open questions](#open-questions). The request-side surface ships first because its shape is settled.
+Per [§Middleware](#middleware) the v1 middleware contract is per-frame request-side only — the interceptor chain sits between the user's args and the transport, not between the transport and the reply. The request-side cases (Bearer token, correlation-id, base-URL rewrite) all surfaced as the high-frequency pattern; response-side composition is deferred to [§Open questions](#open-questions). The request-side surface ships first because its shape is settled.
 
-### Frame-aware reply dispatch (rf2-wvkn)
+### Frame-aware reply dispatch
 
 Per [§Frame awareness](#frame-awareness) every `:rf.http/managed` reply dispatch inherits the originating frame; replies route to the right frame even when the request was issued from a non-default frame (story variant, per-test fixture, SSR per-request). The frame-capture discipline matches [Pattern-AsyncEffect](Pattern-AsyncEffect.md) and is universal across the async-effect surface.
 
-### Actor-destroy aborts in-flight requests (rf2-wvkn)
+### Actor-destroy aborts in-flight requests
 
-Per [§Aborts](#aborts) (rf2-wvkn) `:rf.http/managed` requests issued from inside a spawned state-machine actor are aborted automatically when the actor is destroyed. The actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy)) is the reverse index; `actor-in-flight-snapshot` is the test-only inspection helper. This was chosen over "orphan the request and ignore the reply" because orphaned requests waste transport quota and the reply path's frame-target may no longer exist — both costs grow under retries.
+Per [§Aborts](#aborts) `:rf.http/managed` requests issued from inside a spawned state-machine actor are aborted automatically when the actor is destroyed. The actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy)) is the reverse index; `actor-in-flight-snapshot` is the test-only inspection helper. This was chosen over "orphan the request and ignore the reply" because orphaned requests waste transport quota and the reply path's frame-target may no longer exist — both costs grow under retries.
 
-### Privacy honoured via `:sensitive?` on HTTP trace events (rf2-bma05)
+### Privacy honoured via `:sensitive?` on HTTP trace events
 
-Per [§Privacy](#privacy) (rf2-bma05) the `:rf.http/*` trace events honour the [Spec 009 §`:sensitive?`](009-Instrumentation.md#privacy--sensitive-data-in-traces) contract: per-call and per-request `:sensitive?` flags OR-reduce (handler-meta `:sensitive?` is no longer a source per rf2-hjs2d); the framework redacts request/response bodies and a 12-name header denylist (`authorization`, `cookie`, `set-cookie`, etc.). Headers were chosen as the always-on default surface because they carry the highest-value secrets (auth tokens) across the largest fraction of apps. Apps register their own sensitive headers via `rf.http/declare-sensitive-header!`.
+Per [§Privacy](#privacy) the `:rf.http/*` trace events honour the [Spec 009 §`:sensitive?`](009-Instrumentation.md#privacy--sensitive-data-in-traces) contract: per-call and per-request `:sensitive?` flags OR-reduce (handler-meta `:sensitive?` is no longer a source); the framework redacts request/response bodies and a 12-name header denylist (`authorization`, `cookie`, `set-cookie`, etc.). Headers were chosen as the always-on default surface because they carry the highest-value secrets (auth tokens) across the largest fraction of apps. Apps register their own sensitive headers via `rf.http/declare-sensitive-header!`.
 
-### Query-string denylist is always-on (rf2-2p8wr)
+### Query-string denylist is always-on
 
-Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on-rf2-2p8wr) (rf2-2p8wr) the framework redacts denylisted query-string parameter values in `:url` slots **regardless** of the effective `:sensitive?` flag. Param-name and position are preserved; the value is replaced inline with the `:rf/redacted` text token. Always-on was chosen over flag-gated because query-string-auth patterns (older REST APIs, webhooks) leak through `:rf.warning/decode-defaulted` and similar URL-carrying traces even when the dispatching event isn't `:sensitive?` — the redaction must run unconditionally for the URL slot to be safe.
+Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on) the framework redacts denylisted query-string parameter values in `:url` slots **regardless** of the effective `:sensitive?` flag. Param-name and position are preserved; the value is replaced inline with the `:rf/redacted` text token. Always-on was chosen over flag-gated because query-string-auth patterns (older REST APIs, webhooks) leak through `:rf.warning/decode-defaulted` and similar URL-carrying traces even when the dispatching event isn't `:sensitive?` — the redaction must run unconditionally for the URL slot to be safe.
 
 ### Stale-suppression piggy-backs on the epoch carry
 

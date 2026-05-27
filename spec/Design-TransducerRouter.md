@@ -1,5 +1,5 @@
 > **Type:** Design (post-v1 / v1.1 design pass)
-> Status: deferred from v1; design-only pass tracked by rf2-cl8me.
+> Status: deferred from v1; design-only pass tracked by.
 
 # Design — Transducer-shaped event router (substrate-agnostic)
 
@@ -257,7 +257,7 @@ re-evaluated under the new code, but the envelope-seq is replayed verbatim.
 
 ## 5. Implementation roadmap
 
-**Phase 1 — scaffold (this bead, rf2-cl8me).**
+**Phase 1 — scaffold (this bead).**
 - `implementation/core/src/re_frame/router_transducer.cljc` — pure functions: the
   `frame-transducer-factory` stub, the three reducing-fn presets, the manual-driver shape.
   No wiring into the live runtime. CLJS/CLJ-unit-test-covered.

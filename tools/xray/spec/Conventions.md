@@ -123,7 +123,7 @@ Every facade `reg-view` body MUST produce a hiccup vector with a
 **DOM-tag keyword head** (`:div`, `:section`, `:svg`, …) as its root —
 not a function-component head like
 `[some.ns/SomeComponent {...}]` or a `:<>` fragment. Per
-[main Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1)
+[main Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory)
 the adapter stamps `data-rf2-source-coord` (+ `data-rf-view`) on the
 root DOM element so pair tools can map a clicked DOM node back to the
 reg-view call site. A non-DOM root is a documented exemption

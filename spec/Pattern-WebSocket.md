@@ -202,7 +202,7 @@ The connection machine composes the locked substrate:
                                :auth-token (-> snap :data :auth-token)})
                 ;; Record the spawned actor id so subsequent dispatches
                 ;; and :current-socket? checks have a value to compare.
-                ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory (return
+                ;; `:on-spawn` is advisory (return
                 ;; is dropped); read the id from
                 ;; `[:rf/spawned <parent> <invoke-id>]` instead.
                 :on-spawn   (fn [{:keys [data id]}] (assoc data :socket-id id))}
@@ -309,7 +309,7 @@ The connection machine composes the locked substrate:
             :ws/refresh-token {:action :refresh-token}}}}}))
 ```
 
-The `:websocket/socket` invoked actor is itself a small machine (or fx-backed event handler) that owns the JS `WebSocket` instance and translates `:open`, `:message`, `:error`, `:close` events into dispatches back to the parent connection machine. Every outgoing dispatch carries `:source-socket-id` (the actor's `:rf/self-id`, per [005 §Runtime stamps on the spawned actor's `:data`](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7)) so the parent's `:current-socket?` guard can suppress messages from a prior socket if one happens to dispatch in flight as the cascade tears it down. The actor's lifetime is bound to `:active` — leaving `:active` (whether to `:reconnecting` on error or `:failed` fatally) destroys it; re-entering `:active` creates a fresh socket.
+The `:websocket/socket` invoked actor is itself a small machine (or fx-backed event handler) that owns the JS `WebSocket` instance and translates `:open`, `:message`, `:error`, `:close` events into dispatches back to the parent connection machine. Every outgoing dispatch carries `:source-socket-id` (the actor's `:rf/self-id`, per [005 §Runtime stamps on the spawned actor's `:data`](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data)) so the parent's `:current-socket?` guard can suppress messages from a prior socket if one happens to dispatch in flight as the cascade tears it down. The actor's lifetime is bound to `:active` — leaving `:active` (whether to `:reconnecting` on error or `:failed` fatally) destroys it; re-entering `:active` creates a fresh socket.
 
 ### Parameters
 

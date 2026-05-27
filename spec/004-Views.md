@@ -81,7 +81,7 @@ Render-tree activity surfaces in the trace stream via `:rf.view/render` events (
 
 #### `:render-key` is the tuple `[<view-id> <instance-token>]`
 
-Per rf2-t5tx Option C / rf2-piag, a `:render-key` is a two-element vector:
+Per Option C /, a `:render-key` is a two-element vector:
 
 - **`view-id`** — the `reg-view` registry id (e.g. `:my-app.cart/row`, `:counter`). Names the *kind* of view. For renders that did not enter through `reg-view` / `reg-view*` (plain Reagent fns), the view-id slot is `:rf.view/anonymous` (see §Anonymous fallback below).
 - **`instance-token`** — an integer, minted at mount time from a process-wide counter. Disambiguates concurrently-mounted instances of the same view-id. Tokens are monotonic within a single process run; they carry **no cross-run correlation guarantee** and are not stable across hot-reloads, page refreshes, or replay/restore. Tools that want cross-run identity must derive it elsewhere (positional path, parent-aware keys); the instance-token is for in-run discrimination only.
@@ -238,7 +238,7 @@ This is the family-asymmetry rule applied to views: **render trees use Vars; run
 ;; (or whatever Reagent's hiccup interpretation produces for that tag).
 ```
 
-An earlier draft included an opt-in `(rf/h ...)` macro that walked hiccup at compile time and rewrote namespaced-keyword heads into runtime view lookups. It has been **dropped from the v1 surface** (rf2-n4um). See [§`h` macro dropped](#h-macro-dropped-rf2-n4um) below — the Var idiom plus the function-position `[(rf/view :id) args]` form cover every previous use case without a compile-time hiccup walker.
+An earlier draft included an opt-in `(rf/h ...)` macro that walked hiccup at compile time and rewrote namespaced-keyword heads into runtime view lookups. It has been **dropped from the v1 surface**. See [§`h` macro dropped](#h-macro-dropped) below — the Var idiom plus the function-position `[(rf/view :id) args]` form cover every previous use case without a compile-time hiccup walker.
 
 ## How registered views are used in hiccup
 
@@ -259,7 +259,7 @@ v1 ships three forms for invoking a registered view. To honour the principle of 
 
 ### `view` — the canonical post-registration lookup
 
-Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the **wrapped (frame-aware) fn that `reg-view` produced** — *not* the raw user fn the caller wrote. Specifically the wrapper carries the frame-injection, source-coord annotation (per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1)), and the lexical `dispatch` / `subscribe` bindings described in [§Shape](#shape). The lookup is re-resolved on every call so hot-reload re-registration is picked up immediately — calling `(rf/view :counter)` twice after a swap returns the new wrapped fn the second time. The other call-site forms are sugar over `view`.
+Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the **wrapped (frame-aware) fn that `reg-view` produced** — *not* the raw user fn the caller wrote. Specifically the wrapper carries the frame-injection, source-coord annotation (per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory)), and the lexical `dispatch` / `subscribe` bindings described in [§Shape](#shape). The lookup is re-resolved on every call so hot-reload re-registration is picked up immediately — calling `(rf/view :counter)` twice after a swap returns the new wrapped fn the second time. The other call-site forms are sugar over `view`.
 
 ```clojure
 (rf/view :counter)               ;; → wrapped (frame-aware) fn — observably equivalent to the Var bound by reg-view
@@ -395,7 +395,7 @@ Reagent Form-3 (`reagent.core/create-class`) is **not supported by the `reg-view
      :component-will-unmount (fn [] ...)}))
 ```
 
-The Reagent-v2 directive (rf2-25aq) constrains the canonical surface to Form-1 + Form-2; Form-3 ships through the escape hatch.
+The Reagent-v2 directive constrains the canonical surface to Form-1 + Form-2; Form-3 ships through the escape hatch.
 
 ## View registry — tooling surface
 
@@ -406,7 +406,7 @@ Registered views live in re-frame's handler registrar (kind `:view`). The public
 
 Tools (10x, story tools, agents) read these to render view inspectors, pick views for stories, generate documentation. Source coords let tools navigate to the view's source.
 
-### Source-coord (rf2-z7f7 / rf2-z9n1)
+### Source-coord
 
 Every `reg-view` call captures full source coordinates at macro-expansion time. The metadata stamped onto the registry slot includes `:ns` / `:file` / `:line` / `:column`:
 
@@ -416,7 +416,7 @@ Every `reg-view` call captures full source coordinates at macro-expansion time. 
 The captured tuple is consumed by:
 
 - **Tools** that need to navigate from a view-id to source (re-frame-pair, re-frame-10x, IDE jump-to-source) via `(rf/handler-meta :view id)`.
-- **Substrate adapters** that inject the `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute on the rendered root DOM element. Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) this is **mandatory** for any substrate adapter whose host has a DOM-attribute concept (Reagent, UIx, Helix); CLJS-only and gated on `interop/debug-enabled?` so production builds elide the attribute.
+- **Substrate adapters** that inject the `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute on the rendered root DOM element. Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory) this is **mandatory** for any substrate adapter whose host has a DOM-attribute concept (Reagent, UIx, Helix); CLJS-only and gated on `interop/debug-enabled?` so production builds elide the attribute.
 - **JVM SSR** the same way — see [Spec 011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr).
 
 Pair-shaped consumers parse the attribute string as `<ns>:<sym>:<line>:<col>` (segments are `?` when a coord component was not captured — for example, programmatic `reg-view*` registrations that bypassed the macro path). The `<ns>:<sym>` portion mirrors the registry id's namespace + name, so parsing is the inverse of `(keyword ns sym)`.
@@ -503,7 +503,7 @@ Most animations are Regime A. Reach for B only when the state genuinely advances
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the bare-`[:my-view "args"]`-in-hiccup item classifies as **`:post-v1 tracked`** — out of scope for v1 and folded into the substrate-decoupling work tracked at [Spec 006 §Open questions](006-ReactiveSubstrate.md#open-questions).
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the bare-`[:my-view "args"]`-in-hiccup item classifies as **`:post-v1 tracked`** — out of scope for v1 and folded into the substrate-decoupling work tracked at [Spec 006 §Open questions](006-ReactiveSubstrate.md#open-questions).
 
 ### Bare `[:my-view "args"]` in raw hiccup (post-v1)
 
@@ -538,13 +538,13 @@ For the rare case where the user wants no Var binding (e.g. views generated prog
     (fn [_props] ...)))
 ```
 
-### `h` macro dropped (rf2-n4um)
+### `h` macro dropped
 
 An earlier draft of this spec included an `h` macro that walked hiccup at compile time and rewrote namespaced-keyword heads (`[:my-app/widget args]`) into runtime `(rf/view :my-app/widget)` lookups. It has been removed from the v1 surface. The Var idiom — `(reg-view counter [...] ...)` defs `counter`; users write `[counter "Hello"]` — is the canonical call-site form. For late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites) the canonical handle is the explicit function-position form `[(rf/view :counter) "Hello"]`. Two surfaces, both data-friendly, no compile-time hiccup walker to learn or reason about.
 
 ### Form-3 (`reagent.core/create-class`) — out of scope for the macro
 
-The `reg-view` macro rejects bodies whose top-level form is `(reagent.core/create-class …)` — Form-3 is the canonical escape-hatch case. Per the Reagent-v2 directive (rf2-25aq) the canonical surface targets Form-1 + Form-2; Form-3 ships through `re-frame.core/reg-view*`:
+The `reg-view` macro rejects bodies whose top-level form is `(reagent.core/create-class …)` — Form-3 is the canonical escape-hatch case. Per the Reagent-v2 directive the canonical surface targets Form-1 + Form-2; Form-3 ships through `re-frame.core/reg-view*`:
 
 ```clojure
 (re-frame.core/reg-view* :feature/widget

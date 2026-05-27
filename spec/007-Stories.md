@@ -307,7 +307,7 @@ Play is a **sequence of events fired after the variant has rendered**, distinct 
 
 > **Assertion vocabulary is registered and enumerable.** The `:rf.assert/*` namespace is reserved (see [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) and registered as a public, queryable set of events. The stories library registers the canonical vocabulary at load time: `:rf.assert/path-equals`, `:rf.assert/path-matches`, `:rf.assert/sub-equals`, `:rf.assert/dispatched?`, `:rf.assert/state-is` (machine), `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`. Tooling enumerates `(rf/registrations :event #(re-find #"^:rf\.assert/" (str (:id %))))` to discover the vocabulary. Per [Principles §Public query surfaces](Principles.md#public-query-surfaces).
 
-> **Sibling surface — the `(ts/assert-*-equals ...)` fn-family.** The `:rf.assert/*` event-vector family is the **Story `:play`-block** assertion surface; the sibling surface for **in-process `clojure.test` bodies** is the sync fn-family `(ts/assert-path-equals path expected-val)` (mirrors `:rf.assert/path-equals`) + `(ts/assert-db-equals expected-db)` (companion full-db form; no event analog) in `re-frame.test-support` (see [008-Testing §`assert-path-equals` / `assert-db-equals` example](008-Testing.md#assert-path-equals--assert-db-equals-example)). The shared `path-equals` name root between event-side and fn-side is deliberate (per rf2-8j9m6) — same intent (db-shape assertion), different runner/reporting channel; readers navigating between the two surfaces do not need a translation table. Choose by test surface — a story variant's `:play` vector takes `:rf.assert/*`; a `deftest` body calls `ts/assert-path-equals` / `ts/assert-db-equals`. The two are not interchangeable: `:rf.assert/*` events are dispatches handled by the story library's test runner (checked-step list in dev/docs, loud failures in test mode, simulation breakpoints in agent mode); the fn-family reports via `clojure.test/do-report`.
+> **Sibling surface — the `(ts/assert-*-equals ...)` fn-family.** The `:rf.assert/*` event-vector family is the **Story `:play`-block** assertion surface; the sibling surface for **in-process `clojure.test` bodies** is the sync fn-family `(ts/assert-path-equals path expected-val)` (mirrors `:rf.assert/path-equals`) + `(ts/assert-db-equals expected-db)` (companion full-db form; no event analog) in `re-frame.test-support` (see [008-Testing §`assert-path-equals` / `assert-db-equals` example](008-Testing.md#assert-path-equals--assert-db-equals-example)). The shared `path-equals` name root between event-side and fn-side is deliberate — same intent (db-shape assertion), different runner/reporting channel; readers navigating between the two surfaces do not need a translation table. Choose by test surface — a story variant's `:play` vector takes `:rf.assert/*`; a `deftest` body calls `ts/assert-path-equals` / `ts/assert-db-equals`. The two are not interchangeable: `:rf.assert/*` events are dispatches handled by the story library's test runner (checked-step list in dev/docs, loud failures in test mode, simulation breakpoints in agent mode); the fn-family reports via `clojure.test/do-report`.
 
 ### Story-as-test duality
 
@@ -427,7 +427,7 @@ The same data drives every consumer. No artefact duplication.
 
 Every variant has a stable **snapshot identity** comprising its `:variant-id` plus a content hash of its serialised body. The hash includes:
 
-- `:events` setup dispatches and the `:play-script` / `:plays` play surfaces (in order) — the legacy `:play` slot was removed (rf2-0wrud),
+- `:events` setup dispatches and the `:play-script` / `:plays` play surfaces (in order) — the legacy `:play` slot was removed,
 - the resolved (post-`:extends`-merge) args, decorators, and tags,
 - the variant's `:viewport` / `:background` visual chrome (they land in the screenshot),
 - the parent story's component id (`:component`) and decorators,
@@ -453,14 +453,14 @@ Panels are registered against the story-tool's own registry; the tool reads `(st
 
 Story maintains its kind-shaped registrations in a tool-owned side-table at `tools.story.registry/*`. This is internal to the `tools/story/` artefact and stays out of production bundles. The bridge fn `story/registrations` exposes the §Public-query-surfaces parity (e.g. `(story/registrations :story)` enumerates the side-table). The framework registrar's closed-kinds discipline ([001-Registration.md](001-Registration.md)) is preserved — Story does not register with `re-frame.registrar`.
 
-### Third-party egress in story tooling (rf2-su313)
+### Third-party egress in story tooling
 
 Story tooling makes two documented network calls to third-party endpoints:
 
 - **QR-code generation hits `api.qrserver.com`.** The story-tool's "share this variant" affordance posts the current URL to a public QR-rendering endpoint and inlines the returned PNG. User-triggered, off by default unless the dev clicks the action.
 - **Axe-core loads from a public CDN.** The accessibility-inspector panel pulls axe-core's runtime from a public CDN rather than bundling it into the story artefact. Story bundles stay small for the a11y-disabled majority; the a11y-using minority takes the runtime CDN hop on first open.
 
-These are **dev-tool conveniences with documented egress, not gated**. Both endpoints are unauthenticated; neither carries app-db state, framework secrets, or variant payloads. Apps that need air-gapped story tooling bundle local replacements on the user side — the story library does not ship a feature flag for swapping them out. Per rf2-su313 and [Security.md §Pragmatic stance](Security.md#pragmatic-stance) ("third-party egress in story tooling — documented, not gated").
+These are **dev-tool conveniences with documented egress, not gated**. Both endpoints are unauthenticated; neither carries app-db state, framework secrets, or variant payloads. Apps that need air-gapped story tooling bundle local replacements on the user side — the story library does not ship a feature flag for swapping them out. Per and [Security.md §Pragmatic stance](Security.md#pragmatic-stance) ("third-party egress in story tooling — documented, not gated").
 
 > Cross-reference: see [Security.md §Threat model + scope](Security.md#threat-model--scope) — "Third-party egress in dev tooling" is one of the framework's named out-of-scope categories.
 
@@ -484,7 +484,7 @@ A port can ship every pattern-contract surface above without shipping a single l
 
 Surfaces a conformant port MAY consume from a host library, third-party catalog browser, or in-house tool, rather than ship itself:
 
-- **The catalog-browser UI shell.** The browseable index of registered stories / variants / workspaces, the per-variant render preview, the args-control panel, the tag-filter sidebar — all UI affordances are tool-discretionary. The CLJS reference ships one (the `re-frame.story` library's story-tool UI in the `tools/story/` artefact); other ports MAY ship a different shell, embed into a host like Storybook / devcards / Workspaces via an adapter shim (per [§Devcards / Workspaces interop](#devcards--workspaces-interop-post-v1-rf2-9amwm)), or omit a UI entirely and consume the pattern-contract surface from tests only.
+- **The catalog-browser UI shell.** The browseable index of registered stories / variants / workspaces, the per-variant render preview, the args-control panel, the tag-filter sidebar — all UI affordances are tool-discretionary. The CLJS reference ships one (the `re-frame.story` library's story-tool UI in the `tools/story/` artefact); other ports MAY ship a different shell, embed into a host like Storybook / devcards / Workspaces via an adapter shim (per [§Devcards / Workspaces interop](#devcards--workspaces-interop-post-v1)), or omit a UI entirely and consume the pattern-contract surface from tests only.
 - **MDX / markdown wrappers, doc-tooling integration.** Annotating stories with prose, embedding them in a docs site, generating screenshots — all post-processing patterns that consume the pattern-contract surface. None are normative.
 - **The story-tool extension hook** (`tools.story.registry/*` side-table registries, `story/reg-story-panel`, per [§Story-tool extension hook](#story-tool-extension-hook)) — pattern contract names the registry kinds and the registration shape; the *tool* that consumes the side-table to render extension panels is implementation discretion. Story-MCP and Xray each consume it differently; both are valid.
 - **Visual-regression / screenshot integration** (per the [resolved decision](#screenshot--visual-regression-integration)) — pattern contract reserves `[:story.snapshot/*]` event ids; the *runner* that takes the snapshot, diffs against golden, and reports is tool discretion.
@@ -519,13 +519,13 @@ Workspaces are *not* frames (or not necessarily — they may be ordinary frames 
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Workspaces — generic or specialised?" classifies as **`:resolved`** (the inline `:layout`-field framing IS the answer — migrated to `## Resolved decisions` below); "Story composition across libraries" classifies as **`:resolved`** (the inline "story tool reads all registered `:story.*` ids" framing IS the answer — migrated to `## Resolved decisions` below); "Devcards / Workspaces interop" classifies as **`:post-v1 tracked`** at rf2-9amwm (adapter shim, deferred).
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Workspaces — generic or specialised?" classifies as **`:resolved`** (the inline `:layout`-field framing IS the answer — migrated to `## Resolved decisions` below); "Story composition across libraries" classifies as **`:resolved`** (the inline "story tool reads all registered `:story.*` ids" framing IS the answer — migrated to `## Resolved decisions` below); "Devcards / Workspaces interop" classifies as **`:post-v1 tracked`** at (adapter shim, deferred).
 
-### Devcards / Workspaces interop (post-v1, rf2-9amwm)
+### Devcards / Workspaces interop (post-v1)
 
-Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims. Deferred to rf2-9amwm.
+Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims. Deferred to.
 
-#### Post-v1 Tracking — rf2-9amwm
+#### Post-v1 Tracking
 
 - **Foundation in v1.** The variant id surface (`:story.<ns>/<variant>`) is stable; the registry is readable via `rf/variants` (per the story registry shape); rendered hiccup is a plain value.
 - **Scope deferred.** A thin adapter shim per host tool — devcards (`defcard` wrapping a `story/run-variant` call) and nubank/workspaces (workspace card from variant id) are the obvious first targets. No story-side change required.

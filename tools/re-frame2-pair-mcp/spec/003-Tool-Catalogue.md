@@ -1392,7 +1392,7 @@ summary `{:ok? true :sub-id :delivered N :dropped-events N
 | `epoch`     | Every assembled `:rf/epoch-record` matching `filter`. Already cascade-shaped by construction.                   |
 | `fx`        | Sugar — `topic :trace` with base filter `{:op-type :rf.fx}`. Cascade-bundle delivery as for `:trace`.            |
 | `error`     | Sugar — `topic :trace` with base filter `{:op-type :error}`. Cascade-bundle delivery as for `:trace`.            |
-| `frameless` | Every trace event matching `filter` whose `:rf.trace/dispatch-id` tag is absent — registration emits, REPL evals, lifecycle outside any cascade (per [Tool-Pair.md §Frameless trace events — live channel only](../../../spec/Tool-Pair.md#frameless-trace-events--live-channel-only-rf2-g1b2m-b3-ruling)). Single-event delivery. |
+| `frameless` | Every trace event matching `filter` whose `:rf.trace/dispatch-id` tag is absent — registration emits, REPL evals, lifecycle outside any cascade (per [Tool-Pair.md §Frameless trace events — live channel only](../../../spec/Tool-Pair.md#frameless-trace-events--live-channel-only)). Single-event delivery. |
 
 User-supplied filter keys win over the topic's base filter on conflict
 — the topic is a default, not a lock. So `subscribe {:topic :fx
@@ -1405,7 +1405,7 @@ On the cascade-bundle topics (`:trace`, `:fx`, `:error`) every
 progress payload's `:cascades` slot is a vector of cascade bundles
 keyed by `:dispatch-id`. Each bundle matches the framework's
 `(rf/trace-buffer frame-id)` shape per [spec/009 §Cascade projection](../../../spec/009-Instrumentation.md#cascade-projection-group-cascades--domino-bucket)
-and [Tool-Pair.md §Reading the per-frame trace ring](../../../spec/Tool-Pair.md#reading-the-per-frame-trace-ring--cascade-bundles--flat-opt-in-rf2-g1b2m):
+and [Tool-Pair.md §Reading the per-frame trace ring](../../../spec/Tool-Pair.md#reading-the-per-frame-trace-ring--cascade-bundles--flat-opt-in):
 
 ```clojure
 {:dispatch-id        <id>                  ; cascade id
@@ -1463,7 +1463,7 @@ rode a dispatch cascade. The progress payload's load slot is
 no cascade to bundle).
 
 Frameless events bypass every ring per [Tool-Pair.md §Frameless
-trace events](../../../spec/Tool-Pair.md#frameless-trace-events--live-channel-only-rf2-g1b2m-b3-ruling)
+trace events](../../../spec/Tool-Pair.md#frameless-trace-events--live-channel-only)
 — they stream live to listeners only. The `:frameless` topic is the
 MCP-side surface for that live channel; consumers MUST opt in
 explicitly per the framework's "separate channel" ruling
