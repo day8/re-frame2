@@ -205,6 +205,11 @@
 ;; -- sub-header -----------------------------------------------------------
 
 (def ^:private sub-header-style
+  ;; Lowercase by design — sub-headers render `:db` / `:fx` /
+  ;; literal labels like "cascade" as-typed so EDN-keyword identity
+  ;; reads accurately (the prior `:text-transform "uppercase"` was
+  ;; rendering `:DB` / `:FX` which read as if the framework had
+  ;; uppercase keyword names).
   {:display        "flex"
    :align-items    "center"
    :gap            "6px"
@@ -213,7 +218,6 @@
    :font-size      "11px"
    :font-weight    600
    :color          text-tertiary-colour
-   :text-transform "uppercase"
    :letter-spacing "0.5px"})
 
 (def ^:private sub-header-glyph-style
@@ -2530,8 +2534,6 @@
    {:mode      mode
     ;; rf2-7vv8f — testid prefix normalised to `rf-xray-<surface>-diff-mode`.
     :testid    "rf-xray-epoch-handler-db-diff-mode"
-    ;; rf2-fytu4 — uniform "View" discoverability label.
-    :label     "View"
     :on-change (fn [m]
                  (rf/with-frame :rf/xray
                    (rf/dispatch [:rf.xray.epoch/set-db-diff-mode m])))}])
@@ -2572,11 +2574,12 @@
   [db-diff]
   (let [mode      @(rf/subscribe [:rf.xray.epoch/db-diff-mode])
         empty?    (not (seq db-diff))
-        n         (count db-diff)
-        diff-summary (cond
-                       (not= :diff mode) nil
-                       empty? "— (no changes)"
-                       :else  (str n " path" (when (not= 1 n) "s")))]
+        ;; "— (no changes)" fires ONLY in :diff mode when there are
+        ;; no path-changes (the empty-state read). Non-empty :diff
+        ;; mode renders the diff-lines themselves; the prior "N paths"
+        ;; count chip was redundant with that and added noise.
+        diff-summary (when (and (= :diff mode) empty?)
+                       "— (no changes)")]
     [:div {:data-testid "rf-xray-epoch-handler-db-diff"
            :data-empty (str empty?)
            ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis (was
