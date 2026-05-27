@@ -819,12 +819,6 @@
    :flex-wrap   "wrap"
    :align-items "center"})
 
-(def ^:private subs-changed-tick-style
-  {:color success-colour :font-weight 700})
-
-(def ^:private subs-unchanged-tick-style
-  {:color text-tertiary-colour :font-weight 700})
-
 ;; -- SUBSCRIPTIONS filter button bar --------------------------------------
 
 (def ^:private subs-filter-bar-style
@@ -2946,41 +2940,38 @@
                    R1-R8 grammar paints inline `← changed from X`
                    annotations. Default per pair-debug 2026-05-27.
 
-  Unchanged rows (`:changed? false`) render the muted `✗` tick
-  regardless of mode (no value, nothing to diff)."
+  Unchanged rows (`:changed? false`) render an empty cell — the
+  value column is reserved for diff signal; absence of a row entry
+  in this column is itself the unchanged indicator. Per Mike
+  pair-debug 2026-05-27 (rf2-fqcdd follow-up) the leading ✓/✗
+  ticks were dropped — redundant once the cell is value-only."
   [{:keys [sub-id changed? before after]} mode idx]
-  (if changed?
+  (when changed?
     (case mode
       :full
-      [:div {:style subs-changed-row-style}
-       [:span {:style subs-changed-tick-style} "✓"]
-       [:div {:style {:flex 1 :min-width 0}}
-        [ei/edn-inspector after
-         {:panel-id :rf.xray.epoch/subs-value
-          :site-id  [:rf.xray.epoch/subs-value sub-id idx :full]
-          :default-expanded-depth 2}]]]
+      [:div {:style {:flex 1 :min-width 0}}
+       [ei/edn-inspector after
+        {:panel-id :rf.xray.epoch/subs-value
+         :site-id  [:rf.xray.epoch/subs-value sub-id idx :full]
+         :default-expanded-depth 2}]]
 
       :full+diff
-      [:div {:style subs-changed-row-style}
-       [:span {:style subs-changed-tick-style} "✓"]
-       [:div {:style {:flex 1 :min-width 0}}
-        [ei/edn-inspector after
-         (cond-> {:panel-id :rf.xray.epoch/subs-value
-                  :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
-                  :default-expanded-depth 3
-                  :full-with-diff? true}
-           (some? before) (assoc :before before))]]]
+      [:div {:style {:flex 1 :min-width 0}}
+       [ei/edn-inspector after
+        (cond-> {:panel-id :rf.xray.epoch/subs-value
+                 :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
+                 :default-expanded-depth 3
+                 :full-with-diff? true}
+          (some? before) (assoc :before before))]]
 
-      ;; :diff (default fallback) — preserve the prior shape.
+      ;; :diff (default fallback) — before → after via mini.
       [:div {:style subs-changed-row-style}
-       [:span {:style subs-changed-tick-style} "✓"]
        (when (some? before)
          [:span {:style diff-before-style} [ei/mini before 24]])
        (when (and (some? before) (some? after))
          [:span {:style cascade-detail-label-style} "→"])
        (when (some? after)
-         [:span {:style diff-after-success-style} [ei/mini after 24]])])
-    [:span {:style subs-unchanged-tick-style} "✗"]))
+         [:span {:style diff-after-success-style} [ei/mini after 24]])])))
 
 (defn- subscriptions-table
   "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
