@@ -719,24 +719,43 @@
   - Rows on a phase that maps to nil (e.g. `:always` with no transition
     in the cascade) — keep slots nil; source lookup degrades gracefully."
   [rows]
-  (let [v   (vec rows)
-        n   (count v)
+  (let [v (vec rows)
+        n (count v)
         ;; For each row index, find the surrounding transition row:
-        ;; prefer the NEXT transition ahead (substrate emits actions
-        ;; before the transition), else fall back to the most recent
-        ;; preceding transition (post-commit timer-cancels).
+        ;; prefer the NEXT transition AT-OR-AHEAD (substrate emits
+        ;; actions before the transition), else fall back to the most
+        ;; recent preceding transition (post-commit timer-cancels).
+        ;;
+        ;; rf2-w6yfq — single-pass O(n) instead of O(n²). Walk
+        ;; RIGHT-TO-LEFT threading `next-ahead` (the most recent
+        ;; transition seen so far, looking back from the right); then
+        ;; walk LEFT-TO-RIGHT threading `prior` (the most recent
+        ;; transition emitted at-or-before i). Prefer `next-ahead`,
+        ;; fall back to `prior`. Two linear passes + one mapv → O(n).
+        ;; Prior shape did a forward `(some … (subvec v i))` per row,
+        ;; which is O(n²); real cascades are tiny (< 10 rows) so the
+        ;; win is asymptotic-only, but the shape is cleaner.
+        next-ahead (loop [i (dec n) seen nil acc (transient (vec (repeat n nil)))]
+                     (if (neg? i)
+                       (persistent! acc)
+                       (let [row (nth v i)
+                             tx? (= :transition (:kind row))
+                             ;; AT-OR-AHEAD: if this row IS a transition, it
+                             ;; IS the surrounding row for itself.
+                             surrounding (if tx? row seen)]
+                         (recur (dec i)
+                                (if tx? row seen)
+                                (assoc! acc i surrounding)))))
         next-tx (loop [i 0 prior nil acc (transient (vec (repeat n nil)))]
                   (if (>= i n)
                     (persistent! acc)
                     (let [row (nth v i)
-                          surrounding (cond
-                                        (= :transition (:kind row)) row
-                                        :else (or
-                                                (some #(when (= :transition (:kind %)) %)
-                                                      (subvec v i))
-                                                prior))]
+                          tx? (= :transition (:kind row))
+                          ;; Prefer next-ahead (which is the row itself
+                          ;; when tx?); fall back to `prior`.
+                          surrounding (or (nth next-ahead i) prior)]
                       (recur (inc i)
-                             (if (= :transition (:kind row)) row prior)
+                             (if tx? row prior)
                              (assoc! acc i surrounding)))))]
     (mapv
       (fn [row tx]

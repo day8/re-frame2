@@ -805,6 +805,38 @@
           "no surrounding transition → no source-state stamp")
       (is (nil? (:event-id (first rows)))))))
 
+(deftest machine-cascade-rows-post-transition-row-falls-back-to-prior-test
+  (testing "rf2-w6yfq — when rows trail BEHIND the last transition
+            (post-commit timer-cancels), `enrich-cascade-rows` falls
+            back to the most recent preceding transition's
+            :from-state / :to-state / :event. Pins the two-pass
+            (right-to-left then left-to-right) shape that replaced the
+            O(n²) forward-scan."
+    (let [evs [(machine-guard-ev :ready? :pass)
+               (machine-transition-ev :ws/conn
+                                       {:state :idle :data {}}
+                                       {:state :connected :data {}}
+                                       [:ws/start] 0)
+               ;; Post-commit timer-cancel — no transition ahead.
+               (machine-timer-cancel-ev :ws/conn [:idle] 250 :on-exit)]
+          rows (proj/machine-cascade-rows evs)]
+      ;; Pre-transition guard row → next-ahead supplies the transition
+      ;; states.
+      (is (= :idle      (-> rows (nth 0) :source-state)))
+      (is (= :connected (-> rows (nth 0) :target-state)))
+      ;; The transition row itself stamps from its own slots.
+      (is (= :idle      (-> rows (nth 1) :source-state)))
+      (is (= :connected (-> rows (nth 1) :target-state)))
+      ;; Post-transition timer-cancel — no next-ahead transition;
+      ;; falls back to `prior` (the preceding transition row). This
+      ;; is the exact path rf2-w6yfq tightened from O(n²) to O(n).
+      (is (= :idle      (-> rows (nth 2) :source-state))
+          "post-transition row inherits :source-state from the preceding transition (prior fallback)")
+      (is (= :connected (-> rows (nth 2) :target-state))
+          "post-transition row inherits :target-state from the preceding transition (prior fallback)")
+      (is (= :ws/start  (-> rows (nth 2) :event-id))
+          "post-transition row inherits :event-id from the preceding transition"))))
+
 (deftest state-spec-path-prefix-test
   (testing "rf2-wwc3j — `state-spec-path-prefix` coerces a state form
             into the spec-path prefix the macro's source-coord index uses"
