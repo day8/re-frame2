@@ -27,7 +27,7 @@ each shown with `before` and `after` values, colour-coded by op
 a popup inspector at that path-prefix, so the user can inspect
 arbitrary sub-trees of `app-db` on demand.
 
-This is the **single most-used Xray surface** after the Event tab.
+This is the **single most-used Xray surface** after the Epoch panel.
 The 400ms yellow → transparent diff-flash on touched slices is the
 attention-cue that keeps the user oriented across cascades.
 

@@ -265,7 +265,8 @@ demoted to peer + inline mini-graph.
 **Updated 2026-05-19 (Mike, rf2-y0z5b).** Causality surface dropped
 entirely — the popover, the ELK+SVG graph primitive, and the `c` key
 binding are all gone. Event detail remains hero; cascade lineage is
-inspected via the Event tab + Trace tab tags, not a dedicated graph.
+inspected via the hero panel (then the Event/Handler tab; later the
+Epoch panel per rf2-5gl5r) + Trace tab tags, not a dedicated graph.
 
 ### Question
 
@@ -285,8 +286,10 @@ What's the hero panel — the one users land in on every `Ctrl+Shift+C`?
 
 **Event detail as hero.** The causality graph is a peer panel —
 first-class, sidebar entry, keyboard mnemonic `c`, but not the
-front door. The event-detail panel includes an inline mini-graph
-(3–5 nodes) when the current epoch has a `:parent-dispatch-id`.
+front door. The hero detail panel (the Event/Handler panel at the
+time of this lock; the Epoch panel post rf2-5gl5r) includes an
+inline mini-graph (3–5 nodes) when the current epoch has a
+`:parent-dispatch-id`.
 
 ### Why
 

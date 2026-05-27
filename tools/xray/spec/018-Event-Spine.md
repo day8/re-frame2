@@ -60,10 +60,10 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routes ⚠Issues 1         │   L3 — 7 tabs
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routes ⚠Issues 1         │   L3 — 7 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
-│ — Event tab content for the focused event —                             │   L4 — fills the rest
-│   event vector · source · handler return · db writes · fx · fx-handlers │
+│ — Epoch panel content for the focused event —                           │   L4 — fills the rest
+│   numbered cascade: DISPATCH · COEFFECTS · HANDLER · FLOW · FX · …      │
 │     (cljs-devtools-shaped renderer; pure hiccup; theme-token driven)    │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -307,7 +307,7 @@ gets the accent-violet keyword colour so it pops out of the payload;
 the payload renders in the row's default text colour. Empty payloads
 collapse to `[:counter/inc]` (no `{}` placeholder). The 80-char cap
 is a single-row legibility constraint — clicking the row opens the
-L4 Event tab with the full untruncated vector. The Row anatomy table
+L4 Epoch panel with the full untruncated vector. The Row anatomy table
 below remains the canonical shape; this callout records what the
 `Event id` column actually packs at v1.
 
@@ -332,7 +332,7 @@ source tag, the activity badges (`⚠ 🌐 🤖`), the trailing 2px lifecycle
 status stripe, the redaction marker, and the out-of-focus dimming. The
 dropped fields (full event vector + args, sequence number, frame, source
 coord, handler duration) surface in the row's hover `:title` tooltip + the
-L4 Event tab on click. The timestamp column shows the absolute wall-clock
+L4 Epoch panel on click. The timestamp column shows the absolute wall-clock
 `HH:MM:SS.mmm` (rf2-3f2di A8), not the relative chip described below.
 
 #### Relative-time chip (rf2-vbbq0 / rf2-0s2at)
@@ -391,14 +391,14 @@ The single-line row drops detail the round-1 two-line row used to carry. Every r
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-The Event tab (L4 when active) is the OTHER home for the dropped detail. The tooltip + tab pair means the row stays scannable while the detail stays one hover or one click away.
+The Epoch panel (L4 when active) is the OTHER home for the dropped detail. The tooltip + panel pair means the row stays scannable while the detail stays one hover or one click away.
 
 ### Row click + key behaviour
 
 | Action | Result |
 |---|---|
 | **Click row** | `:rf.xray/focus-cascade <id>` + flip `:mode → :retro`; detail panel updates per active tab |
-| **Double-click row** | Focus + pivot L3 to Event tab (= click row then press `e`) |
+| **Double-click row** | Focus + pivot L3 to Epoch panel (= click row then press `e`) |
 | **`o` while row focused** | Open source coord in editor (per [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol matrix) |
 | **`Ctrl+click` row** | Copy cascade-id to clipboard |
 | **Right-click row** | Context menu (see [§7 Filter system — right-click context menu](#7-filter-system)) |
@@ -417,7 +417,7 @@ The LIVE/sticky split is the chrome's load-bearing temporal behaviour. New arriv
 
 ### Row expansion
 
-Round-3 decision: rows are **NOT click-expandable** in place. The Event tab (L4) is the sole destination for the dropped detail; hover tooltips give a peek; clicking focuses + the Event tab (already showing the focused event) displays everything. This keeps the row geometry one-line uniformly and the spine's "selection = focus" semantics atomic.
+Round-3 decision: rows are **NOT click-expandable** in place. The Epoch panel (L4) is the sole destination for the dropped detail; hover tooltips give a peek; clicking focuses + the Epoch panel (already showing the focused event) displays everything. This keeps the row geometry one-line uniformly and the spine's "selection = focus" semantics atomic.
 
 ### Multi-instance Mode C lineage overlay
 
@@ -438,13 +438,13 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1                         │   L3
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1                         │   L3
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 | # | Tab | Mnem | What it shows for the focused event | Spec |
 |---|---|---|---|---|
-| 1 | **Event** | `e` | Whole event vector + arg-map + source · handler return · db writes · fx vector · fx-handlers that ran (incl. results) | this doc §5.1 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Event-detail panel |
+| 1 | **Epoch** | `e` | Numbered vertical cascade of the focused epoch's pipeline (DISPATCH · COEFFECTS · HANDLER · FLOW · FX · SUBSCRIPTIONS · VIEWS, conditional per the trace stream); supersedes the retired Event/Handler panel per rf2-5gl5r. | [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1 + this doc §5.1 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Epoch tab |
 | 2 | **App-db** | `a` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
 | 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
@@ -459,7 +459,7 @@ ui/chrome_a11y.cljs`) — a sibling to the variant a11y scanner
 `re-frame.story.ui.a11y` (rf2-qgms1). A duplicate Xray panel was
 noise that flagged the Xray events-list as a problem.)
 
-**Effects is folded into Event** — the "fx handlers that ran" block under Event tab covers it.
+**Effects is folded into the Epoch panel** — the "EFFECTS HANDLERS RAN" section of the numbered cascade covers it.
 
 **Subs are folded into Views** — subs nest under each view row, not a separate tab. See [`012-Views.md`](012-Views.md).
 
@@ -469,7 +469,7 @@ noise that flagged the Xray events-list as a problem.)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1                         │
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1                         │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -509,7 +509,7 @@ L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). Al
 
 The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets the Chrome console; this is in-page hiccup). Pure hiccup, theme-token-driven, substrate-agnostic. See [`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
 
-### §5.1 Event tab content — the 8-section Event lens
+### §5.1 Epoch panel content — the 8-section event lens (rf2-5gl5r)
 
 Shipped layout per rf2-zh2qc + rf2-jhhqt + rf2-lo37i (rf2-jhhqt swaps
 DISPATCH SITE before EVENT per Mike's Q1 verbatim and adds the COEFFECTS
@@ -673,7 +673,7 @@ read top-to-bottom as the developer scans.
   for the exception detail.` This is the ONE inline cross-reference
   to another tab.
 
-#### What's dropped from the Event tab
+#### What's dropped from the Epoch panel
 
 - **subs ran** → Views tab.
 - **renders** → Views tab.
@@ -1429,10 +1429,10 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 | Layer | Surface | Sentinels rendered |
 |---|---|---|
 | L2 event list row | Trailing redaction marker | `[● REDACTED N]` magenta / `[● ELIDED N]` yellow as static trailing marker on the row (no inline preview slot); marker count = total sentinels in event arg-map |
-| L4 Event tab | Event vector + handler `:tags` + fx-args payload | Via `inspect` renderer; sentinels render as colourful inline chips |
+| L4 Epoch panel | Event vector + handler `:tags` + fx-args payload | Via `inspect` renderer; sentinels render as colourful inline chips |
 | L4 App-db tab | Diff slice tree before/after | Via `inspect-diff`; sentinel position in path preserved |
 | L4 Views tab | Per-view sub return values | Via `inspect`; per-sub redaction propagation visible; cluster aggregates per [`012-Views.md`](012-Views.md) |
-| L4 Event tab "fx handlers that ran" | Per-fx `:fx-args` payload + return | Via `inspect`; e.g. `:http/post` request body shows `{:password :rf/redacted}` |
+| L4 Epoch panel "EFFECTS HANDLERS RAN" | Per-fx `:fx-args` payload + return | Via `inspect`; e.g. `:http/post` request body shows `{:password :rf/redacted}` |
 | L4 Machines tab | `:data` slot of focused instance + per-transition `:context` | Via `inspect`; per-`reg-machine` `:sensitive` paths drive redaction |
 | L4 Trace tab | Raw `:tags` per trace event | Via `inspect-inline` for compact rows; severity colouring applies |
 | L4 Issues tab | Exception `:data` payload; sensitive-data warning rows | Via `inspect`; sentinels prevent error-message leakage; sensitive warnings marker-aware so the warning itself doesn't leak the value |

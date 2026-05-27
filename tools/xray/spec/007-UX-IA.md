@@ -1495,7 +1495,7 @@ Three layers, no onboarding tour:
 
 Per-tab lazy loading via shadow-cljs's per-output-target slicing:
 
-- Core (UI shell + ribbon + event list + Event tab + App-db tab):
+- Core (UI shell + ribbon + event list + Epoch tab + App-db tab):
   <1.5 MB minified / <500 KB gzipped.
 - Machines tab (includes the ELK+SVG chart primitive that absorbed
   `tools/machines-viz/`): <400 KB extra, lazy-loaded on first open.
@@ -1546,7 +1546,8 @@ under their owning panel. The 4-tier split is:
 - **Tier 2 — overlay / popup surfaces (3):** modal-light surfaces
   the shell composes at its root.
 - **Tier 3 — inline content surface (1):** the managed-fx
-  wire-boundary diff template embedded in the Event tab.
+  wire-boundary diff template embedded in the Epoch panel's
+  "EFFECTS HANDLERS RAN" section.
 - **Tier 4 — internal sub-components (2):** auxiliary inspectors
   geometry-coupled to `machine-inspector/Panel` (after-rings
   overlay, sim side-rail).

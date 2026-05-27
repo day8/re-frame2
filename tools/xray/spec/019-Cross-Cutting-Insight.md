@@ -140,7 +140,7 @@ to find them. Two surfaces:
   variant of `:explain`, with the offending path highlighted, the schema
   source-coord linked.
 - **Per-violation drilldown** — click a schema-violation row → opens the
-  Event tab for the cascade that produced it; the violating handler's
+  Epoch panel for the cascade that produced it; the violating handler's
   `reg-event-*` registration is linked.
 
 This applies to: app-db shape violations, event coercion failures,
@@ -370,7 +370,7 @@ advanced (race); event handler threw silently; `:transition` is stuck on
 `:error` from a prior nav.
 
 **Insight Xray provides:** When the focused cascade is a routing cascade,
-the Event tab's "fx handlers that ran" block adds a dedicated **`:on-match`
+the Epoch panel's "EFFECTS HANDLERS RAN" section adds a dedicated **`:on-match`
 dispatch chain** sub-section showing the loader events, their drain
 durations, and any `:on-error` consequences:
 
@@ -383,7 +383,7 @@ durations, and any `:on-error` consequences:
        → :on-error fired: [:route/cart-load-failed]
 ```
 
-**Affordance:** Event tab — `:on-match` chain inline (R-C4).
+**Affordance:** Epoch panel — `:on-match` chain inline in "EFFECTS HANDLERS RAN" (R-C4). <!-- TODO(rf2-yylmr): future-design — the chain's record-panel embed point under the Epoch panel needs an explicit micro-spec when implementation lands. -->
 
 #### R.3 — "The route matched but the wrong one."
 
@@ -478,7 +478,7 @@ panel — shows the internal trace + the projector's source-coord + the
 public projection map + the rendered client response. The author sees
 exactly what crossed the wire and what did not.
 
-**Affordance:** Issues tab / Event tab — server error projection trace
+**Affordance:** Issues tab / Epoch panel — server error projection trace
 (S-C5).
 
 #### S.3 — "Streaming SSR shipped a chunk that hydrated incorrectly."
@@ -530,8 +530,8 @@ appear in `:cart :orders`. You don't know: did the request go out? Did the
 response come back? Was the `:on-success` handler invoked? Did the handler
 write the right slice?
 
-**Insight Xray provides:** The **wire-boundary diff** in the Event tab's
-"fx handlers that ran" block:
+**Insight Xray provides:** The **wire-boundary diff** in the Epoch panel's
+"EFFECTS HANDLERS RAN" section:
 
 ```
 ┌─ :rf.http/managed  ·  POST /api/checkout/finalize ──────────────────────┐
@@ -570,10 +570,14 @@ For SSR `:rf.server/*`: same shape but the "wire" is the server response
 accumulator's evolution.
 For flows: same shape but inputs/outputs.
 
-**Affordance:** Event tab — wire-boundary diff template (F-C2). The hero
-managed-effects feature. The single biggest "I get re-frame2 now" win for
-new authors. Implements the `Managed-Effects.md` eight-property contract
-as visible UI.
+**Affordance:** Epoch panel — wire-boundary diff template embedded in
+"EFFECTS HANDLERS RAN" (F-C2). The hero managed-effects feature. The
+single biggest "I get re-frame2 now" win for new authors. Implements
+the `Managed-Effects.md` eight-property contract as visible UI.
+<!-- TODO(rf2-yylmr): future-design — the wire-boundary record-panel
+embed point under the Epoch panel needs an explicit micro-spec when
+implementation lands; the prior "fx handlers that ran" anchor was
+Event-tab-relative. -->
 
 #### F.2 — "What's the runtime currently busy doing?"
 
@@ -624,7 +628,7 @@ Erlang-Observer-for-managed-effects.
   Total elapsed: 712ms · Backoff sum: 700ms
 ```
 
-**Affordance:** Event tab — retry timeline (F-C3).
+**Affordance:** Epoch panel — retry timeline under the fx row in "EFFECTS HANDLERS RAN" (F-C3).
 
 #### F.4 — "A flow's `:output` threw and the cascade halted; what didn't run?"
 
@@ -751,7 +755,7 @@ sequenced so authors see compounding improvement week over week.
 1. **Badge expansion + routing badge** (F-C1, R-C1, S-C1) — add `🔌 📄 🌊
    🧭` to L2 event-list row badges; add SSR indicator to ribbon.
 2. **`:rf/route` slice always-visible + per-event route-chain + match-rank
-   tooltip** (R-C2, R-C5, R-C9) — App-db tab and Event tab inline content.
+   tooltip** (R-C2, R-C5, R-C9) — App-db tab and Epoch panel inline content.
 3. **Machine quick wins** (M-C1 guard-verdict overlay + M-C4 `:spawn-all`
    join card + M-C5 per-instance trace + M-C8 path-walked + M-C9 spawn-ancestry).
 4. **Effect surface quick wins** (F-C3 retry timeline + F-C5 stale badge

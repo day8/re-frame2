@@ -1391,8 +1391,8 @@ resolution rule is "deepest wins; parent fallthrough on miss." When a
 child consumes an event the parent expected to handle, the author is
 surprised.
 
-**Insight Xray provides:** In the Event tab's "fx handlers that ran"
-block, add a sub-row for each `:rf.machine/transition` showing the
+**Insight Xray provides:** In the Epoch panel's "EFFECTS HANDLERS RAN"
+section, add a sub-row for each `:rf.machine/transition` showing the
 **path walked**:
 
 ```
