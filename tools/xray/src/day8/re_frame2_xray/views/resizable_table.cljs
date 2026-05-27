@@ -228,9 +228,13 @@
                     :align-items "stretch"}]
     (into [:div (merge {:data-rf-xray-resizable-table (name table-id)}
                        container-attrs)
-           ;; Header
-           (into [:div (merge {:style grid-style}
-                              header-attrs)]
+           ;; Header — merge the consumer's :style UNDER our grid-style
+           ;; so the grid layout always wins (consumer styles like
+           ;; `table-header-row-style` carry `display: flex` which would
+           ;; silently break the column tracks if it won).
+           (into [:div (-> (or header-attrs {})
+                           (assoc :style (merge (:style header-attrs)
+                                                grid-style)))]
                  (weave-header
                    (for [col columns]
                      (header-cell (merge col
