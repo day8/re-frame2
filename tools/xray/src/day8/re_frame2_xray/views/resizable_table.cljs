@@ -127,9 +127,17 @@
 
 ;; ---- Header gutter (interactive) ----------------------------------------
 
+;; Subtle 1px column-boundary line painted at the LEFT edge of the 4px
+;; gutter track — i.e. flush with the right edge of the preceding header
+;; cell. Uses the same `--rf-xray-border-subtle` token as every other
+;; thin border in the panel so it reads as "structural", not "decorative".
+;; On hover the gutter fills with accent (the drag affordance signal);
+;; the border-left disappears under the fill which is fine — the
+;; operator is grabbing the handle, not reading the boundary.
 (def ^:private gutter-base-style
   {:cursor      "col-resize"
    :background  "transparent"
+   :border-left "1px solid var(--rf-xray-border-subtle)"
    :transition  "background 0.15s ease"
    :user-select "none"
    :align-self  "stretch"})
