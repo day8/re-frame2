@@ -2298,8 +2298,13 @@
      (case mode
        :diff
        (when-not empty?
-         (for [[i row] (map-indexed vector db-diff)]
-           (db-diff-line row i)))
+         ;; rf2-9ec65 — eager realisation via `mapv` so any future
+         ;; subscribe deref inside `db-diff-line` registers in this
+         ;; render's reactive scope (spec/006 §Lazy-seq deref tracking,
+         ;; rf2-atqkg). Was `(for [[i row] (map-indexed vector …)] …)`
+         ;; which returns a LazySeq.
+         (into [:<>]
+               (map-indexed (fn [i row] (db-diff-line row i)) db-diff)))
 
        :full
        (let [record  @(rf/subscribe [:rf.xray/selected-epoch-record])

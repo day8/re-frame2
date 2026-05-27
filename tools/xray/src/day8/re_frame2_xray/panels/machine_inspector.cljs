@@ -497,47 +497,54 @@
                       :font-style "italic"
                       :color (:text-tertiary tokens)}}
         "— (no changes)"]
+       ;; rf2-9ec65 — eager realisation via `map-indexed` so any future
+       ;; subscribe deref inside the row body registers in this render's
+       ;; reactive scope (spec/006 §Lazy-seq deref tracking, rf2-atqkg).
+       ;; `into` already realises the seq, but the named-fn shape aligns
+       ;; with the canonical eager idiom used in `diff/hiccup_render.cljs`.
        (into [:div {:style {:font-family mono-stack
                             :font-size "12px"}}]
-             (for [[i [path before-v after-v kind]] (map-indexed vector rows)]
-               (let [glyph        (case kind
-                                    :added    "+"
-                                    :removed  "−"
-                                    :modified "~"
-                                    "~")
-                     glyph-colour (case glyph
-                                    "+" (:success tokens)
-                                    "−" (:error tokens)
-                                    (:warning tokens))]
-                 [:div {:key (str "row-" i)
-                        :data-testid (str "rf-xray-machine-snapshot-diff-row-"
-                                          (machine-id-suffix machine-id) "-" i)
-                        :style {:display "flex"
-                                :gap "8px"
-                                :align-items "baseline"
-                                :padding "2px 0"
-                                :flex-wrap "wrap"}}
-                  [:span {:style {:color glyph-colour :font-weight 700 :min-width "1ch"}}
-                   glyph]
-                  [:span {:style {:color (:text-secondary tokens)
-                                  :word-break "break-word"}}
-                   (pr-str path)]
-                  (when (= "~" glyph)
-                    [:<>
-                     [:span {:style {:color (:text-tertiary tokens)
-                                     :text-decoration "line-through"}}
-                      [ei/mini before-v 40]]
-                     [:span {:style {:color (:text-tertiary tokens)}} "→"]
-                     [:span {:style {:color (:success tokens)}}
-                      [ei/mini after-v 40]]])
-                  (when (= "+" glyph)
-                    [:span {:style {:color (:success tokens) :flex 1 :min-width 0}}
-                     [ei/mini after-v 80]])
-                  (when (= "−" glyph)
-                    [:span {:style {:color (:error tokens)
-                                    :text-decoration "line-through"
-                                    :flex 1 :min-width 0}}
-                     [ei/mini before-v 80]])]))))]))
+             (map-indexed
+               (fn [i [path before-v after-v kind]]
+                 (let [glyph        (case kind
+                                      :added    "+"
+                                      :removed  "−"
+                                      :modified "~"
+                                      "~")
+                       glyph-colour (case glyph
+                                      "+" (:success tokens)
+                                      "−" (:error tokens)
+                                      (:warning tokens))]
+                   [:div {:key (str "row-" i)
+                          :data-testid (str "rf-xray-machine-snapshot-diff-row-"
+                                            (machine-id-suffix machine-id) "-" i)
+                          :style {:display "flex"
+                                  :gap "8px"
+                                  :align-items "baseline"
+                                  :padding "2px 0"
+                                  :flex-wrap "wrap"}}
+                    [:span {:style {:color glyph-colour :font-weight 700 :min-width "1ch"}}
+                     glyph]
+                    [:span {:style {:color (:text-secondary tokens)
+                                    :word-break "break-word"}}
+                     (pr-str path)]
+                    (when (= "~" glyph)
+                      [:<>
+                       [:span {:style {:color (:text-tertiary tokens)
+                                       :text-decoration "line-through"}}
+                        [ei/mini before-v 40]]
+                       [:span {:style {:color (:text-tertiary tokens)}} "→"]
+                       [:span {:style {:color (:success tokens)}}
+                        [ei/mini after-v 40]]])
+                    (when (= "+" glyph)
+                      [:span {:style {:color (:success tokens) :flex 1 :min-width 0}}
+                       [ei/mini after-v 80]])
+                    (when (= "−" glyph)
+                      [:span {:style {:color (:error tokens)
+                                      :text-decoration "line-through"
+                                      :flex 1 :min-width 0}}
+                       [ei/mini before-v 80]])]))
+               rows)))]))
 
 (defn- snapshot-block
   "Render a machine snapshot map (`{:state X :data Y}`) via the
