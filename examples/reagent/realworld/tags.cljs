@@ -224,7 +224,7 @@
 ;; - `?feed=your` switches the home page to the authenticated feed
 ;; - navigation is always expressed as `:rf.route/navigate` events
 ;;
-;; `:home/load` is dispatched by the `:route/home` `:on-match`; it
+;; `:home/load` is dispatched by the `:conduit/home` `:on-match`; it
 ;; broadcasts the per-axis transitions into the home machine
 ;; (`:realworld/articles-home`) before kicking the per-feed fetch.
 
@@ -232,7 +232,7 @@
   (get-in db [:rf/route :query] {}))
 
 (rf/reg-event-fx :home/load
-  {:doc "Route :on-match handler for `:route/home`. Reads the route's
+  {:doc "Route :on-match handler for `:conduit/home`. Reads the route's
          query params and:
            - broadcasts the `:feed` region into `:user-feed` / `:tag-feed`
              / `:global` per `?feed=` and `?tag=`,
@@ -259,20 +259,20 @@
 
 (rf/reg-event-fx :home/show-global-feed
   (fn [_ _]
-    {:fx [[:dispatch [:rf.route/navigate :route/home {} {:query {}}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate :conduit/home {} {:query {}}]]]}))
 
 (rf/reg-event-fx :home/show-your-feed
   (fn [_ _]
-    {:fx [[:dispatch [:rf.route/navigate :route/home {} {:query {:feed "your"}}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate :conduit/home {} {:query {:feed "your"}}]]]}))
 
 (rf/reg-event-fx :tags/apply-filter
   (fn [_ [_ tag]]
-    {:fx [[:dispatch [:rf.route/navigate :route/home {} {:query {:tag tag}}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate :conduit/home {} {:query {:tag tag}}]]]}))
 
 (rf/reg-event-fx :tags/clear-filter
   (fn [{:keys [db]} _]
     (let [query (dissoc (home-query db) :tag)]
-      {:fx [[:dispatch [:rf.route/navigate :route/home {} {:query query}]]]})))
+      {:fx [[:dispatch [:rf.route/navigate :conduit/home {} {:query query}]]]})))
 
 (rf/reg-sub :home/query
   (fn [db _] (home-query db)))

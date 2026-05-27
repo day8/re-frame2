@@ -340,11 +340,11 @@
   (let [{:keys [slug title description createdAt favoritesCount author tagList]} article]
     [:div.article-preview
      [:div.article-meta
-      [rf/route-link {:to     :route/profile
+      [rf/route-link {:to     :conduit.profile/show
                            :params {:username (:username author)}}
        [:img {:src (:image author)}]]
       [:div.info
-       [rf/route-link {:to     :route/profile
+       [rf/route-link {:to     :conduit.profile/show
                             :params {:username (:username author)}
                             :class  "author"}
         (:username author)]
@@ -353,7 +353,7 @@
        {:type "button"
         :on-click #(dispatch [:article/toggle-favorite slug])}
        [:i.ion-heart] " " favoritesCount]]
-     [rf/route-link {:to          :route/article
+     [rf/route-link {:to          :conduit.article/show
                           :params      {:slug slug}
                           :class       "preview-link"
                           :data-testid (str "article-preview-link-" slug)}

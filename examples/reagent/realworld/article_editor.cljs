@@ -326,7 +326,7 @@
       {:db (assoc db :editor (editor-slice (:slug article) draft))
        :fx [[:dispatch [:ui/article-editor [:use-edit]]]
             [:dispatch [:ui/article-editor [:submit-succeeded]]]
-            [:dispatch [:rf.route/navigate :route/article {:slug (:slug article)}]]]})))
+            [:dispatch [:rf.route/navigate :conduit.article/show {:slug (:slug article)}]]]})))
 
 (rf/reg-event-fx :editor/submit-error
   (fn [{:keys [db]} [_ {:keys [failure]}]]
@@ -353,7 +353,7 @@
   (fn [{:keys [db]} _]
     {:db (assoc db :editor (editor-slice))
      :fx [[:dispatch [:ui/article-editor [:reset]]]
-          [:dispatch [:rf.route/navigate :route/home]]]}))
+          [:dispatch [:rf.route/navigate :conduit/home]]]}))
 
 (rf/reg-event-fx :editor/delete-error
   (fn [{:keys [db]} [_ {:keys [failure]}]]

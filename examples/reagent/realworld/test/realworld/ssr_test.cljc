@@ -7,7 +7,7 @@
   (:require [realworld.ssr :as ssr]))
 
 (defn hydration-payload-test []
-  (let [db {:rf/route {:id :route/home}
+  (let [db {:rf/route {:id :conduit/home}
             :auth {:user {:username "alice"} :token "jwt"}
             :articles {:status :loaded :data [] :error nil :loaded-at 1 :attempt 1}
             :transient {:popup true}}

@@ -221,7 +221,7 @@
 
 (rf/reg-event-fx :settings/load
   {:doc "Seed the form draft from the currently-authenticated user.
-         Dispatched by the :route/settings :on-match (see routing.cljs)
+         Dispatched by the :conduit.user/settings :on-match (see routing.cljs)
          and by tests after :auth/store-session."}
   [(rf/inject-cofx :realworld/now)]
   (fn handler-settings-load [{:keys [db realworld/now]} _]
@@ -271,7 +271,7 @@
       {:fx [[:dispatch [:settings/form
                         [:submit-succeeded {:user user}]]]
             [:dispatch [:auth/store-session user]]
-            [:dispatch [:rf.route/navigate :route/profile {:username (:username user)}]]]})))
+            [:dispatch [:rf.route/navigate :conduit.profile/show {:username (:username user)}]]]})))
 
 (rf/reg-event-fx :settings/submit-error
   {:doc "Server rejected. Folds a human-readable error message into the
