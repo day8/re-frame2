@@ -1495,25 +1495,20 @@
         (is (= "not-an-int"         (:value r)))
         (is (= :logged-and-skipped  (:recovery r)))))))
 
-(deftest hot-reload-step-conditional-test
-  (testing "rf2-xgeag — no hot-reload events → standalone step OMITTED"
-    (is (nil? (proj/hot-reload-step []))))
-
-  (testing "rf2-xgeag — hot-reload-only event surfaces the standalone
-            SCHEMA-HOT-RELOAD step"
-    (let [rows (proj/schema-violation-rows
-                 [(schema-hot-reload-ev :rf/default [:count] "boom")])
-          s    (proj/hot-reload-step rows)]
-      (is (= :schema-hot-reload (:step s)))
-      (is (= :SCHEMA-HOT-RELOAD (:badge s)))
-      (is (= 1 (count (:rows s))))))
-
-  (testing "rf2-xgeag — runtime-boundary violations are NOT routed to
-            the hot-reload step (they attach to their owning step)"
-    (let [rows (proj/schema-violation-rows
-                 [(schema-violation-ev :app-db :counter/inc [:count]
-                                       "not-an-int" true)])]
-      (is (nil? (proj/hot-reload-step rows))))))
+;; `hot-reload-step-conditional-test` retired in rf2-7gf7v
+;; (commit 9b96f9f6a — `refactor(xray/epoch): retire SCHEMA HOT-RELOAD
+;; pipeline step + rollback chip wording`). Hot-reload drift is a
+;; dev-time event, not a cascade event; rendering it as a standalone
+;; pipeline tail step produced an opaque step content lacking the
+;; rich context the operator needs (pre/post schema, file:line of
+;; re-registration). The Issues panel — which already consumes
+;; `:rf.schema/violation` trace events — is its natural home. The
+;; `hot-reload-step` defn and its base-steps call site are gone;
+;; nothing to test at the projection layer. The runtime-boundary
+;; attachment path is covered by `attach-violations-*-test` above
+;; + `project-attaches-app-db-violation-to-handler-test` below; the
+;; negative assertion `not-any? :schema-hot-reload` in that test
+;; pins down that no tail step is appended.
 
 (deftest attach-violations-event-test
   (testing "rf2-xgeag — `:event` violation attaches to the DISPATCH step"
@@ -1745,10 +1740,16 @@
       (is (every? #(nil? (:violations %)) steps))
       (is (every? #(nil? (:rolled-back? %)) steps))))
 
-  (testing "rf2-xgeag — hot-reload drift rides on the standalone
-            SCHEMA-HOT-RELOAD tail step (Option A)"
+  (testing "rf2-7gf7v — hot-reload drift no longer surfaces as a
+            standalone cascade tail step; the Option A SCHEMA-HOT-RELOAD
+            step was retired (hot-reload is a dev-time event, not a
+            cascade event — Issues panel is its home). The trace
+            events still flow through `schema-violation-rows` for
+            consumers like the Issues panel; only the projection
+            pipeline declines to materialise them as a step."
     (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
                          (schema-hot-reload-ev :rf/default
                                                [:counter :n] "boom")])
           steps (proj/project rec)]
-      (is (= :schema-hot-reload (-> steps last :step))))))
+      (is (not-any? #(= :schema-hot-reload (:step %)) steps)
+          "no SCHEMA-HOT-RELOAD tail step appended"))))
