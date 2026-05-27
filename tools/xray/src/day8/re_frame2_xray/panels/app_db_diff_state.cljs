@@ -80,6 +80,150 @@
             ;; (rf2-q3dzw phase 5, D5=a per rf2-sndui).
             [day8.re-frame2-xray.views.edn-inspector :as ei]))
 
+;; ---- style hoists (rf2-mndut) -------------------------------------------
+;;
+;; Every literal `:style {...}` map in the section / flat-diff renderers
+;; below is hoisted to ns-top defs so React's reconciler sees stable
+;; object identities across re-renders (follow-on to rf2-qx414 /
+;; rf2-zlk6h / rf2-xjgdk / rf2-gjiog / rf2-alsnz). The flat-diff body
+;; in particular renders N rows × 4-5 inline `:style {...}` maps per
+;; row inside a render loop; a 20-row diff was minting 80-100 fresh
+;; map allocations per render before this hoist. `tokens` values
+;; resolve to `var(--rf-xray-*)` CSS strings at ns load so the light/
+;; dark theme toggle continues to flip palette in lockstep without
+;; re-evaluation (spec/007 §UX-IA).
+;;
+;; Per-call variation rides:
+;;   - small `assoc` / `cond->` overlays on a shared base map
+;;     (glyph-colour swaps), and
+;;   - hoisted named variants where the variation is whole-map (added /
+;;     removed / modified glyph rows).
+
+;; -- section chrome --------------------------------------------------------
+
+(def ^:private section-shell-style
+  "Outer `[:section]` wrapper inside section-shell."
+  {:padding "12px 12px 4px"})
+
+(def ^:private section-shell-h3-style
+  "H3 ribbon when section-shell renders its own header (rare;
+  hide-header? is the common case post-rf2-okq7p)."
+  {:display         "flex"
+   :align-items     "center"
+   :gap             "8px"
+   :margin          "0 0 8px"
+   :font-family     sans-stack
+   :font-size       "11px"
+   :font-weight     600
+   :text-transform  "uppercase"
+   :letter-spacing  "0.5px"
+   :color           (:text-secondary tokens)})
+
+(def ^:private section-shell-h3-title-style
+  "Title span inside section-shell-h3 — ellipsises on overflow."
+  {:overflow      "hidden"
+   :text-overflow "ellipsis"
+   :white-space   "nowrap"
+   :flex          1})
+
+(def ^:private empty-body-style
+  "Empty-state placeholder body style (italic muted prose)."
+  {:font-family sans-stack
+   :font-size   "12px"
+   :font-style  "italic"
+   :color       (:text-tertiary tokens)})
+
+(def ^:private area-label-style
+  "Reserved-area `:rf/*` keyword title in mode `accent` colour."
+  {:font-family mono-stack
+   :color       (:accent tokens)})
+
+(def ^:private instance-section-separator-style
+  "The `›` separator between area-label and instance-id in
+  instance-section's title."
+  {:margin "0 6px"
+   :color  (:text-tertiary tokens)})
+
+(def ^:private instance-section-id-style
+  "Instance-id text inside instance-section's title."
+  {:font-family mono-stack
+   :color       (:text-primary tokens)})
+
+;; -- flat-diff (`:diff` mode) chrome --------------------------------------
+
+(def ^:private flat-diff-row-style
+  "One change-list row inside flat-diff-body."
+  {:display     "flex"
+   :gap         "8px"
+   :align-items "baseline"
+   :font-family mono-stack
+   :font-size   "12px"
+   :padding     "2px 12px"
+   :flex-wrap   "wrap"})
+
+(def ^:private flat-diff-glyph-base-style
+  "Per-row glyph span — only `:color` varies, applied via assoc."
+  {:font-weight 700
+   :min-width   "1ch"})
+
+(def ^:private flat-diff-path-style
+  "Path-prefix span — the `[:foo :bar]` text inside one diff row."
+  {:color      (:text-secondary tokens)
+   :word-break "break-word"})
+
+(def ^:private flat-diff-modified-before-style
+  "The `~`-modified row's BEFORE-value mini inspector — strikethrough
+  tertiary text."
+  {:color           (:text-tertiary tokens)
+   :text-decoration "line-through"})
+
+(def ^:private flat-diff-modified-arrow-style
+  "The `→` separator between BEFORE and AFTER on `~`-modified rows."
+  {:color (:text-tertiary tokens)})
+
+(def ^:private flat-diff-modified-after-style
+  "The `~`-modified row's AFTER-value mini inspector."
+  {:color (:success tokens)})
+
+(def ^:private flat-diff-added-style
+  "The `+`-added row's value mini inspector — success-coloured, flex 1."
+  {:color     (:success tokens)
+   :flex      1
+   :min-width 0})
+
+(def ^:private flat-diff-removed-style
+  "The `−`-removed row's value mini inspector — strikethrough error."
+  {:color           (:error tokens)
+   :text-decoration "line-through"
+   :flex            1
+   :min-width       0})
+
+(def ^:private flat-diff-section-style
+  "Outer `[:section]` chrome for the flat-diff body."
+  {:padding "12px 0 4px"})
+
+(def ^:private flat-diff-header-style
+  "H3 ribbon at the top of the flat-diff body."
+  {:display         "flex"
+   :align-items     "center"
+   :gap             "8px"
+   :margin          "0 12px 8px"
+   :font-family     sans-stack
+   :font-size       "11px"
+   :font-weight     600
+   :text-transform  "uppercase"
+   :letter-spacing  "0.5px"
+   :color           (:text-secondary tokens)})
+
+(def ^:private flat-diff-summary-style
+  "Right-side `N paths` / `— (no changes)` summary inside flat-diff
+  header. Lighter weight + normal-case + normal letter-spacing so it
+  reads as supporting metadata next to the uppercase `diff` title."
+  {:color           (:text-tertiary tokens)
+   :font-weight     400
+   :text-transform  "none"
+   :letter-spacing  "normal"})
+
 ;; ---- shared section chrome ----------------------------------------------
 
 (defn- section-shell
@@ -96,22 +240,10 @@
   card borders for the eye's attention."
   [{:keys [testid title body hide-header?]}]
   [:section {:data-testid testid
-             :style       {:padding "12px 12px 4px"}}
+             :style       section-shell-style}
    (when-not hide-header?
-     [:h3 {:style {:display         "flex"
-                   :align-items     "center"
-                   :gap             "8px"
-                   :margin          "0 0 8px"
-                   :font-family     sans-stack
-                   :font-size       "11px"
-                   :font-weight     600
-                   :text-transform  "uppercase"
-                   :letter-spacing  "0.5px"
-                   :color           (:text-secondary tokens)}}
-      [:span {:style {:overflow      "hidden"
-                      :text-overflow "ellipsis"
-                      :white-space   "nowrap"
-                      :flex          1}}
+     [:h3 {:style section-shell-h3-style}
+      [:span {:style section-shell-h3-title-style}
        title]])
    [:div body]])
 
@@ -119,10 +251,7 @@
   "Empty-state placeholder body for an absent / empty section. `label`
   is a short prose hint (e.g. \"no machines\")."
   [label]
-  [:div {:style {:font-family sans-stack
-                 :font-size   "12px"
-                 :font-style  "italic"
-                 :color       (:text-tertiary tokens)}}
+  [:div {:style empty-body-style}
    label])
 
 (defn- value-body
@@ -231,8 +360,7 @@
   "Render a reserved-area section title — the bare `:rf/*` key in the
   mode `accent` keyword colour."
   [area]
-  [:span {:style {:font-family mono-stack
-                  :color       (:accent tokens)}}
+  [:span {:style area-label-style}
    (pr-str area)])
 
 (defn instance-section
@@ -245,10 +373,9 @@
   [area {:keys [id value] :as inst}]
   (let [title [:span
                (area-label area)
-               [:span {:style {:margin "0 6px" :color (:text-tertiary tokens)}}
+               [:span {:style instance-section-separator-style}
                 "›"]
-               [:span {:style {:font-family mono-stack
-                               :color       (:text-primary tokens)}}
+               [:span {:style instance-section-id-style}
                 (pr-str id)]]]
     (section-shell
       {:testid       (str "rf-xray-app-db-state-instance-"
@@ -344,33 +471,23 @@
         glyph-colour (flat-diff-glyph-colour glyph)]
     [:div {:key (str "app-db-diff-row-" idx)
            :data-testid (str "rf-xray-app-db-diff-row-" idx)
-           :style {:display "flex"
-                   :gap "8px"
-                   :align-items "baseline"
-                   :font-family mono-stack
-                   :font-size "12px"
-                   :padding "2px 12px"
-                   :flex-wrap "wrap"}}
-     [:span {:style {:color glyph-colour :font-weight 700 :min-width "1ch"}}
+           :style flat-diff-row-style}
+     [:span {:style (assoc flat-diff-glyph-base-style :color glyph-colour)}
       glyph]
-     [:span {:style {:color (:text-secondary tokens)
-                     :word-break "break-word"}}
+     [:span {:style flat-diff-path-style}
       (pr-str path)]
      (when (= "~" glyph)
        [:<>
-        [:span {:style {:color (:text-tertiary tokens)
-                        :text-decoration "line-through"}}
+        [:span {:style flat-diff-modified-before-style}
          [ei/mini before 40]]
-        [:span {:style {:color (:text-tertiary tokens)}} "→"]
-        [:span {:style {:color (:success tokens)}}
+        [:span {:style flat-diff-modified-arrow-style} "→"]
+        [:span {:style flat-diff-modified-after-style}
          [ei/mini after 40]]])
      (when (= "+" glyph)
-       [:span {:style {:color (:success tokens) :flex 1 :min-width 0}}
+       [:span {:style flat-diff-added-style}
         [ei/mini after 80]])
      (when (= "−" glyph)
-       [:span {:style {:color (:error tokens)
-                       :text-decoration "line-through"
-                       :flex 1 :min-width 0}}
+       [:span {:style flat-diff-removed-style}
         [ei/mini before 80]])]))
 
 (defn- flat-diff-body
@@ -381,30 +498,18 @@
   (let [empty? (empty? diff-triples)]
     [:section {:data-testid "rf-xray-app-db-diff-flat"
                :data-empty (str empty?)
-               :style {:padding "12px 0 4px"}}
-     [:h3 {:style {:display "flex"
-                   :align-items "center"
-                   :gap "8px"
-                   :margin "0 12px 8px"
-                   :font-family sans-stack
-                   :font-size "11px"
-                   :font-weight 600
-                   :text-transform "uppercase"
-                   :letter-spacing "0.5px"
-                   :color (:text-secondary tokens)}}
+               :style flat-diff-section-style}
+     [:h3 {:style flat-diff-header-style}
       [:span "diff"]
-      [:span {:style {:color (:text-tertiary tokens)
-                      :font-weight 400
-                      :text-transform "none"
-                      :letter-spacing "normal"}}
+      [:span {:style flat-diff-summary-style}
        (if empty?
          "— (no changes)"
          (str (count diff-triples) " path"
               (when (not= 1 (count diff-triples)) "s")))]]
      (when-not empty?
        (into [:div]
-             (for [[i row] (map-indexed vector diff-triples)]
-               (flat-diff-line row i))))]))
+             (map-indexed (fn [i row] (flat-diff-line row i))
+                          diff-triples)))]))
 
 ;; ---- panel body ----------------------------------------------------------
 

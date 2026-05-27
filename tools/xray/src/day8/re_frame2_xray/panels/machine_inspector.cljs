@@ -186,6 +186,83 @@
    :border-top-left-radius  "4px"
    :border-top-right-radius "4px"})
 
+;; ---- snapshot-flat-diff styles (rf2-mndut) ------------------------------
+;;
+;; The snapshot drill-in's `:diff` body (rf2-yqjrd) renders N rows × 4-5
+;; inline `:style {...}` maps per row inside a render loop. A 20-row diff
+;; minted 80-100 fresh map allocations per render before this hoist;
+;; combined with the per-render `engine/project` call upstream the whole
+;; sub-section thrashed. Hoist to ns-top defs so React's reconciler sees
+;; stable object identities across re-renders, with per-row glyph-colour
+;; variation riding a single `assoc` overlay on a base map (same pattern
+;; as `app-db-diff-state` flat-diff + `diff/hiccup_render`).
+;;
+;; `tokens` values resolve to `var(--rf-xray-*)` CSS strings at ns load
+;; so the light/dark theme toggle continues to flip palette in lockstep
+;; without re-evaluation (spec/007 §UX-IA).
+
+(def ^:private snapshot-flat-diff-root-style
+  "Outer `[:div]` wrapper for the snapshot-flat-diff body."
+  {:padding    "8px 12px"
+   :background (:bg-2 tokens)
+   :min-width  0})
+
+(def ^:private snapshot-flat-diff-empty-style
+  "Italic muted `(no changes)` placeholder body."
+  {:font-family sans-stack
+   :font-size   "11px"
+   :font-style  "italic"
+   :color       (:text-tertiary tokens)})
+
+(def ^:private snapshot-flat-diff-list-style
+  "Inner `[:div]` host for the flat-diff row list — mono base."
+  {:font-family mono-stack
+   :font-size   "12px"})
+
+(def ^:private snapshot-flat-diff-row-style
+  "One change-list row inside snapshot-flat-diff-body."
+  {:display     "flex"
+   :gap         "8px"
+   :align-items "baseline"
+   :padding     "2px 0"
+   :flex-wrap   "wrap"})
+
+(def ^:private snapshot-flat-diff-glyph-base-style
+  "Per-row glyph span — only `:color` varies, applied via assoc."
+  {:font-weight 700
+   :min-width   "1ch"})
+
+(def ^:private snapshot-flat-diff-path-style
+  "Path-prefix span — the `[:foo :bar]` text inside one diff row."
+  {:color      (:text-secondary tokens)
+   :word-break "break-word"})
+
+(def ^:private snapshot-flat-diff-modified-before-style
+  "The `~`-modified row's BEFORE-value mini inspector — strikethrough."
+  {:color           (:text-tertiary tokens)
+   :text-decoration "line-through"})
+
+(def ^:private snapshot-flat-diff-modified-arrow-style
+  "The `→` separator between BEFORE and AFTER on `~`-modified rows."
+  {:color (:text-tertiary tokens)})
+
+(def ^:private snapshot-flat-diff-modified-after-style
+  "The `~`-modified row's AFTER-value mini inspector."
+  {:color (:success tokens)})
+
+(def ^:private snapshot-flat-diff-added-style
+  "The `+`-added row's value mini inspector — success-coloured, flex 1."
+  {:color     (:success tokens)
+   :flex      1
+   :min-width 0})
+
+(def ^:private snapshot-flat-diff-removed-style
+  "The `−`-removed row's value mini inspector — strikethrough error."
+  {:color           (:error tokens)
+   :text-decoration "line-through"
+   :flex            1
+   :min-width       0})
+
 ;; ---- safe-name helper ---------------------------------------------------
 
 (defn- safe-name
@@ -488,22 +565,16 @@
                              (machine-id-suffix machine-id))
            :data-machine-id (str machine-id)
            :data-empty (str empty?)
-           :style {:padding "8px 12px"
-                   :background (:bg-2 tokens)
-                   :min-width 0}}
+           :style snapshot-flat-diff-root-style}
      (if empty?
-       [:div {:style {:font-family sans-stack
-                      :font-size "11px"
-                      :font-style "italic"
-                      :color (:text-tertiary tokens)}}
+       [:div {:style snapshot-flat-diff-empty-style}
         "— (no changes)"]
        ;; rf2-9ec65 — eager realisation via `map-indexed` so any future
        ;; subscribe deref inside the row body registers in this render's
        ;; reactive scope (spec/006 §Lazy-seq deref tracking, rf2-atqkg).
        ;; `into` already realises the seq, but the named-fn shape aligns
        ;; with the canonical eager idiom used in `diff/hiccup_render.cljs`.
-       (into [:div {:style {:font-family mono-stack
-                            :font-size "12px"}}]
+       (into [:div {:style snapshot-flat-diff-list-style}]
              (map-indexed
                (fn [i [path before-v after-v kind]]
                  (let [glyph        (case kind
@@ -518,33 +589,26 @@
                    [:div {:key (str "row-" i)
                           :data-testid (str "rf-xray-machine-snapshot-diff-row-"
                                             (machine-id-suffix machine-id) "-" i)
-                          :style {:display "flex"
-                                  :gap "8px"
-                                  :align-items "baseline"
-                                  :padding "2px 0"
-                                  :flex-wrap "wrap"}}
-                    [:span {:style {:color glyph-colour :font-weight 700 :min-width "1ch"}}
+                          :style snapshot-flat-diff-row-style}
+                    [:span {:style (assoc snapshot-flat-diff-glyph-base-style
+                                          :color glyph-colour)}
                      glyph]
-                    [:span {:style {:color (:text-secondary tokens)
-                                    :word-break "break-word"}}
+                    [:span {:style snapshot-flat-diff-path-style}
                      (pr-str path)]
                     (when (= "~" glyph)
                       [:<>
-                       [:span {:style {:color (:text-tertiary tokens)
-                                       :text-decoration "line-through"}}
+                       [:span {:style snapshot-flat-diff-modified-before-style}
                         [ei/mini before-v 40]]
-                       [:span {:style {:color (:text-tertiary tokens)}} "→"]
-                       [:span {:style {:color (:success tokens)}}
+                       [:span {:style snapshot-flat-diff-modified-arrow-style} "→"]
+                       [:span {:style snapshot-flat-diff-modified-after-style}
                         [ei/mini after-v 40]]])
                     (when (= "+" glyph)
-                      [:span {:style {:color (:success tokens) :flex 1 :min-width 0}}
+                      [:span {:style snapshot-flat-diff-added-style}
                        [ei/mini after-v 80]])
                     (when (= "−" glyph)
-                      [:span {:style {:color (:error tokens)
-                                      :text-decoration "line-through"
-                                      :flex 1 :min-width 0}}
-                       [ei/mini before-v 80]])]))
-               rows)))]))
+                      [:span {:style snapshot-flat-diff-removed-style}
+                       [ei/mini before-v 80]])])))
+               rows))]))
 
 (defn- snapshot-block
   "Render a machine snapshot map (`{:state X :data Y}`) via the
