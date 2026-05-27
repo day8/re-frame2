@@ -72,6 +72,107 @@
 
 ;; ---- DISPATCH row --------------------------------------------------------
 
+(defn- after-timer-enrichment
+  "Extract `:after-timer` enrichment from the dispatched event vector.
+
+  Per rf2-ejtpd, the machine `:after` timer dispatches synthetic
+  triggers shaped:
+
+      [<machine-id> [:rf.machine.timer/after-elapsed <delay-key>
+                     <epoch> <invoke-id>]]
+
+  where `<delay-key>` is the timer's delay (a number in ms or a
+  resolved sub-key per Spec 005 §Hierarchy interaction) and
+  `<invoke-id>` is the state-vector at which the `:after` timer was
+  scheduled. The renderer projects these into the rich label:
+
+      'from :after timer · 250ms on [:active :authenticating]'
+
+  Returns nil when the event vector doesn't match the timer shape —
+  defensive: a future stamp-site that emits `:source :after-timer` on
+  some non-canonical event shape still gets the kind label without
+  fields that don't apply."
+  [event]
+  (when (and (vector? event) (= 2 (count event)))
+    (let [[machine-id inner] event]
+      (when (and (vector? inner)
+                 (= :rf.machine.timer/after-elapsed (first inner))
+                 (>= (count inner) 4))
+        {:machine-id        machine-id
+         :delay-ms          (nth inner 1)
+         :source-state-path (vec (nth inner 3))}))))
+
+(defn- machine-spawn-enrichment
+  "Extract `:machine-spawn` enrichment from the dispatched event vector.
+
+  Per rf2-ejtpd, the spawn fx dispatches the spawned actor's first
+  event shaped:
+
+      [<spawned-actor-id> <start-event>]            ; user-supplied :start
+      [<spawned-actor-id> [:rf.machine/spawned]]    ; synthetic default
+
+  The spawned-actor-id is the first element. The renderer projects
+  this into the label:
+
+      'from machine spawn · :child-actor-id'
+
+  Returns nil when the event vector lacks an actor-id (defensive)."
+  [event]
+  (when (and (vector? event) (seq event))
+    (let [actor-id (first event)]
+      (when actor-id
+        {:spawned-actor-id actor-id}))))
+
+(defn- fx-dispatch-enrichment
+  "Extract `:fx-dispatch` / `:fx-dispatch-later` enrichment from the
+  dispatched trace event.
+
+  Per rf2-ejtpd, the `:dispatch` / `:dispatch-later` reserved fx
+  handlers stamp `:source :fx-dispatch` / `:source :fx-dispatch-later`
+  on the child envelope. The parent-dispatch-id rides on the
+  emit-dispatched trace under `:rf.trace/parent-dispatch-id` (already
+  wired by router.cljc per spec/018 §Dispatch correlation).
+
+  For `:fx-dispatch-later`, the parent's scheduled `:ms` delay is
+  read off the optional `:rf.event/source-detail :ms` tag — when
+  present the view renders an inline delay chip.
+
+  Returns nil when the trace event carries no parent-dispatch-id —
+  isolated dispatch (root cascade) leaves the parent-epoch-link off."
+  [ev]
+  (let [parent-id    (or (common/tag-of ev :rf.trace/parent-dispatch-id)
+                         (common/tag-of ev :parent-dispatch-id))
+        source-detail (common/tag-of ev :rf.event/source-detail)]
+    (cond-> nil
+      parent-id    (assoc :parent-dispatch-id parent-id)
+      (:ms source-detail) (assoc :delay-ms (:ms source-detail)))))
+
+(defn- source-enrichment
+  "Build the per-source-kind enrichment map for the DISPATCH row.
+
+  Closed-set source values (rf2-hxj0d + rf2-ejtpd):
+
+  - `:after-timer`       → `:delay-ms`, `:source-state-path`, `:machine-id`
+  - `:machine-spawn`     → `:spawned-actor-id`
+  - `:fx-dispatch`       → `:parent-dispatch-id`
+  - `:fx-dispatch-later` → `:parent-dispatch-id`, optional `:delay-ms`
+  - `:always`            → no enrichment fields (intra-macrostep; no
+                           dispatched envelope normally carries it but
+                           the renderer still labels the kind)
+  - other values         → no enrichment (existing labels: `:ui`,
+                           `:frame-init`, `:test-harness`, `:unknown`)
+
+  Per rf2-5qp4g — pure-data; the view layer reads these fields and
+  renders the rich chrome (state-path click-to-source, parent-epoch
+  navigation, delay-ms chip)."
+  [source event ev]
+  (case source
+    :after-timer       (after-timer-enrichment event)
+    :machine-spawn     (machine-spawn-enrichment event)
+    :fx-dispatch       (fx-dispatch-enrichment ev)
+    :fx-dispatch-later (fx-dispatch-enrichment ev)
+    nil))
+
 (defn dispatch-row
   "Build the step-1 DISPATCH row from the epoch's `:rf.event/dispatched`
   trace. Returns nil when the epoch carries no dispatched trace (test
@@ -83,21 +184,33 @@
   the canonical projection-side reader is `common/tag-of`. The legacy
   bare `:event` tag is retained as a fixture-compat fallback only —
   trace events never carry `:event` at top-level (the pre-rf2-509pq
-  `(:event ev)` arm was dead and removed)."
+  `(:event ev)` arm was dead and removed).
+
+  Per rf2-5qp4g (consuming rf2-ejtpd's substrate-internal `:source`
+  values), the row additionally carries source-kind-specific
+  enrichment under `:source-enrichment` — a map whose shape depends
+  on `:source`. The renderer reads these fields to render rich chrome
+  per source kind (after-timer delay + state-path,
+  machine-spawn actor-id, fx-dispatch parent-epoch navigation). See
+  `source-enrichment` for the per-kind field inventory."
   [events fallback-event]
   (let [ev (find-op events :rf.event/dispatched)]
     (cond
       ev
-      {:step        :dispatch
-       :badge       :DISPATCH
-       :event       (or (common/tag-of ev :rf.event/v)
+      (let [event   (or (common/tag-of ev :rf.event/v)
                         (common/tag-of ev :event)
                         fallback-event)
-       :source      (or (common/tag-of ev :source)
+            source  (or (common/tag-of ev :source)
                         (common/tag-of ev :rf.event/source))
-       :coord       (or (common/tag-of ev :rf.trace/call-site)
-                        (:rf.trace/call-site ev))
-       :duration-ms (common/tag-of ev :duration-ms)}
+            enrich  (source-enrichment source event ev)]
+        (cond-> {:step        :dispatch
+                 :badge       :DISPATCH
+                 :event       event
+                 :source      source
+                 :coord       (or (common/tag-of ev :rf.trace/call-site)
+                                  (:rf.trace/call-site ev))
+                 :duration-ms (common/tag-of ev :duration-ms)}
+          enrich (assoc :source-enrichment enrich)))
 
       (vector? fallback-event)
       {:step  :dispatch
@@ -1400,6 +1513,24 @@
           exact      (some #(when (= child-event (:trigger-event %)) %)
                            candidates)]
       (:epoch-id (or exact (first candidates))))))
+
+(defn find-parent-epoch
+  "Resolve a parent epoch's `:epoch-id` against the epoch-history given
+  the child's parent-dispatch-id (rf2-5qp4g).
+
+  The reverse of `find-child-epoch`: child's `:parent-dispatch-id` →
+  parent's `:dispatch-id` → parent's `:epoch-id`. The lookup matches
+  on `dispatch-id-of-epoch` which falls back to a `:trace-events`
+  walk for records that lack the first-class `:dispatch-id` slot
+  (per the same helper's docstring). Returns nil when no parent
+  epoch is in the buffer (root cascade, or aged out)."
+  [epoch-history parent-dispatch-id]
+  (when (and (some? parent-dispatch-id) (seq epoch-history))
+    (some (fn [record]
+            (when (or (= parent-dispatch-id (common/dispatch-id-of-epoch record))
+                      (= parent-dispatch-id (:dispatch-id record)))
+              (:epoch-id record)))
+          epoch-history)))
 
 ;; ---- top-level projection ------------------------------------------------
 

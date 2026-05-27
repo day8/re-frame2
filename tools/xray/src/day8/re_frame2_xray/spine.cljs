@@ -221,6 +221,25 @@
               (:epoch-id record)))
           epoch-history)))
 
+(defn dispatch-id-for-epoch
+  "Return the settling `:dispatch-id` of the epoch record in
+  `epoch-history` whose `:epoch-id` is `epoch-id`, or nil when no
+  match is found.
+
+  Reverse of `epoch-id-for-cascade`. Used by `:rf.xray/focus-epoch`
+  (rf2-5qp4g) to pivot focus by epoch-id (the primary key into the
+  epoch ring) when the caller — the Epoch panel's DISPATCH step's
+  parent-epoch navigation — only has the epoch-id and needs to drive
+  the spine's `:focus-cascade-reducer` which keys on dispatch-id.
+
+  Pure data; JVM-runnable."
+  [epoch-history epoch-id]
+  (when (and epoch-id (seq epoch-history))
+    (some (fn [record]
+            (when (= epoch-id (:epoch-id record))
+              (common/dispatch-id-of-epoch record)))
+          epoch-history)))
+
 (defn compose-focus
   "Derive the public `:rf.xray/focus` map from a stored `:focus` slot
   and the live cascade vector. Always re-derives `:head?` and the
@@ -709,6 +728,40 @@
     (fn [db _event]
       (focus-step-reducer db (db->cascades db) (db->epoch-history db) +1
                           (db->show-ungrouped? db))))
+
+  (rf/reg-event-db :rf.xray/focus-epoch
+    ;; Per rf2-5qp4g — focus the spine by epoch-id (the primary key
+    ;; into the epoch ring buffer). Resolves the matching record's
+    ;; settling dispatch-id via `dispatch-id-for-epoch` then defers
+    ;; to `focus-cascade-reducer` so the same focus-mutation path is
+    ;; reused. The Epoch panel's DISPATCH step renders a parent-epoch
+    ;; navigation chip for `:fx-dispatch` / `:fx-dispatch-later`
+    ;; dispatches (the parent epoch was settled in the buffer); the
+    ;; chip's click dispatches this event with the resolved
+    ;; parent-epoch-id.
+    (fn [db [_ epoch-id]]
+      (let [epoch-history   (db->epoch-history db)
+            dispatch-id     (dispatch-id-for-epoch epoch-history epoch-id)
+            cascades        (db->cascades db)
+            show-ungrouped? (db->show-ungrouped? db)
+            head-id         (focusable-head-id cascades show-ungrouped?)
+            record          (some #(when (= epoch-id (:epoch-id %)) %)
+                                  epoch-history)
+            frame-id        (:frame record)]
+        (if dispatch-id
+          (focus-cascade-reducer db dispatch-id frame-id epoch-id head-id)
+          ;; No matching dispatch-id (the epoch's trace was elided or
+          ;; the record lacks the slot) — still pin epoch-id so panels
+          ;; pivoting on `:rf.xray/focus :epoch-id` (App-db diff, Views,
+          ;; machine-inspector) follow the navigation. The cascade list
+          ;; will refresh and `compose-focus` will recover the dispatch-id
+          ;; on the next live tick.
+          (cond-> (update db :focus (fnil assoc {})
+                          :epoch-id   epoch-id
+                          :mode       :retro
+                          :previewing? false)
+            frame-id (assoc-in [:focus :frame] frame-id)
+            true     (assoc :selected-epoch-id epoch-id))))))
 
   (rf/reg-event-db :rf.xray/follow-head
     (fn [db _event]

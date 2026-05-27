@@ -186,6 +186,16 @@
              ;; their own kind. `:unknown` surfaces "we lost track"
              ;; rather than fabricating an origin.
              :source                 (:source opts :unknown)
+             ;; Per rf2-5qp4g: per-source-kind detail riding alongside
+             ;; the closed-set `:source` value. Optional; only stamped
+             ;; by substrate dispatch sites that carry kind-specific
+             ;; payload (e.g. `:dispatch-later` fx stamps `{:ms <ms>}`
+             ;; so the Epoch panel's DISPATCH step renders the
+             ;; originally scheduled delay alongside the kind label).
+             ;; Tools read this off the `:rf.event/source-detail` tag
+             ;; on `:rf.event/dispatched` (stamped in
+             ;; `emit-dispatched-trace`).
+             :source-detail          (:source-detail opts)
              :origin                 (:origin opts :app)
              ;; Per rf2-t1lxr: the closed-enum functional source per
              ;; Xray A.5 / Spec 009 §Dispatch-origin tagging. The 10-value
@@ -1718,7 +1728,16 @@
                        (:dispatch-id envelope)
                        (assoc :rf.trace/dispatch-id (:dispatch-id envelope))
                        (:parent-dispatch-id envelope)
-                       (assoc :rf.trace/parent-dispatch-id (:parent-dispatch-id envelope))))))))
+                       (assoc :rf.trace/parent-dispatch-id (:parent-dispatch-id envelope))
+                       ;; Per rf2-5qp4g: optional per-source-kind detail
+                       ;; map (e.g. `{:ms 500}` for `:dispatch-later`)
+                       ;; so the Epoch panel's DISPATCH source-kind
+                       ;; enrichment (spec/021 §9.1.6.3) can render
+                       ;; kind-specific chrome. Only stamped when the
+                       ;; envelope carried `:source-detail` (the
+                       ;; substrate dispatch site opt-in).
+                       (:source-detail envelope)
+                       (assoc :rf.event/source-detail (:source-detail envelope))))))))
 
 (defn- front-insert-machine-internal
   "Return `q` (a PersistentQueue of envelopes) with `envelope` spliced in

@@ -133,6 +133,179 @@
       (is (nil? (:on-click (second label)))
           "no click handler on the degraded label"))))
 
+;; ---- rf2-5qp4g — DISPATCH per-source-kind enrichment ------------------
+;;
+;; Each closed-set substrate-internal `:source` value (rf2-ejtpd:
+;; `:after-timer`, `:machine-spawn`, `:fx-dispatch`,
+;; `:fx-dispatch-later`) renders rich chrome — delay-ms, state-path
+;; click-to-source, spawned-actor-id, parent-epoch navigation.
+
+(deftest dispatch-source-after-timer-renders-rich-label-test
+  (testing "rf2-5qp4g — `:source :after-timer` renders the kind label,
+            the delay-ms chip, and the source-state-path with
+            click-to-source affordance"
+    (let [step {:step :dispatch :badge :DISPATCH :step-number 1
+                :event [:ws/connection [:rf.machine.timer/after-elapsed
+                                        250 42 [:active :authenticating]]]
+                :source :after-timer
+                :coord nil
+                :source-enrichment {:machine-id        :ws/connection
+                                    :delay-ms          250
+                                    :source-state-path [:active :authenticating]}}
+          tree (view/render-dispatch-step step)
+          header-text (text-of tree "rf-xray-epoch-dispatch-header")]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-dispatch-source-label"))
+          "the dispatch source-label slot is present")
+      (is (string/includes? (or header-text "") "from :after timer")
+          "the kind label reads 'from :after timer'")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-dispatch-after-timer-delay"))
+          "the delay chip slot renders when delay-ms is present")
+      (is (string/includes?
+            (or (text-of tree "rf-xray-epoch-dispatch-after-timer-delay") "")
+            "250ms")
+          "the delay chip shows the timer's delay in ms")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-dispatch-after-timer-state-path"))
+          "the source-state-path slot renders")
+      (is (string/includes?
+            (or (text-of tree "rf-xray-epoch-dispatch-after-timer-state-path") "")
+            ":active")
+          "the state-path chip shows the path the timer fired from"))))
+
+(deftest dispatch-source-machine-spawn-renders-rich-label-test
+  (testing "rf2-5qp4g — `:source :machine-spawn` renders the kind label
+            and the spawned actor-id"
+    (let [step {:step :dispatch :badge :DISPATCH :step-number 1
+                :event [:checkout/worker [:rf.machine/spawned]]
+                :source :machine-spawn
+                :coord nil
+                :source-enrichment {:spawned-actor-id :checkout/worker}}
+          tree (view/render-dispatch-step step)
+          header-text (text-of tree "rf-xray-epoch-dispatch-header")]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-dispatch-source-label"))
+          "the source-label slot is present")
+      (is (string/includes? (or header-text "") "from machine spawn")
+          "the kind label reads 'from machine spawn'")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-dispatch-machine-spawn-actor"))
+          "the spawned-actor-id chip renders")
+      (is (string/includes?
+            (or (text-of tree "rf-xray-epoch-dispatch-machine-spawn-actor") "")
+            ":checkout/worker")
+          "the chip shows the spawned actor's id"))))
+
+(deftest dispatch-source-fx-dispatch-renders-rich-label-test
+  (testing "rf2-5qp4g — `:source :fx-dispatch` renders the kind label
+            and the parent-epoch navigation chip"
+    (let [step {:step :dispatch :badge :DISPATCH :step-number 1
+                :event [:cart/add :apple]
+                :source :fx-dispatch
+                :coord nil
+                :source-enrichment {:parent-dispatch-id 9001}}
+          epoch-history [{:epoch-id 42 :dispatch-id 9001
+                          :trigger-event [:checkout/begin]}]
+          tree (view/render-dispatch-step step epoch-history)
+          header-text (text-of tree "rf-xray-epoch-dispatch-header")]
+      (is (string/includes? (or header-text "") "from fx :dispatch")
+          "the kind label reads 'from fx :dispatch'")
+      (let [link (th/find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link")]
+        (is (some? link) "the parent-epoch-link slot is present")
+        (is (= :button (first link))
+            "with a resolved parent-epoch-id, the chip renders as a clickable button")
+        (is (fn? (:on-click (second link)))
+            "click handler is attached for focus-epoch dispatch")
+        (is (string/includes? (or (text-of tree "rf-xray-epoch-dispatch-parent-epoch-link") "")
+                              "#42")
+            "the chip shows the resolved parent epoch number")))))
+
+(deftest dispatch-source-fx-dispatch-later-renders-delay-chip-test
+  (testing "rf2-5qp4g — `:source :fx-dispatch-later` renders kind label,
+            the delay-ms chip (when stamped) AND the parent-epoch link"
+    (let [step {:step :dispatch :badge :DISPATCH :step-number 1
+                :event [:checkout/retry-prompt]
+                :source :fx-dispatch-later
+                :coord nil
+                :source-enrichment {:parent-dispatch-id 9001
+                                    :delay-ms 500}}
+          epoch-history [{:epoch-id 42 :dispatch-id 9001
+                          :trigger-event [:checkout/begin]}]
+          tree (view/render-dispatch-step step epoch-history)
+          header-text (text-of tree "rf-xray-epoch-dispatch-header")]
+      (is (string/includes? (or header-text "") "from fx :dispatch-later")
+          "the kind label reads 'from fx :dispatch-later'")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-dispatch-fx-later-delay"))
+          "the delay chip renders when delay-ms is present")
+      (is (string/includes?
+            (or (text-of tree "rf-xray-epoch-dispatch-fx-later-delay") "")
+            "500ms")
+          "the delay chip shows the original scheduled delay")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))
+          "the parent-epoch-link slot is also present"))))
+
+(deftest dispatch-source-fx-dispatch-unresolved-parent-test
+  (testing "rf2-5qp4g — when the parent-dispatch-id has no matching
+            epoch in the buffer (root cascade or aged out), the
+            parent-epoch chip degrades to a muted plain span carrying
+            the unresolved dispatch-id (gives the operator something to
+            orient on; no broken / dead click affordance)"
+    (let [step {:step :dispatch :badge :DISPATCH :step-number 1
+                :event [:cart/add :apple]
+                :source :fx-dispatch
+                :coord nil
+                :source-enrichment {:parent-dispatch-id 99999}}
+          epoch-history [{:epoch-id 42 :dispatch-id 9001
+                          :trigger-event [:checkout/begin]}]
+          tree (view/render-dispatch-step step epoch-history)]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))
+          "no clickable link when the parent epoch isn't in the buffer")
+      (let [unresolved (th/find-by-testid
+                         tree "rf-xray-epoch-dispatch-parent-epoch-unresolved")]
+        (is (some? unresolved) "the unresolved-parent chip is rendered")
+        (is (= :span (first unresolved))
+            "the unresolved chip is a plain span")))))
+
+(deftest dispatch-source-fx-dispatch-without-history-test
+  (testing "rf2-5qp4g — when render-dispatch-step is called without
+            epoch-history (direct test callers, or pre-history-seed
+            cold mount), `:fx-dispatch` still renders the kind label
+            with the parent chip in unresolved form."
+    (let [step {:step :dispatch :badge :DISPATCH :step-number 1
+                :event [:cart/add :apple]
+                :source :fx-dispatch
+                :coord nil
+                :source-enrichment {:parent-dispatch-id 9001}}
+          tree (view/render-dispatch-step step)]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))
+          "no clickable link without epoch-history threaded")
+      (is (some? (th/find-by-testid
+                   tree "rf-xray-epoch-dispatch-parent-epoch-unresolved"))
+          "the unresolved-parent chip carries the parent-dispatch-id"))))
+
+(deftest dispatch-source-after-timer-defensive-no-enrichment-test
+  (testing "rf2-5qp4g — when `:source :after-timer` is stamped but no
+            enrichment payload is present (defensive — non-canonical
+            event shape, older runtime), the renderer falls through to
+            the vanilla `dispatch-source-label` so the bare kind name
+            still renders + a coord-bearing call-site stays clickable"
+    (let [tree (view/render-dispatch-step
+                 {:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:some/other]
+                  :source :after-timer
+                  :coord nil})
+          label (th/find-by-testid tree "rf-xray-epoch-dispatch-source-label")]
+      (is (some? label) "the source-label slot still renders"))))
+
+(deftest dispatch-source-always-renders-kind-label-test
+  (testing "rf2-5qp4g — `:source :always` (defensive: stamped on
+            microstep traces, not DISPATCH) renders the bare kind label
+            so the closed set is fully covered even if a future runtime
+            emits it on a dispatch trace"
+    (let [tree (view/render-dispatch-step
+                 {:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:foo]
+                  :source :always
+                  :coord nil})
+          header-text (text-of tree "rf-xray-epoch-dispatch-header")]
+      (is (string/includes? (or header-text "") "from :always")))))
+
 ;; ---- rf2-cq0ch — COEFFECT body --------------------------------------
 
 (deftest coeffect-body-renders-labelled-value-test
