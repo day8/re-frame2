@@ -1679,16 +1679,11 @@
 
                         :else :same)
         has-change?   (and diff? (not (#{:same :same-shifted} op)))
-        ;; R5-tinted: when this container is INSIDE a wholly-changed
-        ;; ancestor, the renderer suppresses per-leaf gutter glyphs +
-        ;; stripes on its descendants (the parent's marking covers them).
-        ;; The descendant row WASH is retained so a partial-visibility
-        ;; scroll into the middle of a 20-leaf added shard still reads
-        ;; as green. The ancestor itself is the wholly-changed-root and
-        ;; gets the full chrome — only deeper descendants suppress.
-        wholly-anc    (when (and diff? projection)
-                        (engine/wholly-changed-ancestor projection path))
-        inside-wholly? (and wholly-anc (not= wholly-anc (vec path)))
+        ;; rf2-6q2tz — the R5 wholly-changed-ancestor lookup +
+        ;; `inside-wholly?` derivation live in `render-leaf-with-diff`
+        ;; (where R5 chrome-opts are actually gated on them). The
+        ;; duplicate container-level bindings were dead code and have
+        ;; been removed; the container has no R5-specific behaviour.
         default?      (and (not depth-capped?)
                            (default-expanded?
                              {:depth                   depth
