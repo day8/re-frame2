@@ -15,11 +15,11 @@
 ;; A generic success stub: every :rf.http/managed call resolves :success
 ;; with an empty map. Tests register a richer canned response when they
 ;; need specific payloads.
-(th/reg-canned-success! :rf.http/managed.canned-success-empty {})
+(th/reg-canned-success! :conduit.test/canned-success-empty {})
 
 (defn app-smoke-test []
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
-                                 :fx-overrides {:rf.http/managed      :rf.http/managed.canned-success-empty
+                                 :fx-overrides {:rf.http/managed      :conduit.test/canned-success-empty
                                                 :auth.session/persist :rf/no-op}})]
     ;; After init: auth + articles slices and the :realworld/tags
     ;; and :settings/form machine snapshots are present. The tags

@@ -58,7 +58,7 @@
     (when-let [ls (.-localStorage js/globalThis)]
       (.setItem ls "auth/token" token))))
 
-(rf/reg-fx :rf.http/managed.login-demo
+(rf/reg-fx :auth.login.demo/managed-stub
   {:doc       "Demo override for `:rf.http/managed`. Identical behaviour
                to the Reagent example's stub. The raw `js/setTimeout`
                below is demo-only latency so the `:submitting` UI state
@@ -244,7 +244,7 @@
   (rf/init! uix-adapter/adapter)
   (rf/reg-frame :rf/default
     {:doc          "Login (UIx) demo frame."
-     :fx-overrides {:rf.http/managed :rf.http/managed.login-demo}})
+     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
   ;; No `dispatch-sync` seed here (unlike counter / dashboard): the
   ;; machine handler is self-initialising — its `:initial`/`:data` seed
   ;; [:rf/machines :auth.login/flow] when the flow first runs (per

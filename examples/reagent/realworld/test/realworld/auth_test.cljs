@@ -15,7 +15,7 @@
   (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn login-happy-path-test []
-  (th/reg-canned-success! :rf.http/managed.login-success
+  (th/reg-canned-success! :conduit.test/login-success
                           {:user {:email    "alice@example.com"
                                   :username "alice"
                                   :token    "jwt-abc"
@@ -23,7 +23,7 @@
                                   :image    nil}})
 
   (with-frame [f (rf/make-frame {:on-create    [:auth/initialise]
-                                 :fx-overrides {:rf.http/managed      :rf.http/managed.login-success
+                                 :fx-overrides {:rf.http/managed      :conduit.test/login-success
                                                 :auth.session/persist :rf/no-op}})]
     (assert (= :idle (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
 
@@ -57,13 +57,13 @@
             "the misshapen-cofx witness — the value must NOT land at top of ctx")))
 
 (defn login-failure-test []
-  (th/reg-canned-failure! :rf.http/managed.login-failure
+  (th/reg-canned-failure! :conduit.test/login-failure
                           :rf.http/http-4xx
                           {:status 422
                            :body   {:errors {:body ["email or password is invalid"]}}})
 
   (with-frame [f (rf/make-frame {:on-create    [:auth/initialise]
-                                 :fx-overrides {:rf.http/managed :rf.http/managed.login-failure}})]
+                                 :fx-overrides {:rf.http/managed :conduit.test/login-failure}})]
     (rf/dispatch-sync [:auth/flow [:auth/login {:email "x@y.z" :password "wrong"}]]
                       {:frame f})
     (assert (= :error (rf/compute-sub [:auth/state] (rf/get-frame-db f))))

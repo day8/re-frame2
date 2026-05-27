@@ -37,7 +37,7 @@
   ;;     (:status slice) = :submitted            (:state snap)  = :correct
   ;;     (:draft slice)                          (-> snap :data :draft)
   ;;     :submitting? (a derived boolean sub)    (machine-has-tag? :settings/in-flight)
-  (th/reg-canned-success! :rf.http/managed.canned-settings-save
+  (th/reg-canned-success! :conduit.test/canned-settings-save
                           {:user {:email "alice@example.com"
                                   :token "jwt-2"
                                   :username "alice"
@@ -45,7 +45,7 @@
                                   :image nil}})
 
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
-                                 :fx-overrides {:rf.http/managed    :rf.http/managed.canned-settings-save
+                                 :fx-overrides {:rf.http/managed    :conduit.test/canned-settings-save
                                                 :auth.session/persist :rf/no-op}})]
     ;; After :app/initialise → :settings/initialise → [:reset], the
     ;; machine sits at :neutral with empty :data.
@@ -104,11 +104,11 @@
   ;; and the form-level error surface is the same one validation
   ;; would use (per Pattern-Forms — both paths render via :errors /
   ;; :submit-error).
-  (th/reg-canned-failure! :rf.http/managed.canned-settings-failure
+  (th/reg-canned-failure! :conduit.test/canned-settings-failure
                           :rf.http/http-5xx
                           {:status 500 :body "server error"})
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
-                                 :fx-overrides {:rf.http/managed    :rf.http/managed.canned-settings-failure
+                                 :fx-overrides {:rf.http/managed    :conduit.test/canned-settings-failure
                                                 :auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
                                             :token "jwt-1"

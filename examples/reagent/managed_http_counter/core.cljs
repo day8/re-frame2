@@ -147,7 +147,7 @@
 ;; that contract end-to-end without requiring a real long-running
 ;; endpoint.
 
-(rf/reg-fx :rf.http/managed.long-stub
+(rf/reg-fx :managed-http-counter.demo/long-stub
   {:doc       "Per-app fx that synthesises a delayed :rf.http/managed
                reply for the :counter/start-long path. The deferred
                canned-failure reply lands ~750ms after dispatch, leaving
@@ -182,7 +182,7 @@
       ;; "long-running" demo uses the stub.
       :else
       {:db (assoc db :status :loading :error nil)
-       :fx [[:rf.http/managed.long-stub
+       :fx [[:managed-http-counter.demo/long-stub
              {:request    {:method :get :url "api/long"}
               :request-id :counter/long
               :decode     :json}]]})))

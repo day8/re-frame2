@@ -41,10 +41,10 @@
   ;;     (:status slice) = :loaded               (:state snap)  = :loaded
   ;;     (:data slice)                           (-> snap :data :tags)
   ;;     :loading? (a derived boolean sub)       (machine-has-tag? :tags/loading)
-  (th/reg-canned-success! :rf.http/managed.canned-tags
+  (th/reg-canned-success! :conduit.test/canned-tags
                           {:tags ["intro" "demo" "clojure"]})
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
-                                 :fx-overrides {:rf.http/managed :rf.http/managed.canned-tags}})]
+                                 :fx-overrides {:rf.http/managed :conduit.test/canned-tags}})]
     ;; After :app/initialise → :tags/initialise → [:reset], the machine
     ;; sits at :idle with empty :data.
     (let [snap (snapshot (rf/get-frame-db f))]
@@ -92,11 +92,11 @@
   ;; Failure path — the :tags region lands in :error with the projected
   ;; failure message in :data, and the `:tags/error` derived sub picks
   ;; it up. Prior :data (if any) is preserved across the transition.
-  (th/reg-canned-failure! :rf.http/managed.canned-tags-failure
+  (th/reg-canned-failure! :conduit.test/canned-tags-failure
                           :rf.http/http-5xx
                           {:status 500 :body "server error"})
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
-                                 :fx-overrides {:rf.http/managed :rf.http/managed.canned-tags-failure}})]
+                                 :fx-overrides {:rf.http/managed :conduit.test/canned-tags-failure}})]
     (rf/dispatch-sync [:tags/load] {:frame f})
     (let [db   (rf/get-frame-db f)
           snap (snapshot db)]

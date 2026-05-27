@@ -104,12 +104,12 @@
    is :ready, every staging slot is populated, and every top-level
    slice landed in app-db."
   []
-  (reg-canned-success-by-url! :rf.http/managed.boot-success payload-for)
+  (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
   (with-frame [f (rf/make-frame
                    {:on-create    [:boot/initialise]
                     :fx-overrides {:rf.http/managed
-                                   :rf.http/managed.boot-success}})]
+                                   :boot.test/canned-boot-success}})]
     ;; The :on-create cofx fires :boot/initialise during make-frame,
     ;; which dispatches [:app/boot [:rf/start]]. The synchronous
     ;; drain runs all four canned-success stubs to completion.
@@ -136,12 +136,12 @@
    correctly so each child writes its payload to the matching
    staging key (no cross-talk between siblings)."
   []
-  (reg-canned-success-by-url! :rf.http/managed.boot-success payload-for)
+  (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
   (with-frame [f (rf/make-frame
                    {:on-create    [:boot/initialise]
                     :fx-overrides {:rf.http/managed
-                                   :rf.http/managed.boot-success}})]
+                                   :boot.test/canned-boot-success}})]
     (let [db      (rf/get-frame-db f)
           staging (:boot/staging db)]
       ;; Each staging-key holds the payload that came back from the
@@ -165,7 +165,7 @@
   "A failure during the parallel phase routes the boot machine to
    :failed and records the error in :data."
   []
-  (reg-canned-failure! :rf.http/managed.boot-fail
+  (reg-canned-failure! :boot.test/canned-boot-fail
                        :rf.http/http-5xx
                        {:status 500
                         :body   "boot dependency unreachable"})
@@ -173,7 +173,7 @@
   (with-frame [f (rf/make-frame
                    {:on-create    [:boot/initialise]
                     :fx-overrides {:rf.http/managed
-                                   :rf.http/managed.boot-fail}})]
+                                   :boot.test/canned-boot-fail}})]
     (let [db    (rf/get-frame-db f)
           state (rf/compute-sub [:app.boot/state] db)]
       ;; Every child fails (the canned-failure stub is blanket); the
