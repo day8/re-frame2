@@ -1487,6 +1487,234 @@
         "modified leaf still carries the change annotation")))
 
 ;; =========================================================================
+;; rf2-zpeyv — slot-vs-value anchoring (R2 + R6 whole-row treatment)
+;; =========================================================================
+;;
+;; When the SLOT itself changes (key added / removed), the per-op wash
+;; paints the WHOLE row (key cell + value cell) and the `:removed`
+;; strike-through reaches the key text. When only the VALUE changed
+;; inside an existing slot (R1/R7/R8), the chrome stays value-anchored —
+;; no key-cell wash, no key strike.
+
+(defn- ^:private projection-for
+  "Compute a projection for `(before, after)` so tests can drive
+  `render-node` with the same engine the production renderer uses."
+  [before after]
+  (engine/project before after))
+
+(deftest slot-anchored-added-key-paints-whole-row
+  ;; R2 added map-key — both the key cell AND the value cell carry the
+  ;; per-op wash; `data-rf-row-anchor="slot"` markers appear on both.
+  (let [before {:a 1}
+        after  {:a 1 :b 2}
+        proj   (projection-for before after)
+        h      (ei/render-node {:value after
+                                :before before
+                                :diff? true
+                                :projection proj
+                                :panel-id :p :mount-id "m"
+                                :path [] :depth 0
+                                :expansion-map {}
+                                :opts {:default-expanded-depth 2}})
+        nodes  (walk-hiccup h)
+        slot-cells (->> nodes
+                        (filter (fn [n]
+                                  (and (vector? n)
+                                       (map? (second n))
+                                       (= "slot"
+                                          (get (second n) :data-rf-row-anchor))))))
+        cell-roles (->> slot-cells
+                        (map (fn [n] (get (second n) :data-rf-cell)))
+                        set)]
+    (is (>= (count slot-cells) 2)
+        "added-key row tags both grid cells with data-rf-row-anchor=slot")
+    (is (contains? cell-roles "key")
+        "the key cell carries the slot-anchor marker")
+    (is (contains? cell-roles "value")
+        "the value cell carries the slot-anchor marker")
+    ;; Both cells must paint a non-empty :background (the per-op wash).
+    (doseq [cell slot-cells]
+      (let [bg (-> cell second :style :background)]
+        (is (some? bg)
+            (str "slot cell " (get (second cell) :data-rf-cell)
+                 " paints :background wash"))))))
+
+(deftest slot-anchored-removed-key-paints-whole-row-and-strikes-key
+  ;; R2 removed map-key — both cells get the wash AND the key cell
+  ;; gets `text-decoration: line-through` so the strike reaches the
+  ;; key text, not just the value text.
+  (let [before {:a 1 :legacy-flag true}
+        after  {:a 1}
+        proj   (projection-for before after)
+        h      (ei/render-node {:value after
+                                :before before
+                                :diff? true
+                                :projection proj
+                                :panel-id :p :mount-id "m"
+                                :path [] :depth 0
+                                :expansion-map {}
+                                :opts {:default-expanded-depth 2}})
+        nodes  (walk-hiccup h)
+        slot-cells (->> nodes
+                        (filter (fn [n]
+                                  (and (vector? n)
+                                       (map? (second n))
+                                       (= "slot"
+                                          (get (second n) :data-rf-row-anchor))))))
+        key-cells (filter (fn [n] (= "key" (get (second n) :data-rf-cell)))
+                          slot-cells)
+        value-cells (filter (fn [n] (= "value" (get (second n) :data-rf-cell)))
+                            slot-cells)]
+    (is (= 1 (count key-cells))
+        "removed-key row contributes exactly one slot-anchored key cell")
+    (is (= 1 (count value-cells))
+        "removed-key row contributes exactly one slot-anchored value cell")
+    (let [key-style (-> key-cells first second :style)]
+      (is (some? (:background key-style))
+          "key cell paints the per-op wash background")
+      (is (= "line-through" (:text-decoration key-style))
+          "key cell paints strike-through so the strike reaches the key text"))
+    (let [val-style (-> value-cells first second :style)]
+      (is (some? (:background val-style))
+          "value cell paints the per-op wash background"))))
+
+(deftest slot-anchored-leaf-wash-suppressed-no-double-paint
+  ;; The inner gutter-row inside a slot-anchored value cell MUST
+  ;; suppress its own wash; otherwise the wash double-paints over the
+  ;; cell-level wash. We assert via the `data-rf-diff-wash` attribute
+  ;; (set by gutter-row when it paints a wash) being absent inside an
+  ;; `:added` / `:removed` slot row.
+  (let [before {:a 1}
+        after  {:a 1 :b 2}
+        proj   (projection-for before after)
+        h      (ei/render-node {:value after
+                                :before before
+                                :diff? true
+                                :projection proj
+                                :panel-id :p :mount-id "m"
+                                :path [] :depth 0
+                                :expansion-map {}
+                                :opts {:default-expanded-depth 2}})
+        nodes  (walk-hiccup h)
+        ;; Find the value cell for the added :b key — it carries
+        ;; `data-rf-cell value` and `data-rf-row-anchor slot`.
+        value-cell (->> nodes
+                        (filter (fn [n]
+                                  (and (vector? n)
+                                       (map? (second n))
+                                       (= "value" (get (second n) :data-rf-cell))
+                                       (= "slot" (get (second n) :data-rf-row-anchor)))))
+                        first)
+        ;; Walk inside the slot-anchored value cell looking for any
+        ;; descendant with `data-rf-diff-wash` set — that would mean a
+        ;; gutter-row inside the cell painted its own wash.
+        inner-washes (->> (walk-hiccup value-cell)
+                          (filter (fn [n]
+                                    (and (vector? n)
+                                         (map? (second n))
+                                         (= "1" (get (second n) :data-rf-diff-wash))))))]
+    (is (some? value-cell)
+        "added-key slot-anchored value cell is present")
+    (is (zero? (count inner-washes))
+        "slot-anchored value cell suppresses inner gutter-row wash")))
+
+(deftest value-anchored-modified-row-does-not-paint-key-cell-wash
+  ;; R1 (value mutated, slot identity unchanged) MUST stay value-
+  ;; anchored. No `data-rf-row-anchor=slot` markers on the key/value
+  ;; cells; key cell carries no wash and no strike.
+  (let [before {:counter 5}
+        after  {:counter 6}
+        proj   (projection-for before after)
+        h      (ei/render-node {:value after
+                                :before before
+                                :diff? true
+                                :projection proj
+                                :panel-id :p :mount-id "m"
+                                :path [] :depth 0
+                                :expansion-map {}
+                                :opts {:default-expanded-depth 2}})
+        nodes  (walk-hiccup h)
+        slot-cells (->> nodes
+                        (filter (fn [n]
+                                  (and (vector? n)
+                                       (map? (second n))
+                                       (= "slot"
+                                          (get (second n) :data-rf-row-anchor))))))
+        key-cells (->> nodes
+                       (filter (fn [n]
+                                 (and (vector? n)
+                                      (map? (second n))
+                                      (= "key" (get (second n) :data-rf-cell))))))
+        s   (try (pr-str h) (catch :default _ ""))]
+    (is (zero? (count slot-cells))
+        "modified-leaf row carries no slot-anchor markers (value-anchored)")
+    (is (pos? (count key-cells))
+        "the key cell still renders (no regression)")
+    (doseq [kc key-cells]
+      (let [style (-> kc second :style)]
+        (is (not (:background style))
+            "modified-key cell paints NO row wash")
+        (is (not= "line-through" (:text-decoration style))
+            "modified-key cell paints NO key-text strike")))
+    (is (re-find #"← changed from 5" s)
+        "value-side R1 annotation still present")))
+
+(deftest value-anchored-redaction-row-stays-value-anchored
+  ;; R8 (redaction transition) keeps value-anchored chrome — the slot
+  ;; identity didn't change, only the visibility of the value did.
+  (let [before {:secret :rf/redacted}
+        after  {:secret "now-visible"}
+        proj   (projection-for before after)
+        h      (ei/render-node {:value after
+                                :before before
+                                :diff? true
+                                :projection proj
+                                :panel-id :p :mount-id "m"
+                                :path [] :depth 0
+                                :expansion-map {}
+                                :opts {:default-expanded-depth 2}})
+        nodes  (walk-hiccup h)
+        slot-cells (->> nodes
+                        (filter (fn [n]
+                                  (and (vector? n)
+                                       (map? (second n))
+                                       (= "slot"
+                                          (get (second n) :data-rf-row-anchor))))))]
+    (is (zero? (count slot-cells))
+        "R8 row stays value-anchored — no slot-anchor markers")))
+
+(deftest slot-anchored-removed-key-marker-on-data-attrs
+  ;; The removed-row regression test already covers `line-through`
+  ;; appearing in pr-str — but we want a positive assertion that the
+  ;; KEY CELL specifically carries the strike. Walk through the hiccup
+  ;; and confirm the key-cell `<div>` is what holds it (not just the
+  ;; inner key-segment span).
+  (let [before {:a 1 :b 2}
+        after  {:a 1}
+        proj   (projection-for before after)
+        h      (ei/render-node {:value after
+                                :before before
+                                :diff? true
+                                :projection proj
+                                :panel-id :p :mount-id "m"
+                                :path [] :depth 0
+                                :expansion-map {}
+                                :opts {:default-expanded-depth 2}})
+        nodes  (walk-hiccup h)
+        key-cell-with-strike
+        (->> nodes
+             (filter (fn [n]
+                       (and (vector? n)
+                            (map? (second n))
+                            (= "key" (get (second n) :data-rf-cell))
+                            (= "slot" (get (second n) :data-rf-row-anchor))
+                            (= "line-through"
+                               (get-in (second n) [:style :text-decoration])))))
+             first)]
+    (is (some? key-cell-with-strike)
+        "removed-key cell DIV (not just inner span) carries line-through")))
+
+;; =========================================================================
 ;; rf2-y59tb — frame-leak + first-click regression guards
 ;; =========================================================================
 ;;

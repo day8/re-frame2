@@ -1527,10 +1527,17 @@ flips.
 per §7 with Mike's pair-debug answers):
 
 - **R1**: value-side `~` gutter glyph for modified scalars + `←
-  changed from <prior>` italic muted suffix.
-- **R2**: key-side `+` / `−` glyph at column 1 of the key row
-  when the KEY itself is `:added` / `:removed`. Strike-through
-  reaches the key text for `:removed`.
+  changed from <prior>` italic muted suffix. Value-anchored —
+  the slot identity didn't change, only the contents did, so
+  chrome paints the value cell only (no key-cell wash, no key
+  strike). See the **slot-vs-value anchoring rule** below.
+- **R2 (refined rf2-zpeyv)**: key-side `+` / `−` glyph at column 1
+  of the key row when the KEY itself is `:added` / `:removed`.
+  Per the slot-vs-value rule (below), the per-op WASH paints the
+  **whole row** (key cell + value cell) and the `:removed`
+  strike-through reaches the KEY text — not just the value. The
+  visual unit matches the semantic unit: the SLOT changed, so the
+  WHOLE ROW reads as changed.
 - **R3 (revised)**: container triangle stays default
   `:text-tertiary` always (no colour swap). When COLLAPSED (`▶`)
   AND the subtree carries change, a `[N∆]` count chip appears
@@ -1545,22 +1552,56 @@ per §7 with Mike's pair-debug answers):
   reclassify to `:added` / `:removed` at the parent. Descendant
   gutter GLYPHS + 2px STRIPES are suppressed; descendant row
   WASHES are RETAINED (low-opacity tint). Operator scrolled into
-  the middle of a 20-leaf added shard still reads green.
+  the middle of a 20-leaf added shard still reads green. The
+  PARENT key's row follows the R2-refined slot-anchoring rule:
+  whole-row wash on the parent key + value cells.
 - **R6**: vector shift-detection via Editscript's A* + Myers
   underpinnings. Shifted-but-equal rows carry a `(was N)` muted
   suffix in `:text-tertiary` and NO gutter glyph (new op
   classification `:same-shifted`). Removed elements live on a
   separate `:vector-removals` channel keyed by parent path
   (the after-tree has no stable path identity for the deleted
-  element).
+  element). Vector INSERT / REMOVE rows naturally satisfy the
+  slot-anchoring rule — the row IS the slot (no key column),
+  so the per-op wash on the row's content IS the whole-row
+  treatment.
 - **R7**: type-change containers reclassify to `:modified`. New
   value renders in the value column; `← was <prior>` suffix via
   the `mini` renderer (falling back to "<type> with N keys"
-  when `mini` overflows).
+  when `mini` overflows). Value-anchored per the slot-vs-value
+  rule — the slot still resolves, only the value's type flipped.
 - **R8**: one-sided `:rf/redacted` renders as `:modified` with
   curated `← was redacted` / `← now redacted` suffix (no
   sentinel text leak). Two-sided redacted classifies as `:same`
   for v1; propagating "underlying-differs" is a follow-on bead.
+  Value-anchored — the slot's visibility changed, not its
+  identity.
+
+**Slot-vs-value anchoring (rf2-zpeyv)** — the visual chrome
+mirrors the semantic unit of the change. R2 + R6 (slot-identity
+changes) paint the whole row; R1 / R7 / R8 (value mutations
+inside an existing slot) stay value-anchored.
+
+| Change kind | Anchor | Wash reach | Strike (for `:removed`) |
+|---|---|---|---|
+| **R2 — key added** (slot identity change) | Key cell | **Whole row** (key + value cells) | n/a |
+| **R2 — key removed** (slot identity change) | Key cell | **Whole row** (key + value cells) | Reaches the KEY text + value text |
+| **R5 — wholesale add/remove subtree** | Parent key | Whole subtree (R5-tinted descendants); parent key's row follows R2 | Parent key text struck when removed |
+| **R6 — vector insert / remove** | Whole row (the row IS the slot) | Whole row | Reaches the row's content |
+| **R1 — value mutated** (slot identity unchanged) | Value cell | Value cell only | n/a |
+| **R7 — type change** (slot identity unchanged) | Value cell | Value cell only | n/a |
+| **R8 — redaction transition** (slot identity unchanged) | Value cell | Value cell only | n/a |
+
+Implementation: the renderer paints the per-op wash directly on
+the key cell `<div>` and the value cell `<div>` of the grid row
+when the child slot's op is `:added` or `:removed`. The inner
+gutter-row's own wash is suppressed (via `:slot-anchored?` →
+`:suppress-wash?`) so the row reads as a single banded slot, not
+a double-painted darker band over the value half. Test surface:
+`slot-anchored-added-key-paints-whole-row`,
+`slot-anchored-removed-key-paints-whole-row-and-strikes-key`,
+and `value-anchored-modified-row-does-not-paint-key-cell-wash`
+in `tools/xray/test/.../views/edn_inspector_cljs_test.cljs`.
 
 **Default-expanded-depth**: 3 in mode-3 specifically (per Q4 — between
 browse's 1 and diff's 2; deep enough to surface most app-db top-level

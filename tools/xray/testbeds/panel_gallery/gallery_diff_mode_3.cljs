@@ -76,19 +76,24 @@
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.diff-mode-3/r2-new-map-key
-    {:doc        "R2 — new map key. `{:a 1} → {:a 1 :b 2}`. The `:b`
-                  key row paints `+` glyph at column 1 + green wash
-                  on the value side."
+    {:doc        "R2 (refined rf2-zpeyv) — new map key.
+                  `{:a 1} → {:a 1 :b 2}`. Slot-anchored chrome: the
+                  green wash spans the WHOLE row (`:b` key cell +
+                  value cell). `+` glyph sits at column 1 of the key
+                  cell. The slot identity changed (a key appeared),
+                  so the visual unit is the whole row."
      :events     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r2-new-map-key)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.diff-mode-3/r2-removed-map-key
-    {:doc        "R2 — removed map key. `{:a 1 :b 2} → {:a 1}`. The
-                  `:b` key row paints `−` glyph + strike-through reaches
-                  the key text. The value column renders the prior
-                  value (also struck-through)."
+    {:doc        "R2 (refined rf2-zpeyv) — removed map key.
+                  `{:a 1 :b 2} → {:a 1}`. Slot-anchored chrome: the
+                  red wash spans the WHOLE row, and the strike-through
+                  reaches the KEY text (`:b`) — not just the value.
+                  `−` glyph sits at column 1 of the key cell. The
+                  whole slot died, so the whole row reads as dead."
      :events     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r2-removed-map-key)]]
      :tags       #{:dev :state/special}
