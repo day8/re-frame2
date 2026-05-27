@@ -24,7 +24,7 @@ the registry's surface from this catalogue alone, without reading
 >
 > **rf2-ee38b.2 follow-up (2026-05-23).** The dead `:rf.xray/selected-
 > dispatch-id` / `:rf.xray/selected-dispatch-frame` shim subs were
-> deleted (zero production consumers; the Event panel reads focus off the
+> deleted (zero production consumers; the Epoch panel reads focus off the
 > spine `:rf.xray/focus`). Their rows are removed from §Event detail
 > below. A full regeneration of this catalogue from `registry_cljs_test`'s
 > `all-sub-names` / `all-event-names` / `all-fx-names` enumerations (the
