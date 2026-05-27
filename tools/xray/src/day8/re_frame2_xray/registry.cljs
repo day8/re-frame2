@@ -751,8 +751,17 @@
     (edn-inspector-popup/install!)
     ;; rf2-uji72 — shared draggable column-resize state for Xray
     ;; tables. Registers :rf.xray.column-widths/{for-table,resize-pair,
-    ;; reset}. Day-1 widths are in-memory; persistence is a follow-up.
+    ;; reset,hydrate} + the :rf.xray.column-widths/persist fx.
+    ;;
+    ;; rf2-xzg1y — column-widths now persist to localStorage under
+    ;; `re-frame2.xray.column-widths.v1`. `install!` wires the fx +
+    ;; events; `hydrate!` runs here (preload-time, before the frame is
+    ;; registered, so it's a guarded no-op) AND from `mount.cljs`'s
+    ;; `::hydrate-column-widths` first-mount hook (after the frame is
+    ;; registered, where the dispatch actually lands). Mirrors the
+    ;; static-mode hydrate pattern.
     (resizable-table/install!)
+    (resizable-table/hydrate!)
     ;; Filters install AFTER `:rf.xray/active-filters` + the
     ;; add-filter / remove-filter events above are registered (the
     ;; filters facade adds `:rf.xray/filtered-cascades` + the edit-
