@@ -49,244 +49,116 @@
   builder here mirrors the substrate emit-site shape — the same shape
   the projection unit tests at
   `tools/xray/test/day8/re_frame2_xray/panels/epoch/projection_cljs_test.cljc`
-  pin. Drift in either keeps both broken in lock-step.")
+  pin. Drift in either keeps both broken in lock-step.
 
-;; ---- trace-event primitives ---------------------------------------------
+  ## Shared trace-event builders (rf2-tyivx)
 
-(defn- ev
-  "Minimal trace-event map. `op-type` is the broad classifier
-  (`:rf.event / :rf.fx / :rf.sub / :rf.view / :rf.machine / …`),
-  `operation` the precise emit op the projection reads."
-  [op-type operation tags]
-  {:op-type   op-type
-   :operation operation
-   :tags      tags})
+  All trace-event primitives now live in
+  `day8.re-frame2-xray.test-helpers.trace-event-builders` and are
+  consumed via thin per-fixture wrappers below. ONE canonical name
+  set; one diff lands a substrate-side rename. The wrappers preserve
+  the gallery-specific timing / explanation defaults (cofx
+  elapsed-ms = 0.1, flow elapsed-ms = 0.4, sub elapsed-ms = 0.2, etc.)
+  so existing gallery variants keep their pre-rf2-tyivx visual shape."
+  (:require [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]))
 
-(defn- dispatched-ev
-  "`:rf.event/dispatched` trace — drives the DISPATCH row. Carries
-  the substrate-canonical `:rf.event/v` (event vector) +
-  `:source` + optional `:rf.trace/call-site`."
-  ([event] (dispatched-ev event nil nil))
-  ([event source] (dispatched-ev event source nil))
-  ([event source coord]
-   (cond-> (ev :rf.event :rf.event/dispatched
-              {:rf.event/v         event
-               :source             source
-               :rf.trace/call-site coord})
-     true (assoc :event event :source source))))
+;; ---- trace-event primitives (gallery-specific wrappers) ----------------
+;;
+;; Each wrapper threads through to the shared `teb/*` builder with the
+;; gallery's default timing payloads — these timings drive the
+;; rendered "Nms" chips in the gallery snapshots; the projection
+;; reader unit tests don't need them. The shared builder set carries
+;; the same callable shape the substrate stamps; this seam preserves
+;; the gallery-specific defaults without duplicating the substrate
+;; tag schema.
+
+(def ^:private ev teb/ev)
+
+(def ^:private dispatched-ev teb/dispatched-ev)
 
 (defn- cofx-run-ev
-  "`:rf.cofx/run` trace — one per USER-injected coeffect. System
-  cofx (`:db / :event / :frame / :source / :trace-id`) are filtered
-  out by the projection (rf2-cq0ch), so fixtures only need to emit
-  the user-injected ids the COEFFECT step should surface.
-
-  rf2-w2r4p — substrate stamps the canonical `:rf.cofx/elapsed-ms`
-  duration tag (rf2-hhh92 · `re-frame.cofx`; spec 009 §243); fixture
-  mirrors that. The reader retains a legacy `:duration-ms` fallback
-  for older runtimes / external test fixtures."
+  "Wrapper: cofx with the gallery's canonical 0.1ms elapsed default
+  so the rendered timing chip reads as expected. `teb/cofx-run-ev`
+  takes the elapsed explicitly."
   [id value]
-  (ev :rf.cofx :rf.cofx/run {:rf.cofx/id          id
-                             :rf.cofx/value       value
-                             :rf.cofx/elapsed-ms  0.1}))
+  (teb/cofx-run-ev id value 0.1))
 
-(defn- run-end-ev
-  "`:rf.event/run-end` trace — the projection reads the handler's
-  finalised duration here.
+(def ^:private run-end-ev (fn [duration-ms] (teb/run-end-ev duration-ms)))
 
-  rf2-slnce — substrate stamps the canonical `:rf.event/elapsed-ms`
-  (rf2-hhh92 · `re-frame.router/emit-run-end-trace`); fixture mirrors
-  that. The reader retains legacy `:duration-ms` fallbacks for older
-  runtimes / external test fixtures."
-  [duration-ms]
-  (ev :rf.event :rf.event/run-end {:rf.event/elapsed-ms duration-ms}))
-
-(defn- db-changed-ev
-  "`:rf.event/db-changed` trace — drives both HANDLER's `:db-diff`
-  slot AND the dedicated APP-DB DIFF step (rf2-rrykz, same payload,
-  two surfaces). `paths` is a vec of
-  `[path before after change-kind]` quads."
-  [paths]
-  (ev :rf.event :rf.event/db-changed
-      {:rf.event/db-changed-paths paths}))
-
-(defn- do-fx-ev
-  "`:rf.fx/do-fx` trace — carries the handler's returned `:rf.event/fx`
-  payload. Drives the FX step's per-row attribution AND the
-  CHILD-DISPATCHES step (rf2-yx1ae harvests dispatch-family fx from
-  this same payload)."
-  [fx]
-  (ev :rf.fx :rf.fx/do-fx {:rf.event/fx fx}))
-
-(defn- fx-handled-ev
-  "`:rf.fx/handled` trace — one per fx-handler invocation. The FX
-  step's per-row outcome reads `:rf.fx/id` + `:rf.fx/args` +
-  `:rf.fx/elapsed-ms` here.
-
-  rf2-ipaza — substrate stamps the canonical `:rf.fx/elapsed-ms`
-  (rf2-hhh92 · `re-frame.fx`; spec 009 §241); fixture mirrors that.
-  The reader retains a legacy `:duration-ms` fallback for older
-  runtimes / external test fixtures."
-  ([fx-id args duration-ms]
-   (ev :rf.fx :rf.fx/handled {:rf.fx/id          fx-id
-                              :rf.fx/args        args
-                              :rf.fx/elapsed-ms  duration-ms})))
+(def ^:private db-changed-ev teb/db-changed-ev)
+(def ^:private do-fx-ev teb/do-fx-ev)
+(def ^:private fx-handled-ev teb/fx-handled-ev)
 
 (defn- flow-recomputed-ev
-  "`:rf.flow/computed` trace — drives the FLOW step.
-
-  rf2-yhgk8 — substrate stamps the `:rf.flow/computed` operation with
-  bare `:flow-id` / `:path` / `:before` / `:result` / `:elapsed-ms`
-  tags (Spec 009 §Flow trace events · `re-frame.flows`). The name
-  `flow-recomputed-ev` is retained for call-site stability; the
-  payload is canonical."
+  "Wrapper: gallery default elapsed-ms = 0.4 for FLOW rows."
   [flow-id path before after]
-  (ev :rf.flow :rf.flow/computed {:flow-id    flow-id
-                                  :path       path
-                                  :before     before
-                                  :result     after
-                                  :elapsed-ms 0.4}))
+  (teb/flow-recomputed-ev flow-id path before after 0.4))
 
 (defn- sub-run-ev
-  "`:rf.sub/run` trace — drives one SUBSCRIPTIONS row. Per rf2-kfh1v
-  the canonical tag names are `:rf.sub/id`, `:rf.sub/query-v`,
-  `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value` —
-  the projection reads ONLY these post-rf2-kfh1v."
+  "Wrapper: gallery default elapsed-ms = 0.2 for SUBSCRIPTIONS rows."
   [sub-vec changed? before after]
-  (ev :rf.sub :rf.sub/run {:rf.sub/id             (when (vector? sub-vec) (first sub-vec))
-                           :rf.sub/query-v        sub-vec
-                           :rf.sub/value-changed? changed?
-                           :rf.sub/prev-value     before
-                           :rf.sub/value          after
-                           :rf.sub/elapsed-ms     0.2}))
+  (teb/sub-run-ev sub-vec changed? before after 0.2))
 
-(defn- view-rendered-ev
-  "`:rf.view/rendered` trace (per rf2-6djth — NOT the simpler
-  `:rf.view/render` marker; only `:rf.view/rendered` carries
-  `:rf.view/id` + `:rf.view/deref-subs` + `:rf.view/elapsed-ms`)."
-  [view-id deref-subs elapsed-ms]
-  (ev :rf.view :rf.view/rendered {:rf.view/id         view-id
-                                  :rf.view/deref-subs deref-subs
-                                  :rf.view/elapsed-ms elapsed-ms}))
+(def ^:private view-rendered-ev teb/view-rendered-ev)
 
 (defn- view-unmounted-ev
-  "`:rf.view/unmounted` trace (per rf2-9hoos / rf2-te71r) — drives
-  the VIEWS step's UNMOUNTED sub-section (rf2-gmw1i). Substrate
-  stamps `:rf.view/id` + `:rf.view/render-key` + `:frame` on every
-  view-instance teardown."
+  "Wrapper: gallery default frame = `:rf/default`."
   [view-id render-key]
-  (ev :rf.view :rf.view/unmounted {:rf.view/id         view-id
-                                   :rf.view/render-key render-key
-                                   :frame              :rf/default}))
+  (teb/view-unmounted-ev view-id render-key :rf/default))
 
-(defn- sub-dispose-ev
-  "`:rf.sub/dispose` trace (per rf2-mrnur) — drives the SUBSCRIPTIONS
-  step's DISPOSED sub-section (rf2-wpfjo). Substrate stamps
-  `:rf.sub/id` + `:rf.sub/query-v` + `:rf.sub/reason` + `:frame` on
-  every cache-eviction site (closed `:reason` set per rf2-mrnur:
-  `:no-more-derefers / :hot-reload / :cache-clear`)."
-  [sub-vec reason]
-  (ev :rf.sub :rf.sub/dispose {:rf.sub/id      (when (vector? sub-vec) (first sub-vec))
-                               :rf.sub/query-v sub-vec
-                               :rf.sub/reason  reason
-                               :frame          :rf/default}))
+(def ^:private sub-dispose-ev teb/sub-dispose-ev)
 
 ;; ---- machine-handler trace primitives -----------------------------------
 
 (defn- machine-transition-ev
-  "`:rf.machine/transition` trace — drives the HANDLER step's
-  machine TRANSITION sub-section + the DATA-REDUCTION /
-  SNAPSHOT-DIFF projections (the panel's machine-handler full
-  design, PR #2193). `before` + `after` are full machine snapshot
-  maps (`:state` + `:data` + …)."
+  "Wrapper: gallery's full-arity form requires `:event` + `:microsteps`,
+  whereas the shared `teb/machine-transition-ev` makes them optional
+  via cond->. Stamp them unconditionally here."
   [machine-id event before after microsteps]
-  (ev :rf.machine :rf.machine/transition
-      {:machine-id machine-id
-       :event      event
-       :before     before
-       :after      after
-       :microsteps microsteps}))
+  (teb/machine-transition-ev machine-id before after event microsteps))
 
-(defn- machine-guard-ev
-  "`:rf.machine/guard-evaluated` trace — drives the HANDLER step's
-  GUARDS sub-section (one row per guard, with outcome
-  `:pass / :fail / :threw`)."
-  [guard-id outcome]
-  (ev :rf.machine :rf.machine/guard-evaluated {:guard-id guard-id
-                                               :outcome  outcome}))
+(def ^:private machine-guard-ev teb/machine-guard-ev)
 
 (defn- machine-action-ev
-  "`:rf.machine/action-ran` trace — drives the HANDLER step's
-  LIFECYCLE sub-section (one row per action, grouped by `:phase`
-  `:exit / :transition / :entry / :always / :after-action / …` per
-  rf2-82a0u). Optional `:outcome :fx` rides the rf2-9c27r
-  per-action fx attribution."
+  "Wrapper: gallery's richer 5-arg form folds `:fx` + `:data` into
+  the outcome map. The shared builder's 4-arg form takes a plain
+  outcome (kw or map); we compose the outcome locally."
   ([action-id phase outcome]
    (machine-action-ev action-id phase outcome nil nil))
   ([action-id phase outcome data action-fx]
    (let [outcome-map (cond-> (if (map? outcome) outcome {})
                        action-fx (assoc :fx action-fx)
                        data      (assoc :data data))]
-     (ev :rf.machine :rf.machine/action-ran
-         {:action-id action-id
-          :phase     phase
-          :outcome   outcome-map
-          :input     {:data (or data {}) :event nil}}))))
+     (teb/machine-action-ev action-id phase outcome-map data))))
 
-(defn- machine-timer-cancel-ev
-  "`:rf.machine.timer/cancelled` trace — drives the HANDLER step's
-  AFTER-TIMERS sub-section (one row per cancelled timer with
-  `:reason` in the unified rf2-82a0u set)."
-  [machine-id state delay reason]
-  (ev :rf.machine :rf.machine.timer/cancelled
-      {:machine-id machine-id
-       :state      state
-       :delay      delay
-       :reason     reason}))
+(def ^:private machine-timer-cancel-ev teb/machine-timer-cancel-ev)
 
 ;; ---- schema-violation trace primitives ----------------------------------
 
 (defn- schema-violation-ev
-  "`:rf.error/schema-validation-failure` trace (rf2-17vxj) — the
-  runtime per-event boundary check (`:where` in
-  `:app-db / :cofx / :sub-return / :fx-args`). Drives the SCHEMA
-  VIOLATIONS step.
-
-  Per rf2-2ek7t the trace event also carries `:explain-humanized` —
-  the Malli-humanized form of the raw `:explain` map. The substrate
-  populates this slot via the late-bind `:schemas/humanize-explain!`
-  hook (Malli adapter publishes `malli.error/humanize` under it).
-  For fixture-replay tests (which bypass the substrate's
-  `emit-validation-failure!` helper) we seed a representative
-  humanized shape directly so the violation block demonstrates the
-  new chrome — `{<path-leaf> [<message>]}` is the canonical
-  humanize output for a single-error explain."
+  "Wrapper: gallery seeds a representative `:explain` + `:explain-
+  humanized` shape (per rf2-2ek7t) on top of the shared builder's
+  bare runtime-failure payload — the gallery panels render the
+  humanized chrome, so a literal example is the right gallery seed.
+  Real substrate emits populate `:explain-humanized` via the
+  `:schemas/humanize-explain!` late-bind hook."
   [where failing-id path value rollback?]
-  (let [path-leaf (if (sequential? path) (last path) path)]
-    (ev :error :rf.error/schema-validation-failure
-        {:where             where
-         :failing-id        failing-id
-         :path              path
-         :value             value
-         :rollback?         (boolean rollback?)
-         :explain           {:errors [{:path path :message "expected int"}]}
-         :explain-humanized {path-leaf [(str "should be an integer, got "
-                                              (pr-str value))]}})))
+  (let [base      (teb/schema-violation-ev where failing-id path value rollback?)
+        path-leaf (if (sequential? path) (last path) path)]
+    (update base :tags merge
+            {:explain           {:errors [{:path path :message "expected int"}]}
+             :explain-humanized {path-leaf [(str "should be an integer, got "
+                                                  (pr-str value))]}})))
 
 (defn- schema-hot-reload-ev
-  "`:rf.schema/violation` trace (rf2-17vxj) — the hot-reload drift
-  check fires when a re-registration changed the schema at a
-  `(frame-id, path)` AND the live `app-db` value at `path` fails the
-  new schema. Distinct from the runtime per-event failure; rides on
-  the standalone SCHEMA HOT-RELOAD tail step (rf2-xgeag · Option A)."
+  "Wrapper: gallery seeds richer hot-reload metadata (`:pre-reload-
+  schema` / `:post-reload-schema`) on top of the shared builder's
+  minimal `:frame / :path / :mismatching-value / :recovery` set."
   [frame-id path mismatching-value]
-  (ev :warning :rf.schema/violation
-      {:frame              frame-id
-       :path               path
-       :mismatching-value  mismatching-value
-       :pre-reload-schema  :int?
-       :post-reload-schema :pos-int?
-       :recovery           :logged-and-skipped}))
+  (let [base (teb/schema-hot-reload-ev frame-id path mismatching-value)]
+    (update base :tags merge
+            {:pre-reload-schema  :int?
+             :post-reload-schema :pos-int?})))
 
 ;; ---- epoch-record builder ------------------------------------------------
 
