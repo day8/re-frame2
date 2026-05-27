@@ -1090,16 +1090,12 @@
 (def ^:private rolled-back-mute-style
   {:opacity 0.55})
 
-(def ^:private rolled-back-banner-style
-  {:display     "flex"
-   :align-items "center"
-   :gap         "8px"
-   :margin-top  "5px"
-   :padding     "4px 8px"
-   :color       error-colour
-   :font-family sans-stack
-   :font-size   "11px"
-   :font-style  "italic"})
+;; `rolled-back-banner-style` + the `rolled-back-banner` render fn
+;; were retired (rf2-w8evg) — the rf2-7gf7v / rf2-8resu redesign moves
+;; the :app-db violation to the FX step's :db row (the implicit
+;; commit fx), so the standalone HANDLER-level "cascade rolled back"
+;; banner has no caller. Downstream-mute treatment lives on via
+;; `rolled-back-mute-style` (applied in `render-pipeline-steps`).
 
 ;; -- CHILD DISPATCHES -----------------------------------------------------
 
@@ -1269,14 +1265,14 @@
                             badge-pill-text-overlay))}
      label]))
 
-;; rf2-xgeag — violation sub-block + rolled-back banner are defined
-;; further down the file (in the §SCHEMA VIOLATION sub-block section)
-;; but each step renderer above attaches a `(violation-blocks ...)`
-;; sub-block to its body. Forward-declared here so the namespace
-;; compiles in source order without warnings.
+;; rf2-xgeag — violation sub-block defined further down the file (in
+;; the §SCHEMA VIOLATION sub-block section), but each step renderer
+;; above attaches a `(violation-blocks ...)` sub-block to its body.
+;; Forward-declared here so the namespace compiles in source order
+;; without warnings. (`rolled-back-banner` forward declare retired
+;; alongside its defn — rf2-w8evg.)
 (declare violation-blocks)
 (declare violation-block)
-(declare rolled-back-banner)
 
 (defn- numbered-circle
   "Render the numbered circle — 21px diameter, painted in the step's
@@ -3706,15 +3702,12 @@
      (map-indexed (fn [i v] (violation-block step-key i v))
                   violations)]))
 
-(defn- rolled-back-banner
-  "One-line banner shown immediately under the HANDLER step body
-  when the cascade is rolled-back, signposting the downstream-mute
-  treatment to the operator."
-  []
-  [:div {:data-testid "rf-xray-epoch-rolled-back-banner"
-         :style rolled-back-banner-style}
-   [:span {:aria-hidden true} "↓"]
-   "cascade rolled back — downstream effects skipped"])
+;; `rolled-back-banner` retired per rf2-w8evg — the rf2-8resu
+;; redesign moved the `:where :app-db` violation from HANDLER to the
+;; FX step's `:db` row, so the standalone HANDLER-level "cascade
+;; rolled back — downstream effects skipped" banner has no caller.
+;; The downstream-mute chrome (`rolled-back-mute-style`) still
+;; applies in `render-pipeline-steps`.
 
 ;; SCHEMA HOT-RELOAD step retired per rf2-7gf7v (Mike pair-debug
 ;; 2026-05-27). The standalone tail step was rendering opaque
