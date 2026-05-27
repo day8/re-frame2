@@ -8,7 +8,6 @@
     "elkjs": "^0.11.1",
     "http-server": "14.1.1",
     "playwright": "1.59.1",
-    "qrcode-generator": "2.0.4",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "shadow-cljs": "3.4.10",

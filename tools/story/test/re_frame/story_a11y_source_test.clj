@@ -11,8 +11,9 @@
   The audit's preferred fix (static `:require [\"axe-core\" ...]`)
   is blocked by a Closure :advanced parser issue with axe-core's UMD
   wrapper. The gate-behind-flag fallback the audit allows lands here;
-  the High-severity finding (share-URL → api.qrserver.com leak) is
-  fixed separately via local QR generation.
+  the High-severity finding (share-URL → api.qrserver.com leak) was
+  first fixed via local QR generation and subsequently retired entirely
+  in rf2-ymnfx Issue B alongside the share popover itself.
 
   These assertions are textual because CLJS doesn't expose source
   bytes at runtime. The .cljs file ships in this artefact's `src/`

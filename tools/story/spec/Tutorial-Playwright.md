@@ -228,8 +228,8 @@ test('counter driven by play-script lands at 3', async ({ page }) => {
 Why prefer `:play-script` to Playwright clicks?
 
 - **Steps round-trip with the share URL.** A URL copied from the
-  share popover reproduces the exact `:play-script` sequence on the
-  reader's machine; clicks in a Playwright file don't.
+  browser's address bar reproduces the exact `:play-script` sequence
+  on the reader's machine; clicks in a Playwright file don't.
 - **EDN, not DOM.** The `:play-script` body is pure data — testable
   from CLJS / JVM via `run-variant` without a browser at all.
 - **Record-don't-throw.** Story's `:rf.assert/*` events record into

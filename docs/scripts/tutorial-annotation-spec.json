@@ -228,16 +228,6 @@
     }
   ],
 
-  "story-qr-share": [
-    {
-      "selector": "[data-test=\"story-qr-share\"]",
-      "padding": 6,
-      "colour": "#5d4037",
-      "label": "Snapshot identity - scan to open the picked state",
-      "labelPos": "left"
-    }
-  ],
-
   "story-time-travel-mini": [
     {
       "selector": "[data-test=\"story-cell\"]",

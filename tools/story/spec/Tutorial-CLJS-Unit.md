@@ -259,10 +259,10 @@ diverging from this pattern is a debugging tax.
 Story's preferred path is to put driving events in the variant
 body, not in the test. Two reasons:
 
-- **Reproducibility.** A variant URL pasted from the share popover
-  reproduces the same `:events` + `:play-script` sequence on a
-  colleague's machine. Events that live only in your test repo do
-  not.
+- **Reproducibility.** A variant URL pasted from the browser's
+  address bar reproduces the same `:events` + `:play-script`
+  sequence on a colleague's machine. Events that live only in your
+  test repo do not.
 - **EDN, not code.** The variant body is pure data; it serialises
   to a Xray share-pack, to the MCP write surface, to a snapshot
   fixture. Test-side driving events serialise only as test code.

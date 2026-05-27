@@ -2,9 +2,10 @@
 
 > A starter recipe for embedding a Story variant in a docs site,
 > README, or any third-party page as a clean iframe. Walks the
-> `variant-share-url` builder, the `?embed=1` chrome-hide flag, the
-> QR-share popover (local SVG, no third-party network egress), and
+> `variant-share-url` builder, the `?embed=1` chrome-hide flag, and
 > the three URL surfaces a reader generating embed code consults.
+> Per rf2-ymnfx Issue B there is no separate Share button or QR
+> popover — the variant URL is the browser's live address-bar URL.
 
 ## What "embed mode" buys you
 
@@ -33,7 +34,7 @@ is the first step in writing embed code:
 
 | Surface | Source of truth | Encodes | Use case |
 |---|---|---|---|
-| `variant-share-url` | Args you pass in | Variant id + active modes + cell-overrides + substrate | Share popover; embed iframes; chat / bug-report links |
+| `variant-share-url` | Args you pass in | Variant id + active modes + cell-overrides + substrate | Embed iframes; chat / bug-report links; the browser's live address bar (via `url-state` pushState) |
 | `url-from-state` | Live shell state | Workspace, mode tab, viewport, background, tag filter | Browser address bar during interactive use |
 | `embed-flag-from-current-url` | Current `?embed=1` query param | The `:embed?` chrome-state flag | The embed-mode toggle (this tutorial) |
 
@@ -49,14 +50,20 @@ iframe. The recipe covers:
 - Building the variant URL via `variant-share-url`.
 - Adding `?embed=1` for chrome-free presentation.
 - The iframe-attribute shape Story expects.
-- The QR-share popover and what's on the wire (nothing
-  third-party).
 - The hash-route shape (sharable across machines).
 - Common pitfalls and gotchas.
 
 What this recipe is **not**: a normative spec page. The normative
 contract lives in [`API.md`](API.md) §URL surfaces (rf2-zex19);
 this is the tutorial-shaped on-ramp.
+
+What this recipe **no longer covers**: the per-variant Share button +
+QR popover that lived on each variant's title row up to v1. The
+affordance was retired in rf2-ymnfx Issue B because the share URL is
+already the browser's live address bar — Cmd-L / Cmd-A / Cmd-C
+copies it without a separate UI surface. Embed authors call
+`story/variant-share-url` directly (or read `window.location.href`
+on the live shell) and build their iframe URLs from that.
 
 ## Building a sharable variant URL
 
@@ -141,38 +148,28 @@ Notes on the attributes:
   visual identity (per [`016-Design-Tokens.md`](016-Design-Tokens.md)).
   An iframe border is double chrome.
 
-## The QR-share popover
+## Where the share URL lives
 
-The Story shell's share affordance (top-right of the toolbar)
-opens a popover showing:
+The variant URL is the browser's live address bar URL. The chrome's
+[`re-frame.story.ui.url-state`](../src/re_frame/story/ui/url_state.cljc)
+wires `pushState` / `popstate` against the
+`re-frame.story.share/variant-share-url` encoder so the address bar
+always reflects the focused variant + active modes + cell-overrides
++ chrome state. Cmd-L / Cmd-A / Cmd-C copies it; pasting into chat or
+a docs page links straight back.
 
-1. The share URL (`variant-share-url` output for the active
-   variant + active modes + cell-overrides + substrate).
-2. A QR code rendered from that URL.
+There is no separate Share button or QR popover. The v1 affordance
+that lived on each variant's title row was retired in rf2-ymnfx
+Issue B (2026-05-27) — the popover added no capability beyond what
+the browser's address bar already supplied, and the QR code was a
+phone-handoff convenience that AirDrop / "Send to phone" / and any
+of a dozen browser-native flows already cover. The earlier
+`qrcode-generator` (npm, MIT, ~52 KB) local SVG encoder that
+replaced the third-party QR-image service (`rf2-20w5i`, security
+audit, 2026-05-14) retired alongside the popover.
 
-The QR code is generated **locally** — `qrcode-generator` (npm,
-MIT, ~52 KB unpacked, zero deps) emits an inline SVG string that
-the popover splices via React's `dangerouslySetInnerHTML`. There
-is no third-party network request. The variant state + author-
-typed cell-overrides never leave the dev's machine.
-
-This is structurally better than Storybook's QR pattern (which
-proxies through `https://api.qrserver.com/...` and ships the full
-share URL as a query param to a third party). The audit lineage
-lives in `rf2-20w5i` (security audit, 2026-05-14); see
-[`005-SOTA-Features.md`](005-SOTA-Features.md) §Third-party
-network egress.
-
-To open the popover during authoring:
-
-- Click the QR / share glyph in the toolbar's `REC` cluster, or
-- Hit the `s` chrome hotkey, or
-- Command palette → "Share variant URL".
-
-The popover's "Copy URL" button writes to the system clipboard via
-`navigator.clipboard.writeText`. The "Copy as iframe" affordance
-(rf2-pucku follow-on) emits the iframe snippet shape from this
-tutorial — paste it directly into a docs page.
+For programmatic embed-URL generation, call `story/variant-share-url`
+directly — see the worked example below.
 
 ## How embed mode and the chrome interact
 
@@ -253,9 +250,9 @@ authoring-only dependency for end users.
   separate `_blank` tab with the same URL minus the embed flag.
 - **Iframe `sandbox` attribute.** Story uses `localStorage` (for
   the help-overlay seen-flag, RHS panel preferences, and a11y
-  CDN opt-in) and the clipboard API (for the share popover). A
-  fully-sandboxed iframe will break these surfaces. If you must
-  sandbox, allow at least `allow-scripts allow-same-origin`.
+  CDN opt-in). A fully-sandboxed iframe will break these
+  surfaces. If you must sandbox, allow at least
+  `allow-scripts allow-same-origin`.
 - **CSP `frame-ancestors`.** If you publish the Story shell with
   a Content-Security-Policy header, the `frame-ancestors`
   directive must include the embedding origin or the iframe will
@@ -306,10 +303,11 @@ build step.
 
 - [`API.md`](API.md) §URL surfaces — normative cluster table for
   the three URL surfaces.
-- [`005-SOTA-Features.md`](005-SOTA-Features.md) §QR code in share
-  menu — the QR-share popover contract.
+- [`005-SOTA-Features.md`](005-SOTA-Features.md) §Share URL
+  (retired QR popover) — the variant URL contract + the rf2-ymnfx
+  Issue B retirement rationale.
 - [`005-SOTA-Features.md`](005-SOTA-Features.md) §Third-party
-  network egress — the local-SVG decision (rf2-20w5i).
+  network egress — the rf2-20w5i security-audit lineage.
 - [`013-Static-Build.md`](013-Static-Build.md) — `story:build` for
   production-deployable shells.
 - [`014-Chrome-Features.md`](014-Chrome-Features.md) §URL state —

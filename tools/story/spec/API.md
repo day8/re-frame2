@@ -74,7 +74,7 @@ All under `re-frame.story`.
 | `snapshot-identity` | `(snapshot-identity variant-id)` / `(snapshot-identity variant-id opts)` | [`002-Runtime.md`](002-Runtime.md) §Snapshot-identity computation |
 | `read-assertions` | `(read-assertions variant-id)` | [`004-Assertions.md`](004-Assertions.md) |
 | `assertions-passing?` | `(assertions-passing? result)` | [`004-Assertions.md`](004-Assertions.md) |
-| `variant-share-url` | `(variant-share-url variant-id base-url opts)` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §QR code in share menu |
+| `variant-share-url` | `(variant-share-url variant-id base-url opts)` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Share URL (retired QR popover) |
 
 ## Registry queries
 
@@ -313,12 +313,14 @@ code can see the three axes at a glance (rf2-zex19 follow-on, Finding
 
 | Surface | Lives in | Source of truth | Persistence | Encodes | Consumer |
 |---|---|---|---|---|---|
-| `variant-share-url` | `re-frame.story` (facade) / `re-frame.story.share` | The arguments passed in (variant-id + active modes + cell-overrides + substrate) | URL only — share popover copies the URL | Variant id, active modes, cell-overrides, substrate | Share popover; pasted into chat / docs / bug reports. Variant-scoped, includes cell-overrides. |
+| `variant-share-url` | `re-frame.story` (facade) / `re-frame.story.share` | The arguments passed in (variant-id + active modes + cell-overrides + substrate) | URL only — surfaced via the browser's address bar (`url-state` pushState wiring) | Variant id, active modes, cell-overrides, substrate | The browser's address bar (Cmd-L Cmd-C copies it); embed iframes; pasted into chat / docs / bug reports. Variant-scoped, includes cell-overrides. |
 | `url-from-state` (+ `params-from-state`) | `re-frame.story.ui.url-state` (sub-ns) | The live shell state (selected workspace, mode tab, viewport, background, tag filter) | URL + localStorage round-trip (see [`014-Chrome-Features.md`](014-Chrome-Features.md) §URL state) | Chrome-scoped state — no cell-overrides | Address bar; the chrome's own URL during interactive use. |
 | `embed-flag-from-current-url` (+ `hydrate-embed-flag!`) | `re-frame.story.ui.url-state` (sub-ns) | The current page URL's `?embed=1` query string | URL only — never persisted to localStorage; one-shot at shell mount | The `:embed?` chrome-state flag (boolean) | The embed-mode flag (rf2-pucku). Hydrated once at mount, then ignored on subsequent navigations. |
 
 The cluster gives the user three different "URLs from one shell":
-the **share** URL (variant-scoped, includes cell-overrides),
+the **share** URL (variant-scoped, includes cell-overrides — surfaced
+as the live browser address-bar URL per rf2-ymnfx Issue B; there is
+no separate Share button or QR popover),
 the **address-bar** URL (chrome-scoped, no cell-overrides), and
 the **embed flag** (chrome-state, URL-only, one-shot). A reader
 generating URL-handling code consults this table to find the right

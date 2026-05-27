@@ -296,7 +296,7 @@ async function assertCounterCore(page, phase) {
     await waitForCanvasVariant(page, ':story.counter/loaded');
   });
 
-  await step(page, phase, 'controls/args/save/share/help/open-in-editor', async () => {
+  await step(page, phase, 'controls/args/save/help/open-in-editor', async () => {
     const canvas = page.locator('[data-test-variant=":story.counter/loaded"]');
     const aside = page.getByRole('complementary');
 
@@ -322,12 +322,11 @@ async function assertCounterCore(page, phase) {
     );
     await page.locator('[data-test="story-save-variant-close"]').click();
 
-    const shareButton = canvas.locator('[data-test="story-share-button"]').first();
-    await shareButton.waitFor({ state: 'visible', timeout: 5000 });
-    await shareButton.click();
-    await expectVisible(canvas.locator('[data-test="story-share-popover"]'), 5000);
-    await expectVisible(canvas.getByRole('img', { name: /QR code for variant URL/i }), 5000);
-    await canvas.getByRole('button', { name: /^close$/i }).first().click();
+    // rf2-ymnfx Issue B retired the per-variant Share button + QR popover.
+    // The share URL is the browser's address bar URL (Cmd-L copies it);
+    // the URL-builder + URL-state contract are still validated by the
+    // Share URL probe (`assertShareUrlContract`) and the address-bar
+    // hydration scenarios in `story_browser_scenarios.cjs`.
 
     await expectVisible(page.locator('[data-test="story-open-in-editor"]').first(), 5000);
     await page.getByRole('button', { name: /Show playground help/i }).click();
@@ -336,7 +335,14 @@ async function assertCounterCore(page, phase) {
   });
 }
 
-async function assertShareUrlIntegrity(page, phase) {
+async function assertShareUrlContract(page, phase) {
+  // rf2-ymnfx Issue B removed the per-variant Share button + QR popover.
+  // The share URL is the address-bar URL maintained by `url-state`
+  // pushState. This probe drives the address-bar URL the same way the
+  // popover-shape probe used to drive the popover output: select the
+  // variant, set a mode + an override, then assert the live URL carries
+  // the variant + modes + overrides + #/stories route the share URL
+  // contract promises (per `tools/story/spec/Tutorial-Embed.md`).
   await ensureCounterLoaded(page);
   await resetToolbarModes(page);
   await setToolbarMode(page, ':Mode.app/dark');
@@ -349,15 +355,11 @@ async function assertShareUrlIntegrity(page, phase) {
   await labelInput.fill(label);
   await expectVisible(canvas.getByText(label, { exact: false }).first(), 5000);
 
-  await canvas.locator('[data-test="story-share-button"]').first().click();
-  const popover = canvas.locator('[data-test="story-share-popover"]');
-  await expectVisible(popover, 5000);
-  await expectVisible(popover.getByRole('img', { name: /QR code for variant URL/i }), 5000);
-
+  // Wait for url-state's pushState to fold the override into the live URL.
   const shareUrl = await waitForValue(
-    () => popover.locator('[data-test="story-share-url"]').textContent().catch(() => ''),
+    () => Promise.resolve(page.url()),
     (text) => /variant=/.test(text) && /modes=/.test(text) && /overrides=/.test(text),
-    { timeoutMs: 5000, description: 'share URL includes variant, modes, and overrides' },
+    { timeoutMs: 5000, description: 'address-bar URL includes variant, modes, and overrides' },
   );
   const parsed = new URL(shareUrl);
   const variant = parsed.searchParams.get('variant');
@@ -376,7 +378,6 @@ async function assertShareUrlIntegrity(page, phase) {
     throw new Error(`share URL hash mismatch: expected #/stories, got ${parsed.hash}`);
   }
 
-  await popover.getByRole('button', { name: /^close$/i }).click();
   await aside.getByRole('button', { name: /reset overrides/i }).first().click();
   await resetToolbarModes(page);
 }
@@ -1378,10 +1379,10 @@ const COVERAGE_MATRIX = [
     },
   },
   {
-    feature: 'Share and QR',
+    feature: 'Share URL (address-bar)',
     kind: 'probe',
     probe: async (page, phase) => {
-      await assertShareUrlIntegrity(page, phase);
+      await assertShareUrlContract(page, phase);
     },
   },
   { feature: 'Recorder / test codegen', kind: 'probe', probe: assertToolbarRecorder },
@@ -1443,11 +1444,11 @@ const COVERAGE_MATRIX = [
     kind: 'probe',
     probe: async (page) => {
       await assertHealthyLoaded(page);
-      await assertShareUrlIntegrity(page, 'egress');
+      await assertShareUrlContract(page, 'egress');
       await assertNoRecordedRequestMatching(
         page,
         /api\.qrserver|chart\.google|quickchart|qrcode/i,
-        'QR/share should stay local and must not request a QR service',
+        'share URL should stay local — no QR-image service request fires (rf2-20w5i / rf2-ymnfx).',
       );
       await assertNoRecordedRequestMatching(
         page,

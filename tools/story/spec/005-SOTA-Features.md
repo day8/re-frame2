@@ -2,12 +2,11 @@
 
 > The `force-fx-stub` headline (one primitive replaces the
 > Storybook addon parade); the layout-debug overlay trio; a11y
-> axe-core panel; per-variant QR share; multi-substrate side-by-side
-> rendering; the Xray epoch panel embed contract (stub); the v1.1
-> deferrals (perf ribbon, design tokens); production elision under
-> `:advanced` (`:rf.story/enabled?` sentinel pattern). The contract
-> Stage 6 implements + the production hygiene rules that apply across
-> stages.
+> axe-core panel; multi-substrate side-by-side rendering; the Xray
+> epoch panel embed contract (stub); the v1.1 deferrals (perf ribbon,
+> design tokens); production elision under `:advanced`
+> (`:rf.story/enabled?` sentinel pattern). The contract Stage 6
+> implements + the production hygiene rules that apply across stages.
 
 ## `force-fx-stub` — mock anything, not just the network
 
@@ -194,22 +193,37 @@ Per Phase 2 §5.2 #4. devcards-style multi-variant viewing has no JS
 competitor; the implementation cost is layout-only. See
 [`003-Render-Shell.md`](003-Render-Shell.md) §Workspace layouts.
 
-### QR code in share menu
+### Share URL (retired QR popover)
 
-Per Phase 2 §5.2 #6. Tiny implementation, high signal. Adds `qr-code`
-dep. Surfaces the share affordance: tap the QR on a phone, get the
-current variant URL with all cell-local overrides encoded.
+Per Phase 2 §5.2 #6 plus rf2-ymnfx Issue B (2026-05-27). The
+per-variant share URL is the surviving artefact — encoded by
+`re-frame.story.share/variant-share-url`, kept live in the browser's
+address bar by `re-frame.story.ui.url-state` (pushState / popstate).
+Cmd-L / Cmd-A / Cmd-C copies it; pasting it into another browser
+reproduces the exact cell (variant + modes + cell-overrides +
+viewport + background + tag-filter + substrate).
+
+The original Storybook v10-style affordance was a small share button
+on each variant's title row opening a popover with the URL + a QR
+code. That UI was first hardened against off-box egress (rf2-20w5i —
+local SVG QR generation via the vendored `qrcode-generator` npm
+package replacing a third-party QR-image service) and then retired
+entirely (rf2-ymnfx Issue B) because the URL was already live in the
+address bar; the popover added nothing beyond what Cmd-L does for
+free. The URL builder + parser remain because `url-state` writes
+through them and the public `story/variant-share-url` facade is the
+embed-code entry point (see [`Tutorial-Embed.md`](Tutorial-Embed.md)).
 
 ### Third-party network egress (rf2-20w5i)
 
 Story is a **developer-session tool**, not a production runtime — but
-the v1 SOTA features it ships (QR share, a11y panel) must not leak
-the dev's variant state or load remote-hosted code without the dev's
-consent. Per rf2-20w5i (security audit, 2026-05-14):
+the v1 SOTA features it ships (a11y panel) must not leak the dev's
+variant state or load remote-hosted code without the dev's consent.
+Per rf2-20w5i (security audit, 2026-05-14):
 
 | Pre-fix endpoint | Post-fix |
 |---|---|
-| Per-variant share popover sourced its QR image from a third-party service, carrying the full share URL (variant state + author-typed cell-overrides) as a query param. | **Eliminated** — local SVG generation via `qrcode-generator` (npm, MIT, ~52 KB unpacked, zero deps). The encoder lives in `re-frame.story.qr/qr-svg-string`; the popover splices the SVG inline via `:dangerouslySetInnerHTML`. No network request fires when the popover opens. |
+| Per-variant share popover sourced its QR image from a third-party service, carrying the full share URL (variant state + author-typed cell-overrides) as a query param. | **Eliminated.** First (rf2-20w5i) replaced the third-party fetch with a local SVG encoder (`qrcode-generator` npm). Then (rf2-ymnfx Issue B) retired the popover outright because the share URL is already the browser's address bar — Cmd-L / Cmd-A / Cmd-C copies it. The vendored npm dep retired with the popover. |
 | a11y panel injected `axe.min.js` from a public CDN at first panel open, unconditionally. | **Gated behind explicit opt-in.** First scan triggers a consent prompt explaining the egress; clicking 'enable axe-core + scan' persists the approval in `localStorage` (`:rf.story.a11y/cdn-opt-in`). The `<script>` carries SRI `integrity` + `crossorigin="anonymous"` so a compromised mirror fails closed. |
 
 Why isn't axe-core vendored as a static `:require`? The audit's
@@ -225,21 +239,19 @@ CDN load is now default-OFF and explicit, with tamper-detection.
 The share URL itself is constructed locally
 (`re-frame.story.share/variant-share-url`) and carries no app-db
 payload — only variant identity + author-declared `cell-overrides`
-round-trip through it. With the QR rendered locally, that URL never
-leaves the dev's machine.
+round-trip through it. The URL never leaves the dev's machine; with
+the share popover retired (rf2-ymnfx Issue B) there is no UI
+affordance that could serialise it for off-box transport.
 
 Production builds (`:rf.story/enabled?` false under `:advanced`) elide
-the entire Story UI shell; the vendored QR encoder and the a11y panel
-are both reachable only from the disabled tree, so Closure DCE drops
-them. The bundle-isolation contract
+the entire Story UI shell; the a11y panel is reachable only from the
+disabled tree, so Closure DCE drops it. The bundle-isolation contract
 (`scripts/check-bundle-isolation.cjs`) verifies the Story sentinels
 are absent from `examples/counter`'s release bundle, which
-transitively covers `qrcode-generator` and the a11y panel.
-Static-build deploys (rf2-8wgpm, see
-[`013-Static-Build.md`](013-Static-Build.md)) carry the QR encoder
-into the static playground; the axe-core opt-in prompt rides into the
-static site too, so a visitor running an a11y scan there sees the
-same consent dialog before any CDN load.
+transitively covers the a11y panel. Static-build deploys (rf2-8wgpm,
+see [`013-Static-Build.md`](013-Static-Build.md)) carry the axe-core
+opt-in prompt into the static site too, so a visitor running an a11y
+scan there sees the same consent dialog before any CDN load.
 
 ### Xray epoch panel embed (stub + contract)
 
@@ -819,7 +831,7 @@ phase-2 SOTA adds that are cheap.
 | Layout-debug overlay trio (measure / outline / pseudo) | Stage 6 |
 | `reg-mode` saved-tuple primitive | Stage 2 |
 | `:variants-grid` workspace layout | Stage 4 |
-| Per-variant QR code in share menu | Stage 6 |
+| Per-variant share URL (address-bar surface; retired QR popover) | Stage 6 |
 | Multi-substrate side-by-side pane (substrate-failures inline) | Stage 6 |
 | Xray epoch panel embed (stub + contract) | Stage 6 |
 | Test Codegen — record canvas dispatches as `:play-script` (rf2-5fc15) | Stage 6 |

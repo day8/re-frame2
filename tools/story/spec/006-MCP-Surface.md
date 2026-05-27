@@ -50,7 +50,7 @@ process; the story runtime runs in the app.
 (snapshot-identity variant-id opts)
 (read-assertions variant-id) (assertions-passing? result)
 (canonical-assertion-ids)
-(variant-share-url variant-id base-url opts)     ; QR share (005-SOTA-Features)
+(variant-share-url variant-id base-url opts)     ; share URL (005-SOTA-Features)
 (registered-substrates)                          ; CLJS-only
 ```
 

@@ -215,40 +215,16 @@ const SHOTS = [
       { selector: '[data-test-variant]', nth: 2,                          label: '2', side: 'top' },
       // third cell (bottom-left)
       { selector: '[data-test-variant]', nth: 3,                          label: '3', side: 'bottom' },
-      // fourth cell (bottom-right) — the "share this layout" affordance
-      // is reachable via the toolbar's `story-share-button`; we point
-      // at the fourth cell instead because the share chip lives outside
-      // the workspace surface itself and the chapter's narrative
-      // anchors all four callouts on the grid.
+      // fourth cell (bottom-right)
       { selector: '[data-test-variant]', nth: 4,                          label: '4', side: 'bottom' },
     ],
   },
 
-  // 05-snapshot-identity.md — `05-qr-share.png`
-  // Click the toolbar's share button to surface the share popover with
-  // the QR code, the URL row, and the copy affordances.
-  {
-    name: 'qr-share',
-    variant: 'story.counter/loaded',
-    save: '05-qr-share.png',
-    prep: async (page) => {
-      await page.click('[data-test="story-share-button"]').catch(() => {});
-      await page.waitForSelector('[data-test="story-share-popover"]', { timeout: 5000 }).catch(() => {});
-      await page.waitForTimeout(400);
-    },
-    callouts: [
-      // QR image (canvas) — fallback to share popover
-      { selector: '[data-test="story-share-qr"]',                         label: '1', side: 'right',
-        fallback: '[data-test="story-share-qr-fallback"]' },
-      // URL string row
-      { selector: '[data-test="story-share-url"]',                        label: '2', side: 'top' },
-      // Popover container (anchors 3 and 4 — copy buttons typically
-      // live inside the popover but the data-test names aren't always
-      // stamped on the buttons; point at the popover root as a fallback)
-      { selector: '[data-test="story-share-popover"]',                    label: '3', side: 'right' },
-      { selector: '[data-test="story-share-popover"]',                    label: '4', side: 'left' },
-    ],
-  },
+  // 05-snapshot-identity.md — QR-share screenshot retired per
+  // rf2-ymnfx Issue B (the Share button + QR popover were retired
+  // because the variant URL is already the browser's live address bar).
+  // The chapter narrative now anchors on the address-bar URL itself
+  // rather than a popover screenshot; no scripted capture is required.
 
   // 06-time-travel.md — `06-time-travel.png`
   // Xray-as-RHS embed mounts beneath the chip-row picker as soon as a
