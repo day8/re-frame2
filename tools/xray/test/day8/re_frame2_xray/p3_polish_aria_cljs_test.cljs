@@ -247,23 +247,28 @@
              (:aria-labelledby attrs))
           "body aria-labelledby resolves back to the active tab"))))
 
-(deftest settings-text-size-label-associates-with-input
-  (testing "rf2-h4mnh — text-size <input :id> matches a <label
-            :html-for> so clicking the label focuses the input."
+(deftest settings-epoch-history-label-associates-with-input
+  (testing "rf2-h4mnh — the epoch-history slider's <input :id> matches a
+            <label :html-for> so clicking the label focuses the input.
+
+            (Originally exercised on the text-size slider; the
+            text-size slider was retired in the 2026-05-27 UX cleanup
+            — epoch-history is the surviving slider in General that
+            carries the documented `:html-for` ↔ `:id` pair.)"
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
     (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view))
-          input (find-by-testid tree "rf-xray-settings-text-size-input")
+          input (find-by-testid tree "rf-xray-settings-epoch-history-input")
           ;; The label sits in the same <div> field; find by html-for.
           label (some (fn [node]
                         (when (and (vector? node)
                                    (map? (second node))
-                                   (= "rf-xray-settings-text-size-input"
+                                   (= "rf-xray-settings-epoch-history-input"
                                       (:html-for (second node))))
                           node))
                       (hiccup-seq tree))]
-      (is (= "rf-xray-settings-text-size-input" (:id (props input)))
+      (is (= "rf-xray-settings-epoch-history-input" (:id (props input)))
           "input carries the documented id")
       (is (some? label)
           "a <label html-for=...> matches the input's id"))))

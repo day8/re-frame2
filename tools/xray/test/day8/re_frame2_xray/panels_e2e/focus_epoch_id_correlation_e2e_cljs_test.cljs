@@ -17,11 +17,17 @@
   depth 1000) against `:rf.xray/epoch-history` via
   `epoch-id-for-cascade` → `dispatch-id-of-epoch`. Pre-fix that helper
   walked the record's `:trace-events` for a `:dispatch-id` tag — but
-  `:trace-events-keep` (default 5) ELIDES `:trace-events` from all but
-  the 5 most-recent records, and the post-settle reactive back-fill
-  (rf2-qs6dl / rf2-wi900) pads `:trace-events` with nil-`:dispatch-id`
-  sub-run / render events. So any focused cascade whose epoch was
-  outside the keep-window correlated to nil → empty panels.
+  `:trace-events-keep` ELIDES `:trace-events` from all but the most-
+  recent N records, and the post-settle reactive back-fill (rf2-qs6dl
+  / rf2-wi900) pads `:trace-events` with nil-`:dispatch-id` sub-run /
+  render events. So any focused cascade whose epoch was outside the
+  keep-window correlated to nil → empty panels.
+
+  (Per Mike pair-debug 2026-05-27 the framework default for
+  `:trace-events-keep` was lifted from 5 to 50 — matching `:depth`
+  so trace evicts atomically with its epoch. To bite the elision
+  path under test the elision-sensitive deftests below explicitly
+  shrink `:trace-events-keep` via `rf/configure`.)
 
   ## Fix
 
@@ -124,17 +130,22 @@
 
 (deftest retro-focus-on-trace-elided-epoch-resolves-epoch-id
   (testing "RETRO focus on an OLD cascade whose epoch had `:trace-events`
-  elided by the `:trace-events-keep` window (default 5). Pre-rf2-rly4a
-  the `dispatch-id-of-epoch` `:trace-events` walk returned nil for these
+  elided by the `:trace-events-keep` window. Pre-rf2-rly4a the
+  `dispatch-id-of-epoch` `:trace-events` walk returned nil for these
   records, so `focus.epoch-id` was nil and Views + Trace went empty. The
   first-class `:dispatch-id` slot survives elision — the correlation
-  must resolve."
+  must resolve.
+
+  Framework default for `:trace-events-keep` is now 50 (matches
+  `:depth`); shrink to 3 here so the 10 cascades below produce
+  trace-elided records that exercise the rly4a fix."
     (install-xray!)
     (frame/reg-frame frame-below {})
     (install-counter!)
     (mount-xray-with-target! frame-below)
+    (rf/configure :epoch-history {:trace-events-keep 3})
     ;; Drive 10 cascades so the earliest ones fall well outside the
-    ;; keep-5 window (their `:trace-events` get dissoc'd).
+    ;; keep-3 window (their `:trace-events` get dissoc'd).
     (dotimes [_ 10] (dispatch-host-frame [:counter/inc] frame-below))
     (let [history    (sub-xray [:rf.xray/epoch-history])
           ;; Pick the OLDEST host cascade — its epoch is trace-elided.
@@ -166,11 +177,16 @@
 (deftest dispatch-id-slot-pinned-on-every-retained-epoch
   (testing "Every retained epoch record carries the first-class
   `:dispatch-id` slot independent of `:trace-events` retention — the
-  structural property the correlation now leans on (rf2-rly4a)."
+  structural property the correlation now leans on (rf2-rly4a).
+
+  Framework default for `:trace-events-keep` is now 50 (matches
+  `:depth`); shrink to 3 here so 8 cascades produce a mix of
+  trace-retained and trace-elided records."
     (install-xray!)
     (frame/reg-frame frame-below {})
     (install-counter!)
     (mount-xray-with-target! frame-below)
+    (rf/configure :epoch-history {:trace-events-keep 3})
     (dotimes [_ 8] (dispatch-host-frame [:counter/inc] frame-below))
     (let [history (sub-xray [:rf.xray/epoch-history])
           elided  (filterv #(not (contains? % :trace-events)) history)]
