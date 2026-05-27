@@ -1359,7 +1359,14 @@
       (is (some? oth-sec)
           "the other section mounts when other-effects is non-empty")
       (is (pos? (count (ei-mounts oth-sec)))
-          "the other section mounts an edn-inspector"))))
+          "the other section mounts an edn-inspector")
+      ;; rf2-5t8y8 — sub-header carries an at-a-glance entry-count chip
+      ;; on both `:fx` and `other` (was lost during the rf2-p2zy0
+      ;; edn-inspector migration).
+      (is (string/includes? (th/text-content fx-sec) "2 entries")
+          "the :fx sub-header carries the entry-count chip")
+      (is (string/includes? (th/text-content oth-sec) "1 entry")
+          "the other sub-header carries the singular entry chip"))))
 
 (deftest fx-step-args-route-through-mini-test
   (testing "rf2-8w8er — FX step row's args render through `ei/mini`."

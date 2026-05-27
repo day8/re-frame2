@@ -2564,10 +2564,11 @@
      (case mode
        :diff
        (when-not empty?
-         ;; rf2-9ec65 — eager realisation via `mapv` so any future
-         ;; subscribe deref inside `db-diff-line` registers in this
-         ;; render's reactive scope (spec/006 §Lazy-seq deref tracking,
-         ;; rf2-atqkg). Was `(for [[i row] (map-indexed vector …)] …)`
+         ;; rf2-9ec65 — eager realisation via `(into [:<>] (map-indexed …))`
+         ;; so any future subscribe deref inside `db-diff-line` registers in
+         ;; this render's reactive scope (spec/006 §Lazy-seq deref tracking,
+         ;; rf2-atqkg). `into` is eager regardless of the transducer/seq it
+         ;; consumes. Was `(for [[i row] (map-indexed vector …)] …)`
          ;; which returns a LazySeq.
          (into [:<>]
                (map-indexed (fn [i row] (db-diff-line row i)) db-diff)))
@@ -2655,24 +2656,30 @@
      ;; folded into SNAPSHOT DIFF for machines
      (when-not machine?
        (handler-db-diff-block db-diff))
-     ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector
+     ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
+     ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
+     ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
+     ;; doesn't surface at the same at-a-glance density.
      (when (seq fx-vec)
-       [:div {:data-testid "rf-xray-epoch-handler-fx"}
-        (sub-header ":fx")
-        [ei/edn-inspector fx-vec
-         {:site-id                [:rf.xray.epoch/handler-fx event-id]
-          :card?                  false
-          :zoomable?              true
-          :default-expanded-depth 16}]])
-     ;; other — return map minus :db and :fx, FULL via edn-inspector
+       (let [n (count fx-vec)]
+         [:div {:data-testid "rf-xray-epoch-handler-fx"}
+          (sub-header ":fx" (str n " entr" (if (= 1 n) "y" "ies")))
+          [ei/edn-inspector fx-vec
+           {:site-id                [:rf.xray.epoch/handler-fx event-id]
+            :card?                  false
+            :zoomable?              true
+            :default-expanded-depth 16}]]))
+     ;; other — return map minus :db and :fx, FULL via edn-inspector.
+     ;; rf2-5t8y8 — entry-count chip on the sub-header (parallel to :fx).
      (when (seq other-effects)
-       [:div {:data-testid "rf-xray-epoch-handler-other"}
-        (sub-header "other")
-        [ei/edn-inspector other-effects
-         {:site-id                [:rf.xray.epoch/handler-other event-id]
-          :card?                  false
-          :zoomable?              true
-          :default-expanded-depth 16}]])]))
+       (let [n (count other-effects)]
+         [:div {:data-testid "rf-xray-epoch-handler-other"}
+          (sub-header "other" (str n " entr" (if (= 1 n) "y" "ies")))
+          [ei/edn-inspector other-effects
+           {:site-id                [:rf.xray.epoch/handler-other event-id]
+            :card?                  false
+            :zoomable?              true
+            :default-expanded-depth 16}]]))]))
 
 (defn render-handler-step
   "Render the HANDLER step (always present). Per Mike pair-debug
