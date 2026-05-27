@@ -1471,6 +1471,27 @@
   pushing past the grid's allotment."
   {:min-width 0})
 
+(def ^:private r3-chip-base-style
+  "Static skeleton for the R3 `[N∆]` collapsed-change chip painted next
+  to a collapsed change-bearing container (rf2-rhmc5). Dynamic per-op
+  overlays applied at the call site:
+   - `:background`   ← `(op-wash-bg chip-op)`
+   - `:border`       ← `1px solid <stripe>` (or transparent)
+   - `:color`        ← `(op-stripe-colour chip-op)` (fallback `:text-secondary`)
+
+  Hoisted to elide three per-render `engine/op-at` lookups (the same
+  `[projection path]` was previously read three times inside one inline
+  map literal) and to give React reconciler a stable map identity for
+  the static skeleton; only the per-op colour slice gets a fresh map
+  per render."
+  {:margin-left   "6px"
+   :padding       "1px 6px"
+   :border-radius "8px"
+   :font-family   sans-stack
+   :font-size     "10px"
+   :font-weight   700
+   :line-height   1.2})
+
 (defn- on-toggle
   "Build the click handler for a node's `▸`/`▾` glyph.
   Dispatches the toggle event via `dispatch-fn` — the lexically-
@@ -1853,7 +1874,16 @@
               n-changes (when (and diff? projection)
                           (engine/change-count-at projection path))
               show-chip? (and (pos? (or n-changes 0))
-                              (not (#{:added :removed} op)))]
+                              (not (#{:added :removed} op)))
+              ;; rf2-rhmc5 — bind chip-op ONCE per render (pre-fix the
+              ;; chip's inline `:style` map read `engine/op-at` three
+              ;; times for the same `[projection path]`); fall back to
+              ;; `:modified` when the projection has no recorded op for
+              ;; this path (matches the original `(or … :modified)`
+              ;; behaviour at each call site).
+              chip-op    (when show-chip?
+                           (or (engine/op-at projection path) :modified))
+              chip-stripe (when show-chip? (op-stripe-colour chip-op))]
           (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
                    [:span {:on-click   toggle-fn
                            :role       "button"
@@ -1867,26 +1897,19 @@
             zoom-button (conj zoom-button)
             true        (conj (collapsed-summary value kind))
             show-chip?
+            ;; rf2-rhmc5 — hoisted `r3-chip-base-style` carries the static
+            ;; skeleton (margin/padding/radius/font/line-height); per-op
+            ;; colour slice is overlayed via `assoc`. `chip-stripe` is
+            ;; computed once from `chip-op` (one `engine/op-at` call) and
+            ;; reused for both `:border` colour and `:color`.
             (conj [:span {:data-rf-diff-chip "1"
                           :data-rf-diff-chip-count (str n-changes)
-                          :style {:margin-left  "6px"
-                                  :padding      "1px 6px"
-                                  :background   (op-wash-bg (or (engine/op-at projection path)
-                                                                :modified))
-                                  :border       (str "1px solid "
-                                                     (or (op-stripe-colour
-                                                           (or (engine/op-at projection path)
-                                                               :modified))
-                                                         "transparent"))
-                                  :border-radius "8px"
-                                  :font-family  sans-stack
-                                  :font-size    "10px"
-                                  :font-weight  700
-                                  :color        (or (op-stripe-colour
-                                                      (or (engine/op-at projection path)
-                                                          :modified))
-                                                    (:text-secondary tokens))
-                                  :line-height  1.2}}
+                          :style (assoc r3-chip-base-style
+                                   :background (op-wash-bg chip-op)
+                                   :border     (str "1px solid "
+                                                    (or chip-stripe "transparent"))
+                                   :color      (or chip-stripe
+                                                   (:text-secondary tokens)))}
                    (str n-changes "∆")]))))]
 
      ;; ---- body — children rendered indented -----------------------------
