@@ -1,4 +1,4 @@
-(ns timer.timer
+(ns seven-guis.timer.core
   "7GUIs #4 — Timer.
 
    A progress bar that fills as time elapses, a numeric display of elapsed

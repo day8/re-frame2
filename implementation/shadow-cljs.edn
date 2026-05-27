@@ -128,11 +128,10 @@
                 ;; the per-example namespaces (counter.core,
                 ;; counter-uix.core, counter-helix.core, ...) resolve
                 ;; at the top level under their substrate's tree. The
-                ;; 7Guis cluster keeps its `<task>.<task>` namespace
-                ;; shape so it gets a dedicated source path inside
-                ;; examples/reagent/.
+                ;; 7Guis cluster (under examples/reagent/seven_guis/)
+                ;; uses the catalogue's `seven-guis.<task>.core` shape
+                ;; and resolves under this same root.
                 "../examples/reagent"
-                "../examples/reagent/7Guis"
                 "../examples/reagent/boot/test"
                 "../examples/reagent/nine_states/test"
                 "../examples/reagent/realworld/test"
@@ -492,7 +491,7 @@
   ;; main.js from the same directory. The serve-and-run-examples script
   ;; builds the site layout, serves it, and runs the Playwright specs that
   ;; sit alongside each example (examples/<substrate>/<name>/<name>.spec.cjs,
-  ;; plus the per-task 7GUIs sub-folders under examples/reagent/7Guis/).
+  ;; plus the per-task 7GUIs sub-folders under examples/reagent/seven_guis/).
   ;;
   ;; :asset-path is "." so the bundle's runtime resolves siblings (cljs_base,
   ;; cljs-runtime, etc.) relative to the page rather than the document root —
@@ -641,19 +640,19 @@
   {:target     :browser
    :output-dir "out/examples/temperature"
    :asset-path "."
-   :modules    {:main {:init-fn temperature.temperature/run}}}
+   :modules    {:main {:init-fn seven-guis.temperature.core/run}}}
 
   :examples/flight-booker
   {:target     :browser
    :output-dir "out/examples/flight-booker"
    :asset-path "."
-   :modules    {:main {:init-fn flight-booker.flight-booker/run}}}
+   :modules    {:main {:init-fn seven-guis.flight-booker.core/run}}}
 
   :examples/timer
   {:target     :browser
    :output-dir "out/examples/timer"
    :asset-path "."
-   :modules    {:main {:init-fn timer.timer/run}}}
+   :modules    {:main {:init-fn seven-guis.timer.core/run}}}
 
   :examples/nine-states
   {:target     :browser
@@ -701,19 +700,19 @@
   {:target     :browser
    :output-dir "out/examples/crud"
    :asset-path "."
-   :modules    {:main {:init-fn crud.crud/run}}}
+   :modules    {:main {:init-fn seven-guis.crud.core/run}}}
 
   :examples/circle-drawer
   {:target     :browser
    :output-dir "out/examples/circle-drawer"
    :asset-path "."
-   :modules    {:main {:init-fn circle-drawer.circle-drawer/run}}}
+   :modules    {:main {:init-fn seven-guis.circle-drawer.core/run}}}
 
   :examples/cells
   {:target     :browser
    :output-dir "out/examples/cells"
    :asset-path "."
-   :modules    {:main {:init-fn cells.cells/run}}}
+   :modules    {:main {:init-fn seven-guis.cells.core/run}}}
 
   :examples/login
   {:target     :browser

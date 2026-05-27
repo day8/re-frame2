@@ -22,7 +22,7 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
   (rf/reg-app-schema [:cells]
     [:map [:cells/grid [:map-of :keyword :string]]])
   ```
-- **In the wild**: [7Guis](https://github.com/day8/re-frame2/tree/main/examples/reagent/7Guis)
+- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
 
 ### `reg-app-schemas`
 

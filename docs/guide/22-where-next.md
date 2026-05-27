@@ -27,7 +27,7 @@ Almost everything. The same six dominoes. The same opinionated stance on a singl
 The fastest way to make the pattern stick is to write code in it. The [worked examples](https://github.com/day8/re-frame2/tree/main/examples) are a graded sequence — start at the pedagogical end and move toward the benchmarks:
 
 - **Pedagogical sketches** — `counter`, `login`, `routing`, `ssr`, `managed_http_counter`, `state_machine_walkthrough`, `counter_with_stories`. Each one isolates a single piece of the surface and shows it composed end-to-end. Read them in order if you're new; cherry-pick if you're not.
-- **Benchmarks** — `todomvc`, the `7Guis` cluster, `nine_states`. These are the size-and-stress tests; they exercise the same primitives the sketches introduce, but in fuller compositions.
+- **Benchmarks** — `todomvc`, the `seven_guis` cluster, `nine_states`. These are the size-and-stress tests; they exercise the same primitives the sketches introduce, but in fuller compositions.
 - **RealWorld scaffold** — `realworld/`. A broader worked sketch covering routing, auth, forms, paginated lists, and SSR boot in one app.
 
 Every example ships with a Playwright smoke spec (`<name>.spec.cjs`) — the spec is the executable acceptance test for "this example still works." Use them as templates when you write your own.

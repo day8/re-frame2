@@ -126,4 +126,4 @@ The headless tests live in [`test/nine_states/core_test.cljs`](test/nine_states/
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) §Parallel regions / §State tags — the substrate this example uses.
 - [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md) — the lifecycle folded into the `:data` region.
 - [`spec/Pattern-Forms.md`](../../../spec/Pattern-Forms.md) — the form lifecycle in the `:form` region.
-- [`examples/reagent/login/core.cljs`](../login/core.cljs) and [`examples/reagent/7Guis/circle_drawer/circle_drawer.cljs`](../7Guis/circle_drawer/circle_drawer.cljs) — single-file style this example follows.
+- [`examples/reagent/login/core.cljs`](../login/core.cljs) and [`examples/reagent/seven_guis/circle_drawer/core.cljs`](../seven_guis/circle_drawer/core.cljs) — single-file style this example follows.

@@ -133,7 +133,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (rf/with-frame [f (rf/make-frame {:on-create [:temp/initialise]})]
     (rf/dispatch [:temp/set-celsius 21]))
   ```
-- **In the wild**: [7Guis](https://github.com/day8/re-frame2/tree/main/examples/reagent/7Guis)
+- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
 
 ### `reg-view`
 
@@ -205,7 +205,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (rf/reg-app-schema [:cells]
     [:map [:cells/grid [:map-of :keyword :string]]])
   ```
-- **In the wild**: [7Guis](https://github.com/day8/re-frame2/tree/main/examples/reagent/7Guis)
+- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
 
 ### `reg-app-schemas`
 
