@@ -134,7 +134,7 @@
      :substrates #{:reagent}})
 
   ;; ----- variants-grid workspace ------------------------------------
-  (story/reg-workspace :workspace.xray.routing/all
+  (story/reg-workspace :Workspace.xray.routing/all
     {:doc      "All five Routes tab variants in one auto-grid.
                 Scroll to see the panel's response across no-routes /
                 current-route-only / from-to-transition /

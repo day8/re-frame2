@@ -1788,7 +1788,7 @@
         (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
                  [:span {:on-click   toggle-fn
                          :role       "button"
-                         :tabindex   0
+                         :tabIndex   0
                          :aria-expanded false
                          :data-testid (str (testid-for panel-id mount-id path) "-toggle")
                          ;; rf2-tzvk9 — ≥24×24 click target via the shared
@@ -1855,7 +1855,7 @@
         (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
                  [:span {:on-click   toggle-fn
                          :role       "button"
-                         :tabindex   0
+                         :tabIndex   0
                          :aria-expanded true
                          :data-testid (str (testid-for panel-id mount-id path) "-toggle")
                          ;; rf2-tzvk9 — ≥24×24 click target via the shared
@@ -1887,7 +1887,7 @@
           (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
                    [:span {:on-click   toggle-fn
                            :role       "button"
-                           :tabindex   0
+                           :tabIndex   0
                            :aria-expanded false
                            :data-testid (str (testid-for panel-id mount-id path) "-toggle")
                            ;; rf2-tzvk9 — ≥24×24 click target via the shared

@@ -83,6 +83,12 @@
      :doc  "Xray edn-inspector widget — first-class CLJS-value
             renderer (`day8.re-frame2-xray.views.edn-inspector`)."})
 
+  (story/reg-tag :feature/opts
+    {:axis :feature
+     :doc  "Xray edn-inspector widget — :opts contract demos
+            (zoomable, popup-affordance, card, header, site-id,
+            shallow-depth)."})
+
   (story/reg-story :story.xray.edn-inspector
     {:doc        "Visual gallery of the edn-inspector widget under
                  varying input shapes + opts combinations. One

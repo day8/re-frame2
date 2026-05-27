@@ -33,7 +33,30 @@
   suffix (`xray/test/` is on shadow's `:source-paths`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story :as story]
-            [re-frame.story.schemas :as schemas]))
+            [re-frame.story.schemas :as schemas]
+            ;; rf2-nozqw — per-gallery register-all! drive. Each
+            ;; namespace's bottom-of-file `(register-all!)` fires at
+            ;; namespace load, but the smoke test calls each one
+            ;; individually after a `clear-all!` to verify the gallery
+            ;; produces non-empty inventory in isolation. This catches
+            ;; the cascade-aborts-on-first-error pattern where a typo
+            ;; in one gallery (e.g. lowercase `:workspace.*` id, or an
+            ;; unregistered `:feature/*` tag) silently bricks that
+            ;; gallery's contribution while the aggregate inventory
+            ;; stays non-empty from the other twelve galleries.
+            [panel-gallery.gallery-app-db          :as gallery-app-db]
+            [panel-gallery.gallery-chrome          :as gallery-chrome]
+            [panel-gallery.gallery-diff-mode-3     :as gallery-diff-mode-3]
+            [panel-gallery.gallery-diff-mode-universal :as gallery-diff-mode-universal]
+            [panel-gallery.gallery-edn-inspector   :as gallery-edn-inspector]
+            [panel-gallery.gallery-epoch           :as gallery-epoch]
+            [panel-gallery.gallery-filters         :as gallery-filters]
+            [panel-gallery.gallery-issues          :as gallery-issues]
+            [panel-gallery.gallery-machines        :as gallery-machines]
+            [panel-gallery.gallery-routing         :as gallery-routing]
+            [panel-gallery.gallery-settings        :as gallery-settings]
+            [panel-gallery.gallery-trace           :as gallery-trace]
+            [panel-gallery.gallery-views           :as gallery-views]))
 
 ;; ---- fixture ----------------------------------------------------------
 
@@ -174,3 +197,84 @@
       (is (seq variants) "registrar's variants-of reports non-empty")
       (is (= 5 (count variants))
           "every :state/* tag drove a variant — no :rf.error/unknown-tag aborts"))))
+
+;; ---- per-gallery register-all! drive (rf2-nozqw) ---------------------
+
+(def ^:private galleries
+  "Every panel-gallery namespace's `register-all!` paired with a human
+  label. Mirrors `panel-gallery.core`'s `:require` block — every
+  gallery the boot loads must appear here so a future gallery addition
+  fails this smoke until the registrar maintainer hooks it up.
+
+  The pair-form (label + fn ref) keeps the assertion failure messages
+  human-readable when one gallery's `register-all!` throws or yields
+  empty inventory."
+  [["gallery-app-db"               gallery-app-db/register-all!]
+   ["gallery-chrome"                gallery-chrome/register-all!]
+   ["gallery-diff-mode-3"           gallery-diff-mode-3/register-all!]
+   ["gallery-diff-mode-universal"   gallery-diff-mode-universal/register-all!]
+   ["gallery-edn-inspector"         gallery-edn-inspector/register-all!]
+   ["gallery-epoch"                 gallery-epoch/register-all!]
+   ["gallery-filters"               gallery-filters/register-all!]
+   ["gallery-issues"                gallery-issues/register-all!]
+   ["gallery-machines"              gallery-machines/register-all!]
+   ["gallery-routing"               gallery-routing/register-all!]
+   ["gallery-settings"              gallery-settings/register-all!]
+   ["gallery-trace"                 gallery-trace/register-all!]
+   ["gallery-views"                 gallery-views/register-all!]])
+
+(deftest each-gallery-register-all-drops-non-empty-inventory
+  (testing "every panel-gallery namespace's `register-all!` runs without
+            throwing AND produces non-empty per-gallery inventory.
+
+            Background — the rf2-k1k87 smoke caught the headline
+            `:state/*` tag + diff-mode-id grammar cascade, but
+            rf2-nozqw landed three follow-on bugs (lowercase
+            `:workspace.xray.routing/all` typo; unregistered
+            `:feature/opts` tag) that aborted ONE gallery's
+            register-all! while the aggregate inventory stayed
+            non-empty from the other galleries. That's exactly the
+            shape this per-gallery loop catches: one gallery returns
+            zero stories + zero variants + zero workspaces, the rest
+            stay healthy.
+
+            Mechanic — clear-all + install canonical tags ONCE per
+            gallery, invoke the gallery's `register-all!`, snapshot
+            the three side-table id sets, assert each is non-empty.
+            Re-introducing Bug A (gallery_routing.cljs:137 →
+            `:workspace.xray.routing/all` lowercase) drops the
+            workspace count to zero for that gallery; re-introducing
+            Bug B (gallery_edn_inspector.cljs `:feature/opts`
+            unregistered) raises `:rf.error/unknown-tag` on the first
+            variant tagged with it, halting the cascade and dropping
+            story/variant counts."
+    (doseq [[label register-all!] galleries]
+      (story/clear-all!)
+      (story/install-canonical-vocabulary!)
+      ;; The gallery's register-all! is allowed to throw — that is
+      ;; itself an authoring bug. `is` records the throw as a failure
+      ;; with the label so the panel-gallery maintainer can spot
+      ;; which gallery is broken without scanning the boot log.
+      (is (try
+            (register-all!)
+            true
+            (catch :default e
+              (println "[panel-gallery-inventory-smoke]" label
+                       "register-all! threw:" (ex-message e))
+              false))
+          (str label ": register-all! must not throw"))
+      ;; Inventory delta — at least one story, at least one variant,
+      ;; at least one workspace under the registrar after this
+      ;; gallery's register-all! ran. Each L4 gallery contributes
+      ;; exactly one story + N variants + one workspace; the smoke
+      ;; pins the lower bound (NOT the exact count — a future
+      ;; addition variant must not break the smoke).
+      (let [story-ids     (story/ids :story)
+            variant-ids   (story/ids :variant)
+            workspace-ids (story/ids :workspace)]
+        (is (seq story-ids)
+            (str label ": at least one story registered"))
+        (is (seq variant-ids)
+            (str label ": at least one variant registered"))
+        (is (seq workspace-ids)
+            (str label ": at least one workspace registered"))))))
