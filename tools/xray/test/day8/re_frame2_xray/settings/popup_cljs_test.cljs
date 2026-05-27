@@ -103,30 +103,34 @@
   (rf/with-frame :rf/xray
     (let [rendered (popup/Modal)]
       (is (find-by-testid rendered "rf-xray-settings-section-general"))
-      (is (find-by-testid rendered "rf-xray-settings-text-size-input"))
       (is (find-by-testid rendered "rf-xray-settings-panel-position-right-rail"))
       (is (find-by-testid rendered "rf-xray-settings-auto-open-on-error"))
-      ;; rf2-pu9sb — Epoch history slider relocated from General to
-      ;; Buffer (the spec-canonical category for buffer-capacity
-      ;; knobs). The slot stays `:general :epoch-history`; only the
-      ;; visual home moved. See `epoch-history-slider-renders-in-buffer`
-      ;; below for the new home.
-      (is (nil? (find-by-testid rendered "rf-xray-settings-epoch-history-input"))
-          "Epoch history slider no longer renders in General (rf2-pu9sb)")
-      (is (nil? (find-by-testid rendered "rf-xray-settings-epoch-history-value"))
-          "Epoch history numeric readout no longer renders in General (rf2-pu9sb)"))))
+      ;; UX cleanup 2026-05-27: the text-size slider was removed —
+      ;; defaults suffice. The `:general :text-size` slot + the
+      ;; `apply-text-size!` effect remain so any host-set default still
+      ;; lands; only the UI surface went away.
+      (is (nil? (find-by-testid rendered "rf-xray-settings-text-size-input"))
+          "Text-size slider removed from the popup (defaults suffice)")
+      ;; rf2-pu9sb originally moved the Epoch history slider from
+      ;; General to Buffer. That move was reverted 2026-05-27 per Mike
+      ;; — the slider is back in General, sitting next to the auto-
+      ;; open-on-error checkbox. The slot stays `:general
+      ;; :epoch-history`; the Buffer section no longer carries the
+      ;; slider.
+      (is (find-by-testid rendered "rf-xray-settings-epoch-history-input")
+          "Epoch history slider renders in General (relocated back from Buffer)")
+      (is (find-by-testid rendered "rf-xray-settings-epoch-history-value")
+          "Epoch history numeric readout renders alongside the slider"))))
 
-;; rf2-pu9sb — Epoch history slider dedupe. Pre-pu9sb the popup
-;; carried two fields for the same conceptual knob: a wired
-;; `:general :epoch-history` slider on General and a dead
-;; `:buffer :retained-epochs` numeric input on Buffer (no substrate
-;; consumer). pu9sb collapsed to one slider in Buffer (the spec-
-;; canonical category per spec/007 §Settings popup row 5) using the
-;; wired `:general :epoch-history` slot.
+;; rf2-pu9sb moved the Epoch history slider from General to Buffer;
+;; that move was reverted 2026-05-27 per Mike. The slot stays
+;; `:general :epoch-history`; only the visual home moved. The
+;; coverage now lives in `general-section-renders` above; the Buffer
+;; section no longer carries the slider.
 
-(deftest epoch-history-slider-renders-in-buffer
-  (testing "rf2-pu9sb — Epoch history slider renders in the Buffer
-            section (not General); slot stays `:general :epoch-history`."
+(deftest epoch-history-slider-absent-from-buffer-section
+  (testing "Epoch history slider does NOT render in the Buffer section
+            after the 2026-05-27 revert; it lives in General."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open])
@@ -134,12 +138,12 @@
     (rf/with-frame :rf/xray
       (let [rendered (popup/Modal)]
         (is (find-by-testid rendered "rf-xray-settings-section-buffer"))
-        (is (find-by-testid rendered "rf-xray-settings-epoch-history-input")
-            "Epoch history slider renders in Buffer")
-        (is (find-by-testid rendered "rf-xray-settings-epoch-history-value")
-            "Epoch history numeric readout renders alongside the slider")
+        (is (nil? (find-by-testid rendered "rf-xray-settings-epoch-history-input"))
+            "Epoch history slider is no longer in Buffer (relocated back to General)")
+        (is (nil? (find-by-testid rendered "rf-xray-settings-epoch-history-value"))
+            "Epoch history numeric readout is no longer in Buffer")
         ;; The dead `:buffer :retained-epochs` numeric input had no
-        ;; substrate consumer and was removed in the same cleanup.
+        ;; substrate consumer and was removed in the rf2-pu9sb cleanup.
         (is (nil? (find-by-testid rendered "rf-xray-settings-buffer-retained-epochs"))
             "Dead `:buffer :retained-epochs` numeric input is gone")))))
 
@@ -254,21 +258,30 @@
             "the :idea radio is the checked option after the override
              writes")))))
 
-(deftest use-system-colors-renders-in-general
-  (testing "rf2-ou3pn — `:use-system-colors?` HCM-override checkbox
-            relocated from the retired Theme tab to General → Power
-            user. The settings slot has always been `:general
-            :use-system-colors?` — only the cosmetic home moved."
+;; rf2-ou3pn moved the `:use-system-colors?` HCM-override checkbox
+;; from the retired Theme tab into General → Power user; the UI
+;; surface was then removed entirely 2026-05-27 (UX cleanup pass).
+;; The settings slot + the `apply-use-system-colors!` effect remain
+;; so a future UI can re-expose if needed; the OS-level
+;; `@media (forced-colors: active)` detection still works
+;; automatically. No deftest covers the checkbox now — the slot's
+;; behaviour is exercised by the substrate-level theme effects
+;; tests; the cosmetic surface is the only thing that went away.
+
+(deftest use-system-colors-checkbox-absent-from-general
+  (testing "2026-05-27 UX cleanup — the `:use-system-colors?` checkbox
+            is no longer surfaced in the popup. The slot + the
+            `apply-use-system-colors!` effect remain; only the UI went."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open])
       (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
     (rf/with-frame :rf/xray
       (let [rendered (popup/Modal)]
-        (is (find-by-testid rendered "rf-xray-settings-use-system-colors")
-            "Use system colors toggle renders in the General section")
+        (is (nil? (find-by-testid rendered "rf-xray-settings-use-system-colors"))
+            "Use system colors toggle no longer renders")
         (is (nil? (find-by-testid rendered "rf-xray-settings-section-theme"))
-            "Theme section is gone")))))
+            "Theme section is also gone (retired by rf2-ou3pn earlier)")))))
 
 ;; ---- Tab switching ------------------------------------------------------
 

@@ -736,67 +736,87 @@
       (is (string/includes? header "1 unmounted")
           "header reads the unmount-only shape"))))
 
-;; ---- rf2-xgeag — inline violation sub-block + hot-reload tail step ----
+;; ---- rf2-2ek7t (supersedes rf2-xgeag) — violation sub-block redesign ----
+;;
+;; Pre-rf2-2ek7t the block carried discrete `:headline`, `:path`, and
+;; `:value` rows alongside the title bar. rf2-2ek7t retired those —
+;; the per-`:where` prose sentence + humanized `ei/edn-inspector`
+;; explain map subsume them. Tests now anchor on:
+;;
+;;   - title           → "Schema Violation Error" (mixed case)
+;;   - recovery chip   → "Aborted" / "Skipped" / "Returned nil" /
+;;                       "Rejected" (per-`:where` short labels)
+;;   - prose paragraph → `<base>-prose`, contains the per-`:where`
+;;                       canned sentence with an inline "schema check"
+;;                       link
+;;   - explain block   → `<base>-explain` when humanized/raw explain
+;;                       data is present
+;;
+;; See `view.cljs` §SCHEMA VIOLATION sub-block (rf2-xgeag) for the
+;; live renderer.
 
-(deftest violation-block-renders-headline-+-fields-test
-  (testing "rf2-xgeag — `violation-block` renders the pink sub-block
-            with title, recovery chip, headline, path, and value rows"
+(deftest violation-block-renders-title-+-prose-test
+  (testing "rf2-2ek7t — `violation-block` renders the pink sub-block
+            with the mixed-case title, per-:where recovery chip, prose
+            paragraph carrying an inline schema-link, and the
+            humanized explain map"
     (let [row  {:kind :rf.error/schema-validation-failure
                 :where :app-db
                 :failing-id :counter/inc
                 :path [:count]
                 :value "not-an-int"
+                :explain-humanized {:errors ["must be int"]}
                 :rollback? true
                 :sensitive? false}
           tree (view/violation-block :handler 0 row)
           base "rf-xray-epoch-violation-handler-0"]
       (is (some? (th/find-by-testid tree base))
           "the sub-block wrapper renders")
-      (let [title    (text-of tree (str base "-title"))
-            recovery (text-of tree (str base "-recovery"))
-            headline (text-of tree (str base "-headline"))
-            path     (text-of tree (str base "-path"))]
-        (is (string/includes? title "SCHEMA VIOLATION"))
-        (is (string/includes? recovery "rolled back"))
-        (is (string/includes? headline "app-db commit"))
-        (is (string/includes? headline ":counter/inc"))
-        (is (string/includes? path "[:count]"))))))
+      (let [title       (text-of tree (str base "-title"))
+            recovery    (text-of tree (str base "-recovery"))
+            prose       (text-of tree (str base "-prose"))
+            schema-link (text-of tree (str base "-schema-link"))]
+        (is (string/includes? title "Schema Violation Error")
+            "title bar reads the mixed-case 'Schema Violation Error'")
+        (is (string/includes? recovery "Aborted")
+            "rollback? true → recovery chip reads 'Aborted'")
+        (is (string/includes? prose "committed to app-db")
+            "prose sentence explains the :app-db :where outcome")
+        (is (string/includes? schema-link "schema check")
+            "inline 'schema check' link sits inside the prose")
+        (is (some? (th/find-by-testid tree (str base "-explain")))
+            "humanized explain map renders via `edn-inspector`")))))
 
 (deftest violation-block-recovery-chip-test
-  (testing "rf2-xgeag — recovery chip surfaces a per-where label when
+  (testing "rf2-2ek7t — recovery chip surfaces a per-:where label when
             no rollback fired"
     (let [tree (view/violation-block :fx 0
                  {:where :fx-args :failing-id :http/post
                   :rollback? false})
           recovery (text-of tree "rf-xray-epoch-violation-fx-0-recovery")]
-      (is (string/includes? recovery "fx skipped"))))
+      (is (string/includes? recovery "Skipped")
+          ":fx-args + no rollback → 'Skipped'")))
 
-  (testing "rf2-xgeag — sub-return → 'returned nil'"
+  (testing "rf2-2ek7t — sub-return → 'Returned nil'"
     (let [tree (view/violation-block :subscriptions 0
                  {:where :sub-return :failing-id :user/profile
                   :rollback? false})
           recovery (text-of tree
                             "rf-xray-epoch-violation-subscriptions-0-recovery")]
-      (is (string/includes? recovery "returned nil")))))
+      (is (string/includes? recovery "Returned nil")
+          ":sub-return + no rollback → 'Returned nil'"))))
 
-(deftest render-schema-hot-reload-step-test
-  (testing "rf2-xgeag — standalone SCHEMA HOT-RELOAD step renders one
-            sub-block per drift row + the badge label is the renamed
-            'SCHEMA HOT-RELOAD' (not the retired 'SCHEMA VIOLATIONS')"
-    (let [step {:step :schema-hot-reload :badge :SCHEMA-HOT-RELOAD
-                :step-number 8
-                :rows [{:kind :rf.schema/violation
-                        :where :hot-reload
-                        :failing-id :rf/default
-                        :path [:count]
-                        :value "boom"
-                        :recovery :logged-and-skipped}]}
-          tree (view/render-schema-hot-reload-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-schema-hot-reload")))
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-violation-hot-reload-0"))
-          "the drift row renders as a violation sub-block")
-      (let [header (text-of tree "rf-xray-epoch-schema-hot-reload-header")]
-        (is (string/includes? header "1 hot-reload drift"))))))
+;; `render-schema-hot-reload-step-test` retired here (rf2-oc6ok) — pairs
+;; with the rf2-o1l6c projection-side retire. Commit 9b96f9f6a
+;; (rf2-7gf7v) deleted both the projection's `hot-reload-step` fn AND
+;; the view's `render-schema-hot-reload-step` fn — hot-reload drift is
+;; a dev-time event (re-registered schema invalidates existing app-db
+;; state), not a cascade event. It surfaces exclusively via the Issues
+;; panel which consumes `:rf.schema/violation` trace events. No tail
+;; cascade step → no render fn → no view test. The projection-side
+;; negative assertion (`not-any? :schema-hot-reload`) in
+;; `project-attaches-app-db-violation-to-fx-db-row-test` pins down
+;; that no tail step is appended.
 
 ;; ---- rf2-uffov — FX section header + per-action attribution ----------
 
