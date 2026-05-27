@@ -322,6 +322,17 @@
                 :general :editor-override value]
                {:frame :rf/xray}))
 
+(def ^:private custom-template-seed
+  "Seed template the Custom radio writes when the user first selects
+  it (rf2-rc35g). Echoes the framework-default `:vscode` URI shape so
+  click-to-source resolves to a working URI immediately — the user
+  edits from a known baseline rather than a blank that silently breaks
+  the chip until they finish typing.
+
+  Per `re-frame.source-coords.editor-uri/editor-uri`'s `:vscode`
+  branch."
+  "vscode://file/{path}:{line}:{column}")
+
 (defn- editor-override-section [override host-default]
   (let [active-id   (override->radio-id override)
         custom-tpl  (when (map? override) (:custom override))
@@ -352,17 +363,18 @@
                  :checked     (= id active-id)
                  :on-change   (fn [_]
                                 (cond
-                                  ;; Custom: don't write the override
-                                  ;; until the template input lands —
-                                  ;; selecting the radio just reveals
-                                  ;; the input. If there is no prior
-                                  ;; custom template, seed an empty
-                                  ;; `{:custom ""}` so the parent slot
-                                  ;; recognises Custom and the input
-                                  ;; renders.
+                                  ;; Custom: seed a working template
+                                  ;; (rf2-rc35g — was `{:custom ""}`,
+                                  ;; which breaks click-to-source
+                                  ;; until the user finishes typing).
+                                  ;; The vscode-style URI is the most
+                                  ;; common shape; users on other
+                                  ;; editors edit from a baseline that
+                                  ;; resolves cleanly today.
                                   (= id :custom)
                                   (when-not (map? override)
-                                    (dispatch-editor-override! {:custom ""}))
+                                    (dispatch-editor-override!
+                                      {:custom custom-template-seed}))
 
                                   :else
                                   (dispatch-editor-override! value)))}]
