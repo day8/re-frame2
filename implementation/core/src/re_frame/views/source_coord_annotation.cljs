@@ -63,7 +63,24 @@
       `goog.DEBUG=false`. Per Spec 009 §Production builds. Both
       `data-rf2-source-coord` and `data-rf-view` literals are part of
       the production-bundle elision sentinel set (see
-      `scripts/check-elision.cjs`)."
+      `scripts/check-elision.cjs`).
+
+  ## JSX source-coord props (rf2-fa4ly)
+
+  Alongside `data-rf2-source-coord` the wrapper ALSO injects the
+  JSX-shaped source-coord props React DevTools' \"View source\" button
+  reads (per `@babel/plugin-transform-react-jsx-source`):
+
+      :_jsxFileName     \"src/my/app/cart.cljs\"
+      :_jsxLineNumber   42
+      :_jsxColumnNumber 1
+
+  These ride the SAME `interop/debug-enabled?` gate (the surrounding
+  wrapper's gate) — production builds elide all three alongside the
+  DOM attributes. Adapters' source-coord injection sites mirror this
+  dual emission (Reagent inline-walk here; UIx / Helix via
+  `re-frame.substrate.spine/inject-source-coord-attr`). Per Spec 006
+  §Source-coord annotation §JSX source-coord props."
   (:require [re-frame.views.warn-once :as warn-once]))
 
 (defn format-source-coord
@@ -99,14 +116,40 @@
   [id]
   (str id))
 
+(defn- jsx-source-props
+  "Build the React-DevTools-readable JSX source-coord prop map for the
+  view registered under `id` with captured `coords` (rf2-fa4ly).
+  Returns nil when no positional info is captured (programmatic
+  `reg-view*` with no macro coords) — DevTools' \"View source\" button
+  is meaningless without at least a `:file` + `:line`. Per
+  `@babel/plugin-transform-react-jsx-source`:
+
+      :_jsxFileName     \"src/my/app/cart.cljs\"   ;; required
+      :_jsxLineNumber   42                         ;; required
+      :_jsxColumnNumber 1                          ;; optional
+
+  Callers gate the call on `interop/debug-enabled?` so the production
+  bundle elides the entire prop set alongside the DOM attributes."
+  [coords]
+  (let [file (:file coords)
+        line (:line coords)
+        col  (:column coords)]
+    (when (and file line)
+      (cond-> {:_jsxFileName   file
+               :_jsxLineNumber line}
+        col (assoc :_jsxColumnNumber col)))))
+
 (defn inject-source-coord-attr
-  "Walk the user's render-fn output and merge both
-  `:data-rf2-source-coord` (Spec 006 §Source-coord annotation, rf2-z7f7)
-  and `:data-rf-view` (Spec 006 §View tagging contract, rf2-01il5) into
-  the root element's attrs map. Called from inside the wrapper (gated
-  on `interop/debug-enabled?`). Returns the (possibly rewritten)
-  hiccup. Non-DOM roots are returned unchanged after a one-shot
-  warning per Spec 006 §Source-coord annotation.
+  "Walk the user's render-fn output and merge `:data-rf2-source-coord`
+  (Spec 006 §Source-coord annotation, rf2-z7f7), `:data-rf-view`
+  (Spec 006 §View tagging contract, rf2-01il5) and — when source
+  coords were captured — the JSX-shaped `:_jsxFileName` /
+  `:_jsxLineNumber` / `:_jsxColumnNumber` props (rf2-fa4ly, React
+  DevTools' \"View source\" contract) into the root element's attrs
+  map. Called from inside the wrapper (gated on
+  `interop/debug-enabled?`). Returns the (possibly rewritten) hiccup.
+  Non-DOM roots are returned unchanged after a one-shot warning per
+  Spec 006 §Source-coord annotation.
 
   CRITICAL: this fn MUST mutate the existing first element's attrs.
   NEVER wrap with a synthetic `[:div]` — wrapping breaks flexbox /
@@ -116,31 +159,37 @@
   Form-2: when `out` is a fn, return a fn that recurses on the inner
   output — Reagent's renderer will call our returned fn just like
   the user's fn, and we get a chance to annotate the inner hiccup."
-  [id coord-attr out]
+  [id coord-attr coords out]
   (cond
     ;; Form-2: render-fn returned a fn. Wrap so the inner fn's output
     ;; is also annotated when Reagent calls through.
     (fn? out)
     (fn form-2-wrapper [& args]
-      (inject-source-coord-attr id coord-attr (apply out args)))
+      (inject-source-coord-attr id coord-attr coords (apply out args)))
 
     ;; Hiccup vector with a DOM-tag keyword head. Annotate the root.
     (and (vector? out) (dom-tag? (first out)))
     (let [head        (first out)
           maybe-attrs (second out)
-          view-attr   (format-view-id id)]
+          view-attr   (format-view-id id)
+          jsx-props   (jsx-source-props coords)]
       (if (map? maybe-attrs)
         ;; Existing attrs map — merge in (don't overwrite if user
-        ;; already set either attribute for some reason).
+        ;; already set any of the framework keys for some reason).
         (let [merged (cond-> maybe-attrs
                        (not (contains? maybe-attrs :data-rf2-source-coord))
                        (assoc :data-rf2-source-coord coord-attr)
                        (not (contains? maybe-attrs :data-rf-view))
-                       (assoc :data-rf-view view-attr))]
+                       (assoc :data-rf-view view-attr)
+                       (and jsx-props
+                            (not (contains? maybe-attrs :_jsxFileName)))
+                       (merge jsx-props))]
           (into [head merged] (drop 2 out)))
         ;; No attrs map — splice one in between head and children.
-        (into [head {:data-rf2-source-coord coord-attr
-                     :data-rf-view          view-attr}] (rest out))))
+        (let [attrs (cond-> {:data-rf2-source-coord coord-attr
+                             :data-rf-view          view-attr}
+                      jsx-props (merge jsx-props))]
+          (into [head attrs] (rest out)))))
 
     ;; Non-DOM root (fn-component head, fragment, lazy-seq, nil). Skip
     ;; with a one-shot warning. Pair tools fall back to :rf/id;

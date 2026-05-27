@@ -438,6 +438,19 @@
   (when (and interop/debug-enabled? (not wrap-applied?))
     (source-coord/format-source-coord id metadata)))
 
+(defn- view-jsx-coords
+  "Capture the raw source-coord metadata for the inline hiccup-walk path
+  (rf2-fa4ly). The metadata carries `:file` / `:line` / `:column` per
+  Spec 001 §Source-coordinate capture; the annotation site reads them
+  back to assemble the JSX `_jsxFileName` / `_jsxLineNumber` /
+  `_jsxColumnNumber` props React DevTools' \"View source\" button
+  consumes. Returns nil under :advanced + goog.DEBUG=false (the
+  dev-only annotation path elides wholesale) and when the substrate
+  hook is wrapping (its own cloneElement path handles JSX props)."
+  [metadata wrap-applied?]
+  (when (and interop/debug-enabled? (not wrap-applied?))
+    metadata))
+
 (defn- maybe-arm-unmount!
   "Install (once per mounted instance) the `:rf.view/unmounted` teardown
   hook for `render-key` and deref its lifecycle reaction so the
@@ -479,58 +492,73 @@
   React frame-context (rf2-kdwc — note the camelCase static-field
   name; the earlier kebab `:context-type` shape was silently ignored
   by Reagent)."
-  [id render-fn view-scope coord-attr wrap-applied?]
-  (with-meta
-    (fn frame-aware-view [& args]
-      (let [tok        (provider/reagent-component-token)
-            render-key [id tok]
-            ;; rf2-9hoos: fresh per-render deref sink (dev-only). The
-            ;; volatile is bound below so `re-frame.subs/subscribe`'s
-            ;; gated `record-view-deref!` call unions each deref'd
-            ;; query-v into it; read back AFTER the render to stamp
-            ;; `:deref-subs` onto `:rf.view/rendered`.
-            sink       (when interop/debug-enabled? (volatile! []))]
-        (binding [*render-key*     render-key
-                  *view-deref-sink* sink]
-          (trace/with-handler-scope view-scope
-            ;; Resolve the frame once per render — threaded into the
-            ;; unmount hook + both render emits (rf2-9hoos).
-            (let [frame-id (when interop/debug-enabled? (provider/current-frame))]
-              ;; rf2-9hoos: arm the unmount hook + compute the mount flag
-              ;; BEFORE the render so `first-render?!` reflects whether
-              ;; this is the instance's first render (the seen-set is
-              ;; updated here, not in the post-render emit).
-              (when interop/debug-enabled?
-                (maybe-arm-unmount! id render-key frame-id))
-              (let [mount? (when interop/debug-enabled? (first-render?! render-key))
-                    ;; rf2-8wrzz.1: wall-clock the user render-fn (dev-only)
-                    ;; so `:rf.view/rendered` can carry `:elapsed-ms` — the
-                    ;; per-view render timing Xray's Views panel shows. The
-                    ;; read rides `interop/debug-enabled?` so production
-                    ;; DCEs it alongside the rest of the emit; nil in prod.
-                    t0     (when interop/debug-enabled? (interop/now-ms))]
-                (emit-view-render-trace! render-key frame-id)
-                ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
-                ;; every render of a registered view brackets the user
-                ;; render-fn in performance marks so prod builds with the
-                ;; perf flag enabled produce a `rf:render:<view-id>`
-                ;; measure entry. Default-off; under :advanced +
-                ;; `re-frame.performance/enabled?=false` the bracket DCEs
-                ;; and the form collapses to the bare `(apply render-fn
-                ;; args)` call.
-                (let [out        (performance/mark-and-measure :render id
-                                   (apply render-fn args))
-                      elapsed-ms (when interop/debug-enabled?
-                                   (- (interop/now-ms) t0))]
-                  ;; rf2-9hoos: emit AFTER the render so the deref sink is
-                  ;; populated; carry the mount flag + the view's read-set.
-                  ;; rf2-8wrzz.1: also carry the render's `:elapsed-ms`.
-                  (emit-view-rendered-trace! id render-key frame-id mount?
-                                             (when sink @sink) elapsed-ms)
-                  (if (and interop/debug-enabled? (not wrap-applied?))
-                    (source-coord/inject-source-coord-attr id coord-attr out)
-                    out))))))))
-    {:contextType frame-context}))
+  [id render-fn view-scope coord-attr jsx-coords wrap-applied?]
+  (let [wrapped
+        (with-meta
+          (fn frame-aware-view [& args]
+            (let [tok        (provider/reagent-component-token)
+                  render-key [id tok]
+                  ;; rf2-9hoos: fresh per-render deref sink (dev-only). The
+                  ;; volatile is bound below so `re-frame.subs/subscribe`'s
+                  ;; gated `record-view-deref!` call unions each deref'd
+                  ;; query-v into it; read back AFTER the render to stamp
+                  ;; `:deref-subs` onto `:rf.view/rendered`.
+                  sink       (when interop/debug-enabled? (volatile! []))]
+              (binding [*render-key*     render-key
+                        *view-deref-sink* sink]
+                (trace/with-handler-scope view-scope
+                  ;; Resolve the frame once per render — threaded into the
+                  ;; unmount hook + both render emits (rf2-9hoos).
+                  (let [frame-id (when interop/debug-enabled? (provider/current-frame))]
+                    ;; rf2-9hoos: arm the unmount hook + compute the mount flag
+                    ;; BEFORE the render so `first-render?!` reflects whether
+                    ;; this is the instance's first render (the seen-set is
+                    ;; updated here, not in the post-render emit).
+                    (when interop/debug-enabled?
+                      (maybe-arm-unmount! id render-key frame-id))
+                    (let [mount? (when interop/debug-enabled? (first-render?! render-key))
+                          ;; rf2-8wrzz.1: wall-clock the user render-fn (dev-only)
+                          ;; so `:rf.view/rendered` can carry `:elapsed-ms` — the
+                          ;; per-view render timing Xray's Views panel shows. The
+                          ;; read rides `interop/debug-enabled?` so production
+                          ;; DCEs it alongside the rest of the emit; nil in prod.
+                          t0     (when interop/debug-enabled? (interop/now-ms))]
+                      (emit-view-render-trace! render-key frame-id)
+                      ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
+                      ;; every render of a registered view brackets the user
+                      ;; render-fn in performance marks so prod builds with the
+                      ;; perf flag enabled produce a `rf:render:<view-id>`
+                      ;; measure entry. Default-off; under :advanced +
+                      ;; `re-frame.performance/enabled?=false` the bracket DCEs
+                      ;; and the form collapses to the bare `(apply render-fn
+                      ;; args)` call.
+                      (let [out        (performance/mark-and-measure :render id
+                                         (apply render-fn args))
+                            elapsed-ms (when interop/debug-enabled?
+                                         (- (interop/now-ms) t0))]
+                        ;; rf2-9hoos: emit AFTER the render so the deref sink is
+                        ;; populated; carry the mount flag + the view's read-set.
+                        ;; rf2-8wrzz.1: also carry the render's `:elapsed-ms`.
+                        (emit-view-rendered-trace! id render-key frame-id mount?
+                                                   (when sink @sink) elapsed-ms)
+                        (if (and interop/debug-enabled? (not wrap-applied?))
+                          (source-coord/inject-source-coord-attr id coord-attr
+                                                                 jsx-coords out)
+                          out))))))))
+          {:contextType frame-context})]
+    ;; rf2-fa4ly: stamp the React `displayName` to the registered view-id so
+    ;; React DevTools shows `<:cart/total-line>` in the component tree rather
+    ;; than the CLJS-munged fn name (`day8.cart.total.total_line`) or an
+    ;; anonymous Reagent wrapper. Reagent's create-class / fn-to-class
+    ;; machinery picks up `.-displayName` off the input fn and forwards it to
+    ;; the constructed React component. Dev-only — gated so the literal name
+    ;; string never lands in the production bundle. The bundle-isolation gate
+    ;; pins absence (the elision contract is broader — `displayName` itself is
+    ;; a React surface, but assigning it from a user-derived string belongs
+    ;; behind `interop/debug-enabled?`).
+    (when interop/debug-enabled?
+      (set! (.-displayName ^js wrapped) (str id)))
+    wrapped))
 
 (defn reg-view*
   "Reagent-aware view registration. Wraps `render-fn` with the React
@@ -563,8 +591,10 @@
   [id metadata render-fn]
   (let [[render-fn wrap-applied?] (apply-adapter-wrap-view id metadata render-fn)
         coord-attr (view-coord-attr id metadata wrap-applied?)
+        jsx-coords (view-jsx-coords metadata wrap-applied?)
         view-scope (trace/handler-scope-from-meta :view id metadata)
-        wrapped    (build-frame-aware-view id render-fn view-scope coord-attr wrap-applied?)]
+        wrapped    (build-frame-aware-view id render-fn view-scope coord-attr
+                                           jsx-coords wrap-applied?)]
     (registrar/register! :view id (assoc metadata :handler-fn wrapped))
     wrapped))
 

@@ -26,6 +26,7 @@
   Helix) reads the same context object."
   (:require ["react" :as React]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.trace :as trace]))
 
 (defonce frame-context
@@ -33,6 +34,19 @@
   ;; this frame always exists. Components without an enclosing
   ;; frame-provider resolve to it.
   (.createContext React :rf/default))
+
+;; rf2-fa4ly: stamp a human-readable `displayName` on the React Context
+;; object so React DevTools' Context inspector shows the entry as
+;; `rf2-frame.Provider` / `rf2-frame.Consumer` rather than the opaque
+;; default ("Context.Provider"). Dev-only — gated under
+;; `interop/debug-enabled?` so the string literal DCEs in production.
+;; React DevTools reads `.-displayName` off the Context object directly
+;; (per the React DevTools backend's `getContextName` helper). The
+;; label deliberately avoids the unmunged ns string "re-frame.frame"
+;; to keep the elision sentinel unambiguous against keyword literals
+;; under that namespace.
+(when interop/debug-enabled?
+  (set! (.-displayName ^js frame-context) "rf2-frame"))
 
 (defn provider-element
   "Build a React element for the frame-context Provider with `frame-kw`

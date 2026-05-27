@@ -295,6 +295,27 @@ const DEV_ONLY_SENTINELS = [
   // :advanced + goog.DEBUG=false bundles.
   { source: 're-frame.views/reg-view* (data-rf-view injection)',
     sentinel: 'data-rf-view' },
+  // re-frame.views — JSX source-coord props for React DevTools'
+  // "View source" gesture (Spec 006 §JSX source-coord props,
+  // rf2-fa4ly). The reg-view* wrapper merges `_jsxFileName` +
+  // `_jsxLineNumber` + `_jsxColumnNumber` onto the rendered root DOM
+  // element when `interop/debug-enabled?` is true. Rides the SAME
+  // gate as `data-rf2-source-coord` (one injection site, one branch);
+  // the literal "_jsxFileName" string fragment must NOT appear in
+  // :advanced + goog.DEBUG=false bundles. The other two props
+  // (_jsxLineNumber, _jsxColumnNumber) elide alongside this sentinel
+  // as parts of the same branch.
+  { source: 're-frame.views/reg-view* (_jsxFileName injection)',
+    sentinel: '_jsxFileName' },
+  // re-frame.adapter.context — Context displayName for React DevTools'
+  // Context inspector (Spec 006 §React DevTools support, rf2-fa4ly).
+  // The "rf2-frame" literal sits inside `(when interop/debug-enabled?
+  // (set! (.-displayName frame-context) "rf2-frame"))` and must elide
+  // in production bundles. The literal is deliberately distinct from
+  // the ns string "re-frame.frame" to avoid clashing with keyword
+  // literals under that namespace.
+  { source: 're-frame.adapter.context (frame-context displayName)',
+    sentinel: 'rf2-frame' },
   // re-frame.core/reg-machine — per-element source-coord stamping
   // (Spec 005 §Source-coord stamping, rf2-8bp3). The reg-machine macro
   // emits an `(if interop/debug-enabled? (assoc spec :rf.machine/

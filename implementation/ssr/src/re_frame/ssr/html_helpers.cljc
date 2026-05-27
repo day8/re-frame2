@@ -124,9 +124,25 @@
 (def ^:private event-handler-name-re
   #"on(?:[A-Z].*|-.*)")
 
+;; JSX source-coord props (rf2-fa4ly). React DevTools' "View source"
+;; gesture reads `_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber`
+;; off the rendered React element. The reg-view wrapper injects them
+;; under `interop/debug-enabled?`; under SSR they ride the same hiccup
+;; tree the wrapper produced but MUST NOT serialise as wire HTML
+;; attributes. The leading underscore would also fail the conservative
+;; HTML5 attribute-name grammar (`[A-Za-z][A-Za-z0-9_:-]*`) — these
+;; props sit upstream of that grammar gate and are filtered here so
+;; SSR output stays grammar-clean. The matcher pins the three documented
+;; names (per `@babel/plugin-transform-react-jsx-source`) rather than a
+;; broad underscore-prefix, so an app's custom underscore-prefixed prop
+;; (if grammar-legal) still surfaces the grammar error.
+(def ^:private jsx-source-prop-names
+  #{"_jsxFileName" "_jsxLineNumber" "_jsxColumnNumber"})
+
 (defn strip-prop?
   "True when the attribute `[k v]` MUST be dropped at SSR static-markup
-  emission per Spec 011 rule rf2-dwds9:
+  emission per Spec 011 rule rf2-dwds9 + Spec 006 §JSX source-coord
+  props (rf2-fa4ly):
 
     - `on*` event-handler props (`:on-click`, `:onMouseDown`, …). The
       client-side substrate adapters wire handlers at hydration; the
@@ -136,6 +152,10 @@
       it has no HTML-attribute serialisation and must never reach output.
     - reserved prototype-pollution keys (`__proto__` / `constructor` /
       `prototype`), dropped before they reach the host createElement.
+    - JSX source-coord props (`:_jsxFileName`, `:_jsxLineNumber`,
+      `:_jsxColumnNumber`) — React DevTools internals injected by the
+      reg-view wrapper for the \"View source\" gesture (rf2-fa4ly);
+      they have no HTML wire representation.
 
   Mirrors react-dom/server behaviour. Recognised here are exactly the
   props that are *safe to silently drop*; malformed keys (breakout chars)
@@ -145,7 +165,8 @@
   (let [nm (name k)]
     (or (some? (re-matches event-handler-name-re nm))
         (fn? v)
-        (contains? reserved-prop-keys (str/lower-case nm)))))
+        (contains? reserved-prop-keys (str/lower-case nm))
+        (contains? jsx-source-prop-names nm))))
 
 (defn attr-string
   "Render an attribute map as ` k1=\"v1\" k2=\"v2\"` (leading space when

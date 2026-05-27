@@ -304,6 +304,22 @@ A registration that bypassed the macro path (programmatic `reg-view*` with no ca
 
 The annotation site MUST sit inside `(when interop/debug-enabled? ...)` (the CLJS mirror of `goog.DEBUG`). Production builds (`:advanced` + `goog.DEBUG=false`) MUST NOT emit the attribute — the entire injection branch dead-code-eliminates so the literal `data-rf2-source-coord` string fragment does not appear in the bundle. Per [Spec 009 §Production builds](009-Instrumentation.md), the elision is verified by a grep against the production bundle (`scripts/check-elision.cjs`); the `data-rf2-source-coord` sentinel is part of the standard sentinel set.
 
+### JSX source-coord props (React DevTools "View source")
+
+Alongside the `data-rf2-source-coord` DOM attribute, every React-substrate adapter MUST also inject the JSX-shaped source-coord props that React DevTools' "View source" gesture reads (per `@babel/plugin-transform-react-jsx-source`):
+
+```
+_jsxFileName     "src/my/app/cart.cljs"   ; required — full file path
+_jsxLineNumber   42                       ; required — integer line
+_jsxColumnNumber 1                        ; optional — integer column
+```
+
+The injection lands on the **same root element** as `data-rf2-source-coord` (same wrapper, same walk, same merge — not a separate code path). React DevTools' "View source" button uses these props to open the `reg-view` definition in the browser's Sources panel (or in the user's editor if React DevTools' editor-URL setting is configured); the gesture works natively against any registered view — no Xray-specific chip required.
+
+Both injection paths share a single elision gate: the JSX props ride the SAME `(when interop/debug-enabled? …)` branch that elides `data-rf2-source-coord`, so production builds (`:advanced` + `goog.DEBUG=false`) MUST NOT emit `_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber` — the entire injection branch DCEs as a unit. Bundle isolation pins the contract (no `_jsxFileName` literal in the production bundle); per Spec 009 §Production builds, the gate is the load-bearing mechanism.
+
+When source coords were not captured (programmatic `reg-view*` without macro positions, or any registration whose metadata carries no `:file`/`:line`), the JSX props are omitted while `data-rf2-source-coord` still degrades to `<ns>:<sym>:?:?`. The two surfaces are independent at the per-call site level; one elision gate, two emission cases.
+
 ### Documented exemption: non-DOM roots
 
 A registered view whose root element is one of:
@@ -401,6 +417,18 @@ When the fallback is consuming the tagged DOM, the walker:
 4. Produces the same output shape as the Fiber-walker (per [View-Hierarchy-Capture.md §Output shape](View-Hierarchy-Capture.md#output-shape)) so consumer code is path-agnostic.
 
 The walker implementation lives at `tools/xray/src/day8/re_frame2_xray/views/view_walker.cljs` (alongside the Fiber-walker per the spec's Ownership table). Both walkers are bundle-isolated from production builds.
+
+## React DevTools support (zero-config, dev-only)
+
+re-frame2 is Reagent-substrate-native (see §Reactive Substrate above). The framework MUST therefore make React DevTools — the industry-standard React-app inspection tool — work cleanly against any re-frame2 app. The three contracts below are framework-level; an app author opts into none of them, they fire by the same wrappers that handle the source-coord and view-tagging contracts.
+
+1. **Component display-name = registered view-id.** Every adapter's `reg-view` wrapper MUST stamp the React `displayName` of the wrapped component to `(str view-id)` so React DevTools' component tree shows `<:cart/total-line>` rather than the CLJS-munged function name or an anonymous Reagent wrapper. Reagent's class-component machinery reads `.-displayName` off the input fn and forwards it to the constructed component; React-hook substrates (UIx / Helix) set it directly on the wrapped function component. Gated on `interop/debug-enabled?` so the per-view id-string literal elides in production builds.
+
+2. **JSX source-coord props on the rendered root.** See §JSX source-coord props above — the same wrapper that injects `data-rf2-source-coord` also injects `_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber`, which is what React DevTools' "View source" gesture reads to jump to the `reg-view` definition.
+
+3. **Frame-context display-name.** The React Context object backing the frame-provider (per §Frame-provider via React context below) MUST carry a `displayName` of `"rf2-frame"` so React DevTools' Context inspector shows the entry as `rf2-frame.Provider` rather than the opaque default `Context.Provider`. The label is deliberately distinct from any keyword namespace to keep the elision-bundle sentinel unambiguous. The assignment site sits inside `(when interop/debug-enabled? …)` so the string literal elides in production. The per-frame value (`:rf/default`, `:tenant/admin`, etc.) is already inspectable as the Context value — DevTools renders it as the keyword's `pr-str`.
+
+All three sites share the standard `interop/debug-enabled?` elision gate and are subject to the bundle-isolation gate (no `displayName`-assignment branches, no `_jsxFileName` literals, no Context display-name string in the production bundle). React DevTools is a dev-time inspection tool; the framework pays nothing for these affordances in production.
 
 ## Subscription cache — contract and operational semantics
 

@@ -804,13 +804,15 @@
 
 (defn- inject-source-coord-attr
   "Wrap `out` (the user component's React element output) with a
-  cloneElement call that adds both `data-rf2-source-coord` (Spec 006
-  §Source-coord annotation, rf2-z7f7) and `data-rf-view` (Spec 006
-  §View tagging contract, rf2-01il5). Non-element outputs (nil,
-  fragment, function-component head) emit a one-shot warning per id
-  and pass through unchanged — pair tools fall back to `:rf/id` for
-  source-coord; the view-walker falls back to the Fiber-walker primary
-  path for hierarchy capture.
+  cloneElement call that adds `data-rf2-source-coord` (Spec 006
+  §Source-coord annotation, rf2-z7f7), `data-rf-view` (Spec 006
+  §View tagging contract, rf2-01il5), and — when source coords were
+  captured — the JSX-shaped `_jsxFileName` / `_jsxLineNumber` /
+  `_jsxColumnNumber` props (rf2-fa4ly, React DevTools' \"View source\"
+  contract). Non-element outputs (nil, fragment, function-component
+  head) emit a one-shot warning per id and pass through unchanged —
+  pair tools fall back to `:rf/id` for source-coord; the view-walker
+  falls back to the Fiber-walker primary path for hierarchy capture.
 
   CRITICAL: cloneElement returns a new element with the SAME `type` and
   `key` slots — it does NOT wrap the original. Wrapping with a
@@ -818,18 +820,30 @@
   §View tagging contract) would break flexbox / CSS Grid / table
   layouts / `:nth-child` selectors / positioning ancestors / stacking
   contexts / CSS containment."
-  [warn-fn id coord-attr view-attr out]
+  [warn-fn id coord-attr view-attr jsx-coords out]
   (cond
     (dom-element? out)
     (let [props             (.-props out)
           existing-coord    (when props (aget props "data-rf2-source-coord"))
           existing-view     (when props (aget props "data-rf-view"))
-          patch             #js {}]
+          existing-jsx-file (when props (aget props "_jsxFileName"))
+          patch             #js {}
+          patch-jsx?        (and jsx-coords
+                                 (some? (:file jsx-coords))
+                                 (some? (:line jsx-coords))
+                                 (not existing-jsx-file))]
       (when-not existing-coord
         (aset patch "data-rf2-source-coord" coord-attr))
       (when-not existing-view
         (aset patch "data-rf-view" view-attr))
-      (if (and existing-coord existing-view)
+      ;; rf2-fa4ly: JSX source-coord props for React DevTools' "View source"
+      ;; gesture. Mirrors the Reagent inline-walk emission.
+      (when patch-jsx?
+        (aset patch "_jsxFileName"   (:file jsx-coords))
+        (aset patch "_jsxLineNumber" (:line jsx-coords))
+        (when (:column jsx-coords)
+          (aset patch "_jsxColumnNumber" (:column jsx-coords))))
+      (if (and existing-coord existing-view (not patch-jsx?))
         out
         (React/cloneElement out patch)))
 
@@ -1006,21 +1020,32 @@
     (fn wrap-view [id metadata user-fn]
       (if interop/debug-enabled?
         (let [coord-attr (format-source-coord id metadata)
-              view-attr  (format-view-id id)]
-          (fn wrapped-user-fn [& args]
-            ;; rf2-te71r: resolve the frame in-render (the substrate-
-            ;; portable React-context read works inside this wrapped fn's
-            ;; render). The sentinel's cleanup runs OUTSIDE render where
-            ;; the read would be wrong, so the frame is threaded as a prop
-            ;; and the sentinel stashes it in a ref. On a headless direct
-            ;; invocation this read falls through the dynamic-var /
-            ;; :rf/default chain — harmless; the sentinel ELEMENT is built
-            ;; but its hooks only run if React actually renders it.
-            (let [frame-id  (adapter-context/function-component-current-frame)
-                  out       (apply user-fn args)
-                  annotated (inject-source-coord-attr warn-fn id coord-attr
-                                                      view-attr out)]
-              (append-unmount-sentinel unmount-sentinel id frame-id annotated))))
+              view-attr  (format-view-id id)
+              ;; rf2-fa4ly: capture the raw coords once so each render reuses
+              ;; the JSX-prop input without re-walking metadata.
+              jsx-coords metadata
+              wrapped    (fn wrapped-user-fn [& args]
+                           ;; rf2-te71r: resolve the frame in-render (the substrate-
+                           ;; portable React-context read works inside this wrapped fn's
+                           ;; render). The sentinel's cleanup runs OUTSIDE render where
+                           ;; the read would be wrong, so the frame is threaded as a prop
+                           ;; and the sentinel stashes it in a ref. On a headless direct
+                           ;; invocation this read falls through the dynamic-var /
+                           ;; :rf/default chain — harmless; the sentinel ELEMENT is built
+                           ;; but its hooks only run if React actually renders it.
+                           (let [frame-id  (adapter-context/function-component-current-frame)
+                                 out       (apply user-fn args)
+                                 annotated (inject-source-coord-attr warn-fn id coord-attr
+                                                                     view-attr jsx-coords out)]
+                             (append-unmount-sentinel unmount-sentinel id frame-id annotated)))]
+          ;; rf2-fa4ly: stamp the React `displayName` to the registered view-id
+          ;; so React DevTools shows `<:cart/total-line>` in the component tree
+          ;; rather than the CLJS-munged fn name or an anonymous wrapper. The
+          ;; assignment sits inside the `interop/debug-enabled?` arm so the
+          ;; string-literal id `(str id)` and the assignment itself elide in
+          ;; production builds.
+          (set! (.-displayName ^js wrapped) (str id))
+          wrapped)
         user-fn))))
 
 (defn install-clear-warn-once-step!
