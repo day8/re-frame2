@@ -86,8 +86,9 @@ main read**.
   (auto-hide filters, theme, retained-epochs, keybindings, factory-reset,
   ns-aliases, etc.).
 - **[016-Auxiliary-Panels.md](016-Auxiliary-Panels.md)** — Per-tab
-  content contract for the Event tab, Issues ribbon, Routes content,
-  Flows content. Future: wire-boundary diff per managed fx;
+  content contract for the Epoch panel (numbered cascade, supersedes
+  the retired Event/Handler panel per rf2-5gl5r), Issues ribbon, Routes
+  content, Flows content. Future: wire-boundary diff per managed fx;
   `:on-match` event chain; pending-navigation card; route-chain
   visualiser; head model inspector; retry timeline; full 6-section
   Settings popup (Keybindings, Buffer, Popout, Actions in addition to

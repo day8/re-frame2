@@ -877,7 +877,7 @@ expands its raw `:operation` + tag-map inline (no nav).
 A **3px cascade-status timeline bar** (rf2-b76v4) above the ribbon fills
 with the focused cascade's lifecycle-status colour (settled-success /
 errored / stale / paused / in-flight), driven by the same
-`event-status-colour` fn the L2 rows + Event header dot consume — one
+`event-status-colour` fn the L2 rows + Epoch panel header consume — one
 lifecycle vocabulary across the whole devtool. Expanded payload uses the
 edn-inspector renderer's `browse` variant (§10).
 

@@ -132,7 +132,7 @@ below.
 ## The passive-scrubbing rule
 
 Dragging the scrubber rebases every panel's view of history. The
-event-detail panel rebases to the dragged-to epoch. The app-db panel
+Epoch panel rebases to the dragged-to epoch. The app-db panel
 shows the historical snapshot.
 
 But `(rf/get-frame-db ...)` continues to return the live value. The
@@ -394,7 +394,7 @@ scrubber to the new frame's `epoch-history` and resets the position to
 that frame's newest epoch.
 
 Cross-frame cascades (where dispatch in frame A triggers dispatch in
-frame B) are visible in the Trace and Event tabs regardless of which
+frame B) are visible in the Trace and Epoch tabs regardless of which
 frame's scrubber is active. The scrubber is frame-local; the tabs
 span frames.
 

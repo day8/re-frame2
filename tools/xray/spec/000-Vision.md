@@ -66,8 +66,9 @@ Xray does NOT fragment the chrome with per-area tabs (no SSR tab, no
 managed-effects tab). Instead, each existing tab grows **deep specialised
 renderings** for the cross-cutting work that lands in it:
 
-- The Event tab grows a per-fx **wire-boundary diff** for managed effects
-  (request → wire → response → handler → app-db slice).
+- The Epoch panel grows a per-fx **wire-boundary diff** for managed effects
+  (request → wire → response → handler → app-db slice) in its
+  "EFFECTS HANDLERS RAN" section.
 - The Trace tab grows a **wall-clock axis** for timer rings, retry
   waterfalls, deferred-dispatch arrivals.
 - The Machines tab grows **timer countdown rings** on state nodes,
@@ -128,11 +129,14 @@ bar · detail panel) — see
 [`018-Event-Spine.md`](018-Event-Spine.md) for the full architectural
 contract.
 
-Every open lands on the latest cascade. The Event tab (default) shows the
-event vector, source, handler return, db writes, fx, and the fx-handlers
-that ran — the canonical questions answer themselves on first paint;
-deeper investigation is one tab away (`a` App-db · `v` Views · `t` Trace ·
-`m` Machines · `i` Issues).
+Every open lands on the latest cascade. The Epoch panel (default tab,
+mnemonic `e`) renders the focused epoch's full computational timeline
+as a numbered vertical cascade — DISPATCH · COEFFECTS · HANDLER · FLOW ·
+FX · SUBSCRIPTIONS · VIEWS — so the canonical questions answer themselves
+on first paint; deeper investigation is one tab away (`a` App-db ·
+`v` Views · `t` Trace · `m` Machines · `i` Issues). (rf2-5gl5r retired
+the earlier Event/Handler tab in favour of the Epoch panel; see
+[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1.)
 
 ## The two modes — Dynamic and Static
 
@@ -224,13 +228,13 @@ Each row is "new in re-frame2 → new tooling story Xray tells."
 | **Trace bus** (Spec 009) | The substrate of everything. Xray does not invent its own trace shape. **Trace fattening** (carrying context-at-position on each event) enables the per-instance scrubber's Phase-5 replay-from-arbitrary-position affordance. |
 | **Epoch history + `:rf/epoch-record` projections** (Tool-Pair) | First-class time-travel via the ribbon's `[◀ ▶ ⏭]` nav + the event list (L2). |
 | **Six named restore failures** | Structured "this rewind won't work because X" rather than a silent no-op. |
-| **`register-epoch-listener!`** | The per-cascade listener routes the Event tab + Issues tab. |
+| **`register-epoch-listener!`** | The per-cascade listener routes the Epoch panel + Issues tab. |
 | **Schemas (Malli)** (Spec 010) | Schema-violation rows in the Issues tab; **per-violation drill** with full Malli explanation + recovery-mode classification + source-coord. |
 | **SSR + hydration** (Spec 011) | **Hydration mismatch bisector** — canonical-EDN dfs to the first divergent node; server vs client side-by-side per `get-in` path; sub-attribution (which sub returned `nil` server / `:en-US` client + why). **Streaming SSR boundary timeline.** **Per-request response accumulator inspector.** **Head model inspector.** **Server error projection trace** (the security boundary visualised). |
-| **Routing** (Spec 012) | Dedicated **Routing tab** carrying a **FLAT focused-event lens** (rf2-lq0ef) — current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the **rank explainer** inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO` (rf2-nrbs9). **Nav-token timeline** (swimlanes) makes stale-clobber races literally visible; **`:on-match` chain explicit in Event tab**; **pending-navigation card**; **route-chain visualiser**. |
+| **Routing** (Spec 012) | Dedicated **Routing tab** carrying a **FLAT focused-event lens** (rf2-lq0ef) — current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the **rank explainer** inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO` (rf2-nrbs9). **Nav-token timeline** (swimlanes) makes stale-clobber races literally visible; **`:on-match` chain explicit in the Epoch panel's "EFFECTS HANDLERS RAN" section**; **pending-navigation card**; **route-chain visualiser**. |
 | **`:origin` opt on dispatch** | Filter by actor via ribbon IN/OUT pills. |
 | **Data classification** (Spec 015) | Path-marked sensitive + large rendering: `[● REDACTED N]` magenta opaque + `[● ELIDED N]` yellow drillable. See [`018-Event-Spine.md`](018-Event-Spine.md) §12 for the per-surface rendering contract. |
-| **Managed effects** (`spec/Managed-Effects.md` eight-property contract) | **Wire-boundary diff** in the Event tab's "fx handlers that ran" block — per fx, show request payload (post-elision) → wire transit (status / headers / timing waterfall) → response → handler dispatched → app-db slice touched. One template; five surfaces (HTTP, WebSocket, machine `:spawn`, SSR `:rf.server/*`, flows). **Active managed-effects dashboard** — Erlang-Observer for what the runtime is currently busy doing. **Stale-suppression badges** uniform across all four cross-cutting areas. |
+| **Managed effects** (`spec/Managed-Effects.md` eight-property contract) | **Wire-boundary diff** in the Epoch panel's "EFFECTS HANDLERS RAN" section — per fx, show request payload (post-elision) → wire transit (status / headers / timing waterfall) → response → handler dispatched → app-db slice touched. One template; five surfaces (HTTP, WebSocket, machine `:spawn`, SSR `:rf.server/*`, flows). **Active managed-effects dashboard** — Erlang-Observer for what the runtime is currently busy doing. **Stale-suppression badges** uniform across all four cross-cutting areas. |
 | **Production-elision verifier** | Xray runs `npm run test:elision` and warns before deploy if a dev sentinel leaked. |
 
 ## The 7-tab inventory
@@ -254,7 +258,7 @@ cohesive sub-domains earn their own lens tab rather than overloading App-db.
 
 | # | Tab | Mnem | What it shows | Spec |
 |---|---|---|---|---|
-| 1 | **Event** | `e` | Whole event vector + arg-map + source · handler return · db writes · fx vector · fx-handlers that ran (with wire-boundary diff per managed fx). | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Event-detail panel + [`018-Event-Spine.md`](018-Event-Spine.md) §5.1 |
+| 1 | **Epoch** | `e` | Numbered vertical cascade of the focused epoch's pipeline (DISPATCH · COEFFECTS · HANDLER · FLOW · FX · SUBSCRIPTIONS · VIEWS, conditional per the trace stream); fx-handlers-that-ran with wire-boundary diff per managed fx. Supersedes the retired Event/Handler panel per rf2-5gl5r. | [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Epoch tab + [`018-Event-Spine.md`](018-Event-Spine.md) §5.1 |
 | 2 | **App-db** | `a` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure · branch-aware diff (for story sim-clones) · cross-frame diff (for multi-frame shared substates). | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + [`018-Event-Spine.md`](018-Event-Spine.md) §5.2 |
 | 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; **subs nested under each view row** showing return values; **per-sub invalidation-chain drill** (why did this sub re-run); replaces the legacy Subs panel. | [`012-Views.md`](012-Views.md) |
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to the focused cascade; **wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals; trace-type toggle row + IN/OUT pills + sensible defaults. | [`013-Trace-Consumer.md`](013-Trace-Consumer.md) + [`018-Event-Spine.md`](018-Event-Spine.md) §5.3 |
@@ -267,7 +271,7 @@ cohesive sub-domains earn their own lens tab rather than overloading App-db.
 | Popover | Key | Content |
 |---|---|---|
 | **Nav-token timeline** | `r` | Horizontal swimlanes — each navigation is a bar; in-flight `:on-match` events ride above; stale-suppressed completions strike-through with carried-vs-current token visible. |
-| **Wire-trace** | `f` | The active fx's wire-boundary diff popped out — same content as the Event-tab inline panel but floats over any tab. |
+| **Wire-trace** | `f` | The active fx's wire-boundary diff popped out — same content as the Epoch panel's inline "EFFECTS HANDLERS RAN" record-panel, but floats over any tab. |
 
 See [`018-Event-Spine.md`](018-Event-Spine.md) §10 for the popover invocation
 contract.
@@ -275,9 +279,9 @@ contract.
 ## The bar
 
 A programmer hits `Ctrl+Shift+C`, sees the cascade their last click triggered
-in the Event tab — `:rf.xray/focus` already points at the freshest event —
-asks "why?", and reads the answer in the panel (event vector, source
-coord, db writes, fx outcomes). Five seconds.
+in the Epoch panel — `:rf.xray/focus` already points at the freshest event —
+asks "why?", and reads the answer in the panel (numbered cascade: dispatch
+site, event vector, handler, flows, db writes, fx outcomes). Five seconds.
 
 If a tab doesn't help answer "why?" or "what happened?" or "what's wrong?",
 it doesn't ship. Restraint is what keeps the tool habit-forming instead of
@@ -289,7 +293,7 @@ impressive.
   face but unobtrusive; wants click-to-source from anywhere; wants to scrub.
 - **The programmer reading an unfamiliar codebase.** "Why does clicking
   Save eventually re-render this card three modules over?" — wants the
-  Views tab + the Event tab's source-coord chips on the cascade.
+  Views tab + the Epoch panel's source-coord chips on the cascade.
 - **The on-call programmer triaging a production-shaped repro.** Loads the
   app, scrubs via `[◀ ▶ ⏭]` + L2, finds the divergence.
 - **The programmer debugging a streaming SSR / hydration mismatch.** Opens
@@ -345,7 +349,7 @@ surfaces (it duplicates re-frame2-pair-mcp's responsibility and degrades Xray's
 freedom to evolve its UI without breaking an AI contract). Drop it.
 
 **Story (`tools/story/`)** — the component playground — embeds Xray's
-Event tab as a per-variant observability ribbon (per the embedding contract
+Epoch panel as a per-variant observability ribbon (per the embedding contract
 in [`008-Embedding-Contract.md`](008-Embedding-Contract.md)). The recorder
 → `:play-script` pipeline (per
 [`018-Event-Spine.md`](018-Event-Spine.md) §Recorder / Story integration)

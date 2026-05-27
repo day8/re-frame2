@@ -67,7 +67,7 @@ To use Chrome DevTools for performance analysis:
 3. The Timings track shows the `rf:*` User-Timing entries inline with
    browser-level events (long tasks, layout shifts, INP).
 4. Per-event hot-path information stays inside Xray's chrome —
-   the ms duration in the Event tab + the L2 event-list `duration`
+   the ms duration in the Epoch panel + the L2 event-list `duration`
    column (rf2-pjjwh; the row-gutter tier dot was retired).
 
 **Sensitive-data note for the cross-link:** Chrome DevTools cannot
@@ -133,30 +133,39 @@ All tab content shares the cross-panel substrate:
 > machine-inspector, cancellation-cascade, and the existing test
 > corpus).
 
-## Effects content — folded into Event tab
+## Effects content — folded into Epoch panel
 
 The pre-rewrite Effects panel is GONE. Its content folds into the
-**Event tab** (tab 1 of 7) as the "fx handlers that ran" block — see
-[`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 for the canonical
-wireframe.
+**Epoch panel** (tab 1 of 7) as the **"EFFECTS HANDLERS RAN"** section
+of the numbered cascade — see
+[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9.1
+for the canonical Epoch-panel design and
+[`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 for the per-event
+pipeline projection. (The folded content originally targeted the
+Event/Handler tab; rf2-5gl5r retired that panel and the Epoch panel
+now hosts the "fx handlers that ran" rows.)
 
 Per-fx invocation status (`:error` / `:overridden` / `:skipped` /
-`:ok`) renders as inline chips next to the fx-id in that block.
+`:ok`) renders as inline chips next to the fx-id in that section.
 Aggregate "registered fxs" data (which historically lived in the
 Effects panel) is reachable via the Cmd-K palette under the `:fx`
 source — registered handler ids + invocation counts. No standalone
 tab.
 
-## Flows content — Event tab FLOWS section (rf2-lo37i)
+## Flows content — Epoch panel FLOW section (rf2-lo37i)
 
 The pre-rewrite Flows panel is GONE. Flows surface as a dedicated
-**section of the Event tab placed RIGHT AFTER the HANDLER** — flows
+**section of the Epoch panel placed RIGHT AFTER the HANDLER** — flows
 fire at the outermost `:after` interceptor, reshaping the pending
-`:db` before it commits, so the FLOWS section precedes EFFECTS
+`:db` before it commits, so the FLOW section precedes EFFECTS
 RETURNED / EFFECTS HANDLERS RAN. The canonical home for per-cascade
-flow firings is [`018-Event-Spine.md`](./018-Event-Spine.md) §5.1
-FLOWS section. For each flow that fired during the focused cascade the
-FLOWS section lists, in cascade order:
+flow firings is [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+§9.1 (Epoch panel) + [`018-Event-Spine.md`](./018-Event-Spine.md) §5.1
+(per-event pipeline projection). (rf2-lo37i originally added this
+section to the Event/Handler tab; rf2-5gl5r retired that panel — the
+section now lives in the Epoch panel's numbered cascade.) For each
+flow that fired during the focused cascade the FLOW section lists,
+in cascade order:
 
 - `wrote <path>` — the flow's `:output` write target with the
   after-value rendered inline.
@@ -175,7 +184,7 @@ view's *Rerendered because* list (per
 [`012-Views.md`](./012-Views.md) §Three-group layout Re-rendered),
 the sub-id carries a `⊳` flow-glyph prefix that distinguishes
 flow-output subs from hand-written subs. Click-through from the
-Views entry jumps to the Event tab's FLOWS section for that cascade.
+Views entry jumps to the Epoch panel's FLOW section for that cascade.
 
 A registered-flows-overview is reachable via the Cmd-K palette under
 the `:flow` source: flow-id, inputs, output path, last recompute. No
@@ -213,7 +222,7 @@ Per-cascade duration stays inline in:
 - The L2 event-list `duration` column (`1.2 ms`, right-aligned —
   rf2-pjjwh; the prior row-gutter tier dot was retired with the focus
   gutter).
-- L4 Event tab content "event" header line (`⏱ 11ms · tier ●`).
+- L4 Epoch panel cascade-outcome line (`⏱ 11ms · tier ●`).
 - Event-list row hover tooltips (the row's `:title`).
 
 That's the entire Xray-side perf surface post-rewrite.
@@ -435,9 +444,9 @@ projects the single nav-event that pertains to the focused cascade.
 ### Vision (future)
 
 - **Nav-token timeline (swimlanes)** popover trigger from the tab.
-- **`:on-match` chain explicit** in the Event tab's "fx handlers
-  that ran" block when the focused cascade is a routing cascade
-  (already noted under §Event tab — `:on-match` event chain (Routes)
+- **`:on-match` chain explicit** in the Epoch panel's "EFFECTS HANDLERS
+  RAN" section when the focused cascade is a routing cascade
+  (already noted under §Epoch panel — `:on-match` event chain (Routes)
   later in this doc).
 - **Route-chain visualiser** — the `:parent`-chain walk for nested
   layouts (i.e. expand the inline `:parent` annotation into the full
@@ -579,13 +588,13 @@ follow-on).
 
 ## Vision — auxiliary content growth
 
-### Event tab — per-fx wire-boundary diff
+### Epoch panel — per-fx wire-boundary diff
 
 **Bug class:** "I dispatched event X; it issued an HTTP request; the
 UI updated incorrectly. What went over the wire? What came back? What
 did the handler apply?"
 
-The Event tab's "fx handlers that ran" block grows a **rich expand
+The Epoch panel's "EFFECTS HANDLERS RAN" section grows a **rich expand
 block per managed-effect fx** showing the entire wire interaction:
 request payload (post-elision) → wire transit (status / headers /
 timing waterfall) → response → handler dispatched → app-db slice
@@ -593,27 +602,33 @@ touched. One template; five surfaces (HTTP, WebSocket, machine
 `:spawn`, SSR `:rf.server/*`, flows). See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.1.
 
-### Event tab — `:on-match` event chain (Routes)
+<!-- TODO(rf2-yylmr): future-design — the wire-boundary record-panel
+embed point under the Epoch panel's "EFFECTS HANDLERS RAN" section
+needs an explicit micro-spec when implementation lands; the prior
+"fx handlers that ran" anchor was Event-tab-relative. -->
+
+### Epoch panel — `:on-match` event chain (Routes)
 
 When the focused cascade is a routing cascade
-(`:rf.route/navigate` or `:rf.route/handle-url-change`), the Event
-tab's "fx handlers that ran" block adds a dedicated `:on-match`
+(`:rf.route/navigate` or `:rf.route/handle-url-change`), the Epoch
+panel's "EFFECTS HANDLERS RAN" section adds a dedicated `:on-match`
 dispatch chain sub-section showing each loader event, drain duration,
 and any `:on-error` consequence. See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.2.
 
-### Event tab — retry timeline
+### Epoch panel — retry timeline
 
 When an `:rf.http/managed` retried, surface the per-attempt timeline
 (attempt id · result · category · backoff interval · total elapsed)
-under the fx row. See
+under the fx row in the Epoch panel's "EFFECTS HANDLERS RAN" section.
+See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.3.
 
-### Event tab — head model inspector (SSR)
+### Epoch panel — head model inspector (SSR)
 
 When the focused cascade involved a `reg-head` resolution, surface
 inputs (db slice + route) → head model output → rendered HTML head,
-in three columns. See
+in three columns under the Epoch panel. See
 [`006-Hydration-Debugger.md`](006-Hydration-Debugger.md)
 §Vision §Head model inspector.
 
@@ -726,8 +741,8 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
   entries Chrome DevTools' Performance tab renders (cross-link
   replacing the dropped Performance panel).
 - [`spec/002-Frames.md`](../../../spec/002-Frames.md) §`reg-fx`,
-  §`:fx-overrides` — what the Event tab "fx handlers that ran" block
-  surfaces.
+  §`:fx-overrides` — what the Epoch panel's "EFFECTS HANDLERS RAN"
+  section surfaces.
 - [`spec/013-Flows.md`](../../../spec/013-Flows.md) — what the Views
   tab surfaces (under "Re-rendered" group).
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the
