@@ -40,14 +40,18 @@
                                 ;; bridge to rf/dispatch as needed)
         :testid     <str>       ;; data-testid prefix for the bar + buttons
         ;; optional —
+        :label      <str>       ;; prefix label e.g. \"View\" (rf2-fytu4);
+                                ;; omit for bare bar; supply for the
+                                ;; canonical uniform discoverability
+                                ;; affordance every Xray consumer passes.
         :modes      <vec>       ;; defaults to [:diff :full :full+diff]
        }]
 
-  Returns a hiccup `<span>` with three buttons. Active button paints
-  in `:accent` token colour; inactive buttons are transparent with
-  muted text. The widget is stateless chrome — the caller owns the
-  mode value (typically via a sub) and the dispatch (typically via
-  `with-frame :rf/xray`).
+  Returns a hiccup `<span>` with three buttons (and an optional prefix
+  label). Active button paints in `:accent` token colour; inactive
+  buttons are transparent with muted text. The widget is stateless
+  chrome — the caller owns the mode value (typically via a sub) and
+  the dispatch (typically via `with-frame :rf/xray`).
 
   ## Per-surface storage convention
 
@@ -122,18 +126,38 @@
          :background "transparent"
          :color      (:text-secondary tokens)))
 
+(def ^:private mode-toggle-prefix-label-style
+  ;; rf2-fytu4 — discoverability label rendered at the head of the
+  ;; toggle. Same typography envelope as section sub-headers across
+  ;; Xray (11px uppercase semibold muted) so the widget reads as part
+  ;; of the surrounding header chrome.
+  {:font-family    sans-stack
+   :font-size      "11px"
+   :font-weight    600
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"
+   :color          (:text-secondary tokens)
+   :margin-right   "8px"
+   :line-height    1})
+
+(def ^:private mode-toggle-wrapper-style
+  ;; rf2-fytu4 — wrapper span used when a `:label` is supplied so the
+  ;; prefix label + button-bar align baseline-to-baseline.
+  {:display      "inline-flex"
+   :align-items  "center"})
+
 ;; =========================================================================
 ;; mode keywords
 ;; =========================================================================
 
-(def default-modes
+(def ^:private default-modes
   "Canonical mode order for the three-button bar — `[diff][full][full+diff]`.
   Per Mike's pair-debug 2026-05-27 the operator's eye reads left → right:
   least-rich (just-what-changed) → richest (full tree + annotations).
   Surfaces may override but should not depart from this ordering."
   [:diff :full :full+diff])
 
-(def default-default-mode
+(def ^:private default-default-mode
   "The widget's recommended default mode keyword across every surface
   per pair-debug 2026-05-27: mode-3 is the operator's most-useful
   lens because it carries shape + delta in one read. Surfaces with
@@ -142,7 +166,7 @@
   policy not a default-mode override."
   :full+diff)
 
-(defn mode-label
+(defn- mode-label
   "Render the human-readable button label for a mode keyword. The
   literal `+` in `:full+diff` is intentional per the findings-doc
   grammar lock — the symbol IS the cue (combining two lenses)."
@@ -153,7 +177,7 @@
     :full+diff "full+diff"
     (name m)))
 
-(defn mode-testid-suffix
+(defn- mode-testid-suffix
   "Sanitised testid suffix — the `+` in `:full+diff` is not a valid
   CSS selector tail downstream, so substitute a hyphenated alias.
   All other mode keywords use their `name`."
@@ -188,30 +212,50 @@
                     testids. The bar gets `<testid>` verbatim; buttons
                     get `<testid>-<mode-suffix>` (e.g. `…-diff`,
                     `…-full`, `…-full-with-diff`).
+  - `:label`      — optional prefix label (rf2-fytu4). When supplied the
+                    widget renders `[:span <label> [bar...]]` so the
+                    operator has a contextual anchor (`View: [diff]
+                    [full] [full+diff]`). Omit for a bare bar. Every
+                    current Xray consumer passes `\"View\"`.
   - `:modes`      — optional ordered vector of mode keywords. Defaults to
                     `[:diff :full :full+diff]`. Surfaces that want to
                     omit a mode (rare; mode-3 is the canonical full
                     bar) pass a subset.
 
+  rf2-xlmhh — the bar no longer carries a `:data-mode` attribute.
+  Per `tools/xray/spec/Conventions.md` §264 `data-mode` was retired
+  as a duplicate axis; the active mode is observable via the active
+  button's `aria-pressed=\"true\"` instead. Surfaces that need the
+  mode as a section-level decoration use the canonical
+  `data-rf-xray-diff-mode` attribute on their own enclosing section
+  (rf2-xvu24).
+
   rf2-yqjrd — extracted from `panels.epoch.view/db-diff-mode-toggle`
   (rf2-n2jig) so every Xray surface consumes the same chrome verbatim."
-  [{:keys [mode on-change testid modes]
+  [{:keys [mode on-change testid label modes]
     :or   {modes default-modes}}]
-  [:span {:data-testid testid
-          :data-mode (when (keyword? mode) (name mode))
-          :style mode-toggle-bar-style}
-   (for [m modes
-         :let [active? (= mode m)]]
-     ^{:key (name m)}
-     [:button {:data-testid (str testid "-" (mode-testid-suffix m))
-               :aria-pressed (str active?)
-               :on-click (fn [e]
-                           (.stopPropagation e)
-                           (on-change m))
-               :style (if active?
-                        mode-toggle-button-active-style
-                        mode-toggle-button-inactive-style)}
-      (mode-label m)])])
+  (let [bar [:span {:data-testid testid
+                    :style mode-toggle-bar-style}
+             (for [m modes
+                   :let [active? (= mode m)]]
+               ^{:key (name m)}
+               [:button {:data-testid (str testid "-" (mode-testid-suffix m))
+                         :aria-pressed (str active?)
+                         :on-click (fn [e]
+                                     (.stopPropagation e)
+                                     (on-change m))
+                         :style (if active?
+                                  mode-toggle-button-active-style
+                                  mode-toggle-button-inactive-style)}
+                (mode-label m)])]]
+    (if (some? label)
+      [:span {:data-testid (str testid "-wrapper")
+              :style mode-toggle-wrapper-style}
+       [:span {:data-testid (str testid "-label")
+               :style mode-toggle-prefix-label-style}
+        label]
+       bar]
+      bar)))
 
 ;; =========================================================================
 ;; helpers — per-surface sub + event registration
