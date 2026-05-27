@@ -1033,10 +1033,15 @@
    :letter-spacing "0.3px"})
 
 (def ^:private schema-violation-rollback-chip-style
+  ;; Red bg + white text already conveys severity at a glance; the
+  ;; prior `:text-transform "uppercase"` SHOUTED the longer
+  ;; "Commit to app-db aborted" string and read as noisy. Mixed
+  ;; case (`:text-transform "none"`) preserves source casing for
+  ;; legibility while the red/white chrome carries the alert tone.
   (assoc schema-violation-recovery-chip-style
-         :background error-colour
-         :color      white-colour
-         :text-transform "uppercase"))
+         :background     error-colour
+         :color          white-colour
+         :text-transform "none"))
 
 (def ^:private schema-violation-headline-style
   {:color       text-primary-colour
@@ -3328,7 +3333,7 @@
   "Render the recovery posture chip on a violation's title bar."
   [where rollback? recovery]
   (cond
-    rollback?              "rolled back"
+    rollback?              "Commit to app-db aborted"
     (= where :fx-args)     "fx skipped"
     (= where :sub-return)  "returned nil"
     (= where :hot-reload)  "logged + skipped"
@@ -3489,30 +3494,16 @@
    [:span {:aria-hidden true} "↓"]
    "cascade rolled back — downstream effects skipped"])
 
-;; ---- SCHEMA HOT-RELOAD step (rf2-xgeag — was SCHEMA-VIOLATIONS) --------
-
-(defn render-schema-hot-reload-step
-  "Render the standalone SCHEMA HOT-RELOAD step (rf2-xgeag · Option A).
-  Carries ONLY hot-reload drift rows — those have no owning cascade
-  step so they ride at the END of the cascade. Each row renders as
-  a pink sub-block via `violation-block` for visual consistency
-  with the per-step attachments."
-  [{:keys [rows step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-schema-hot-reload"
-         :data-step-kw "schema-hot-reload"}
-   (numbered-circle step-number :SCHEMA-HOT-RELOAD)
-   (step-header
-     {:step :schema-hot-reload
-      :badge :SCHEMA-HOT-RELOAD
-      :verb (str (count rows) " hot-reload drift"
-                 (when (not= 1 (count rows)) "s"))
-      :expandable? false
-      :testid "rf-xray-epoch-schema-hot-reload"}
-     nil)
-   [:div {:style margin-top-5-style}
-    (map-indexed (fn [i row]
-                   (violation-block :hot-reload i row))
-                 rows)]])
+;; SCHEMA HOT-RELOAD step retired per rf2-7gf7v (Mike pair-debug
+;; 2026-05-27). The standalone tail step was rendering opaque
+;; content (`schema hot-reload · :rf/default · path [:user/profile
+;; :age] · value -3`) lacking the rich context the operator
+;; needed. Hot-reload drift moves to the Issues panel where
+;; explanatory chrome (pre/post schema, re-registration file:line,
+;; live value, etc.) has room to breathe. The
+;; `render-schema-hot-reload-step` fn + the `:schema-hot-reload`
+;; case in `render-step` are removed; the projection no longer
+;; emits the step (rf2-7gf7v / projection.cljc).
 
 ;; ---- APP-DB DIFF step — REMOVED pair-debug 2026-05-26 -------------------
 ;;
@@ -3636,7 +3627,8 @@
     :fx                (render-fx-step step)
     :subscriptions     (render-subscriptions-step step)
     :views             (render-views-step step)
-    :schema-hot-reload (render-schema-hot-reload-step step)
+    ;; :schema-hot-reload case retired per rf2-7gf7v — the
+    ;; projection no longer emits the step.
     :child-dispatches  (render-child-dispatches-step step ctx)
     ;; :app-db-diff removed pair-debug 2026-05-26 — see comment above.
     nil))

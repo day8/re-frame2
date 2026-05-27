@@ -1414,23 +1414,17 @@
       steps
       (remove #(= :hot-reload (:where %)) rows))))
 
-(defn hot-reload-step
-  "Build the standalone SCHEMA-HOT-RELOAD step from the hot-reload-
-  subset of `schema-violation-rows`. Returns nil when no hot-reload
-  drift fired (the step is OMITTED — conditional). Option A from
-  the rf2-xgeag bead body: hot-reload violations have no owning
-  cascade step so they ride at the END of the cascade rather than
-  attaching to a pipeline step they don't belong to.
-
-  The step carries the SAME `:schema-hot-reload` step keyword + a
-  dedicated `:SCHEMA-HOT-RELOAD` badge, NOT the retired
-  `:SCHEMA-VIOLATIONS` aggregate badge."
-  [rows]
-  (let [hot (filterv #(= :hot-reload (:where %)) rows)]
-    (when (seq hot)
-      {:step  :schema-hot-reload
-       :badge :SCHEMA-HOT-RELOAD
-       :rows  hot})))
+;; SCHEMA HOT-RELOAD pipeline step retired per rf2-7gf7v (Mike
+;; pair-debug 2026-05-27). Hot-reload drift is a dev-time event
+;; (re-registered schema invalidates existing app-db state) — not
+;; a cascade event. Rendering it as a cascade pipeline step
+;; produced an opaque step (`schema hot-reload · :rf/default ·
+;; path [:user/profile :age] · value -3`) lacking the rich
+;; context the operator needs (pre/post schema, file:line of the
+;; re-registration). Hot-reload drift continues to fire its
+;; `:rf.schema/violation` trace events; the Issues panel
+;; consumes them. The Epoch panel's pipeline now stays
+;; exclusively for runtime-cascade events.
 
 (defn cascade-rolled-back?
   "True iff any `:app-db` schema violation in `rows` carries
@@ -1720,12 +1714,11 @@
                            ;; `:dispatch-n` / `:dispatch-later` fx entry.
                            (subscriptions-step events)
                            (views-step events)
-                           ;; rf2-xgeag — hot-reload drift rides on a
-                           ;; standalone tail step (Option A). All
-                           ;; OTHER violations attach to their owning
-                           ;; pipeline step via `attach-violations`
-                           ;; below.
-                           (hot-reload-step violations)]))
+                           ;; SCHEMA HOT-RELOAD tail step retired per
+                           ;; rf2-7gf7v (Mike pair-debug 2026-05-27);
+                           ;; hot-reload drift surfaces via the Issues
+                           ;; panel exclusively, no cascade step.
+                           ]))
             present    (filterv some? base-steps)
             attached   (attach-violations present violations)
             steps      (mark-rolled-back-downstream attached violations)]
