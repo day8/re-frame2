@@ -272,3 +272,87 @@
       (let [stack @(rf/subscribe [ddp/stack-slot])]
         (is (= ["smoke"] stack)
             "open event resolved through the registry-installed handler")))))
+
+;; =========================================================================
+;; rf2-1yif8 — frame-context regression
+;; =========================================================================
+;;
+;; Before rf2-1yif8 `edn-inspector-popup-stack` was a plain Reagent `defn`.
+;; Plain fns are substrate-level Reagent components: they do not carry the
+;; `:rf/frame` React-context that `reg-view` automatically wires up, so the
+;; body's `rf/subscribe` calls fell through to `:rf/default` even when the
+;; component was mounted under a non-default frame (the shell mounts the
+;; stack under `:rf/xray`). The runtime fires
+;; `:rf.warning/plain-fn-under-non-default-frame-once` to catch exactly
+;; this class of bug.
+;;
+;; Post-fix the symbol is registered via `rf/reg-view`, so the auto-derived
+;; id `:day8.re-frame2-xray.views.edn-inspector-popup/edn-inspector-popup-
+;; stack` is resolvable through `(rf/view id)`, and subscribes inside the
+;; render body route through the surrounding `:rf/xray` frame instead of
+;; silently landing on `:rf/default`.
+
+(def ^:private popup-stack-view-id
+  :day8.re-frame2-xray.views.edn-inspector-popup/edn-inspector-popup-stack)
+
+(deftest popup-stack-view-is-reg-view-registered
+  (testing "rf2-1yif8 — `edn-inspector-popup-stack` is `reg-view`-
+            registered under its auto-derived ns/sym id, so the body's
+            subscribes inherit the surrounding frame from React context
+            (the symptom under a plain `defn` was the
+            `:rf.warning/plain-fn-under-non-default-frame-once` warning
+            firing on every panel-gallery `:rf/xray` render)."
+    (setup-xray-frame!)
+    (is (some? (rf/view popup-stack-view-id))
+        "view is registered under the auto-derived ns/sym id")))
+
+(deftest popup-stack-view-subscribes-route-to-surrounding-frame
+  (testing "rf2-1yif8 — when the stack view is rendered under `:rf/xray`,
+            its subscribes read `:rf/xray`'s app-db, NOT `:rf/default`.
+            We open a popup in `:rf/xray` and confirm the rendered chrome
+            reflects `:rf/xray`'s stack; a popup written into
+            `:rf/default` MUST NOT leak in.
+            Plain-fn regression would render `:rf/default`'s entry (or
+            nil when `:rf/xray`'s slot is empty) — that is exactly the
+            bug this test pins."
+    (setup-xray-frame!)
+    ;; `:rf.xray/modal-positioning` is already registered by
+    ;; `register-xray-handlers!` inside `setup-xray-frame!`.
+    ;; Seed contradicting data in :rf/default + :rf/xray. If the
+    ;; subscribes silently route to :rf/default, the test would see
+    ;; the "default-only" mount-id; the correct routing sees "xray-only".
+    (rf/dispatch-sync
+      [:rf.xray.edn-inspector-popup/open
+       "default-only" {:value :default-payload :opts {}}])
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync
+        [:rf.xray.edn-inspector-popup/open
+         "xray-only" {:value :xray-payload :opts {}}]))
+    ;; Render the stack view under :rf/xray. After rf2-1yif8 this is a
+    ;; reg-view, so calling it under `with-frame :rf/xray` resolves
+    ;; subscribes through the dynamic-var tier (headless mode — no React
+    ;; context here, but the registered wrapper still routes through the
+    ;; surrounding frame). The pre-fix plain-fn would have ignored the
+    ;; `with-frame` binding entirely because the body's `rf/subscribe`
+    ;; calls would have fallen all the way through to `:rf/default`.
+    (rf/with-frame :rf/xray
+      (let [tree (ddp/edn-inspector-popup-stack)]
+        (is (some? tree)
+            "stack view rendered some chrome under :rf/xray (proves :rf/xray's
+             stack slot is non-empty from the view's perspective)")
+        (is (some? (find-by-testid tree
+                                   "rf-xray-edn-inspector-popup-backdrop-xray-only"))
+            "the :rf/xray-frame's mount-id `xray-only` was picked up by the
+             view's subscribe — proves the subscribe routed to :rf/xray,
+             not :rf/default")
+        (is (nil? (find-by-testid tree
+                                  "rf-xray-edn-inspector-popup-backdrop-default-only"))
+            "the :rf/default-frame's mount-id `default-only` was NOT
+             visible to the view — proves the subscribe did not leak across
+             frames"))
+      ;; And the stack's count attribute reflects :rf/xray's stack
+      ;; depth exclusively (one entry), not the combined two.
+      (let [tree (ddp/edn-inspector-popup-stack)]
+        (is (= 1 (-> tree second :data-rf-popup-count))
+            "popup-count reflects :rf/xray's stack only (one entry), not
+             the two-entry total across frames")))))
