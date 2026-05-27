@@ -1607,6 +1607,32 @@ HANDLER `:db`:
 event pair so the modes are independent (operator's App-DB choice
 doesn't override the Machine Inspector choice).
 
+**Canonical `data-testid` + `data-*` shapes** (Cluster F — rf2-7vv8f
++ rf2-xvu24): post-normalisation every surface follows ONE shape so
+browser-test selectors + DOM probes target a uniform axis:
+
+| Surface | Toggle `:testid` prefix | Section-level data-attr |
+|---|---|---|
+| App-DB panel                          | `rf-xray-app-db-diff-mode`             | `data-rf-xray-diff-mode` |
+| Machine Inspector snapshot drill-in   | `rf-xray-machine-snapshot-diff-mode`   | `data-rf-xray-diff-mode` |
+| Epoch HANDLER step `:db`              | `rf-xray-epoch-handler-db-diff-mode`   | `data-rf-xray-diff-mode` |
+| Epoch SUBSCRIPTIONS step value cells  | `rf-xray-epoch-subs-value-diff-mode`   | `data-rf-xray-diff-mode` |
+
+Per-button testids combine the prefix with the canonical mode suffix
+(`-diff`, `-full`, `-full-with-diff`) so `[data-testid$="-diff-mode-
+full-with-diff"]` matches the active-button of any surface in mode-3.
+The active button itself reports `aria-pressed="true"` — that is the
+single source of truth for "which mode is selected" (rf2-xlmhh — the
+toggle bar's redundant `data-mode` retired per `tools/xray/spec/
+Conventions.md` §264; section-level `data-rf-xray-diff-mode` survives
+as an enclosing-section decoration only).
+
+**Discoverability label** (rf2-fytu4): every consumer passes
+`:label "View"` to the shared widget. The widget renders the label
+inline with the bar (`View [diff][full][full+diff]`) so a first-time
+operator has a contextual anchor on every surface — no per-surface
+hand-rolled labels.
+
 **Retired by rf2-yqjrd**:
 
 - The Machine Inspector's prior Before/After CSS-Grid side-by-side
