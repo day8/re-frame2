@@ -129,7 +129,7 @@ Colour and visual styling are intentionally **not specified here** — to be des
 
 ## §10 Data sources (grounding)
 
-Per-op fields already on the epoch record / trace bus: views (`:rf.view/elapsed-ms`, `:triggered-by`/`:cause-subs`, `:mount?`/`:unmounted`/`:rendered`/`:skip`); subs (`:rf.sub/create`/`:run`/`:computed`/`:skip`/`:disposed`, `:value-changed?`); plus the full Spec-009 op vocabulary (event/cofx/db/fx/flow/machine/route/epoch/error/warning). The panel reads the epoch record's `:trace-events` (the focused-epoch scope resolved via `:rf.xray/focus` — [`018`](./018-Event-Spine.md), [`021`](./021-Dynamic-Panel-Designs.md) §5.2).
+Per-op fields already on the epoch record / trace bus: views (`:rf.view/elapsed-ms`, `:triggered-by`/`:cause-subs`, `:mount?`/`:unmounted`/`:rendered`/`:skip`); subs (`:rf.sub/create`/`:run`/`:computed`/`:skip`/`:dispose`, `:value-changed?`); plus the full Spec-009 op vocabulary (event/cofx/db/fx/flow/machine/route/epoch/error/warning). The panel reads the epoch record's `:trace-events` (the focused-epoch scope resolved via `:rf.xray/focus` — [`018`](./018-Event-Spine.md), [`021`](./021-Dynamic-Panel-Designs.md) §5.2).
 
 **Per-step RESULTS (the data the arc must show, not just that a step ran):**
 - **Handler result** — its returned effects map: `:rf.event/fx` (incl. the handler's own `:db`) + `:rf.event/coeffects`. The EVENT "handler ran" row surfaces what the handler produced (its `:db` contribution *before* flows + the `:fx` it requested).
@@ -257,7 +257,7 @@ Every Spec-009 trace operation → its row. `dur?` = number once timing instrume
 | `:rf.sub/run`+`computed` (value-changed? ✓) | ④ | SUB | recalculated | sub-id  old → new | dur? |
 | `:rf.sub/run`+`computed` (value-changed? ✗) | ④ | SUB | ran-unchanged | sub-id | dur? |
 | `:rf.sub/skip` · `skipped` | ④ | SUB | cache-hit | sub-id | — |
-| `:rf.sub/disposed` | ④ | SUB | disposed | sub-id (no readers) | — |
+| `:rf.sub/dispose` | ④ | SUB | disposed | sub-id · query-v · `:reason` (closed set `:no-more-derefers / :hot-reload / :cache-clear`) · frame | — |
 | `:rf.view/render`+`rendered` (mount? ✗) | ④ | VIEW | re-rendered | view-id ← cause-sub | `elapsed-ms` |
 | `:rf.view/render` (mount? ✓) | ④ | VIEW | mounted | view-id | `elapsed-ms` |
 | `:rf.view/skip` | ④ | VIEW | skipped | view-id | — |
