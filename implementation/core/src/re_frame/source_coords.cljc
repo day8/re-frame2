@@ -202,6 +202,118 @@
       (not (no-source-path? file))      file
       :else                              nil)))
 
+;; ---- :file absolutisation (rf2-wvsxg) ------------------------------------
+;;
+;; Both shadow-cljs and the JVM compiler put the **classpath-relative**
+;; portion of a source file in the form's `:file` slot — for
+;; `tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs` (whose
+;; classpath root is `tools/xray/src/`), the form-meta `:file` is just
+;; `"day8/re_frame2_xray/views/edn_inspector.cljs"`. The source-root
+;; segment is invisible to anyone consuming the captured coord, which
+;; defeats Story / Xray's `open-in-editor` chip — `:project-root` plus
+;; the classpath-relative tail produces the wrong on-disk path
+;; whenever the project-root isn't the same as the classpath root that
+;; resolved the file.
+;;
+;; Live failure shape (rf2-wvsxg):
+;;   project-root  C:/Users/miket/code/re-frame2/tools/xray/testbeds
+;;   :file         day8/re_frame2_xray/views/edn_inspector.cljs
+;;   composed      C:/.../tools/xray/testbeds/day8/.../edn_inspector.cljs
+;;   actual        C:/.../tools/xray/src/day8/.../edn_inspector.cljs
+;;
+;; The fix: at macro-expansion time on the JVM, resolve the classpath-
+;; relative `:file` to its on-disk URL via the context class-loader and
+;; bake the **absolute on-disk path** into the emitted coord. The
+;; downstream URI builder's `compose-path` already detects absolute
+;; paths and passes them through unchanged, so a coord baked with an
+;; absolute `:file` ships the right URI regardless of which
+;; `:project-root` the host configured. Absolutisation runs once per
+;; macro expansion (JVM-side); the CLJS runtime sees a literal string
+;; (cheap), and production builds elide both the literal and the
+;; surrounding coord-form per the existing rf2-3un2g gate.
+;;
+;; Failure modes that fall through to the unchanged input:
+;;   - Already-absolute path (e.g. a JVM-compile `*file*` that
+;;     happened to be absolute, or a synthetic coord with an absolute
+;;     `:file`): detected by the same `absolute-path?` predicate
+;;     `editor-uri/compose-path` uses (leading `/`, leading drive
+;;     letter, leading `file:` scheme, leading backslash).
+;;   - File not resolvable on classpath (REPL-eval forms with synthetic
+;;     `:file`, a test fixture's fabricated path, a path under a
+;;     classpath root the JVM doesn't have when the macro expands):
+;;     pass through unchanged; the downstream URI builder still gets a
+;;     coord, just one whose `:project-root` join is the legacy
+;;     behaviour.
+;;   - CLJS-side calls (no class-loader access): no-op pass-through;
+;;     the macro path is JVM-side by construction so this branch only
+;;     fires when callers reach the fn from CLJS runtime code (rare).
+
+#?(:clj
+   (defn ^:private absolute-file-path?
+     "Mirrors `re-frame.source-coords.editor-uri/absolute-path?` (kept
+     local to avoid a JVM-side dep on a CLJS-only ns). True iff `path`
+     should NOT be absolutised — already-absolute paths, `file:` URLs,
+     or drive-letter prefixes pass through unchanged."
+     [^String path]
+     (or (.startsWith path "/")
+         (.startsWith path "\\")
+         (.startsWith (.toLowerCase path) "file:")
+         (and (>= (.length path) 2)
+              (= \: (.charAt path 1))
+              (let [c (.charAt path 0)]
+                (or (and (>= (int c) (int \a)) (<= (int c) (int \z)))
+                    (and (>= (int c) (int \A)) (<= (int c) (int \Z)))))))))
+
+#?(:clj
+   (defn ^:private context-class-loader ^ClassLoader []
+     (.getContextClassLoader (Thread/currentThread))))
+
+#?(:clj
+   (defn absolutise-file
+     "JVM-only. Resolve a classpath-relative source file path to its
+     absolute on-disk path via the context class-loader. Returns the
+     input unchanged when the path is already absolute, when classpath
+     resolution fails (no resource found, non-`file:` URL), or when
+     `path` is nil / blank.
+
+     Used by `coords-form` / `prod-coords-form` / `form-coords` at
+     macro-expansion time to bake an absolute `:file` value into each
+     emitted source-coord literal — defeating the source-root
+     ambiguity that bites multi-source-path builds (shadow-cljs lists
+     both `tools/xray/src` and `tools/xray/testbeds` for the panel-
+     gallery testbed; the form-meta's classpath-relative `:file` carries
+     no signal about which source root resolved it).
+
+     Per rf2-wvsxg."
+     [path]
+     (if (or (nil? path) (.isEmpty ^String path) (absolute-file-path? path))
+       path
+       (try
+         (if-let [url (.getResource (context-class-loader) path)]
+           (if (= "file" (.getProtocol url))
+             ;; URL paths come out URL-encoded (e.g. `%20` for spaces)
+             ;; and use `/` on every platform. URLDecoder handles the
+             ;; encoding; the result on Windows is `/C:/Users/...` so
+             ;; strip a leading slash before a drive-letter to get the
+             ;; canonical `C:/Users/...` shape `compose-path` already
+             ;; handles.
+             (let [decoded (java.net.URLDecoder/decode (.getPath url) "UTF-8")]
+               (if (and (> (.length ^String decoded) 2)
+                        (= \/ (.charAt ^String decoded 0))
+                        (= \: (.charAt ^String decoded 2)))
+                 (.substring ^String decoded 1)
+                 decoded))
+             ;; jar:/zip:/http: — leave the input unchanged; an
+             ;; in-jar source file isn't editable on disk anyway.
+             path)
+           ;; Not on classpath (REPL eval, synthetic coord, test
+           ;; fabrication): pass through.
+           path)
+         (catch Throwable _
+           ;; Defensive — classpath probing must never break macro
+           ;; expansion. Any failure → preserve original behaviour.
+           path)))))
+
 (defn coords-form
   "Construct the compile-time `(cond-> {:ns 'sym} ...)` form that every
   reg-* macro emits as the value of its `*pending-coords*` binding.
@@ -219,9 +331,18 @@
   shape (with `:column`) under `:advanced` + `goog.DEBUG=false`. The
   `with-coords-form` / `expand-reg-machine` helpers do this internally;
   per-element machine stamping and call-site stamping handle elision
-  through their own outer gates and call this fn directly."
+  through their own outer gates and call this fn directly.
+
+  Per rf2-wvsxg: when running on the JVM (the macro-expansion side),
+  the picked `:file` is fed through [[absolutise-file]] to resolve the
+  classpath-relative form-meta `:file` to its absolute on-disk path.
+  Downstream URI builders' `compose-path` detects absolute paths and
+  passes them through unchanged, so the emitted coord ships the right
+  on-disk path regardless of the host's `:project-root` configuration."
   [form-meta file ns-sym]
-  (let [chosen-file (resolve-file form-meta file)]
+  (let [chosen-file (resolve-file form-meta file)
+        chosen-file #?(:clj  (when chosen-file (absolutise-file chosen-file))
+                       :cljs chosen-file)]
     `(cond-> {:ns '~ns-sym}
        ~chosen-file         (assoc :file ~chosen-file)
        ~(:line form-meta)   (assoc :line ~(:line form-meta))
@@ -244,9 +365,15 @@
             ~(prod-coords-form form-meta file ns-sym))
 
      Both branches use `cond->` so absent keys (e.g. nil `:line` on a
-     programmatic synthesis) elide cleanly."
+     programmatic synthesis) elide cleanly.
+
+     Per rf2-wvsxg: the picked `:file` is absolutised via
+     [[absolutise-file]] at macro-expansion time so the downstream URI
+     builder receives an absolute on-disk path regardless of which
+     source-root resolved the file on shadow-cljs's classpath."
      [form-meta file ns-sym]
-     (let [chosen-file (resolve-file form-meta file)]
+     (let [chosen-file (resolve-file form-meta file)
+           chosen-file (when chosen-file (absolutise-file chosen-file))]
        `(cond-> {:ns '~ns-sym}
           ~chosen-file       (assoc :file ~chosen-file)
           ~(:line form-meta) (assoc :line ~(:line form-meta))))))
@@ -285,10 +412,15 @@
 
   The same `:file` resolution as the call-site path applies: prefer
   the reader-attached `:file` on the form's metadata over the macro's
-  `*file*` arg, and reject the `\"NO_SOURCE_PATH\"` sentinel."
+  `*file*` arg, and reject the `\"NO_SOURCE_PATH\"` sentinel.
+
+  Per rf2-wvsxg: the picked `:file` is absolutised via
+  [[absolutise-file]] (JVM macro-expansion path) so per-machine-element
+  coords ship absolute on-disk paths matching the reg-* macro coords."
   [form ns-sym file]
   (let [m            (meta form)
-        chosen-file  (resolve-file m file)]
+        chosen-file  (resolve-file m file)
+        chosen-file  (when chosen-file (absolutise-file chosen-file))]
     (when (and m (or (:line m) (:column m)))
       (cond-> {:ns ns-sym}
         chosen-file (assoc :file chosen-file)

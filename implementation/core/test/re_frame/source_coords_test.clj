@@ -29,6 +29,11 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            ;; rf2-wvsxg — direct access to source-coords helpers + the
+            ;; URI builder's compose-path predicate for the absolutise-
+            ;; file regression coverage.
+            [re-frame.source-coords :as sc]
+            [re-frame.source-coords.editor-uri :as eu]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -198,3 +203,80 @@
       (is (nil? (:ns   meta)) ":ns absent on direct fn call")
       (is (nil? (:line meta)) ":line absent on direct fn call")
       (is (nil? (:file meta)) ":file absent on direct fn call"))))
+
+;; ---- rf2-wvsxg: :file is absolutised via classpath resolution -------------
+
+(deftest absolutise-file-resolves-classpath-relative-paths
+  (testing "rf2-wvsxg: absolutise-file returns absolute on-disk path for a
+  classpath-relative source file"
+    ;; This very test file lives on the classpath under its
+    ;; classpath-relative path; absolutising it must yield a path that
+    ;; matches the absolute-path predicate the URI builder uses.
+    (let [rel  "re_frame/source_coords_test.clj"
+          abs  (#'sc/absolutise-file rel)]
+      (is (string? abs))
+      (is (not= rel abs)
+          "classpath-relative path should resolve to a different (absolute) path")
+      ;; The result must look absolute to compose-path so the URI build
+      ;; passes it through unchanged. compose-path is private — go
+      ;; through the public editor-uri's 3-arg form (which calls
+      ;; compose-path internally) by checking the URI carries the
+      ;; absolute path without the project-root prepended.
+      (let [uri (eu/editor-uri :vscode {:file abs :line 1 :column 1}
+                               {:project-root "/fake/project/root"})]
+        (is (.contains ^String uri abs)
+            "URI must carry the absolute :file value")
+        (is (not (.contains ^String uri "/fake/project/root"))
+            "URI must NOT contain the project-root (absolute path passes through)")))))
+
+(deftest absolutise-file-passes-through-already-absolute
+  (testing "rf2-wvsxg: already-absolute paths pass through unchanged"
+    ;; Windows-style drive letter
+    (is (= "C:/foo/bar.cljs"
+           (#'sc/absolutise-file "C:/foo/bar.cljs")))
+    ;; POSIX absolute
+    (is (= "/foo/bar.cljs"
+           (#'sc/absolutise-file "/foo/bar.cljs")))
+    ;; file: URL
+    (is (= "file:/foo/bar.cljs"
+           (#'sc/absolutise-file "file:/foo/bar.cljs")))))
+
+(deftest absolutise-file-passes-through-unresolvable
+  (testing "rf2-wvsxg: classpath-relative paths not on classpath fall
+  through unchanged (synthetic coords, REPL eval, fabricated test
+  paths shouldn't break)"
+    (is (= "no/such/file/exists.cljs"
+           (#'sc/absolutise-file "no/such/file/exists.cljs")))))
+
+(deftest absolutise-file-handles-nil-and-blank
+  (testing "rf2-wvsxg: nil / empty input passes through (the macro
+  call-sites already gate on non-nil, but defense-in-depth)"
+    (is (nil? (#'sc/absolutise-file nil)))
+    (is (= "" (#'sc/absolutise-file "")))))
+
+(deftest reg-event-db-emits-absolute-file
+  (testing "rf2-wvsxg: a reg-* macro fired against a real classpath-
+  resident file (this test ns) emits an ABSOLUTE :file, not a
+  classpath-relative tail. This is the core regression: source-coord
+  consumers (Story / Xray open-in-editor chips) can take the :file
+  through compose-path unchanged and ship a URI that resolves on disk
+  regardless of which project-root the host configured."
+    (rf/reg-event-db :rf2-wvsxg/absolute-file-sample
+                     (fn [db _] db))
+    (let [meta (rf/handler-meta :event :rf2-wvsxg/absolute-file-sample)
+          f    (:file meta)]
+      (is (string? f) ":file should be present")
+      ;; The host's `re_frame/source_coords_test.clj` lives at
+      ;; `<repo>/implementation/core/test/...`. The exact prefix is
+      ;; environment-dependent — but the path must look absolute to
+      ;; the URI builder so it won't double-prefix it.
+      (let [uri (eu/editor-uri :vscode meta {:project-root "/wrong/project/root"})]
+        (is (.contains ^String uri f)
+            ":file should appear absolute in URI")
+        (is (not (.contains ^String uri "/wrong/project/root"))
+            ":file must be absolute (URI builder doesn't prepend project-root)"))
+      ;; And the path must end in the test file's classpath-relative
+      ;; tail — sanity that classpath resolution found the right
+      ;; resource.
+      (is (.endsWith ^String f "re_frame/source_coords_test.clj")
+          ":file should end with the classpath-relative tail"))))
