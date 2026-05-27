@@ -164,7 +164,7 @@
   (testing "rf2-l2f2g — `trace-helpers/outcome-colour` tints the
             what-happened column by outcome tier and resolves to a CSS
             variable (spec/023 §8)."
-    (doseq [op [:rf.sub/run :rf.sub/skip :rf.sub/disposed :rf.error/x]]
+    (doseq [op [:rf.sub/run :rf.sub/skip :rf.sub/dispose :rf.error/x]]
       (let [v (trace-h/outcome-colour {:op-type (if (= op :rf.error/x) :error :rf.sub)
                                        :operation op})]
         (is (string? v))

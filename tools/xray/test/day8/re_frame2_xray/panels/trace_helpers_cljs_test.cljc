@@ -230,7 +230,7 @@
     (is (= :inert (h/outcome-tier {:operation :rf.sub/skip})))
     (is (= :inert (h/outcome-tier {:operation :rf.view/skip}))))
   (testing "gone — disposed / unmounted / cleared / cancelled"
-    (is (= :gone (h/outcome-tier {:operation :rf.sub/disposed})))
+    (is (= :gone (h/outcome-tier {:operation :rf.sub/dispose})))
     (is (= :gone (h/outcome-tier {:operation :rf.view/unmounted})))
     (is (= :gone (h/outcome-tier {:operation :rf.flow/cleared}))))
   (testing "error / warning keep their semantic tier"
@@ -238,10 +238,10 @@
     (is (= :warning (h/outcome-tier {:op-type :warning :operation :rf.warning/x})))))
 
 (deftest project-row-carries-outcome-tier-and-verb-and-target
-  (let [row (h/project-row (ev {:id 1 :op-type :rf.sub :operation :rf.sub/disposed
+  (let [row (h/project-row (ev {:id 1 :op-type :rf.sub :operation :rf.sub/dispose
                                 :tags {:rf.sub/id :cart/preview}}))]
     (is (= :gone (:outcome-tier row)))
-    (is (= "disposed" (:verb row)))
+    (is (= "dispose" (:verb row)))
     (is (= ":cart/preview" (:target row)))))
 
 ;; ---- (7) op-family band colour — retained left-border -----------------
@@ -287,7 +287,7 @@
   (is (= (:text-tertiary tokens/tokens)
          (h/outcome-colour {:operation :rf.sub/skip})))
   (is (= (:dim tokens/tokens)
-         (h/outcome-colour {:operation :rf.sub/disposed})))
+         (h/outcome-colour {:operation :rf.sub/dispose})))
   (is (= (:red tokens/tokens)
          (h/outcome-colour {:op-type :error :operation :rf.error/x}))))
 

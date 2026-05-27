@@ -203,15 +203,20 @@
 
 (defn outcome-tier
   "Classify a row's outcome into a visual tier per spec/023 §8. Reads
-  the operation's terminal segment (`disposed`, `skip`, `cache-hit`, …).
-  Pure data → keyword; JVM-testable."
+  the operation's terminal segment (`dispose`, `skip`, `cache-hit`, …).
+  Pure data → keyword; JVM-testable.
+
+  Per rf2-uo4e2 the dispose terminal is the singular `dispose` form
+  (matches the framework-emitted `:rf.sub/dispose` op spec/009 + spec/023
+  ratified via rf2-2v3p7). The regex uses the shorter root so it
+  still matches both `dispose` and any legacy `disposed` substring."
   [{:keys [op-type operation] :as _row-or-ev}]
   (let [op-name (when (keyword? operation) (name operation))]
     (cond
       (= op-type :error)   :error
       (= op-type :warning) :warning
       (nil? op-name)       :active
-      (re-find #"(?i)(disposed|unmounted|cleared|cancelled|stale|released|destroyed)" op-name)
+      (re-find #"(?i)(dispose|unmounted|cleared|cancelled|stale|released|destroyed)" op-name)
       :gone
       (re-find #"(?i)(skip|skipped|cache-hit|unchanged|ran-unchanged)" op-name)
       :inert

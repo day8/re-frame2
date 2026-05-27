@@ -268,17 +268,18 @@
   "Project the epoch's DESTROYED SUBSCRIPTIONS section rows (spec/021
   §3.2) — subs cleaned up when their last reader unmounted.
 
-  Reads the `:rf.sub/disposed` teardown op (the sub-dispose op spec/021
-  §3.5 pairs with view-unmount). Data-availability honesty: the live
-  build does not yet emit a sub-dispose trace op (the sub-cache disposes
-  reactions silently on last-reader teardown — see subs/cache.cljc), so
-  this projection is empty until that op lands. When it does, each
-  `:rf.sub/disposed` op anchors a row `{:sub-id <kw/id>}`. First-seen
-  order, de-duplicated. nil-safe; ops without a `:sub-id` are skipped."
+  Reads the `:rf.sub/dispose` teardown op (the sub-dispose op spec/021
+  §3.5 pairs with view-unmount). Per rf2-uo4e2 the framework-emitted
+  op-name is `:rf.sub/dispose` (singular form per spec/023's rf2-2v3p7
+  typo fix); pre-fix this panel read the past-tense form which never
+  matched any framework-emitted trace and rendered as silent dead code.
+  Each `:rf.sub/dispose` op anchors a row `{:sub-id <kw/id>}`. First-
+  seen order, de-duplicated. nil-safe; ops without a `:sub-id` are
+  skipped."
   [trace-events]
   (->> (or trace-events [])
        (keep (fn [ev]
-               (when (= :rf.sub/disposed (op-kw ev))
+               (when (= :rf.sub/dispose (op-kw ev))
                  (let [tags (:tags ev)]
                    (or (:rf.sub/id tags) (:sub-id tags)
                        (:rf.sub/id ev) (:sub-id ev))))))
