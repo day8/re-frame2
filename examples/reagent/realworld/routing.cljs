@@ -135,7 +135,7 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-(rf/reg-sub :rf/pending-navigation
+(rf/reg-sub :conduit.routing/pending-navigation
   (fn [db _] (:rf/pending-navigation db)))
 
 ;; ============================================================================
