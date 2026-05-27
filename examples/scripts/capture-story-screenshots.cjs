@@ -220,11 +220,10 @@ const SHOTS = [
     ],
   },
 
-  // 05-snapshot-identity.md — QR-share screenshot retired per
-  // rf2-ymnfx Issue B (the Share button + QR popover were retired
-  // because the variant URL is already the browser's live address bar).
-  // The chapter narrative now anchors on the address-bar URL itself
-  // rather than a popover screenshot; no scripted capture is required.
+  // 05-snapshot-identity.md — QR-share screenshot retired because the
+  // variant URL is already the browser's live address bar. The chapter
+  // narrative now anchors on the address-bar URL itself rather than a
+  // popover screenshot; no scripted capture is required.
 
   // 06-time-travel.md — `06-time-travel.png`
   // Xray-as-RHS embed mounts beneath the chip-row picker as soon as a
