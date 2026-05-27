@@ -114,9 +114,12 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`.
 - **Example**:
   ```clojure
+  ;; User-defined fxs sit under a user-feature prefix per
+  ;; spec/Conventions.md §Reserved namespaces — never under `:rf.<feature>/…`,
+  ;; which is reserved for framework-owned surfaces.
   (rf/reg-frame :rf/default
     {:doc          "App demo frame."
-     :fx-overrides {:rf.http/managed :rf.http/managed.demo}})
+     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
   ```
 - **In the wild**: [boot](https://github.com/day8/re-frame2/tree/main/examples/reagent/boot)
 
