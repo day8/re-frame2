@@ -50,14 +50,15 @@
 
 (rf/reg-event-db :routing.app/initialise
   (fn [_ _]
-    {:articles [{:id "intro" :title "Intro to re-frame2" :body "..."}
-                {:id "ssr"   :title "Server rendering"  :body "..."}]}))
+    {:routing.app/articles
+     [{:id "intro" :title "Intro to re-frame2" :body "..."}
+      {:id "ssr"   :title "Server rendering"  :body "..."}]}))
 
-(rf/reg-sub :articles
-  (fn [db _] (:articles db)))
+(rf/reg-sub :routing.app/articles
+  (fn [db _] (:routing.app/articles db)))
 
-(rf/reg-sub :article-by-id
-  :<- [:articles]
+(rf/reg-sub :routing.app/article-by-id
+  :<- [:routing.app/articles]
   (fn [articles [_ id]]
     (first (filter #(= id (:id %)) articles))))
 
@@ -85,7 +86,7 @@
   [:div
    [:h1 "Articles"]
    [:ul
-    (for [{:keys [id title]} @(subscribe [:articles])]
+    (for [{:keys [id title]} @(subscribe [:routing.app/articles])]
       ^{:key id}
       [:li [rf/route-link {:to :routing.app/article-detail
                            :params {:id id}
@@ -94,7 +95,7 @@
 
 (reg-view article-detail-page []
   (let [id      (:id @(subscribe [:rf.route/params]))
-        article @(subscribe [:article-by-id id])]
+        article @(subscribe [:routing.app/article-by-id id])]
     (if article
       [:div
        [:h1 (:title article)]
