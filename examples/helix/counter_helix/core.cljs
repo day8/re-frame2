@@ -25,16 +25,8 @@
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
-(defonce counter-log (atom []))
-
-(rf/reg-fx :counter/log
-  (fn [_ctx args]
-    (swap! counter-log conj args)))
-
-(rf/reg-event-fx :counter/initialise
-  (fn [_ctx _event]
-    {:db {:counter/value 5}
-     :fx [[:counter/log :initialised]]}))
+(rf/reg-event-db :counter/initialise
+  (fn [_db _event] {:counter/value 5}))
 
 (rf/reg-event-db :counter/inc
   (fn [db _event] (update db :counter/value inc)))
