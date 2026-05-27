@@ -1029,14 +1029,17 @@
             drill  (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
             ;; rf2-7vv8f — testid prefix normalised across all four
             ;; diff-mode-toggle consumers to `rf-xray-<surface>-diff-mode`.
+            ;; rf2-shuxd — `<surface>` matches the sub-id namespace
+            ;; (`:rf.xray.machine-inspector`), prior `machine-snapshot`
+            ;; root retired (testid + sub-id share one root).
             toggle (find-by-testid
-                     tree "rf-xray-machine-snapshot-diff-mode")
+                     tree "rf-xray-machine-inspector-diff-mode")
             ;; rf2-xlmhh — the toggle bar no longer carries `:data-mode`
             ;; (retired axis name per spec/Conventions.md §264). Read the
             ;; active mode off the active button's `aria-pressed="true"`
             ;; + canonical testid suffix instead.
             active-btn (find-by-testid
-                         tree "rf-xray-machine-snapshot-diff-mode-full-with-diff")]
+                         tree "rf-xray-machine-inspector-diff-mode-full-with-diff")]
         (is (some? drill)
             "drill-in section mounts")
         (is (some? toggle)

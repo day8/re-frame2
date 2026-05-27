@@ -678,7 +678,11 @@
   [diff-mode/diff-mode-toggle
    {:mode      mode
     ;; rf2-7vv8f — testid prefix normalised to `rf-xray-<surface>-diff-mode`.
-    :testid    "rf-xray-machine-snapshot-diff-mode"
+    ;; rf2-shuxd — `<surface>` matches the sub-id namespace
+    ;; (`:rf.xray.machine-inspector`) for one naming root across DevTools
+    ;; (testid) + Trace (sub-id). Prior `machine-snapshot` testid split the
+    ;; root from the dispatching sub; aligned to `machine-inspector` here.
+    :testid    "rf-xray-machine-inspector-diff-mode"
     ;; rf2-fytu4 — uniform "View" discoverability label.
     :label     "View"
     :on-change (fn [m]

@@ -1619,13 +1619,16 @@ event pair so the modes are independent (operator's App-DB choice
 doesn't override the Machine Inspector choice).
 
 **Canonical `data-testid` + `data-*` shapes** (Cluster F — rf2-7vv8f
-+ rf2-xvu24): post-normalisation every surface follows ONE shape so
-browser-test selectors + DOM probes target a uniform axis:
++ rf2-xvu24, with rf2-shuxd alignment): post-normalisation every
+surface follows ONE shape so browser-test selectors + DOM probes
+target a uniform axis. The rule is **testid prefix matches the
+sub-id namespace**, giving a single naming root across DevTools
+(testid) + Trace (sub-id):
 
 | Surface | Toggle `:testid` prefix | Section-level data-attr |
 |---|---|---|
 | App-DB panel                          | `rf-xray-app-db-diff-mode`             | `data-rf-xray-diff-mode` |
-| Machine Inspector snapshot drill-in   | `rf-xray-machine-snapshot-diff-mode`   | `data-rf-xray-diff-mode` |
+| Machine Inspector snapshot drill-in   | `rf-xray-machine-inspector-diff-mode`  | `data-rf-xray-diff-mode` |
 | Epoch HANDLER step `:db`              | `rf-xray-epoch-handler-db-diff-mode`   | `data-rf-xray-diff-mode` |
 | Epoch SUBSCRIPTIONS step value cells  | `rf-xray-epoch-subs-value-diff-mode`   | `data-rf-xray-diff-mode` |
 
