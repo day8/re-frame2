@@ -1887,14 +1887,15 @@ unchanged); only the aggregation moved.
 
 #### Attachment mapping (the new contract)
 
-| `:where` slot | Owning pipeline step                                | Granularity              |
-|---------------|-----------------------------------------------------|--------------------------|
-| `:event`      | DISPATCH                                            | step-level               |
-| `:cofx`       | COEFFECT step whose `:id` = `:failing-id`           | step-level (per cofx)    |
-| `:app-db`     | HANDLER                                             | step-level               |
-| `:fx-args`    | FX step, row whose `:fx-id` = `:failing-id`         | row-level (fallback step)|
-| `:sub-return` | SUBSCRIPTIONS step, row whose `:sub-id` = `:failing-id` | row-level (fallback step) |
-| `:hot-reload` | standalone SCHEMA HOT-RELOAD tail step              | step-level               |
+| `:where` slot   | Owning pipeline step                                | Granularity              |
+|-----------------|-----------------------------------------------------|--------------------------|
+| `:event`        | DISPATCH                                            | step-level               |
+| `:cofx`         | COEFFECT step whose `:id` = `:failing-id`           | step-level (per cofx)    |
+| `:app-db`       | HANDLER                                             | step-level               |
+| `:fx-args`      | FX step, row whose `:fx-id` = `:failing-id`         | row-level (fallback step)|
+| `:sub-return`   | SUBSCRIPTIONS step, row whose `:sub-id` = `:failing-id` | row-level (fallback step) |
+| `:machine-data` | HANDLER, machine-cascade row whose machine id = `:failing-id` (the failing machine). When the violation triggered full-cascade rollback (`:rollback? true`), attach instead to the rolled-back-tail step so the reader lands on the boundary where the cascade halted. Per rf2-jbbp7 (see [spec/005 §Schema validation](../../../spec/005-StateMachines.md#schema-validation), [spec/010 §Per-step recovery row 7](../../../spec/010-Schemas.md#per-step-recovery)). | row-level (fallback step) |
+| `:hot-reload`   | standalone SCHEMA HOT-RELOAD tail step              | step-level               |
 
 The projection pass `attach-violations` walks the
 `schema-violation-rows` once and binds each row onto its owning
