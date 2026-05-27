@@ -2638,7 +2638,7 @@
 
     - `:fx` — the canonical `:fx` vector-of-vectors (when present)
       rendered fully expanded via the edn-inspector widget.
-    - `-> other` — the return map MINUS `:db` and `:fx`, rendered
+    - `other` — the return map MINUS `:db` and `:fx`, rendered
       fully expanded via the edn-inspector widget. Carries legacy
       top-level fx-ids (`:dispatch`, `:http/get`, `:navigate`, …)
       when used directly on the return map rather than under `:fx`.
@@ -2668,10 +2668,10 @@
           :card?                  false
           :zoomable?              true
           :default-expanded-depth 16}]])
-     ;; -> other — return map minus :db and :fx, FULL via edn-inspector
+     ;; other — return map minus :db and :fx, FULL via edn-inspector
      (when (seq other-effects)
        [:div {:data-testid "rf-xray-epoch-handler-other"}
-        (sub-header "-> other")
+        (sub-header "other")
         [ei/edn-inspector other-effects
          {:site-id                [:rf.xray.epoch/handler-other event-id]
           :card?                  false

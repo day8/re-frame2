@@ -1337,9 +1337,9 @@
       (is (pos? (count (ei-mounts fx-sec)))
           "the :fx section mounts an edn-inspector")
       (is (some? oth-sec)
-          "the -> other section mounts when other-effects is non-empty")
+          "the other section mounts when other-effects is non-empty")
       (is (pos? (count (ei-mounts oth-sec)))
-          "the -> other section mounts an edn-inspector"))))
+          "the other section mounts an edn-inspector"))))
 
 (deftest fx-step-args-route-through-mini-test
   (testing "rf2-8w8er — FX step row's args render through `ei/mini`."
