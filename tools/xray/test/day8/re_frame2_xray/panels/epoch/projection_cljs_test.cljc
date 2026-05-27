@@ -255,6 +255,146 @@
           "event vector resolves through :rf.event/v")
       (is (= :ui (:source r))))))
 
+;; ---- rf2-5qp4g — per-source-kind enrichment -----------------------------
+;;
+;; Each closed-set source value from rf2-ejtpd produces a different
+;; enrichment payload under `:source-enrichment` so the view layer can
+;; render the rich label per kind. Vanilla sources (`:ui`,
+;; `:frame-init`, `:test-harness`, `:unknown`) carry no enrichment.
+
+(deftest dispatch-row-after-timer-enrichment-test
+  (testing "rf2-5qp4g — `:source :after-timer` enrichment extracts
+            delay-ms + source-state-path + machine-id from the
+            event-vector shape
+            `[<machine-id> [:rf.machine.timer/after-elapsed <delay>
+                            <epoch> <invoke-id>]]` (rf2-ejtpd
+            timer.cljc stamp site)"
+    (let [event [:ws/connection [:rf.machine.timer/after-elapsed
+                                 250 42 [:active :authenticating]]]
+          ev    {:op-type   :rf.event
+                 :operation :rf.event/dispatched
+                 :tags      {:rf.event/v event
+                             :source     :after-timer}}
+          r     (proj/dispatch-row [ev] nil)
+          enrich (:source-enrichment r)]
+      (is (= :after-timer (:source r)) "source kind is preserved")
+      (is (= :ws/connection (:machine-id enrich))
+          "machine-id from the event vector's head")
+      (is (= 250 (:delay-ms enrich))
+          "delay-ms from the inner vector's slot 1")
+      (is (= [:active :authenticating] (:source-state-path enrich))
+          "source-state-path from the inner vector's slot 3 (invoke-id)"))))
+
+(deftest dispatch-row-after-timer-defensive-degrade-test
+  (testing "rf2-5qp4g — when `:source :after-timer` is stamped but the
+            event vector doesn't match the canonical timer shape, the
+            row carries no enrichment (defensive fall-through; the
+            view renders the kind label only)"
+    (let [ev {:op-type   :rf.event
+              :operation :rf.event/dispatched
+              :tags      {:rf.event/v [:some/other-event]
+                          :source     :after-timer}}
+          r  (proj/dispatch-row [ev] nil)]
+      (is (= :after-timer (:source r)))
+      (is (nil? (:source-enrichment r))
+          "non-canonical timer-event shape → no enrichment"))))
+
+(deftest dispatch-row-machine-spawn-enrichment-test
+  (testing "rf2-5qp4g — `:source :machine-spawn` enrichment extracts
+            the spawned actor-id (event vector's head) so the renderer
+            can label the dispatch as `from machine spawn ·
+            :child-actor-id`"
+    (let [event [:checkout/worker [:rf.machine/spawned]]
+          ev    {:op-type   :rf.event
+                 :operation :rf.event/dispatched
+                 :tags      {:rf.event/v event
+                             :source     :machine-spawn}}
+          r     (proj/dispatch-row [ev] nil)
+          enrich (:source-enrichment r)]
+      (is (= :machine-spawn (:source r)))
+      (is (= :checkout/worker (:spawned-actor-id enrich))
+          "spawned-actor-id is the first element of the event vector"))))
+
+(deftest dispatch-row-fx-dispatch-enrichment-test
+  (testing "rf2-5qp4g — `:source :fx-dispatch` enrichment reads the
+            parent-dispatch-id off the dispatched trace's
+            `:rf.trace/parent-dispatch-id` tag (already stamped by
+            router.cljc `emit-dispatched-trace` per spec/018
+            §Dispatch correlation)"
+    (let [ev {:op-type   :rf.event
+              :operation :rf.event/dispatched
+              :tags      {:rf.event/v                 [:cart/add :apple]
+                          :source                     :fx-dispatch
+                          :rf.trace/parent-dispatch-id 9001}}
+          r  (proj/dispatch-row [ev] nil)
+          enrich (:source-enrichment r)]
+      (is (= :fx-dispatch (:source r)))
+      (is (= 9001 (:parent-dispatch-id enrich))
+          "parent-dispatch-id from the canonical trace tag")
+      (is (nil? (:delay-ms enrich))
+          "`:fx-dispatch` carries no delay-ms"))))
+
+(deftest dispatch-row-fx-dispatch-later-enrichment-test
+  (testing "rf2-5qp4g — `:source :fx-dispatch-later` enrichment reads
+            parent-dispatch-id + optional delay-ms (the original
+            scheduled delay) off `:rf.event/source-detail :ms`"
+    (let [ev {:op-type   :rf.event
+              :operation :rf.event/dispatched
+              :tags      {:rf.event/v                  [:checkout/retry-prompt]
+                          :source                      :fx-dispatch-later
+                          :rf.trace/parent-dispatch-id 9001
+                          :rf.event/source-detail      {:ms 500}}}
+          r  (proj/dispatch-row [ev] nil)
+          enrich (:source-enrichment r)]
+      (is (= :fx-dispatch-later (:source r)))
+      (is (= 9001 (:parent-dispatch-id enrich)))
+      (is (= 500 (:delay-ms enrich))
+          "delay-ms surfaces when `:rf.event/source-detail :ms` is present"))))
+
+(deftest dispatch-row-fx-dispatch-later-without-detail-test
+  (testing "rf2-5qp4g — when no `:rf.event/source-detail` tag rides on
+            the trace (older runtime, no per-fx detail stamping yet),
+            `:fx-dispatch-later` still surfaces parent-dispatch-id; the
+            delay-ms slot is just absent"
+    (let [ev {:op-type   :rf.event
+              :operation :rf.event/dispatched
+              :tags      {:rf.event/v                  [:checkout/retry-prompt]
+                          :source                      :fx-dispatch-later
+                          :rf.trace/parent-dispatch-id 9001}}
+          r  (proj/dispatch-row [ev] nil)
+          enrich (:source-enrichment r)]
+      (is (= 9001 (:parent-dispatch-id enrich)))
+      (is (nil? (:delay-ms enrich))))))
+
+(deftest dispatch-row-vanilla-source-has-no-enrichment-test
+  (testing "rf2-5qp4g — vanilla source kinds (`:ui`, `:frame-init`,
+            `:test-harness`, `:unknown`) carry no `:source-enrichment`
+            slot; their labels render through the existing pre-rf2-5qp4g
+            `from <source>` chrome unchanged"
+    (doseq [src [:ui :frame-init :test-harness :unknown]]
+      (let [ev {:op-type   :rf.event
+                :operation :rf.event/dispatched
+                :tags      {:rf.event/v [:counter/inc] :source src}}
+            r  (proj/dispatch-row [ev] nil)]
+        (is (= src (:source r)))
+        (is (nil? (:source-enrichment r))
+            (str src " — vanilla source kinds carry no enrichment"))))))
+
+(deftest dispatch-row-fx-dispatch-without-parent-test
+  (testing "rf2-5qp4g — when `:source :fx-dispatch` is stamped but the
+            trace carries no `:rf.trace/parent-dispatch-id` (root
+            cascade / test fixtures that omit dispatch-id correlation),
+            the row carries no enrichment (the parent-epoch link is
+            simply omitted; the kind label still reads `from fx`)"
+    (let [ev {:op-type   :rf.event
+              :operation :rf.event/dispatched
+              :tags      {:rf.event/v [:cart/add :apple]
+                          :source     :fx-dispatch}}
+          r  (proj/dispatch-row [ev] nil)]
+      (is (= :fx-dispatch (:source r)))
+      (is (nil? (:source-enrichment r))
+          "no parent-dispatch-id → no enrichment map (graceful degrade)"))))
+
 ;; ---- COEFFECT ------------------------------------------------------------
 
 (deftest coeffect-rows-granular-test
@@ -1547,6 +1687,32 @@
           "nil history → nil")
       (is (nil? (proj/find-child-epoch history nil [:e/x 7]))
           "nil parent-id → nil"))))
+
+(deftest find-parent-epoch-by-dispatch-id-test
+  (testing "rf2-5qp4g — find-parent-epoch resolves a parent epoch's
+            `:epoch-id` from its `:dispatch-id`. Reverse of
+            `find-child-epoch`: walks the epoch-history for a record
+            whose `:dispatch-id` matches the supplied
+            parent-dispatch-id, returning that record's `:epoch-id`.
+            The view layer uses this to wire the
+            `from fx · parent epoch #N` chrome on `:fx-dispatch` /
+            `:fx-dispatch-later` DISPATCH steps."
+    (let [history [{:epoch-id 41 :dispatch-id 9000 :trigger-event [:root]}
+                   {:epoch-id 42 :dispatch-id 9001 :trigger-event [:parent]}
+                   {:epoch-id 43 :dispatch-id 9002 :trigger-event [:child]
+                    :parent-dispatch-id 9001}]]
+      (is (= 41 (proj/find-parent-epoch history 9000))
+          "matches the first-class :dispatch-id slot")
+      (is (= 42 (proj/find-parent-epoch history 9001))
+          "matches a sibling parent's :dispatch-id")
+      (is (nil? (proj/find-parent-epoch history 99999))
+          "no match → nil")
+      (is (nil? (proj/find-parent-epoch nil 9001))
+          "nil history → nil")
+      (is (nil? (proj/find-parent-epoch history nil))
+          "nil parent-dispatch-id → nil")
+      (is (nil? (proj/find-parent-epoch [] 9001))
+          "empty history → nil"))))
 
 ;; `project-includes-child-dispatches-step-test` retired in rf2-xu5iv
 ;; (commit eccb6db1b dropped the CHILD-DISPATCHES step from the

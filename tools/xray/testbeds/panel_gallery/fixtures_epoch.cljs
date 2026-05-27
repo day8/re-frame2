@@ -695,3 +695,159 @@
       (view-unmounted-ev :app.checkout/Modal      [:Modal 0])
       (view-unmounted-ev :app.sidebar/CheckoutItem [:CheckoutItem 0])
       (run-end-ev 0.6)]}))
+
+;; ---- rf2-5qp4g — DISPATCH source-kind enrichment fixtures ----------------
+;;
+;; Each closed-set substrate-internal `:source` value (rf2-ejtpd:
+;; `:after-timer`, `:machine-spawn`, `:fx-dispatch`,
+;; `:fx-dispatch-later`) produces a different rich label on the
+;; DISPATCH step. One fixture per kind exercises the projection +
+;; renderer path for that kind.
+
+(defn- dispatched-ev-rich
+  "Tag-rich dispatched trace primitive — preserves the canonical
+  `:rf.event/v` + `:source` of `dispatched-ev` AND admits extra tags
+  the substrate stamps for source-kind enrichment (parent-dispatch-id,
+  source-detail). Mirrors the shape `re-frame.router/emit-dispatched-
+  trace` produces under rf2-ejtpd."
+  [event source extra-tags]
+  (ev :rf.event :rf.event/dispatched
+      (merge {:rf.event/v event :source source} extra-tags)))
+
+(defn after-timer-source-history
+  "Cascade triggered by a machine `:after` timer firing (rf2-ejtpd ·
+  rf2-5qp4g). The dispatched event is the synthetic
+  `[:rf.machine.timer/after-elapsed 250 <epoch> [:active :authenticating]]`
+  payload the substrate dispatches when the timer's delay elapses;
+  `:source :after-timer` rides the envelope.
+
+  Exercises the DISPATCH step's `from :after timer · 250ms on
+  [:active :authenticating]` rich chrome."
+  []
+  (single-epoch-history
+    {:epoch-id 12
+     :event    [:ws/connection
+                [:rf.machine.timer/after-elapsed 250 41
+                 [:active :authenticating]]]
+     :trace-events
+     [(dispatched-ev-rich
+        [:ws/connection
+         [:rf.machine.timer/after-elapsed 250 41
+          [:active :authenticating]]]
+        :after-timer
+        {:rf.trace/call-site {:file "src/app/ws.cljs" :line 22}})
+      (run-end-ev 0.3)]}))
+
+(defn machine-spawn-source-history
+  "Cascade triggered by a spawn fx — substrate dispatches the spawned
+  actor's first event with `:source :machine-spawn` (rf2-ejtpd ·
+  rf2-5qp4g). The synthetic-default path emits the spawned-id +
+  `[:rf.machine/spawned]` payload (rf2-ijm7).
+
+  Exercises the DISPATCH step's `from machine spawn ·
+  :checkout/worker` rich chrome."
+  []
+  (single-epoch-history
+    {:epoch-id 13
+     :event    [:checkout/worker [:rf.machine/spawned]]
+     :trace-events
+     [(dispatched-ev-rich
+        [:checkout/worker [:rf.machine/spawned]]
+        :machine-spawn
+        {:rf.trace/call-site {:file "src/app/checkout.cljs" :line 88}})
+      (db-changed-ev [[[:checkout :workers :worker-1] nil
+                       {:id :worker-1 :state :idle} :added]])
+      (run-end-ev 0.4)]}))
+
+(defn fx-dispatch-source-history
+  "Multi-record history: a parent cascade whose handler returned a
+  `:dispatch` fx, plus the resulting child cascade (rf2-ejtpd ·
+  rf2-5qp4g). The child's `:source :fx-dispatch` rides with
+  `:rf.trace/parent-dispatch-id` pointing back to the parent
+  cascade's `:dispatch-id` so the DISPATCH step's parent-epoch chip
+  resolves and renders as a click-to-navigate button."
+  []
+  [;; PARENT cascade — emits the :dispatch fx
+   (-> (epoch-record
+         {:epoch-id    20
+          :event       [:checkout/begin]
+          :dispatch-id 9001
+          :trace-events
+          [(dispatched-ev [:checkout/begin] :ui)
+           (db-changed-ev [[[:checkout :phase] :idle :began :modified]])
+           (do-fx-ev {:dispatch [:cart/add :apple]})
+           (fx-handled-ev :dispatch [:cart/add :apple] 0.1)
+           (run-end-ev 0.5)]}))
+   ;; CHILD cascade — emitted by the :dispatch fx; the panel
+   ;; head-fallback (`peek epoch-history`) lands on this record so
+   ;; the DISPATCH renderer reads `:source :fx-dispatch` with
+   ;; parent-dispatch-id 9001 → parent-epoch-id 20.
+   (-> (epoch-record
+         {:epoch-id    21
+          :event       [:cart/add :apple]
+          :dispatch-id 9002
+          :trace-events
+          [(dispatched-ev-rich
+             [:cart/add :apple]
+             :fx-dispatch
+             {:rf.trace/parent-dispatch-id 9001})
+           (db-changed-ev [[[:cart :items] [] [{:id :apple}] :modified]])
+           (run-end-ev 0.3)]})
+       (assoc :parent-dispatch-id 9001))])
+
+(defn fx-dispatch-later-source-history
+  "Multi-record history: a parent cascade whose handler returned a
+  `:dispatch-later` fx, plus the resulting child cascade fired by
+  the timer (rf2-ejtpd · rf2-5qp4g).
+
+  The child's dispatched trace carries `:source :fx-dispatch-later`
+  + `:rf.trace/parent-dispatch-id` 9001 + the rich
+  `:rf.event/source-detail {:ms 500}` tag so the DISPATCH step
+  renders the original scheduled delay alongside the kind label and
+  the parent-epoch link."
+  []
+  [;; PARENT cascade — emits the :dispatch-later fx
+   (-> (epoch-record
+         {:epoch-id    22
+          :event       [:checkout/begin]
+          :dispatch-id 9001
+          :trace-events
+          [(dispatched-ev [:checkout/begin] :ui)
+           (do-fx-ev {:dispatch-later
+                      {:ms 500 :dispatch [:checkout/retry-prompt]}})
+           (fx-handled-ev :dispatch-later
+                          {:ms 500 :dispatch [:checkout/retry-prompt]}
+                          0.1)
+           (run-end-ev 0.4)]}))
+   ;; CHILD cascade — fired 500ms later by the timer
+   (-> (epoch-record
+         {:epoch-id    23
+          :event       [:checkout/retry-prompt]
+          :dispatch-id 9003
+          :trace-events
+          [(dispatched-ev-rich
+             [:checkout/retry-prompt]
+             :fx-dispatch-later
+             {:rf.trace/parent-dispatch-id 9001
+              :rf.event/source-detail      {:ms 500}})
+           (db-changed-ev [[[:checkout :phase] :began :prompting :modified]])
+           (run-end-ev 0.5)]})
+       (assoc :parent-dispatch-id 9001))])
+
+(defn fx-dispatch-orphaned-source-history
+  "Child cascade with `:source :fx-dispatch` whose parent has aged
+  out of the buffer (rf2-5qp4g). Exercises the unresolved
+  parent-epoch chrome — a muted plain span carrying the
+  parent-dispatch-id so the operator sees the lineage even when the
+  parent isn't in the ring."
+  []
+  (single-epoch-history
+    {:epoch-id 24
+     :event    [:cart/sync]
+     :trace-events
+     [(dispatched-ev-rich
+        [:cart/sync]
+        :fx-dispatch
+        ;; No matching parent epoch in this single-record history
+        {:rf.trace/parent-dispatch-id 99999})
+      (run-end-ev 0.2)]}))

@@ -240,9 +240,17 @@
    ;; deferred dispatch stamps `:source :fx-dispatch-later` so the Epoch
    ;; panel's DISPATCH step renders the precise trigger rather than the
    ;; originating user event's `:source`.
+   ;;
+   ;; Per rf2-5qp4g: stamp `:source-detail {:ms <ms>}` alongside the
+   ;; `:source` so the Epoch panel's DISPATCH step can render the
+   ;; ORIGINAL scheduled delay (e.g. `from fx :dispatch-later · 500ms`)
+   ;; rather than just the kind label. The detail rides on the
+   ;; envelope, then onto the `:rf.event/dispatched` trace via
+   ;; `emit-dispatched-trace`'s opt-in stamp (router.cljc rf2-5qp4g).
    (fn [frame-id parent-envelope {:keys [ms event]}]
      (let [opts (assoc (child-dispatch-opts frame-id parent-envelope)
-                       :source :fx-dispatch-later)]
+                       :source        :fx-dispatch-later
+                       :source-detail {:ms ms})]
        (interop/set-timeout!
          (fn []
            ;; Sticky hook (rf2-f72pd) — same as above; the timer

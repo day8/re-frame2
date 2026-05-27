@@ -502,6 +502,10 @@
    :rf.xray/focus-cascade
    :rf.xray/focus-cascade-next
    :rf.xray/focus-cascade-prev
+   ;; rf2-5qp4g — DISPATCH source-kind enrichment parent-epoch
+   ;; navigation: the Epoch panel's :fx-dispatch / :fx-dispatch-later
+   ;; parent-epoch chip dispatches this to pivot the spine by epoch-id.
+   :rf.xray/focus-epoch
    ;; rf2-uyp86 — managed-fx wire-boundary diff cross-link event
    ;; (HANDLER DISPATCHED row dispatches this to pivot the spine).
    :rf.xray/focus-event

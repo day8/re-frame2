@@ -736,6 +736,36 @@
     (is (nil? (spine/epoch-id-for-cascade nil :c1)))
     (is (nil? (spine/epoch-id-for-cascade [(epoch :e1 :c1)] nil)))))
 
+;; ---- rf2-5qp4g — dispatch-id-for-epoch reverse lookup -------------------
+;;
+;; Reverse of `epoch-id-for-cascade`. Drives the `:rf.xray/focus-epoch`
+;; event handler — the Epoch panel's DISPATCH step's parent-epoch
+;; navigation chip clicks land with an epoch-id and need to drive the
+;; spine's `focus-cascade-reducer`, which keys on dispatch-id.
+
+(deftest dispatch-id-for-epoch-resolves-via-trace-events
+  (testing "rf2-5qp4g — resolves :dispatch-id from an epoch's
+            :trace-events :dispatch-id tag (same walker as
+            common/dispatch-id-of-epoch)"
+    (let [history [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]]
+      (is (= :c2 (spine/dispatch-id-for-epoch history :e2)))
+      (is (= :c3 (spine/dispatch-id-for-epoch history :e3))))))
+
+(deftest dispatch-id-for-epoch-falls-back-to-literal-dispatch-id
+  (testing "rf2-5qp4g — synthetic test epochs that lack :trace-events
+            still resolve via the literal :dispatch-id slot"
+    (let [history [{:epoch-id :e1 :dispatch-id 7}
+                   {:epoch-id :e2 :dispatch-id 8}]]
+      (is (= 8 (spine/dispatch-id-for-epoch history :e2))))))
+
+(deftest dispatch-id-for-epoch-missing-returns-nil
+  (testing "rf2-5qp4g — no matching epoch → nil (epoch evicted,
+            wrong-frame, or never landed in this buffer)"
+    (is (nil? (spine/dispatch-id-for-epoch [] :e1)))
+    (is (nil? (spine/dispatch-id-for-epoch [(epoch :e1 :c1)] :e-gone)))
+    (is (nil? (spine/dispatch-id-for-epoch nil :e1)))
+    (is (nil? (spine/dispatch-id-for-epoch [(epoch :e1 :c1)] nil)))))
+
 ;; ---- compose-focus :epoch-id auto-follow (rf2-70tkv) --------------------
 ;;
 ;; Mike repro 2026-05-19 watching parallel-frames @ localhost:8030:

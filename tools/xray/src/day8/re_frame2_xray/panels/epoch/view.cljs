@@ -283,6 +283,49 @@
    :display     "inline-flex"
    :align-items "center"})
 
+;; -- DISPATCH source enrichment (rf2-5qp4g) -------------------------------
+;;
+;; Each closed-set substrate-internal `:source` value (rf2-ejtpd:
+;; `:after-timer`, `:machine-spawn`, `:fx-dispatch`, `:fx-dispatch-later`)
+;; renders a richer label than the prior `from <source>` chrome — the
+;; specific delay / state-path / spawned-actor / parent-epoch becomes
+;; visible chrome on the DISPATCH header.
+
+(def ^:private dispatch-source-detail-style
+  "Trailing detail chip following the kind label (e.g. ` · 250ms`)."
+  {:color       text-tertiary-colour
+   :font-family mono-stack
+   :font-size   "12px"
+   :white-space "nowrap"})
+
+(def ^:private dispatch-source-state-path-button-style
+  "State-path click-to-source button — accent-coloured, dotted-
+  underlined, mono. Mirrors `link-button-style` but rides the smaller
+  detail-chip font sizing."
+  (assoc link-button-style :font-size "12px"))
+
+(def ^:private dispatch-source-state-path-plain-style
+  "Plain (non-clickable) state-path rendering when no coord is
+  available — accent-coloured monospace span."
+  {:color       accent-colour
+   :font-family mono-stack
+   :font-size   "12px"
+   :white-space "nowrap"})
+
+(def ^:private dispatch-source-parent-epoch-button-style
+  "Parent-epoch navigation button — accent-coloured, dotted-underlined,
+  mono. Clicking dispatches `:rf.xray/focus-epoch` to navigate the
+  Epoch panel to the parent cascade."
+  (assoc link-button-style :font-size "12px"))
+
+(def ^:private dispatch-source-parent-epoch-plain-style
+  "Plain (non-clickable) parent-epoch rendering when no parent-epoch
+  could be resolved (root cascade or evicted from the buffer)."
+  {:color       text-tertiary-colour
+   :font-family mono-stack
+   :font-size   "12px"
+   :white-space "nowrap"})
+
 ;; -- COEFFECT --------------------------------------------------------------
 
 (def ^:private coeffect-row-style
@@ -1396,6 +1439,228 @@
               :style dispatch-source-plain-style}
        label])))
 
+;; ---- rf2-5qp4g — DISPATCH source enrichment per source kind --------------
+;;
+;; The closed-set substrate-internal `:source` values (rf2-ejtpd:
+;; `:after-timer`, `:machine-spawn`, `:fx-dispatch`,
+;; `:fx-dispatch-later`) carry richer per-kind detail than the prior
+;; bare `from <source>` chrome. Each kind renders a specific label +
+;; click-affordance:
+;;
+;;   :after-timer       → 'from :after timer · 250ms on [:active :auth]'
+;;                        (state-path → click-to-source on machine spec)
+;;   :machine-spawn     → 'from machine spawn · :child-actor-id'
+;;   :fx-dispatch       → 'from fx :dispatch · parent epoch #142'
+;;                        (parent-epoch link → focus-epoch dispatch)
+;;   :fx-dispatch-later → 'from fx :dispatch-later · 500ms ·
+;;                         parent epoch #142'
+;;
+;; Vanilla source kinds (`:ui`, `:frame-init`, `:test-harness`,
+;; `:unknown`) fall through to the pre-rf2-5qp4g `dispatch-source-label`
+;; chrome unchanged (call-site click-to-source on the source word).
+
+(defn- machine-state-path-coord
+  "Resolve a `{:file :line}` coord for a machine state-path via the
+  registered machine's `:rf.machine/source-coords` index (rf2-8bp3).
+
+  `machine-id` is the machine event-id; `state-path` is a vector like
+  `[:active :authenticating]`. We look up the index under
+  `[:states :active :states :authenticating]` first (the spec-path
+  shape produced by `state-spec-path-prefix`); the source-coords map
+  may or may not have a coord for this specific state, so the lookup
+  degrades gracefully.
+
+  Returns nil when no coord was captured (production builds, fn-form
+  machines, unregistered machine-id)."
+  [machine-id state-path]
+  (when (and (keyword? machine-id) (vector? state-path) (seq state-path))
+    (let [machine-meta (try (rf/handler-meta :machine machine-id)
+                            (catch :default _ nil))
+          idx          (or (get-in machine-meta [:rf/machine :rf.machine/source-coords])
+                           (:rf.machine/source-coords machine-meta))
+          spec-path    (proj/state-spec-path-prefix state-path)
+          c            (or (get idx spec-path)
+                           ;; Fallback: lookup by the raw state-path tuple
+                           ;; (some fixtures key by state-path directly).
+                           (get idx state-path))]
+      (when (and (map? c) (string? (:file c)) (seq (:file c)))
+        {:file (:file c) :line (:line c)}))))
+
+(defn- state-path-affordance
+  "Render a state-path with click-to-source affordance when a coord is
+  available; plain accent-coloured monospace span otherwise.
+
+  `path-str` is the rendered vector text (e.g. `[:active :auth]`);
+  `coord` is `{:file <string> :line <int>}` or nil; `testid` is the
+  data-testid suffix."
+  [path-str coord testid]
+  (if (and (map? coord) (seq (:file coord)))
+    [:button {:data-testid testid
+              :aria-label  (str "open " (:file coord)
+                                (when (:line coord) (str ":" (:line coord)))
+                                " in editor")
+              :title       (str "open " (:file coord)
+                                (when (:line coord) (str ":" (:line coord)))
+                                " in editor")
+              :on-click    (fn [e]
+                             (.stopPropagation e)
+                             (rf/dispatch
+                               [:rf.xray/open-in-editor
+                                {:source-coord coord}]
+                               {:frame :rf/xray}))
+              :style dispatch-source-state-path-button-style}
+     path-str
+     (icons/external-link)]
+    [:span {:data-testid testid
+            :style dispatch-source-state-path-plain-style}
+     path-str]))
+
+(defn- parent-epoch-affordance
+  "Render the `parent epoch #N` chrome for `:fx-dispatch` /
+  `:fx-dispatch-later`. When `parent-epoch-id` is resolved against
+  the supplied epoch-history, the chip renders as a clickable button
+  that dispatches `[:rf.xray/focus-epoch <epoch-id>]` to navigate the
+  Epoch panel to the parent cascade. When unresolved (root cascade
+  or aged out of the buffer) the chip renders as a muted plain span
+  with the parent-dispatch-id labelled to give the operator something
+  to orient on."
+  [parent-epoch-id parent-dispatch-id]
+  (cond
+    (some? parent-epoch-id)
+    [:button {:data-testid "rf-xray-epoch-dispatch-parent-epoch-link"
+              :aria-label  (str "focus parent epoch #" parent-epoch-id)
+              :title       (str "focus parent epoch #" parent-epoch-id)
+              :on-click    (fn [e]
+                             (.stopPropagation e)
+                             (rf/dispatch
+                               [:rf.xray/focus-epoch parent-epoch-id]
+                               {:frame :rf/xray}))
+              :style dispatch-source-parent-epoch-button-style}
+     (str "parent epoch #" parent-epoch-id)]
+
+    (some? parent-dispatch-id)
+    [:span {:data-testid "rf-xray-epoch-dispatch-parent-epoch-unresolved"
+            :style dispatch-source-parent-epoch-plain-style}
+     (str "parent dispatch #" parent-dispatch-id " (not in buffer)")]
+
+    :else nil))
+
+(defn- dispatch-after-timer-label
+  "Render the `:after-timer` rich label:
+
+      from :after timer · 250ms on [:active :authenticating]
+
+  The state-path is a click-to-source affordance via the machine's
+  `:rf.machine/source-coords` index (rf2-8bp3) when a coord was
+  captured; plain accent-coloured monospace span otherwise."
+  [{:keys [machine-id delay-ms source-state-path]}]
+  (let [path-str (pr-str source-state-path)
+        coord    (machine-state-path-coord machine-id source-state-path)]
+    [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
+            :style dispatch-verb-style}
+     [:span {:style dispatch-source-plain-style}
+      "from :after timer"]
+     (when delay-ms
+       [:span {:data-testid "rf-xray-epoch-dispatch-after-timer-delay"
+               :style dispatch-source-detail-style}
+        (str " · " delay-ms "ms on ")])
+     (when (and (vector? source-state-path) (seq source-state-path))
+       (state-path-affordance
+         path-str coord "rf-xray-epoch-dispatch-after-timer-state-path"))]))
+
+(defn- dispatch-machine-spawn-label
+  "Render the `:machine-spawn` rich label:
+
+      from machine spawn · :child-actor-id
+
+  No click-to-source affordance — the actor-id is the gensym'd
+  identity of the spawned actor; resolving its spec source is a
+  follow-on enrichment (rf2-5qp4g scope is the actor-id label)."
+  [{:keys [spawned-actor-id]}]
+  [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
+          :style dispatch-verb-style}
+   [:span {:style dispatch-source-plain-style}
+    "from machine spawn"]
+   (when spawned-actor-id
+     [:span {:data-testid "rf-xray-epoch-dispatch-machine-spawn-actor"
+             :style dispatch-source-detail-style}
+      (str " · " (pr-str spawned-actor-id))])])
+
+(defn- dispatch-fx-label
+  "Render the `:fx-dispatch` / `:fx-dispatch-later` rich label:
+
+      from fx :dispatch · parent epoch #142
+      from fx :dispatch-later · 500ms · parent epoch #142
+
+  The parent-epoch chip is click-to-navigate via
+  `:rf.xray/focus-epoch`. The delay-ms chip rides only for
+  `:dispatch-later` when the original scheduled delay was stamped
+  on the dispatched trace (`:rf.event/source-detail :ms`)."
+  [source {:keys [parent-dispatch-id delay-ms]} epoch-history]
+  (let [kind-label (case source
+                     :fx-dispatch       ":dispatch"
+                     :fx-dispatch-later ":dispatch-later"
+                     (name source))
+        parent-epoch-id (when (and parent-dispatch-id (seq epoch-history))
+                          (proj/find-parent-epoch epoch-history parent-dispatch-id))]
+    [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
+            :style dispatch-verb-style}
+     [:span {:style dispatch-source-plain-style}
+      (str "from fx " kind-label)]
+     (when (and (= source :fx-dispatch-later) delay-ms)
+       [:span {:data-testid "rf-xray-epoch-dispatch-fx-later-delay"
+               :style dispatch-source-detail-style}
+        (str " · " delay-ms "ms")])
+     (when parent-dispatch-id
+       [:span {:style dispatch-source-detail-style} " · "])
+     (parent-epoch-affordance parent-epoch-id parent-dispatch-id)]))
+
+(defn- dispatch-always-label
+  "Render the `:always` defensive label.
+
+  Per rf2-ejtpd, `:source :always` is stamped on the
+  `:rf.machine.microstep/transition` trace — `:always` microsteps
+  do not produce their own dispatch envelope. So the DISPATCH step
+  renderer normally never sees `:source :always` on
+  `:rf.event/dispatched`. This branch exists for completeness across
+  the closed set; a future runtime emitting `:always` on a dispatch
+  trace would render the bare kind label without enrichment."
+  [_step]
+  [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
+          :style dispatch-verb-style}
+   [:span {:style dispatch-source-plain-style}
+    "from :always"]])
+
+(defn- dispatch-source-enriched-label
+  "Dispatch the source-label rendering to the per-kind label fn based
+  on `:source` + `:source-enrichment`. Falls back to the vanilla
+  `dispatch-source-label` (call-site click-to-source) for all other
+  source kinds (`:ui`, `:frame-init`, `:test-harness`, `:unknown`,
+  plus any source value that lacks per-kind enrichment data).
+
+  Closed-set dispatch table (rf2-ejtpd + rf2-5qp4g):
+
+    :after-timer       → dispatch-after-timer-label
+    :machine-spawn     → dispatch-machine-spawn-label
+    :fx-dispatch       → dispatch-fx-label
+    :fx-dispatch-later → dispatch-fx-label
+    :always            → dispatch-always-label
+    other / nil        → dispatch-source-label (call-site link)"
+  [{:keys [source coord source-enrichment] :as step} epoch-history]
+  (case source
+    :after-timer       (if source-enrichment
+                         (dispatch-after-timer-label source-enrichment)
+                         (dispatch-source-label source coord))
+    :machine-spawn     (if source-enrichment
+                         (dispatch-machine-spawn-label source-enrichment)
+                         (dispatch-source-label source coord))
+    :fx-dispatch       (dispatch-fx-label source (or source-enrichment {})
+                                          epoch-history)
+    :fx-dispatch-later (dispatch-fx-label source (or source-enrichment {})
+                                          epoch-history)
+    :always            (dispatch-always-label step)
+    (dispatch-source-label source coord)))
+
 (defn render-dispatch-step
   "Render the DISPATCH step (always present). Header summarises `from
   <source>` with the call-site chip when a coord was captured;
@@ -1407,24 +1672,50 @@
   captured by the macro form (`rf/dispatch [...] [opts]`); plain
   text otherwise. The external-link icon rides INSIDE the button
   as a secondary cue so the affordance reads as a single labelled
-  link rather than a label-with-trailing-icon."
-  [{:keys [source coord duration-ms step-number violations] :as step}]
-  [:div {:data-testid "rf-xray-epoch-step-dispatch"
-         :data-step-kw "dispatch"}
-   (numbered-circle step-number :DISPATCH)
-   (step-header
-     {:step :dispatch
-      :badge :DISPATCH
-      :verb [:span {:style dispatch-verb-style}
-             "from "
-             (dispatch-source-label source coord)]
-      :expandable? false
-      :testid "rf-xray-epoch-dispatch"
-      :duration-ms duration-ms}
-     nil)
-   (dispatch-body step)
-   ;; rf2-xgeag — `:event` boundary violations attach to DISPATCH.
-   (violation-blocks :dispatch violations)])
+  link rather than a label-with-trailing-icon.
+
+  Per rf2-5qp4g, when `:source` is one of the substrate-internal
+  closed-set values (rf2-ejtpd: `:after-timer`, `:machine-spawn`,
+  `:fx-dispatch`, `:fx-dispatch-later`), the label gains rich chrome
+  for the kind (delay-ms + state-path / spawned-actor-id /
+  parent-epoch navigation). Vanilla sources fall through to the
+  pre-rf2-5qp4g call-site chrome unchanged.
+
+  `epoch-history` is the optional Xray epoch buffer slice the
+  `:fx-dispatch` / `:fx-dispatch-later` enrichments use to resolve
+  the parent-dispatch-id → parent-epoch-id link (rendered as a
+  click-to-navigate `:rf.xray/focus-epoch` button). When omitted
+  (direct test calls of the renderer) the parent-epoch chip falls
+  back to the unresolved variant."
+  ([step] (render-dispatch-step step nil))
+  ([{:keys [source coord duration-ms step-number violations] :as step}
+    epoch-history]
+   [:div {:data-testid "rf-xray-epoch-step-dispatch"
+          :data-step-kw "dispatch"
+          :data-source (when source (name source))}
+    (numbered-circle step-number :DISPATCH)
+    (step-header
+      {:step :dispatch
+       :badge :DISPATCH
+       :verb (let [enriched (dispatch-source-enriched-label step epoch-history)]
+               ;; Vanilla sources fall through to a wrapper that
+               ;; carries the prefix "from " — the per-kind labels
+               ;; carry their own "from <kind>" prefix already, so the
+               ;; wrapper differs by source.
+               (case source
+                 (:after-timer :machine-spawn :fx-dispatch
+                  :fx-dispatch-later :always)
+                 enriched
+                 [:span {:style dispatch-verb-style}
+                  "from "
+                  (dispatch-source-label source coord)]))
+       :expandable? false
+       :testid "rf-xray-epoch-dispatch"
+       :duration-ms duration-ms}
+      nil)
+    (dispatch-body step)
+    ;; rf2-xgeag — `:event` boundary violations attach to DISPATCH.
+    (violation-blocks :dispatch violations)]))
 
 ;; ---- COEFFECT step -------------------------------------------------------
 
@@ -3324,11 +3615,12 @@
 
   `ctx` carries the cascade-level pieces a row may need (e.g. the
   parent `:dispatch-id` + the `:epoch-history` slice for the
-  CHILD-DISPATCHES section's child-epoch resolution). Most steps
+  CHILD-DISPATCHES section's child-epoch resolution + rf2-5qp4g
+  DISPATCH `:fx-dispatch` parent-epoch link resolution). Most steps
   ignore it."
   [step ctx]
   (case (:step step)
-    :dispatch          (render-dispatch-step step)
+    :dispatch          (render-dispatch-step step (:epoch-history ctx))
     :coeffect          (render-coeffect-step step)
     :handler           (render-handler-step step)
     :flow              (render-flow-step step)

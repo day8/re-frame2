@@ -1775,6 +1775,72 @@ URI pre-resolved against `editor-uri/editor-uri`; it is used by demo
 surfaces + the standalone static page where no trace bus is
 available. (rf2-evgf5 / rf2-g5q8d decision.)
 
+#### §9.1.6.3 DISPATCH source-kind enrichment (rf2-5qp4g · consuming rf2-ejtpd)
+
+The DISPATCH step's source label adapts to the closed-set substrate-
+internal `:source` values introduced in rf2-ejtpd (`:after-timer`,
+`:always`, `:machine-spawn`, `:fx-dispatch`, `:fx-dispatch-later`).
+Each kind paints richer chrome than the bare `from <source>` label
+the pre-rf2-5qp4g renderer produced for every value — the operator
+reads the specific timer/delay/state-path, the spawned actor's
+identity, or the parent-epoch link in the same numbered-cascade
+rhythm without leaving the panel.
+
+**Per-source label inventory.**
+
+| `:source`            | Rendered label                                                | Click affordance |
+|----------------------|---------------------------------------------------------------|------------------|
+| `:after-timer`       | `from :after timer · 250ms on [:active :authenticating]`      | the state-path is click-to-source on the machine spec's `:rf.machine/source-coords` index (rf2-8bp3); falls through to a plain monospace span when no coord captured |
+| `:machine-spawn`     | `from machine spawn · :child-actor-id`                        | none (the actor-id is gensym'd; resolving its spec is a follow-on enrichment) |
+| `:fx-dispatch`       | `from fx :dispatch · parent epoch #142`                       | the parent-epoch chip is click-to-navigate via `:rf.xray/focus-epoch <epoch-id>` (registered in `spine.cljs`'s `install!` per rf2-5qp4g) |
+| `:fx-dispatch-later` | `from fx :dispatch-later · 500ms · parent epoch #142`         | same parent-epoch navigation; the `500ms` chip surfaces when the trace carries the optional `:rf.event/source-detail :ms` tag |
+| `:always`            | `from :always`                                                | defensive — `:always` rides the microstep trace, not `:rf.event/dispatched`; the renderer covers it so the closed set is fully exhaustive |
+| `:ui` / `:frame-init` / `:test-harness` / `:unknown` | `from <source>` (unchanged from §9.1.6.1) | the source word itself is click-to-source on the dispatch call-site (rf2-80u5a) |
+
+**Projection.** `dispatch-row` (in `panels/epoch/projection.cljc`)
+attaches a `:source-enrichment` map to the row whose shape depends
+on `:source` — `{:machine-id :delay-ms :source-state-path}` for
+`:after-timer`, `{:spawned-actor-id}` for `:machine-spawn`,
+`{:parent-dispatch-id :delay-ms?}` for the fx-dispatch variants.
+Vanilla sources carry no enrichment; the renderer falls through to
+the pre-rf2-5qp4g call-site link.
+
+**Parent-epoch resolution.** The view layer resolves
+`:parent-dispatch-id → :parent-epoch-id` against the Xray
+`:epoch-history` slice threaded through `pipeline-view`'s `ctx`
+(`(proj/find-parent-epoch epoch-history parent-dispatch-id)`). When
+the parent epoch is in the buffer the chip renders as a clickable
+`<button>` carrying `parent epoch #N`; when not (root cascade, or
+the parent was evicted from the ring) the chip renders as a muted
+`<span>` reading `parent dispatch #N (not in buffer)` so the
+operator still sees the lineage.
+
+**Test surface.** Per-kind `data-testid` slots:
+
+  - `rf-xray-epoch-dispatch-source-label` (the source-label root,
+    present for every source kind)
+  - `rf-xray-epoch-dispatch-after-timer-delay` /
+    `rf-xray-epoch-dispatch-after-timer-state-path` (`:after-timer`)
+  - `rf-xray-epoch-dispatch-machine-spawn-actor` (`:machine-spawn`)
+  - `rf-xray-epoch-dispatch-fx-later-delay` (`:fx-dispatch-later`
+    delay chip)
+  - `rf-xray-epoch-dispatch-parent-epoch-link` /
+    `rf-xray-epoch-dispatch-parent-epoch-unresolved` (fx-dispatch
+    parent-epoch chrome — clickable variant + muted-unresolved
+    variant)
+
+**Trace stamp contract (substrate side).** The framework stamp
+sites that feed the enrichment live in `implementation/core/src/
+re_frame/fx.cljc` (`:dispatch` / `:dispatch-later` reserved-fx
+handlers stamp `:source :fx-dispatch` / `:source :fx-dispatch-later`
+on the child envelope, with the `:rf.event/source-detail {:ms ms}`
+tag riding on the dispatched trace for `:dispatch-later`),
+`implementation/machines/src/re_frame/machines/timer.cljc` (the
+`:after` timer's `dispatch!` stamps `:source :after-timer`), and
+`implementation/machines/src/re_frame/machines/lifecycle_fx/spawn.cljc`
+(the spawn fx stamps `:source :machine-spawn`). The substrate-side
+contract is the closed set documented in §9.1.10.1's table.
+
 ### §9.1.7 Composition with the edn-inspector widget
 
 Per the bead body's §Implementation Notes, expandable rows mount the
@@ -1810,6 +1876,7 @@ verbatim; no DOM concern bleeds into the data layer.
 | `:rf.xray.epoch/toggle-row-expand step-kw row-id` | flip the row's pair in `:epoch-panel-expanded-rows` |
 | `:rf.xray.epoch/clear-row-expand` | drop the expansion set |
 | `:rf.xray.epoch/set-subs-filter-mode mode` | set the SUBSCRIPTIONS filter mode (rf2-tzmmf — closed set `:all / :changed / :unchanged`; supersedes rf2-kfh1v's `toggle-subs-show-unchanged`. The button-bar replaces both the prior boolean toggle AND the badge-adjacent `N recomputed (M changed, K unchanged)` summary text — Mike pair-debug 2026-05-26: no coexistence, pre-alpha posture) |
+| `:rf.xray/focus-epoch epoch-id` | pivot the spine's `:rf.xray/focus` to the supplied epoch-id (rf2-5qp4g). Resolves the matching record's settling `:dispatch-id` via `spine/dispatch-id-for-epoch` and defers to `focus-cascade-reducer`. Drives the DISPATCH step's parent-epoch navigation chip on `:fx-dispatch` / `:fx-dispatch-later` dispatches (§9.1.6.3). When the epoch-id has no matching dispatch-id in the buffer (trace elided, record-only fixture), the event still pins `:focus :epoch-id` so panels pivoting on it (App-DB diff, Views, Machine Inspector) follow the navigation; the cascade's `:dispatch-id` resolves on the next live tick. |
 
 ### §9.1.10.1 Substrate tag dependencies (the trace-stamp contract)
 
@@ -1822,7 +1889,7 @@ and silently rendered empty rows. The binding inventory:
 
 | Step | Trace operation | Canonical tags |
 |------|-----------------|----------------|
-| `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source`, `:rf.trace/call-site` |
+| `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source` (closed set per rf2-hxj0d + rf2-ejtpd; substrate-internal values drive the §9.1.6.3 per-kind enrichment), `:rf.trace/call-site`, `:rf.trace/parent-dispatch-id` (rf2-5qp4g — fx-dispatch parent-epoch link), `:rf.event/source-detail` (rf2-5qp4g — optional per-source-kind detail map; `:dispatch-later` rides `{:ms <delay>}` so the renderer surfaces the original scheduled delay) |
 | `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value`, `:rf.cofx/elapsed-ms` (rf2-w2r4p aligned the per-cofx duration read against the substrate's canonical name + threaded `:duration-ms` through the `cofx-steps` flattening) — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch). **Projection splits each surviving cofx into its own numbered step** (rf2-s1jw4 · pair-debug 2026-05-26): `cofx-steps` is a `mapv` over `cofx-rows` producing `{:step :coeffect :badge :COEFFECT :id <kw> :value <v> :duration-ms <ms>}` per entry, spliced into the steps vec before HANDLER. |
 | `:handler` duration | `:rf.event/run-end` `:rf.event/elapsed-ms` (rf2-slnce aligned the per-handler duration read against the substrate's canonical name — see `re-frame.router/emit-run-end-trace`) |
 | `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta). The `{:file :line}` coord on the same meta drives the HANDLER verb-as-link affordance (§9.1.6.1 · rf2-ehd8v + pair-debug 2026-05-26). |

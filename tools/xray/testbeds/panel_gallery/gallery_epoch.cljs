@@ -12,19 +12,24 @@
 
   ## Section-coverage table
 
-  | Variant                | Sections exercised                                 |
-  |------------------------|----------------------------------------------------|
-  | `vanilla-db`           | DISPATCH · COEFFECT · HANDLER (db) · APP-DB DIFF · SUBSCRIPTIONS · VIEWS |
-  | `reg-event-fx`         | DISPATCH · HANDLER (fx) · APP-DB DIFF · FX (✓ + ✗ + header counters) |
-  | `machine-driven`       | DISPATCH · HANDLER (machine: TRANSITION · GUARDS · LIFECYCLE · AFTER-TIMERS · DATA-REDUCTION · SNAPSHOT-DIFF) · APP-DB DIFF · FX |
-  | `schema-violations`    | DISPATCH · HANDLER (db, with rolled-back app-db violation sub-block + downstream mute) · SCHEMA HOT-RELOAD tail (rf2-xgeag) |
-  | `child-dispatches`     | DISPATCH · HANDLER (fx) · APP-DB DIFF · FX · CHILD DISPATCHES (resolved + not-in-buffer) |
-  | `long-step`            | DISPATCH · HANDLER (fx, 42ms · long-step chrome) · APP-DB DIFF · FX (28ms long-step) · SUBSCRIPTIONS · VIEWS |
-  | `flow-firing`          | DISPATCH · HANDLER (db) · APP-DB DIFF · FLOW · FX · SUBSCRIPTIONS · VIEWS |
-  | `empty`                | empty-state — no epochs (`:no-focus`)              |
-  | `no-events`            | cold pipeline — one epoch with empty `:trace-events` |
-  | `unmounted-views`      | DISPATCH · HANDLER (db) · SUBSCRIPTIONS · VIEWS (re-renders + UNMOUNTED sub-section — rf2-gmw1i) |
-  | `disposed-subs`        | DISPATCH · HANDLER (db) · SUBSCRIPTIONS (recompute + DISPOSED sub-section — rf2-wpfjo) |
+  | Variant                  | Sections exercised                                 |
+  |--------------------------|----------------------------------------------------|
+  | `vanilla-db`             | DISPATCH · COEFFECT · HANDLER (db) · APP-DB DIFF · SUBSCRIPTIONS · VIEWS |
+  | `reg-event-fx`           | DISPATCH · HANDLER (fx) · APP-DB DIFF · FX (✓ + ✗ + header counters) |
+  | `machine-driven`         | DISPATCH · HANDLER (machine: TRANSITION · GUARDS · LIFECYCLE · AFTER-TIMERS · DATA-REDUCTION · SNAPSHOT-DIFF) · APP-DB DIFF · FX |
+  | `schema-violations`      | DISPATCH · HANDLER (db, with rolled-back app-db violation sub-block + downstream mute) · SCHEMA HOT-RELOAD tail (rf2-xgeag) |
+  | `child-dispatches`       | DISPATCH · HANDLER (fx) · APP-DB DIFF · FX · CHILD DISPATCHES (resolved + not-in-buffer) |
+  | `long-step`              | DISPATCH · HANDLER (fx, 42ms · long-step chrome) · APP-DB DIFF · FX (28ms long-step) · SUBSCRIPTIONS · VIEWS |
+  | `flow-firing`            | DISPATCH · HANDLER (db) · APP-DB DIFF · FLOW · FX · SUBSCRIPTIONS · VIEWS |
+  | `empty`                  | empty-state — no epochs (`:no-focus`)              |
+  | `no-events`              | cold pipeline — one epoch with empty `:trace-events` |
+  | `unmounted-views`        | DISPATCH · HANDLER (db) · SUBSCRIPTIONS · VIEWS (re-renders + UNMOUNTED sub-section — rf2-gmw1i) |
+  | `disposed-subs`          | DISPATCH · HANDLER (db) · SUBSCRIPTIONS (recompute + DISPOSED sub-section — rf2-wpfjo) |
+  | `after-timer-source`     | DISPATCH source-kind enrichment (rf2-5qp4g) — `from :after timer · 250ms on [:active :authenticating]` |
+  | `machine-spawn-source`   | DISPATCH source-kind enrichment (rf2-5qp4g) — `from machine spawn · :checkout/worker` |
+  | `fx-dispatch-source`     | DISPATCH source-kind enrichment (rf2-5qp4g) — `from fx :dispatch · parent epoch #20` (parent in buffer) |
+  | `fx-dispatch-later-source` | DISPATCH source-kind enrichment (rf2-5qp4g) — `from fx :dispatch-later · 500ms · parent epoch #22` |
+  | `fx-dispatch-orphan`     | DISPATCH source-kind enrichment (rf2-5qp4g) — orphan path: parent dispatch-id 99999 not in buffer (muted unresolved chip) |
 
   ## Why seed via `:rf.xray/sync-epoch-history`
 
@@ -195,13 +200,74 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
+  ;; ----- 12. :after-timer source enrichment (rf2-5qp4g) ----------------
+  (story/reg-variant :story.xray.epoch/after-timer-source
+    {:doc        "Cascade dispatched by a machine `:after` timer firing
+                 (rf2-ejtpd + rf2-5qp4g). The DISPATCH step renders
+                 `from :after timer · 250ms on [:active :authenticating]` —
+                 the kind label, the delay-ms chip, and the
+                 source-state-path as a click-to-source affordance."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/after-timer-source-history)]]
+     :tags       #{:dev :state/small}
+     :substrates #{:reagent}})
+
+  ;; ----- 13. :machine-spawn source enrichment (rf2-5qp4g) --------------
+  (story/reg-variant :story.xray.epoch/machine-spawn-source
+    {:doc        "Cascade dispatched by a spawn fx (rf2-ejtpd +
+                 rf2-5qp4g). The DISPATCH step renders
+                 `from machine spawn · :checkout/worker` — the kind label
+                 + the spawned actor-id."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/machine-spawn-source-history)]]
+     :tags       #{:dev :state/small}
+     :substrates #{:reagent}})
+
+  ;; ----- 14. :fx-dispatch source enrichment (rf2-5qp4g) ----------------
+  (story/reg-variant :story.xray.epoch/fx-dispatch-source
+    {:doc        "Multi-record history: a parent cascade emits a
+                 `:dispatch` fx; the child cascade is the head record
+                 (rf2-ejtpd + rf2-5qp4g). The DISPATCH step renders
+                 `from fx :dispatch · parent epoch #20` — the kind
+                 label + a click-to-navigate parent-epoch chip resolved
+                 against the in-buffer parent."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/fx-dispatch-source-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 15. :fx-dispatch-later source enrichment (rf2-5qp4g) ----------
+  (story/reg-variant :story.xray.epoch/fx-dispatch-later-source
+    {:doc        "Multi-record history: a parent cascade emits a
+                 `:dispatch-later` fx (500ms); the timer-fired child
+                 cascade is the head record (rf2-ejtpd + rf2-5qp4g).
+                 The DISPATCH step renders
+                 `from fx :dispatch-later · 500ms · parent epoch #22` —
+                 the kind label, the original scheduled delay, and the
+                 parent-epoch navigation link."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/fx-dispatch-later-source-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 16. :fx-dispatch orphan (parent aged out) (rf2-5qp4g) ---------
+  (story/reg-variant :story.xray.epoch/fx-dispatch-orphan
+    {:doc        "Defensive `:fx-dispatch` variant: the child cascade's
+                 parent-dispatch-id has no matching epoch in the buffer
+                 (the parent aged out of the ring). The DISPATCH step
+                 renders the kind label + the unresolved parent chip
+                 (`parent dispatch #99999 (not in buffer)`) — muted
+                 plain span, no dead click affordance."
+     :events     [[:rf.xray/sync-epoch-history (fixtures/fx-dispatch-orphaned-source-history)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
   ;; ----- workspace ---------------------------------------------------
   (story/reg-workspace :Workspace.xray.epoch/all
-    {:doc      "All eleven Epoch panel variants in one auto-grid.
+    {:doc      "All sixteen Epoch panel variants in one auto-grid.
                 Scroll to see the cascade across vanilla-db /
                 reg-event-fx / machine-driven / schema-violations /
                 child-dispatches / long-step / flow-firing / empty /
-                no-events / unmounted-views / disposed-subs."
+                no-events / unmounted-views / disposed-subs and the
+                rf2-5qp4g per-source-kind enrichment variants
+                (after-timer / machine-spawn / fx-dispatch /
+                fx-dispatch-later / fx-dispatch-orphan)."
      :layout   :variants-grid
      :story    :story.xray.epoch
      :columns  2
