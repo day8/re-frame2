@@ -779,24 +779,17 @@
                             "rf-xray-epoch-violation-subscriptions-0-recovery")]
       (is (string/includes? recovery "returned nil")))))
 
-(deftest render-schema-hot-reload-step-test
-  (testing "rf2-xgeag — standalone SCHEMA HOT-RELOAD step renders one
-            sub-block per drift row + the badge label is the renamed
-            'SCHEMA HOT-RELOAD' (not the retired 'SCHEMA VIOLATIONS')"
-    (let [step {:step :schema-hot-reload :badge :SCHEMA-HOT-RELOAD
-                :step-number 8
-                :rows [{:kind :rf.schema/violation
-                        :where :hot-reload
-                        :failing-id :rf/default
-                        :path [:count]
-                        :value "boom"
-                        :recovery :logged-and-skipped}]}
-          tree (view/render-schema-hot-reload-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-schema-hot-reload")))
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-violation-hot-reload-0"))
-          "the drift row renders as a violation sub-block")
-      (let [header (text-of tree "rf-xray-epoch-schema-hot-reload-header")]
-        (is (string/includes? header "1 hot-reload drift"))))))
+;; `render-schema-hot-reload-step-test` retired here (rf2-oc6ok) — pairs
+;; with the rf2-o1l6c projection-side retire. Commit 9b96f9f6a
+;; (rf2-7gf7v) deleted both the projection's `hot-reload-step` fn AND
+;; the view's `render-schema-hot-reload-step` fn — hot-reload drift is
+;; a dev-time event (re-registered schema invalidates existing app-db
+;; state), not a cascade event. It surfaces exclusively via the Issues
+;; panel which consumes `:rf.schema/violation` trace events. No tail
+;; cascade step → no render fn → no view test. The projection-side
+;; negative assertion (`not-any? :schema-hot-reload`) in
+;; `project-attaches-app-db-violation-to-fx-db-row-test` pins down
+;; that no tail step is appended.
 
 ;; ---- rf2-uffov — FX section header + per-action attribution ----------
 

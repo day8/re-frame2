@@ -1532,14 +1532,29 @@
       (is (= 1 (count (:violations (nth out 1))))
           "matching cofx step attached"))))
 
-(deftest attach-violations-app-db-to-handler-test
-  (testing "rf2-xgeag — `:app-db` violation attaches to the HANDLER step"
+(deftest attach-violations-app-db-to-fx-db-row-test
+  (testing "rf2-8resu — `:app-db` violation attaches to the FX step's
+            `:db` row (the implicit commit fx). The commit IS an fx —
+            the framework treats `:db` as the first, implicit fx —
+            so the schema violation belongs on the row representing
+            the failed commit, not on HANDLER (which describes what
+            the handler RETURNED). HANDLER + DISPATCH stay clean."
     (let [steps  [{:step :dispatch :badge :DISPATCH}
-                  {:step :handler  :badge :HANDLER}]
+                  {:step :handler  :badge :HANDLER}
+                  {:step :fx       :badge :FX
+                   :rows [{:fx-id :db :status :rollback}]}]
           rows   [{:where :app-db :failing-id :counter/inc :rollback? true}]
-          out    (proj/attach-violations steps rows)]
-      (is (nil? (:violations (first out))))
-      (is (= 1 (count (:violations (second out))))))))
+          out    (proj/attach-violations steps rows)
+          fx     (nth out 2)]
+      (is (nil? (:violations (nth out 0)))
+          "DISPATCH step untouched")
+      (is (nil? (:violations (nth out 1)))
+          "HANDLER step untouched — the violation no longer attaches here")
+      (is (nil? (:violations fx))
+          "FX step-level :violations untouched — the violation routes
+           into the :db row, not the step")
+      (is (= 1 (count (:violations (first (:rows fx)))))
+          "FX :db row carries the attached violation"))))
 
 (deftest attach-violations-fx-row-test
   (testing "rf2-xgeag — `:fx-args` violation attaches to the FX row whose
@@ -1580,17 +1595,27 @@
                   [{:where :app-db :rollback? true}])))))
 
 (deftest mark-rolled-back-downstream-test
-  (testing "rf2-xgeag — rollback flags every step AFTER the HANDLER"
+  (testing "rf2-8resu — rollback flags every step AFTER the FX step
+            (not after HANDLER). The FX step itself is NOT muted —
+            its `:db` row IS the visible rollback indicator (red ✗ +
+            violation sub-block); muting the entire FX step would hide
+            the signal. DISPATCH + HANDLER are upstream of the failed
+            commit so they stay unmuted too — they ran for real."
     (let [steps [{:step :dispatch} {:step :handler}
-                 {:step :fx}       {:step :subscriptions}]
+                 {:step :fx}       {:step :subscriptions}
+                 {:step :views}]
           rows  [{:where :app-db :rollback? true}]
           out   (proj/mark-rolled-back-downstream steps rows)]
-      (is (nil? (:rolled-back? (nth out 0))))
+      (is (nil? (:rolled-back? (nth out 0)))
+          "DISPATCH untouched (upstream of the commit)")
       (is (nil? (:rolled-back? (nth out 1)))
-          "the HANDLER step itself is NOT muted (the violation
-           sub-block already shows the rollback in-place)")
-      (is (true? (:rolled-back? (nth out 2))))
-      (is (true? (:rolled-back? (nth out 3))))))
+          "HANDLER untouched (described what it RETURNED; that ran)")
+      (is (nil? (:rolled-back? (nth out 2)))
+          "FX step itself NOT muted — its :db row is the visible signal")
+      (is (true? (:rolled-back? (nth out 3)))
+          "SUBSCRIPTIONS downstream of FX gets muted")
+      (is (true? (:rolled-back? (nth out 4)))
+          "VIEWS downstream of FX gets muted")))
 
   (testing "rf2-xgeag — no rollback → no `:rolled-back?` flags"
     (let [steps [{:step :dispatch} {:step :handler} {:step :fx}]
@@ -1714,19 +1739,39 @@
 ;; top-level cascade). See comment header above the child-dispatch
 ;; helpers section.
 
-(deftest project-attaches-app-db-violation-to-handler-test
-  (testing "rf2-xgeag — top-level `project` attaches `:app-db`
-            boundary violations to the HANDLER step inline and
-            mutes the downstream cascade with `:rolled-back? true`"
-    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
-                         (db-changed-ev [[[:count] 0 "boom" :modified]])
-                         (schema-violation-ev :app-db :counter/inc
-                                              [:count] "boom" true)])
-          steps (proj/project rec)
-          handler (some #(when (= :handler (:step %)) %) steps)]
+(deftest project-attaches-app-db-violation-to-fx-db-row-test
+  (testing "rf2-8resu — top-level `project` attaches `:app-db`
+            boundary violations to the FX step's `:db` row (the
+            implicit-commit fx). The FX step is synthesised even when
+            no user-fx fired — the `:where :app-db` violation alone
+            is sufficient signal that a `:db` commit was attempted
+            (the framework suppresses user-fx on rollback per Spec
+            010, so the `:rf.fx/handled` trace doesn't emit; the
+            violation IS the signal). The FX step contains exactly
+            one row — the synthesised `:db` row, `:status :rollback`,
+            carrying the violation. HANDLER stays clean — it
+            describes what the handler RETURNED; the commit outcome
+            is the FX step's `:db` row's concern."
+    (let [rec     (record [(dispatched-ev [:counter/inc] :ui nil)
+                           (db-changed-ev [[[:count] 0 "boom" :modified]])
+                           (schema-violation-ev :app-db :counter/inc
+                                                [:count] "boom" true)])
+          steps   (proj/project rec)
+          handler (some #(when (= :handler (:step %)) %) steps)
+          fx      (some #(when (= :fx (:step %)) %) steps)
+          db-row  (some #(when (= :db (:fx-id %)) %) (:rows fx))]
       (is (some? handler))
-      (is (= 1 (count (:violations handler))))
-      (is (true? (-> handler :violations first :rollback?)))
+      (is (nil? (:violations handler))
+          "HANDLER step carries no violations — routing moved to FX :db row")
+      (is (some? fx)
+          "FX step is synthesised when a :where :app-db rollback fires
+           even with no user-emitted fx")
+      (is (some? db-row)
+          "the FX step's first row is the synthesised :db row")
+      (is (= :rollback (:status db-row))
+          "the :db row's status reflects the rollback")
+      (is (= 1 (count (:violations db-row))))
+      (is (true? (-> db-row :violations first :rollback?)))
       (is (not-any? #(= :schema-violations (:step %)) steps)
           "the retired aggregate SCHEMA-VIOLATIONS step never appears")
       (is (not-any? #(= :schema-hot-reload (:step %)) steps)
