@@ -694,17 +694,27 @@
     op is `:same` or `:same-shifted` (so descendants of a wholly-
     new subtree still read as green).
 
+  ## rf2-zpeyv — slot-vs-value anchoring
+
+  - `:suppress-wash?` — paint NO wash on this gutter-row. Used when
+    the slot-anchored chrome paints the wash on the WHOLE ROW (key +
+    value grid cells) at the parent's row level (R2 added/removed
+    map-key, R6 vector add/remove). Without suppression here, the
+    inner wash overlaps the outer cell wash and the row reads as a
+    double-painted band over the value half.
+
   When `chrome-opts` is omitted the chrome falls back to the per-op
   defaults (added=green, modified=amber, removed=red, same=invisible).
-  All three optional keys default to nil, so existing call sites
+  All four optional keys default to nil, so existing call sites
   (non-mode-3 diff renders) reach the same hiccup shape unchanged."
   ([op body] (gutter-row op body nil))
-  ([op body {:keys [suppress-glyph? suppress-stripe? wash-op]}]
+  ([op body {:keys [suppress-glyph? suppress-stripe? suppress-wash? wash-op]}]
    (let [active?       (and (not (#{:same :same-shifted} op))
                             (not suppress-stripe?))
          effective-wash-op (or wash-op
                                (when-not (#{:same :same-shifted} op) op))
-         wash          (op-wash-bg effective-wash-op)
+         wash          (when-not suppress-wash?
+                         (op-wash-bg effective-wash-op))
          stripe        (when-not suppress-stripe? (op-stripe-colour op))
          glyph         (if suppress-glyph? " " (op-glyph op))
          glyph-colour  (if suppress-glyph?
@@ -1989,6 +1999,18 @@
                                             :added   "+"
                                             :removed "−"
                                             nil)
+                           ;; rf2-zpeyv — slot-vs-value anchoring. When
+                           ;; the SLOT itself changes (key added /
+                           ;; removed) the chrome paints the WHOLE row
+                           ;; (key cell + value cell) in the per-op
+                           ;; wash, and `:removed` strike-through reaches
+                           ;; the key text. When only the VALUE inside
+                           ;; an existing slot changed (R1/R7/R8), the
+                           ;; chrome stays value-anchored (no key-cell
+                           ;; wash, no key strike).
+                           slot-anchored? (boolean (#{:added :removed} child-op))
+                           slot-wash (when slot-anchored?
+                                       (op-wash-bg child-op))
                            value-node (render-node
                                         {:value cv
                                          :before cb
@@ -2002,17 +2024,37 @@
                                          :dispatch-fn dispatch-fn
                                          :zoomable? zoomable?
                                          :zoom-path-prefix zoom-path-prefix
-                                         :opts opts})]
+                                         :opts opts
+                                         ;; Suppress the leaf's inner
+                                         ;; gutter-row wash — the slot
+                                         ;; row paints it on the value
+                                         ;; cell here. The gutter glyph
+                                         ;; + per-token text colour on
+                                         ;; the value still render.
+                                         :slot-anchored? slot-anchored?})]
                        [(with-meta
                           ;; Key cell — uses `div` so the grid baseline
                           ;; aligns predictably across rows. `white-
                           ;; space: nowrap` prevents long keys (e.g. a
                           ;; deeply-namespaced `:rf.x.with.many.parts/k`)
                           ;; from wrapping inside the key column.
+                          ;;
+                          ;; rf2-zpeyv — when slot-anchored, paint the
+                          ;; per-op wash across the KEY cell (whole-row
+                          ;; treatment) and strike the key text for
+                          ;; `:removed`. The wash on the sibling value
+                          ;; cell completes the row.
                           [:div (cond-> {:data-rf-cell "key"
-                                         :style key-cell-style}
+                                         :style (cond-> key-cell-style
+                                                  slot-wash
+                                                  (assoc :background slot-wash)
+                                                  (= child-op :removed)
+                                                  (assoc :text-decoration "line-through"))}
                                   key-side-glyph
-                                  (assoc :data-rf-key-glyph key-side-glyph))
+                                  (assoc :data-rf-key-glyph key-side-glyph)
+                                  slot-anchored?
+                                  (assoc :data-rf-row-anchor "slot"
+                                         :data-rf-row-wash "1"))
                            ;; R2 key-side glyph — paint `+` / `−` in
                            ;; column 1 of the key row when the KEY itself
                            ;; is new/removed. The key text picks up the
@@ -2031,8 +2073,19 @@
                                (conj [:span {:style {:text-decoration "line-through"}}])))]
                           {:key (str "k-" (pr-str k))})
                         (with-meta
-                          [:div {:data-rf-cell "value"
-                                 :style value-cell-style}
+                          ;; Value cell. rf2-zpeyv — when slot-anchored,
+                          ;; paint the per-op wash across the whole value
+                          ;; cell so it joins the key cell's wash into a
+                          ;; single banded row. The leaf's inner gutter-
+                          ;; row wash is suppressed via `:slot-anchored?`
+                          ;; on render-node (above) — no double-paint.
+                          [:div (cond-> {:data-rf-cell "value"
+                                         :style (cond-> value-cell-style
+                                                  slot-wash
+                                                  (assoc :background slot-wash))}
+                                  slot-anchored?
+                                  (assoc :data-rf-row-anchor "slot"
+                                         :data-rf-row-wash "1"))
                            value-node]
                           {:key (str "v-" (pr-str k))})]))
                    child-pairs))
@@ -2168,8 +2221,18 @@
 
   R5-tinted: when the leaf sits inside a wholly-changed ancestor, the
   glyph + stripe are suppressed (only the wash + parent's marking
-  carry the signal). Implemented via `gutter-row` chrome-opts."
-  [{:keys [value before diff? projection path]}]
+  carry the signal). Implemented via `gutter-row` chrome-opts.
+
+  ## rf2-zpeyv — slot-anchored rendering
+
+  When `:slot-anchored?` is true, the leaf's own wash is SUPPRESSED.
+  The caller (the map-row grid renderer) has painted the per-op wash
+  on the WHOLE row (key cell + value cell) so the slot-identity
+  change (R2 key add/remove) reads as a single banded row. Without
+  suppression, the inner wash overlaps the outer cell wash and the
+  value half reads darker than the key half. Only the gutter glyph
+  and per-token text colour remain on the leaf side."
+  [{:keys [value before diff? projection path slot-anchored?]}]
   (if-not diff?
     (render-scalar value)
     (let [;; Resolve op: prefer the projection at this path; else
@@ -2187,10 +2250,16 @@
           inside-wholly? (and wholly-anc (not= wholly-anc (vec (or path []))))
           ;; R5: suppress glyph + stripe on descendants of a wholly-
           ;; changed root, but RETAIN the wash for partial-visibility.
-          chrome-opts (when inside-wholly?
-                        {:suppress-glyph? true
-                         :suppress-stripe? true
-                         :wash-op (engine/op-at projection wholly-anc)})
+          ;; R2-revised (rf2-zpeyv): `:slot-anchored?` from the map-row
+          ;; caller adds wash suppression on top of the R5 rule — the
+          ;; outer key+value cells paint the whole-row wash.
+          chrome-opts (cond-> nil
+                        inside-wholly?
+                        (assoc :suppress-glyph?   true
+                               :suppress-stripe?  true
+                               :wash-op           (engine/op-at projection wholly-anc))
+                        slot-anchored?
+                        (assoc :suppress-wash? true))
           ;; R6: shifted-was-index for vector elements at a different
           ;; position than they were in the before-tree.
           was-index (when (= op :same-shifted)
@@ -2303,9 +2372,20 @@
   callers that drive render-node without a mount can omit it — the
   container-renderer falls back to the global `rf/dispatch`.
 
-  Public so unit tests can drive the renderer without mounting."
+  Public so unit tests can drive the renderer without mounting.
+
+  ## rf2-zpeyv — slot-anchored threading
+
+  `:slot-anchored?` is set by the map-row grid renderer when a CHILD
+  slot's op is `:added` / `:removed`. It threads to
+  `render-leaf-with-diff` so the leaf's inner gutter-row suppresses
+  its own wash (the map row paints whole-row wash on the key + value
+  cells). Container values inside an added/removed slot already
+  render via the recursive `render-container` path; that path paints
+  no leaf-wash itself, so the flag only matters when the value bottoms
+  out at a scalar leaf."
   [{:keys [value before diff? projection panel-id mount-id path depth expansion-map
-           dispatch-fn zoomable? zoom-path-prefix opts]
+           dispatch-fn zoomable? zoom-path-prefix opts slot-anchored?]
     :or   {depth 0 path [] zoom-path-prefix []}}]
   (or
     ;; Protocol seam (rf2-0qrcr) — light-touch satisfies? gate; nil
@@ -2328,7 +2408,8 @@
       ;; the structure, for deletions).
       (and diff? (= value ::missing))
       (render-leaf-with-diff {:value ::missing :before before :diff? true
-                              :projection projection :path path})
+                              :projection projection :path path
+                              :slot-anchored? slot-anchored?})
 
       ;; Diff mode: added slot at a container → render the new
       ;; container in green via the normal recursive path with `op
@@ -2351,7 +2432,8 @@
                              :before ::missing
                              :projection projection})
           (render-leaf-with-diff {:value value :before ::missing :diff? true
-                                  :projection projection :path path})))
+                                  :projection projection :path path
+                                  :slot-anchored? slot-anchored?})))
 
       :else
       (let [kind (collection-kind value)]
@@ -2374,7 +2456,8 @@
                                   :before before
                                   :diff? (boolean diff?)
                                   :projection projection
-                                  :path path}))))))
+                                  :path path
+                                  :slot-anchored? slot-anchored?}))))))
 
 ;; =========================================================================
 ;; mount-id generator + public entry — edn-inspector (form-2 component)
