@@ -888,15 +888,27 @@
   "Project the `:rf.fx/handled` / `:rf.fx/override-applied` /
   `:rf.fx/skipped-on-platform` stream into per-handler rows. Each row
   carries `:fx-id`, `:status` (`:ok / :overridden / :skipped /
-  :error`), `:args`, and `:duration-ms`.
+  :error / :rollback`), `:args`, and `:duration-ms`.
 
-  Per rf2-uffov: each row also carries `:attributed-to` (the
-  machine action that emitted the fx) when the cascade was driven
-  by a machine handler — sourced from `:rf.machine/action-ran`'s
-  `:outcome :fx` slot (rf2-9c27r). The attribution is best-effort:
-  matched by `(= fx-id (first fx-tuple))` against the action's
-  emitted fx vector. When a fx-id is emitted by multiple actions
-  in the same cascade, the FIRST attribution wins (cascade order)."
+  Per rf2-8resu — the implicit `:db` commit is rendered as the FIRST
+  row of the FX step (the framework treats `:db` as an implicit fx
+  whose commit happens before any user-emitted fx fire). The row's
+  `:fx-id` is the keyword `:db`; the row's `:status` is `:ok` for a
+  successful commit, `:rollback` when an `:where :app-db` schema
+  violation rolled the cascade back. `:where :app-db` violations
+  attach to this row (per `attach-to-fx-db-row`); when the commit
+  rolls back, no user-emitted fx fire (per Spec 010), so the FX step
+  in a rollback case contains only the `:db` row.
+
+  Per rf2-uffov: user-fx rows additionally carry `:attributed-to`
+  (the machine action that emitted the fx) when the cascade was
+  driven by a machine handler — sourced from
+  `:rf.machine/action-ran`'s `:outcome :fx` slot (rf2-9c27r). The
+  attribution is best-effort: matched by `(= fx-id (first fx-tuple))`
+  against the action's emitted fx vector. When a fx-id is emitted by
+  multiple actions in the same cascade, the FIRST attribution wins
+  (cascade order). The synthesised `:db` row does not carry
+  `:attributed-to`."
   [events]
   (let [status-fn (fn [op-kw]
                     (case op-kw
@@ -906,6 +918,25 @@
                       :rf.error/fx-handler-exception :error
                       :rf.error/no-such-fx         :error
                       :ok))
+        ;; rf2-8resu — detect the implicit `:db` commit. The framework
+        ;; emits an `:rf.fx/handled` trace WITHOUT `:rf.fx/id` for the
+        ;; implicit `:db` commit path; presence of such a trace is the
+        ;; signal that a `:db` effect was committed (or attempted +
+        ;; rolled back).
+        db-commit?
+        (some (fn [ev]
+                (and (= :rf.fx/handled (op ev))
+                     (nil? (common/tag-of ev :rf.fx/id))))
+              events)
+        ;; rf2-8resu — `:db` row status. A `:where :app-db` schema
+        ;; violation with `:rollback? true` means the commit was
+        ;; rolled back; otherwise the commit succeeded.
+        db-rolled-back?
+        (some (fn [ev]
+                (and (= :rf.error/schema-validation-failure (op ev))
+                     (= :app-db (common/tag-of ev :where))
+                     (true? (common/tag-of ev :rollback?))))
+              events)
         ;; Per rf2-uffov — build the per-action fx attribution map
         ;; once for this projection pass. Each entry maps a fx-id
         ;; (the first element of the action's emitted fx tuple) to
@@ -932,34 +963,39 @@
                   (or fx [])))
               acc))
           {}
-          events)]
-    (vec
-      (for [ev events
-            :let [o (op ev)
-                  fx-id (common/tag-of ev :rf.fx/id)]
-            :when (and (or (= "rf.fx" (op-ns ev))
-                           (contains? #{:rf.error/fx-handler-exception
-                                        :rf.error/no-such-fx} o))
-                       ;; Pair-debug 2026-05-26 — the framework emits an
-                       ;; `:rf.fx/handled` trace for the implicit `:db`
-                       ;; commit path without stamping `:rf.fx/id`,
-                       ;; producing a blank `✓` row. Drop fx-id-less
-                       ;; rows from the FX step; the `:db` placement
-                       ;; surfaces in the HANDLER `:db` sub-section
-                       ;; already.
-                       (some? fx-id))]
-        (cond-> {:fx-id       fx-id
-                 :status      (status-fn o)
-                 :args        (common/tag-of ev :rf.fx/args)
-                 ;; rf2-ipaza — substrate stamps the per-fx-handler
-                 ;; invocation duration as `:rf.fx/elapsed-ms` on
-                 ;; `:rf.fx/handled` (rf2-hhh92 · `re-frame.fx`;
-                 ;; spec 009 §241). Legacy `:duration-ms` retained
-                 ;; as a fixture-compat fallback for older runtimes.
-                 :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
-                                  (common/tag-of ev :duration-ms))}
-          (get attribution-map fx-id)
-          (assoc :attributed-to (get attribution-map fx-id)))))))
+          events)
+        ;; The user-emitted fx rows. Drop fx-id-less rows here (the
+        ;; implicit `:db` trace is surfaced via the synthesised :db
+        ;; row prepended below — rf2-8resu).
+        user-rows
+        (vec
+          (for [ev events
+                :let [o (op ev)
+                      fx-id (common/tag-of ev :rf.fx/id)]
+                :when (and (or (= "rf.fx" (op-ns ev))
+                               (contains? #{:rf.error/fx-handler-exception
+                                            :rf.error/no-such-fx} o))
+                           (some? fx-id))]
+            (cond-> {:fx-id       fx-id
+                     :status      (status-fn o)
+                     :args        (common/tag-of ev :rf.fx/args)
+                     ;; rf2-ipaza — substrate stamps the per-fx-handler
+                     ;; invocation duration as `:rf.fx/elapsed-ms` on
+                     ;; `:rf.fx/handled` (rf2-hhh92 · `re-frame.fx`;
+                     ;; spec 009 §241). Legacy `:duration-ms` retained
+                     ;; as a fixture-compat fallback for older runtimes.
+                     :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
+                                      (common/tag-of ev :duration-ms))}
+              (get attribution-map fx-id)
+              (assoc :attributed-to (get attribution-map fx-id)))))]
+    ;; rf2-8resu — prepend synthesised :db row when the implicit
+    ;; commit fired. Status reflects rollback if any :where :app-db
+    ;; violation flagged the cascade as rolled back.
+    (if db-commit?
+      (vec (cons {:fx-id  :db
+                  :status (if db-rolled-back? :rollback :ok)}
+                 user-rows))
+      user-rows)))
 
 (defn fx-step
   "FX step row (one row aggregating every fx-handler invocation). nil
@@ -1269,6 +1305,22 @@
                       rows)))
       (attach-step-violation step row))))
 
+(defn- attach-to-fx-db-row
+  "Per rf2-8resu — attach a `:where :app-db` schema-violation to the
+  FX step's `:db` row (the implicit commit fx). Falls back to the
+  step-level `:violations` if the `:db` row isn't present (shouldn't
+  happen — an :app-db violation implies a `:db` commit attempted)."
+  [step row]
+  (if (some #(= :db (:fx-id %)) (:rows step))
+    (update step :rows
+            (fn [rows]
+              (mapv (fn [r]
+                      (if (= :db (:fx-id r))
+                        (attach-row-violation r row)
+                        r))
+                    rows)))
+    (attach-step-violation step row)))
+
 (defn- attach-to-sub-row
   "When `step` is the SUBSCRIPTIONS step + the violation's `:failing-id`
   matches a `sub-id` in the step's `:rows`, attach to that row.
@@ -1328,9 +1380,14 @@
                 s)))
 
           :app-db
-          (let [i (index-of #(= :handler (:step %)) s)]
+          ;; rf2-8resu — :where :app-db violations attach to the FX
+          ;; step's :db row (the implicit commit fx). Was previously
+          ;; HANDLER step per rf2-xgeag, but the :db commit IS an fx
+          ;; (the framework's first fx); attaching there matches the
+          ;; semantic unit that failed.
+          (let [i (index-of #(= :fx (:step %)) s)]
             (if i
-              (update s i attach-step-violation row)
+              (update s i attach-to-fx-db-row row)
               s))
 
           :fx-args
@@ -1384,18 +1441,24 @@
 
 (defn mark-rolled-back-downstream
   "When the cascade carries an `:app-db` rollback violation, mark
-  every step downstream of the HANDLER (FX / SUBSCRIPTIONS / VIEWS /
-  any standalone hot-reload tail) with `:rolled-back? true`. The
-  view paints those steps with mute chrome + a 'cascade rolled
-  back here ↓' indicator at the rollback point. Pure fn over the
-  step vector."
+  every step downstream of the FX step (SUBSCRIPTIONS / VIEWS / any
+  standalone hot-reload tail) with `:rolled-back? true`. The view
+  paints those steps with mute chrome. Pure fn over the step vector.
+
+  Per rf2-8resu: the FX step itself is NOT marked rolled-back — its
+  `:db` row (first row) carries the red ✗ + violation sub-block
+  that's the visible rollback indicator. Muting the entire FX step
+  would hide the very signal the operator needs. Other FX rows
+  don't exist in a rollback cascade (per Spec 010, user fx don't
+  fire when the commit rolls back) — so the FX step in a rollback
+  contains only the :db row, visibly red."
   [steps rows]
   (if (cascade-rolled-back? rows)
-    (let [handler-idx (index-of #(= :handler (:step %)) steps)]
-      (if (number? handler-idx)
+    (let [fx-idx (index-of #(= :fx (:step %)) steps)]
+      (if (number? fx-idx)
         (vec
           (map-indexed (fn [i step]
-                         (if (> i handler-idx)
+                         (if (> i fx-idx)
                            (assoc step :rolled-back? true)
                            step))
                        steps))

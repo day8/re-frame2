@@ -2683,30 +2683,29 @@
   the event-id is NOT repeated in the HANDLER line because the
   DISPATCH step's header already names it.
 
-  rf2-xgeag — `:app-db` boundary violations attach here as pink
-  sub-blocks (the handler is what wrote the bad app-db); when any
-  carries `:rollback? true` the downstream cascade gets muted via
-  the projection's `mark-rolled-back-downstream` pass."
+  Per rf2-8resu (supersedes rf2-xgeag's :app-db attachment): the
+  HANDLER step describes what the handler RETURNED (its effects
+  map). The :where :app-db violation + rollback story moves to the
+  FX step's :db row (the implicit commit fx). HANDLER step's
+  `:violations` slot still renders generically — currently empty
+  for HANDLER in practice — but the call site stays in case future
+  violation kinds attach here."
   [{:keys [flavour event-id duration-ms step-number violations]
     :as step}]
-  (let [rolled-back? (boolean (some :rollback? violations))]
-    [:div {:data-testid "rf-xray-epoch-step-handler"
-           :data-step-kw "handler"
-           :data-handler-flavour (when flavour (name flavour))
-           :data-rolled-back (str rolled-back?)}
-     (numbered-circle step-number :HANDLER)
-     (step-header
-       {:step :handler
-        :badge :HANDLER
-        :verb (handler-verb-link flavour event-id)
-        :expandable? false
-        :testid "rf-xray-epoch-handler"
-        :duration-ms duration-ms}
-       nil)
-     (handler-body step)
-     (violation-blocks :handler violations)
-     (when rolled-back?
-       (rolled-back-banner))]))
+  [:div {:data-testid "rf-xray-epoch-step-handler"
+         :data-step-kw "handler"
+         :data-handler-flavour (when flavour (name flavour))}
+   (numbered-circle step-number :HANDLER)
+   (step-header
+     {:step :handler
+      :badge :HANDLER
+      :verb (handler-verb-link flavour event-id)
+      :expandable? false
+      :testid "rf-xray-epoch-handler"
+      :duration-ms duration-ms}
+     nil)
+   (handler-body step)
+   (violation-blocks :handler violations)])
 
 ;; ---- FLOW step -----------------------------------------------------------
 
@@ -2799,12 +2798,19 @@
                    :overridden  "↺"
                    :skipped     "·"
                    :error       "✗"
+                   ;; rf2-8resu — :rollback applies to the synthesised
+                   ;; :db row when the commit's schema check failed +
+                   ;; the cascade was rolled back. Visually red ✗ same
+                   ;; as :error; the row's :violations sub-block
+                   ;; carries the "rolled back" detail.
+                   :rollback    "✗"
                    "·")
         colour   (case status
                    :ok          success-colour
                    :overridden  accent-colour
                    :skipped     text-tertiary-colour
                    :error       error-colour
+                   :rollback    error-colour
                    text-secondary-colour)]
     [:div {:key (str "fx-" idx)
            :data-testid (str "rf-xray-epoch-fx-row-" idx)
