@@ -966,8 +966,7 @@
 ;; body. The aggregate trailing SCHEMA-VIOLATIONS step retired with
 ;; rf2-xgeag in favour of this attached shape — the operator reads
 ;; the failing boundary inline with the work it failed on. Hot-reload
-;; drift still rides a standalone tail step (no owning cascade step
-;; exists); see `render-schema-hot-reload-step`.
+;; drift now surfaces via the Issues panel exclusively (rf2-7gf7v).
 
 (def ^:private schema-violation-block-style
   {:display        "flex"

@@ -27,7 +27,7 @@ Owner: tools/xray.
 ## §1 Purpose & scope
 
 The Trace panel renders the **complete trace arc of a single epoch** — every trace operation the substrate emits during the epoch, in fire order, organised by the epoch's phase shape. It is the comprehensive lens on what happened, complementing:
-- the **Event panel** (curated handling-pipeline narrative — [`021`](./021-Dynamic-Panel-Designs.md) §2), and
+- the **Epoch panel** (curated handling-pipeline narrative — [`021`](./021-Dynamic-Panel-Designs.md) §9.1), and
 - the **Views panel** (the reactive subgraph as a graph — [`021`](./021-Dynamic-Panel-Designs.md) §3).
 
 The Trace panel's contract is **completeness**: it must surface *every* op-family in the Spec-009 trace vocabulary, including lifecycle ops other panels omit (view unmounted, sub disposed, coeffect run, view mounted).

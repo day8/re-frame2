@@ -29,7 +29,7 @@ type DispatchEnvelope = {
   fxOverrides?: Record<string, Id | ((m: Envelope, args: unknown) => unknown)>;
   interceptorOverrides?: Record<string, Id | null>;
   traceId?: string;
-  source?: 'ui' | 'timer' | 'http' | 'machine' | 'repl' | 'ssr-hydration' | 'test' | 'other';
+  source?: string; // closed enum — see the canonical Malli `[:enum ...]` on the `:source` row of `:rf/dispatch-envelope` below for the authoritative value set
   // open: additional keys are tolerated
   [k: string]: unknown;
 };

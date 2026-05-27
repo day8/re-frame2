@@ -1313,21 +1313,21 @@
 
 ;; rf2-xgeag — the trailing SCHEMA-VIOLATIONS aggregate step retired
 ;; pair-debug 2026-05-27. Violations now attach to their owning
-;; pipeline step via `attach-violations`; hot-reload drift (no
-;; owning cascade step) rides on a standalone `:schema-hot-reload`
-;; step. The per-row data (`schema-violation-rows`) is unchanged —
-;; only the aggregation + view shape moved.
+;; pipeline step via `attach-violations`. Hot-reload drift surfaces
+;; via the Issues panel exclusively (rf2-7gf7v retired the standalone
+;; `:schema-hot-reload` step). The per-row data (`schema-violation-rows`)
+;; is unchanged — only the aggregation + view shape moved.
 
-;; Per the attachment mapping in the rf2-xgeag bead body:
+;; Per the attachment mapping (post-rf2-8resu + rf2-7gf7v):
 ;;
 ;;   :where slot    | owning step
 ;;   ---------------|-----------------------------------------------
 ;;   :event         | DISPATCH (one step)
 ;;   :cofx          | COEFFECT step matching :failing-id against :id
-;;   :app-db        | HANDLER (the step's HEADER, surfaces above :db)
+;;   :app-db        | FX step :db row (the implicit commit fx; rf2-8resu)
 ;;   :fx-args       | FX step (row-level :fx-id match)
 ;;   :sub-return    | SUBSCRIPTIONS step (row-level :sub-id match)
-;;   :hot-reload    | standalone :schema-hot-reload step (Option A)
+;;   :hot-reload    | Issues panel only — no pipeline step (rf2-7gf7v)
 
 (defn- attach-step-violation
   "Append `row` to `step`'s `:violations` vec when `step` is non-nil."

@@ -165,9 +165,10 @@ the operator scrubs onto for an evicted row (see §10.3 below).
 
 Every epoch carries a dispatch origin tag (per A.5 super-prompt):
 `:user` `:router` `:websocket` `:http` `:ssr` `:fx-emit` `:timer`
-`:test-harness` `:tool` `:internal`. The Event panel surfaces this prominently
-in step 1 (Dispatch); the L2 timeline surfaces it as a short prefix on
-each row. There is no such thing as a context-less epoch.
+`:test-harness` `:tool` `:internal`. The Epoch panel (§9.1) surfaces
+this prominently on the DISPATCH step; the L2 timeline surfaces it as
+a short prefix on each row. There is no such thing as a context-less
+epoch.
 
 ### §1.6 Single-frame focus — the frame is a VIEW SCOPE (rf2-4vp5j)
 
@@ -423,8 +424,9 @@ user contract). The L4 tab label renders as `View`.
 ### §3.1.1 Layout (rf2-e33ad · rf2-isun6)
 
 Per Mike-direction 2026-05-21 the panel renders the cascade as two
-bare-label pipeline sections (mirroring the rf2-n4ad0 Event panel
-rhythm — thin left rail + downward chevrons):
+bare-label pipeline sections (mirroring the rf2-n4ad0 numbered-cascade
+rhythm now carried forward by the §9.1 Epoch panel — thin left rail +
+downward chevrons):
 
   1. **SUBS THIS CASCADE (count)** — **one table**, one row per sub
      that *ran* this cascade (the union — formerly the "SUBS RAN"
@@ -499,15 +501,15 @@ FLOW`), not the prior depth-first indented tree. Columns, left → right:
   edges) carries the "one sub drives N views" fact (a small `×N` may annotate it).
 
 **Cascade scope — flows are NOT in the reactive graph.** The graph is strictly **app-db → subs →
-views**. Flows mutate state — they belong to the handling pipeline (Event panel step 4) — and they
-may **feed** the cascade by writing db-paths the subs watch, but they do not appear as graph nodes.
-Quoted from the super-prompt (A.3):
+views**. Flows mutate state — they belong to the handling pipeline (the Epoch panel's FLOW step,
+§9.1) — and they may **feed** the cascade by writing db-paths the subs watch, but they do not
+appear as graph nodes. Quoted from the super-prompt (A.3):
 
-> The Reactive panel renders the cascade (subs + views); the Event panel
-> renders flows (alongside other handling steps).
+> The View panel renders the reactive cascade (subs + views); the Epoch
+> panel renders flows (alongside other handling steps).
 
 The L2 row's `🌊 flow-recomputed` badge surfaces flows as a cross-epoch signal; per-epoch flow
-detail lives in Event panel step 4.
+detail lives in the Epoch panel's FLOW section (§9.1).
 
 Below the graph, three list sections complete the panel:
 
@@ -1084,9 +1086,9 @@ direction (deferred to follow-on bead). Default zoom: fit-on-mount with
 
 | Click | Navigates to |
 |---|---|
-| Transition edge | (no-op MVP; stretch: scroll to the dispatching event in Event panel) |
+| Transition edge | (no-op MVP; stretch: scroll to the dispatching event in the Epoch panel) |
 | Guard row | Inline source-glance (DEBUG-gated source string) |
-| Action chip | Switch to **Event** panel, scroll to step 7 `:fx` row for that action |
+| Action chip | Switch to **Epoch** panel, scroll to the FX step's row for that action |
 | Canvas node | Set this state as the "selected" for filter-IN candidate |
 
 ### §6.5 Film-strip
@@ -1188,7 +1190,7 @@ Per-epoch errors, warnings, schema violations, a11y violations.
 **single row** (`severity · category · short description · timestamp · ↗source`) with a 3px
 severity-coloured left border. No expand-to-see — the row reads inline so the operator sees the
 punch at a glance. The `↗` opens the responsible handler at `file:line`; the row itself pivots
-to the Event panel. Empty state is a single calm line. Lines-per-screen target ~6-24.
+to the Epoch panel. Empty state is a single calm line. Lines-per-screen target ~6-24.
 
 ### §8.2 Layout (Figma design — rf2-ad7zx)
 
@@ -1216,7 +1218,7 @@ Silent-by-default — a clean epoch shows a calm positive state, not an error lo
 │ ▌ WARNING   missing-doc         sub ::counter has no :doc   12:30:05 ↗ │  ← amber border
 │ ▌ ADVISORY  fx-skipped          :rf.nav/scroll skipped (node) 12:30:05 ↗│  ← advisory border
 │ ─────────────────────────────────────────────────────────────────────│
-│  click a row → Event panel (the cascade) · click ↗ → source file:line │
+│  click a row → Epoch panel (the cascade) · click ↗ → source file:line │
 │                                                                       │
 │  clean epoch →  "No issues in this epoch."                            │
 └───────────────────────────────────────────────────────────────────────┘
@@ -1231,13 +1233,13 @@ Silent-by-default — a clean epoch shows a calm positive state, not an error lo
 | Focused epoch record | advisories — `:rf.fx/skipped-on-platform`, `:rf.ssr/*` (hydration mismatch), `:rf.cofx/*` (cofx skipped) | **advisory** |
 
 Each error carries the responsible handler's source coord (`:rf.trace/trigger-handler`) for
-jump-to-source, and rides the cascade's `:dispatch-id` so the row → Event pivot works.
+jump-to-source, and rides the cascade's `:dispatch-id` so the row → Epoch pivot works.
 
 ### §8.4 Cross-panel navigation
 
 | Click | Navigates to |
 |---|---|
-| Issue row | Selects the parent dispatch and **pivots to the Event panel** (the full cascade that produced the issue) |
+| Issue row | Selects the parent dispatch and **pivots to the Epoch panel** (the full cascade that produced the issue) |
 | `↗` source coord | Open the responsible handler at `file:line` (`:rf.xray/open-in-editor`) |
 
 ### §8.5 Film-strip
@@ -1507,9 +1509,9 @@ most-useful default; shape + delta in one read). Mode persists via
 focus shifts.
 
 > **Migration**: the prior two-button `[diff][all]` toggle was retired
-> 2026-05-27 (pre-alpha, no shim). The `:all` enum value migrates to
-> `:full` at sub-read time so any persisted-app-db reads from a pre-
-> rf2-n2jig session resolve cleanly.
+> 2026-05-27 (pre-alpha, no shim). No `:all → :full` translation lives
+> in the sub — Xray app-db is in-memory only, so a pre-rf2-n2jig
+> `:all` reading can't survive a reload.
 
 **Diff engine**: Editscript A* (`juji/editscript` 0.6.5). Replaces the
 home-grown leaf-walker classifier wholesale (10 fns retired at
@@ -2025,11 +2027,15 @@ unchanged); only the aggregation moved.
 |-----------------|-----------------------------------------------------|--------------------------|
 | `:event`        | DISPATCH                                            | step-level               |
 | `:cofx`         | COEFFECT step whose `:id` = `:failing-id`           | step-level (per cofx)    |
-| `:app-db`       | HANDLER                                             | step-level               |
+| `:app-db`       | FX step `:db` row (the implicit commit fx) — per rf2-8resu | row-level         |
 | `:fx-args`      | FX step, row whose `:fx-id` = `:failing-id`         | row-level (fallback step)|
 | `:sub-return`   | SUBSCRIPTIONS step, row whose `:sub-id` = `:failing-id` | row-level (fallback step) |
-| `:machine-data` | HANDLER, machine-cascade row whose machine id = `:failing-id` (the failing machine). When the violation triggered full-cascade rollback (`:rollback? true`), attach instead to the rolled-back-tail step so the reader lands on the boundary where the cascade halted. Per rf2-jbbp7 (see [spec/005 §Schema validation](../../../spec/005-StateMachines.md#schema-validation), [spec/010 §Per-step recovery row 7](../../../spec/010-Schemas.md#per-step-recovery)). | row-level (fallback step) |
-| `:hot-reload`   | standalone SCHEMA HOT-RELOAD tail step              | step-level               |
+| `:machine-data` | HANDLER, machine-cascade row whose machine id = `:failing-id` (the failing machine). When the violation triggered full-cascade rollback (`:rollback? true`), the rollback fact is signalled via the §Rollback blast-radius mute pass (no special tail step); the violation itself stays attached to the machine-cascade row. Per rf2-jbbp7 (see [spec/005 §Schema validation](../../../spec/005-StateMachines.md#schema-validation), [spec/010 §Per-step recovery row 7](../../../spec/010-Schemas.md#per-step-recovery)). | row-level (fallback step) |
+
+Hot-reload drift no longer attaches to a cascade step — it surfaces
+via the Issues panel exclusively (rf2-7gf7v retired the standalone
+`SCHEMA HOT-RELOAD` tail step in favour of the Issues panel's
+richer explanatory chrome).
 
 The projection pass `attach-violations` walks the
 `schema-violation-rows` once and binds each row onto its owning
@@ -2037,10 +2043,7 @@ step (or the step's matching row for FX / SUBSCRIPTIONS); step
 maps gain a `:violations` slot, row maps gain their own
 `:violations` slot. The view's per-step renderers inject
 `(violation-blocks step-key violations)` under their primary
-body. Hot-reload drift has no owning cascade step so it rides
-on a STANDALONE `SCHEMA HOT-RELOAD` tail step (Option A from the
-bead body; the badge is renamed from the retired
-`SCHEMA-VIOLATIONS` to flag the narrowed scope).
+body.
 
 #### Sub-block visual contract
 
@@ -2072,12 +2075,13 @@ SUBSCRIPTIONS chrome and from the retired aggregate step's
 When the cascade carries an `:app-db` violation with
 `:rollback? true`, the projection's
 `mark-rolled-back-downstream` pass flags every step AFTER the
-HANDLER with `:rolled-back? true`. The view's pipeline wrapper
-applies a `:opacity 0.55` overlay to those steps, and the
-HANDLER step renders a one-line banner reading "↓ cascade
-rolled back — downstream effects skipped" immediately under its
-body. The operator sees the blast radius at a glance instead of
-reading FX rows that claim success for fx that never actually
+FX step with `:rolled-back? true`. The view's pipeline wrapper
+applies a `:opacity 0.55` overlay to those steps. The FX step
+itself stays visible — the violation rides on its `:db` row
+(per the attachment table above, post-rf2-8resu) so the operator
+reads the failing commit inline with the implicit commit fx. The
+operator sees the blast radius at a glance instead of reading
+downstream rows that claim success for fx that never actually
 fired.
 
 #### What does NOT change
@@ -2093,8 +2097,9 @@ fired.
   the cross-reference.
 
 Sections / step are conditional — `:violations` slot is absent
-when no violation attached to that step; the SCHEMA HOT-RELOAD
-tail step is OMITTED when no hot-reload drift fired.
+when no violation attached to that step. Hot-reload drift no
+longer rides any pipeline step (rf2-7gf7v); it surfaces in the
+Issues panel only.
 
 ### §9.1.10.6 FX section header + per-action attribution (rf2-uffov · rf2-m8ac9)
 
@@ -2211,8 +2216,8 @@ data axis.
 ## §10 Shared edn-inspector renderer
 
 The renderer is **ONE canonical component used everywhere data appears**
-— App-db's huge nested map, the Event panel's coeffects slice + returned
-effects, the View panel's sub values, Trace ops' expanded payloads,
+— App-db's huge nested map, the Epoch panel's COEFFECT step rows + FX
+step rows, the View panel's sub values, Trace ops' expanded payloads,
 Issues `ex-data`. Operator learns one interaction pattern; applies it
 everywhere.
 
@@ -3313,14 +3318,15 @@ panel. (Detailed §3.3.)
 
 ### §11.2 B.7 Handler source display
 
-**MVP: (a) + (c).** Handler metadata in Event panel step 3 + click-through
-to editor via existing `:rf.xray/open-in-editor`.
+**MVP: (a) + (c).** Handler metadata in the Epoch panel's HANDLER step
++ click-through to editor via existing `:rf.xray/open-in-editor`.
 
 **Stretch: (d).** Compile-time capture as macro metadata — extend
 `reg-event-{db,fx,ctx}` macros to stamp the form-source as a string into
 the handler's registry metadata. `goog.DEBUG`-gated so production elides.
-The Event panel step 3 surfaces the source inline when available. (See
-§2.2 dense mockup.)
+The Epoch panel's HANDLER step surfaces the source inline when available.
+(See §9.1 for the current cascade shape; §2.2 is the retired Event-panel
+mockup kept as historical reference.)
 
 This is **substrate work** (modify `re-frame.core` reg-event-* macros),
 not Xray panel work. Filed as substrate bead in §13.
@@ -3345,7 +3351,7 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 |---|---|---|
 | Unchanged subs in cascade | **Dim, collapsed by default with "Show N unchanged"** | §3.4. Toggle in Settings → View. |
 | Meta-epoch section ordering | **Fixed order: Event > App-db > Reactive > Trace > Machines > Routing > Issues** | Matches the L3 tab order. Predictable beats dynamic. (rf2-4v67l — Chrome A11y removed in favour of Story's shipped panel.) |
-| Event panel section default-expansion | **Steps 1-6 all expanded by default; collapsible per-step via header click; collapse-all keyboard `[`** | The Event panel IS the handling-pipeline view — collapsing by default would hide the punch. |
+| Epoch panel section default-expansion | **All cascade steps expanded by default; collapsible per-step via header click; collapse-all keyboard `[`** | The Epoch panel IS the handling-pipeline view — collapsing by default would hide the punch. |
 | Dispatch-origin display on L2 rows | **Short text label prefix** (`user · :checkout/submit`) | No icon-only or coloured chip — keeps L2 row scannable. Matches the existing L1 ribbon density. |
 | Pattern view (4th lens) | **Defer to follow-up bead** | Per super-prompt. The 3-lens model (handling / reactive / state) is sufficient for MVP. |
 
@@ -3374,10 +3380,10 @@ prerequisites.
 | **Sub skip attribution** | `:rf.sub/skipped` | `{:rf.sub/id :s/foo :reason :input-unchanged :rf.trace/dispatch-id <id>}` | Reactive panel "unchanged subs" disclosure · §3.4 |
 | **Sub value-change + cascade attribution** (rf2-l1jz8) | `:rf.sub/run` | `{:rf.sub/id :s/foo :query-v [...] :value-changed? <bool> :prev-value <v> :value <v> :cascade? <bool> :cause-sub [query-id args]-or-nil}` — value slots redacted at the marks chokepoint; threaded onto the epoch record's `:sub-runs` projection. **Landed** in the framework substrate (Spec 009 §`:rf.sub/run`, Spec-Schemas §`:rf/epoch-record` `:sub-runs`). | Reactive panel "SUBS WHOSE VALUE CHANGED" (§3.1.1.2) + "SUBS THAT CASCADED" (§3.1.1.3) |
 | **Cascade aggregate** | `:rf.cascade/captured` | `{:rf.trace/dispatch-id <id> :subs-ran N :subs-skipped N :views-rendered N :flows-recomputed N}` | Optional — emitted at end-of-epoch for fast L2 badge / Reactive summary line |
-| **Dispatch-origin tag** | (on existing `:rf.event/dispatched`) | `:tags :rf.event/origin <origin-kw>` per §1.5 taxonomy (landed) | Event panel step 1 · L2 row prefix · filter pills |
-| **Handler-source string** | (on existing handler registry) | Stamp `:source-string` metadata via macro (DEBUG-gated) | Event panel step 3 inline source · §2.2 |
-| **Flow recompute** | `:rf.flow/computed` | `{:flow-id :inputs-changed [...] :rf.trace/dispatch-id <id>}` | Event panel step 4 |
-| **Flow skip** | `:rf.flow/skipped` | `{:flow-id :reason :input-unchanged :rf.trace/dispatch-id <id>}` | Event panel step 4 "dim" rows |
+| **Dispatch-origin tag** | (on existing `:rf.event/dispatched`) | `:tags :rf.event/origin <origin-kw>` per §1.5 taxonomy (landed) | Epoch panel DISPATCH step · L2 row prefix · filter pills |
+| **Handler-source string** | (on existing handler registry) | Stamp `:source-string` metadata via macro (DEBUG-gated) | Epoch panel HANDLER step inline source · §9.1 |
+| **Flow recompute** | `:rf.flow/computed` | `{:flow-id :inputs-changed [...] :rf.trace/dispatch-id <id>}` | Epoch panel FLOW step |
+| **Flow skip** | `:rf.flow/skipped` | `{:flow-id :reason :input-unchanged :rf.trace/dispatch-id <id>}` | Epoch panel FLOW step "dim" rows |
 | **Route phase taxonomy** | (on existing `:rf.route/*`) | Confirm `:tags :phase #{:can-leave :can-enter :on-match :settle}` is consistent | Routing panel §7 |
 
 **Per-substrate adapter work for `:rf.view/rendered`:**
@@ -3413,7 +3419,7 @@ real beads after approving this doc.
 - **rf2-?????** — *Substrate: add `:rf.event/dispatched` `:rf.event/origin` tag.*
   Extend the dispatch macro to stamp `:tags :rf.event/origin <origin-kw>` per the
   §1.5 taxonomy. All call sites in `re-frame.core` + adapter mounts.
-  Gates: Event panel step 1, L2 row prefix, B.10 dispatch-origin display.
+  Gates: Epoch panel DISPATCH step, L2 row prefix, B.10 dispatch-origin display.
 
 - **rf2-?????** — *Substrate: add `:rf.sub/skipped` trace op.* Emit at
   sub-evaluation skip site (input-unchanged short-circuit). Carries
@@ -3430,7 +3436,7 @@ real beads after approving this doc.
   epoch. Gates: L2 badge "cascade size", Reactive header summary line.
 
 - **rf2-?????** — *Substrate: add `:rf.flow/skipped` trace op.* Mirror
-  `:rf.sub/skipped` for flows. Gates: Event panel step 4 dim-row
+  `:rf.sub/skipped` for flows. Gates: Epoch panel FLOW step dim-row
   rendering.
 
 - **rf2-?????** — *Substrate: focused-event-only attribution gate.*
@@ -3441,7 +3447,7 @@ real beads after approving this doc.
 - **rf2-?????** — *Substrate: DEBUG-gated handler source capture
   (B.7 (d) stretch).* Extend `reg-event-{db,fx,ctx}` macros to stamp
   `:source-string` into registry metadata, elided in `goog.DEBUG=false`
-  builds. Gates: Event panel step 3 inline source (§2.2).
+  builds. Gates: Epoch panel HANDLER step inline source (§9.1).
 
 ### Xray panel beads
 
@@ -3450,10 +3456,12 @@ real beads after approving this doc.
   keyword-accent, clickable-paths, expansion-state app-db slot. All
   panels rebind to this renderer. Includes evicted-epoch placeholder.
 
-- **rf2-?????** — *Xray: Event panel — pipeline rendering.* Replace
-  `event_detail.cljs` content with the numbered pipeline (§2). Reads new
-  `:rf.flow/computed` + handler `:origin` tag. Mode-accent stripe (`accent`).
-  Depends on substrate `:origin` + `:rf.flow/computed`.
+- **rf2-?????** — *Xray: Event panel — pipeline rendering.* **(Retired
+  proposal — the Event panel was deleted by rf2-5gl5r and superseded by
+  the §9.1 Epoch panel.)** Replace `event_detail.cljs` content with the
+  numbered pipeline (§2). Reads new `:rf.flow/computed` + handler `:origin`
+  tag. Mode-accent stripe (`accent`). Depends on substrate `:origin` +
+  `:rf.flow/computed`.
 
 - **rf2-?????** — *Xray: Reactive panel rebuild + rename.* Rename L3
   tab display label `Views` → `Reactive` (key stays `:views`). Replace
@@ -3535,7 +3543,7 @@ and are also removed. The accent-stripe-style helper (§17.1.3) is
 still applied to the outer panel container's left border for the
 domain colour stripe; the heading-based stripe is gone.
 
-Typography pass: in-panel sub-headings (e.g. Event panel's section
+Typography pass: in-panel sub-headings (e.g. the Epoch panel's section
 labels like COEFFECTS / HANDLER / EFFECTS) use body type scale (11px
 sans-stack, weight 600, letter-spacing 0.6px, uppercase) — never the
 h1/h2 face.
