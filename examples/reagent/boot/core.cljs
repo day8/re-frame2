@@ -60,9 +60,9 @@
    :title    "Pattern-Boot example app"})
 
 (def ^:private demo-routes
-  [{:id :route/home     :path "/"}
-   {:id :route/about    :path "/about"}
-   {:id :route/settings :path "/settings"}])
+  [{:id :boot.demo/home     :path "/"}
+   {:id :boot.demo/about    :path "/about"}
+   {:id :boot.demo/settings :path "/settings"}])
 
 (def ^:private demo-flags
   {:dark-mode?       false

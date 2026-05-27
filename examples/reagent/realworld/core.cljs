@@ -102,20 +102,20 @@
         user    @(subscribe [:auth/user])]
     [:nav.navbar.navbar-light
      [:div.container
-      [rf/route-link {:to :route/home :class "navbar-brand"} "conduit"]
+      [rf/route-link {:to :conduit/home :class "navbar-brand"} "conduit"]
       [:ul.nav.navbar-nav.pull-xs-right
        [:li.nav-item
-        [rf/route-link {:to :route/home :class "nav-link"} "Home"]]
+        [rf/route-link {:to :conduit/home :class "nav-link"} "Home"]]
        (if authed?
          [:<>
           [:li.nav-item
-           [rf/route-link {:to :route/editor :class "nav-link"}
+           [rf/route-link {:to :conduit.editor/new :class "nav-link"}
             [:i.ion-compose] " New Article"]]
           [:li.nav-item
-           [rf/route-link {:to :route/settings :class "nav-link"}
+           [rf/route-link {:to :conduit.user/settings :class "nav-link"}
             [:i.ion-gear-a] " Settings"]]
           [:li.nav-item
-           [rf/route-link {:to :route/profile
+           [rf/route-link {:to :conduit.profile/show
                                 :params {:username (:username user)}
                                 :class "nav-link"
                                 :data-testid "nav-username"}
@@ -128,12 +128,12 @@
             "Logout"]]]
          [:<>
           [:li.nav-item
-           [rf/route-link {:to :route/login
+           [rf/route-link {:to :conduit.auth/login
                                 :class "nav-link"
                                 :data-testid "nav-signin"}
             "Sign in"]]
           [:li.nav-item
-           [rf/route-link {:to :route/register
+           [rf/route-link {:to :conduit.auth/register
                                 :class "nav-link"
                                 :data-testid "nav-signup"}
             "Sign up"]]])]]]))
@@ -141,7 +141,7 @@
 (reg-view footer []
   [:footer
    [:div.container
-    [rf/route-link {:to :route/home :class "logo-font"} "conduit"]
+    [rf/route-link {:to :conduit/home :class "logo-font"} "conduit"]
     [:span.attribution "An interactive learning project from Thinkster."
      " Code & design licensed under MIT."]]])
 
@@ -162,7 +162,7 @@
     [:div.not-found-page
      [:h1 "Page not found"]
      (when url [:p (str "No route matches: " url)])
-     [rf/route-link {:to :route/home} "Home"]]))
+     [rf/route-link {:to :conduit/home} "Home"]]))
 
 (reg-view ^{:doc "App-level root. Switches on :rf.route/id to render the active page."}
           root-view []
@@ -170,15 +170,15 @@
    [header]
    [pending-nav-dialog]
    (case @(subscribe [:rf.route/id])
-     :route/home              [articles/home-page]
-     :route/login             [auth/login-page]
-     :route/register          [auth/register-page]
-     :route/article           [comments/article-page]
-     :route/editor            [editor/editor-page]
-     :route/editor.edit       [editor/editor-page]
-     :route/profile           [profile/profile-page]
-     :route/profile.favorites [profile/profile-page]
-     :route/settings          [settings/settings-page]
+     :conduit/home              [articles/home-page]
+     :conduit.auth/login             [auth/login-page]
+     :conduit.auth/register          [auth/register-page]
+     :conduit.article/show           [comments/article-page]
+     :conduit.editor/new            [editor/editor-page]
+     :conduit.editor/edit       [editor/editor-page]
+     :conduit.profile/show           [profile/profile-page]
+     :conduit.profile/favorites [profile/profile-page]
+     :conduit.user/settings          [settings/settings-page]
      [not-found-page])
    [footer]])
 
@@ -388,7 +388,7 @@
   ;; for all non-navigation events and redirects unauthenticated
   ;; `:rf.route/navigate` to `:requires-auth`-tagged routes to login (Spec
   ;; 012 §Redirects and guards). This is what makes the `:requires-auth`
-  ;; tags on :route/settings / :route/editor / :route/editor.edit actually
+  ;; tags on :conduit.user/settings / :conduit.editor/new / :conduit.editor/edit actually
   ;; protect those routes.
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
                              :interceptors [routing/auth-guard]
@@ -398,7 +398,7 @@
   ;; authenticated requests as soon as the JWT is hydrated.
   (rf/reg-http-interceptor :realworld/bearer-auth bearer-auth-interceptor)
   ;; The orchestrator serves this example at /realworld/; strip that
-  ;; prefix before the route matcher sees the URL so :route/home (path "/")
+  ;; prefix before the route matcher sees the URL so :conduit/home (path "/")
   ;; matches.
   (routing/set-base-path! "/realworld")
   (rf/dispatch-sync [:app/initialise])

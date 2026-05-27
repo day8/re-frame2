@@ -75,8 +75,8 @@
    :title    "Boot test app"})
 
 (def ^:private test-routes
-  [{:id :route/home  :path "/"}
-   {:id :route/about :path "/about"}])
+  [{:id :boot.demo/home  :path "/"}
+   {:id :boot.demo/about :path "/about"}])
 
 (def ^:private test-flags
   {:dark-mode?       true

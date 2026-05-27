@@ -51,7 +51,7 @@
 ;;   :tab    — which list of articles is rendered (authored vs favorited).
 ;;             Driven by `:show-articles` / `:show-favorites` broadcasts
 ;;             from the route's `:on-match` (see `routing.cljs`'s
-;;             `:route/profile` and `:route/profile.favorites`). The
+;;             `:conduit.profile/show` and `:conduit.profile/favorites`). The
 ;;             state-keyword tells the view which app-db slice's items
 ;;             to render.
 ;;
@@ -405,7 +405,7 @@
          [:h4 (:username profile)]
          [:p (:bio profile)]
          (if own?
-           [rf/route-link {:to :route/settings
+           [rf/route-link {:to :conduit.user/settings
                                 :class "btn btn-sm btn-outline-secondary action-btn"}
             [:i.ion-gear-a] " Edit Profile Settings"]
            [:button.btn.btn-sm.btn-outline-secondary.action-btn
@@ -421,12 +421,12 @@
         [:div.articles-toggle
          [:ul.nav.nav-pills.outline-active
           [:li.nav-item
-           [rf/route-link {:to     :route/profile
+           [rf/route-link {:to     :conduit.profile/show
                                 :params {:username (:username profile)}
                                 :class  (str "nav-link" (when-not on-favs? " active"))}
             "My Articles"]]
           [:li.nav-item
-           [rf/route-link {:to     :route/profile.favorites
+           [rf/route-link {:to     :conduit.profile/favorites
                                 :params {:username (:username profile)}
                                 :class  (str "nav-link" (when on-favs? " active"))}
             "Favorited Articles"]]]]

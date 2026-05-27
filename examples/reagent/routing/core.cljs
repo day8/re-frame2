@@ -26,15 +26,15 @@
 ;; ROUTES
 ;; ============================================================================
 
-(rf/reg-route :route/home
+(rf/reg-route :routing.app/home
   {:doc  "Landing page."
    :path "/"})
 
-(rf/reg-route :route/articles
+(rf/reg-route :routing.app/articles
   {:doc  "Articles list."
    :path "/articles"})
 
-(rf/reg-route :route/article-detail
+(rf/reg-route :routing.app/article-detail
   {:doc    "Detail page for one article."
    :path   "/articles/:id"
    :params [:map [:id :string]]})
@@ -77,7 +77,7 @@
 (reg-view home-page []
   [:div
    [:h1 "Welcome"]
-   [:p [rf/route-link {:to :route/articles
+   [:p [rf/route-link {:to :routing.app/articles
                        :data-testid "route-link-articles"}
         "See the articles →"]]])
 
@@ -87,7 +87,7 @@
    [:ul
     (for [{:keys [id title]} @(subscribe [:articles])]
       ^{:key id}
-      [:li [rf/route-link {:to :route/article-detail
+      [:li [rf/route-link {:to :routing.app/article-detail
                            :params {:id id}
                            :data-testid (str "route-link-article-" id)}
             title]])]])
@@ -99,12 +99,12 @@
       [:div
        [:h1 (:title article)]
        [:p (:body article)]
-       [:p [rf/route-link {:to :route/articles
+       [:p [rf/route-link {:to :routing.app/articles
                            :data-testid "route-link-back-to-articles"}
             "← Back"]]]
       [:div
        [:p "Article not found."]
-       [:p [rf/route-link {:to :route/articles
+       [:p [rf/route-link {:to :routing.app/articles
                            :data-testid "route-link-back-to-articles"}
             "← Back"]]])))
 
@@ -113,15 +113,15 @@
     [:div
      [:h1 "Not found"]
      [:p (str "No route matches: " url)]
-     [:p [rf/route-link {:to :route/home
+     [:p [rf/route-link {:to :routing.app/home
                          :data-testid "route-link-home"}
           "Home"]]]))
 
 (reg-view root-view []
   (case @(subscribe [:rf.route/id])
-    :route/home           [home-page]
-    :route/articles       [articles-page]
-    :route/article-detail [article-detail-page]
+    :routing.app/home           [home-page]
+    :routing.app/articles       [articles-page]
+    :routing.app/article-detail [article-detail-page]
     :rf.route/not-found   [not-found-page]
     [not-found-page]))
 
