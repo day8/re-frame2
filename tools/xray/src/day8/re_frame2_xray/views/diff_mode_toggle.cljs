@@ -186,6 +186,22 @@
     :full+diff "full-with-diff"
     (name m)))
 
+(defn- make-on-click
+  "Factor the per-button `:on-click` so closure identity is stable per
+  `(on-change, m)` pair across renders (rf2-ihjnx). Inline lambdas in
+  the button hiccup mint three fresh closures per toggle render; React's
+  reconciler then re-writes the `onclick` DOM prop even when nothing
+  changed because function identity differs. With a named-fn factor
+  the closures are still per-render allocations, but the surface is now
+  the canonical place to memoise if a future audit lifts that.
+
+  Pure: takes `on-change` + `m`, returns an event handler that stops
+  propagation then calls `(on-change m)`."
+  [on-change m]
+  (fn [e]
+    (.stopPropagation e)
+    (on-change m)))
+
 ;; =========================================================================
 ;; widget
 ;; =========================================================================
@@ -241,9 +257,10 @@
                ^{:key (name m)}
                [:button {:data-testid (str testid "-" (mode-testid-suffix m))
                          :aria-pressed (str active?)
-                         :on-click (fn [e]
-                                     (.stopPropagation e)
-                                     (on-change m))
+                         ;; rf2-ihjnx — closure construction factored
+                         ;; out of the inline hiccup so the on-click
+                         ;; site is the canonical place to memoise.
+                         :on-click (make-on-click on-change m)
                          :style (if active?
                                   mode-toggle-button-active-style
                                   mode-toggle-button-inactive-style)}
