@@ -1010,14 +1010,17 @@
    :font-size      "12px"})
 
 (def ^:private schema-violation-title-style
+  ;; Mixed case per rf2-2ek7t — the title reads "Schema Violation
+  ;; Error" rather than "SCHEMA VIOLATION". The recovery chip
+  ;; (rollback variant) carries the alert tone; uppercase here
+  ;; would compound visual noise without aiding legibility.
   {:display     "flex"
    :align-items "center"
    :gap         "8px"
    :color       warning-colour
    :font-weight 700
-   :font-size   "11px"
-   :text-transform "uppercase"
-   :letter-spacing "0.5px"})
+   :font-size   "12px"
+   :letter-spacing "0.2px"})
 
 (def ^:private schema-violation-title-spacer-style
   {:flex 1})
@@ -3330,12 +3333,17 @@
     (when (keyword? where) (name where))))
 
 (defn- violation-recovery-label
-  "Render the recovery posture chip on a violation's title bar."
+  "Render the recovery posture chip on a violation's title bar.
+  Per rf2-2ek7t — short chip text; the prose sentence below carries
+  the full explanation ('commit to app-db', 'this sub returned
+  nil', etc.) so the chip can be tight."
   [where rollback? recovery]
   (cond
-    rollback?              "Commit to app-db aborted"
-    (= where :fx-args)     "fx skipped"
-    (= where :sub-return)  "returned nil"
+    rollback?              "Aborted"
+    (= where :fx-args)     "Skipped"
+    (= where :sub-return)  "Returned nil"
+    (= where :event)       "Rejected"
+    (= where :cofx)        "Skipped"
     (= where :hot-reload)  "logged + skipped"
     (keyword? recovery)    (name recovery)
     :else                  nil))
@@ -3392,35 +3400,119 @@
     :sub-return  :sub
     nil))
 
-(defn violation-block
-  "Render one schema-violation sub-block (rf2-xgeag). Pink-wash card
-  carrying:
+(def ^:private violation-prose-style
+  {:color       (:text-primary tokens)
+   :font-size   "12px"
+   :line-height 1.5
+   :margin      "4px 0"})
 
-    - Title (⚠ SCHEMA VIOLATION) + right-aligned recovery chip
-    - Headline (`<where-label> · <failing-id>`)
-    - Path (when present)
-    - Failing value (already redacted upstream when `:sensitive?`)
-    - Two click-to-source links (failing handler + schema name)
-    - Full-explain map (rendered inline via `ei/mini`)"
-  [step-key idx {:keys [where failing-id path value sensitive?
-                        rollback? recovery explain kind] :as _row}]
-  (let [where-label    (schema-violation-where-label where)
-        recovery-label (violation-recovery-label where rollback? recovery)
-        handler-kind   (where->handler-kind where)
-        handler-coord  (when handler-kind
-                         (violation-kind-coord handler-kind failing-id))
-        schema-coord   (violation-kind-coord :schema failing-id)
-        testid-base    (str "rf-xray-epoch-violation-" (name (or step-key :unknown)) "-" idx)]
+(def ^:private violation-inline-link-style
+  {:color           (:accent tokens)
+   :background      "transparent"
+   :border          "none"
+   :padding         0
+   :font            "inherit"
+   :cursor          "pointer"
+   :text-decoration "underline"})
+
+(defn- violation-inline-link
+  "Render the inline `[schema check]` link inside a violation prose
+  sentence (rf2-2ek7t). When `coord` resolves, the text is a clickable
+  button that dispatches `:rf.xray/open-in-editor`; absent a coord,
+  it degrades to plain inline text so the sentence stays readable."
+  [{:keys [label coord testid]}]
+  (if (and (map? coord) (string? (:file coord)) (seq (:file coord)))
+    [:button {:data-testid testid
+              :type        "button"
+              :on-click    (fn [^js e]
+                             (.stopPropagation e)
+                             (rf/dispatch [:rf.xray/open-in-editor
+                                           {:source-coord coord}]
+                                          {:frame :rf/xray}))
+              :style       violation-inline-link-style}
+     label]
+    [:span {:data-testid testid} label]))
+
+(defn- violation-prose
+  "Per-`:where` natural-language sentence with an inline `schema check`
+  link (rf2-2ek7t). Each `:where` value has its own canned prose so
+  the operator reads a one-sentence explanation of what happened +
+  why, with the schema source-coord one click away."
+  [where schema-coord testid-base]
+  (let [link (violation-inline-link
+               {:label  "schema check"
+                :coord  schema-coord
+                :testid (str testid-base "-schema-link")})]
+    [:p {:data-testid (str testid-base "-prose")
+         :style       violation-prose-style}
+     (case where
+       :app-db     [:<> "This value failed a " link
+                    " and can't be committed to app-db."]
+       :fx-args    [:<> "fx aborted because args failed the " link "."]
+       :sub-return [:<> "This sub returned nil because its value failed the "
+                    link "."]
+       :event      [:<> "This event was rejected because its payload failed the "
+                    link "."]
+       :cofx       [:<> "This handler was skipped because the coeffect failed the "
+                    link "."]
+       :hot-reload [:<> "A schema re-registration invalidated existing app-db state. "
+                    "See " link " for the new shape."]
+       [:<> "Schema violation. " link " for details."])]))
+
+(defn violation-block
+  "Render one schema-violation sub-block (rf2-2ek7t redesign,
+  supersedes rf2-xgeag).
+
+  Three pieces of content:
+
+    1. Title bar: ⚠ + 'Schema Violation Error' + right-aligned
+       recovery chip (per-`:where` text: 'Aborted' / 'Skipped' /
+       'Returned nil' / 'Rejected').
+    2. Prose sentence: per-`:where` canned natural-language
+       explanation, with an inline `schema check` link to the
+       schema's source registration.
+    3. Humanized explain map: rendered inline via `ei/mini`. Reads
+       `:explain-humanized` from the row (Malli adapter populates
+       via `malli.error/humanize` per rf2-2ek7t framework piece);
+       falls back to raw `:explain` when humanized isn't there
+       (non-Malli validators, or framework predating rf2-2ek7t).
+
+  Previously-discrete fields (headline `where · failing-id`, path,
+  value, separate handler + schema 'open' buttons) all retired —
+  subsumed by the prose + humanized explain."
+  [step-key idx {:keys [where failing-id path rollback? recovery
+                        explain explain-humanized kind sensitive?]
+                 :as   _row}]
+  (let [recovery-label  (violation-recovery-label where rollback? recovery)
+        ;; The schema source-coord resolution varies by :where. For
+        ;; `:app-db`, the schema is registered at a PATH (not
+        ;; keyword-id), so we read through `:schemas/app-schema-meta-at`
+        ;; — the same hook the framework's schema-introspection surface
+        ;; uses (rf2-mg6ya). For other `:where` values, the schema
+        ;; rides on the registration's `:schema` metadata, reachable
+        ;; via `handler-meta`. Both paths catch + return nil so missing
+        ;; coords degrade the inline link to plain text.
+        schema-coord    (or (when (and (= :app-db where) (sequential? path))
+                              (try (let [m (rf/app-schema-meta-at path)]
+                                     (when (and m (string? (:file m)))
+                                       {:file (:file m) :line (:line m)}))
+                                   (catch :default _ nil)))
+                            (when failing-id
+                              (violation-kind-coord :schema failing-id)))
+        humanized-shown (or explain-humanized explain)
+        testid-base     (str "rf-xray-epoch-violation-"
+                             (name (or step-key :unknown)) "-" idx)]
     [:div {:key (str "violation-" step-key "-" idx)
            :data-testid testid-base
            :data-violation-where (when where (name where))
            :data-violation-kind (when kind (name kind))
            :data-rollback (str (boolean rollback?))
            :style schema-violation-block-style}
-     ;; Title bar
+     ;; 1. Title bar
      [:div {:style schema-violation-title-style}
       [:span {:aria-hidden true} "⚠"]
-      [:span {:data-testid (str testid-base "-title")} "SCHEMA VIOLATION"]
+      [:span {:data-testid (str testid-base "-title")}
+       "Schema Violation Error"]
       [:span {:style schema-violation-title-spacer-style}]
       (when recovery-label
         [:span {:data-testid (str testid-base "-recovery")
@@ -3428,51 +3520,19 @@
                          schema-violation-rollback-chip-style
                          schema-violation-recovery-chip-style)}
          recovery-label])]
-     ;; Headline
-     [:div {:data-testid (str testid-base "-headline")
-            :style schema-violation-headline-style}
-      where-label
-      (when failing-id
-        [:<>
-         [:span " · "]
-         [:span {:style schema-violation-headline-id-style}
-          (proj/ns-keyword failing-id)]])]
-     ;; Path
-     (when (sequential? path)
-       [:div {:data-testid (str testid-base "-path")
-              :style schema-violation-line-style}
-        [:span {:style schema-violation-line-label-style} "path:"]
-        [:span {:style schema-violation-line-value-style}
-         (proj/path-display path)]])
-     ;; Failing value
-     (when (some? value)
-       [:div {:data-testid (str testid-base "-value")
-              :style schema-violation-line-style}
-        [:span {:style schema-violation-line-label-style} "value:"]
-        [:span {:style schema-violation-line-value-style}
-         [ei/mini value 80]]])
-     ;; Sensitive marker
-     (when sensitive?
-       [:div {:style schema-violation-sensitive-style}
-        "(value redacted — slot declared :sensitive?)"])
-     ;; Click-to-source actions
-     (when (or handler-kind schema-coord)
-       [:div {:style schema-violation-actions-style}
-        (when handler-kind
-          (violation-open-source-action
-            {:label  (str "open " (when failing-id (proj/ns-keyword failing-id)))
-             :coord  handler-coord
-             :testid (str testid-base "-open-handler")}))
-        (when (some? failing-id)
-          (violation-open-source-action
-            {:label  (str "open schema " (proj/ns-keyword failing-id))
-             :coord  schema-coord
-             :testid (str testid-base "-open-schema")}))])
-     ;; Full explain map
-     (when (some? explain)
+     ;; 2. Prose sentence with inline schema link
+     (violation-prose where schema-coord testid-base)
+     ;; 3. Humanized explain map (or raw fallback)
+     (when (some? humanized-shown)
        [:div {:data-testid (str testid-base "-explain")
               :style schema-violation-explain-body-style}
-        [ei/mini explain 120]])]))
+        [ei/mini humanized-shown 120]])
+     ;; Sensitive marker — keep as compact tail when applicable so
+     ;; operators reading the humanized output know the value was
+     ;; redacted at the substrate emit site (not a humanizer artifact).
+     (when sensitive?
+       [:div {:style schema-violation-sensitive-style}
+        "(value redacted — slot declared :sensitive?)"])]))
 
 (defn violation-blocks
   "Render every violation in `violations` as a sub-block inside the

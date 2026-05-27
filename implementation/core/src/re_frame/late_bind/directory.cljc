@@ -205,6 +205,14 @@
     :producer-ns 're-frame.schemas.malli
     :design-bead "rf2-t0hq"
     :description "Default-installed Malli explainer (malli.core/explain)."}
+   {:key         :schemas/humanize-explain!
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-2ek7t"
+    :description "Humanize the raw m/explain output into operator-readable shape. Per-validator adapters install their own humanizer; Malli's installs (malli.error/humanize ...). Absent the hook, the substrate ships only :explain (raw); Xray's violation block falls back to the raw map. Consulted by validate.cljc's emit-validation-failure! helper when building the :rf.error/schema-validation-failure trace payload — augments tags with :explain-humanized when present."}
+   {:key         :schemas/malli-humanize
+    :producer-ns 're-frame.schemas.malli
+    :design-bead "rf2-2ek7t"
+    :description "Default-installed Malli humanizer (malli.error/humanize). Consulted by re-frame.schemas/humanize-explain! through the standard validator-fn extension point — the same opt-in pattern as :schemas/malli-validate / :schemas/malli-explain. Apps that load re-frame.schemas.malli get the humanized payload on every schema-validation-failure trace event automatically."}
    {:key         :schemas/extract-large-paths-from-schema
     :producer-ns 're-frame.schemas
     :design-bead "rf2-nwv63"

@@ -1238,18 +1238,26 @@
   [ev]
   (let [op-kw (op ev)
         tags  (:tags ev)]
-    (cond-> {:kind        op-kw
-             :where       (or (:where tags)
-                              (when (= :rf.schema/violation op-kw) :hot-reload))
-             :path        (:path tags)
-             :failing-id  (or (:failing-id tags)
-                              (when (= :rf.schema/violation op-kw)
-                                (:frame tags)))
-             :value       (or (:value tags) (:mismatching-value tags))
-             :explain     (:explain tags)
-             :rollback?   (boolean (:rollback? tags))
-             :recovery    (:recovery tags)
-             :sensitive?  (boolean (:sensitive? tags))}
+    (cond-> {:kind               op-kw
+             :where              (or (:where tags)
+                                     (when (= :rf.schema/violation op-kw) :hot-reload))
+             :path               (:path tags)
+             :failing-id         (or (:failing-id tags)
+                                     (when (= :rf.schema/violation op-kw)
+                                       (:frame tags)))
+             :value              (or (:value tags) (:mismatching-value tags))
+             :explain            (:explain tags)
+             ;; rf2-2ek7t — when the substrate's humanize hook is
+             ;; installed (Malli adapter ships malli.error/humanize
+             ;; under :schemas/humanize-explain!), the trace event
+             ;; carries a humanized version of the explain map.
+             ;; View prefers this for display; falls back to :explain
+             ;; when absent (non-Malli validators, or framework
+             ;; predating rf2-2ek7t).
+             :explain-humanized  (:explain-humanized tags)
+             :rollback?          (boolean (:rollback? tags))
+             :recovery           (:recovery tags)
+             :sensitive?         (boolean (:sensitive? tags))}
       (= :rf.schema/violation op-kw)
       (assoc :pre-reload-schema  (:pre-reload-schema tags)
              :post-reload-schema (:post-reload-schema tags)

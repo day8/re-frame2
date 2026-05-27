@@ -45,6 +45,7 @@
       install a custom validator.
     - Call `(rf/set-schema-validator! nil)` for a hard no-op."
   (:require [malli.core]
+            [malli.error]
             [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -60,5 +61,15 @@
 ;; default validator pair without a code change to the schemas
 ;; namespace.
 
-(late-bind/set-fn! :schemas/malli-validate malli.core/validate)
-(late-bind/set-fn! :schemas/malli-explain  malli.core/explain)
+(late-bind/set-fn! :schemas/malli-validate  malli.core/validate)
+(late-bind/set-fn! :schemas/malli-explain   malli.core/explain)
+(late-bind/set-fn! :schemas/malli-humanize  malli.error/humanize)
+
+;; rf2-2ek7t — also publish the canonical :schemas/humanize-explain!
+;; hook so consumers (Xray's violation block, future tools) read
+;; through ONE seam regardless of which validator's adapter is
+;; loaded. When malli is the registered validator + this adapter ns
+;; is loaded, the canonical hook routes to malli.error/humanize.
+;; Non-Malli adapters (e.g. .zod / .pydantic) register their own
+;; humanizer under the same canonical hook key.
+(late-bind/set-fn! :schemas/humanize-explain! malli.error/humanize)

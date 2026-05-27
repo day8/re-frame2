@@ -77,6 +77,7 @@
   (:require [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.validator :as validator]
             [re-frame.schemas.walker :as walker]
@@ -199,6 +200,26 @@
   (str subject id-or-path slot-tail (pr-str schema)
        ", got " (error/type-of-value value) "."))
 
+(defn- emit-validation-failure!
+  "Single emit seam for `:rf.error/schema-validation-failure` traces.
+  Augments `tags` with `:explain-humanized` when the
+  `:schemas/humanize-explain!` late-bind hook is present + an
+  `:explain` slot is in `tags` (per rf2-2ek7t). Centralises the
+  trace emit so consumers (Xray's violation block, future tools)
+  always see the humanized payload when the registered validator
+  ships one — no per-call-site coordination needed.
+
+  Failures inside the humanizer degrade silently (humanize is a
+  cosmetic enrichment; a thrown humanizer can't suppress the
+  failure trace itself)."
+  [tags]
+  (let [humanized (when-let [hum-fn (late-bind/get-fn :schemas/humanize-explain!)]
+                    (when-let [exp (:explain tags)]
+                      (try (hum-fn exp) (catch #?(:clj Throwable :cljs :default) _ nil))))
+        tags*     (cond-> tags
+                    (some? humanized) (assoc :explain-humanized humanized))]
+    (trace/emit-error! :rf.error/schema-validation-failure tags*)))
+
 (defn- run-validation
   "Shared core of the four meta-bearing validate-*! fns (event / cofx /
   fx / sub). Performs the registered-validator deref, the
@@ -256,7 +277,7 @@
                                    (walker/schema-has-sensitive? schema)))
               base-tags   (build-base-tags schema explanation)
               tags        (cond-> base-tags sensitive? redact-tags)]
-          (trace/emit-error! :rf.error/schema-validation-failure tags)
+          (emit-validation-failure! tags)
           false))
       true)
     true))
@@ -395,7 +416,7 @@
                                             :recovery        :no-recovery}
                                      event-id (assoc :failing-id event-id))
                        tags        (if sensitive? (redact-tags base-tags) base-tags)]
-                   (trace/emit-error! :rf.error/schema-validation-failure tags)
+                   (emit-validation-failure! tags)
                    (recur (next entries) false)))))
            ok?))
        true)
