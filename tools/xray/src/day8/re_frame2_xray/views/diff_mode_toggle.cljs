@@ -186,21 +186,31 @@
     :full+diff "full-with-diff"
     (name m)))
 
-(defn- make-on-click
-  "Factor the per-button `:on-click` so closure identity is stable per
-  `(on-change, m)` pair across renders (rf2-ihjnx). Inline lambdas in
-  the button hiccup mint three fresh closures per toggle render; React's
-  reconciler then re-writes the `onclick` DOM prop even when nothing
-  changed because function identity differs. With a named-fn factor
-  the closures are still per-render allocations, but the surface is now
-  the canonical place to memoise if a future audit lifts that.
+(def ^:private make-on-click
+  "Per-button `:on-click` handler factory with stable closure identity
+  per `(on-change, m)` pair across renders (rf2-ihjnx / rf2-a7vkv).
+
+  Each toggle render mounts three buttons; without memoisation each
+  render would mint three fresh closures and React's reconciler would
+  re-write the DOM `onclick` prop even when nothing changed (function
+  identity differs). `memoize` keyed on `[on-change m]` collapses
+  repeat renders to the cached handler.
+
+  Cache growth: bounded by the number of distinct `(on-change, m)`
+  pairs the program ever passes — typically one `on-change` per
+  consumer site (App-DB, Machine Inspector, two Epoch surfaces) times
+  three modes = 12 entries at steady state across the entire session.
+  Callers that mint a fresh `on-change` per render (anti-pattern) will
+  grow the cache linearly with renders — that is a caller bug; the
+  memoise here doesn't paper over it but doesn't amplify it either.
 
   Pure: takes `on-change` + `m`, returns an event handler that stops
   propagation then calls `(on-change m)`."
-  [on-change m]
-  (fn [e]
-    (.stopPropagation e)
-    (on-change m)))
+  (memoize
+    (fn [on-change m]
+      (fn [e]
+        (.stopPropagation e)
+        (on-change m)))))
 
 ;; =========================================================================
 ;; widget

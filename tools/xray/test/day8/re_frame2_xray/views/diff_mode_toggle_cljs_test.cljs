@@ -263,6 +263,52 @@
                    tree "rf-xray-test-diff-mode-full-with-diff"))
           "omitted modes do not paint"))))
 
+;; ---- (7b) on-click closure identity is stable across renders (rf2-a7vkv) ----
+
+(deftest diff-mode-toggle-on-click-identity-stable-across-renders
+  (testing "rf2-a7vkv — `make-on-click` is `memoize`-cached on
+            `[on-change m]`, so two renders of the toggle with the
+            same `on-change` reference yield BYTE-IDENTICAL :on-click
+            handlers per button. React's reconciler skips re-writing
+            the DOM onclick prop when function identity matches."
+    (let [on-change (fn [_])
+          render1 (widget/diff-mode-toggle
+                    {:mode :diff
+                     :on-change on-change
+                     :testid "rf-xray-test-diff-mode"})
+          render2 (widget/diff-mode-toggle
+                    {:mode :diff
+                     :on-change on-change
+                     :testid "rf-xray-test-diff-mode"})
+          h1 (:on-click (second
+                          (th/find-by-testid
+                            render1 "rf-xray-test-diff-mode-diff")))
+          h2 (:on-click (second
+                          (th/find-by-testid
+                            render2 "rf-xray-test-diff-mode-diff")))]
+      (is (identical? h1 h2)
+          "same on-change + same mode kw → cached on-click handler
+           reused across renders"))))
+
+(deftest diff-mode-toggle-on-click-identity-differs-per-mode
+  (testing "rf2-a7vkv — the memoise key is `[on-change m]` so each
+            mode kw gets its own cached handler. Two buttons in the
+            SAME render must have DIFFERENT on-click identities, else
+            clicking :full would dispatch :diff."
+    (let [on-change (fn [_])
+          tree (widget/diff-mode-toggle
+                 {:mode :diff
+                  :on-change on-change
+                  :testid "rf-xray-test-diff-mode"})
+          h-diff (:on-click (second
+                              (th/find-by-testid
+                                tree "rf-xray-test-diff-mode-diff")))
+          h-full (:on-click (second
+                              (th/find-by-testid
+                                tree "rf-xray-test-diff-mode-full")))]
+      (is (not (identical? h-diff h-full))
+          "different mode kws → different cached handlers"))))
+
 ;; ---- (8) on-click stops event propagation (rf2-eko4v) -------------------
 
 (deftest diff-mode-toggle-on-click-stops-propagation
