@@ -295,7 +295,7 @@
     [:div.card {:data-testid (str "comment-card-" (:id comment))}
      [:div.card-block [:p.card-text {:data-testid "comment-body"} (:body comment)]]
      [:div.card-footer
-      [rf/route-link {:to     :conduit.profile/show
+      [rf/route-link {:to     :realworld.profile/show
                            :params {:username (get-in comment [:author :username])}
                            :class  "comment-author"}
        [:img.comment-author-img {:src (get-in comment [:author :image])}]
@@ -353,7 +353,7 @@
               [:li.tag-default.tag-pill.tag-outline tag])]]]
          [:hr]
          [:div.article-actions
-          [rf/route-link {:to :conduit/home} "Back to feed"]]
+          [rf/route-link {:to :realworld/home} "Back to feed"]]
          [:div.row
           [:div.col-xs-12.col-md-8.offset-md-2
            (if current-user
@@ -382,9 +382,9 @@
               (when submit-error
                 [:div.error-messages submit-error])]
              [:p
-              [rf/route-link {:to :conduit.auth/login} "Sign in"]
+              [rf/route-link {:to :realworld.auth/login} "Sign in"]
               " or "
-              [rf/route-link {:to :conduit.auth/register} "sign up"]
+              [rf/route-link {:to :realworld.auth/register} "sign up"]
               " to add comments."])
            (when comments-error
              [:div.article-preview.error

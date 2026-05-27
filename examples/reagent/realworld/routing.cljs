@@ -26,7 +26,7 @@
 ;; ROUTES
 ;; ============================================================================
 
-(rf/reg-route :conduit/home
+(rf/reg-route :realworld/home
   {:doc      "The landing page: global feed, your feed, and optional tag filter."
    :path     "/"
    :query    [:map
@@ -35,28 +35,28 @@
    :on-match [[:home/load]]
    :scroll   :top})
 
-(rf/reg-route :conduit.auth/login
+(rf/reg-route :realworld.auth/login
   {:doc  "Login page."
    :path "/login"})
 
-(rf/reg-route :conduit.auth/register
+(rf/reg-route :realworld.auth/register
   {:doc  "Register page."
    :path "/register"})
 
-(rf/reg-route :conduit.user/settings
+(rf/reg-route :realworld.user/settings
   {:doc  "User settings page (requires auth)."
    :path "/settings"
    :on-match [[:settings/load]]
    :tags #{:requires-auth}})
 
-(rf/reg-route :conduit.editor/new
+(rf/reg-route :realworld.editor/new
   {:doc       "Create a new article (requires auth)."
    :path      "/editor"
    :tags      #{:requires-auth}
    :on-match  [[:editor/initialise]]
    :can-leave [:editor/can-leave?]})
 
-(rf/reg-route :conduit.editor/edit
+(rf/reg-route :realworld.editor/edit
   {:doc       "Edit an existing article (requires auth)."
    :path      "/editor/:slug"
    :params    [:map [:slug :string]]
@@ -64,7 +64,7 @@
    :can-leave [:editor/can-leave?]
    :on-match  [[:editor/load-article]]})
 
-(rf/reg-route :conduit.article/show
+(rf/reg-route :realworld.article/show
   {:doc      "Article detail page. The #comments fragment scrolls to comments."
    :path     "/article/:slug"
    :params   [:map [:slug :string]]
@@ -72,14 +72,14 @@
               [:comments/load]]
    :scroll   :top})
 
-(rf/reg-route :conduit.profile/show
+(rf/reg-route :realworld.profile/show
   {:doc      "A user's profile — articles they authored."
    :path     "/profile/:username"
    :params   [:map [:username :string]]
    :on-match [[:profile/load]
               [:profile.articles/load]]})
 
-(rf/reg-route :conduit.profile/favorites
+(rf/reg-route :realworld.profile/favorites
   {:doc      "A user's profile — articles they have favorited."
    :path     "/profile/:username/favorites"
    :params   [:map [:username :string]]
@@ -98,7 +98,7 @@
 ;; not a special routing mechanism. Guards are plain interceptors; they
 ;; compose, and multiple guards can layer. This one redirects
 ;; unauthenticated users away from any route tagged `:requires-auth`
-;; (`:conduit.user/settings`, `:conduit.editor/new`, `:conduit.editor/edit`) to the login
+;; (`:realworld.user/settings`, `:realworld.editor/new`, `:realworld.editor/edit`) to the login
 ;; page, stashing the original target under `:return-to` so a post-login
 ;; handler could bounce the user back.
 ;;
@@ -114,7 +114,7 @@
 ;; tests exercise.)
 
 (def auth-guard
-  {:id     :conduit.routing/auth-guard
+  {:id     :realworld.routing/auth-guard
    :before (fn auth-guard-before [ctx]
              (let [event (get-in ctx [:coeffects :event])]
                (if (= :rf.route/navigate (first event))
@@ -127,7 +127,7 @@
                      ;; `:rf.route/navigate` is [_ target params opts]; the
                      ;; original target rides through under :return-to.
                      (assoc-in ctx [:coeffects :event]
-                               [:rf.route/navigate :conduit.auth/login {} {:return-to target}])
+                               [:rf.route/navigate :realworld.auth/login {} {:return-to target}])
                      ctx))
                  ctx)))})
 
@@ -135,7 +135,7 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-(rf/reg-sub :conduit.routing/pending-navigation
+(rf/reg-sub :realworld.routing/pending-navigation
   (fn [db _] (:rf/pending-navigation db)))
 
 ;; ============================================================================

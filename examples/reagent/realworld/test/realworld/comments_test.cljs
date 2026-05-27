@@ -18,7 +18,7 @@
   ;; URL-routed stub: the article-detail page issues two requests
   ;; (`/articles/:slug` and `/articles/:slug/comments`); pick the canned
   ;; payload from the URL.
-  (th/reg-canned-success-by-url! :conduit.test/canned-article-and-comments
+  (th/reg-canned-success-by-url! :realworld.test/canned-article-and-comments
                                  (fn [url]
                                    (cond
                                      (str/ends-with? url "/comments")
@@ -41,7 +41,7 @@
                                                 :author {:username "alice" :bio nil :image nil :following false}}})))
 
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:rf.http/managed :conduit.test/canned-article-and-comments}})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-article-and-comments}})]
     (rf/dispatch-sync [:article/initialise] {:frame f})
     (rf/dispatch-sync [:comments/initialise] {:frame f})
     (rf/dispatch-sync [:comment-form/initialise] {:frame f})
@@ -50,7 +50,7 @@
     (assert (= 1 (count (rf/compute-sub [:comments/data] (rf/get-frame-db f)))))))
 
 (defn comment-submit-test []
-  (th/reg-canned-success-by-url! :conduit.test/canned-comment-post
+  (th/reg-canned-success-by-url! :realworld.test/canned-comment-post
                                  (fn [method url]
                                    (cond
                                      ;; POST /articles/:slug/comments → returns the saved comment.
@@ -80,7 +80,7 @@
                                                 :author {:username "alice" :bio nil :image nil :following false}}})))
 
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:rf.http/managed :conduit.test/canned-comment-post}})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-comment-post}})]
     (rf/dispatch-sync [:article/initialise] {:frame f})
     (rf/dispatch-sync [:comments/initialise] {:frame f})
     (rf/dispatch-sync [:comment-form/initialise] {:frame f})
