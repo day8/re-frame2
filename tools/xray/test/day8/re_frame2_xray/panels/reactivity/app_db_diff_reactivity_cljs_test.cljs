@@ -77,15 +77,15 @@
     (h/seed-epoch-history! epoch-history)
     (h/focus-cascade! :c1)
     (let [diff-1 (h/read-sub :rf.xray/selected-epoch-diff)]
-      ;; rf2-xuyac — universal 4-tuple `[path before after op]` shape
-      ;; (post-migration to `diff/engine.cljc`'s `:flat-rows`). The
-      ;; `{} → {:counter 1}` cascade collapses to a single root-level
-      ;; replacement (`:r []`) under Editscript A* — empty-to-populated
-      ;; map is one edit at the root, not per-key adds. Mode-3 paints
-      ;; the same row from `:path-ops`, so the two lenses agree.
-      (is (= [[[] {} {:counter 1} :modified]]
+      ;; rf2-5j7ch — the App-DB `:diff` sub post-processes the
+      ;; wholesale root-replacement that Editscript emits for
+      ;; `{} → {populated}` into per-key adds. Operator UX wants the
+      ;; per-key view for cold-boot epochs ("what landed?") rather
+      ;; than the engine-stable single-row root replacement. Non-
+      ;; empty-side replacements still surface wholesale.
+      (is (= [[[:counter] nil 1 :added]]
              diff-1)
-          ":e1's diff — root replacement {} → {:counter 1}")
+          ":e1's diff — empty-to-populated expands to per-key adds")
       (h/focus-cascade! :c2)
       (let [diff-2 (h/read-sub :rf.xray/selected-epoch-diff)]
         (is (= [[[:counter] 1 2 :modified]]

@@ -220,3 +220,80 @@
       (is (= :modified (engine/op-at p [:user :name])))
       (is (= :removed  (engine/op-at p [:legacy-flag])))
       (is (contains? (:wholly-changed-roots p) [:flash])))))
+
+;; ---- expand-empty-root-replacement (rf2-5j7ch) ----------------------------
+
+(deftest expand-empty-root-replacement-empty-to-populated
+  (testing "rf2-5j7ch — `{} → {:counter 1}` collapses to a single
+            `:r []` Editscript edit which the engine surfaces as a
+            wholesale root-replacement flat-row. The renderer-facing
+            expansion lifts this into per-key `:added` rows so the
+            operator's `:diff` lens reads cold-boot epochs with
+            per-key granularity."
+    (let [proj     (engine/project {} {:counter 1 :user {:id 7}})
+          rows     (:flat-rows proj)
+          expanded (engine/expand-empty-root-replacement rows)]
+      (is (= 1 (count rows))
+          "engine emits ONE wholesale root replacement under Editscript")
+      (is (= [] (:path (first rows)))
+          "the wholesale row anchors at the root path")
+      (is (= [{:path [:counter] :op :added :before nil :after 1}
+              {:path [:user]    :op :added :before nil :after {:id 7}}]
+             expanded)
+          "expansion produces one :added row per top-level key, sorted
+           by path"))))
+
+(deftest expand-empty-root-replacement-populated-to-empty
+  (testing "rf2-5j7ch — inverse case: a populated map going to `{}`
+            expands into per-key `:removed` rows."
+    (let [proj     (engine/project {:counter 1 :user {:id 7}} {})
+          rows     (:flat-rows proj)
+          expanded (engine/expand-empty-root-replacement rows)]
+      (is (= [{:path [:counter] :op :removed :before 1        :after nil}
+              {:path [:user]    :op :removed :before {:id 7}  :after nil}]
+             expanded)))))
+
+(deftest expand-empty-root-replacement-non-empty-passes-through
+  (testing "rf2-5j7ch — two populated maps swapping wholesale (the
+            engine-stable root replacement case) is LEFT ALONE. The
+            operator sees one row anchored at `[]` because that DOES
+            read as a wholesale event."
+    (let [proj     (engine/project {:a 1} {:b 2})
+          rows     (:flat-rows proj)
+          expanded (engine/expand-empty-root-replacement rows)]
+      ;; Two populated maps with disjoint keys may surface as a
+      ;; wholesale root-replacement OR per-key add/remove rows
+      ;; depending on the Editscript A* choice. Either way the
+      ;; expansion MUST be a no-op (only the empty-side case is
+      ;; rewritten).
+      (is (= rows expanded)
+          "non-empty-side flat-rows pass through unchanged"))))
+
+(deftest expand-empty-root-replacement-non-root-modified-passes-through
+  (testing "rf2-5j7ch — a single :modified row at a NON-root path is
+            also passed through. The expansion only fires when a
+            single :modified row sits at the root path AND one side
+            is empty."
+    (let [rows [{:path [:counter] :op :modified :before 5 :after 6}]]
+      (is (= rows (engine/expand-empty-root-replacement rows))))))
+
+(deftest expand-empty-root-replacement-multiple-rows-passes-through
+  (testing "rf2-5j7ch — when the engine produces MORE than one flat-
+            row (e.g. several per-key adds + a removed) the
+            expansion bails: the operator already sees per-key rows."
+    (let [rows [{:path [:a] :op :added :before nil :after 1}
+                {:path [:b] :op :added :before nil :after 2}]]
+      (is (= rows (engine/expand-empty-root-replacement rows))))))
+
+(deftest expand-empty-root-replacement-end-to-end-via-engine
+  (testing "rf2-5j7ch — full pipeline check: engine/project →
+            :flat-rows → expand-empty-root-replacement produces the
+            per-key adds the operator's `:diff` lens consumes."
+    (let [proj     (engine/project {} {:state :idle :data {}})
+          expanded (engine/expand-empty-root-replacement (:flat-rows proj))
+          paths    (mapv :path expanded)
+          ops      (set (map :op expanded))]
+      (is (= [[:data] [:state]] paths)
+          "every top-level key surfaces as its own row, sorted by path")
+      (is (= #{:added} ops)
+          "empty-to-populated expansion produces only :added rows"))))

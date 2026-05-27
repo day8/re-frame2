@@ -539,11 +539,16 @@
   triples — the same shape the App-DB / Epoch HANDLER `:diff` lens
   consumes. Used by the Machine Inspector's `:diff` mode (rf2-yqjrd).
 
+  rf2-5j7ch — runs the engine's `expand-empty-root-replacement`
+  post-processor so a snapshot going `{} → {:state :idle …}` (cold-
+  boot first-transition) reads as per-key adds, not a wholesale
+  root replacement. Mirrors the App-DB `:diff` sub.
+
   Returns an empty vector when no Editscript edits surface (identical
   snapshots) so the renderer can paint a `— (no changes)` placeholder."
   [before after]
   (let [proj (diff-engine/project before after)
-        rows (:flat-rows proj)]
+        rows (diff-engine/expand-empty-root-replacement (:flat-rows proj))]
     (mapv (fn [{:keys [path op before after]}]
             (let [kind (case op
                          :added    :added
