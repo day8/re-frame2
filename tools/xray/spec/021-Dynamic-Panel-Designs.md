@@ -2045,30 +2045,147 @@ maps gain a `:violations` slot, row maps gain their own
 `(violation-blocks step-key violations)` under their primary
 body.
 
-#### Sub-block visual contract
+#### Sub-block visual contract (post-rf2-2ek7t)
+
+> **Reshaped pair-debug 2026-05-27 (rf2-2ek7t).** The earlier
+> seven-discrete-field card (title + chip + headline + path +
+> value + two `open` action buttons + collapsed raw explain) read
+> as noise — too many fields, none of them prose. The block now
+> carries **three pieces** only: title bar, prose sentence with
+> inline schema-source link, and a humanized explain map. Every
+> retired field is subsumed by one of the surviving three.
 
 Each violation renders as a pink-wash card under its host step
-carrying:
+carrying, top to bottom:
 
-- Title row — `⚠ SCHEMA VIOLATION` (warning glyph + title in
-  warning colour) with a right-aligned recovery chip
-  (`rolled back` / `fx skipped` / `returned nil` /
-  `logged + skipped`).
-- Headline — `<where-label> · <failing-id>` (e.g. `app-db commit
-  · :counter/inc`).
-- `path:` row (when present).
-- `value:` row — failing value via `ei/mini` (already redacted
-  upstream when `:sensitive?`).
-- Click-to-source actions — `↗ open <failing-id>` opens the
-  failing-handler registration; `↗ open schema <failing-id>`
-  opens the `reg-app-schema` declaration. Both degrade gracefully
-  to muted plain-text when the framework hasn't stamped the coord.
-- Full explain map (via `ei/mini`) when the substrate stamped one.
+1. **Title bar** — `⚠` warning glyph + the literal string `Schema
+   Violation Error` (mixed case, no `text-transform: uppercase`)
+   in warning colour, followed by a right-aligned recovery chip.
+   Recovery-chip text resolves per `:where` (see [§violation-prose-template](#violation-prose-template)
+   below for the full per-`:where` table):
+   - `:app-db` with `:rollback? true` → `Aborted`
+   - `:fx-args` → `Skipped`
+   - `:sub-return` → `Returned nil`
+   - `:event` → `Rejected`
+   - `:cofx` → `Skipped`
+   - `:hot-reload` (retired pipeline step; chip still defined for
+     the Issues panel) → `logged + skipped`
+   - Falls back to the trace's `:recovery` keyword (name-d) when
+     no canonical mapping applies.
+2. **Prose sentence with inline `schema check` link** — one
+   short natural-language paragraph per `:where`, rendered in
+   `sans-stack` font (the outer block's monospace inheritance is
+   overridden — this slot is prose, not data). The substring
+   `schema check` is the inline click-to-source link;
+   click dispatches `:rf.xray/open-in-editor` against the
+   schema's resolved source-coord. Coord resolution varies by
+   `:where`: `:app-db` reads `(rf/app-schema-meta-at path)`
+   (per rf2-mg6ya); other `:where` values read
+   `(rf/handler-meta :schema failing-id)`. Missing coord →
+   the link degrades to plain inline text inside the sentence
+   (sentence still reads cleanly). Per-`:where` prose templates
+   live in [§violation-prose-template](#violation-prose-template).
+3. **Humanized explain map (or raw fallback)** — rendered via
+   `ei/edn-inspector` with `:default-expanded-depth 16`
+   (every nested level visible on first paint; operator must SEE
+   the failure detail, not click to discover it). Reads
+   `:explain-humanized` from the projected violation row when the
+   substrate's `:schemas/humanize-explain!` late-bind hook is
+   installed (see [spec/010 §Humanize-hook](../../../spec/010-Schemas.md#humanize-hook--operator-readable-explain-payload));
+   falls back to the raw `:explain` map when the hook is absent
+   (non-Malli validator, or framework predating rf2-2ek7t). A
+   small `expected: / got: (+N more errors)` decomposition row
+   (rf2-zn6u5) renders ABOVE the humanized map when the row's
+   `:explain` carries the canonical Malli `{:errors […] :value …}`
+   shape — pulls the first error's `:schema` (expected) +
+   `:value` (got) as a programmer-friendly summary so the
+   operator reads the first-error-prominent line without
+   scanning the full humanized tree. Drops out cleanly for
+   non-Malli explain shapes.
+
+Trailing **sensitive marker** — when the row carries
+`:sensitive? true` the block appends a compact muted-italic
+caption (`(value redacted — slot declared :sensitive?)`) so the
+operator knows the substrate scrubbed the value at the emit site
+(not a humanizer artefact). Cross-reference:
+[spec/010 §`:sensitive?` — privacy in schema-validation error traces](../../../spec/010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces).
+
+Retired fields (subsumed):
+
+- The all-caps `⚠ SCHEMA VIOLATION` shouted; mixed-case +
+  prose-driven explanation reads as a real diagnostic message.
+- The `<where-label> · <failing-id>` headline duplicated what the
+  prose sentence states in natural language; dropped.
+- Discrete `path:` / `value:` rows are subsumed — `:path` is
+  implicit in the host step's location (e.g. an FX `:db` row
+  IS the failing path's commit row, post-rf2-8resu); `:value`
+  is visible via the humanized explain map's root value.
+- The two click-to-source action buttons (`↗ open <failing-id>`
+  + `↗ open schema <failing-id>`) collapsed to one click target:
+  the inline `schema check` link in the prose. The
+  failing-handler coord is reachable from the cascade itself
+  (every handler badge in the step header already carries a
+  source-jump per §9.1.11), so the second action was redundant.
 
 Background = `:bg-violation` palette token (soft-rose on light,
 deep-rose-muted on dark — distinct from `:magenta-pink`
 SUBSCRIPTIONS chrome and from the retired aggregate step's
 `:warning` amber). Border in `:warning` for cross-theme legibility.
+
+#### Violation-prose-template
+
+The prose sentence's per-`:where` canned text + recovery chip,
+both populated by the same `violation-prose` / `violation-recovery-label`
+helpers at view time. The substring `schema check` is the inline
+click-to-source link in every template (rendered as a `<button>`
+when coord resolves, plain `<span>` text otherwise — graceful
+degrade keeps the sentence readable):
+
+| `:where`      | Recovery chip   | Prose sentence (`schema check` is the inline link)                                                  |
+|---------------|-----------------|------------------------------------------------------------------------------------------------------|
+| `:app-db`     | `Aborted`*      | "This value failed a `schema check` and can't be committed to app-db."                              |
+| `:fx-args`    | `Skipped`       | "fx aborted because args failed the `schema check`."                                                |
+| `:sub-return` | `Returned nil`  | "This sub returned nil because its value failed the `schema check`."                                |
+| `:event`      | `Rejected`      | "This event was rejected because its payload failed the `schema check`."                            |
+| `:cofx`       | `Skipped`       | "This handler was skipped because the coeffect failed the `schema check`."                          |
+| `:hot-reload` | `logged + skipped` | "A schema re-registration invalidated existing app-db state. See `schema check` for the new shape." |
+| (fallback)    | none            | "Schema violation. `schema check` for details."                                                     |
+
+\* `:app-db` chip text is `Aborted` only when the violation
+carries `:rollback? true` (the runtime aborted the cascade and
+rolled `:db` back to its pre-handler value — Spec 010 §Per-step
+recovery row 3). The rollback-mute pass (§Rollback blast-radius
+mute below) handles the downstream-step opacity overlay.
+
+**Inline link → coord resolution.** The `schema check` link
+resolves to the schema's source-coord, NOT the handler's:
+
+- `:app-db` → `(rf/app-schema-meta-at path)` (the
+  `:schemas/app-schema-meta-at` late-bind hook per rf2-mg6ya)
+  reads the registration meta the schemas artefact stamped on
+  `reg-app-schema`. Returns `{:file :line}` or nil.
+- `:fx-args` / `:sub-return` / `:event` / `:cofx` →
+  `(rf/handler-meta :schema failing-id)` — the registration meta
+  carrying the `:schema` slot is the click target.
+- Coord missing (registration wasn't stamped, or `handler-meta`
+  unavailable) → the prose still renders, with `schema check`
+  as plain inline text rather than a clickable affordance.
+
+**Expected / got decomposition row.** When the row's `:explain`
+matches the canonical Malli shape (`{:errors [{:schema … :value …}
+…] :value <root>}`), `decode-malli-explain` extracts a tight
+two-line summary that renders ABOVE the humanized map:
+
+```
+expected: [:map [:user :string]]
+got:      {:user 42}
+(+2 more errors)
+```
+
+The `(+N more errors)` chip surfaces only when `:errors` carries
+more than one entry (`max 0 (dec (count errors))`). Non-Malli
+explain shapes return nil from the decoder; the decomposition
+row drops out cleanly and the humanized / raw map renders alone.
 
 #### Rollback blast-radius mute
 

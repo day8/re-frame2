@@ -227,6 +227,28 @@ Tools and agents read these to:
 
 The Xray Epoch panel attaches each schema violation to its owning pipeline step rather than collecting them in a trailing footnote. The five runtime boundaries (`:event` / `:cofx` / `:app-db` / `:fx-args` / `:sub-return`) map onto DISPATCH / matching COEFFECT / HANDLER / matching FX row / matching SUBSCRIPTIONS row respectively; hot-reload drift (which has no owning cascade step) rides on a standalone SCHEMA HOT-RELOAD tail step. When an `:app-db` violation carries `:rollback? true`, every step downstream of HANDLER renders muted and the HANDLER step surfaces a "cascade rolled back — downstream effects skipped" banner so the operator reads the blast radius at a glance. See [tools/xray/spec/021-Dynamic-Panel-Designs.md §9.1.10.3 Violation attachment contract](../tools/xray/spec/021-Dynamic-Panel-Designs.md) for the cascade-side rendering details; the substrate-side contract (the two trace ops + their tag shapes) is unchanged.
 
+### Humanize-hook — operator-readable explain payload
+
+> Per rf2-2ek7t. Consumed by Xray's violation sub-block (see
+> [tools/xray/spec/021 §violation-prose-template](../tools/xray/spec/021-Dynamic-Panel-Designs.md));
+> may be consumed by any tool that subscribes to
+> `:rf.error/schema-validation-failure`.
+
+The raw `:explain` value the registered explainer produces is structurally precise but operator-hostile — Malli's `m/explain` returns a nested `{:errors [{:schema … :path … :value …} …] :value …}` map that requires Malli familiarity to read at a glance. The schemas artefact ships a parallel **humanize hook** so each port's validator adapter can install a port-specific humanizer that transforms the raw explanation into an operator-readable shape (Malli's CLJS adapter installs `malli.error/humanize`, returning a path-shaped map of natural-language strings keyed at the failing slots).
+
+The humanize hook is a late-bind extension point — same opt-in pattern as `set-schema-validator!` / `set-schema-explainer!` / `set-schema-printer!`:
+
+- **Producer hook key**: `:schemas/humanize-explain!` (published by `re-frame.schemas`).
+- **Adapter hook key**: `:schemas/malli-humanize` (published by `re-frame.schemas.malli` — the CLJS reference's Malli adapter installs `malli.error/humanize`; the producer routes through it via the standard validator-fn extension point).
+
+When the hook is installed, the schemas artefact's `emit-validation-failure!` helper augments every `:rf.error/schema-validation-failure` trace event's `:tags` map with `:explain-humanized` alongside the existing `:explain`. Consumers read `:explain-humanized` when present and fall back to `:explain` otherwise — non-Malli validators (or apps that haven't required the Malli adapter ns) ship raw `:explain` only, and tools must degrade gracefully.
+
+**Production elision.** The humanize call sits behind the same `(when interop/debug-enabled? ...)` outer gate as the rest of the validate-emit body (per [§Production builds](#production-builds)). `:advanced` + `goog.DEBUG=false` builds DCE the augmentation alongside the trace itself.
+
+**Composition with `:sensitive?`.** When the failing slot carries `:sensitive? true` (per [§`:sensitive?` — privacy in schema-validation error traces](#sensitive--privacy-in-schema-validation-error-traces)), the substrate redacts BOTH `:explain` and `:explain-humanized` to `:rf/redacted` — Malli's humanizer carries the failing value verbatim under its path-shaped output, and skipping the humanized slot would leave a redacted-raw / leaked-humanized inconsistency. Redaction is symmetric.
+
+**Other ports.** Any port whose validator language carries an operator-readable error-decomposition surface (Zod's `flatten()` / `format()`; Pydantic's `errors()`; dry-rb's `messages`) can install its own humanizer through `:schemas/humanize-explain!`. The consumer-side contract (`:tags :explain-humanized`, fall back to `:tags :explain`) is port-independent.
+
 ## Per-slot metadata vocabulary
 
 Inside the schema value passed to `reg-app-schema`, individual slots may carry per-slot metadata maps — the `{...}` properties map Malli accepts on every slot. The reserved per-slot key vocabulary is catalogued normatively in [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta); the reserved set is fixed-and-additive. Today's reserved keys are `:large?`, `:hint`, and (reserved-for-future) `:sensitive?`.
