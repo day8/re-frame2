@@ -607,6 +607,41 @@
     :modified (:diff-modified-stripe tokens)
     nil))
 
+;; ---- gutter-row hoisted style maps (rf2-7cddi) ---------------------------
+;;
+;; `gutter-row` fires once per change-bearing leaf in mode-3 — a 30-changed-
+;; leaf render allocates 90 fresh map literals at the call site without
+;; hoisting. The base shapes are static; only `:border-left` colour +
+;; `:background` wash overlay vary (5-value op enum) on the outer, and
+;; `:color` varies on the glyph span. Mirrors the hoisting culture
+;; established further down (body-grid-style, body-block-style,
+;; key-cell-style, value-cell-style, triangle-style, r3-chip-base-style).
+
+(def ^:private gutter-row-outer-base-style
+  "Outer `<span>` style for `gutter-row` — the static skeleton.
+  Dynamic overlays (per render):
+   - `:border-left` colour reflects the active op's stripe (or transparent)
+   - `:background` wash assoc'd when an op carries one."
+  {:display      "inline-flex"
+   :align-items  "baseline"
+   :gap          "4px"
+   :padding-left "6px"})
+
+(def ^:private gutter-glyph-base-style
+  "Glyph `<span>` style for `gutter-row` — static skeleton.
+  Dynamic overlay: `:color` resolves to the per-op gutter colour
+  (or `:text-tertiary` for suppressed / `:same` rows)."
+  {:flex        "0 0 12px"
+   :font-size   "11px"
+   :font-weight 700
+   :text-align  "center"
+   :user-select "none"})
+
+(def ^:private gutter-body-style
+  "Body `<span>` style for `gutter-row` — fully static (no dynamic
+  overlay)."
+  {:flex 1 :min-width 0})
+
 (defn- gutter-row
   "Wrap `body` with the diff row chrome: gutter glyph + low-opacity
   row-background wash + 2px left-edge stripe (rf2-awqts).
@@ -675,27 +710,23 @@
          glyph-colour  (if suppress-glyph?
                          (:text-tertiary tokens)
                          (op-gutter-colour op))]
+     ;; rf2-7cddi — hoisted style bases (see `gutter-row-*-style` defs above):
+     ;; the static skeletons are ns-top defs; only the dynamic per-op
+     ;; overlays (`:border-left` colour + optional `:background` wash on
+     ;; the outer; `:color` on the glyph) are computed per render.
      [:span {:data-rf-diff-op (name op)
              :data-rf-diff-wash (when wash "1")
              :data-rf-diff-stripe (when stripe "1")
              :data-rf-diff-suppressed (when suppress-glyph? "1")
-             :style (cond-> {:display      "inline-flex"
-                             :align-items  "baseline"
-                             :gap          "4px"
-                             :padding-left "6px"
-                             :border-left  (str "2px solid "
+             :style (cond-> (assoc gutter-row-outer-base-style
+                              :border-left (str "2px solid "
                                                 (if (and active? stripe)
                                                   stripe
-                                                  "transparent"))}
+                                                  "transparent")))
                       wash (assoc :background wash))}
-      [:span {:style {:flex          "0 0 12px"
-                      :color         glyph-colour
-                      :font-size     "11px"
-                      :font-weight   700
-                      :text-align    "center"
-                      :user-select   "none"}}
+      [:span {:style (assoc gutter-glyph-base-style :color glyph-colour)}
        glyph]
-      [:span {:style {:flex 1 :min-width 0}} body]])))
+      [:span {:style gutter-body-style} body]])))
 
 (def ^:private change-annotation-style
   "Style for the inline `← changed from <prior>` chip rendered to the
@@ -1398,6 +1429,15 @@
 ;; React skip the inline-style diff when the value hasn't changed).
 ;; `tokens` reads resolve to CSS-variable strings (theme-aware at paint
 ;; time), so the captured value stays valid across theme switches.
+;;
+;; Hoisting neighbours in this file (search anchors):
+;;   - `change-annotation-style`        — inline `← changed from <prior>` chip
+;;   - `gutter-row-outer-base-style`    — rf2-7cddi diff-row outer skeleton
+;;   - `gutter-glyph-base-style`        — rf2-7cddi diff-row glyph skeleton
+;;   - `gutter-body-style`              — rf2-7cddi diff-row body
+;;   - `triangle-style`                 — ▸/▾ click-target (rf2-tzvk9)
+;;   - `body-grid-style` / `body-block-style` / `key-cell-style` / `value-cell-style`
+;;   - `r3-chip-base-style`             — rf2-rhmc5 R3 [N∆] collapsed-change chip
 
 (def ^:private body-grid-style
   "Style for an expanded map / record / map-entry body — children laid
