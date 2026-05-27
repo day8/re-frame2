@@ -25,7 +25,7 @@ Per Decision 4 the `reg-view` macro stays Reagent-only; Helix users write `defnc
   Same `:counter/initialise` / `:counter/inc` / `:counter/dec` events as the Reagent counter; the view renders +/- buttons and a count between them. The count seeds to `5` (via `:counter/initialise`) and moves as the buttons dispatch.
 
 - **`helix/login_helix/`** ([build id `examples/login-helix`](../../implementation/shadow-cljs.edn))
-  Same login state machine (`:idle -> :submitting -> :authed`/`:error-shown`/`:locked-out`), same Malli schemas, same `:rf.http/managed.login-demo` stub fx as the Reagent and UIx login examples. The view layer is a Helix `defnc` form using `helix.hooks/use-state` for local input state. Entering credentials and submitting drives the machine to `:authed` and the welcome banner appears.
+  Same login state machine (`:idle -> :submitting -> :authed`/`:error-shown`/`:locked-out`), same Malli schemas, same `:auth.login.demo/managed-stub` stub fx as the Reagent and UIx login examples. The view layer is a Helix `defnc` form using `helix.hooks/use-state` for local input state. Entering credentials and submitting drives the machine to `:authed` and the welcome banner appears.
 
 - **`helix/process_monitor_helix/`** ([build id `examples/process-monitor-helix`](../../implementation/shadow-cljs.edn))
   Design-led example proving Helix can drive a substantive multi-pane layout. Shares the `_shared/css/style.css` "Editorial Warm" identity with the Reagent notebook and UIx dashboard counterparts. No state machines, no HTTP — design-led examples exist to prove polished visuals + interaction, not to replay platform features other examples already cover.

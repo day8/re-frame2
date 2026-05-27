@@ -83,7 +83,7 @@
       (str/includes? u "/user.json")   demo-user
       :else                            {})))
 
-(rf/reg-fx :rf.http/managed.boot-demo
+(rf/reg-fx :boot.demo/http-stub
   {:doc       "Demo override for `:rf.http/managed`: routes by URL
                substring to canned boot responses so the example runs
                standalone without a backend. Delegates to the
@@ -134,7 +134,7 @@
   ;; non-mocked requests, so a blanket override is the right grain.
   (rf/reg-frame :rf/default
     {:doc          "Boot example demo frame."
-     :fx-overrides {:rf.http/managed :rf.http/managed.boot-demo}})
+     :fx-overrides {:rf.http/managed :boot.demo/http-stub}})
 
   ;; Kick the boot. The `:app/boot` machine's :initial state and
   ;; :data seed `[:rf/machines :app/boot]` on first dispatch (per

@@ -309,7 +309,7 @@
 
       :else {})))
 
-(rf/reg-fx :rf.http/managed.realworld-demo
+(rf/reg-fx :conduit.demo/http-stub
   {:doc       "Demo override for :rf.http/managed: routes by URL to canned
                Conduit-shaped responses so the example runs standalone
                without a backend. Delegates to :rf.http/managed-canned-success
@@ -392,7 +392,7 @@
   ;; protect those routes.
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
                              :interceptors [routing/auth-guard]
-                             :fx-overrides {:rf.http/managed :rf.http/managed.realworld-demo}})
+                             :fx-overrides {:rf.http/managed :conduit.demo/http-stub}})
   ;; Register the Bearer-auth interceptor at app boot. Order matters:
   ;; before :app/initialise dispatches, since session-restore will fire
   ;; authenticated requests as soon as the JWT is hydrated.

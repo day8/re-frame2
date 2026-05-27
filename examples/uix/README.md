@@ -23,7 +23,7 @@ The dataflow — events, subs, schemas, machine, managed-HTTP stub — is **iden
   Same `:counter/initialise` / `:counter/inc` / `:counter/dec` events as the Reagent counter; the view renders +/- buttons and a count between them. The count seeds to `5` (via `:counter/initialise`) and moves as the buttons dispatch.
 
 - **`uix/login_uix/`** ([build id `examples/login-uix`](../../implementation/shadow-cljs.edn))
-  Same login state machine (`:idle -> :submitting -> :authed`/`:error-shown`), same Malli schemas, same `:rf.http/managed.login-demo` stub fx as the Reagent login example. The view layer is a UIx `defui` form. Entering credentials and submitting drives the machine to `:authed` and the welcome banner appears on success.
+  Same login state machine (`:idle -> :submitting -> :authed`/`:error-shown`), same Malli schemas, same `:auth.login.demo/managed-stub` stub fx as the Reagent login example. The view layer is a UIx `defui` form. Entering credentials and submitting drives the machine to `:authed` and the welcome banner appears on success.
 
 - **`uix/dashboard_uix/`** ([build id `examples/dashboard-uix`](../../implementation/shadow-cljs.edn))
   Design-led example proving UIx can drive a substantive multi-pane layout. Shares the `_shared/css/style.css` "Editorial Warm" visual identity with the Reagent notebook and Helix process-monitor counterparts. No state machines, no HTTP — design-led examples exist to prove polished visuals + interaction, not to replay platform features other examples already cover.

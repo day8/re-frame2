@@ -97,7 +97,7 @@
 ;;
 ;; HTTP requests go via the framework-shipped `:rf.http/managed` (Spec 014).
 ;; The example demo would normally hit `/api/login`, which we don't ship —
-;; instead we register a per-app demo stub at `:rf.http/managed.login-demo`
+;; instead we register a per-app demo stub at `:auth.login.demo/managed-stub`
 ;; and override `:rf.http/managed` to it on the default frame in `run`. The
 ;; stub inspects the request body's `:password` and synthesises either a
 ;; success or failure reply via the framework-shipped canned-success /
@@ -115,7 +115,7 @@
     (when-let [ls (.-localStorage js/globalThis)]
       (.setItem ls "auth/token" token))))
 
-(rf/reg-fx :rf.http/managed.login-demo
+(rf/reg-fx :auth.login.demo/managed-stub
   {:doc       "Demo override for `:rf.http/managed`: routes by URL +
                request body to canned login responses so the example runs
                standalone without a backend.
@@ -364,5 +364,5 @@
   ;; backend required.
   (rf/reg-frame :rf/default
     {:doc          "Login demo frame."
-     :fx-overrides {:rf.http/managed :rf.http/managed.login-demo}})
+     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
   (rdc/render react-root [root-view]))

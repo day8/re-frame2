@@ -9,7 +9,7 @@
   (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn editor-create-test []
-  (th/reg-canned-success! :rf.http/managed.canned-editor-save
+  (th/reg-canned-success! :conduit.test/canned-editor-save
                           {:article {:slug "hello-world"
                                      :title "Hello"
                                      :description "Short"
@@ -22,7 +22,7 @@
                                      :author {:username "alice" :bio nil :image nil :following false}}})
 
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:rf.http/managed :rf.http/managed.canned-editor-save}})]
+                                 :fx-overrides {:rf.http/managed :conduit.test/canned-editor-save}})]
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     ;; The :mode region starts at :create; the :lifecycle region starts
     ;; at :idle.

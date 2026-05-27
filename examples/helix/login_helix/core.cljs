@@ -61,7 +61,7 @@
     (when-let [ls (.-localStorage js/globalThis)]
       (.setItem ls "auth/token" token))))
 
-(rf/reg-fx :rf.http/managed.login-demo
+(rf/reg-fx :auth.login.demo/managed-stub
   {:doc       "Demo override for `:rf.http/managed`. Identical behaviour
                to the Reagent and UIx examples' stub.
 
@@ -258,5 +258,5 @@
   (rf/init! helix-adapter/adapter)
   (rf/reg-frame :rf/default
     {:doc          "Login (Helix) demo frame."
-     :fx-overrides {:rf.http/managed :rf.http/managed.login-demo}})
+     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
   (.render react-root ($ root-view)))
