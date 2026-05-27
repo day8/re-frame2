@@ -1491,7 +1491,7 @@ no replay. The substrate enhancements in #2155 (rf2-82a0u) are the
 prerequisite that lets every cascade row read directly off the
 trace.
 
-#### §9.1.5.1 HANDLER `:db` view-mode toggle — three-mode `[diff][full][full+diff]` (rf2-n2jig)
+#### §9.1.5.1 HANDLER `:db` diff-mode toggle — three-mode `[diff][full][full+diff]` (rf2-n2jig)
 
 The HANDLER step's `:db` sub-section carries a three-button toggle:
 
