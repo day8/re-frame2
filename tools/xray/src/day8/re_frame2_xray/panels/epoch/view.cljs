@@ -3522,11 +3522,20 @@
          recovery-label])]
      ;; 2. Prose sentence with inline schema link
      (violation-prose where schema-coord testid-base)
-     ;; 3. Humanized explain map (or raw fallback)
+     ;; 3. Humanized explain map (or raw fallback) — render via
+     ;; edn-inspector fully expanded ("FULL" per Mike pair-debug
+     ;; 2026-05-27). `:default-expanded-depth 16` matches the
+     ;; widget's `:max-depth` ceiling so every nested level of the
+     ;; explain tree is visible on first paint. The operator needs
+     ;; to SEE the failure detail, not click to discover it.
+     ;; (`mini`'s one-line truncated rendering collapsed to
+     ;; `{:errors […1 items]}`, hiding the actual content.)
      (when (some? humanized-shown)
        [:div {:data-testid (str testid-base "-explain")
               :style schema-violation-explain-body-style}
-        [ei/mini humanized-shown 120]])
+        [ei/edn-inspector humanized-shown
+         {:site-id [:rf.xray.epoch/violation-explain step-key idx]
+          :default-expanded-depth 16}]])
      ;; Sensitive marker — keep as compact tail when applicable so
      ;; operators reading the humanized output know the value was
      ;; redacted at the substrate emit site (not a humanizer artifact).
