@@ -1509,3 +1509,270 @@
                  (instance? cljs.core/LazySeq step-seq)
                  (str "LazySeq, realized?=" (realized? step-seq))
                  :else (str "type=" (type step-seq))))))))
+
+;; ---- rf2-zmkqi — SUBSCRIPTIONS :full / :full+diff value cell smoke ------
+
+(deftest subscriptions-full-mode-renders-without-inline-style-test
+  (testing "rf2-zmkqi — the `:full` / `:full+diff` value-cell modes
+            render without crashing. Smoke check that the post-hoist
+            ns-level style def (`subs-value-cell-fill-style`) lands a
+            valid `:style` map under the wrapping div — pre-fix two
+            literal `{:flex 1 :min-width 0}` maps were still inline."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      ;; Flip mode to :full so the hoisted style wrapper renders.
+      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full])
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :counter/total :sub-vec [:counter/total]
+                          :inputs nil :changed? true :before 5 :after 6}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            row  (th/find-by-testid tree "rf-xray-epoch-sub-row-0")]
+        (is (some? row)
+            "row renders cleanly under :full mode (hoisted style applied)"))
+      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full+diff])
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :counter/total :sub-vec [:counter/total]
+                          :inputs nil :changed? true :before 5 :after 6}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            row  (th/find-by-testid tree "rf-xray-epoch-sub-row-0")]
+        (is (some? row)
+            "row renders cleanly under :full+diff mode (hoisted style applied)")))))
+
+;; ---- rf2-309cy — VIEWS row view-id keyword routes through ei/mini ------
+
+(deftest views-row-view-id-routes-through-mini-test
+  (testing "rf2-309cy — VIEWS row's view-id keyword routes through
+            `ei/mini` so the cell carries the syntax-highlighted
+            keyword chrome (same data-shape as the sibling subs-read
+            cell, rf2-8w8er intent). The id cell must mount at least
+            one mini widget alongside the view-id text."
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows [{:view-id :app.counter/Counter
+                        :subs-read [] :duration-ms nil}]}
+          tree (view/render-views-step step)
+          id-cell (th/find-by-testid tree "rf-xray-epoch-view-row-id-0")]
+      (is (some? id-cell)
+          "the view-id span renders")
+      (is (pos? (count (mini-mounts id-cell)))
+          "the view-id cell mounts at least one ei/mini widget (no longer plain text)")
+      (is (string/includes? (th/text-content id-cell) ":app.counter/Counter")
+          "the keyword text is still present (mini renders the colon + ns + name)"))))
+
+(deftest unmounted-views-row-view-id-routes-through-mini-test
+  (testing "rf2-309cy — UNMOUNTED VIEWS row's view-id keyword routes
+            through `ei/mini` (parity with the re-render row's chrome)."
+    (let [step {:step :views :badge :VIEWS :step-number 6
+                :rows []
+                :unmounted-rows [{:view-id :app.sidebar/Item
+                                  :instance [:Item 0]
+                                  :frame :rf/default}]}
+          tree (view/render-views-step step)
+          id-cell (th/find-by-testid tree "rf-xray-epoch-view-unmounted-row-id-0")]
+      (is (some? id-cell)
+          "the unmounted view-id span renders")
+      (is (pos? (count (mini-mounts id-cell)))
+          "the unmounted view-id cell mounts at least one ei/mini widget"))))
+
+;; ---- rf2-d2akf — DISPOSED sub row carries click-to-source ---------------
+
+(deftest disposed-sub-row-mounts-coord-chip-when-meta-resolves-test
+  (testing "rf2-d2akf — the DISPOSED sub row routes through
+            `coord-chip/coord-chip` to surface a click-to-source
+            affordance for the reg-sub (parity with the sibling
+            unmounted-views row). Pre-fix the disposed cell had NO
+            coord-chip affordance at all — the call-site itself was
+            missing.
+
+            The chip's <button> mounts when `(rf/handler-meta :sub
+            sub-id)` resolves a `:file` coord. CLJS macro-form
+            `reg-sub` captures `:file`/`:line` at the test call-site
+            so the integration round-trip is testable here."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (rf/reg-sub :rf.uo4e2-fixture/items
+        (fn [db _] (get db :items [])))
+      (let [meta-resolved? (boolean (some-> (rf/handler-meta :sub :rf.uo4e2-fixture/items)
+                                            :file string?))
+            step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows []
+                  :changed 0 :unchanged 0
+                  :disposed-rows [{:sub-id :rf.uo4e2-fixture/items
+                                   :query  [:rf.uo4e2-fixture/items]
+                                   :reason :no-more-derefers
+                                   :frame  :rf/default}]}
+            tree (view/render-subscriptions-step step)]
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-sub-disposed-row-0"))
+            "the disposed row itself renders")
+        ;; If the test harness captured a source coord, the chip
+        ;; mounts. Otherwise the call-site still fired but produced
+        ;; nil (graceful degrade per coord-chip's contract). Either
+        ;; way the bug-fix is in place — pre-fix there was no chip
+        ;; call-site at all. Pin both branches.
+        (let [chip (th/find-by-testid tree
+                     "rf-xray-epoch-sub-disposed-row-coord-0")]
+          (if meta-resolved?
+            (do
+              (is (some? chip)
+                  "coord chip mounts when reg-sub captured a source coord")
+              (is (= :button (first chip))
+                  "chip mounts as a <button>")
+              (is (fn? (:on-click (second chip)))
+                  "chip carries an on-click handler"))
+            (is (nil? chip)
+                "coord chip drops out cleanly when no coord is resolvable")))))))
+
+;; ---- rf2-zuh3p — SUBSCRIPTIONS per-row violations attach inline ----------
+
+(deftest subscriptions-row-violations-attach-inline-test
+  (testing "rf2-zuh3p — when a SUBSCRIPTIONS row carries a per-row
+            :violations slot (the :sub-return boundary failure attached
+            by the projection), the schema-violation sub-block renders
+            INLINE — directly underneath its owning row, via the
+            resizable-table's :row-extras slot — not pooled at the foot
+            of the step. Mirrors the FX step's `fx-row-with-violations`."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [violation {:where :sub-return
+                       :failing-id :cart/preview
+                       :explain-humanized {:errors ["must be int"]}
+                       :rollback? false}
+            step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :cart/preview :sub-vec [:cart/preview]
+                          :inputs nil :changed? true :before 1 :after "bad"
+                          :violations [violation]}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            ;; The inline-attached block uses the step-key
+            ;; `:sub-row-<sub-name>` (rf2-xgeag namer).
+            inline-block (th/find-by-testid
+                           tree "rf-xray-epoch-violations-sub-row-preview")]
+        (is (some? inline-block)
+            "the per-row violation sub-block renders (anchored on the
+            sub-row-<name> step-key suffix)")))))
+
+(deftest subscriptions-step-level-violations-still-at-foot-test
+  (testing "rf2-zuh3p — step-level (non-row-attributed) violations
+            still ride at the foot of the SUBSCRIPTIONS step via the
+            `violation-blocks :subscriptions` call (parity preserved —
+            only per-row violations moved to inline)."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows []
+                  :changed 0 :unchanged 0
+                  :violations [{:where :sub-return :failing-id :indirect/sub
+                                :explain-humanized {:errors ["nope"]}}]}
+            tree (view/render-subscriptions-step step)
+            foot (th/find-by-testid tree "rf-xray-epoch-violations-subscriptions")]
+        (is (some? foot)
+            "step-level violations still render at the foot of the
+            SUBSCRIPTIONS step (no behaviour change for non-row
+            attribution)")))))
+
+;; ---- rf2-zn6u5 — schema-violation Malli expected/got decomposition -------
+
+(deftest decode-malli-explain-returns-expected-got-test
+  (testing "rf2-zn6u5 — `decode-malli-explain` lifts the first error's
+            :schema + :value into a programmer-friendly summary map.
+            Pure data fn; JVM-testable."
+    (is (= {:expected :int :got "bad" :more-errors 0}
+           (view/decode-malli-explain
+             {:schema :int
+              :value "bad"
+              :errors [{:path [] :in [] :schema :int :value "bad"}]})))))
+
+(deftest decode-malli-explain-falls-back-to-root-value-test
+  (testing "rf2-zn6u5 — when the first error does NOT carry :value
+            (the value rides on the explain map's root), :got reads
+            from `explain`'s `:value` slot."
+    (is (= {:expected :int :got 42 :more-errors 0}
+           (view/decode-malli-explain
+             {:schema :int :value 42
+              :errors [{:path [] :schema :int}]})))))
+
+(deftest decode-malli-explain-counts-additional-errors-test
+  (testing "rf2-zn6u5 — multi-error explain maps surface
+            `:more-errors (- N 1)` so the call-site can paint a
+            `(+N more)` chip beneath the first-error summary."
+    (let [exp {:schema [:map [:a :int] [:b :int]]
+               :value {:a "x" :b "y"}
+               :errors [{:path [:a] :schema :int :value "x"}
+                        {:path [:b] :schema :int :value "y"}
+                        {:path [:c] :schema :int :value :extra}]}]
+      (is (= 2 (:more-errors (view/decode-malli-explain exp)))
+          "explain with 3 errors → :more-errors 2"))))
+
+(deftest decode-malli-explain-non-malli-returns-nil-test
+  (testing "rf2-zn6u5 — non-Malli validators / pre-rf2-2ek7t framework
+            produce explain maps without the canonical {:errors [...]}
+            shape; the decoder degrades to nil so the view drops the
+            decomposition row cleanly."
+    (is (nil? (view/decode-malli-explain nil)))
+    (is (nil? (view/decode-malli-explain {})))
+    (is (nil? (view/decode-malli-explain {:errors []})))
+    (is (nil? (view/decode-malli-explain {:errors :not-a-vec})))
+    (is (nil? (view/decode-malli-explain "not a map")))))
+
+(deftest violation-block-renders-expected-got-summary-test
+  (testing "rf2-zn6u5 — when a violation's :explain carries Malli's
+            canonical shape, the sub-block paints `expected:` + `got:`
+            summary lines via `ei/mini` ABOVE the full humanized
+            explain map render."
+    (let [row {:kind :rf.error/schema-validation-failure
+               :where :app-db
+               :failing-id :counter/inc
+               :path [:count]
+               :value "not-an-int"
+               :explain {:schema :int
+                         :value "not-an-int"
+                         :errors [{:path [:count] :schema :int
+                                   :value "not-an-int"}]}
+               :explain-humanized {:errors ["must be int"]}
+               :rollback? true
+               :sensitive? false}
+          tree (view/violation-block :handler 0 row)
+          base "rf-xray-epoch-violation-handler-0"]
+      (is (some? (th/find-by-testid tree (str base "-decoded")))
+          "the decomposed sub-block renders when explain carries the Malli shape")
+      (let [expected (text-of tree (str base "-expected"))
+            got      (text-of tree (str base "-got"))]
+        (is (string/includes? expected ":int")
+            "expected line renders the schema form via ei/mini")
+        (is (string/includes? got "not-an-int")
+            "got line renders the failing value via ei/mini")))))
+
+(deftest violation-block-multi-error-paints-more-chip-test
+  (testing "rf2-zn6u5 — multi-error explain maps surface a
+            `(+N more)` chip below the first-error summary."
+    (let [row {:where :app-db
+               :failing-id :user/profile
+               :path [:user]
+               :explain {:schema [:map [:a :int] [:b :int]]
+                         :value {:a "x" :b "y"}
+                         :errors [{:path [:a] :schema :int :value "x"}
+                                  {:path [:b] :schema :int :value "y"}]}}
+          tree (view/violation-block :handler 0 row)
+          chip-text (text-of tree "rf-xray-epoch-violation-handler-0-more-errors")]
+      (is (some? chip-text))
+      (is (string/includes? chip-text "+1 more")
+          "the multi-error chip reads `(+N more)` where N = errors-count - 1"))))
+
+(deftest violation-block-non-malli-skips-decoded-block-test
+  (testing "rf2-zn6u5 — when :explain is absent or non-Malli, the
+            decomposed sub-block drops out cleanly (no row appears)
+            and the humanized explain map still renders."
+    (let [row {:where :app-db
+               :failing-id :no-explain/case
+               :explain-humanized {:errors ["something"]}}
+          tree (view/violation-block :handler 0 row)
+          base "rf-xray-epoch-violation-handler-0"]
+      (is (nil? (th/find-by-testid tree (str base "-decoded")))
+          "decoded sub-block is omitted when no Malli explain is present")
+      (is (some? (th/find-by-testid tree (str base "-explain")))
+          "the humanized explain still renders (unchanged behaviour)"))))

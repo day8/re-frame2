@@ -269,16 +269,18 @@
   (is (= [] (subs/unmounted-views [(rendered-ev :v/a true nil)]))))
 
 (deftest destroyed-subscriptions-reads-dispose-op-when-present
-  (testing "rf2-ad7zx.6 — DESTROYED SUBSCRIPTIONS reads :rf.sub/disposed
-            ops; absent in the live build so empty by default (data-
-            availability honesty), populated when the op lands."
+  (testing "rf2-ad7zx.6 / rf2-uo4e2 — DESTROYED SUBSCRIPTIONS reads
+            :rf.sub/dispose ops (singular form per spec/023's
+            rf2-2v3p7 typo fix; pre-rf2-uo4e2 the fixture used the
+            past-tense form which never matched any framework-emitted
+            trace)."
     (is (= [] (subs/destroyed-subscriptions [(rendered-ev :v/a true nil)]))
         "no dispose op → empty (live-build reality)")
-    (let [events [{:operation :rf.sub/disposed :tags {:rf.sub/id :s/modal}}
-                  {:operation :rf.sub/disposed :tags {:sub-id :s/tip}}]]
+    (let [events [{:operation :rf.sub/dispose :tags {:rf.sub/id :s/modal}}
+                  {:operation :rf.sub/dispose :tags {:sub-id :s/tip}}]]
       (is (= [{:sub-id :s/modal} {:sub-id :s/tip}]
              (subs/destroyed-subscriptions events))
-          "forward-compatible: reads the dispose op when present"))))
+          "reads the framework-emitted :rf.sub/dispose op"))))
 
 ;; ---- Level 1 / Level 2+ partition -------------------------------------
 

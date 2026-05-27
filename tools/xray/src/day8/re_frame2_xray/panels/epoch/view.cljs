@@ -814,6 +814,14 @@
    :flex-wrap   "wrap"
    :align-items "center"})
 
+(def ^:private subs-value-cell-fill-style
+  "Wrapper for the SUBSCRIPTIONS value cell's `:full` / `:full+diff`
+  edn-inspector mounts — fills the grid track + permits the
+  inspector's tree to wrap without overflow. Hoisted per rf2-zmkqi
+  (the 2 residual literals that escaped rf2-zlk6h's 189-style hoist)."
+  {:flex      1
+   :min-width 0})
+
 ;; -- SUBSCRIPTIONS filter button bar --------------------------------------
 
 (def ^:private subs-filter-bar-style
@@ -2943,14 +2951,14 @@
   (when changed?
     (case mode
       :full
-      [:div {:style {:flex 1 :min-width 0}}
+      [:div {:style subs-value-cell-fill-style}
        [ei/edn-inspector after
         {:panel-id :rf.xray.epoch/subs-value
          :site-id  [:rf.xray.epoch/subs-value sub-id idx :full]
          :default-expanded-depth 2}]]
 
       :full+diff
-      [:div {:style {:flex 1 :min-width 0}}
+      [:div {:style subs-value-cell-fill-style}
        [ei/edn-inspector after
         (cond-> {:panel-id :rf.xray.epoch/subs-value
                  :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
@@ -2979,7 +2987,15 @@
   view; columns are user-draggable via the gutters between adjacent
   headers. Per-row layout becomes a CSS grid driven by the table's
   column-widths state slot (in-memory; reset on reload — localStorage
-  persistence is a follow-up bead)."
+  persistence is a follow-up bead).
+
+  rf2-zuh3p — when a row carries `:violations` (a `:sub-return`
+  boundary failure attributed to that sub-id by the projection), the
+  per-row violation sub-block renders INLINE via the resizable-table's
+  `:row-extras` slot — directly below the row, before the next row
+  begins. Parity with the sibling FX step's `fx-row-with-violations`.
+  Pre-fix all per-row violations rendered as a single foot-of-step
+  block (line 3178-3181), divorcing the violation from its row."
   [rows mode]
   (let [columns [{:id :sub    :label "sub"    :default-flex "1fr"}
                  {:id :inputs :label "inputs" :default-flex "1fr"}
@@ -3027,7 +3043,30 @@
          ;; value cell
          [:div {:data-rf-xray-resizable-col "value"
                 :style subs-cell-changed-style}
-          (subs-value-cell row mode i)]])}]))
+          (subs-value-cell row mode i)]])
+      ;; rf2-zuh3p — per-row violations attach inline as `:row-extras`
+      ;; so the schema-violation sub-block renders directly below its
+      ;; owning row (mirrors the FX step's `fx-row-with-violations`
+      ;; shape). The step-level violations (non-row attributed) still
+      ;; ride at the foot via the call-site below.
+      :row-extras
+      (fn [row _i]
+        (when (seq (:violations row))
+          (violation-blocks
+            (keyword (str "sub-row-" (some-> row :sub-id name)))
+            (:violations row))))}]))
+
+(defn- sub-coord
+  "Pull the registered sub's source coord off
+  `(rf/handler-meta :sub sub-id)`. Returns nil when no meta is
+  captured. Matches the sibling `view-coord` shape (rf2-d2akf —
+  bring click-to-source affordance to disposed-sub rows on parity
+  with the unmounted-views rows)."
+  [sub-id]
+  (when (some? sub-id)
+    (let [m (try (rf/handler-meta :sub sub-id) (catch :default _ nil))]
+      (when (and m (string? (:file m)))
+        {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
 (defn- dispose-reason-label
   "Render a `:rf.sub/dispose` `:reason` keyword as a UI label
@@ -3085,7 +3124,14 @@
              (vector? query) [ei/mini query 40]
              (some? sub-id)  [ei/mini sub-id 40]
              :else           [:span {:style disposed-anonymous-style}
-                              "<anonymous sub>"])]]
+                              "<anonymous sub>"])
+           ;; rf2-d2akf — click-to-source affordance for the reg-sub,
+           ;; parity with the sibling unmounted-views row. Resolves
+           ;; `(rf/handler-meta :sub sub-id)` → coord; chip drops out
+           ;; cleanly when meta is absent (anonymous sub / production
+           ;; build without coords).
+           (coord-chip/coord-chip (sub-coord sub-id)
+                                  (str "rf-xray-epoch-sub-disposed-row-coord-" i))]]
          ;; reason cell
          [:div {:data-rf-xray-resizable-col "reason"
                 :data-testid (str "rf-xray-epoch-sub-disposed-row-reason-" i)
@@ -3127,8 +3173,7 @@
                         ;; renders an empty filter.
                         (filterv :changed? rows))
         n             (count rows)
-        l             (count disposed-rows)
-        per-row-vio   (filter (fn [r] (seq (:violations r))) rows)]
+        l             (count disposed-rows)]
     [:div {:data-testid "rf-xray-epoch-step-subscriptions"
            :data-step-kw "subscriptions"}
      (numbered-circle step-number :SUBSCRIPTIONS)
@@ -3170,14 +3215,12 @@
        (subscriptions-table visible-rows value-mode))
      (when (pos? l)
        (disposed-subs-table disposed-rows))
-     ;; rf2-xgeag — `:sub-return` boundary violations. Per-row
-     ;; attachments are rendered below their matching sub row;
-     ;; step-level violations (indirect recomputes that don't
-     ;; surface a row) ride at the foot.
-     (for [row per-row-vio]
-       (violation-blocks
-         (keyword (str "sub-row-" (some-> row :sub-id name)))
-         (:violations row)))
+     ;; rf2-xgeag · rf2-zuh3p — `:sub-return` boundary violations.
+     ;; Per-row attachments now render INLINE with their matching sub
+     ;; row via `subscriptions-table`'s `:row-extras` slot (no longer
+     ;; pooled at the foot of the step). Step-level violations
+     ;; (indirect recomputes that don't surface a row) continue to
+     ;; ride at the foot.
      (violation-blocks :subscriptions violations)]))
 
 ;; ---- VIEWS step ----------------------------------------------------------
@@ -3236,8 +3279,13 @@
                   :style (if view-id
                            views-cell-id-clickable-style
                            views-cell-id-span-style)}
+           ;; rf2-309cy — view-id keyword routes through `ei/mini` so
+           ;; it carries the same syntax-token chrome the sibling subs-
+           ;; read cell uses (rf2-8w8er intent). Pre-fix the cell rendered
+           ;; via `proj/ns-keyword` → plain coloured text, an inconsistency
+           ;; against the syntax-highlighted subs-read column to its right.
            (if (some? view-id)
-             (proj/ns-keyword view-id)
+             [ei/mini view-id 60]
              [:span {:style views-anonymous-style}
               "<anonymous view>"])
            (coord-chip/coord-chip (view-coord view-id)
@@ -3302,8 +3350,11 @@
                 :style unmounted-id-cell-style}
           [:span {:data-testid (str "rf-xray-epoch-view-unmounted-row-id-" i)
                   :style unmounted-id-span-style}
+           ;; rf2-309cy — view-id keyword routes through `ei/mini` so
+           ;; the UNMOUNTED row matches the re-render row's chrome (same
+           ;; data-shape, same syntax-highlighted token rendering).
            (if (some? view-id)
-             (proj/ns-keyword view-id)
+             [ei/mini view-id 60]
              [:span {:style disposed-anonymous-style}
               "<anonymous view>"])
            (coord-chip/coord-chip (view-coord view-id)
@@ -3496,6 +3547,35 @@
                     "See " link " for the new shape."]
        [:<> "Schema violation. " link " for details."])]))
 
+(defn decode-malli-explain
+  "Decompose a Malli `explain` map into the at-a-glance summary the
+  bead body's §SCHEMA VIOLATION section asks for (rf2-zn6u5).
+
+  Returns `{:expected <schema-form> :got <value> :more-errors <int>}`
+  when `explain` carries the canonical Malli shape — `{:errors [{...}
+  ...] :value <root>}`. Returns `nil` otherwise (non-Malli validators,
+  pre-rf2-2ek7t framework, malformed input) so the caller can drop
+  the decomposition row cleanly.
+
+  - `:expected` reads the FIRST error's `:schema` slot (the schema
+    form that failed at the deepest path Malli reached).
+  - `:got` reads the first error's `:value` when present; falls back
+    to the explain map's root `:value`.
+  - `:more-errors` is `(count errors) - 1` so the call-site can paint
+    a `(+N more)` chip when more than one error rode in.
+
+  Pure data; JVM-testable."
+  [explain]
+  (when (map? explain)
+    (let [errors (:errors explain)]
+      (when (and (sequential? errors) (seq errors))
+        (let [first-err (first errors)]
+          {:expected    (:schema first-err)
+           :got         (if (contains? first-err :value)
+                          (:value first-err)
+                          (:value explain))
+           :more-errors (max 0 (dec (count errors)))})))))
+
 (defn violation-block
   "Render one schema-violation sub-block (rf2-2ek7t redesign,
   supersedes rf2-xgeag).
@@ -3537,6 +3617,7 @@
                             (when failing-id
                               (violation-kind-coord :schema failing-id)))
         humanized-shown (or explain-humanized explain)
+        decoded         (decode-malli-explain explain)
         testid-base     (str "rf-xray-epoch-violation-"
                              (name (or step-key :unknown)) "-" idx)]
     [:div {:key (str "violation-" step-key "-" idx)
@@ -3559,7 +3640,35 @@
          recovery-label])]
      ;; 2. Prose sentence with inline schema link
      (violation-prose where schema-coord testid-base)
-     ;; 3. Humanized explain map (or raw fallback) — render via
+     ;; 3. Expected / Got decomposition (rf2-zn6u5) — when the row's
+     ;; `:explain` carries the canonical Malli shape, surface the
+     ;; first error's `:schema` (expected) + `:value` (got) as
+     ;; programmer-friendly summary lines ABOVE the full humanized
+     ;; explain map. Multi-error explain maps gain a `(+N more)` chip
+     ;; so the operator sees the first-error-prominent summary the
+     ;; rf2-xgeag bead body designed. Drops out cleanly when
+     ;; `decode-malli-explain` returns nil (non-Malli validator).
+     (when decoded
+       [:div {:data-testid (str testid-base "-decoded")
+              :style schema-violation-explain-body-style}
+        [:div {:style schema-violation-line-style}
+         [:span {:style schema-violation-line-label-style}
+          "expected:"]
+         [:span {:data-testid (str testid-base "-expected")
+                 :style schema-violation-line-value-style}
+          [ei/mini (:expected decoded) 80]]]
+        [:div {:style schema-violation-line-style}
+         [:span {:style schema-violation-line-label-style}
+          "got:"]
+         [:span {:data-testid (str testid-base "-got")
+                 :style schema-violation-line-value-style}
+          [ei/mini (:got decoded) 80]]]
+        (when (pos? (:more-errors decoded))
+          [:div {:data-testid (str testid-base "-more-errors")
+                 :style schema-violation-sensitive-style}
+           (str "(+" (:more-errors decoded) " more error"
+                (when (> (:more-errors decoded) 1) "s") ")")])])
+     ;; 4. Humanized explain map (or raw fallback) — render via
      ;; edn-inspector fully expanded ("FULL" per Mike pair-debug
      ;; 2026-05-27). `:default-expanded-depth 16` matches the
      ;; widget's `:max-depth` ceiling so every nested level of the
