@@ -99,7 +99,16 @@
   "Begin a drag: capture both adjacent columns' starting widths
   from the live DOM (so the first drag works even when state
   carries no override), register window-level move/up handlers,
-  dispatch resize-pair events on each move, clean up on up."
+  dispatch resize-pair events on each move, clean up on up.
+
+  Dispatches wrap in `(rf/with-frame :rf/xray ...)` because the
+  pointer-move handler runs OUTSIDE the React tree (via raw
+  `window.addEventListener`), so the surrounding
+  `[rf/frame-provider {:frame :rf/xray} …]` context is NOT in
+  scope. Without the explicit `with-frame`, dispatches default to
+  `:rf/default` (the host app's frame) — every move would write
+  to the host's app-db and trigger a host-wide re-render that
+  resets page scroll (Mike pair-debug 2026-05-27)."
   [table-id left-id right-id ev]
   (.preventDefault ev)
   (.stopPropagation ev)
@@ -115,10 +124,11 @@
                           (let [delta     (- (.-clientX m-ev) start-x)
                                 new-left  (max min-col-width-px (+ left-px0 delta))
                                 new-right (max min-col-width-px (- right-px0 delta))]
-                            (rf/dispatch [:rf.xray.column-widths/resize-pair
-                                          table-id
-                                          left-id new-left
-                                          right-id new-right])))
+                            (rf/with-frame :rf/xray
+                              (rf/dispatch [:rf.xray.column-widths/resize-pair
+                                            table-id
+                                            left-id new-left
+                                            right-id new-right]))))
               on-up     (fn on-up [_]
                           (.removeEventListener js/window "pointermove" on-move)
                           (.removeEventListener js/window "pointerup" on-up))]
