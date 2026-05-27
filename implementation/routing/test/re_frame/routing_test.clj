@@ -499,9 +499,10 @@
 ;; restoration helpers are pure: `lookup-scroll-position` reads from a
 ;; db value, `save-scroll-position` returns a db value with the saved
 ;; position assoc'd in. Per Spec 012 §Multi-frame routing the saved-
-;; position map lives at `[:rf.route/scroll-positions]` INSIDE each
-;; frame's app-db — so per-frame isolation is achieved by routing the
-;; helpers through the appropriate frame's db value.
+;; position map lives at `[:rf/route :scroll-positions]` INSIDE each
+;; frame's app-db (rf2-3ib8h: nested under the reserved :rf/route root
+;; key) — so per-frame isolation is achieved by routing the helpers
+;; through the appropriate frame's db value.
 ;;
 ;; Pre-rf2-1aqz the helpers were reachable only through the navigate
 ;; flow's scroll fx; a regression in either fn would only surface via
@@ -544,17 +545,17 @@
           "a fresh db (third frame, never-saved) returns nil for the same url"))))
 
 (deftest scroll-position-storage-shape
-  (testing "save-scroll-position assoc's into [:rf.route/scroll-positions <url>]"
+  (testing "save-scroll-position assoc's into [:rf/route :scroll-positions <url>]"
     ;; Pin the storage shape. Tools and migrations inspect this path
     ;; directly; pinning here keeps the contract stable.
     (let [db1 (routing/save-scroll-position {} "/x" [5 50])]
-      (is (= [5 50] (get-in db1 [:rf.route/scroll-positions "/x"]))
-          "the saved [x y] lives at [:rf.route/scroll-positions <url>] in the db"))))
+      (is (= [5 50] (get-in db1 [:rf/route :scroll-positions "/x"]))
+          "the saved [x y] lives at [:rf/route :scroll-positions <url>] in the db"))))
 
 ;; ---- rf2-z2k4k: LRU cap on scroll-positions -------------------------------
 ;;
 ;; Per audit A12: long sessions deep-linking through `/articles/:id`-style
-;; routes can grow [:rf.route/scroll-positions] unboundedly. The map is
+;; routes can grow [:rf/route :scroll-positions] unboundedly. The map is
 ;; LRU-bounded at `routing/scroll-positions-cap` (50). Re-saving a known
 ;; url promotes it to most-recent; saves past the cap evict the LRU entry.
 
@@ -567,7 +568,7 @@
     (let [db (reduce (fn [db i] (routing/save-scroll-position db (str "/u" i) [i i]))
                      {}
                      (range 60))
-          positions (:rf.route/scroll-positions db)]
+          positions (get-in db [:rf/route :scroll-positions])]
       (is (= 50 (count positions))
           "exactly 50 entries remain — the cap holds")
       (is (every? nil? (map #(routing/lookup-scroll-position db (str "/u" %))
@@ -590,7 +591,7 @@
           "the re-saved url survives and carries its new value")
       (is (nil? (routing/lookup-scroll-position db2 "/u1"))
           "/u1 — the new LRU after the promotion — was evicted instead")
-      (is (= 50 (count (:rf.route/scroll-positions db2)))
+      (is (= 50 (count (get-in db2 [:rf/route :scroll-positions])))
           "cap is still 50"))))
 
 ;; ---- rf2-hra3: route-url missing-required-param raises clear error -------

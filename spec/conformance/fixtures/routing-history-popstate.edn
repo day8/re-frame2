@@ -57,14 +57,18 @@
   {:rf/route {:id     :route/article
               :params {:id "intro"}}}
 
+  ;; Per rf2-3ib8h: routing-runtime per-frame state nests under
+  ;; :rf/route (:nav-token-counter etc.), satisfying the :rf/* single-
+  ;; root scheme (Conventions §Reserved app-db keys).
   :sub-values
-  {[:rf/route] {:id         :route/article
-                :params     {:id "intro"}
-                :query      {}
-                :fragment   nil
-                :transition :idle
-                :error      nil
-                :nav-token  "nav-1"}}
+  {[:rf/route] {:id                :route/article
+                :params            {:id "intro"}
+                :query             {}
+                :fragment          nil
+                :transition        :idle
+                :error             nil
+                :nav-token         "nav-1"
+                :nav-token-counter 1}}
 
   ;; Critical contract: ONLY :rf.nav/scroll routes — the runtime MUST
   ;; NOT push or replace the URL when the URL change ORIGINATED at the
