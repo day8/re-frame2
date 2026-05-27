@@ -35,6 +35,16 @@
    [:email    [:re #".+@.+"]]
    [:password [:string {:min 8}]]])
 
+;; Outer event-vector schema for the :auth.login/flow machine handler —
+;; see examples/reagent/login for the full rationale. The :submit
+;; sub-event is validated against `Credentials`; framework-internal
+;; sub-events (:dismiss, :success, :failure) admit :any.
+(def AuthLoginEvent
+  [:cat [:= :auth.login/flow]
+   [:or
+    [:cat [:= :auth.login/submit] Credentials]
+    [:vector :any]]])
+
 (def AuthLoginSnapshot
   [:map
    [:state [:enum :idle :submitting :error-shown :authed :locked-out]]
@@ -114,7 +124,8 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :auth.login/flow
-  {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
+  {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
+   :schema AuthLoginEvent}
   (rf/make-machine-handler
     {:initial :idle
      :data    {:attempts 0 :error nil}

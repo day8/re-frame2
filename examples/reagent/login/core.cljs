@@ -86,6 +86,20 @@
    [:email    [:re #".+@.+"]]
    [:password [:string {:min 8}]]])
 
+;; Outer event-vector schema for the :auth.login/flow machine handler.
+;; The login form is the canonical user-facing boundary, so we validate
+;; the :submit payload against `Credentials`. Other sub-events
+;; (:dismiss, :success, :failure) are dispatched internally by the
+;; machine — their inner shape is framework-controlled, so we admit
+;; them as :any. Per Spec 010 §Validation order step 1: a malformed
+;; event vector is rejected at the boundary; the handler is NOT
+;; invoked (recovery: :no-recovery).
+(def AuthLoginEvent
+  [:cat [:= :auth.login/flow]
+   [:or
+    [:cat [:= :auth.login/submit] Credentials]
+    [:vector :any]]])
+
 ;; The login flow's runtime state lives in the machine snapshot at
 ;; [:rf/machines :auth.login/flow] (per [005 §Where snapshots live]).
 ;; The snapshot shape is {:state <kw> :data <map>} per Spec 005.
@@ -204,7 +218,8 @@
 ;; is machine-local (no global registry).
 
 (rf/reg-event-fx :auth.login/flow
-  {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
+  {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
+   :schema AuthLoginEvent}
   (rf/make-machine-handler
     ;; Per Spec 005 §Where snapshots live: the spec map does NOT carry
     ;; :id; the machine's id is the surrounding reg-event-fx id.
