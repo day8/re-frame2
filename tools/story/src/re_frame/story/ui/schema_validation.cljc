@@ -556,7 +556,14 @@
      during `re-frame.story/install-canonical-vocabulary!`."
      []
      (when config/enabled?
-       (rf/reg-view* panel-render-id (fn [variant-id] [panel variant-id]))
+       ;; `[:div]` wrap REQUIRED for source-coord annotation — see the
+       ;; full rationale on `:rf.story.panel/a11y-view` registration in
+       ;; `re-frame.story.ui.a11y`. Per Spec 006 §Source-coord
+       ;; annotation the annotator needs a hiccup DOM root to attach
+       ;; `data-rf2-source-coord` to; a bare `[panel variant-id]` root
+       ;; silences Story / Xray Inspect Mode for this panel.
+       ;; (rf2-iwny7)
+       (rf/reg-view* panel-render-id (fn [variant-id] [:div [panel variant-id]]))
        (story-registrar/reg-story-panel*
          panel-id
          {:doc       "Live Spec 010 schema-validation panel — args vs schema + boundary trace failures."

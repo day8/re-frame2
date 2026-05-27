@@ -42,6 +42,24 @@
   (testing "the a11y panel-render view is registered against re-frame"
     (is (some? (rf/view a11y/panel-render-id)))))
 
+(deftest a11y-render-view-roots-in-dom-element
+  (testing "the a11y panel-render view returns hiccup whose root is a DOM
+            element keyword (`:div`), not a bare component reference.
+
+            Per Spec 006 §Source-coord annotation the annotator can only
+            attach `data-rf2-source-coord` to hiccup DOM roots; a bare
+            `[panel variant-id]` root makes the panel invisible to Story
+            Inspect Mode + Xray Inspect Mode (rf2-iwny7). The `[:div]`
+            wrap is load-bearing."
+    (let [view-fn (rf/view a11y/panel-render-id)
+          out     (view-fn :story.unknown/y)]
+      (is (vector? out)
+          "panel-render returns a hiccup vector")
+      (is (keyword? (first out))
+          "hiccup root must be a keyword (DOM element), not a component ref")
+      (is (= :div (first out))
+          "hiccup root is specifically `:div` per the source-coord-annotator wrap"))))
+
 ;; ---- state management ---------------------------------------------------
 
 (deftest violations-state-empty

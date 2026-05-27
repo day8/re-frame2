@@ -602,7 +602,19 @@
   (when config/enabled?
     ;; Register the panel-view as a re-frame view so the panel system
     ;; can resolve it via the standard late-bind path.
-    (rf/reg-view* panel-render-id (fn [variant-id] [panel variant-id]))
+    ;;
+    ;; `[:div]` wrap is REQUIRED so re-frame2's source-coord annotator
+    ;; can attach `data-rf2-source-coord` to a real DOM element. Per
+    ;; Spec 006 §Source-coord annotation, the annotator can only mutate
+    ;; attribute maps on hiccup DOM elements — passing a bare
+    ;; `[panel variant-id]` as the root has no attribute map to attach
+    ;; to, the annotator warns + falls back to `:rf/id`, AND the panel
+    ;; becomes invisible to Story Inspect Mode / Xray Inspect Mode
+    ;; (which walks up to the nearest `[data-rf2-source-coord]`
+    ;; ancestor — without the attribute the panel is skipped). DO NOT
+    ;; remove this wrap without first checking that Spec 006 has
+    ;; changed to permit bare-component roots. (rf2-iwny7)
+    (rf/reg-view* panel-render-id (fn [variant-id] [:div [panel variant-id]]))
     ;; Register the story-panel itself.
     (story-registrar/reg-story-panel*
       panel-id
