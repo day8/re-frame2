@@ -509,23 +509,34 @@
                        container-attrs)
            ;; Header hiccup is nil-tolerated by React/Reagent.
            header-hiccup]
-          ;; Body rows
-          (for [[i row] (map-indexed vector rows)
-                :let [attrs (or (when row-attrs (row-attrs row i)) {})
-                      cells (row-cells row i)
-                      extras (when row-extras (row-extras row i))
-                      woven (into [:<>] (weave-body cells columns))]]
-            ^{:key (row-key row i)}
-            (if (some? extras)
-              ;; Extras path — outer wrapper carries the consumer's
-              ;; attrs untouched (preserves border-bottom, click
-              ;; handlers, etc.); an inner div carries the grid layout
-              ;; for the cells; extras render below the inner grid.
-              [:div attrs
-               [:div {:style grid-style} woven]
-               extras]
-              ;; Default path — the outer wrapper IS the grid (the
-              ;; subscriptions-table shape).
-              [:div (-> attrs
-                        (assoc :style (merge (:style attrs) grid-style)))
-               woven])))))
+          ;; Body rows — eager `map-indexed` (per rf2-9ec65 / spec/006
+          ;; §Lazy-seq deref tracking, rf2-atqkg): a substrate widget
+          ;; must NOT hand React a `LazySeq` chunk because any future
+          ;; consumer that derefs a `(rf/subscribe ...)` inside its
+          ;; `:row-cells` fn would have the deref fall outside the
+          ;; parent render's reactive scope at the chunk boundary.
+          ;; The shared resizable-table is the canonical place to
+          ;; enforce eager realisation, not each call site.
+          (map-indexed
+            (fn [i row]
+              (let [attrs (or (when row-attrs (row-attrs row i)) {})
+                    cells (row-cells row i)
+                    extras (when row-extras (row-extras row i))
+                    woven (into [:<>] (weave-body cells columns))]
+                (with-meta
+                  (if (some? extras)
+                    ;; Extras path — outer wrapper carries the consumer's
+                    ;; attrs untouched (preserves border-bottom, click
+                    ;; handlers, etc.); an inner div carries the grid
+                    ;; layout for the cells; extras render below the
+                    ;; inner grid.
+                    [:div attrs
+                     [:div {:style grid-style} woven]
+                     extras]
+                    ;; Default path — the outer wrapper IS the grid
+                    ;; (the subscriptions-table shape).
+                    [:div (-> attrs
+                              (assoc :style (merge (:style attrs) grid-style)))
+                     woven])
+                  {:key (row-key row i)})))
+            rows))))
