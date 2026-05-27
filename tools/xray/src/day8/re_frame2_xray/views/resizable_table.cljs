@@ -242,7 +242,14 @@
   "See the ns docstring for the consumer API."
   [{:keys [table-id columns rows row-key row-attrs row-cells
            header-attrs container-attrs header-cell-style]}]
-  (let [overrides @(rf/subscribe [:rf.xray.column-widths/for-table table-id])
+  ;; The surrounding `frame-provider` resolves to the OBSERVED frame
+  ;; (whichever frame the Xray panel was mounted to inspect) — not
+  ;; `:rf/xray`. The column-widths slot lives on `:rf/xray`, so we
+  ;; subscribe via `rf/with-frame :rf/xray` to escape the panel's
+  ;; React-context frame. Same pattern every other Xray panel uses
+  ;; when reading its OWN state vs observed-app state.
+  (let [overrides (rf/with-frame :rf/xray
+                    @(rf/subscribe [:rf.xray.column-widths/for-table table-id]))
         template  (build-template columns overrides)
         grid-style {:display "grid"
                     :grid-template-columns template
