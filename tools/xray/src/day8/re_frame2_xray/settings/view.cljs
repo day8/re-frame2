@@ -435,92 +435,21 @@
       " default doesn't match your installed editor."]]))
 
 (defn- general-section []
-  (let [text-size       @(rf/subscribe [:rf.xray/setting :general :text-size])
-        panel-position  @(rf/subscribe [:rf.xray/setting :general :panel-position])
-        panel-width-px  @(rf/subscribe [:rf.xray/panel-width-px])
+  (let [panel-position  @(rf/subscribe [:rf.xray/setting :general :panel-position])
         auto-open?      @(rf/subscribe [:rf.xray/setting :general :auto-open-on-error?])
-        density         @(rf/subscribe [:rf.xray/density])
-        long-kw-thresh  @(rf/subscribe [:rf.xray/long-keyword-threshold])
-        show-tool?      @(rf/subscribe [:rf.xray/show-tool-frames?])
         show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
-        show-unchanged-subs? @(rf/subscribe [:rf.xray/setting :general :show-unchanged-subs?])
         editor-override @(rf/subscribe [:rf.xray/setting :general :editor-override])
-        host-editor     @(rf/subscribe [:rf.xray/editor-host-default])
-        use-system?     @(rf/subscribe [:rf.xray/setting
-                                        :general :use-system-colors?])]
+        host-editor     @(rf/subscribe [:rf.xray/editor-host-default])]
     [:div {:data-testid "rf-xray-settings-section-general"}
      [:h2 {:style (section-heading-style)} "General"]
 
-     ;; ── Text size slider ────────────────────────────────────────
-     ;; rf2-h4mnh — `<label :html-for>` ↔ `<input :id>` association
-     ;; so clicking the label focuses the input AND screen readers
-     ;; pair them (was previously a sibling label with no for/id).
-     [:div {:style (field-style)}
-      [:label {:html-for "rf-xray-settings-text-size-input"
-               :style    (label-style)} "Text size"]
-      [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
-       [:input {:data-testid "rf-xray-settings-text-size-input"
-                :id          "rf-xray-settings-text-size-input"
-                :type        "range"
-                :min         "10"
-                :max         "18"
-                :step        "1"
-                :value       (str (or text-size 13))
-                :on-change   (fn [e]
-                               (let [n (js/parseInt (.. e -target -value) 10)]
-                                 (when-not (js/isNaN n)
-                                   (rf/dispatch [:rf.xray/settings-update
-                                                 :general :text-size n]
-                                                {:frame :rf/xray}))))
-                :style       {:flex 1}}]
-       [:span {:data-testid "rf-xray-settings-text-size-value"
-               :style       {:font-family mono-stack
-                             :color       (:text-secondary tokens)
-                             :min-width   "32px"
-                             :text-align  "right"}}
-        (str (or text-size 13) "px")]]]
-
-     ;; ── Panel width (rf2-x8h9y resize handle numeric override) ─
-     ;; rf2-h4mnh — `<label :html-for>` ↔ `<input :id>` association.
-     [:div {:style (field-style)}
-      [:label {:html-for "rf-xray-settings-panel-width-input"
-               :style    (label-style)} "Panel width (px)"]
-      [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
-       [:input {:data-testid "rf-xray-settings-panel-width-input"
-                :id          "rf-xray-settings-panel-width-input"
-                :type        "number"
-                :min         "320"
-                :step        "10"
-                :value       (str (or panel-width-px 560))
-                :on-change   (fn [^js e]
-                               (let [n (js/parseInt (.. e -target -value) 10)]
-                                 (when-not (js/isNaN n)
-                                   (rf/dispatch
-                                     [:rf.xray/set-panel-width-px n]
-                                     {:frame :rf/xray}))))
-                :style       {:width        "120px"
-                              :padding      "4px 8px"
-                              :background   (:bg-2 tokens)
-                              :color        (:text-primary tokens)
-                              :border       (str "1px solid " (:border-default tokens))
-                              :border-radius "4px"
-                              :font-family  mono-stack}}]
-       [:button {:data-testid "rf-xray-settings-panel-width-reset"
-                 :title       "Reset to default (560px)"
-                 :on-click    #(rf/dispatch [:rf.xray/reset-panel-width]
-                                            {:frame :rf/xray})
-                 :style       {:background "transparent"
-                               :border     (str "1px solid " (:border-default tokens))
-                               :color      (:text-secondary tokens)
-                               :cursor     "pointer"
-                               :padding    "4px 10px"
-                               :border-radius "4px"
-                               :font-family sans-stack
-                               :font-size  (:body type-scale)}}
-        "Reset"]]
-      [:p {:style (hint-style)}
-       "Drag the left edge of the Xray panel to resize, or set "
-       "an exact pixel width here. Double-click the handle to reset."]]
+     ;; Removed 2026-05-27 per Mike (UX cleanup pass):
+     ;;   - Text-size slider — defaults suffice
+     ;;   - Panel-width numeric input + reset — drag the resize
+     ;;     handle (rf2-x8h9y); double-click resets
+     ;; Both setting slots remain in config so existing
+     ;; effects (`apply-text-size!`, `:rf.xray/set-panel-width-px`)
+     ;; continue to honour any host-set defaults.
 
      ;; ── Panel position radio ────────────────────────────────────
      [:div {:style (field-style)}
@@ -558,63 +487,20 @@
                                 {:frame :rf/xray})}]
        "Auto-open Xray when an issue is observed"]]
 
-     ;; ── Density radio (rf2-ttnst — Cosy / Compact; no Comfy) ───
-     ;;
-     ;; Per Mike 2026-05-19 §0ter.4 the Comfy tier is dropped; v1 ships
-     ;; only two densities. The setting drives Views detail-row padding
-     ;; + App-db diff-row line-height — runtime plumbing into individual
-     ;; panels lands incrementally; consumers read `:rf.xray/density`
-     ;; (see `settings/subs.cljs`).
-     [:div {:style (field-style)}
-      [:span {:style (label-style)} "Density"]
-      (for [[d label] [[:cosy    "Cosy (default)"]
-                       [:compact "Compact"]]]
-        ^{:key d}
-        [:label {:style {:display "flex" :align-items "center" :gap "8px"
-                         :cursor "pointer"
-                         :font-size (:body type-scale)
-                         :color (:text-primary tokens)}}
-         [:input {:data-testid (str "rf-xray-settings-density-" (name d))
-                  :type        "radio"
-                  :name        "rf-xray-settings-density"
-                  :checked     (= density d)
-                  :on-change   #(rf/dispatch
-                                  [:rf.xray/settings-update
-                                   :general :density d]
-                                  {:frame :rf/xray})}]
-         label])
-      [:p {:style (hint-style)}
-       "Vertical-rhythm knob for Views detail rows and App-db diff rows."]]
+     ;; Removed 2026-05-27 — Density radio (Cosy / Compact).
+     ;; Per Mike: the two options were visually indistinguishable in
+     ;; practice; the operator gains nothing from the toggle. Stay
+     ;; with the default (`:cosy`); the `:general :density` config
+     ;; slot + `:rf.xray/density` sub remain so any incremental
+     ;; per-panel padding/line-height consumer keeps reading the
+     ;; default value.
 
-     ;; ── Long-keyword wrap threshold ─────────────────────────────
-     ;; rf2-h4mnh — `<label :html-for>` ↔ `<input :id>` association.
-     [:div {:style (field-style)}
-      [:label {:html-for "rf-xray-settings-long-keyword-threshold"
-               :style    (label-style)} "Long-keyword threshold (chars)"]
-      [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
-       [:input {:data-testid "rf-xray-settings-long-keyword-threshold"
-                :id          "rf-xray-settings-long-keyword-threshold"
-                :type        "number"
-                :min         "8"
-                :max         "120"
-                :step        "1"
-                :value       (str (or long-kw-thresh 24))
-                :on-change   (fn [^js e]
-                               (let [n (js/parseInt (.. e -target -value) 10)]
-                                 (when-not (js/isNaN n)
-                                   (rf/dispatch
-                                     [:rf.xray/settings-update
-                                      :general :long-keyword-threshold n]
-                                     {:frame :rf/xray}))))
-                :style       {:width        "120px"
-                              :padding      "4px 8px"
-                              :background   (:bg-2 tokens)
-                              :color        (:text-primary tokens)
-                              :border       (str "1px solid " (:border-default tokens))
-                              :border-radius "4px"
-                              :font-family  mono-stack}}]]
-      [:p {:style (hint-style)}
-       "Fully-qualified keywords longer than this elide in compact list cells."]]
+     ;; Removed 2026-05-27 — Long-keyword threshold input had ZERO
+     ;; consumers outside the settings UI itself (grep across
+     ;; tools/xray/src/ confirmed). The sub `:rf.xray/long-keyword-
+     ;; threshold` + config slot `:general :long-keyword-threshold`
+     ;; remain for any future code that wants to honour the default
+     ;; (24), but no UI surfaces it any more.
 
      ;; ── Editor override (rf2-dudqz) ─────────────────────────────
      ;;
@@ -662,30 +548,11 @@
                       :height "1px"
                       :background (:border-subtle tokens)}}]]
 
-     [:div {:style (field-style)}
-      [:label {:style {:display "flex" :align-items "center" :gap "8px"
-                       :cursor "pointer"
-                       :font-size (:body type-scale)
-                       :color (:text-primary tokens)}}
-       [:input {:data-testid "rf-xray-settings-show-tool-frames"
-                :type        "checkbox"
-                :checked     (boolean show-tool?)
-                :on-change   #(rf/dispatch
-                                [:rf.xray/settings-update
-                                 :general :show-tool-frames?
-                                 (boolean (.. % -target -checked))]
-                                {:frame :rf/xray})}]
-       "Show tool frames in picker"]
-      [:p {:style (hint-style)}
-       "Reveals " [:code {:style {:font-family mono-stack
-                                  :color (:text-tertiary tokens)}}
-                   ":rf/xray"]
-       " + " [:code {:style {:font-family mono-stack
-                             :color (:text-tertiary tokens)}}
-              ":rf/pair2"]
-       " in the L1 frame-picker dropdown. Default OFF — tool frames"
-       " observing themselves is a known anti-pattern (see "
-       "spec/007-UX-IA.md §Frame-observation isolation invariants)."]]
+     ;; Removed 2026-05-27 — "Show tool frames in picker" toggle.
+     ;; The `:show-tool-frames?` setting slot stays; default OFF
+     ;; enforces the spec/007-UX-IA frame-observation isolation
+     ;; invariant (tool frames observing themselves = anti-pattern).
+     ;; If a future use case needs the override it can re-add the UI.
 
      ;; ── Show :ungrouped pseudo-cascade events (rf2-r9lyy) ──────
      ;;
@@ -721,83 +588,20 @@
        "Default OFF — Xray is silent-by-default. Useful when "
        "debugging SSR / REPL flows."]]
 
-     ;; ── Show unchanged subs (rf2-wyvf2 — spec/021 §3.4) ────────────
-     ;; Reactive panel disclosure pin. Default OFF: unchanged subs
-     ;; are coverage signal, not signal-of-the-moment, so the panel
-     ;; hides them behind a per-cascade footer disclosure. Flip ON
-     ;; to always inline-render the unchanged-subs list.
-     [:div {:style (field-style)}
-      [:label {:style {:display "flex" :align-items "center" :gap "8px"
-                       :cursor "pointer"
-                       :font-size (:body type-scale)
-                       :color (:text-primary tokens)}}
-       [:input {:data-testid "rf-xray-settings-show-unchanged-subs"
-                :type        "checkbox"
-                :checked     (boolean show-unchanged-subs?)
-                :on-change   #(rf/dispatch
-                                [:rf.xray/settings-update
-                                 :general :show-unchanged-subs?
-                                 (boolean (.. % -target -checked))]
-                                {:frame :rf/xray})}]
-       "Always show unchanged subs in the Reactive panel"]
-      [:p {:style (hint-style)}
-       "When ON, the Reactive panel's unchanged-subs disclosure "
-       "(rows emitting "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        ":rf.sub/skipped"]
-       ") is always inline-expanded. Default OFF — unchanged subs "
-       "stay collapsed behind a footer disclosure (spec/021 §3.4)."]]
+     ;; Removed 2026-05-27 — "Always show unchanged subs in the
+     ;; Reactive panel" toggle. The `:show-unchanged-subs?` setting
+     ;; slot stays; default OFF keeps the per-cascade footer
+     ;; disclosure pattern (spec/021 §3.4) — unchanged subs are
+     ;; coverage signal, not signal-of-the-moment.
 
-     ;; ── Use system colors toggle (rf2-846h2; relocated rf2-ou3pn) ─
-     ;;
-     ;; Opt-in surface for the same system-token chrome the
-     ;; `@media (forced-colors: active)` block paints under Windows
-     ;; HCM. Default OFF; flipping ON stamps `data-rf-force-colors=
-     ;; "active"` on the shell root + `<html>` so the sibling
-     ;; selectors in `theme/global-styles/motion-css` fire too —
-     ;; identical chrome to the OS HCM path, no OS-level switch
-     ;; required. Additive: the OS detection still works; this is a
-     ;; parallel activator the operator controls.
-     ;;
-     ;; Originally lived in the Theme tab; relocated to General →
-     ;; Power user when the Theme tab was retired (rf2-ou3pn). The
-     ;; settings slot has always been `:general :use-system-colors?`
-     ;; — only the cosmetic home moved.
-     [:div {:style (field-style)}
-      [:label {:style {:display "flex" :align-items "center" :gap "8px"
-                       :cursor "pointer"
-                       :font-size (:body type-scale)
-                       :color (:text-primary tokens)}}
-       [:input {:data-testid "rf-xray-settings-use-system-colors"
-                :type        "checkbox"
-                :checked     (boolean use-system?)
-                :on-change   #(rf/dispatch
-                                [:rf.xray/settings-update
-                                 :general :use-system-colors?
-                                 (boolean (.. % -target -checked))]
-                                {:frame :rf/xray})}]
-       "Use system colors"]
-      [:p {:style (hint-style)}
-       "Render the Xray chrome using your OS' high-contrast palette "
-       "(CSS system colour keywords: "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        "Highlight"] ", "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        "CanvasText"] ", "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        "Mark"] ", "
-       [:code {:style {:font-family mono-stack
-                       :color (:text-tertiary tokens)}}
-        "GrayText"]
-       ") — the same chrome Windows High Contrast Mode paints, "
-       "available on demand without flipping the OS-level switch. "
-       "Default OFF; the OS HCM detection still works either way. "
-       "Light/dark theme is now driven by the sun/moon icon in the "
-       "top ribbon (rf2-ou3pn)."]]]))
+     ;; Removed 2026-05-27 — "Use system colors" toggle (the manual
+     ;; HCM-mode activator). The OS-level `@media (forced-colors:
+     ;; active)` detection still works automatically; the manual
+     ;; in-app override was redundant for the common case + added
+     ;; noise to the panel. The `:use-system-colors?` setting slot
+     ;; + the `apply-use-system-colors!` effect remain so a future
+     ;; UI can re-expose if needed.
+     ]))
 
 ;; ---- section: Filters (removed rf2-wknb3) ------------------------------
 ;;

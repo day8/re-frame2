@@ -615,7 +615,7 @@
 ;; `:background` wash overlay vary (5-value op enum) on the outer, and
 ;; `:color` varies on the glyph span. Mirrors the hoisting culture
 ;; established further down (body-grid-style, body-block-style,
-;; key-cell-style, value-cell-style, triangle-style, r3-chip-base-style).
+;; key-cell-style, value-cell-style, triangle-style, r3-chip-style).
 
 (def ^:private gutter-row-outer-base-style
   "Outer `<span>` style for `gutter-row` — the static skeleton.
@@ -1447,7 +1447,7 @@
 ;;   - `gutter-body-style`              — rf2-7cddi diff-row body
 ;;   - `triangle-style`                 — ▸/▾ click-target (rf2-tzvk9)
 ;;   - `body-grid-style` / `body-block-style` / `key-cell-style` / `value-cell-style`
-;;   - `r3-chip-base-style`             — rf2-rhmc5 R3 [N∆] collapsed-change chip
+;;   - `r3-chip-style`                  — R3 [N∆] collapsed-change alert chip
 
 (def ^:private body-grid-style
   "Style for an expanded map / record / map-entry body — children laid
@@ -1481,26 +1481,29 @@
   pushing past the grid's allotment."
   {:min-width 0})
 
-(def ^:private r3-chip-base-style
-  "Static skeleton for the R3 `[N∆]` collapsed-change chip painted next
-  to a collapsed change-bearing container (rf2-rhmc5). Dynamic per-op
-  overlays applied at the call site:
-   - `:background`   ← `(op-wash-bg chip-op)`
-   - `:border`       ← `1px solid <stripe>` (or transparent)
-   - `:color`        ← `(op-stripe-colour chip-op)` (fallback `:text-secondary`)
+(def ^:private r3-chip-style
+  "R3 `[N∆]` collapsed-change chip — constant solid-orange block with
+  white text. Per Mike pair-debug 2026-05-27: the chip is the
+  operator's alert that the collapsed subtree contains change; it
+  needs to read as alert-prominent, not as subtle per-op chrome. The
+  former per-op colour (amber wash for mixed / green for all-added /
+  red for all-removed) was clever but under-prominent — operators
+  scanning collapsed nodes for hidden changes need the binary signal
+  'is there change here?' first; the kind-of-change is secondary
+  detail discoverable on expand.
 
-  Hoisted to elide three per-render `engine/op-at` lookups (the same
-  `[projection path]` was previously read three times inside one inline
-  map literal) and to give React reconciler a stable map identity for
-  the static skeleton; only the per-op colour slice gets a fresh map
-  per render."
-  {:margin-left   "6px"
-   :padding       "1px 6px"
+  Position: rendered IMMEDIATELY after the triangle (leading edge),
+  not after the collapsed summary, so the operator's eye catches
+  alert + key together rather than discovering the alert after
+  reading past the summary."
+  {:padding       "1px 6px"
    :border-radius "8px"
    :font-family   sans-stack
    :font-size     "10px"
    :font-weight   700
-   :line-height   1.2})
+   :line-height   1.2
+   :background    (:diff-modified-stripe tokens)
+   :color         (:white tokens)})
 
 (defn- on-toggle
   "Build the click handler for a node's `▸`/`▾` glyph.
@@ -1871,24 +1874,18 @@
           true        (conj (bracket kind :open value)))
 
         :else
-        (let [;; R3-revised (rf2-n2jig, per findings §7 Q3): collapsed
-              ;; containers carrying ANY descendant change show a
-              ;; `[N∆]` count chip after the closing ellipsis. The
-              ;; triangle itself stays default `:text-tertiary` (no
-              ;; colour swap) so the click affordance is unmuddied.
+        (let [;; R3-revised (rf2-n2jig + Mike pair-debug 2026-05-27):
+              ;; collapsed containers carrying ANY descendant change
+              ;; show a `[N∆]` alert chip IMMEDIATELY AFTER THE TRIANGLE
+              ;; — leading-edge position, solid orange + white text,
+              ;; constant regardless of op. The triangle itself stays
+              ;; default `:text-tertiary` (no colour swap) so the click
+              ;; affordance is unmuddied. See `r3-chip-style` docstring
+              ;; for the alert-vs-per-op-colour rationale.
               n-changes (when (and diff? projection)
                           (engine/change-count-at projection path))
               show-chip? (and (pos? (or n-changes 0))
-                              (not (#{:added :removed} op)))
-              ;; rf2-rhmc5 — bind chip-op ONCE per render (pre-fix the
-              ;; chip's inline `:style` map read `engine/op-at` three
-              ;; times for the same `[projection path]`); fall back to
-              ;; `:modified` when the projection has no recorded op for
-              ;; this path (matches the original `(or … :modified)`
-              ;; behaviour at each call site).
-              chip-op    (when show-chip?
-                           (or (engine/op-at projection path) :modified))
-              chip-stripe (when show-chip? (op-stripe-colour chip-op))]
+                              (not (#{:added :removed} op)))]
           (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
                    [:span {:on-click   toggle-fn
                            :role       "button"
@@ -1899,23 +1896,16 @@
                            ;; `triangle-style`.
                            :style triangle-style}
                     "▸"]]
-            zoom-button (conj zoom-button)
-            true        (conj (collapsed-summary value kind))
+            ;; Chip BEFORE summary so the alert reads at the leading
+            ;; edge (Mike pair-debug 2026-05-27). Was previously
+            ;; appended after `(collapsed-summary ...)`.
             show-chip?
-            ;; rf2-rhmc5 — hoisted `r3-chip-base-style` carries the static
-            ;; skeleton (margin/padding/radius/font/line-height); per-op
-            ;; colour slice is overlayed via `assoc`. `chip-stripe` is
-            ;; computed once from `chip-op` (one `engine/op-at` call) and
-            ;; reused for both `:border` colour and `:color`.
             (conj [:span {:data-rf-diff-chip "1"
                           :data-rf-diff-chip-count (str n-changes)
-                          :style (assoc r3-chip-base-style
-                                   :background (op-wash-bg chip-op)
-                                   :border     (str "1px solid "
-                                                    (or chip-stripe "transparent"))
-                                   :color      (or chip-stripe
-                                                   (:text-secondary tokens)))}
-                   (str n-changes "∆")]))))]
+                          :style r3-chip-style}
+                   (str n-changes "∆")])
+            zoom-button (conj zoom-button)
+            true        (conj (collapsed-summary value kind))))]
 
      ;; ---- body — children rendered indented -----------------------------
      ;;
