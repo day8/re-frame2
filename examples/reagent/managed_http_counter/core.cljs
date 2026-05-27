@@ -47,13 +47,18 @@
 
 ;; -- App-db shape ------------------------------------------------------------
 ;;
-;; {:count    <int>           ;; current counter value
-;;  :status   <:idle|:loading|:error>
-;;  :error    <failure-map-or-nil>}
+;; {:counter/count    <int>           ;; current counter value
+;;  :counter/status   <:idle|:loading|:error>
+;;  :counter/error    <failure-map-or-nil>}
+;;
+;; Per spec/Conventions §Feature-modularity prefix convention every
+;; app-db slot and sub-id carries the feature prefix; events already do.
 
 (rf/reg-event-db :counter/initialise
   (fn [_db _ev]
-    {:count 0 :status :idle :error nil}))
+    {:counter/count  0
+     :counter/status :idle
+     :counter/error  nil}))
 
 ;; -- +1 (real round-trip via Fetch) ------------------------------------------
 ;;
@@ -69,21 +74,21 @@
       ;; Reply branch — increment by the delta the server returned.
       (some-> msg :rf/reply :kind (= :success))
       {:db (-> db
-               (update :count + (or (:delta (:value (:rf/reply msg))) 1))
-               (assoc :status :idle :error nil))}
+               (update :counter/count + (or (:delta (:value (:rf/reply msg))) 1))
+               (assoc :counter/status :idle :counter/error nil))}
 
       ;; Failure branch — record the error.
       (some-> msg :rf/reply :kind (= :failure))
       {:db (-> db
-               (assoc :status :error
-                      :error  (:failure (:rf/reply msg))))}
+               (assoc :counter/status :error
+                      :counter/error  (:failure (:rf/reply msg))))}
 
       ;; Initial branch — issue the request. The `rf.http/get`
       ;; helper synthesises the same `[:rf.http/managed args-map]`
       ;; envelope a hand-written `:method :get` entry would; the
       ;; call-site reads as one line of intent.
       :else
-      {:db (assoc db :status :loading :error nil)
+      {:db (assoc db :counter/status :loading :counter/error nil)
        :fx [(rf.http/get "api/inc.json" {:decode :json})]})))
 
 ;; -- Fail (real 404 from http-server) ----------------------------------------
@@ -92,11 +97,11 @@
   (fn [{:keys [db]} [_ msg]]
     (cond
       (some-> msg :rf/reply :kind (= :failure))
-      {:db (assoc db :status :error :error (:failure (:rf/reply msg)))}
+      {:db (assoc db :counter/status :error :counter/error (:failure (:rf/reply msg)))}
 
       (some-> msg :rf/reply :kind (= :success))
       ;; Should not happen — the URL is intentionally 404.
-      {:db (assoc db :status :idle :error nil)}
+      {:db (assoc db :counter/status :idle :counter/error nil)}
 
       ;; Same `rf.http/get` helper as above. Per Spec 014
       ;; §Classification order, status-check fires before decode — so
@@ -106,7 +111,7 @@
       ;; default `:auto` here exercises the common case: a JSON
       ;; endpoint that 404s with a load-balancer HTML page.
       :else
-      {:db (assoc db :status :loading :error nil)
+      {:db (assoc db :counter/status :loading :counter/error nil)
        :fx [(rf.http/get "api/does-not-exist")]})))
 
 ;; -- Retry-recover (canned-stub at app level) --------------------------------
@@ -123,11 +128,11 @@
     (cond
       (some-> msg :rf/reply :kind (= :success))
       {:db (-> db
-               (update :count + (or (:delta (:value (:rf/reply msg))) 0))
-               (assoc :status :idle :error nil))}
+               (update :counter/count + (or (:delta (:value (:rf/reply msg))) 0))
+               (assoc :counter/status :idle :counter/error nil))}
 
       :else
-      {:db (assoc db :status :loading)
+      {:db (assoc db :counter/status :loading)
        ;; The canned-success stub synthesises the reply per Spec 014
        ;; §Testing. The retry policy is declared so user code reads
        ;; the same as a live retry-recover; the stub short-circuits.
@@ -166,14 +171,14 @@
       ;; cancellation, which lands here via default reply addressing.
       ;; Either kind (success / failure) returns the UI to :idle.
       (some-> msg :rf/reply :kind some?)
-      {:db (assoc db :status :idle)}
+      {:db (assoc db :counter/status :idle)}
 
       ;; Defer the canned-failure via :dispatch-later so the :loading UI
       ;; state is observable before it lands. The +1 / Fail / Retry-recover
       ;; paths above still hit the framework's :rf.http/managed; only this
       ;; "long-running" demo defers a synthetic reply.
       :else
-      {:db (assoc db :status :loading :error nil)
+      {:db (assoc db :counter/status :loading :counter/error nil)
        :fx [[:dispatch-later
              {:ms    750
               :event [:managed-http-counter.demo/deliver-long-reply
@@ -183,25 +188,25 @@
 
 (rf/reg-event-fx :counter/cancel
   (fn [{:keys [db]} _]
-    {:db (assoc db :status :idle)
+    {:db (assoc db :counter/status :idle)
      ;; Abort by request-id. The live fx fires the abort handle and
      ;; the in-flight request emits :on-failure :rf.http/aborted via
      ;; default reply addressing back to :counter/start-long, which
-     ;; handles the reply by clearing :status (see above).
+     ;; handles the reply by clearing :counter/status (see above).
      :fx [[:rf.http/managed-abort :counter/long]]}))
 
 ;; -- Subs --------------------------------------------------------------------
 
-(rf/reg-sub :count  (fn [db _] (:count db)))
-(rf/reg-sub :status (fn [db _] (:status db)))
-(rf/reg-sub :error  (fn [db _] (:error db)))
+(rf/reg-sub :counter/count  (fn [db _] (:counter/count  db)))
+(rf/reg-sub :counter/status (fn [db _] (:counter/status db)))
+(rf/reg-sub :counter/error  (fn [db _] (:counter/error  db)))
 
 ;; -- Views -------------------------------------------------------------------
 
 (reg-view counter-view []
-  (let [count  @(subscribe [:count])
-        status @(subscribe [:status])
-        error  @(subscribe [:error])]
+  (let [count  @(subscribe [:counter/count])
+        status @(subscribe [:counter/status])
+        error  @(subscribe [:counter/error])]
     [:div {:style {:font-family "sans-serif" :padding "1em"}}
      [:h1 "Managed HTTP counter"]
      [:p "Count: " [:span {:data-testid "count"} count]]
