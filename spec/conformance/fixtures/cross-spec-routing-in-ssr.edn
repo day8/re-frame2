@@ -60,14 +60,18 @@
   {:rf/route {:id     :route/article-detail
               :params {:id "intro"}}}
 
+  ;; Per rf2-3ib8h: routing-runtime per-frame state nests under
+  ;; :rf/route (:nav-token-counter etc.), satisfying the :rf/* single-
+  ;; root scheme (Conventions §Reserved app-db keys).
   :sub-values
-  {[:rf/route] {:id         :route/article-detail
-                :params     {:id "intro"}
-                :query      {}
-                :fragment   nil
-                :transition :idle
-                :error      nil
-                :nav-token  "nav-1"}}
+  {[:rf/route] {:id                :route/article-detail
+                :params            {:id "intro"}
+                :query             {}
+                :fragment          nil
+                :transition        :idle
+                :error             nil
+                :nav-token         "nav-1"
+                :nav-token-counter 1}}
 
   ;; The navigation fx was skipped on the server; nothing routed.
   :effects-routed []

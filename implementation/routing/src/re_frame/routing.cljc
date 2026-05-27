@@ -779,9 +779,12 @@
 
 ;; ---- scroll-restoration helpers -------------------------------------------
 ;; Per Spec 012 §Scroll restoration §Multi-frame routing. Per-frame
-;; saved-position map at [:rf.route/scroll-positions], LRU-capped by
+;; saved-position map at [:rf/route :scroll-positions], LRU-capped by
 ;; scroll-positions-cap. Recency anchor lives under
-;; [:rf.route/scroll-positions-order] as an internal vector.
+;; [:rf/route :scroll-positions-order] as an internal vector. Both nest
+;; under the reserved :rf/route root key (rf2-3ib8h) so all routing
+;; runtime state in app-db sits beneath the single-root :rf/* invariant
+;; (spec/Conventions §Reserved app-db keys).
 
 (def ^:private scroll-positions-cap
   "Soft upper bound on tracked URLs in the per-frame scroll-positions map.
@@ -793,28 +796,28 @@
 (defn lookup-scroll-position
   "Return the saved [x y] for url in this frame's app-db, or nil if none."
   [db url]
-  (get-in db [:rf.route/scroll-positions url]))
+  (get-in db [:rf/route :scroll-positions url]))
 
 (defn save-scroll-position
   "Pure: return db with the scroll position for url recorded under
-  [:rf.route/scroll-positions url]. Used inside :db effect maps so
+  [:rf/route :scroll-positions url]. Used inside :db effect maps so
   scroll positions live under the frame boundary (Spec 012 §Multi-frame
   routing). The map is LRU-capped at `scroll-positions-cap` entries —
   re-saving an existing url promotes it to most-recent; new saves past
   the cap evict the least-recently-used entry."
   [db url xy]
-  (let [order   (or (:rf.route/scroll-positions-order db) [])
+  (let [order   (or (get-in db [:rf/route :scroll-positions-order]) [])
         order'  (-> (filterv #(not= url %) order)
                     (conj url))
         over    (- (count order') scroll-positions-cap)
         dropped (when (pos? over) (subvec order' 0 over))
         order'' (if (pos? over) (subvec order' over) order')
-        positions  (as-> (or (:rf.route/scroll-positions db) {}) m
+        positions  (as-> (or (get-in db [:rf/route :scroll-positions]) {}) m
                      (if dropped (apply dissoc m dropped) m)
                      (assoc m url xy))]
-    (assoc db
-           :rf.route/scroll-positions       positions
-           :rf.route/scroll-positions-order order'')))
+    (update db :rf/route assoc
+            :scroll-positions       positions
+            :scroll-positions-order order'')))
 
 (defn- route-descriptor*
   "Build the canonical `{:id :params :query}` descriptor — the shape
@@ -892,18 +895,18 @@
 
 (defn- alloc-nav-token
   "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
-  counter at [:rf.route/nav-token-counter]."
+  counter at [:rf/route :nav-token-counter]."
   [db]
-  (let [n (inc (or (:rf.route/nav-token-counter db) 0))]
-    [(assoc db :rf.route/nav-token-counter n)
+  (let [n (inc (or (get-in db [:rf/route :nav-token-counter]) 0))]
+    [(assoc-in db [:rf/route :nav-token-counter] n)
      (str "nav-" n)]))
 
 (defn- alloc-pending-nav-id
   "Pure allocator: returns [db' \"pn-N\"]. Increments the per-frame
-  counter at [:rf.route/pending-nav-counter]."
+  counter at [:rf/route :pending-nav-counter]."
   [db]
-  (let [n (inc (or (:rf.route/pending-nav-counter db) 0))]
-    [(assoc db :rf.route/pending-nav-counter n)
+  (let [n (inc (or (get-in db [:rf/route :pending-nav-counter]) 0))]
+    [(assoc-in db [:rf/route :pending-nav-counter] n)
      (str "pn-" n)]))
 
 (defn- emit-activation-traces!
@@ -1240,7 +1243,7 @@
                 strategy   (resolve-scroll-strategy route-meta opts :top)
                 ;; Per Spec 012 §Multi-frame routing: scroll-position
                 ;; lookup reads the per-frame map under
-                ;; [:rf.route/scroll-positions].
+                ;; [:rf/route :scroll-positions].
                 scroll-fx  (scroll-fx-entry
                              {:strategy  strategy
                               :from      (route-descriptor (:rf/route db))
@@ -1257,14 +1260,19 @@
             ;; consumers see {allocated → deactivated? → activated?} in
             ;; that order for any cross-route transition.
             (emit-activation-traces! (get-in db [:rf/route :id]) route-id)
-            {:db (assoc db' :rf/route
-                        {:id         route-id
-                         :params     path-params
-                         :query      query-params
-                         :fragment   fragment
-                         :transition (if (seq on-match-vec) :loading :idle)
-                         :error      nil
-                         :nav-token  token})
+            ;; Merge the new slice fields OVER the existing :rf/route map so
+            ;; the per-frame routing-runtime keys nested under :rf/route
+            ;; (:scroll-positions / :scroll-positions-order /
+            ;; :nav-token-counter / :pending-nav-counter — rf2-3ib8h) are
+            ;; preserved across the transition.
+            {:db (update db' :rf/route merge
+                         {:id         route-id
+                          :params     path-params
+                          :query      query-params
+                          :fragment   fragment
+                          :transition (if (seq on-match-vec) :loading :idle)
+                          :error      nil
+                          :nav-token  token})
              :fx (vec (concat (when capture-fx [capture-fx])
                               [push-fx]
                               (mapv (fn [ev] [:dispatch ev]) on-match-vec)
@@ -1708,14 +1716,18 @@
         ;; allocation so trace consumers see {allocated → deactivated? →
         ;; activated?} in that order for any cross-route transition.
         (emit-activation-traces! (get-in db [:rf/route :id]) route-id)
-        {:db (assoc db' :rf/route
-                    {:id         route-id
-                     :params     params
-                     :query      query
-                     :fragment   fragment
-                     :transition transition
-                     :error      nil
-                     :nav-token  token})
+        ;; Merge slice fields over the existing :rf/route map — preserves
+        ;; the per-frame routing-runtime keys nested under :rf/route
+        ;; (:scroll-positions / :scroll-positions-order /
+        ;; :nav-token-counter / :pending-nav-counter — rf2-3ib8h).
+        {:db (update db' :rf/route merge
+                     {:id         route-id
+                      :params     params
+                      :query      query
+                      :fragment   fragment
+                      :transition transition
+                      :error      nil
+                      :nav-token  token})
          :fx (vec (concat (when capture-fx [capture-fx])
                           (mapv (fn [ev] [:dispatch ev]) on-match-vec)
                           ;; Per Spec 012 §Per-route data loading §2:
@@ -1854,7 +1866,7 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
 (fx/reg-fx :rf.nav/capture-scroll
   {:platforms #{:client}
    :doc       "Capture the current browser scroll position under the
-per-frame [:rf.route/scroll-positions <url>] map before leaving a route."}
+per-frame [:rf/route :scroll-positions <url>] map before leaving a route."}
   (fn [{:keys [frame]} {:keys [url position]}]
     #?(:cljs
        (when url
@@ -2121,10 +2133,25 @@ unknown strategies as :preserve (no-op)."}
 ;; that don't pull day8/re-frame2-routing carry no `:rf.route/*` strings
 ;; on their production-elision bundle (rf2-k682).
 
+;; The `:rf/route` map at app-db root is the routing-runtime container.
+;; It carries the route-slice fields (:id :params :query :transition
+;; :error :fragment :nav-token) AND the per-frame routing-runtime
+;; sub-keys (:scroll-positions / :scroll-positions-order /
+;; :nav-token-counter / :pending-nav-counter — rf2-3ib8h, nested under
+;; :rf/route to preserve the :rf/* single-root scheme per spec/
+;; Conventions §Reserved app-db keys). Subscribers reading [:rf/route]
+;; see the full container; subscribers reading sub-keys (:rf.route/id
+;; / :rf.route/params / ...) get the projected slice fields.
+
 (defn route-sub-fn
-  "Layer-1 sub fn for :rf/route — reads the slice from app-db. Exposed
-  publicly so external callers (smoke tests, tooling) can recover the
-  same projection without re-deriving it."
+  "Layer-1 sub fn for :rf/route — reads the routing-runtime container
+  from app-db. The map carries the route-slice fields (:id :params
+  :query :transition :error :fragment :nav-token) and the per-frame
+  routing-runtime sub-keys nested under :rf/route per rf2-3ib8h
+  (:scroll-positions / :scroll-positions-order / :nav-token-counter /
+  :pending-nav-counter). Exposed publicly so external callers (smoke
+  tests, tooling) can recover the same projection without re-deriving
+  it."
   [db _query]
   (:rf/route db))
 

@@ -42,15 +42,21 @@
  ;; the expected slice mirrors what the runtime writes. :nav-token is
  ;; matched via the wildcard `:rf.fixture/any` sentinel since the gensym
  ;; counter resets per fixture run.
+ ;;
+ ;; Per rf2-3ib8h: routing-runtime per-frame state nests under :rf/route
+ ;; (:nav-token-counter etc.) to satisfy the :rf/* single-root scheme
+ ;; (Conventions §Reserved app-db keys). After two navigates against a
+ ;; reset counter the slot reads "nav-token-counter 2".
  {:final-app-db {:rf/route {:id :route/article-detail :params {:id "intro"}}}
 
-  :sub-values   {[:rf/route] {:id         :route/article-detail
-                              :params     {:id "intro"}
-                              :query      {}
-                              :fragment   nil
-                              :transition :idle
-                              :error      nil
-                              :nav-token  "nav-2"}}
+  :sub-values   {[:rf/route] {:id                :route/article-detail
+                              :params            {:id "intro"}
+                              :query             {}
+                              :fragment          nil
+                              :transition        :idle
+                              :error             nil
+                              :nav-token         "nav-2"
+                              :nav-token-counter 2}}
 
   :effects-routed
   [{:fx-id :rf.nav/push-url :args "/articles"}
