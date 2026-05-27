@@ -434,7 +434,11 @@
 
 (defn apply-epoch-history!
   "Write `n` (the epoch-history depth) through to the substrate's
-  per-frame ring buffer via `(rf/configure :epoch-history {:depth N})`.
+  per-frame ring buffer. Per Mike pair-debug 2026-05-27: drives BOTH
+  `:depth` AND `:trace-events-keep` to the same `n` so trace is
+  retained for every retained epoch — when an epoch evicts, its
+  trace evicts too. Operator gets one knob, atomic relationship.
+
   No-op when `n` is non-numeric (a malformed persisted payload survives
   into here as `nil`; the substrate ignores the slot rather than
   resetting to default). Failures (epoch artefact not loaded, late-bind
@@ -444,7 +448,8 @@
   [n]
   (when (and (number? n) (pos? n))
     (try
-      (rf/configure :epoch-history {:depth (long n)})
+      (rf/configure :epoch-history {:depth             (long n)
+                                    :trace-events-keep (long n)})
       (catch :default _ nil)))
   nil)
 

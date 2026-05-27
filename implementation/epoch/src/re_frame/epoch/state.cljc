@@ -29,20 +29,22 @@
   50)
 
 (def ^:private default-trace-events-keep
-  ;; Per rf2-mrsck and Security.md §Epoch privacy posture: a finite
-  ;; default that bounds dev-session heap growth from accumulated raw
-  ;; cascade traces. The most-recent N records keep `:trace-events`;
-  ;; older records keep only the cheap structured projections
-  ;; (`:sub-runs` / `:renders` / `:effects`). Five matches the pair-
-  ;; tool / Xray "what just happened?" working set — devs typically
-  ;; care about the latest handful of cascades' raw streams; a deeper
-  ;; ring depth is for time-travel reproducibility (`:db-after` is
-  ;; cheap), not raw-trace inspection. Apps that genuinely need the
-  ;; whole ring's traces can opt back in via
-  ;; `(rf/configure :epoch-history {:trace-events-keep nil})` (or any
-  ;; value >= the depth cap). Setting the slot to `0` drops every
-  ;; record's `:trace-events`.
-  5)
+  ;; Matches `default-depth` so by default trace is retained for every
+  ;; retained epoch — when an epoch evicts, its trace evicts too. Per
+  ;; Mike pair-debug 2026-05-27 (the previous default of 5 created a
+  ;; discrepancy where 50 epoch records were retained but only the
+  ;; most recent 5 had their `:trace-events` — operator's mental model
+  ;; expects atomic relationship between epoch + trace).
+  ;;
+  ;; Production builds elide the trace machinery via
+  ;; `interop/debug-enabled? false` so this only affects dev sessions.
+  ;; Heap cost of 50 trace-events is modest (~thousands of small
+  ;; entries; well within browser tolerance).
+  ;;
+  ;; Memory-conscious hosts can still set a lower cap via
+  ;; `(rf/configure :epoch-history {:trace-events-keep N})`. Setting
+  ;; the slot to `0` drops every record's `:trace-events`.
+  50)
 
 (defonce ^:private config
   ;; Three keys today (:depth, :trace-events-keep, :redact-fn). Map
