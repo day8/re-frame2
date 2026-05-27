@@ -1312,19 +1312,34 @@
       (is (pos? (count (mini-mounts tree)))
           "the :db diff row mounts at least one mini-render"))))
 
-(deftest handler-fx-values-route-through-mini-test
-  (testing "rf2-8w8er — HANDLER step's :fx entries render the value
-            through `ei/mini`."
-    (let [tree (view/render-handler-step
-                 {:step :handler :badge :HANDLER :step-number 3
-                  :flavour :reg-event-fx :event-id :do/it
-                  :db-diff []
-                  :fx [{:fx-id :http/post :value {:url "/x" :body {:n 1}}}]
-                  :machine nil})
-          fx-row (th/find-by-testid tree "rf-xray-epoch-handler-fx-row-0")]
-      (is (some? fx-row))
-      (is (pos? (count (mini-mounts fx-row)))
-          "the fx value mounts a mini-render"))))
+(deftest handler-fx-section-routes-through-edn-inspector-test
+  (testing "rf2-p2zy0 — HANDLER step's `:fx` section (the canonical
+            vector-of-vectors off the handler's return map) renders
+            fully expanded via the edn-inspector widget. Per Mike
+            pair-debug 2026-05-27 the per-fx-row list shape is
+            retired in favour of a single edn-inspector mount.
+
+            The `:other-effects` section (return map minus :db and
+            :fx) is also covered here — both sections mount the
+            edn-inspector with `:default-expanded-depth 16`."
+    (let [tree    (view/render-handler-step
+                    {:step :handler :badge :HANDLER :step-number 3
+                     :flavour :reg-event-fx :event-id :do/it
+                     :db-diff []
+                     :fx-vec  [[:dispatch [:foo 1]]
+                               [:http/get {:url "/x"}]]
+                     :other-effects {:navigate "/home"}
+                     :machine nil})
+          fx-sec  (th/find-by-testid tree "rf-xray-epoch-handler-fx")
+          oth-sec (th/find-by-testid tree "rf-xray-epoch-handler-other")]
+      (is (some? fx-sec)
+          "the :fx section mounts when fx-vec is non-empty")
+      (is (pos? (count (ei-mounts fx-sec)))
+          "the :fx section mounts an edn-inspector")
+      (is (some? oth-sec)
+          "the -> other section mounts when other-effects is non-empty")
+      (is (pos? (count (ei-mounts oth-sec)))
+          "the -> other section mounts an edn-inspector"))))
 
 (deftest fx-step-args-route-through-mini-test
   (testing "rf2-8w8er — FX step row's args render through `ei/mini`."

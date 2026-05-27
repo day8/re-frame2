@@ -391,23 +391,6 @@
    :font-family mono-stack
    :font-size   "12px"})
 
-(def ^:private fx-entry-row-style
-  {:display     "flex"
-   :align-items "flex-start"
-   :gap         "8px"
-   :padding     "2px 0 2px 21px"
-   :font-family mono-stack
-   :font-size   "12px"})
-
-(def ^:private fx-entry-id-style
-  {:color accent-colour :white-space "nowrap"})
-
-(def ^:private diff-value-flex-style
-  {:color      text-primary-colour
-   :min-width  0
-   :flex       1
-   :word-break "break-word"})
-
 (def ^:private diff-path-style
   {:color text-tertiary-colour :white-space "nowrap"})
 
@@ -1898,21 +1881,6 @@
        [:span {:style diff-added-flex-style}
         [ei/mini after 80]])]))
 
-(defn- fx-entry-line
-  "Render one fx entry inside the HANDLER step's :fx sub-block.
-
-  Per rf2-8w8er the fx value routes through the edn-inspector `mini`
-  widget so its scalars / keywords / collections paint with the
-  canonical syntax-token chrome rather than plain `pr-str` text."
-  [{:keys [fx-id value]} idx]
-  [:div {:key (str "fx-entry-" idx)
-         :data-testid (str "rf-xray-epoch-handler-fx-row-" idx)
-         :style fx-entry-row-style}
-   [:span {:style fx-entry-id-style}
-    (proj/ns-keyword fx-id)]
-   [:span {:style diff-value-flex-style}
-    [ei/mini value 80]]])
-
 ;; ---- Machine cascade view (rf2-u69j7) -----------------------------------
 ;;
 ;; Pre-rf2-u69j7 the machine-handler-section rendered 7 categories
@@ -2661,8 +2629,24 @@
   non-machine handlers (design doc §Section 1 + §Section 2) — empty
   diff renders `— (no changes)` rather than collapsing the slot. For
   machine handlers the standalone `:db diff` is suppressed (folded
-  into SNAPSHOT DIFF per design §Section 3)."
-  [{:keys [flavour event-id db-diff fx machine] :as _row}]
+  into SNAPSHOT DIFF per design §Section 3).
+
+  Per rf2-p2zy0 (Mike pair-debug 2026-05-27) the legacy per-fx-row
+  list (one `fx-entry-line` per entry) is REPLACED by two
+  decomposed sections matching how a reg-event-fx author thinks
+  about the return map:
+
+    - `:fx` — the canonical `:fx` vector-of-vectors (when present)
+      rendered fully expanded via the edn-inspector widget.
+    - `-> other` — the return map MINUS `:db` and `:fx`, rendered
+      fully expanded via the edn-inspector widget. Carries legacy
+      top-level fx-ids (`:dispatch`, `:http/get`, `:navigate`, …)
+      when used directly on the return map rather than under `:fx`.
+
+  Either, both, or neither may render — sections are
+  `seq`-conditioned. The `:db` part stays in its own dedicated
+  block (the [diff][full][full+diff] toggle) above."
+  [{:keys [flavour event-id db-diff fx-vec other-effects machine] :as _row}]
   (let [machine? (= :reg-machine flavour)]
     [:div {:data-testid "rf-xray-epoch-handler-body"}
      ;; Source / machine spec block — rf2-66wis
@@ -2675,14 +2659,24 @@
      ;; folded into SNAPSHOT DIFF for machines
      (when-not machine?
        (handler-db-diff-block db-diff))
-     ;; :fx entries
-     (when (seq fx)
+     ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector
+     (when (seq fx-vec)
        [:div {:data-testid "rf-xray-epoch-handler-fx"}
-        (sub-header ":fx"
-                    (str (count fx) " entr"
-                         (if (= 1 (count fx)) "y" "ies")))
-        (for [[i entry] (map-indexed vector fx)]
-          (fx-entry-line entry i))])]))
+        (sub-header ":fx")
+        [ei/edn-inspector fx-vec
+         {:site-id                [:rf.xray.epoch/handler-fx event-id]
+          :card?                  false
+          :zoomable?              true
+          :default-expanded-depth 16}]])
+     ;; -> other — return map minus :db and :fx, FULL via edn-inspector
+     (when (seq other-effects)
+       [:div {:data-testid "rf-xray-epoch-handler-other"}
+        (sub-header "-> other")
+        [ei/edn-inspector other-effects
+         {:site-id                [:rf.xray.epoch/handler-other event-id]
+          :card?                  false
+          :zoomable?              true
+          :default-expanded-depth 16}]])]))
 
 (defn render-handler-step
   "Render the HANDLER step (always present). Per Mike pair-debug

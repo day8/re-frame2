@@ -363,6 +363,31 @@
                {:fx-id (first entry) :value (second entry)}))
         :else []))))
 
+(defn- effects-decomp
+  "Decompose the handler's returned effects map into the three
+  sections the HANDLER body renders per Mike pair-debug 2026-05-27:
+
+    {:fx-vec        — the canonical :fx vector-of-vectors when
+                       present (`[[:dispatch [:foo]] [:http/get {...}]]`)
+     :other-effects — the effects map MINUS :db AND :fx (carries
+                       legacy top-level fx-ids like :dispatch,
+                       :http/get, :navigate when used directly on
+                       the return map rather than under :fx)}
+
+  The `:db` is NOT included here — it has its own dedicated
+  rendering via `handler-db-diff-block` (with the
+  [diff][full][full+diff] toggle). The view conditions each
+  section's render on its slot being non-empty.
+
+  Returns nil when no `:rf.fx/do-fx` fired (reg-event-db with no
+  effects, or the cascade aborted before do-fx)."
+  [events]
+  (when-let [do-fx (find-op events :rf.fx/do-fx)]
+    (let [fx (common/tag-of do-fx :rf.event/fx)]
+      (when (map? fx)
+        {:fx-vec        (:fx fx)
+         :other-effects (not-empty (dissoc fx :db :fx))}))))
+
 (defn- db-diff-paths
   "Compute the changed-paths vector for this cascade JIT from the
   epoch-record's `:db-before` + `:db-after` snapshots via the canonical
@@ -825,13 +850,26 @@
                         (:rf.event/duration-ms run-end)
                         (some-> db-changed :tags :duration-ms)
                         (some-> do-fx :tags :duration-ms))
-        base        {:step        :handler
-                     :badge       :HANDLER
-                     :flavour     flavour
-                     :event-id    event-id
-                     :duration-ms duration-ms
-                     :db-diff     (db-diff-paths db-before db-after)
-                     :fx          (or (fx-entries events) [])}]
+        decomp      (effects-decomp events)
+        base        {:step           :handler
+                     :badge          :HANDLER
+                     :flavour        flavour
+                     :event-id       event-id
+                     :duration-ms    duration-ms
+                     :db-diff        (db-diff-paths db-before db-after)
+                     ;; :fx — legacy flat-entries slot (kept for non-view
+                     ;; consumers; tests + pre-rf2-p2zy0 callers).
+                     :fx             (or (fx-entries events) [])
+                     ;; rf2-p2zy0 — new HANDLER-body sections:
+                     ;; `:fx-vec` is the canonical :fx vector-of-vectors
+                     ;; off the handler's return map; `:other-effects`
+                     ;; is the same map MINUS :db and :fx (carries
+                     ;; legacy top-level fx-ids like :dispatch / :http/get
+                     ;; / :navigate when used directly on the return
+                     ;; map). Either or both may be nil; view conditions
+                     ;; the render on `seq`.
+                     :fx-vec         (:fx-vec decomp)
+                     :other-effects  (:other-effects decomp)}]
     (cond-> base
       (= :reg-machine flavour)
       (assoc :machine
