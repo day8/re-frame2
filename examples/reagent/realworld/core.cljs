@@ -147,7 +147,7 @@
 (reg-view ^{:doc "Renders a confirm dialog when navigation is blocked by a
                   :can-leave guard. Reads the :rf/pending-navigation slot."}
           pending-nav-dialog []
-  (when-let [pending @(subscribe [:realworld.routing/pending-navigation])]
+  (when-let [pending @(subscribe [:rf/pending-navigation])]
     [:div.pending-nav-overlay
      [:div.pending-nav-dialog
       [:p (or (:reason pending) "You have unsaved changes. Leave anyway?")]
