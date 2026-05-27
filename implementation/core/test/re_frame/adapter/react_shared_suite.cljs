@@ -2118,9 +2118,9 @@
               "mounted probe pinned a cache entry with ref-count > 0")
           (act-fn (fn [] (.unmount root)))
           ;; After unmount the useEffect cleanup fires subs/unsubscribe;
-          ;; the entry's deferred-dispose either races a 0 ref-count or
-          ;; schedules grace-period teardown. Either way the ref-count is
-          ;; no longer pinned at >0 — the regression rf2-7g959 named.
+          ;; per rf2-cmfln the entry is disposed synchronously on the
+          ;; 1 → 0 transition. The ref-count is no longer pinned at >0
+          ;; — the regression rf2-7g959 named.
           (is (or (nil? (get @cache cache-key-v))
                   (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
               "post-unmount ref-count is zero (or entry already dropped) — rf2-7g959 cleanup fired")

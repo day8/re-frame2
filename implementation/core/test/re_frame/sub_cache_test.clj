@@ -1,23 +1,24 @@
 (ns re-frame.sub-cache-test
   "Tests for the per-frame sub-cache disposal contract (Spec 006
-  §Reference counting and disposal, rf2-s9dn).
+  §Reference counting and disposal, rf2-cmfln).
 
-  The cache uses **deferred ref-counting with a grace-period**: when
-  the last subscriber drops, the entry is scheduled for disposal after
-  grace-period-ms. A new subscriber arriving in the window cancels
-  disposal and reuses the cached value.
+  The cache uses **synchronous ref-count disposal**: when the last
+  subscriber drops (`unsubscribe` drives the 1 → 0 transition), the
+  cache slot is evicted IN-TICK. The reaction is disposed, the on-
+  dispose callback releases input refs (cascading layer-2+), and the
+  slot is dissoc'd. No deferred-grace timer, no batched dispose.
 
-  These tests exercise the contract under both grace=0 (synchronous,
-  fastest test path) and grace>0 (the production path)."
+  Pre-rf2-cmfln these tests covered both `grace=0` (synchronous) and
+  `grace>0` (deferred) paths; the deferred-grace mechanism has been
+  retired (clean swap per pre-alpha) so the surface under test is the
+  single sync path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs.cache :as subs-cache]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -28,11 +29,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  ;; Restore the default grace-period after each test — tests below
-  ;; toggle it for assertions and we don't want the value to leak.
-  (try (test-fn)
-       (finally
-         (subs-cache/configure! {:grace-period-ms 50}))))
+  (test-fn))
 
 (use-fixtures :each reset-runtime)
 
@@ -44,31 +41,10 @@
   [query-v]
   (get-in @(:sub-cache (frame/frame :rf/default)) [query-v :ref-count]))
 
-(defn- pending-dispose?
-  [query-v]
-  (some? (get-in @(:sub-cache (frame/frame :rf/default)) [query-v :pending-dispose])))
+;; ---- synchronous disposal --------------------------------------------------
 
-;; ---- configuration --------------------------------------------------------
-
-(deftest default-grace-period
-  (testing "the default grace-period is 50ms"
-    ;; 50ms is short enough not to leak under genuine disposal but long
-    ;; enough to bridge React re-render churn (per Spec 006).
-    (subs-cache/configure! {:grace-period-ms 50})  ;; explicit; the fixture restores
-    (is (= 50 (:grace-period-ms (subs-cache/current-config))))))
-
-(deftest configure-overrides-grace-period
-  (testing "(rf/configure :sub-cache {...}) updates the grace-period"
-    (rf/configure :sub-cache {:grace-period-ms 200})
-    (is (= 200 (:grace-period-ms (subs-cache/current-config))))
-    (rf/configure :sub-cache {:grace-period-ms 0})
-    (is (= 0 (:grace-period-ms (subs-cache/current-config))))))
-
-;; ---- synchronous-disposal path (grace = 0) --------------------------------
-
-(deftest sync-disposal-when-grace-is-zero
-  (testing "with grace=0, ref-count → 0 disposes the cache slot synchronously"
-    (subs-cache/configure! {:grace-period-ms 0})
+(deftest sync-disposal-on-last-unsubscribe
+  (testing "ref-count → 0 disposes the cache slot synchronously (rf2-cmfln)"
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -78,12 +54,12 @@
     (is (= 1 (entry-ref-count [:n])))
 
     (rf/unsubscribe [:n])
-    ;; grace=0: the slot is gone immediately, no scheduling.
-    (is (not (contains? (cache-keys) [:n])))))
+    ;; The slot is gone immediately — no scheduling, no timer.
+    (is (not (contains? (cache-keys) [:n]))
+        "cache slot disposed in-tick on the 1 → 0 transition")))
 
 (deftest sync-disposal-respects-multiple-subscribers
-  (testing "with grace=0, only the LAST subscriber dropping disposes"
-    (subs-cache/configure! {:grace-period-ms 0})
+  (testing "only the LAST subscriber dropping disposes"
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -99,189 +75,133 @@
     (rf/unsubscribe [:n])
     (is (not (contains? (cache-keys) [:n])))))
 
-;; ---- deferred-disposal path (grace > 0) -----------------------------------
-
-(deftest deferred-disposal-after-grace-period
-  (testing "ref-count → 0 → grace-period elapses → entry disposed"
-    (subs-cache/configure! {:grace-period-ms 30})
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (rf/subscribe [:n])
-    (rf/unsubscribe [:n])
-
-    ;; Immediately after unsubscribe: slot still present, dispose pending.
-    (is (contains? (cache-keys) [:n])
-        "slot should not be disposed before the grace-period elapses")
-    (is (= 0 (entry-ref-count [:n]))
-        "ref-count is zero immediately on the last unsubscribe")
-    (is (pending-dispose? [:n])
-        "a deferred-dispose handle should be stashed on the entry")
-
-    ;; Poll for the dispose — the cache-entry vanishing IS the observable
-    ;; signal (rf2-fun38). Faster than fixed Thread/sleep 200 + grace
-    ;; scheduler-margin; tests fail fast on a stuck timer.
-    (test-support/poll-until
-      #(not (contains? (cache-keys) [:n]))
-      {:timeout-ms 2000 :label "[:n] disposed after grace elapses"})
-
-    (is (not (contains? (cache-keys) [:n]))
-        "after the grace-period the entry MUST be disposed")))
-
-(deftest resubscribe-within-grace-cancels-disposal
-  (testing "resubscribe inside the grace-period cancels disposal; cached value reused"
-    (subs-cache/configure! {:grace-period-ms 100})
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (let [r1 (rf/subscribe [:n])]
-      (rf/unsubscribe [:n])
-      (is (pending-dispose? [:n])
-          "dispose was scheduled when ref-count dropped to zero")
-      (let [r2 (rf/subscribe [:n])]
-        (is (identical? r1 r2)
-            "resubscribe within grace-period MUST return the same reaction")
-        (is (= 1 (entry-ref-count [:n]))
-            "ref-count is back to 1 after the resubscribe")
-        (is (not (pending-dispose? [:n]))
-            "the pending-dispose handle is cleared on resubscribe"))
-
-      ;; Timer-semantics sleep (rf2-fun38): we are proving the *absence*
-      ;; of a dispose — the cancelled timer must NOT fire and the slot
-      ;; must stay alive past the original 100ms grace window. No
-      ;; observable signal to poll on; the 250ms slack confirms quiescence.
-      (Thread/sleep 250)
-      (is (contains? (cache-keys) [:n])
-          "cancelled timer must not fire — slot survives"))))
-
-(deftest grace-zero-disposes-without-pending-handle
-  (testing "with grace=0 the synchronous path leaves no pending-dispose handle"
-    (subs-cache/configure! {:grace-period-ms 0})
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (rf/subscribe [:n])
-    (rf/unsubscribe [:n])
-    (is (not (contains? (cache-keys) [:n]))
-        "slot disposed synchronously")))
-
-;; ---- rf2-zmufj: subscribe-once teardown is synchronous -------------------
+;; ---- rf2-cmfln: no recompute between ref-count → 0 and dispose -----------
 ;;
-;; subscribe-once's internal unsubscribe runs with `{:grace 0}` so the
-;; one-shot read's whole lifetime — subscribe, deref, dispose — completes
-;; in the calling tick. Pre-fix, even with the per-runtime grace-period
-;; set to 50ms, subscribe-once would schedule a deferred dispose timer
-;; whose callback fired AFTER the caller had moved on, leaking dispose
-;; side-effects past the call's observable lifetime.
+;; The bead's acceptance #2/#3 require that no wasted sub-runs fire between
+;; the moment ref-count drops to zero and the moment the reaction is
+;; disposed. With sync dispose the two events happen in the same tick on
+;; the same call site — there is no observable gap. This test pins the
+;; absence: a state change AFTER the last unsubscribe MUST NOT re-invoke
+;; the sub's compute fn (because the reaction has been disposed, its
+;; watch on app-db unwound).
+
+(deftest no-recompute-between-zero-ref-count-and-dispose
+  (testing "after the last unsubscribe, a state change does NOT re-invoke
+            the sub's compute fn — the reaction has been disposed
+            synchronously, its watch on app-db unwound (rf2-cmfln #2/#3)"
+    (let [recompute-count (atom 0)]
+      (rf/reg-event-db :seed   (fn [_ _]      {:n 0}))
+      (rf/reg-event-db :update (fn [db [_ n]] (assoc db :n n)))
+      (rf/reg-sub :n (fn [db _]
+                       (swap! recompute-count inc)
+                       (:n db)))
+      (rf/dispatch-sync [:seed])
+
+      ;; Subscribe + read forces compute.
+      (let [r (rf/subscribe [:n])]
+        (is (= 0 @r))
+        (is (= 1 @recompute-count) "compute fn ran once for the initial read")
+
+        ;; A change recomputes (one derefer still holds the slot).
+        (rf/dispatch-sync [:update 1])
+        (is (= 1 @r))
+        (is (= 2 @recompute-count) "compute fn ran for the change"))
+
+      ;; Last unsubscribe — synchronous dispose. The slot is gone; the
+      ;; reaction's watch on app-db is unwound IN THIS CALL.
+      (rf/unsubscribe [:n])
+      (is (not (contains? (cache-keys) [:n]))
+          "cache slot disposed synchronously")
+      (let [count-after-dispose @recompute-count]
+
+        ;; Subsequent app-db changes MUST NOT recompute. Pre-rf2-cmfln
+        ;; the deferred-grace mechanism kept the slot alive for ~50ms;
+        ;; any state change in that window would recompute the sub
+        ;; (wasted work) before the timer fired. Sync dispose eliminates
+        ;; that window: the reaction is dead before this call returns.
+        (rf/dispatch-sync [:update 2])
+        (is (= count-after-dispose @recompute-count)
+            "compute fn did NOT run after the last unsubscribe — there
+             is no live cache entry to recompute, and the watch the
+             reaction held on app-db was removed at dispose-time")
+
+        (rf/dispatch-sync [:update 3])
+        (rf/dispatch-sync [:update 4])
+        (is (= count-after-dispose @recompute-count)
+            "subsequent state changes still do not recompute — sync
+             dispose closed the window entirely")))))
+
+;; ---- clear-sub-cache! ----------------------------------------------------
+
+(deftest clear-subscription-cache-empties-the-cache
+  (testing "clear-sub-cache! disposes every cached entry"
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    (rf/subscribe [:n])
+    (is (contains? (cache-keys) [:n]))
+
+    (rf/clear-sub-cache! :rf/default)
+    (is (empty? (cache-keys)))))
+
+;; ---- hot-reload re-registration disposes cached entries ------------------
+
+(deftest hot-reload-evicts-cached-entries
+  (testing "re-registering a sub disposes the cached slot"
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    (rf/subscribe [:n])
+    (is (contains? (cache-keys) [:n]))
+
+    ;; Re-register with a different body — invalidate-sub-on-replace! fires.
+    (rf/reg-sub :n (fn [db _] (* 2 (:n db))))
+    (is (not (contains? (cache-keys) [:n]))
+        "hot-reload evicts the slot regardless of ref-count")))
+
+;; ---- subscribe-once teardown is synchronous ------------------------------
+;;
+;; subscribe-once's whole lifetime — subscribe, deref, dispose — completes
+;; in the calling tick. Per rf2-cmfln this is the same path every
+;; unsubscribe drives (sync), so the test asserts the user-visible shape:
+;; the slot is gone when subscribe-once returns.
 
 (deftest subscribe-once-disposes-synchronously
-  (testing "subscribe-once's teardown is synchronous regardless of the configured grace-period (rf2-zmufj)"
-    (subs-cache/configure! {:grace-period-ms 60000})  ;; long grace; pre-fix this leaked
+  (testing "subscribe-once's teardown is synchronous"
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
-    ;; Pre-condition: no cache slot exists for [:n] yet.
     (is (not (contains? (cache-keys) [:n]))
         "no cache slot before subscribe-once")
-
-    ;; subscribe-once: builds the sub, derefs, and tears down. Per
-    ;; rf2-zmufj the teardown is synchronous — when this returns, the
-    ;; slot MUST already be evicted, with no pending-dispose handle.
     (is (= 7 (rf/subscribe-once [:n])))
     (is (not (contains? (cache-keys) [:n]))
-        "slot is disposed synchronously inside subscribe-once — no deferred timer")))
+        "slot disposed synchronously inside subscribe-once")))
 
 (deftest subscribe-once-respects-concurrent-subscriber
-  (testing "subscribe-once's :grace 0 teardown only disposes when it drove 1→0 (rf2-zmufj)"
-    (subs-cache/configure! {:grace-period-ms 60000})
+  (testing "subscribe-once's teardown only disposes when it drove the 1 → 0"
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
     ;; Pin the slot with a reactive subscribe — ref-count = 1.
-    (let [pin (rf/subscribe [:n])]
-      (is (= 1 (entry-ref-count [:n])))
-
-      ;; subscribe-once runs: subscribe (ref-count → 2), deref,
-      ;; unsubscribe {:grace 0} (ref-count → 1). The decrement does NOT
-      ;; drive 1→0 — the pinning subscribe is still live — so the slot
-      ;; MUST survive untouched.
-      (is (= 7 (rf/subscribe-once [:n])))
-      (is (contains? (cache-keys) [:n])
-          "slot survives — the pinning subscriber kept ref-count > 0")
-      (is (= 1 (entry-ref-count [:n]))
-          "ref-count back to 1 after subscribe-once's paired inc/dec")
-      (is (not (pending-dispose? [:n]))
-          "no dispose was scheduled — the {:grace 0} teardown only fires on 1→0")
-
-      ;; Cleanup: release the pin so the fixture's grace-period reset
-      ;; doesn't leave a live slot behind. (Re-frame.core does not
-      ;; expose `dispose!` directly — the `unsubscribe` call below
-      ;; releases the imperative subscribe's ref-count.)
-      (rf/unsubscribe [:n])
-      ;; `pin` is no longer used after this point; binding kept above
-      ;; only to materialise the pinning subscribe — its reactive
-      ;; lifetime ends with the line above.
-      pin)))
-
-(deftest unsubscribe-with-grace-opt-overrides-configured-grace
-  (testing "(unsubscribe frame-id query-v {:grace 0}) disposes synchronously even when configured grace > 0"
-    (subs-cache/configure! {:grace-period-ms 60000})
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
     (rf/subscribe [:n])
     (is (= 1 (entry-ref-count [:n])))
 
-    ;; The {:grace 0} opt forces synchronous disposal for THIS call only
-    ;; — the per-runtime configured grace-period is unchanged.
-    (rf/unsubscribe :rf/default [:n] {:grace 0})
-    (is (not (contains? (cache-keys) [:n]))
-        "slot disposed synchronously despite configured grace=60000ms")
-    (is (= 60000 (:grace-period-ms (subs-cache/current-config)))
-        "per-runtime grace-period-ms is unchanged — only THIS call was overridden")))
+    ;; subscribe-once runs: subscribe (ref-count → 2), deref, unsubscribe
+    ;; (ref-count → 1). The decrement does NOT drive 1 → 0 — the pinning
+    ;; subscribe is still live — so the slot MUST survive untouched.
+    (is (= 7 (rf/subscribe-once [:n])))
+    (is (contains? (cache-keys) [:n])
+        "slot survives — the pinning subscriber kept ref-count > 0")
+    (is (= 1 (entry-ref-count [:n]))
+        "ref-count back to 1 after subscribe-once's paired inc/dec")
 
-;; ---- clear-sub-cache! cancels pending timers ---------------------
-
-(deftest clear-subscription-cache-cancels-pending
-  (testing "clear-sub-cache! cancels any pending grace-period timers"
-    (subs-cache/configure! {:grace-period-ms 60000})  ;; long grace; we'll clear before it fires
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (rf/subscribe [:n])
+    ;; Release the pin so the cache is clean for sibling tests.
     (rf/unsubscribe [:n])
-    (is (pending-dispose? [:n]))
-
-    (rf/clear-sub-cache! :rf/default)
-    ;; The cache is empty — and the pending timer was cancelled.
-    ;; Nothing observable to assert on the cancellation directly,
-    ;; but the cache emptying without throwing covers the path.
-    (is (empty? (cache-keys)))))
-
-;; ---- hot-reload re-registration disposes pending entries ------------------
-
-(deftest hot-reload-cancels-pending-and-disposes
-  (testing "re-registering a sub disposes cached slots and cancels pending timers"
-    (subs-cache/configure! {:grace-period-ms 60000})
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (rf/subscribe [:n])
-    (rf/unsubscribe [:n])
-    (is (pending-dispose? [:n]))
-
-    ;; Re-register with a different body — invalidate-sub-on-replace! fires.
-    (rf/reg-sub :n (fn [db _] (* 2 (:n db))))
-    (is (not (contains? (cache-keys) [:n]))
-        "hot-reload evicts the slot regardless of pending-dispose")))
+    (is (not (contains? (cache-keys) [:n])))))
 
 ;; ---- subscribe-before-register does NOT cache (rf2-l9u5) -----------------
 ;;
@@ -294,7 +214,6 @@
 
 (deftest subscribe-before-register-does-not-cache
   (testing "subscribing before reg-sub does not cache; later registration is observed"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/dispatch-sync [:init])
 
@@ -323,7 +242,6 @@
 
 (deftest subscribe-before-register-survives-multiple-misses
   (testing "repeated subscribe-before-register calls do not poison the cache"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:n 11}))
     (rf/dispatch-sync [:init])
 
@@ -341,20 +259,10 @@
 ;; v2 preserves v1's contract: clear-sub removes the registration but
 ;; leaves cached reactions in place. Cache eviction is a separate
 ;; concern, owned by clear-sub-cache!, hot-reload (re-register)
-;; and frame disposal. This split keeps clear-sub a pure registry op
-;; (no per-frame side effects) and matches v1's documented behaviour
-;; (per spec/API.md §Clearing registrations: clear-sub is "v1
-;; (preserved)") and the v1 docstring's explicit caller-responsibility
-;; note ("Depending on the usecase, it may be necessary to call
-;; clear-sub-cache! afterwards").
-;;
-;; If you want both effects in one call: clear-sub then
-;; clear-sub-cache! — or use re-registration if you have a
-;; replacement body.
+;; and frame disposal.
 
 (deftest clear-sub-id-leaves-cache-intact
   (testing "(clear-sub id) removes the registration but does not evict cache slots"
-    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -370,8 +278,8 @@
     (is (nil? (registrar/lookup :sub :n))
         "the registration is gone")
 
-    ;; Subsequent subscribe inside the grace-period reuses the cached reaction
-    ;; (reading the still-derived value), even though the registration is gone.
+    ;; Subsequent subscribe reuses the cached reaction (reading the
+    ;; still-derived value), even though the registration is gone.
     (let [r2 (rf/subscribe [:n])]
       (is (= 7 @r2)
           "cache hit serves the previously-derived value"))
@@ -383,7 +291,6 @@
 
 (deftest clear-sub-no-arg-leaves-cache-intact
   (testing "(clear-sub) clears every registration but leaves the cache untouched"
-    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :a (fn [db _] (:n db)))
     (rf/reg-sub :b (fn [db _] (* 2 (:n db))))
@@ -406,25 +313,12 @@
 ;;
 ;; Per Spec 006 §Reference counting and disposal: `unsubscribe` is
 ;; ref-count-based. Calling it past zero (cleanup in both a teardown hook
-;; and a `finally`) must be idempotent — it must NOT
-;;
-;;   (a) decrement the ref-count into negative territory, OR
-;;   (b) schedule a second `pending-dispose` timer on top of the existing
-;;       handle (leaking the prior handle).
-;;
-;; The fix clamps the decrement at zero and only triggers drop-to-zero on
-;; the 1→0 transition when no pending-dispose is already in flight.
-;;
-;; Pre-fix, the second unsubscribe computed `n = -1`, took the
-;; `(<= n 0)` branch a second time, and called `set-timeout!` again — the
-;; outer swap then overwrote the prior `:pending-dispose` slot, leaking the
-;; original handle. This test asserts the post-fix invariant directly: the
-;; ref-count stays at 0 and the same `:pending-dispose` handle is preserved
-;; across repeated `unsubscribe` calls.
+;; and a `finally`) must be idempotent — the ref-count clamps at zero
+;; and a second call against an already-disposed slot is a no-op (the
+;; slot is gone, the underlying entry-lookup misses).
 
 (deftest unsubscribe-past-zero-is-idempotent
-  (testing "calling unsubscribe twice for the same sub-id does not leak pending-dispose handles (rf2-zikr)"
-    (subs-cache/configure! {:grace-period-ms 60000})  ;; long grace; we won't let it fire
+  (testing "calling unsubscribe more than once for the same sub-id does not throw or schedule extra work (rf2-zikr / rf2-cmfln)"
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -432,126 +326,42 @@
     (rf/subscribe [:n])
     (is (= 1 (entry-ref-count [:n])))
 
-    ;; First unsubscribe — ref-count 1→0, dispose scheduled, handle stashed.
+    ;; First unsubscribe — ref-count 1 → 0, slot disposed synchronously.
     (rf/unsubscribe [:n])
-    (is (= 0 (entry-ref-count [:n]))
-        "first unsubscribe lands ref-count at zero")
-    (is (pending-dispose? [:n])
-        "first unsubscribe schedules the dispose timer")
-    (let [handle-after-first
-          (get-in @(:sub-cache (frame/frame :rf/default)) [[:n] :pending-dispose])]
+    (is (not (contains? (cache-keys) [:n]))
+        "first unsubscribe disposes the slot in-tick")
 
-      ;; Second unsubscribe — must be a no-op. Pre-fix this took
-      ;; ref-count to -1 AND scheduled a new timer, overwriting
-      ;; `handle-after-first` and leaking it.
-      (rf/unsubscribe [:n])
-      (is (= 0 (entry-ref-count [:n]))
-          "ref-count clamped at zero — does NOT go negative on extra unsubscribe")
-      (is (pending-dispose? [:n])
-          "the original pending-dispose handle is preserved (not overwritten)")
-      (let [handle-after-second
-            (get-in @(:sub-cache (frame/frame :rf/default)) [[:n] :pending-dispose])]
-        (is (identical? handle-after-first handle-after-second)
-            "the same timer handle is on the slot after the second unsubscribe — no new schedule was made"))
-
-      ;; And a third call for good measure — still idempotent.
-      (rf/unsubscribe [:n])
-      (is (= 0 (entry-ref-count [:n])))
-      (let [handle-after-third
-            (get-in @(:sub-cache (frame/frame :rf/default)) [[:n] :pending-dispose])]
-        (is (identical? handle-after-first handle-after-third)
-            "third unsubscribe still preserves the original handle"))))
+    ;; Second / third unsubscribe — slot is gone; the entry-lookup
+    ;; misses and the call is a no-op. Idempotent.
+    (rf/unsubscribe [:n])
+    (rf/unsubscribe [:n])
+    (is (not (contains? (cache-keys) [:n]))
+        "repeated unsubscribe against a disposed slot is a no-op"))
 
   (testing "extra unsubscribe before any subscribe is a complete no-op"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
-    ;; No subscribe — the entry doesn't exist; unsubscribe must not throw,
-    ;; must not create an entry, and must not schedule a timer.
+    ;; No subscribe — the entry doesn't exist; unsubscribe must not
+    ;; throw and must not create an entry.
     (rf/unsubscribe [:n])
     (is (not (contains? (cache-keys) [:n]))
         "unsubscribe against a missing entry leaves the cache untouched")))
 
-;; ---- rf2-fi4m: unsubscribe-then-no-recompute under value-change ----------
-;;
-;; Per test-coverage-review-2026-05-12 P3-26: `unsubscribe` symmetry with
-;; `subscribe` is covered transitively through ref-counting, but no direct
-;; deftest pins the value-change contract: once every subscriber has
-;; unsubscribed and the entry has been disposed, a subsequent app-db
-;; change MUST NOT recompute the sub fn.
-
-(deftest unsubscribe-then-no-recompute-under-value-change
-  (testing "after full unsubscription, a state change does NOT re-invoke
-            the sub's compute fn — the cache entry has been disposed,
-            its watch on app-db unwound"
-    (subs-cache/configure! {:grace-period-ms 0})  ;; sync dispose so the contract is observable
-    (let [recompute-count (atom 0)]
-      (rf/reg-event-db :seed   (fn [_ _]   {:n 0}))
-      (rf/reg-event-db :update (fn [db [_ n]] (assoc db :n n)))
-      (rf/reg-sub :n (fn [db _]
-                       (swap! recompute-count inc)
-                       (:n db)))
-      (rf/dispatch-sync [:seed])
-
-      ;; Step 1: two ref-counted subscribes against [:n].
-      (let [r1 (rf/subscribe [:n])
-            r2 (rf/subscribe [:n])]
-        (is (identical? r1 r2)
-            "the cache returns the same reaction across both subscribes")
-        ;; First read forces compute.
-        (is (= 0 @r1))
-        (is (= 1 @recompute-count) "compute fn ran once for the initial read")
-        (is (= 2 (entry-ref-count [:n]))
-            "ref-count is 2 — both subscribers are tracked")
-
-        ;; Step 2: change the source value. The reaction recomputes once.
-        (rf/dispatch-sync [:update 1])
-        (is (= 1 @r1) "reaction reflects the new value")
-        (is (= 2 @recompute-count) "compute fn ran exactly once for the change")
-
-        ;; Step 3: first unsubscribe — sub still cached (ref-count > 0).
-        (rf/unsubscribe [:n])
-        (is (contains? (cache-keys) [:n])
-            "cache slot is still present (one ref remains)")
-        (is (= 1 (entry-ref-count [:n])) "ref-count dropped to 1")
-
-        ;; Step 4: second unsubscribe — drops to 0 → synchronous dispose
-        ;; (grace=0 fixture). The cache slot is gone; the underlying
-        ;; reaction's watch on app-db is unwound.
-        (rf/unsubscribe [:n])
-        (is (not (contains? (cache-keys) [:n]))
-            "cache slot disposed — no remaining ref")
-        (let [count-after-dispose @recompute-count]
-
-          ;; Step 5: a subsequent app-db change MUST NOT re-invoke the
-          ;; compute fn. The reaction has been disposed; there is no
-          ;; live cache entry to recompute, and the watch the reaction
-          ;; held on the app-db container was removed at dispose-time.
-          (rf/dispatch-sync [:update 2])
-          (is (= count-after-dispose @recompute-count)
-              "compute fn did NOT run after full unsubscription — the
-               reaction was disposed; its watch on app-db is gone")
-          (rf/dispatch-sync [:update 3])
-          (rf/dispatch-sync [:update 4])
-          (is (= count-after-dispose @recompute-count)
-              "subsequent state changes still do not recompute"))))))
-
 ;; ---- rf2-f3rd: layer-2+ disposal decrements input ref-counts --------------
 ;;
 ;; Per Spec 006 §Reference counting and disposal — disposal cascades clause:
-;; "When a layer-2 sub disposes, its layer-1 inputs lose one reader each;
-;; if they were held only by that layer-2 sub, they enter their own
-;; grace-period." Pre-fix, `compute-and-cache!`'s `add-on-dispose!`
-;; callback only dissoc'd the parent slot and never decremented the
-;; input ref-counts that `subscribe` incremented during construction —
-;; so input ref-counts leaked. The fix walks `:input-signals` and calls
+;; when a layer-2 sub disposes, its layer-1 inputs lose one reader each;
+;; if they were held only by that layer-2 sub, they cascade to disposal in
+;; the same tick (sync). Pre-fix, `compute-and-cache!`'s `add-on-dispose!`
+;; callback only dissoc'd the parent slot and never decremented the input
+;; ref-counts that `subscribe` incremented during construction — so input
+;; ref-counts leaked. The fix walks `:input-signals` and calls
 ;; `unsubscribe` on each input symmetrically with the construction-time
 ;; `subscribe` calls. These tests pin the symmetric invariant.
 
 (deftest layer-2-disposal-decrements-input-ref-counts
   (testing "disposing a layer-2 sub decrements ref-counts on every :<- input"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -569,7 +379,7 @@
       (is (= 1 (entry-ref-count [:a])) "input :a ref-count = 1 after layer-2 build")
       (is (= 1 (entry-ref-count [:b])) "input :b ref-count = 1 after layer-2 build"))
 
-    ;; Dispose the parent (sole subscriber drops → grace=0 sync dispose).
+    ;; Dispose the parent (sole subscriber drops → sync dispose).
     (rf/unsubscribe [:sum])
 
     ;; Parent slot is gone; inputs cascaded to ref-count 0 and were
@@ -582,7 +392,6 @@
 
 (deftest layer-2-disposal-respects-shared-inputs
   (testing "disposing one layer-2 sub decrements shared input only by one"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3 :c 4}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -625,7 +434,6 @@
 
 (deftest layer-2-disposal-respects-externally-held-input
   (testing "an input also held by a direct subscribe is not over-disposed"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -658,7 +466,6 @@
 
 (deftest layer-3-disposal-cascades-through-chain
   (testing "disposal cascades recursively through a layer-3 chain"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :a*2 :<- [:a]   (fn [a _] (* 2 a)))
@@ -680,7 +487,6 @@
 
 (deftest layer-2-multi-subscriber-disposal-keeps-inputs-alive
   (testing "with two parent subscribers, dropping one keeps inputs at ref-count 1"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -715,12 +521,6 @@
 
 (deftest sub-cache-ref-counting
   (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
-    ;; Per Spec 006 §Reference counting and disposal (rf2-s9dn): default
-    ;; disposal is deferred by a grace-period to bridge React re-render
-    ;; churn. For this synchronous-assertion test we set grace=0 so the
-    ;; slot disposes immediately — see the deferred-dispose contract tests
-    ;; above for the production path.
-    (rf/configure :sub-cache {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
@@ -735,13 +535,10 @@
       (rf/unsubscribe [:n])
       (is (contains? @cache [:n]))
       (is (= 1 (get-in @cache [[:n] :ref-count])))
-      ;; Second unsubscribe drops to 0; with grace=0 the slot is evicted
-      ;; synchronously.
+      ;; Second unsubscribe drops to 0; slot is evicted synchronously.
       (rf/unsubscribe [:n])
       (is (not (contains? @cache [:n]))
-          "cache slot is removed when ref-count reaches zero"))
-    ;; Restore the default for subsequent tests.
-    (rf/configure :sub-cache {:grace-period-ms 50})))
+          "cache slot is removed when ref-count reaches zero"))))
 
 (deftest sub-hot-reload-invalidates-cache
   (testing "re-registering a :sub disposes cached reactions and emits a trace"

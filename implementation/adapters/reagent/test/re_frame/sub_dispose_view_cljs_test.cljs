@@ -20,11 +20,11 @@
   NO emit; only when the LAST drops does the slot evict.
 
   Mechanism. The substrate-level integration that drives eviction is
-  the per-subscribe ref-count + grace-period machinery in
-  `re-frame.subs.cache`: every `(rf/subscribe ...)` increments
-  ref-count; the matched `(rf/unsubscribe ...)` decrements; the 1→0
-  transition schedules eviction (or fires it synchronously under
-  `:grace 0`). On the Reagent substrate, a view's mount→render→deref
+  the per-subscribe ref-count machinery in `re-frame.subs.cache`: every
+  `(rf/subscribe ...)` increments ref-count; the matched
+  `(rf/unsubscribe ...)` decrements; the 1 → 0 transition fires
+  eviction synchronously (per rf2-cmfln, Spec 006 §Reference counting
+  and disposal). On the Reagent substrate, a view's mount→render→deref
   path subscribes (one derefer arriving) and the unmount path
   unsubscribes (the derefer dropping). These tests stand in for the
   view by issuing the subscribe/unsubscribe pairs directly with the
@@ -55,21 +55,13 @@
   ref-count machinery, not a React render)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs.cache :as subs-cache]
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
-     :init-fn (fn []
-                ;; rf2-e9g4g — all tests below require synchronous
-                ;; eviction so the dispose emit lands in-tick. Restore
-                ;; the default on teardown so the per-runtime grace is
-                ;; not corrupted for sibling suites running in the same
-                ;; JS heap.
-                (subs-cache/configure! {:grace-period-ms 0}))}))
+    {:adapter reagent-adapter/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -124,7 +116,7 @@
           (is (empty? @traces)
               "precondition: no :rf.sub/dispose has fired yet — the slot is held"))
 
-        ;; Unmount: the last derefer drops. With grace=0 the eviction
+        ;; Unmount: the last derefer drops. Per rf2-cmfln the eviction
         ;; lands synchronously and the trace lands before this returns.
         (rf/unsubscribe [:rf2-e9g4g.view/sum])
 

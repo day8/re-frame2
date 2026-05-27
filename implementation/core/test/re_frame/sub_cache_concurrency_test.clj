@@ -5,26 +5,31 @@
   side-effect race in `subs/dispose-entry-now!`,
   `subs/invalidate-sub-on-replace!`, and the `unsubscribe` 1→0
   transition. Each placed side-effecting operations (collecting
-  reactions for disposal, resetting a `dropped-to-zero?` flag,
-  cancelling timers) **inside** the swap-fn body. `clojure.core/swap!`
-  is allowed to retry on CAS contention; under JVM concurrency a
-  retried swap-fn would replay those side-effects, leading to
-  double-dispose (and a potential NPE when the second `dispose!`
-  closed over a reaction already torn down).
+  reactions for disposal, resetting a `dropped-to-zero?` flag) **inside**
+  the swap-fn body. `clojure.core/swap!` is allowed to retry on CAS
+  contention; under JVM concurrency a retried swap-fn would replay those
+  side-effects, leading to double-dispose (and a potential NPE when the
+  second `dispose!` closed over a reaction already torn down).
 
   CLJS is single-threaded so the race is invisible there. These tests
   live in `.clj` (not `.cljc`) and target the JVM only.
 
-  The fix (in subs.cljc): the swap-fn body is pure — it returns only
-  the new cache map. Side-effects (disposal, timer cancel) run AFTER
-  the CAS commits, computed from the diff between the pre/post
-  snapshots returned by `swap-vals!`.
+  The fix (in subs.cache.cljc): the swap-fn body is pure — it returns
+  only the new cache map. Side-effects (disposal) run AFTER the CAS
+  commits, computed from the diff between the pre/post snapshots
+  returned by `swap-vals!`.
 
   Each test stresses contention by driving thousands of iterations of
   the contended path; failures accumulate into a counter and the test
   asserts zero. The deterministic single-thread tests in
   `sub_cache_test.clj` continue to pin the happy-path contract; this
   namespace pins the contention contract.
+
+  Per rf2-cmfln: the deferred-grace mechanism has been retired (sync
+  dispose only). Tests that exercised the grace-timer-cancel race no
+  longer have a code path to drive; the remaining contention tests
+  (CAS race on `invalidate-sub-on-replace!`, `dispose-entry-now!`, and
+  `unsubscribe` 1 → 0) cover the surface that still exists.
 
   Pattern follows `router_drain_race_test.clj` /
   `concurrency_stress_test.clj`: per-scenario iteration count
@@ -50,9 +55,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  (try (test-fn)
-       (finally
-         (subs-cache/configure! {:grace-period-ms 50}))))
+  (test-fn))
 
 (use-fixtures :each reset-runtime)
 
@@ -102,11 +105,10 @@
         (let [r (bare-reaction)]
           (swap! reactions-by-k assoc k r)
           (swap! dispose-calls assoc r 0)
-          (swap! cache assoc k {:reaction r
-                                :inputs   []
-                                :ref-count 0
-                                :on-dispose []
-                                :pending-dispose nil})))
+          (swap! cache assoc k {:reaction   r
+                                :inputs     []
+                                :ref-count  0
+                                :on-dispose []})))
       (is (= n-keys (count @cache))
           "all contended slots populated")
 
@@ -147,15 +149,14 @@
 
 ;; ---- 2. Concurrent dispose-entry-now! does not double-dispose -------------
 
-;; The race: M threads schedule grace-period disposal for the same set
-;; of keys (e.g. unsubscribe storms from React unmount churn). Each
-;; deferred timer fires `dispose-entry-now!` for its key. Pre-fix, the
-;; swap-fn body's `(reset! reaction-to-dispose ...)` could fire on a
-;; retried-and-discarded CAS attempt, after which the post-swap
-;; `dispose!` would call dispose on a reaction the WINNING swap had
-;; already cleared. Post-fix, we read the reaction-to-dispose from the
-;; pre-swap snapshot and only act when the slot transitioned from
-;; present to absent — i.e. when our CAS actually won.
+;; The race: M threads invoke `dispose-entry-now!` for the same set of
+;; keys. Each call attempts to evict and dispose. Pre-fix, the swap-fn
+;; body's `(reset! reaction-to-dispose ...)` could fire on a retried-and-
+;; discarded CAS attempt, after which the post-swap `dispose!` would
+;; call dispose on a reaction the WINNING swap had already cleared.
+;; Post-fix, we read the reaction-to-dispose from the pre-swap snapshot
+;; and only act when the slot transitioned from present to absent — i.e.
+;; when our CAS actually won.
 (deftest dispose-entry-now-no-double-dispose-under-contention
   (testing "concurrent dispose-entry-now! calls dispose each reaction exactly once"
     (let [n-keys          50
@@ -173,11 +174,10 @@
         (let [r (bare-reaction)]
           (swap! reactions-by-k assoc k r)
           (swap! dispose-calls assoc r 0)
-          (swap! cache assoc k {:reaction r
-                                :inputs   []
-                                :ref-count 0
-                                :on-dispose []
-                                :pending-dispose nil})))
+          (swap! cache assoc k {:reaction   r
+                                :inputs     []
+                                :ref-count  0
+                                :on-dispose []})))
 
       ;; The fn lives in re-frame.subs.cache (post rf2-0ytl4 seam S-A).
       (let [dispose-fn subs-cache/dispose-entry-now!]
@@ -215,20 +215,19 @@
 ;; ---- 3. unsubscribe drop-to-zero is not spuriously triggered --------------
 
 ;; The race: a single subscriber refs a sub, and N threads all call
-;; `unsubscribe` concurrently. Exactly one CAS winner drives the 1→0
-;; transition and disposes the slot (grace=0 sync path); the losers
-;; (who see ref-count already 0) must NOT dispose a second time.
-;; Pre-fix, the swap-fn body's `(reset! dropped-to-zero? true)` could
-;; fire on a discarded retry attempt, causing a second
-;; `dispose-entry-now!` to be invoked against an already-evicted slot
-;; — observable as a double dispose! call against the same reaction.
+;; `unsubscribe` concurrently. Exactly one CAS winner drives the 1 → 0
+;; transition and disposes the slot (sync path); the losers (who see
+;; ref-count already 0) must NOT dispose a second time. Pre-fix, the
+;; swap-fn body's `(reset! dropped-to-zero? true)` could fire on a
+;; discarded retry attempt, causing a second `dispose-entry-now!` to be
+;; invoked against an already-evicted slot — observable as a double
+;; dispose! call against the same reaction.
 ;;
 ;; This scenario is correctness-equivalent to the existing idempotent-
 ;; unsubscribe contract pinned in sub_cache_test.clj, but here we
 ;; assert it under CAS contention rather than serialised calls.
 (deftest unsubscribe-drop-to-zero-no-spurious-fire-under-contention
   (testing "concurrent unsubscribe calls dispose exactly once per slot under contention"
-    (subs-cache/configure! {:grace-period-ms 0})  ;; sync dispose so we can observe
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
@@ -270,71 +269,8 @@
                  (count over) " over-dispose trials. Sample counts: "
                  (vec (take 20 over))))
         (is (empty? under)
-            (str "every trial must dispose the cached reaction exactly once "
-                 "(grace=0); got " (count under) " trial(s) with zero "
+            (str "every trial must dispose the cached reaction exactly once; "
+                 "got " (count under) " trial(s) with zero "
                  "disposes. Sample: " (vec (take 20 under)))))
       (is (= n-trials (count @per-trial))
           "all trials accounted for"))))
-
-;; ---- 4. cache-hit re-validates after cancelling the grace-dispose timer ----
-
-;; The race (rf2-7pqe7): on a cache hit with a pending grace-dispose,
-;; `subscribe` reads the entry, cancels the timer, then bumps the
-;; ref-count. On a concurrent host the grace timer can fire
-;; `dispose-entry-now!` on another thread between the `(get @cache k)`
-;; snapshot and the `clear-timeout!` — dissoc-ing the slot and disposing
-;; the reaction. The `clear-timeout!` is best-effort (the cancel races a
-;; fire that already started). Pre-fix, `subscribe` then blindly
-;; `(update k inc-ref-count)`-ed the (now absent) slot — resurrecting a
-;; PHANTOM entry with no `:reaction` and handing the caller back the
-;; already-DISPOSED reaction.
-;;
-;; The fix re-validates after the cancel: the bump only lands when the slot
-;; still holds the SAME reaction; otherwise `subscribe` falls through to a
-;; fresh build. We simulate the concurrent eviction deterministically by
-;; redef-ing `clear-timeout!` to evict the slot at exactly the cancel
-;; point (the worst-case interleave). This single-threaded simulation
-;; drives the same code path the concurrent race would.
-(deftest cache-hit-revalidates-when-slot-evicted-during-timer-cancel
-  (testing "a cache hit whose slot is concurrently evicted during the
-            grace-timer cancel rebuilds a fresh reaction rather than
-            returning the disposed one or pinning a phantom entry"
-    (subs-cache/configure! {:grace-period-ms 50})  ;; grace > 0 so a timer is stashed
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-
-    (let [cache (:sub-cache (frame/frame :rf/default))
-          ;; First subscribe builds + caches the reaction (ref-count 1).
-          r1    (rf/subscribe [:n])]
-      (is (= 7 @r1) "first subscribe yields the seeded value")
-      (let [k (first (keys @cache))]
-        ;; Drop to zero → schedules a grace-period dispose, stashing a
-        ;; pending-dispose timer handle on the slot.
-        (rf/unsubscribe [:n])
-        (is (some? (get-in @cache [k :pending-dispose]))
-            "a grace-dispose timer is pending after the 1→0 drop")
-
-        ;; Simulate the concurrent grace-fire winning the cancel race:
-        ;; `clear-timeout!` evicts the slot (as `dispose-entry-now!` would
-        ;; have on another thread) at exactly the cancel point.
-        (let [evicted-reaction (get-in @cache [k :reaction])]
-          (with-redefs [interop/clear-timeout!
-                        (fn [_handle]
-                          ;; The grace timer "fired" on another thread:
-                          ;; slot gone, reaction disposed.
-                          (swap! cache dissoc k)
-                          nil)]
-            (let [r2 (rf/subscribe [:n])]
-              (is (some? r2) "subscribe returns a live reaction, not nil")
-              (is (= 7 @r2)
-                  "the rebuilt reaction computes the current value")
-              (is (not (identical? evicted-reaction r2))
-                  "subscribe rebuilt a FRESH reaction — it did NOT hand back
-                   the reaction the concurrent grace-fire disposed")
-              ;; The slot must hold a real reaction (the rebuild), never a
-              ;; phantom entry resurrected with no :reaction.
-              (is (some? (get-in @cache [(first (keys @cache)) :reaction]))
-                  "the cache slot holds a real reaction, not a phantom entry")
-              (is (= 1 (get-in @cache [(first (keys @cache)) :ref-count]))
-                  "the rebuilt slot starts at ref-count 1"))))))))

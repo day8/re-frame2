@@ -12,7 +12,7 @@ The framework has three orthogonal places configuration can live, and each one e
 
 | Lifetime | Surface | Examples |
 |---|---|---|
-| Process — apply to the runtime as a whole | `(rf/configure :key opts)` | trace-buffer depth, sub-cache grace period, elision threshold |
+| Process — apply to the runtime as a whole | `(rf/configure :key opts)` | trace-buffer depth, elision threshold |
 | Process — but the value is a fn or component the framework has to call | `(rf/set-x!)` / `(rf/install-x!)` | schema validator, schema explainer, substrate adapter |
 | Per-frame — apply only to one frame's existence | `reg-frame` / `make-frame` metadata, or `dispatch` opts | `:drain-depth`, `:on-error`, `:fx-overrides`, `:interceptors`, `:on-create` |
 
@@ -92,22 +92,6 @@ The default of 200 is sized to comfortably hold a single complex cascade (one us
 
 Like `:epoch-history`, the buffer is dev-only. Production builds elide the allocation regardless.
 
-#### `:sub-cache` — how long do unused subscriptions live before disposal?
-
-```clojure
-(rf/configure :sub-cache {:grace-period-ms 50})   ;; the default
-(rf/configure :sub-cache {:grace-period-ms 200})  ;; tolerate longer route transitions
-(rf/configure :sub-cache {:grace-period-ms 0})    ;; synchronous disposal
-```
-
-Subscription caching is ref-counted: when the last consumer of a subscription disappears, the cache schedules disposal. The **grace period** is how long the disposal waits — if a new consumer shows up inside the window, the subscription is rescued and the disposal is cancelled.
-
-The reason this matters: route transitions, modal close-and-reopen flows, and "scrub the timeline forward then back" interactions briefly unmount and remount the same subscription tree. With a 50ms grace period, those flows reuse the cached subscription without re-running the computation; the cache is doing its job. Tune up if your app has slow-mounting routes; tune down (or to 0) if you're memory-constrained and want subs to drop the second nobody's reading them.
-
-Setting it to 0 selects synchronous disposal: the subscription tears down on the same tick as the last consumer leaves. Useful for tests that assert on cache cardinality; rarely useful in production.
-
-Unlike the two above, `:sub-cache` is **not** dev-only — the sub-cache exists in production builds, and the grace-period configuration applies there too.
-
 #### `:elision` — how big is "big enough to elide?"
 
 ```clojure
@@ -130,7 +114,6 @@ The defaults are the right answer for almost every app. The cases where you tune
 
 - **Bumping `:epoch-history`** for a debug session where you want to scrub a longer cascade.
 - **Bumping `:trace-buffer`** when you're hunting a bug that spans multiple user actions and the existing buffer is rotating events out before you can read them.
-- **Bumping `:sub-cache` grace period** when route transitions feel laggy because the sub recomputed instead of resurrecting from cache. (This is rare; the default catches most cases.)
 - **Bumping `:elision` threshold** when your back-end can handle larger events than 16KB and you want fewer round-trips to refetch elided values.
 - **Setting any of the dev-only keys to 0** in long-running JVM SSR processes where dev recording is wasted allocation.
 

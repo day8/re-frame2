@@ -125,7 +125,7 @@ Read the body and propose; author confirms.
 
 **Identify**: `:re-frame/lifecycle` keys in `reg-sub` metadata (pre-v1 alpha-namespace usage). The mechanical alpha → core rewrite drops these. Type B comes in if the annotation was non-default (`:no-cache`, `:forever`, `:reactive`).
 
-**Risk**: the v2 sub-cache uses a single algorithm — deferred ref-counting with grace-period. The four v1 lifecycle policies don't exist; specific edge cases that genuinely needed `:no-cache` or `:forever` are uncovered.
+**Risk**: the v2 sub-cache uses a single algorithm — synchronous ref-counting (dispose on derefer-count → 0, per rf2-cmfln). The four v1 lifecycle policies don't exist; specific edge cases that genuinely needed `:no-cache` or `:forever` are uncovered.
 
 **Decision shape**:
 

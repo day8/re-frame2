@@ -13,8 +13,11 @@
                        not set its own `:rf.trace/cascades-retained`
                        metadata (Spec 009 §Per-frame trace rings;
                        rf2-g1b2m)
-    :sub-cache      — sub-cache deferred-disposal grace period (Spec 006)
     :elision        — wire-elision runtime size threshold (Spec 009)
+
+  Per rf2-cmfln: the `:sub-cache` knob was retired. Sub-cache disposal
+  is **synchronous on derefer-count → 0** — there is no deferred-grace
+  timer to configure.
 
   This test pins the keys that ARE configurable and asserts that
   everything else is a silent no-op — `configure` returns `nil` and
@@ -27,7 +30,6 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.subs.cache :as subs-cache]
             [re-frame.elision :as elision]
             [re-frame.trace :as trace]
             [re-frame.trace.tooling :as trace-tooling]
@@ -45,7 +47,6 @@
        (finally
          ;; Restore defaults so we do not leak tweaks into other suites.
          (rf/configure :trace-buffer {:cascades-retained 50})
-         (subs-cache/configure! {:grace-period-ms 50})
          (rf/configure :elision {:rf.size/threshold-bytes 16384}))))
 
 (use-fixtures :each reset-runtime)
@@ -57,10 +58,6 @@
     (dotimes [_ 20] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 7)
         ":trace-buffer {:cascades-retained 7} caps retained cascades at 7"))
-  (testing ":sub-cache is wired"
-    (rf/configure :sub-cache {:grace-period-ms 123})
-    (is (= 123 (:grace-period-ms (subs-cache/current-config)))
-        ":sub-cache {:grace-period-ms N} reaches the subs config"))
   (testing ":elision is wired (rf2-le2qu)"
     (rf/configure :elision {:rf.size/threshold-bytes 4096})
     (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
@@ -77,18 +74,19 @@
     (is (nil? (rf/configure :ssr {:public-error-id :anything}))
         ":ssr is per-frame metadata, not a configure key (per Conventions §Configuration surfaces)")
     (is (nil? (rf/configure :totally-made-up {:foo 1}))
-        "any unknown key returns nil"))
+        "any unknown key returns nil")
+    ;; rf2-cmfln — :sub-cache is no longer a valid configure key (sync
+    ;; dispose has no grace-period to configure). The call must no-op.
+    (is (nil? (rf/configure :sub-cache {:grace-period-ms 71}))
+        ":sub-cache is retired (rf2-cmfln); the call no-ops"))
   (testing "an unknown key does not perturb the known-key state"
     ;; Set known keys to non-default values, then attempt unknown keys,
     ;; then assert known-key state is unchanged.
     (rf/configure :trace-buffer {:cascades-retained 11})
-    (rf/configure :sub-cache    {:grace-period-ms 71})
     (rf/configure :strict-subs  true)
     (rf/configure :ssr          {:public-error-id :nope})
     (rf/configure :no-such-key  {})
     (rf/reg-event-db :ping (fn [db _] db))
     (dotimes [_ 30] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 11)
-        ":trace-buffer cascades-retained survived bracketing unknown-key calls")
-    (is (= 71 (:grace-period-ms (subs-cache/current-config)))
-        ":sub-cache grace-period survived bracketing unknown-key calls")))
+        ":trace-buffer cascades-retained survived bracketing unknown-key calls")))
