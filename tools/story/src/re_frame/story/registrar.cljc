@@ -415,7 +415,12 @@
 ;; ---- canonical tag bootstrap ---------------------------------------------
 
 (defn install-canonical-tags!
-  "Register the seven canonical tags from spec/007 §Inclusion tags.
+  "Register the seven canonical inclusion tags from spec/007 §Inclusion
+  tags AND the canonical `:state/*` magnitude axis (rf2-k1k87) — five
+  faceted tags (`:state/empty`, `:state/small`, `:state/medium`,
+  `:state/large`, `:state/special`) on the `:state` axis. The `:state`
+  axis communicates operator-facing fixture richness — a reviewer can
+  scan a gallery by data density rather than by feature.
 
   Called at Story load (via `re-frame.story/install-canonical-vocabulary!`).
   Safe to call multiple times — re-registration is idempotent at the
@@ -423,7 +428,15 @@
   []
   (doseq [t schemas/canonical-tags]
     (reg-tag* t {:doc (str "Canonical Story inclusion tag — " (name t)
-                           ". See spec/007 §Inclusion tags.")})))
+                           ". See spec/007 §Inclusion tags.")}))
+  (doseq [t schemas/canonical-state-tags]
+    (reg-tag* t {:axis :state
+                 :doc  (str "Canonical Story state-magnitude tag — "
+                            (pr-str t)
+                            ". Operator-facing fixture-richness "
+                            "classification; see `canonical-axes` "
+                            "`:state` entry in tools/story/src/re_frame/"
+                            "story/schemas.cljc.")})))
 
 ;; ---- query helpers -------------------------------------------------------
 

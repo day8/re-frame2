@@ -423,9 +423,10 @@
   query/canonical-tags)
 
 (def canonical-axes
-  "Re-export of the four canonical facet axes documented in spec/001
+  "Re-export of the canonical facet axes documented in spec/001
   §reg-tag — `:status`, `:role`, `:team`, `:feature` (rf2-7ncf9 SB9
-  facet taxonomy). Stable across hosts."
+  facet taxonomy) + `:state` (rf2-k1k87 operator-facing magnitude).
+  Stable across hosts."
   query/canonical-axes)
 
 (def canonical-status-values
@@ -435,6 +436,16 @@
 (def canonical-role-values
   "Re-export of the recommended `:role` axis vocabulary."
   query/canonical-role-values)
+
+(def canonical-state-values
+  "Re-export of the canonical `:state` axis vocabulary (rf2-k1k87) —
+  `#{:empty :small :medium :large :special}`."
+  query/canonical-state-values)
+
+(def canonical-state-tags
+  "Re-export of the canonical `:state/*` faceted tags registered at
+  Story load (rf2-k1k87)."
+  query/canonical-state-tags)
 
 (defn tag->axis-index
   "Per spec/001 §reg-tag — return a `{tag-id → axis-kw}` map across

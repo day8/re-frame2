@@ -70,5 +70,38 @@
 ;; ---- canonical tag set ---------------------------------------------------
 
 (deftest cljs-canonical-tags-installed
-  (testing "the seven canonical tags load on the CLJS side"
-    (is (= schemas/canonical-tags (story/list-tags)))))
+  (testing "the seven canonical inclusion tags + five canonical :state/* magnitude tags load on the CLJS side"
+    (let [tags (story/list-tags)]
+      (is (= (into schemas/canonical-tags schemas/canonical-state-tags)
+             tags))
+      (testing "the seven inclusion tags are all present (rf2-k1k87 didn't drop any)"
+        (is (every? tags schemas/canonical-tags)))
+      (testing "the five state tags are all present (rf2-k1k87 regression smoke)"
+        (is (every? tags schemas/canonical-state-tags))
+        (is (= #{:state/empty :state/small :state/medium :state/large :state/special}
+               schemas/canonical-state-tags))))))
+
+;; ---- :state/* axis regression smoke (rf2-k1k87) -------------------------
+;;
+;; Panel-gallery `/#/stories` rendered empty because the `:state/*` axis
+;; was projected onto every variant but never registered — the registrar's
+;; tag-membership check raised `:rf.error/unknown-tag` on the FIRST gallery
+;; ns load and the whole inventory aborted. This smoke locks the
+;; canonical install so a `reg-variant` carrying every `:state/*` value
+;; AT ONCE succeeds without throwing.
+
+(deftest cljs-state-axis-tags-survive-variant-registration
+  (testing "a variant tagged with the full :state/* axis registers cleanly (no :rf.error/unknown-tag)"
+    (story/reg-story :story.cljs.state-axis-smoke
+      {:doc       "rf2-k1k87 canonical :state/* axis smoke."
+       :component :app.cljs/comp
+       :tags      #{:dev}})
+    (story/reg-variant :story.cljs.state-axis-smoke/all-state-magnitudes
+      {:doc    "every :state/* tag at once."
+       :events [[:init]]
+       :tags   (into #{:dev} schemas/canonical-state-tags)})
+    (is (story/registered? :variant :story.cljs.state-axis-smoke/all-state-magnitudes)))
+  (testing "each :state/* tag carries the :state axis classifier"
+    (let [by-axis (story/tags-by-axis :state)]
+      (is (= schemas/canonical-state-tags by-axis)
+          "every :state/* tag is registered on the :state axis"))))

@@ -62,14 +62,14 @@
 
   ;; -- App-DB panel --------------------------------------------------------
 
-  (story/reg-story :story.xray.app-db/diff-mode
+  (story/reg-story :story.xray.app-db.diff-mode-toggle
     {:doc        "App-DB panel — universal three-mode toggle drives
                   every section (TOP + per-:rf/* areas) uniformly."
      :component  :panel-gallery.app-db/Panel
      :tags       #{:dev :feature/xray-diff-mode-universal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.app-db/diff-mode-full+diff
+  (story/reg-variant :story.xray.app-db.diff-mode-toggle/full+diff
     {:doc        "App-DB panel in `:full+diff` mode (default). Every
                   section paints LIVE current-state with inline diff
                   annotations against the focused epoch's `:db-before`.
@@ -80,7 +80,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.app-db/diff-mode-full
+  (story/reg-variant :story.xray.app-db.diff-mode-toggle/full
     {:doc        "App-DB panel in `:full` mode. Every section paints
                   LIVE current-state with NO `:before` threaded —
                   plain browse, no diff chrome. Useful when the
@@ -89,7 +89,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.app-db/diff-mode-diff
+  (story/reg-variant :story.xray.app-db.diff-mode-toggle/diff
     {:doc        "App-DB panel in `:diff` mode. Section list
                   suppressed; one flat path-prefixed change list at
                   the top. Same source as the Epoch HANDLER `:diff`
@@ -101,7 +101,7 @@
 
   ;; -- Machine Inspector snapshot drill-in --------------------------------
 
-  (story/reg-story :story.xray.machine-inspector/snapshot-diff-mode
+  (story/reg-story :story.xray.machine-inspector.snapshot-diff-mode-toggle
     {:doc        "Machine Inspector snapshot drill-in — single mount
                   + three-mode toggle. Replaces the rf2-3d987 side-
                   by-side Before/After grid."
@@ -109,7 +109,7 @@
      :tags       #{:dev :feature/xray-diff-mode-universal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.machine-inspector/snapshot-full+diff
+  (story/reg-variant :story.xray.machine-inspector.snapshot-diff-mode-toggle/full+diff
     {:doc        "Machine Inspector snapshot in `:full+diff` mode
                   (default). Single mount; AFTER snapshot painted
                   with BEFORE threaded as the diff pre-image so
@@ -118,7 +118,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.machine-inspector/snapshot-full
+  (story/reg-variant :story.xray.machine-inspector.snapshot-diff-mode-toggle/full
     {:doc        "Machine Inspector snapshot in `:full` mode. AFTER
                   snapshot alone, no BEFORE comparison — plain
                   browse of the post-transition state."
@@ -126,7 +126,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.machine-inspector/snapshot-diff
+  (story/reg-variant :story.xray.machine-inspector.snapshot-diff-mode-toggle/diff
     {:doc        "Machine Inspector snapshot in `:diff` mode. Flat
                   path-prefixed change list — same shape as App-DB
                   and Epoch HANDLER `:diff` lenses."
@@ -136,7 +136,7 @@
 
   ;; -- SUBSCRIPTIONS step value-cell ---------------------------------------
 
-  (story/reg-story :story.xray.epoch/subs-value-diff-mode
+  (story/reg-story :story.xray.epoch.subs-value-diff-mode-toggle
     {:doc        "Epoch SUBSCRIPTIONS step — per-row value cell
                   routed through the universal three-mode toggle.
                   Orthogonal to the existing `[all][changed]
@@ -145,7 +145,7 @@
      :tags       #{:dev :feature/xray-diff-mode-universal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.epoch/subs-value-full+diff
+  (story/reg-variant :story.xray.epoch.subs-value-diff-mode-toggle/full+diff
     {:doc        "SUBSCRIPTIONS value cells in `:full+diff` mode
                   (default). Each `:changed?` row's value cell
                   paints the AFTER value via the edn-inspector with
@@ -154,7 +154,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.epoch/subs-value-full
+  (story/reg-variant :story.xray.epoch.subs-value-diff-mode-toggle/full
     {:doc        "SUBSCRIPTIONS value cells in `:full` mode. Each
                   `:changed?` row's value cell renders the AFTER
                   value alone via the edn-inspector — no BEFORE
@@ -163,7 +163,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.epoch/subs-value-diff
+  (story/reg-variant :story.xray.epoch.subs-value-diff-mode-toggle/diff
     {:doc        "SUBSCRIPTIONS value cells in `:diff` mode — the
                   pre-rf2-yqjrd shape: `✓ before → after` via the
                   `mini` widget. Preserved as one mode of the new

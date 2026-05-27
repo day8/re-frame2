@@ -182,8 +182,9 @@
         "modes survive")
     (is (story/registered? :workspace :Workspace.kind/grid)
         "workspaces survive")
-    (is (= schemas/canonical-tags (story/list-tags))
-        "canonical tags survive")))
+    (is (= (into schemas/canonical-tags schemas/canonical-state-tags)
+           (story/list-tags))
+        "canonical inclusion + :state/* magnitude tags survive")))
 
 ;; ===========================================================================
 ;; LATE-BIND `reg-story-panel` CONTRACT (spec/006 §5)
@@ -264,8 +265,10 @@
       (is (every? map? (vals variants))
           "every body is a map"))
     (let [tags (story/registrations :tag)]
-      (is (= (count schemas/canonical-tags) (count tags))
-          "the canonical seven tags surface via registrations"))))
+      (is (= (+ (count schemas/canonical-tags)
+                (count schemas/canonical-state-tags))
+             (count tags))
+          "the canonical seven inclusion + five :state/* magnitude tags surface via registrations"))))
 
 (deftest ids-returns-the-id-set-per-kind
   (testing "(ids :kind) returns the set of registered ids for that kind"
