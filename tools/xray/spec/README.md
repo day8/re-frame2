@@ -128,7 +128,7 @@ main read**.
    third** for the matrix of features across the four cross-cutting areas
    (SSR · Machines · Routes · Managed-Fx).
 4. **Then per-tab specs (003 Machines, 004 App-db, 006 Hydration, 012
-   Views, 013 Trace, 016 Event/Issues)** for the specific surfaces. Each
+   Views, 013 Trace, 016 Auxiliary panels)** for the specific surfaces. Each
    is independent of the others bar explicit cross-references.
 
 The 19-doc set is complete enough to one-shot the tool. Where v1's

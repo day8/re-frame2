@@ -1603,6 +1603,17 @@ HANDLER `:db`:
 - `:full+diff` — mode-3 combined lens (full tree + R1-R8 grammar
   annotations against `:before`).
 
+**R-rule applicability across surfaces**: all R1-R8 rules from
+§9.1.5.1 apply uniformly to every surface in `:full+diff` mode.
+Rules that have no work to do on a given value shape trivially
+no-op rather than special-cased per surface — e.g. R6 (vector
+shift-detection) no-ops on map containers; R2 (key glyph) no-ops
+on primitive cell values like a SUBSCRIPTIONS row's scalar return;
+R3 (collapsed-container `[N∆]` chip) no-ops on leaf scalars. The
+shared widget + shared projection engine (`day8.re-frame2-xray.diff.engine`)
+hold the grammar; per-surface mounts contribute only the
+`(before, after)` value pair.
+
 **Per-surface storage**: every surface registers its own sub +
 event pair so the modes are independent (operator's App-DB choice
 doesn't override the Machine Inspector choice).
