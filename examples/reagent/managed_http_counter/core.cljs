@@ -25,7 +25,6 @@
   and Fetch."
   (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
             [re-frame.views]
             ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot is what
@@ -139,33 +138,26 @@
 
 ;; -- Cancel an in-flight request ---------------------------------------------
 ;;
-;; A "long" request is routed through a per-app stub that defers its
-;; reply via js/setTimeout, so the :loading state is observable in a
-;; browser long enough for the cancel UI to interact with it.
-;; The Spec 014 contract is that the in-flight request dispatches
-;; :rf.http/aborted on cancellation; the deferred-stub approach mimics
-;; that contract end-to-end without requiring a real long-running
-;; endpoint.
+;; A "long" request defers its synthetic failure-reply via
+;; `:dispatch-later` so the :loading state is observable in a browser
+;; long enough for the cancel UI to interact with it. The Spec 014
+;; contract is that an in-flight request dispatches `:rf.http/aborted`
+;; on cancellation; routing the deferred reply through the framework's
+;; `:dispatch-later` + `:rf.http/managed-canned-failure` mimics that
+;; contract end-to-end without requiring a real long-running endpoint
+;; — and framework time controls (Tool-Pair time-travel, the
+;; documented `:dispatch-later` nil-override) apply automatically.
 
-(rf/reg-fx :managed-http-counter.demo/long-stub
-  {:doc       "Per-app fx that synthesises a delayed :rf.http/managed
-               reply for the :counter/start-long path. The deferred
-               canned-failure reply lands ~750ms after dispatch, leaving
-               the :loading UI state observable long enough for a
-               browser smoke test to assert on it before the Cancel
-               click fires. Used directly by :counter/start-long (no
-               frame-level override), so the +1 / Fail / Retry-recover
-               paths still hit the framework-shipped `:rf.http/managed`."
-   :platforms #{:client :server}}
-  (fn fx-managed-long-stub [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
-      ;; Demo-only artificial latency — see the fx doc above.
-      (js/setTimeout
-        (fn []
-          (stub frame-ctx (assoc args-map
-                                 :kind :rf.http/transport
-                                 :tags {:message "Demo: long request did not resolve."})))
-        750))))
+(rf/reg-event-fx :managed-http-counter.demo/deliver-long-reply
+  {:doc "Private — invoked via :dispatch-later from :counter/start-long.
+         Synthesises a deferred :rf.http/managed-canned-failure reply
+         so the :loading UI state is observable before the failure
+         lands. No user dispatches this directly."}
+  (fn handler-deliver-long-reply [_ [_ args-map]]
+    {:fx [[:rf.http/managed-canned-failure
+           (assoc args-map
+                  :kind :rf.http/transport
+                  :tags {:message "Demo: long request did not resolve."})]]}))
 
 (rf/reg-event-fx :counter/start-long
   (fn [{:keys [db]} [_ msg]]
@@ -176,16 +168,18 @@
       (some-> msg :rf/reply :kind some?)
       {:db (assoc db :status :idle)}
 
-      ;; Route through the per-app delayed stub so the :loading UI
-      ;; state is observable. The +1 / Fail / Retry-recover paths
-      ;; above still hit the framework's :rf.http/managed; only this
-      ;; "long-running" demo uses the stub.
+      ;; Defer the canned-failure via :dispatch-later so the :loading UI
+      ;; state is observable before it lands. The +1 / Fail / Retry-recover
+      ;; paths above still hit the framework's :rf.http/managed; only this
+      ;; "long-running" demo defers a synthetic reply.
       :else
       {:db (assoc db :status :loading :error nil)
-       :fx [[:managed-http-counter.demo/long-stub
-             {:request    {:method :get :url "api/long"}
-              :request-id :counter/long
-              :decode     :json}]]})))
+       :fx [[:dispatch-later
+             {:ms    750
+              :event [:managed-http-counter.demo/deliver-long-reply
+                      {:request    {:method :get :url "api/long"}
+                       :request-id :counter/long
+                       :decode     :json}]}]]})))
 
 (rf/reg-event-fx :counter/cancel
   (fn [{:keys [db]} _]

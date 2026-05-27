@@ -21,9 +21,6 @@
             [re-frame.core :as rf]
             ;; Required for `rf/init!`.
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            ;; Loads the registrar so we can resolve the canned-success
-            ;; fx for the per-URL stub below.
-            [re-frame.registrar :as registrar]
             ;; Managed-HTTP ships in day8/re-frame2-http. The require
             ;; triggers its fx registrations (:rf.http/managed and
             ;; family) at app boot; without it, the child loaders'
@@ -83,35 +80,50 @@
       (str/includes? u "/user.json")   demo-user
       :else                            {})))
 
+(rf/reg-event-fx :boot.demo/schedule-reply
+  {:doc "Private — entered via dispatch from :boot.demo/http-stub. Uses
+         `:dispatch-later` so framework time controls (Tool-Pair
+         time-travel, the documented `:dispatch-later` nil-override
+         seam) apply to the demo latency. No user dispatches this
+         directly."}
+  (fn handler-boot-demo-schedule-reply [_ [_ args-map payload]]
+    {:fx [[:dispatch-later
+           {:ms    60
+            :event [:boot.demo/deliver-reply args-map payload]}]]}))
+
+(rf/reg-event-fx :boot.demo/deliver-reply
+  {:doc "Private — fired by the :dispatch-later scheduled in
+         :boot.demo/schedule-reply. Delegates to the framework-shipped
+         `:rf.http/managed-canned-success` with the per-URL canned
+         payload."}
+  (fn handler-boot-demo-deliver-reply [_ [_ args-map payload]]
+    {:fx [[:rf.http/managed-canned-success (assoc args-map :value payload)]]}))
+
 (rf/reg-fx :boot.demo/http-stub
   {:doc       "Demo override for `:rf.http/managed`: routes by URL
                substring to canned boot responses so the example runs
-               standalone without a backend. Delegates to the
-               framework-shipped `:rf.http/managed-canned-success`
-               per Spec 014 §Testing.
+               standalone without a backend.
 
-               A small artificial delay (60 ms) lets the boot-progress
-               view render the per-phase loading state before the
-               replies land — without it, the boot resolves in one
-               drain and the user only ever sees the `:ready` screen.
+               Dispatches into the private :boot.demo/schedule-reply
+               event so the deferred reply rides framework
+               `:dispatch-later` (60 ms) rather than raw
+               `js/setTimeout`. The delay lets the boot-progress view
+               render the per-phase loading state before the replies
+               land — without it, the boot resolves in one drain and
+               the user only ever sees the `:ready` screen. The reply
+               itself lands via the framework-shipped
+               `:rf.http/managed-canned-success` (Spec 014 §Testing).
 
-               NOTE on the raw js/setTimeout below. The deferred work
-               is an fx invocation, not a dispatch, so the framework's
-               `:dispatch-later` path is not a 1:1 swap. The timer is
-               purely demo-stub latency; production app code should
-               never use raw `js/setTimeout` (use `:dispatch-later` or
-               drive the fx via a private event whose dispatch is
-               `:dispatch-later`'d, so framework time controls apply)."
+               Framework time controls (Tool-Pair time-travel, the
+               documented `:dispatch-later` nil-override seam) apply
+               automatically."
    :platforms #{:server :client}}
   (fn fx-managed-boot-demo [frame-ctx args-map]
     (let [url     (-> args-map :request :url)
           payload (demo-payload-for-url url)
-          stub-fn (registrar/handler :fx :rf.http/managed-canned-success)]
-      (when stub-fn
-        ;; Demo-only artificial latency — see the fx doc above.
-        (js/setTimeout
-          (fn [] (stub-fn frame-ctx (assoc args-map :value payload)))
-          60)))))
+          frame   (:frame frame-ctx)]
+      (rf/dispatch [:boot.demo/schedule-reply args-map payload]
+                   {:frame frame}))))
 
 ;; ============================================================================
 ;; MOUNT
