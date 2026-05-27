@@ -876,22 +876,27 @@
 
 ;; ---- (8) React-key stability across the feed ---------------------------
 
-(defn- row-li-by-id
-  "Walk the rendered tree and return the `<li>` whose data-testid is
+(defn- row-node-by-id
+  "Walk the rendered tree and return the row container (`:div` since
+  rf2-jnxfj — formerly `:li`) whose data-testid is
   `rf-xray-trace-row-<id>`."
   [tree id]
   (let [testid (str "rf-xray-trace-row-" id)]
     (some (fn [node]
             (when (and (vector? node)
-                       (= :li (first node))
                        (map? (second node))
                        (= testid (:data-testid (second node))))
               node))
           (hiccup-seq tree))))
 
 (deftest trace-row-react-keys-are-stable-trace-ids
-  (testing "the rendered <li> :key is the stable trace id (`t:<id>`),
-            distinct per row and free of any positional component"
+  (testing "rf2-jnxfj — rows now ride `rt/resizable-table` so the row
+            container is a `:div` (formerly `:li`). `op-row-attrs`
+            stamps the `(h/row-key row)` value into the attrs map's
+            `:key` slot so the contract surface stays observable in
+            the rendered hiccup; resizable-table also threads the
+            same value via the meta-key it emits for React's
+            reconciler."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -904,9 +909,9 @@
                                :time 300 :dispatch-id 1})])])
       (focus! 1)
       (let [tree (trace/Panel)
-            k11  (:key (second (row-li-by-id tree 11)))
-            k22  (:key (second (row-li-by-id tree 22)))
-            k33  (:key (second (row-li-by-id tree 33)))]
+            k11  (:key (second (row-node-by-id tree 11)))
+            k22  (:key (second (row-node-by-id tree 22)))
+            k33  (:key (second (row-node-by-id tree 33)))]
         (is (= "t:11" k11))
         (is (= "t:22" k22))
         (is (= "t:33" k33))

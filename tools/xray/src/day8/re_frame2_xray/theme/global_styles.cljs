@@ -796,16 +796,17 @@
     ;; `hover:bg-[var(--devtools-hover)]` fill (no flat hairline
     ;; dividers). Inline styles can't carry a `:hover` pseudo-class
     ;; (mirrors the L3 tab-bar + EDN-copy hover handling above), so the
-    ;; hover fill is a scoped CSS rule keyed off the row `<li>`'s testid.
-    ;; The `li` qualifier scopes the rule to the ROW pills only — the
-    ;; per-row inner cells share the `rf-xray-trace-row-` testid prefix
-    ;; (e.g. `…-summary`, `…-time`) so an unqualified prefix selector
-    ;; would tint them too. The reactive-aftermath collapse GROUP
-    ;; (`rf-xray-trace-group-`) is a trace row too, so it lights the
-    ;; same way. The op-family 3px left-border + the rounded corners are
-    ;; the per-row inline styles; this rule only adds the hover fill.
-    "li[data-testid^=\"rf-xray-trace-row-\"]:hover,\n"
-    "li[data-testid^=\"rf-xray-trace-group-\"]:hover {\n"
+    ;; hover fill is a scoped CSS rule keyed off the row's testid +
+    ;; the `data-rf-xray-area` attribute the row stamps (rf2-jnxfj —
+    ;; rows are now `div`s wrapped by `rt/resizable-table` so the
+    ;; pre-conversion `li` qualifier no longer scopes; the `area`
+    ;; attribute is present only on row containers, not on inner
+    ;; cells / wrappers, so it scopes the rule equivalently to the
+    ;; pre-conversion `li` qualifier). The op-family 3px left-border +
+    ;; the rounded corners are the per-row inline styles; this rule
+    ;; only adds the hover fill.
+    "[data-testid^=\"rf-xray-trace-row-\"][data-rf-xray-area]:hover,\n"
+    "[data-testid^=\"rf-xray-trace-group-\"]:hover {\n"
     "  background-color: " (:hover tokens/tokens) ";\n"
     "}\n"
     ;; rf2-cplj8 / rf2-xawwb — borderless chrome icon-buttons hover. The

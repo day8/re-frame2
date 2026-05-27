@@ -984,8 +984,13 @@ async function runShellFeatureSweep(page) {
   // dispatches above, LIVE auto-snap focuses the head epoch whose
   // `:trace-events` populate the ribbon. Assert non-empty via the
   // rendered rows (the 'X / Y in view' counts header is gone, rf2-o6yqq).
+  //
+  // rf2-jnxfj — rows are now `:div`s wrapped by the shared
+  // `rt/resizable-table` view (formerly `:li`s in a `:ul`). The
+  // data-testid contract `rf-xray-trace-row-<id>` is unchanged; only
+  // the container tag-name moved.
   await waitForValue(
-    () => page.locator('li[data-testid^="rf-xray-trace-row-"]').count(),
+    () => page.locator('[data-testid^="rf-xray-trace-row-"]').count(),
     (count) => count > 0,
     { timeoutMs: 5000, description: 'epoch-scoped trace feed renders rows' },
   );
