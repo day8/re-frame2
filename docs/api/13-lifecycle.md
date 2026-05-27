@@ -94,7 +94,7 @@ These two states surface as different errors because they have different recover
 | Never installed | `(current-adapter)` returns `nil`; `(adapter-disposed?)` returns `false` | Call `(rf/init! adapter)`. |
 | Disposed | `(current-adapter)` returns `nil`; `(adapter-disposed?)` returns `true` | A new `(rf/init! adapter)` is required. Tooling that observed the previous install needs to re-attach. |
 
-The two states share the "no current adapter" surface but answer different questions about the process's history. Per [006 §Disposed-vs-never-installed](../../spec/006-ReactiveSubstrate.md#disposed-vs-never-installed-rf2-6wxys).
+The two states share the "no current adapter" surface but answer different questions about the process's history. Per [006 §Disposed-vs-never-installed](../../spec/006-ReactiveSubstrate.md#disposed-vs-never-installed).
 
 ## Configuration
 

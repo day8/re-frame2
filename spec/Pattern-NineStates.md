@@ -323,7 +323,7 @@ If the API returns a richer success shape (a struct with `:total-count`, `:items
 
 ### Cancellation cascade
 
-The `:data` region's `:loading` state usually has a `:spawn` of `:rf.http/managed`'s machine wrapper when the request's lifetime should be bound to the region's. With that wiring, navigating away mid-fetch causes the parent's state to exit, which destroys the wrapper actor, which fires the late-bind `:http/abort-on-actor-destroy` hook (per [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy) — rf2-wvkn). The in-flight HTTP request is cancelled with `:reason :actor-destroyed`; the `:rf.http/aborted-on-actor-destroy` trace fires.
+The `:data` region's `:loading` state usually has a `:spawn` of `:rf.http/managed`'s machine wrapper when the request's lifetime should be bound to the region's. With that wiring, navigating away mid-fetch causes the parent's state to exit, which destroys the wrapper actor, which fires the late-bind `:http/abort-on-actor-destroy` hook (per [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy)). The in-flight HTTP request is cancelled with `:reason :actor-destroyed`; the `:rf.http/aborted-on-actor-destroy` trace fires.
 
 ```clojure
 :loading
@@ -376,7 +376,7 @@ The point of the render-priority vector is that these cross-region overlaps are 
 - [014-HTTPRequests](014-HTTPRequests.md) — the managed-HTTP surface: args map, failure categories, retry semantics, abort, machine wrapper.
 - [Pattern-RemoteData](Pattern-RemoteData.md) — the request-lifecycle slice the `:data` region's states fold; `:rf.http/managed` writes through it.
 - [Pattern-StaleDetection](Pattern-StaleDetection.md) — the epoch idiom for suppressing stale replies.
-- [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy) — the cancellation cascade contract (rf2-wvkn).
+- [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy) — the cancellation cascade contract.
 
 ## Worked example
 

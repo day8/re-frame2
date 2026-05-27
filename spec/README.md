@@ -172,7 +172,7 @@ For implementors taking the pattern to one of the in-scope JS-cross-compile host
 
 Most contract surfaces in re-frame2 have their canonical home in this `/spec` tree — the language-agnostic pattern lives here, and every other-language port consumes it as the contract. **A small, deliberate set of contract surfaces has its canonical home elsewhere**, and `/spec` indexes them via [Ownership.md](Ownership.md) rather than redefining them.
 
-The rule (rf2-0hs5t.3 (a)):
+The rule):
 
 - A contract surface MAY live in a canonical home **outside `/spec`** when it is *downstream* of the language-agnostic pattern — i.e. it is a **tool-shared contract** or a **CLJS-reference-specific binding** of a pattern-level obligation, rather than part of the pattern's minimal core. The home lives with the artefact it ships in (`tools/<tool>/spec/...` or `implementation/<area>/...`).
 - The pattern-level `/spec` corpus remains the single source of truth for **what `the pattern` is**. External homes are valid only for surfaces that are not part of the pattern.
@@ -184,7 +184,7 @@ Currently the rule is exercised by two surfaces:
 1. **Cross-MCP shared primitives** — the `:rf.mcp/*` + `:rf.size/*` wire vocabulary, the JSON-RPC error codes, the privacy / elision walkers shared across the MCP triplet, argument coercion, structural diff, overflow-marker shape, and the token-budget cap pipeline — live with the artefact in [`tools/mcp-base/spec/`](../tools/mcp-base/spec/). Indexed in Ownership.md. Tool-shared contracts: a rename here is a wire-protocol break across every MCP server, not a pattern-level decision.
 2. **CLJS-reference security specifics** — named functions (`re-frame.core/elide-wire-value`, `re-frame.interop/debug-enabled?`, …), numeric defaults (interning cap, timeouts, drain ceilings), JVM-vs-CLJS stub semantics, and the full implementation-side audit trail — live in [`implementation/SECURITY.md`](../implementation/SECURITY.md). The pattern-level threat model + behavioural MUSTs live in [`Security.md`](Security.md); the implementation-side companion carries the host-specific binding (per [Security §How to read this doc](Security.md#how-to-read-this-doc)).
 
-Both homes were sanctioned via beads (`rf2-vw4sq` for mcp-base; `rf2-1g6cj` / `rf2-ao8a2` for the Security split). The rule itself is recorded at `rf2-0hs5t.3 (a)`.
+Both homes were sanctioned via beads (`` for mcp-base; `` / `` for the Security split). The rule itself is recorded at `.3 (a)`.
 
 **Why allow external homes at all?** `/spec` is the *language-agnostic pattern*; cross-MCP wire vocab + the CLJS-reference's concrete function names + numeric defaults are tooling concerns and implementation concerns respectively, not pattern-level. Forcing those into `/spec` would pollute the abstraction — a TypeScript port reading `/spec/Security.md` for the pattern doesn't need (and would be confused by) the `re-frame.core/elide-wire-value` symbol. The split keeps each doc serving one audience cleanly.
 

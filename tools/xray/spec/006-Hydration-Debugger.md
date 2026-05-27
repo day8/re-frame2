@@ -433,7 +433,7 @@ Divergent view: cart-summary-view
 ```
 
 Click `Open source` → editor opens at line 42 via the source-coord URL
-handler (per [Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1)).
+handler (per [Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory)).
 
 When the view registration itself has no obvious cause, the panel
 falls back to the dispatch (or `:rf/hydrate` cofx) that produced the

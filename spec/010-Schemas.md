@@ -49,7 +49,7 @@ Every registration accepts an optional `:schema` in its metadata map:
   (fn [coeffects _] (assoc coeffects :now (js/Date.))))
 ```
 
-Machines (per [005 §Schema validation](005-StateMachines.md#schema-validation)) carry `:schema` at the top of the machine spec — the value validates the machine's `:data` slot at every macrostep boundary and at bootstrap (per rf2-jbbp7):
+Machines (per [005 §Schema validation](005-StateMachines.md#schema-validation)) carry `:schema` at the top of the machine spec — the value validates the machine's `:data` slot at every macrostep boundary and at bootstrap:
 
 ```clojure
 (rf/reg-machine :drawer/editor
@@ -77,7 +77,7 @@ This fits re-frame's grain — code already accesses `app-db` via paths; schemas
 
 #### `reg-app-schemas` — bulk plural form
 
-Per [rf2-jzs9](#) the plural `reg-app-schemas` takes a `{path -> schema}` map and registers every entry in one call. The shape suits feature-modular apps (per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention)) where a feature module declares 5–20 schemas under a shared path prefix:
+Per the plural `reg-app-schemas` takes a `{path -> schema}` map and registers every entry in one call. The shape suits feature-modular apps (per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention)) where a feature module declares 5–20 schemas under a shared path prefix:
 
 ```clojure
 (rf/reg-app-schemas {[:auth]                  AuthSlice
@@ -141,7 +141,7 @@ For a single dispatched event, schema checks fire in this order:
 2. Cofx schemas (from `reg-cofx` `:schema`) — after each cofx injects, before the handler sees the merged context.
 3. Handler runs.
 4. `app-db` path schemas — at the single deferred `:db` install, validating the **flow-augmented** pending `:db` effect. By this point the flow transform has already rewritten the pending `:db` effect as the outermost `:after` (per [013 §Drain integration](013-Flows.md#drain-integration)), so the value validated and installed is the flow-augmented db, not the handler's raw `:db`.
-4a. Machine-`:data` schemas (from `reg-machine` `:schema`, per rf2-jbbp7) — alongside step 4 the runtime walks `[:rf/machines]` and validates each snapshot's `:data` against its registered machine's `:schema`. Both validators AND-conjoin: a `false` from either rolls back the `:db` commit. Per [005 §Schema validation](005-StateMachines.md#schema-validation).
+4a. Machine-`:data` schemas (from `reg-machine` `:schema`,) — alongside step 4 the runtime walks `[:rf/machines]` and validates each snapshot's `:data` against its registered machine's `:schema`. Both validators AND-conjoin: a `false` from either rolls back the `:db` commit. Per [005 §Schema validation](005-StateMachines.md#schema-validation).
 5. Effect schemas (from `reg-fx` `:schema`) — before each fx handler runs.
 6. Sub return-value schemas — after each materialisation/recompute that involves a schema'd sub.
 
@@ -153,11 +153,11 @@ A failure at any step aborts the dispatch with a structured error.
 |---|---|---|
 | 1. Event-vector | The dispatched event vector doesn't conform to the handler's `:schema`. | Handler is **not invoked**; emit `:rf.error/schema-validation-failure` with `:where :event`. The cascade stops at this event; downstream events in the queue continue. |
 | 2. Cofx | A cofx's injected value doesn't conform to its `:schema`. | Handler is **not invoked**; emit with `:where :cofx`; same cascade behaviour as step 1. |
-| 3. Handler exception | A registered handler throws. | `:rf.error/handler-exception` (per [009](009-Instrumentation.md)); the **failing handler's** cascade halts — its `:db`, flows, and `:fx` are suppressed (the interceptor chain captured the exception before `:effects` were populated). Downstream events already queued continue to drain — handler-exception does **not** abort the drain. (See [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes-rf2-v0jwt) — no `:halted-handler-exception` record is committed under the current runtime; the per-event error surfaces in the drain's `:ok` epoch record as a trace under `:trace-events`.) |
+| 3. Handler exception | A registered handler throws. | `:rf.error/handler-exception` (per [009](009-Instrumentation.md)); the **failing handler's** cascade halts — its `:db`, flows, and `:fx` are suppressed (the interceptor chain captured the exception before `:effects` were populated). Downstream events already queued continue to drain — handler-exception does **not** abort the drain. (See [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes) — no `:halted-handler-exception` record is committed under the current runtime; the per-event error surfaces in the drain's `:ok` epoch record as a trace under `:trace-events`.) |
 | 4. `app-db` path | The **flow-augmented** pending `:db` value at a registered schema-bound path doesn't conform (validated at the single deferred install — flows have already run as the outermost `:after`). | Emit with `:where :app-db`; the trace tag carries `:rollback? true` and `:recovery :no-recovery`. The flow-augmented `:db` effect is **not installed** (no commit — `app-db` keeps its pre-event value) and the dispatch is treated as failed — no `:rf.event/db-changed` fires and `:fx` does **not** walk for this dispatch. The flow writes that were folded into the pending `:db` are discarded with it (they were never committed). Downstream queued events still drain (per run-to-completion). |
 | 5. Fx-args | A registered fx's args map doesn't conform to its `:schema`. | The **offending fx is skipped**; emit with `:where :fx-args`, `:fx-id`, `:fx-args`. Other fx in the same `:fx` vector continue to run (per the run-to-completion drain — fx are independent). The cascade does **not** halt; downstream events in the queue still drain. The skipped-fx outcome is `:recovery :skipped`, mirroring `:rf.fx/skipped-on-platform`. |
 | 6. Sub return-value | A schema'd sub's computed value doesn't conform. | Emit with `:where :sub-return`. Default recovery: `:replaced-with-default` — the sub returns `nil` to its consumer; views see no value. Strict mode re-raises. |
-| 7. Machine `:data` (per rf2-jbbp7) | A machine snapshot's `:data` slot — after a macrostep, at bootstrap, or at spawn-install time — doesn't conform to its registered `:schema` (declared on the `reg-machine` spec per [005 §Schema validation](005-StateMachines.md#schema-validation)). | Same as row 4 — full-cascade rollback at the macrostep/bootstrap boundary. Emit with `:where :machine-data`, `:failing-id` = `:machine-id` = the failing machine, `:phase :macrostep` (post-transition) or `:phase :bootstrap` (initial install) or `:phase :spawn` (pre-install rejection), `:value` = the offending `:data`, `:explain` = validator's explanation, `:rollback?` true (macrostep/bootstrap) or false (spawn — nothing committed), `:recovery :no-recovery`. The `:phase :spawn` failure short-circuits the spawn-install: the actor never enters the runtime, no sibling `:system-id` / `:rf/spawned` bookkeeping is recorded. |
+| 7. Machine `:data` | A machine snapshot's `:data` slot — after a macrostep, at bootstrap, or at spawn-install time — doesn't conform to its registered `:schema` (declared on the `reg-machine` spec per [005 §Schema validation](005-StateMachines.md#schema-validation)). | Same as row 4 — full-cascade rollback at the macrostep/bootstrap boundary. Emit with `:where :machine-data`, `:failing-id` = `:machine-id` = the failing machine, `:phase :macrostep` (post-transition) or `:phase :bootstrap` (initial install) or `:phase :spawn` (pre-install rejection), `:value` = the offending `:data`, `:explain` = validator's explanation, `:rollback?` true (macrostep/bootstrap) or false (spawn — nothing committed), `:recovery :no-recovery`. The `:phase :spawn` failure short-circuits the spawn-install: the actor never enters the runtime, no sibling `:system-id` / `:rf/spawned` bookkeeping is recorded. |
 
 The fx-args recovery is "skip the offending fx, continue the rest" rather than "halt the dispatch" because a single broken fx (a typo in a `:url`, a missing required key) should not take down the rest of an event's effect cascade. The trace event names the failing fx; the rest of the page continues to render.
 
@@ -188,7 +188,7 @@ The interceptor is exposed as a value at both `re-frame.core/validate-at-boundar
 
 - In **dev builds**, every event handler's `:schema` is checked anyway (per [§Validation order](#validation-order-on-event-processing) step 1). The boundary interceptor is a no-op in this mode — it doesn't run validation a second time.
 - In **production builds**, `re-frame.interop/debug-enabled?` is `false` and step-1 validation is elided. The boundary interceptor runs the same `:schema` check inline, so handlers carrying it still validate at the boundary.
-- **Registration without `:schema`** is rejected at registration time (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — `:rf.error/at-boundary-missing-schema`, rf2-iftj4). The boundary interceptor is structurally meaningless without a schema to validate against, so `reg-event-*` raises an `ex-info` from the registrar rather than waiting until first dispatch in production builds to surface the misconfiguration. There is no warn-and-accept fallback; the registrar polices the contract uniformly across dev and prod.
+- **Registration without `:schema`** is rejected at registration time (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — `:rf.error/at-boundary-missing-schema`). The boundary interceptor is structurally meaningless without a schema to validate against, so `reg-event-*` raises an `ex-info` from the registrar rather than waiting until first dispatch in production builds to surface the misconfiguration. There is no warn-and-accept fallback; the registrar polices the contract uniformly across dev and prod.
 
 Failures from the boundary interceptor flow through the same `:rf.error/schema-validation-failure :where :event` path as dev-mode step-1 failures — the recovery (skip handler; downstream queue continues) is identical. The only difference is *whether the check ran*, not *what happens when it fails*.
 
@@ -223,7 +223,7 @@ Tools and agents read these to:
 - Generate JSON Schema or OpenAPI from registered schemas — useful for cross-platform contracts.
 - Diff schemas across versions to detect breaking shape changes in app-db structure.
 
-### Tooling surface — Xray attachment (rf2-xgeag)
+### Tooling surface — Xray attachment
 
 The Xray Epoch panel attaches each schema violation to its owning pipeline step rather than collecting them in a trailing footnote. The five runtime boundaries (`:event` / `:cofx` / `:app-db` / `:fx-args` / `:sub-return`) map onto DISPATCH / matching COEFFECT / HANDLER / matching FX row / matching SUBSCRIPTIONS row respectively; hot-reload drift (which has no owning cascade step) rides on a standalone SCHEMA HOT-RELOAD tail step. When an `:app-db` violation carries `:rollback? true`, every step downstream of HANDLER renders muted and the HANDLER step surfaces a "cascade rolled back — downstream effects skipped" banner so the operator reads the blast radius at a glance. See [tools/xray/spec/021-Dynamic-Panel-Designs.md §9.1.10.3 Violation attachment contract](../tools/xray/spec/021-Dynamic-Panel-Designs.md) for the cascade-side rendering details; the substrate-side contract (the two trace ops + their tag shapes) is unchanged.
 
@@ -231,7 +231,7 @@ The Xray Epoch panel attaches each schema violation to its owning pipeline step 
 
 Inside the schema value passed to `reg-app-schema`, individual slots may carry per-slot metadata maps — the `{...}` properties map Malli accepts on every slot. The reserved per-slot key vocabulary is catalogued normatively in [Spec-Schemas §`:rf/app-schema-meta`](Spec-Schemas.md#rfapp-schema-meta); the reserved set is fixed-and-additive. Today's reserved keys are `:large?`, `:hint`, and (reserved-for-future) `:sensitive?`.
 
-### `:large?` — schema-driven size-elision nomination (rf2-nwv63)
+### `:large?` — schema-driven size-elision nomination
 
 Slots marked `:large? true` are the **canonical AI-discoverable entry point** for the size-elision nomination contract catalogued at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The runtime walks every registered app-schema at boot (and on `reg-app-schema` re-registration), and writes a `{:large? true :hint <str-or-nil> :source :schema}` entry into the frame's `app-db [:rf/elision :declarations <path>]` slot for every flagged path. The framework's `rf/elide-wire-value` walker (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) consults the merged registry on every wire-boundary emit and substitutes the `:rf.size/large-elided` marker (per [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker)) in place of the elided value.
 
@@ -290,9 +290,9 @@ Combinators (`:or`, `:and`, `:maybe`, `:tuple`, `:multi`, `:vector`, `:set`) des
 
 **Idempotency.** The walker is pure data and the population is idempotent — re-running it against the same `(db, schema-set)` pair produces the same result. Schemas registered, then re-registered, then walked again yield the same declarations.
 
-**Other ports.** The `:large?` mechanism is portable in spirit: any port whose schema language carries per-slot properties (Zod's `.describe` / refinements; Pydantic's `Field`'s arbitrary kwargs; dry-rb's metadata) can plug the same predicate into the same registry shape. The CLJS reference's walker lives in the schemas artefact (`re-frame.schemas/extract-large-paths-from-schema`) and is published through the late-bind hook table — `re-frame.core` calls it without statically requiring the schemas artefact (per the rf2-p7va per-feature artefact split).
+**Other ports.** The `:large?` mechanism is portable in spirit: any port whose schema language carries per-slot properties (Zod's `.describe` / refinements; Pydantic's `Field`'s arbitrary kwargs; dry-rb's metadata) can plug the same predicate into the same registry shape. The CLJS reference's walker lives in the schemas artefact (`re-frame.schemas/extract-large-paths-from-schema`) and is published through the late-bind hook table — `re-frame.core` calls it without statically requiring the schemas artefact (per the per-feature artefact split).
 
-### `:sensitive?` — privacy in schema-validation error traces (rf2-kj51z)
+### `:sensitive?` — privacy in schema-validation error traces
 
 > Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture — per-slot schema `:sensitive?` is the canonical path-level privacy declaration; handler metadata `:sensitive?` is the whole-handler escape hatch.
 
@@ -300,7 +300,7 @@ Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--s
 
 **Two sources of sensitivity** the validation site MUST consult, in this order (most-specific wins):
 
-1. **Per-slot `:sensitive?` on the failing path's schema.** A slot or container whose Malli props carry `:sensitive? true` declares the slot's value sensitive — parallel to `:large?` (per [§`:large?` — schema-driven size-elision nomination](#large--schema-driven-size-elision-nomination-rf2-nwv63) above). Two structural positions are accepted, exactly as for `:large?`:
+1. **Per-slot `:sensitive?` on the failing path's schema.** A slot or container whose Malli props carry `:sensitive? true` declares the slot's value sensitive — parallel to `:large?` (per [§`:large?` — schema-driven size-elision nomination](#large--schema-driven-size-elision-nomination) above). Two structural positions are accepted, exactly as for `:large?`:
 
    ```clojure
    ;; (a) slot-level — the schema slot's per-slot props
@@ -320,8 +320,8 @@ Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--s
 - Replace `:value` (the failing value) and `:received` (if present) with the framework-reserved sentinel keyword `:rf/redacted` (per [009 §Schema-installed redaction](009-Instrumentation.md#schema-installed-redaction) — same sentinel, same reserved-keyword guarantee).
 - Replace `:explain` with `:rf/redacted` — the Malli explainer output carries the failing value verbatim under `:value` / `:errors[].value` and re-leaks it. Tools that want a structural error description without the value reach for the path (`:tags :path`) and the schema's id (`:tags :schema-id`).
 - Replace `:fx-args` with `:rf/redacted` on `:where :fx-args` emissions only — this slot is a per-surface doubled-id name for the failing value (semantically equivalent to `:received` on the fx surface; see Spec-Schemas `:rf.fx/handled`). Without redaction the fx-args slot would re-leak the value the `:value` / `:received` redactions just scrubbed.
-- Replace `:query-v` with `:rf/redacted` on `:where :sub-return` emissions only — this slot is the caller-supplied subscription query vector. On `:sensitive?`-marked subs the lookup key (the `(rest query-v)` payload) typically carries the same secret material the registered schema is gating — user ids, auth tokens, document ids. Without redaction the failure trace re-leaks the lookup-key payload alongside the failing return value the other clauses just scrubbed (rf2-adtp2 / rf2-p2adl Q2).
-- Stamp `:sensitive? true` in the trace event's `:tags` map. Consumers route on `(get-in trace-event [:tags :sensitive?])` until top-level hoisting lands (rf2-isdwf is in flight in core; once landed, the runtime promotes `:tags :sensitive?` to the top-level `:sensitive?` slot per [009 §Trace-event field: `:sensitive?` at the top level](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level) — the schemas-side emit-site does not need to be revisited).
+- Replace `:query-v` with `:rf/redacted` on `:where :sub-return` emissions only — this slot is the caller-supplied subscription query vector. On `:sensitive?`-marked subs the lookup key (the `(rest query-v)` payload) typically carries the same secret material the registered schema is gating — user ids, auth tokens, document ids. Without redaction the failure trace re-leaks the lookup-key payload alongside the failing return value the other clauses just scrubbed.
+- Stamp `:sensitive? true` in the trace event's `:tags` map. Consumers route on `(get-in trace-event [:tags :sensitive?])` until top-level hoisting lands ( is in flight in core; once landed, the runtime promotes `:tags :sensitive?` to the top-level `:sensitive?` slot per [009 §Trace-event field: `:sensitive?` at the top level](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level) — the schemas-side emit-site does not need to be revisited).
 
 Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schema id (`:tags :schema-id`), and the human-readable `:reason` string remain unredacted — these are structural / categorical signals that do not carry user data, and consumers need them to locate the broken slot. Only the value-bearing slots (`:value`, `:received`, `:explain`, plus `:fx-args` on the fx surface and `:query-v` on the sub-return surface) are redacted.
 
@@ -355,7 +355,7 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 
 **Walker.** The CLJS reference ships `re-frame.schemas/extract-sensitive-paths-from-schema` (parallel to `extract-large-paths-from-schema`) — a pure-data Malli-EDN walker that returns `{path declaration}` entries for every `:sensitive? true` slot in a registered schema. Each declaration carries `{:sensitive? true :source :schema}` plus an optional `:hint` propagated verbatim from the slot's props (apps reuse the same `:hint` key as `:large?` so a slot can be annotated once for both flags). The validation emit-site walks the failing path's schema with this helper to decide whether to redact.
 
-**Registry feeder (rf2-c1l4d).** Mirroring the `:large?` registry-population path, `re-frame.elision` reads the schemas artefact's `extract-sensitive-paths-from-schema` hook to write a sibling slot in the unified elision registry at `app-db [:rf/elision :sensitive-declarations]`:
+**Registry feeder.** Mirroring the `:large?` registry-population path, `re-frame.elision` reads the schemas artefact's `extract-sensitive-paths-from-schema` hook to write a sibling slot in the unified elision registry at `app-db [:rf/elision :sensitive-declarations]`:
 
 ```clojure
 (rf/reg-app-schema [:user]
@@ -530,20 +530,20 @@ This recommendation is normative-soft: ports that ship a different default-absen
 
 What the extension point does NOT cover: a *mix* of validators in one process. The runtime resolves one validator and uses it for every `:schema` everywhere; a hybrid setup (one schema language for app schemas, a different one for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
 
-### Opting in to Malli validation on CLJS (rf2-t0hq)
+### Opting in to Malli validation on CLJS
 
 CLJS apps that want the default Malli validator to run **must** require the `re-frame.schemas.malli` adapter namespace at app boot:
 
 ```clojure
 (ns my-app.core
   (:require [re-frame.core :as rf]
-            [re-frame.schemas]         ;; load the schemas artefact (rf2-p7va)
-            [re-frame.schemas.malli])) ;; publish Malli into the late-bind hook table (rf2-t0hq)
+            [re-frame.schemas]         ;; load the schemas artefact
+            [re-frame.schemas.malli])) ;; publish Malli into the late-bind hook table
 ```
 
 The adapter namespace's only job is to publish `malli.core/validate` and `malli.core/explain` into the framework's late-bind hook table on ns-load (`:schemas/malli-validate` / `:schemas/malli-explain`). The schemas artefact's default validator consults these hooks on every call; absent the hook (i.e. the adapter ns was not required) the validator soft-passes per [§Recommended soft-pass](#recommended-soft-pass-when-the-default-validators-library-is-absent).
 
-The motivation is the bug rf2-t0hq fixed: CLJS has no runtime `resolve`, so the previous implementation's `(resolve 'malli.core/validate)` always returned nil on CLJS and the default validator silently soft-passed even when Malli was on the classpath. The late-bind adapter pattern (matching the rf2-froe / rf2-p7va substitute-validator precedent) preserves Malli's optional-dep status while making the opt-in explicit and runtime-correct.
+The motivation is the bug fixed: CLJS has no runtime `resolve`, so the previous implementation's `(resolve 'malli.core/validate)` always returned nil on CLJS and the default validator silently soft-passed even when Malli was on the classpath. The late-bind adapter pattern (matching the substitute-validator precedent) preserves Malli's optional-dep status while making the opt-in explicit and runtime-correct.
 
 On the **JVM** loading the adapter namespace is optional but harmless — the schemas artefact's `default-malli-validate` falls back to `requiring-resolve` so JVM apps that have Malli on the classpath get Malli validation without an explicit require. Apps that want their bundle to be runtime-identical on JVM and CLJS require `re-frame.schemas.malli` on both sides.
 
@@ -554,9 +554,9 @@ The motivating use-case is bundle-cost reduction (per `findings/malli-bundle-cos
 ```clojure
 (ns my-app.core
   (:require [re-frame.core :as rf]
-            [re-frame.schemas]   ;; load the schemas artefact (rf2-p7va)
+            [re-frame.schemas]   ;; load the schemas artefact
             ;; NOTE: we do NOT require [re-frame.schemas.malli] here —
-            ;; the late-bind adapter pattern (rf2-t0hq) gates Malli
+            ;; the late-bind adapter pattern gates Malli
             ;; on an explicit require. Skipping the require means
             ;; Malli is never pulled into the bundle, and the
             ;; default validator soft-passes per §Recommended
@@ -603,7 +603,7 @@ For the bundle-cost tradeoffs of the CLJS reference's Malli default and how to o
 
 ### Bundle cost
 
-The CLJS reference's Malli mandate adds ~24 KB gzipped to a typical re-frame2 production bundle (per `findings/malli-bundle-cost-audit.md` §3.2 / §4 — bead rf2-qnxf). The cost is real but bounded; the figures below come from a representative-scenario harness compiled `:advanced` with `:closure-defines {goog.DEBUG false}`:
+The CLJS reference's Malli mandate adds ~24 KB gzipped to a typical re-frame2 production bundle (per `findings/malli-bundle-cost-audit.md` §3.2 / §4 — bead). The cost is real but bounded; the figures below come from a representative-scenario harness compiled `:advanced` with `:closure-defines {goog.DEBUG false}`:
 
 | Scenario | gzipped | Δ vs baseline |
 |---|---:|---:|
@@ -613,7 +613,7 @@ The CLJS reference's Malli mandate adds ~24 KB gzipped to a typical re-frame2 pr
 | Typical app: `reg-app-schema` + `:schema` on every reg-* | 121.5 KB | +29.8 KB |
 | Heavy: validate + explain + decode + transform + generator | 156.1 KB | +64.5 KB |
 
-The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas` namespace adds ~5.6 KB, and `malli.core`'s reachable body adds ~24 KB on top. Validation *calls* are not in this cost — every `validate-*!` body is gated on `re-frame.interop/debug-enabled?` and Closure DCE eliminates the call sites in production (per [§Production builds](#production-builds) and the rf2-11hn strict-elision contract). The cost is `malli.core`'s **library code**, not validation activity.
+The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas` namespace adds ~5.6 KB, and `malli.core`'s reachable body adds ~24 KB on top. Validation *calls* are not in this cost — every `validate-*!` body is gated on `re-frame.interop/debug-enabled?` and Closure DCE eliminates the call sites in production (per [§Production builds](#production-builds) and the strict-elision contract). The cost is `malli.core`'s **library code**, not validation activity.
 
 **Inter-namespace DCE works; intra-namespace DCE does not.** Closure prunes `malli.error`, `malli.transform`, `malli.generator`, etc. from a typical bundle because the user code doesn't require them — only `malli.core` survives. Inside `malli.core`, Closure cannot prove the data-driven dispatch internals dead, so the full namespace stays. The practical rule is: **require what you need at the namespace boundary; nothing more.**
 
@@ -630,14 +630,14 @@ The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas`
 - `malli.registry` — composite-registry helpers; ~3 KB gzipped (most lives in `malli.core`).
 - `malli.dev`, `malli.dev.pretty`, `malli.experimental`, `malli.instrument`, `malli.json-schema`, `malli.swagger`, `malli.provider`, `malli.util` — dev-only tooling; never bundle into production code.
 
-**Opt-out path — bypass Malli entirely.** Apps that don't want the Malli bundle install a different validator (or `nil`) via `set-schema-validator!` (per [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point) and rf2-froe / PR #237). `set-schema-validator!` with `nil` is the documented hard-no-op: every `validate-*!` site short-circuits to `true`, no validate call ever runs, and the schemas artefact stops carrying a static dependency on Malli. Apps that don't `(:require [malli.core])` themselves pay only the ~5.6 KB schemas-artefact cost.
+**Opt-out path — bypass Malli entirely.** Apps that don't want the Malli bundle install a different validator (or `nil`) via `set-schema-validator!` (per [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point) and / PR #237). `set-schema-validator!` with `nil` is the documented hard-no-op: every `validate-*!` site short-circuits to `true`, no validate call ever runs, and the schemas artefact stops carrying a static dependency on Malli. Apps that don't `(:require [malli.core])` themselves pay only the ~5.6 KB schemas-artefact cost.
 
 ```clojure
 ;; Apps that want zero runtime validation surface (and zero Malli bundle cost)
 (rf/set-schema-validator! nil)
 ```
 
-**Boundary-validation path — keep Malli on the production path for untrusted-source events only.** Apps that want Malli's bundle but only run validation at system boundaries attach `:rf.schema/at-boundary` (per [§Production builds](#production-builds) and rf2-r2uh / PR #242) to specific event handlers. The interceptor runs the registered validator against the handler's `:schema` regardless of the global elision flag — boundary handlers validate every payload while 99% of code has zero validation overhead.
+**Boundary-validation path — keep Malli on the production path for untrusted-source events only.** Apps that want Malli's bundle but only run validation at system boundaries attach `:rf.schema/at-boundary` (per [§Production builds](#production-builds) and / PR #242) to specific event handlers. The interceptor runs the registered validator against the handler's `:schema` regardless of the global elision flag — boundary handlers validate every payload while 99% of code has zero validation overhead.
 
 **Reframing the "Malli is hard to DCE" intuition.** The intuition is half-right. Closure cannot DCE *inside* `malli.core` (the dynamic-dispatch internals defeat dataflow analysis). But Closure CAN DCE *between* Malli namespaces (typical apps already only carry `malli.core`, not the error / transform / generator subset), and the mandate-cost is bounded by what `malli.core` weighs gzipped: ~24 KB. The heavy-decode scenario (which pulls `malli.error` + `malli.transform` + `malli.generator`) is worst-case; the typical-app cost is half that, and the opt-out path drops it to zero.
 
@@ -649,17 +649,17 @@ The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas`
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Schema-driven generative tests" classifies as **`:post-v1 tracked`** (folded into the property-based-testing pattern at rf2-rs0ux); "Boundary-validation interceptor naming" was **resolved** at rf2-ys2zn (decision 2026-05-17, see [§Resolved decisions](#resolved-decisions)); "Schema versioning" classifies as **`:post-v1 tracked`** at rf2-7fk8a.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Schema-driven generative tests" classifies as **`:post-v1 tracked`** (folded into the property-based-testing pattern at); "Boundary-validation interceptor naming" was **resolved** at (decision 2026-05-17, see [§Resolved decisions](#resolved-decisions)); "Schema versioning" classifies as **`:post-v1 tracked`** at.
 
-### Schema-driven generative tests (post-v1, rf2-rs0ux)
+### Schema-driven generative tests (post-v1)
 
-Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:schema`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md) post-v1, tracked at rf2-rs0ux.
+Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:schema`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md) post-v1, tracked at.
 
-### Schema versioning (post-v1, rf2-7fk8a)
+### Schema versioning (post-v1)
 
-Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling is post-v1; tracked at rf2-7fk8a.
+Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling is post-v1; tracked at.
 
-#### Post-v1 Tracking — rf2-7fk8a
+#### Post-v1 Tracking
 
 - **Foundation in v1.** `reg-app-schema` already accepts an opts map (per [§The four normative claims](#the-four-normative-claims)); adding a `:version <pos-int>` key is additive — current registrations stay valid.
 - **Scope deferred.** The convention itself (canonical key name, default semantics when absent, comparison rule on hot-reload, migration-helper signature) is the post-v1 design surface. v1 ships the validator-pluggability primitive without locking the versioning grammar.
@@ -668,9 +668,9 @@ Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a v
 
 ## Resolved decisions
 
-### Boundary-validation interceptor naming (rf2-ys2zn)
+### Boundary-validation interceptor naming
 
-Decision: **`:rf.schema/at-boundary`** (interceptor `:id` keyword; Var `re-frame.spec/validate-at-boundary-interceptor`, re-exported as `re-frame.core/validate-at-boundary-interceptor`). Originally landed as `:spec/at-boundary` (decided 2026-05-17) but renamed to `:rf.schema/at-boundary` at rf2-ieu0i (2026-05-20) as part of the framework-wide `:spec` → `schema` vocabulary unification (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.schema/*`). Alternatives considered at rf2-ys2zn: `:spec/validate-validate-at-boundary-interceptor` (verbose; verb redundant with the namespace's action surface), `:spec/strict` (ambiguous — "strict" doesn't say *where* the strictness applies), `:spec/always` (misleading — the interceptor is opt-in per handler, not an always-on global). The picked tail (`validate-at-boundary-interceptor`) reads tight against the surrounding registry idiom where verbs are implicit and the keyword's local name is the *action surface*.
+Decision: **`:rf.schema/at-boundary`** (interceptor `:id` keyword; Var `re-frame.spec/validate-at-boundary-interceptor`, re-exported as `re-frame.core/validate-at-boundary-interceptor`). Originally landed as `:spec/at-boundary` (decided 2026-05-17) but renamed to `:rf.schema/at-boundary` at (2026-05-20) as part of the framework-wide `:spec` → `schema` vocabulary unification (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.schema/*`). Alternatives considered at : `:spec/validate-validate-at-boundary-interceptor` (verbose; verb redundant with the namespace's action surface), `:spec/strict` (ambiguous — "strict" doesn't say *where* the strictness applies), `:spec/always` (misleading — the interceptor is opt-in per handler, not an always-on global). The picked tail (`validate-at-boundary-interceptor`) reads tight against the surrounding registry idiom where verbs are implicit and the keyword's local name is the *action surface*.
 
 ### Schema migration on hot-reload
 
@@ -680,4 +680,4 @@ When a sub-path schema changes during dev (file save re-evaluates `reg-app-schem
 
 The four normative claims in [§The four normative claims](#the-four-normative-claims) are the portable contract: apps register via `reg-app-schema` + `:schema`; validation is pluggable via `set-schema-validator!`; the default is implementation-defined; dependency-absent behaviour is implementation-defined with a recommended soft-pass.
 
-The CLJS reference's expression of these claims (rf2-froe): `(rf/set-schema-validator! validate-fn)`, `(rf/set-schema-validator! {:validate ... :explain ...})`, and `(rf/set-schema-explainer! explain-fn)` are all live in `re-frame.core` (re-exporting from `re-frame.schemas`). The CLJS reference's chosen default delegates to Malli's `validate` / `explain`; soft-pass when Malli is absent on the classpath; hard no-op when `set-schema-validator!` is called with `nil`. Other ports document their own defaults in their READMEs. The schemas mandate at the framework level (every `reg-*` may attach `:schema`; `reg-app-schema` registers path schemas) is independent of which validator is registered.
+The CLJS reference's expression of these claims: `(rf/set-schema-validator! validate-fn)`, `(rf/set-schema-validator! {:validate ... :explain ...})`, and `(rf/set-schema-explainer! explain-fn)` are all live in `re-frame.core` (re-exporting from `re-frame.schemas`). The CLJS reference's chosen default delegates to Malli's `validate` / `explain`; soft-pass when Malli is absent on the classpath; hard no-op when `set-schema-validator!` is called with `nil`. Other ports document their own defaults in their READMEs. The schemas mandate at the framework level (every `reg-*` may attach `:schema`; `reg-app-schema` registers path schemas) is independent of which validator is registered.

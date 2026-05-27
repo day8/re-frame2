@@ -73,7 +73,7 @@ References to `G-A`/`G-B`/`G-C`/`G-D`/`G-E`/`G-F` in the tables below resolve to
 
 | Property | Score | Notes |
 |---|---|---|
-| P1 Regularity | ✓ | Two registration shapes (`reg-frame` / `make-frame`) is right. View invocation has two forms (`view` / Var) — the `h` macro was dropped (rf2-n4um). |
+| P1 Regularity | ✓ | Two registration shapes (`reg-frame` / `make-frame`) is right. View invocation has two forms (`view` / Var) — the `h` macro was dropped. |
 | P2 Named things | ✓ | Frames, handlers, views, fx all stably-id'd. Anonymous lambdas survive only inside view bodies (`:on-click #(dispatch ...)`) which is borderline acceptable. |
 | P3 Data before magic | ◐ | Dispatch envelope, effect map, frame metadata all data. `:fx-overrides` and `:interceptor-overrides` accept function values at the CLJS reference level. Pattern-level contract is id-based; CLJS reference also accepts fn values. |
 | P4 Public query surfaces | ✓ | `registrations`, `frame-meta`, `frame-ids`, `get-frame-db`, `snapshot-of`, `sub-topology` all in. |
@@ -227,7 +227,7 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 | Spec | Score | Notes |
 |---|---|---|
 | 000-Vision | ✓ | Goal text + the FSM-richness / actor-model breakdown name each capability and its v1-claim status. Host-profile matrix has capability-list rows. |
-| 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; parallel regions and tags are now first-class capabilities (rf2-l67o / rf2-ee0d); substitute for history specced. |
+| 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; parallel regions and tags are now first-class capabilities; substitute for history specced. |
 | Spec-Schemas | ✓ | `:rf/transition-table` schema covers flat / hierarchical / eventless / delayed / declarative-`:spawn` / `:tags` / `:type :parallel` + `:regions`; `:rf/machine-snapshot` widened to the third `:state` arm for parallel regions. |
 | Construction-Prompts | ✓ | CP-5 forward-points at the parallel-regions first-class capability and the N-machines substitute for conceptually-independent features, plus the history-state snapshot-capture substitute. |
 | conformance/README | ✓ | Capability-tagging convention specifies how fixtures self-declare; harness runs only the matching subset. |
@@ -273,7 +273,7 @@ Plain Reagent fns rendered inside a non-default frame silently route to `:rf/def
 
 ### G-E. View invocation has two forms — Var canonical, `(view :id)` for late-binding
 
-The Var reference (`[counter "Hello"]`) is the canonical call-site form: `reg-view` defs the symbol, hiccup picks it up directly. `(view :id)` is the documented escape hatch for late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites). The earlier `h` macro draft has been dropped (rf2-n4um); two forms is the v1 surface.
+The Var reference (`[counter "Hello"]`) is the canonical call-site form: `reg-view` defs the symbol, hiccup picks it up directly. `(view :id)` is the documented escape hatch for late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites). The earlier `h` macro draft has been dropped; two forms is the v1 surface.
 
 ### G-F. Form-1 / Form-2 / Form-3 component shapes
 
@@ -283,7 +283,7 @@ Three component shapes inherit from Reagent. Form-2's outer-fn-side-effects patt
 
 The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation) and P6 (determinism). The recurring weak points are P7 (machine-readable errors), P8 (low hidden context), and P5 (schemas applied to the spec's own shapes). The cross-cutting gaps section above enumerates the specific findings.
 
-## SA-3 schema-coverage report (rf2-baj2g)
+## SA-3 schema-coverage report
 
 [SPEC-AUTHORING.md §SA-3](SPEC-AUTHORING.md) commits the corpus to: "Every shape that flows on the wire or appears in a spec example MUST have a schema in [Spec-Schemas.md](Spec-Schemas.md)." This report is the audit's running cross-reference table: every shape-shaped artefact named in the numbered specs MUST map to one of (a) a `:rf/<id>` schema entry in Spec-Schemas.md, (b) an explicit host-type exemption (a host's primitive that doesn't need cross-host schema coverage), or (c) a generated EDN catalogue derived from the corpus.
 

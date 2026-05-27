@@ -81,13 +81,13 @@ Each entry below is one CP:
 
 **AI-first checklist before declaring done:**
 
-- [ ] Id is namespaced and unused.
-- [ ] Handler is pure (no side-effects in the body of `reg-event-db`; effects are *returned* by `reg-event-fx`).
-- [ ] `:doc` is present and one sentence.
-- [ ] Shape is described by the host's idiom: `:schema` (Malli/Pydantic/Zod) in dynamic hosts, a type definition in static hosts. If neither: shape conformance is checked by tests/fixtures.
-- [ ] Handler has a meaningful name (not `fn`).
-- [ ] Smoke test passes.
-- [ ] If the handler writes a schema-bound `app-db` path (in a schema-bearing implementation), the test asserts the post-state validates.
+- Id is namespaced and unused.
+- Handler is pure (no side-effects in the body of `reg-event-db`; effects are *returned* by `reg-event-fx`).
+- `:doc` is present and one sentence.
+- Shape is described by the host's idiom: `:schema` (Malli/Pydantic/Zod) in dynamic hosts, a type definition in static hosts. If neither: shape conformance is checked by tests/fixtures.
+- Handler has a meaningful name (not `fn`).
+- Smoke test passes.
+- If the handler writes a schema-bound `app-db` path (in a schema-bearing implementation), the test asserts the post-state validates.
 
 **Example — full worked artefact:**
 
@@ -166,12 +166,12 @@ Each entry below is one CP:
 
 **AI-first checklist:**
 
-- [ ] Sub id is namespaced and unused.
-- [ ] Body is pure.
-- [ ] Layer-2 subs use `:<-` chains; they don't read `app-db` directly.
-- [ ] `:doc` is present.
-- [ ] Smoke test runs headlessly via `compute-sub`.
-- [ ] If the return value has a schema, the test asserts conformance.
+- Sub id is namespaced and unused.
+- Body is pure.
+- Layer-2 subs use `:<-` chains; they don't read `app-db` directly.
+- `:doc` is present.
+- Smoke test runs headlessly via `compute-sub`.
+- If the return value has a schema, the test asserts conformance.
 
 **Example — full worked artefact:**
 
@@ -242,13 +242,13 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **AI-first checklist:**
 
-- [ ] Fx id is namespaced.
-- [ ] `:platforms` is set explicitly (don't rely on the default).
-- [ ] `:schema` describes the args shape.
-- [ ] `:doc` is present.
-- [ ] Handler dispatches `:on-success`/`:on-error` (or equivalent) on the originating frame.
-- [ ] Handler does NOT mutate `app-db` — that's events' job.
-- [ ] A registered test-stub fx exists with a stable id (e.g., `:fx-id.canned`) for tests.
+- Fx id is namespaced.
+- `:platforms` is set explicitly (don't rely on the default).
+- `:schema` describes the args shape.
+- `:doc` is present.
+- Handler dispatches `:on-success`/`:on-error` (or equivalent) on the originating frame.
+- Handler does NOT mutate `app-db` — that's events' job.
+- A registered test-stub fx exists with a stable id (e.g., `:fx-id.canned`) for tests.
 
 **Example — local storage:**
 
@@ -324,12 +324,12 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **AI-first checklist:**
 
-- [ ] View id is namespaced and unused.
-- [ ] All subs/events the view uses are registered.
-- [ ] Body is pure; no render-time side-effects.
-- [ ] `:on-click`/`:on-change` lambdas dispatch named events (no inline `swap!`/`reset!`).
-- [ ] Output round-trips through `render-to-string` (smoke test passes both server-side and client-side).
-- [ ] If the props vector has a schema, validation passes for the test inputs.
+- View id is namespaced and unused.
+- All subs/events the view uses are registered.
+- Body is pure; no render-time side-effects.
+- `:on-click`/`:on-change` lambdas dispatch named events (no inline `swap!`/`reset!`).
+- Output round-trips through `render-to-string` (smoke test passes both server-side and client-side).
+- If the props vector has a schema, validation passes for the test inputs.
 
 **Example — full worked artefact:**
 
@@ -357,7 +357,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 2. **Verify the id is unused.** `(rf/registrations :event)` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf/machines)` enumerates already-registered machines specifically.
 3. **List the states.** Discrete, named (`:idle`, `:submitting`, `:authed`, `:error-shown`).
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
-5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Per rf2-grw4i / rf2-v0rrr every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
+5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Per every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
 
 **Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf/machines <machine-id>]` in the frame's `app-db`. For id `:auth.login/flow`, the snapshot is at `[:rf/machines :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — `make-machine-handler` does not accept a `:path` key. Per-frame isolation is automatic: each frame has its own `app-db` and thus its own `:rf/machines` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
 
@@ -518,7 +518,7 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
 - The transition table is **pure data** (per [005](005-StateMachines.md)) — serialisable, AI-readable, visualisable.
 - **Default to registered guards and actions.** Inline fns are an escape hatch for trivial logic, not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
 - Action and guard slots are **single fn or single registered id** — no `:actions [a1 a2 a3]` vector form, no `{:and [...]}` compound-guard data form. Multi-step composition is fn composition; reused composition is registered with a meaningful name.
-- Action signature: `(fn [{:keys [data event state meta]}] {:data {...} :fx [...]})` — single context-map argument per rf2-grw4i / rf2-v0rrr. **Strict encapsulation**: no `:db`, no cofx — the runtime hard-disallows `:db` in the action's effect map (`:rf.error/machine-action-wrote-db`).
+- Action signature: `(fn [{:keys [data event state meta]}] {:data {...} :fx [...]})` — single context-map argument. **Strict encapsulation**: no `:db`, no cofx — the runtime hard-disallows `:db` in the action's effect map (`:rf.error/machine-action-wrote-db`).
 - `machine-transition` is a **pure function** — `(definition, snapshot, event) → [next-snapshot, effects]`. JVM-runnable, headless-testable.
 - The actor system boundary is the frame; cross-machine messages within a frame settle via run-to-completion drain.
 
@@ -578,25 +578,25 @@ For projections, compose against `:rf/machine` via `:<-`:
 
 **AI-first checklist:**
 
-- [ ] Machine id is namespaced; registered via `reg-event-fx` + `make-machine-handler`.
-- [ ] No `:path` key in the machine spec — the runtime stores snapshots at `[:rf/machines <id>]`.
-- [ ] All states are listed in `:states`; no string-based or computed state names.
-- [ ] Every input the machine listens to is in some state's `:on` map.
-- [ ] **Non-trivial guards and actions are named in the machine's `:guards` / `:actions` maps and referenced by keyword from the transition table, not inline.** Inline fns are reserved for single non-branching expressions per [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
-- [ ] Every keyword reference under `:guard` / `:action` (in `:on`, `:always`, `:entry`, `:exit`) is a key in the spec's `:guards` / `:actions` map — `make-machine-handler` validates this at registration time and raises `:rf.error/machine-unresolved-{guard|action}` on miss.
-- [ ] No `reg-machine-guard` / `reg-machine-action` calls — those APIs are removed; guards and actions are machine-scoped.
-- [ ] `:guard` and `:action` are single fns (or single keyword references) — not vectors.
-- [ ] No `[:assign ...]`, `[:raise ...]`, `[:fx ...]` data forms in transition slots — actions return `{:data {...} :fx [...]}` directly.
-- [ ] No compound-guard `{:and ...}` / `{:or ...}` / `{:not ...}` data forms — composition is fns or named compounds in `:guards`.
-- [ ] No `:db` in action effect maps — cross-cutting writes go via `:fx [[:dispatch <named-event>]]`.
-- [ ] Cross-cutting reads come through the event payload, not from `app-db`.
-- [ ] Cross-machine reuse of a guard/action is via a Clojure var referenced from each machine's `:guards` / `:actions` map — not via a global registry.
-- [ ] Views read state via `@(rf/sub-machine <machine-id>)` (or the explicit `@(rf/subscribe [:rf/machine <machine-id>])`); no manual `reg-sub` over `[:rf/machines ...]`.
-- [ ] Transition table conforms to `:rf/transition-table` schema (per [Spec-Schemas](Spec-Schemas.md)).
-- [ ] Level-1 headless test passes via `machine-transition` (no event dispatch needed).
-- [ ] If the machine has terminal states, they're marked `:meta {:terminal? true}`.
-- [ ] Trace events on `:rf.machine/transition` are visible in 10x / re-frame-pair.
-- [ ] `(rf/machines)` includes the new id; `(rf/machine-meta <id>)` returns its registration metadata (which includes the spec's `:guards` / `:actions` maps).
+- Machine id is namespaced; registered via `reg-event-fx` + `make-machine-handler`.
+- No `:path` key in the machine spec — the runtime stores snapshots at `[:rf/machines <id>]`.
+- All states are listed in `:states`; no string-based or computed state names.
+- Every input the machine listens to is in some state's `:on` map.
+- **Non-trivial guards and actions are named in the machine's `:guards` / `:actions` maps and referenced by keyword from the transition table, not inline.** Inline fns are reserved for single non-branching expressions per [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
+- Every keyword reference under `:guard` / `:action` (in `:on`, `:always`, `:entry`, `:exit`) is a key in the spec's `:guards` / `:actions` map — `make-machine-handler` validates this at registration time and raises `:rf.error/machine-unresolved-{guard|action}` on miss.
+- No `reg-machine-guard` / `reg-machine-action` calls — those APIs are removed; guards and actions are machine-scoped.
+- `:guard` and `:action` are single fns (or single keyword references) — not vectors.
+- No `[:assign ...]`, `[:raise ...]`, `[:fx ...]` data forms in transition slots — actions return `{:data {...} :fx [...]}` directly.
+- No compound-guard `{:and ...}` / `{:or ...}` / `{:not ...}` data forms — composition is fns or named compounds in `:guards`.
+- No `:db` in action effect maps — cross-cutting writes go via `:fx [[:dispatch <named-event>]]`.
+- Cross-cutting reads come through the event payload, not from `app-db`.
+- Cross-machine reuse of a guard/action is via a Clojure var referenced from each machine's `:guards` / `:actions` map — not via a global registry.
+- Views read state via `@(rf/sub-machine <machine-id>)` (or the explicit `@(rf/subscribe [:rf/machine <machine-id>])`); no manual `reg-sub` over `[:rf/machines ...]`.
+- Transition table conforms to `:rf/transition-table` schema (per [Spec-Schemas](Spec-Schemas.md)).
+- Level-1 headless test passes via `machine-transition` (no event dispatch needed).
+- If the machine has terminal states, they're marked `:meta {:terminal? true}`.
+- Trace events on `:rf.machine/transition` are visible in 10x / re-frame-pair.
+- `(rf/machines)` includes the new id; `(rf/machine-meta <id>)` returns its registration metadata (which includes the spec's `:guards` / `:actions` maps).
 
 ### CP-6. Scaffold a feature
 
@@ -713,14 +713,14 @@ test/my_app/
 
 **AI-first checklist for a feature:**
 
-- [ ] All registrations use the chosen prefix; nothing else uses it.
-- [ ] `app-db` slice has a registered schema; init event produces a schema-valid value.
-- [ ] Every event has `:doc`; structurally-shaped events have `:schema`.
-- [ ] Every sub has `:doc` and reads from the feature's slice (`[:feature ...]`).
-- [ ] No view dispatches an unregistered event or reads an unregistered sub.
-- [ ] Happy-path smoke test runs headlessly (JVM-runnable).
-- [ ] Feature ships its **public surface** explicitly (in `public.cljs` or via doc) — which events the rest of the app may dispatch, which subs it may read.
-- [ ] Feature does NOT reach into another feature's `app-db` slice directly; it goes through the other feature's subs and dispatches the other feature's events.
+- All registrations use the chosen prefix; nothing else uses it.
+- `app-db` slice has a registered schema; init event produces a schema-valid value.
+- Every event has `:doc`; structurally-shaped events have `:schema`.
+- Every sub has `:doc` and reads from the feature's slice (`[:feature ...]`).
+- No view dispatches an unregistered event or reads an unregistered sub.
+- Happy-path smoke test runs headlessly (JVM-runnable).
+- Feature ships its **public surface** explicitly (in `public.cljs` or via doc) — which events the rest of the app may dispatch, which subs it may read.
+- Feature does NOT reach into another feature's `app-db` slice directly; it goes through the other feature's subs and dispatches the other feature's events.
 
 **Why feature-modularity matters for AI use:**
 
@@ -843,15 +843,15 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 
 **AI-first checklist:**
 
-- [ ] Route ids are namespaced (`:route/...`).
-- [ ] Each route's `:path` conforms to the canonical path-pattern grammar.
-- [ ] Path params are declared in `:params` (schema); query params are declared in `:query` (schema).
-- [ ] Per-route data dependencies are declared in `:on-match` (vector of event vectors).
-- [ ] Per-route error handling is declared in `:on-error` (single event vector) where needed.
-- [ ] All navigation goes through `:rf.route/navigate` (or `route-link`); no inline `pushState`.
-- [ ] The root view dispatches on `:rf.route/id`; per-page views are registered separately.
-- [ ] A `:rf.route/not-found` route is registered.
-- [ ] Nested layouts use `:parent` (or id-prefix-only if no shared loader/chrome is needed); read the chain via `:rf.route/chain`.
+- Route ids are namespaced (`:route/...`).
+- Each route's `:path` conforms to the canonical path-pattern grammar.
+- Path params are declared in `:params` (schema); query params are declared in `:query` (schema).
+- Per-route data dependencies are declared in `:on-match` (vector of event vectors).
+- Per-route error handling is declared in `:on-error` (single event vector) where needed.
+- All navigation goes through `:rf.route/navigate` (or `route-link`); no inline `pushState`.
+- The root view dispatches on `:rf.route/id`; per-page views are registered separately.
+- A `:rf.route/not-found` route is registered.
+- Nested layouts use `:parent` (or id-prefix-only if no shared loader/chrome is needed); read the chain via `:rf.route/chain`.
 
 ### CP-8. Scaffold a schema
 
@@ -921,12 +921,12 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 
 **AI-first checklist:**
 
-- [ ] Schema describes shape, not types of objects.
-- [ ] Open by default (no `:closed true` unless at a boundary).
-- [ ] Path-based for `app-db` slices.
-- [ ] Attached as `:schema` on the relevant `reg-*` if it describes a registration's input/output.
-- [ ] Schema is *named* — `(def CartState ...)` — not inline.
-- [ ] Conforms to [010](010-Schemas.md) registration shape.
+- Schema describes shape, not types of objects.
+- Open by default (no `:closed true` unless at a boundary).
+- Path-based for `app-db` slices.
+- Attached as `:schema` on the relevant `reg-*` if it describes a registration's input/output.
+- Schema is *named* — `(def CartState ...)` — not inline.
+- Conforms to [010](010-Schemas.md) registration shape.
 
 ### CP-9. Scaffold an SSR setup
 
@@ -1017,14 +1017,14 @@ The drain settles before `with-frame` returns; the final state is captured.
 
 **AI-first checklist:**
 
-- [ ] Per-request frame is created and destroyed within `with-frame`.
-- [ ] All setup events have `:platforms` set or are universal (no `:platforms` key, runs everywhere).
-- [ ] Render-tree → string is pure; no React, no DOM, no JS APIs on the server.
-- [ ] Hydration payload includes `:rf/version`, `:rf/frame-id`, `:rf/app-db`, optional `:rf/render-hash`.
-- [ ] Client `[:rf/hydrate ...]` event seeds before first render.
-- [ ] First-client-render hash matches server hash (test in dev with mismatch detection on).
-- [ ] Page template injects the payload as a `<script>` element with `id="__rf_payload"`.
-- [ ] All client-only effects (DOM mutation, localStorage) are tagged `:platforms #{:client}`.
+- Per-request frame is created and destroyed within `with-frame`.
+- All setup events have `:platforms` set or are universal (no `:platforms` key, runs everywhere).
+- Render-tree → string is pure; no React, no DOM, no JS APIs on the server.
+- Hydration payload includes `:rf/version`, `:rf/frame-id`, `:rf/app-db`, optional `:rf/render-hash`.
+- Client `[:rf/hydrate ...]` event seeds before first render.
+- First-client-render hash matches server hash (test in dev with mismatch detection on).
+- Page template injects the payload as a `<script>` element with `id="__rf_payload"`.
+- All client-only effects (DOM mutation, localStorage) are tagged `:platforms #{:client}`.
 
 ## Cross-references
 

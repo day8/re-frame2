@@ -46,7 +46,7 @@ The classification machinery exists to stop leaks at every observation surface t
 - **Real values flow normally** through the entire runtime. Event handlers see real event-args; sub computation fns see real `app-db` slots; fx handlers receive real outbound payloads. No runtime impact on app behaviour, dispatch latency, or memory footprint.
 - **Marks are consulted at emission time.** An app could in principle ship with the trace bus disabled and the marks would be dormant — they cost zero. The CLJS reference's `goog.DEBUG` gate already excludes the entire trace surface from production builds; the mark-lookup machinery rides the same gate.
 - **Propagation is footgun prevention.** A sub that returns `(get-in users [uid :ssn])` propagates the upstream `:sensitive` mark to its output. A sub that returns *only the last 4 digits* of an SSN can opt out (`{:sensitive? false}`) — the author has asserted that the derived value is safe to surface. The framework cannot distinguish between these two cases automatically; the override is the author's contract with downstream consumers.
-- **No production-runtime cost** on the happy path. Mark-lookup happens at emission time, gated behind `goog.DEBUG` for trace-bus emission (matches the existing privacy posture for app-db schemas per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)).
+- **No production-runtime cost** on the happy path. Mark-lookup happens at emission time, gated behind `goog.DEBUG` for trace-bus emission (matches the existing privacy posture for app-db schemas per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)).
 
 ## The classification model
 
@@ -58,7 +58,7 @@ Three properties define the model:
 
 ### Why paths and not schemas
 
-[010-Schemas](010-Schemas.md) already supports schema-attached `:sensitive?` and `:large?` per-slot metadata (per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z) and [010 §`:large?` — schema-driven size-elision nomination](010-Schemas.md#large--schema-driven-size-elision-nomination-rf2-nwv63)). That mechanism remains valid and continues to populate the framework's elision registry where a schema is registered.
+[010-Schemas](010-Schemas.md) already supports schema-attached `:sensitive?` and `:large?` per-slot metadata (per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) and [010 §`:large?` — schema-driven size-elision nomination](010-Schemas.md#large--schema-driven-size-elision-nomination)). That mechanism remains valid and continues to populate the framework's elision registry where a schema is registered.
 
 **But schemas are optional in re-frame2.** Per [000 §Host-profile matrix](000-Vision.md#host-profile-matrix) and [010 §Abstract](010-Schemas.md#abstract), schema attachment is pattern-level *required* but the *content* of the schema can be sparse — apps may register the shape of one slice and leave others undeclared. Privacy MUST NOT depend on whether the author got around to writing a schema. The path-marking surface defined in this Spec is the **primary** declaration site; schema-attached marks remain a convenience for apps already running rich schemas (the elision registry merges marks from both sources — see [§Relationship with schema-attached marks](#relationship-with-schema-attached-marks)).
 
@@ -288,7 +288,7 @@ Each machine instance has a `:data` slot (analogous to XState's `context`) — g
 
 The machine's transition table, guards, and actions all see real `:data` values when they fire. Trace events under `:rf.machine/*` (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)) consult the declaration when they emit `:rf.machine/transition`, `:rf.machine/snapshot-updated`, and any other emit site that lifts `:data` onto a trace event.
 
-**Path convention.** Marking paths in `reg-machine` are rooted at the machine snapshot (NOT at `:data` directly), because the snapshot also carries `:state` and other reserved keys (per [005 §Reserved snapshot-internal keys](005-StateMachines.md#reserved-snapshot-internal-keys-rf2-33y0y)). Authors who want to mark every `:data` slot wholesale write `[[:data]]`.
+**Path convention.** Marking paths in `reg-machine` are rooted at the machine snapshot (NOT at `:data` directly), because the snapshot also carries `:state` and other reserved keys (per [005 §Reserved snapshot-internal keys](005-StateMachines.md#reserved-snapshot-internal-keys)). Authors who want to mark every `:data` slot wholesale write `[[:data]]`.
 
 ### 7. Flows — `reg-flow`
 
@@ -437,7 +437,7 @@ The framework trusts the override. A determined contributor who writes `{:sensit
 
 ## Relationship with schema-attached marks
 
-[010-Schemas](010-Schemas.md) supports `:sensitive?` and `:large?` per-slot metadata on the schema value passed to `reg-app-schema`. That mechanism remains valid and continues to populate the framework's elision registry slot at `[:rf/elision :sensitive-declarations]` (per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)).
+[010-Schemas](010-Schemas.md) supports `:sensitive?` and `:large?` per-slot metadata on the schema value passed to `reg-app-schema`. That mechanism remains valid and continues to populate the framework's elision registry slot at `[:rf/elision :sensitive-declarations]` (per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)).
 
 The two declaration sources **merge** at lookup time. The mark-lookup table the observation surfaces consult is the union of:
 
@@ -532,7 +532,7 @@ The author MUSTs at the assembly site:
 
 The framework deliberately does NOT ship a `rf/safe-throw` helper. The call-site knowledge of *which ex-data keys correspond to sensitive paths in this specific app* is author knowledge, not framework knowledge — a framework helper would either demand the author name the scrub keys at every call (no value over an in-app helper) or auto-detect (the rejected taint-tracking non-goal). The right shape is a per-app convention; the framework's job is the five path-walked observation surfaces.
 
-Per rf2-dv79m (docs-side complement to rf2-4ku9l / Spec 015's path-marked redaction).
+Per (docs-side complement to / Spec 015's path-marked redaction).
 
 ## Tests
 
@@ -550,7 +550,7 @@ Conformance fixtures under [conformance/](conformance/README.md) assert the obse
 | `data-classification/flow-output-inherits-from-input.edn` | A `reg-flow` whose `:inputs` include a sensitive app-db path produces a flow `:path` write whose value is marked sensitive in the **same** event's `:rf.event/db-changed` trace event — flows transform the pending `:db` effect *before* the single deferred install, so the flow output is part of that one db-changed (not a separate downstream event). |
 | `data-classification/set-marks-replaces-not-merges.edn` | A second `set-marks` call against the same frame *replaces* the previous declaration set (the previous set's paths no longer redact). |
 | `data-classification/add-marks-merges-not-replaces.edn` | A second `add-marks` call against the same frame MERGES into the previous declaration set (the previous set's paths still redact). |
-| `data-classification/schema-and-app-db-marks-union.edn` | A path declared sensitive by schema (per [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)) AND a different path declared sensitive by `add-marks` / `set-marks` both redact in the same observation; the two sources union. |
+| `data-classification/schema-and-app-db-marks-union.edn` | A path declared sensitive by schema (per [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)) AND a different path declared sensitive by `add-marks` / `set-marks` both redact in the same observation; the two sources union. |
 
 Per-artefact unit tests cover the implementation-specific propagation mechanism (approach A vs B); the conformance fixtures cover only the observable contract.
 
@@ -562,7 +562,7 @@ Per-artefact unit tests cover the implementation-specific propagation mechanism 
 - [006-ReactiveSubstrate](006-ReactiveSubstrate.md) — the sub-cache dependency graph the propagation rule traverses to derive sub-output marks from app-db marks.
 - [009-Instrumentation §The trace event model](009-Instrumentation.md#the-trace-event-model) — the emit site every observation surface lifts from.
 - [009-Instrumentation §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces) — the existing trace-bus privacy posture this Spec generalises from whole-handler scope to per-path scope.
-- [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z), [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination-rf2-nwv63) — the schema-attached per-slot marks that union with this Spec's declarations.
+- [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces), [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) — the schema-attached per-slot marks that union with this Spec's declarations.
 - [013-Flows](013-Flows.md) — `reg-flow`'s registration shape that the flow-side path-marks extend.
 - [014-HTTPRequests §Reply-payload shape](014-HTTPRequests.md#reply-payload-shape) — HTTP response data lands in the `:on-success` event payload; marking happens on the receiving event handler.
 - [Conventions §Reserved indicator slots](Conventions.md#reserved-indicator-slots-mcp-shaped-returns) — the cross-MCP wire-vocabulary slots (`:dropped-sensitive`, `:elided-large`) that surface counters of sentinel substitutions on MCP tool responses.

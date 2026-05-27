@@ -58,7 +58,7 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 | `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **single normative emission site** for `:rf/redacted` + `:rf.size/large-elided`. Consumed by every off-box egress. | [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 | `elision-declarations` | reader | `(rf/elision-declarations frame-id)` → schema-derived `:large?` declarations for the frame. Pair-tool / introspection. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 | `populate-elision-from-schemas!` | boot hydrator | Walks the frame's app-schemas and writes `{:large? true :source :schema}` declarations into `[:rf/elision :declarations]`. Idempotent. No-op when schemas artefact absent. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
-| `populate-sensitive-from-schemas!` | boot hydrator | Symmetric — writes `:sensitive?` slot meta into `[:rf/elision :sensitive-declarations]`. | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z) |
+| `populate-sensitive-from-schemas!` | boot hydrator | Symmetric — writes `:sensitive?` slot meta into `[:rf/elision :sensitive-declarations]`. | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) |
 | `(configure :elision ...)` | runtime config | `{:rf.size/threshold-bytes N}` — wire-elision size cap. Default `16384`. | [API.md §Configure keys](API.md) |
 
 ### `re-frame.http`
@@ -67,10 +67,10 @@ HTTP-specific extensions for header / query-param denylists. These are HTTP-name
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `declare-sensitive-header!` | imperative | Add header name to denylist. Keys lower-cased; case-insensitive lookup. Stored across the process. | [014 §HTTP privacy headers](014-HTTPRequests.md), rf2-bma05 |
-| `clear-sensitive-headers!` | imperative | Drop app-declared header names from the denylist (built-in defaults survive). Test fixture. | rf2-bma05 |
-| `declare-sensitive-query-param!` | imperative | Add query-param name to denylist. URLs carrying the param value are redacted **inline** in every `:rf.http/*` trace event that carries a `:url` slot, regardless of the request `:sensitive?` flag — the **name is the signal**. | [014 §URL privacy](014-HTTPRequests.md), rf2-2p8wr |
-| `clear-sensitive-query-params!` | imperative | Test fixture. | rf2-2p8wr |
+| `declare-sensitive-header!` | imperative | Add header name to denylist. Keys lower-cased; case-insensitive lookup. Stored across the process. | [014 §HTTP privacy headers](014-HTTPRequests.md), |
+| `clear-sensitive-headers!` | imperative | Drop app-declared header names from the denylist (built-in defaults survive). Test fixture. | |
+| `declare-sensitive-query-param!` | imperative | Add query-param name to denylist. URLs carrying the param value are redacted **inline** in every `:rf.http/*` trace event that carries a `:url` slot, regardless of the request `:sensitive?` flag — the **name is the signal**. | [014 §URL privacy](014-HTTPRequests.md), |
+| `clear-sensitive-query-params!` | imperative | Test fixture. | |
 | `:sensitive?` (per-call) | request arg | `{:rf.http/managed {:sensitive? true}}` — opts a specific request in. When true, the request **body** is redacted to the sentinel and **all** query params are scrubbed (broader than the denylist). Sugar form: `{:request {:sensitive? true}}`. | [014 §Privacy](014-HTTPRequests.md) |
 
 Built-in denylists ship populated with the obvious cross-app names (`authorization`, `cookie`, `x-api-key`, `set-cookie`, ...; `api_key`, `access_token`, `auth`, `token`, ...) — `(rf/declare-sensitive-header! ...)` extends them for app-specific tokens (`X-MyApp-Auth`).
@@ -81,8 +81,8 @@ Schema-attached marks. Apps that already register rich app-schemas via `rf/reg-a
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on an app-schema slot. Boot-time `populate-sensitive-from-schemas!` walks every registered schema and writes the slot's path into `[:rf/elision :sensitive-declarations]`. Schema-validation error traces also consult the prop (`:value` / `:received` / `:explain` / `:rf.fx/args` / `:rf.sub/query-v` redaction per rf2-kj51z / rf2-adtp2). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z) |
-| `:large? true` | schema slot prop | Symmetric — boot-time `populate-elision-from-schemas!` writes the slot's path into `[:rf/elision :declarations]`. The wire-elision walker substitutes `:rf.size/large-elided` for matching slots at off-box egress. | [010 §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination-rf2-nwv63) |
+| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on an app-schema slot. Boot-time `populate-sensitive-from-schemas!` walks every registered schema and writes the slot's path into `[:rf/elision :sensitive-declarations]`. Schema-validation error traces also consult the prop (`:value` / `:received` / `:explain` / `:rf.fx/args` / `:rf.sub/query-v` redaction). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) |
+| `:large? true` | schema slot prop | Symmetric — boot-time `populate-elision-from-schemas!` writes the slot's path into `[:rf/elision :declarations]`. The wire-elision walker substitutes `:rf.size/large-elided` for matching slots at off-box egress. | [010 §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) |
 
 ### `re-frame.epoch`
 
@@ -104,7 +104,7 @@ The framework-published privacy filter every MCP forwarder composes. Apps don't 
 | `sensitive-event?` | predicate | Conservative predicate over a trace-event map — `true` iff `(:sensitive? ev)` is literal `true`. Mirror of `re-frame.privacy/sensitive?`. | [`tools/mcp-base/spec/sensitive.md`](../tools/mcp-base/spec/sensitive.md) |
 | `strip-sensitive` | walker | `(strip-sensitive coll)` → `[kept dropped-count]`. The `dropped-count` becomes the `:dropped-sensitive` envelope counter on the MCP response. | [`tools/mcp-base/spec/sensitive.md`](../tools/mcp-base/spec/sensitive.md) |
 | `scrub-snapshot` | walker | Snapshot-tree walker — descends into nested registration handles and removes `:sensitive?`-stamped sub-trees (stricter than top-level filtering). | [`tools/mcp-base/spec/sensitive.md`](../tools/mcp-base/spec/sensitive.md) |
-| `:include-sensitive?` | cross-MCP wire arg | Per-call opt-in on every MCP tool surfacing trace-like data. Defaults to `false`. Two literal spellings in-flight (story-mcp ships `:include-sensitive` without `?` to satisfy the Anthropic input-schema regex; pair-mcp ships `:include-sensitive?` pending rf2-ihq4d) — treat as policy pin, not literal-spelling pin. | [`tools/mcp-base/spec/sensitive.md` §Cross-server arg-vocabulary](../tools/mcp-base/spec/sensitive.md#cross-server-arg-vocabulary-convention), [Conventions §Privacy config-knob](Conventions.md#privacy-config-knob-naming-on-box-ui-vs-off-box-wire-egress) |
+| `:include-sensitive?` | cross-MCP wire arg | Per-call opt-in on every MCP tool surfacing trace-like data. Defaults to `false`. Two literal spellings in-flight (story-mcp ships `:include-sensitive` without `?` to satisfy the Anthropic input-schema regex; pair-mcp ships `:include-sensitive?` pending) — treat as policy pin, not literal-spelling pin. | [`tools/mcp-base/spec/sensitive.md` §Cross-server arg-vocabulary](../tools/mcp-base/spec/sensitive.md#cross-server-arg-vocabulary-convention), [Conventions §Privacy config-knob](Conventions.md#privacy-config-knob-naming-on-box-ui-vs-off-box-wire-egress) |
 | `:rf.size/large-elided` (elision marker) + `:include-large?` (wire arg) | cross-MCP wire vocabulary | Size-elision peer of `:sensitive?`. The walker substitutes `:rf.size/large-elided {:bytes N :head "..." :handle ...}` at over-threshold or `:large?`-declared slots; off-box callers opt in with `{:include-large? true}`. | [`tools/mcp-base/spec/elision.md`](../tools/mcp-base/spec/elision.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 
 ---
@@ -270,9 +270,9 @@ The single most-asked question this doc answers: **what runs when, in what order
 
 - **Composition is additive at every site.** A path declared via `add-marks` / `set-marks` AND `:sensitive?` on the schema both redact at the same observation surface — they union.
 - **Sensitive wins over large at the same path.** [015 §`:rf/redacted {:bytes N}`](015-Data-Classification.md#rfredacted-bytes-n--sensitive--large-composed) and [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The sensitive drop suppresses the size marker because the marker carries `:path` / `:bytes` / `:digest` which would themselves leak.
-- **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md), rf2-02vzz.
+- **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md).
 - **Real values are never redacted mid-handler.** The router stashes a scrubbed *copy* at `:rf/redacted-event`; the handler body continues to read the unredacted `:event` coeffect.
-- **Production has one live path: the always-on error-emit substrate.** Everything else (dev trace bus, epoch ring, schema-validation traces, Xray) elides via `goog.DEBUG`. The error substrate honours `:sensitive?` *in production* — that's the load-bearing case for substrate-level enforcement (rf2-vnjfg).
+- **Production has one live path: the always-on error-emit substrate.** Everything else (dev trace bus, epoch ring, schema-validation traces, Xray) elides via `goog.DEBUG`. The error substrate honours `:sensitive?` *in production* — that's the load-bearing case for substrate-level enforcement.
 
 ---
 
@@ -296,7 +296,7 @@ The two verb families that decide whether a sensitive value passes through a con
 
 | Verb | Where | Default | Trust boundary |
 |---|---|---|---|
-| `:rf.privacy/show-sensitive?` | On-box devtools panels (Xray, Story trace panel) — set via each tool's `configure!`, e.g. `(xray-config/configure! {:rf.privacy/show-sensitive? true})`. Reads back via `(re-frame.privacy/get-show-sensitive)`. Per rf2-xea9u — the `:rf.privacy/*` namespace is the cross-tool reservation (every re-frame2 tool that consumes the trace bus reads the same atom; one config flip covers every tool). | `false` (suppress) | The panel is for the operator running this process; toggle controls UI visibility, not egress. |
+| `:rf.privacy/show-sensitive?` | On-box devtools panels (Xray, Story trace panel) — set via each tool's `configure!`, e.g. `(xray-config/configure! {:rf.privacy/show-sensitive? true})`. Reads back via `(re-frame.privacy/get-show-sensitive)`. Per — the `:rf.privacy/*` namespace is the cross-tool reservation (every re-frame2 tool that consumes the trace bus reads the same atom; one config flip covers every tool). | `false` (suppress) | The panel is for the operator running this process; toggle controls UI visibility, not egress. |
 | `:include-sensitive?` / `:rf.size/include-sensitive?` | Off-box wire egress (MCP servers, hosted-LLM preload, error monitors, Datadog/Sentry forwarders) | `false` (suppress) | The toggle controls whether sensitive values cross the process trust boundary. |
 
 Both default to suppress per Spec 009's default-private posture. A sixth consumer adding a knob picks the verb by trust-boundary class — on-box panel → `show-sensitive?`; off-box wire → `include-sensitive?`.
@@ -448,7 +448,7 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 
 | Surface | Removed by | Why |
 |---|---|---|
-| Handler-meta `:sensitive?` registration flag | rf2-hjs2d | Coarse (whole-handler scope) when the data was always path-shaped. Replaced by Spec 015 per-path declarations. Handlers that were the unit of sensitivity (the rare "this whole cascade is sensitive" case) re-express by declaring the path-marks that the handler reads / writes. |
+| Handler-meta `:sensitive?` registration flag | | Coarse (whole-handler scope) when the data was always path-shaped. Replaced by Spec 015 per-path declarations. Handlers that were the unit of sensitivity (the rare "this whole cascade is sensitive" case) re-express by declaring the path-marks that the handler reads / writes. |
 | `:rf.fx/sensitive-mode` configure key (audit name) | never landed | Replaced by per-call `{:sensitive? true}` on `:rf.http/managed` args; the audit-era name `set-trace-redaction-policy` was a working-document placeholder that never landed in `re-frame.core`. |
 | `rf/safe-throw` framework helper (proposed) | declined | Author-level concern; per-app helpers conform better to the local convention than a framework default. Worked-example shape lives in the docs/guide. |
 
@@ -461,7 +461,7 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 - [015-Data-Classification](015-Data-Classification.md) — the design spec for path-marked `:sensitive` / `:large` declarations and `add-marks` / `set-marks`. The Spec; this doc is the cross-artefact index.
 - [009-Instrumentation §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces) — the canonical trace-surface privacy posture: `:sensitive?` top-level stamp, consumer-side default-drop, the always-on error-emit substrate's posture.
 - [009-Instrumentation §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the size-elision peer of sensitive marking.
-- [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z) and [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination-rf2-nwv63) — schema-attached marks that boot-hydrate into the elision registry.
+- [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) and [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) — schema-attached marks that boot-hydrate into the elision registry.
 - [014-HTTPRequests §Privacy](014-HTTPRequests.md) — HTTP-specific denylists and the per-call `:sensitive?` request arg.
 - [Tool-Pair §Time-travel — Redaction hook](Tool-Pair.md) — the `:redact-fn` config key on `(rf/configure :epoch-history ...)`; the `projected-record` / `projected-history` off-box egress pair.
 - [Tool-Pair §Direct-read privacy posture](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) — the MCP wire-egress contract for direct-read tools.

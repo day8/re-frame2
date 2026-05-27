@@ -219,7 +219,7 @@ The same accident class lives on the routing side. URL query strings are caller-
 
 …thrown from `match-url`, propagated through the calling navigation event.
 
-The defense layers further. When a route declares a `:query` schema, only the schema-named keys are promoted to keyword keys; unknown URL keys retain their string form in the parsed `:query` map. A `:keyword`-typed slot without an `[:enum ...]` allowlist stays as a string (the unbounded-intern site is closed); declare `[:enum :asc :desc]` for the safe, bounded keyword universe. See [012-Routing.md §Keyword-interning cap on query keys + values](../../spec/012-Routing.md#keyword-interning-cap-on-query-keys--values-rf2-3k3o7) for the full contract.
+The defense layers further. When a route declares a `:query` schema, only the schema-named keys are promoted to keyword keys; unknown URL keys retain their string form in the parsed `:query` map. A `:keyword`-typed slot without an `[:enum ...]` allowlist stays as a string (the unbounded-intern site is closed); declare `[:enum :asc :desc]` for the safe, bounded keyword universe. See [012-Routing.md §Keyword-interning cap on query keys + values](../../spec/012-Routing.md#keyword-interning-cap-on-query-keys--values) for the full contract.
 
 ### Slow-loris defense — `:timeout-ms` default 30000
 

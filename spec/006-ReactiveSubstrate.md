@@ -132,7 +132,7 @@ The two basic operations on a container. `read-container` is pure; `replace-cont
 (replace-container! container new-value)                ;; → nil; container now holds new-value
 ```
 
-**Nil-container guard (defense-in-depth).** The core's `replace-container!` wrapper guards against the destroy-race case where a write (router `:db` commit, drain rollback, flows recompute, epoch restore, SSR write) arrives after the owning frame has been destroyed and `frame/get-frame-db` has started returning nil. When `container` is nil, the wrapper SKIPS the underlying adapter's `replace-container!` call and emits a `:warning :rf.warning/write-after-destroy` trace (per [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives)) with `:recovery :no-recovery` — the write is dropped, no exception is thrown. The earlier behaviour (rf2-ft2b reproducer) was an NPE on a background thread; the guard centralises destroy-race handling on the one mutation primitive that every frame app-db write flows through. Adapter implementations may assume `container` is non-nil; the guard is in the core's wrapper, not in the adapter contract.
+**Nil-container guard (defense-in-depth).** The core's `replace-container!` wrapper guards against the destroy-race case where a write (router `:db` commit, drain rollback, flows recompute, epoch restore, SSR write) arrives after the owning frame has been destroyed and `frame/get-frame-db` has started returning nil. When `container` is nil, the wrapper SKIPS the underlying adapter's `replace-container!` call and emits a `:warning :rf.warning/write-after-destroy` trace (per [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives)) with `:recovery :no-recovery` — the write is dropped, no exception is thrown. The guard centralises destroy-race handling on the one mutation primitive that every frame app-db write flows through. Adapter implementations may assume `container` is non-nil; the guard is in the core's wrapper, not in the adapter contract.
 
 ### `(subscribe-container container on-change) → unsubscribe-fn`
 
@@ -166,7 +166,7 @@ Detecting a derived container is the **adapter's** responsibility, because no si
 
 The derived container's caching responsibility is **adapter discretion**: an adapter MAY memoise the derived value (and is encouraged to where the host primitive makes it cheap — Reagent's `Reaction` does this for free), or MAY recompute on every `read-container` and rely on the **per-frame sub-cache** ([§Subscription cache — contract and operational semantics](#subscription-cache--contract-and-operational-semantics)) to enforce the `=`-equality invariant across recomputes. Either shape is conformant. What is NOT conformant: a derived container whose recompute fires for an input that did not change by `=` and whose downstream propagation does not collapse on `=`-equal new values — that would break the cascade rule in [§Invalidation algorithm](#invalidation-algorithm).
 
-CLJS-Reagent: a Reagent `reaction` — memoising; re-runs only when an input deref changes by `=`. CLJS-headless (plain-atom adapter): an `IDeref` wrapper that recomputes on every read; no memoisation at the substrate layer because SSR runs each sub at most a handful of times per request and the sub-cache (when present) handles `=`-equality cascading. TS-React / UIx / Helix / other JS-cross-compile ports: an `IDeref`+`IWatchable`-shaped wrapper that recomputes on read and broadcasts change via the source containers' watch machinery (see [§CLJS reference: UIx as alternative substrate](#cljs-reference-uix-as-alternative-substrate-rf2-3yij) and [§CLJS reference: Helix as alternative substrate](#cljs-reference-helix-as-alternative-substrate-rf2-2qit)).
+CLJS-Reagent: a Reagent `reaction` — memoising; re-runs only when an input deref changes by `=`. CLJS-headless (plain-atom adapter): an `IDeref` wrapper that recomputes on every read; no memoisation at the substrate layer because SSR runs each sub at most a handful of times per request and the sub-cache (when present) handles `=`-equality cascading. TS-React / UIx / Helix / other JS-cross-compile ports: an `IDeref`+`IWatchable`-shaped wrapper that recomputes on read and broadcasts change via the source containers' watch machinery (see [§CLJS reference: UIx as alternative substrate](#cljs-reference-uix-as-alternative-substrate) and [§CLJS reference: Helix as alternative substrate](#cljs-reference-helix-as-alternative-substrate)).
 
 ### `(render render-tree mount-point opts) → unmount-fn`
 
@@ -180,7 +180,7 @@ Renders the render-tree onto the substrate's surface and returns a function that
 ;; unmount-fn signature: (fn [] nil) — idempotent; releases all resources
 ```
 
-CLJS-Reagent: wraps `reagent.dom.client/create-root` + `reagent.dom.client/render` (React 19 client-Root API; the same `createRoot` shape React 18 introduced); the unmount-fn closes over the Root and calls `(rdc/unmount root)`. Hydrate path uses `(rdc/hydrate-root mount-point render-tree)` which returns its own Root (rf2-fn5rk).
+CLJS-Reagent: wraps `reagent.dom.client/create-root` + `reagent.dom.client/render` (React 19 client-Root API; the same `createRoot` shape React 18 introduced); the unmount-fn closes over the Root and calls `(rdc/unmount root)`. Hydrate path uses `(rdc/hydrate-root mount-point render-tree)` which returns its own Root.
 SSR-on-JVM: this function isn't called server-side — `render-to-string` is used instead. The adapter may stub `render` to throw on the JVM.
 
 ### `(render-to-string render-tree opts) → string`
@@ -277,7 +277,7 @@ If any value differs, the adapter is holding state outside the frame value — a
 
 Cross-reference: [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility) names the goal; this section locks the adapter-contract obligation that follows from it.
 
-## Source-coord annotation (mandatory; rf2-z7f7 / rf2-z9n1)
+## Source-coord annotation (mandatory)
 
 Every adapter MUST inject `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. The annotation is a **normative entry on the adapter contract** — devtools and pair-shaped tools (re-frame-pair, re-frame-10x, IDE jump-to-source per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code)) consume it to map a clicked DOM node back to the reg-view call site. Without this annotation an adapter is non-conformant.
 
@@ -322,17 +322,17 @@ When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape 
 
 ### Cross-host
 
-Headless test adapters (no DOM) are exempt. Every in-scope React-binding adapter MUST honour this contract: the CLJS reference (Reagent, UIx [rf2-3yij], Helix [rf2-2qit]) and every JS-cross-compile-language port (TypeScript-React, Feliz / Fable.React, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact / Melange-React). The [JVM SSR emitter](011-SSR.md#source-coord-annotation-under-ssr) is the server-side equivalent — it injects the same attribute when emitting HTML for a registered view, so server-rendered pages carry the annotation too.
+Headless test adapters (no DOM) are exempt. Every in-scope React-binding adapter MUST honour this contract: the CLJS reference (Reagent, UIx, Helix) and every JS-cross-compile-language port (TypeScript-React, Feliz / Fable.React, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact / Melange-React). The [JVM SSR emitter](011-SSR.md#source-coord-annotation-under-ssr) is the server-side equivalent — it injects the same attribute when emitting HTML for a registered view, so server-rendered pages carry the annotation too.
 
-### Source-coord stamping for state machines (rf2-8bp3)
+### Source-coord stamping for state machines
 
-The view-side annotation above is one half of the tool-pair source-mapping contract. The other half is **the spec-side stamping for state machines**: per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3), the `reg-machine` macro walks its literal spec form at expansion time and attaches a `:rf.machine/source-coords` index keyed by spec-path tuples (`[:guards :form-valid?]`, `[:states :idle :on :submit]`, etc.). Pair tools that surface a "click on a transition's call site" gesture read the index back via `(:rf.machine/source-coords (rf/machine-meta machine-id))` — symmetric to how they consume `data-rf2-source-coord` for views.
+The view-side annotation above is one half of the tool-pair source-mapping contract. The other half is **the spec-side stamping for state machines**: per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping), the `reg-machine` macro walks its literal spec form at expansion time and attaches a `:rf.machine/source-coords` index keyed by spec-path tuples (`[:guards :form-valid?]`, `[:states :idle :on :submit]`, etc.). Pair tools that surface a "click on a transition's call site" gesture read the index back via `(:rf.machine/source-coords (rf/machine-meta machine-id))` — symmetric to how they consume `data-rf2-source-coord` for views.
 
 Both surfaces share the production-elision contract: the stamping branch is gated on `interop/debug-enabled?`, so under `:advanced` + `goog.DEBUG=false` the closure compiler folds it away. The `rf.machine/source-coords` keyword is part of the standard `scripts/check-elision.cjs` sentinel set (verified ABSENT in the production bundle, PRESENT in the control bundle).
 
-## View tagging contract (fallback; rf2-01il5)
+## View tagging contract (fallback)
 
-> **Status: fallback safety-net only.** The primary path for runtime view-hierarchy capture is the **Fiber-walker** documented in [View-Hierarchy-Capture.md](View-Hierarchy-Capture.md) (rf2-mxkq7). This section pins the per-adapter fallback path that activates only if Fiber-reading breaks on a future React-version regression, or if a non-React substrate is ever wired in. Both paths can coexist; the fallback adds a single attribute per registered view and costs ~zero in production (elision-gated).
+> **Status: fallback safety-net only.** The primary path for runtime view-hierarchy capture is the **Fiber-walker** documented in [View-Hierarchy-Capture.md](View-Hierarchy-Capture.md). This section pins the per-adapter fallback path that activates only if Fiber-reading breaks on a future React-version regression, or if a non-React substrate is ever wired in. Both paths can coexist; the fallback adds a single attribute per registered view and costs ~zero in production (elision-gated).
 
 The same per-render wrapper that injects `data-rf2-source-coord` (§Source-coord annotation above) also injects `data-rf-view="<id>"` on the rendered root DOM element when `interop/debug-enabled?` is true. The two attributes ride the same wrapper, the same walk, and the same production-elision gate — there is no separate code path or separate elision contract.
 
@@ -423,7 +423,7 @@ Each frame holds one sub-cache, keyed by `[query-vector]`:
   :inputs            [[q1] [q2]] ;; resolved :<- chain (vector of query-vectors)
   :ref-count         n          ;; how many readers currently hold a reference
   :on-dispose        [...]      ;; callbacks that fire when ref-count drops to 0
-  :pending-dispose   <handle>   ;; opaque timer-handle iff disposal is scheduled (rf2-s9dn)
+  :pending-dispose   <handle>   ;; opaque timer-handle iff disposal is scheduled
   :registered-at     <ts>}}     ;; for trace correlation
 ```
 
@@ -457,7 +457,7 @@ Lookup [query-v] in frame F:
 
 Two properties this guarantees:
 
-1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector itself. v2 has a single disposal algorithm (deferred ref-counting; see [§Reference counting and disposal](#reference-counting-and-disposal)); the v1-era composite key with `:re-frame/q` and `:re-frame/lifecycle` is gone (rf2-7cb2 / rf2-s9dn — the `re-frame.alpha` namespace and its lifecycle policies were dissolved before v1 ship).
+1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector itself. v2 has a single disposal algorithm (deferred ref-counting; see [§Reference counting and disposal](#reference-counting-and-disposal)).
 2. **Layer-1/2/3 chaining.** A layer-2 sub's `:<-` inputs are themselves resolved via this same lookup, recursively. The recursion terminates at layer-1 subs whose inputs are not other subs but readers over `app-db` directly.
 
 ### Invalidation algorithm
@@ -518,7 +518,7 @@ Layers ≥ 3 are conventionally just "layer-2+" — the algorithm treats them al
 
 ### Reference counting and disposal
 
-The cache is **not** strong-referenced from the frame for the lifetime of the frame; entries dispose when their last reader goes away. The disposal algorithm is **deferred ref-counting with a grace-period** — a single algorithm. There are no pluggable lifecycle policies; the v1 alpha namespace's `:safe`, `:no-cache`, `:reactive`, and `:forever` lifecycles are not part of v2 (rf2-7cb2 / rf2-s9dn).
+The cache is **not** strong-referenced from the frame for the lifetime of the frame; entries dispose when their last reader goes away. The disposal algorithm is **deferred ref-counting with a grace-period** — a single algorithm. There are no pluggable lifecycle policies; the v1 alpha namespace's `:safe`, `:no-cache`, `:reactive`, and `:forever` lifecycles are not part of v2.
 
 When the last subscriber drops, the entry is **scheduled** for disposal after the configured grace-period elapses. If a new subscriber arrives within that window, the scheduled disposal is **cancelled** and the cached value is reused.
 
@@ -593,7 +593,7 @@ subscribe-once(frame-id, query-v):
 
 - **One-shot.** Each call subscribes, derefs once, and unsubscribes. The caller does **not** receive a deref-able reaction; the returned value is a plain immutable value of whatever the sub computes.
 - **Non-reactive.** The caller is not registered for re-render or change notification. A subsequent `app-db` mutation that would have invalidated the slot has no observable effect on the caller of `subscribe-once` — they got their value, they're done.
-- **Synchronous teardown** (per rf2-zmufj). The internal `unsubscribe` runs with `{:grace 0}` so the one-shot read's whole lifetime — subscribe, deref, and (if this call drove the 1→0 transition) dispose — completes in the calling tick. The caller never observes a deferred-dispose timer firing after `subscribe-once` has already returned. A concurrent reactive subscriber (a view holding `subscribe` on the same `query-v`) keeps the slot alive via ref-count; `subscribe-once`'s decrement only triggers synchronous disposal when it owned the last reference.
+- **Synchronous teardown**. The internal `unsubscribe` runs with `{:grace 0}` so the one-shot read's whole lifetime — subscribe, deref, and (if this call drove the 1→0 transition) dispose — completes in the calling tick. The caller never observes a deferred-dispose timer firing after `subscribe-once` has already returned. A concurrent reactive subscriber (a view holding `subscribe` on the same `query-v`) keeps the slot alive via ref-count; `subscribe-once`'s decrement only triggers synchronous disposal when it owned the last reference.
 - **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context), `:rf/default` fallback). The 2-arg form is explicit and bypasses the chain.
 - **Missing frame is not an error.** `subscribe-once` against a destroyed or never-created frame returns `nil` (and emits the same `:rf.warning/unknown-frame` trace `subscribe` does); it does NOT throw.
 - **Missing sub is not an error.** Per [§What happens when a sub references an unknown sub](#what-happens-when-a-sub-references-an-unknown-sub), an unregistered `query-v` emits `:rf.error/no-such-sub` (recovery `:replaced-with-default`) and yields `nil`; `subscribe-once` propagates the `nil`.
@@ -608,14 +608,14 @@ The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the ca
 ```clojure
 (unsubscribe query-v)                                  ;; → nil (uses the resolved current frame)
 (unsubscribe frame-id query-v)                         ;; → nil (explicit-frame form)
-(unsubscribe frame-id query-v {:grace 0})              ;; → nil (explicit-frame + opts; per rf2-zmufj)
+(unsubscribe frame-id query-v {:grace 0})              ;; → nil (explicit-frame + opts;)
 ```
 
 **Opts map** (3-arity only). The optional opts map accepts:
 
 | Key      | Type    | Effect                                                                                                                                                                                                          |
 |----------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `:grace` | non-neg int | Override the configured `grace-period-ms` for **this call only**. `{:grace 0}` forces synchronous disposal on the 1→0 transition — used by `subscribe-once`'s internal teardown (per rf2-zmufj). Absent → use the per-runtime configured grace. |
+| `:grace` | non-neg int | Override the configured `grace-period-ms` for **this call only**. `{:grace 0}` forces synchronous disposal on the 1→0 transition — used by `subscribe-once`'s internal teardown. Absent → use the per-runtime configured grace. |
 
 **Contract MUSTs.**
 
@@ -625,9 +625,9 @@ The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the ca
 - **No-op past disposal.** Calling `unsubscribe` after the slot has already been disposed (the grace-period elapsed and the slot was removed from `F.sub-cache`) is a no-op — `unsubscribe` returns `nil` without trace emission. There is no "double-free" failure mode.
 - **Missing frame is not an error.** `unsubscribe` against a destroyed or never-created frame returns `nil` (and emits the same `:rf.warning/unknown-frame` trace `subscribe` does); it does NOT throw.
 - **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context), `:rf/default` fallback). The 2-arg and 3-arg forms are explicit.
-- **Composes with grace-period reuse.** When `unsubscribe` (the no-opts form) triggers the 1 → 0 transition, the slot enters its grace-period rather than disposing immediately. A `subscribe` arriving within the window cancels the timer and reuses the cached value. The `{:grace 0}` opts form opts out of this — the slot disposes synchronously on the 1→0 transition; it is the path `subscribe-once` uses internally (per rf2-zmufj).
+- **Composes with grace-period reuse.** When `unsubscribe` (the no-opts form) triggers the 1 → 0 transition, the slot enters its grace-period rather than disposing immediately. A `subscribe` arriving within the window cancels the timer and reuses the cached value. The `{:grace 0}` opts form opts out of this — the slot disposes synchronously on the 1→0 transition; it is the path `subscribe-once` uses internally.
 
-**Composability with `subscribe-once`.** `subscribe-once` internally invokes `subscribe` then `unsubscribe` with `{:grace 0}` — the teardown is synchronous, not deferred (per rf2-zmufj). The user does NOT call `unsubscribe` for a `subscribe-once` call — the pairing is internal. Users only call `unsubscribe` for the `subscribe` calls they made themselves.
+**Composability with `subscribe-once`.** `subscribe-once` internally invokes `subscribe` then `unsubscribe` with `{:grace 0}` — the teardown is synchronous, not deferred. The user does NOT call `unsubscribe` for a `subscribe-once` call — the pairing is internal. Users only call `unsubscribe` for the `subscribe` calls they made themselves.
 
 **Why explicit teardown exists alongside the grace-period.** The grace-period handles the *automatic* case: a view unmounts, the reaction disposes, the underlying `unsubscribe` fires from the reaction's on-dispose hook, the slot drains. Explicit `unsubscribe` is the imperative-callers' equivalent: tools, REPL sessions, machine actions, and tests that took out a subscription without an enclosing reaction lifecycle to manage it. The two paths funnel into the same ref-count decrement and the same grace-period scheduling — there is one disposal algorithm, two arrival surfaces.
 
@@ -655,7 +655,7 @@ Three contract guarantees this enforces:
 - **Drain-loop integration** ([002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode)): invalidation fires once per `process-event!`, at the single deferred `:db` install (step 2) — the flow transform has already rewritten the pending `:db` effect as the outermost `:after` (step 1, per [013 §Drain integration](013-Flows.md#drain-integration)), so the value installed is the flow-augmented db. There is exactly one invalidation per event, at that install, and subscriptions observe the **flow-augmented** db on recompute. A handler can rely on subscriptions reflecting the new `app-db` from inside `do-fx` (the `:fx` walk at step 3, after the install).
 - **Hot reload** ([001-Registration](001-Registration.md)): re-registering a sub disposes the cache slot for that query (regardless of ref-count); next subscribe rebuilds with the new body. Tracked with the rest of hot-reload semantics in the bead-tracked work.
 - **Machine subscriptions** ([005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine)): a machine's snapshot lives at `[:rf/machines <id>]` and is read like any other slice of `app-db`; `sub-machine` is a thin convenience over `reg-sub`. Sub-cache invalidation works the same.
-- **`clear-sub` is a registry-only operation** (rf2-79tl): `(clear-sub id)` and `(clear-sub)` remove `:sub` registrations but leave already-materialised per-frame cache slots in place. Caching is governed by the disposal contract above (ref-count + grace-period, hot-reload eviction, frame-destroy eviction); cache eviction independent of those triggers is `clear-sub-cache!`'s job. This split preserves v1's documented contract — see the `clear-sub` docstring's note: "Depending on the usecase, it may be necessary to call `clear-sub-cache!` afterwards."
+- **`clear-sub` is a registry-only operation**: `(clear-sub id)` and `(clear-sub)` remove `:sub` registrations but leave already-materialised per-frame cache slots in place. Caching is governed by the disposal contract above (ref-count + grace-period, hot-reload eviction, frame-destroy eviction); cache eviction independent of those triggers is `clear-sub-cache!`'s job. This split preserves v1's documented contract — see the `clear-sub` docstring's note: "Depending on the usecase, it may be necessary to call `clear-sub-cache!` afterwards."
 
 ### Per-host implementation notes
 
@@ -681,7 +681,7 @@ The behaviour is environment-specific:
 
 The subscription's body still runs with `nil` substituted for the unresolved input. This is intentional: it keeps the trace stream readable (the agent sees one error event rather than a chain of cascading throws) and lets the caller handle the missing data gracefully if it can.
 
-A related case is `subscribe` itself naming an unregistered sub-id — most often a boot-order or lazy-load race where the consumer subscribes before the registering namespace has loaded. The runtime emits the same `:rf.error/no-such-sub` trace event, returns a nil-yielding reaction (recovery `:replaced-with-default`), and **does not** populate the per-frame sub-cache. Skipping the cache on miss preserves the v1 semantic that a later registration is observed by the next subscribe — no stale `nil`-reaction lingers (rf2-l9u5).
+A related case is `subscribe` itself naming an unregistered sub-id — most often a boot-order or lazy-load race where the consumer subscribes before the registering namespace has loaded. The runtime emits the same `:rf.error/no-such-sub` trace event, returns a nil-yielding reaction (recovery `:replaced-with-default`), and **does not** populate the per-frame sub-cache. Skipping the cache on miss preserves the v1 semantic that a later registration is observed by the next subscribe — no stale `nil`-reaction lingers.
 
 ## CLJS reference: Reagent as default adapter
 
@@ -748,7 +748,7 @@ This section is the **bridging pseudocode** for both. For each contract function
 ;; into it; the hydrate path's `hydrate-root` returns its own Root. The
 ;; returned unmount-fn closes over the Root so the runtime can release it
 ;; without re-consulting the DOM element. Idempotent: calling unmount
-;; twice is a no-op (rf2-fn5rk).
+;; twice is a no-op.
 (defn render [render-tree mount-point opts]
   (let [hydrate? (boolean (:hydrate? opts))]
     (if hydrate?
@@ -778,10 +778,10 @@ This section is the **bridging pseudocode** for both. For each contract function
 ;; nothing observes a ratom going away), then unmount any active React
 ;; Roots, then clear adapter-private caches. Frame-providers are stateless
 ;; (a single zero-arity component services every frame keyword per
-;; rf2-4y60) so there is no provider-side cache to flush. Reagent's own
+;;) so there is no provider-side cache to flush. Reagent's own
 ;; reaction-graph caches GC themselves once their last watcher drops, so
 ;; the explicit `(ratom/flush!)` step the v1-pseudocode named is not
-;; needed — disposing the cached Reactions above is sufficient (rf2-a47kq).
+;; needed — disposing the cached Reactions above is sufficient.
 (defn dispose-adapter! []
   ;; Step 1 — cancel in-flight reactive subscriptions across every live
   ;; frame's per-frame sub-cache. Reaches each Reaction via
@@ -792,7 +792,7 @@ This section is the **bridging pseudocode** for both. For each contract function
         (some-> (:pending-dispose entry) interop/clear-timeout!)
         (some-> (:reaction entry) interop/dispose!))
       (reset! cache {})))
-  ;; Step 2 — unmount any active React 19 Roots (rf2-9fdkb).
+  ;; Step 2 — unmount any active React 19 Roots.
   (doseq [root @active-roots]
     (try (rdc/unmount root) (catch :default _ nil)))
   (reset! active-roots #{})
@@ -863,7 +863,7 @@ What this gives:
   ;; The Provider's value is the keyword, never the frame record;
   ;; consumers resolve the keyword against the global frame registry on
   ;; every read, so re-registering frames is picked up automatically.
-  ;; 0-arity (rf2-4y60): a single built component services every frame —
+  ;; 0-arity: a single built component services every frame —
   ;; the frame keyword lives in the Provider's :value at render time, not
   ;; in a build-time closure.
   (fn [frame-kw & children]
@@ -893,7 +893,7 @@ The `read-frame-from-context` lookup chain (`*current-frame*` dynamic var → Re
 
 The spec **does not** prescribe JS implementation details (`_currentValue` reads, class-component `:contextType` shapes, prop-stringification quirks) — those are port discretion. What the spec requires is the contract: the provider's *value* is a frame-id keyword (or the host's identity-primitive equivalent), and the views inside the provider's subtree resolve subscriptions / dispatches against that frame.
 
-**Adapter responsibility — `:adapter/current-frame` late-bind hook (rf2-d4sf).** Each React-shaped substrate adapter (Reagent, UIx, Helix) MUST register its React-context-aware `current-frame` impl through the `:adapter/current-frame` late-bind hook at namespace-load time. `re-frame.subs/subscribe`, `re-frame.subs/subscribe-once`, `re-frame.subs/unsubscribe`, and the dispatch envelope's `:frame` default consult the hook on CLJS so the React-context tier of the resolution chain is **live** rather than dead code. Without the registration the call sites fall back to `re-frame.frame/current-frame` (dynamic-var tier and `:rf/default` only); the React-context tier silently no-ops, so a `(rf/subscribe ...)` under a non-default `frame-provider` would route to `:rf/default` regardless of what the provider named. Hook signature: `(fn [] frame-id-keyword)`.
+**Adapter responsibility — `:adapter/current-frame` late-bind hook.** Each React-shaped substrate adapter (Reagent, UIx, Helix) MUST register its React-context-aware `current-frame` impl through the `:adapter/current-frame` late-bind hook at namespace-load time. `re-frame.subs/subscribe`, `re-frame.subs/subscribe-once`, `re-frame.subs/unsubscribe`, and the dispatch envelope's `:frame` default consult the hook on CLJS so the React-context tier of the resolution chain is **live** rather than dead code. Without the registration the call sites fall back to `re-frame.frame/current-frame` (dynamic-var tier and `:rf/default` only); the React-context tier silently no-ops, so a `(rf/subscribe ...)` under a non-default `frame-provider` would route to `:rf/default` regardless of what the provider named. Hook signature: `(fn frame-id-keyword)`.
 
 The impl is substrate-specific:
 
@@ -906,7 +906,7 @@ Both impls share the dynamic-var tier (`re-frame.frame/*current-frame*`, set by 
 
 The detection sits in `subscribe`: if `(reagent.core/current-component)` returns a component whose `contextType` does not match `frame-context`, the dynamic-var tier is checked; if neither names a non-default frame, no warning fires; if the closest enclosing provider names a non-default frame and `*current-frame*` is unset, the warning fires.
 
-**Arity-gated.** The check runs on the 1-arity `(subscribe query-v)` form only. The 2-arity `(subscribe frame-id query-v)` form **skips** the check by design (rf2-r0zf2) — supplying an explicit `frame-id` IS the opt-out: the caller has told the runtime exactly which frame to target, so a fall-through-to-`:rf/default` diagnostic doesn't apply. Plain-Reagent-fn call-sites that need to subscribe against a known frame without triggering the warning surface should use the 2-arity form.
+**Arity-gated.** The check runs on the 1-arity `(subscribe query-v)` form only. The 2-arity `(subscribe frame-id query-v)` form **skips** the check by design — supplying an explicit `frame-id` IS the opt-out: the caller has told the runtime exactly which frame to target, so a fall-through-to-`:rf/default` diagnostic doesn't apply. Plain-Reagent-fn call-sites that need to subscribe against a known frame without triggering the warning surface should use the 2-arity form.
 
 ### Plain-atom adapter (JVM, SSR, headless)
 
@@ -964,7 +964,7 @@ The plain-atom adapter is **trivially** revertibility-compliant ([§Reference-ad
 
 ### Adapter selection at boot
 
-Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! adapter-map)` requires the consumer to pass an adapter spec map explicitly. Each adapter namespace exports an `adapter` Var (the spec map); the consumer requires the namespace and passes the Var:
+Per (replaces; resolves) `(rf/init! adapter-map)` requires the consumer to pass an adapter spec map explicitly. Each adapter namespace exports an `adapter` Var (the spec map); the consumer requires the namespace and passes the Var:
 
 ```clojure
 ;; Reagent (CLJS, day8/re-frame2-reagent):
@@ -997,12 +997,12 @@ Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! ad
 
 - `(rf/init! adapter-map)` — install the literal adapter spec.
 
-Calling `(rf/init!)` with no args raises a language-level `ArityException` at the call site (per rf2-3ubmv — the no-arg arity was cut from the fn defn entirely, so the mistake surfaces at compile/load time rather than at runtime). Calling `(rf/init! :reagent)` (or any non-map value) and `(rf/init! nil)` raise `:rf.error/no-adapter-specified` at runtime — there is no default-adapter registry and no keyword-to-adapter lookup table. The runtime error message points the consumer at the adapter-ns + adapter-Var pattern.
+Calling `(rf/init!)` with no args raises a language-level `ArityException` at the call site (per — the no-arg arity was cut from the fn defn entirely, so the mistake surfaces at compile/load time rather than at runtime). Calling `(rf/init! :reagent)` (or any non-map value) and `(rf/init! nil)` raise `:rf.error/no-adapter-specified` at runtime — there is no default-adapter registry and no keyword-to-adapter lookup table. The runtime error message points the consumer at the adapter-ns + adapter-Var pattern.
 
-**No registry, no implicit defaults.** The previous design (rf2-84po) shipped a default-adapter registry populated by adapter ns-load side-effects so that `(rf/init!)` with no args could resolve the only registered candidate. rf2-agql drops the registry entirely. Two reasons:
+**No registry, no implicit defaults.** The previous design shipped a default-adapter registry populated by adapter ns-load side-effects so that `(rf/init!)` with no args could resolve the only registered candidate. drops the registry entirely. Two reasons:
 
 1. **Explicit > implicit at the call site.** Reading any app's `run` function tells you exactly which adapter is in use, with no need to chase ns-load side-effects through the require graph.
-2. **Bundle-size.** A registry is bundle weight even when unused. Under rf2-agql, an app that requires only the adapter it needs ships only that adapter's code; the registry-and-resolver paths are gone.
+2. **Bundle-size.** A registry is bundle weight even when unused. Under, an app that requires only the adapter it needs ships only that adapter's code; the registry-and-resolver paths are gone.
 
 A mixed-substrate app — say a build that imports both `re-frame.adapter.reagent` (for stories) and `re-frame.adapter.uix` (for production views) — picks the active adapter by passing the right Var to `init!`. There is no multi-adapter ambiguity to resolve at boot: only one adapter is ever installed.
 
@@ -1010,18 +1010,18 @@ A mixed-substrate app — say a build that imports both `re-frame.adapter.reagen
 
 The CLJS adapter namespaces (Reagent, UIx, Helix) and the SSR namespace each export their `adapter` Var; the contract surface is the same nine-fn map (see [§The adapter API contract](#the-adapter-api-contract) above). The plain-atom adapter in `re-frame.substrate.plain-atom` is reachable on both JVM and CLJS — useful for headless tests on either platform.
 
-## CLJS reference: UIx as alternative substrate (rf2-3yij)
+## CLJS reference: UIx as alternative substrate
 
 The UIx adapter ships in `day8/re-frame2-uix` and implements the same nine-fn contract as the Reagent adapter — same observable behaviour for events, subs, effects; different rendering substrate for views.
 
-Per [rf2-3yij](#) the locked decisions (2026-05-09) are:
+Per the locked decisions (2026-05-09) are:
 
 1. **Hook naming.** The substrate's subscription surface is `use-subscribe`, matching the React/UIx idiom. Symmetric ergonomics to Reagent's `(rf/subscribe ...)` deref shape; asymmetric naming because hooks live in hook-named space.
 2. **Frame propagation.** Both the UIx and Reagent adapters read the *same* React Context object — factored out of `re-frame.views` into `re-frame.adapter.context` (CLJS-only file in core). A future mixed-substrate app's frame-provider chain therefore composes across substrates rather than living in per-adapter silos.
 3. **Auto-injection.** None for UIx. Components call `(use-subscribe [:foo])` and `(rf/dispatcher)` directly — there is no UIx-side analogue to `reg-view`'s `dispatch` / `subscribe` lexical bindings. The hook surface is the canonical UIx access path.
 4. **`reg-view` macro scope.** `reg-view` stays Reagent-only (auto-defs the Var, auto-injects the lexical `dispatch` / `subscribe`, threads source-coords through Reagent's `:contextType` machinery). UIx users register views via `reg-view*` (the plain-fn surface in `re-frame.core`); source-coord stamping for UIx-rendered roots happens at the adapter's render-time wrapper, not at registration time.
 5. **Source-coord DOM annotation.** The UIx adapter wraps user components in a thin layer that calls `React.cloneElement` to add `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element when `interop/debug-enabled?` is true. Production-elision contract per rf2-z7f7: under `:advanced` + `goog.DEBUG=false` the entire wrapper branch DCEs and the literal `data-rf2-source-coord` string fragment is absent from the bundle. Fragments and non-DOM roots are exempt with the standard one-shot warning per id.
-6. **Render flush for tests.** The adapter exposes `flush-views!` wrapping React's `act()`. Tests dispatching against a UIx-mounted tree call `(flush-views!)` after a dispatch to settle pending React effects before reading the DOM. The entry point is **per-adapter-require** — `(uix-adapter/flush-views!)`, NOT centralised through `re-frame.test-support` — per the adapter-dependency-direction rule in [§What an adapter MUST NOT do](#what-an-adapter-must-not-do); see [Spec 008 §Adapter-aware test helpers](008-Testing.md#adapter-aware-test-helpers--flush-views-rf2-rr1rm) for the test-author-facing rationale (rf2-rr1rm).
+6. **Render flush for tests.** The adapter exposes `flush-views!` wrapping React's `act()`. Tests dispatching against a UIx-mounted tree call `(flush-views!)` after a dispatch to settle pending React effects before reading the DOM. The entry point is **per-adapter-require** — `(uix-adapter/flush-views!)`, NOT centralised through `re-frame.test-support` — per the adapter-dependency-direction rule in [§What an adapter MUST NOT do](#what-an-adapter-must-not-do); see [Spec 008 §Adapter-aware test helpers](008-Testing.md#adapter-aware-test-helpers--flush-views) for the test-author-facing rationale.
 7. **Smoke-test example set.** counter + login (under `examples/uix/counter_uix/` and `examples/uix/login_uix/`). Realworld is skipped per Decision 7 — heavy with Reagent-flavoured idioms; deferred until a UIx user wants it.
 8. **UIx version target.** UIx 2.x (hooks-based). UIx 1.x back-compat is explicitly out of scope.
 
@@ -1034,18 +1034,18 @@ The CLJS-reference code follows the same per-contract-fn shape as the Reagent ad
 
 Every other adapter primitive (read, replace, subscribe-container, dispose) is structurally identical to the Reagent adapter's — the contract is genuinely substrate-agnostic.
 
-## CLJS reference: Helix as alternative substrate (rf2-2qit)
+## CLJS reference: Helix as alternative substrate
 
 The Helix adapter ships in `day8/re-frame2-helix` and implements the same nine-fn contract as the Reagent and UIx adapters — same observable behaviour for events, subs, effects; different rendering substrate for views. Helix occupies the *minimal-React-wrapper* niche: it is structurally similar to UIx (React + hooks; no reactive-atom primitive) but ships a smaller surface and does not auto-instrument hooks.
 
-Per [rf2-2qit](#) the locked decisions (2026-05-10) transfer one-for-one from [rf2-3yij](#) — the React + hooks substrate model is the same:
+Per the locked decisions (2026-05-10) transfer one-for-one from — the React + hooks substrate model is the same:
 
 1. **Hook naming.** `use-subscribe` (matches the React/Helix idiom).
 2. **Frame propagation.** Reads the same React Context object the Reagent and UIx adapters consume (`re-frame.adapter.context/frame-context` in core).
 3. **Auto-injection.** None. Components call `(use-subscribe [:foo])` and `(rf/dispatcher)` directly.
 4. **`reg-view` macro scope.** Stays Reagent-only; Helix users register registry-keyed views via `reg-view*` (the plain-fn surface) when they need it. Most Helix components are bare `defnc` and don't need registry addressing.
 5. **Source-coord DOM annotation.** The Helix adapter wraps user components in a thin layer that calls `React.cloneElement` to add `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element when `interop/debug-enabled?` is true. Production-elision contract per rf2-z7f7: under `:advanced` + `goog.DEBUG=false` the entire wrapper branch DCEs. Same Fragment / non-DOM-root exemption as the UIx adapter.
-6. **Render flush for tests.** `flush-views!` wrapping React's `act()` — same surface as the UIx adapter. Per-adapter-require entry point (`(helix-adapter/flush-views!)`) per the adapter-dependency-direction rule in [§What an adapter MUST NOT do](#what-an-adapter-must-not-do); see [Spec 008 §Adapter-aware test helpers](008-Testing.md#adapter-aware-test-helpers--flush-views-rf2-rr1rm) for the test-author-facing rationale (rf2-rr1rm).
+6. **Render flush for tests.** `flush-views!` wrapping React's `act()` — same surface as the UIx adapter. Per-adapter-require entry point (`(helix-adapter/flush-views!)`) per the adapter-dependency-direction rule in [§What an adapter MUST NOT do](#what-an-adapter-must-not-do); see [Spec 008 §Adapter-aware test helpers](008-Testing.md#adapter-aware-test-helpers--flush-views) for the test-author-facing rationale.
 7. **Smoke-test example set.** counter + login (under `examples/helix/counter_helix/` and `examples/helix/login_helix/`). Realworld is skipped — same rationale as UIx (heavy with Reagent-flavoured idioms; deferred until a Helix user wants it).
 8. **Helix version target.** Helix 0.2.x (the latest published Helix release line). Older Helix versions are explicitly out of scope.
 
@@ -1057,7 +1057,7 @@ Implementation notes:
 - `register-context-provider` returns a Helix `defnc` component reading the shared `frame-context` via `helix.hooks/use-context`.
 - `use-subscribe` calls `React.useSyncExternalStore` directly because `helix.hooks` doesn't ship a `use-syncExternalStore` wrapper (Helix is the minimal-wrapper substrate); deps are wired through `helix.hooks/use-memo*` / `use-callback*` (the function-form hooks) so the adapter doesn't pull in Helix's macro layer.
 
-Every other adapter primitive (read, replace, subscribe-container, dispose) is structurally identical to the Reagent and UIx adapters' — the contract is genuinely substrate-agnostic, and the Helix port surfaces no friction against the rf2-3yij decision set.
+Every other adapter primitive (read, replace, subscribe-container, dispose) is structurally identical to the Reagent and UIx adapters' — the contract is genuinely substrate-agnostic, and the Helix port surfaces no friction against the decision set.
 
 ## Subscription topology vs subscription tracking
 
@@ -1071,7 +1071,7 @@ The tracking is "when source X changes, recompute everyone who depends on X" —
 
 In CLJS dev-mode tests, you often want sub computation without tracking: `(compute-sub [:total] db-value)` runs the sub's body against a static `app-db` value and returns the computed result. Pure function. No Reagent, no reactions. This is the "JVM-runnable" path that [008-Testing](008-Testing.md) and [011-SSR](011-SSR.md) use.
 
-### Lazy-seq deref tracking (Reagent adapter; rf2-atqkg)
+### Lazy-seq deref tracking (Reagent adapter)
 
 The Reagent adapter (and any React-shaped adapter whose render-time deref tracking uses a thread-local / dynamic-var reactive scope) only watches `@(rf/subscribe …)` derefs that fire **while the parent reg-view's render-fn is on the stack**. A `(for [x xs] [child …])` form returns a *lazy seq*; if the seq is still unrealised at the moment the render-fn returns, every deref hiding in its body fires later — when React eventually walks the hiccup — at which point the reactive scope is gone and Reagent doesn't register the dependency. Symptom: the app-db slot flips, the sub recomputes, the view does NOT re-render until an external repaint forces a fresh render-pass. Reagent surfaces the case with a console warning at render time:
 
@@ -1112,37 +1112,37 @@ The adapter that the core uses on the server is the **plain-atom adapter** (or "
 
 ## CLJS reference scope
 
-The CLJS reference ships across multiple Maven artefacts (rf2-0hxm; per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)):
+The CLJS reference ships across multiple Maven artefacts (per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)):
 
 - **`day8/re-frame2`** — the substrate-agnostic core (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation) plus the adapter API contract, the **plain-atom (headless) adapter** used by SSR and headless tests, and (per [rf2-3yij](#) Decision 2) the shared React frame Context object at `re-frame.adapter.context` that every React-shaped adapter consumes.
 - **`day8/re-frame2-reagent`** — the **Reagent adapter** (browser default).
 - **`day8/re-frame2-uix`** — the **UIx adapter** (rf2-3yij). Targets UIx 2.x; ships the `use-subscribe` hook (Decision 1), the `flush-views!` test-flush helper (Decision 6), a source-coord wrapping component (Decision 5), and a `frame-provider` consuming the shared React context (Decision 2). Apps written for UIx call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4.
 - **`day8/re-frame2-helix`** — the **Helix adapter** (rf2-2qit). Targets Helix 0.2.x; ships the same `use-subscribe` hook, `flush-views!` test-flush helper, source-coord wrapping component, and shared-context `frame-provider` as the UIx adapter. Apps written for Helix call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model.
 
-In the CLJS reference repository the three adapter sources live under `implementation/adapters/<name>/` — `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/`. Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The directory split surfaces the adapter-vs-per-feature distinction in the layout — adapters implement the [§adapter API contract](#the-adapter-api-contract); per-feature artefacts plug into core via the late-bind hook table per [Conventions §Independence rule](Conventions.md#independence-rule). Maven artefact names are unchanged across the move per [rf2-zha9](#); per [rf2-0imy](#) the directory is `adapters/`, not `substrates/` — "substrate" names the abstract contract, "adapter" names each implementation.
+In the CLJS reference repository the three adapter sources live under `implementation/adapters/<name>/` — `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/`. Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The directory split surfaces the adapter-vs-per-feature distinction in the layout — adapters implement the [§adapter API contract](#the-adapter-api-contract); per-feature artefacts plug into core via the late-bind hook table per [Conventions §Independence rule](Conventions.md#independence-rule). Maven artefact names are unchanged across the move per; per the directory is `adapters/`, not `substrates/` — "substrate" names the abstract contract, "adapter" names each implementation.
 
 Per-host adapters for non-CLJS implementations ship as separate packages, implementing the same contract — the per-adapter-artefact pattern is JS-cross-compile-language-agnostic across the eight in-scope hosts (TypeScript-React, Fable.React / Feliz, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact, Melange-React, Squint-with-React). All ship a React-binding adapter; non-React substrates are out of scope per [§Abstract](#abstract).
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Cooperative rendering substrate" classifies as **`:post-v1 tracked`** (tracked at rf2-8fyig — deferred to a later cycle's benefits-vs-cost evaluation); "Multi-adapter coexistence" classifies as **`:post-v1 tracked`** (tracked at rf2-uipko — additive on the v1 single-adapter contract once a concrete use case emerges).
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Cooperative rendering substrate" classifies as **`:post-v1 tracked`** (tracked at — deferred to a later cycle's benefits-vs-cost evaluation); "Multi-adapter coexistence" classifies as **`:post-v1 tracked`** (tracked at — additive on the v1 single-adapter contract once a concrete use case emerges).
 
-### Cooperative rendering substrate (post-v1, rf2-8fyig)
+### Cooperative rendering substrate (post-v1)
 
-A cooperative rendering substrate — a rendering layer designed natively to cooperate with re-frame, instead of re-frame wrapping Reagent — is on the horizon. Substrate-agnostic decoupling (this Spec) is the prerequisite. Whether the cooperative variant ships depends on a benefits-vs-cost evaluation in a later cycle. Deferred to rf2-8fyig.
+A cooperative rendering substrate — a rendering layer designed natively to cooperate with re-frame, instead of re-frame wrapping Reagent — is on the horizon. Substrate-agnostic decoupling (this Spec) is the prerequisite. Whether the cooperative variant ships depends on a benefits-vs-cost evaluation in a later cycle. Deferred to.
 
-#### Post-v1 Tracking — rf2-8fyig
+#### Post-v1 Tracking
 
 - **Foundation in v1.** The adapter contract (per [§The adapter API contract](#the-adapter-api-contract)) is the substrate-decoupling primitive — any cooperative variant ships as another adapter, no core change required.
 - **Scope deferred.** The evaluation itself: identifying the cooperation primitives a native substrate could expose (e.g., scheduler-aware re-render coalescing, subscription-graph-driven scheduling, batched view updates aligned to drain boundaries), and the benefits-vs-cost ledger against staying with Reagent / UIx / Helix adapters.
 - **Reconsideration trigger.** Either (a) measured re-render overhead in the Reagent path becomes the dominant cost on a real workload, or (b) a tool (xray / re-frame2-pair / story) needs scheduling hooks the React substrates can't surface.
 - **Out of scope for the bead.** Building the cooperative substrate itself — the bead tracks the *decision*, not the implementation. A separate bead is filed if the evaluation lands "yes".
 
-### Multi-adapter coexistence (post-v1, rf2-uipko)
+### Multi-adapter coexistence (post-v1)
 
-The current contract is single-adapter-per-process. If a concrete use case for per-frame adapter selection emerges, multi-adapter support can be added additively without breaking the single-adapter contract. Deferred to rf2-uipko.
+The current contract is single-adapter-per-process. If a concrete use case for per-frame adapter selection emerges, multi-adapter support can be added additively without breaking the single-adapter contract. Deferred to.
 
-#### Post-v1 Tracking — rf2-uipko
+#### Post-v1 Tracking
 
 - **Foundation in v1.** The single-adapter contract (per [§Single adapter per process](#single-adapter-per-process)) is locked; per-frame adapter selection is an extension, not a replacement — the install slot becomes a map keyed by frame-id rather than a singleton.
 - **Scope deferred.** The lifting itself: dispatch envelope carrying the in-scope adapter, registrar / tool branching on which adapter a frame uses, error categories for cross-frame view mounts that span adapters.
@@ -1153,7 +1153,7 @@ The current contract is single-adapter-per-process. If a concrete use case for p
 
 ### Adapter selection
 
-Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) the consumer passes an adapter spec map explicitly to `(rf/init! adapter-map)`. There is no default-adapter registry. Each adapter namespace exports an `adapter` Var; consumers require the namespace and pass the Var.
+Per (replaces; resolves) the consumer passes an adapter spec map explicitly to `(rf/init! adapter-map)`. There is no default-adapter registry. Each adapter namespace exports an `adapter` Var; consumers require the namespace and pass the Var.
 
 See [§Adapter selection at boot](#adapter-selection-at-boot) above for the boot-time wiring, the legal call shapes, and the rationale (explicit > implicit; bundle-size; no implicit cross-adapter coupling).
 
@@ -1165,7 +1165,7 @@ Other-language ports follow the same pattern: each adapter package exports a pub
 
 Two complementary accessors:
 
-- `(rf/current-adapter)` returns a **discriminator keyword** identifying the active adapter (the `:kind` slot of the installed adapter spec map), or `nil` if no adapter is installed. Canonical values live under the `:rf.adapter/*` reserved namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned), per rf2-985ij + rf2-bl7x3) so third-party adapters can publish their own unqualified `:kind` keywords without collision risk:
+- `(rf/current-adapter)` returns a **discriminator keyword** identifying the active adapter (the `:kind` slot of the installed adapter spec map), or `nil` if no adapter is installed. Canonical values live under the `:rf.adapter/*` reserved namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned),) so third-party adapters can publish their own unqualified `:kind` keywords without collision risk:
 
   - `:rf.adapter/reagent` — CLJS browser default (bridge adapter)
   - `:rf.adapter/reagent-slim` — CLJS browser, slim adapter (no stock-Reagent dep)
@@ -1183,7 +1183,7 @@ Tools (10x, re-frame-pair) use the keyword to branch on host capabilities — fo
 
 The keyword is informational. Behaviour-affecting decisions should be based on `:platforms` metadata (per [011 §S-3](011-SSR.md#effect-handling-on-the-server)) or on explicit configuration, not on which adapter is loaded.
 
-### Disposed-vs-never-installed (rf2-6wxys)
+### Disposed-vs-never-installed
 
 Runtime delegation calls (`make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`, `subscribe-container`, `register-context-provider`) raise a structured ex-info when no adapter is installed. The throw shape distinguishes two states:
 

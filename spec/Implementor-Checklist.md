@@ -240,10 +240,10 @@ For each capability included in Part 1, the implementor makes the per-capability
   - **CLJS** — Hiccup (`[:div {:class "foo"} child]`).
   - **TypeScript** — JSX-as-data (with TSX transform, JSX literally is `React.createElement(...)` calls; for pure-data SSR use snabbdom-style vnodes or a hiccup port).
   - **Melange / ReScript / Reason** — JSX-PPX → `React.createElement` calls; the JSX syntax is data-shaped at the AST layer.
-  - **Fable (F#)** — Feliz DSL (`Html.div [...]`) over `React.createElement`; or Fable.React's plain `div [] [...]` shape.
+  - **Fable (F#)** — Feliz DSL (`Html.div [...]`) over `React.createElement`; or Fable.React's plain `div [...]` shape.
   - **Squint** — Hiccup (Squint's CLJS-style render tree).
   - **Scala.js** — slinky JSX-DSL or scalajs-react's `<.div(...)` DSL — both are data trees over `createElement`.
-  - **PureScript** — React.Basic's `R.div [] [...]` shape, or Halogen-React JSX-DSL.
+  - **PureScript** — React.Basic's `R.div [...]` shape, or Halogen-React JSX-DSL.
   - **Kotlin/JS** — kotlin-react's `div { ... }` HTML-DSL — data-shaped through Kotlin DSL builders into `createElement`.
 - **Reference-impl picks.** CLJS uses hiccup.
 - **Trade-offs.** Render-tree shape must be serialisable for SSR (per [011](011-SSR.md)) and inspectable for view-tree tooling. Closed component trees that don't serialise (raw React elements with closures) make SSR + inspection hard.
@@ -268,7 +268,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** Trace events flow into a single per-application stream; subscribers listen. Synchronous, in-order, event-at-a-time delivery per [009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules). Plus per-frame, cascade-keyed trace rings (per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only)) for tools that attach after events have fired.
 - **Options by host.** Hand-rolled per host; the contract is just "deliver each emitted trace map to every registered callback synchronously, on the runtime's emit call stack." Listener-invocation order is not contract — implementations may use any registry shape (sorted map, hash map, vector) that delivers each event to every registered listener exactly once.
-- **Reference-impl picks.** CLJS uses a single atom (the listener registry) plus per-frame ring-buffer atoms keyed by cascade; each emit walks the registry inline and routes the event into the in-flight frame's ring (frameless emits skip the ring entirely per the B3 ruling, rf2-g1b2m).
+- **Reference-impl picks.** CLJS uses a single atom (the listener registry) plus per-frame ring-buffer atoms keyed by cascade; each emit walks the registry inline and routes the event into the in-flight frame's ring (frameless emits skip the ring entirely per the B3 ruling).
 - **Trade-offs.** Hot path: trace allocation must be cheap; listener invocation must short-circuit when no listeners are registered.
 
 #### T2. Performance API equivalent
@@ -458,25 +458,25 @@ For each capability included in Part 1, the implementor makes the per-capability
   - **Source coords** — `:ns`/`:line`/`:file` keys on registration metadata.
   - **Dispatch + hot-swap + fx-stub** — `dispatch` opts (`:fx-overrides`), re-`reg-*` for hot-swap.
 - **Options by host.** Per host's REPL or live-attach surface: nREPL+CIDER (CLJS / Squint); Node-attached debugger over a dev-build module-replacement boundary for the JS-cross-compile hosts (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS); or a host-idiomatic REPL the build pipeline exposes. The framework primitives are host-agnostic across the eight.
-- **Reference-impl picks.** CLJS reference ships the trace surface, epoch history, and registrar query API in-tree (per [rf2-icil audit](Tool-Pair.md#how-ai-tools-attach)). re-frame-pair is a separate library that consumes these.
+- **Reference-impl picks.** CLJS reference ships the trace surface, epoch history, and registrar query API in-tree (per [ audit](Tool-Pair.md#how-ai-tools-attach)). re-frame-pair is a separate library that consumes these.
 - **Trade-offs.** **No 10x dependency required** — re-frame2 is infrastructure-complete for AI-tool consumption. 10x and pair share the substrate.
 
 ### Security obligations for implementation tooling
 
 The following obligations apply to any port that ships **tooling** (test fixtures, scaffolding, conformance-corpus emit, pair-tool source-mapping). They are spec-pinned defaults the implementor MUST honour — pre-alpha; no back-compat hedges. Full rationale + audit trail in [Security.md](Security.md); the section headings here are the implementor's todo-list.
 
-#### File-path boundaries for writing tools (rf2-21rfv)
+#### File-path boundaries for writing tools
 
 - **Why it matters.** Implementation tooling that writes to the filesystem (test-fixture emit, conformance-corpus generation, scaffolding scripts, story-recorder dumps, pair-tool log writers) typically accepts env-var path overrides for output roots. A misconfigured env var pointing at `$HOME`, `/`, or the user's source tree would let a tool's "rm temporary scratch" / "regenerate fixtures" step delete or overwrite the wrong tree. The defense is a path-policy check that constrains every writing tool to a closed allowlist of repo-rooted prefixes.
 - **What to ship.** Every writing tool that accepts an env-var path override MUST resolve the path (collapsing `..` segments and following symlinks) and check it against an **allowed-prefix list** before any write. The CLJS reference allows `implementation/` and `examples/` as the two prefixes; other ports MUST pick the equivalent repo-rooted prefixes for their tree.
-- **Failing-escape behaviour.** An escape attempt — a `..` that exits the allowed roots, an absolute path outside the allowed prefixes, a symlink that resolves out — surfaces a clear error with the resolved path and the configured allowed list. The error is fail-fast (no fall-through to a default location, no strip-and-pass, no silent home-directory write). Per rf2-21rfv and [Security.md §File-path boundaries](Security.md#file-path-boundaries).
+- **Failing-escape behaviour.** An escape attempt — a `..` that exits the allowed roots, an absolute path outside the allowed prefixes, a symlink that resolves out — surfaces a clear error with the resolved path and the configured allowed list. The error is fail-fast (no fall-through to a default location, no strip-and-pass, no silent home-directory write). Per and [Security.md §File-path boundaries](Security.md#file-path-boundaries).
 - **CI-internal knob, not stable public interface.** The env-var override is documented for CI-internal use (regenerate fixtures into a per-build scratch directory); it is not a stable public API for production deployment. The check is a **safety net against accidents**, not a security boundary against a hostile attacker — see [Security.md §Pragmatic stance](Security.md#pragmatic-stance) proposition 2.
 
-#### Editor URI scheme allowlist for source-map clickthrough (rf2-vwcsq)
+#### Editor URI scheme allowlist for source-map clickthrough
 
 - **Why it matters.** Pair-tool source-map surfaces produce clickable links in dev tooling — IDE protocol URIs that open a file at a line. If the port ships source-map clickthrough (or accepts custom editor templates), an attacker-controllable scheme — `javascript:`, `data:`, `vbscript:` — that landed in the editor template would be clicked, opening an attack surface in the dev's browser.
 - **What to ship.** The editor-template surface MUST reject URIs whose scheme is `javascript:`, `data:`, or `vbscript:` (case-insensitive). Everything else passes — `vim:`, `idea:`, `subl:`, `org:`, `vscode:`, `cursor:`, and future editor schemes — with no dev burden.
-- **Where the check fires.** At editor-template registration time **and** at click-resolution time, so a template that interpolates user input into the scheme position is also caught at the click. Per rf2-vwcsq and [Tool-Pair §Editor URI scheme allowlist](Tool-Pair.md#editor-uri-scheme-allowlist-rf2-vwcsq) (the canonical contract) + [Security.md §Editor URI scheme allowlist](Security.md#editor-uri-scheme-allowlist).
+- **Where the check fires.** At editor-template registration time **and** at click-resolution time, so a template that interpolates user input into the scheme position is also caught at the click. Per and [Tool-Pair §Editor URI scheme allowlist](Tool-Pair.md#editor-uri-scheme-allowlist) (the canonical contract) + [Security.md §Editor URI scheme allowlist](Security.md#editor-uri-scheme-allowlist).
 
 ---
 

@@ -1272,7 +1272,7 @@ Code that uses `with-managed-request-stubs` / `install-managed-request-stubs!` d
 
 **Public API** is unchanged. The fx ids `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` retain their args contract per Spec 014 §Testing; only the registration site moved.
 
-**Why:** a security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate-rf2-cdmle--rf2-lwmgw).
+**Why:** a security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate).
 
 #### M-31b. `:rf.http/managed` `:retry :on` is a closed-set
 
@@ -1310,7 +1310,7 @@ Any keyword outside this set in `:retry :on` (the three non-retryable `:rf.http/
   :on-failure [...]}}
 ```
 
-**Why.** The three excluded categories are deterministic on retry — `:rf.http/aborted` means the actor that issued the request was destroyed, `:decode-failure` / `:accept-failure` mean the reply body or content-type was malformed and would be re-decoded identically. Silently retrying those wastes request budget. Per [Spec 014 §Closed-set `:retry :on` validation](../../spec/014-HTTPRequests.md#closed-set-retry-on-validation--rf2-apwkm) and [009 §Error event catalogue — `:rf.error/http-bad-retry-on`](../../spec/009-Instrumentation.md#error-event-catalogue).
+**Why.** The three excluded categories are deterministic on retry — `:rf.http/aborted` means the actor that issued the request was destroyed, `:decode-failure` / `:accept-failure` mean the reply body or content-type was malformed and would be re-decoded identically. Silently retrying those wastes request budget. Per [Spec 014 §Closed-set `:retry :on` validation](../../spec/014-HTTPRequests.md#closed-set-retry-on-validation) and [009 §Error event catalogue — `:rf.error/http-bad-retry-on`](../../spec/009-Instrumentation.md#error-event-catalogue).
 
 ---
 
@@ -1730,11 +1730,11 @@ Pre-release framing: `:rf.http/managed` is now ALSO registered as a state machin
 
 **Direction.** Additive — no user-side change required. Apps that hand-rolled an HTTP-child wrapper (per the auth-machine sketch in the boot-as-state-machine study) may switch to the framework-shipped wrapper; no semantic change in the parent's `:on` handling. Apps using only the fx form pay nothing — the machine registration only materialises an event-kind handler under `:rf.http/managed`, which is invisible to fx-only callers.
 
-**Related additive changes (same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7) and [§Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7):
+**Related additive changes (same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data) and [§Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn):
 - Every spawned actor's initial `:data` carries `:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` (the latter two only for declarative-`:spawn` spawns) under the framework-reserved `:rf/*` namespace. User code that previously hardcoded a parent-id in a child's spec may now read `:rf/parent-id` from the child's `:data` — no migration required; the change is purely additive.
 - Spawns without an explicit `:start` now receive a synthetic `[:rf.machine/spawned]` event as their first event. Machines that don't handle it see a no-op; the existing `:start` form continues to work and overrides the synthetic event.
 
-**Cross-references.** [Spec 014 §Machine-shape wrapper](../../spec/014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7); [Spec 005 §Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7).
+**Cross-references.** [Spec 014 §Machine-shape wrapper](../../spec/014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data); [Spec 005 §Synthetic `[:rf.machine/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawned-on-spawn).
 
 ### M-47. State tags shipped — `:tags` on state nodes, `:rf/machine-has-tag?` framework sub (additive)
 
@@ -2082,7 +2082,7 @@ Per the listener-registration verb-shape unification, the trace and epoch listen
 
 The declarative child-actor key on a state node is renamed **`:invoke` → `:spawn`** (and **`:invoke-all` → `:spawn-all`** for the parallel-fanout-and-join sugar). v1 codebases that adopted the xstate-shaped `:invoke` slot trip this; the same slot for v1 → v2 migrators reads as `:spawn` on first encounter.
 
-The rename is a **deliberate divergence** from xstate vocabulary — see [005 §Deliberate name divergence — `:spawn`](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2) for the rationale.  The convergence with xstate names is otherwise high (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`, `:type :parallel`, `:regions`, `:system-id`); the rename targets the single most semantically-loaded surface where xstate-trained AI agents otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. The new name also **aligns the declarative key with the existing imperative fx-id** `:rf.machine/spawn`.
+The rename is a **deliberate divergence** from xstate vocabulary — see [005 §Deliberate name divergence — `:spawn`](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke) for the rationale.  The convergence with xstate names is otherwise high (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`, `:type :parallel`, `:regions`, `:system-id`); the rename targets the single most semantically-loaded surface where xstate-trained AI agents otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. The new name also **aligns the declarative key with the existing imperative fx-id** `:rf.machine/spawn`.
 
 | v1 / v2-pre-rename | v2 post-rename | Surface |
 |---|---|---|
@@ -2141,7 +2141,7 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — `make-machine-handler` does not accept `:invoke` / `:invoke-all` and will treat them as unknown state-node keys.
 
-**Cross-references.** [005 §Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn) (the canonical surface); [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all); [005 §Deliberate name divergence — `:spawn` (NOT `:invoke`)](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2) (the rationale); [CP-5-MachineGuide §Lessons from xstate](../../spec/CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) (where the divergence sits in the broader xstate-comparison table); [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-) (the parent runtime-owned spawn-id tracking change this rename now aligns names with); [M-43](#m-43-spawn-all-spawn-and-join-is-added--additive-no-user-side-action) (the original `:invoke-all` add — supplanted by this rename); [M-44](#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after) (the `:timeout-ms` retirement — same surface, prior step).
+**Cross-references.** [005 §Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn) (the canonical surface); [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all); [005 §Deliberate name divergence — `:spawn` (NOT `:invoke`)](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke) (the rationale); [CP-5-MachineGuide §Lessons from xstate](../../spec/CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) (where the divergence sits in the broader xstate-comparison table); [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-) (the parent runtime-owned spawn-id tracking change this rename now aligns names with); [M-43](#m-43-spawn-all-spawn-and-join-is-added--additive-no-user-side-action) (the original `:invoke-all` add — supplanted by this rename); [M-44](#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after) (the `:timeout-ms` retirement — same surface, prior step).
 
 
 ---
@@ -2444,7 +2444,7 @@ without `re-frame.http-test-support` in their require closure.
 
 **Production posture unchanged.** Production / SSR application code must NOT `:require` `re-frame.http-test-support`. The require boundary continues to gate every test surface — both the canned-stub fxs (per M-31a) and now also the stub-macros family (this rule). The CLJS production-bundle elision sentinels and the JVM-side `re-frame.http-test-support-absent-test` continue to pin the absence; the assertion set widened to cover the stub-family late-bind hooks too.
 
-**Cross-references.** [014-HTTPRequests §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate-rf2-cdmle--rf2-lwmgw); [Spec 008 §HTTP test surfaces](../../spec/008-Testing.md#http-test-surfaces--single-namespace-rf2-lwmgw); [API.md row](../../spec/API.md#http-requests-spec-014).
+**Cross-references.** [014-HTTPRequests §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate); [Spec 008 §HTTP test surfaces](../../spec/008-Testing.md#http-test-surfaces--single-namespace); [API.md row](../../spec/API.md#http-requests-spec-014).
 
 ---
 
@@ -2623,7 +2623,7 @@ Spec 000 now carries a summary [Contract block](../../spec/000-Vision.md#contrac
 
 ### O-11. Source-coord stamping for state machines
 
-re-frame2 turns `reg-machine` into a macro that walks the literal spec form at expansion time and stamps per-element source coordinates under the spec's `:rf.machine/source-coords` key (per [Spec 005 §Source-coord stamping](../../spec/005-StateMachines.md#source-coord-stamping-rf2-8bp3)). This gives pair tools (re-frame-pair, re-frame-10x, IDE jump-to-source) a structured surface for "click on a guard, jump to its definition" and "click on a transition, jump to its source line" gestures.
+re-frame2 turns `reg-machine` into a macro that walks the literal spec form at expansion time and stamps per-element source coordinates under the spec's `:rf.machine/source-coords` key (per [Spec 005 §Source-coord stamping](../../spec/005-StateMachines.md#source-coord-stamping)). This gives pair tools (re-frame-pair, re-frame-10x, IDE jump-to-source) a structured surface for "click on a guard, jump to its definition" and "click on a transition, jump to its source line" gestures.
 
 This is **additive** for consumers — the macro is fully back-compatible with the v1 plain-fn `reg-machine` shape, and the stamping branch elides under `:advanced` + `goog.DEBUG=false`. No migration step is required for v1 → v2.
 
@@ -2648,7 +2648,7 @@ No application-code rewrite is required. The surface is additive; existing `reg-
 
 ### O-13. Switch a Reagent app to UIx via the `day8/re-frame2-uix` adapter
 
-re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagent (per [Spec 006 §UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate-rf2-3yij)). Migrating a Reagent app to UIx is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to UIx.
+re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagent (per [Spec 006 §UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate)). Migrating a Reagent app to UIx is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to UIx.
 
 **What changes.**
 
@@ -2667,7 +2667,7 @@ The agent does NOT auto-apply this rule even if the dep coords match — substra
 
 ### O-14. Switch a Reagent app to Helix via the `day8/re-frame2-helix` adapter
 
-re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Reagent and UIx (per [Spec 006 §Helix as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate-rf2-2qit)). Migrating a Reagent app to Helix is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to Helix.
+re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Reagent and UIx (per [Spec 006 §Helix as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate)). Migrating a Reagent app to Helix is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to Helix.
 
 **What changes.**
 

@@ -24,7 +24,7 @@ Two equivalent surfaces register a machine; CP-5-generated scaffolds default to 
 
 | Form | Shape | Source-coord stamping | Use case |
 |---|---|---|---|
-| `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes — call-site coords on the registry slot AND per-element coord index walked from the literal spec form (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3)) | The default. Use whenever the spec is a literal map at the call site. |
+| `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes — call-site coords on the registry slot AND per-element coord index walked from the literal spec form (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)) | The default. Use whenever the spec is a literal map at the call site. |
 | `(rf/reg-machine* machine-id machine-spec)` | plain fn | None — the spec is opaque data at the call site | Code-gen pipelines, REPL exploration, conformance harnesses that synthesise specs from EDN fixtures. |
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact) and are re-exported under `re-frame.core`. See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
@@ -96,7 +96,7 @@ Hierarchical compound states, eventless `:always`, delayed `:after`, declarative
 
 ## Substitutes for skipped features
 
-Per rf2-l67o (Nine States Stage 2), **parallel regions** are now a **first-class capability** (`:fsm/parallel-regions`; see [Spec 005 §Parallel regions](005-StateMachines.md#parallel-regions)). The N-machines-per-region pattern documented in this section remains valid and is the right answer when the regions are **conceptually independent features** that don't share data — multiple tabs each with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event. Parallel regions inside one machine (`:type :parallel`) are the right answer when the regions are **orthogonal axes of one feature** that share a single `:data` blob — one form with three independent axes (data / form / mode), one widget with display + interaction state, one page whose render-mode is a function of three independent inputs. Both patterns ship together; choose by domain shape.
+Per (Nine States Stage 2), **parallel regions** are now a **first-class capability** (`:fsm/parallel-regions`; see [Spec 005 §Parallel regions](005-StateMachines.md#parallel-regions)). The N-machines-per-region pattern documented in this section remains valid and is the right answer when the regions are **conceptually independent features** that don't share data — multiple tabs each with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event. Parallel regions inside one machine (`:type :parallel`) are the right answer when the regions are **orthogonal axes of one feature** that share a single `:data` blob — one form with three independent axes (data / form / mode), one widget with display + interaction state, one page whose render-mode is a function of three independent inputs. Both patterns ship together; choose by domain shape.
 
 The **history-state** substitute (snapshot-as-value capture exploiting [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility)) below remains the documented forward path for history-state needs — history states are still post-v1.
 
@@ -195,7 +195,7 @@ xstate needs history states because its runtime lacks first-class snapshot-as-va
   {:actions
    {:capture-browsing-position
     ;; Stash the current browsing-state into :data so we can restore it later.
-    ;; Per rf2-grw4i / rf2-v0rrr every machine callback receives a single
+    ;; every machine callback receives a single
     ;; context-map with :data / :event / :state / :meta — destructure the
     ;; keys you need.
     (fn [{:keys [state]}]
@@ -248,7 +248,7 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 | Action-vector `[a1 a2 a3]` per slot | One fn or one named registered compound | Same reason as guards |
 | `setup({actors, guards, actions})` per-machine bundle | Per-machine `:guards` / `:actions` maps inside the `make-machine-handler` spec | Convergence: machine-scoped declaration (not globally-registered). Each machine has its own guard/action namespace, validated at registration time; cross-machine reuse is via Clojure vars |
 | `[:assign {...}]` action data form | Action returns `{:data {...}}` | Symmetric with `reg-event-fx`'s `{:db :fx}`; one fewer DSL to parse |
-| `invoke` (state-node spawn key) | `:spawn` (and `:spawn-all` for parallel-fanout-and-join) | Deliberate name divergence (rf2-5r4q2). Convergence is high enough on other keys (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`) that AI agents trained on xstate would otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. Renaming the most semantically-loaded slot breaks the convergence trap and aligns the declarative key with the existing imperative `:rf.machine/spawn` fx. See [005 §Deliberate name divergence — `:spawn`](005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2). |
+| `invoke` (state-node spawn key) | `:spawn` (and `:spawn-all` for parallel-fanout-and-join) | Deliberate name divergence. Convergence is high enough on other keys (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`) that AI agents trained on xstate would otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. Renaming the most semantically-loaded slot breaks the convergence trap and aligns the declarative key with the existing imperative `:rf.machine/spawn` fx. See [005 §Deliberate name divergence — `:spawn`](005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke). |
 
 Convergences: machines-as-actors, run-to-completion, encapsulated state, snapshots, definition/implementation split, transition tables as data.
 

@@ -30,7 +30,7 @@ The slim variant is bundle-isolated — the `npm run test:reagent-slim:bundle-is
 
 ## The UIx adapter
 
-UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-uix`). The hook is named `use-subscribe` (matching the React/UIx idiom); there is no auto-injection — UIx components call the hook and `(rf/dispatcher)` directly. The full decision set lives at [Spec 006 §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate-rf2-3yij).
+UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-uix`). The hook is named `use-subscribe` (matching the React/UIx idiom); there is no auto-injection — UIx components call the hook and `(rf/dispatcher)` directly. The full decision set lives at [Spec 006 §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate).
 
 ### `uix-adapter/adapter`
 
@@ -101,7 +101,7 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   ```
 - **Description**: Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR.
 
-UIx users register their views by Var (the React-component idiom) or with `rf/reg-view*` if they want registry-keyed view addressing — `reg-view` (the Reagent macro) does **not** cover UIx. Full rationale: [Spec 006 §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate-rf2-3yij).
+UIx users register their views by Var (the React-component idiom) or with `rf/reg-view*` if they want registry-keyed view addressing — `reg-view` (the Reagent macro) does **not** cover UIx. Full rationale: [Spec 006 §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate).
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -194,11 +194,11 @@ The duplication between UIx and Helix is intentional — both expose the same ho
 
 ## The shared React Context
 
-The `frame-provider` in all three adapters (Reagent, UIx, Helix) consumes the **same** `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). The shared context is what makes a future mixed-substrate app compose: a Reagent `frame-provider` can wrap a UIx subtree; a Helix subtree can be wrapped by a UIx provider; the chain composes across substrate boundaries because there's exactly one Context, not three. Full rationale: [Spec 006 §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate-rf2-3yij).
+The `frame-provider` in all three adapters (Reagent, UIx, Helix) consumes the **same** `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). The shared context is what makes a future mixed-substrate app compose: a Reagent `frame-provider` can wrap a UIx subtree; a Helix subtree can be wrapped by a UIx provider; the chain composes across substrate boundaries because there's exactly one Context, not three. Full rationale: [Spec 006 §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate).
 
 ## DOM source-coord annotations
 
-Every adapter whose host has a DOM-attribute concept (all three — Reagent / UIx / Helix on the browser) injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions (Fragments, non-DOM roots) are documented in [Spec 006 §Source-coord annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1).
+Every adapter whose host has a DOM-attribute concept (all three — Reagent / UIx / Helix on the browser) injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions (Fragments, non-DOM roots) are documented in [Spec 006 §Source-coord annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory).
 
 Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the contract per [Spec 011 §Source-coord annotation under SSR](../../spec/011-SSR.md#source-coord-annotation-under-ssr).
 
