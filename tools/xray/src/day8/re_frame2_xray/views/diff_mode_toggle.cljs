@@ -51,15 +51,20 @@
 
   ## Per-surface storage convention
 
-  Each surface registers its own sub + event for the mode keyword:
+  Each surface registers its own sub + event for the mode keyword
+  via the `reg-mode-sub+event!` helper (one call per surface):
 
+      ;; top-level surfaces — surface-id is an unqualified keyword
       :rf.xray.<surface>/diff-mode        ;; sub returning the keyword
       :rf.xray.<surface>/set-diff-mode    ;; event-db setting the keyword
 
-  Existing per-surface persistence (e.g. the Epoch panel's
-  `:epoch-panel-db-view-mode` slot) is preserved verbatim — this
-  widget is the chrome, not the storage. See `reg-mode-sub+event!`
-  below for a one-call helper that installs the standard pair.
+      ;; sub-surfaces — surface-id is a namespaced keyword
+      :rf.xray.<surface-ns>/<sub>-diff-mode      ;; sub
+      :rf.xray.<surface-ns>/set-<sub>-diff-mode  ;; event-db
+
+  Mode is stored at the sub-id key in Xray's app-db (one slot per
+  surface, no cross-surface collisions). See `reg-mode-sub+event!`
+  below for the one-call helper that installs the standard pair.
 
   ## Frame-anchor pattern (rf2-p56sk / rf2-7sdja)
 
@@ -188,7 +193,7 @@
                     omit a mode (rare; mode-3 is the canonical full
                     bar) pass a subset.
 
-  rf2-yqjrd — extracted from `panels.epoch.view/db-view-mode-toggle`
+  rf2-yqjrd — extracted from `panels.epoch.view/db-diff-mode-toggle`
   (rf2-n2jig) so every Xray surface consumes the same chrome verbatim."
   [{:keys [mode on-change testid modes]
     :or   {modes default-modes}}]
@@ -216,27 +221,41 @@
   "Register the canonical sub + event pair for a per-surface diff
   mode. Idempotent across hot-reload (re-registering replaces).
 
-  `surface-id` is a namespaced keyword like `:rf.xray.app-db` or
-  `:rf.xray.machine-inspector`. The fn registers:
+  `surface-id` is a keyword. Two shapes are supported:
 
-      <surface-id>/diff-mode       ;; sub returning the keyword (default
-                                   ;; mode `:full+diff`)
-      <surface-id>/set-diff-mode   ;; event-db setting the keyword
+  - Top-level surface — a plain (unqualified) keyword whose `name`
+    is itself a dotted namespace, e.g. `:rf.xray.app-db` or
+    `:rf.xray.machine-inspector`. Registers:
 
-  The mode is stored under a derived slot keyword
-  `<surface-namespace>/<surface-name>-diff-mode` so two surfaces'
-  modes don't collide.
+        :rf.xray.<surface>/diff-mode       ;; sub
+        :rf.xray.<surface>/set-diff-mode   ;; event-db
+
+  - Sub-surface — a namespaced keyword, e.g. `:rf.xray.epoch/db` or
+    `:rf.xray.epoch/subs-value`. Registers:
+
+        :rf.xray.<surface-ns>/<sub>-diff-mode     ;; sub
+        :rf.xray.<surface-ns>/set-<sub>-diff-mode ;; event-db
+
+  The mode is stored under the sub-id keyword in Xray's app-db (one
+  slot per surface; no cross-surface collisions). Returns
+  `{:sub-id … :event-id … :slot …}` so callers can introspect the
+  canonical names.
 
   Mode persists in Xray's app-db so the operator's preference survives
-  focus shifts (rf2-n2jig). Use `:reset` opt-out for transient surfaces."
+  focus shifts (rf2-n2jig). The `:default-mode` opt overrides the
+  widget's `:full+diff` default for surfaces where a different starting
+  lens makes more sense."
   [surface-id & [{:keys [default-mode]
                   :or   {default-mode default-default-mode}}]]
-  (let [sub-id   (keyword (namespace surface-id)
-                          (str (name surface-id) "/diff-mode"))
-        event-id (keyword (namespace surface-id)
-                          (str "set-" (name surface-id) "-diff-mode"))
-        slot     (keyword (namespace surface-id)
-                          (str (name surface-id) "-diff-mode"))]
+  (let [ns-part  (namespace surface-id)
+        nm-part  (name surface-id)
+        sub-id   (if ns-part
+                   (keyword ns-part (str nm-part "-diff-mode"))
+                   (keyword nm-part "diff-mode"))
+        event-id (if ns-part
+                   (keyword ns-part (str "set-" nm-part "-diff-mode"))
+                   (keyword nm-part "set-diff-mode"))
+        slot     sub-id]
     (rf/reg-sub sub-id
       (fn [db _]
         (get db slot default-mode)))

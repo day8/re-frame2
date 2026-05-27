@@ -46,7 +46,8 @@
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
-            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
+            [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]))
 
 ;; ---- public Panel surface ------------------------------------------------
 
@@ -164,7 +165,7 @@
     (fn [db [_ mode]]
       (assoc db :epoch-panel-subs-filter-mode mode)))
 
-  ;; ---- HANDLER :db view-mode toggle (pair-debug 2026-05-26 + rf2-n2jig 2026-05-27) ----
+  ;; ---- HANDLER :db diff-mode toggle (pair-debug 2026-05-26 + rf2-n2jig 2026-05-27) ----
   ;;
   ;; The HANDLER step's `:db` sub-section carries a three-button toggle
   ;; `[diff][full][full+diff]` (per rf2-n2jig — was a two-button
@@ -188,32 +189,21 @@
   ;;                  2026-05-27: this is the operator's most-useful
   ;;                  default — shape + delta in one read.
   ;;
-  ;; Mode persists via `:rf.xray.epoch/db-view-mode` so the operator's
-  ;; preference survives focus shifts.
+  ;; Mode persists via `:rf.xray.epoch/db-diff-mode` so the operator's
+  ;; preference survives focus shifts. The sub + event pair + slot are
+  ;; installed by the shared helper from `views.diff-mode-toggle` so
+  ;; every Xray diff surface uses identical naming (rf2-0cyjm /
+  ;; rf2-44xya).
 
-  (rf/reg-sub :rf.xray.epoch/db-view-mode
-    (fn [db _query]
-      ;; rf2-n2jig — default flipped from `:diff` to `:full+diff` per
-      ;; pair-debug 2026-05-27. Mode-3 carries the most operator-
-      ;; useful signal (shape + delta together).
-      (let [mode (get db :epoch-panel-db-view-mode :full+diff)]
-        ;; Migrate the legacy `:all` enum value to `:full` for any
-        ;; persisted-app-db reads from a pre-rf2-n2jig session.
-        (case mode
-          :all      :full
-          mode))))
+  (diff-mode/reg-mode-sub+event! :rf.xray.epoch/db)
 
-  (rf/reg-event-db :rf.xray.epoch/set-db-view-mode
-    (fn [db [_ mode]]
-      (assoc db :epoch-panel-db-view-mode mode)))
-
-  ;; ---- SUBSCRIPTIONS value view-mode toggle (rf2-yqjrd) ------------
+  ;; ---- SUBSCRIPTIONS value diff-mode toggle (rf2-yqjrd / rf2-0cyjm) ----
   ;;
   ;; Universal three-mode toggle for the per-row sub-value rendering in
   ;; the SUBSCRIPTIONS step. Orthogonal to the existing
   ;; `:rf.xray.epoch/subs-filter-mode` row-filter (`:all` / `:changed` /
-  ;; `:unchanged`) — the filter governs WHICH rows render; this view-
-  ;; mode governs HOW each `:changed?` row's value cell renders.
+  ;; `:unchanged`) — the filter governs WHICH rows render; this
+  ;; diff-mode governs HOW each `:changed?` row's value cell renders.
   ;;
   ;; - `:diff`      — pure-diff lens: `before → after` glyph row (the
   ;;                  prior shape; surfaces only the value pair).
@@ -225,15 +215,10 @@
   ;;                  annotations paint. Default per pair-debug
   ;;                  2026-05-27.
   ;;
-  ;; Mode persists via `:rf.xray.epoch/subs-value-mode` so the
-  ;; operator's preference survives focus shifts.
-  (rf/reg-sub :rf.xray.epoch/subs-value-mode
-    (fn [db _query]
-      (get db :epoch-panel-subs-value-mode :full+diff)))
-
-  (rf/reg-event-db :rf.xray.epoch/set-subs-value-mode
-    (fn [db [_ mode]]
-      (assoc db :epoch-panel-subs-value-mode mode)))
+  ;; Mode persists via `:rf.xray.epoch/subs-value-diff-mode`; sub +
+  ;; event installed via the shared helper for uniform naming
+  ;; (rf2-0cyjm / rf2-44xya).
+  (diff-mode/reg-mode-sub+event! :rf.xray.epoch/subs-value)
 
   ;; ---- L4 tab registration ----------------------------------------------
   ;;

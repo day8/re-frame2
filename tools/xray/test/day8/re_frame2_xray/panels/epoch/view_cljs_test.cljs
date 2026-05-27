@@ -380,7 +380,7 @@
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.epoch/set-db-view-mode :diff]))
+      (rf/dispatch-sync [:rf.xray.epoch/set-db-diff-mode :diff]))
     (testing "reg-event-db with empty diff"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
@@ -1129,7 +1129,7 @@
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.epoch/set-db-view-mode :diff]))
+      (rf/dispatch-sync [:rf.xray.epoch/set-db-diff-mode :diff]))
     (let [tree (rf/with-frame :rf/xray
                  (view/render-handler-step
                    {:step :handler :badge :HANDLER :step-number 3
@@ -1179,7 +1179,7 @@
       ;; rf2-yqjrd — flip the value-mode to `:diff` so the per-row
       ;; cell renders via `mini` instead of the new edn-inspector
       ;; mount that `:full+diff` (default) uses.
-      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-mode :diff])
+      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :diff])
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/total :sub-vec [:counter/total]
                           :inputs nil :changed? true :before 5 :after 6}]
@@ -1230,7 +1230,7 @@
 ;; pipeline's `(for [[i step] …] …)` MUST be realised inside
 ;; `pipeline-view`'s return value so that any `@(rf/subscribe …)` deref
 ;; reached transitively by `render-step` (e.g. `handler-db-diff-block`'s
-;; `:rf.xray.epoch/db-view-mode` read, or `render-subscriptions-step`'s
+;; `:rf.xray.epoch/db-diff-mode` read, or `render-subscriptions-step`'s
 ;; `:rf.xray.epoch/subs-filter-mode` read — rf2-tzmmf) fires while the
 ;; parent reg-view's reactive scope is still live. A lazy seq realised
 ;; AFTER the reg-view returns
@@ -1274,7 +1274,7 @@
 (deftest pipeline-view-realises-step-seq-rf2-atqkg-test
   (testing "rf2-atqkg — `pipeline-view` returns its step-seq REALISED
             so descendant sub derefs (e.g. handler-db-diff-block's
-            `:rf.xray.epoch/db-view-mode` read) fire during the parent
+            `:rf.xray.epoch/db-diff-mode` read) fire during the parent
             reg-view's reactive scope. An unrealised lazy seq at this
             position is the rf2-atqkg bug shape (Reagent emits the
             `Reactive deref not supported in lazy seq, it should be

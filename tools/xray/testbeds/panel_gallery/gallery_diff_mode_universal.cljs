@@ -85,7 +85,7 @@
                   LIVE current-state with NO `:before` threaded —
                   plain browse, no diff chrome. Useful when the
                   operator wants to inspect shape alone."
-     :events     [[:rf.xray.app-db/set-view-mode :full]]
+     :events     [[:rf.xray.app-db/set-diff-mode :full]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -95,7 +95,7 @@
                   the top. Same source as the Epoch HANDLER `:diff`
                   view + the MCP exporter (`:rf.xray/selected-epoch-
                   diff` triples)."
-     :events     [[:rf.xray.app-db/set-view-mode :diff]]
+     :events     [[:rf.xray.app-db/set-diff-mode :diff]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -122,7 +122,7 @@
     {:doc        "Machine Inspector snapshot in `:full` mode. AFTER
                   snapshot alone, no BEFORE comparison — plain
                   browse of the post-transition state."
-     :events     [[:rf.xray.machine-inspector/set-view-mode :full]]
+     :events     [[:rf.xray.machine-inspector/set-diff-mode :full]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -130,13 +130,13 @@
     {:doc        "Machine Inspector snapshot in `:diff` mode. Flat
                   path-prefixed change list — same shape as App-DB
                   and Epoch HANDLER `:diff` lenses."
-     :events     [[:rf.xray.machine-inspector/set-view-mode :diff]]
+     :events     [[:rf.xray.machine-inspector/set-diff-mode :diff]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
   ;; -- SUBSCRIPTIONS step value-cell ---------------------------------------
 
-  (story/reg-story :story.xray.epoch/subs-value-mode
+  (story/reg-story :story.xray.epoch/subs-value-diff-mode
     {:doc        "Epoch SUBSCRIPTIONS step — per-row value cell
                   routed through the universal three-mode toggle.
                   Orthogonal to the existing `[all][changed]
@@ -159,7 +159,7 @@
                   `:changed?` row's value cell renders the AFTER
                   value alone via the edn-inspector — no BEFORE
                   comparison."
-     :events     [[:rf.xray.epoch/set-subs-value-mode :full]]
+     :events     [[:rf.xray.epoch/set-subs-value-diff-mode :full]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -169,7 +169,7 @@
                   `mini` widget. Preserved as one mode of the new
                   toggle so the prior compact rendering remains
                   available."
-     :events     [[:rf.xray.epoch/set-subs-value-mode :diff]]
+     :events     [[:rf.xray.epoch/set-subs-value-diff-mode :diff]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
