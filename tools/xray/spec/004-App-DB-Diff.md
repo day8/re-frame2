@@ -75,19 +75,36 @@ escape hatch for 'show me app-db in its entirety'.
 ## Changed-paths derivation
 
 Xray reads `:rf/epoch-record`'s `:db-before` and `:db-after` and
-derives a changed-paths set via structural-sharing diff:
+derives a changed-paths set via the canonical Editscript-A* engine
+(`day8.re-frame2-xray.diff.engine/project`):
 
-- **PersistentHashMap pointer-equality** at each level — if the
-  pointer is identical, the subtree is unchanged; skip.
-- **Recurse only where pointers differ.** This is O(changed paths),
-  not O(db size).
-- **Emit a sorted vector of `[op path before-value after-value]`
-  triples** where `op` is one of `:added`, `:modified`, `:removed`.
+- **Editscript A* edit-script** produces the minimal compact set of
+  `:+` / `:-` / `:r` ops across the two values
+  (`juji/editscript` 0.6.5).
+- **Per-path projection** classifies each leaf as `:added` /
+  `:modified` / `:removed` / `:same-shifted` and exposes the result
+  as a `:flat-rows` channel of maps `{:path :op :before :after}`.
+- **Universal 4-tuple shape** at the call site — every `:diff`-lens
+  consumer (App-DB panel, Machine Inspector snapshot, Epoch HANDLER
+  `:db`) converts each row to `[path before after op]`, the shape the
+  view layer's row renderer destructures.
 
 The framework's `:rf/epoch-record` does **not** pre-compute changed
 paths (the runtime stays cheap); Xray runs the diff on the panel's
 first mount per epoch, caches per `:epoch-id`, and discards on epoch
 age-out.
+
+> **rf2-xuyac migration** (2026-05-27): the App-DB panel + Epoch
+> HANDLER `:db` `:diff` lenses previously routed through the
+> home-grown `app-db-diff-helpers/diff-paths` walker (a
+> structural-sharing key-walker, not Editscript). Engines disagreed
+> on R6 vector-shift, R7 type-change, and R8 redaction across the
+> `:diff` and `:full+diff` modes of the same data. Path A (Mike's
+> 2026-05-27 decision): migrate the two lenses onto the canonical
+> Editscript engine, mirroring Machine Inspector's already-canonical
+> pattern (`snapshot-flat-diff-rows`). The home-grown walker is
+> retained ONLY for the trace panel's `db-changed-diff-triples`
+> surface (out of scope; tracked separately).
 
 ## Colour coding
 
