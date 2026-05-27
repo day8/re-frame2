@@ -1,0 +1,66 @@
+# ssr_streaming — Spec 011 Streaming SSR worked example
+
+A dashboard with three slow cards: the page's shell + header render
+immediately on the server, then each card streams its content as its
+data fetch resolves. The browser shows a usable shell within ~50ms
+while the cards trickle in over ~300ms each. The worked companion to
+[Spec 011 §Streaming
+SSR](../../../spec/011-SSR.md#streaming-ssr).
+
+## What this demonstrates
+
+- **`:rf/suspense-boundary`** — declarative hiccup marker for a
+  streamable subtree. The server emits the fallback hiccup immediately
+  and back-fills the real content when the boundary's data resolves.
+- **Per-card fallback hiccup** — each card carries
+  `[:div.card.skeleton …]` so the user sees a skeleton, not a blank
+  region, while the real content streams.
+- **Inline-fallback failure semantics** — one card deliberately
+  throws to demonstrate that the failure path doesn't 500 the page;
+  the failed boundary renders its fallback and the rest of the page
+  continues.
+- **Hydration interleaved per subtree** — each chunk's
+  `<script data-rf2-suspense-hydrate>` carries the per-card app-db
+  delta; the client hydrates incrementally as chunks arrive.
+- **Final `__rf_payload`** — arrives last with the canonical full
+  state, so a client that missed inline chunks (e.g. JS disabled
+  during streaming) still gets a coherent final app-db.
+
+## Why this shape
+
+Streaming SSR is the natural extension of Spec 011's per-request
+frame model: the same `with-frame` boundary owns the streaming
+request lifecycle, and `:rf/suspense-boundary` is the hiccup marker
+that turns a region of the view tree into a streamable chunk.
+
+The `.cljc` shape mirrors `examples/reagent/ssr/core.cljc`: server
+branch in `:clj`, browser branch in `:cljs`. The `:clj` branch is
+what a Ring server would invoke; the `:cljs` branch is what the page
+bootstraps after the chunks arrive.
+
+## Files
+
+```
+ssr_streaming/
+  core.cljc                              — server + client, one artefact.
+  index.html                             — host page.
+  test/ssr_streaming/core_test.clj       — JVM smoke (streaming emission shape).
+```
+
+## How to run
+
+```bash
+# From implementation/:
+shadow-cljs watch examples/ssr-streaming
+```
+
+Run `npm run test:examples` once first so the example's `index.html`
+is staged. Examples are test-free per
+[`examples/README.md`](../../README.md); streaming-SSR contract
+testing lives in [`test/ssr_streaming/`](test/) and the
+`implementation/ssr/test/` suite.
+
+## Cross-references
+
+- [`spec/011-SSR.md` §Streaming SSR](../../../spec/011-SSR.md#streaming-ssr) — the normative section.
+- [`examples/reagent/ssr/`](../ssr/) — the non-streaming SSR counterpart; read that first.
