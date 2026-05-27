@@ -652,27 +652,11 @@ SCENES.push({
   },
 });
 
-SCENES.push({
-  id: 'story-qr-share',
-  out: path.join(OUT_STORY, '05-qr-share.png'),
-  url: '/counter-with-stories/#/stories',
-  before: async (page) => {
-    await dismissStoryHelp(page);
-    await page.reload();
-    await page.getByRole('navigation').waitFor({ state: 'visible' });
-    const row = page.getByRole('navigation').getByText('/loaded', { exact: false }).first();
-    await row.click();
-    // QR-share affordance — opens an inline QR rendering of the picked
-    // (variant × mode × per-cell args) tuple. Tolerant to a not-yet-
-    // wired affordance per the recorder note above.
-    const shareBtn = page.locator('[data-test="story-share-qr"]');
-    if (await shareBtn.count()) {
-      await shareBtn.click();
-      await page.locator('[data-test="story-qr-share"]')
-        .waitFor({ state: 'visible', timeout: 5000 });
-    }
-  },
-});
+// Per rf2-ymnfx Issue B the Share button + QR popover were retired —
+// the variant URL is the browser's live address bar URL. The
+// `05-qr-share.png` capture scene that used to drive the popover is
+// gone; the snapshot-identity tutorial chapter no longer references
+// a popover screenshot.
 
 SCENES.push({
   id: 'story-time-travel-mini',

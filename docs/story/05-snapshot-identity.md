@@ -77,24 +77,13 @@ Chromatic, Argos, Percy, Lost Pixel — every one of them keys on the hash. The 
 
 (One nit: if your assertions still pin the *machine* state name `:submitting-retry`, you'd want to rename the machine state separately. The variant identity is decoupled from internal naming, but your tests aren't.)
 
-## QR sharing — local-vendored encoder
+## Sharing — the browser's live address-bar URL
 
-Story's *share via QR* button renders the snapshot identity (plus the picked workspace, active modes, and cell-overrides) into a QR code, displayed inline. Scan with a phone; the phone opens a URL into your locally-served Story instance at that exact picked state.
+The variant URL Story builds (variant id + active modes + cell-overrides + workspace + viewport + background + tag-filter + substrate) is the same URL the browser's address bar carries. The `re-frame.story.ui.url-state` ns wires `pushState` / `popstate` against the `re-frame.story.share/variant-share-url` encoder so the address bar always reflects the focused state. Cmd-L / Cmd-A / Cmd-C copies it; paste anywhere — chat, an issue tracker, a docs draft — and the recipient lands on the same picked state on their machine (or, with `?embed=1`, a chrome-free iframe variant for docs sites).
 
-![The QR share popover floating over a variant.](../images/story/05-qr-share.png)
+Up to v1 the chrome carried a per-variant Share button on each variant's title row that opened a popover with the URL + a QR code rendered locally from the vendored `qrcode-generator` npm package (MIT, ~52 KB unpacked, zero deps). The popover was first hardened against off-box egress in `rf2-20w5i` (the security audit replaced a third-party QR-image service with the local SVG encoder) and then retired entirely in `rf2-ymnfx` Issue B because it added no capability beyond what the browser's address bar already supplied — Cmd-L / Cmd-A / Cmd-C is the same gesture, native to every desktop browser, with no extra UI to learn.
 
-*(1) The QR code itself, scannable from any phone camera. (2) The full share URL string above the QR. (3, 4) The popover hosts the Copy-as-image and Copy-as-URL affordances — both wired into the standard `navigator.clipboard` flow.*
-
-The motivating use case: design review against a real device. You've built the login form's `:error` variant; the design lead wants to see it on the actual phone they were thinking about, not the Chrome device emulator. Click the QR. Scan with the phone. The phone opens the variant on your dev server at the same picked state — same args, same mode, same workspace overrides. Two seconds, instead of the usual "let me get my laptop on the same WiFi as your phone."
-
-The QR encoder is **vendored locally** via the `qrcode-generator` npm package (MIT, ~52 KB unpacked, zero deps). There's no network roundtrip when you open the popover, no third-party tracking, no leaking the share URL (which encodes your variant state and cell-overrides) to anyone. The encoder lives at `re-frame.story.qr/qr-svg-string` and the popover splices the SVG inline. Production builds short-circuit before the encoder code is reachable; the prod bundle carries no QR bytes.
-
-Two affordances on the QR popover:
-
-- *Copy as image* — for embedding in design docs.
-- *Copy as URL* — same content, text-shaped, for chat / issue trackers.
-
-This is one of those features where the implementation is small (a few dozen lines of glue around a vendored encoder) and the user value is disproportionate. We make this trade often in Story; we'll keep making it. Cheap-but-good is the right default for a developer-session tool.
+If you want a phone-handoff workflow against a real device, browsers already ship one: macOS and iOS Safari sync the address bar through Handoff; Chrome's "Send to your devices" lives in the right-click menu; both browsers' share menus generate QR codes on demand. Story sits out of that game by design.
 
 ## Snapshot artefacts in the static build
 

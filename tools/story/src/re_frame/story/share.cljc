@@ -1,11 +1,15 @@
 (ns re-frame.story.share
-  "Per-variant share affordance — sharable URL + QR code. Per
+  "Per-variant share URL — pure URL builder + parser. Per
   IMPL-SPEC §2.8.5 + Stage 6 (rf2-zhwd). Phase-2 §5.2 #6.
 
-  Each variant gets a small share button that pops a URL + QR code
-  linking to that variant's URL. The URL encodes the active modes and
-  any cell-overrides so a scan-and-share session reproduces the exact
-  cell the author is looking at.
+  Each variant has a sharable URL that encodes the active modes and
+  any cell-overrides so a teammate pasting the URL lands on the exact
+  same cell the author is looking at. The URL is the browser's
+  address-bar URL — `re-frame.story.ui.url-state` wires pushState /
+  popstate against this encoder so back-button + bookmark + Cmd-L /
+  Cmd-A / Cmd-C preserve state. Per rf2-ymnfx Issue B there is no
+  separate Share button or QR popover — the affordance was redundant
+  with the live URL surface.
 
   ## URL scheme
 
@@ -34,27 +38,16 @@
   Per rf2-o4u18 the URL is the sharability surface of the testbed: a
   teammate pasting a URL must land on the exact same view (workspace
   + mode-tab + viewport + background + tag-filter + modes + overrides
-  + substrate). The chrome's `re-frame.story.ui.url-state` wires
-  pushState / popstate against this encoder so back-button + bookmark
-  preserves state.
+  + substrate).
 
   ## Modules in this ns
 
-  - Pure URL-building (`variant-share-url` and friends) — JVM-testable.
-  - QR rendering lives in `re-frame.story.qr` (CLJS-only) and runs
-    locally via the vendored `qrcode-generator` npm package. The
-    popover splices an inline SVG; no network request fires when the
-    share popover opens. Pre-fix (per rf2-20w5i §High) the QR was
-    fetched from a third-party QR-image service, which carried every
-    author-typed `:cell-overrides` value off-box — local generation
-    eliminates that egress entirely.
+  Pure URL-building (`variant-share-url` and friends) — JVM-testable.
 
   ## Bundle isolation
 
   Share is part of the Story bundle but DCE'd under `:advanced` with
-  `:rf.story/enabled?` false (per IMPL-SPEC §6.2). The QR encoder is
-  only reachable from the share UI; under disabled builds Closure DCE
-  drops both the UI shell and the qrcode-generator wrapper."
+  `:rf.story/enabled?` false (per IMPL-SPEC §6.2)."
   (:require [clojure.string :as str]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])))
@@ -427,12 +420,11 @@
      (or base-url "")
      (build-params (assoc opts :variant-id variant-id)))))
 
-;; QR rendering lives in re-frame.story.qr (CLJS-only). The vendored
-;; `qrcode-generator` npm package produces an inline SVG string locally;
-;; the share UI splices it into the popover via React's
-;; `:dangerouslySetInnerHTML`. No third-party network fetch fires when
-;; the popover opens. Pre-fix (per rf2-20w5i §High) the QR was sourced
-;; from a third-party QR-image service with the share URL embedded as
-;; a query param, which leaked every author-typed `:cell-overrides`
-;; value to that service; local generation removes that egress
-;; entirely.
+;; Historic note (rf2-20w5i § High): a pre-Stage-6 build of the per-
+;; variant share popover sourced its QR image from a third-party QR-
+;; image service with the share URL (including author-typed
+;; `:cell-overrides`) embedded as a query param — leaking that data
+;; off-box. The QR popover was first replaced with a local SVG encoder
+;; (rf2-20w5i), then retired entirely in rf2-ymnfx Issue B because the
+;; share URL is already the browser's address bar. The redirect-free
+;; URL-builder above is the surviving surface.

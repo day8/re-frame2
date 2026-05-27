@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "react":     "{{react-version}}",
-    "react-dom": "{{react-version}}",
-    "qrcode-generator": "2.0.4"
+    "react-dom": "{{react-version}}"
   }
 }

@@ -93,16 +93,13 @@
               :text-align "center"
               :padding "32px"}
    ;; Title row: flex so the variant id + view-id consume the left
-   ;; portion and the trailing affordances (open-in-editor chip, share
-   ;; button) sit anchored to the right. `flex-wrap` keeps the row from
-   ;; cramping on narrow canvases, but the share-button container is
-   ;; pinned to the right edge so the popover (anchored from share-button
-   ;; via `right: 0`) always extends INTO the canvas — never leftward
-   ;; into the sidebar's screen-x range, which Playwright's hit-testing
-   ;; flags as a pointer-events intercept (see Tools/Story PR #1554 CI
-   ;; trace: with default fallback fonts on Linux, the natural inline
-   ;; flow wraps the title and pushes share-button to the left of line 2,
-   ;; placing the popover's close button under the sidebar).
+   ;; portion and the trailing affordances (open-in-editor chip) sit
+   ;; anchored to the right via `:title-trailing`'s `margin-left:
+   ;; auto`. `flex-wrap` keeps the row from cramping on narrow
+   ;; canvases. (Up to v1 the trailing cluster also carried a per-
+   ;; variant share-button + popover; rf2-ymnfx Issue B retired both
+   ;; because the variant URL is already the browser's live address
+   ;; bar.)
    :title    {:font-weight "bold"
               :margin-bottom "8px"
               :color (:info colors/tokens)
@@ -112,10 +109,10 @@
               :align-items "center"
               :flex-wrap "wrap"
               :gap "4px"}
-   ;; The trailing-affordance cluster (open-in-editor + share). Pushed
-   ;; to the right via `margin-left: auto` so the popover always anchors
-   ;; from the canvas's right edge rather than wherever inline flow
-   ;; happens to land in CI font-fallback conditions.
+   ;; The trailing-affordance cluster (open-in-editor chip). Pushed to
+   ;; the right via `margin-left: auto` so the cluster sits at the
+   ;; canvas's right edge rather than wherever inline flow happens to
+   ;; land in CI font-fallback conditions.
    :title-trailing {:margin-left "auto"
                     :display "inline-flex"
                     :align-items "center"
@@ -496,23 +493,19 @@
          (str " (substrates: "
               (str/join ", " (map name (sort-by name substrates)))
               ")")])
-      ;; Trailing-affordance cluster: open-in-editor chip + share popover
-      ;; trigger. Pinned to the right end of the title row via the
-      ;; `:title-trailing` style's `margin-left: auto`. This anchors the
-      ;; share popover (which positions `right: 8px` against its inline-
-      ;; block parent) so it always extends LEFTWARD INTO the canvas, not
-      ;; off the canvas's left edge into the sidebar's screen-x range —
-      ;; which the CI Playwright run flagged as a pointer-events intercept
-      ;; when the title wrapped under default Linux fallback fonts.
+      ;; Trailing-affordance cluster: open-in-editor chip. Pinned to the
+      ;; right end of the title row via the `:title-trailing` style's
+      ;; `margin-left: auto`. The variant URL is already in the browser's
+      ;; address bar (Cmd-L / Cmd-A / Cmd-C copies it); there is no Share
+      ;; button (rf2-ymnfx Issue B — the affordance was redundant with
+      ;; the live URL state surface).
       (when variant-id
         [:span {:style (:title-trailing styles)}
          ;; rf2-evgf5: per-variant 'Open in editor' chip. Reads :source
          ;; off the variant body and routes through the user's configured
          ;; editor URI scheme. Renders nothing when no source-coord was
          ;; captured at registration.
-         (open-in-editor/open-chip-for-variant variant-body)
-         ;; Stage 6: per-variant share affordance (IMPL-SPEC §2.8.5).
-         [share/share-button variant-id]])]
+         (open-in-editor/open-chip-for-variant variant-body)])]
      ;; rf2-9jthx: share-import hint surfaces a non-blocking note when
      ;; a hydrated share URL dropped one or more overrides (variant
      ;; args refactored/renamed/removed). Renders nil when nothing

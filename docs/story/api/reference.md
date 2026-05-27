@@ -77,7 +77,7 @@ The canonical facade. Every user-callable surface lives here.
 | `variant-substrates` | `(variant-substrates variant-id)` → set | The substrate set for a specific variant. |
 | `variant->edn` | `(variant->edn variant-id)` → map | Variant body as serialisable EDN. |
 | `workspace->edn` | `(workspace->edn workspace-id)` → map | Workspace body as serialisable EDN. |
-| `snapshot-identity` | `(snapshot-identity variant-id)` / `(snapshot-identity variant-id opts)` → map | `{:variant-id ... :content-hash "..."}`. QR-share + visual-regression keying. |
+| `snapshot-identity` | `(snapshot-identity variant-id)` / `(snapshot-identity variant-id opts)` → map | `{:variant-id ... :content-hash "..."}`. Variant identity for visual-regression keying + the Story recorder. |
 | `variant-share-url` | `(variant-share-url variant-id)` / `(variant-share-url variant-id base-url opts)` → string | Sharable URL — encodes active modes + cell-overrides + substrate. |
 | `static-mode?` | `(static-mode?)` → bool | True iff Story is running in static-export mode. |
 

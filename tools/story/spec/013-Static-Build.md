@@ -29,8 +29,9 @@ break or feel out of place on a static site.
   `index.html`, one `main.js`, one set of cljs-runtime siblings. The
   story shell's existing in-memory selection state (sidebar, tag
   filter, mode toolbar) drives navigation; visitors deep-link via the
-  share URL (per [`005-SOTA-Features.md`](005-SOTA-Features.md) §QR
-  code in share menu) rather than per-variant routes.
+  share URL (per [`005-SOTA-Features.md`](005-SOTA-Features.md)
+  §Share URL — surfaced live in the browser address bar) rather than
+  per-variant routes.
 - **Per-story HTML files deferred.** A future iteration may emit one
   HTML file per variant for SEO / link-preview embedding (Storybook's
   `--docs` mode equivalent). v1 keeps the surface narrow — the SPA

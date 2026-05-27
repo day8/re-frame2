@@ -62,7 +62,8 @@ PLACEHOLDERS = [
     ("story", "04-workspace-grid.png",  "A 2×2 workspace mounting four variants"),
     # Additional Story scenes:
     ("story", "03-recorder-modal.png",  "Recorder modal — generated :play body (EDN)"),
-    ("story", "05-qr-share.png",        "QR sharing — snapshot identity as a scannable code"),
+    # 05-qr-share.png retired per rf2-ymnfx Issue B (share button + QR
+    # popover replaced by the browser's live address-bar URL).
     ("story", "06-time-travel-mini.png", "Per-cell mini-scrubbers across a workspace"),
     ("story", "07-multi-substrate.png", "Same variant rendered under three substrates"),
 ]

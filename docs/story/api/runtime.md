@@ -162,7 +162,7 @@ The result map shape:
   (snapshot-identity variant-id) → map
   (snapshot-identity variant-id opts) → map
   ```
-- **Description**: The variant's snapshot identity — the variant id plus a content-hash over its setup (args, events, modes, substrate). Returns `{:variant-id ... :content-hash "..."}`. Used by QR-share and the Story recorder to identify what the user is looking at without leaking the variant's args. The hash computes over real values (pre-substitution); downstream emission goes through `elide-wire-value`.
+- **Description**: The variant's snapshot identity — the variant id plus a content-hash over its setup (args, events, modes, substrate). Returns `{:variant-id ... :content-hash "..."}`. Used by visual-regression keying + the Story recorder to identify what the user is looking at without leaking the variant's args. The hash computes over real values (pre-substitution); downstream emission goes through `elide-wire-value`.
 
 ### `variant-share-url`
 
@@ -171,7 +171,7 @@ The result map shape:
   (variant-share-url variant-id) → string
   (variant-share-url variant-id base-url opts) → string
   ```
-- **Description**: Build a sharable URL for `variant-id` against `base-url`. Encodes active modes + cell-overrides + substrate so a scan-and-share session reproduces the cell. Pure data → data; JVM + CLJS portable.
+- **Description**: Build a sharable URL for `variant-id` against `base-url`. Encodes active modes + cell-overrides + substrate so a paste-and-open session reproduces the cell. The chrome's `url-state` pushState wiring keeps the browser's address bar in lockstep with this encoder so Cmd-L Cmd-C copies the same URL the builder produces. Pure data → data; JVM + CLJS portable.
 
 ## Assertion-side accessors
 

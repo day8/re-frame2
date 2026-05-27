@@ -103,7 +103,7 @@ The substantive implementation contract is decomposed into
 | [`spec/002-Runtime.md`](./spec/002-Runtime.md) | Per-variant frame allocation; args precedence; decorator composition; the four-phase loader lifecycle; `run-variant` and friends. |
 | [`spec/003-Render-Shell.md`](./spec/003-Render-Shell.md) | The UI shell (sidebar / canvas / controls / workspace / embedded Xray inspector); the five workspace layouts; multi-substrate side-by-side. |
 | [`spec/004-Assertions.md`](./spec/004-Assertions.md) | The seven canonical `:rf.assert/*` events; record-don't-throw semantics; play-sequence execution; the assertion-side `force-fx-stub` interaction. |
-| [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) | `force-fx-stub` (mock anything, not just the network); layout-debug trio; a11y; QR share; multi-substrate; 10x embed; v1.1 deferrals; production elision. |
+| [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) | `force-fx-stub` (mock anything, not just the network); layout-debug trio; a11y; share URL (live address-bar surface; QR popover retired in rf2-ymnfx Issue B); multi-substrate; 10x embed; v1.1 deferrals; production elision. |
 | [`spec/006-MCP-Surface.md`](./spec/006-MCP-Surface.md) | The boundary between Story and `tools/story-mcp/`. |
 | [`spec/Principles.md`](./spec/Principles.md) | Design principles (EDN-first, no fn-slots, production-elision strict, etc.). |
 | [`spec/API.md`](./spec/API.md) | Consolidated public API surface. |

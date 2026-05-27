@@ -378,8 +378,7 @@ column in `index.html` / `app.css`.
 
 **Why this differs from §4 (Story default-off).** Story is a
 *Storybook-class authoring tool* — useful only to teams who write
-stories, with a still-moving `reg-*` surface and a real runtime dep
-(`qrcode-generator`) that ships in `dependencies`. Xray is a
+stories, with a still-moving `reg-*` surface. Xray is a
 *devtools panel* — useful to every developer from the first save,
 with zero production footprint and a settled contract. The two
 tools sit on opposite sides of the default line for exactly those

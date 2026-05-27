@@ -295,7 +295,7 @@ check on the emitted tree is the spike's effective signal.
   `_reagent/deps_with_story.edn` (adds the
   `day8/re-frame2-story {:mvn/version …}` coord) and the
   `_reagent/package.json` for `_reagent/package_with_story.json`
-  (adds the `story` npm script + the `qrcode-generator` npm dep). This
+  (adds the `story` npm script). This
   separate-source approach replaces clj-new's Mustache-style
   `{{#include-story?}}…{{/include-story?}}` blocks — deps-new uses
   flat `{{key}}` substitution (see `org.corfield.new.impl/->subst-map`

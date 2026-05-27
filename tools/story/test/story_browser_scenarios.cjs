@@ -138,15 +138,6 @@ function assertBrowserVisibleUnsignedHex(hash, description) {
   }
 }
 
-function assertUrlParam(url, key, expected) {
-  const parsed = new URL(url);
-  const actual = parsed.searchParams.get(key);
-  if (actual !== expected) {
-    throw new Error(`expected share URL ${key}=${expected}, got ${actual} in ${url}`);
-  }
-  return parsed;
-}
-
 function assertNoThirdPartyRequests(page) {
   const requests = page.__storyBrowserScenarioRequests || [];
   const base = new URL(page.url());
@@ -330,53 +321,17 @@ module.exports = {
       }
     });
 
-    await scenario(page, 'share-popover-and-qr-preserve-variant-id', async () => {
-      await page.getByRole('button', { name: /^share$/i }).first().click();
-      const shareUrl = await page.locator('[data-test="story-share-url"]').innerText();
-      const parsed = assertUrlParam(shareUrl.trim(), 'variant', 'story.counter/loaded');
-      if (parsed.hash !== '#/stories') {
-        throw new Error(`expected share URL to route back to #/stories, got ${parsed.hash}`);
-      }
-      const modes = parsed.searchParams.get('modes') || '';
-      if (!modes.includes('Mode.app/dark')) {
-        throw new Error(`expected share URL modes to include Mode.app/dark, got ${modes}`);
-      }
-      const overrides = parsed.searchParams.get('overrides') || '';
-      if (!overrides.includes('label:"Changed by browser scenario"')) {
-        throw new Error(`expected share URL overrides to include edited label, got ${overrides}`);
-      }
-
-      const qr = page.locator('[data-test="story-share-qr"]');
-      await expectVisible(qr, 5000);
-      const qrUrl = await qr.getAttribute('data-share-url');
-      if (qrUrl !== shareUrl.trim()) {
-        throw new Error(`QR data-share-url differed from visible share URL: ${qrUrl}`);
-      }
-      assertNoThirdPartyRequests(page);
-      await page.getByRole('button', { name: /^close$/i }).first().click();
-    });
-
-    await scenario(page, 'share-url-follows-current-variant-and-per-variant-props', async () => {
-      await clickVariant(page, '/empty');
-      await waitForCanvas(page, ':story.counter/empty');
-      const emptyCanvas = canvas(page, ':story.counter/empty');
-      await emptyCanvas.locator('[data-test="story-share-button"]').click();
-      const emptyShareUrl = await emptyCanvas.locator('[data-test="story-share-url"]').innerText();
-      const emptyParsed = assertUrlParam(emptyShareUrl.trim(), 'variant', 'story.counter/empty');
-      const emptyOverrides = emptyParsed.searchParams.get('overrides') || '';
-      if (emptyOverrides.includes('Changed by browser scenario')) {
-        throw new Error(`loaded variant control override leaked into empty variant share URL: ${emptyOverrides}`);
-      }
-      await emptyCanvas.getByRole('button', { name: /^close$/i }).first().click();
-
-      await clickVariant(page, '/loaded');
-      await waitForCanvas(page, ':story.counter/loaded');
-      await expectTextContains(
-        canvas(page, ':story.counter/loaded'),
-        'Changed by browser scenario',
-        5000,
-      );
-    });
+    // rf2-ymnfx Issue B retired the per-variant Share button + QR popover:
+    // the variant URL was already live in the browser's address bar via
+    // `url-state` pushState (Cmd-L Cmd-C copies it). The two previous
+    // scenarios — `share-popover-and-qr-preserve-variant-id` and
+    // `share-url-follows-current-variant-and-per-variant-props` — were
+    // popover-shape assertions over an affordance that no longer exists.
+    // The underlying URL-builder contract is still covered by
+    // `share-url-hydrates-variant-modes-and-props` (hydrate side) and by
+    // the JVM/CLJS unit suite for `re-frame.story.share`. Per-variant
+    // override isolation is covered by the snapshot-hash scenario above
+    // plus the variant-isolation CLJS unit tests.
 
     await scenario(page, 'assertions-pass-fail-structured-output', async () => {
       await setMode(page, 'test');

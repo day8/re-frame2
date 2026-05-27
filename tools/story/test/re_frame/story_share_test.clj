@@ -182,17 +182,21 @@
 
 ;; ---- No QR endpoint --------------------------------------------------------
 ;;
-;; Per rf2-20w5i (security audit): the QR is rendered locally via the
-;; vendored `qrcode-generator` npm package (see `re-frame.story.qr`,
-;; CLJS-only). Pre-fix this ns exposed `qr-image-url` + `qr-endpoint`
-;; which built a URL pointing at api.qrserver.com; both have been
-;; removed. The contract test below pins the removal: no Var, no
-;; `https://api.qrserver.com` literal anywhere in the share module.
+;; rf2-20w5i (security audit) + rf2-ymnfx Issue B: the per-variant
+;; Share button + QR popover were retired outright — the variant URL
+;; is the browser's live address-bar URL (`url-state` pushState).
+;; This ns must therefore expose neither the legacy third-party QR
+;; endpoint Vars nor the vendored local encoder Vars from `share/`
+;; (the encoder ns `re-frame.story.qr` itself is gone). The literal
+;; api.qrserver.com must not appear in the share module — a future
+;; regression that re-introduced a third-party QR fetch trips here.
 
 (deftest no-third-party-qr-endpoint
-  (testing "share namespace no longer exposes a remote-QR endpoint Var
-            (pre-fix `qr-endpoint` pointed at api.qrserver.com; the
-            audit eliminated it in favour of local SVG generation)"
+  (testing "share namespace exposes no QR-endpoint Var. Pre-rf2-20w5i
+            `qr-endpoint` / `qr-image-url` built URLs against
+            api.qrserver.com; rf2-20w5i eliminated those; rf2-ymnfx
+            Issue B then retired the QR popover entirely. The
+            assertions remain as a regression gate."
     (is (nil? (resolve 'share/qr-endpoint)))
     (is (nil? (resolve 'share/qr-image-url)))))
 

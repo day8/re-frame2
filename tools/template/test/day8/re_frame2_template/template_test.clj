@@ -14,7 +14,7 @@
      4. Assert the `:include-story?` flag branches:
           - default path emits no story files / coords
           - true on Reagent emits stories.cljs + with-stories core +
-            day8/re-frame2-story coord + qrcode-generator npm dep
+            day8/re-frame2-story coord
           - true on non-Reagent substrates throws with a clear message
 
    Mirrors the surface checks that previously lived in the clj-new test
@@ -332,10 +332,7 @@
             (is (not (contains? (:deps deps) 'day8/re-frame2-story))
                 "deps.edn does NOT reference day8/re-frame2-story on default path")
             (is (not (.contains pkg-txt "\"story\":"))
-                "package.json does NOT carry a `story` npm script on default path")
-            (is (not (.contains pkg-txt "\"qrcode-generator\""))
-                "package.json does NOT carry the qrcode-generator npm dep
-                 on the default path (Story-only)"))
+                "package.json does NOT carry a `story` npm script on default path"))
           ;; The default-path core.cljs should still be the simple one —
           ;; no Story require, no hash-routing surface.
           (let [core-text (slurp (io/file root "src/acme/my_app/core.cljs"))]
@@ -363,10 +360,13 @@
             ;; Pin value owned by version_lockstep_test.clj (rf2-5v619, D3).
             (is (some? (get-in deps [:deps 'day8/re-frame2-story :mvn/version]))
                 "story coord carries an :mvn/version pin")
-            (is (.contains pkg-txt "\"qrcode-generator\"")
-                "package.json declares the qrcode-generator npm dep
-                 (Story's only direct npm dependency — re-frame.story.qr
-                 wraps it for the share-canvas QR codes)"))
+            ;; rf2-ymnfx Issue B retired the Share popover (and the
+            ;; vendored qrcode-generator npm dep that backed its local
+            ;; QR encoder); the with-Story template no longer declares
+            ;; any Story-specific npm dependency.
+            (is (not (.contains pkg-txt "\"qrcode-generator\""))
+                "package.json does NOT declare qrcode-generator (Share
+                 popover + QR encoder retired in rf2-ymnfx Issue B)"))
           ;; -- core.cljs is the hash-routing with-stories variant --
           (let [core-text (slurp (io/file root "src/acme/my_app/core.cljs"))]
             (is (.contains core-text "re-frame.story")

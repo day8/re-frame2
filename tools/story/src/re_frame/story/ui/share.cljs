@@ -1,124 +1,40 @@
 (ns re-frame.story.ui.share
-  "Per-variant share popover. Per IMPL-SPEC §2.8.5 + Stage 6 (rf2-zhwd).
+  "Share-URL hydration + the dropped-overrides hint banner.
 
-  Renders a small share button alongside the variant canvas title. On
-  click a popover shows:
+  Story's per-variant share URL is the same URL the browser's address
+  bar carries (Cmd-L / Cmd-A / Cmd-C copies it); there is no separate
+  Share button (rf2-ymnfx — Issue B). What survives here is the read-
+  side of the share URL contract: parse `?variant=...&overrides=...`
+  on shell mount and surface a non-blocking hint when any encoded
+  override no longer applies to the current variant body.
 
-  - the share URL (selectable + click-to-copy)
-  - a QR code image encoding the same URL
-  - a 'copy link' button
+  ## What lives here
 
-  The popover state is local to this component — Reagent r/atom — so
-  it doesn't pollute the shell state with ephemeral UI flags.
+  - `hydrate-from-url!` — fold the share-URL `?overrides=` slot into
+    the shell state on mount, including any drift the URL carries
+    against the live registry (variant args renamed / removed). The
+    rest of the share-URL surface (workspace, mode-tab, viewport,
+    background, tag-filter, substrate) is hydrated by
+    `re-frame.story.ui.url-state` — that ns owns chrome-state slots;
+    this one owns the per-variant cell-overrides slot and the
+    accompanying drift hint.
+
+  - `share-import-hint` / `dismiss-share-import-hint!` — non-blocking
+    banner the canvas splices over a variant when a hydrated URL
+    dropped one or more `:cell-overrides` entries (rf2-9jthx).
 
   ## Bundle isolation
 
-  Lives inside the Story bundle. Production builds with `enabled?` false
-  DCE the entire ns via the same reachability path the rest of the UI
-  shell uses."
-  (:require [reagent.core :as r]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.qr :as qr]
+  Part of the Story UI shell. Under `:advanced` builds with
+  `:rf.story/enabled?` false the shell is DCE'd and this ns rides
+  out alongside it."
+  (:require [re-frame.story.registrar :as registrar]
             [re-frame.story.share :as share]
             [re-frame.story.ui.state :as state]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
-;; ---- styling -------------------------------------------------------------
-
-(def ^:private styles
-  {:button    {:padding       "2px 8px"
-               :background    (:bg-3 colors/tokens)
-               :color         (:info colors/tokens)
-               :border        "1px solid #555"
-               :border-radius "3px"
-               :cursor        "pointer"
-               :font-family   mono-stack
-               :font-size     (:micro typography/type-scale)
-               :margin-left   "8px"}
-   :popover   {:position      "absolute"
-               :top           "30px"
-               :right         "8px"
-               :background    (:bg-2 colors/tokens)
-               :border        "1px solid #555"
-               :border-radius "4px"
-               :padding       "12px"
-               :z-index       1000
-               :box-shadow    "0 4px 12px rgba(0,0,0,0.6)"
-               :min-width     "220px"
-               :font-family   mono-stack
-               :font-size     (:caption typography/type-scale)
-               :color         (:text-primary colors/tokens)}
-   :url-label {:color (:text-secondary colors/tokens)
-               :margin-bottom "4px"
-               :text-transform "uppercase"
-               :font-size (:nano typography/type-scale)
-               :letter-spacing "0.5px"}
-   :url       {:padding       "4px 6px"
-               :background    (:bg-canvas colors/tokens)
-               :border        "1px solid #444"
-               :border-radius "3px"
-               :word-break    "break-all"
-               :user-select   "all"
-               :margin-bottom "8px"}
-   :qr        {:display "flex"
-               :justify-content "center"
-               :background "white"
-               :padding "6px"
-               :border-radius "3px"
-               :margin-bottom "8px"}
-   :qr-fallback {:display "flex"
-                 :align-items "center"
-                 :justify-content "center"
-                 :background "#3a2a1a"
-                 :color "#e0a060"
-                 :padding "10px"
-                 :border "1px dashed #a06030"
-                 :border-radius "3px"
-                 :margin-bottom "8px"
-                 :font-size (:micro typography/type-scale)
-                 :text-align "center"
-                 :line-height "1.4"}
-   :copy-btn  {:padding "4px 10px"
-               :background (:accent-amber colors/tokens)
-               :color "white"
-               :border "none"
-               :border-radius "3px"
-               :cursor "pointer"
-               :font-size (:micro typography/type-scale)
-               :margin-right "4px"}
-   :close-btn {:padding "4px 10px"
-               :background (:bg-3 colors/tokens)
-               :color (:text-primary colors/tokens)
-               :border "1px solid #555"
-               :border-radius "3px"
-               :cursor "pointer"
-               :font-size (:micro typography/type-scale)}})
-
 ;; ---- helpers -------------------------------------------------------------
-
-(defn- current-share-url
-  "Compute the share URL against the current shell state. Returns a
-  string. Per rf2-o4u18 the share popover encodes the FULL chrome
-  state — workspace + mode-tab + viewport + background + tag-filter —
-  so a shared link drops the recipient onto the exact same view."
-  [variant-id]
-  (let [shell @state/shell-state-atom
-        base  (when js/window
-                (let [loc (.-location js/window)]
-                  (str (.-origin loc) (.-pathname loc) "#/stories")))
-        mode-tab (get-in shell [:active-mode-tab variant-id])]
-    (share/variant-share-url
-      variant-id
-      (or base "")
-      {:active-modes   (:active-modes shell)
-       :cell-overrides (get-in shell [:cell-overrides variant-id])
-       :substrate      (:substrate shell)
-       :workspace-id   (:selected-workspace shell)
-       :mode-tab       mode-tab
-       :viewport       (:viewport shell)
-       :background     (:background shell)
-       :tag-filter     (:tag-filter shell)})))
 
 (defn- current-url-params
   []
@@ -135,7 +51,7 @@
   Toolbar modes hydrate in `re-frame.story.ui.toolbar`; this function
   owns the rest of the share URL contract: focused variant, per-variant
   cell overrides, and substrate. Invalid/stale variant ids are ignored
-  so old QR links degrade to the shell empty state instead of crashing.
+  so old URLs degrade to the shell empty state instead of crashing.
 
   Surfaces the count of dropped overrides (rf2-9jthx) under
   `[:rf.story/share-import-hint variant-id]` so the shell can render
@@ -214,69 +130,3 @@
                  :data-test "story-share-import-hint-dismiss"
                  :on-click  (fn [_] (dismiss-share-import-hint! variant-id))}
         "dismiss"]])))
-
-(defn- copy-to-clipboard!
-  "Best-effort clipboard write. Uses the async clipboard API where
-  available; silently no-ops otherwise (the URL is selectable + visible
-  in the popover, so the fallback is to manually copy)."
-  [text]
-  (when (and js/navigator (.-clipboard js/navigator))
-    (try
-      (.writeText (.-clipboard js/navigator) text)
-      (catch :default _ nil))))
-
-;; ---- component ----------------------------------------------------------
-
-(defn share-button
-  "Render the per-variant share button + popover. Local-state component
-  via Reagent — `open?` toggles on click. The button + popover render
-  as siblings inside a relatively-positioned container."
-  [variant-id]
-  (let [open? (r/atom false)]
-    (fn [variant-id]
-      [:div {:style {:position "relative" :display "inline-block"}}
-       [:button {:style    (:button styles)
-                 :title    "Share this variant (URL + QR)"
-                 :data-test "story-share-button"
-                 :on-click (fn [_] (swap! open? not))}
-        "share"]
-       (when @open?
-         (let [url (current-share-url variant-id)]
-           [:div {:style              (:popover styles)
-                  :data-test          "story-share-popover"
-                  :data-share-variant (pr-str variant-id)}
-            [:div {:style (:url-label styles)} "share link"]
-            [:div {:style     (:url styles)
-                   :data-test "story-share-url"}
-             url]
-            ;; Local QR encoder per rf2-20w5i: the SVG is generated
-            ;; in-process from `qrcode-generator`; no third-party
-            ;; endpoint is contacted. `:dangerouslySetInnerHTML` is
-            ;; safe here because the SVG markup comes from the
-            ;; trusted vendored library — caller text only contributes
-            ;; the encoded URL, never markup.
-            ;;
-            ;; rf2-3y7l4: when the URL exceeds QR capacity (long
-            ;; :cell-overrides etc.) `qr-svg-string` returns nil rather
-            ;; than throwing; we render a degraded panel and keep the
-            ;; copy-link affordance live below.
-            (if-let [svg (qr/qr-svg-string url 4)]
-              [:div {:style                   (:qr styles)
-                     :role                    "img"
-                     :aria-label              "QR code for variant URL"
-                     :data-test               "story-share-qr"
-                     :data-share-url          url
-                     :dangerouslySetInnerHTML {:__html svg}}]
-              [:div {:style          (:qr-fallback styles)
-                     :role           "note"
-                     :data-test      "story-share-qr-fallback"
-                     :data-share-url url}
-               "URL too long for QR — copy link instead"])
-            [:button {:style    (:copy-btn styles)
-                      :on-click (fn [_]
-                                  (copy-to-clipboard! url)
-                                  (reset! open? false))}
-             "copy link"]
-            [:button {:style    (:close-btn styles)
-                      :on-click (fn [_] (reset! open? false))}
-             "close"]]))])))

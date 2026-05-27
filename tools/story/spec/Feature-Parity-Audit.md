@@ -358,7 +358,7 @@ Three polish dimensions explicitly evaluated:
 | Animation timing | 180ms tab fade, diff-flash on app-db change, `--motion-scale` seam | mostly instant | **Story ahead** |
 | Focus rings + a11y posture | rf2-p1ai7 + rf2-u01y5 + rf2-07m13 (modal ARIA, arrow-key nav, accessible names) | mature; baseline | **Equivalent at this gate** |
 | HCM + forced-colors | rf2-ubhmn + rf2-846h2 (toggle + dogfood) | not first-party | **Story ahead** |
-| QR-share popover | local SVG via `qrcode-generator`, no third-party egress | brand-pink image proxy via `api.qrserver.com` | **Story ahead** (privacy posture + chrome identity) |
+| Share URL (no popover) | live browser address-bar URL via `url-state` pushState; Cmd-L Cmd-C copies it. No share button, no QR popover (rf2-ymnfx Issue B retired the affordance — redundant with the address bar). Earlier hardening (rf2-20w5i): the now-retired QR was generated locally, never via `api.qrserver.com`. | brand-pink image proxy via `api.qrserver.com` | **Story ahead** (privacy posture + chrome simplicity) |
 
 No polish-gap beads filed. The chrome differentiators are intentional
 and the identity is ahead.
