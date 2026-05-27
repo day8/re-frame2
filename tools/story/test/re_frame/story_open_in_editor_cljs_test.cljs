@@ -231,6 +231,46 @@
                   "panel_gallery/event_detail_stories.cljs:115:3")
              (:href (second hiccup)))))))
 
+(deftest open-chip-project-root-regression-rf2-ymnfx
+  (testing "regression: panel-gallery testbed used to call
+            xray-config/configure! ONLY — Story's project-root atom
+            stayed nil, so the Story variant-toolbar 'Open' button
+            shipped a relative `:file` slot (`panel_gallery/foo.cljs`)
+            that the OS-side editor handler rejected. The fix wires
+            `story/configure!` alongside the existing xray-config
+            call in panel-gallery's `run` so Story's atom carries the
+            same on-disk root Xray uses.
+
+            This test pins the variant-toolbar Open behaviour under
+            the panel-gallery's source-coord shape end-to-end: with
+            no project-root configured, the URI is relative (the
+            pre-fix bug); with `:rf.story/project-root` plumbed in
+            via `story/configure!`, the URI is absolute."
+    ;; Pre-fix bug shape: no project-root → relative URI (which the OS
+    ;; editor handler rejects).
+    (config/set-project-root! nil)
+    (let [hiccup-pre (open-in-editor/open-chip
+                       {:file "panel_gallery/gallery_app_db.cljs"
+                        :line 42
+                        :column 7})]
+      (is (= "vscode://file/panel_gallery/gallery_app_db.cljs:42:7"
+             (:href (second hiccup-pre)))
+          "without :rf.story/project-root the URI is relative (pre-fix
+           panel-gallery shape)"))
+    ;; Post-fix shape: `story/configure!` seeds the atom; URI is absolute.
+    (config/set-project-root!
+      "C:/Users/miket/code/re-frame2/tools/xray/testbeds")
+    (let [hiccup-post (open-in-editor/open-chip
+                        {:file "panel_gallery/gallery_app_db.cljs"
+                         :line 42
+                         :column 7})]
+      (is (= (str "vscode://file/"
+                  "C:/Users/miket/code/re-frame2/tools/xray/testbeds/"
+                  "panel_gallery/gallery_app_db.cljs:42:7")
+             (:href (second hiccup-post)))
+          "with :rf.story/project-root the URI is absolute — the
+           OS-side editor handler can resolve it"))))
+
 (deftest open-chip-project-root-roundtrip
   (testing "config/set-project-root! + get-project-root round-trip"
     (config/set-project-root! "/abs/code")
