@@ -565,6 +565,43 @@
       (is (not (contains? (:data to-ready) :after))
           "`:always` edge does not also carry `:after`"))))
 
+;; ---- rf2-2678t: :* wildcard label parity with machines-viz canonical ----
+;;
+;; Pre-rf2-2678t xray's local `event-segment-str` was a strict subset of
+;; the canonical `machines-viz/chart.layout/event-segment` — it lacked
+;; the `:*` → `\"* (any)\"` case. Post-fix the local helper delegates to
+;; the canonical fn, so wildcard edges label identically in xray and
+;; machines-viz (no glyph-convention drift).
+
+(deftest parse-definition-emits-edge-for-wildcard-event
+  (testing "rf2-2678t — `:on {:* :elsewhere}` (Spec 005 §Wildcard) emits
+            an edge labelled `\"* (any)\"`, matching the canonical
+            machines-viz layout helper. Pre-fix the label was bare
+            `\"*\"` — a strict subset of the canonical."
+    (let [def {:initial :a
+               :states  {:a {:on {:* :fallback}}
+                         :fallback {}}}
+          {:keys [edges]} (topology/parse-definition def)]
+      (is (= 1 (count edges)))
+      (let [e (first edges)]
+        (is (= :* (:event e))
+            "the wildcard event is recorded verbatim on the edge")
+        (is (= "* (any)" (:label e))
+            "label matches machines-viz convention (NOT bare `\"*\"`)")))))
+
+(deftest wildcard-label-matches-machines-viz-canonical
+  (testing "rf2-2678t — xray's edge label for `:*` must equal what
+            machines-viz produces for the same input. Single source of
+            truth lives in machines-viz/chart.layout/event-segment."
+    (let [def {:initial :a
+               :states  {:a {:on {:* :fallback}}
+                         :fallback {}}}
+          {:keys [edges]} (topology/parse-definition def)
+          xray-label    (-> edges first :label)
+          mviz-label    (chart-layout/event-segment {:event :*})]
+      (is (= xray-label mviz-label)
+          "xray + machines-viz agree on the wildcard edge label"))))
+
 (deftest project-includes-arrowhead-for-always-and-after
   (testing "rf2-ezqpm — every projected edge (including `:always` /
             `:after`) requests an arrowclosed markerEnd (rf2-5qsxo)"
