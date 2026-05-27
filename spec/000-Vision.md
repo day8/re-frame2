@@ -524,7 +524,7 @@ The `re-frame.alpha` namespace is **not part of v2**. The alpha experiment was a
 
 - `re-frame.alpha/reg`, `re-frame.alpha/sub`, `re-frame.alpha/reg-sub-lifecycle` and the four built-in lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forever`) — **dropped**. The per-kind `reg-*` macros (already in `re-frame.core`) and vector-form `subscribe` are the canonical surfaces.
 - The query-map `:re-frame/q` shape — **dropped**. Subscriptions take a vector.
-- Lifecycle-policy plumbing in the per-frame sub-cache — **dropped**. The cache uses a single algorithm: deferred ref-counting with a configurable grace-period (default 50ms); see [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal).
+- Lifecycle-policy plumbing in the per-frame sub-cache — **dropped**. The cache uses a single algorithm: synchronous ref-counting (dispose on derefer-count → 0); see [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal).
 - `reg-flow`, `flow<-`, `clear-flow`, `get-flow`, the `:flow` and `:live?` registered subs — **promoted to `re-frame.core`** under the `flow` family per [Spec 013](013-Flows.md). The migration is a namespace switch.
 
 Migration entries land at [MIGRATION §M-23](../migration/from-re-frame-v1/README.md#m-23-re-framealpha-is-removed).

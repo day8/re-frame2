@@ -561,16 +561,12 @@
   Per-entry contract. For every `[k entry]` in every live frame's
   `:sub-cache` atom:
 
-    1. If `entry` carries a `:pending-dispose` timer handle (the
-       sub-cache's grace-period reaper), cancel it via
-       `interop/clear-timeout!` — otherwise a fired timer would
-       attempt to touch a torn-down adapter slot.
-    2. Dispose the cached `:reaction` via `interop/dispose!`. This
+    1. Dispose the cached `:reaction` via `interop/dispose!`. This
        routes through `:adapter/dispose!`, which is still wired at
        this point in the teardown sequence (the substrate-adapter
        clears the install slot AFTER calling the adapter's
        `dispose-adapter!`).
-    3. After draining each frame's entries, `reset!` its sub-cache
+    2. After draining each frame's entries, `reset!` its sub-cache
        atom to `{}`.
 
   The walk is best-effort: a throwing per-entry dispose (e.g. a
@@ -588,9 +584,6 @@
   (doseq [[_ frame-record] @frame/frames]
     (when-let [cache (:sub-cache frame-record)]
       (doseq [[_k entry] @cache]
-        (when-let [h (:pending-dispose entry)]
-          (try (interop/clear-timeout! h)
-               (catch :default _ nil)))
         (when-let [r (:reaction entry)]
           (try (interop/dispose! r)
                (catch :default _ nil))))
@@ -1069,8 +1062,8 @@
 ;;   3. Wires useSyncExternalStore — the snapshot is the deref of the
 ;;      reaction; subscribe is add-watch on the underlying container.
 ;;   4. On unmount the watch is removed and the sub's ref-count
-;;      decrements through the cache's deferred-dispose grace-period
-;;      (per Spec 006 §reference-counting-and-disposal).
+;;      decrements; ref-count → 0 disposes synchronously
+;;      (per Spec 006 §reference-counting-and-disposal, rf2-cmfln).
 ;;
 ;; Hook fns (`use-memo`, `use-callback`, `use-context`) differ between
 ;; substrates by their deps-array convention — UIx accepts CLJS vectors,
@@ -1260,8 +1253,11 @@
             ;; Memo can rebuild on key change; pairing the subscribe
             ;; with a useEffect keyed on the same deps means React
             ;; fires the previous deps' cleanup before the new effect,
-            ;; so dec-then-inc happens in order and the sub-cache
-            ;; grace-period rules absorb any momentary 0 ref-count.
+            ;; so dec-then-inc happens in order. Per rf2-cmfln the
+            ;; cache disposes synchronously on the momentary 1 → 0
+            ;; transition and the new effect rebuilds against a fresh
+            ;; cache miss; the recomputed value `=` the disposed one
+            ;; so the post-rebuild render observes no value change.
             (React/useEffect
               (fn use-subscribe-effect []
                 (fn cleanup []

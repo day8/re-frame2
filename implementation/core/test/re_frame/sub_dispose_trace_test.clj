@@ -11,22 +11,21 @@
     :rf.sub/query-v <vec> :rf.sub/reason <enum>}`. The reason axis is a
     closed enum:
 
-      `:no-more-derefers` — grace-fire timer (or grace=0 sync) evicted
-                            the slot because ref-count dropped to 0.
+      `:no-more-derefers` — synchronous 1 → 0 transition evicted the
+                            slot (per rf2-cmfln; pre-rf2-cmfln this also
+                            covered the deferred-grace-timer fire).
       `:hot-reload`       — re-registration evicted every cached slot
                             for the affected sub-id.
       `:cache-clear`      — explicit `clear-sub-cache!` walked the
                             cache and disposed every slot.
 
   Single-fire discipline: the emit rides the SAME CAS-winner check that
-  gates `interop/dispose!`, so a concurrent grace-fire + invalidate
+  gates `interop/dispose!`, so a concurrent invalidate + sync-dispose
   cannot produce two `:rf.sub/dispose` for the same eviction.
 
-  Tests use grace=0 for the no-more-derefers path so the emit lands
-  synchronously inside `unsubscribe`; the deferred-grace path is
-  semantically identical (the timer callback calls
-  `dispose-entry-now!` with the same frame-id closure) so we don't
-  re-cover it here."
+  Per rf2-cmfln: sub disposal is synchronous on derefer-count → 0; no
+  grace-period to configure. The emit lands inside `unsubscribe` in the
+  same tick."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -45,11 +44,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (try (test-fn)
-       (finally
-         ;; Restore the default grace; the no-more-derefers test bodies
-         ;; pin it to 0 so the synchronous dispose lands deterministically.
-         (subs-cache/configure! {:grace-period-ms 50}))))
+  (test-fn))
 
 (use-fixtures :each reset-runtime)
 
@@ -66,16 +61,14 @@
 ;; ---- :no-more-derefers ---------------------------------------------------
 ;;
 ;; The dominant production case: last subscriber detaches, ref-count
-;; drops to 0, and the grace-period timer fires the eviction.
-;; Tests use grace=0 so the eviction is synchronous inside
-;; `rf/unsubscribe` — single-tick observability.
+;; drops to 0, and the slot is disposed synchronously inside the
+;; `unsubscribe` call (per rf2-cmfln).
 
-(deftest dispose-emits-on-last-unsubscribe-grace-zero
+(deftest dispose-emits-on-last-unsubscribe
   (testing ":rf.sub/dispose fires synchronously with :reason
-            :no-more-derefers when the last subscriber detaches under
-            grace=0; carries the canonical tags (frame, id, query-v,
-            reason); op-type rides :rf.sub"
-    (subs-cache/configure! {:grace-period-ms 0})
+            :no-more-derefers when the last subscriber detaches;
+            carries the canonical tags (frame, id, query-v, reason);
+            op-type rides :rf.sub"
     (rf/reg-event-db :init (fn [_ _] {:a 42}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
@@ -98,7 +91,7 @@
             (is (= [:sub/a] (-> ev :tags :rf.sub/query-v))
                 ":tags :rf.sub/query-v is the full subscription vector")
             (is (= :no-more-derefers (-> ev :tags :rf.sub/reason))
-                ":tags :rf.sub/reason :no-more-derefers — grace-fire path")))
+                ":tags :rf.sub/reason :no-more-derefers — sync 1 → 0 path")))
         (finally
           (rf/unregister-listener! ::layer-1-no-derefers))))))
 
@@ -106,7 +99,6 @@
   (testing "with two subscribers, one unsubscribe does NOT emit
             :rf.sub/dispose — the slot's ref-count is still > 0; only
             the SECOND unsubscribe (the last derefer dropping) emits"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 42}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
@@ -129,7 +121,6 @@
   (testing "a layer-2 sub's disposal cascades to its layer-1 inputs —
             each evicted slot emits its own :rf.sub/dispose with
             :reason :no-more-derefers"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/reg-sub :sub/b (fn [db _] (:b db)))
@@ -156,28 +147,35 @@
         (finally
           (rf/unregister-listener! ::cascade-emit))))))
 
-(deftest dispose-not-emitted-when-resubscribe-cancels-grace
-  (testing "a resubscribe inside the deferred-grace window cancels the
-            pending dispose — no :rf.sub/dispose event fires because no
-            eviction occurred. Uses long grace + immediate resubscribe."
-    (subs-cache/configure! {:grace-period-ms 60000})
+(deftest dispose-then-resubscribe-builds-fresh-slot
+  (testing "per rf2-cmfln: unsubscribe disposes synchronously, so a
+            subsequent subscribe rebuilds against a fresh cache miss.
+            Two :rf.sub/dispose emits are NOT expected for one
+            subscribe/unsubscribe cycle — only the one at the
+            unsubscribe — but the rebuild does produce a NEW reaction
+            (no identity equality with the disposed one)"
     (rf/reg-event-db :init (fn [_ _] {:a 42}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
-    (let [acc (collect-traces! ::resubscribe-cancels)]
+    (let [acc (collect-traces! ::sync-dispose-then-resub)]
       (try
         (let [r1 (rf/subscribe [:sub/a])]
           (is (= 42 @r1))
           (rf/unsubscribe [:sub/a])
-          ;; Inside the long grace window: resubscribe should cancel
-          ;; the pending timer; the eviction never fires.
+          (is (= 1 (count (dispose-events @acc)))
+              "one :rf.sub/dispose fired at the sync 1 → 0 transition")
+          ;; A resubscribe after the sync dispose rebuilds — fresh
+          ;; reaction, not the disposed one. No additional dispose emit
+          ;; (the new slot is still live).
           (let [r2 (rf/subscribe [:sub/a])]
-            (is (identical? r1 r2)
-                "resubscribe returned the same reaction (slot survived)")
-            (is (empty? (dispose-events @acc))
-                "no :rf.sub/dispose — the eviction did not run")))
+            (is (not (identical? r1 r2))
+                "resubscribe returned a FRESH reaction (rf2-cmfln —
+                 sync dispose closed the old slot before this rebuild)")
+            (is (= 42 @r2) "the rebuilt sub computes the same value")
+            (is (= 1 (count (dispose-events @acc)))
+                "no additional dispose emit — the new slot is alive")))
         (finally
-          (rf/unregister-listener! ::resubscribe-cancels))))))
+          (rf/unregister-listener! ::sync-dispose-then-resub))))))
 
 ;; ---- :hot-reload ---------------------------------------------------------
 ;;
@@ -188,7 +186,6 @@
 (deftest dispose-emits-on-hot-reload
   (testing "re-registering a :sub fires :rf.sub/dispose with :reason
             :hot-reload for the affected slot (regardless of ref-count)"
-    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:a 42}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
@@ -214,7 +211,6 @@
   (testing "hot-reloading a sub with N cached query-arg variants fires
             N :rf.sub/dispose events, one per evicted slot, all with
             :reason :hot-reload"
-    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:items {:a 1 :b 2 :c 3}}))
     (rf/reg-sub :sub/item
       (fn [db [_ k]] (get-in db [:items k])))
@@ -248,7 +244,6 @@
 (deftest dispose-emits-on-clear-sub-cache
   (testing "(clear-sub-cache!) fires :rf.sub/dispose per evicted slot
             with :reason :cache-clear (regardless of ref-count)"
-    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:a 1 :b 2}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/reg-sub :sub/b (fn [db _] (:b db)))
@@ -281,7 +276,6 @@
             canonical tags + nothing extra: :frame, :rf.sub/id,
             :rf.sub/query-v, :rf.sub/reason. Required for consumer
             compatibility with rf2-wpfjo (Xray Epoch panel)."
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 1}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
@@ -319,7 +313,6 @@
 (deftest emits-fire-under-jvm-debug-enabled
   (testing "debug-enabled? is true on the JVM test runtime — dispose
             emits land in the trace stream"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:x 1}))
     (rf/reg-sub :sub/x (fn [db _] (:x db)))
     (rf/dispatch-sync [:init])

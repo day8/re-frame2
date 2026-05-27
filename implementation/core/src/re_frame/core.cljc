@@ -608,9 +608,9 @@
   subscribe-once subs/subscribe-once)
 
 (def ^{:doc "Decrement the ref-count on the cached subscription for
-  `query-v`; ref-count→0 schedules disposal after the configured
-  `:sub-cache` grace-period. Returns nil. Per spec/API.md §Dispatch and
-  subscribe.
+  `query-v`; ref-count → 0 disposes the entry **synchronously**
+  (rf2-cmfln, per Spec 006 §Reference counting and disposal).
+  Returns nil. Per spec/API.md §Dispatch and subscribe.
 
   Verb-axis carve-out (per Conventions §Tear-down verb axis,
   rf2-cmabc): the `un-` prefix is reserved as the singular form for
@@ -1387,13 +1387,16 @@
                                                     frame that did not set its own
                                                     `:rf.trace/cascades-retained` metadata.
                                                     Per Spec 009 §Per-frame trace rings.
-    :sub-cache     {:grace-period-ms N}             dispose grace (default 50ms)
     :elision       {:rf.size/threshold-bytes N}     wire-elision size threshold
                                                     (default 16384; 0 disables runtime
                                                     auto-detect — only declared / schema
                                                     entries elide)
   Unknown keys silently no-op. Per-frame settings live on frame metadata.
   Per Tool-Pair §How AI tools attach.
+
+  Per rf2-cmfln: the prior `:sub-cache {:grace-period-ms N}` knob is
+  retired. Sub disposal is **synchronous on derefer-count → 0** —
+  there is no deferred-grace timer to configure.
 
   `:trace-buffer` routes through the `re-frame.trace.tooling` sibling
   ns (per rf2-qwm0a). Production builds that never load the tooling
@@ -1405,7 +1408,6 @@
                      (f opts))
     :trace-buffer  (when-let [f (late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
                      (f opts))
-    :sub-cache     (subs-cache/configure! opts)
     :elision       (elision/configure! opts)
     nil))
 

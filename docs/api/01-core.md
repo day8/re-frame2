@@ -469,7 +469,7 @@ Both come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, 
   (unsubscribe query-v) → nil
   (unsubscribe frame-id query-v) → nil
   ```
-- **Description**: Decrement the cache ref-count for a query. When the count hits zero, disposal is scheduled after the configured `:sub-cache` grace-period. Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount.
+- **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** (per Spec 006 §Reference counting and disposal, rf2-cmfln). Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount.
 
 ### `sub-machine`
 
@@ -534,14 +534,15 @@ See [12 — Registrar](12-registrar.md) for the rest of the registrar-query surf
 
 ## Runtime configuration: `configure`
 
-Process-level data knobs live behind `(rf/configure <key> <opts>)`. The vocabulary of keys is closed-and-additive — existing keys cannot be renamed; new keys are added by extending the table. Currently four keys ship:
+Process-level data knobs live behind `(rf/configure <key> <opts>)`. The vocabulary of keys is closed-and-additive — existing keys cannot be renamed; new keys are added by extending the table. Currently three keys ship:
 
 | Key | Opts | Default | Status | What it tunes |
 |---|---|---|---|---|
 | `:epoch-history` | `{:depth N :trace-events-keep N :redact-fn fn}` | `{:depth 50, :redact-fn nil}` | v1 (dev-only) | Per-frame epoch ring depth (the time-travel buffer), trace-event retention cap per record, and an optional redactor invoked once per assembled record so ring and listeners see the same shape. |
 | `:trace-buffer` | `{:depth N}` | `{:depth 200}` | v1 (dev-only) | The dev-only trace event ring depth. 0 disables. |
-| `:sub-cache` | `{:grace-period-ms N}` | `{:grace-period-ms 50}` | v1 | How long the sub-cache holds a ref-count-zero query before disposing. 0 selects synchronous disposal — usually surprising; the default exists so transient unmount/remount sequences don't thrash. |
 | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which `elide-wire-value` substitutes a `:rf.size/large-elided` marker. 0 disables runtime auto-detect (only declared / schema entries elide). See [11 — Instrumentation](11-instrumentation.md). |
+
+> **Retired knob (rf2-cmfln).** Earlier docs listed `:sub-cache {:grace-period-ms N}`. That knob is gone — sub-cache disposal is now synchronous on derefer-count → 0 (per [Spec 006 §Reference counting and disposal](../../spec/006-ReactiveSubstrate.md#reference-counting-and-disposal)).
 
 SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure` key — it's per-frame metadata on the frame's `:ssr` map, because different frames in the same process can carry different projector settings.
 
@@ -550,7 +551,7 @@ SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not*
 The opts map deliberately mixes two key shapes:
 
 - **Framework-owned semantic sub-keys use a namespaced keyword** — `:rf.size/threshold-bytes`. The namespace identifies the cross-spec policy area; the same key shape appears verbatim wherever that policy is consumed (here under `:elision`, but also as a per-call opt to `elide-wire-value`).
-- **Ergonomic per-knob sub-keys are unqualified bare keywords** — `:depth`, `:grace-period-ms`, `:trace-events-keep`. Local to a single `configure` key; no cross-surface identity to encode.
+- **Ergonomic per-knob sub-keys are unqualified bare keywords** — `:depth`, `:trace-events-keep`, `:redact-fn`. Local to a single `configure` key; no cross-surface identity to encode.
 
 The discriminator is whether the sub-key names a cross-surface contract or a one-off knob. The rule is closed — there's no third shape.
 

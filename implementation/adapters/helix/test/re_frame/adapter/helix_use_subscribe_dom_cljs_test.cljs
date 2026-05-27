@@ -154,6 +154,12 @@
 (deftest use-subscribe-stable-deps-key
   (suite/assert-use-subscribe-stable-deps-key cfg))
 
+;; rf2-gizlj — lock the rf2-cmfln 2-arity contract at the spine cleanup
+;; call site (regression: the 3-arity grace-opts shape sneaking back in
+;; would break sync-dispose silently).
+(deftest use-subscribe-cleanup-calls-unsubscribe-with-2-args
+  (suite/assert-use-subscribe-cleanup-calls-unsubscribe-with-2-args cfg))
+
 ;; rf2-te71r — :rf.view/unmounted parity for the React-hook spine. The
 ;; probe view + element are built in the suite (raw React/createElement),
 ;; so this forwards on :substrate-kw alone (no substrate `defnc`/`$`).

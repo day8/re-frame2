@@ -65,10 +65,10 @@
 ;; ---- timers ---------------------------------------------------------------
 ;;
 ;; The JVM uses a real ScheduledExecutorService so that ms-valued delays
-;; behave like js/setTimeout — required by the per-frame sub-cache's
-;; grace-period disposal (per Spec 006 §Reference counting and disposal,
-;; rf2-s9dn). When ms = 0 the schedule still goes through the executor
-;; but fires effectively immediately.
+;; behave like js/setTimeout — used by `:dispatch-later`, the state-
+;; machine `:after` clock, HTTP retry, and the spine dispose drain.
+;; When ms = 0 the schedule still goes through the executor but fires
+;; effectively immediately.
 
 (defonce ^:private ^ScheduledExecutorService scheduled-executor
   (Executors/newSingleThreadScheduledExecutor))

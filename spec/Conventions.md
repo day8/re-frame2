@@ -62,7 +62,7 @@ The v1 `re-frame.alpha` namespace is **not part of v2**. The generalised `reg`/`
 - **Per-kind registration macros**: `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`.
 - **Vector-form subscribe**: `(rf/subscribe [::id arg])`.
 
-The per-frame sub-cache uses a single disposal algorithm — deferred ref-counting with a configurable grace-period — per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). For one-shot or persistent-value edge cases that would have leaned on a specific lifecycle policy, file a bead naming the actual need rather than reaching for a removed API.
+The per-frame sub-cache uses a single disposal algorithm — synchronous ref-counting (dispose on derefer-count → 0) — per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). For one-shot or persistent-value edge cases that would have leaned on a specific lifecycle policy, file a bead naming the actual need rather than reaching for a removed API.
 
 Migration entries: [MIGRATION §M-23](../migration/from-re-frame-v1/README.md#m-23-re-framealpha-is-removed).
 
@@ -463,7 +463,6 @@ For knobs that apply globally to the framework runtime, are addressed by a **key
 
 - `(rf/configure :epoch-history {:depth 50})` — ring-buffer depth for the Tool-Pair epoch surface
 - `(rf/configure :trace-buffer {:depth 200})` — ring-buffer depth for trace events
-- `(rf/configure :sub-cache {:grace-period-ms 50})` — deferred ref-counting grace period
 - `(rf/configure :elision {:rf.size/threshold-bytes 16384})` — wire-elision size threshold
 
 The opts-map sub-keys mix two shapes deliberately: cross-surface policy slots use a namespaced keyword under the area's reserved `:rf.<area>/*` sub-namespace (e.g. `:rf.size/threshold-bytes` — the same key the wire-elision walker reads); one-off per-knob settings stay bare (e.g. `:depth`, `:grace-period-ms`). The rule is closed and the discriminator is **whether the sub-key names a cross-spec policy slot or a one-off knob** — full statement at [API.md §Configure keys — Opts-key naming rule](API.md#opts-key-naming-rule).

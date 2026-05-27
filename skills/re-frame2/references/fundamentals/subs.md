@@ -68,9 +68,7 @@ A layer-1 sub touches `app-db` and recomputes when the value it reads changes by
 
 ## Cache behaviour
 
-Caching is per-frame, keyed by the query-vector. Disposal is **deferred ref-counting with a 50ms grace period** (`subs.cljc:21-25`). When the last subscriber drops, the cache entry is scheduled for disposal; a new subscriber arriving within the window cancels disposal and reuses the cached value. This is the **only** disposal algorithm — v1's `:safe` / `:no-cache` / `:reactive` / `:forever` lifecycles are gone (`subs.cljc:26-29`).
-
-For tests that need a different grace period: `(rf/configure :sub-cache {:grace-period-ms 0})` — see `subs.cljc:125` (`configure!`).
+Caching is per-frame, keyed by the query-vector. Disposal is **synchronous ref-counting (dispose on derefer-count → 0)** per rf2-cmfln (`subs/cache.cljc`). When the last subscriber drops, the cache entry is evicted in-tick: the reaction is disposed, the on-dispose cascade releases input ref-counts, and the slot is dissoc'd. A subscribe arriving after the disposal is treated as a fresh cache miss (the recomputed value `=` the disposed one). This is the **only** disposal algorithm — v1's `:safe` / `:no-cache` / `:reactive` / `:forever` lifecycles are gone, and v2 carries no deferred-grace-period timer either.
 
 ## Common gotchas
 

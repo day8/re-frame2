@@ -9,23 +9,26 @@
   Layer-3+: same shape as Layer-2 with deeper chains.
 
   The cache is per-frame, keyed by query-vector. Each entry holds:
-    {:value v :reaction r :inputs [...] :ref-count n :on-dispose [...]
-     :pending-dispose <timer-handle-or-nil>}
+    {:value v :reaction r :inputs [...] :ref-count n :on-dispose [...]}
 
   Invalidation runs as part of replace-container! — when app-db changes,
   the substrate adapter's reaction graph fires; layer-1 subs recompute
   if their reader's value changed by =, layer-2+ subs cascade
   topologically.
 
-  Disposal is **deferred ref-counting with a grace-period** (rf2-s9dn,
-  per Spec 006 §Reference counting and disposal). When the last subscriber
-  drops, the cache entry is scheduled for disposal after the configured
-  grace-period (default 50ms — see grace-period-ms / configure!). If a
-  new subscriber arrives within that window, disposal is cancelled and
-  the cached value is reused.
+  Disposal is **synchronous on derefer-count → 0** (rf2-cmfln, per
+  Spec 006 §Reference counting and disposal). When the last subscriber
+  drops (`unsubscribe` drives the 1 → 0 transition), the cache entry is
+  evicted IN-TICK: the reaction is disposed, the on-dispose callback
+  releases input refs (cascading down a layer-2+ chain), and the slot is
+  dissoc'd. A subsequent subscribe arriving after the drop is treated as
+  a fresh cache miss and rebuilds the entry; the recomputed value is `=`
+  to the disposed one, so the React-render-churn case (component briefly
+  unmounts then remounts with the same subscription) observes no value
+  change on the new mount.
 
   This is the only disposal algorithm — there are no pluggable lifecycle
-  policies."
+  policies, no deferred-grace timer, no batched dispose."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as adapter]
@@ -177,12 +180,11 @@
   [query-v]
   query-v)
 
-;; Grace-period configuration, ref-counting + scheduling, hot-reload
-;; invalidation, and `clear-sub-cache!` live in `re-frame.subs.cache` —
-;; extracted per rf2-0ytl4 Phase-2 seam S-A (fold-in of seam S-E). The
-;; public surface (`configure!`, `current-config`, `clear-sub-cache!`)
-;; is reached through `re-frame.core`'s defaliases pointing at
-;; `re-frame.subs.cache/*` directly (no facade re-export).
+;; Ref-counting, synchronous disposal, hot-reload invalidation, and
+;; `clear-sub-cache!` live in `re-frame.subs.cache` — extracted per
+;; rf2-0ytl4 Phase-2 seam S-A (fold-in of seam S-E). The public surface
+;; (`clear-sub-cache!`) is reached through `re-frame.core`'s defalias
+;; pointing at `re-frame.subs.cache/*` directly (no facade re-export).
 
 (declare subscribe unsubscribe)
 
@@ -269,11 +271,10 @@
     ;; :replaced-with-default), but the cache slot stays empty so a later
     ;; registration is observed by the next subscribe.
     (when (and cache sub-meta)
-      (swap! cache assoc k {:reaction        reaction
-                            :inputs          input-signals
-                            :ref-count       1
-                            :on-dispose      []
-                            :pending-dispose nil})
+      (swap! cache assoc k {:reaction   reaction
+                            :inputs     input-signals
+                            :ref-count  1
+                            :on-dispose []})
       (interop/add-on-dispose! reaction
         (fn []
           ;; A layer-2+ sub's construction called `subscribe` once per
@@ -363,45 +364,30 @@
        (let [cache (:sub-cache frame-record)
              k     (cache-key query-v)]
          (if-let [entry (get @cache k)]
-           ;; Hit. If a deferred-dispose was pending (ref-count had dropped
-           ;; to zero), cancel it: a new subscriber arrived inside the
-           ;; grace-period window, so the cached value is reused. Per
-           ;; Spec 006 §Reference counting and disposal.
-           (let [pending  (:pending-dispose entry)
-                 reaction (:reaction entry)]
-             (when pending
-               (try (interop/clear-timeout! pending)
-                    (catch #?(:clj Throwable :cljs :default) _ nil)))
-             ;; Re-validate the slot AFTER cancelling the timer (rf2-7pqe7).
-             ;; The `clear-timeout!` is best-effort: on a concurrent host a
-             ;; grace timer can fire `dispose-entry-now!` on another thread
-             ;; between the `(get @cache k)` snapshot above and this point,
-             ;; dissoc-ing the slot and disposing `reaction`. A blind
-             ;; `(update k inc-ref-count)` would then resurrect a phantom
-             ;; entry with no `:reaction` AND hand back the now-disposed
-             ;; reaction. The pure-swap-fn only bumps when the slot is still
-             ;; present holding the SAME reaction; reading `[old new]` from
-             ;; the snapshot pair tells us whether the bump landed. If the
-             ;; slot was concurrently evicted (or rebuilt under a different
-             ;; reaction), fall through to a fresh build — the same
-             ;; CAS-after-snapshot discipline `re-frame.subs.cache` uses.
-             ;; On single-threaded CLJS the re-check always succeeds (the
-             ;; timer callback and `subscribe` cannot interleave), so the
-             ;; rebuild branch is concurrency-host-only.
-             (let [[_old new]
-                   (swap-vals! cache
-                               (fn [m]
-                                 (if (identical? reaction
-                                                 (get-in m [k :reaction]))
-                                   (update m k
-                                           (fn [e]
-                                             (-> e
-                                                 (update :ref-count (fnil inc 0))
-                                                 (assoc :pending-dispose nil))))
-                                   m)))]
-               (if (identical? reaction (get-in new [k :reaction]))
-                 reaction
-                 (compute-and-cache! frame-id query-v))))
+           ;; Hit. Bump ref-count under CAS-after-snapshot discipline so a
+           ;; concurrent evictor (hot-reload re-registration, `clear-sub-
+           ;; cache!`) that won the race cannot resurrect a phantom entry
+           ;; with no `:reaction` AND hand back the now-disposed reaction.
+           ;; The pure-swap-fn only bumps when the slot is still present
+           ;; holding the SAME reaction; reading `[old new]` from the
+           ;; snapshot pair tells us whether the bump landed. If the slot
+           ;; was concurrently evicted (or rebuilt under a different
+           ;; reaction), fall through to a fresh build — the same
+           ;; CAS-after-snapshot discipline `re-frame.subs.cache` uses.
+           ;; On single-threaded CLJS the re-check always succeeds (no
+           ;; concurrent evictor can interleave), so the rebuild branch
+           ;; is concurrency-host-only.
+           (let [reaction (:reaction entry)
+                 [_old new]
+                 (swap-vals! cache
+                             (fn [m]
+                               (if (identical? reaction
+                                               (get-in m [k :reaction]))
+                                 (update-in m [k :ref-count] (fnil inc 0))
+                                 m)))]
+             (if (identical? reaction (get-in new [k :reaction]))
+               reaction
+               (compute-and-cache! frame-id query-v)))
            (compute-and-cache! frame-id query-v)))))))
 
 (defn subscribe-once
@@ -416,21 +402,19 @@
   so the read is part of the cofx contract rather than a side-effect
   inside the handler body.
 
-  The teardown unsubscribe runs with `{:grace 0}` so the one-shot
-  read's whole lifetime — subscribe, deref, dispose — completes in
-  the calling tick (without it the fresh-sub would schedule a grace-
-  period timer leaking dispose side-effects past the call's
-  observable lifetime).
+  Per rf2-cmfln (Spec 006 §Reference counting and disposal): the
+  teardown `unsubscribe` runs synchronously on the 1 → 0 transition,
+  so the one-shot read's whole lifetime — subscribe, deref, dispose —
+  completes in the calling tick. Concurrent reactive subscribers keep
+  the slot alive via ref-count and are unaffected — `subscribe-once`'s
+  decrement only drives the eviction when it owned the last reference.
 
   See also: `subscribe`, `unsubscribe`, `compute-sub`, `inject-cofx`."
   ([query-v] (subscribe-once (frame/resolve-current-frame) query-v))
   ([frame-id query-v]
    (let [reaction (subscribe frame-id query-v)
          v        (when reaction @reaction)]
-     ;; `{:grace 0}` overrides the configured grace-period for this
-     ;; call only — concurrent subscribers keep the slot alive via
-     ;; ref-count and are unaffected.
-     (unsubscribe frame-id query-v {:grace 0})
+     (unsubscribe frame-id query-v)
      v)))
 
 (defn compute-sub
@@ -524,42 +508,28 @@
 
 (defn unsubscribe
   "Decrement the ref-count on the cached subscription for query-v.
-  When ref-count reaches 0, schedule the entry for disposal after the
-  configured grace-period (default 50ms; see configure!). If a new
-  subscriber arrives within the window, disposal is cancelled and the
-  cached value is reused. Per Spec 006 §Reference counting and disposal.
-
-  When grace-period is 0, disposal is synchronous — useful for tests.
-
-  The 3-arity form accepts an opts map:
-
-      {:grace N}   — override the configured grace-period for THIS
-                     call only. `{:grace 0}` forces synchronous
-                     disposal on the 1→0 transition; useful for
-                     callers that want their unsubscribe observable
-                     in the same tick (e.g. `subscribe-once`'s
-                     internal teardown). When `:grace` is absent,
-                     the configured per-runtime grace-period is used.
+  When ref-count reaches 0, dispose the entry **synchronously** —
+  evict the cache slot, run the reaction's on-dispose callback (which
+  releases input refs symmetrically), and emit `:rf.sub/dispose` with
+  reason `:no-more-derefers`. Per Spec 006 §Reference counting and
+  disposal (rf2-cmfln).
 
   Reagent views auto-dispose via the reaction lifecycle and don't
   need to call this explicitly. Tests, REPL sessions, and tools that
   subscribe imperatively should call unsubscribe when they're done
   to release the cache slot.
 
-  Per rf2-0ytl4 seam S-A: ref-counting, grace scheduling, and dispose
-  live in `re-frame.subs.cache`; this facade fn holds the public API
-  shape and delegates to `subs-cache/unsubscribe!` after resolving the
-  cache + key."
+  Per rf2-0ytl4 seam S-A: ref-counting and synchronous dispose live in
+  `re-frame.subs.cache`; this facade fn holds the public API shape and
+  delegates to `subs-cache/unsubscribe!` after resolving the cache + key."
   ([query-v]
-   (unsubscribe (frame/resolve-current-frame) query-v nil))
+   (unsubscribe (frame/resolve-current-frame) query-v))
   ([frame-id query-v]
-   (unsubscribe frame-id query-v nil))
-  ([frame-id query-v opts]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      ;; rf2-mrnur — thread `frame-id` through so the `:rf.sub/dispose`
-     ;; trace emit at the eviction site (synchronous fire OR deferred
-     ;; grace-period timer) carries the canonical `:frame` tag.
-     (subs-cache/unsubscribe! cache (cache-key query-v) opts frame-id))))
+     ;; trace emit at the eviction site carries the canonical `:frame`
+     ;; tag.
+     (subs-cache/unsubscribe! cache (cache-key query-v) frame-id))))
 
 ;; ---- tooling sibling --------------------------------------------------
 ;;

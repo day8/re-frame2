@@ -22,7 +22,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.subs.cache :as subs-cache]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace]))
@@ -505,72 +504,60 @@
   ;; future cancellation path would ever drop the ref. Long-running CLJS
   ;; processes with repeated bad delays accumulated sub-cache slots.
   ;;
-  ;; Use grace-period-ms 0 so the paired unsubscribe disposes the slot
-  ;; synchronously and we can observe the cache state without timing.
+  ;; Per rf2-cmfln sub-cache disposal is synchronous on derefer-count → 0,
+  ;; so we observe the cache state without timing.
   (testing "sub-vec :after delay resolving to 0 unsubscribes (no sub-cache leak)"
-    (try
-      (subs-cache/configure! {:grace-period-ms 0})
-      (rf/reg-event-db :a/seed-bad (fn [db _] (assoc db :timeout-config 0)))
-      (rf/reg-sub :a/timeout-config-0 (fn [db _] (:timeout-config db)))
-      (rf/dispatch-sync [:a/seed-bad])
-      (let [m {:initial :idle
-               :data    {}
-               :states
-               {:idle    {:on {:go :running}}
-                :running {:after {[:a/timeout-config-0] :timeout}}
-                :timeout {}}}
-            traces (atom [])]
-        (rf/reg-machine :a/sub-bad m)
-        (rf/register-listener! ::no-clock (fn [ev] (swap! traces conj ev)))
-        (rf/dispatch-sync [:a/sub-bad [:go]])
-        (rf/unregister-listener! ::no-clock)
-        (is (some (fn [ev]
-                    (and (= :rf.warning/no-clock-configured (:operation ev))
-                         (= :sub (-> ev :tags :delay-source))))
-                  @traces)
-            ":rf.warning/no-clock-configured emitted for the bad delay")
-        (is (not (contains? (default-sub-cache) [:a/timeout-config-0]))
-            "sub-cache has no leaked entry for the resolved-to-0 :after sub"))
-      (finally
-        (subs-cache/configure! {:grace-period-ms 50}))))
+    (rf/reg-event-db :a/seed-bad (fn [db _] (assoc db :timeout-config 0)))
+    (rf/reg-sub :a/timeout-config-0 (fn [db _] (:timeout-config db)))
+    (rf/dispatch-sync [:a/seed-bad])
+    (let [m {:initial :idle
+             :data    {}
+             :states
+             {:idle    {:on {:go :running}}
+              :running {:after {[:a/timeout-config-0] :timeout}}
+              :timeout {}}}
+          traces (atom [])]
+      (rf/reg-machine :a/sub-bad m)
+      (rf/register-listener! ::no-clock (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:a/sub-bad [:go]])
+      (rf/unregister-listener! ::no-clock)
+      (is (some (fn [ev]
+                  (and (= :rf.warning/no-clock-configured (:operation ev))
+                       (= :sub (-> ev :tags :delay-source))))
+                @traces)
+          ":rf.warning/no-clock-configured emitted for the bad delay")
+      (is (not (contains? (default-sub-cache) [:a/timeout-config-0]))
+          "sub-cache has no leaked entry for the resolved-to-0 :after sub")))
   (testing "sub-vec :after delay resolving to nil also unsubscribes"
-    (try
-      (subs-cache/configure! {:grace-period-ms 0})
-      (rf/reg-sub :a/timeout-config-nil (fn [_db _] nil))
-      (let [m {:initial :idle
-               :data    {}
-               :states
-               {:idle    {:on {:go :running}}
-                :running {:after {[:a/timeout-config-nil] :timeout}}
-                :timeout {}}}]
-        (rf/reg-machine :a/sub-nil m)
-        (rf/dispatch-sync [:a/sub-nil [:go]])
-        (is (not (contains? (default-sub-cache) [:a/timeout-config-nil]))
-            "sub-cache has no leaked entry for the resolved-to-nil :after sub"))
-      (finally
-        (subs-cache/configure! {:grace-period-ms 50}))))
+    (rf/reg-sub :a/timeout-config-nil (fn [_db _] nil))
+    (let [m {:initial :idle
+             :data    {}
+             :states
+             {:idle    {:on {:go :running}}
+              :running {:after {[:a/timeout-config-nil] :timeout}}
+              :timeout {}}}]
+      (rf/reg-machine :a/sub-nil m)
+      (rf/dispatch-sync [:a/sub-nil [:go]])
+      (is (not (contains? (default-sub-cache) [:a/timeout-config-nil]))
+          "sub-cache has no leaked entry for the resolved-to-nil :after sub")))
   (testing "repeated bad-delay schedules do not accumulate ref-count"
-    (try
-      (subs-cache/configure! {:grace-period-ms 0})
-      (rf/reg-sub :a/timeout-config-neg (fn [_db _] -1))
-      (let [m {:initial :idle
-               :data    {}
-               :states
-               {:idle    {:on {:go :running :reset :idle}}
-                :running {:after {[:a/timeout-config-neg] :timeout}
-                          :on    {:reset :idle}}
-                :timeout {}}}]
-        (rf/reg-machine :a/sub-neg m)
-        ;; Cycle several entries into :running so the schedule path runs
-        ;; multiple times. Each entry subscribes; if the unsubscribe is
-        ;; missing the ref-count would accumulate.
-        (dotimes [_ 5]
-          (rf/dispatch-sync [:a/sub-neg [:go]])
-          (rf/dispatch-sync [:a/sub-neg [:reset]]))
-        (is (not (contains? (default-sub-cache) [:a/timeout-config-neg]))
-            "sub-cache remains clean after 5 bad-delay schedules"))
-      (finally
-        (subs-cache/configure! {:grace-period-ms 50})))))
+    (rf/reg-sub :a/timeout-config-neg (fn [_db _] -1))
+    (let [m {:initial :idle
+             :data    {}
+             :states
+             {:idle    {:on {:go :running :reset :idle}}
+              :running {:after {[:a/timeout-config-neg] :timeout}
+                        :on    {:reset :idle}}
+              :timeout {}}}]
+      (rf/reg-machine :a/sub-neg m)
+      ;; Cycle several entries into :running so the schedule path runs
+      ;; multiple times. Each entry subscribes; if the unsubscribe is
+      ;; missing the ref-count would accumulate.
+      (dotimes [_ 5]
+        (rf/dispatch-sync [:a/sub-neg [:go]])
+        (rf/dispatch-sync [:a/sub-neg [:reset]]))
+      (is (not (contains? (default-sub-cache) [:a/timeout-config-neg]))
+          "sub-cache remains clean after 5 bad-delay schedules"))))
 
 ;; ---- sub-vec :after exception observability arms (rf2-t4uo0) --------------
 ;;

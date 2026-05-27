@@ -182,26 +182,6 @@
       (is (= {} @(:sub-cache frm-b))
           "walk/b's sub-cache atom was reset to {}"))))
 
-(deftest dispose-frame-sub-caches-cancels-pending-dispose-timers
-  (testing "any :pending-dispose timer handle on a sub-cache entry is
-  clear-timeout!ed before the entry's reaction is disposed — otherwise
-  a fired timer would touch a torn-down adapter slot"
-    (let [timer-fired? (atom false)
-          ;; A real timer scheduled far enough in the future that the
-          ;; test's synchronous walk happens before fire. If the walk
-          ;; correctly calls clear-timeout! the flag stays false.
-          handle (js/setTimeout #(reset! timer-fired? true) 5000)
-          r      (fake-reaction)
-          frm    (fake-frame {[:sub :x] (assoc r :pending-dispose handle)})]
-      (reset! frame/frames {:walk/a frm})
-
-      (spine/dispose-frame-sub-caches!)
-
-      (is (= 1 @(:dispose-count r))
-          "the reaction was still disposed")
-      (is (false? @timer-fired?)
-          "the pending-dispose timer was cancelled (handle was clear-timeout!ed)"))))
-
 (deftest dispose-frame-sub-caches-is-best-effort
   (testing "a throwing per-entry dispose does NOT abort the rest of the
   walk — every other cached reaction in the same cache AND every cache

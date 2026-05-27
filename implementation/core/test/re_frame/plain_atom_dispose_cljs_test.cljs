@@ -20,24 +20,13 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.subs :as subs]
-            [re-frame.subs.cache :as subs-cache]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
-;; A single `use-fixtures :each` (cljs.test REPLACES on repeat calls, it
-;; does not compose) that (a) resets the runtime + installs plain-atom and
-;; (b) restores the default grace-period afterwards — the tests set
-;; grace-period 0 for synchronous disposal, and a sibling suite sharing the
-;; JS heap must not inherit that.
-(def ^:private reset-runtime
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
-
+;; Per rf2-cmfln: sub-cache disposal is synchronous on derefer-count → 0;
+;; no grace-period to configure.
 (use-fixtures :each
-  (fn [test-fn]
-    (reset-runtime
-      (fn []
-        (try (test-fn)
-             (finally (subs-cache/configure! {:grace-period-ms 50})))))))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- cache-keys []
   (set (keys @(:sub-cache (frame/frame :rf/default)))))
@@ -49,8 +38,7 @@
   (testing "rf2-uatcy — disposing a layer-2 sub on the CLJS-plain-atom
             adapter decrements ref-counts on every :<- input and cascades
             their disposal, mirroring the JVM contract"
-    (subs-cache/configure! {:grace-period-ms 0})
-    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event-db :init(fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum
@@ -70,7 +58,7 @@
       (is (= 1 (entry-ref-count [:a])) "input :a ref-count = 1 after layer-2 build")
       (is (= 1 (entry-ref-count [:b])) "input :b ref-count = 1 after layer-2 build"))
 
-    ;; Dispose the parent (sole subscriber drops → grace=0 sync dispose).
+    ;; Dispose the parent (sole subscriber drops → sync dispose, rf2-cmfln).
     ;; Pre-fix the input-release callback never registered (no published
     ;; :adapter/dispose! hook, no IDisposable on the derived value) so
     ;; :a / :b leaked here.
@@ -86,8 +74,7 @@
   (testing "rf2-uatcy — a shared input is decremented by exactly one when
             one of its layer-2 holders disposes; it survives while another
             holder remains"
-    (subs-cache/configure! {:grace-period-ms 0})
-    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3 :c 4}))
+    (rf/reg-event-db :init(fn [_ _] {:a 2 :b 3 :c 4}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :c (fn [db _] (:c db)))
@@ -118,8 +105,7 @@
 (deftest layer-3-disposal-cascades-on-cljs-plain-atom
   (testing "rf2-uatcy — disposal cascades recursively through a layer-3
             chain on the CLJS-plain-atom adapter"
-    (subs-cache/configure! {:grace-period-ms 0})
-    (rf/reg-event-db :init (fn [_ _] {:a 2}))
+    (rf/reg-event-db :init(fn [_ _] {:a 2}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :a*2 :<- [:a]   (fn [a _] (* 2 a)))
     (rf/reg-sub :a*4 :<- [:a*2] (fn [a2 _] (* 2 a2)))

@@ -22,7 +22,6 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
-            [re-frame.subs.cache :as subs-cache]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace.cascade :as cascade]
             [re-frame.trace.tooling :as trace-tooling]))
@@ -39,8 +38,7 @@
   (cascade/clear-focus-predicate!)
   (try (test-fn)
        (finally
-         (cascade/clear-focus-predicate!)
-         (subs-cache/configure! {:grace-period-ms 50}))))
+         (cascade/clear-focus-predicate!))))
 
 (use-fixtures :each reset-runtime)
 
@@ -62,7 +60,6 @@
 
 (deftest layer-1-memo-hit-emits-sub-skip
   (testing "a layer-1 sub deref against an unchanged db emits :rf.sub/skip"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
@@ -90,7 +87,6 @@
 
 (deftest layer-2-memo-hit-emits-sub-skip-with-upstream
   (testing "layer-2 sub on memo-hit names its upstream input(s) in :rf.sub/input-paths-unchanged"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 3}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :doubled
@@ -222,7 +218,6 @@
 
 (deftest sub-run-value-changed-attribution
   (testing "a layer-1 recompute whose value CHANGED stamps :rf.sub/value-changed? true + :prev/:value, :rf.sub/cascade? false, :rf.sub/cause-sub nil"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 1}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -249,7 +244,6 @@
     ;; identity (layer-1 reads app-db directly), so a db write to an
     ;; unrelated key forces the body to re-run, but the body returns a
     ;; `=`-equal value for this sub.
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed   (fn [_ _] {:n 5 :other 0}))
     (rf/reg-event-db :bump-other (fn [db _] (update db :other inc)))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -271,7 +265,6 @@
 
 (deftest sub-run-cascade-attribution-layer-2
   (testing "a layer-2 sub recomputed by an upstream sub change stamps :rf.sub/cascade? true + :rf.sub/cause-sub naming the upstream"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 2}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -297,7 +290,6 @@
 
 (deftest sub-run-cascade-attribution-layer-2-multi-input
   (testing "a multi-input layer-2 sub names the SPECIFIC upstream that changed"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:a 1 :b 10}))
     (rf/reg-event-db :inc-b (fn [db _] (update db :b inc)))
     (rf/reg-sub :a (fn [db _] (:a db)))
@@ -322,7 +314,6 @@
 
 (deftest sub-run-layer-1-no-cause-sub
   (testing "a layer-1 sub never carries a :rf.sub/cause-sub (app-db-driven, not a cascade)"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -341,7 +332,6 @@
 
 (deftest sub-run-base-shape-still-emitted
   (testing "the :rf.sub/run op-type vocabulary is unchanged — the base tags still ride"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 1}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
     (rf/reg-sub :n (fn [db _] (:n db)))

@@ -21,7 +21,6 @@
   removes it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs.cache :as subs-cache]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -37,9 +36,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  (try (test-fn)
-       (finally
-         (subs-cache/configure! {:grace-period-ms 50}))))
+  (test-fn))
 
 (use-fixtures :each reset-runtime)
 
@@ -48,7 +45,6 @@
 (deftest layer-n-1-memo-skips-recompute-on-equal-upstream
   (testing "two consecutive derefs against an unchanged upstream value
             run the layer-2 body once"
-    (subs-cache/configure! {:grace-period-ms 0})
     (let [runs (atom 0)]
       (rf/reg-event-db :seed (fn [_ _] {:n 7}))
       (rf/reg-sub :n  (fn [db _] (:n db)))
@@ -65,7 +61,6 @@
 
 (deftest layer-n-1-memo-recomputes-on-changed-upstream
   (testing "deref after an upstream change runs the body again"
-    (subs-cache/configure! {:grace-period-ms 0})
     (let [runs (atom 0)]
       (rf/reg-event-db :seed   (fn [_ _]      {:n 0}))
       (rf/reg-event-db :update (fn [db [_ v]] (assoc db :n v)))
@@ -87,7 +82,6 @@
             value is unchanged, even though the underlying db changed.
             This is the headline value of the no-op-by-equality contract
             — diamond-shape graphs do not over-compute downstream."
-    (subs-cache/configure! {:grace-period-ms 0})
     (let [runs (atom 0)]
       (rf/reg-event-db :seed     (fn [_ _]      {:n 1 :other :a}))
       (rf/reg-event-db :touch    (fn [db _]     (assoc db :other :b)))
@@ -106,7 +100,6 @@
 (deftest layer-n-1-body-receives-upstream-value-and-query-v
   (testing "the body fn still receives the canonical (upstream, query-v)
             shape under the specialised wrapper — no shape regression"
-    (subs-cache/configure! {:grace-period-ms 0})
     (let [captured (atom nil)]
       (rf/reg-event-db :seed (fn [_ _] {:n 99}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
@@ -126,7 +119,6 @@
   (testing "nil and false upstream values are not confused with the ::unset
             sentinel — the body runs once for each, memo skips on
             repeat"
-    (subs-cache/configure! {:grace-period-ms 0})
     (let [runs (atom 0)]
       (rf/reg-event-db :seed-nil   (fn [_ _] {:n nil}))
       (rf/reg-event-db :seed-false (fn [_ _] {:n false}))
@@ -161,7 +153,6 @@
   (testing "a 1-input layer-2 sub and a 2-input layer-2 sub (one of the
             inputs constant) produce the same stream of values across
             N db updates"
-    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed   (fn [_ _]      {:n 0 :k :stable}))
     (rf/reg-event-db :update (fn [db [_ v]] (assoc db :n v)))
     (rf/reg-sub :n  (fn [db _] (:n db)))
@@ -185,7 +176,6 @@
 ;; should run A, B, C once each.
 
 (deftest layer-n-1-chain-propagates-and-suppresses-correctly
-  (subs-cache/configure! {:grace-period-ms 0})
   (let [a-runs (atom 0)
         b-runs (atom 0)
         c-runs (atom 0)]

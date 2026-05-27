@@ -485,7 +485,7 @@ Lookup [query-v] in frame F:
 
 Two properties this guarantees:
 
-1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector itself. v2 has a single disposal algorithm (deferred ref-counting; see [§Reference counting and disposal](#reference-counting-and-disposal)).
+1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector itself. v2 has a single disposal algorithm (synchronous ref-counting; see [§Reference counting and disposal](#reference-counting-and-disposal)).
 2. **Layer-1/2/3 chaining.** A layer-2 sub's `:<-` inputs are themselves resolved via this same lookup, recursively. The recursion terminates at layer-1 subs whose inputs are not other subs but readers over `app-db` directly.
 
 ### Invalidation algorithm
@@ -546,57 +546,41 @@ Layers ≥ 3 are conventionally just "layer-2+" — the algorithm treats them al
 
 ### Reference counting and disposal
 
-The cache is **not** strong-referenced from the frame for the lifetime of the frame; entries dispose when their last reader goes away. The disposal algorithm is **deferred ref-counting with a grace-period** — a single algorithm. There are no pluggable lifecycle policies; the v1 alpha namespace's `:safe`, `:no-cache`, `:reactive`, and `:forever` lifecycles are not part of v2.
+The cache is **not** strong-referenced from the frame for the lifetime of the frame; entries dispose when their last reader goes away. The disposal algorithm is **synchronous ref-counting on derefer-count → 0** (rf2-cmfln) — a single algorithm. There are no pluggable lifecycle policies; the v1 alpha namespace's `:safe`, `:no-cache`, `:reactive`, and `:forever` lifecycles are not part of v2, and v2 does NOT carry a deferred-grace-period timer either.
 
-When the last subscriber drops, the entry is **scheduled** for disposal after the configured grace-period elapses. If a new subscriber arrives within that window, the scheduled disposal is **cancelled** and the cached value is reused.
+When the last subscriber drops, the cache slot is evicted **in-tick**: the reaction is disposed, the on-dispose callbacks fire (releasing input ref-counts on layer-2+ subs — see [§Disposal cascades](#three-subtleties) below), and the slot is dissoc'd. A `:rf.sub/dispose` trace event with `:rf.sub/reason :no-more-derefers` is emitted at the eviction site.
 
 ```
 On subscriber detach (view unmounts, tool disconnects):
   entry.ref-count -= 1
   If entry.ref-count == 0:
-    handle ← schedule-after grace-period-ms:
-               (when entry.ref-count == 0:
-                  for each dispose-fn in entry.on-dispose: dispose-fn()
-                  F.sub-cache.dissoc(k)
-                  trace! :sub/disposed {:query-v k :frame F.id})
-    entry.pending-dispose ← handle
+    for each dispose-fn in entry.on-dispose: dispose-fn()
+    F.sub-cache.dissoc(k)
+    trace! :rf.sub/dispose {:rf.sub/query-v k :frame F.id
+                            :rf.sub/reason :no-more-derefers}
 
 On subscriber attach (cache HIT; the slot already exists):
   entry.ref-count += 1
-  if entry.pending-dispose is not nil:
-    cancel entry.pending-dispose
-    entry.pending-dispose ← nil
 ```
+
+A subscribe arriving AFTER the disposal is treated as a fresh cache miss: `compute-and-cache!` builds a new reaction against the registered sub body. The recomputed value will `=` what was disposed (same body, same `app-db`) so the post-rebuild render observes no value change.
 
 #### Disposal guarantees
 
-- **Zero-subscriber → grace-period elapses → disposed.** When `ref-count` reaches 0 and no resubscribe arrives within `grace-period-ms`, the on-dispose callbacks fire, the cache slot is removed, and a `:sub/disposed` trace event is emitted.
-- **Resubscribe within grace-period → disposal cancelled, value reused.** If a new subscriber arrives before the timer fires, the timer is cancelled and the existing reaction (and its cached value) is returned. The new subscriber observes no recomputation; the underlying substrate-specific container is the same one previously cached.
-- **Synchronous disposal when `grace-period-ms = 0`.** Setting the grace-period to 0 yields the v1-style "ref-count → 0 → dispose immediately" semantic. Useful for tests, REPL sessions, and any context that wants deterministic teardown without timer-driven races.
-- **Hot-reload preserves the contract.** Re-registering a sub disposes every cached slot for that query (regardless of ref-count) and cancels any pending grace-period timers — the next subscribe builds afresh against the new body.
-- **Frame teardown preserves the contract.** Destroying a frame disposes every cached slot and cancels every pending grace-period timer; see [§Lifetime contract — frame disposal](#lifetime-contract--frame-disposal).
-
-#### The grace-period parameter
-
-The grace-period is a per-runtime configuration knob:
-
-| Knob | Default | Configure |
-|---|---|---|
-| `grace-period-ms` | **50ms** | `(rf/configure :sub-cache {:grace-period-ms N})` |
-
-The default of **50ms** is chosen empirically: long enough to bridge React re-render churn (where a Reagent component briefly unmounts then re-renders with the same subscription), short enough that genuine disposal is observable promptly and memory does not accumulate under load. Implementations targeting non-React substrates may pick a different default but should document it.
-
-`N` is a non-negative integer; `0` selects synchronous disposal.
+- **Zero-subscriber → disposed in-tick.** When `ref-count` reaches 0 the on-dispose callbacks fire, the cache slot is removed, and a `:rf.sub/dispose` trace event is emitted — all within the call that drove the 1 → 0 transition. No state change can land between the count reaching zero and the eviction; the reaction's watch on `app-db` is unwound before the next dispatch can observe it.
+- **No wasted recompute before disposal.** Because the dispose is synchronous on the 1 → 0 edge, the cache cannot hold a sub alive across a state change that lands after the last derefer has dropped. Pre-rf2-cmfln a 50ms deferred-grace timer left the reaction watching `app-db` for the grace window — any state change in that window forced a recompute even though the result was about to be thrown away. The synchronous path closes that window entirely.
+- **Hot-reload preserves the contract.** Re-registering a sub disposes every cached slot for that query (regardless of ref-count) — the next subscribe builds afresh against the new body.
+- **Frame teardown preserves the contract.** Destroying a frame disposes every cached slot; see [§Lifetime contract — frame disposal](#lifetime-contract--frame-disposal).
 
 #### On-dispose hooks
 
-The `on-dispose` hook lets the adapter release substrate-specific resources (a Reagent reaction; a JS-cross-compile-port atom-shape's listener entry / derived-value memo) before the cache slot is removed. Hooks fire **after** the grace-period elapses (or synchronously when `grace-period-ms = 0`). The CLJS reference uses `interop/add-on-dispose!` per the Reagent realisation in [§Sub-cache wiring](#sub-cache-wiring-reagent-realisation).
+The `on-dispose` hook lets the adapter release substrate-specific resources (a Reagent reaction; a JS-cross-compile-port atom-shape's listener entry / derived-value memo) before the cache slot is removed. Hooks fire **synchronously** on the 1 → 0 transition. The CLJS reference uses `interop/add-on-dispose!` per the Reagent realisation in [§Sub-cache wiring](#sub-cache-wiring-reagent-realisation).
 
 #### Three subtleties
 
-1. **A sub can become live again after disposal.** A view unmounts; if no resubscribe arrives within the grace-period, the slot disposes. Later, the same view re-mounts (cache miss, fresh computation). This is correct — the cache is performance, not state. The recomputed value will equal what was disposed (same body, same `app-db`); no observable difference.
+1. **A sub can become live again after disposal.** A view unmounts and its last subscription drops; the slot disposes. Later, the same view re-mounts (cache miss, fresh computation). This is correct — the cache is performance, not state. The recomputed value will `=` what was disposed (same body, same `app-db`); no observable difference. **Shared-component re-mount in the same cascade**: when view A unmounts and view B (which subscribes to the same `query-v`) mounts in the same React commit, the sub is disposed by A's cleanup then re-built by B's mount. The disposed reaction and the rebuilt reaction are distinct objects but compute the same value; the cost is one extra `compute-and-cache!` call (one reaction allocation, one body run) — accepted per the rf2-cmfln design phase as the "most honest" cost of closing the wasted-recompute window.
 2. **Eager subs.** A future `:reg-sub-by-path` (post-v1) might keep its cache slot live regardless of ref-count, for performance. v1 has no eager subs; if added, the contract surface is `entry.eager? = true` and the disposal path skips the slot.
-3. **Disposal cascades.** When a layer-2 sub disposes, its layer-1 inputs lose one reader each; if they were held only by that layer-2 sub, they enter their own grace-period. Cascading disposals each pay the grace-period independently, but the timers run concurrently — total wall-clock disposal time is one grace-period regardless of chain depth.
+3. **Disposal cascades.** When a layer-2 sub disposes, its layer-1 inputs lose one reader each (the parent's `on-dispose` callback calls `unsubscribe` on every `:<-` input symmetrically with the construction-time subscribes). If an input was held only by that layer-2 sub, it cascades to disposal in the same tick. The whole cascade — parent + every transitively-held input — completes within the call that drove the parent's 1 → 0 transition.
 
 ### `(subscribe-once query-v) → value` / `(subscribe-once frame-id query-v) → value`
 
@@ -607,13 +591,13 @@ The **one-shot, non-reactive read** of a subscription's current value. `subscrib
 (subscribe-once frame-id query-v)                     ;; → value (explicit-frame form)
 ```
 
-Semantically, `subscribe-once` is `subscribe` + deref + immediate **synchronous** `unsubscribe`:
+Semantically, `subscribe-once` is `subscribe` + deref + immediate `unsubscribe`:
 
 ```
 subscribe-once(frame-id, query-v):
   r ← subscribe(frame-id, query-v)                     ;; cache hit OR miss; ref-count += 1
   v ← deref r                                          ;; current cached value
-  unsubscribe(frame-id, query-v, {:grace 0})           ;; ref-count -= 1; on 1→0, dispose synchronously
+  unsubscribe(frame-id, query-v)                       ;; ref-count -= 1; on 1→0, dispose synchronously
   return v
 ```
 
@@ -621,43 +605,34 @@ subscribe-once(frame-id, query-v):
 
 - **One-shot.** Each call subscribes, derefs once, and unsubscribes. The caller does **not** receive a deref-able reaction; the returned value is a plain immutable value of whatever the sub computes.
 - **Non-reactive.** The caller is not registered for re-render or change notification. A subsequent `app-db` mutation that would have invalidated the slot has no observable effect on the caller of `subscribe-once` — they got their value, they're done.
-- **Synchronous teardown**. The internal `unsubscribe` runs with `{:grace 0}` so the one-shot read's whole lifetime — subscribe, deref, and (if this call drove the 1→0 transition) dispose — completes in the calling tick. The caller never observes a deferred-dispose timer firing after `subscribe-once` has already returned. A concurrent reactive subscriber (a view holding `subscribe` on the same `query-v`) keeps the slot alive via ref-count; `subscribe-once`'s decrement only triggers synchronous disposal when it owned the last reference.
+- **Synchronous teardown**. Per [§Reference counting and disposal](#reference-counting-and-disposal) the 1 → 0 transition disposes in-tick, so the one-shot read's whole lifetime — subscribe, deref, and (if this call drove the 1 → 0 transition) dispose — completes in the calling tick. A concurrent reactive subscriber (a view holding `subscribe` on the same `query-v`) keeps the slot alive via ref-count; `subscribe-once`'s decrement only triggers disposal when it owned the last reference.
 - **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context), `:rf/default` fallback). The 2-arg form is explicit and bypasses the chain.
 - **Missing frame is not an error.** `subscribe-once` against a destroyed or never-created frame returns `nil` (and emits the same `:rf.warning/unknown-frame` trace `subscribe` does); it does NOT throw.
 - **Missing sub is not an error.** Per [§What happens when a sub references an unknown sub](#what-happens-when-a-sub-references-an-unknown-sub), an unregistered `query-v` emits `:rf.error/no-such-sub` (recovery `:replaced-with-default`) and yields `nil`; `subscribe-once` propagates the `nil`.
 - **JVM-runnable.** `subscribe-once` is part of the substrate-agnostic call-site surface; it works against the plain-atom adapter (no Reagent dependency). On the JVM, the deref step reads the substrate's container directly; tests, SSR builders, and headless tools rely on this.
 
-**Where it differs from `compute-sub`.** `compute-sub` (per [008 §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm)) is a *pure* function over an explicit `app-db` value — it bypasses the cache entirely and runs the sub's body fresh. `subscribe-once` is *cache-aware*: it materialises the cache entry (cache hit reuses; cache miss populates briefly under the grace-period), then immediately drops its reference. Use `compute-sub` when you want to test a sub's body against a snapshot in isolation; use `subscribe-once` when you want what the running frame would see right now.
+**Where it differs from `compute-sub`.** `compute-sub` (per [008 §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm)) is a *pure* function over an explicit `app-db` value — it bypasses the cache entirely and runs the sub's body fresh. `subscribe-once` is *cache-aware*: it materialises the cache entry (cache hit reuses; cache miss populates briefly), then immediately drops its reference (sync dispose on the 1 → 0 transition). Use `compute-sub` when you want to test a sub's body against a snapshot in isolation; use `subscribe-once` when you want what the running frame would see right now.
 
 ### `(unsubscribe query-v) → nil` / `(unsubscribe frame-id query-v) → nil`
 
-The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the cache entry's ref-count by 1; on the 1 → 0 transition, the cache slot is **scheduled** for disposal after the configured grace-period elapses (per [§Reference counting and disposal](#reference-counting-and-disposal)). Reagent views auto-dispose via the reaction lifecycle and do not need to call `unsubscribe` explicitly; tests, REPL sessions, tools, and machine actions that subscribed imperatively are the call sites that need it.
+The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the cache entry's ref-count by 1; on the 1 → 0 transition, the cache slot is disposed **synchronously** (per [§Reference counting and disposal](#reference-counting-and-disposal)). Reagent views auto-dispose via the reaction lifecycle and do not need to call `unsubscribe` explicitly; tests, REPL sessions, tools, and machine actions that subscribed imperatively are the call sites that need it.
 
 ```clojure
 (unsubscribe query-v)                                  ;; → nil (uses the resolved current frame)
 (unsubscribe frame-id query-v)                         ;; → nil (explicit-frame form)
-(unsubscribe frame-id query-v {:grace 0})              ;; → nil (explicit-frame + opts;)
 ```
-
-**Opts map** (3-arity only). The optional opts map accepts:
-
-| Key      | Type    | Effect                                                                                                                                                                                                          |
-|----------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `:grace` | non-neg int | Override the configured `grace-period-ms` for **this call only**. `{:grace 0}` forces synchronous disposal on the 1→0 transition — used by `subscribe-once`'s internal teardown. Absent → use the per-runtime configured grace. |
 
 **Contract MUSTs.**
 
-- **Decrement, not destroy.** `unsubscribe` decrements the slot's ref-count by 1. The slot itself disposes only when ref-count reaches 0 *and* the grace-period elapses without a resubscribe (per [§Reference counting and disposal](#reference-counting-and-disposal)). A caller that holds N concurrent subscriptions to the same `query-v` must call `unsubscribe` N times to fully release; each call decrements one share.
+- **Decrement, then destroy on the 1 → 0 edge.** `unsubscribe` decrements the slot's ref-count by 1. The slot itself disposes **synchronously** when ref-count reaches 0 (per [§Reference counting and disposal](#reference-counting-and-disposal)). A caller that holds N concurrent subscriptions to the same `query-v` must call `unsubscribe` N times to fully release; each call decrements one share, and the Nth (the one that drives 1 → 0) disposes.
 - **Pair with `subscribe`.** Every `subscribe` (including the `subscribe` half of `subscribe-once`) increments the slot's ref-count by 1; every `unsubscribe` decrements by 1. Imperative subscribers are responsible for the pairing; views and tools that hold reactions through the reaction lifecycle get the decrement automatically when the reaction disposes.
-- **Idempotent past zero.** Calling `unsubscribe` after ref-count has already reached 0 is a no-op — the count floors at 0, and an already-scheduled grace-period timer is **not** restarted. A second `unsubscribe` from the same path (cleanup hook + `finally` block both running) does not stack disposal timers or accidentally disposed-twice the slot.
-- **No-op past disposal.** Calling `unsubscribe` after the slot has already been disposed (the grace-period elapsed and the slot was removed from `F.sub-cache`) is a no-op — `unsubscribe` returns `nil` without trace emission. There is no "double-free" failure mode.
+- **Idempotent past zero.** Calling `unsubscribe` after the slot has already been disposed is a no-op — the entry-lookup misses, and the call returns `nil` without trace emission. A second `unsubscribe` from the same path (cleanup hook + `finally` block both running) is safe.
 - **Missing frame is not an error.** `unsubscribe` against a destroyed or never-created frame returns `nil` (and emits the same `:rf.warning/unknown-frame` trace `subscribe` does); it does NOT throw.
-- **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context), `:rf/default` fallback). The 2-arg and 3-arg forms are explicit.
-- **Composes with grace-period reuse.** When `unsubscribe` (the no-opts form) triggers the 1 → 0 transition, the slot enters its grace-period rather than disposing immediately. A `subscribe` arriving within the window cancels the timer and reuses the cached value. The `{:grace 0}` opts form opts out of this — the slot disposes synchronously on the 1→0 transition; it is the path `subscribe-once` uses internally.
+- **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context), `:rf/default` fallback). The 2-arg form is explicit.
 
-**Composability with `subscribe-once`.** `subscribe-once` internally invokes `subscribe` then `unsubscribe` with `{:grace 0}` — the teardown is synchronous, not deferred. The user does NOT call `unsubscribe` for a `subscribe-once` call — the pairing is internal. Users only call `unsubscribe` for the `subscribe` calls they made themselves.
+**Composability with `subscribe-once`.** `subscribe-once` internally invokes `subscribe` then `unsubscribe` — the teardown is synchronous on the 1 → 0 transition (per the unified disposal contract above). The user does NOT call `unsubscribe` for a `subscribe-once` call — the pairing is internal. Users only call `unsubscribe` for the `subscribe` calls they made themselves.
 
-**Why explicit teardown exists alongside the grace-period.** The grace-period handles the *automatic* case: a view unmounts, the reaction disposes, the underlying `unsubscribe` fires from the reaction's on-dispose hook, the slot drains. Explicit `unsubscribe` is the imperative-callers' equivalent: tools, REPL sessions, machine actions, and tests that took out a subscription without an enclosing reaction lifecycle to manage it. The two paths funnel into the same ref-count decrement and the same grace-period scheduling — there is one disposal algorithm, two arrival surfaces.
+**Why explicit teardown exists alongside auto-disposal.** The reactive lifecycle handles the *automatic* case: a view unmounts, the reaction disposes, the underlying `unsubscribe` fires from the reaction's on-dispose hook, the slot drains in-tick. Explicit `unsubscribe` is the imperative-callers' equivalent: tools, REPL sessions, machine actions, and tests that took out a subscription without an enclosing reaction lifecycle to manage it. Both paths funnel into the same ref-count decrement and the same synchronous-on-zero dispose — one disposal algorithm, two arrival surfaces.
 
 ### Lifetime contract — frame disposal
 
