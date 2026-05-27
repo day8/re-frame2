@@ -79,6 +79,14 @@
 ;; [:rf/machines :auth.login/flow] in app-db. It does not carry :closed
 ;; true — this isn't a system boundary.
 
+;; The submit-event payload — the credentials map the view collects from
+;; the form. Open by default; the regex/min-length checks describe the
+;; shape the inner handler relies on.
+(def Credentials
+  [:map
+   [:email    [:re #".+@.+"]]
+   [:password [:string {:min 8}]]])
+
 ;; The login flow's runtime state lives in the machine snapshot at
 ;; [:rf/machines :auth.login/flow] (per [005 §Where snapshots live]).
 ;; The snapshot shape is {:state <kw> :data <map>} per Spec 005.
