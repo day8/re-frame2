@@ -2157,19 +2157,21 @@
             cache             (:sub-cache (frame/frame mwft2-frame))
             mount-node        (make-mount-node!)
             root              (react-dom-client/createRoot mount-node)]
-        ;; Spies preserve the multi-arity shape of subs/subscribe
-        ;; (`[query-v]` and `[frame-id query-v]`) so spine call sites that
-        ;; bind the arity-2 invoke-slot resolve. A bare `[& args]`
-        ;; variadic spy compiles only the variadic slot and trips
-        ;; `…cljs$core$IFn$_invoke$arity$2 is not a function` at the
-        ;; spine's subs/subscribe call.
+        ;; Spies preserve the multi-arity shape of subs/subscribe and
+        ;; subs/unsubscribe (`[query-v]` and `[frame-id query-v]`) so
+        ;; spine call sites that bind the arity-2 invoke-slot resolve.
+        ;; A bare `[& args]` variadic spy compiles only the variadic
+        ;; slot and trips `…cljs$core$IFn$_invoke$arity$2 is not a
+        ;; function` at the spine's subs/subscribe call.
         ;;
-        ;; unsubscribe's 1- and 2-arity bodies recur into the 3-arity
-        ;; through the Var — so without bypassing, a single logical
-        ;; unsubscribe would trip the spy twice (once on entry, once on
-        ;; the recursive 3-arity tail). Each spy arity therefore calls the
-        ;; 3-arity REAL directly, resolving the canonical default-arg
-        ;; shape itself instead of routing back through the Var.
+        ;; Both fns' 1-arity bodies recur into the 2-arity through the
+        ;; Var (canonical-leaf is 2-arity per rf2-cmfln — there is no
+        ;; 3-arity since the grace-period was retired). Without
+        ;; bypassing, a single logical 1-arity call would trip the spy
+        ;; twice (once on entry, once on the recursive 2-arity tail).
+        ;; Each spy 1-arity therefore resolves the current frame itself
+        ;; and dispatches to the 2-arity REAL directly, mirroring the
+        ;; canonical body without routing back through the Var.
         (with-redefs [subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
@@ -2182,13 +2184,10 @@
                       (fn spy-unsubscribe
                         ([query-v]
                          (swap! unsubscribe-calls inc)
-                         (real-unsubscribe (frame/resolve-current-frame) query-v nil))
+                         (real-unsubscribe (frame/resolve-current-frame) query-v))
                         ([frame-id query-v]
                          (swap! unsubscribe-calls inc)
-                         (real-unsubscribe frame-id query-v nil))
-                        ([frame-id query-v opts]
-                         (swap! unsubscribe-calls inc)
-                         (real-unsubscribe frame-id query-v opts)))]
+                         (real-unsubscribe frame-id query-v)))]
           (try
             ;; Mount — one subs/subscribe for the useMemo factory.
             (act-fn (fn [] (.render root (probe-mwft2-element))))
@@ -2219,6 +2218,77 @@
             (is (or (nil? (get @cache cache-key-v))
                     (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
                 "post-unmount cache entry dropped or ref-count at zero")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
+
+;; ---- unsubscribe arity contract (rf2-gizlj) -------------------------------
+;;
+;; The shared spine's `use-subscribe` useEffect cleanup calls
+;; `subs/unsubscribe` with `[frame-id query-v]` — the canonical 2-arity
+;; form. Per rf2-cmfln (Spec 006 §Reference counting and disposal) the
+;; 3-arity `[frame-id query-v opts]` was retired with the grace-period
+;; mechanism: the cache disposes synchronously on the 1 → 0 transition
+;; and there are no more per-call overrides. The spine cleanup at
+;; `re-frame.substrate.spine/use-subscribe-effect` is the only
+;; production call site whose arity is invisible to the type checker
+;; (it goes through the spy in the rf2-mwft2 stable-deps-key test).
+;; This assertion locks the call-site arity so a future drift — adding
+;; a third arg back, or shifting to a single-arity query-v call — fails
+;; loudly here before reaching the cache layer.
+
+(defn assert-use-subscribe-cleanup-calls-unsubscribe-with-2-args
+  "rf2-gizlj: the React-hook spine's `use-subscribe` useEffect cleanup
+  calls `subs/unsubscribe` with exactly 2 args (`[frame-id query-v]`).
+  Per rf2-cmfln the canonical-leaf arity for `subs/unsubscribe` is 2;
+  no `opts` map, no grace-period override. This test mounts a probe,
+  unmounts it, and asserts the spy observed exactly 2 args at the
+  cleanup call — drift here is what introduced the regression bug
+  rf2-gizlj fixed.
+
+  cfg keys: re-uses the same stable-deps-key probe surface — the
+  cleanup fires on either parent here."
+  [{:keys [name probe-mwft2-element mwft2-set-tick mwft2-frame mwft2-query]}]
+  (testing (str name " — use-subscribe cleanup calls subs/unsubscribe with 2 args (rf2-gizlj, rf2-cmfln contract)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! mwft2-set-tick nil)
+      (rf/reg-frame mwft2-frame {:doc "rf2-gizlj arity probe frame"})
+      (rf/reg-event-db ::gizlj-seed (fn [_ _] {:p 0}))
+      (rf/dispatch-sync [::gizlj-seed] {:frame mwft2-frame})
+      (rf/reg-sub mwft2-query (fn [db _] (:p db)))
+      (let [unsubscribe-arg-counts (atom [])
+            real-unsubscribe       subs/unsubscribe
+            mount-node             (make-mount-node!)
+            root                   (react-dom-client/createRoot mount-node)]
+        ;; Spy records the arg-count at each call site and delegates to
+        ;; the canonical 2-arity body (mirroring the existing spy bypass
+        ;; — see the rf2-mwft2 stable-deps-key spy comment).
+        (with-redefs [subs/unsubscribe
+                      (fn spy-unsubscribe-arity
+                        ([query-v]
+                         (swap! unsubscribe-arg-counts conj 1)
+                         (real-unsubscribe (frame/resolve-current-frame) query-v))
+                        ([frame-id query-v]
+                         (swap! unsubscribe-arg-counts conj 2)
+                         (real-unsubscribe frame-id query-v)))]
+          (try
+            (act-fn (fn [] (.render root (probe-mwft2-element))))
+            (act-fn (fn [] (.unmount root)))
+            ;; The spine's useEffect cleanup is the call site under
+            ;; test. There may be additional unsubscribes from layer-2+
+            ;; cascades, but the cleanup fn the spine wires must use
+            ;; the 2-arity form — anything else is a contract violation.
+            (let [arities (set @unsubscribe-arg-counts)]
+              (is (seq @unsubscribe-arg-counts)
+                  "spine fired at least one subs/unsubscribe across mount + unmount")
+              (is (= #{2} arities)
+                  (str "every spine-driven subs/unsubscribe call must be 2-arity "
+                       "(frame-id + query-v) per rf2-cmfln Spec 006 §Reference "
+                       "counting and disposal — observed arities: "
+                       (pr-str @unsubscribe-arg-counts)
+                       ". A 3-arity call here means the grace-period `opts` "
+                       "shape has re-entered the spine; a 1-arity call means "
+                       "the spine is dropping the explicit frame-id pin.")))
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
