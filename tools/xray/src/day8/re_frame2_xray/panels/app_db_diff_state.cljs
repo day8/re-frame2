@@ -320,6 +320,16 @@
         :site-id  site-id
         :default-expanded-depth 3
         :before (f/display-value before)
+        ;; rf2-kkhss — opts mode-3 grammar (spec/021 §9.1.5.2 axis 2)
+        ;; into the App-DB diff render. `render-container` gates the
+        ;; R4 2px vertical rail behind `(and full-with-diff? has-
+        ;; change?)`; without this flag the rail silently never paints
+        ;; on App-DB even though Stories — which all pass the opt —
+        ;; render it correctly. Sister surfaces (HANDLER `:db` /
+        ;; Machine / SUBS) also set it. The BROWSE branch above MUST
+        ;; NOT carry this opt: no `:before` is present, and mode-3
+        ;; chrome would mis-render against a non-diff tree.
+        :full-with-diff? true
         :card? true
         ;; rf2-h71e0 — zoomable opt is preserved here for symmetry;
         ;; the widget self-suppresses zoom resolution in diff mode so
