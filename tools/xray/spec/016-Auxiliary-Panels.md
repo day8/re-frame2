@@ -38,7 +38,7 @@ mount paths and L3-tab backing (when applicable) are:
 | 8  | 2 | App-DB segment-inspector popup    | `app-db-segment-inspector/Popup`        | — (overlay) |
 | 9  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
 | 10 | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
-| 11 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | standalone mount (rf2-5gl5r — the Event/Handler tab that originally embedded it was retired) |
+| 11 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | standalone mount — no current panel embeds it (rf2-5gl5r retired the Event/Handler tab that originally hosted it). Consumers mount directly per the embedding contract ([`008-Embedding-Contract.md`](008-Embedding-Contract.md)). |
 | 12 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
 | 13 | 4 | Sim side-rail                      | `static.machines.sim/SimRail`           | sub of Machines tab |
 
