@@ -2,7 +2,7 @@
 
 The canonical substrate for re-frame2: every Spec (002 Frames, 004 Views, 005 StateMachines, 006 ReactiveSubstrate, 010 Schemas, 011 SSR, 012 Routing, 014 HTTPRequests, every Pattern-* doc) was authored against the Reagent adapter, and every JVM `clojure -M:test` run, every shadow-cljs `node-test` build, every `:browser-test` run, and every `npm run test:examples` invocation exercises the Reagent path end-to-end. See [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy) for the policy and rationale.
 
-This directory holds the **full set of worked Reagent examples** (counting each 7GUIs task individually) that ship in the catalogue at [examples/README.md](../README.md). Each example sits in its own self-contained sub-folder with the CLJS source and a hand-written `index.html`. The 7GUIs cluster has its own internal grouping under [`7Guis/`](7Guis/README.md).
+This directory holds the **full set of worked Reagent examples** (counting each 7GUIs task individually) that ship in the catalogue at [examples/README.md](../README.md). Each example sits in its own self-contained sub-folder with the CLJS source and a hand-written `index.html`. The 7GUIs cluster has its own internal grouping under [`seven_guis/`](seven_guis/README.md).
 
 Story Stage 8 (`tools/story` end-to-end on the counter) lives as a tool-owned testbed at [`tools/story/testbeds/counter_with_stories/`](../../tools/story/testbeds/counter_with_stories/) — catalogued with the tool that owns it rather than alongside the tutorial examples.
 
@@ -25,7 +25,7 @@ reagent/
   long_running_work/           <-- Pattern-LongRunningWork worked example
   websocket/                   <-- Pattern-WebSocket worked example
   notebook/                    <-- design-led example (Editorial Warm identity)
-  7Guis/                       <-- 7GUIs benchmark cluster
+  seven_guis/                  <-- 7GUIs benchmark cluster
     cells/  circle_drawer/  crud/  flight_booker/  temperature/  timer/
   realworld/                   <-- the canonical multi-artefact integration test
 ```

@@ -61,7 +61,7 @@
      this source file stays test-free.
 
    Layout follows the single-file style of `examples/reagent/login/core.cljs`
-   and `examples/reagent/7Guis/circle_drawer/circle_drawer.cljs`. In a real
+   and `examples/reagent/seven_guis/circle_drawer/core.cljs`. In a real
    codebase this would split per CP-6 conventions across schema / events /
    subs / views / machines / tests files."
   (:require [reagent2.dom.client :as rdc]

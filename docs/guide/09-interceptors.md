@@ -169,7 +169,7 @@ Every event handled in `:test/recorder-frame` gets the recorder prepended to its
 
 ## A third worked example — undo
 
-The Circle Drawer in `examples/reagent/7Guis/circle_drawer/` uses an interceptor for per-event undo. It captures the pre-handler value of the `:circles` slice and pushes it onto an `:undo` stack if the handler actually changed something.
+The Circle Drawer in `examples/reagent/seven_guis/circle_drawer/` uses an interceptor for per-event undo. It captures the pre-handler value of the `:circles` slice and pushes it onto an `:undo` stack if the handler actually changed something.
 
 ```clojure
 (def undoable

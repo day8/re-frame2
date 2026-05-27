@@ -1,4 +1,4 @@
-(ns flight-booker.flight-booker
+(ns seven-guis.flight-booker.core
   "7GUIs #3 — Flight Booker.
 
    A combo box (one-way / return), two date inputs, a Book button.

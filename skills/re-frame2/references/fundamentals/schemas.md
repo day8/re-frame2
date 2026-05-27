@@ -63,7 +63,7 @@ Behaviour matrix:
 
 ## Canonical mini-example
 
-From `examples/reagent/7Guis/flight_booker/flight_booker.cljs`:
+From `examples/reagent/seven_guis/flight_booker/core.cljs`:
 
 ```clojure
 (def FlightState
