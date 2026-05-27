@@ -655,7 +655,7 @@ mute manager modal). The Buffer tab inherited the
 | 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Editor override** (rf2-dudqz — per-machine click-to-source picker; nil / `:vscode` / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <tpl>}`; default nil = use host default) · **Power user:** "Show tool frames in picker" toggle (off by default) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot is `:general :use-system-colors?`) |
 | 2 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
 | 3 | **Buffer** | `b` | `:general :epoch-history` (slider, relocated from General per rf2-pu9sb — slot stays under `:general` for the persisted-settings shape, only the popup home moved) · `:buffer/cascades-retained` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" button with confirm modal |
-| 4 | **Diff** | `d` | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; section-grouping threshold fixed defaults — both dropped from the user surface) |
+| 4 | **Diff** | `d` | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; the app-db diff engine itself is Editscript A* per [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9.1.5.1 with no user-tuneable knobs — the prior section-grouping engine was retired wholesale per rf2-7is22) |
 
 **Inner-tab mnemonics** (g / k / b / d) — bare-letter
 keystrokes captured at the dialog level while the modal is open.
@@ -678,7 +678,7 @@ typing into numeric knobs is not interrupted.
 | Per-tab default expansion (`:bookish` / `:dense`) | Each tab owns its expansion default; no global knob. |
 | Accent user-swap | The accent is a single fixed GitHub blue (per §Colour system); light/dark theme is the only user colour axis. |
 | Sub-output diff layout (`:unified` / `:split` toggle) | Fixed unified. |
-| Section-grouping threshold | Fixed defaults; not user-tuneable. |
+| Section-grouping threshold | Engine retired wholesale per rf2-7is22 (#2235); app-db diff now runs Editscript A* directly with no separate section-grouping stage. |
 | Popout as its own tab | Folds into General's Panel-position sub-section. |
 
 Full wireframe + per-field configure! mapping in
