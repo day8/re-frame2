@@ -282,13 +282,85 @@
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
+  ;; ----- grammar-edge diffs (rf2-yaajg) -------------------------------
+  ;;
+  ;; Six additional diff variants that pin grammar edges the canonical
+  ;; added/removed/modified coverage doesn't reach: set ops, boolean
+  ;; toggle, vector-of-records, nil-vs-missing, near-equal floats,
+  ;; deep redaction. Each variant pins ONE engine behaviour for
+  ;; visual-regression isolation.
+
+  (story/reg-variant :story.xray.edn-inspector/diff-set-mixed
+    {:doc        "Set diff with both add and remove ops: `#{:a :b
+                 :c}` → `#{:a :b :d}`. Sets have no positional
+                 identity — `:c` paints `−`, `:d` paints `+`, both
+                 from the key-side glyph treatment."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-set-mixed)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/diff-boolean-toggle
+    {:doc        "Simplest scalar diff — `{:enabled? true}` →
+                 `{:enabled? false}`. Pins the `~` glyph + `←
+                 changed from true` suffix for the boolean leaf
+                 case."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-boolean-toggle)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/diff-vector-of-maps
+    {:doc        "Vector-of-records — `[{:id 1 :count 5} {:id 2
+                 :count 8}]` → `[{:id 1 :count 6} {:id 2 :count
+                 8}]`. The canonical app-db rows-of-records shape;
+                 verifies per-element walk against per-vector-
+                 index diff."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-vector-of-maps)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/diff-nil-vs-missing
+    {:doc        "`{:k nil}` vs `{}` distinction. Before carries
+                 `:will-disappear 42` and `:explicit-nil nil`;
+                 after replaces `:will-disappear` with `:newly-nil
+                 nil`. Verifies `(contains? m k)` is the
+                 discriminator — not `(some? (get m k))` — so the
+                 engine paints `−` for the removed key and `+` for
+                 the newly-present-but-nil key."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-nil-vs-missing)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/diff-numeric-near-equal
+    {:doc        "Near-equal floats — `1.0` vs `1.0000001`.
+                 Verifies the engine does NOT fold nearly-equal
+                 floats into `:same`; the `:x` row paints `~` +
+                 the full `← changed from 1.0` suffix. `:y` stays
+                 untouched as a control."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-numeric-near-equal)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.xray.edn-inspector/diff-redacted-context
+    {:doc        "`:rf/redacted` sentinel three levels deep —
+                 `{:session {:user {:password :rf/redacted}}}` →
+                 `{:session {:user {:password \"hunter2\"}}}`.
+                 Verifies R8's redaction-curated suffix composes
+                 with deep nesting; ancestors paint `◴` children-
+                 changed; the leaf carries `← was redacted`
+                 without printing the sentinel."
+     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-redacted-context)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
   ;; ----- workspace ----------------------------------------------------
   (story/reg-workspace :Workspace.xray.edn-inspector/all
     {:doc      "All edn-inspector widget variants in one auto-grid.
                 Scroll to see the renderer's response across scalar
                 / map (small / medium / large / nested / sentinel)
                 / vector / list / lazy-seq / set / record / uuid /
-                inst / diff (mixed-ops / vector / deep) / opts
+                inst / diff (mixed-ops / vector / deep / set-mixed
+                / boolean-toggle / vector-of-maps / nil-vs-missing
+                / numeric-near-equal / redacted-context) / opts
                 (zoomable / popup / card / header / header-hiccup
                 / site-id / shallow-depth / combined)."
      :layout   :variants-grid

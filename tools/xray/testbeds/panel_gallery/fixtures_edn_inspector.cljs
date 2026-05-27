@@ -339,3 +339,90 @@
    :opts  {:header            "All affordances at once"
            :popup-affordance? true
            :zoomable?         true}})
+
+;; =========================================================================
+;; grammar-edge diff fixtures (rf2-yaajg)
+;; =========================================================================
+;;
+;; Six additional before/after pairs that pin grammar edges the
+;; canonical added/removed/modified/full/nested coverage doesn't
+;; reach: set-diff ops, boolean primitive toggle, vector-of-maps
+;; per-element changes, nil-vs-missing key distinction, near-equal
+;; float non-collapse, and a deeply nested redacted-sentinel
+;; appearance. Each fixture pins ONE engine behaviour so visual
+;; regressions surface in isolation.
+
+(defn diff-set-mixed
+  "Set diff with both add and remove ops in the same set:
+  `#{:a :b :c}` → `#{:a :b :d}`. `:c` is removed, `:d` is added,
+  `:a` and `:b` are unchanged. Sets have no positional identity
+  so the engine routes through key-side glyph treatment — `:c`
+  paints `−`, `:d` paints `+`."
+  []
+  {:before #{:a :b :c}
+   :value  #{:a :b :d}})
+
+(defn diff-boolean-toggle
+  "Simplest possible scalar diff — `{:enabled? true}` →
+  `{:enabled? false}`. Verifies the `~` value-side glyph + `←
+  changed from true` suffix render cleanly for the boolean leaf
+  case."
+  []
+  {:before {:enabled? true}
+   :value  {:enabled? false}})
+
+(defn diff-vector-of-maps
+  "The canonical `[{:id 1 :n 5} {:id 2 :n 8}]` → `[{:id 1 :n 6}
+  {:id 2 :n 8}]` shape — a vector of record-shaped maps where
+  one element's inner field changed and the other is unchanged.
+  Every re-frame app-db carries this shape (lists of rows);
+  verifies per-element diff against per-vector-index walk."
+  []
+  {:before [{:id 1 :name "Ada"   :count 5}
+            {:id 2 :name "Grace" :count 8}]
+   :value  [{:id 1 :name "Ada"   :count 6}
+            {:id 2 :name "Grace" :count 8}]})
+
+(defn diff-nil-vs-missing
+  "Two distinct cases in one fixture demonstrating that
+  `nil`-valued keys are NOT the same as absent keys. Before:
+  `{:explicit-nil nil :present 1 :will-disappear 42}`. After:
+  `{:explicit-nil nil :present 1 :newly-nil nil}` — `:will-
+  disappear` is removed (`−` glyph), `:newly-nil` is added with
+  a nil value (`+` glyph), `:explicit-nil` stays nil-valued
+  unchanged (no glyph), and `:present` is unchanged. Confirms
+  the engine distinguishes `(contains? m k)` from `(some? (get
+  m k))`."
+  []
+  {:before {:explicit-nil   nil
+            :present        1
+            :will-disappear 42}
+   :value  {:explicit-nil nil
+            :present      1
+            :newly-nil    nil}})
+
+(defn diff-numeric-near-equal
+  "Near-equal-floats edge — `{:x 1.0 :y 2.0}` → `{:x 1.0000001
+  :y 2.0}`. Verifies the diff engine does NOT collapse nearly-
+  equal floats into `:same` (no epsilon comparison); the `:x`
+  row must paint `~` + render the full `← changed from 1.0`
+  suffix. `:y` stays untouched as a control."
+  []
+  {:before {:x 1.0 :y 2.0}
+   :value  {:x 1.0000001 :y 2.0}})
+
+(defn diff-redacted-context
+  "Redacted sentinel sitting three levels deep inside an
+  otherwise-clean tree — `{:session {:user {:password :rf/
+  redacted}}}` → `{:session {:user {:password \"hunter2\"}}}`.
+  Verifies R8's redaction-curated suffix (`← was redacted`)
+  composes with deep nesting; ancestors paint the `◴` children-
+  changed glyph + the rail; the leaf carries the curated suffix
+  rather than printing the sentinel keyword. Mirrors the shape
+  the real elision contract produces when an operator drills
+  into a path that was previously redacted."
+  []
+  {:before {:session {:user {:id 7 :password :rf/redacted}}
+            :status  :ok}
+   :value  {:session {:user {:id 7 :password "hunter2"}}
+            :status  :ok}})
