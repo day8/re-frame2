@@ -129,15 +129,18 @@
 
 ;; Subtle 1px column-boundary line painted at the LEFT edge of the 4px
 ;; gutter track — i.e. flush with the right edge of the preceding header
-;; cell. Uses the same `--rf-xray-border-subtle` token as every other
-;; thin border in the panel so it reads as "structural", not "decorative".
-;; On hover the gutter fills with accent (the drag affordance signal);
-;; the border-left disappears under the fill which is fine — the
-;; operator is grabbing the handle, not reading the boundary.
+;; cell. Anchored on `--rf-xray-text-tertiary` because the obvious choice
+;; (`--rf-xray-border-subtle`) resolves to `#e8e8e8` in the current theme
+;; — IDENTICAL to `--rf-xray-bg-3` (the header background), so the line
+;; would be invisible. text-tertiary (`#8c959f`) is the muted-but-readable
+;; mid-gray; sits a notch above the bg without shouting. On hover the
+;; gutter fills with accent (the drag affordance signal); the border-left
+;; disappears under the fill which is fine — the operator is grabbing the
+;; handle, not reading the boundary.
 (def ^:private gutter-base-style
   {:cursor      "col-resize"
    :background  "transparent"
-   :border-left "1px solid var(--rf-xray-border-subtle)"
+   :border-left "1px solid var(--rf-xray-text-tertiary)"
    :transition  "background 0.15s ease"
    :user-select "none"
    :align-self  "stretch"})
