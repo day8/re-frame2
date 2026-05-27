@@ -122,7 +122,7 @@
 
 (defn register-all!
   "Idempotent re-registration of every schema attached in this ns.
-   See `websocket.core/register-all!` for why this exists."
+   See `websocket.test-helpers/register-all!` for why this exists."
   []
   (rf/reg-app-schema [:rf/machines :ws/connection] ConnectionSnapshot)
   (rf/reg-app-schema [:messages]                   MessagesSlice))

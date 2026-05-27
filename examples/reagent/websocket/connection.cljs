@@ -357,12 +357,12 @@
 ;;
 ;; All the `reg-*` calls are inside `register-all!` so the test fixture
 ;; can re-fire them after an upstream `clear-all!` wiped the registrar
-;; (see `websocket.core/register-all!` for context). At ns-load the
+;; (see `websocket.test-helpers/register-all!` for context). At ns-load the
 ;; function is called once via the trailing `(register-all!)` form.
 
 (defn register-all!
   "Idempotent re-registration of every event handler / sub this ns
-   owns. See `websocket.core/register-all!`."
+   owns. See `websocket.test-helpers/register-all!`."
   []
   ;; Use `rf/reg-machine` (not `reg-event-fx` + `make-machine-handler`)
   ;; so the registration metadata carries `:rf/machine? true` —

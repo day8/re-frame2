@@ -37,86 +37,25 @@
   (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            [re-frame.fx :as fx]
-            [re-frame.late-bind :as late-bind]
             [websocket.schema]
             [websocket.connection]
             [websocket.messages]
             [websocket.views :as views]))
 
 ;; ============================================================================
-;; RE-REGISTRATION HOOK
+;; APP-BOOT EVENT
 ;; ============================================================================
-;;
-;; Some test fixtures upstream of this example (alphabetically before
-;; `re-frame.websocket-cljs-test` in the node-test run order) call
-;; `re-frame.registrar/clear-all!` without restoring afterwards —
-;; notably the Story `:rf.assert/*` test fixture. When that happens,
-;; the ns-load registrations the example relies on disappear before
-;; this example's own test ns gets a chance to run.
-;;
-;; To recover, every sub-namespace exposes an idempotent
-;; `register-all!` helper; this ns's `register-all!` calls them all,
-;; then re-installs the top-level `:ws.app/initialise` event. The
-;; test fixture calls this from its `:before` step. The function is
-;; idempotent (every `rf/reg-*` is last-write-wins) so it's also safe
-;; for hot-reload from the REPL.
-;;
-;; This pattern mirrors `counter-with-stories.stories/register-all!`,
-;; which solves the same problem for the Story side-table.
 
-(defn- re-register-machines-fx-and-subs!
-  "Re-fire the framework-shipped `:rf.machine/*` fx + the `:rf/machine`
-   / `:rf/machine-has-tag?` subs.
+(rf/reg-event-fx :ws.app/initialise
+  {:doc "App boot. Seeds the messages slice + materialises the
+         connection machine's initial `:disconnected` snapshot.
 
-   Idempotent (last-write-wins). Necessary because upstream test
-   namespaces (alphabetically before `re-frame.websocket-cljs-test`)
-   call `re-frame.registrar/clear-all!` without restoring, which
-   wipes the ns-load-time registrations in `re-frame.machines`.
-   Without these in place:
-   - declarative `:spawn` silently no-ops (the spawn fx isn't found);
-   - `rf/machine-has-tag?` returns false even when the tag is in the snapshot
-     (the framework sub isn't registered)."
-  []
-  (when-let [spawn-fx (late-bind/get-fn :machines/spawn-fx)]
-    (fx/reg-fx :rf.machine/spawn spawn-fx))
-  (when-let [destroy-fx (late-bind/get-fn :machines/destroy-machine-fx)]
-    (fx/reg-fx :rf.machine/destroy destroy-fx))
-  (when-let [spawn-all-init-fx (late-bind/get-fn :machines/spawn-all-init-fx)]
-    (fx/reg-fx :rf.machine/spawn-all-init spawn-all-init-fx))
-  (when-let [after-schedule-fx (late-bind/get-fn :machines/after-schedule-fx)]
-    (fx/reg-fx :rf.machine/after-schedule after-schedule-fx))
-  (when-let [after-cancel-fx (late-bind/get-fn :machines/after-cancel-fx)]
-    (fx/reg-fx :rf.machine/after-cancel after-cancel-fx))
-  ;; The framework subs that read machine state — both registered at
-  ;; machines.cljc ns-load time and equally vulnerable to `clear-all!`.
-  (rf/reg-sub :rf/machine
-    (fn [db [_ machine-id]]
-      (get-in db [:rf/machines machine-id])))
-  (rf/reg-sub :rf/machine-has-tag?
-    (fn [db [_ machine-id tag]]
-      (contains? (get-in db [:rf/machines machine-id :tags]) tag))))
-
-(defn register-all!
-  "Re-fire every `reg-*` this example depends on. Safe to call at any
-   point during the app's lifetime — every `reg-*` is last-write-wins."
-  []
-  (re-register-machines-fx-and-subs!)
-  (websocket.schema/register-all!)
-  (websocket.connection/register-all!)
-  (websocket.messages/register-all!)
-  (rf/reg-event-fx :ws.app/initialise
-    {:doc "App boot. Seeds the messages slice + materialises the
-           connection machine's initial `:disconnected` snapshot.
-
-           Namespaced under `:ws.app/*` (not `:app/initialise`) so the
-           example can coexist with the realworld + counter examples
-           without re-registering a common event key."}
-    (fn handler-app-initialise [_ _]
-      {:fx [[:dispatch [:ws.messages/initialise]]
-            [:dispatch [:ws.connection/initialise]]]})))
-
-(register-all!)
+         Namespaced under `:ws.app/*` (not `:app/initialise`) so the
+         example can coexist with the realworld + counter examples
+         without re-registering a common event key."}
+  (fn handler-app-initialise [_ _]
+    {:fx [[:dispatch [:ws.messages/initialise]]
+          [:dispatch [:ws.connection/initialise]]]}))
 
 ;; ============================================================================
 ;; MOUNT
