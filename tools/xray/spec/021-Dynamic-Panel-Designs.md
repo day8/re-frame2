@@ -1611,8 +1611,13 @@ shift-detection) no-ops on map containers; R2 (key glyph) no-ops
 on primitive cell values like a SUBSCRIPTIONS row's scalar return;
 R3 (collapsed-container `[N∆]` chip) no-ops on leaf scalars. The
 shared widget + shared projection engine (`day8.re-frame2-xray.diff.engine`)
-hold the grammar; per-surface mounts contribute only the
-`(before, after)` value pair.
+hold the grammar; per-surface mounts contribute the
+`(before, after)` value pair PLUS the `:full-with-diff?` opt
+(§10.0.12) that activates the R3 + R4 structural-context chrome.
+Mode-3 (`:full+diff`) call sites MUST pass `:full-with-diff? true`
+alongside `:before`; mode-2 (`:diff`) call sites MUST NOT — see
+§10.0.12 for the per-surface obligations + the asymmetric silent-
+failure cost of getting it wrong.
 
 **Per-surface storage**: every surface registers its own sub +
 event pair so the modes are independent (operator's App-DB choice
@@ -2220,6 +2225,17 @@ reach for `[edn-inspector value opts]` directly.
   panel-leave-and-return round-trip (auto-mount-id changes on
   remount; a stable site-id does not). Omit to keep the per-call-
   site isolation default.
+- `:full-with-diff?` (rf2-n2jig · rf2-6cm03) — boolean. When `true`
+  (combined with `:before`) the widget paints the **mode-3** chrome
+  on top of the diff annotations: R3 collapsed-container `[N∆]`
+  count chip + R4 single-2px vertical gutter rail through each
+  change-bearing subtree. When `false` / omitted (the legacy diff
+  surface) the widget renders the **mode-2** chrome — per-leaf
+  gutter glyphs + `← changed from <prior>` annotations, no R3 chip,
+  no R4 rail. `:full-with-diff?` is a no-op without `:before`. See
+  §10.0.12 for the contract + per-surface call-site obligation. The
+  silent-default chosen here is intentional: it preserves the diff-
+  only call sites that should NOT paint mode-3 chrome.
 
 The widget is a **Reagent form-2 component** — the outer fn captures
 a stable `mount-id` (auto-generated UUID, per D4=a — no public
@@ -2973,6 +2989,82 @@ path `[]`) never renders the affordance; zooming into the current
 zoom root is a no-op. The renderer composes the absolute path as
 `(into zoom-path-prefix path)` so the dispatched `:zoom-to` carries the
 full path from the ORIGINAL root, not the currently-displayed root.
+
+#### §10.0.12 `:full-with-diff?` opt — mode-3 chrome activation (rf2-n2jig · rf2-6cm03)
+
+The §9.1.5.1 R-rule grammar partitions diff chrome into two visual
+intensities — the per-leaf annotation layer (R1, R2, R7, R8) and the
+structural-context layer (R3 collapsed `[N∆]` chip + R4 vertical
+rail). The widget paints the annotation layer whenever `:before` is
+present; it paints the structural-context layer ONLY when the caller
+also passes `:full-with-diff? true`.
+
+The split is a contract — not a runtime guess — because the same
+widget serves TWO operator intents the universal toggle (§9.1.5.2)
+distinguishes:
+
+- **Mode-2 (`:diff`)** — pure-diff lens; per-leaf focused chrome,
+  no structural rail. Callers pass `:before` only.
+- **Mode-3 (`:full+diff`)** — combined lens; the operator wants the
+  full tree AND the rail + chip cues that visually anchor where the
+  change-bearing subtrees live. Callers pass `:before` AND
+  `:full-with-diff? true`.
+
+**Contract**:
+
+```clj
+;; Mode-2 (diff lens) — annotation chrome only
+[ei/edn-inspector after-value
+ {:before before-value}]
+
+;; Mode-3 (full+diff lens) — annotation + R3/R4 structural chrome
+[ei/edn-inspector after-value
+ {:before before-value
+  :full-with-diff? true}]
+```
+
+**Consequence of NOT passing it from a mode-3 call site**: silent
+absence of R4 rails + R3 chips. The widget still paints R1/R2/R7/R8
+because those are driven off `:before` alone, so the surface looks
+"diff-y" at a glance but the operator loses the structural-context
+cues that the universal toggle's "full+diff" promise implies. This
+is the root-cause class of bug rf2-kkhss (App-DB silently dropped R4
+when its mode-3 call site omitted the flag).
+
+**Mode-2 call sites MUST NOT pass `:full-with-diff? true`** —
+painting the rail through every change-bearing subtree on the
+per-leaf diff lens defeats the lens's per-leaf focus. The
+distinction is asymmetric: omitting the flag silently degrades
+mode-3; passing it incorrectly silently corrupts mode-2.
+
+**Per-surface call-site obligation** — the four canonical consumer
+surfaces from §9.1.5.2 each carry a mode-3 branch; that branch MUST
+set `:full-with-diff? true`:
+
+| Surface                              | Mode-3 call site                                                                                       | Test surface (verifies the opt + chrome are wired)                          |
+|--------------------------------------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-section` `:full+diff` branch (rf2-n2jig)                        | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
+| App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `display-card`'s `:before`-present branch (rf2-kkhss)                | App-DB panel-gallery story fixtures + segment-inspector tests               |
+| Machine Inspector snapshot drill-in  | `panels/machine_inspector.cljs` — `snapshot-block` mode-3 `assoc` (`:before` + `:full-with-diff?`)     | `data-testid="rf-xray-machine-snapshot-block-<id>"` with `data-rf-xray-diff-mode="full+diff"` |
+| Epoch SUBSCRIPTIONS step value cells | `panels/epoch/view.cljs` — `subs-value-cell` `:full+diff` branch                                       | `data-testid="rf-xray-epoch-subs-value-cell"` mode-3 path                   |
+
+Mode-2 branches (the per-surface `:diff` lens) omit `:full-with-diff?`
+entirely — the flag's silent-false default IS the mode-2 contract.
+
+**Canonical visual reference** — the Story fixtures under
+`tools/xray/testbeds/panel_gallery/fixtures_diff_mode_3.cljs` pass
+`:full-with-diff? true` on every variant; that is the operator-
+facing pin for the mode-3 chrome.
+
+**Why the opt isn't auto-inferred from mode** — the widget has no
+read of the surrounding §9.1.5.2 mode sub. The mode lives in the
+consumer panel's frame; the widget is a pure-data Reagent component
+that takes `(value, opts)`. Threading the mode through opts would
+duplicate the surrounding panel's mode choice into the widget's
+contract; the boolean `:full-with-diff?` is the minimal handshake
+that lets the consumer panel keep ownership of the mode while the
+widget keeps a pure data interface. Audit trail: rf2-ya3nj 24hr
+audit, finding M3 (spec drift) → rf2-6cm03 (this section).
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
