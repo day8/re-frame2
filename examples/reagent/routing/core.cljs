@@ -48,17 +48,22 @@
 ;; APP DATA
 ;; ============================================================================
 
+;; The articles collection lives under :routing.app/articles-list (not
+;; :routing.app/articles) so it doesn't shadow the `:routing.app/articles`
+;; route-id. The route-registry and reg-sub registries are independent,
+;; but keeping the sub-id + app-db-key separate from the route-id makes
+;; the example easier to scan.
 (rf/reg-event-db :routing.app/initialise
   (fn [_ _]
-    {:routing.app/articles
+    {:routing.app/articles-list
      [{:id "intro" :title "Intro to re-frame2" :body "..."}
       {:id "ssr"   :title "Server rendering"  :body "..."}]}))
 
-(rf/reg-sub :routing.app/articles
-  (fn [db _] (:routing.app/articles db)))
+(rf/reg-sub :routing.app/articles-list
+  (fn [db _] (:routing.app/articles-list db)))
 
 (rf/reg-sub :routing.app/article-by-id
-  :<- [:routing.app/articles]
+  :<- [:routing.app/articles-list]
   (fn [articles [_ id]]
     (first (filter #(= id (:id %)) articles))))
 
@@ -86,7 +91,7 @@
   [:div
    [:h1 "Articles"]
    [:ul
-    (for [{:keys [id title]} @(subscribe [:routing.app/articles])]
+    (for [{:keys [id title]} @(subscribe [:routing.app/articles-list])]
       ^{:key id}
       [:li [rf/route-link {:to :routing.app/article-detail
                            :params {:id id}
