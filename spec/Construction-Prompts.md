@@ -1035,7 +1035,7 @@ The drain settles before `with-frame` returns; the final state is captured.
 
 ## Worked examples (each prompt, in action)
 
-The [7GUIs example series](../examples/reagent/seven_guis/README.md) and the [login example](../examples/reagent/login/core.cljs) demonstrate every prompt in working code (each example sits alongside its own `*.spec.cjs` Playwright smoke test):
+The [7GUIs example series](../examples/reagent/seven_guis/README.md) and the [login example](../examples/reagent/login/core.cljs) demonstrate every prompt in working code (the `examples/` tree is test-free per [`examples/README.md`](../examples/README.md); real-regression coverage lives in the substrate contract tests, the framework gates, and adapter-level smoke tests):
 
 | Prompt | Example |
 |---|---|
