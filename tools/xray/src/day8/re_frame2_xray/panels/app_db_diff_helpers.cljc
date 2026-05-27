@@ -210,18 +210,33 @@
 
 ;; ---- reserved-keys partition --------------------------------------------
 
-(defn partition-reserved
-  "Split a vector of diff triples into two groups:
+(defn- triple-path
+  "Project the `:path` off a diff row. Polymorphic — supports both the
+  legacy map shape `{:op :path :before :after}` (still produced by
+  `diff-paths` for the trace panel) AND the universal 4-tuple shape
+  `[path before after op]` (produced by the migrated App-DB + HANDLER
+  `:db` paths post-rf2-xuyac, derived from
+  `day8.re-frame2-xray.diff.engine/project`'s `:flat-rows`). Pure data."
+  [row]
+  (cond
+    (map? row)        (:path row)
+    (sequential? row) (first row)
+    :else             nil))
 
-      {:reserved     [triples-whose-path-roots-in-reserved-key]
+(defn partition-reserved
+  "Split a vector of diff rows into two groups:
+
+      {:reserved     [rows-whose-path-roots-in-reserved-key]
        :non-reserved [the-rest]}
 
-  Pure data → data. Used by the view to render the changed-slice
-  stack + the `[runtime]` group separately per spec §Reserved-keys
-  group."
+  Accepts either the map shape (`{:op :path :before :after}`) or the
+  4-tuple shape (`[path before after op]`) — `triple-path` projects the
+  path uniformly. Pure data → data. Used by the view to render the
+  changed-slice stack + the `[runtime]` group separately per spec
+  §Reserved-keys group."
   [triples]
   (let [{:keys [reserved non-reserved]}
-        (group-by (fn [t] (if (reserved-path? (:path t)) :reserved :non-reserved))
+        (group-by (fn [t] (if (reserved-path? (triple-path t)) :reserved :non-reserved))
                   triples)]
     {:reserved     (vec reserved)
      :non-reserved (vec non-reserved)}))

@@ -77,12 +77,18 @@
     (h/seed-epoch-history! epoch-history)
     (h/focus-cascade! :c1)
     (let [diff-1 (h/read-sub :rf.xray/selected-epoch-diff)]
-      (is (= [{:op :added :path [:counter] :before nil :after 1}]
+      ;; rf2-xuyac — universal 4-tuple `[path before after op]` shape
+      ;; (post-migration to `diff/engine.cljc`'s `:flat-rows`). The
+      ;; `{} → {:counter 1}` cascade collapses to a single root-level
+      ;; replacement (`:r []`) under Editscript A* — empty-to-populated
+      ;; map is one edit at the root, not per-key adds. Mode-3 paints
+      ;; the same row from `:path-ops`, so the two lenses agree.
+      (is (= [[[] {} {:counter 1} :modified]]
              diff-1)
-          ":e1's diff — counter went nil → 1")
+          ":e1's diff — root replacement {} → {:counter 1}")
       (h/focus-cascade! :c2)
       (let [diff-2 (h/read-sub :rf.xray/selected-epoch-diff)]
-        (is (= [{:op :modified :path [:counter] :before 1 :after 2}]
+        (is (= [[[:counter] 1 2 :modified]]
                diff-2)
             ":e2's diff — counter went 1 → 2")
         (is (not= diff-1 diff-2)

@@ -44,8 +44,8 @@
   `tools/xray/spec/Conventions.md` §Pure-data helpers as `.cljc` — the
   projection is data-in / data-out and runs under both targets.
   `feedback_jvm_interop_must_work.md` is binding."
-  (:require [day8.re-frame2-xray.panels.common-helpers :as common]
-            [day8.re-frame2-xray.panels.app-db-diff-helpers :as diff-helpers]))
+  (:require [day8.re-frame2-xray.diff.engine :as diff-engine]
+            [day8.re-frame2-xray.panels.common-helpers :as common]))
 
 ;; ---- trace-event lookups -------------------------------------------------
 
@@ -365,8 +365,9 @@
 
 (defn- db-diff-paths
   "Compute the changed-paths vector for this cascade JIT from the
-  epoch-record's `:db-before` + `:db-after` snapshots via the
-  structural-sharing `app-db-diff-helpers/diff-paths` (Spec 004).
+  epoch-record's `:db-before` + `:db-after` snapshots via the canonical
+  Editscript-A* engine (`day8.re-frame2-xray.diff.engine/project`'s
+  `:flat-rows`, rf2-xuyac).
 
   Pair-debug 2026-05-26 fix: the prior implementation read a
   `:rf.event/db-changed-paths` tag off the `:rf.event/db-changed`
@@ -378,14 +379,23 @@
   returned `[]` and the HANDLER `:db` sub-section always read
   '— (no changes)' even when the handler mutated state extensively.
 
+  rf2-xuyac migration: the home-grown `app-db-diff-helpers/diff-paths`
+  walker this fn previously called is RETIRED for the HANDLER `:db`
+  surface (kept only for the trace panel `db-changed-diff-triples`,
+  out of scope). The Editscript engine is now the single canonical
+  diff engine for HANDLER `:db` + App-DB Diff + Machine Inspector
+  `:diff` lenses — operators switching between `:diff` and `:full+diff`
+  modes of the same data see identical R-rule chrome (spec/021
+  §9.1.5.2 wholesale replacement).
+
   Returns a vector of 4-tuples `[path before after change-kind]`
   matching the view-layer `db-diff-line` render shape. When
   before == after (the handler returned no `:db` or an identical
   value), returns `[]` correctly."
   [db-before db-after]
-  (mapv (fn [{:keys [op path before after]}]
+  (mapv (fn [{:keys [path op before after]}]
           [path before after op])
-        (diff-helpers/diff-paths db-before db-after)))
+        (:flat-rows (diff-engine/project db-before db-after))))
 
 (defn- machine-lifecycle-rows
   "Project the `:rf.machine/action-ran` stream into per-phase rows
@@ -784,10 +794,11 @@
   - `:reg-machine`   → :db-diff + :fx + :machine {transition guards
                                                   lifecycle timers}
 
-  `:db-diff` is computed JIT from `db-before` / `db-after` via
-  `diff-helpers/diff-paths` (Spec 004 structural-sharing diff). The
-  framework records raw snapshots on the epoch-record; consumers
-  derive diffs on demand (pair-debug 2026-05-26 fix).
+  `:db-diff` is computed JIT from `db-before` / `db-after` via the
+  Editscript-A* engine at `day8.re-frame2-xray.diff.engine`
+  (rf2-xuyac — see `db-diff-paths` ↑). The framework records raw
+  snapshots on the epoch-record; consumers derive diffs on demand
+  (pair-debug 2026-05-26 fix).
 
   Two arities — the 2-arg form (legacy callers / tests that
   pre-date the JIT-diff fix) supplies nil/nil for db-before/after,

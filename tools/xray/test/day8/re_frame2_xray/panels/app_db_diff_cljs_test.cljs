@@ -222,7 +222,10 @@
 
 (deftest selected-epoch-diff-produces-triples
   (testing "with history populated, :rf.xray/selected-epoch-diff
-            produces the [op path before after] triples"
+            produces the universal `[path before after op]` 4-tuples
+            (rf2-xuyac — routed through `diff/engine.cljc`'s
+            `:flat-rows`; the same shape Machine Inspector + HANDLER
+            `:db` `:diff` lenses consume)"
     (seed-xray! {:cart {:items [{:id 7}]}}
                  [(mk-record :e-1 [:cart/add-item]
                              {:cart {:items []}}
@@ -230,8 +233,7 @@
     (rf/with-frame :rf/xray
       (let [diff @(rf/subscribe [:rf.xray/selected-epoch-diff])]
         (is (= 1 (count diff)))
-        (is (= {:op :modified :path [:cart :items]
-                :before [] :after [{:id 7}]}
+        (is (= [[:cart :items] [] [{:id 7}] :modified]
                (first diff)))))))
 
 (deftest selected-epoch-diff-tracks-selected-epoch
@@ -246,7 +248,7 @@
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/select-epoch :e-2])
         (let [diff @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-          (is (= [{:op :modified :path [:counter] :before 0 :after 1}]
+          (is (= [[[:counter] 0 1 :modified]]
                  diff)
               ":e-2's diff selected, not :e-3's"))))))
 
@@ -265,7 +267,7 @@
         ;; Set a selection that DOESN'T exist in history.
         (rf/dispatch-sync [:rf.xray/select-epoch :stale-id-that-aged-out])
         (let [diff @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-          (is (= [{:op :modified :path [:counter] :before 41 :after 42}]
+          (is (= [[[:counter] 41 42 :modified]]
                  diff)
               "stale selection falls through to (peek history) — the
                newest record's diff is shown rather than nil"))))))
@@ -301,7 +303,7 @@
         ;; Read the new newest-epoch diff. The cache must prune :e-1
         ;; (no longer in history) on this read.
         (let [diff @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-          (is (= [{:op :modified :path [:n] :before 2 :after 3}]
+          (is (= [[[:n] 2 3 :modified]]
                  diff)
               "newest-epoch (:e-3) diff is fresh; :e-1's entry is gone"))))))
 
@@ -361,9 +363,9 @@
           (let [diff-e3 @(rf/subscribe [:rf.xray/selected-epoch-diff])]
             (is (not= diff-e2 diff-e3)
                 "different selections produce different diffs")
-            (is (= [{:op :modified :path [:counter] :before 0 :after 1}]
+            (is (= [[[:counter] 0 1 :modified]]
                    diff-e2))
-            (is (= [{:op :modified :path [:counter] :before 1 :after 2}]
+            (is (= [[[:counter] 1 2 :modified]]
                    diff-e3))))
         ;; Returning to :e-2 still gets its cached triples (identical?
         ;; to the first read — proves the cache survives the cross-
@@ -390,7 +392,10 @@
                               :rf/route {:id :app/cart}})])
     (rf/with-frame :rf/xray
       (let [data @(rf/subscribe [:rf.xray/app-db-diff])
-            non-reserved-paths (set (map :path (:changed-non-reserved data)))
+            ;; rf2-xuyac — `:changed-non-reserved` now carries 4-tuple
+            ;; rows `[path before after op]` (the universal `:diff`
+            ;; lens shape); path lives at index 0.
+            non-reserved-paths (set (map first (:changed-non-reserved data)))
             reserved-keys-shown (set (map first (:changed-reserved data)))]
         (is (contains? non-reserved-paths [:cart :items])
             "non-reserved path lands in :changed-non-reserved")

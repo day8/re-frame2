@@ -4,13 +4,37 @@
   The diff projection itself is computed by the Editscript-backed
   engine at `day8.re-frame2-xray.diff.engine` — invoked inside
   `views/edn_inspector.cljs` from `:db-before` threaded through the
-  composite. The subs here surface the flat-triple lens (legacy
-  consumers — pin-store, MCP exporter, `show me when this changed`
-  walker) plus the per-epoch derived projections the panel composite
-  depends on (focused slice + redacted-modified count + flow-writes
-  origin attribution)."
+  composite. The subs here surface the flat-row lens (used by the
+  panel's `:diff` mode renderer + the MCP exporter + `show me when
+  this changed` walker) plus the per-epoch derived projections the
+  panel composite depends on (focused slice + redacted-modified count
+  + flow-writes origin attribution).
+
+  ## rf2-xuyac — flat-row engine residency
+
+  The `:rf.xray/selected-epoch-diff` sub routes through
+  `day8.re-frame2-xray.diff.engine/project`'s `:flat-rows` channel and
+  emits the universal 4-tuple shape `[path before after op]` — the
+  same shape the Machine Inspector `:diff` lens (rf2-yqjrd /
+  `snapshot-flat-diff-rows`) and the Epoch HANDLER `:db` `:diff` view
+  (`db-diff-paths`) consume. One engine, one consumer-facing shape
+  across every Xray `:diff` lens (spec/021 §9.1.5.2). The home-grown
+  `app-db-diff-helpers/diff-paths` walker that this sub previously
+  called remains in the helpers ns for the trace panel
+  (`db-changed-diff-triples`, out of scope for rf2-xuyac)."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.diff.engine :as diff-engine]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]))
+
+(defn- flat-rows->triples
+  "Project `engine/project`'s `:flat-rows` (maps `{:path :op :before
+  :after}`) into the universal 4-tuple shape `[path before after op]`
+  the App-DB / HANDLER `:db` / Machine Inspector `:diff` renderers all
+  consume. Pure data → data."
+  [flat-rows]
+  (mapv (fn [{:keys [path op before after]}]
+          [path before after op])
+        flat-rows))
 
 (defn- find-epoch-in-history
   "Return the `:rf/epoch-record` in `history` whose `:epoch-id` matches
@@ -110,6 +134,14 @@
   ;; every subsequent dispatch. Always picking the latest record when
   ;; the selection can't be located restores the user's expectation
   ;; that "the diff panel shows whatever just happened".
+  ;; rf2-xuyac — route through the canonical Editscript engine
+  ;; (`diff/engine.cljc`) and emit the universal 4-tuple shape
+  ;; `[path before after op]` mirrored across every Xray `:diff` lens
+  ;; (Machine Inspector `snapshot-flat-diff-rows`, Epoch HANDLER
+  ;; `:db` `db-diff-paths`). Same engine + same consumer-facing
+  ;; shape → engines no longer disagree on R6 vector-shift / R7
+  ;; type-change / R8 redaction across surfaces (spec/021 §9.1.5.2,
+  ;; spec/004 §Changed-paths derivation).
   (rf/reg-sub :rf.xray/selected-epoch-diff
     :<- [:rf.xray/epoch-history]
     :<- [:rf.xray/focus-epoch-id]
@@ -122,8 +154,9 @@
                 cached   (get @diff-cache epoch-id ::miss)]
             (if (not= ::miss cached)
               cached
-              (let [diff (h/diff-paths (:db-before record)
-                                       (:db-after  record))
+              (let [proj (diff-engine/project (:db-before record)
+                                              (:db-after  record))
+                    diff (flat-rows->triples (:flat-rows proj))
                     live (into #{} (map :epoch-id) history)]
                 (swap! diff-cache
                        (fn [m]

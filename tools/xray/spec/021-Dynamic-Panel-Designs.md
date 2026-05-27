@@ -1669,6 +1669,24 @@ string consumed by visual-regression services — there's no value-
 diff UI surface in Story to retire. The universal toggle adoption
 is therefore limited to the three Xray surfaces above.
 
+**Single canonical diff engine** (rf2-xuyac, 2026-05-27): every
+universalised `:diff` lens (App-DB panel · Machine Inspector
+snapshot · Epoch HANDLER `:db`) routes through the canonical
+Editscript-A* engine at `day8.re-frame2-xray.diff.engine/project`
+and consumes the same `:flat-rows` channel — projected into the
+universal 4-tuple shape `[path before after op]` at the call
+site. Before rf2-xuyac the App-DB + HANDLER `:db` `:diff` lenses
+still routed through the home-grown
+`app-db-diff-helpers/diff-paths` walker (a structural-sharing
+key-walker, not Editscript); engines disagreed on R6 vector-shift,
+R7 type-change, and R8 redaction, and an operator switching from
+`:full+diff` mode-3 to the `:diff` lens of the same data saw
+different chrome. Post-migration the comparison is engine-stable:
+same `(before, after)` → same `:flat-rows` → same chrome → identical
+R-rule application. The home-grown walker is retained ONLY for
+the trace panel's `db-changed-diff-triples` (out of scope for
+rf2-xuyac; see §9.1.5.3 for the residual surface).
+
 ### §9.1.6 Numbered cascade chrome
 
 Per the bead body's §Visual Structure:
