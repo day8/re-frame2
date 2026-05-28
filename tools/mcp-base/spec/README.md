@@ -50,8 +50,8 @@ per-namespace contract doc; the table below indexes them:
 | `section-grouping` | Patch-list → path-headed cluster sections (`group-patches-into-sections` / `sections->patches`, rf2-qeous); consumed by `diff-encode`. | [`section-grouping.md`](section-grouping.md) |
 | `overflow` | Overflow-marker payload SHAPE builder (`overflow-payload`) + `token-estimate` + fallback hint (rf2-rvyzy). | [`overflow.md`](overflow.md) |
 | `cap` | Wire-boundary two-stage token-budget cap pipeline + `max-tokens` resolver + `ResultIO` protocol (rf2-eyelu / rf2-ih7g4). | [`cap.md`](cap.md) |
-| `cursor` | Shared cursor-pagination machinery — base64 codec, opaque encode/decode with `::malformed` recovery, `:limit` clamp, `cursor-stale-result` envelope (rf2-ee38b.19). | _(see ns docstring)_ |
-| `envelope` | Indicator-field `with-indicators` splice (`:dropped-sensitive` / `:elided-large`, omit-when-zero MUST) + wire-bounded `:rf.mcp/*` marker detection (rf2-ee38b.19). | _(see ns docstring)_ |
+| `cursor` | Shared cursor-pagination machinery — base64 codec, opaque encode/decode with `::malformed` recovery, `:limit` clamp, `cursor-stale-result` envelope (rf2-ee38b.19). | [`cursor.md`](cursor.md) |
+| `envelope` | Indicator-field `with-indicators` splice (`:dropped-sensitive` / `:elided-large`, omit-when-zero MUST) + wire-bounded `:rf.mcp/*` marker detection (rf2-ee38b.19). | [`envelope.md`](envelope.md) |
 
 All `.cljc`, so consumers compile them under their own platform —
 re-frame2-pair-mcp's shadow-cljs node build, story-mcp's JVM
