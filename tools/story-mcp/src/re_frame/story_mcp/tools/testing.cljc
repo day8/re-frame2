@@ -4,13 +4,16 @@
   inspect the post-execution state of) variants.
 
   Wire-egress posture: `run-variant` and `read-failures` route their
-  `:app-db` / `:assertions` slots through the helpers in
-  `re-frame.story-mcp.tools.helpers` (rf2-73wuj)."
+  `:app-db` / `:assertions` slots through
+  `re-frame.story-mcp.tools.egress` (rf2-73wuj)."
   (:require [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async :as async]
-            [re-frame.story-mcp.tools.helpers :as h]
+            [re-frame.story-mcp.tools.args :as targs]
+            [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
+            [re-frame.story-mcp.tools.egress :as egress]
+            [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.schemas :as s]))
 
 (def ^:const max-timeout-ms
@@ -50,13 +53,13 @@
                                the single-threaded stdio loop.
     :include-sensitive optional — opt out of wire-egress redaction
                                   (default false; rf2-73wuj)"
-  [args]
-  (h/with-variant args
+  [arguments]
+  (targs/with-variant arguments
     (fn [vk _body]
-      (let [opts     (h/read-run-opts args)
+      (let [opts     (targs/read-run-opts arguments)
             timeout  (min max-timeout-ms
-                          (args/parse-positive-int (:timeout-ms args) default-timeout-ms))
-            result   (try
+                          (args/parse-positive-int (:timeout-ms arguments) default-timeout-ms))
+            outcome  (try
                        (async/deref-blocking (story/run-variant vk opts) timeout)
                        (catch Throwable e
                          {:lifecycle :error
@@ -64,37 +67,37 @@
                           :assertions [{:assertion :rf.error/run-failed
                                         :passed? false
                                         :reason (ex-message e)}]}))
-            incl?    (h/include-sensitive? args)
-            raw-db   (:app-db result)
-            payload  {:frame           (:frame result vk)
-                      :app-db          (h/elide-app-db raw-db vk incl?)
-                      :assertions      (h/scrub-assertions (:assertions result) incl?)
+            incl?    (targs/include-sensitive? arguments)
+            raw-db   (:app-db outcome)
+            payload  {:frame           (:frame outcome vk)
+                      :app-db          (egress/elide-app-db raw-db vk incl?)
+                      :assertions      (egress/scrub-assertions (:assertions outcome) incl?)
                       ;; Derived trees re-key the same sensitive value at a
                       ;; non-app-db path, so the path-based walker can't reach
                       ;; them — value-redact instead (rf2-ee38b.17).
-                      :rendered-hiccup (h/scrub-rendered (:rendered-hiccup result) raw-db vk incl?)
-                      :elapsed-ms      (:elapsed-ms result)
-                      :snapshot        (h/scrub-rendered (:snapshot result) raw-db vk incl?)
-                      :lifecycle       (:lifecycle result)
-                      :passing?        (story/assertions-passing? result)}]
-        (h/text-result (h/pr-edn payload) payload)))))
+                      :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
+                      :elapsed-ms      (:elapsed-ms outcome)
+                      :snapshot        (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
+                      :lifecycle       (:lifecycle outcome)
+                      :passing?        (story/assertions-passing? outcome)}]
+        (result/text-result (result/pr-edn payload) payload)))))
 
 (defn tool-snapshot-identity
   "Testing: content-hash of the canonicalised variant (for external
   visual-regression). Returns
   `{:variant-id :active-modes :substrate :content-hash}`."
-  [args]
-  (h/with-variant args
+  [arguments]
+  (targs/with-variant arguments
     (fn [vk _body]
-      (let [payload (story/snapshot-identity vk (h/read-run-opts args))]
-        (h/text-result (h/pr-edn payload) payload)))))
+      (let [payload (story/snapshot-identity vk (targs/read-run-opts arguments))]
+        (result/text-result (result/pr-edn payload) payload)))))
 
 ;; `re-frame.story.ui.a11y/violations-by-frame` is the CLJS-side panel
-;; atom — resolved once at ns-load via `helpers/resolve-cljs-var`. JVM-
+;; atom — resolved once at ns-load via `cljs-resolve/resolve-cljs-var`. JVM-
 ;; standalone deploys read nil and return an empty violations vec; the
 ;; shared-process (nREPL-attached CLJS) deploy reads the live atom.
 (defonce ^:private violations-by-frame-var
-  (h/resolve-cljs-var 're-frame.story.ui.a11y/violations-by-frame))
+  (cljs-resolve/resolve-cljs-var 're-frame.story.ui.a11y/violations-by-frame))
 
 (defn tool-run-a11y
   "Testing: run axe-core against a variant, return violations.
@@ -113,8 +116,8 @@
 
   When the server is JVM-standalone (no co-hosted CLJS runtime) this
   returns an empty result with a hint."
-  [args]
-  (h/with-variant-id args
+  [arguments]
+  (targs/with-variant-id arguments
     (fn [vk]
       (let [atomv (try
                     (when violations-by-frame-var
@@ -125,7 +128,7 @@
                      :violations (vec (or violations []))
                      :note       (when (nil? atomv)
                                    "a11y is CLJS-only; this JVM-standalone deploy can't run axe-core. Run the panel in-browser; the violations atom is read by this tool.")}]
-        (h/text-result (h/pr-edn payload) payload)))))
+        (result/text-result (result/pr-edn payload) payload)))))
 
 (defn tool-read-failures
   "Testing: the variant frame's current accumulated assertion records
@@ -144,18 +147,18 @@
   the records it actually sees — a dropped sensitive failure doesn't
   quietly flip `:passing?` to true. Default off; opt out with
   `:include-sensitive true`."
-  [args]
-  (h/with-variant-id args
+  [arguments]
+  (targs/with-variant-id arguments
     (fn [vk]
-      (let [incl?      (h/include-sensitive? args)
+      (let [incl?      (targs/include-sensitive? arguments)
             raw        (assertions/read-assertions vk)
-            all        (h/scrub-assertions raw incl?)
+            all        (egress/scrub-assertions raw incl?)
             failures   (filterv (complement :passed?) all)
             payload    {:variant-id vk
                         :total      (count all)
                         :failures   (vec failures)
                         :passing?   (story/assertions-passing? all)}]
-        (h/text-result (h/pr-edn payload) payload)))))
+        (result/text-result (result/pr-edn payload) payload)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)

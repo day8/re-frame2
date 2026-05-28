@@ -85,10 +85,13 @@ tools/story-mcp/
     ├── protocol.cljc                             ; JSON-RPC envelope + frame I/O
     ├── server.cljc                               ; dispatcher + -main + run-loop
     └── tools/                                    ; tool implementations (rf2-3ukix split)
-        ├── cap.cljc                              ; invoke-tool dispatcher + token-cap egress
+        ├── wire_pipeline.cljc                    ; invoke-tool dispatcher + token-cap + dedup egress
         ├── cursor.cljc                           ; Docs list-* pagination (consumes mcp-base.cursor)
         ├── registry.cljc                         ; tool-registry + descriptors + by-name
-        ├── helpers.cljc                          ; result builders, args coercers, scrubbers
+        ├── result.cljc                           ; result-envelope builders (pr-edn, text-result, error-result)
+        ├── args.cljc                             ; arg readers + bounded-allowlist coercions (with-variant, read-run-opts, include-sensitive?)
+        ├── cljs_resolve.cljc                     ; cross-platform CLJS var resolution (registered-substrates)
+        ├── egress.cljc                           ; wire-egress scrubbers (elide-app-db, scrub-assertions, scrub-rendered)
         ├── schemas.cljc                          ; recurring JSON-schema fragments
         ├── dev.cljc                              ; get-story-instructions, preview-variant, list-substrates
         ├── docs.cljc                             ; list-stories, get-story, get-variant, list-tags, list-modes, list-decorators, list-assertions, variant->edn, get-docs-markdown

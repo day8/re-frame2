@@ -1874,7 +1874,7 @@
         (declare-sensitive! vid [:secret])
         (declare-sensitive! vid [:nested :also-secret])
         (let [frame-db (read-frame-db vid)
-              bypass   ((requiring-resolve 're-frame.story-mcp.tools.helpers/elide-app-db)
+              bypass   ((requiring-resolve 're-frame.story-mcp.tools.egress/elide-app-db)
                         frame-db vid true)
               walked   (rf/elide-wire-value frame-db
                                             {:frame                      vid
@@ -1926,7 +1926,7 @@
                     [:span "label: " "TOPSECRET"]]]
         (seed-app-db! vid db)
         (declare-sensitive! vid [:token])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.helpers/scrub-rendered)
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
           (is (not (tree-contains? out "TOPSECRET"))
               "the sensitive value MUST NOT survive anywhere in the derived tree")
@@ -1944,7 +1944,7 @@
             hiccup [:input {:value "TOPSECRET"}]]
         (seed-app-db! vid db)
         (declare-sensitive! vid [:token])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.helpers/scrub-rendered)
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid true)]
           (is (identical? hiccup out)
               "include? true returns the input tree unchanged (no walk)")
@@ -1957,7 +1957,7 @@
       (let [db     {:public "ok"}
             hiccup [:span "ok"]]
         (seed-app-db! vid db)
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.helpers/scrub-rendered)
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
           (is (identical? hiccup out)
               "no secrets ⇒ no walk, input ref returned"))))))

@@ -77,8 +77,8 @@
   (:require [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.cap :as base-cap]
             [re-frame.story-mcp.tools.dedup :as dedup]
-            [re-frame.story-mcp.tools.helpers :as h]
-            [re-frame.story-mcp.tools.registry :as registry]))
+            [re-frame.story-mcp.tools.registry :as registry]
+            [re-frame.story-mcp.tools.result :as result]))
 
 (def ^:private overflow-hints
   "Tool-specific next-step hints for the overflow marker. Generic
@@ -114,9 +114,9 @@
     (content-texts [_ result]
       (cond-> (mapv :text (:content result))
         (some? (:structuredContent result))
-        (conj (h/pr-edn (:structuredContent result)))))
+        (conj (result/pr-edn (:structuredContent result)))))
     (build-overflow-result [_ marker _original]
-      {:content          [{:type "text" :text (h/pr-edn marker)}]
+      {:content          [{:type "text" :text (result/pr-edn marker)}]
        :structuredContent marker})))
 
 (defn apply-dedup
@@ -140,7 +140,7 @@
 
   ## Why a fresh `pr-edn` rather than rebuild via `text-result`
 
-  `helpers/text-result` is the entry-point that handlers call before
+  `result/text-result` is the entry-point that handlers call before
   the wire-boundary transforms; rebuilding through it would re-stamp
   any sibling slots the handler set (e.g. `:isError`). Mutating only
   `:content[0].text` + `:structuredContent` preserves everything else
@@ -156,7 +156,7 @@
       (if (dedup/empty-payload? sc)
         result
         (let [deduped (dedup/dedup-value sc true)
-              text    (h/pr-edn deduped)]
+              text    (result/pr-edn deduped)]
           (-> result
               (assoc :structuredContent deduped)
               (assoc-in [:content 0 :text] text)))))))
@@ -213,7 +213,7 @@
           result    (try
                       ((:handler t) args)
                       (catch Throwable e
-                        (h/error-result (str "Tool handler threw: " (ex-message e))
+                        (result/error-result (str "Tool handler threw: " (ex-message e))
                                         {:tool      tool-name
                                          :exception (.getName (class e))
                                          :data      (ex-data e)})))

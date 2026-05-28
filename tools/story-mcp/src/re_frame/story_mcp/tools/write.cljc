@@ -17,7 +17,8 @@
             [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
             [re-frame.story-mcp.config :as config]
-            [re-frame.story-mcp.tools.helpers :as h]
+            [re-frame.story-mcp.tools.args :as targs]
+            [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.schemas :as s]))
 
 (defn assert-writes-allowed
@@ -30,7 +31,7 @@
   and `record-as-variant` (via the recorder ns)."
   [tool-name]
   (when-not (config/writes-allowed?)
-    (h/error-result
+    (result/error-result
       (str "Write surface disabled. Set `:rf.story-mcp/allow-writes?` "
            "(or `--allow-writes` CLI flag, or "
            "`-Drf.story-mcp.allow-writes=true` JVM property) to enable. "
@@ -163,9 +164,9 @@
     ;; can identify which actor produced the registration.
     (let [id      (story/reg-variant* vk (assoc body-v :origin config/origin))
           payload {:variant-id id :registered? true}]
-      (h/text-result (h/pr-edn payload) payload))
+      (result/text-result (result/pr-edn payload) payload))
     (catch Throwable e
-      (h/error-result (str "Registration failed: " (ex-message e))
+      (result/error-result (str "Registration failed: " (ex-message e))
                       (merge {:variant-id vk}
                              (select-keys (ex-data e) [:rf.error :explain]))))))
 
@@ -185,16 +186,16 @@
     coerce-body → reg-variant* + stamp :origin."
   [arguments]
   (or (assert-writes-allowed "register-variant")
-      (let [[vid err-vid]   (h/required-arg arguments :variant-id)
-            [body err-body] (when-not err-vid (h/required-arg arguments :body))]
+      (let [[vid err-vid]   (targs/required-arg arguments :variant-id)
+            [body err-body] (when-not err-vid (targs/required-arg arguments :body))]
         (or err-vid err-body
             (let [body-v (coerce-body body)]
               (case body-v
                 ::edn-error
-                (h/error-result ":body must be a map or a valid EDN string.")
+                (result/error-result ":body must be a map or a valid EDN string.")
 
                 ::not-a-map
-                (h/error-result (str ":body must be a map; got " (some-> body class .getName)))
+                (result/error-result (str ":body must be a map; got " (some-> body class .getName)))
 
                 ;; rf2-lqjbk write-side exception: `register-variant`
                 ;; by definition extends the registry with a fresh
@@ -213,12 +214,12 @@
   `allow-writes?`."
   [arguments]
   (or (assert-writes-allowed "unregister-variant")
-      (h/with-variant-id arguments
+      (targs/with-variant-id arguments
         (fn [vk]
           (let [had? (some? (story/variant->edn vk))]
             (story/unregister! :variant vk)
             (let [payload {:variant-id vk :unregistered? had?}]
-              (h/text-result (h/pr-edn payload) payload)))))))
+              (result/text-result (result/pr-edn payload) payload)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)

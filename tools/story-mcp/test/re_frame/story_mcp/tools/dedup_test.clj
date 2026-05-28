@@ -23,7 +23,7 @@
             [re-frame.mcp-base.vocab :as base-vocab]
             [re-frame.story-mcp.tools.wire-pipeline :as wire-pipeline]
             [re-frame.story-mcp.tools.dedup :as dedup]
-            [re-frame.story-mcp.tools.helpers :as h]
+            [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------
@@ -218,7 +218,7 @@
 
 (deftest apply-dedup-passes-result-through-when-disabled
   (let [payload {:a 1 :b [{:k 1} {:k 1}]}
-        result  (h/text-result (h/pr-edn payload) payload)
+        result  (result/text-result (result/pr-edn payload) payload)
         out     (wire-pipeline/apply-dedup result false)]
     (is (= result out)
         "disabled dedup must be a strict no-op on the envelope")))
@@ -236,7 +236,7 @@
   ;; sees the post-dedup size on both slots (rf2-mzndx).
   (let [shared  {:big "value" :tags [:a :b :c]}
         payload [{:id 1 :data shared} {:id 2 :data shared} {:id 3 :data shared}]
-        result  (h/text-result (h/pr-edn payload) payload)
+        result  (result/text-result (result/pr-edn payload) payload)
         out     (wire-pipeline/apply-dedup result true)
         sc      (:structuredContent out)
         text    (-> out :content first :text)]
@@ -245,7 +245,7 @@
       (is (= payload (dedup/dedup-expand sc))
           "round-trip restores the original payload"))
     (testing "the text slot mirrors the deduped structured payload"
-      (is (= text (h/pr-edn sc))
+      (is (= text (result/pr-edn sc))
           "the text slot is re-stringified from the deduped structured payload — both slots ride the same wire shape"))))
 
 (deftest apply-dedup-preserves-sibling-slots
@@ -254,7 +254,7 @@
   ;; structural-content-only.
   (let [shared  {:k :v}
         payload [shared shared]
-        result  (assoc (h/text-result (h/pr-edn payload) payload)
+        result  (assoc (result/text-result (result/pr-edn payload) payload)
                        :_sibling :passes-through)
         out     (wire-pipeline/apply-dedup result true)]
     (is (= :passes-through (:_sibling out)))))
@@ -314,7 +314,7 @@
   (let [payload [{:id 1 :data {:k :shared-value}}
                  {:id 2 :data {:k :shared-value}}
                  {:id 3 :data {:k :shared-value}}]]
-    (h/text-result (h/pr-edn payload) payload)))
+    (result/text-result (result/pr-edn payload) payload)))
 
 (deftest invoke-tool-fires-dedup-on-eligible-descriptors
   ;; The end-to-end pin: an eligible descriptor's response carries the

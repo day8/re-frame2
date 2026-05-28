@@ -33,7 +33,8 @@
   (:require [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
             [re-frame.story-mcp.config :as config]
-            [re-frame.story-mcp.tools.helpers :as h]
+            [re-frame.story-mcp.tools.args :as targs]
+            [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.schemas :as s]
             [re-frame.story-mcp.tools.write :as write]))
 
@@ -92,9 +93,9 @@
                         target-vid
                         (assoc body :play-script play-script :origin config/origin))
           payload     (assoc base :written-back? true :new-variant-id id)]
-      (h/text-result (h/pr-edn payload) payload))
+      (result/text-result (result/pr-edn payload) payload))
     (catch #?(:clj Throwable :cljs :default) e
-      (h/error-result (str "Write-back failed: " (ex-message e))
+      (result/error-result (str "Write-back failed: " (ex-message e))
                       (merge base
                              {:written-back?  false
                               :new-variant-id target-vid}
@@ -162,7 +163,7 @@
   tool does not expose a free-form filter knob — the recorder owns that
   contract."
   [arguments]
-  (h/with-variant arguments
+  (targs/with-variant arguments
     (fn [vk body]
       (let [write-back? (args/parse-boolean (:write-back arguments) false)
             duration-ms (args/parse-non-negative-int (:duration-ms arguments) 0)]
@@ -172,7 +173,7 @@
               ;; threaded; a `record-as-variant` call sleeps the loop
               ;; for the full window. Reject abusive durations rather
               ;; than stalling unrelated tool calls.
-              (h/error-result
+              (result/error-result
                 (str ":duration-ms " duration-ms " exceeds ceiling "
                      max-duration-ms "ms. The MCP server's request "
                      "loop is single-threaded; a `record-as-variant` "
@@ -211,7 +212,7 @@
                                     nil)
                                 vk)]
               (if (nil? extends)
-                (h/error-result
+                (result/error-result
                   (str ":extends references an unregistered variant: "
                        (pr-str (:extends arguments)))
                   {:rf.error :rf.story-mcp/extends-not-registered
@@ -252,7 +253,7 @@
                                    :captured             events
                                    :written-back?        false}]
                   (if-not write-back?
-                    (h/text-result (h/pr-edn base) base)
+                    (result/text-result (result/pr-edn base) base)
                     (write-back! base body events target-vid))))))))))
 
 (def descriptors
