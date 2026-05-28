@@ -136,9 +136,10 @@
 
  :hooks
  {:analyze-call
-  {re-frame.core/reg-view       hooks.re-frame.core/reg-view
-   re-frame.core/with-frame     hooks.re-frame.core/with-frame
-   re-frame.core/with-new-frame hooks.re-frame.core/with-new-frame}}
+  {re-frame.core/reg-view                       hooks.re-frame.core/reg-view
+   re-frame.core/with-frame                     hooks.re-frame.core/with-frame
+   re-frame.core/with-new-frame                 hooks.re-frame.core/with-new-frame
+   re-frame.test-support/with-trace-recorder!   hooks.re-frame.core/with-trace-recorder!}}
 
  ;; `tools/template/resources/` ships deps-new template `.cljs` files
  ;; whose `{{placeholder}}` substitutions are not valid Clojure (see

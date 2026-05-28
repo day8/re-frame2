@@ -26,8 +26,6 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.frame :as frame]
             [re-frame.late-bind]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
@@ -45,12 +43,12 @@
             [re-frame.flows]
             [re-frame.epoch]
             [re-frame.ssr :as ssr]
-            [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
-            [re-frame.views]))
+            [re-frame.views])
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; True only on the :browser-test runner. The :node-test target loads
 ;; the same ns but has no DOM, so any test that mounts through React
@@ -87,14 +85,6 @@
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-(defn- collect-traces [k]
-  (let [traces (atom [])]
-    (trace-tooling/register-listener! k (fn [ev] (swap! traces conj ev)))
-    traces))
-
-(defn- stop-traces [k]
-  (trace-tooling/unregister-listener! k))
-
 ;; ---------------------------------------------------------------------------
 ;; Interaction 1 — Frame disposal with active machine instances
 ;; spec/Cross-Spec-Interactions.md#1-frame-disposal-with-active-machine-instances
@@ -110,9 +100,8 @@
       (assoc-in db [:rf/runtime :machines :snapshots] {:flow/login    {:state :authed   :data {}}
                                                        :flow/checkout {:state :pending  :data {}}})))
   (rf/dispatch-sync [:seed] {:frame :tenant-x})
-  (let [traces (collect-traces ::xspec-1)]
+  (with-trace-recorder! [traces]
     (rf/destroy-frame! :tenant-x)
-    (stop-traces ::xspec-1)
     (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
                                       (:operation %))
                                  @traces)]
@@ -213,9 +202,8 @@
      :states  {:idle    {:on {:fetch {:target :loading}}}
                :loading {:after {500 :awake}}
                :awake   {}}})
-  (let [traces (collect-traces ::xspec-4-after)]
+  (with-trace-recorder! [traces]
     (rf/dispatch-sync [:ssr/timed [:fetch]] {:frame :req})
-    (stop-traces ::xspec-4-after)
     (let [skipped   (filter #(= :rf.machine.timer/skipped-on-server
                                 (:operation %))
                             @traces)
@@ -275,9 +263,8 @@
   (rf/reg-event-fx :emit-nav
     (fn [_ _]
       {:fx [[:rf.nav/push-url "/users/42"]]}))
-  (let [traces (collect-traces ::xspec-6)]
+  (with-trace-recorder! [traces]
     (rf/dispatch-sync [:emit-nav] {:frame :req})
-    (stop-traces ::xspec-6)
     (is (some #(and (= :rf.fx/skipped-on-platform (:operation %))
                     (= :rf.nav/push-url (get-in % [:tags :rf.fx/id])))
               @traces)
@@ -303,9 +290,8 @@
   ;; The error-projector contract is the user-side concern; here we
   ;; confirm that match-url itself does not emit :rf.error traces for
   ;; an unmatched URL — i.e., a missing route is signal, not an error.
-  (let [traces (collect-traces ::xspec-7)]
+  (with-trace-recorder! [traces]
     (rf/match-url "/no-such-thing")
-    (stop-traces ::xspec-7)
     (is (empty? (filter #(= :error (:op-type %)) @traces))
         "match-url is pure: route-not-found does not emit error traces")))
 
@@ -361,65 +347,65 @@
       (rf/reg-frame target-frame {:doc "frame destroyed mid-render"})
       (rf/reg-event-db :seed (fn [_ _] {:n 7}))
       (rf/dispatch-sync [:seed] {:frame target-frame})
-      (let [traces (collect-traces ::xspec-8)
-            ;; Mount under frame-provider so the subtree is scoped to
-            ;; target-frame in the React-context tier — even though the
-            ;; render fn reads via frame/get-frame-db directly, the
-            ;; provider-mount path is the documented user-facing shape
-            ;; (per Spec 004 §frame-provider) and exercises the same
-            ;; substrate code-path the spec describes.
-            root   (rdc/create-root mount-node)
-            ;; Reagent 2's render is flushSync — by the time `rdc/render`
-            ;; returns, the first render pass has committed. The
-            ;; render-fn's destroy-frame! call therefore ran inside the
-            ;; commit cycle.
-            _      (try
-                     ;; Hiccup head is the frame-provider fn; Reagent
-                     ;; treats `[fn-head args & children]` as an inline
-                     ;; component invocation.
-                     ;;
-                     ;; React 18's root.render() is asynchronous by
-                     ;; default — wrapping in flushSync forces the
-                     ;; commit cycle to complete before the call
-                     ;; returns. This is what lets the test observe the
-                     ;; mid-render destroy synchronously, the same
-                     ;; ordering the spec describes (Spec 002 §Destroy:
-                     ;; render commits, then disposal runs).
-                     (react-dom/flushSync
-                       (fn []
-                         (rdc/render root [rf/frame-provider
-                                           {:frame target-frame}
-                                           [render-fn]])))
-                     (catch :default e
-                       ;; If destroy-during-render bubbled an exception
-                       ;; the render itself would throw — record it for
-                       ;; the assertion below.
-                       (reset! render-error (ex-message e))))]
-        (stop-traces ::xspec-8)
-        (try
-          (is (nil? @render-error)
-              (str "render did not throw mid-destroy; got: " (pr-str @render-error)))
-          (is (>= @render-count 1)
-              "render fn ran at least once — mid-render destroy did not abort the render pass")
-          (is (some #(and (= :rf.frame/destroyed (:operation %))
-                          (= target-frame (get-in % [:tags :frame])))
-                    @traces)
-              ":rf.frame/destroyed trace fired — destroy-frame! ran the disposal pipeline")
-          (is (nil? (frame/frame target-frame))
-              "the frame is gone from the registry after destroy")
-          ;; Post-destroy dispatch raises :rf.error/frame-destroyed (per
-          ;; Spec 002 §Destroy). The trace channel is the public surface.
-          (let [post-traces (collect-traces ::xspec-8b)]
-            (rf/dispatch-sync [:seed] {:frame target-frame})
-            (stop-traces ::xspec-8b)
-            (is (some #(= :rf.error/frame-destroyed (:operation %))
-                      @post-traces)
-                "subsequent dispatch against the destroyed frame emits :rf.error/frame-destroyed"))
-          (finally
-            ;; Clean up the React root so its internal effects don't
-            ;; leak across tests. The mount node is detached and will be
-            ;; GC'd with this scope.
-            (try (rdc/unmount root) (catch :default _ nil))))))))
+      (with-trace-recorder! [traces]
+        ;; Mount under frame-provider so the subtree is scoped to
+        ;; target-frame in the React-context tier — even though the
+        ;; render fn reads via frame/get-frame-db directly, the
+        ;; provider-mount path is the documented user-facing shape
+        ;; (per Spec 004 §frame-provider) and exercises the same
+        ;; substrate code-path the spec describes.
+        (let [root (rdc/create-root mount-node)]
+          ;; Reagent 2's render is flushSync — by the time `rdc/render`
+          ;; returns, the first render pass has committed. The
+          ;; render-fn's destroy-frame! call therefore ran inside the
+          ;; commit cycle.
+          (try
+            ;; Hiccup head is the frame-provider fn; Reagent
+            ;; treats `[fn-head args & children]` as an inline
+            ;; component invocation.
+            ;;
+            ;; React 18's root.render() is asynchronous by
+            ;; default — wrapping in flushSync forces the
+            ;; commit cycle to complete before the call
+            ;; returns. This is what lets the test observe the
+            ;; mid-render destroy synchronously, the same
+            ;; ordering the spec describes (Spec 002 §Destroy:
+            ;; render commits, then disposal runs).
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider
+                                  {:frame target-frame}
+                                  [render-fn]])))
+            (catch :default e
+              ;; If destroy-during-render bubbled an exception
+              ;; the render itself would throw — record it for
+              ;; the assertion below.
+              (reset! render-error (ex-message e))))
+          (try
+            (is (nil? @render-error)
+                (str "render did not throw mid-destroy; got: " (pr-str @render-error)))
+            (is (>= @render-count 1)
+                "render fn ran at least once — mid-render destroy did not abort the render pass")
+            (is (some #(and (= :rf.frame/destroyed (:operation %))
+                            (= target-frame (get-in % [:tags :frame])))
+                      @traces)
+                ":rf.frame/destroyed trace fired — destroy-frame! ran the disposal pipeline")
+            (is (nil? (frame/frame target-frame))
+                "the frame is gone from the registry after destroy")
+            ;; Post-destroy dispatch raises :rf.error/frame-destroyed (per
+            ;; Spec 002 §Destroy). The trace channel is the public surface.
+            ;; A nested recorder isolates the post-destroy emit from the
+            ;; outer recorder's accumulated render+destroy events.
+            (with-trace-recorder! [post-traces]
+              (rf/dispatch-sync [:seed] {:frame target-frame})
+              (is (some #(= :rf.error/frame-destroyed (:operation %))
+                        @post-traces)
+                  "subsequent dispatch against the destroyed frame emits :rf.error/frame-destroyed"))
+            (finally
+              ;; Clean up the React root so its internal effects don't
+              ;; leak across tests. The mount node is detached and will be
+              ;; GC'd with this scope.
+              (try (rdc/unmount root) (catch :default _ nil)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 9 — Reactive substrate without React-context
@@ -486,8 +472,8 @@
                            (let [_ @(rf/subscribe [:plain-fn-test/n])]
                              [:div.plain-b "b"]))
             mount-node   (make-mount-node!)
-            traces       (collect-traces ::xspec-10)
             root         (rdc/create-root mount-node)]
+       (with-trace-recorder! [traces]
         (try
           ;; Render the tree multiple times so the warn-once contract is
           ;; exercised across re-renders. The Provider scopes the
@@ -501,7 +487,6 @@
                              [:div
                               [plain-fn-a]
                               [plain-fn-b]]]))))
-          (stop-traces ::xspec-10)
           (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
                                    (:operation %))
                               @traces)]
@@ -529,7 +514,7 @@
             (is (= :warning (-> warns first :op-type))
                 "the trace event uses op-type :warning"))
           (finally
-            (try (rdc/unmount root) (catch :default _ nil))))))))
+            (try (rdc/unmount root) (catch :default _ nil)))))))))
 
 (deftest plain-fn-under-default-frame-no-warning
   "Negative case — a plain Reagent fn rendered under the :rf/default
@@ -551,8 +536,8 @@
                             (let [_ @(rf/subscribe [:plain-default-test/m])]
                               [:div "default"]))
             mount-node (make-mount-node!)
-            traces     (collect-traces ::xspec-10b)
             root       (rdc/create-root mount-node)]
+       (with-trace-recorder! [traces]
         (try
           (dotimes [_ 2]
             (react-dom/flushSync
@@ -560,14 +545,13 @@
                 ;; No frame-provider — the React-context tier resolves
                 ;; to :rf/default (the context's default value).
                 (rdc/render root [plain-default]))))
-          (stop-traces ::xspec-10b)
           (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
                                    (:operation %))
                               @traces)]
             (is (empty? warns)
                 "no warning fires for plain fns rendered under :rf/default"))
           (finally
-            (try (rdc/unmount root) (catch :default _ nil))))))))
+            (try (rdc/unmount root) (catch :default _ nil)))))))))
 
 (deftest reg-view-under-non-default-frame-no-warning
   "Negative case — a properly-registered view (reg-view*) renders inside
@@ -591,21 +575,20 @@
                         [:div "reg-view"])))
       (let [render-fn  (rf/view :rf.cross-spec-10/registered-view)
             mount-node (make-mount-node!)
-            traces     (collect-traces ::xspec-10c)
             root       (rdc/create-root mount-node)]
+       (with-trace-recorder! [traces]
         (try
           (react-dom/flushSync
             (fn []
               (rdc/render root [rf/frame-provider {:frame target-frame}
                                 [render-fn]])))
-          (stop-traces ::xspec-10c)
           (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
                                    (:operation %))
                               @traces)]
             (is (empty? warns)
                 "no warning fires for reg-view'd components — the wiring lets them read the surrounding frame"))
           (finally
-            (try (rdc/unmount root) (catch :default _ nil))))))))
+            (try (rdc/unmount root) (catch :default _ nil)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-d4sf — subscribe + dispatch consult the React-context tier
@@ -804,9 +787,8 @@
                  :actions {:boom (fn [_]
                                    (throw (ex-info "kaboom" {})))}}]
     (rf/reg-machine :test/m machine)
-    (let [traces (collect-traces ::xspec-11)]
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:test/m [:bang]])
-      (stop-traces ::xspec-11)
       (let [errs (filter #(= :rf.error/machine-action-exception (:operation %))
                          @traces)]
         (is (seq errs)
@@ -846,9 +828,8 @@
                                {:fx [[:throwy :a]
                                      [:record :b]]})}}]
       (rf/reg-machine :test/m machine)
-      (let [traces (collect-traces ::xspec-12)]
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:test/m [:go]])
-        (stop-traces ::xspec-12)
         (is (some #(and (= :rf.error/fx-handler-exception (:operation %))
                         (= :throwy (get-in % [:tags :rf.fx/id])))
                   @traces)
@@ -901,14 +882,13 @@
    dispatch-sync from inside a running drain raises
    :rf.error/dispatch-sync-in-handler. (The render-time variant of this
    is identical at the runtime layer.)"
-  (let [traces (collect-traces ::xspec-14)]
+  (with-trace-recorder! [traces]
     (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
     (rf/reg-event-fx :nested
       (fn [_ _]
         (rf/dispatch-sync [:outer])
         {}))
     (rf/dispatch-sync [:nested])
-    (stop-traces ::xspec-14)
     (is (some (fn [ev]
                 (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                      (= :error (:op-type ev))))
@@ -983,9 +963,8 @@
   (rf/reg-frame :req {:preset :ssr-server})
   (rf/reg-event-fx :handler-throws
     (fn [_ _] (throw (ex-info "boom" {}))))
-  (let [traces (collect-traces ::xspec-16)]
+  (with-trace-recorder! [traces]
     (rf/dispatch-sync [:handler-throws] {:frame :req})
-    (stop-traces ::xspec-16)
     (let [errs (filter #(= :rf.error/handler-exception (:operation %)) @traces)]
       (is (seq errs)
           ":rf.error/handler-exception fires on the server frame for a thrown handler")
@@ -1028,9 +1007,8 @@
                  :actions {:boom (fn [_]
                                    (throw (ex-info "ssr-bang" {})))}}]
     (rf/reg-machine :test/m machine)
-    (let [traces (collect-traces ::xspec-17)]
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:test/m [:bang]] {:frame :req})
-      (stop-traces ::xspec-17)
       (let [errs (filter #(= :rf.error/machine-action-exception (:operation %))
                          @traces)]
         (is (seq errs)

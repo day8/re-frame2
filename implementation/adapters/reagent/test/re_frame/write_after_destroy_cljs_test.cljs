@@ -30,29 +30,20 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support])
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-(defn- collect-traces! []
-  (let [traces (atom [])
-        cb-id  (keyword (gensym "rf-wad-cb-"))]
-    (trace-tooling/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
-    {:traces traces
-     :stop!  (fn [] (trace-tooling/unregister-listener! cb-id))}))
-
-(defn- write-after-destroy-warnings [traces]
-  (filterv (fn [ev]
-             (and (= :warning (:op-type ev))
-                  (= :rf.warning/write-after-destroy (:operation ev))))
-           traces))
+(def ^:private write-after-destroy-pred
+  (fn [ev]
+    (and (= :warning (:op-type ev))
+         (= :rf.warning/write-after-destroy (:operation ev)))))
 
 ;; ---- 1. direct nil-container call -----------------------------------------
 
@@ -60,16 +51,13 @@
   (testing "Under the Reagent adapter, replace-container! with a nil
             container is a documented no-op + :rf.warning/write-after-destroy
             (rf2-ft2b, rf2-9od6t)"
-    (let [{:keys [traces stop!]} (collect-traces!)]
-      (try
-        (is (nil? (adapter/replace-container! nil {:any :value}))
-            "nil container must NOT throw (background-thread NPE was the original bug)")
-        (let [warns (write-after-destroy-warnings @traces)]
-          (is (= 1 (count warns))
-              "exactly one :rf.warning/write-after-destroy fires per nil-write")
-          (is (= :no-recovery (:recovery (first warns)))
-              "warning carries :recovery :no-recovery per the rf2-ft2b contract"))
-        (finally (stop!))))))
+    (with-trace-recorder! [warns {:pred write-after-destroy-pred}]
+      (is (nil? (adapter/replace-container! nil {:any :value}))
+          "nil container must NOT throw (background-thread NPE was the original bug)")
+      (is (= 1 (count @warns))
+          "exactly one :rf.warning/write-after-destroy fires per nil-write")
+      (is (= :no-recovery (:recovery (first @warns)))
+          "warning carries :recovery :no-recovery per the rf2-ft2b contract"))))
 
 ;; ---- 2. live-destroy → captured-container-write ---------------------------
 
@@ -78,9 +66,8 @@
             that nil into replace-container! must no-op + warn (rf2-9od6t).
             This is the exact shape router.cljc's per-event :db commit
             takes when a scheduled drain reaches the write AFTER destroy."
-    (let [frame-id :rf-9od6t/race
-          {:keys [traces stop!]} (collect-traces!)]
-      (try
+    (let [frame-id :rf-9od6t/race]
+      (with-trace-recorder! [warns {:pred write-after-destroy-pred}]
         (rf/reg-frame frame-id {:doc "rf2-9od6t race reproducer"})
         (rf/destroy-frame! frame-id)
         (let [container (frame/get-frame-db frame-id)]
@@ -88,9 +75,7 @@
               "get-frame-db on a destroyed frame returns nil — the rf2-ft2b precondition")
           (is (nil? (adapter/replace-container! container {:would :have :npe'd true}))
               "writing through the nil container is a documented no-op"))
-        (let [warns (write-after-destroy-warnings @traces)]
-          (is (pos? (count warns))
-              ":rf.warning/write-after-destroy fired for the post-destroy write")
-          (is (every? #(= :no-recovery (:recovery %)) warns)
-              "every fired warning carries :recovery :no-recovery"))
-        (finally (stop!))))))
+        (is (pos? (count @warns))
+            ":rf.warning/write-after-destroy fired for the post-destroy write")
+        (is (every? #(= :no-recovery (:recovery %)) @warns)
+            "every fired warning carries :recovery :no-recovery")))))

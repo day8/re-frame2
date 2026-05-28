@@ -73,12 +73,11 @@
             ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
-            [re-frame.views]))
+            [re-frame.views])
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -206,11 +205,6 @@
 ;; observable resolution still lands on `:rf/default` so apps don't
 ;; break — the error event is the new diagnostic surface.
 
-(defn- collect-traces [k]
-  (let [traces (atom [])]
-    (trace-tooling/register-listener! k (fn [ev] (swap! traces conj ev)))
-    traces))
-
 (defn- corruption-traces [traces]
   (filter #(= :rf.error/frame-context-corrupted (:operation %)) @traces))
 
@@ -230,70 +224,69 @@
    does not allow) or directly poking the field — the latter is what
    we do here, since it is the substrate-level seam the resolver
    reads."
-  (let [original (.-_currentValue ^js adapter-context/frame-context)
-        traces   (collect-traces ::scenario-3)]
-    (try
-      (testing "nil _currentValue: error trace fires; resolves to :rf/default"
-        (reset! traces [])
-        (set! (.-_currentValue ^js adapter-context/frame-context) nil)
-        (is (= :rf/default (adapter-context/function-component-current-frame))
-            "still falls through to :rf/default (recovery preserved)")
-        (let [errs (corruption-traces traces)]
-          (is (= 1 (count errs))
-              "one :rf.error/frame-context-corrupted event fired")
-          (is (= :error (:op-type (first errs)))
-              ":op-type is :error per Spec 009 §Error contract")
-          (is (= :replaced-with-default (:recovery (first errs)))
-              ":recovery is :replaced-with-default — fall-through preserved")
-          (is (= :nil (-> errs first :tags :type))
-              ":tags :type names the corrupted shape")
-          (is (contains? (-> errs first :tags) :received)
-              ":tags :received carries the offending value")))
-      (testing "false _currentValue: error trace fires; resolves to :rf/default"
-        (reset! traces [])
-        (set! (.-_currentValue ^js adapter-context/frame-context) false)
-        (is (= :rf/default (adapter-context/function-component-current-frame))
-            "still falls through to :rf/default")
-        (let [errs (corruption-traces traces)]
-          (is (= 1 (count errs))
-              "one error trace per corrupted read")
-          (is (= :boolean (-> errs first :tags :type))
-              ":tags :type identifies false as a boolean shape")))
-      (testing "numeric _currentValue: error trace fires; resolves to :rf/default"
-        (reset! traces [])
-        (set! (.-_currentValue ^js adapter-context/frame-context) 42)
-        (is (= :rf/default (adapter-context/function-component-current-frame))
-            "still falls through to :rf/default")
-        (let [errs (corruption-traces traces)]
-          (is (= 1 (count errs))
-              "one error trace per corrupted read")
-          (is (= :number (-> errs first :tags :type))
-              ":tags :type identifies the number shape")
-          (is (= 42 (-> errs first :tags :received))
-              ":tags :received echoes the offending value")))
-      (testing "JS object _currentValue: error trace fires; resolves to :rf/default"
-        (reset! traces [])
-        (set! (.-_currentValue ^js adapter-context/frame-context) #js {:not "a frame"})
-        (is (= :rf/default (adapter-context/function-component-current-frame))
-            "still falls through to :rf/default")
-        (let [errs (corruption-traces traces)]
-          (is (= 1 (count errs))
-              "one error trace per corrupted read")
-          (is (= :js-object (-> errs first :tags :type))
-              ":tags :type identifies the JS object shape")))
-      (testing "empty-string _currentValue: error trace fires; resolves to :rf/default"
-        (reset! traces [])
-        (set! (.-_currentValue ^js adapter-context/frame-context) "")
-        (is (= :rf/default (adapter-context/function-component-current-frame))
-            "still falls through to :rf/default")
-        (let [errs (corruption-traces traces)]
-          (is (= 1 (count errs))
-              "one error trace per corrupted read")
-          (is (= :empty-string (-> errs first :tags :type))
-              ":tags :type identifies empty-string distinctly from string")))
-      (finally
-        (trace-tooling/unregister-listener! ::scenario-3)
-        (set! (.-_currentValue ^js adapter-context/frame-context) original)))))
+  (let [original (.-_currentValue ^js adapter-context/frame-context)]
+    (with-trace-recorder! [traces]
+      (try
+        (testing "nil _currentValue: error trace fires; resolves to :rf/default"
+          (reset! traces [])
+          (set! (.-_currentValue ^js adapter-context/frame-context) nil)
+          (is (= :rf/default (adapter-context/function-component-current-frame))
+              "still falls through to :rf/default (recovery preserved)")
+          (let [errs (corruption-traces traces)]
+            (is (= 1 (count errs))
+                "one :rf.error/frame-context-corrupted event fired")
+            (is (= :error (:op-type (first errs)))
+                ":op-type is :error per Spec 009 §Error contract")
+            (is (= :replaced-with-default (:recovery (first errs)))
+                ":recovery is :replaced-with-default — fall-through preserved")
+            (is (= :nil (-> errs first :tags :type))
+                ":tags :type names the corrupted shape")
+            (is (contains? (-> errs first :tags) :received)
+                ":tags :received carries the offending value")))
+        (testing "false _currentValue: error trace fires; resolves to :rf/default"
+          (reset! traces [])
+          (set! (.-_currentValue ^js adapter-context/frame-context) false)
+          (is (= :rf/default (adapter-context/function-component-current-frame))
+              "still falls through to :rf/default")
+          (let [errs (corruption-traces traces)]
+            (is (= 1 (count errs))
+                "one error trace per corrupted read")
+            (is (= :boolean (-> errs first :tags :type))
+                ":tags :type identifies false as a boolean shape")))
+        (testing "numeric _currentValue: error trace fires; resolves to :rf/default"
+          (reset! traces [])
+          (set! (.-_currentValue ^js adapter-context/frame-context) 42)
+          (is (= :rf/default (adapter-context/function-component-current-frame))
+              "still falls through to :rf/default")
+          (let [errs (corruption-traces traces)]
+            (is (= 1 (count errs))
+                "one error trace per corrupted read")
+            (is (= :number (-> errs first :tags :type))
+                ":tags :type identifies the number shape")
+            (is (= 42 (-> errs first :tags :received))
+                ":tags :received echoes the offending value")))
+        (testing "JS object _currentValue: error trace fires; resolves to :rf/default"
+          (reset! traces [])
+          (set! (.-_currentValue ^js adapter-context/frame-context) #js {:not "a frame"})
+          (is (= :rf/default (adapter-context/function-component-current-frame))
+              "still falls through to :rf/default")
+          (let [errs (corruption-traces traces)]
+            (is (= 1 (count errs))
+                "one error trace per corrupted read")
+            (is (= :js-object (-> errs first :tags :type))
+                ":tags :type identifies the JS object shape")))
+        (testing "empty-string _currentValue: error trace fires; resolves to :rf/default"
+          (reset! traces [])
+          (set! (.-_currentValue ^js adapter-context/frame-context) "")
+          (is (= :rf/default (adapter-context/function-component-current-frame))
+              "still falls through to :rf/default")
+          (let [errs (corruption-traces traces)]
+            (is (= 1 (count errs))
+                "one error trace per corrupted read")
+            (is (= :empty-string (-> errs first :tags :type))
+                ":tags :type identifies empty-string distinctly from string")))
+        (finally
+          (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
 
 ;; ---- Scenario 4: cross-frame subscribe resolution -------------------------
 ;;
