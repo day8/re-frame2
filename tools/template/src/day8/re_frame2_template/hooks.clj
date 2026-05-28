@@ -47,29 +47,29 @@
   (`reagent` / `:reagent`), or a symbol; return one of
   `valid-substrates` or throw with a clear message."
   [raw]
-  (let [s (cond
-            (nil? raw)     :reagent
-            (keyword? raw) raw
-            (symbol? raw)  (keyword (name raw))
-            (string? raw)  (keyword (string/replace raw #"^:" ""))
-            :else
-            (throw (ex-info ":rf.error/template-unrecognised-substrate"
-                            {:rf.error/id :rf.error/template-unrecognised-substrate
-                             :where     'template/coerce-substrate
-                             :recovery  :fix-registration
-                             :reason    (str "unrecognised :substrate value: " (pr-str raw))
-                             :substrate raw})))]
-    (when-not (valid-substrates s)
+  (let [substrate-kw (cond
+                       (nil? raw)     :reagent
+                       (keyword? raw) raw
+                       (symbol? raw)  (keyword (name raw))
+                       (string? raw)  (keyword (string/replace raw #"^:" ""))
+                       :else
+                       (throw (ex-info ":rf.error/template-unrecognised-substrate"
+                                       {:rf.error/id :rf.error/template-unrecognised-substrate
+                                        :where     'template/coerce-substrate
+                                        :recovery  :fix-registration
+                                        :reason    (str "unrecognised :substrate value: " (pr-str raw))
+                                        :substrate raw})))]
+    (when-not (valid-substrates substrate-kw)
       (throw (ex-info ":rf.error/template-substrate-must-be-one-of"
                       {:rf.error/id :rf.error/template-substrate-must-be-one-of
                        :where     'template/coerce-substrate
                        :recovery  :fix-registration
                        :reason    (str ":substrate must be one of "
                                        (pr-str valid-substrates)
-                                       " (got " (pr-str s) ")")
-                       :substrate s
+                                       " (got " (pr-str substrate-kw) ")")
+                       :substrate substrate-kw
                        :valid     valid-substrates})))
-    s))
+    substrate-kw))
 
 ;; -- :include-story? coercion ----------------------------------------------
 
@@ -169,14 +169,14 @@
                                 "Reagent's.")
                 :substrate substrate
                 :include-story? include-story?})))
-    (let [substrate-nm    (name substrate)
+    (let [substrate-name  (name substrate)
           top             (:top data)
           main            (:main data)
           top-file        (->file-path top)
           main-file       (->file-path main)
           top-ns          (->ns-form top)
           main-ns         (->ns-form main)]
-      {:substrate           substrate-nm
+      {:substrate           substrate-name
        :substrate-kw        substrate
        :include-story?      include-story?
        :namespace           (str top-ns "." main-ns)
