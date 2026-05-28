@@ -139,13 +139,14 @@
                                                :cljs (some-> exception .-message))
                          :reason            "An :on-match event threw."}]
           ;; Per rf2-t1lxr: routing-internal dispatches self-tag with
-          ;; :rf/dispatch-origin :router so Xray's L2 timeline + tools
-          ;; filter pills can discriminate framework-origin events from
-          ;; user-origin events.
+          ;; :source :router so Xray's L2 timeline + tools filter pills
+          ;; can discriminate framework-origin events from user-origin
+          ;; events. Per rf2-1ve9h `:source` is the single closed-enum
+          ;; functional-origin axis on the dispatch envelope.
           (router/dispatch! [:rf.route.internal/on-match-error
                              {:error     error-map
                               :nav-token nav-token}]
-                            {:frame frame :rf/dispatch-origin :router}))))))
+                            {:frame frame :source :router}))))))
 
 ;; The façade (`re-frame.routing`) wires the listener via
 ;; `error-emit/register-error-listener! :rf.route/on-match-error-trap`

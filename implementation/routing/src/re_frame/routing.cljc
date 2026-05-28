@@ -1110,9 +1110,9 @@
           ;; Per rf2-t1lxr / rf2-1ve9h: routing-internal dispatches
           ;; self-tag with :source :router so Xray's L2 timeline +
           ;; tools filter pills can discriminate framework-origin
-          ;; events from user-origin events. The prior parallel
-          ;; `:rf/dispatch-origin` axis was collapsed into `:source`
-          ;; per rf2-1ve9h (Mike-approved 2026-05-28).
+          ;; events from user-origin events. `:source` is the single
+          ;; closed-enum functional-origin axis on the dispatch
+          ;; envelope per rf2-1ve9h (Mike-approved 2026-05-28).
           (router/dispatch! [:rf.route.internal/on-match-error
                              {:error     error-map
                               :nav-token nav-token}]

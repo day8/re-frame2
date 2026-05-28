@@ -68,9 +68,18 @@
   Captures the dispatched event via a trace callback. router/dispatch!
   enqueues asynchronously, so we read the queued-event trace
   (`:event/dispatched`) rather than polling the queue drain. This keeps
-  the test independent of the queue's drain timing."
+  the test independent of the queue's drain timing.
+
+  `:source` is the closed-enum functional-origin tag on the
+  `:rf.event/dispatched` trace (stamped from the envelope in
+  `emit-dispatched-trace!`); we surface it so callers can pin that the
+  route-link click stamps `:source :router` (rf2-t1lxr / rf2-1ve9h).
+  `:source` is hoisted to a top-level slot on every trace event
+  (re-frame.trace/build-event — Spec 009 §Core fields hoist contract),
+  not stamped under `:tags` on the success path."
   [props event]
   (let [dispatched (atom nil)
+        source     (atom nil)
         cb-key     (keyword (gensym "click-capture-"))]
     (trace-tooling/register-listener!
       cb-key
@@ -78,12 +87,14 @@
         (when (and (= :rf.event/dispatched (:operation ev))
                    (vector? (-> ev :tags :rf.event/v))
                    (= :rf/url-requested (-> ev :tags :rf.event/v first)))
-          (reset! dispatched (-> ev :tags :rf.event/v)))))
+          (reset! dispatched (-> ev :tags :rf.event/v))
+          (reset! source     (:source ev)))))
     (try
       (let [[_ attrs] (routing/route-link-render props)
             on-click (:on-click attrs)]
         (on-click event)
         {:dispatched @dispatched
+         :source     @source
          :prevented? (.-defaultPrevented event)
          :href       (:href attrs)})
       (finally
@@ -108,12 +119,18 @@
 (deftest plain-left-click-intercepts
   (testing "button 0 + no modifiers → preventDefault + :rf/url-requested"
     (rf/reg-route :route/cart {:path "/cart"})
-    (let [{:keys [dispatched prevented? href]}
+    (let [{:keys [dispatched source prevented? href]}
           (click! {:to :route/cart} (mk-event {}))]
       (is (= "/cart" href))
       (is prevented? "preventDefault was called on plain left-click")
       (is (= :rf/url-requested (first dispatched))
           "the dispatched event is :rf/url-requested")
+      ;; Per rf2-t1lxr / rf2-1ve9h: the route-link click stamps the
+      ;; closed-enum functional-origin axis `:source :router` so Xray's
+      ;; L2 timeline + filter pills tag the cascade as a
+      ;; routing-substrate dispatch, not :ui.
+      (is (= :router source)
+          "the route-link dispatch stamps :source :router (not :unknown / :ui)")
       (let [payload (second dispatched)]
         (is (= "/cart" (:url payload)))
         (is (= :route/cart (:to payload)))))))
