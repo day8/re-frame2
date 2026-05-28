@@ -300,15 +300,15 @@ A view subscribes to the machine snapshot via `sub-machine` (per [005 §Reading 
 ```clojure
 (rf/reg-sub :app.boot/phase
   (fn sub-app-boot-phase [db _]
-    (get-in db [:rf/machines :app/boot :data :phase])))
+    (get-in db [:rf/runtime :machines :snapshots :app/boot :data :phase])))
 
 (rf/reg-sub :app.boot/error
   (fn sub-app-boot-error [db _]
-    (get-in db [:rf/machines :app/boot :data :error])))
+    (get-in db [:rf/runtime :machines :snapshots :app/boot :data :error])))
 
 (rf/reg-sub :app.boot/state
   (fn sub-app-boot-state [db _]
-    (get-in db [:rf/machines :app/boot :state])))
+    (get-in db [:rf/runtime :machines :snapshots :app/boot :state])))
 
 (rf/reg-view boot-screen []
   (let [state @(subscribe [:app.boot/state])
@@ -355,7 +355,7 @@ For the full mechanism menu see [Pattern-AsyncEffect §Parameter passing across 
 Server-side init via `:rf/server-init` (per [011 §Routing and SSR](011-SSR.md#routing-and-ssr) and [011 §Authentication / sessions](011-SSR.md#authentication--sessions)) is the server-side equivalent of boot. The handoff:
 
 - **Server-side** runs the boot phases that are server-meaningful: config, session resolution from the request, route resolution, server-side data fetches. Phases that are client-only (`:hydrating` from `localStorage`, real-time service connections) are skipped — `:platforms #{:client}` on the relevant fxs causes the server's fx resolver to no-op them (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)).
-- **Client-side**, after `:rf/hydrate` seeds `app-db` from the server payload, the boot machine starts in a state that reflects what the server already accomplished. The recommended convention: the server's last act is to write `[:rf/machines :app/boot :state] = :hydrating` (or `:routing`) into the hydrated `app-db`; the client's boot machine reads its initial state from the snapshot per [005 §Restore semantics](005-StateMachines.md) and resumes from there.
+- **Client-side**, after `:rf/hydrate` seeds `app-db` from the server payload, the boot machine starts in a state that reflects what the server already accomplished. The recommended convention: the server's last act is to write `[:rf/runtime :machines :snapshots :app/boot :state] = :hydrating` (or `:routing`) into the hydrated `app-db`; the client's boot machine reads its initial state from the snapshot per [005 §Restore semantics](005-StateMachines.md) and resumes from there.
 
 The two boots compose cleanly because the boot state machine's snapshot is a `app-db` slice — the same hydration channel that carries every other slice.
 

@@ -45,7 +45,7 @@ The frame's `app-db` transitions atomically per drained event. There is a clear 
 
 ### 3. State containers have identifiable instances
 
-`[:rf/machines <id>]`, `[:route]`, frame ids, spawned actor ids, `:after` timers — every state container in re-frame2 is named and identifiable. The epoch does not need to be global; it lives on the container that initiated the async work. Each container's epoch advances on its own life events.
+`[:rf/runtime :machines :snapshots <id>]`, `[:rf/runtime :routing :current]`, frame ids, spawned actor ids, `:after` timers — every state container in re-frame2 is named and identifiable. The epoch does not need to be global; it lives on the container that initiated the async work. Each container's epoch advances on its own life events.
 
 Combined: every state container that initiates async work increments its epoch on each life event; carries the epoch in the dispatched async-result event; checks on receipt against the current snapshot's epoch; suppresses on mismatch.
 

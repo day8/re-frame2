@@ -204,7 +204,7 @@ The connection machine composes the locked substrate:
                 ;; and :current-socket? checks have a value to compare.
                 ;; `:on-spawn` is advisory (return
                 ;; is dropped); read the id from
-                ;; `[:rf/spawned <parent> <invoke-id>]` instead.
+                ;; `[:rf/runtime :machines :spawned <parent> <invoke-id>]` instead.
                 :on-spawn   (fn [{:keys [data id]}] (assoc data :socket-id id))}
 
        ;; Exit cascade — on any transition that leaves :active, clear the
