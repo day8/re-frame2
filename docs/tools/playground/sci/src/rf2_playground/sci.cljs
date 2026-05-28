@@ -37,10 +37,28 @@
   unavailable — this bundle BUNDLES react@19 + react-dom@19 (the
   impl-pinned versions, resolved from `sci/package.json`) directly. The
   result is one fully self-contained `playground-rf2.js`: no external
-  React, no CDN, no version-mismatch risk (see `sci/shadow-cljs.edn`)."
+  React, no CDN, no version-mismatch risk (see `sci/shadow-cljs.edn`).
+
+  Machines (rf2-ldgpd): `re-frame.machines` is `:require`d at the top
+  of this ns so the machines artefact's late-bind hooks register at
+  bundle init — that activates the `:machines/*` slots `re-frame.core-
+  machines` reads on every call (`reg-machine*`, `make-machine-handler`,
+  `machine-transition`, `machines`, `machine-meta`, `machine-by-system-
+  id`), and registers the `:rf/machine` / `:rf/machine-has-tag?`
+  framework subs + the `:rf.machine/spawn` / `:rf.machine/destroy` /
+  `:rf.machine/spawn-all-init` / `:rf.machine/after-schedule` /
+  `:rf.machine/after-cancel` / `:rf.machine/update-snapshot` fxs from
+  the namespace's top-level forms. `sci/copy-ns re-frame.core` already
+  exposes the machine aliases under their plain names; the SCI
+  `re-frame.core` namespace below adds a `reg-machine` entry bound to
+  the `reg-machine*` fn-alias (same pattern as the
+  `dispatch`/`subscribe`/`inject-cofx` macro→fn shims) so the guide's
+  ch12 cells can write `(rf/reg-machine ...)` exactly as in real code
+  rather than the macro-less `reg-machine*` variant."
   (:require [sci.core :as sci]
             [re-frame.core :as rf]
             [re-frame.views]
+            [re-frame.machines]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [reagent2.core :as r]
             [reagent2.ratom :as ratom]
@@ -58,13 +76,22 @@
 ;; current-frame, dispatcher, subscriber, etc. The macro-only public
 ;; names (dispatch/dispatch-sync/subscribe/inject-cofx) have no
 ;; same-named runtime var so they are NOT in the copy; we add them below.
+;;
+;; Machines (rf2-ldgpd): `reg-machine` is also a JVM-only macro on the
+;; public surface (per-element source-coord stamping at expansion time);
+;; CLJS code reaches it via the plain-fn alias `reg-machine*`. For cells
+;; the source-coord story doesn't apply, so we bind `reg-machine` to
+;; `reg-machine*` exactly as we do for `dispatch`/`subscribe`/`inject-cofx`.
+;; A cell calls `(rf/reg-machine :auth/flow login-flow)` and resolves to
+;; the runtime fn — same shape as the chapter's prose.
 (def re-frame-core-namespace
   (merge
    (sci/copy-ns re-frame.core rf-ns)
    {'dispatch      (sci/copy-var rf/dispatch* rf-ns)
     'dispatch-sync (sci/copy-var rf/dispatch-sync* rf-ns)
     'subscribe     (sci/copy-var rf/subscribe* rf-ns)
-    'inject-cofx   (sci/copy-var rf/inject-cofx* rf-ns)}))
+    'inject-cofx   (sci/copy-var rf/inject-cofx* rf-ns)
+    'reg-machine   (sci/copy-var rf/reg-machine* rf-ns)}))
 
 (def r-ns (sci/create-ns 'reagent2.core nil))
 (def reagent2-core-namespace (sci/copy-ns reagent2.core r-ns))

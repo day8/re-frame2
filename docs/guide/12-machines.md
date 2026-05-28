@@ -24,69 +24,51 @@ Internalise those five rows and the rest is xstate's transition-table grammar ap
 
 ## See one run before you build one
 
-Here's a small machine, live in your browser — a toggle/timer with four named states. Click into the cell and hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to evaluate it, then click the buttons and watch the state name change. The first run wakes the engine; after that it's instant.
+Here's a small machine, live in your browser — a turnstile with two named states (`:locked` and `:unlocked`), a counter riding in `:data`, and per-transition `:actions`. Click into the cell and hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to re-evaluate it after edits, then click the buttons and watch the state name change. The first run wakes the engine; after that it's instant.
 
-One honesty note about this cell. The real `rf/reg-machine` lives in an optional artefact (`day8/re-frame2-machines`) that the browser playground doesn't load, so this cell does the thing `reg-machine` does *by hand*: a plain `reg-event-fx` whose body looks up the current state, finds the matching transition in a table, runs its guard, fires its action, and writes the new state back. That's not a workaround — it's *literally what `reg-machine` packages for you*, as we'll see in the next section. Reading it spelled out is the best possible preparation for reading the real thing. (Live cells are also functions-only, so the view is a plain `defn` with explicit `rf/dispatch` / `rf/subscribe` — see [chapter 06](06-views.md#defn-views-and-the-reg-view-equivalence).)
+This is the **real** `rf/reg-machine` from `day8/re-frame2-machines`, baked into the playground's eval bundle. Same registration call you'd write in your own app; same `rf/sub-machine` for reading the snapshot. (Live cells are functions-only, so the view is a plain `defn` with explicit `rf/dispatch` / `rf/sub-machine` — see [chapter 06](06-views.md#defn-views-and-the-reg-view-equivalence).)
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 
-;; ---- The machine, as pure data: a transition table ----
-;; Five states; each state's :on maps an event to {:target ... :guard ... :action ...}.
-;; This is the same shape rf/reg-machine consumes — here we interpret it ourselves.
+;; ---- The machine as pure data: the transition table ----
+;; Two states. Each state's :on maps an event to {:target ... :action ...}.
+;; This is exactly the shape rf/reg-machine consumes.
 (def turnstile
   {:initial :locked
    :data    {:coins 0 :pushes 0}
+   :actions {:take-coin  (fn [{data :data}] {:data (update data :coins  inc)})
+             :count-push (fn [{data :data}] {:data (update data :pushes inc)})}
    :states
    {:locked   {:on {:coin {:target :unlocked :action :take-coin}
-                    :push {:target :locked   :action :count-push}}} ;; blocked: stays locked
+                    :push {:target :locked   :action :count-push}}}   ;; blocked: stays locked, counts push
     :unlocked {:on {:push {:target :locked}
-                    :coin {:target :unlocked :action :take-coin}}}}})  ;; extra coin, no transition
+                    :coin {:target :unlocked :action :take-coin}}}}}) ;; extra coin, no transition
 
-(def actions
-  {:take-coin   (fn [data _ev] (update data :coins inc))
-   :count-push  (fn [data _ev] (update data :pushes inc))})
+;; ---- Register the machine as an event handler ----
+;; reg-machine is sugar over (reg-event-fx :turnstile/flow (make-machine-handler turnstile)).
+;; The snapshot lives at [:rf/runtime :machines :snapshots :turnstile/flow] in app-db,
+;; reachable via the framework sub :rf/machine (sugar: rf/sub-machine).
+(rf/reg-machine :turnstile/flow turnstile)
 
-;; ---- The interpreter: (machine, snapshot, event) -> next snapshot ----
-;; This tiny function is the whole of what make-machine-handler builds for you.
-(defn transition [machine {:keys [state data] :as snap} [ev-id :as event]]
-  (if-let [t (get-in machine [:states state :on ev-id])]
-    (let [action (get actions (:action t))
-          data'  (if action (action data event) data)]
-      {:state (:target t) :data data'})
-    snap))                                   ;; no matching transition: no change
-
-;; ---- Wire the table into re-frame as an ordinary event handler ----
-(rf/reg-event-db :turnstile/init
-  (fn [_db _] {:turnstile {:state (:initial turnstile) :data (:data turnstile)}}))
-
-(rf/reg-event-db :turnstile/send
-  (fn [db [_ inner-event]]
-    (update db :turnstile #(transition turnstile % inner-event))))
-
-;; ---- A sub over the snapshot, and a derived predicate sub ----
-(rf/reg-sub :turnstile/snapshot (fn [db _] (:turnstile db)))
-(rf/reg-sub :turnstile/open?
-  :<- [:turnstile/snapshot]
-  (fn [{:keys [state]} _] (= state :unlocked)))
-
-;; ---- The view: dispatch events at the machine, render its state ----
+;; ---- The view: dispatch at the machine, sub-machine for its snapshot ----
+;; sub-machine returns nil until the first event arrives; we render the :initial
+;; state's data slot until then so the UI is meaningful at first paint.
 (defn turnstile-view []
-  (let [{:keys [state data]} @(rf/subscribe [:turnstile/snapshot])
-        open? @(rf/subscribe [:turnstile/open?])]
+  (let [{:keys [state data]} (or @(rf/sub-machine :turnstile/flow)
+                                 {:state (:initial turnstile) :data (:data turnstile)})
+        open? (= state :unlocked)]
     [:div {:style {:font-family "sans-serif"}}
      [:p "state: " [:strong {:style {:color (if open? "green" "crimson")}} (str state)]]
      [:p "coins: " (:coins data) " · pushes: " (:pushes data)]
-     [:button {:on-click #(rf/dispatch [:turnstile/send [:coin]])} "insert coin"]
-     [:button {:on-click #(rf/dispatch [:turnstile/send [:push]])} "push"]]))
+     [:button {:on-click #(rf/dispatch [:turnstile/flow [:coin]])} "insert coin"]
+     [:button {:on-click #(rf/dispatch [:turnstile/flow [:push]])} "push"]]))
 
-;; ---- Seed, then hand the view back ----
-(rf/dispatch-sync [:turnstile/init])
 [turnstile-view]
 ```
 
-> **Try it.** Push the turnstile while it's `:locked` — nothing opens, but the push *counter* climbs (a self-transition that runs an action without changing state). Insert a coin to go `:unlocked`, then push to go back to `:locked`. Now the experiment that proves the point: add a third state. Give `:unlocked` an `:on {:break {:target :broken}}` and add `:broken {:on {}}` to `:states`, then add a button that dispatches `[:turnstile/send [:break]]`. Re-evaluate. You added a whole new reachable state by editing *one piece of data* — no new handler, no `cond` surgery in three places. That's the property the rest of the chapter is about.
+> **Try it.** Push the turnstile while it's `:locked` — nothing opens, but the push *counter* climbs (a self-transition that runs an action without changing state). Insert a coin to go `:unlocked`, then push to go back to `:locked`. Now the experiment that proves the point: add a third state. Give `:unlocked` an `:on {:break {:target :broken}}` and add `:broken {:on {}}` to `:states`, then add a button that dispatches `[:turnstile/flow [:break]]`. Re-evaluate. You added a whole new reachable state by editing *one piece of data* — no new handler, no `cond` surgery in three places. That's the property the rest of the chapter is about.
 
 ## The flow that's hiding in your `cond`s
 
