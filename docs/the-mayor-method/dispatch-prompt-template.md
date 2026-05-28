@@ -188,6 +188,63 @@ If you skipped `mkdocs build --strict` locally because mkdocs isn't on
 PATH (common on Windows), call it out in the PR body so the mayor knows
 to watch CI.
 
+## Standard gate menu by surface — mandatory
+
+**Why this block exists.** The canonical pre-checkin spine
+(`test-fast-pr.sh`) is necessary but **not sufficient** for cross-artefact
+diffs. The rf2-uhd5d audit (window: 2026-05-28 09:04Z–13:53Z, 16 PRs)
+identified two recurring worker-gate gaps:
+
+- **#2338 (eguy4 phase B+C, 251 files)** burned **3 sequential CI red
+  iterations** (~45 min runner time) because the worker gated only the
+  artefacts whose `src/` changed, not the downstream artefacts that
+  `:require` the modified public surface. Iter 1 red: `tools/story`
+  consumers. Iter 2 red: CLJS `:node-test` (adapter-reagent test). Iter 3
+  red: `tools/story-mcp` consumer. The PR blocked four follow-on PRs
+  mid-merge across the three iterations.
+- **#2341 (`merge-route-slice` helper extraction in
+  `routing/events.cljc`)** is the latent form of the same gap: the worker
+  ran `cd implementation/routing && clojure -M:test` only. CI's surface
+  classifier carried the consumers (`schemas`, `machines`, `flows`,
+  `http`, `ssr`, `ssr-ring`, `epoch`). No CI failure this time only
+  because the extraction happened to preserve behaviour — but the worker
+  hand-off message read "all green locally" which is the wrong signal for
+  a public-surface diff.
+
+**The rule.** Workers MUST gate every artefact reachable from the diff
+through `:require` edges, not just the artefact whose `src/` changed.
+Paste the relevant rows below verbatim into your PR-body `## Quality
+gates` section.
+
+### Standard gate menu — surface touched → MANDATORY worker-side gates
+
+Gate sets are additive: if your diff touches multiple rows, union the
+gates. Pre-alpha posture: this menu is **prescriptive**, not advisory.
+
+| Surface touched | Mandatory worker-side gates |
+|---|---|
+| Any `.md` under `spec/`, `docs/`, `migration/`, or `skills/` | `python -m mkdocs build --strict` (stage `docs/spec` + `docs/migration` first) + `python scripts/check_doc_slugs.py --verbose` + `python scripts/check_readme_links.py --ci` |
+| `implementation/<feat>/src/*` (any of: `schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`, `epoch`) | `cd implementation/<feat> && clojure -M:test` + `npm run test:cljs` from `implementation/` |
+| `implementation/core/src/*` | `cd implementation/core && clojure -M:test` AND every per-feature `cd implementation/<feat> && clojure -M:test` AND `npm run test:cljs` AND every `cd tools/<tool> && clojure -M:test` for tool in `{xray, story, story-mcp, mcp-base}` |
+| Any public-surface namespace (e.g. `events.cljc`, `http_interceptors.cljc`, anything `:require`d from another artefact) | The artefact's own gate AND every `:require`r in the workspace. **MUST** discover them via: `git grep -lE "(:require \[.*re-frame\.<feat>\.)" implementation/ tools/` — gate each artefact in the resulting list. |
+| `implementation/adapters/*` (other than `reagent-slim`) | impl JVM matrix + `npm run test:cljs` + `npm run test:browser` (browser is the canonical adapter test surface — do NOT skip) |
+| `implementation/adapters/reagent-slim/*` | impl JVM matrix + reagent-slim bundle-isolation check |
+| `tools/<tool>/src/*` | `cd tools/<tool> && clojure -M:test` AND every dependent tool (see TESTING.md S11+S12+S13) AND `npm run test:cljs` if the tool has CLJS tests |
+| `tools/{story,xray}/spec/*.md` | `mkdocs build --strict` **only** (per the rf2-f79t8 spec-md guard — do NOT run the JVM/CLJS tool probes for spec-prose edits) |
+| `tools/template/*` | `cd tools/template && clojure -M:test` + emitted-app smoke |
+| `tools/mcp-conformance/*`, `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*`, `tools/story-mcp/*` | MCP conformance suite from `tools/mcp-conformance/` |
+| Shared protocol surface (`Tool-Pair`, `Spec-Schemas`, `Conventions`, `API`) | **THE FULL MATRIX.** `scripts/test-jvm-implementation.sh` + `scripts/test-jvm-tools.sh` + `npm run test:cljs` + `mkdocs build --strict`. |
+| `spec/conformance/fixtures/*.edn` | impl JVM matrix (per-feature `_conformance_test.clj` consumes these) + `npm run test:cljs` |
+
+Skipping any gate requires a one-line PR-body note explaining why (e.g.
+"Windows file-lock prevents `npm run test:cljs` locally; running CI as
+canonical"). A skip without a stated reason fails the audit.
+
+**Evidence.** This menu is the concrete fix for the rf2-uhd5d audit
+findings §3.1 + §3.2; the failure modes it closes are #2338's
+3-iteration CI red loop and #2341's latent helper-extraction
+consumer-gate gap.
+
 ## PR-body Quality gates section — mandatory
 
 Every editing dispatch's PR body MUST include a `## Quality gates`
