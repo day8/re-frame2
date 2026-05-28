@@ -33,9 +33,9 @@
   topo-sort invocation (n = flow count, k = inputs per flow); zero-
   alloc matters here even at v1's tiny per-frame node counts."
   [a b]
-  (let [n (count a)]
-    (and (<= n (count b))
-         (= a (subvec b 0 n)))))
+  (let [a-count (count a)]
+    (and (<= a-count (count b))
+         (= a (subvec b 0 a-count)))))
 
 (defn depends-on?
   "Per Spec 013 §Topological sort: B depends on A iff A's :path and any
@@ -146,18 +146,21 @@
         (loop [ready     (filterv #(empty? (graph %)) ids)
                remaining graph
                order     []]
-          (if-let [n (peek ready)]
-            (let [rem0 (dissoc remaining n)
+          (if-let [node-id (peek ready)]
+            ;; Peel `node-id` from the remaining graph: drop its row, then
+            ;; walk every other node, dropping the edge into `node-id` from
+            ;; its dep-set. A dep-set that empties out is newly-ready.
+            (let [remaining-without-node (dissoc remaining node-id)
                   [remaining' ready']
-                  (reduce-kv (fn [[rem rdy] m m-deps]
-                               (if-not (contains? m-deps n)
-                                 [rem rdy]
-                                 (let [m-deps' (disj m-deps n)]
-                                   [(assoc rem m m-deps')
-                                    (cond-> rdy (empty? m-deps') (conj m))])))
-                             [rem0 (pop ready)]
-                             rem0)]
-              (recur ready' remaining' (conj order n)))
+                  (reduce-kv (fn [[acc-remaining acc-ready] dep-id dep-set]
+                               (if-not (contains? dep-set node-id)
+                                 [acc-remaining acc-ready]
+                                 (let [dep-set' (disj dep-set node-id)]
+                                   [(assoc acc-remaining dep-id dep-set')
+                                    (cond-> acc-ready (empty? dep-set') (conj dep-id))])))
+                             [remaining-without-node (pop ready)]
+                             remaining-without-node)]
+              (recur ready' remaining' (conj order node-id)))
             (if (seq remaining)
               ;; Cycle ex-info carries the canonical thrown-error shape
               ;; (per Spec 009 §The thrown-error shape) every other flow
