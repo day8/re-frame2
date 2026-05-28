@@ -22,7 +22,7 @@
   ## What gets reset
 
   Registrar + frame state — `(registrar/clear-all!)`,
-  `(reset! frame/frames {})`, `(reset! flows/flows {})`,
+  `(reset! frame/frames {})`, `(flows/reset-flows!)`,
   `(reset! schemas/schemas-by-frame {})`.
 
   SSR side-channel atoms (Spec 011 §Per-request frame teardown). All
@@ -72,7 +72,7 @@
   [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   ;; SSR side-channel atoms — direct refs into the producing sub-ns
   ;; rather than the (private) façade aliases. Same atoms either way;
@@ -82,13 +82,11 @@
   (reset! response/response-slots {})
   (reset! error-listener/pending-error-traces {})
   (reset! head/head-snapshots {})
-  ;; The flows artefact's per-frame "last-inputs" memo table is
-  ;; framework-private (no public reset surface); resolve reflectively
-  ;; and skip silently when the var is absent so this fixture stays
-  ;; resilient to flows-internal renames. Spec 013 §Flow re-evaluation
-  ;; trigger.
-  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
-    (reset! @li-var {}))
+  ;; Per rf2-4gvb4 — the flows artefact's per-frame `last-inputs` memo
+  ;; table is reset through the public `flows/reset-last-inputs!` seam
+  ;; (the atom itself is now private to the flows artefact). Spec 013
+  ;; §Flow re-evaluation trigger.
+  (flows/reset-last-inputs!)
   (rf/init! ssr/adapter)
   ;; Namespace-load-time registrations get wiped by clear-all!; reload
   ;; so :rf/hydrate, :rf.route/navigate, :rf.server/* fxs, the

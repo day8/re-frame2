@@ -123,10 +123,9 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
-  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
-    (reset! (deref li-var) {}))
+  (flows/reset-last-inputs!)
   ;; Per rf2-bacs4: the error-emit listener registry is a `defonce` atom
   ;; that survives test re-runs. Clear before each test so a listener
   ;; registered by one fixture (per rf2-gmrks `:error-emit-records`
@@ -442,7 +441,7 @@
   flows. Fixtures that register on a non-default frame would extend
   this; today's flow-*.edn fixtures all target `:rf/default`."
   []
-  (let [registry (get @flows/flows :rf/default {})]
+  (let [registry (get (flows/flows-snapshot) :rf/default {})]
     (into {}
           (for [[id flow] registry]
             [id (into #{}
@@ -461,7 +460,7 @@
   fixtures (per Spec 013 §Frame-scoping)."
   ([] (flow-registry-ids :rf/default))
   ([frame-id]
-   (into #{} (keys (get @flows/flows frame-id {})))))
+   (into #{} (keys (get (flows/flows-snapshot) frame-id {})))))
 
 (defn- last-inputs-frame-set
   "Per-flow set of frame-ids currently present in `last-inputs[flow-id]`.
@@ -469,7 +468,7 @@
   destroyed frame's row in every `last-inputs[flow-id]` MUST be dropped;
   the whole flow-id key drops when no other frame still holds an entry."
   [flow-id]
-  (into #{} (keys (get @flows/last-inputs flow-id {}))))
+  (into #{} (keys (get (flows/last-inputs-snapshot) flow-id {}))))
 
 (defn- registrar-has-flow?
   "True iff the cross-kind `:flow` registrar slot for `flow-id` is

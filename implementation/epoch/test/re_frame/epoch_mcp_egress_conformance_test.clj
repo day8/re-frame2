@@ -73,10 +73,9 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
-  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
-    (reset! (deref li-var) {}))
+  (flows/reset-last-inputs!)
   (trace/clear-listeners!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)

@@ -76,10 +76,9 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
-  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
-    (reset! @li-var {}))
+  (flows/reset-last-inputs!)
   (rf/init! plain-atom/adapter)
   ;; clear-all! wiped the ns-load-time registrations of these artefacts;
   ;; :reload re-evaluates each ns body so its registrations resurrect.

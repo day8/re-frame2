@@ -20,7 +20,7 @@
 
   - `(registrar/clear-all!)`
   - `(reset! frame/frames {})`
-  - `(reset! flows/flows {})`
+  - `(flows/reset-flows!)`
   - `(reset! schemas/schemas-by-frame {})`
   - `(schemas/reset-schema-validator!)` — restores Malli defaults
     per rf2-froe so a test that mutates the pluggable validator
@@ -50,7 +50,7 @@
   [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (schemas/reset-schema-validator!)
   (schemas/clear-validator-unavailable-warned!)

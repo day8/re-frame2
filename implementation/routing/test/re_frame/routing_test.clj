@@ -50,7 +50,7 @@
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx (routing.cljc, ssr.cljc) are registered at

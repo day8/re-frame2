@@ -62,8 +62,8 @@
   (until rf2-isdwf's top-level hoisting lands in core).
 
   The value-bearing slots are redacted (`:value`, `:received`,
-  `:explain`, plus `:fx-args` on `:where :fx-args` emissions and
-  `:query-v` on `:where :sub-return` emissions — see `redact-tags`);
+  `:explain`, plus `:rf.fx/args` on `:where :fx-args` emissions and
+  `:rf.sub/query-v` on `:where :sub-return` emissions — see `redact-tags`);
   the structural / categorical slots (`:path`, `:failing-id`,
   `:schema-id`, `:reason`) are kept — consumers need them to locate
   the broken slot without leaking user data.
@@ -105,17 +105,17 @@
   correctly. Idempotent — safe to call on an already-redacted map.
 
   The five redacted slots (`:value`, `:received`, `:explain`,
-  `:fx-args`, `:query-v`) are the canonical set per the Spec 010
-  §`:sensitive?` redaction-shape list. Two of them are per-surface
-  doubled-id names carried only on a single emit-site (`:fx-args` on
-  `:where :fx-args`; `:query-v` on `:where :sub-return`); the
-  `contains?` guards make those clauses no-ops on the other surfaces
-  whose tag maps don't carry the slot. Per rf2-nijom this replaces the
-  previous fx-only `extra-redact` lambda — the redaction is now
-  symmetric across every value-bearing slot, and the schema lists
-  them canonically.
+  `:rf.fx/args`, `:rf.sub/query-v`) are the canonical set per the
+  Spec 010 §`:sensitive?` redaction-shape list. Two of them are
+  per-surface doubled-id names carried only on a single emit-site
+  (`:rf.fx/args` on `:where :fx-args`; `:rf.sub/query-v` on
+  `:where :sub-return`); the `contains?` guards make those clauses
+  no-ops on the other surfaces whose tag maps don't carry the slot.
+  Per rf2-nijom this replaces the previous fx-only `extra-redact`
+  lambda — the redaction is now symmetric across every value-bearing
+  slot, and the schema lists them canonically.
 
-  Per rf2-adtp2 / rf2-p2adl Q2 — `:query-v` (the caller-supplied
+  Per rf2-adtp2 / rf2-p2adl Q2 — `:rf.sub/query-v` (the caller-supplied
   subscription query vector on `:where :sub-return` emissions) is
   the lookup key, not just an id, and on `:sensitive?`-marked subs
   typically carries the same secret material the registered schema
@@ -262,8 +262,8 @@
 
   Per rf2-nijom this primitive no longer carries an `extra-redact`
   escape hatch — the four canonical redacted slots
-  (`:value`, `:received`, `:explain`, `:fx-args`) all live on the
-  central `redact-tags` cond->. The fx-args clause is a no-op on
+  (`:value`, `:received`, `:explain`, `:rf.fx/args`) all live on the
+  central `redact-tags` cond->. The `:rf.fx/args` clause is a no-op on
   the other three surfaces (their base-tags don't contain the
   slot), so a single redactor covers every meta-bearing emit site."
   [meta value meta-sensitive? walk-schema? build-base-tags]
@@ -516,11 +516,11 @@
   continue to run, and downstream queued events still drain. Returns
   true/false per the `run-validation` contract.
 
-  Per rf2-nijom the per-surface `:fx-args` slot is redacted by the
+  Per rf2-nijom the per-surface `:rf.fx/args` slot is redacted by the
   central `redact-tags` cond->; the lambda escape hatch that used to
   do this here is gone, and Spec 010 §`:sensitive?` now lists
-  `:fx-args` alongside `:value` / `:received` / `:explain` as the
-  canonical redacted slots (and `:query-v` on the sub-return
+  `:rf.fx/args` alongside `:value` / `:received` / `:explain` as the
+  canonical redacted slots (and `:rf.sub/query-v` on the sub-return
   surface, per rf2-adtp2)."
   [fx-id event-id args fx-meta]
   (if interop/debug-enabled?

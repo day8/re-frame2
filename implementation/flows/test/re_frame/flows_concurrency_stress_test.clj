@@ -71,13 +71,14 @@
        probe).
 
     4. **Clean registry — no leak.** After all threads finish and
-       every per-thread cycle is cleared, the per-frame registry
-       (`re-frame.flows/flows`) holds zero entries for every test
-       frame, the dirty-check `last-inputs` map holds zero entries
-       for every per-thread flow id, and the global `:flow`
-       registrar slot is unregistered for every per-thread flow id
-       (the LAST frame holding it released the id, so per Spec 013
-       §Frame-scoping the registrar slot must be vacated).
+       every per-thread cycle is cleared, the per-frame flow registry
+       (read via `flows/flows-snapshot`) holds zero entries for every
+       test frame, the dirty-check `last-inputs` map (read via
+       `flows/last-inputs-snapshot`) holds zero entries for every
+       per-thread flow id, and the global `:flow` registrar slot is
+       unregistered for every per-thread flow id (the LAST frame
+       holding it released the id, so per Spec 013 §Frame-scoping
+       the registrar slot must be vacated).
 
   Threads start in lockstep via `CountDownLatch.countDown` — the same
   shape rf2-35rgj / rf2-1gpx8 use to maximise contention. Per-thread
@@ -330,8 +331,8 @@
         ;;     the global `:flow` registrar slot must be gone for
         ;;     every per-thread flow id (the LAST frame holding it
         ;;     released the id per Spec 013 §Frame-scoping).
-        (let [flows-snapshot       @flows/flows
-              last-inputs-snapshot @flows/last-inputs]
+        (let [flows-snapshot       (flows/flows-snapshot)
+              last-inputs-snapshot (flows/last-inputs-snapshot)]
           (doseq [{:keys [frame-id flow-id cyc-a cyc-b]} per-thread]
             (let [per-frame-slot (get flows-snapshot frame-id)]
               (is (or (nil? per-frame-slot) (empty? per-frame-slot))

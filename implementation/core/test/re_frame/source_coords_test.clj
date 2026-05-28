@@ -39,10 +39,9 @@
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
-  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
-    (reset! (deref li-var) {}))
+  (flows/reset-last-inputs!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)

@@ -185,6 +185,13 @@
                               :reagent "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"
                               :uix     "https://img.shields.io/badge/substrate-UIx-3498db.svg"
                               :helix   "https://img.shields.io/badge/substrate-Helix-9b59b6.svg")
+       ;; -- DO NOT EDIT — managed by version_lockstep_test --
+       ;; The three version pins below are checked against the repo-root
+       ;; sources of truth (the VERSION file, implementation/package.json's
+       ;; shadow-cljs / react pins) by
+       ;; `test/day8/re_frame2_template/version_lockstep_test.clj`. Bumping
+       ;; them here in isolation will fail that test. The §3 release pipeline
+       ;; (rf2-dolpf) updates all four in lockstep.
        :rf2-version         "0.0.1.alpha"
        :shadow-version      "3.4.10"
        :react-version       "19.2.0"})))

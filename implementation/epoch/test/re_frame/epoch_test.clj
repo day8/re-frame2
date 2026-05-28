@@ -54,14 +54,13 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   ;; Per smoke_test.clj fixture (rf2-xsfj): flows.cljc keeps a private
   ;; last-inputs atom for dirty-checking. Clear it so a prior test's
   ;; flow registration can't leak its last-inputs into a same-keyed
   ;; flow in a subsequent test.
-  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
-    (reset! (deref li-var) {}))
+  (flows/reset-last-inputs!)
   (trace/clear-listeners!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)

@@ -10,12 +10,13 @@
   registry shape is `{frame-id {flow-id flow-map}}`.
 
   Per rf2-mnu8z this is the second leg of the flows split. The façade
-  (`re-frame.flows`) re-exports `flows`, `last-inputs`, `reg-flow`,
-  `clear-flow`, `reset-flows!`, `reset-last-inputs!` so external
-  consumers — production code, the late-bind directory, and the test
-  fixtures that `(reset! flows/flows {})` or
-  `(resolve 're-frame.flows/last-inputs)` — continue to reach them at
-  their documented namespace-qualified names."
+  (`re-frame.flows`) re-exports the public surface — `reg-flow`,
+  `clear-flow`, `reset-flows!`, `reset-last-inputs!`, plus the
+  rf2-4gvb4 read accessors `flows-snapshot` / `last-inputs-snapshot`.
+  The underlying atoms themselves are PRIVATE to this artefact: external
+  consumers (production code, the late-bind directory, test fixtures
+  across artefacts) reach the registry state through the accessor seam
+  rather than dereferencing the atom Vars directly."
   (:require [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -26,28 +27,80 @@
             [re-frame.trace :as trace]))
 
 ;; ---- state ---------------------------------------------------------------
+;;
+;; Per rf2-4gvb4 — the two atoms below are PRIVATE to this artefact. External
+;; consumers reach the registry state through the public read accessors
+;; (`flows-snapshot` / `last-inputs-snapshot`) and the reset fns
+;; (`reset-flows!` / `reset-last-inputs!`) — the facade re-exports them at
+;; `re-frame.flows`. The atoms themselves are NOT a public surface; treating
+;; them as one couples consumers to the internal shape (a future move to a
+;; concurrent map, a sharded structure, or a different bookkeeping layout
+;; would force every test fixture to follow). The accessor seam keeps the
+;; flexibility on the framework side while giving tests the read-and-reset
+;; affordances they actually need.
 
 (defonce
-  ^{:doc "frame-id → flow-id → flow-map. Per-frame so undo / time-travel
-          / clear semantics are unambiguous."}
+  ^{:doc     "frame-id → flow-id → flow-map. Per-frame so undo / time-travel
+              / clear semantics are unambiguous."
+    :private true}
   flows
   (atom {}))
 
 (defonce
-  ^{:doc "Per-flow, per-frame last-inputs index: `flow-id → frame-id →
-          last-seen input vec`. Drives the dirty-check skip path in
-          `re-frame.flows/evaluate-flow!` (rf2-719e).
+  ^{:doc     "Per-flow, per-frame last-inputs index: `flow-id → frame-id →
+              last-seen input vec`. Drives the dirty-check skip path in
+              `re-frame.flows/evaluate-flow!` (rf2-719e).
 
-          Shape note: the outer key is `flow-id` (not `[frame-id flow-id]`
-          flat) so the hot-reload invalidation hook (which fires on
-          `:flow` registrar replacement) can drop every per-frame entry
-          for the replaced flow with one `dissoc` — O(1) instead of the
-          prior O(N) walk over all entries. Per-frame slots stay
-          independent (each flow id can register against multiple
-          frames with its own dirty-check window per Spec 013
-          §Frame-scoping)."}
+              Shape note: the outer key is `flow-id` (not `[frame-id flow-id]`
+              flat) so the hot-reload invalidation hook (which fires on
+              `:flow` registrar replacement) can drop every per-frame entry
+              for the replaced flow with one `dissoc` — O(1) instead of the
+              prior O(N) walk over all entries. Per-frame slots stay
+              independent (each flow id can register against multiple
+              frames with its own dirty-check window per Spec 013
+              §Frame-scoping)."
+    :private true}
   last-inputs
   (atom {}))
+
+;; ---- public read accessors (rf2-4gvb4) -----------------------------------
+;;
+;; `flows-snapshot` and `last-inputs-snapshot` are the public seam external
+;; consumers (test fixtures, conformance harnesses, the cross-artefact
+;; integration tests in http / epoch / routing / ssr / core) use to observe
+;; the registry shape without dereferencing the private atoms above. Reads
+;; only — mutation goes through `reg-flow` / `clear-flow` /
+;; `teardown-on-frame-destroy!` / `reset-flows!` / `reset-last-inputs!`.
+
+(defn flows-snapshot
+  "Return the per-frame flow registry value: `{frame-id {flow-id flow-map}}`.
+  Snapshot — observers MUST NOT mutate (the underlying atom is private)."
+  []
+  @flows)
+
+(defn last-inputs-snapshot
+  "Return the dirty-check `last-inputs` value: `{flow-id {frame-id inputs}}`.
+  Snapshot — observers MUST NOT mutate (the underlying atom is private)."
+  []
+  @last-inputs)
+
+;; ---- intra-artefact-only mutation helpers (rf2-4gvb4) --------------------
+;;
+;; `re-frame.flows` (the facade evaluation path) updates `last-inputs` on
+;; every successful flow recompute and snapshots / restores it across the
+;; drain. These helpers keep the mutation contained in this namespace —
+;; the atom never escapes. NOT a public surface; ns-doc names the consumer.
+
+(defn ^:no-doc swap-last-inputs!
+  [f & args]
+  (apply swap! last-inputs f args))
+
+(defn ^:no-doc reset-last-inputs-to!
+  "Restore `last-inputs` to `prior` (the drain-start snapshot). Called by
+  `re-frame.flows/run-flows-on-db`'s catch arm to roll back dirty-check
+  bookkeeping when a flow throws mid-cascade."
+  [prior]
+  (reset! last-inputs prior))
 
 ;; ---- two-level-map maintenance helpers -----------------------------------
 ;;
@@ -152,51 +205,59 @@
                     :flow        flow}
                    extras))))
 
+;; The validation rules, in evaluation order. Each rule has a predicate
+;; over the flow map (returns truthy to accept), a stable `:error-kw`
+;; discriminator, a `:reason` diagnostic, and optional `:extras` that
+;; build per-clause ex-data slots (`:bad-entries` / `:bad-elements`).
+;; `validate-flow` walks this vector and throws on the first failing
+;; predicate — matching the original `cond` evaluation order so existing
+;; tests pinning rejection ids see no shift.
+;;
+;; Data-driven so the rules are introspectable (a test or the spec can
+;; read the table) and adding a clause is a single conj.
+(def ^:private validation-rules
+  [{:pred     (fn [flow] (some? (:id flow)))
+    :error-kw :rf.error/flow-missing-id
+    :reason   ":id is required (flow registration must name an id)"}
+
+   {:pred     (fn [flow] (vector? (:inputs flow)))
+    :error-kw :rf.error/flow-bad-inputs
+    :reason   ":inputs must be a vector of paths"}
+
+   ;; One clause for both "entry isn't a vector" and "entry isn't a valid
+   ;; path" — `valid-path?` already requires `vector?`, so the older
+   ;; two-arm split (the prior code carried a separate `(every? vector?
+   ;; ...)` check) was strictly subsumed by this one. The single rejection
+   ;; message names what the entry must be; the `:bad-entries` slot points
+   ;; at the offending values so callers can fix them without a stack-trace
+   ;; dig.
+   {:pred     (fn [flow] (every? valid-path? (:inputs flow)))
+    :error-kw :rf.error/flow-bad-inputs
+    :reason   ":inputs entries must each be a non-empty vector of scalar keys (keyword / string / integer / symbol / boolean)"
+    :extras   (fn [flow] {:bad-entries (vec (remove valid-path? (:inputs flow)))})}
+
+   {:pred     (fn [flow] (fn? (:output flow)))
+    :error-kw :rf.error/flow-bad-output
+    :reason   ":output must be a fn"}
+
+   {:pred     (fn [flow] (vector? (:path flow)))
+    :error-kw :rf.error/flow-bad-path
+    :reason   ":path must be a vector"}
+
+   {:pred     (fn [flow] (seq (:path flow)))
+    :error-kw :rf.error/flow-bad-path
+    :reason   ":path must be non-empty (an empty :path would make this flow a depends-on prerequisite of every other flow per Spec 013 §Dependency rule)"}
+
+   {:pred     (fn [flow] (every? valid-path-element? (:path flow)))
+    :error-kw :rf.error/flow-bad-path
+    :reason   ":path elements must each be a scalar key (keyword / string / integer / symbol / boolean)"
+    :extras   (fn [flow] {:bad-elements (vec (remove valid-path-element? (:path flow)))})}])
+
 (defn- validate-flow [flow]
-  (cond
-    (nil? (:id flow))
-    (throw (flow-error :rf.error/flow-missing-id
-                       ":id is required (flow registration must name an id)"
-                       flow))
-
-    (not (vector? (:inputs flow)))
-    (throw (flow-error :rf.error/flow-bad-inputs
-                       ":inputs must be a vector of paths"
-                       flow))
-
-    ;; One clause for both "entry isn't a vector" and "entry isn't a
-    ;; valid path" — `valid-path?` already requires `vector?`, so the
-    ;; older two-arm split (the prior code carried a separate
-    ;; `(every? vector? ...)` check) was strictly subsumed by this one.
-    ;; The single rejection message names what the entry must be; the
-    ;; `:bad-entries` slot points at the offending values so callers
-    ;; can fix them without a stack-trace dig.
-    (not (every? valid-path? (:inputs flow)))
-    (throw (flow-error :rf.error/flow-bad-inputs
-                       ":inputs entries must each be a non-empty vector of scalar keys (keyword / string / integer / symbol / boolean)"
-                       flow
-                       {:bad-entries (vec (remove valid-path? (:inputs flow)))}))
-
-    (not (fn? (:output flow)))
-    (throw (flow-error :rf.error/flow-bad-output
-                       ":output must be a fn"
-                       flow))
-
-    (not (vector? (:path flow)))
-    (throw (flow-error :rf.error/flow-bad-path
-                       ":path must be a vector"
-                       flow))
-
-    (empty? (:path flow))
-    (throw (flow-error :rf.error/flow-bad-path
-                       ":path must be non-empty (an empty :path would make this flow a depends-on prerequisite of every other flow per Spec 013 §Dependency rule)"
-                       flow))
-
-    (not (every? valid-path-element? (:path flow)))
-    (throw (flow-error :rf.error/flow-bad-path
-                       ":path elements must each be a scalar key (keyword / string / integer / symbol / boolean)"
-                       flow
-                       {:bad-elements (vec (remove valid-path-element? (:path flow)))}))))
+  (some (fn [{:keys [pred error-kw reason extras]}]
+          (when-not (pred flow)
+            (throw (flow-error error-kw reason flow (when extras (extras flow))))))
+        validation-rules))
 
 ;; ---- registration --------------------------------------------------------
 

@@ -32,7 +32,7 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
@@ -203,10 +203,10 @@
   `:flows/reset-flows!` is the documented exception: it fires twice —
   once mid-body (via `:pre-dispose`) and once in the `finally` block,
   per the fixture docstring step 10 (\"Resets `frame/frames` back to
-  `{}` for symmetry, and (when their artefacts are loaded)
-  `flows/flows` and `schemas/schemas-by-frame`\"). The two-fire shape
-  is load-bearing — symmetric pre-test and post-test reset so a
-  failing test leaves no residue for the next. Pin the count here so a
+  `{}` for symmetry, and (when their artefacts are loaded) the flows
+  registry and `schemas/schemas-by-frame`\"). The two-fire shape is
+  load-bearing — symmetric pre-test and post-test reset so a failing
+  test leaves no residue for the next. Pin the count here so a
   refactor that drops EITHER call site (or unifies them into one) is
   surfaced as a regression."
   {:flows/reset-flows!              2  ;; pre + finally (symmetry)
