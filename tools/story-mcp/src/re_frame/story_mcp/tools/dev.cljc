@@ -3,17 +3,22 @@
   `preview-variant`, `list-substrates`. Per IMPL-SPEC §7.2 these are
   the read-only agent-onboarding + canvas-state surfaces.
 
-  `story-instructions-text` ships inline as a single string to keep
-  this jar self-contained — no external resource read needed at boot."
+  `story-instructions-text` ships inline as a single string so the
+  artefact is self-contained — no resource read at boot, one MCP
+  frame, zero classpath / IO dependencies. The structural peer in
+  pair-mcp (`get-re-frame2-pair-instructions`) uses the same inline-
+  `(str ...)` shape, kept aligned per rf2-93cew so AI pairs reading
+  both servers see one answer to the onboarding-text question."
   (:require [re-frame.story :as story]
             [re-frame.story.async :as async]
             [re-frame.story-mcp.tools.helpers :as h]
             [re-frame.story-mcp.tools.schemas :as s]))
 
 (def story-instructions-text
-  "The agent-onboarding text returned by `get-story-instructions`. Kept
-  inline as a single string to keep this jar self-contained — no
-  external resource read needed at boot."
+  "The agent-onboarding text returned by `get-story-instructions`.
+  Inline `(str ...)` of `\\n`-glued lines — see the ns docstring for
+  the rationale (mirrors pair-mcp per rf2-93cew). Edit this string
+  when the catalogue changes."
   (str
     "re-frame2-story authoring conventions (agent quick reference).\n"
     "Full spec: spec/007-Stories.md + tools/story/spec/.\n"
