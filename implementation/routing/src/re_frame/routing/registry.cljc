@@ -168,13 +168,13 @@
       ;; gets a new identity on every register!, and `route-table` checks
       ;; identity equality before reusing the cached pairs vector.
       ;;
-      ;; Per Spec 012 §Trace events and rf2-dn26r: `:rf.route/registered`
-      ;; fires on FIRST-TIME registration so tools subscribing to "all
-      ;; route lifecycle events" see one event per fresh route.
+      ;; Per Spec 012 §Trace events: `:rf.route/registered` fires on
+      ;; FIRST-TIME registration so tools subscribing to "all route
+      ;; lifecycle events" see one event per fresh route.
       ;; Re-registration rides the cross-kind `:rf.registry/handler-
       ;; replaced` trace (emitted by `registrar/register!` per Spec 001
       ;; §Hot-reload trace surface); not re-emitted here. Mirrors the
-      ;; `:rf.flow/registered` symmetry (rf2-ehxez).
+      ;; `:rf.flow/registered` symmetry.
       (when (nil? previous)
         (trace/emit! :rf.event :rf.route/registered
                      {:route-id id
@@ -184,7 +184,7 @@
 (defn unregister-route!
   "Remove a registered route. Emits `:rf.route/cleared` so tools
   subscribing to route lifecycle observe the removal; symmetric with
-  `:rf.flow/cleared`. Per Spec 012 §Trace events (rf2-dn26r). No-op
+  `:rf.flow/cleared`. Per Spec 012 §Trace events. No-op
   when the route id was not registered."
   [id]
   (let [previous (registrar/lookup :route id)]

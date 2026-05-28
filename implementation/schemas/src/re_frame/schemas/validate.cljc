@@ -42,13 +42,13 @@
   the primitive itself, along with every literal reason string passed
   through it.
 
-  Per Spec 010 §Non-Malli validators (rf2-froe) the validator/explainer
+  Per Spec 010 §Non-Malli validators the validator/explainer
   are pluggable via the registered atoms in `re-frame.schemas.validator`;
   when none is registered every fn here returns true (pass) without
   inspecting the schema.
 
   Per Spec 010 §`:sensitive?` — privacy in schema-validation error
-  traces (rf2-kj51z). The emit-sites redact the failing value before
+  traces. The emit-sites redact the failing value before
   stamping a trace event when either:
     1. The schema slot at the failing path (or a containing slot)
        carries `:sensitive? true` in its Malli props.

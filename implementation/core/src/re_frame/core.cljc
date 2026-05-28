@@ -431,7 +431,7 @@
   snapshot for `frame-id`. Returns `{}` for a frame that has never
   seen a `render-head` call (or whose snapshot has been cleared via
   per-request frame teardown). Useful for tests, introspection, and
-  tools (Xray, MCP). Per Spec 011 §Head/meta contract (rf2-4dra9).
+  tools (Xray, MCP). Per Spec 011 §Head/meta contract.
   Implementation ships in `day8/re-frame2-ssr`. Late-bound via
   `:ssr/head-snapshot`."}
   head-snapshot    rf-ssr/head-snapshot)
@@ -493,21 +493,21 @@
 (def ^{:doc "Register the validator fn every dev-time schema-validation
   site routes through — `(fn [schema value] truthy?)` (or nil to
   disable). Map-arity atomically swaps `{:validate :explain}` together.
-  Per Spec 010 §Non-Malli validators (rf2-froe). Default ships Malli;
+  Per Spec 010 §Non-Malli validators. Default ships Malli;
   callers swap to drop the ~24 KB gzipped Malli surface. Implementation
   ships in `day8/re-frame2-schemas`."}
   set-schema-validator!  rf-schemas/set-schema-validator!)
 
 (def ^{:doc "Register the explainer fn — `(fn [schema value] explanation)`
   — used to enrich schema-validation-failure traces' `:explain` key.
-  Per Spec 010 §Non-Malli validators (rf2-froe). Implementation ships
+  Per Spec 010 §Non-Malli validators. Implementation ships
   in `day8/re-frame2-schemas`."}
   set-schema-explainer!  rf-schemas/set-schema-explainer!)
 
 (def ^{:doc "Register the schema-print companion — `(fn [schema-value]
   canonical-string)` — that the digest pipeline hashes. MUST be pure
-  and cross-runtime deterministic. Per Spec 010 §Digest algorithm
-  (rf2-wla45). Implementation ships in `day8/re-frame2-schemas`."}
+  and cross-runtime deterministic. Per Spec 010 §Digest algorithm.
+  Implementation ships in `day8/re-frame2-schemas`."}
   set-schema-printer!    rf-schemas/set-schema-printer!)
 
 ;; ---- data classification (Spec 015) -------------------------------------
@@ -899,7 +899,7 @@
 
 (def ^{:doc "Remove a registered route. Emits `:rf.route/cleared` so
   tools subscribing to route lifecycle observe the removal; symmetric
-  with `:rf.flow/cleared`. Per Spec 012 §Trace events (rf2-dn26r).
+  with `:rf.flow/cleared`. Per Spec 012 §Trace events.
   Implementation ships in `day8/re-frame2-routing`."}
   unregister-route!  rf-routing/unregister-route!)
 
@@ -998,7 +998,7 @@
 (def ^{:doc "Subscribe to a machine's `:fsm/tags` containment-bit for
   `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`
   — returns a reaction whose value is `true` iff the current snapshot's
-  `:tags` set contains `tag`. Per Spec 005 §State tags (rf2-ee0d)."}
+  `:tags` set contains `tag`. Per Spec 005 §State tags."}
   machine-has-tag?               rf-machines/machine-has-tag?)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
@@ -1114,7 +1114,7 @@
   the `:event` coeffect with the payload map itself. Usage:
   `(reg-event-fx :foo [unwrap-interceptor] (fn [_ {:keys [a b]}] ...))`.
   Per Conventions §Canonical event-vector shape (M-19) and §Value-vs-fn
-  naming (rf2-k367k)."}
+  naming."}
   unwrap-interceptor std-interceptors/unwrap-interceptor)
 
 (def ^{:doc "Build a positional interceptor that overwrites the named
@@ -1138,13 +1138,12 @@
 (def ^{:doc "Production-side schema validation interceptor. Add to a
   `reg-event-*` handler's positional interceptor vector to force `:schema`
   validation against the dispatched event vector even in production
-  builds where dev-time validation is elided. The verb `validate-` (per
-  rf2-todvi) telegraphs the time/build-mode axis the interceptor lives
-  on (no-op in dev, validates in prod); the `-interceptor` suffix (per
-  rf2-k367k, Conventions §Value-vs-fn naming) telegraphs that this is a
-  Var holding a value, not a fn. Per Spec 010 §Production builds.
-  The interceptor reuses the handler's existing `:schema` metadata —
-  no parallel schema."}
+  builds where dev-time validation is elided. The verb `validate-`
+  telegraphs the time/build-mode axis the interceptor lives on (no-op in
+  dev, validates in prod); the `-interceptor` suffix (per Conventions
+  §Value-vs-fn naming) telegraphs that this is a Var holding a value,
+  not a fn. Per Spec 010 §Production builds. The interceptor reuses the
+  handler's existing `:schema` metadata — no parallel schema."}
   validate-at-boundary-interceptor spec/validate-at-boundary-interceptor)
 
 (def ^{:doc "Emit a trace event. Production builds elide the body
@@ -1211,12 +1210,11 @@
   builds where the trace surface is elided. `f` receives a tight
   event-record per processed event (NOT subs / fxs); see
   `re-frame.event-emit` ns docstring for the record shape. Re-registering
-  the same id replaces. Returns `id`. Per Spec 009 §Event-emit listener
-  (rf2-rirbq + rf2-ic1sv pick c)."}
+  the same id replaces. Returns `id`. Per Spec 009 §Event-emit listener."}
   register-event-listener!   event-emit/register-event-listener!)
 
 (def ^{:doc "Drop the always-on event-emit listener registered under `id`.
-  Returns nil. Per Spec 009 §Event-emit listener (rf2-rirbq + rf2-ic1sv)."}
+  Returns nil. Per Spec 009 §Event-emit listener."}
   unregister-event-listener! event-emit/unregister-event-listener!)
 
 (def ^{:doc "Register an always-on error-emit listener `f` under `id`.
@@ -1224,11 +1222,11 @@
   error-record per `:rf.error/*` event (see `re-frame.error-emit` ns
   docstring for the record shape). For off-box observability shippers
   (Sentry, Honeybadger, Rollbar). Re-registering the same id replaces.
-  Returns `id`. Per Spec 009 §Error-handler policy (rf2-bacs4 + rf2-ic1sv)."}
+  Returns `id`. Per Spec 009 §Error-handler policy."}
   register-error-listener!   error-emit/register-error-listener!)
 
 (def ^{:doc "Drop the always-on error-emit listener registered under `id`.
-  Returns nil. Per Spec 009 §Error-handler policy (rf2-bacs4 + rf2-ic1sv)."}
+  Returns nil. Per Spec 009 §Error-handler policy."}
   unregister-error-listener! error-emit/unregister-error-listener!)
 
 (def ^{:doc "Walk `v` and substitute schema-declared sensitive or large
