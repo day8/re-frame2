@@ -49,11 +49,13 @@
             [re-frame.test-support :as test-support]))
 
 ;; Mirror schemas_cljs_test.cljs's fixture: snapshot/restore the
-;; registrar (rf2-am9d) and clear :app-schema between tests.
+;; registrar (rf2-am9d) and clear the schemas artefact's per-frame
+;; side-table between tests (rf2-cq1ak — app-db schemas are NOT a
+;; registrar kind).
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter     reagent-adapter/adapter
-     :clear-kinds [:app-schema]}))
+    {:adapter            reagent-adapter/adapter
+     :clear-app-schemas? true}))
 
 ;; ---- boundary interceptor under `:advanced` + `goog.DEBUG=false` ---------
 

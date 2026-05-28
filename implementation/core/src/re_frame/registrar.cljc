@@ -5,7 +5,7 @@
   Frames isolate STATE; the registrar is shared across all frames.
 
   Reserved kinds (closed v1 set, per Spec 001 §Registry model):
-    :event :sub :fx :cofx :view :frame :route :app-schema :head
+    :event :sub :fx :cofx :view :frame :route :head
     :error-projector :flow :machine-guard :machine-action
 
   Per Spec 005 the machine spec's `:guards` / `:actions` maps are the
@@ -21,13 +21,11 @@
   fn form-source via `pr-str`; `reg-machine*` plain-fn path captures
   no form-source). Production-elided per Spec 009 §Production builds.
 
-  The `:app-schema` kind is RESERVED but the registrar slot is
-  intentionally **empty** — `reg-app-schema` writes only to the
-  schemas artefact's own per-frame side-table (`schemas/schemas-by-
-  frame`), which is the single source of truth. The kind keyword is
-  preserved for the test-support `:clear-kinds` interface and for
-  Spec 001 §Registry model continuity; tools introspecting app-db
-  schemas go through `schemas/app-schemas` / `schemas/app-schema-meta-at`.
+  App-db schemas are NOT a registrar kind (rf2-cq1ak). `reg-app-schema`
+  writes only to the schemas artefact's own per-frame side-table
+  (`schemas/schemas-by-frame`), which is the single source of truth.
+  Tools introspecting app-db schemas go through `schemas/app-schemas`
+  / `schemas/app-schema-meta-at`.
 
   ## Production elision
 
@@ -50,8 +48,12 @@
   `:machine-guard` / `:machine-action` (rf2-ypu5i) carry per-(machine-id,
   id) handler-meta surfaces for tooling — the runtime still resolves
   guards/actions through the machine spec's `:guards` / `:actions` maps,
-  not these registrar kinds."
-  #{:event :sub :fx :cofx :view :frame :route :app-schema :head
+  not these registrar kinds.
+
+  App-db schemas (rf2-cq1ak) are NOT a registrar kind — they live in the
+  schemas artefact's per-frame side-table (`schemas/schemas-by-frame`).
+  Introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`."
+  #{:event :sub :fx :cofx :view :frame :route :head
     :error-projector :flow :machine-guard :machine-action})
 
 (defn valid-kind? [k]

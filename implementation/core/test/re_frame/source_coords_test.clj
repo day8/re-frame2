@@ -154,14 +154,14 @@
 
 (deftest source-coords-on-reg-app-schema
   (testing "reg-app-schema stamps :ns / :line / :file"
-    ;; Per rf2-0frdi the schemas artefact owns its own per-frame side-
-    ;; table — there is no registrar `:app-schema` slot. Source-coords
-    ;; introspection reads through `schemas/app-schema-meta-at` which
-    ;; returns the full meta map (including the stamped coords) for the
-    ;; `(frame-id, path)` entry.
+    ;; Per rf2-0frdi / rf2-cq1ak the schemas artefact owns its own per-
+    ;; frame side-table — app-db schemas are NOT a registrar kind.
+    ;; Source-coords introspection reads through `schemas/app-schema-
+    ;; meta-at` which returns the full meta map (including the stamped
+    ;; coords) for the `(frame-id, path)` entry.
     (rf/reg-app-schema [:rf2-k84s/reg-app-schema-sample] :int)
     (assert-coords (schemas/app-schema-meta-at [:rf2-k84s/reg-app-schema-sample])
-                   :app-schema [:rf2-k84s/reg-app-schema-sample])))
+                   "app-schema" [:rf2-k84s/reg-app-schema-sample])))
 
 (deftest source-coords-on-reg-error-projector
   (testing "reg-error-projector stamps :ns / :line / :file"

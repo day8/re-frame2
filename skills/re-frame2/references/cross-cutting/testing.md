@@ -32,7 +32,7 @@ JVM tests pass the plain-atom adapter:
 (use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 ```
 
-Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (e.g. `[:app-schema]` to start each test with an empty schema slate while preserving the snapshot on exit).
+Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (a collection of registrar kinds to clear after the snapshot capture), `:clear-app-schemas?` (boolean — when true, clears the schemas artefact's per-frame side-table to start each test with an empty schema slate while preserving the snapshot on exit; per rf2-cq1ak app-db schemas are NOT a registrar kind so they have their own opt).
 
 Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framework registrations cannot be reloaded and will be gone for the rest of the run.
 

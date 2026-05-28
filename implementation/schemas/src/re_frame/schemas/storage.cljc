@@ -4,11 +4,12 @@
   Per Spec 010 §Per-frame schemas. The registry shape is
     {frame-id {path schema-meta}}
   mirroring `re-frame.flows`'s frame-scoping (rf2-lvwr). The per-frame
-  atom is the **single source of truth** for `app-db` schemas — there is
-  no registrar `:app-schema` slot (resolved rf2-0frdi). Source-coords /
-  hot-reload / pair-tool introspection reads through `app-schema-meta-at`,
-  which returns the per-frame metadata map (including the registration's
-  `:ns` / `:line` / `:file` source-coords).
+  atom is the **single source of truth** for `app-db` schemas — app-db
+  schemas are NOT a registrar kind (resolved rf2-0frdi, finalised
+  rf2-cq1ak). Source-coords / hot-reload / pair-tool introspection
+  reads through `app-schema-meta-at`, which returns the per-frame
+  metadata map (including the registration's `:ns` / `:line` / `:file`
+  source-coords).
 
   Owns:
     - `schemas-by-frame` atom (the authoritative store).
@@ -342,11 +343,12 @@
   default is (frame/current-frame) — usually :rf/default unless the
   caller is inside a (with-frame ...) wrapper or a frame-provider.
 
-  Per rf2-0frdi the schemas artefact owns its own per-frame side-table
-  (`schemas-by-frame`) — there is no registrar `:app-schema` slot. The
-  authoritative store is keyed by `(frame-id, path)` so that registrations
-  against frame A and frame B against the same path are independent
-  entries. Pair-tools and source-coord tests read via `app-schema-meta-at`."
+  Per rf2-0frdi / rf2-cq1ak the schemas artefact owns its own per-frame
+  side-table (`schemas-by-frame`) — app-db schemas are NOT a registrar
+  kind. The authoritative store is keyed by `(frame-id, path)` so that
+  registrations against frame A and frame B against the same path are
+  independent entries. Pair-tools and source-coord tests read via
+  `app-schema-meta-at`."
   ([path schema] (reg-app-schema path schema {}))
   ([path schema opts]
    (let [frame-id     (resolve-frame opts)
@@ -487,10 +489,9 @@
   `:frame`. Used by pair-tools, 10x panels, and source-coord tests that
   need to introspect where a schema was registered.
 
-  Per rf2-0frdi this is the canonical replacement for the legacy
-  `(rf/handler-meta :app-schema path)` query — the registrar `:app-schema`
-  slot is no longer populated; the per-frame side-table is the single
-  source of truth.
+  Per rf2-0frdi / rf2-cq1ak this is the canonical read surface for
+  app-db schema metadata — app-db schemas are NOT a registrar kind;
+  the per-frame side-table is the single source of truth.
 
   Arities:
     (app-schema-meta-at path)         ;; current frame (or :rf/default)
@@ -571,7 +572,8 @@
 
 (defn clear-schemas-by-frame!
   "Reset the per-frame schema registry to `{}`. Used by test fixtures
-  and by `make-reset-runtime-fixture`'s `:clear-kinds [:app-schema]` path."
+  and by `make-reset-runtime-fixture`'s `:clear-app-schemas? true`
+  path (rf2-cq1ak)."
   []
   (reset! schemas-by-frame {}))
 

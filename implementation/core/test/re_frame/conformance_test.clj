@@ -1046,13 +1046,14 @@
           ;; re-fire :on-create per Spec 002. We destroy first so :on-create
           ;; fires when re-registered with the fixture's config.
           _            (rf/destroy-frame! :rf/default)
-          ;; app-schema registrations — fixture's :fixture/registry :app-schema
-          ;; is a {path schema} map. Per Spec 010 validation runs after each
-          ;; :db commit. Must be registered AFTER destroy-frame! (which wipes
-          ;; the per-frame schema side-table via the rf2-wkxng /
+          ;; app-schema registrations — fixture's :fixture/registry :app-schemas
+          ;; is a {path schema} map (per rf2-cq1ak the key is :app-schemas;
+          ;; app-db schemas are NOT a registrar kind). Per Spec 010 validation
+          ;; runs after each :db commit. Must be registered AFTER destroy-frame!
+          ;; (which wipes the per-frame schema side-table via the rf2-wkxng /
           ;; rf2-6m0se on-frame-destroyed! hook) and BEFORE reg-frame so
           ;; the fixture's :on-create event runs with schemas in place.
-          _            (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
+          _            (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
                          (rf/reg-app-schema path schema))
           _            (cond
                          (seq frames-spec)

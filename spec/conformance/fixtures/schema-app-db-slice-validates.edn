@@ -19,7 +19,7 @@
 {:fixture/id           :schemas/app-db-slice-validates
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/error :schemas/runtime}
- :fixture/doc          "An :app-schema-at registered at [:user] validates the slice after every :db commit. A well-typed value passes silently; a malformed value emits :rf.error/schema-validation-failure with :where :app-db."
+ :fixture/doc          "An app-schema registered at [:user] validates the slice after every :db commit. A well-typed value passes silently; a malformed value emits :rf.error/schema-validation-failure with :where :app-db."
  :fixture/dynamic-host-only? true
 
  :fixture/registry
@@ -27,7 +27,10 @@
           :user/set-good {:doc "Sets :user to a well-typed map (passes)."}
           :user/set-bad  {:doc "Sets :user to a value violating the schema."}}
   :sub   {:user {:doc "Current user slice."}}
-  :app-schema
+  ;; Per rf2-cq1ak app-db schemas are NOT a registrar kind; the
+  ;; `:app-schemas` fixture key carries `path → schema` for the
+  ;; runner's `reg-app-schema` realisation step.
+  :app-schemas
   {[:user] [:map [:id :int] [:email :string]]}}
 
  :fixture/handlers

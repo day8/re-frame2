@@ -95,7 +95,6 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 | `:view` | Registered views | `reg-view` |
 | `:frame` | Registered frames | `reg-frame` (also `make-frame`) |
 | `:route` | Routes | `reg-route` (Spec 012) |
-| `:app-schema` | App-db schemas registered at paths — RESERVED kind; the registrar slot is intentionally empty (the schemas artefact owns its own per-frame side-table). Tools introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at` rather than `handlers :app-schema`. | `reg-app-schema` (Spec 010) |
 | `:head` | Registered SSR head/meta functions (per [011 §Head/meta contract](011-SSR.md#headmeta-contract)) | `reg-head` (Spec 011) |
 | `:error-projector` | Registered SSR error projectors (internal trace event → public-error shape, per [011 §Server error projection](011-SSR.md#server-error-projection)) | `reg-error-projector` (Spec 011) |
 | `:flow` | Registered flows (computed-state declarations materialised into `app-db`, per [013 §The registration shape](013-Flows.md#the-registration-shape)) | `reg-flow` (Spec 013) |
@@ -103,6 +102,8 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 `:event` is a single kind even though three registration functions feed it (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`). The arity-distinguishing internal sub-kind is on the metadata as `:event/kind ∈ {:db :fx :ctx}` — `(rf/registrations :event)` returns every event handler regardless of which `reg-event-*` registered it; tools that need the sub-kind read it from metadata.
 
 > Machine guards and actions are **NOT** a registry kind — they are **machine-scoped**, declared in each machine's `:guards` / `:actions` maps inside the `make-machine-handler` spec. See [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler).
+
+> **App-db schemas are NOT a registry kind** (rf2-cq1ak). `reg-app-schema` writes to the schemas artefact's per-frame side-table (`schemas-by-frame`), not the registrar. Tools introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at` rather than `handler-meta` queries. See [010-Schemas §Per-frame schemas](010-Schemas.md#per-frame-schemas).
 
 > **Downstream tools needing kind-shaped registration own their own side-tables.** The framework registrar's `kinds` set stays closed; tools like Story (`tools/story/`) maintain their own internal registries (e.g. `tools.story.registry/*`) and expose query surfaces via bridge fns. The closed-kinds discipline keeps the framework boundary stable; per-tool side-tables stay scoped to the tool that owns them.
 
@@ -230,7 +231,6 @@ The kinds are listed in the order they appear in [§Registry model — the canon
 | `:cofx` | Replace the cofx handler fn | Cofx already injected into an interceptor chain are bound to the old fn for that event; subsequent events see the new fn | None | `:rf.registry/handler-replaced` |
 | `:view` | Replace the view fn | Currently-rendering views finish against the old fn; the substrate's next render cycle picks up the new fn | None | `:rf.registry/handler-replaced` |
 | `:frame` | Surgical update of the frame's metadata; live `app-db`, sub-cache, queue all preserved | Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update) | None disposed | `:rf.registry/handler-replaced` (frame metadata semantics owned by 002) |
-| `:app-schema` | Replace the schema attached at the path | In-flight validation finishes against the old schema; next event-handler completion validates against the new schema | None | `:rf.registry/handler-replaced` |
 | `:route` | Replace the route handler fn / pattern | Currently-handling navigation finishes against the old route handler; next navigation resolves the new one | None | `:rf.registry/handler-replaced` |
 | `:head` | Replace the head-model contributor | Currently-rendering SSR responses finish against the old fn (request-scoped frame); CSR re-renders pick up the new fn | None | `:rf.registry/handler-replaced` |
 | `:error-projector` | Replace the error projector fn | Errors mid-projection finish against the old fn; subsequent errors resolve the new fn | None | `:rf.registry/handler-replaced` |
@@ -288,7 +288,7 @@ A pointer-only summary of the registration functions and the per-Spec docs that 
 | Cofx | `reg-cofx` | [002-Frames.md](002-Frames.md) |
 | View | `reg-view` (defn-shape macro) / `reg-view*` (plain fn) | [004-Views.md](004-Views.md) |
 | Frame | `reg-frame` | [002-Frames.md](002-Frames.md) |
-| App-db schema | `reg-app-schema` | [010-Schemas.md](010-Schemas.md) |
+| App-db schema (not a registrar kind — schemas live in the schemas artefact's per-frame side-table, rf2-cq1ak) | `reg-app-schema` | [010-Schemas.md](010-Schemas.md) |
 | Route | `reg-route` | [012-Routing.md](012-Routing.md) |
 | Head model | `reg-head` | [011-SSR.md](011-SSR.md) |
 | Error projector | `reg-error-projector` | [011-SSR.md](011-SSR.md) |
@@ -310,7 +310,7 @@ Normative obligations:
 1. **Emission gate.** The warning is emitted on every `reg-*` call whose final metadata-map (after macro merge of source coords) carries no `:doc` key, or where `:doc` is `nil` or an empty string. The emission goes through the trace surface defined in [009-Instrumentation §The trace event model](009-Instrumentation.md#the-trace-event-model) and carries `:op-type :warning`.
 2. **Suppression.** The warning fires at most once per `(kind, id)` pair within a given runtime process. Re-registering the same id (hot-reload save→re-eval) does not re-fire the warning; a different id under the same kind does. The suppression cache lives alongside the existing one-shot warning caches (`:rf.warning/plain-fn-under-non-default-frame-once`); destruction-recreation of the frame resets it as the others do.
 3. **Production elision.** Per [009 §Production builds: zero overhead, zero code](009-Instrumentation.md#production-builds-zero-overhead-zero-code), the dev-only trace surface is gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`). The closure compiler eliminates the gated branch in `:advanced` production builds. Production binaries carry no `:rf.warning/missing-doc` machinery.
-4. **Kind coverage.** Every kind in the §Registry model table (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:app-schema`, `:head`, `:error-projector`, `:flow`) is in scope. Programmatic re-registrations through internal helpers (`re-frame.core/-reg-event-db` and siblings) that bypass the public macro path are out of scope — the warning fires from the macro layer, where the registration metadata is first composed.
+4. **Kind coverage.** Every kind in the §Registry model table (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:head`, `:error-projector`, `:flow`) is in scope, plus `reg-app-schema` (which writes to the schemas artefact's per-frame side-table, not the registrar — rf2-cq1ak). Programmatic re-registrations through internal helpers (`re-frame.core/-reg-event-db` and siblings) that bypass the public macro path are out of scope — the warning fires from the macro layer, where the registration metadata is first composed.
 5. **Trace envelope.** The trace event carries `:operation :rf.warning/missing-doc`, `:tags {:kind <kind> :id <id> :source-coords <captured-coords>}`. Per [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) the emission site is the macro-expanded `reg-*` body in `registrar.cljc`. The recovery classification is `:ignored` — the registration completes normally; the warning is a diagnostic surface, not a gate.
 
 The dev nudge is deliberate: documented handlers are the difference between a registry an agent can navigate and a registry it cannot. Making the warning one-shot per `(kind, id)` keeps the dev stream readable while ensuring the omission is visible in 10x, re-frame-pair, and any other consumer of the trace bus.
