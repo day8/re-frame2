@@ -847,15 +847,46 @@
    :user-select "none"})
 
 ;; -- SUBSCRIPTIONS filter button bar --------------------------------------
+;;
+;; rf2-x8aqd (2026-05-29) — these literals were previously hoisted as
+;; `mode-toggle-{bar,button-active,button-inactive}-style` and aliased
+;; via `(def subs-filter-… mode-toggle-…)`. rf2-vv3m6 retired the
+;; mode-toggle (FULL+DIFF is the single HANDLER rendering) which deleted
+;; the upstream defs and left the aliases dangling (3 unresolved-symbol
+;; kondo warnings). The SUBSCRIPTIONS [all][changed][unchanged] filter
+;; bar is a separate live feature, so we inline the original literals
+;; here as the sole owner.
 
 (def ^:private subs-filter-bar-style
-  mode-toggle-bar-style)
+  {:display       "inline-flex"
+   :align-items   "center"
+   :gap           0
+   :border        border-subtle-1px
+   :border-radius "3px"
+   :overflow      "hidden"
+   :margin-left   "8px"
+   :line-height   1})
+
+(def ^:private subs-filter-button-base-style
+  {:border         "none"
+   :padding        "2px 8px"
+   :font-family    sans-stack
+   :font-size      "10px"
+   :font-weight    700
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"
+   :cursor         "pointer"
+   :line-height    1})
 
 (def ^:private subs-filter-button-active-style
-  mode-toggle-button-active-style)
+  (assoc subs-filter-button-base-style
+         :background accent-colour
+         :color      white-colour))
 
 (def ^:private subs-filter-button-inactive-style
-  mode-toggle-button-inactive-style)
+  (assoc subs-filter-button-base-style
+         :background "transparent"
+         :color      text-secondary-colour))
 
 (def ^:private subs-verb-style
   {:display     "inline-flex"
