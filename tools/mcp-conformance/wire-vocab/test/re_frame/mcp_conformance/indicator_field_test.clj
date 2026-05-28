@@ -73,9 +73,6 @@
 ;; the omit-when-zero rule turns 0 into "key absent").
 ;; ---------------------------------------------------------------------------
 
-(def ^:private dropped-sensitive-key :dropped-sensitive)
-(def ^:private elided-large-key      :elided-large)
-
 (def ^:private DroppedSensitive
   "Envelope shape with the `:dropped-sensitive` slot present and
   positive."

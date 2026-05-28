@@ -735,7 +735,7 @@ async function main() {
         throw err;
       }
     }
-    log('RE-FRAME2-PAIR-MCPLIVE HERMETIC CONFORMANCE GREEN (' +
+    log('RE-FRAME2-PAIR-MCP LIVE HERMETIC CONFORMANCE GREEN (' +
       INNER_TESTS.length + ' inner tests)');
   } finally {
     cleanup();
@@ -768,7 +768,7 @@ main()
   .then(() => {
     clearTimeout(watchdog);
     console.log(
-      `RE-FRAME2-PAIR-MCPlive hermetic conformance passed (${INNER_TESTS.length} inner tests).`,
+      `RE-FRAME2-PAIR-MCP live hermetic conformance passed (${INNER_TESTS.length} inner tests).`,
     );
     process.exit(0);
   })
