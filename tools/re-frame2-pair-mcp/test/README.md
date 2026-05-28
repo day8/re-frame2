@@ -174,7 +174,7 @@ Is the regression visible in CLJS source?
 
 Sibling artefacts under `implementation/<feature>/` are pure CLJS /
 JVM; their test layers are all `clojure -M:test`, all in one host
-language. Pair2-mcp is the exception — it compiles to Node and runs
+language. re-frame2-pair-mcp is the exception — it compiles to Node and runs
 under `node out/server.js`. The compiled JS is the production
 artefact, but the source of truth is `.cljs`. So the test layer
 straddles both worlds: CLJS for everything verifiable from source,

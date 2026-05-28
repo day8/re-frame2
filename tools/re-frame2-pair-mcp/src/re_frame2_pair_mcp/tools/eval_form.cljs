@@ -128,7 +128,7 @@
   (when-not (symbol? n)
     (throw (ex-info ":rf.error/pair-mcp-rt-let-binding-bad-shape"
                     {:rf.error/id :rf.error/pair-mcp-rt-let-binding-bad-shape
-                     :where    'pair-mcp/rt-let
+                     :where    're-frame2-pair-mcp/rt-let
                      :recovery :no-recovery
                      :reason   "rt-let binding name must be a symbol"
                      :name     n
