@@ -354,9 +354,9 @@
 
   - **Unmaterialised parent.** When a flow with `:path [:step-2 :result]`
     is cleared BEFORE its first drain, the parent slot `:step-2` may not
-    exist. The naïve `(update-in cur [:step-2] dissoc :result)` returns
+    exist. The naïve `(update-in db [:step-2] dissoc :result)` returns
     `(dissoc nil :result)` ⇒ `nil`, producing `{:step-2 nil}` — a
-    spurious nil parent. Detect this case and leave `cur` unchanged.
+    spurious nil parent. Detect this case and leave `db` unchanged.
   - **Non-map intermediate.** When an intermediate path step holds a
     non-map value (a scalar already wrote past the flow's planned path),
     the naïve `update-in` calls `(dissoc 1 :result)` and throws
@@ -365,22 +365,22 @@
 
   Single-element paths and non-vector paths are handled by the caller's
   earlier branches; this helper is only called for `(>= (count path) 2)`."
-  [cur path]
+  [db path]
   (let [parent-path (vec (butlast path))
         leaf        (last path)
-        parent      (get-in cur parent-path ::missing)]
+        parent      (get-in db parent-path ::missing)]
     (cond
-      ;; Parent was never materialised — leave cur as-is. Per audit
+      ;; Parent was never materialised — leave db as-is. Per audit
       ;; rf2-q25os Repro 1: registering a nested-path flow then clearing
       ;; before any drain would write `{<parent> nil}` otherwise.
-      (or (= ::missing parent) (nil? parent)) cur
+      (or (= ::missing parent) (nil? parent)) db
       ;; Parent is non-map (scalar / vector / set) — there's no
       ;; meaningful "dissoc this leaf" on a non-map intermediate. Per
       ;; audit rf2-q25os Repro 2: throwing ClassCastException for a
       ;; cleanup operation is poor manners; leave the value untouched
       ;; (it's not OUR flow's output anyway).
-      (not (map? parent)) cur
-      :else (update-in cur parent-path dissoc leaf))))
+      (not (map? parent)) db
+      :else (update-in db parent-path dissoc leaf))))
 
 (defn clear-flow
   "Deregister a flow from a frame; dissoc its output path from that
@@ -406,7 +406,7 @@
      (when-let [flow (get-in @flows [frame-id id])]
        (let [path (:path flow)]
          (when-let [container (frame/get-frame-db frame-id)]
-           (let [cur    (adapter/read-container container)
+           (let [db     (adapter/read-container container)
                  ;; `validate-flow` guarantees `:path` is a non-empty
                  ;; vector at registration (rejects non-vector and empty
                  ;; via :rf.error/flow-bad-path), so a flow read back out
@@ -414,7 +414,7 @@
                  ;; empty-path arms are reachable here.
                  ;;
                  ;; rf2-aqt7: when :path is a single-element vector [:k],
-                 ;; (butlast [:k]) is () and (update-in cur [] dissoc :k)
+                 ;; (butlast [:k]) is () and (update-in db [] dissoc :k)
                  ;; does NOT dissoc — Clojure's update-in on the empty
                  ;; path falls into (assoc {} nil (apply f val args)),
                  ;; producing {... nil nil}. Special-case length 1 so
@@ -425,18 +425,18 @@
                  ;; intermediate cases without writing nil parents or
                  ;; throwing (per audit rf2-q25os).
                  new-db (if (= 1 (count path))
-                          (dissoc cur (first path))
-                          (dissoc-in-safe cur path))]
+                          (dissoc db (first path))
+                          (dissoc-in-safe db path))]
              ;; Per rf2-2vpac: skip `replace-container!` when the dissoc
              ;; branch was a no-op (empty-path, missing key, or
-             ;; `dissoc-in-safe` returning `cur` literally on
+             ;; `dissoc-in-safe` returning `db` literally on
              ;; unmaterialised-parent / non-map-intermediate). Otherwise
              ;; we trigger reactive sub-cache invalidation for a no-op
              ;; write — cheap-but-needless walk of the sub graph
              ;; (`identical?` is O(1); the prior unconditional write
              ;; forced an O(n) sub-graph walk for every clear of an
              ;; absent slot, common during teardown).
-             (when-not (identical? new-db cur)
+             (when-not (identical? new-db db)
                (adapter/replace-container! container new-db))))
          (swap! flows update frame-id dissoc id)
          ;; `last-inputs` is shaped {flow-id {frame-id inputs}} — clear
