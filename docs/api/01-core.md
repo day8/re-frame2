@@ -501,7 +501,7 @@ The family has two sub-shapes that look alike on first read but answer different
 
 **Stamping pair** (`dispatch` / `dispatch*` and `dispatch-sync` / `dispatch-sync*`). The pair-shape question is "do you want call-site stamping or not?" The macro captures source coords for `:rf.trace/call-site`; the `*` fn-form skips the stamping for HoF composition. Both route through the same dispatcher.
 
-**Named-target sugar** (`dispatch-to-system`, per [04 — Machines](04-machines.md)). The question is "do you have a `:system-id` instead of a target machine-id?" `dispatch-to-system` resolves through the per-frame `[:rf/system-ids]` reverse index and then calls `dispatch`. It's *not* a different kind of dispatch — it's named-addressing sugar on top of the same dispatcher.
+**Named-target sugar** (`dispatch-to-system`, per [04 — Machines](04-machines.md)). The question is "do you have a `:system-id` instead of a target machine-id?" `dispatch-to-system` resolves through the per-frame `[:rf/runtime :machines :system-ids]` reverse index and then calls `dispatch`. It's *not* a different kind of dispatch — it's named-addressing sugar on top of the same dispatcher.
 
 The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, so the same trace stamping fires (at the `dispatch-to-system` invocation, since that's the macro you wrote).
 

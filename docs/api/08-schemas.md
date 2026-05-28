@@ -178,7 +178,7 @@ This is the framework primitive that walks tree-shaped values at the wire bounda
   ```clojure
   (elide-wire-value v opts) → v or an elision-marker substitution
   ```
-- **Description**: Walk `v` consulting `[:rf/elision :declarations]` and `[:rf/elision :sensitive-declarations]` of the named frame's `app-db`. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. `opts` map: `{:rf.size/include-large? :rf.size/include-sensitive? :rf.size/include-digests? :rf.size/threshold-bytes :path :frame}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure :elision ...)` then `16384`.
+- **Description**: Walk `v` consulting `[:rf/runtime :elision :declarations]` and `[:rf/runtime :elision :sensitive-declarations]` of the named frame's `app-db`. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. `opts` map: `{:rf.size/include-large? :rf.size/include-sensitive? :rf.size/include-digests? :rf.size/threshold-bytes :path :frame}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure :elision ...)` then `16384`.
 
 #### `elision-declarations`
 
@@ -188,7 +188,7 @@ This is the framework primitive that walks tree-shaped values at the wire bounda
   (elision-declarations)
   (elision-declarations frame-id)
   ```
-- **Description**: "What paths has the frame nominated for elision?" Returns the current `[:rf/elision :declarations]` map for the frame (or `{}`). Pair-tool and introspection reader.
+- **Description**: "What paths has the frame nominated for elision?" Returns the current `[:rf/runtime :elision :declarations]` map for the frame (or `{}`). Pair-tool and introspection reader.
 
 #### `populate-elision-from-schemas!`
 
@@ -206,7 +206,7 @@ When both predicates match (`:sensitive?` AND `:large?` apply to the same path),
 
 ### Schema-only declaration path
 
-The `[:rf/elision]` registry has exactly two slots: `:declarations` (schema-derived `:large?` paths, populated by `populate-elision-from-schemas!`) and `:sensitive-declarations` (schema-derived `:sensitive?` paths). **There is no runtime declaration API** — apps declare `:large?` / `:sensitive?` on the Malli schema and `rf/reg-app-schema` it; the boot-time hydrator does the rest.
+The `[:rf/runtime :elision]` registry has exactly two slots: `:declarations` (schema-derived `:large?` paths, populated by `populate-elision-from-schemas!`) and `:sensitive-declarations` (schema-derived `:sensitive?` paths). **There is no runtime declaration API** — apps declare `:large?` / `:sensitive?` on the Malli schema and `rf/reg-app-schema` it; the boot-time hydrator does the rest.
 
 The single normative reference for "schemas are the only path" lives in [Guide ch.25 — Large blobs](../guide/23-privacy-and-large-things.md).
 

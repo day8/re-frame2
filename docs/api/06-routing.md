@@ -1,6 +1,6 @@
 # 06 — Routing
 
-Routes in re-frame2 are *data*. You register a route with metadata — `:path`, `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave` — and the runtime turns URL changes into events the same way every other input source does. There's no parallel router state; current route lives in `app-db` under `:rf/route`; navigation is just dispatching an event; in-flight navigation is just an event sequence the cascade is mid-way through.
+Routes in re-frame2 are *data*. You register a route with metadata — `:path`, `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave` — and the runtime turns URL changes into events the same way every other input source does. There's no parallel router state; current route lives in `app-db` under `[:rf/runtime :routing :current]`; navigation is just dispatching an event; in-flight navigation is just an event sequence the cascade is mid-way through.
 
 The point isn't novelty — every SPA framework has a router. The point is that **routing-as-state** means the router is debuggable with the same tools that debug everything else. Time-travel works. The trace bus sees navigation. Tests dispatch `:rf.route/navigate` like any other event. There's no special "router debug mode" because the router doesn't have its own mode.
 

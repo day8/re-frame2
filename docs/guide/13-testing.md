@@ -178,9 +178,9 @@ Machines ([chapter 12](12-machines.md)) are the densest logic in most apps — "
 
 ```clojure
 (let [handler (rf/make-machine-handler login-flow)
-      result  (handler {:db {:rf/machines {:auth.login/flow {:state :idle :data {}}}}}
+      result  (handler {:db {:rf/runtime {:machines {:snapshots {:auth.login/flow {:state :idle :data {}}}}}}}
                        [:auth.login/flow [:auth.login/submit {...}]])]
-  (is (= :submitting (get-in result [:db :rf/machines :auth.login/flow :state]))))
+  (is (= :submitting (get-in result [:db :rf/runtime :machines :snapshots :auth.login/flow :state]))))
 ```
 
 **Depth 3 — registered in a test frame.** The full integration: register the machine, dispatch through the frame, assert against its `app-db`. This proves the machine wires into a real dispatch loop:
@@ -190,7 +190,7 @@ Machines ([chapter 12](12-machines.md)) are the densest logic in most apps — "
   (rf/reg-machine :auth.login/flow login-flow)
   (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {...}]])
   (is (= :submitting (get-in (rf/get-frame-db f)
-                              [:rf/machines :auth.login/flow :state]))))
+                              [:rf/runtime :machines :snapshots :auth.login/flow :state]))))
 ```
 
 The three depths exist so that *failure tells you where the bug is*. A red Depth-1 test means the transition logic is wrong. A green Depth-1 but red Depth-2 means the logic's fine and the effect-lifting boundary is broken. A green Depth-2 but red Depth-3 means the boundary's fine and the wiring into the frame is wrong. Most days you write Depth-1 tests and nothing else; the other two are there for when "it works in isolation but not in the app" needs disambiguating fast.
