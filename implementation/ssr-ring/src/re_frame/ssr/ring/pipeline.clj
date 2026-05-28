@@ -91,8 +91,8 @@
 
 (defn setup-request-frame!
   "Register a per-request frame and populate the request slot. Returns
-  `{:frame-id fid}` on success, or `{:short-circuit ring-response}` when
-  setup fails (the caller short-circuits to that response, skipping
+  `{:frame-id frame-id}` on success, or `{:short-circuit ring-response}`
+  when setup fails (the caller short-circuits to that response, skipping
   render).
 
   The slot is populated BEFORE `reg-frame` so the synchronous
@@ -122,10 +122,10 @@
   ;; AND spec-compliant. `clojure.core/keyword` does not validate, so
   ;; the read-side enforcement is the only signal — this naming is
   ;; load-bearing.
-  (let [fid (keyword "rf.frame" (str (gensym "f")))]
-    (ssr/set-request! fid request)
+  (let [frame-id (keyword "rf.frame" (str (gensym "f")))]
+    (ssr/set-request! frame-id request)
     (try
-      (rf/reg-frame fid
+      (rf/reg-frame frame-id
         (cond-> {:doc       "ssr-ring per-request frame"
                  :platform  :server
                  ;; Audit rf2-cegm7 A2 / rf2-j54ee: pass :on-create
@@ -135,10 +135,10 @@
                  :on-create (lifecycle/validate-on-create! on-create)}
           fx-overrides (assoc :fx-overrides fx-overrides)
           ssr          (assoc :ssr           ssr)))
-      {:frame-id fid}
+      {:frame-id frame-id}
       (catch Throwable t
-        (ssr/clear-request! fid)
-        (lifecycle/destroy-frame-quietly! fid)
+        (ssr/clear-request! frame-id)
+        (lifecycle/destroy-frame-quietly! frame-id)
         {:short-circuit (on-error request t)}))))
 
 (defn ^:private render-error-body
