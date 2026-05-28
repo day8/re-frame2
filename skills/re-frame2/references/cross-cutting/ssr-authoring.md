@@ -107,7 +107,7 @@ The runtime ships this handler by default. **Re-register only if you need a non-
            schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
 ```
 
-Matches `examples/reagent/ssr/core.cljc` and the reference body in [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event). If you override to add client-only transient state, **preserve `[:rf/hydration :server-hash]`** — `verify-hydration!` reads it after first render to drive `:rf.ssr/hydration-mismatch` detection.
+Matches `examples/reagent/ssr/core.cljc` and the reference body in [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event). If you override to add client-only transient state, **preserve `[:rf/runtime :ssr :hydration :server-hash]`** — `verify-hydration!` reads it after first render to drive `:rf.ssr/hydration-mismatch` detection.
 
 ## The trace events you'll see
 

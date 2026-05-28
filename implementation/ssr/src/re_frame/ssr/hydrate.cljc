@@ -4,8 +4,8 @@
 
   The server's payload carries `:rf/render-hash`; the handler replaces
   app-db with `:rf/app-db` AND stashes the server hash under
-  `[:rf/hydration :server-hash]` so `verify-hydration!` can read it
-  after the client's first render.
+  `[:rf/runtime :ssr :hydration :server-hash]` so `verify-hydration!`
+  can read it after the client's first render.
 
   Also defines the two `:rf.ssr/check-*` compatibility-check fxs the
   hydrate handler dispatches (rf2-69ad2) — best-effort version +
@@ -41,15 +41,15 @@
 (defn hydrate-event-handler
   "Handler fn for the `:rf/hydrate` event. Replaces app-db with
   `(:rf/app-db payload)`, stashes server-hash + version under
-  `:rf/hydration`, and dispatches the two `:rf.ssr/check-*` fxs when
-  the resolved platform is `:client` (per rf2-7bcn0 — server-side
-  `:rf/hydrate` skips them to avoid `:rf.fx/skipped-on-platform`
-  noise)."
+  `[:rf/runtime :ssr :hydration]`, and dispatches the two
+  `:rf.ssr/check-*` fxs when the resolved platform is `:client` (per
+  rf2-7bcn0 — server-side `:rf/hydrate` skips them to avoid
+  `:rf.fx/skipped-on-platform` noise)."
   [{:keys [db frame]} [_ payload]]
   (let [new-db        (or (:rf/app-db payload) (:app-db payload) db)
         version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
-        ;; Declarative `:rf/hydration` metadata construction — additive,
+        ;; Declarative hydration-metadata construction — additive,
         ;; nil-pruned. New keys land here as kv pairs without re-ordering
         ;; the previous `cond->` clauses.
         metadata      (into {}
@@ -70,8 +70,13 @@
     ;; payload-key presence — the scalar form passed here is the
     ;; server's value (the "expected"); the fx looks up the client-side
     ;; "actual" via late-bind. Per rf2-69ad2.
+    ;;
+    ;; Per rf2-f4j8x: hydration metadata lives under
+    ;; `[:rf/runtime :ssr :hydration]` (the single-reserved-root
+    ;; contract per Conventions.md §Reserved app-db keys); it is NOT a
+    ;; second root.
     {:db (cond-> new-db
-           (seq metadata) (assoc :rf/hydration metadata))
+           (seq metadata) (assoc-in [:rf/runtime :ssr :hydration] metadata))
      :fx (cond-> []
            (and client? version)
            (conj [:rf.ssr/check-version       version])
@@ -245,9 +250,10 @@
     (verify-hydration! frame-id render-tree opts)
 
   opts may carry :first-diff-path, :failing-id, AND :server-hash.
-  The :server-hash opt overrides the [:rf/hydration :server-hash]
-  slot in app-db — useful when the user's :rf/hydrate handler doesn't
-  populate that slot (e.g. fixture-overridden handlers).
+  The :server-hash opt overrides the
+  [:rf/runtime :ssr :hydration :server-hash] slot in app-db — useful
+  when the user's :rf/hydrate handler doesn't populate that slot
+  (e.g. fixture-overridden handlers).
 
   Two per-frame `:ssr` config knobs govern detection + recovery
   (Spec 011 §Mismatch recovery and configuration):
@@ -264,7 +270,7 @@
    (when (detect-mismatch? frame-id)
      (let [db          (frame/frame-app-db-value frame-id)
            server-hash (or server-hash
-                           (get-in db [:rf/hydration :server-hash]))
+                           (get-in db [:rf/runtime :ssr :hydration :server-hash]))
            client-hash (cond
                          (string? tree-or-hash) tree-or-hash
                          tree-or-hash           (hash/render-tree-hash tree-or-hash))]
