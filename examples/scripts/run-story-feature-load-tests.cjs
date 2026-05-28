@@ -18,6 +18,38 @@ const BASE_URL = process.env.STORY_FEATURE_LOAD_BASE_URL || 'http://127.0.0.1:80
 const TIMEOUT_MS = parseInt(process.env.STORY_FEATURE_LOAD_TIMEOUT_MS || '300000', 10);
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 
+/*
+ * Known-noise console-error filter (rf2-mw1c0).
+ *
+ * The Reagent source-coord annotator (rf2-fa4ly,
+ * implementation/core/src/re_frame/views/source_coord_annotation.cljs)
+ * injects `:_jsxFileName` / `:_jsxLineNumber` / `:_jsxColumnNumber`
+ * props into hiccup so React DevTools' "View source" button can resolve
+ * a clicked node back to its reg-view call site. These props are gated
+ * on `interop/debug-enabled?` so the production bundle elides them
+ * entirely (verified by `test:elision`). In dev builds Reagent passes
+ * the props through to React, which warns "React does not recognize
+ * the `_jsx*` prop on a DOM element" because the props ride as DOM
+ * attributes rather than React-element `__source` metadata. The
+ * warning is benign — the feature is dev-only by design and the noise
+ * doesn't represent a real defect — but its presence trips this gate's
+ * console-error noise floor. Filter exactly this signature; everything
+ * else still surfaces.
+ *
+ * Follow-on (rf2-rohdn filed 2026-05-28): redesign the JSX-dev-prop
+ * channel so DevTools' "View source" actually sees them (likely via
+ * `:>` interop with React.createElement's source arg) or remove the
+ * injection entirely (the data-rf2-source-coord attribute already
+ * gives pair tools what they need). Once the leak is gone this
+ * filter can be removed.
+ */
+const KNOWN_NOISE_CONSOLE_ERROR_RE =
+  /React does not recognize the .* prop on a DOM element[\s\S]*?_jsx(FileName|LineNumber|ColumnNumber)/;
+
+function isKnownNoiseConsoleError(text) {
+  return KNOWN_NOISE_CONSOLE_ERROR_RE.test(text);
+}
+
 const ALL_SPEC_FILES = [
   path.join(REPO_ROOT, 'tools', 'story', 'test', 'story_feature_load.cjs'),
   path.join(REPO_ROOT, 'tools', 'story', 'test', 'story_browser_scenarios.cjs'),
@@ -83,7 +115,7 @@ function formatStoryContext(ctx) {
 
     page.on('console', (msg) => {
       const text = `[browser:${msg.type()}] ${msg.text()}`;
-      if (msg.type() === 'error') {
+      if (msg.type() === 'error' && !isKnownNoiseConsoleError(text)) {
         consoleErrors.push(text);
       }
       log(text);

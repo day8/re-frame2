@@ -1,5 +1,22 @@
 name: tests
 
+# Cancel older in-flight runs of THIS workflow on the same PR when a
+# force-push / rebase lands a new HEAD. Without this, PR #2291's
+# "92 checks vs the usual 48" pattern recurs: the worker rebases onto
+# main mid-review, fires a fresh workflow_run on the new SHA, the old
+# SHA's run stays in-flight (or completes), and the PR rollup view
+# counts both. Up to 2× runner cost on a heavy PR (rf2-d4t7g).
+#
+# Keying: for PRs, group on `pr-<num>` so every push to the same PR
+# branch reuses the slot. For pushes to main, group on the run-id so
+# each main-tip commit gets its own independent run (we don't want
+# successive main pushes to cancel each other — they have distinct
+# coverage value). On a manual workflow_dispatch the group is per-ref
+# so two manual dispatches to the same branch coalesce.
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 on:
   push:
     branches: [main]

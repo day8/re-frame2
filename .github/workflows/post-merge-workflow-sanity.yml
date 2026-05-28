@@ -1,0 +1,146 @@
+# Post-merge workflow-edit sanity dispatcher (rf2-b7sjp).
+#
+# # Why this exists
+#
+# Workflow YAML files are scripts — typos or stale references stay
+# silent until the workflow next fires. For cron-only workflows
+# (`expensive-tests.yml` runs at 15:17 UTC daily) that's up to 24h of
+# silent breakage. The rf2-mw1c0 incident burnt 5+ consecutive nights:
+# the Causa→Xray rename (PR #2067) mechanically renamed
+# `npm run test:causa` to `npm run test:xray` at expensive-tests.yml
+# line 191, but the underlying npm script had already been deleted a
+# week earlier — and nobody noticed for 5 nights because nightly is the
+# only thing that runs it.
+#
+# # What it does
+#
+# On every push to `main` that touches `.github/workflows/*.yml`,
+# determine which workflow files changed and `workflow_dispatch` each
+# one against `main` (excluding this canary itself + release tag
+# workflows). The next cron tick is no longer the first verification
+# of a workflow edit — the merge commit itself triggers it within
+# minutes.
+#
+# # What it does NOT do
+#
+# - It does not block the merge. The merge already happened on `main`.
+#   This workflow is a fast-feedback canary, not a gate. The mayor +
+#   the dispatched worker still owe their own pre-merge verification;
+#   this catches the silent-cron-only class of failure that the
+#   pre-merge check cannot surface.
+# - It does not run release workflows. `release.yml`,
+#   `release-xray.yml`, and `template-release.yml` are tag-triggered
+#   and would publish artefacts if dispatched against a non-release
+#   ref. Skipped via the EXCLUDE list below.
+# - It does not run `test.yml` or `docs.yml` re-dispatched against
+#   the merge commit — both already run on the same push event
+#   (assuming their `paths` filters allow it). Re-dispatching would
+#   duplicate work; instead we ONLY dispatch workflows that don't
+#   already fire on push to main (= the cron-only / dispatch-only
+#   ones — currently just `expensive-tests.yml`).
+#
+# # The EXCLUDE list
+#
+# Add a workflow path here when:
+#   - it is tag-triggered and dispatching it would publish (release*).
+#   - it already runs on push to main (test, docs, lint already do).
+#   - it is THIS file (would infinite-loop).
+#
+# Add NOTHING ELSE. Cron-only / dispatch-only workflows are exactly
+# what this canary exists to catch.
+
+name: post-merge workflow sanity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/*.yml'
+  workflow_dispatch:
+
+# A workflow-edit push may land alongside a follow-up push; keep the
+# latest one (which has the latest workflow content) and cancel any
+# in-progress dispatch loop from an older SHA.
+concurrency:
+  group: post-merge-workflow-sanity-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: write     # to call `gh workflow run`
+  contents: read     # to read changed files
+
+jobs:
+  dispatch-affected-workflows:
+    name: Dispatch affected workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 2  # need parent commit for the diff
+
+      - name: Identify changed workflow files
+        id: changed
+        run: |
+          set -euo pipefail
+          # Diff this push against its parent. github.event.before is the
+          # SHA before the push; for the first push to a fresh branch it
+          # may be all-zeros — fall back to HEAD^.
+          before="${{ github.event.before }}"
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            before="HEAD^"
+          fi
+          # List changed .github/workflows/*.yml files (basenames).
+          changed=$(git diff --name-only "$before" HEAD -- '.github/workflows/*.yml' \
+            | xargs -n1 -I{} basename {} || true)
+          if [ -z "$changed" ]; then
+            echo "No workflow files changed in this push."
+            echo "files=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Newline-separate for the next step.
+          echo "Changed workflow files:"
+          echo "$changed"
+          # Emit as a space-separated single-line value (simpler downstream).
+          changed_oneline=$(echo "$changed" | tr '\n' ' ')
+          echo "files=${changed_oneline}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch each affected workflow (excluding release + self + push-triggered)
+        if: steps.changed.outputs.files != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # EXCLUDE list — see header comment for the policy.
+          EXCLUDE=(
+            "post-merge-workflow-sanity.yml"  # self
+            "release.yml"                     # tag-triggered → publishes
+            "release-xray.yml"                # tag-triggered → publishes
+            "template-release.yml"            # tag-triggered → publishes
+            "test.yml"                        # already runs on push
+            "docs.yml"                        # already runs on push (paths-filtered)
+            "lint.yml"                        # already runs on push (via PR-merge push)
+          )
+          is_excluded() {
+            local f="$1"
+            for ex in "${EXCLUDE[@]}"; do
+              if [ "$f" = "$ex" ]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+          for f in ${{ steps.changed.outputs.files }}; do
+            if is_excluded "$f"; then
+              echo "skip (excluded): $f"
+              continue
+            fi
+            # Only dispatch if the workflow declares workflow_dispatch.
+            if ! grep -q '^\s*workflow_dispatch:' ".github/workflows/$f"; then
+              echo "skip (no workflow_dispatch trigger): $f"
+              continue
+            fi
+            echo "dispatching: $f"
+            gh workflow run "$f" --ref "${{ github.sha }}" || {
+              echo "WARN: gh workflow run failed for $f (non-fatal)"
+            }
+          done

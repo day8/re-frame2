@@ -188,6 +188,38 @@ If you skipped `mkdocs build --strict` locally because mkdocs isn't on
 PATH (common on Windows), call it out in the PR body so the mayor knows
 to watch CI.
 
+## PR-body Quality gates section — mandatory
+
+Every editing dispatch's PR body MUST include a `## Quality gates`
+section listing the gates that were run with concrete pass/fail
+counts. The convention is de facto across the project (every real-source
+PR in the rf2-uspbd audit window had one); this codifies it.
+
+**Shape:** one short paragraph identifying which spine ran, then a
+bulleted list of named gates with test counts in the form
+`X tests, Y assertions, NF/ME`. Example:
+
+```markdown
+## Quality gates
+
+`bash scripts/test-fast-pr.sh` — all green.
+
+- `npm run test:cljs` — 312 tests, 1187 assertions, 0 failures, 0 errors
+- `npm run test:browser` (skipped — no view-layer changes)
+- `mkdocs build --strict` — passed (docs touched)
+- Touched workflow `.github/workflows/expensive-tests.yml` — manual
+  `gh workflow run` after merge (see rf2-b7sjp convention).
+```
+
+If a gate is skipped, say which gate and why in one line — "no
+view-layer changes" / "docs-only diff" / "windows: mkdocs not on PATH,
+relying on CI". Skipped gates with no reason fail the audit.
+
+The Quality gates section sits near the top of the PR body, after
+the bead-id + one-sentence summary; ahead of design / followups / etc.
+This is the section the mayor scans first to decide whether to
+fast-track the merge.
+
 ## Worktree path convention
 
 Worker worktrees live under `<WORKTREE_ROOT>`. Not inside the mayor checkout
@@ -204,7 +236,9 @@ worktree at `<WORKTREE_ROOT>/<descriptive>-<BEAD_ID>` with branch
 `worker/<descriptive>-<BEAD_ID>`; include worktree-boundary block; `bd
 update <BEAD_ID> --claim` + `--status=in_progress`; quality gates with exact
 commands; push + `gh pr create` titled `<scope>(<artefact>): <summary>
-(<BEAD_ID>)`; return PR URL + per-step summary + test deltas, under <N> words.
+(<BEAD_ID>)` — PR body MUST include a `## Quality gates` section
+(see "PR-body Quality gates section" above); return PR URL + per-step
+summary + test deltas, under <N> words.
 
 ## Shape 2 — Cluster (multiple beads, single PR, sequenced commits)
 
@@ -216,10 +250,12 @@ fix** (so a failing P1 fix doesn't strand the small cleanups); commit format
 its commit (so bd state mirrors history one-to-one and a stalled cluster
 leaves a clean partial trail); quality gates after EACH commit + full
 regression after ALL; PR titled `<scope>(<artefact>): <cluster name> (N beads
-incl. <P1 highlights>)`; return PR URL + per-bead one-liner + cross-bead
-unifications spotted. Disjoint-surface "small-misc" clusters are valid at
-the tail of a drain — the binding rule is hot-zone parallelism, not strict
-same-surface.
+incl. <P1 highlights>)` — PR body MUST include a `## Quality gates`
+section listing the spine plus any per-bead extra gates (see "PR-body
+Quality gates section" above); return PR URL + per-bead one-liner +
+cross-bead unifications spotted. Disjoint-surface "small-misc" clusters
+are valid at the tail of a drain — the binding rule is hot-zone
+parallelism, not strict same-surface.
 
 ## Shape 3 — Audit (read-only research)
 
@@ -261,9 +297,12 @@ branch (not a new one); boundary block; investigation steps; pick the
 fix (A) surgical / (B) medium / (C) skip + file follow-on bead
 (appropriate when stance allows a safe-out and the fix proves deeper
 than the bead's scope); verify locally; **push to the existing PR branch,
-not main**; return under 300 words with root cause + fix chosen +
-verification. Diagnosis often surfaces deeper insight than the failure
-log shows — test the hypothesis before applying the fix.
+not main**; update the existing PR body's `## Quality gates` section
+with the re-run gate results (or add the section if the original
+lacked one — see "PR-body Quality gates section" above); return under
+300 words with root cause + fix chosen + verification. Diagnosis often
+surfaces deeper insight than the failure log shows — test the
+hypothesis before applying the fix.
 
 ---
 
