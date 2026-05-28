@@ -186,21 +186,18 @@
         ;; activated?} in that order for any cross-route transition.
         (routing-events/emit-activation-traces!
           (get-in db [:rf/runtime :routing :current :id]) route-id)
-        ;; Merge slice fields over the existing :current map at
-        ;; [:rf/runtime :routing :current]. The sibling routing-runtime
-        ;; keys ([:rf/runtime :routing :scroll-positions /
-        ;; :scroll-positions-order / :nav-token-counter /
-        ;; :pending-nav-counter]) are siblings (not nested under
-        ;; :current), so the targeted `update-in` here leaves them
-        ;; untouched.
-        {:db (update-in db' [:rf/runtime :routing :current] merge
-                        {:id         route-id
-                         :params     params
-                         :query      query
-                         :fragment   fragment
-                         :transition transition
-                         :error      nil
-                         :nav-token  token})
+        ;; rf2-g8tzb: shared slice-publish helper — encodes the
+        ;; slice-shape contract once for both nav entry points.
+        ;; Targets `:current`, so sibling routing-runtime keys
+        ;; (`:scroll-positions` / `:scroll-positions-order` /
+        ;; `:nav-token-counter` / `:pending-nav-counter`) are untouched.
+        {:db (routing-events/merge-route-slice
+               db' {:id         route-id
+                    :params     params
+                    :query      query
+                    :fragment   fragment
+                    :transition transition
+                    :nav-token  token})
          :fx (vec (concat (when capture-fx [capture-fx])
                           (mapv (fn [ev] [:dispatch ev]) on-match-vec)
                           ;; Per Spec 012 §Per-route data loading §2:
