@@ -1,14 +1,16 @@
 (ns day8.re-frame2-xray.panels.event.icons
-  "Inline SVG glyphs used by the Event lens — small lucide-style icons
-  per the Figma authority (`tools/xray/design-reference/xray_devtools_reference.cljs`).
+  "Inline SVG glyphs — small lucide-style icons per the Figma authority
+  (`tools/xray/design-reference/xray_devtools_reference.cljs`). Surviving
+  utility re-exported from `panels.epoch.icons` (the Epoch panel
+  superseded the original Event panel under rf2-5gl5r; the glyph set
+  travelled with the rename).
 
-  These exist as a shared, single-source-of-truth helper so every
-  click-to-source affordance in the Event lens renders the SAME glyph at
-  the SAME size with the SAME stroke + fill convention. Pre-rf2-xw7mj
-  the Event lens rendered the unicode `↗` arrow as the trailing
-  affordance; per the Figma authority the canonical glyph is the
-  lucide-style `external-link` SVG (open window with an outbound arrow)
-  — visually richer and more recognisably an 'open in editor' verb.
+  Shared, single-source-of-truth helper so every click-to-source
+  affordance renders the SAME glyph at the SAME size with the SAME
+  stroke + fill convention. The canonical glyph is the lucide-style
+  `external-link` SVG (open window with an outbound arrow) — visually
+  richer and more recognisably an 'open in editor' verb than the
+  unicode `↗` arrow.
 
   Pure data → hiccup (a static svg vector); no substrate dependency.
   `.cljc` so the rendered tree is JVM-portable (the event-detail panel
@@ -37,10 +39,10 @@
 
 (defn external-link
   "Render the lucide `external-link` glyph — the canonical 'open in
-  editor / open in new tab' verb on click-to-source affordances in the
-  Event lens. Inherits its colour from the enclosing link via
-  `currentColor` so the glyph reads as part of the link, not as
-  separate chrome. Always returns the same static hiccup vector — the
-  fn-form is preserved so call sites read as a component."
+  editor / open in new tab' verb on click-to-source affordances.
+  Inherits its colour from the enclosing link via `currentColor` so
+  the glyph reads as part of the link, not as separate chrome. Always
+  returns the same static hiccup vector — the fn-form is preserved so
+  call sites read as a component."
   []
   external-link-svg)

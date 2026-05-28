@@ -3,9 +3,10 @@
   are required per the bead body's §Icon Requirements:
 
   - **ExternalLink** — 13×13 lucide glyph trailing click-to-source
-    affordances. Already shipped under `panels/event/icons` for the
-    Event lens — the Epoch panel re-uses that hiccup form via a
-    re-export so both panels read the same Figma authority.
+    affordances. The hiccup form lives in `panels/event/icons` (a
+    leftover ns from the retired Event panel that is now re-exported
+    from here); the re-export keeps a single Figma-authority glyph
+    while preserving the existing import path.
   - **CornerDownRight** — 13×13 lucide-style arrow used in the
     handler step's `:db` diff / `:fx` sub-headers (per the bead body's
     §3 HANDLER row design — DB CHANGES + FX sub-blocks).
@@ -19,8 +20,8 @@
 (defn external-link
   "Re-export of `panels.event.icons/external-link` — the lucide-style
   open-in-editor glyph (13×13). Same hiccup, same currentColor stroke.
-  Both panels render the same Figma authority glyph so a Xray operator
-  reads the affordance vocabulary as one verb."
+  One Figma-authority glyph keeps the affordance vocabulary uniform
+  across surfaces."
   []
   (event-icons/external-link))
 

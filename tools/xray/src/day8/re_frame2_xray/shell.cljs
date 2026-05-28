@@ -202,7 +202,7 @@
   rf2-cmtkw — one-line minimal rows. The full event vector (args +
   payload) and all dropped fields (datetime, sequence number, duration
   tier, source coordinates) move to the row's hover tooltip + the
-  Event tab detail (which has plenty of room).
+  Epoch panel detail (which has plenty of room).
 
   - `event-id` is the first element of the event vector.
   - Renders in the mode `accent` colour so it pops out of the row.
@@ -224,7 +224,7 @@
   minimal one-line row surfaces only `event-id + ⚠/🌐/🤖`; the
   dropped fields (full event vector, sequence number, frame, source
   coordinates, handler duration) appear in this tooltip + in the
-  Event tab detail panel on row click.
+  Epoch panel detail on row click.
 
   Pure data — JVM-runnable. nil-safe per cascade slot. Returns a
   newline-joined string suitable for an HTML `:title` attribute.
@@ -627,7 +627,7 @@
   `:time`), returns an absolute-time tooltip string for the chip's
   `:title` attribute. Used as the power-user reveal that complements
   the `HH:MM:SS.mmm` clock column — clicking the row still opens the
-  Event lens, but a hover shows the full ISO walltime + epoch-ms.
+  Epoch panel, but a hover shows the full ISO walltime + epoch-ms.
 
   Returns the empty string when `then-ms` is nil so the caller can
   decide whether to attach the tooltip."
@@ -1315,7 +1315,7 @@
       :event-id   source   timestamp   duration
 
   - **`:event-id`** — the bare event-id keyword (not the full event
-    vector). Args / payload move to the tooltip + Event tab detail.
+    vector). Args / payload move to the tooltip + Epoch panel detail.
   - **`source`** — the dispatch-origin tag (`ui` / `fx` / `timer` / …).
   - **`timestamp`** — the absolute wall-clock `HH:MM:SS.mmm`.
   - **`duration`** — the handler wall-time (`1.2 ms`).
@@ -1330,7 +1330,7 @@
   The row's `:title` attribute carries the dropped fields (full event
   vector with args, sequence number, frame, source coord, handler
   duration) so a hover surfaces them without leaving L2. Clicking the
-  row opens the Event tab in L4 with the full untruncated content.
+  row opens the Epoch panel in L4 with the full untruncated content.
 
   Right-click (`on-context-menu`) lowers per spec/018 §7 'Right-click
   event-row → context menu' into `:rf.xray/open-row-context-menu`
@@ -1452,7 +1452,7 @@
                   ;; rf2-cmtkw — dropped fields (full event vector with
                   ;; args, sequence number, frame, source coord, handler
                   ;; duration) surface in this hover tooltip + the L4
-                  ;; Event tab on click.
+                  ;; Epoch panel on click.
                   :title (row-tooltip-text cascade)
                   :style {:display       "flex"
                           :align-items   "center"
@@ -1490,7 +1490,7 @@
      ;; focus feature. The bare event-id keyword leads the row as the
      ;; primary read; the source tag follows as secondary context. The
      ;; full event vector with args moves to the row's hover tooltip + the
-     ;; L4 Event tab detail. The event-id column is LEFT-aligned (Figma
+     ;; L4 Epoch panel detail. The event-id column is LEFT-aligned (Figma
      ;; `text-left`) so the keyword sits flush under the header's
      ;; `event id` label.
      [:span {:data-testid "rf-xray-row-event-id"

@@ -27,8 +27,8 @@
   and the timestamp is mono + RIGHT-aligned. The trailing `↗` opens
   the responsible handler at `file:line`.
 
-  Click a row → flips the visible tab to Event so the user pivots to
-  the Event panel for the cascade that produced the issue. Click the
+  Click a row → flips the visible tab to Epoch so the user pivots to
+  the Epoch panel for the cascade that produced the issue. Click the
   `↗` source affordance → the editor opens at that line (via the
   `:rf.xray/open-in-editor` event — the actual editor jump rides on
   the open-in-editor module).
@@ -184,7 +184,7 @@
   "Reference footer hint (rf2-tha26 ·
   `design-reference/xray_devtools_reference.cljs`, the `issues-panel`
   component). Spells out the row's
-  two affordances — click the row pivots to the Event panel (the
+  two affordances — click the row pivots to the Epoch panel (the
   cascade that produced the issue); click `↗` opens the responsible
   handler at `file:line`. Rendered below the feed (feed branch only) so
   it shares the focused-epoch lens with the rows it describes."
