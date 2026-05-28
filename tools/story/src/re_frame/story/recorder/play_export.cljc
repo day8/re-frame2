@@ -272,8 +272,8 @@
 ;;
 ;; The diff is a shallow path enumeration — every keyword key of the
 ;; final db that differs from the seed produces a `[:assert-db [k]
-;; v]` step. Deep diffing is deferred (rf2-recorder-deep-diff TODO);
-;; the v1 cap is the safety valve, not the diff sophistication.
+;; v]` step. Deep diffing is deferred to a later iteration; the v1
+;; cap is the safety valve, not the diff sophistication.
 ;; ---------------------------------------------------------------------------
 
 (defn- map-like?

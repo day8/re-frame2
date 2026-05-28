@@ -3,8 +3,8 @@
 
   ## Purpose
 
-  Replace the home-grown classifier that used to live at
-  `tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs:533-664`
+  Replace the home-grown classifier (since deleted from
+  `tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs`)
   (`diff-op`, `diff-op-container`, `children-changed?`, etc.). Per
   pair-debug 2026-05-27 the project locks Editscript in as the canonical
   diff engine for Xray — pre-alpha posture, no transitional double-engine

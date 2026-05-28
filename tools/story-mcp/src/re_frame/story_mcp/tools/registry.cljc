@@ -131,11 +131,16 @@
               (some? annotations)  (assoc :annotations annotations)))
           tool-registry)))
 
-(def ^:private tool-by-name-index
-  "Pre-computed `name → descriptor` map so `tool-by-name` is O(1)
-  instead of the linear scan over `tool-registry`. The registry shape
-  is frozen at load time (`tool-registry` is a `def`), so the index
-  is similarly stable."
+(defonce ^:private tool-by-name-index
+  ;; `defonce` (rf2-xa1oc) so a REPL `(require ... :reload)` of this ns
+  ;; does NOT re-bind the index out from under callers that captured
+  ;; the old map. The registry shape is frozen at load time
+  ;; (`tool-registry` is a `def`), so re-binding adds nothing —
+  ;; `defonce` is the right primitive when the value is computed once
+  ;; and lives for the lifetime of the process.
+  ;;
+  ;; Pre-computed `name → descriptor` map so `tool-by-name` is O(1)
+  ;; instead of the linear scan over `tool-registry`.
   (into {} (map (juxt :name identity)) tool-registry))
 
 (defn tool-by-name

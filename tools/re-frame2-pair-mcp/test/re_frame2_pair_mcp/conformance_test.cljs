@@ -37,7 +37,7 @@
 
   So this runner keeps its fixtures inline as CLJS data — one map per
   case — and treats THIS namespace as the canonical re-frame2-pair-mcp wire
-  corpus. A follow-on bead (`rf2-???`) may later promote the corpus to
+  corpus. The corpus may later promote to
   `tools/re-frame2-pair-mcp/spec/conformance/fixtures/*.edn` if cross-host
   reuse materialises; the in-memory shape will be the same.
 

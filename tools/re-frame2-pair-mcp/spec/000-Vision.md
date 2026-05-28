@@ -29,6 +29,85 @@ persistent nREPL socket is held for the lifetime of the session;
 the canonical re-frame2-pair ops are exposed as MCP tools — see
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) for the live count.
 
+## Architecture at a glance
+
+The artefact is 9,700 LOC across 44 source files — intrinsically large
+(live nREPL bridge + streaming + 17 tools + roots-discovery + resource
+controls). The layering is straightforward but only surfaces from
+reading multiple ns docstrings; this diagram sits at the entrance so a
+new reader (human or AI pair) is oriented in 60 seconds.
+
+```
+                          MCP client (Claude Code / Cursor / Copilot)
+                              │
+                              ▼  tools/call request (stdio, JSON-RPC)
+                       ┌─────────────────────────────────────────────┐
+                       │  server.cljs                                │
+                       │    lifecycle, port-discovery cascade,       │
+                       │    SDK transport wiring                     │
+                       └─────────────────────────────────────────────┘
+                              │
+                              ▼  invoke
+                       ┌─────────────────────────────────────────────┐
+                       │  tools.cljs — wire-boundary pipeline        │
+                       │    precheck → dispatch → apply-cache        │
+                       │             → apply-cap                     │
+                       └─────────────────────────────────────────────┘
+                              │
+                              ▼  per-tool body
+                       ┌─────────────────────────────────────────────┐
+                       │  tools/<tool>.cljs                          │
+                       │    snapshot.cljs, dispatch.cljs,            │
+                       │    eval_cljs.cljs, subscribe.cljs, …        │
+                       │    (one file per tool — 17 total)           │
+                       └─────────────────────────────────────────────┘
+                              │
+                              ▼  bencode round-trip
+                       ┌─────────────────────────────────────────────┐
+                       │  nrepl.cljs                                 │
+                       │    persistent socket, message correlation   │
+                       └─────────────────────────────────────────────┘
+                              │
+                              ▼  cljs-eval
+                       ┌─────────────────────────────────────────────┐
+                       │  shadow-cljs JVM (the user's app)           │
+                       └─────────────────────────────────────────────┘
+                              │
+                              ▼  preload runtime (re-frame2-pair.runtime)
+                       ┌─────────────────────────────────────────────┐
+                       │  app-db · sub-cache · machines · epochs ·   │
+                       │  traces                                     │
+                       └─────────────────────────────────────────────┘
+```
+
+### Concern namespaces
+
+Twelve concern namespaces sit alongside the per-tool bodies. Each owns
+one cross-cutting concern; new tools `:require` from these rather than
+reinventing the lens:
+
+| Lens                          | Owned by                          |
+|---|---|
+| Wire-bounded markers          | `tools/wire.cljs`, `tools/wire_pipeline.cljs` |
+| Boundary step protocol        | `tools/boundary_step.cljs`        |
+| Precheck (early-exit gates)   | `tools/precheck.cljs`             |
+| Cache (per-session response)  | `cache.cljs`                      |
+| Cap (token-budget pipeline)   | `tools/cap.cljs`                  |
+| Dedup (structural)            | `tools/dedup.cljs`                |
+| Elision (size-bounded leaves) | `tools/elision.cljs`              |
+| Sensitive (privacy filter)    | `tools/sensitive.cljs`            |
+| Cursor (pagination)           | `tools/cursor.cljs`               |
+| Args (coercion + parsing)     | `tools/args.cljs`                 |
+| Summary (lazy tree-summary)   | `tools/summary.cljs`              |
+| Snapshot pipeline             | `tools/snapshot_pipeline.cljs`    |
+
+The cross-MCP-shared half of these primitives lives in
+[`tools/mcp-base/`](../../mcp-base/spec/README.md) (`vocab`,
+`sensitive`, `elision`, `args`, `cursor`, `envelope`, `cap`,
+`overflow`, `diff-encode`, `section-grouping`); the
+re-frame2-pair-mcp-side wrappers above adapt the shared primitives to
+this server's wire-shape and per-tool registrations.
+
 ## What it isn't
 
 - **Not** a new re-frame2-pair contract. The op vocabulary is identical to the

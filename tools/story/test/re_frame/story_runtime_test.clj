@@ -485,7 +485,7 @@
             "editing a play's script must produce a fresh hash")))))
 
 (deftest snapshot-identity-changes-with-view-schema-digest
-  (testing "Per spec/007 §Variant snapshot identity (line 429) — the
+  (testing "Per spec/007 §Variant snapshot identity — the
             *registered* schema digest of the view (per spec/011
             §:rf/schema-digest) participates in the hash. A schema change
             on the view MUST invalidate the snapshot identity (and the

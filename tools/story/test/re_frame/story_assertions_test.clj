@@ -3,7 +3,7 @@
   vocabulary.
 
   Covers each of the seven canonical assertion semantics from
-  spec/007 line 304:
+  spec/007 §Assertion vocabulary:
 
     1. :rf.assert/path-equals    — value at path matches
     2. :rf.assert/path-matches   — value at path validates against malli

@@ -16,10 +16,9 @@
   ## What this ns owns
 
   - **`repo-root`** — absolute path to the repo root, derived from the
-    classpath URL of this file. Walks five `.getParentFile` levels
-    (one fewer than the test files used because this file lives in
-    the same directory as them, but the macro that computes it from
-    `*file*` resolves at the same classpath leaf).
+    classpath URL of this file. Walks seven `.getParentFile` levels
+    (mcp_conformance → re_frame → test → wire-vocab → mcp-conformance
+    → tools → repo-root).
   - **`read-source`** — slurp a file at a repo-relative path. Fails
     loudly via `slurp`'s IOException if the path doesn't resolve;
     that's the right signal — a moved/removed file under conformance
@@ -41,15 +40,12 @@
   (:require [clojure.java.io :as io]))
 
 ;; ---------------------------------------------------------------------------
-;; Repo-root resolution. Each conformance test ns lives at
-;; `tools/mcp-conformance/wire-vocab/test/re_frame/mcp_conformance/<name>.clj`
+;; Repo-root resolution. This file lives at
+;; `tools/mcp-conformance/wire-vocab/test/re_frame/mcp_conformance/fixtures.clj`
 ;; relative to the repo root. We resolve THIS file's classpath URL and
-;; walk five parents up to reach the repo root. The walk is one shorter
-;; than the original per-test calculation because the original code
-;; computed it from `*file*` (a relative path) and the parent chain had
-;; an extra synthetic step; `io/resource` returns the absolute classpath
-;; URL whose first parent is the `mcp_conformance/` leaf directly. Both
-;; computations resolve to the same repo root.
+;; walk seven parents up to reach the repo root (one `.getParentFile`
+;; per path segment). `io/resource` returns the absolute classpath URL
+;; whose first parent is the `mcp_conformance/` leaf directly.
 ;; ---------------------------------------------------------------------------
 
 (def repo-root

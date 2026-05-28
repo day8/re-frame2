@@ -7,17 +7,21 @@
   `:origin :pair` tagged mutations, streaming subscribe semantics,
   the wire-boundary cap + dedup + elision pipeline).
 
-  No nREPL round-trip; the text is a `def` baked into the bundle so
-  the call costs one MCP frame and zero socket bytes. Hostable agents
-  load this at session start to orient before the first real op."
+  `instructions-text` ships inline as a single string so the artefact
+  is self-contained — no resource read at boot, one MCP frame, zero
+  socket bytes. The structural peer in story-mcp
+  (`story-instructions-text` in `re-frame.story-mcp.tools.dev`) uses
+  the same inline-`(str ...)` shape, kept aligned per rf2-93cew so AI
+  pairs reading both servers see one answer to the onboarding-text
+  question."
   (:require [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def instructions-text
-  "Inline onboarding prose. Kept here (rather than read from a
-  resource) so the compiled `.js` bundle is self-contained and the
-  call is a single frame. Edit this string when the catalogue
-  changes; the docstring on `re-frame2-pair-mcp.tools/tool-descriptors`
-  is the structural peer."
+  "Inline onboarding prose. Inline `(str ...)` of `\\n`-glued lines —
+  see the ns docstring for the rationale (mirrors story-mcp per
+  rf2-93cew). Edit this string when the catalogue changes; the
+  docstring on `re-frame2-pair-mcp.tools/tool-descriptors` is the
+  structural peer."
   (str
     "re-frame2-pair-mcp agent quick reference.\n"
     "Full spec: tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md.\n"

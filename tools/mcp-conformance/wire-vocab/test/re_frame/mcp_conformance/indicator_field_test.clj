@@ -66,10 +66,11 @@
 ;; ---------------------------------------------------------------------------
 ;; Contract — the canonical envelope-slot vocabulary.
 ;;
-;; Both slots are unqualified keywords (per Conventions:157 — they ride
-;; alongside tool-shaped payloads where the tool's slot vocabulary is
-;; unqualified by convention). Values are non-negative integers (`0`
-;; never appears — the omit-when-zero rule turns 0 into "key absent").
+;; Both slots are unqualified keywords (per Conventions §Cross-MCP
+;; indicator-field vocabulary — they ride alongside tool-shaped
+;; payloads where the tool's slot vocabulary is unqualified by
+;; convention). Values are non-negative integers (`0` never appears —
+;; the omit-when-zero rule turns 0 into "key absent").
 ;; ---------------------------------------------------------------------------
 
 (def ^:private dropped-sensitive-key :dropped-sensitive)
