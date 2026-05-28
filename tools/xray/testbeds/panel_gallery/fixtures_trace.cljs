@@ -140,14 +140,14 @@
             :source :ui :origin :app :frame :rf/default :dispatch-id 100})]
       ;; Cross-origin / cross-frame second cascade.
       [(ev {:id 6 :time 1100 :op-type :rf.event :operation :rf.event/dispatched
-            :source :timer :origin :story :frame :rf/xray
+            :source :after-timer :origin :story :frame :rf/xray
             :event-id :story/tick :dispatch-id 101
             :event-vec [:story/tick]})
        (ev {:id 7 :time 1101 :op-type :rf.event :operation :rf.event/run-end
-            :source :timer :origin :story :frame :rf/xray
+            :source :after-timer :origin :story :frame :rf/xray
             :event-id :story/tick :handler-id :story/tick-h :dispatch-id 101})
        (ev {:id 8 :time 1102 :op-type :rf.fx :operation :rf.fx/handled
-            :source :timer :origin :story :frame :rf/xray
+            :source :after-timer :origin :story :frame :rf/xray
             :event-id :story/tick :dispatch-id 101 :fx-id :dispatch})]
       ;; Warning + error rows surface the severity axis chip-row.
       [(ev {:id 9 :time 1200 :op-type :warning :operation :rf.warning/large-value-unschema'd
@@ -169,7 +169,7 @@
                       :rf.fx    :rf.fx/handled
                       :rf.sub   :rf.sub/run
                       :rf.view  :rf.view/render}
-        source-pool  [:ui :timer :http :devtools]
+        source-pool  [:ui :after-timer :http :repl]
         origin-pool  [:app :pair :story :test]
         frame-pool   [:rf/default :rf/xray :tenant/alpha]
         sub-pool     [:auth/user :cart/items :ui/theme :perf/budget]
@@ -222,7 +222,7 @@
              :event-id :cart/add :event-vec [:cart/add :apple]}))
       (for [i (range 5)]
         (ev {:id (+ i 6) :time (+ 1500 i) :op-type :rf.fx :operation :rf.fx/handled
-             :source :timer :origin :app :frame :rf/default :dispatch-id (+ 100 i)
+             :source :after-timer :origin :app :frame :rf/default :dispatch-id (+ 100 i)
              :fx-id :db})))))
 
 (defn redacted-buffer

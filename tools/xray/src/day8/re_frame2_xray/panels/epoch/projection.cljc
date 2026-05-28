@@ -124,18 +124,21 @@
         {:spawned-actor-id actor-id}))))
 
 (defn- fx-dispatch-enrichment
-  "Extract `:fx-dispatch` / `:fx-dispatch-later` enrichment from the
-  dispatched trace event.
+  "Extract `:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`
+  enrichment from the dispatched trace event.
 
   Per rf2-ejtpd, the `:dispatch` / `:dispatch-later` reserved fx
   handlers stamp `:source :fx-dispatch` / `:source :fx-dispatch-later`
-  on the child envelope. The parent-dispatch-id rides on the
-  emit-dispatched trace under `:rf.trace/parent-dispatch-id` (already
+  on the child envelope. Per rf2-c3990 the same fx handlers stamp
+  `:source :machine-action` when the emitting parent is a machine
+  handler. All three carry the parent-dispatch-id on the emit-
+  dispatched trace under `:rf.trace/parent-dispatch-id` (already
   wired by router.cljc per spec/018 §Dispatch correlation).
 
-  For `:fx-dispatch-later`, the parent's scheduled `:ms` delay is
-  read off the optional `:rf.event/source-detail :ms` tag — when
-  present the view renders an inline delay chip.
+  For `:fx-dispatch-later` and the `:dispatch-later` variant of
+  `:machine-action`, the parent's scheduled `:ms` delay is read off
+  the optional `:rf.event/source-detail :ms` tag — when present the
+  view renders an inline delay chip.
 
   Returns nil when the trace event carries no parent-dispatch-id —
   isolated dispatch (root cascade) leaves the parent-epoch-link off."
@@ -150,10 +153,13 @@
 (defn- source-enrichment
   "Build the per-source-kind enrichment map for the DISPATCH row.
 
-  Closed-set source values (rf2-hxj0d + rf2-ejtpd):
+  Closed-set source values (rf2-hxj0d + rf2-ejtpd + rf2-c3990):
 
   - `:after-timer`       → `:delay-ms`, `:source-state-path`, `:machine-id`
   - `:machine-spawn`     → `:spawned-actor-id`
+  - `:machine-action`    → `:parent-dispatch-id`, optional `:delay-ms`
+                           (rf2-c3990 — actor-message path; same
+                           parent-epoch chrome as `:fx-dispatch`)
   - `:fx-dispatch`       → `:parent-dispatch-id`
   - `:fx-dispatch-later` → `:parent-dispatch-id`, optional `:delay-ms`
   - `:always`            → no enrichment fields (intra-macrostep; no
@@ -171,6 +177,7 @@
     :machine-spawn     (machine-spawn-enrichment event)
     :fx-dispatch       (fx-dispatch-enrichment ev)
     :fx-dispatch-later (fx-dispatch-enrichment ev)
+    :machine-action    (fx-dispatch-enrichment ev)
     nil))
 
 (defn dispatch-row
