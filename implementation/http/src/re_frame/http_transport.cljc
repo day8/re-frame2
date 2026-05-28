@@ -21,13 +21,14 @@
   backoff `maybe-retry!` decides between retry, immediate-final-failure,
   and successful completion based on the failing attempt's failure
   category and the request's `:retry` config."
-  (:require [clojure.string         :as str]
-            [re-frame.http-decode   :as decode]
-            [re-frame.http-encoding :as encoding]
-            [re-frame.http-privacy  :as privacy]
-            [re-frame.http-registry :as registry]
-            [re-frame.interop       :as interop]
-            [re-frame.trace         :as trace])
+  (:require [clojure.string           :as str]
+            [re-frame.http-decode     :as decode]
+            [re-frame.http-encoding   :as encoding]
+            [re-frame.http-middleware :as middleware]
+            [re-frame.http-privacy    :as privacy]
+            [re-frame.http-registry   :as registry]
+            [re-frame.interop         :as interop]
+            [re-frame.trace           :as trace])
   #?(:clj (:import [java.net URI]
                    [java.net.http HttpClient HttpClient$Redirect
                                   HttpRequest
@@ -530,15 +531,38 @@
 (declare finalise-failure!)
 
 (defn- dispatch-reply!
+  "Threads the reply-payload through the per-frame `:after` interceptor
+  chain (REVERSE registration order) BEFORE handing off to the
+  late-bind router for `:on-success` / `:on-failure` dispatch.
+
+  Per rf2-uheqq + Spec 014 §Middleware: each `:after` sees `(ctx,
+  response)` — `ctx` is the SAME middleware-ctx the `:before` chain
+  produced for this request (carried forward via the normalised ctx's
+  `:middleware-ctx` slot, populated by `managed-handler`). The
+  `:after` chain may transform the response shape; its return value is
+  what `build-reply-event` appends to the user's `:on-success` /
+  `:on-failure` event vector.
+
+  When no middleware-ctx is in scope (synthetic / test-path callers that
+  build a ctx directly without going through `managed-handler`), the
+  `:after` chain is skipped and the reply-payload passes through
+  unchanged — the chain's contract is to see the `:before`'s ctx, not a
+  synthesised one."
   [{:keys [origin-event explicit-on-success explicit-on-failure
-           kind reply-payload frame]}]
-  (let [explicit (case kind
-                   :success explicit-on-success
-                   :failure explicit-on-failure)]
+           kind reply-payload frame middleware-ctx]}]
+  (let [explicit       (case kind
+                         :success explicit-on-success
+                         :failure explicit-on-failure)
+        ;; rf2-uheqq — `:after` chain. Reverse-order threading of the
+        ;; response through registered interceptors' `:after`s. Skipped
+        ;; when no middleware-ctx is present (synthetic callers).
+        final-payload  (if middleware-ctx
+                         (middleware/run-after-chain! frame middleware-ctx reply-payload)
+                         reply-payload)]
     (encoding/dispatch-reply-via-late-bind!
       {:origin-event  origin-event
        :explicit-on   explicit
-       :reply-payload reply-payload
+       :reply-payload final-payload
        :kind          kind}
       frame)))
 

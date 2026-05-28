@@ -158,10 +158,9 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (reg-http-interceptor id before)
-  (reg-http-interceptor id opts before)
+  (reg-http-interceptor id interceptor-map)
   ```
-- **Description**: Register a request-side interceptor on a frame's `:rf.http/managed` middleware chain. `before` is `(fn [ctx] ctx')` where ctx is `{:request :args :frame :event}`. `opts` carries `:frame` (default `:rf/default`) plus the standard `:rf/registration-metadata`.
+- **Description**: Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` (request-side) and `:after (fn [ctx response] response')` (response-side), plus optional `:frame` (default `:rf/default`) and the standard `:rf/registration-metadata`. The `:before` chain runs in registration order; the `:after` chain runs in REVERSE registration order; `:after` sees the SAME ctx the `:before` chain produced (request-correlated handling).
 - **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
 
 ### `clear-http-interceptor`
@@ -176,12 +175,18 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
 
 ```clojure
 (rf/reg-http-interceptor :auth/inject
-  (fn [{:keys [request] :as ctx}]
-    (assoc-in ctx [:request :headers "Authorization"]
-              (str "Bearer " (token-from-app-db)))))
+  {:before (fn [{:keys [request] :as ctx}]
+             (assoc-in ctx [:request :headers "Authorization"]
+                       (str "Bearer " (token-from-app-db))))})
+
+;; Or with both sides — :before stamps a start mark, :after reads it.
+(rf/reg-http-interceptor :telemetry
+  {:before (fn [ctx] (assoc ctx ::started (js/Date.now)))
+   :after  (fn [ctx resp]
+             (assoc resp :elapsed-ms (- (js/Date.now) (::started ctx))))})
 ```
 
-The interceptor runs *before* the request is dispatched to the platform's HTTP client. If a `:before` throws, the request is **not** dispatched; `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url`, and `:cause`. See [014 §Middleware](../../spec/014-HTTPRequests.md#middleware).
+The `:before` runs before the request is dispatched to the platform's HTTP client; the `:after` runs after the response is built and BEFORE `:on-success` / `:on-failure` fire. If either throws, the corresponding side is not delivered (request: not dispatched; response: reply suppressed) and `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url`, `:cause`, and `:phase`. See [014 §Middleware](../../spec/014-HTTPRequests.md#middleware).
 
 ## Testing: stubbed responses
 
