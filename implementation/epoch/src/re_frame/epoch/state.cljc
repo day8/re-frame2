@@ -1,5 +1,5 @@
 (ns re-frame.epoch.state
-  "Shared state for the epoch surface — the six defonce atoms plus the
+  "Shared state for the epoch surface — the eight defonce atoms plus the
   low-level CRUD against them, and the config knob accessors. Per
   rf2-0wi86 (cohesion split): every other seam (`capture`, `assembly`,
   `write`, `listeners`) and the `re-frame.epoch` facade reach the
@@ -10,11 +10,20 @@
   The atoms in question:
 
     config                  per-frame ring-buffer config + redact-fn
+    epoch-counter           monotonically-increasing :epoch-id source
     histories               frame-id → vector<:rf/epoch-record>
+    last-settled-epoch      frame-id → epoch-id of the most-recently-
+                            settled `:ok` epoch (rf2-qs6dl back-fill
+                            anchor)
+    mount-attribution       frame-id → {render-key → {:epoch-id E
+                                                       :deps #{sub-id…}}}
+                            (rf2-vh1k3 + rf2-dq2b7 — the mount-anchor
+                            and the view's learned read-set share one
+                            entry; per Phase-1 finding they never
+                            diverge in usage)
     capture-buffers         frame-id → vector<trace-event> (in-flight)
     listeners               cb-id    → fn
     observed-frames-by-cb   cb-id    → #{frame-id ...}
-    epoch-counter           monotonically-increasing :epoch-id source
 
   Per Phase-1 finding (rf2-0wi86): no two atoms are ever held in a
   single critical section, so a tiny state ns owns all of them with
@@ -283,24 +292,34 @@
 ;; attributed to K's MOUNT epoch (its first-ever attribution) rather than
 ;; whatever cascade happens to be settling.
 
-(defonce ^:private mount-epoch-by-render-key
-  ;; frame-id → {render-key → epoch-id} : the epoch a render-key was
-  ;; FIRST attributed to (its mount epoch). Bounds: one entry per live
-  ;; render-key per frame; pruned with the frame on teardown.
-  (atom {}))
+;; Per rf2-dq2b7: the two former atoms (`mount-epoch-by-render-key` ::
+;; `{frame-id {render-key epoch-id}}` and `render-deps-by-render-key` ::
+;; `{frame-id {render-key #{sub-id…}}}`) were merged into a single
+;; `mount-attribution` atom keyed identically (frame-id × render-key)
+;; carrying both signals under one entry. The two atoms NEVER diverged
+;; in usage: both pruned in lockstep by `drop-frame-mount-attribution!`,
+;; both wiped together by `reset-mount-attribution!`. Collapsing them
+;; halves the defonce count (Phase-1 finding rf2-0wi86 §two atoms) and
+;; halves the swap! count on frame teardown without changing any
+;; observable semantic.
+;;
+;; The four accessor names (`mount-epoch-for` / `record-mount-epoch!`
+;; and `render-deps-for` / `record-render-deps!`) survive as the public
+;; surface — each is semantically distinct (one reads/writes the
+;; mount-anchor, the other the read-set) — but they project from one
+;; underlying map.
+;;
+;; Per-entry shape:
+;;
+;;   {frame-id {render-key {:epoch-id <epoch-id-or-nil>
+;;                          :deps     #{<sub-id> ...}}}}
+;;
+;; Either slot may be absent on a given (frame, render-key) entry — the
+;; mount-anchor lands on first render attribution, the read-set lands as
+;; the synchronous in-render derefs fire. Reads default to nil / empty;
+;; writes use `update-in` so a missing entry materialises on demand.
 
-;; frame-id → {render-key → #{sub-id ...}} : which subscriptions each
-;; view reads. Learned from the `:reader-render-key` stamp on `:sub/run`
-;; traces — which the runtime only sets when the reaction recomputes
-;; SYNCHRONOUSLY inside the view's render (the mount / first-paint
-;; deref). A post-settle reactive recompute fires during Reagent's
-;; reaction-flush phase with no `*render-key*` bound, so the stamp is
-;; absent there; the mount-time learning is sufficient because a view's
-;; sub set is stable across its life. The index lets the render
-;; back-fill (`value-changed-epoch-for`) decide whether a cascade
-;; actually re-rendered a view by checking value-change on the view's
-;; OWN subs, even when the post-settle sub-run carries no render-key.
-(defonce ^:private render-deps-by-render-key (atom {}))
+(defonce ^:private mount-attribution (atom {}))
 
 (defn record-render-deps!
   "Union `sub-id` into `render-key`'s read-set for `frame-id`. Called for
@@ -309,33 +328,21 @@
   view. Idempotent; the set only grows."
   [frame-id render-key sub-id]
   (when (and frame-id render-key sub-id)
-    (swap! render-deps-by-render-key
-           update-in [frame-id render-key] (fnil conj #{}) sub-id))
+    (swap! mount-attribution
+           update-in [frame-id render-key :deps] (fnil conj #{}) sub-id))
   nil)
 
 (defn render-deps-for
   "Return the set of sub-ids `render-key` is known to read in `frame-id`,
   or nil when none learned yet."
   [frame-id render-key]
-  (get-in @render-deps-by-render-key [frame-id render-key]))
-
-(defn drop-frame-render-deps!
-  "Forget every render-key's read-set for `frame-id` (frame teardown)."
-  [frame-id]
-  (swap! render-deps-by-render-key dissoc frame-id)
-  nil)
-
-(defn reset-render-deps!
-  "Wipe the render-deps map across all frames (fixture reset)."
-  []
-  (reset! render-deps-by-render-key {})
-  nil)
+  (get-in @mount-attribution [frame-id render-key :deps]))
 
 (defn mount-epoch-for
   "Return the epoch-id `render-key` was first attributed to in `frame-id`,
   or nil when never seen."
   [frame-id render-key]
-  (get-in @mount-epoch-by-render-key [frame-id render-key]))
+  (get-in @mount-attribution [frame-id render-key :epoch-id]))
 
 (defn record-mount-epoch!
   "Record `epoch-id` as `render-key`'s mount epoch for `frame-id`, but
@@ -344,23 +351,27 @@
   mount anchor)."
   [frame-id render-key epoch-id]
   (when (and frame-id render-key epoch-id)
-    (swap! mount-epoch-by-render-key
+    (swap! mount-attribution
            (fn [m]
-             (if (get-in m [frame-id render-key])
+             (if (get-in m [frame-id render-key :epoch-id])
                m
-               (assoc-in m [frame-id render-key] epoch-id)))))
+               (assoc-in m [frame-id render-key :epoch-id] epoch-id)))))
   nil)
 
-(defn drop-frame-mount-epochs!
-  "Forget every render-key's mount epoch for `frame-id` (frame teardown)."
+(defn drop-frame-mount-attribution!
+  "Forget every render-key's mount-anchor + read-set for `frame-id`
+  (frame teardown). Replaces the four-wiper pair
+  `drop-frame-mount-epochs!` + `drop-frame-render-deps!` (rf2-dq2b7)."
   [frame-id]
-  (swap! mount-epoch-by-render-key dissoc frame-id)
+  (swap! mount-attribution dissoc frame-id)
   nil)
 
-(defn reset-mount-epochs!
-  "Wipe the mount-epoch map across all frames (fixture reset)."
+(defn reset-mount-attribution!
+  "Wipe the mount-attribution map across all frames (fixture reset).
+  Replaces the two-reset pair `reset-mount-epochs!` +
+  `reset-render-deps!` (rf2-dq2b7)."
   []
-  (reset! mount-epoch-by-render-key {})
+  (reset! mount-attribution {})
   nil)
 
 (defn- epoch-value-changed-for-view?
@@ -659,14 +670,14 @@
 
 (defn reset-histories!
   "Wipe every frame's recorded epochs. Also clears the last-settled-epoch
-  map (rf2-qs6dl) and the mount-epoch map (rf2-vh1k3) so a fixture's
-  first cascade can't back-fill a render into a previous fixture's
-  record nor inherit a stale render-key→mount-epoch anchor."
+  map (rf2-qs6dl) and the mount-attribution map (rf2-vh1k3, rf2-dq2b7)
+  so a fixture's first cascade can't back-fill a render into a previous
+  fixture's record nor inherit a stale render-key → {mount-epoch +
+  read-set} anchor."
   []
   (reset! histories {})
   (reset-last-settled-epochs!)
-  (reset-mount-epochs!)
-  (reset-render-deps!)
+  (reset-mount-attribution!)
   nil)
 
 ;; ---- listener registry ----------------------------------------------------
