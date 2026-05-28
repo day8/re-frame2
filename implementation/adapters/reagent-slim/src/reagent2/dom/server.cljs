@@ -328,18 +328,18 @@
   React-element path uses) — both artefacts ship in the same bundle,
   so deduplicating avoids drift on the keyword/coll/string handling."
   [parsed user-attrs]
-  (let [id      (.-id parsed)
-        s-class (.-className parsed)
-        u-class-raw (or (:class user-attrs) (:className user-attrs))
-        merged  (template/class-names s-class u-class-raw)
-        base    (cond-> (or user-attrs {})
-                  ;; Drop :className duplicate; we collapse into :class.
-                  (contains? user-attrs :className) (dissoc :className))
-        with-id (if (and id (not (:id base)))
-                  (assoc base :id id)
-                  base)]
+  (let [id              (.-id parsed)
+        shorthand-class (.-className parsed)
+        user-class      (or (:class user-attrs) (:className user-attrs))
+        merged-class    (template/class-names shorthand-class user-class)
+        base            (cond-> (or user-attrs {})
+                          ;; Drop :className duplicate; we collapse into :class.
+                          (contains? user-attrs :className) (dissoc :className))
+        with-id         (if (and id (not (:id base)))
+                          (assoc base :id id)
+                          base)]
     (cond-> with-id
-      merged (assoc :class merged))))
+      merged-class (assoc :class merged-class))))
 
 ;; ---------------------------------------------------------------------------
 ;; Element emission

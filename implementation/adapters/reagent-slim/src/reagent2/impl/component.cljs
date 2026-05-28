@@ -457,17 +457,17 @@
       (copy-argv-from-props! this (.-props this))
       (binding [*current-component* this]
         (batching/mark-rendered this)
-        (let [^js rea (.-cljsRenderRea this)
-              hiccup (if (nil? rea)
-                       (let [^js r (ratom/make-reaction
-                                     #(wrap-render this render-fn)
-                                     :auto-run
-                                     (fn [_r]
-                                       (batching/queue-render! this)))]
-                         (set! (.-cljsRenderRea this) r)
-                         @r)
+        (let [^js cached-rea (.-cljsRenderRea this)
+              hiccup (if (nil? cached-rea)
+                       (let [^js new-rea (ratom/make-reaction
+                                           #(wrap-render this render-fn)
+                                           :auto-run
+                                           (fn [_changed-rea]
+                                             (batching/queue-render! this)))]
+                         (set! (.-cljsRenderRea this) new-rea)
+                         @new-rea)
                        ;; ._run re-captures deps AND produces fresh hiccup.
-                       (._run rea false))]
+                       (._run cached-rea false))]
           (->react-element hiccup))))))
 
 (defn create-class*

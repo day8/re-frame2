@@ -260,7 +260,7 @@
                     " call (name v) at the call site;"
                     " otherwise the keyword is preserved (rf2-6hyy §7.2 D2)."))))))
 
-(defn- ^boolean named?* [x]
+(defn- ^boolean named? [x]
   (or (keyword? x) (symbol? x)))
 
 (defn- ^boolean js-val? [x]
@@ -321,7 +321,7 @@
    ;; CSS prop name, not an HTML attr.
    (cond
      (js-val? v)  v
-     (named?* v)  (name v)         ; nested map values: stringify (CSS values)
+     (named? v)  (name v)         ; nested map values: stringify (CSS values)
      (map? v)     (reduce-kv kv-conv #js {} v)
      (coll? v)    (clj->js v)
      (fn? v)      v                ; pass through — preserves identity
@@ -330,7 +330,7 @@
   ([k v]
    (cond
      (js-val? v)  v
-     (named?* v)  (if (html-attr-name? k)
+     (named? v)  (if (html-attr-name? k)
                     (name v)
                     (do
                       (when ^boolean js/goog.DEBUG
@@ -367,11 +367,11 @@
    (if (coll? class)
      (let [classes (keep (fn [c]
                            (when c
-                             (if (named?* c) (name c) c)))
+                             (if (named? c) (name c) c)))
                          class)]
        (when (seq classes)
          (str/join " " classes)))
-     (if (named?* class)
+     (if (named? class)
        (name class)
        class)))
   ([a b]
@@ -721,7 +721,7 @@
     (js-val? x)     x
     (vector? x)     (vec-to-elem x)
     (seq? x)        (expand-seq x)
-    (named?* x)     (name x)
+    (named? x)     (name x)
     (satisfies? IPrintWithWriter x) (pr-str x)
     :else           x))
 

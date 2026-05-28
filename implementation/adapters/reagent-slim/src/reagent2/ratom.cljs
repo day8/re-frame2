@@ -135,8 +135,8 @@
           (f k this old new))
         (recur (+ 2 i))))))
 
-(defn- pr-atom [a writer opts s v]
-  (-write writer (str "#object[reagent2.ratom." s " "))
+(defn- pr-atom [a writer opts type-tag body]
+  (-write writer (str "#object[reagent2.ratom." type-tag " "))
   ;; `pr-writer` is marked private in cljs.core but is the documented
   ;; entrypoint for nested `IPrintWithWriter` dispatch (every reagent2
   ;; ratom's `-pr-writer` delegates to it for the value's recursive
@@ -144,7 +144,7 @@
   ;; API contract — silence kondo's private-call check at the one
   ;; call site rather than blanket-excluding the linter.
   #_:clj-kondo/ignore
-  (pr-writer (binding [*ratom-context* nil] v) writer opts)
+  (pr-writer (binding [*ratom-context* nil] body) writer opts)
   (-write writer "]"))
 
 ;; ---------------------------------------------------------------------------
