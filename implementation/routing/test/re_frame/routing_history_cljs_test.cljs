@@ -487,7 +487,7 @@
 ;; Per Spec 012 §Fragments and routing.cljc's `:rf.route/transitioned`
 ;; handler — when only the URL fragment changes (the route-id,
 ;; :params, and :query are unchanged) the runtime updates
-;; :rf/route :fragment and emits :rf.route/fragment-changed (rf2-cj9fn,
+;; [:rf/runtime :routing :current :fragment] and emits :rf.route/fragment-changed (rf2-cj9fn,
 ;; pre-rename: `:rf.route/fragment-changed`) instead of re-firing :on-match.
 ;; That's the framework's hashchange surface.
 
@@ -497,7 +497,7 @@
     ;; Forward nav lands on /articles/intro.
     (rf/dispatch-sync [:rf/url-requested {:url "/articles/intro"}])
     (let [pre-nav-token (-> (rf/get-frame-db :rf/default)
-                            :rf/route :nav-token)]
+                            :rf/runtime :routing :current :nav-token)]
 
       ;; Capture both :rf.route/fragment-changed AND
       ;; :rf.route.nav-token/allocated emissions during the fragment-only
@@ -529,7 +529,7 @@
 
         (let [route (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current])]
           (is (= "section-2" (:fragment route))
-              ":rf/route :fragment is updated to the new fragment")
+              "[:rf/runtime :routing :current :fragment] is updated to the new fragment")
           (is (= :hist/article (:id route))
               "route-id is unchanged across the fragment-only nav")
           (is (= pre-nav-token (:nav-token route))
