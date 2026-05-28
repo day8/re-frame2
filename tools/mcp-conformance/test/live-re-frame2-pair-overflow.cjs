@@ -72,6 +72,16 @@
 // (same as the sibling harness). Exits 0 on success or SKIP. Exits 1
 // on any conformance violation.
 
+// ## DRY-on-3 trigger (rf2-1bwph)
+//
+// This file and its sibling `live-re-frame2-pair-subscribe.cjs` share
+// LIVE-specific fixture setup (nREPL gating via $SHADOW_CLJS_NREPL_PORT,
+// SDK Client construction against the spawned server, watchdog ceremony).
+// The shared `_runner.cjs` already covers the common SDK-spawn ceremony.
+// We deliberately do NOT factor the LIVE-specific setup at 2 files —
+// factoring at 2 is premature; the right shape only emerges at 3. When a
+// 3rd `live-*` script lands, lift the shared bits per rf2-1bwph.
+
 const path = require('node:path');
 const os = require('node:os');
 const { parseEDNString } = require('edn-data');
