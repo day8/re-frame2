@@ -173,9 +173,9 @@
       ;; uses the read-set to tell a view's genuine re-render from a
       ;; mount-burst tail. Fires regardless of the routing branch below.
       (when frame-id
-        (when-let [reader-rk (:rf.sub/reader-render-key tags)]
+        (when-let [reader-render-key (:rf.sub/reader-render-key tags)]
           (when (= :rf.sub/run op)
-            (state/record-render-deps! frame-id reader-rk (:rf.sub/id tags)))))
+            (state/record-render-deps! frame-id reader-render-key (:rf.sub/id tags)))))
       (when (and frame-id (not (contains? skip-ops op)))
         (cond
           ;; Post-settle render — attribute to the causing cascade.
@@ -365,15 +365,15 @@
   `:rf/redacted` sentinel — they ride elide-wire-value at the emit site."
   [event]
   (when (= :rf.sub/run (:operation event))
-    (let [t (:tags event)]
-      {:sub-id         (:rf.sub/id t)
-       :query-v        (:rf.sub/query-v t)
+    (let [tags (:tags event)]
+      {:sub-id         (:rf.sub/id tags)
+       :query-v        (:rf.sub/query-v tags)
        :recomputed?    true
-       :value-changed? (:rf.sub/value-changed? t)
-       :prev-value     (:rf.sub/prev-value t)
-       :value          (:rf.sub/value t)
-       :cascade?       (:rf.sub/cascade? t)
-       :cause-sub      (:rf.sub/cause-sub t)})))
+       :value-changed? (:rf.sub/value-changed? tags)
+       :prev-value     (:rf.sub/prev-value tags)
+       :value          (:rf.sub/value tags)
+       :cascade?       (:rf.sub/cascade? tags)
+       :cause-sub      (:rf.sub/cause-sub tags)})))
 
 (defn render-row
   "Project a `:rf.view/rendered` trace event into its structured
@@ -408,15 +408,15 @@
   re-renders, matching the open-map schema."
   [event]
   (when (= :rf.view/rendered (:operation event))
-    (let [t (:tags event)]
-      (cond-> {:render-key (or (:rf.view/render-key t)
+    (let [tags (:tags event)]
+      (cond-> {:render-key (or (:rf.view/render-key tags)
                                [:rf.view/anonymous nil])}
-        (contains? t :rf.view/mount?)
-        (assoc :mount? (:rf.view/mount? t))
-        (some? (:rf.view/triggered-by t))
-        (assoc :triggered-by (:rf.view/triggered-by t))
-        (some? (:rf.view/elapsed-ms t))
-        (assoc :elapsed-ms (:rf.view/elapsed-ms t))))))
+        (contains? tags :rf.view/mount?)
+        (assoc :mount? (:rf.view/mount? tags))
+        (some? (:rf.view/triggered-by tags))
+        (assoc :triggered-by (:rf.view/triggered-by tags))
+        (some? (:rf.view/elapsed-ms tags))
+        (assoc :elapsed-ms (:rf.view/elapsed-ms tags))))))
 
 (defn project-all
   "Walk the captured trace events ONCE and emit the three `:sub-runs`,
@@ -467,8 +467,8 @@
   ;; `:renders` / `:effects` shape is materialised once at the end.
   (let [acc (reduce
               (fn [acc ev]
-                (let [op (:operation ev)
-                      t  (:tags ev)]
+                (let [op   (:operation ev)
+                      tags (:tags ev)]
                   (cond
                     ;; Per rf2-l1jz8 — the reactive recompute path enriches
                     ;; the `:sub/run` tag with value-change + cascade
@@ -487,30 +487,30 @@
                     (= :rf.fx/handled op)
                     (assoc! acc :e
                             (conj! (get acc :e)
-                                   {:fx-id   (:rf.fx/id t)
-                                    :args    (:rf.fx/args t)
+                                   {:fx-id   (:rf.fx/id tags)
+                                    :args    (:rf.fx/args tags)
                                     :outcome :ok}))
 
                     (= :rf.fx/skipped-on-platform op)
                     (assoc! acc :e
                             (conj! (get acc :e)
-                                   {:fx-id   (:rf.fx/id t)
-                                    :args    (:rf.fx/args t)
+                                   {:fx-id   (:rf.fx/id tags)
+                                    :args    (:rf.fx/args tags)
                                     :outcome :skipped-on-platform}))
 
                     (= :rf.error/fx-handler-exception op)
                     (assoc! acc :e
                             (conj! (get acc :e)
-                                   {:fx-id       (:rf.fx/id t)
-                                    :args        (:rf.fx/args t)
+                                   {:fx-id       (:rf.fx/id tags)
+                                    :args        (:rf.fx/args tags)
                                     :outcome     :error
                                     :error-trace (:id ev)}))
 
                     (= :rf.error/no-such-fx op)
                     (assoc! acc :e
                             (conj! (get acc :e)
-                                   {:fx-id       (:rf.fx/id t)
-                                    :args        (:rf.fx/args t)
+                                   {:fx-id       (:rf.fx/id tags)
+                                    :args        (:rf.fx/args tags)
                                     :outcome     :error
                                     :error-trace (:id ev)}))
 
