@@ -35,9 +35,12 @@
   fully-assembled record after it lands in the ring buffer.
 
   Restore (`restore-epoch`) rewinds a frame's app-db to the named
-  epoch's `:db-after`. Six documented failure modes (Tool-Pair table)
-  each emit a structured trace under `:rf.epoch/*` and leave the
-  frame's app-db unchanged."
+  epoch's `:db-after`. Seven documented failure modes (Tool-Pair
+  §Time-travel restore-failure-modes table) each emit a structured
+  trace and leave the frame's app-db unchanged — six under the
+  reserved `:rf.epoch/*` namespace, plus the registry-lookup
+  `:rf.error/no-such-handler` (kind `:frame`) for an unknown
+  frame-id."
   (:require [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as listeners]
