@@ -1838,6 +1838,16 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.mcp_live == 'true'
     runs-on: ubuntu-latest
+    # rf2-e6enf — hard wall-clock cap on the WHOLE job. A healthy run is
+    # < 2 min (Playwright install ~20s, hermetic boot+conformance ~45s).
+    # Without this the job inherits GitHub's 360-min default, so when the
+    # `--with-deps` Playwright install wedges on the runner's apt/dpkg
+    # lock (the observed failure mode — see the step-level comment below)
+    # the gate sits "hung" for 15-75+ min until a human cancels, blocking
+    # the merge queue. 20 min gives a cold-Maven-cache run (no `~/.m2`
+    # restore hit) generous headroom while making any genuine hang a
+    # fast, re-runnable FAILURE rather than an open-ended block.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: tools/mcp-conformance
@@ -1942,11 +1952,43 @@ jobs:
         working-directory: implementation
         run: npm install --no-audit --no-fund
 
+      # rf2-f79t8 — cache the Playwright browser binary across runs (same
+      # shape as the cljs-browser jobs). On a hit, the install step below
+      # skips the ~120 MB Chromium download and only runs `--with-deps`
+      # (the apt system libs aren't cacheable). Keyed on the locked
+      # Playwright version so a bump busts it. rf2-e6enf added this job to
+      # the cache scheme — it previously re-downloaded Chromium every run.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # rf2-e6enf — fast-fail the actual hang point. `--with-deps` runs
+      # `sudo apt-get install` for Chromium's system libraries; on a GHA
+      # runner that occasionally blocks indefinitely on the dpkg/apt lock
+      # held by the background `unattended-upgrades` job. The observed
+      # symptom (rf2-e6enf): this exact step never completed across four
+      # PRs simultaneously (#2304/#2311/#2316/#2324), each sitting 15-75+
+      # min — systemic/environmental, not per-diff. A healthy install is
+      # ~20s; 5 min covers a slow apt + cold (cache-miss) download while
+      # turning the lock-wait into a re-runnable FAILURE instead of an
+      # open-ended block.
       - name: Install Playwright chromium (for hermetic browser preload)
         working-directory: implementation
+        timeout-minutes: 5
         run: npx playwright install --with-deps chromium
 
+      # rf2-e6enf — backstop the orchestrator's own internal watchdog
+      # (HERMETIC_TIMEOUT_MS = 9 min in run-live-re-frame2-pair-overflow-hermetic.cjs,
+      # which `process.exit(2)`s on elapse). 12 min leaves margin for the
+      # process-tree teardown after that watchdog fires, so a wedged
+      # shadow-cljs JVM or orphaned Chromium can't hold the step open past
+      # the orchestrator's own cap.
       - name: Run re-frame2-pair-mcp live-overflow conformance (HERMETIC — spawns shadow-cljs)
+        timeout-minutes: 12
         run: npm run test:re-frame2-pair-live-overflow-hermetic
 
   mcp-conformance-story:
