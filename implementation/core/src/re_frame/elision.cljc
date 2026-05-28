@@ -98,7 +98,20 @@
     :else
     db))
 
-(defn- swap-registry!
+(defn ^:no-doc swap-elision-slot!
+  "Read-transform-write helper for the per-frame elision registry.
+
+  Reads the registry at `[:rf/runtime :elision]` from `frame-id`'s
+  app-db, applies `(f reg) -> new-reg`, and writes the result back
+  through `write-elision-slot` (which prunes a stranded `:rf/runtime`
+  when the slot clears). No-op when the frame's container does not
+  exist. Returns nil.
+
+  Internal helper; exposed (with `^:no-doc`) so the sibling
+  `re-frame.marks` ns — which mutates the SAME slot from its
+  `add-marks` / `set-marks` / `clear-app-db-marks!` / `write-marks!`
+  paths — can share a single source of truth for the read-transform-
+  write skeleton. Not part of the public API."
   [frame-id f]
   (when-let [container (frame/get-frame-db frame-id)]
     (let [old-db  (adapter/read-container container)
@@ -134,7 +147,7 @@
 
 (defn- install-schema-declarations!
   [frame-id registry-key schema-decls]
-  (swap-registry! frame-id
+  (swap-elision-slot! frame-id
     (fn [reg]
       (let [without-schema (reduce-kv
                              (fn [acc path decl]

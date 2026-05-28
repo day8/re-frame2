@@ -153,17 +153,6 @@
 ;; this namespace and live alongside per Spec 015 §Relationship with
 ;; schema-attached marks.
 
-(defn- swap-app-db!
-  "Mutate the frame's app-db through the substrate adapter. The mark-
-  registry lives at `[:rf/runtime :elision ...]` per Spec 015
-  §Mark-lookup table shape and matches the schema-first elision
-  walker's storage location."
-  [frame-id f]
-  (when-let [container (frame/get-frame-db frame-id)]
-    (let [old-db (adapter/read-container container)
-          new-db (f old-db)]
-      (adapter/replace-container! container new-db))))
-
 (defn- without-marks-sourced
   "Drop entries whose `:source` is `:marks` from a declaration map.
   Used by `set-marks` to clear the prior `add-marks` / `set-marks`
@@ -206,15 +195,13 @@
   If the resulting `[:rf/runtime :elision]` map is empty, the slot is
   dissoc'd from `:rf/runtime`."
   [frame-id sensitive-decls large-decls]
-  (swap-app-db! frame-id
-    (fn [db]
-      (let [reg     (get-in db [:rf/runtime :elision])
-            new-reg (cond-> (or reg {})
-                      (seq sensitive-decls)   (assoc :sensitive-declarations sensitive-decls)
-                      (empty? sensitive-decls) (dissoc :sensitive-declarations)
-                      (seq large-decls)       (assoc :declarations large-decls)
-                      (empty? large-decls)    (dissoc :declarations))]
-        (elision/write-elision-slot db new-reg)))))
+  (elision/swap-elision-slot! frame-id
+    (fn [reg]
+      (cond-> (or reg {})
+        (seq sensitive-decls)    (assoc :sensitive-declarations sensitive-decls)
+        (empty? sensitive-decls) (dissoc :sensitive-declarations)
+        (seq large-decls)        (assoc :declarations large-decls)
+        (empty? large-decls)     (dissoc :declarations)))))
 
 (defn add-marks
   "Additively merge path-marks into the `app-db` mark-set of `frame-id`.
@@ -244,17 +231,15 @@
   that path's mark."
   [frame-id path->mark]
   (let [[sens-paths large-paths] (split-by-mark path->mark)]
-    (swap-app-db! frame-id
-      (fn [db]
-        (let [reg     (get-in db [:rf/runtime :elision])
-              new-s   (assoc-paths (get reg :sensitive-declarations) sens-paths)
-              new-l   (assoc-paths (get reg :declarations) large-paths)
-              new-reg (cond-> (or reg {})
-                        (seq new-s) (assoc :sensitive-declarations new-s)
-                        (empty? new-s) (dissoc :sensitive-declarations)
-                        (seq new-l) (assoc :declarations new-l)
-                        (empty? new-l) (dissoc :declarations))]
-          (elision/write-elision-slot db new-reg)))))
+    (elision/swap-elision-slot! frame-id
+      (fn [reg]
+        (let [new-s (assoc-paths (get reg :sensitive-declarations) sens-paths)
+              new-l (assoc-paths (get reg :declarations) large-paths)]
+          (cond-> (or reg {})
+            (seq new-s)    (assoc :sensitive-declarations new-s)
+            (empty? new-s) (dissoc :sensitive-declarations)
+            (seq new-l)    (assoc :declarations new-l)
+            (empty? new-l) (dissoc :declarations))))))
   frame-id)
 
 (defn set-marks
@@ -284,21 +269,19 @@
   Use `add-marks` for additive-merge semantics."
   [frame-id path->mark]
   (let [[sens-paths large-paths] (split-by-mark path->mark)]
-    (swap-app-db! frame-id
-      (fn [db]
-        (let [reg     (get-in db [:rf/runtime :elision])
-              ;; Drop prior :marks-sourced entries first (schema-sourced survive),
-              ;; then assoc the new paths.
-              carry-s (without-marks-sourced (get reg :sensitive-declarations))
+    (elision/swap-elision-slot! frame-id
+      (fn [reg]
+        ;; Drop prior :marks-sourced entries first (schema-sourced survive),
+        ;; then assoc the new paths.
+        (let [carry-s (without-marks-sourced (get reg :sensitive-declarations))
               carry-l (without-marks-sourced (get reg :declarations))
               new-s   (assoc-paths carry-s sens-paths)
-              new-l   (assoc-paths carry-l large-paths)
-              new-reg (cond-> (or reg {})
-                        (seq new-s) (assoc :sensitive-declarations new-s)
-                        (empty? new-s) (dissoc :sensitive-declarations)
-                        (seq new-l) (assoc :declarations new-l)
-                        (empty? new-l) (dissoc :declarations))]
-          (elision/write-elision-slot db new-reg)))))
+              new-l   (assoc-paths carry-l large-paths)]
+          (cond-> (or reg {})
+            (seq new-s)    (assoc :sensitive-declarations new-s)
+            (empty? new-s) (dissoc :sensitive-declarations)
+            (seq new-l)    (assoc :declarations new-l)
+            (empty? new-l) (dissoc :declarations))))))
   frame-id)
 
 (defn clear-app-db-marks!
@@ -306,15 +289,13 @@
   `frame-id`. Schema-sourced declarations are preserved. Returns nil.
   Test-isolation only; production code rarely needs this."
   [frame-id]
-  (swap-app-db! frame-id
-    (fn [db]
-      (let [reg     (get-in db [:rf/runtime :elision])
-            new-s   (without-marks-sourced (:sensitive-declarations reg))
-            new-l   (without-marks-sourced (:declarations reg))
-            new-reg (cond-> {}
-                      (seq new-s) (assoc :sensitive-declarations new-s)
-                      (seq new-l) (assoc :declarations new-l))]
-        (elision/write-elision-slot db new-reg))))
+  (elision/swap-elision-slot! frame-id
+    (fn [reg]
+      (let [new-s (without-marks-sourced (:sensitive-declarations reg))
+            new-l (without-marks-sourced (:declarations reg))]
+        (cond-> {}
+          (seq new-s) (assoc :sensitive-declarations new-s)
+          (seq new-l) (assoc :declarations new-l)))))
   nil)
 
 ;; ---- emit-time projection ------------------------------------------------
