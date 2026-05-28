@@ -98,6 +98,15 @@ const {
 const VERBOSE_TESTS = isVerboseTests();
 const DIAGNOSTICS = createDiagnosticBuffer();
 
+// Module-scope handle to the in-flight teardown closure (rf2-e6enf).
+// `main()` assigns this once it has spawned shadow-cljs / Chromium so
+// the hard watchdog below can tear those children down BEFORE
+// `process.exit` — without it, a watchdog-elapse would orphan the
+// shadow-cljs JVM (and a launched Chromium), and those orphans can keep
+// the CI step's inherited log pipes open past the node exit. Stays null
+// until the children exist; the watchdog null-guards it.
+let activeCleanup = null;
+
 // Shadow-cljs writes its nREPL port file under whichever cache-root
 // the build is configured for. Default in 3.x is `.shadow-cljs/`; older
 // configs used `target/shadow-cljs/`; nrepl itself drops `.nrepl-port`.
@@ -533,6 +542,10 @@ async function main() {
       }, 5000).unref();
     }
   };
+  // Expose the teardown to the module-scope hard watchdog (rf2-e6enf)
+  // so a watchdog-elapse kills shadow-cljs + Chromium rather than
+  // orphaning them.
+  activeCleanup = cleanup;
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(sig, () => {
       logErr(`caught ${sig} — tearing down`);
@@ -732,10 +745,22 @@ async function main() {
 // Hard watchdog: if the orchestrator hangs past this, kill the process
 // so CI gets a deterministic failure instead of waiting on the job
 // timeout. Length set to cover cold Maven cache + cold chromium boot.
+//
+// Per rf2-e6enf: tear down shadow-cljs + Chromium BEFORE exiting. The
+// pre-fix watchdog called `process.exit(2)` directly, orphaning the
+// spawned JVM (and any launched Chromium); orphans that inherited the
+// step's stdio can keep the CI step's log pipes open past the node
+// exit, which is part of why the gate appeared to hang well past the
+// orchestrator's own cap. `activeCleanup` sends SIGTERM (then SIGKILL
+// via its own unref'd 5s timer); we hold the exit ~1s so the SIGTERM
+// lands before the process tears down, then exit regardless.
 const watchdog = setTimeout(() => {
   logErr(`watchdog timeout (${HERMETIC_TIMEOUT_MS}ms) — bailing`);
+  if (activeCleanup) {
+    try { activeCleanup(); } catch {}
+  }
   flushDiagnostics();
-  process.exit(2);
+  setTimeout(() => process.exit(2), 1000).unref();
 }, HERMETIC_TIMEOUT_MS);
 watchdog.unref();
 
