@@ -67,6 +67,15 @@
 (def set-schema-printer!     validator/set-schema-printer!)
 (def reset-schema-validator! validator/reset-schema-validator!)
 
+;; Printer / walker memo clear hooks (rf2-17sqc). Test-support: the
+;; printer + sensitive-walker memos are process-lifetime caches bounded
+;; by the registered-schema cardinality (schemas register once at boot).
+;; Tests that register many distinct fresh schemas clear them in fixture
+;; teardown so the caches don't grow unbounded across the suite. See
+;; [010 §Schema digest].
+(def clear-edn-print-cache!       validator/clear-edn-print-cache!)
+(def clear-sensitive-paths-cache! walker/clear-sensitive-paths-cache!)
+
 ;; Registration + per-frame query (Spec 010 §Per-frame schemas).
 (def reg-app-schema       storage/reg-app-schema)
 (def reg-app-schemas      storage/reg-app-schemas)

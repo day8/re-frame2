@@ -102,7 +102,51 @@
     (seq? form)    (doall (map canonicalise-schema-form form))
     :else          form))
 
-(def default-edn-print
+(defn- compute-edn-print
+  "The pure serialisation step behind `default-edn-print` — `pr-str`
+  over a canonicalised EDN form with the digest pipeline's print-flag
+  bindings. Extracted so the memo wrapper can be swapped for an
+  atom-backed cache (rf2-17sqc) without disturbing the serialisation
+  contract. Same `schema-value` always returns byte-identical bytes."
+  [schema-value]
+  (binding [*print-meta*           false
+            *print-readably*       true
+            *print-dup*            false
+            *print-namespace-maps* false]
+    (pr-str (canonicalise-schema-form schema-value))))
+
+;; Atom-backed memo cache for `default-edn-print` (rf2-17sqc). Replaces
+;; the opaque `(memoize compute-edn-print)` so the cache is *clearable*
+;; for test isolation — `clojure.core/memoize` exposes no clear hook, so
+;; a test that registers thousands of distinct fresh schemas (the
+;; concurrency stress test) could never reset the process-lifetime cache.
+;; The cache key is the schema value (immutable); behaviour for callers
+;; is byte-identical to the prior `memoize` form.
+;;
+;; ## Boot-once invariant (Mike ruled rf2-17sqc, option B)
+;;
+;; App schemas are registered ONCE at boot. The printer memo is
+;; therefore bounded by the registered-schema cardinality, and the
+;; cache is process-lifetime and intentionally NOT evicted — no bounded
+;; LRU. The only scenario that violates boot-once is a test that
+;; deliberately registers many distinct fresh schemas; such tests call
+;; `clear-edn-print-cache!` in fixture teardown to keep the cache from
+;; growing across the suite. See [010 §Schema digest].
+(def ^:private edn-print-cache (atom {}))
+
+(defn clear-edn-print-cache!
+  "Reset the `default-edn-print` memo cache (rf2-17sqc). Test-support
+  hook: the printer memo is process-lifetime and bounded by the
+  registered-schema cardinality in real apps (schemas register once at
+  boot), so production never needs this — but a test that registers
+  many distinct fresh schemas (`schemas_concurrency_stress_test`) calls
+  it in fixture teardown so the cache doesn't grow unbounded across the
+  suite. Returns nil."
+  []
+  (reset! edn-print-cache {})
+  nil)
+
+(defn default-edn-print
   "The default schema-print companion (rf2-wla45). Per Spec 010 §Schema
   digest line 491 — serialise a schema value to the stable UTF-8
   byte-source string the digest pipeline hashes. The default uses
@@ -122,14 +166,20 @@
   SSR hydrate handshake, the epoch-restore schema-mismatch trace, and
   pair-tool drift detection — repeat calls against the same registered
   schema values dominate. Pure over immutable schema values, so the
-  cache is bounded by the registered-schema cardinality."
-  (memoize
-    (fn [schema-value]
-      (binding [*print-meta*           false
-                *print-readably*       true
-                *print-dup*            false
-                *print-namespace-maps* false]
-        (pr-str (canonicalise-schema-form schema-value))))))
+  cache is bounded by the registered-schema cardinality.
+
+  The memo is **clearable** for test isolation via
+  `clear-edn-print-cache!` (rf2-17sqc): schemas register once at boot,
+  so the cache is process-lifetime and intentionally not evicted in
+  production — but tests that register many distinct fresh schemas reset
+  it in fixture teardown. Behaviour for callers is byte-identical to the
+  prior `clojure.core/memoize` form."
+  [schema-value]
+  (if-let [e (find @edn-print-cache schema-value)]
+    (val e)
+    (let [v (compute-edn-print schema-value)]
+      (swap! edn-print-cache assoc schema-value v)
+      v)))
 
 (defonce
   ^{:doc "The currently-registered validator fn — `(fn [schema value]
