@@ -44,11 +44,11 @@
              :query-params (:query opts {})}
 
             (and (map? target) (:url target))
-            (let [m (registry/match-url (:url target))]
-              {:route-id         (or (:route-id m) :rf.route/not-found)
-               :path-params      (:params m {:url (:url target)})
-               :query-params     (:query m {})
-               :matched-fragment (:fragment m)}))
+            (let [match (registry/match-url (:url target))]
+              {:route-id         (or (:route-id match) :rf.route/not-found)
+               :path-params      (:params match {:url (:url target)})
+               :query-params     (:query match {})
+               :matched-fragment (:fragment match)}))
           fragment    (or (:fragment opts)
                           (and (map? target) (:fragment target))
                           matched-fragment)

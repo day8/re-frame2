@@ -17,7 +17,7 @@
 ;; ---- registration ---------------------------------------------------------
 
 (defn segment-end
-  "Scan forward from index `j` in `pattern` (length `n`) until a
+  "Scan forward from `start` in `pattern` (length `n`) until a
   segment-boundary char is hit; return the index of that boundary (or
   `n` if none). The boundary set is always {/, {, }}; the 4-arity
   additionally treats `?` as a boundary when `?-boundary?` is truthy.
@@ -25,15 +25,15 @@
   `parse-pattern`. The 3-arity (defaults `?-boundary?` to true) suits
   param / splat scanners; the static-segment branch passes false so a
   `?` inside a static segment doesn't truncate the static run."
-  ([^String pattern n j] (segment-end pattern n j true))
-  ([^String pattern n j ?-boundary?]
-   (loop [m j]
+  ([^String pattern n start] (segment-end pattern n start true))
+  ([^String pattern n start ?-boundary?]
+   (loop [idx start]
      (cond
-       (>= m n) m
-       (let [c (.charAt pattern m)]
+       (>= idx n) idx
+       (let [c (.charAt pattern idx)]
          (or (= c \/) (= c \{) (= c \})
-             (and ?-boundary? (= c \?)))) m
-       :else (recur (inc m))))))
+             (and ?-boundary? (= c \?)))) idx
+       :else (recur (inc idx))))))
 
 (defn- regex-escape
   "Quote a string for use as a regex literal. Portable across JVM

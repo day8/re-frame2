@@ -42,14 +42,16 @@
 (defn- inner-fx-event-id
   "Best-effort extraction of an `event-id` from an `:do` fx entry. For
   the canonical `[:dispatch [<event-id> args...]]` shape the event-id is
-  the head of the inner vector; for any other fx entry we fall back to
-  the outer fx-id (e.g. `:rf.http/managed`) so the `:event-id` tag still
-  identifies what was suppressed."
+  the head of the inner event vector; for any other fx entry we fall
+  back to the outer fx-id (e.g. `:rf.http/managed`) so the `:event-id`
+  tag still identifies what was suppressed."
   [do-entry]
   (when (vector? do-entry)
-    (let [[fx-id args] do-entry]
-      (if (and (= :dispatch fx-id) (vector? args) (seq args))
-        (first args)
+    (let [[fx-id inner-event-vec] do-entry]
+      (if (and (= :dispatch fx-id)
+               (vector? inner-event-vec)
+               (seq inner-event-vec))
+        (first inner-event-vec)
         fx-id))))
 
 (def with-nav-token-meta

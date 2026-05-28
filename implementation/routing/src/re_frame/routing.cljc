@@ -55,7 +55,7 @@
             [re-frame.routing.on-match-error :as on-match-error]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.scroll :as scroll]
-            [re-frame.routing.subs :as subs-ns]
+            [re-frame.routing.subs :as routing-subs]
             [re-frame.routing.url-bound :as url-bound]
             [re-frame.routing.url-change :as url-change]
             #?@(:cljs [[re-frame.views :as views]])))
@@ -80,7 +80,7 @@
 (def save-scroll-position       scroll/save-scroll-position)
 
 ;; Subs
-(def route-sub-fn               subs-ns/route-sub-fn)
+(def route-sub-fn               routing-subs/route-sub-fn)
 
 ;; URL-owner resolution
 (def url-owner-frame-id         nav-fx/url-owner-frame-id)
@@ -186,13 +186,13 @@
 (subs/reg-sub :rf.route/chain
   {:doc "Subscribe to the `:parent`-chain of the active route, returned
   as a vector `[parent-most ... current]`. Per Spec 012 §Nested layouts."}
-  :<- [:rf.route/id] (fn [id _] (subs-ns/chain-from-meta id)))
+  :<- [:rf.route/id] (fn [id _] (routing-subs/chain-from-meta id)))
 (subs/reg-sub :rf/pending-navigation
   {:doc "Subscribe to the pending-navigation slot at
   `[:rf/runtime :routing :pending-navigation]` (nil when no navigation
   is pending). Per Spec 012 §Navigation blocking — pending-nav
   protocol."}
-  subs-ns/pending-navigation-sub-fn)
+  routing-subs/pending-navigation-sub-fn)
 
 ;; :route/link registered view — Spec 012 §Linking from views.
 ;; Exposed on both platforms so .cljc render trees resolve identically

@@ -68,16 +68,16 @@
      %-decode. The `:reason` discriminator lets per-route error UIs
      and SSR projections branch on the cause."
   [db url default-scroll frame]
-  (let [m                 (registry/match-url url)
+  (let [match             (registry/match-url url)
         ;; rf2-4ic0f: when match-url returns nil, discriminate the
         ;; bare-miss case from the malformed-URL case via the public
         ;; `malformed-url?` predicate. The predicate scans the URL
         ;; once; we run it only when match-url already missed (the
         ;; happy path pays nothing).
-        malformed?        (and (nil? m) (registry/malformed-url? url))
+        malformed?        (and (nil? match) (registry/malformed-url? url))
         ;; Malformed URLs surface no fragment in the slice — the
         ;; fragment was the (or potentially the) decode-fail site.
-        fragment          (when-not malformed? (:fragment m))
+        fragment          (when-not malformed? (:fragment match))
         ;; Spec 012 §Fragments rules 3-4: when the new URL differs from
         ;; the current slice ONLY in its `#fragment` (same route-id,
         ;; params, query) the runtime updates `:fragment`, emits the
@@ -89,21 +89,21 @@
         ;; Back/Forward to a same-page anchor must not re-fetch route
         ;; data (rf2-8oxj6).
         prev              (get-in db [:rf/runtime :routing :current])
-        fragment-only?    (and prev m
-                               (= (:id prev)     (:route-id m))
-                               (= (:params prev) (:params m))
-                               (= (:query prev)  (:query m))
+        fragment-only?    (and prev match
+                               (= (:id prev)     (:route-id match))
+                               (= (:params prev) (:params match))
+                               (= (:query prev)  (:query match))
                                (not= (:fragment prev) fragment))
-        matched?          (some? m)
-        validation-fail?  (:validation-failed? m)
+        matched?          (some? match)
+        validation-fail?  (:validation-failed? match)
         fallback?         (or (not matched?) validation-fail?)
-        route-id          (if fallback? :rf.route/not-found (:route-id m))
+        route-id          (if fallback? :rf.route/not-found (:route-id match))
         params            (cond
                             malformed?       {:url url :reason :malformed-url}
                             validation-fail? {:url url :reason :validation}
                             (not matched?)   {:url url}
-                            :else            (:params m))
-        query             (if fallback? {} (:query m))
+                            :else            (:params match))
+        query             (if fallback? {} (:query match))
         ;; Spec 012 §Per-route data loading rule 3: a re-navigation whose
         ;; resolved id/params/query/fragment match the current slice
         ;; exactly is a complete no-op — no new nav-token, no `:on-match`

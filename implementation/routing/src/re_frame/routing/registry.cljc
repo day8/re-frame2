@@ -73,8 +73,8 @@
   []
   (let [source (registrar/registrations :route)
         pairs  (->> source
-                    (sort-by (fn [[_id meta]]
-                               (or (:rf.route/rank meta) [0 0 0 0 0 0]))
+                    (sort-by (fn [[_id route-meta]]
+                               (or (:rf.route/rank route-meta) [0 0 0 0 0 0]))
                              #(compare %2 %1))
                     vec)]
     (reset! route-table-cache {:source-id source :pairs pairs})
@@ -232,13 +232,13 @@
   (when (and schema (vector? schema))
     (persistent!
       (reduce
-        (fn [m e]
-          (if (and (vector? e) (keyword? (first e)))
-            (let [k         (first e)
+        (fn [acc slot-entry]
+          (if (and (vector? slot-entry) (keyword? (first slot-entry)))
+            (let [k         (first slot-entry)
                   raw       (cond
-                              (= 2 (count e)) (second e)
-                              (= 3 (count e)) (last e)
-                              :else           nil)
+                              (= 2 (count slot-entry)) (second slot-entry)
+                              (= 3 (count slot-entry)) (last slot-entry)
+                              :else                    nil)
                   ;; rf2-3k3o7: detect `[:enum kw kw ...]` as a bounded
                   ;; keyword allowlist. Skip the optional opts-map at
                   ;; position 1 when present (Malli convention:
@@ -255,8 +255,8 @@
                               enum-set        [:rf.route/enum-keyword enum-set]
                               (= :keyword raw) :rf.route/keyword-unbounded
                               :else           raw)]
-              (assoc! m k type-form))
-            m))
+              (assoc! acc k type-form))
+            acc))
         (transient {})
         (rest schema)))))
 
@@ -503,7 +503,7 @@
               (when query-str
                 (let [pairs (clojure.string/split query-str #"&")]
                   (reduce
-                    (fn [m pair]
+                    (fn [acc pair]
                       (let [[k v] (clojure.string/split pair #"=" 2)
                             ;; Per Spec 012 §Routing failure semantics
                             ;; (rf2-wbvme + rf2-4ic0f): malformed %-encoding
@@ -518,16 +518,16 @@
                             vstr  (if v (url/safe-url-decode v) "")]
                         (if (or (nil? kstr) (nil? vstr))
                           (reduced ::malformed-query)
-                          (let [m' (assoc m kstr vstr)]
-                            (when (> (count m') default-max-decoded-keys)
+                          (let [acc' (assoc acc kstr vstr)]
+                            (when (> (count acc') default-max-decoded-keys)
                               (throw (route-error
                                        :rf.error/route-too-many-keys
                                        'rf/match-url
                                        (str "the query string exceeded the per-call unique-key cap (" default-max-decoded-keys ") — a keyword-interning DoS guard; the URL is treated as a route-miss")
                                        {:url   url
                                         :limit default-max-decoded-keys
-                                        :count (count m')})))
-                            m'))))
+                                        :count (count acc')})))
+                            acc'))))
                     (array-map)
                     pairs))))]
         ;; Iterate the pre-sorted table; the first pattern that matches is
@@ -535,13 +535,13 @@
         ;; `reduce` with `reduced` short-circuits on the first hit. nil ⇒
         ;; no route matched OR malformed query fails closed (rf2-4ic0f).
         (reduce
-          (fn [_ [id meta]]
-            (when-let [compiled (or (:rf.route/compiled meta)
-                                    (some-> (:path meta) match/parse-pattern))]
+          (fn [_ [id route-meta]]
+            (when-let [compiled (or (:rf.route/compiled route-meta)
+                                    (some-> (:path route-meta) match/parse-pattern))]
               (when-let [params (match/match-against compiled path)]
-                (let [query-coerce  (:rf.route/query-coerce meta)
-                      defaults      (:query-defaults meta)
-                      retain        (:query-retain meta)
+                (let [query-coerce  (:rf.route/query-coerce route-meta)
+                      defaults      (:query-defaults route-meta)
+                      retain        (:query-retain route-meta)
                       ;; Force the query parse on the first successful path
                       ;; match — unmatched URLs and pre-match iterations skip
                       ;; the work entirely (rf2-r1in4).
@@ -580,8 +580,8 @@
                           ;; flag; the explanation surfaces under :validation-error
                           ;; so callers ((`:rf.route/handle-url-change`)) can route
                           ;; to `:rf.route/not-found` with `:reason :validation`.
-                          [params-failed? params-error] (validate-route-shape meta :params params)
-                          [query-failed?  query-error]  (validate-route-shape meta :query  with-defaults)
+                          [params-failed? params-error] (validate-route-shape route-meta :params params)
+                          [query-failed?  query-error]  (validate-route-shape route-meta :query  with-defaults)
                           validation-failed? (or params-failed? query-failed?)
                           validation-error   (cond
                                                (and params-failed? query-failed?)
@@ -631,8 +631,8 @@
   ([route-id path-params query-params] (route-url route-id path-params query-params nil))
   ([route-id path-params query-params fragment]
    (let [query-params (or query-params {})
-         meta    (registrar/lookup :route route-id)
-         pattern (:path meta)]
+         route-meta   (registrar/lookup :route route-id)
+         pattern      (:path route-meta)]
      (when (nil? pattern)
        (throw (route-error
                 :rf.error/no-such-route
@@ -645,7 +645,7 @@
      ;; the structured id so callers (`:rf.route/navigate`) and tests
      ;; can react. When no schema is declared OR no validator is
      ;; registered, this is a no-op.
-     (let [[p-failed? p-error] (validate-route-shape meta :params path-params)]
+     (let [[p-failed? p-error] (validate-route-shape route-meta :params path-params)]
        (when p-failed?
          (throw (route-error
                   :rf.error/route-url-validation
@@ -655,7 +655,7 @@
                    :slot     :params
                    :value    path-params
                    :error    p-error}))))
-     (let [[q-failed? q-error] (validate-route-shape meta :query query-params)]
+     (let [[q-failed? q-error] (validate-route-shape route-meta :query query-params)]
        (when q-failed?
          (throw (route-error
                   :rf.error/route-url-validation
@@ -672,7 +672,7 @@
            ;; each opening '{' index to `{:inner-names [...] :close-end
            ;; <pos-after-}?>}` — `route-url` consults it instead of
            ;; re-walking the pattern body.
-           groups (or (:groups (:rf.route/compiled meta))
+           groups (or (:groups (:rf.route/compiled route-meta))
                       (:groups (match/parse-pattern pattern)))
            ;; Inner loop emits the body of an optional group whose params
            ;; are all present. State threads as (loop [i parts]); returns
