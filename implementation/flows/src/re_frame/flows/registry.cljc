@@ -152,51 +152,59 @@
                     :flow        flow}
                    extras))))
 
+;; The validation rules, in evaluation order. Each rule has a predicate
+;; over the flow map (returns truthy to accept), a stable `:error-kw`
+;; discriminator, a `:reason` diagnostic, and optional `:extras` that
+;; build per-clause ex-data slots (`:bad-entries` / `:bad-elements`).
+;; `validate-flow` walks this vector and throws on the first failing
+;; predicate — matching the original `cond` evaluation order so existing
+;; tests pinning rejection ids see no shift.
+;;
+;; Data-driven so the rules are introspectable (a test or the spec can
+;; read the table) and adding a clause is a single conj.
+(def ^:private validation-rules
+  [{:pred     (fn [flow] (some? (:id flow)))
+    :error-kw :rf.error/flow-missing-id
+    :reason   ":id is required (flow registration must name an id)"}
+
+   {:pred     (fn [flow] (vector? (:inputs flow)))
+    :error-kw :rf.error/flow-bad-inputs
+    :reason   ":inputs must be a vector of paths"}
+
+   ;; One clause for both "entry isn't a vector" and "entry isn't a valid
+   ;; path" — `valid-path?` already requires `vector?`, so the older
+   ;; two-arm split (the prior code carried a separate `(every? vector?
+   ;; ...)` check) was strictly subsumed by this one. The single rejection
+   ;; message names what the entry must be; the `:bad-entries` slot points
+   ;; at the offending values so callers can fix them without a stack-trace
+   ;; dig.
+   {:pred     (fn [flow] (every? valid-path? (:inputs flow)))
+    :error-kw :rf.error/flow-bad-inputs
+    :reason   ":inputs entries must each be a non-empty vector of scalar keys (keyword / string / integer / symbol / boolean)"
+    :extras   (fn [flow] {:bad-entries (vec (remove valid-path? (:inputs flow)))})}
+
+   {:pred     (fn [flow] (fn? (:output flow)))
+    :error-kw :rf.error/flow-bad-output
+    :reason   ":output must be a fn"}
+
+   {:pred     (fn [flow] (vector? (:path flow)))
+    :error-kw :rf.error/flow-bad-path
+    :reason   ":path must be a vector"}
+
+   {:pred     (fn [flow] (seq (:path flow)))
+    :error-kw :rf.error/flow-bad-path
+    :reason   ":path must be non-empty (an empty :path would make this flow a depends-on prerequisite of every other flow per Spec 013 §Dependency rule)"}
+
+   {:pred     (fn [flow] (every? valid-path-element? (:path flow)))
+    :error-kw :rf.error/flow-bad-path
+    :reason   ":path elements must each be a scalar key (keyword / string / integer / symbol / boolean)"
+    :extras   (fn [flow] {:bad-elements (vec (remove valid-path-element? (:path flow)))})}])
+
 (defn- validate-flow [flow]
-  (cond
-    (nil? (:id flow))
-    (throw (flow-error :rf.error/flow-missing-id
-                       ":id is required (flow registration must name an id)"
-                       flow))
-
-    (not (vector? (:inputs flow)))
-    (throw (flow-error :rf.error/flow-bad-inputs
-                       ":inputs must be a vector of paths"
-                       flow))
-
-    ;; One clause for both "entry isn't a vector" and "entry isn't a
-    ;; valid path" — `valid-path?` already requires `vector?`, so the
-    ;; older two-arm split (the prior code carried a separate
-    ;; `(every? vector? ...)` check) was strictly subsumed by this one.
-    ;; The single rejection message names what the entry must be; the
-    ;; `:bad-entries` slot points at the offending values so callers
-    ;; can fix them without a stack-trace dig.
-    (not (every? valid-path? (:inputs flow)))
-    (throw (flow-error :rf.error/flow-bad-inputs
-                       ":inputs entries must each be a non-empty vector of scalar keys (keyword / string / integer / symbol / boolean)"
-                       flow
-                       {:bad-entries (vec (remove valid-path? (:inputs flow)))}))
-
-    (not (fn? (:output flow)))
-    (throw (flow-error :rf.error/flow-bad-output
-                       ":output must be a fn"
-                       flow))
-
-    (not (vector? (:path flow)))
-    (throw (flow-error :rf.error/flow-bad-path
-                       ":path must be a vector"
-                       flow))
-
-    (empty? (:path flow))
-    (throw (flow-error :rf.error/flow-bad-path
-                       ":path must be non-empty (an empty :path would make this flow a depends-on prerequisite of every other flow per Spec 013 §Dependency rule)"
-                       flow))
-
-    (not (every? valid-path-element? (:path flow)))
-    (throw (flow-error :rf.error/flow-bad-path
-                       ":path elements must each be a scalar key (keyword / string / integer / symbol / boolean)"
-                       flow
-                       {:bad-elements (vec (remove valid-path-element? (:path flow)))}))))
+  (some (fn [{:keys [pred error-kw reason extras]}]
+          (when-not (pred flow)
+            (throw (flow-error error-kw reason flow (when extras (extras flow))))))
+        validation-rules))
 
 ;; ---- registration --------------------------------------------------------
 
