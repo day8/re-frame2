@@ -61,6 +61,17 @@ adapters/
 
 All five depend on `day8/re-frame2 {:local/root "../../core"}`. None depend on each other.
 
+## Where the substrate logic lives
+
+The four React-shaped adapters (Reagent, reagent-slim, UIx, Helix) are extremely thin (~100-130 lines each) because they all delegate into [`re-frame.substrate.spine`](../core/src/re_frame/substrate/spine.cljs) in the core artefact. Two factory families:
+
+- **Ratom family** — [`make-ratom-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-ratom-adapter`](../core/src/re_frame/substrate/spine.cljs) (Reagent + reagent-slim).
+- **React-hook family** — [`make-react-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-react-adapter`](../core/src/re_frame/substrate/spine.cljs) (UIx + Helix).
+
+Each adapter file builds a config map and hands it to the appropriate factory pair. The spine carries the epoch scheduler (glitch-freedom), the container quartet, `useSyncExternalStore` hooks, source-coord wrapping, the after-render sentinel, the unmount sentinel, and the nine-/five-hook routed late-bind tables. Reading the spine ns is the fastest path to understanding how the adapters work end-to-end.
+
+The test-react adapter is its own quadrant — pure CLJC, no React, shares only the atom-container quartet with plain-atom.
+
 ## Per-feature artefacts vs adapters
 
 Per-feature artefacts (`schemas/`, `machines/`, `routing/`, `flows/`, `http/`, `ssr/`, `epoch/`) sit at `implementation/<name>/` — they extend re-frame2's core capabilities. Adapters here implement the substrate contract for a specific reactive layer. The two tiers are independent: a consumer mixes one adapter with any subset of per-feature artefacts.
