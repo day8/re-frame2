@@ -13,7 +13,7 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (trace/clear-listeners!)
   (elision/clear-warning-cache!)

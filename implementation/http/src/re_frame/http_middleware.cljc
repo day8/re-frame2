@@ -24,9 +24,10 @@
   extension.
 
   Storage is per-frame in a `defonce` atom keyed `frame-id → [interceptor ...]`,
-  mirroring the `re-frame.flows/flows` pattern. Frame-scoped: an
-  interceptor registered against frame A does not fire for a request
-  dispatched from frame B."
+  mirroring the per-frame flow registry pattern (see
+  `re-frame.flows.registry`'s private `flows` atom + the
+  `flows-snapshot` accessor). Frame-scoped: an interceptor registered
+  against frame A does not fire for a request dispatched from frame B."
   (:require [re-frame.http-privacy :as privacy]
             [re-frame.interop      :as interop]
             [re-frame.source-coords :as source-coords]

@@ -257,7 +257,7 @@
   (registrar/clear-kind! :route)
   ;; 2. Clear per-process state held outside the registrar.
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   ;; 3. Reset id-allocators so the routing / machine fixtures see
   ;;    deterministic counters.

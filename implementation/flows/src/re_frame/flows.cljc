@@ -33,17 +33,15 @@
 
 ;; ---- public-surface re-exports -------------------------------------------
 ;;
-;; Atoms re-exported as Vars so test fixtures across artefacts
-;; (`flows_test.clj`, `flows_trace_test.clj`, `smoke_test.clj`,
-;; `epoch_test.clj`, `core_api_additions_test.clj`, `reg_view_test.clj`,
-;; `source_coords_test.clj`, `ssr/test_fixture.clj`) keep working
-;; against the SAME atom value at `re-frame.flows/flows` and
-;; `re-frame.flows/last-inputs`. Several tests reach `last-inputs`
-;; via `(resolve 're-frame.flows/last-inputs)`; that resolve must
-;; continue to land on a var deref-equal to the registry's atom.
+;; Per rf2-4gvb4 — the registry atoms are private. External consumers
+;; (test fixtures, conformance harnesses, cross-artefact integration tests)
+;; reach the registry shape through the read accessors
+;; (`flows-snapshot` / `last-inputs-snapshot`) and the existing reset fns
+;; (`reset-flows!` / `reset-last-inputs!`). The facade re-exports both
+;; pairs.
 
-(def flows       registry/flows)
-(def last-inputs registry/last-inputs)
+(def flows-snapshot       registry/flows-snapshot)
+(def last-inputs-snapshot registry/last-inputs-snapshot)
 
 (def reg-flow           registry/reg-flow)
 (def clear-flow         registry/clear-flow)
@@ -154,7 +152,7 @@
         ;; hot-reload invalidation hook can drop a flow's whole row
         ;; with one O(1) dissoc (rf2-2xq8w / PERF Q10). Per-frame
         ;; dirty-check windows stay independent.
-        old-inputs (get-in @last-inputs [flow-id frame-id])]
+        old-inputs (get-in (registry/last-inputs-snapshot) [flow-id frame-id])]
     (if (= new-inputs old-inputs)
       (do
         ;; Per Spec 009 §:op-type vocabulary: `:rf.flow/skip` records a
@@ -201,7 +199,7 @@
               old-output (when interop/debug-enabled?
                            (get-in db (:path flow)))
               new-db     (assoc-in db (:path flow) new-output)]
-          (swap! last-inputs assoc-in [flow-id frame-id] new-inputs)
+          (registry/swap-last-inputs! assoc-in [flow-id frame-id] new-inputs)
           ;; Per Spec 009 §:op-type vocabulary: `:rf.flow/computed`
           ;; records a successful recompute. The dirty-check is
           ;; `=`-equality so this only fires when inputs actually
@@ -352,7 +350,7 @@
   preserved on the re-thrown ex-info so the router can attribute the
   cascade-level error to the failing flow."
   [frame-id db]
-  (let [flow-map (get @flows frame-id)]
+  (let [flow-map (get (registry/flows-snapshot) frame-id)]
     (if-not (seq flow-map)
       db
       (let [ordered (topo/topo-sort flow-map)
@@ -360,7 +358,7 @@
             ;; roll it back wholesale — the event aborts, so prior flows'
             ;; `last-inputs` advances must NOT survive (their outputs were
             ;; never installed). Restored in the catch below.
-            last-inputs-before @last-inputs]
+            last-inputs-before (registry/last-inputs-snapshot)]
         (try
           (loop [remaining  ordered
                  db         db
@@ -377,7 +375,7 @@
             ;; every flow re-attempts next drain. The throw (carrying
             ;; `:rf.flow/failed-id` from `evaluate-flow!`) propagates
             ;; unchanged for router attribution.
-            (reset! last-inputs last-inputs-before)
+            (registry/reset-last-inputs-to! last-inputs-before)
             (throw e)))))))
 
 ;; ---- late-bind hook registration ----------------------------------------

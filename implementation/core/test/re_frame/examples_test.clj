@@ -23,7 +23,7 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
   ;; clear-all! also drops the framework-shipped fxs that register at

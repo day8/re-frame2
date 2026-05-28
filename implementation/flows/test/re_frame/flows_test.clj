@@ -36,7 +36,7 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   ;; flows.cljc keeps a private last-inputs atom for dirty-checking
   ;; (per Spec 013 §Dirty-check semantics). The smoke-test fixture
@@ -45,8 +45,7 @@
   ;; cause its first-evaluation to no-op (new-inputs would =-equal the
   ;; stale last-inputs). Clear it here so cross-namespace test order
   ;; can't introduce hidden flakiness.
-  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
-    (reset! (deref li-var) {}))
+  (flows/reset-last-inputs!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
@@ -64,7 +63,7 @@
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* (or w 0) (or h 0)))
                   :path   [:rect :area]})
-    (is (contains? (get @flows/flows :rf/default) :area)
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :area)
         "the flow lives under :rf/default's slot of the per-frame registry")
     (is (some? (registrar/lookup :flow :area))
         "the flow is also discoverable via the :flow registrar kind")))
@@ -83,7 +82,7 @@
     (is (= 12 (get-in (rf/get-frame-db :rf/default) [:rect :area]))
         "flow ran on the drain after :seed and materialised :rect/:area")
     (rf/clear-flow :area)
-    (is (not (contains? (get @flows/flows :rf/default) :area))
+    (is (not (contains? (get (flows/flows-snapshot) :rf/default) :area))
         "the per-frame registry no longer carries :area")
     (is (not (contains? (get (rf/get-frame-db :rf/default) :rect) :area))
         "clear-flow dissoc'd the leaf at the flow's :path"))
@@ -261,8 +260,8 @@
       (is (= :fix-registration (:recovery data)) ":recovery names the disposition")
       (is (string? (:reason data)) ":reason is a human-readable sentence")))
   (testing "flow cycle throw stamps :rf.error/id"
-    (reset! flows/flows {})
-    (reset! (deref (resolve 're-frame.flows/last-inputs)) {})
+    (flows/reset-flows!)
+    (flows/reset-last-inputs!)
     (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
     (let [ex (try
                (rf/reg-flow {:id :b :inputs [[:a]] :output identity :path [:b]})
@@ -394,7 +393,7 @@
                  (rf/reg-flow {:id :b :inputs [[:a]]
                                :output identity :path [:b]}))
         "the cyclic registration unwinds and throws :rf.error/flow-cycle")
-    (is (not (contains? (get @flows/flows :rf/default) :b))
+    (is (not (contains? (get (flows/flows-snapshot) :rf/default) :b))
         "cycle-detection rolls back the partial registration of :b")))
 
 (deftest reg-flow-cycle-error-carries-ordered-cycle-path
@@ -432,8 +431,8 @@
     ;; Reset and build a longer chain. The reg-flow ordering matters
     ;; because the cycle is detected on the registration that closes
     ;; it — register :a, :b first (no cycle yet), then :c closes.
-    (reset! flows/flows {})
-    (reset! (deref (resolve 're-frame.flows/last-inputs)) {})
+    (flows/reset-flows!)
+    (flows/reset-last-inputs!)
     (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
     (rf/reg-flow {:id :b :inputs [[:c]] :output identity :path [:b]})
     (let [ex (try
@@ -471,7 +470,7 @@
                   :inputs [[:b]]
                   :output (fn [b] (str "A-from-B-" b))
                   :path   [:a]})
-    (is (contains? (get @flows/flows :rf/default) :a)
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :a)
         "initial :a registers cleanly")
 
     ;; 2. :b reads an unrelated path [:source], writes [:b]. Graph is
@@ -485,7 +484,7 @@
                     :inputs [[:source]]
                     :output original-b-output
                     :path   [:b]})
-      (is (contains? (get @flows/flows :rf/default) :b)
+      (is (contains? (get (flows/flows-snapshot) :rf/default) :b)
           "initial :b registers cleanly (reads [:source]; no cycle)")
 
       ;; 3. RE-register :b with :inputs [[:a]]. :a already reads [:b],
@@ -502,9 +501,9 @@
       ;;    not silently deleted. The bug today (flows.cljc:149) dissocs
       ;;    by id on rollback, vacating the prior registration along
       ;;    with the just-written one.
-      (is (contains? (get @flows/flows :rf/default) :b)
+      (is (contains? (get (flows/flows-snapshot) :rf/default) :b)
           "after a failed cyclic replacement, the prior :b registration is preserved")
-      (let [b-after (get-in @flows/flows [:rf/default :b])]
+      (let [b-after (get-in (flows/flows-snapshot) [:rf/default :b])]
         (is (= [[:source]] (:inputs b-after))
             "prior :b's :inputs are intact ([[:source]], not the rejected [[:a]])")
         (is (identical? original-b-output (:output b-after))
@@ -699,7 +698,7 @@
     ;; Register the flow during :enter. Per Spec 013 §Sequencing the flow
     ;; first runs on the NEXT event drain.
     (rf/dispatch-sync [:enter])
-    (is (contains? (get @flows/flows :rf/default) :step-2/computed)
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed)
         "registry now carries :step-2/computed")
     ;; Drive a drain with a benign event; the flow first-fires here.
     (rf/dispatch-sync [:foo! 5])
@@ -707,7 +706,7 @@
         "flow ran on this drain with 5 + 4 = 9")
     ;; Now clear via fx.
     (rf/dispatch-sync [:leave])
-    (is (not (contains? (get @flows/flows :rf/default) :step-2/computed))
+    (is (not (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed))
         "registry slot removed")
     (is (not (contains? (get (rf/get-frame-db :rf/default) :wizard) :result))
         ":rf.fx/clear-flow dissoc-in'd the output path")))
@@ -741,14 +740,13 @@
     (rf/dispatch-sync [:init])
     (is (= 10 (:doubled (rf/get-frame-db :rf/default)))
         "flow evaluated; last-inputs row populated for [:double :rf/default]")
-    (let [li-var (resolve 're-frame.flows/last-inputs)]
-      (is (some? (get-in @(deref li-var) [:double :rf/default]))
-          "last-inputs has the dirty-check entry before reset")
-      (flows/reset-flows!)
-      (is (empty? @flows/flows)
-          "flow registry is empty after reset-flows!")
-      (is (empty? @(deref li-var))
-          "last-inputs is ALSO empty after reset-flows! (rf2-mb65w)"))))
+    (is (some? (get-in (flows/last-inputs-snapshot) [:double :rf/default]))
+        "last-inputs has the dirty-check entry before reset")
+    (flows/reset-flows!)
+    (is (empty? (flows/flows-snapshot))
+        "flow registry is empty after reset-flows!")
+    (is (empty? (flows/last-inputs-snapshot))
+        "last-inputs is ALSO empty after reset-flows! (rf2-mb65w)")))
 
 (deftest reset-flows-allows-re-registration-without-stale-skip
   ;; The footgun: re-register the same flow id with the same inputs
@@ -777,16 +775,16 @@
       (is (= 2 @calls)
           "after reset-flows! the freshly-registered flow evaluates again — last-inputs was cleared so no stale skip"))))
 
-(deftest reset-flows-atom-clears-per-frame-state
-  (testing "resetting flows/flows clears the per-frame registry; reg-flow repopulates fresh"
+(deftest reset-flows-clears-per-frame-state
+  (testing "(flows/reset-flows!) clears the per-frame registry; reg-flow repopulates fresh"
     (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
-    (is (contains? (get @flows/flows :rf/default) :one))
-    (reset! flows/flows {})
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :one))
+    (flows/reset-flows!)
     (reset! schemas/schemas-by-frame {})
-    (is (empty? (get @flows/flows :rf/default))
+    (is (empty? (get (flows/flows-snapshot) :rf/default))
         "per-frame map is empty after reset")
     (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
-    (is (contains? (get @flows/flows :rf/default) :one)
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :one)
         "re-registration after reset works without raising")))
 
 ;; ---------------------------------------------------------------------------
@@ -837,17 +835,17 @@
         "left frame's :compute used the 2x formula (5 * 2)")
     (is (= 500 (:result (rf/get-frame-db :right)))
         "right frame's :compute used the 100x formula (5 * 100)")
-    (is (contains? (get @flows/flows :left)  :compute)
+    (is (contains? (get (flows/flows-snapshot) :left)  :compute)
         ":left's per-frame registry slot carries :compute")
-    (is (contains? (get @flows/flows :right) :compute)
+    (is (contains? (get (flows/flows-snapshot) :right) :compute)
         ":right's per-frame registry slot carries :compute"))
 
   (testing "clear-flow on one frame leaves the sibling frame's registry slot intact"
     ;; Branch 1: per-frame registry routing.
     (rf/clear-flow :compute {:frame :left})
-    (is (not (contains? (get @flows/flows :left)  :compute))
+    (is (not (contains? (get (flows/flows-snapshot) :left)  :compute))
         ":left's slot was removed")
-    (is (contains? (get @flows/flows :right) :compute)
+    (is (contains? (get (flows/flows-snapshot) :right) :compute)
         ":right's slot is untouched — flow STILL registered against :right"))
 
   (testing ":left's app-db output path is dissoc'd; :right's app-db is unchanged"
@@ -881,7 +879,7 @@
 
   (testing "clearing from the second (last) frame finally unregisters the registrar slot"
     (rf/clear-flow :compute {:frame :right})
-    (is (not (contains? (get @flows/flows :right) :compute))
+    (is (not (contains? (get (flows/flows-snapshot) :right) :compute))
         ":right's slot is now gone")
     (is (nil? (registrar/lookup :flow :compute))
         "registrar slot was unregistered once the LAST frame released the id")))
@@ -951,11 +949,10 @@
     ;; Drive a drain on each frame so both have last-inputs rows.
     (rf/dispatch-sync [:seed 5] {:frame :left})
     (rf/dispatch-sync [:seed 5] {:frame :right})
-    (let [li-var (resolve 're-frame.flows/last-inputs)
-          li     (deref li-var)]
-      (is (some? (get-in @li [:shared :left]))
+    (let [li (flows/last-inputs-snapshot)]
+      (is (some? (get-in li [:shared :left]))
           "before re-registration: :left's last-inputs row is populated")
-      (is (some? (get-in @li [:shared :right]))
+      (is (some? (get-in li [:shared :right]))
           "before re-registration: :right's last-inputs row is populated"))
     ;; Re-register :shared on :left with a NEW body — should invalidate
     ;; :left's row ONLY.
@@ -964,11 +961,10 @@
                   :output (fn [n] (* 7 (or n 0)))
                   :path   [:result]}
                  {:frame :left})
-    (let [li-var (resolve 're-frame.flows/last-inputs)
-          li     (deref li-var)]
-      (is (nil? (get-in @li [:shared :left]))
+    (let [li (flows/last-inputs-snapshot)]
+      (is (nil? (get-in li [:shared :left]))
           "after re-registration on :left: :left's last-inputs row was dropped (re-evaluate on next drain)")
-      (is (some? (get-in @li [:shared :right]))
+      (is (some? (get-in li [:shared :right]))
           ":right's last-inputs row is PRESERVED — re-registration on :left did not invalidate :right (rf2-jfpf3)"))))
 
 ;; ---------------------------------------------------------------------------
@@ -1007,9 +1003,9 @@
     (is (= :right (:frame (registrar/lookup :flow :shared)))
         ":right's metadata wins after second registration — last-registration-wins per Spec 013 line 105")
     ;; Sanity: both frames still hold the flow in their per-frame registry.
-    (is (contains? (get @flows/flows :left)  :shared)
+    (is (contains? (get (flows/flows-snapshot) :left)  :shared)
         ":left still carries :shared in its per-frame registry")
-    (is (contains? (get @flows/flows :right) :shared)
+    (is (contains? (get (flows/flows-snapshot) :right) :shared)
         ":right carries :shared in its per-frame registry too")))
 
 ;; ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@
 (defn cold-start [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   ;; Wipe both the install slot AND the disposed breadcrumb so each test
   ;; starts from a never-installed cold state (rf2-6wxys). A plain
@@ -52,7 +52,7 @@
   (adapter/reset-lifecycle-state-for-tests!)
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {}))
+  (flows/reset-flows!))
 
 (use-fixtures :each cold-start)
 

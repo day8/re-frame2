@@ -246,10 +246,11 @@
     1. Captures the current registrar (so user-test registrations can be
        rolled back without losing ns-load-time framework / example
        registrations).
-    2. Resets `frame/frames` to `{}`, plus `flows/flows` and
-       `schemas/schemas-by-frame` (when those artefacts are loaded —
-       reset is late-bound so JVM tests that don't pull them in are
-       unaffected).
+    2. Resets `frame/frames` to `{}`, plus the flows registry (via
+       `flows/reset-flows!` per rf2-4gvb4 — atoms are private behind
+       an accessor seam) and `schemas/schemas-by-frame` (when those
+       artefacts are loaded — reset is late-bound so JVM tests that
+       don't pull them in are unaffected).
     3. Disposes the currently-installed substrate adapter.
     4. Cancels the machines' in-flight `:after` wall-clock timers.
     5. Clears trace listeners and adapter warn-once caches
@@ -265,7 +266,9 @@
     8. Runs the test.
     9. Restores the registrar to the captured snapshot.
    10. Resets `frame/frames` back to `{}` for symmetry, and (when their
-       artefacts are loaded) `flows/flows` and `schemas/schemas-by-frame`.
+       artefacts are loaded) the flows registry (via the
+       `:flows/reset-flows!` late-bind hook) and
+       `schemas/schemas-by-frame`.
 
   Steps 9–10 run in a `finally` block so they fire even on test
   exceptions.

@@ -26,6 +26,7 @@
             [re-frame.epoch :as epoch]
             [re-frame.epoch.state :as epoch-state]
             [re-frame.flows :as flows]
+            [re-frame.flows.registry :as flows-registry]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -45,8 +46,8 @@
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! flows/last-inputs {})
+  (flows/reset-flows!)
+  (flows/reset-last-inputs!)
   (reset! schemas/schemas-by-frame {})
   (trace/clear-listeners!)
   (epoch/clear-history!)
@@ -358,10 +359,10 @@
     ;; swap pins the post-condition contract this test cares about
     ;; (the destroy-frame! teardown clears the row) without depending
     ;; on the flow walker firing during this specific dispatch.
-    (swap! flows/last-inputs assoc-in [:composed/area :composed/leak-audit] [3 4])
-    (is (contains? @flows/flows :composed/leak-audit)
+    (flows-registry/swap-last-inputs! assoc-in [:composed/area :composed/leak-audit] [3 4])
+    (is (contains? (flows/flows-snapshot) :composed/leak-audit)
         "precondition: flow registry has a row for the frame")
-    (is (= [3 4] (get-in @flows/last-inputs [:composed/area :composed/leak-audit]))
+    (is (= [3 4] (get-in (flows/last-inputs-snapshot) [:composed/area :composed/leak-audit]))
         "precondition: flow last-inputs has a row for the frame")
 
     (let [observed @(deref #'epoch-state/observed-frames-by-cb)]
@@ -393,9 +394,9 @@
         "post: frame is unregistered from the registrar")
     (is (not (contains? @schemas/schemas-by-frame :composed/leak-audit))
         "post: schema row dropped (per rf2-wkxng / rf2-6m0se)")
-    (is (not (contains? @flows/flows :composed/leak-audit))
+    (is (not (contains? (flows/flows-snapshot) :composed/leak-audit))
         "post: flow registry slot dropped (per rf2-wbtjn)")
-    (is (not (contains? (get @flows/last-inputs :composed/area)
+    (is (not (contains? (get (flows/last-inputs-snapshot) :composed/area)
                         :composed/leak-audit))
         "post: flow last-inputs row dropped for the destroyed frame")
     (is (= [] (rf/epoch-history :composed/leak-audit))

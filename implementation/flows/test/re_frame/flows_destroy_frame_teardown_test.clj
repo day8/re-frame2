@@ -33,8 +33,8 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
-  (reset! flows/last-inputs {})
+  (flows/reset-flows!)
+  (flows/reset-last-inputs!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
@@ -60,10 +60,10 @@
                   :output (fn [w h] (* (or w 0) (or h 0)))
                   :path   [:rect :area]}
                  {:frame :fc/scratch})
-    (is (contains? @flows/flows :fc/scratch)
+    (is (contains? (flows/flows-snapshot) :fc/scratch)
         "precondition: the flow registered under the scratch frame's slot")
     (frame/destroy-frame! :fc/scratch)
-    (is (not (contains? @flows/flows :fc/scratch))
+    (is (not (contains? (flows/flows-snapshot) :fc/scratch))
         "post-destroy: the destroyed frame's slot is gone")))
 
 ;; ---- last-inputs rows cleared on destroy --------------------------------
@@ -81,12 +81,12 @@
     ;; `last-inputs[:area][:fc/scratch]`.
     (rf/dispatch-sync [:fc/seed] {:frame :fc/scratch})
     (is (= [3 4]
-           (get-in @flows/last-inputs [:area :fc/scratch]))
+           (get-in (flows/last-inputs-snapshot) [:area :fc/scratch]))
         "precondition: last-inputs recorded the scratch frame's inputs")
     (frame/destroy-frame! :fc/scratch)
-    (is (not (contains? (get @flows/last-inputs :area) :fc/scratch))
+    (is (not (contains? (get (flows/last-inputs-snapshot) :area) :fc/scratch))
         "post-destroy: the destroyed frame's last-inputs entry is gone")
-    (is (not (contains? @flows/last-inputs :area))
+    (is (not (contains? (flows/last-inputs-snapshot) :area))
         "and the whole flow-id row is dropped (no other frame still held an entry)")))
 
 ;; ---- last-inputs rows from sibling frames are preserved -----------------
@@ -109,12 +109,12 @@
                  {:frame :fc/b})
     (rf/dispatch-sync [:fc/seed-a] {:frame :fc/a})
     (rf/dispatch-sync [:fc/seed-b] {:frame :fc/b})
-    (is (= [2 5] (get-in @flows/last-inputs [:area :fc/a])))
-    (is (= [7 9] (get-in @flows/last-inputs [:area :fc/b])))
+    (is (= [2 5] (get-in (flows/last-inputs-snapshot) [:area :fc/a])))
+    (is (= [7 9] (get-in (flows/last-inputs-snapshot) [:area :fc/b])))
     (frame/destroy-frame! :fc/a)
-    (is (not (contains? (get @flows/last-inputs :area) :fc/a))
+    (is (not (contains? (get (flows/last-inputs-snapshot) :area) :fc/a))
         "destroyed-frame A's last-inputs row is gone")
-    (is (= [7 9] (get-in @flows/last-inputs [:area :fc/b]))
+    (is (= [7 9] (get-in (flows/last-inputs-snapshot) [:area :fc/b]))
         "sibling frame B's last-inputs row is preserved")))
 
 ;; ---- registrar :flow slot pruned when destroyed frame was last owner ----
@@ -169,9 +169,9 @@
           (rf/reg-event-db :fc/seed-churn (fn [_ [_ v]] {:n v}))
           (rf/dispatch-sync [:fc/seed-churn i] {:frame frame-id})
           (frame/destroy-frame! frame-id)))
-      (is (empty? @flows/flows)
+      (is (empty? (flows/flows-snapshot))
           "per-frame flow registry is empty after N destroy cycles")
-      (is (empty? @flows/last-inputs)
+      (is (empty? (flows/last-inputs-snapshot))
           "last-inputs is empty after N destroy cycles")
       (is (nil? (registrar/lookup :flow :churn))
           "registrar :flow slot is gone after the last owning frame was destroyed"))))
@@ -190,9 +190,9 @@
     (rf/dispatch-sync [:fc/seed] {:frame :fc/scratch})
     (frame/destroy-frame! :fc/scratch)
     (rf/reg-frame :fc/scratch {:doc "second incarnation"})
-    (is (not (contains? @flows/flows :fc/scratch))
+    (is (not (contains? (flows/flows-snapshot) :fc/scratch))
         "the new frame has no inherited flow-registry slot")
-    (is (not (contains? (get @flows/last-inputs :area) :fc/scratch))
+    (is (not (contains? (get (flows/last-inputs-snapshot) :area) :fc/scratch))
         "the new frame has no inherited last-inputs row")
     (is (nil? (registrar/lookup :flow :area))
         "the new frame has no inherited :flow registrar slot")))

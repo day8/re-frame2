@@ -92,10 +92,11 @@
       (is (empty? seen)
           "no trace events delivered under :advanced + goog.DEBUG=false"))
     ;; Cross-check: the flow IS registered — the registrar mutation
-    ;; happened, only the trace surface elided. `flows/flows` is keyed
+    ;; happened, only the trace surface elided. The per-frame flow
+    ;; registry (read via `flows/flows-snapshot`) is keyed
     ;; `{frame-id {flow-id flow}}`; the flow registers under
     ;; `:rf/default` by default.
-    (is (some? (get-in @flows/flows [:rf/default :prod-elision/area]))
+    (is (some? (get-in (flows/flows-snapshot) [:rf/default :prod-elision/area]))
         "flow registered in the per-frame index — only trace surface elided")))
 
 ;; ---- :rf.flow/computed elides under prod ----------------------------------
@@ -193,7 +194,7 @@
                    (rf/clear-flow :prod-elision/clearable)))]
       (is (empty? seen)
           "no :rf.flow/cleared trace under prod"))
-    (is (nil? (get-in @flows/flows [:rf/default :prod-elision/clearable]))
+    (is (nil? (get-in (flows/flows-snapshot) [:rf/default :prod-elision/clearable]))
         "flow removed from per-frame index — only trace surface elided")))
 
 ;; ---- :schema output validation elides under prod --------------------------

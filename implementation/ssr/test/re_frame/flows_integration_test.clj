@@ -81,15 +81,14 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (schemas/reset-schema-validator!)
   (reset! request/request-slots {})
   (reset! response/response-slots {})
   (reset! error-listener/pending-error-traces {})
   (reset! head/head-snapshots {})
-  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
-    (reset! @li-var {}))
+  (flows/reset-last-inputs!)
   ;; The error-emit listener registry is a `defonce` atom that survives
   ;; test re-runs (per rf2-bacs4) — clear so a listener registered by one
   ;; test does not leak into the next.

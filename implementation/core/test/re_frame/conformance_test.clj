@@ -219,7 +219,7 @@
 (defn- reset-runtime! []
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! flows/flows {})
+  (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   ;; rf2-wxe9t — drop every corpus-wide error-emit listener so a
   ;; listener installed by `collect-error-emit-records!` for one
