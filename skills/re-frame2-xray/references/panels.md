@@ -101,24 +101,55 @@ implementation at
 
 Question: **What does state LOOK LIKE — and what just changed?**
 
-Two-zone layout (§021 §4.2):
+Sectioned-by-reserved-area layout (§021 §4.2 — the prior DIFF / STATE
+two-zone split is **superseded**, per §021 line 693). The complete
+app-db renders as **vertical sections**, each headed by an uppercase
+caption label and rendering its value as a collapsible cljs-devtools-
+style inspector widget (shared lazy-tree renderer, depth-3-collapsed
+default per §021 §10.4). Adjacent sections are separated by a 1px
+hairline. Diff annotations are carried **inline** as `← changed from X`
+on changed nodes within each section's tree — there is no separate
+DIFF zone; ancestor chains are force-expanded so the operator never
+expands to find a change. Section order, top → bottom:
 
-- **DIFF zone** — changed paths for the focused epoch (`← changed`,
- `← changed from <prior>`, `← added`). Narrow, dense, scannable.
-- **STATE zone** — the full db at end of epoch, rendered via the
- shared lazy-tree edn-inspector (depth-3-collapsed default per §021
- §10.4) with diff annotations inline.
+- **APP STATE** (always shown) — the app-db **minus** every reserved
+ `:rf/*` key (the application's own user-domain state).
+- **MACHINE `<id>`** — `:rf/machines` **fans out** to one section per
+ machine, headed by the machine id (e.g. `MACHINE :title/flow`).
+- **SPAWNED `<id>`** — `:rf/spawned` fans out the same way, one
+ section per spawned instance.
+- **ROUTE** — `:rf/route` is a **singleton** section (the current-
+ route slice; NOT fanned out).
+- **SYSTEM-IDS · PENDING-NAVIGATION · ELISION** — singleton sections
+ for the remaining reserved areas (`:rf/system-ids`,
+ `:rf/pending-navigation`, `:rf/elision`).
+
+Populated reserved areas render; empty / absent reserved areas are
+omitted from the model (rf2-jcdvo) so the operator isn't shown a
+clutter of "no X here" placeholder cards. The APP STATE top section
+always renders even when the user-domain db is empty — it's the
+panel's anchor.
+
+**Underlying paths.** Per rf2-eguy4 phase-A the runtime owns a single
+`:rf/runtime` top-level slot; the operator-facing labels (`:rf/machines`,
+`:rf/route`, …) map to nested sub-paths via the `runtime-areas` lookup
+in
+[`panels/app_db_diff_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/app_db_diff_helpers.cljc)
+— e.g. `:rf/machines → [:rf/runtime :machines :snapshots]`,
+`:rf/route → [:rf/runtime :routing :current]`. Spec source:
+[`004-App-DB-Diff.md` §Reserved-keys group](../../../tools/xray/spec/004-App-DB-Diff.md).
 
 **Downstream-subs hover popover** (§021 §4.4) — hover any changed path
-to surface the subs depending on it + the views rendered + an inline
-`⤴` to jump to the Views panel scrolled to those subs. Popover is
-Xray-owned (not a browser title), keyboard-dismissable. Walks subs
-from the registry's `:input-paths` — see
+within any section to surface the subs depending on it + the views
+rendered + an inline `⤴` to jump to the Views panel scrolled to those
+subs. Popover is Xray-owned (not a browser title), keyboard-
+dismissable. Walks subs from the registry's `:input-paths` — see
 [`panels/shared/sub_input_paths.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/shared/sub_input_paths.cljc).
 
-When the L2 spine is at head (no historical epoch focused), the DIFF
-zone shows the most-recent epoch's diff; STATE shows current db. Same
-render shape — no second mode.
+When the L2 spine is at head (no historical epoch focused), sections
+show the most-recent epoch's state with its inline diff annotations
+(head-cascade) — current db, sectioned. Same render shape, no second
+mode.
 
 **Open when:** "what just changed in app-db?", "what's downstream of
 `[:cart :items]`?", "show me the full db at this epoch."
@@ -127,8 +158,8 @@ Spec: [`021-Dynamic-Panel-Designs.md` §4](../../../tools/xray/spec/021-Dynamic-
 + [`004-App-DB-Diff.md`](../../../tools/xray/spec/004-App-DB-Diff.md);
 implementation at
 [`panels/app_db_diff.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/app_db_diff.cljs)
-+ siblings (`app_db_diff_{events,format,subs,state}.cljs`); the
-downstream-subs walk lives in
++ siblings (`app_db_diff_{events,format,subs,state,helpers}.{cljs,cljc}`);
+the downstream-subs walk lives in
 [`panels/app_db_diff_subs.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/app_db_diff_subs.cljs)
 + the shared
 [`panels/shared/sub_input_paths.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/shared/sub_input_paths.cljc).
