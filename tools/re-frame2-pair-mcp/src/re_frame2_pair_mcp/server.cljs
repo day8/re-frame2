@@ -414,7 +414,14 @@
 
   Used by both `--port-file` (rf2-3dbwh) and `--http-port` (rf2-umoz2);
   one parser, one shape — so a future string-valued flag lands here
-  without growing a per-flag micro-parser."
+  without growing a per-flag micro-parser.
+
+  ## DRY-on-5 trigger (rf2-xnbvz)
+
+  Today two string-valued flags ride through this helper. If a fifth
+  lands, switch to a declared schema (vector of `{:flag :type :env}`
+  maps reduced over) — more elegant than five hand-rolled `parse-X-flag`
+  helpers. Not needed at 2; the 3rd and 4th can ride through unchanged."
   [flag-name argv]
   (let [equals-prefix (str flag-name "=")]
     (loop [items argv
