@@ -216,19 +216,23 @@
 
 (defn reserved-keys-buffer
   "Epoch mutating reserved app-db keys (per Spec Conventions §Reserved
-  app-db keys: `:rf/machines`, `:rf/route`, `:rf/spawned`, `:rf/elision`).
-  Panel routes these into the `[runtime]` group via
+  app-db keys the runtime owns ONE top-level slot, `:rf/runtime`,
+  which nests the per-area sub-paths catalogued by the panel's
+  `runtime-areas` table — `:routing :current`, `:machines :snapshots`,
+  `:machines :spawned`, `:elision`). Panel routes diff triples rooted
+  in `:rf/runtime` into the `[runtime]` group via
   `app-db-diff-helpers/partition-reserved` — the axis pins that branch."
   []
   [(epoch-record
      {:epoch-id 10
       :event    [:rf/route-change]
-      :db-before {:rf/route    {:path "/home"}
-                  :rf/machines {}
+      :db-before {:rf/runtime {:routing  {:current {:path "/home"}}
+                               :machines {:snapshots {}}}
                   :counter 5}
-      :db-after  {:rf/route    {:path "/cart" :query {:tab :items}}
-                  :rf/machines {:checkout {:state :idle}}
-                  :rf/spawned  {:worker/sync :alive}
+      :db-after  {:rf/runtime {:routing  {:current {:path "/cart"
+                                                    :query {:tab :items}}}
+                               :machines {:snapshots {:checkout {:state :idle}}
+                                          :spawned   {:worker/sync :alive}}}
                   :counter 6}})])
 
 ;; ---- tab-specific buffer builders --------------------------------------
