@@ -731,8 +731,3 @@ without :axis (rf2-jlsvj — lock the public-API contract)"
         (is (= :re-frame.story.registrar/no-axis
                (get idx :dev)))))))
 
-;; ---- Stage 6 contract check -----------------------------------------
-
-(deftest stage-marker
-  (testing "the loaded surface advertises Stage 6 (sota-features)"
-    (is (= :sota-features re-frame.story/stage))))

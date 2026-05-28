@@ -178,13 +178,13 @@ requests, calls Story's public CLJS / CLJC functions, serialises
 responses back over stdio. Zero agent-specific logic lives in
 `tools/story/`.
 
-## Stage markers — independent cadence
+## Independent cadence
 
-Story's own `re-frame.story/stage` advances as Story's surface
-extends (e.g. `:sota-features` after Stage 6). The MCP jar carries
-its own `re-frame.story-mcp.config/stage = :mcp` — the two artefacts
-have **independent stage progression** and ship at **independent
-cadence** per [`tools/README.md`](../../README.md).
+Story and the MCP jar ship at **independent cadence** per
+[`tools/README.md`](../../README.md). The MCP jar carries its own
+`re-frame.story-mcp.config/stage = :mcp` sentinel; Story's own
+loaded-surface marker was removed (rf2-mobwk) — a single-value
+sentinel carried no discriminator information.
 
 ## Cross-references
 

@@ -984,13 +984,6 @@
   []
   config/static-mode?)
 
-(def stage
-  "Sentinel naming the loaded feature surface. Read by tools that
-  adapt to which Story surface is live; v1.0 is `:sota-features` —
-  every public surface (authoring + runtime + render-shell +
-  assertions+play + sota-features) is present."
-  :sota-features)
-
 ;; ---- UI shell mount / unmount surface -----------------------------------
 ;;
 ;; Per IMPL-SPEC §4 + §8.4 the shell entry points are CLJS-only —
