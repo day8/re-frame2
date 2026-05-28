@@ -30,11 +30,15 @@
 ;; runtime classpath.
 {:paths []
 
- :deps  {org.clojure/clojure {:mvn/version "1.12.0"}
+ :deps  {org.clojure/clojure  {:mvn/version "1.12.0"}
          ;; Malli for schema validation. Already on the implementation's
          ;; classpath (used by tools/story-mcp); pinning the same version
          ;; here so the schema syntax matches.
-         metosin/malli       {:mvn/version "0.16.4"}}
+         metosin/malli        {:mvn/version "0.16.4"}
+         ;; data.json for the verb-vocab linter (rf2-vkx7m) — reads each
+         ;; server's canonical `tool-names.json` fixture to lint against
+         ;; the NAMING.md verb catalogue.
+         org.clojure/data.json {:mvn/version "2.5.0"}}
 
  :aliases
  ;; All fixtures are inlined in `wire_vocab_test.clj` (as the `:fixtures`
