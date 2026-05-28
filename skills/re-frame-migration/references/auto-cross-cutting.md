@@ -49,7 +49,7 @@ Also rewrite the app-db slice path `[:route]` → `[:rf/runtime :routing :curren
 
 ### M-54 — schema vocabulary unification (`:spec` → `:schema`)
 
-Closed mechanical rename set. Apply across all source files. the dual-key read `(or (:schema meta) (:spec meta))` was stripped — `:spec` on `reg-*` metadata is no longer accepted, and the `:rf.warning/deprecated-schema-alias` warning is gone with it. Stale `:spec` slots are silently ignored (schemaless registrations), so an incomplete rewrite is a correctness hazard — sweep every slot.
+Closed mechanical rename set. Apply across all source files. The dual-key read `(or (:schema meta) (:spec meta))` was stripped — `:spec` on `reg-*` metadata is no longer accepted, and the `:rf.warning/deprecated-schema-alias` warning is gone with it. Stale `:spec` slots are silently ignored (schemaless registrations), so an incomplete rewrite is a correctness hazard — sweep every slot.
 
 ```
 ;; Framework-reserved keyword renames — single-token global rewrites:
@@ -140,7 +140,7 @@ The old names are **removed** — stale call sites raise unresolved-symbol at co
 
 ## `:rf.http/managed` `:retry :on` closed-set (M-31b)
 
-the `:retry :on` set on `:rf.http/managed` requests no longer accepts arbitrary `:rf.http/*` keywords. The closed retryable subset is:
+The `:retry :on` set on `:rf.http/managed` requests no longer accepts arbitrary `:rf.http/*` keywords. The closed retryable subset is:
 
 ```
 #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
