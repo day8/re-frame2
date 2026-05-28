@@ -32,6 +32,8 @@ The job is to walk the engineer through two phases:
 1. **Phase 1** — lock the load-bearing decisions (target language, substrate, scope, identity primitive, persistent data, concurrency, schema mechanism, hot-reload).
 2. **Phase 2** — implement EPs in dependency order (001 → 002 → 006 → 004 → 009, then optional EPs per Phase 1 scope), validated by the conformance corpus.
 
+> **Term: EP.** Throughout this skill, "EP" abbreviates **Extension Point** — a numbered per-area Spec in the corpus at [`spec/`](../../spec/). EP 001 corresponds to [`spec/001-Registration.md`](../../spec/001-Registration.md), EP 002 to [`spec/002-Frames.md`](../../spec/002-Frames.md), and so on. The spec itself calls these "numbered Specs"; this skill uses "EP" as a compact shorthand because the walking order, dependency graph, and conformance-fixture families are all keyed off the numbers.
+
 ## When NOT to use this skill
 
 Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for authoring on the CLJS reference, greenfield bootstrap, v1→v2 migration, live-app inspection, or pattern-rationale reading.
