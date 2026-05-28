@@ -42,7 +42,12 @@
   Putting the canonical Var here makes the read and the binding hit
   identical Vars — a `(def ^:dynamic *render-key* provider/*render-key*)`
   re-export would create a SECOND Var whose binding the test wouldn't
-  observe."
+  observe.
+
+  The view-deref-sink + first-render? machinery (`*view-deref-sink*`,
+  `record-view-deref!`, `first-render?!`, `clear-seen-render-keys!`)
+  introduced in rf2-9hoos — see the per-block sections below for
+  contract detail."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance :include-macros true]
@@ -93,7 +98,7 @@
   []
   *render-key*)
 
-;; ---- per-render deref sink (view→sub edges, rf2-9hoos) -------------------
+;; ---- per-render deref sink (view→sub edges) -----------------------------
 ;;
 ;; Captures the set of subscription query-vectors a view derefs DURING
 ;; its render, so the `:rf.view/rendered` trace can carry the view's OWN
@@ -114,13 +119,13 @@
 
 (def ^:dynamic *view-deref-sink*
   "Per-render volatile holding the set of subscription query-vectors the
-  in-flight view render has deref'd so far (rf2-9hoos). Bound by the
+  in-flight view render has deref'd so far. Bound by the
   `build-frame-aware-view` wrapper for the duration of each render under
   `interop/debug-enabled?`; nil otherwise."
   nil)
 
 (defn record-view-deref!
-  "Union `query-v` into the in-flight render's deref sink (rf2-9hoos).
+  "Union `query-v` into the in-flight render's deref sink.
   No-op when no render is on the stack (`*view-deref-sink*` nil — a
   handler-side subscribe, an SSR walk, a direct read). Published through
   late-bind under `:views/record-view-deref!` so `re-frame.subs/subscribe`
@@ -131,7 +136,7 @@
     (vswap! sink conj query-v))
   nil)
 
-;; ---- mount-vs-rerender discrimination (rf2-9hoos) ------------------------
+;; ---- mount-vs-rerender discrimination ------------------------------------
 ;;
 ;; `:rf.view/rendered` fires on every render; the `:mount?` flag
 ;; discriminates a component instance's FIRST render from its subsequent
@@ -147,7 +152,7 @@
 
 (defn first-render?!
   "Return `true` the FIRST time `render-key` is seen this process run,
-  `false` thereafter — the mount-vs-rerender discriminator (rf2-9hoos).
+  `false` thereafter — the mount-vs-rerender discriminator.
   Side-effecting: records the key on first sighting. Caller gates on
   `interop/debug-enabled?`."
   [render-key]
@@ -155,7 +160,7 @@
     (not (contains? old render-key))))
 
 (defn clear-seen-render-keys!
-  "Wipe the seen-render-keys set (rf2-9hoos). Test fixtures call this so
+  "Wipe the seen-render-keys set. Test fixtures call this so
   a sibling test's `:mount?` flag does not leak across cases (the
   per-process set would otherwise report a re-used render-key as a
   rerender in the next test). Wired into the chained
