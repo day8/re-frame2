@@ -504,9 +504,8 @@
 ;; key) — so per-frame isolation is achieved by routing the helpers
 ;; through the appropriate frame's db value.
 ;;
-;; Pre-rf2-1aqz the helpers were reachable only through the navigate
-;; flow's scroll fx; a regression in either fn would only surface via
-;; integration. These tests pin the round-trip directly.
+;; These tests pin the helper round-trip directly so a regression in
+;; either fn surfaces without going through the navigate flow's scroll fx.
 
 (deftest scroll-position-lookup-after-save
   (testing "save-scroll-position then lookup-scroll-position round-trips
@@ -769,17 +768,12 @@
 ;; malformed link must produce a route-miss (404 path), never a request-
 ;; handler crash.
 ;;
-;; rf2-4ic0f tightened the contract uniformly across path / query /
-;; fragment: ALL three fail closed at the URL level — `match-url`
-;; returns nil regardless of which portion is malformed. Pre-rf2-4ic0f
-;; the query branch was lenient (silently dropped the bad pair); that
-;; let hostile URLs into the routing slice when the host route had no
-;; required keys. The new contract refuses any URL whose %-encoding
-;; cannot be uniformly decoded.
+;; Contract (rf2-4ic0f): uniform fail-closed across path / query /
+;; fragment — `match-url` returns nil regardless of which portion is
+;; malformed. The runtime refuses any URL whose %-encoding cannot be
+;; uniformly decoded.
 ;;
-;; The reproducer from the security audit: `(routing/match-url "/search?x=%")`
-;; previously threw `IllegalArgumentException` on JVM; pre-rf2-4ic0f
-;; resolved to `{:route-id :route/search :query {}}`; post-rf2-4ic0f
+;; Reproducer from the security audit: `(routing/match-url "/search?x=%")`
 ;; resolves to nil (route-miss → `:rf.route/not-found` with
 ;; `:reason :malformed-url` at `:rf.route/transitioned`).
 
@@ -1952,17 +1946,14 @@
 ;; ---- rf2-5ifai: no :query vocabulary -> all string keys ------------------
 ;;
 ;; Per Spec 012 §Query strings and fragments and the rf2-tfgdv security
-;; review. Pre-rf2-5ifai a route declaring NO query vocabulary at all
-;; (no `:query` / `:query-defaults` / `:query-retain`) received the
-;; legacy "keyword-all" shortcut — every URL key was promoted to a
-;; permanent JVM keyword. That symmetrical-to-rf2-3k3o7 leak was the
-;; same DoS surface seen on the value side: hostile URLs composed of
-;; N-unique keys burn N permanent JVM keyword slots, and a bare
-;; `(reg-route :route/x {:path "/x"})` is precisely the high-cardinality
-;; public-surface case where this hits hardest. Post-rf2-5ifai routes
-;; that declare no vocabulary keep every URL key as a string. Authors
-;; who want keyword keys declare them via `:query` / `:query-defaults`
-;; / `:query-retain` — author-named intent is the trust boundary.
+;; review: a route declaring NO query vocabulary at all (no `:query` /
+;; `:query-defaults` / `:query-retain`) keeps every URL key as a string.
+;; Authors who want keyword keys declare them via `:query` /
+;; `:query-defaults` / `:query-retain` — author-named intent is the
+;; trust boundary. Symmetrical to the rf2-3k3o7 value-side fix: hostile
+;; URLs composed of N-unique keys would otherwise burn N permanent JVM
+;; keyword slots, and a bare `(reg-route :route/x {:path "/x"})` is the
+;; high-cardinality public-surface case where the DoS hits hardest.
 
 (deftest rf2-5ifai-no-vocabulary-route-keeps-all-keys-as-strings
   (testing "rf2-5ifai: a route declaring NO :query vocabulary keeps
@@ -2604,11 +2595,9 @@
 (deftest can-leave-non-boolean-blocks-navigation
   (testing "a :can-leave sub that returns a non-boolean truthy value
             BLOCKS navigation and emits :rf.error/can-leave-non-boolean
-            (rf2-5pyyl). Closed contract: pre-rf2-5pyyl the runtime
-            tolerated non-booleans with a warning and let the nav
-            through; now it BLOCKS so the polarity bug (returning the
-            dirty-flag value rather than (not dirty?)) cannot silently
-            strand form state."
+            (rf2-5pyyl). Closed contract — blocking ensures the polarity
+            bug (returning the dirty-flag value rather than (not dirty?))
+            cannot silently strand form state."
     (rf/reg-route :editor/article
                   {:path      "/editor/articles/:id"
                    :params    [:map [:id :string]]
@@ -2617,8 +2606,7 @@
     (rf/reg-event-db :editor/set-dirty
                      (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
     ;; Polarity bug: return the dirty-flag directly (truthy when dirty).
-    ;; Pre-rf2-5pyyl this would pass the nav through (it's truthy);
-    ;; now it must BLOCK.
+    ;; A truthy non-boolean must BLOCK nav (rf2-5pyyl).
     (rf/reg-sub :editor/leave?
                 (fn [db _] (get-in db [:editor :dirty?])))
     (rf/reg-fx :rf.nav/push-url

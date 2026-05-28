@@ -19,11 +19,9 @@
   a recompute landing AFTER the last derefer has dropped is a wasted
   cycle, and the elegant fix is to never schedule it.
 
-  The pre-rf2-cmfln implementation deferred disposal by `grace-period-ms`
-  (default 50ms) to absorb React-render-churn — components briefly
-  unmount/remount with the same subscription. With sync dispose the
-  shared-component-thrash scenario re-builds the slot on the new mount;
-  this is acceptable per the bead's design phase (rf2-cmfln) — the
+  The shared-component-thrash scenario (a component unmounts and the
+  same subscription remounts in the same tick) re-builds the slot on the
+  new mount; this is acceptable per the rf2-cmfln design — the
   recomputed value is `=` to the disposed one, so the post-mount render
   observes no value change, and the cache-miss path's cost is dominated
   by `compute-and-cache!`'s reaction construction (one allocation, no

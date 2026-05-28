@@ -10,12 +10,12 @@
   a structured `:rf.error/<artefact>-artefact-missing` ex-info,
   depending on the surface's contract.
 
-  Pre-rf2-h824v the seven `core_<artefact>.cljc` files carried ~740 LoC
-  of structurally-identical late-bind boilerplate — 26 `ex-info`
-  literals each spelling the same skeleton. This namespace replaces
-  the boilerplate with a single `defwrapper` macro driven by a
-  declarative per-row spec, paired with the `late-bind/require-fn!`
-  helper (rf2-uchhp) that centralises the throw shape.
+  The seven `core_<artefact>.cljc` files share their late-bind shape —
+  per-row declarative spec, structured throw, optional safe-default —
+  through a single `defwrapper` macro defined here, paired with the
+  `late-bind/require-fn!` helper (rf2-uchhp) that centralises the throw
+  skeleton. One macro + one helper replaces what would otherwise be ~26
+  `ex-info` literals copied across the artefact wrappers.
 
   ## `defwrapper` shape
 

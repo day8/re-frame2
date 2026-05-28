@@ -462,9 +462,9 @@
         ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
         (if-let [validate (late-bind/get-fn-cached :schemas/validate-app-schema!)]
           (try
-            ;; nil-coerce: pre-rf2-6m0se the fn returned nil on success.
-            ;; Treat nil as true (don't roll back) so a hosted port that
-            ;; still ships the older contract keeps working.
+            ;; nil-coerce: treat a nil return as success (don't roll
+            ;; back) so a host that returns nil rather than true on a
+            ;; clean validate keeps working.
             (let [r (validate db-after event-id frame)]
               (if (nil? r) true r))
             (catch #?(:clj Throwable :cljs :default) _ true))

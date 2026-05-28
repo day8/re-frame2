@@ -163,9 +163,8 @@
 ;; Per rf2-ejtpd, `:source` is ALSO not inherited — each fx-emitted
 ;; child dispatch's `:source` reflects its immediate trigger
 ;; (`:fx-dispatch` / `:fx-dispatch-later`), stamped by the fx handler
-;; below. Pre-rf2-ejtpd `:source` was inherited, causing every fx-emitted
-;; descendant to mis-report the originating user event's trigger (a
-;; `:dispatch` fx three levels deep kept reporting `:source :ui`).
+;; below. Inheriting `:source` would mis-report a `:dispatch` fx three
+;; levels deep as `:source :ui`.
 (def ^:private inheritable-envelope-keys
   [:frame :fx-overrides :interceptor-overrides :trace-id :origin])
 
@@ -282,12 +281,10 @@
    ;; the dispatching frame.
    ;;
    ;; Both fx-ids route through the SAME hooks the public API uses
-   ;; (`:flows/reg-flow` / `:flows/clear-flow`). Pre-rf2-7ppmo the
-   ;; flows artefact published four hooks — two API-shape, two fx-
-   ;; shape — but the API-shape hooks already accept `(arg opts)` with
-   ;; opts carrying `:frame`, and `call-frame-scoped-hook!` passes
-   ;; `{:frame frame-id}` as the second arg. The fx-shape hooks were
-   ;; one-line pass-throughs; consolidated to two hooks.
+   ;; (`:flows/reg-flow` / `:flows/clear-flow`) — the API-shape hooks
+   ;; accept `(arg opts)` with opts carrying `:frame`, and
+   ;; `call-frame-scoped-hook!` passes `{:frame frame-id}` as the second
+   ;; arg, so one hook pair serves both surfaces.
    :rf.fx/reg-flow
    (fn [frame-id _parent-envelope args]
      (call-frame-scoped-hook! :flows/reg-flow frame-id args))

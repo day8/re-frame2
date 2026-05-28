@@ -66,14 +66,11 @@
 ;; ---- validate-at-boundary-interceptor registration-time validation (rf2-iftj4) -----------------
 ;;
 ;; The `:rf.schema/at-boundary` interceptor (per Spec 010 §Production builds)
-;; is structurally meaningless without a `:schema` to validate against. If a
-;; developer attaches it to a handler that carries no `:schema` metadata,
-;; pre-rf2-iftj4 the runtime emitted `:rf.warning/boundary-without-spec` on
-;; the FIRST dispatch in a production build only — dev builds were silent,
-;; and the misconfiguration only surfaced in prod. Per rf2-ycqtv finding #8
-;; (Mike-pick option (b)), the registrar now hard-rejects the registration
-;; with `:rf.error/at-boundary-missing-schema` so the developer learns
-;; immediately, regardless of dev/prod gate.
+;; is structurally meaningless without a `:schema` to validate against. Per
+;; rf2-ycqtv finding #8 (Mike-pick option (b)), the registrar hard-rejects
+;; any handler that attaches the interceptor without `:schema` metadata,
+;; throwing `:rf.error/at-boundary-missing-schema` at reg time so the
+;; developer learns immediately, regardless of dev/prod gate.
 ;;
 ;; Detection is by interceptor `:id` (`:rf.schema/at-boundary`), not by var
 ;; equality — keeps `events` decoupled from `re-frame.spec` (which depends
