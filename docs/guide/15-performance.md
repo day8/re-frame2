@@ -284,7 +284,7 @@ Most apps stop on rung one.
 
 ## The `rf:` Performance API surface
 
-The trace bus from [Xray](../xray/index.md) is dev-only — it carries causal detail and disappears in production. But there's a second, narrower observation channel built for *production* timing: APM dashboards, in-house perf overlays, "is this page slower in prod than in dev?" investigations. It rides the browser's [User Timing API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing).
+The trace bus from [chapter 16 — Observability](16-observability.md) is dev-only — it carries causal detail and disappears in production. But there's a second, narrower observation channel built for *production* timing: APM dashboards, in-house perf overlays, "is this page slower in prod than in dev?" investigations. It rides the browser's [User Timing API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing).
 
 When it's on, the runtime brackets four hot-path call sites with `performance.mark` / `performance.measure` entries, all stably named under the `rf:` prefix:
 
@@ -370,6 +370,6 @@ A few performance topics that *aren't* re-frame2 stories, named so you don't go 
 - **Bundle size** is a Closure-compiler story. The trace surface and the `rf:` channel both DCE under `goog.DEBUG=false`; keeping *your* code small is an `:advanced`-compiler concern, not a framework one.
 - **Animation jank** is usually DOM/CSS. Reagent renders into React renders into the DOM; smooth `transform`/`opacity` lives one layer deeper, with the browser's `will-change` and compositing tricks. The chunked-work machine helps only when you've blocked the main thread.
 - **SSR performance** is JVM-side, the `rf:` channel is browser-only, and profiling it uses host tools. The shape of [chapter 20](20-server-side.md) governs server-side cost, not this chapter.
-- **Sub-graph topology** — `(rf/sub-topology)`, in [Xray](../xray/index.md) — is the lever for finding dead subs and visualising dependencies. The performance angle is "every redundant edge is a potential cache miss"; the tooling covers the rest.
+- **Sub-graph topology** — `(rf/sub-topology)`, surfaced in [Xray](../xray/index.md) (the tooling tour is [chapter 17](17-tooling.md)) — is the lever for finding dead subs and visualising dependencies. The performance angle is "every redundant edge is a potential cache miss"; the tooling covers the rest.
 
 The throughline, if you take nothing else: four shapes account for nearly every slowdown, the cures compose and stack in order of cost, and most apps never climb past thin-props-and-keys. The framework hands you fast by default; this chapter is just the map for the day you accidentally gave it back.
