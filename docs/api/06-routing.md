@@ -4,7 +4,7 @@ Routes in re-frame2 are *data*. You register a route with metadata — `:path`, 
 
 The point isn't novelty — every SPA framework has a router. The point is that **routing-as-state** means the router is debuggable with the same tools that debug everything else. Time-travel works. The trace bus sees navigation. Tests dispatch `:rf.route/navigate` like any other event. There's no special "router debug mode" because the router doesn't have its own mode.
 
-This chapter covers the registration shape, the dispatch / sub / fx surface, and the helpers that map URLs to/from route ids. For nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing, see [Guide ch.19 — Routing reference](../guide/19-routing-ref.md). The normative source is [012-Routing.md](../../spec/012-Routing.md).
+This chapter covers the registration shape, the dispatch / sub / fx surface, and the helpers that map URLs to/from route ids. For nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing, see [Guide ch.19 — Routing reference](../guide/19-routing.md). The normative source is [012-Routing.md](../../spec/012-Routing.md).
 
 ## Registration
 
@@ -42,7 +42,7 @@ This chapter covers the registration shape, the dispatch / sub / fx surface, and
 | `:parent` | Another route id; builds a chain readable via `:rf.route/chain`. |
 | `:on-match` | Event vector(s) to dispatch when the route activates. |
 | `:on-error` | Event vector dispatched if any `:on-match` event errors. |
-| `:can-leave` | Predicate or guard event; blocks navigation when truthy. See [Guide ch.19 — Navigation blocking](../guide/19-routing-ref.md#navigation-blocking--the-can-leave-protocol). |
+| `:can-leave` | Predicate or guard event; blocks navigation when truthy. See [Guide ch.19 — Navigation blocking](../guide/19-routing.md#navigation-blocking--the-can-leave-protocol). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
 
 Canonical detail in [012-Routing.md](../../spec/012-Routing.md); the metadata schema is [Spec-Schemas §`:rf/route-metadata`](../../spec/Spec-Schemas.md#rfroute-metadata).
@@ -137,11 +137,11 @@ The full `:rf/route` slice is `{:id :params :query :transition :error}`. The sta
 | `[:rf.nav/scroll scroll-spec]` | scroll-spec map | `:client` | Restore or set scroll position. |
 | `[:rf.route/with-nav-token {:do <fx-entry> :nav-token <token>}]` | universal | universal | Wrap an fx with a navigation token. If the token has been superseded by a later navigation, the wrapped fx is suppressed and `:rf.route.nav-token/stale-suppressed` fires. |
 
-The nav-token wrapper is what makes "user navigates away mid-load" safe: the older load's reply carries the stale token, the runtime suppresses it, and you don't see the older page's data overwrite the newer page's state. Full semantics in [Guide ch.19 — Navigation tokens](../guide/19-routing-ref.md#navigation-tokens--stale-result-suppression).
+The nav-token wrapper is what makes "user navigates away mid-load" safe: the older load's reply carries the stale token, the runtime suppresses it, and you don't see the older page's data overwrite the newer page's state. Full semantics in [Guide ch.19 — Navigation tokens](../guide/19-routing.md#navigation-tokens--stale-result-suppression).
 
 ## See also
 
 - [01 — Core](01-core.md) — `reg-route` rowed in registration.
 - [09 — SSR](09-ssr.md) — routes participate in SSR; the active route's `:head` registration is what `render-head` looks up.
-- [Guide ch.18 — Routing](../guide/18-routing.md) and [Guide ch.19 — Routing reference](../guide/19-routing-ref.md) — narrative coverage including nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing.
+- [Guide ch.18 — Routing](../guide/19-routing.md) and [Guide ch.19 — Routing reference](../guide/19-routing.md) — narrative coverage including nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing.
 - [Spec 012 — Routing](../../spec/012-Routing.md) — the normative source.

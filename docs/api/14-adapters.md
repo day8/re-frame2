@@ -223,4 +223,4 @@ There's a fourth adapter — Plain Atom — that ships in core and exists for tw
 - [02 — Views](02-views.md) — the substrate-agnostic ergonomic surface (`dispatcher`, `subscriber`, `with-frame`, `bound-fn`, `frame-provider`).
 - [13 — Lifecycle](13-lifecycle.md) — `init!`, `install-adapter!`, `destroy-adapter!`, `current-adapter`, `adapter-disposed?`.
 - [Spec 006 — Reactive Substrate](../../spec/006-ReactiveSubstrate.md) — the adapter contract.
-- [Guide ch.21 — Adapters](../guide/21-adapters.md) — narrative coverage with worked examples.
+- [Guide ch.21 — Adapters](../guide/22-adapters.md) — narrative coverage with worked examples.

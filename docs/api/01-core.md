@@ -96,7 +96,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-cofx id ?metadata handler)
   ```
-- **Description**: "Inject something into the handler's coeffect map." A `:now` cofx hands the current time; an `:rf.server/request` cofx hands the active HTTP request. Reading a sub from a handler is also done by cofx-wrapping — see [Guide ch.06 §Reading a sub from a handler](../guide/06-coeffects.md#reading-a-sub-from-a-handler).
+- **Description**: "Inject something into the handler's coeffect map." A `:now` cofx hands the current time; an `:rf.server/request` cofx hands the active HTTP request. Reading a sub from a handler is also done by cofx-wrapping — see [Guide ch.06 §Reading a sub from a handler](../guide/07-effects-and-coeffects.md#reading-a-sub-from-a-handler).
 - **Example**:
   ```clojure
   (rf/reg-cofx :app/now
