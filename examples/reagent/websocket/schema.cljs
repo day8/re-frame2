@@ -114,8 +114,9 @@
    [:draft    :string]
    ;; Received-message log: newest-first so the view renders top-down.
    [:received [:vector Message]]
-   ;; Last correlated reply landed via :ws/reply — handy for the
-   ;; request-reply round-trip view + the Playwright smoke assertion.
+   ;; Last correlated reply landed via :ws.app/request-reply (or via
+   ;; :ws/handle-message for server pushes) — handy for the request-reply
+   ;; round-trip view + the Playwright smoke assertion.
    [:last-reply [:maybe :any]]
    ;; Monotonic counter feeding each message's stable :rx-seq.
    [:rx-count :int]])

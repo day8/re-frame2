@@ -14,7 +14,7 @@
 
    Demonstrates:
    - The subscription graph at full strength
-   - Cycles detected by walking declared deps                (per-formula static dep set)
+   - Cycles detected via a visited-set walk during evaluation
    - Open-map cell registry (sparse storage)
    - Pure parser + evaluator (no eval, no host I/O)
 
@@ -258,13 +258,11 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; React root named `react-root` (not `root`) so it does NOT collide
-;; with reg-view-defined view vars in this ns.
-(defonce react-root
+(defonce root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:cells/initialise])
-  (rdc/render react-root [cells-grid]))
+  (rdc/render root [cells-grid]))

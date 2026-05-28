@@ -175,14 +175,16 @@
 ;;     `<body>` begins downloading.
 ;;  2. Resolved-card chunks stream in via Transfer-Encoding: chunked.
 ;;     Each one is `<template data-rf2-suspense-resolved=…>…</template>`
-;;     plus `<script data-rf2-suspense-hydrate=…>…</script>`. Our shim
-;;     (forthcoming, see below) swaps the fallback for the resolved
-;;     content and merges the per-subtree delta into the client app-db.
-;;  3. The final `<script id="__rf_payload">` arrives last. The shim
-;;     dispatches `:rf/hydrate` with the canonical full payload, which
-;;     runs :replace-app-db semantics — the per-card deltas were
-;;     progressive-render speed props; the final payload is the
-;;     correctness lock.
+;;     plus `<script data-rf2-suspense-hydrate=…>…</script>`. In a real
+;;     deployment, a thin client shim would swap the fallback for the
+;;     resolved content and merge the per-subtree delta into the client
+;;     app-db; this canned demo skips that step — the index.html host
+;;     shell already contains the pre-baked resolved chunks, so the DOM
+;;     is in its final shape by the time `run` executes.
+;;  3. The final `<script id="__rf_payload">` is the canonical full
+;;     payload; `run` dispatches `:rf/hydrate` against it, which runs
+;;     :replace-app-db semantics — the per-card deltas were progressive-
+;;     render speed props; the final payload is the correctness lock.
 
 #?(:cljs
    (defn read-server-payload []

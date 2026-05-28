@@ -27,7 +27,7 @@
                   :auth.login/flow → :auth.login/submit on submit.
 
                   View-side discriminators read the machine's runtime-projected
-                  `:tags` set (ch.09 §State tags) via `rf/machine-has-tag?`, not boolean
+                  `:tags` set (ch.11 §State tags) via `rf/machine-has-tag?`, not boolean
                   state-predicate subs."}
           login-form []
   (let [state (atom {:email "" :password ""})]

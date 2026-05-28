@@ -1,7 +1,7 @@
 (ns state-machine-walkthrough.core
   "Runnable companion to docs/guide/11-machines.md.
 
-  This is the login-flow chapter as code. Every prose snippet in ch.09
+  This is the login-flow chapter as code. Every prose snippet in ch.11
   appears here in the order the chapter introduces it; each section
   ends with a smoke-test fn that drives the machine through the
   scenario the chapter describes.
@@ -29,7 +29,13 @@
             ;; :fx-overrides into :rf.http/managed-canned-* relies on
             ;; those fx ids being registered. Registration lives in
             ;; re-frame.http-test-support.
-            [re-frame.http-test-support]))
+            [re-frame.http-test-support]
+            ;; The canned-failure / canned-success stubs below delegate
+            ;; to the framework-shipped `:rf.http/managed-canned-*` fxs
+            ;; via the registrar so the example demo (views.cljs) and
+            ;; the headless tests (test/state_machine_walkthrough/core_test.cljc)
+            ;; can share one registration point.
+            [re-frame.registrar :as registrar]))
 
 ;; ============================================================================
 ;; THE TRANSITION TABLE — chapter §The same flow as a machine
@@ -103,7 +109,7 @@
     :submitting
     ;; :auth/busy tag — views query (rf/machine-has-tag? :auth.login/flow
     ;; :auth/busy) to disable inputs and re-label the submit button
-    ;; while the request is in flight (ch.09 §State tags).
+    ;; while the request is in flight (ch.11 §State tags).
     {:tags  #{:auth/busy}
      :entry :issue-request
      :on    {:auth.login/success {:target :authed
@@ -145,6 +151,32 @@
   {:doc "Stub: a real implementation would write localStorage."}
   (fn [_m _args] nil))
 
+;; Per Spec 014 §Testing, the framework ships `:rf.http/managed-canned-success`
+;; and `:rf.http/managed-canned-failure` fxs that synthesise the canonical reply
+;; shape. The wrappers below pin the example's specific payloads — both the
+;; browser demo (views.cljs installs the canned-failure override on the
+;; default frame) and the headless tests (core-test.cljc reads them via
+;; `:fx-overrides`) consume them.
+
+(rf/reg-fx :auth.login/canned-success
+  {:doc "Example stub: every `:rf.http/managed` call resolves :success with a
+         canned user/token payload. Delegates to the framework-shipped
+         `:rf.http/managed-canned-success` per Spec 014 §Testing."}
+  (fn [frame-ctx args-map]
+    (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+      (stub frame-ctx (assoc args-map :value {:user  {:id "test-user"}
+                                              :token "test-token"})))))
+
+(rf/reg-fx :auth.login/canned-failure
+  {:doc "Example stub: every `:rf.http/managed` call resolves :failure.
+         Delegates to the framework-shipped `:rf.http/managed-canned-failure`
+         per Spec 014 §Testing."}
+  (fn [frame-ctx args-map]
+    (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+      (stub frame-ctx (assoc args-map
+                             :kind :rf.http/http-4xx
+                             :tags {:message "bad creds" :status 401})))))
+
 ;; ============================================================================
 ;; REGISTRATION — chapter §Wiring a machine into the rest of re-frame
 ;; ============================================================================
@@ -163,7 +195,7 @@
 ;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
 ;; Spec 005). These named subs project out the convenient pieces. The
 ;; "in :submitting?" / "in :authed?" / "in :locked-out?" predicates
-;; moved to the `rf/machine-has-tag?` queries in views.cljs (ch.09 §State
+;; moved to the `rf/machine-has-tag?` queries in views.cljs (ch.11 §State
 ;; tags) — discriminating on the machine's runtime-projected `:tags`
 ;; set decouples view code from individual state-keyword identity.
 

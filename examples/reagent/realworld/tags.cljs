@@ -23,9 +23,8 @@
      collapse into per-state `:tags` queried with `rf/machine-has-tag?`.
 
    Routing pieces (`:home/load`, `:home/show-global-feed`, etc.) sit
-   below — they predate the refactor and are unaffected by it,
-   though they dispatch `:tags/load` so the new machine fetches when
-   the home route activates."
+   below — they dispatch `:tags/load` so the popular-tags machine fetches
+   when the home route activates."
   (:require [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
@@ -216,7 +215,7 @@
     (get-in snap [:data :error])))
 
 ;; ============================================================================
-;; HOME-PAGE QUERY HELPERS  (predate the machine refactor; unaffected by it)
+;; HOME-PAGE QUERY HELPERS
 ;; ============================================================================
 ;;
 ;; The route-query driven part of the home page:

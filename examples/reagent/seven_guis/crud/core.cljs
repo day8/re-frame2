@@ -190,14 +190,11 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is named `react-root` (not `root`) so it does NOT
-;; collide with the `crud-view` reg-view above; reg-view defs vars in
-;; this ns and any name-collision would shadow the rdc root handle.
-(defonce react-root
+(defonce root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:crud/initialise])
-  (rdc/render react-root [crud-view]))
+  (rdc/render root [crud-view]))

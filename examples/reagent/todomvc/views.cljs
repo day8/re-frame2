@@ -116,13 +116,12 @@
         "Clear completed"])]))
 
 ;; Sub-views (task-entry, task-list, todo-item, footer-controls) above
-;; are plain Reagent fns. Per Spec 004 §reg-view auto-inject, the
-;; capture-and-pass threading PR #51 introduced is no longer needed —
-;; sub-views can read `dispatch` / `subscribe` directly from the
-;; surrounding reg-view scope. We keep them as plain fns here (rather
-;; than reg-view'ing each sub-piece) because they're internal helpers
-;; with no need for their own registry slot or auto-defed Var; that
-;; gives the cleanest read in this example.
+;; are plain Reagent helper fns, not reg-views. They take `dispatch` /
+;; `subscribe` as explicit args because that's the right shape for plain
+;; fns; if they were reg-views they would read both from the surrounding
+;; reg-view scope automatically (Spec 004 §reg-view auto-inject). Plain
+;; fns are the cleanest read for these internal helpers — no need for
+;; per-sub-piece registry slots or auto-defed Vars.
 (reg-view root-view []
   (let [todos @(subscribe [:todo/todos])]
     [:<>

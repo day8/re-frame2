@@ -14,7 +14,7 @@
 
 Each example lives in its own self-contained sub-folder under `seven_guis/<name>/` with its CLJS source and a thin HTML host page (e.g. `cells/core.cljs` + `cells/index.html`). Per the test-free examples policy there is **no per-example `.spec.cjs`** — real-regression coverage lives in the substrate contract tests (`npm run test:cljs`) and the framework gates (`test:xray-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`), not under `examples/`. The shadow-cljs build targets in `implementation/shadow-cljs.edn` wire each task up to its own bundle; to view one in a browser, watch its build (`shadow-cljs watch examples/cells`) and serve the staged `index.html`.
 
-CLJS namespace identifiers can't start with a digit, so the on-disk directory is `seven_guis/` and the cluster namespace prefix is `seven-guis.*`. Each task follows the catalogue's `<name>.core` shape: `seven-guis.cells.core`, `seven-guis.flight-booker.core`, etc. — one consistent scope across every example in the cluster (rf2-hg45c).
+CLJS namespace identifiers can't start with a digit, so the on-disk directory is `seven_guis/` and the cluster namespace prefix is `seven-guis.*`. Each task follows the catalogue's `<name>.core` shape: `seven-guis.cells.core`, `seven-guis.flight-booker.core`, etc. — one consistent scope across every example in the cluster.
 
 ## How these compare to the original 7GUIs reference
 
