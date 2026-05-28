@@ -113,7 +113,7 @@
   globally so the user reads the operation as continuous."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.theme.tokens :as t :refer [tokens]]))
+            [day8.re-frame2-xray.theme.tokens :refer [with-alpha]]))
 
 ;; ---- keyboard step constants -------------------------------------------
 
@@ -376,7 +376,7 @@
    ;; variable (rf2-on4cm) — light/dark both land on the live accent at
    ;; 33% alpha.
    :box-shadow       (str "inset 1px 0 0 0 "
-                          (t/with-alpha :accent 33))
+                          (with-alpha :accent 33))
    ;; Above the chrome's panels but below the modals; modals use
    ;; max-int z-index so we won't fight them.
    :z-index          1000
@@ -638,7 +638,7 @@
    ;; either theme. 33% alpha of the single `:accent` (GitHub blue) —
    ;; same intensity as the panel-width handle's hairline so the two
    ;; affordances read as one family.
-   :box-shadow      (str "inset 0 4px 0 -3px " (t/with-alpha :accent 33))
+   :box-shadow      (str "inset 0 4px 0 -3px " (with-alpha :accent 33))
    ;; Disable native gestures during drag (text-select on mouse,
    ;; page-pan on touch).
    :touch-action    "none"

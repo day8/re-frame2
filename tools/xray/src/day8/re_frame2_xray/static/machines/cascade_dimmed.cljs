@@ -8,7 +8,6 @@
   Dynamic sub-strip (same DOM, same letter mnemonic), but it's GREYED
   and the click is a no-op. A tooltip surfaces the why."
   (:require [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens sans-stack type-scale]]))
 
 (def tooltip-text

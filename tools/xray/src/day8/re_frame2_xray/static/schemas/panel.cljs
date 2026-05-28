@@ -58,7 +58,6 @@
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens type-scale mono-stack sans-stack]]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
 

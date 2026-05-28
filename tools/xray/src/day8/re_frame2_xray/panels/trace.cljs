@@ -83,7 +83,8 @@
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.app-db-diff-format :as f]
-            [day8.re-frame2-xray.panels.cancellation-cascade-helpers :as cch]
+            [day8.re-frame2-xray.panels.cancellation-cascade-helpers
+             :as cancellation-cascade-helpers]
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-xray.panels.trace-helpers :as h]
@@ -586,7 +587,7 @@
         severity?   (#{:error :warning} area)
         sev-colour  (when severity?
                       (get tokens (if (= area :error) :red :yellow)))
-        destroy?    (cch/destroy-event? {:operation operation})]
+        destroy?    (cancellation-cascade-helpers/destroy-event? {:operation operation})]
     {:key                   (h/row-key row)
      :data-testid           row-test-id
      :data-rf-xray-expanded (boolean expanded?)
@@ -633,7 +634,7 @@
         severity?   (#{:error :warning} area)
         sev-colour  (when severity?
                       (get tokens (if (= area :error) :red :yellow)))
-        destroy?    (cch/destroy-event? {:operation operation})]
+        destroy?    (cancellation-cascade-helpers/destroy-event? {:operation operation})]
     [;; ① Δt — ms offset from EPOCH OPEN; `!` lead for severity rows.
      [:span {:data-rf-xray-resizable-col "time"
              :data-testid (str row-test-id "-time")

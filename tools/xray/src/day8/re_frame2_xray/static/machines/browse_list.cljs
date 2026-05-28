@@ -26,7 +26,6 @@
             [day8.re-frame2-xray.static.machines.helpers :as h]
             [day8.re-frame2-xray.static.machines.instances-jump :as jump]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens sans-stack mono-stack type-scale]]))
 
 ;; ---- search box ---------------------------------------------------------

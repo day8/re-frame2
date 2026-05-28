@@ -70,8 +70,8 @@
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
-            [day8.re-frame2-xray.theme.tokens :as tk
-             :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-xray.theme.tokens
+             :refer [tokens mono-stack sans-stack with-alpha]]
             ;; rf2-e46qs phase 3 — per-sub value inspector renders
             ;; through the first-class edn-inspector widget (spec/021
             ;; §10) directly. Each sub-value mount gets its own stable
@@ -244,7 +244,7 @@
           click (assoc :on-click click
                        :style {:cursor "pointer"}))
      [:rect (cond-> {:x x :y y :width w :height h :rx 4}
-              changed?       (assoc :fill (tk/with-alpha :accent 12)
+              changed?       (assoc :fill (with-alpha :accent 12)
                                     :stroke (:accent tokens) :stroke-width 2)
               (not changed?) (assoc :fill "transparent"
                                     :stroke (:dim tokens) :stroke-width 1
@@ -284,7 +284,7 @@
          :on-click       (when coord (fn [e] (open-source! coord e)))
          :style {:cursor (if coord "pointer" "default")}}
      [:rect {:x x :y y :width w :height h :rx 4
-             :fill (tk/with-alpha :success 12)
+             :fill (with-alpha :success 12)
              :stroke (:success tokens) :stroke-width 2}]
      ;; view name
      [:text {:x (+ x (/ w 2)) :y (+ y 16)
@@ -317,7 +317,7 @@
              ;; was near-invisible against the card's `:bg-1` fill on the
              ;; dark theme; a `:dim`-tinted edge gives the SVG canvas a
              ;; clearly-bounded card the operator can read at a glance.
-             :style {:border (str "1px solid " (tk/with-alpha :dim 45))
+             :style {:border (str "1px solid " (with-alpha :dim 45))
                      :border-radius "8px"
                      :padding "16px"
                      :background (:bg-1 tokens)
@@ -396,7 +396,7 @@
   [:div {:data-testid testid
          :style list-row-style}
    [:span {:style (assoc list-row-swatch-style-base
-                         :background (tk/with-alpha swatch-token 20))}]
+                         :background (with-alpha swatch-token 20))}]
    [:span {:style list-row-primary-style} primary]
    [:span {:style list-row-tag-style}
     tag]])
@@ -630,7 +630,7 @@
     (swatch {:background (:accent tokens)} "changed (propagates downstream)")
     (swatch {:background "transparent" :border (str "1px dashed " (:dim tokens))}
             "no change (short-circuits)")
-    (swatch {:background (tk/with-alpha :error 20)} "unmounted / destroyed")]])
+    (swatch {:background (with-alpha :error 20)} "unmounted / destroyed")]])
 
 ;; ---- empty state ------------------------------------------------------
 

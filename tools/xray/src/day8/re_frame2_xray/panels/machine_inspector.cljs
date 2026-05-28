@@ -61,7 +61,6 @@
             [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens mono-stack sans-stack display-stack spacing]]))
 
 ;; ---- shared layout constants (rf2-3d987) ------------------------------

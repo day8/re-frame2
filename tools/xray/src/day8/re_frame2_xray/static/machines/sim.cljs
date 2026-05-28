@@ -76,7 +76,6 @@
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.static.machines.sim-helpers :as sim-h]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens mono-stack sans-stack type-scale]]))
 
 ;; ---- runtime hook -------------------------------------------------------

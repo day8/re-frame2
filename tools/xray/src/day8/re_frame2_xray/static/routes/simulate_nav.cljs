@@ -26,7 +26,6 @@
   layer only."
   (:require [day8.re-frame2-xray.panels.routing-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens mono-stack sans-stack]]))
 
 (defn- field-row

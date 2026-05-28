@@ -35,7 +35,7 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
-            [day8.re-frame2-xray.views.edn-inspector-popup :as ddp]))
+            [day8.re-frame2-xray.views.edn-inspector-popup :as edn-inspector-popup]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -220,7 +220,7 @@
 (deftest popup-stack-view-empty-when-stack-empty
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
-    (let [tree (ddp/edn-inspector-popup-stack)]
+    (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
       (is (nil? tree)
           "stack view returns nil when no popups are open (closed-state
            cost is one subscribe + a when-gate)"))))
@@ -234,7 +234,7 @@
         [:rf.xray.edn-inspector-popup/open
          "m1" {:value {:foo :bar}
                :opts  {:title "Inspect cart"}}])
-      (let [tree (ddp/edn-inspector-popup-stack)]
+      (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
         (is (some? tree) "stack view returns hiccup when stack non-empty")
         (is (some? (find-by-testid tree "rf-xray-edn-inspector-popup-stack"))
             "outer stack container present")
@@ -250,7 +250,7 @@
                          "m1" {:value 1 :opts {}}])
       (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                          "m2" {:value 2 :opts {}}])
-      (let [tree (ddp/edn-inspector-popup-stack)]
+      (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
         (is (some? (find-by-testid tree
                                    "rf-xray-edn-inspector-popup-backdrop-m1")))
         (is (some? (find-by-testid tree
@@ -269,7 +269,7 @@
       (rf/dispatch-sync
         [:rf.xray.edn-inspector-popup/open
          "smoke" {:value :hi :opts {:title "Smoke"}}])
-      (let [stack @(rf/subscribe [ddp/stack-slot])]
+      (let [stack @(rf/subscribe [edn-inspector-popup/stack-slot])]
         (is (= ["smoke"] stack)
             "open event resolved through the registry-installed handler")))))
 
@@ -336,7 +336,7 @@
     ;; `with-frame` binding entirely because the body's `rf/subscribe`
     ;; calls would have fallen all the way through to `:rf/default`.
     (rf/with-frame :rf/xray
-      (let [tree (ddp/edn-inspector-popup-stack)]
+      (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
         (is (some? tree)
             "stack view rendered some chrome under :rf/xray (proves :rf/xray's
              stack slot is non-empty from the view's perspective)")
@@ -352,7 +352,7 @@
              frames"))
       ;; And the stack's count attribute reflects :rf/xray's stack
       ;; depth exclusively (one entry), not the combined two.
-      (let [tree (ddp/edn-inspector-popup-stack)]
+      (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
         (is (= 1 (-> tree second :data-rf-popup-count))
             "popup-count reflects :rf/xray's stack only (one entry), not
              the two-entry total across frames")))))

@@ -82,7 +82,6 @@
             [re-frame.frame :as frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens type-scale sans-stack]]))
 
 ;; ---- public contract: which frames Xray filters out by default ---------

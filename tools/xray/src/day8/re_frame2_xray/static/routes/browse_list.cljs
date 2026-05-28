@@ -25,7 +25,6 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.static.routes.row-expand :as row-expand]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens mono-stack sans-stack]]))
 
 (defn- meta-badge
