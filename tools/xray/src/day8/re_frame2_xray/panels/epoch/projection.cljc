@@ -1103,6 +1103,14 @@
                      and surface as `:db`.
       :changed?    — true iff the sub's output value differed from the
                      prior run (`:rf.sub/value-changed?` tag).
+      :first-run?  — true on the run that CREATED this sub's cache slot
+                     (`:rf.sub/first-run?` tag, per rf2-fyd8u); false on
+                     every subsequent recompute. Disambiguates a
+                     value-change row (`← was X` chrome) from a fresh-
+                     cache-entry row (`:added` chrome) when the row also
+                     carries `:changed? true`. Defaults to `false` for
+                     traces that predate the flag — the row falls back
+                     to the value-change shape.
       :before      — the prior value (`:rf.sub/prev-value` tag).
       :after       — the freshly-computed value (`:rf.sub/value` tag).
       :cascade?    — true for layer-2+ recomputes (an upstream SUB drove
@@ -1134,6 +1142,7 @@
          :changed?    (boolean
                         (or (common/tag-of ev :rf.sub/value-changed?)
                             (common/tag-of ev :rf.sub/changed?)))
+         :first-run?  (boolean (common/tag-of ev :rf.sub/first-run?))
          :before      (or (common/tag-of ev :rf.sub/prev-value)
                           (common/tag-of ev :rf.sub/before))
          :after       (or (common/tag-of ev :rf.sub/value)

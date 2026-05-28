@@ -529,6 +529,8 @@ Three load-bearing properties:
 
 Reagent realises this automatically: each `Reaction` re-runs only when its derefs change by `=`; the reactive graph is built from the `:<-` chain. Non-CLJS implementations (or the plain-atom adapter) must satisfy the contract explicitly — Phase 1 / Phase 2 / Phase 3 above is the fallback algorithm.
 
+**First-run discriminator on the cache-miss path.** The cache lookup step above splits cleanly into two cases: a hit (existing slot, ref-count bump) and a miss (fresh slot, body's first run). The memo wrapper threads that discrimination through to the trace stream as a `:rf.sub/first-run?` boolean on every `:rf.sub/run` emit (`true` on the run that allocated the slot, `false` on every subsequent recompute). Consumers (Xray's SUBSCRIPTIONS leaf-scalar renderer per rf2-fyd8u) need the discriminator to render a fresh-cache-entry run (the sub is now alive — `:added` chrome, no "was") distinctly from a recompute whose prior value happened to be `nil` (the value really changed `nil → X` — `← was nil` annotation). Both shapes report `:rf.sub/value-changed? true` and `:rf.sub/prev-value nil`; the `:first-run?` flag is the only signal that distinguishes them. See [Spec 009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) for the full `:rf.sub/run` tag-map shape.
+
 ### Layer-1, layer-2, layer-3 sub semantics
 
 The terminology comes from re-frame v1; the semantics carry over.
