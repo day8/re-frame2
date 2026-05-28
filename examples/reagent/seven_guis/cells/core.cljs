@@ -33,13 +33,21 @@
             [clojure.string :as str])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-(def COLS 26)
-(def ROWS 100)
-(def CELL-RE #"^[A-Z]\d{1,2}$")
+(def cols
+  "Number of spreadsheet columns (A..Z)."
+  26)
+
+(def rows
+  "Number of spreadsheet rows (1..100)."
+  100)
+
+(def cell-re
+  "Cell-id regex — one capital letter + 1-2 digits (e.g. A1, Z99)."
+  #"^[A-Z]\d{1,2}$")
 
 (defn cell-id [col row] (str (char (+ 65 col)) row))
 (defn parse-cell-id [s]
-  (when (re-matches CELL-RE s)
+  (when (re-matches cell-re s)
     [(- (int (.charAt s 0)) 65) (js/parseInt (subs s 1))]))
 
 ;; ============================================================================
@@ -94,7 +102,7 @@
         (let [num (js/parseFloat t)]
           (cond
             (not (js/isNaN num))           [num                             more]
-            (re-matches CELL-RE t)         [{:cell t}                       more]
+            (re-matches cell-re t)         [{:cell t}                       more]
             (#{"+" "-" "*" "/"} t)         [(symbol t)                      more]
             :else                          (throw (ex-info "Bad atom" {:token t}))))))))
 
@@ -245,12 +253,12 @@
 
 (reg-view cells-grid []
   [:table.cells-grid
-   [:thead [:tr [:th] (for [c (range COLS)] ^{:key c} [:th (char (+ 65 c))])]]
+   [:thead [:tr [:th] (for [c (range cols)] ^{:key c} [:th (char (+ 65 c))])]]
    [:tbody
-    (for [r (range 1 (inc ROWS))]
+    (for [r (range 1 (inc rows))]
       ^{:key r}
       [:tr [:th r]
-       (for [c (range COLS)]
+       (for [c (range cols)]
          ^{:key c}
          [cell-view (cell-id c r)])])]])
 
