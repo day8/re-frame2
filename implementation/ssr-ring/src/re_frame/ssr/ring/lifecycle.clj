@@ -25,7 +25,58 @@
 
 (set! *warn-on-reflection* true)
 
-(defn default-on-error
+(def ^:const default-on-error-body
+  "The literal body emitted by `default-on-error` when no template is
+  supplied. Pinned to the rf2-kzvwq topology-leak-safe shape: generic
+  plaintext, no throwable detail, no internal class names. The
+  templating surface (`make-default-on-error`) accepts a caller-
+  supplied body that overrides this; the locked default itself stays
+  constant."
+  "Internal error")
+
+(def ^:const default-on-error-content-type
+  "The Content-Type emitted by `default-on-error` when no template
+  is supplied — plaintext UTF-8, matching the locked default body
+  shape (rf2-kzvwq §P2.1)."
+  "text/plain; charset=utf-8")
+
+(defn make-default-on-error
+  "Construct a `(fn [request throwable] ring-response)` fallback shaped
+  like `default-on-error` but with a caller-templated body. Returns the
+  fixed 500 status and the configured Content-Type + body unchanged on
+  every call. Per rf2-c1tac — callers that want a branded plaintext-
+  or-HTML error page can supply `:body` (and optionally
+  `:content-type`) at handler-construction time without writing a full
+  `:on-error` fn AND without inheriting the `.getMessage` topology-
+  leak risk: the constructor never touches the throwable.
+
+  Opts:
+
+    :body          — (string) the literal response body. Defaults to
+                     `default-on-error-body` (\"Internal error\").
+                     Caller-supplied strings are emitted VERBATIM; the
+                     caller is responsible for trusting the source (a
+                     CMS-driven body is the caller's XSS exposure to
+                     accept, same trust boundary as the four trusted
+                     shell-hook opts).
+    :content-type  — (string) the Content-Type header. Defaults to
+                     `default-on-error-content-type` (\"text/plain;
+                     charset=utf-8\"). Pass \"text/html; charset=utf-8\"
+                     when the supplied `:body` is HTML.
+
+  rf2-kzvwq §P2.1 contract preserved: the returned fn ignores the
+  throwable. The `.getMessage` topology-leak surface stays closed
+  regardless of the supplied template."
+  ([] (make-default-on-error nil))
+  ([{:keys [body content-type]}]
+   (let [body*         (or body default-on-error-body)
+         content-type* (or content-type default-on-error-content-type)
+         response      {:status  500
+                        :headers {"Content-Type" content-type*}
+                        :body    body*}]
+     (fn default-on-error-fn [_request _t] response))))
+
+(def default-on-error
   "Minimal 500 response used when a handler caller doesn't supply
   `:on-error`. Shared by `ssr-handler` AND `stream-handler` so the
   topology-leak contract below lives in exactly one place.
@@ -40,11 +91,11 @@
   name), file paths under deploy roots, partial SQL fragments, server-
   internal class names. We emit a fixed generic body matching the
   projector's `fallback-public-error` shape. Apps that want dev-mode
-  detail override via `:on-error`."
-  [_request _t]
-  {:status  500
-   :headers {"Content-Type" "text/plain; charset=utf-8"}
-   :body    "Internal error"})
+  detail override via `:on-error`; apps that want a branded HTML body
+  without the .getMessage exposure pass `:on-error-fallback {:body
+  \"…\" :content-type \"text/html; …\"}` (rf2-c1tac — the templating
+  surface that builds this exact shape via `make-default-on-error`)."
+  (make-default-on-error))
 
 (defn destroy-frame-quietly!
   "Best-effort frame teardown. Exceptions during destroy must not mask
