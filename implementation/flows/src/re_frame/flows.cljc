@@ -220,9 +220,9 @@
           ;; slice's root the wrapped value lives — `:result` and
           ;; `:before` BOTH live at the flow's output path; each
           ;; `:input-values` entry is the value at the matching input
-          ;; path. The walker reads `[:rf/elision :declarations
-          ;; <path>]` and emits the marker for schema-declared large
-          ;; slots.
+          ;; path. The walker reads `[:rf/runtime :elision
+          ;; :declarations <path>]` and emits the marker for
+          ;; schema-declared large slots.
           ;;
           ;; Outer `interop/debug-enabled?` gate keeps the elision
           ;; walker out of CLJS prod builds (rf2-drr4z) — Closure

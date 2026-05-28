@@ -2,7 +2,7 @@
 ;;
 ;; Per [005 §Cross-references](../../005-StateMachines.md#cross-references)
 ;; (Spec 011 SSR): a parallel-region machine's snapshot lives in
-;; `app-db` at `[:rf/machines <id>]` exactly like flat / compound
+;; `app-db` at `[:rf/runtime :machines :snapshots <id>]` exactly like flat / compound
 ;; machines. The SSR hydration channel (`:rf/hydrate`) replaces app-db
 ;; with the server's payload — machine snapshots ride along.
 ;;

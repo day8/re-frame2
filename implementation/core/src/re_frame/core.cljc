@@ -952,7 +952,7 @@
 (def ^{:doc "Install a browser `popstate` listener that drives the
   URL-owning frame: Back/Forward dispatches `:rf.route/handle-url-change`
   to `(url-owner-frame-id)` (resolved at pop time), so the owner's
-  `:rf/route` slice and rendered body restore — whether the owner is
+  route slice (at `[:rf/runtime :routing :current]`) and rendered body restore — whether the owner is
   `:rf/default` or a non-default `:url-bound? true` frame (rf2-6qgbs.4).
   Also syncs the initial URL on install. Idempotent (hot-reload safe).
   CLJS-only. The inbound counterpart of the outbound `:rf.nav/push-url`
@@ -1010,7 +1010,7 @@
   machine-meta           rf-machines/machine-meta)
 
 (def ^{:doc "Look up the spawned-machine id bound to `system-id` in the
-  active frame's `[:rf/system-ids]` reverse index, or `nil`. Optional
+  active frame's `[:rf/runtime :machines :system-ids]` reverse index, or `nil`. Optional
   `frame-id` arg targets an explicit frame. Per Spec 005 §Named
   addressing via `:system-id`. Implementation ships in
   `day8/re-frame2-machines`."}
@@ -1268,15 +1268,15 @@
   Security.md §Off-box egress."}
   elide-wire-value                 elision/elide-wire-value)
 
-(def ^{:doc "Populate `[:rf/elision :declarations]` from `{:large? true}`
-  schema-slot metadata for the frame. Returns the populated paths.
-  Called from boot once app-schemas are registered. Per Spec 010 §Schema
-  metadata flags."}
+(def ^{:doc "Populate `[:rf/runtime :elision :declarations]` from
+  `{:large? true}` schema-slot metadata for the frame. Returns the
+  populated paths. Called from boot once app-schemas are registered.
+  Per Spec 010 §Schema metadata flags."}
   populate-elision-from-schemas!   elision/populate-elision-from-schemas!)
 
-(def ^{:doc "Populate `[:rf/elision :sensitive-declarations]` from
-  `{:sensitive? true}` schema-slot metadata for the frame. Returns the
-  populated paths. Called from boot once app-schemas are registered.
+(def ^{:doc "Populate `[:rf/runtime :elision :sensitive-declarations]`
+  from `{:sensitive? true}` schema-slot metadata for the frame. Returns
+  the populated paths. Called from boot once app-schemas are registered.
   Per Spec 010 §Schema metadata flags."}
   populate-sensitive-from-schemas! elision/populate-sensitive-from-schemas!)
 

@@ -30,7 +30,7 @@
     ;; over a URL-embedded fragment.
     ;;
     ;; Per Spec 012 §Navigation tokens — stale-result suppression and
-    ;; §The :rf/route slice: the slice ALWAYS carries :fragment and a
+    ;; §The route slice: the slice ALWAYS carries :fragment and a
     ;; freshly-allocated :nav-token, and the runtime emits
     ;; :rf.route.nav-token/allocated as the cascade begins (rf2-d60go) —
     ;; the programmatic path matches the URL-driven path so async loaders
@@ -65,7 +65,7 @@
           ;; site (rf2-u8t3s). Caller-supplied values always win.
           retain-keys  (:query-retain route-meta)
           retained     (when (seq retain-keys)
-                         (select-keys (get-in db [:rf/route :query])
+                         (select-keys (get-in db [:rf/runtime :routing :current :query])
                                       retain-keys))
           query-params (if (seq retained)
                          (merge retained query-params)
@@ -73,8 +73,9 @@
           ;; Per Spec 012 §Param validation at the call site: the
           ;; event-boundary path `[:rf.route/navigate ...]` runs the
           ;; route's `:params` / `:query` schema BEFORE transitioning;
-          ;; on failure the navigation is REJECTED — the `:rf/route`
-          ;; slice does not change, no URL is pushed — and the runtime
+          ;; on failure the navigation is REJECTED — the route slice
+          ;; at [:rf/runtime :routing :current] does not change, no URL
+          ;; is pushed — and the runtime
           ;; emits `:rf.error/schema-validation-failure` (`:where
           ;; :event`). `route-url` raises the structured error on a
           ;; caller bug (`:rf.error/route-url-validation` /
@@ -102,7 +103,8 @@
           ;; duplicate `[:rf.route/navigate :route/cart]` doesn't re-fetch
           ;; unchanged data.
           identical-nav? (routing-events/identical-route-target?
-                           (:rf/route db) route-id path-params query-params fragment)]
+                           (get-in db [:rf/runtime :routing :current])
+                           route-id path-params query-params fragment)]
       (cond
         ;; Caller-bug schema failure: reject (slice unchanged, no push).
         (= ::reject url)
@@ -137,10 +139,11 @@
                 strategy   (scroll/resolve-scroll-strategy route-meta opts :top)
                 ;; Per Spec 012 §Multi-frame routing: scroll-position
                 ;; lookup reads the per-frame map under
-                ;; [:rf/route :scroll-positions].
+                ;; [:rf/runtime :routing :scroll-positions].
                 scroll-fx  (scroll/scroll-fx-entry
                              {:strategy  strategy
-                              :from      (scroll/route-descriptor (:rf/route db))
+                              :from      (scroll/route-descriptor
+                                           (get-in db [:rf/runtime :routing :current]))
                               :to        to-route
                               :saved-pos (when (= :restore strategy)
                                            (scroll/lookup-scroll-position db url))
@@ -153,20 +156,23 @@
             ;; nav-token allocation (the cascade-begin marker) so trace
             ;; consumers see {allocated → deactivated? → activated?} in
             ;; that order for any cross-route transition.
-            (routing-events/emit-activation-traces! (get-in db [:rf/route :id]) route-id)
-            ;; Merge the new slice fields OVER the existing :rf/route map so
-            ;; the per-frame routing-runtime keys nested under :rf/route
-            ;; (:scroll-positions / :scroll-positions-order /
-            ;; :nav-token-counter / :pending-nav-counter — rf2-3ib8h) are
-            ;; preserved across the transition.
-            {:db (update db' :rf/route merge
-                         {:id         route-id
-                          :params     path-params
-                          :query      query-params
-                          :fragment   fragment
-                          :transition (if (seq on-match-vec) :loading :idle)
-                          :error      nil
-                          :nav-token  token})
+            (routing-events/emit-activation-traces!
+              (get-in db [:rf/runtime :routing :current :id]) route-id)
+            ;; Merge the new slice fields OVER the existing :current map at
+            ;; [:rf/runtime :routing :current]. The sibling routing-runtime
+            ;; keys ([:rf/runtime :routing :scroll-positions /
+            ;; :scroll-positions-order / :nav-token-counter /
+            ;; :pending-nav-counter]) are siblings (not nested under
+            ;; :current), so the targeted `update-in` here leaves them
+            ;; untouched.
+            {:db (update-in db' [:rf/runtime :routing :current] merge
+                            {:id         route-id
+                             :params     path-params
+                             :query      query-params
+                             :fragment   fragment
+                             :transition (if (seq on-match-vec) :loading :idle)
+                             :error      nil
+                             :nav-token  token})
              :fx (vec (concat (when capture-fx [capture-fx])
                               [push-fx]
                               (mapv (fn [ev] [:dispatch ev]) on-match-vec)

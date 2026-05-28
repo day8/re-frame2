@@ -56,11 +56,10 @@
  ;; NOT in app-db — the projector's locked 404 status is asserted via
  ;; :ssr/public-error below.
  {:final-app-db
-  {:rf/route    {:id     :rf.route/not-found
+  {:rf/runtime {:routing {:current {:id     :rf.route/not-found
                  :params {:url "/missing"}
                  :query  {}
-                 :error  nil}
-   :analytics   {:last-404 true}}
+                 :error  nil}}} :analytics {:last-404 true}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}

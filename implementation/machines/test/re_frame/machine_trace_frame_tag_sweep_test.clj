@@ -152,7 +152,7 @@
             (fn []
               (rf/dispatch-sync [:ko8jb/fire [:go]])
               (let [epoch (get-in (rf/get-frame-db :rf/default)
-                                  [:rf/machines :ko8jb/fire :data :rf/after-epoch [:loading]])]
+                                  [:rf/runtime :machines :snapshots :ko8jb/fire :data :rf/after-epoch [:loading]])]
                 (rf/dispatch-sync
                   [:ko8jb/fire
                    [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]]))))
@@ -272,7 +272,7 @@
                      ;; Drive the child to :final?, triggering parent's
                      ;; :on-done — which throws.
                      (let [child-id (get-in (rf/get-frame-db :rf/default)
-                                            [:rf/spawned :ko8jb/parent-od
+                                            [:rf/runtime :machines :spawned :ko8jb/parent-od
                                              [:working]])]
                        (rf/dispatch-sync [child-id [:finish]]))))
           ev    (first (filter
@@ -333,7 +333,7 @@
               (fn []
                 (rf/dispatch-sync [:ko8jb/parent-all [:start]])
                 (let [ids (get-in (rf/get-frame-db :rf/default)
-                                  [:rf/spawned :ko8jb/parent-all
+                                  [:rf/runtime :machines :spawned :ko8jb/parent-all
                                    [:hydrating] :children])]
                   (rf/dispatch-sync [(:a ids) [:go]])
                   (rf/dispatch-sync [(:b ids) [:go]]))))

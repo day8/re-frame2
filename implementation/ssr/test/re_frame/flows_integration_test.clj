@@ -130,7 +130,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
+  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ===========================================================================
 ;; 1. machine-macrostep × flow — a multi-microstep macrostep SETTLES, then
@@ -139,7 +139,7 @@
 ;; A machine whose macrostep chains :always (a guarded auto-transition) AND
 ;; :raise (a pre-commit re-entry) settles through several microsteps within
 ;; one dispatched event. The machine writes its final snapshot into
-;; [:rf/machines id] as the handler's pending :db. Because the flow runs at
+;; [:rf/runtime :machines :snapshots id] as the handler's pending :db. Because the flow runs at
 ;; the OUTERMOST :after — after the machine handler, transforming the
 ;; pending :db — the flow sees the SETTLED machine-driven db, and runs
 ;; exactly once for the dispatch (no eval-per-microstep, no missed eval).
@@ -178,7 +178,7 @@
       ;; label into a plain app-db path. Logging the input it observed lets
       ;; us prove it saw the FINAL (settled) value, not an intermediate one.
       (rf/reg-flow {:id     :gauge/label
-                    :inputs [[:rf/machines :gauge/flow :data :ticks]]
+                    :inputs [[:rf/runtime :machines :snapshots :gauge/flow :data :ticks]]
                     :output (fn [ticks]
                               (swap! flow-evals conj ticks)
                               (str "ticks=" ticks))
@@ -477,7 +477,7 @@
     ;; post-transition slice, not the pre-transition one.
     (let [flow-inputs (atom [])]
       (rf/reg-flow {:id     :route/label
-                    :inputs [[:rf/route :id]]
+                    :inputs [[:rf/runtime :routing :current :id]]
                     :output (fn [route-id]
                               (swap! flow-inputs conj route-id)
                               (str "you are at " route-id))
@@ -486,24 +486,24 @@
       ;; Land on /home first so there is a known PRE-transition slice the
       ;; flow could potentially observe if it ran on the wrong value.
       (rf/dispatch-sync [:rf.route/transitioned "/"])
-      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
+      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current :id]))
           "precondition: landed on :route/home")
       (is (= [:route/home] @flow-inputs)
           "precondition: flow ran once on the home slice (post-transition)")
 
       ;; Now transition to /articles/42. The handler writes the new slice
       ;; into pending :db; the flow's :after transforms that pending :db
-      ;; reading [:rf/route :id]; both land together at install.
+      ;; reading [:rf/runtime :routing :current :id]; both land together at install.
       (reset! *captured* [])
       (reset! flow-inputs [])
       (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
 
       ;; The installed slice carries the new route.
       (is (= :route/article (get-in (rf/get-frame-db :rf/default)
-                                    [:rf/route :id]))
+                                    [:rf/runtime :routing :current :id]))
           "the slice landed on :route/article")
       (is (= {:id "42"} (get-in (rf/get-frame-db :rf/default)
-                                [:rf/route :params]))
+                                [:rf/runtime :routing :current :params]))
           ":params landed alongside the route id (same install)")
 
       ;; The flow output is in app-db AND reflects the POST-transition slice.
@@ -548,7 +548,7 @@
 
       ;; Land on /home cleanly (no throwing flow registered yet).
       (rf/dispatch-sync [:rf.route/transitioned "/"])
-      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
+      (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :current :id]))
           "precondition: clean landing on :route/home")
       (is (zero? @on-match-fired)
           "precondition: :route/home has no :on-match — counter still 0")
@@ -557,7 +557,7 @@
         ;; Register a flow that throws on every eval, then transition to a
         ;; route whose :on-match would dispatch :route/load-article.
         (rf/reg-flow {:id     :route/boom
-                      :inputs [[:rf/route :id]]
+                      :inputs [[:rf/runtime :routing :current :id]]
                       :output (fn [_]
                                 (throw (ex-info "flow boom on route"
                                                 {:why :test})))
@@ -572,7 +572,7 @@
              rewrite was rolled in with the flow's pending write and
              discarded wholesale by the flow throw")
         (is (= :route/home (get-in (rf/get-frame-db :rf/default)
-                                   [:rf/route :id]))
+                                   [:rf/runtime :routing :current :id]))
             "the :rf/route slice stayed on :route/home — the transition's
              slice rewrite did NOT install")
 

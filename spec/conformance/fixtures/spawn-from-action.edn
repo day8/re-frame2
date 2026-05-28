@@ -11,7 +11,7 @@
 ;; The action runs as part of the transition, the action's :fx vector is
 ;; surfaced as the transition's effects, and the [:rf.machine/spawn args]
 ;; pair appears verbatim in the result. The actor-id allocation and any
-;; state-mutation into [:rf/machines <id>] is the runtime's adapter
+;; state-mutation into [:rf/runtime :machines :snapshots <id>] is the runtime's adapter
 ;; responsibility — at the pure machine-transition layer we observe only
 ;; the fx the action produced.
 

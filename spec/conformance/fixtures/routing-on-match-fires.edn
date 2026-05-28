@@ -41,9 +41,8 @@
 
  :fixture/expect
  {:final-app-db
-  {:rf/route {:id :route/cart :params {} :query {} :fragment nil
-              :transition :idle :error nil}
-   :load-log [:cart/load-items :user/load-prefs]}
+  {:rf/runtime {:routing {:current {:id :route/cart :params {} :query {} :fragment nil
+              :transition :idle :error nil}}} :load-log [:cart/load-items :user/load-prefs]}
 
   :trace-emissions
   [;; Token allocated when the route becomes active.

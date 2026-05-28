@@ -4,7 +4,7 @@
 
   Per Spec 005 §State tags: a state-node body may declare `:tags
   <set-of-keywords>`. The runtime maintains the union of every active
-  state's tag set at `[:rf/machines <id> :tags]` in the snapshot and ships
+  state's tag set at `[:rf/runtime :machines :snapshots <id> :tags]` in the snapshot and ships
   `:rf/machine-has-tag?` + the `rf/machine-has-tag?` sugar to query it.
 
   Concerns covered:
@@ -28,7 +28,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
+  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (deftest machine-tags-flat-active-state-cljs
   (testing "flat machine — snapshot's :tags is the active state's tag set"

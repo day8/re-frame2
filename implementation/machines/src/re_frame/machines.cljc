@@ -22,7 +22,7 @@
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
       :spawn's plus a join condition (:all / :any / {:n N} / {:fn pred}).
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
-    - Snapshot at [:rf/machines <id>] in app-db.
+    - Snapshot at [:rf/runtime :machines :snapshots <id>] in app-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
 
   Public surface re-exported from the sub-namespaces:
@@ -99,12 +99,12 @@
 ;; ---- query API (Spec 005 §Querying machines) -----------------------------
 ;;
 ;; Three thin lookup fns over the existing event registry and the
-;; runtime-owned `[:rf/system-ids]` reverse index — derived views, not a
+;; runtime-owned `[:rf/runtime :machines :system-ids]` reverse index — derived views, not a
 ;; new registry kind. `(rf/machines)` filters event handlers whose
 ;; registration metadata carries `:rf/machine? true`; `(rf/machine-meta
 ;; id)` returns the registered machine's spec map; `(rf/machine-by-
 ;; system-id sid)` resolves the spawned-machine id currently bound to
-;; `sid` in the active frame's `[:rf/system-ids]` reverse index.
+;; `sid` in the active frame's `[:rf/runtime :machines :system-ids]` reverse index.
 ;;
 ;; These query fns live on the public artefact surface (not a level
 ;; below) since they're how Spec 005 §Querying machines is reached.
@@ -130,7 +130,7 @@
 
 (defn machine-by-system-id
   "Look up the spawned-machine id currently bound to `system-id` in the
-  active frame's `[:rf/system-ids]` reverse index, or nil. The `frame`
+  active frame's `[:rf/runtime :machines :system-ids]` reverse index, or nil. The `frame`
   arg defaults to the current frame (per `frame/current-frame`); pass
   an explicit frame-id for cross-frame lookups.
 
@@ -138,7 +138,7 @@
   ([system-id]
    (machine-by-system-id system-id (frame/current-frame)))
   ([system-id frame-id]
-   (get-in (frame/frame-app-db-value frame-id) [:rf/system-ids system-id])))
+   (get-in (frame/frame-app-db-value frame-id) [:rf/runtime :machines :system-ids system-id])))
 
 (defn reset-timers!
   "Cancel in-flight `:after` timers.
@@ -180,7 +180,7 @@
   spawn-fx)
 
 (fx/reg-fx :rf.machine/destroy
-  {:doc "Destroy a spawned machine instance and clear its `[:rf/machines machine-id]` slot. Per Spec 005 §Declarative :spawn."}
+  {:doc "Destroy a spawned machine instance and clear its `[:rf/runtime :machines :snapshots machine-id]` slot. Per Spec 005 §Declarative :spawn."}
   destroy-machine-fx)
 
 (fx/reg-fx :rf.machine/spawn-all-init
@@ -213,13 +213,13 @@
 (subs/reg-sub :rf/machine
   {:doc "Subscribe to a machine's current snapshot `{:state <kw> :data <map> :tags <set>}`. Returns nil for an unknown or not-yet-initialised machine. Per Spec 005 §Subscribing to machines via sub-machine."}
   (fn [db [_ machine-id]]
-    (get-in db [:rf/machines machine-id])))
+    (get-in db [:rf/runtime :machines :snapshots machine-id])))
 
 ;; Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1): the
 ;; `:rf/machine-has-tag?` framework sub returns `true` iff the named
 ;; machine's current snapshot's `:tags` set contains the queried tag.
 ;; A machine that hasn't been initialised yet (no snapshot at
-;; `[:rf/machines <id>]`) returns `false`.
+;; `[:rf/runtime :machines :snapshots <id>]`) returns `false`.
 ;;
 ;; Derived sub — reads the snapshot via `get-in` rather than chaining
 ;; off `:rf/machine` — so a view that only cares about whether a specific
@@ -227,7 +227,7 @@
 (subs/reg-sub :rf/machine-has-tag?
   {:doc "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1)."}
   (fn [db [_ machine-id tag]]
-    (contains? (get-in db [:rf/machines machine-id :tags]) tag)))
+    (contains? (get-in db [:rf/runtime :machines :snapshots machine-id :tags]) tag)))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

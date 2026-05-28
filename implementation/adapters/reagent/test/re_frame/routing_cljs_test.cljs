@@ -59,9 +59,9 @@
       (rf/reg-event-db :cljs/article-load
                        (fn [db _] (assoc db :article-loaded? true)))
       (rf/reg-sub :rf.cljs.route/id
-                  (fn [db _] (get-in db [:rf/route :id])))
+                  (fn [db _] (get-in db [:rf/runtime :routing :current :id])))
       (rf/reg-sub :rf.cljs.route/params
-                  (fn [db _] (get-in db [:rf/route :params])))
+                  (fn [db _] (get-in db [:rf/runtime :routing :current :params])))
 
       ;; URL-driven nav. The slice is set; :on-match dispatches.
       (rf/dispatch-sync [:rf.route/transitioned "/cljs/articles/intro"] {:frame f})
@@ -79,7 +79,7 @@
       (is (= {:id "welcome"}
              (rf/subscribe-once f [:rf.cljs.route/params]))
           "new params land in the slice on subsequent navigation")
-      (is (some? (get-in (rf/get-frame-db f) [:rf/route :nav-token]))
+      (is (some? (get-in (rf/get-frame-db f) [:rf/runtime :routing :current :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
 
 ;; ---- Spec 012 §Multi-frame routing ---------------------------------------
@@ -95,7 +95,7 @@
     (rf/reg-route :route.cljs2/articles      {:path "/cljs2/articles"})
     (rf/reg-route :route.cljs2/article       {:path   "/cljs2/articles/:id"
                                               :params [:map [:id :string]]})
-    (rf/reg-sub :rf.cljs2/route (fn [db _] (:rf/route db)))
+    (rf/reg-sub :rf.cljs2/route (fn [db _] (get-in db [:rf/runtime :routing :current])))
 
     (let [left  (rf/make-frame {:doc "left tab frame"})
           right (rf/make-frame {:doc "right tab frame"})]

@@ -505,7 +505,7 @@
     ;; Fallback path — minimal contract when the machines artefact is absent.
     (let [container  (get-frame-db id)
           db         (when container (adapter/read-container container))
-          machines   (get db :rf/machines)
+          machines   (get-in db [:rf/runtime :machines :snapshots])
           abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]
       (doseq [[machine-id snapshot] machines]
         (when abort-http

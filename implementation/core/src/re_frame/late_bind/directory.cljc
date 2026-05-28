@@ -342,7 +342,7 @@
    {:key         :machines/validate-machine-data!
     :producer-ns 're-frame.machines
     :design-bead "rf2-jbbp7"
-    :description "Post-commit walker for the `:where :machine-data` boundary (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). Iterates `[:rf/machines]`, validates each snapshot's `:data` against the registered machine's top-level `:schema`. Router AND-conjoins with `:schemas/validate-app-schema!` to gate the `:db` commit; a failure rolls the cascade back exactly like a `:where :app-db` violation."}
+    :description "Post-commit walker for the `:where :machine-data` boundary (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). Iterates `[:rf/runtime :machines :snapshots]`, validates each snapshot's `:data` against the registered machine's top-level `:schema`. Router AND-conjoins with `:schemas/validate-app-schema!` to gate the `:db` commit; a failure rolls the cascade back exactly like a `:where :app-db` violation."}
 
    ;; ---- re-frame.routing (rf2-k682) -----------------------------------------
    {:key         :routing/reg-route

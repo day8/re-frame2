@@ -8,7 +8,7 @@
     2. Re-registering a :sub disposes cached reactions across every
        frame — no stale value can be served from any frame's sub-cache.
     3. Re-registering a :frame is a surgical metadata update — live
-       app-db (including the :rf/machines snapshot for active machine
+       app-db (including the [:rf/runtime :machines :snapshots] snapshot for active machine
        instances) is preserved.
 
   CLJS-only Reagent rendering coverage (rule 4 — view re-registration)
@@ -168,14 +168,14 @@
 
 (deftest frame-re-register-preserves-snapshot
   (testing "reg-frame on an already-registered id is a SURGICAL metadata
-            update — live app-db (including :rf/machines snapshot for
+            update — live app-db (including [:rf/runtime :machines :snapshots] snapshot for
             active machine instances) is preserved"
     ;; Register a frame with an arbitrary doc.
     (rf/reg-frame :tenant {:doc       "v1 metadata"
                            :tenant-id :acme})
-    ;; Build a tiny machine and dispatch into it so :rf/machines is
+    ;; Build a tiny machine and dispatch into it so [:rf/runtime :machines :snapshots] is
     ;; populated. We use a machine handler so the snapshot lands at
-    ;; [:rf/machines :traffic-light] per Spec 005.
+    ;; [:rf/runtime :machines :snapshots :traffic-light] per Spec 005.
     (rf/reg-event-fx :traffic-light
       (rf/make-machine-handler
         {:initial :red
@@ -192,10 +192,10 @@
     (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
     ;; Capture pre-reregistration state.
     (let [pre-db          (rf/get-frame-db :tenant)
-          pre-snapshot    (get-in pre-db [:rf/machines :traffic-light])
+          pre-snapshot    (get-in pre-db [:rf/runtime :machines :snapshots :traffic-light])
           pre-app-db-cont (frame/get-frame-db :tenant)]
       (is (= :yellow (:state pre-snapshot))
-          "machine snapshot landed in :rf/machines under :traffic-light")
+          "machine snapshot landed in [:rf/runtime :machines :snapshots] under :traffic-light")
       (is (= 2 (get-in pre-snapshot [:data :ticks]))
           "machine data accumulated across two transitions")
       ;; SURGICAL metadata update: re-register with new metadata.
@@ -205,10 +205,10 @@
       ;; The :app-db CONTAINER is the same identity (no replace happened).
       (is (identical? pre-app-db-cont (frame/get-frame-db :tenant))
           "frame's app-db container is preserved (same identity)")
-      ;; The :rf/machines snapshot is preserved verbatim.
+      ;; The [:rf/runtime :machines :snapshots] snapshot is preserved verbatim.
       (let [post-db (rf/get-frame-db :tenant)]
         (is (= pre-snapshot
-               (get-in post-db [:rf/machines :traffic-light]))
+               (get-in post-db [:rf/runtime :machines :snapshots :traffic-light]))
             "machine snapshot is preserved across frame re-registration"))
       ;; Metadata was updated.
       (is (= "v2 metadata"
@@ -219,7 +219,7 @@
       ;; The machine still progresses against its preserved snapshot.
       (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
       (let [final-snapshot (get-in (rf/get-frame-db :tenant)
-                                   [:rf/machines :traffic-light])]
+                                   [:rf/runtime :machines :snapshots :traffic-light])]
         (is (= :red (:state final-snapshot))
             "post-rereg :tick advances :yellow → :red — snapshot was live")
         (is (= 3 (get-in final-snapshot [:data :ticks]))

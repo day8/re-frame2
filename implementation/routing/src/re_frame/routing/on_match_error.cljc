@@ -5,25 +5,26 @@
   (a handler throws, a registered fx errors, or a downstream handler
   errors during the drain — per Spec 009's structured error contract),
   the runtime:
-    1. Sets `:rf.route/transition` to `:error`.
-    2. Populates `:rf.route/error` with the structured error map
-       (schema `:rf/error` per Spec 009 §error-contract).
+    1. Sets `[:rf/runtime :routing :current :transition]` to `:error`.
+    2. Populates `[:rf/runtime :routing :current :error]` with the
+       structured error map (schema `:rf/error` per Spec 009 §error-contract).
     3. If the route declares `:on-error`, dispatches it. The handler
-       reads `(:error (:rf/route db))` for the error context.
+       reads `(get-in db [:rf/runtime :routing :current :error])` for
+       the error context.
 
   Mechanism: a corpus-wide listener on the always-on error-emit
   substrate (per rf2-bacs4 / Spec 009 §What IS available in production)
   receives every `:rf.error/handler-exception` record. The listener
   discriminates 'is this exception from an :on-match dispatch?' by:
     - reading the failing record's `:frame`
-    - reading that frame's `:rf/route` slice
+    - reading that frame's route slice at [:rf/runtime :routing :current]
     - checking `:transition` is `:loading` (the slice is mid-drain)
     - checking the failing event-id is in the active route's `:on-match`
 
   All four together identify the error as originating from an :on-match
   cascade for the currently-loading route. The listener then dispatches
   `:rf.route.internal/on-match-error` with the structured error map;
-  that event flips `:transition`, populates `:rf.route/error`, and
+  that event flips `:transition`, populates the slice's `:error`, and
   chains `:on-error`. Per rf2-576on the trap event is runtime-internal —
   sub-namespaced under `:rf.route.internal/*` so the user-facing
   `:rf.route/*` surface stays tidy.
@@ -61,8 +62,8 @@
     ;; newer navigation has already bumped :nav-token, this error
     ;; belongs to a superseded drain and is dropped (matches
     ;; :rf.route.internal/settle-transition's epoch check).
-    (let [current-token (get-in db [:rf/route :nav-token])
-          current-id    (get-in db [:rf/route :id])
+    (let [current-token (get-in db [:rf/runtime :routing :current :nav-token])
+          current-id    (get-in db [:rf/runtime :routing :current :id])
           route-meta    (when current-id (registrar/lookup :route current-id))
           on-error-ev   (:on-error route-meta)]
       (if (not= nav-token current-token)
@@ -73,12 +74,13 @@
         {}
         (cond->
           {:db (-> db
-                   (assoc-in [:rf/route :transition] :error)
-                   (assoc-in [:rf/route :error]      error))}
+                   (assoc-in [:rf/runtime :routing :current :transition] :error)
+                   (assoc-in [:rf/runtime :routing :current :error]      error))}
           ;; Spec 012 §Per-route error handling: a declared :on-error
-          ;; receives no payload — the handler reads (:error (:rf/route
-          ;; db)) for the error context. Vector form `[:ev-id ...]`
-          ;; dispatches as-is; bare keyword wraps as `[:ev-id]`.
+          ;; receives no payload — the handler reads
+          ;; `(get-in db [:rf/runtime :routing :current :error])` for
+          ;; the error context. Vector form `[:ev-id ...]` dispatches
+          ;; as-is; bare keyword wraps as `[:ev-id]`.
           on-error-ev
           (assoc :fx [[:dispatch (if (vector? on-error-ev)
                                    on-error-ev
@@ -97,7 +99,7 @@
   [{:keys [error event-id frame exception] :as _record}]
   (when (= :rf.error/handler-exception error)
     (let [db            (frame/frame-app-db-value frame)
-          route-slice   (when db (:rf/route db))
+          route-slice   (when db (get-in db [:rf/runtime :routing :current]))
           route-id      (:id route-slice)
           transition    (:transition route-slice)
           nav-token     (:nav-token route-slice)

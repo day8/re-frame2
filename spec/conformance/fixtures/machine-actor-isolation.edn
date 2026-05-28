@@ -2,13 +2,13 @@
 ;;
 ;; Per [005 §Capability matrix §Actor-model axis, "Own state + message
 ;; ports"](../../005-StateMachines.md#capability-matrix): each registered
-;; machine is its own actor with its own snapshot at [:rf/machines <id>].
+;; machine is its own actor with its own snapshot at [:rf/runtime :machines :snapshots <id>].
 ;; Events to one actor don't perturb another's snapshot — even when the
 ;; two share an underlying machine spec or registered action ids.
 ;;
 ;; The fixture exercises this via two independent `:machine-transition`
 ;; calls. Each call carries an INDEPENDENT snapshot (modeling the runtime's
-;; per-actor [:rf/machines <id>] slot) and an INDEPENDENT machine spec.
+;; per-actor [:rf/runtime :machines :snapshots <id>] slot) and an INDEPENDENT machine spec.
 ;; Events fed to one call's machine produce the expected transition for
 ;; that call only — there is no shared mutable state for them to step on.
 ;; The third call demonstrates a follow-up tick on the first machine,

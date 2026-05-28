@@ -60,7 +60,7 @@
 (defn run-child-exit!
   "Run the destroy-time `:exit` cascade for the actor identified by
   `actor-id` in frame `frame-id`. No-op when the actor has no live
-  snapshot at `[:rf/machines actor-id]` or no registered machine spec.
+  snapshot at `[:rf/runtime :machines :snapshots actor-id]` or no registered machine spec.
 
   On a successful cascade: writes the post-cascade snapshot back to
   app-db (so callers reading the snapshot between `:exit` and the
@@ -77,7 +77,7 @@
   [frame-id actor-id]
   (when actor-id
     (let [db       (frame/frame-app-db-value frame-id)
-          snapshot (when db (get-in db [:rf/machines actor-id]))
+          snapshot (when db (get-in db [:rf/runtime :machines :snapshots actor-id]))
           machine  (resolve-machine-spec actor-id)]
       (when (and snapshot machine)
         (let [r (parallel/run-active-exit-cascade machine snapshot)]
@@ -95,14 +95,14 @@
             (result/with-ok [new-snap exit-fx] r
               ;; (4) Write the post-exit snapshot back. The write is
               ;; transient — the unified teardown projection runs
-              ;; immediately after this and dissocs `[:rf/machines
+              ;; immediately after this and dissocs `[:rf/runtime :machines :snapshots
               ;; actor-id]`. Tools that observe the app-db between
               ;; `:exit` and teardown see the `:exit`-time `:data`
               ;; writes; the production-runtime cost is one extra
               ;; swap-frame-db! per destroy.
               (when (not= snapshot new-snap)
                 (frame/swap-frame-db! frame-id
-                                      (fn [d] (assoc-in d [:rf/machines actor-id] new-snap))))
+                                      (fn [d] (assoc-in d [:rf/runtime :machines :snapshots actor-id] new-snap))))
               ;; (5) Fire the `:exit`-emitted fx via the standard fx
               ;; interpreter. Use the frame's `:platform` (defaults to
               ;; :client) so platform-gated fx behave consistently with

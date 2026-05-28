@@ -5,8 +5,8 @@
 ;;
 ;; When a `:system-id`-bound machine is destroyed (whether by exit from
 ;; a :spawn-bearing state or by a hand-emitted `:rf.machine/destroy`
-;; fx), the runtime clears the `[:rf/system-ids]` slot AND the
-;; `[:rf/machines <id>]` snapshot, and emits
+;; fx), the runtime clears the `[:rf/runtime :machines :system-ids]` slot AND the
+;; `[:rf/runtime :machines :snapshots <id>]` snapshot, and emits
 ;; `:rf.machine/system-id-released`.
 ;;
 ;; This fixture exercises the declarative path: the parent transitions
@@ -16,7 +16,7 @@
 {:fixture/id           :machine/destroy-machine-clears-system-id-index
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/system-id}
- :fixture/doc          "Destroying a :system-id-bound machine clears [:rf/system-ids] and [:rf/machines <id>] atomically; emits :rf.machine/system-id-released."
+ :fixture/doc          "Destroying a :system-id-bound machine clears [:rf/runtime :machines :system-ids] and [:rf/runtime :machines :snapshots <id>] atomically; emits :rf.machine/system-id-released."
 
  :fixture/registry
  {:event {:sup/flow {}}
@@ -52,9 +52,7 @@
  ;; :data is unchanged by the callback's return, so the parent's :data
  ;; remains the literal `{}` it started with.
  {:final-app-db
-  {:rf/machines
-   {:sup/flow {:state :idle :data {}}}
-   :rf/system-ids {}}
+  {:rf/runtime {:machines {:snapshots {:sup/flow {:state :idle :data {}}} :system-ids {}}}}
 
   :trace-emissions
   [{:operation :rf.machine/system-id-bound

@@ -2,8 +2,9 @@
   "Routing as state. Per Spec 012.
 
   Routes are registry entries (kind :route). Navigation is an event;
-  URL changes are events. The :rf/route slice carries
-  {:id :params :query :fragment :transition :error :nav-token}.
+  URL changes are events. The route slice at
+  `[:rf/runtime :routing :current]` carries
+  `{:id :params :query :fragment :transition :error :nav-token}`.
 
   This namespace is the **public boot point and façade** for the
   routing artefact (per rf2-k682 + the skill docs): apps boot the
@@ -160,9 +161,9 @@
 ;; ("Only one frame can own the URL at a time").
 (registrar/add-registration-hook! url-bound/check-url-bound-exclusivity!)
 
-;; Framework-shipped subs over the `:rf/route` slice — Spec 012.
+;; Framework-shipped subs over the route slice — Spec 012.
 (subs/reg-sub :rf/route
-  {:doc "Subscribe to the current route slice `{:id :params :query :transition :error :fragment :nav-token}`. Layer-1 read of the `:rf/route` slice — internal routing-runtime keys nested under `:rf/route` in app-db (`:scroll-positions`, `:nav-token-counter`, …) do not surface through this sub (rf2-xak8u). Per Spec 012."}
+  {:doc "Subscribe to the current route slice `{:id :params :query :transition :error :fragment :nav-token}`. Layer-1 read of the route slice at `[:rf/runtime :routing :current]` — the per-frame routing-runtime keys (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`, `:pending-nav-counter`) sit as siblings at `[:rf/runtime :routing ...]`, so the slice carries only the published shape and the sub returns it directly. Per Spec 012."}
   route-sub-fn)
 (subs/reg-sub :rf.route/id
   {:doc "Subscribe to the current route's `:id` keyword. Per Spec 012."}
@@ -187,8 +188,9 @@
   as a vector `[parent-most ... current]`. Per Spec 012 §Nested layouts."}
   :<- [:rf.route/id] (fn [id _] (subs-ns/chain-from-meta id)))
 (subs/reg-sub :rf/pending-navigation
-  {:doc "Subscribe to the `:rf/pending-navigation` slot (nil when no
-  navigation is pending). Per Spec 012 §Navigation blocking — pending-nav
+  {:doc "Subscribe to the pending-navigation slot at
+  `[:rf/runtime :routing :pending-navigation]` (nil when no navigation
+  is pending). Per Spec 012 §Navigation blocking — pending-nav
   protocol."}
   subs-ns/pending-navigation-sub-fn)
 

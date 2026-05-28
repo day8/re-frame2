@@ -40,7 +40,7 @@
                   :url    "/api/articles"
                   :on-success [:rf.route/with-nav-token
                                {:do        [:dispatch [:article/loaded "captured-id" "payload"]]
-                                :nav-token [:get [:rf/route :nav-token]]}]}]]]]
+                                :nav-token [:get [:rf/runtime :routing :current :nav-token]]}]}]]]]
 
    :article/loaded
    ;; The receiving handler runs ONLY if the :nav-token cofx-validator passed.
@@ -70,9 +70,8 @@
 
  :fixture/expect
  {:final-app-db
-  {:rf/route {:id :route/article :params {:id "B"} :query {} :fragment nil
-              :transition :idle :error nil :nav-token "nav-2"}
-   :article  "B-payload"}                             ;; A's payload was suppressed
+  {:rf/runtime {:routing {:current {:id :route/article :params {:id "B"} :query {} :fragment nil
+              :transition :idle :error nil :nav-token "nav-2"}}} :article "B-payload"}                             ;; A's payload was suppressed
 
   :trace-emissions
   [;; Token allocated for A

@@ -85,8 +85,8 @@
                              (assoc-in [:articles "123"]
                                        {:title   "Hello SSR"
                                         :summary "A summary"})
-                             (assoc :rf/route
-                                    {:id :route/article :params {:id "123"}}))))
+                             (assoc-in [:rf/runtime :routing :current]
+                                       {:id :route/article :params {:id "123"}}))))
       (rf/dispatch-sync [:set-test-state] {:frame f})
       (let [model (rf/render-head :head/article {:frame f})]
         (is (= "Hello SSR" (:title model)))
@@ -156,7 +156,7 @@
       ;; event below.
       (rf/reg-event-db ::seed-route
                        (fn [db _]
-                         (assoc db :rf/route
+                         (assoc-in db [:rf/runtime :routing :current]
                                 {:id :route/article :params {:id "42"}})))
       (rf/dispatch-sync [::seed-route] {:frame f})
       (is (= {:title "Article 42"}
@@ -170,7 +170,7 @@
     (let [f (rf/make-frame {:doc "Default-head probe" :platform :server})]
       (rf/reg-event-db ::seed-route-no-head
                        (fn [db _]
-                         (assoc db :rf/route {:id :route/no-head})))
+                         (assoc-in db [:rf/runtime :routing :current] {:id :route/no-head})))
       (rf/dispatch-sync [::seed-route-no-head] {:frame f})
       (let [model (rf/active-head f)]
         (is (= "Default-head probe" (:title model))
@@ -508,8 +508,8 @@
                                      {:title   "re-frame2 SSR"
                                       :summary "How re-frame2 ships SSR"
                                       :image   "https://example.com/og.png"})
-                           (assoc :rf/route
-                                  {:id :route/article :params {:id "123"}}))))
+                           (assoc-in [:rf/runtime :routing :current]
+                                     {:id :route/article :params {:id "123"}}))))
     (rf/reg-head :head/article
                  {:doc "Article-page head model"}
                  (fn [db {:keys [params]}]
@@ -568,7 +568,7 @@
                    :head :head/with-attrs})
     (rf/reg-event-db :seed-fr
                      (fn [db _]
-                       (assoc db :rf/route
+                       (assoc-in db [:rf/runtime :routing :current]
                               {:id :route/article-fr :params {:id "1"}})))
     (let [f (rf/make-frame {:platform :server})]
       (rf/dispatch-sync [:seed-fr] {:frame f})

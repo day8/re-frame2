@@ -21,7 +21,7 @@
 ;;      (`:quiz/count-correct`) that bumps :correct-count from 9 → 10.
 ;;   2. :asking's :always with guard `:enough-correct?` (true when
 ;;      :correct-count >= 10) fires the microstep transition to :winner.
-;;   3. A sub `:current-stage` reading [:rf/machines :quiz :state] — the
+;;   3. A sub `:current-stage` reading [:rf/runtime :machines :snapshots :quiz :state] — the
 ;;      machine's externally-observable state slot.
 ;;   4. After the dispatch settles, :sub-values asserts the sub returns
 ;;      :winner — the COMMITTED end-state. If the sub-cache exposed the
@@ -42,8 +42,8 @@
 
  :fixture/registry
  {:event {:boot/init {:doc "Seed pre-dispatch marker so the frame's app-db is non-empty."}}
-  :sub   {:current-stage {:doc "Reads [:rf/machines :quiz :state] — i.e. the machine's externally-observable state slot."}
-          :correct-count {:doc "Reads [:rf/machines :quiz :data :correct-count] — the data slot the action updates."}}
+  :sub   {:current-stage {:doc "Reads [:rf/runtime :machines :snapshots :quiz :state] — i.e. the machine's externally-observable state slot."}
+          :correct-count {:doc "Reads [:rf/runtime :machines :snapshots :quiz :data :correct-count] — the data slot the action updates."}}
   :machine-action
   {:quiz/count-correct {:doc "Increment :correct-count by 1."}}
   :machine-guard
@@ -62,8 +62,8 @@
 
  :fixture/handlers
  {:event {:boot/init [[:set [:dispatched?] true]]}
-  :sub   {:current-stage [[:get [:rf/machines :quiz :state]]]
-          :correct-count [[:get [:rf/machines :quiz :data :correct-count]]]}
+  :sub   {:current-stage [[:get [:rf/runtime :machines :snapshots :quiz :state]]]
+          :correct-count [[:get [:rf/runtime :machines :snapshots :quiz :data :correct-count]]]}
   :machine-action
   {:quiz/count-correct [[:set [:correct-count] [:fn :+ [:get [:correct-count]] 1]]]}
   :machine-guard
@@ -91,8 +91,7 @@
    [:correct-count] 10}
 
   :final-app-db
-  {:rf/machines {:quiz {:state :winner :data {:correct-count 10}}}
-   :dispatched? true}
+  {:rf/runtime {:machines {:snapshots {:quiz {:state :winner :data {:correct-count 10}}}}} :dispatched? true}
 
   ;; Trace contract: ONE outer macrostep (the :rf.machine/transition
   ;; trace), with :microsteps 1 (the :always microstep). Subs do NOT

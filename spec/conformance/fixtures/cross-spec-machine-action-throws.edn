@@ -9,7 +9,7 @@
 ;; Scenario: A machine action throws while the cascade is in flight.
 ;; Behaviour: the action's exception is caught by the machine handler;
 ;; the in-flight cascade halts atomically. The snapshot is NOT committed
-;; — the pre-action `app-db` slice at `[:rf/machines <id>]` remains.
+;; — the pre-action `app-db` slice at `[:rf/runtime :machines :snapshots <id>]` remains.
 ;; `:rf.error/machine-action-exception` traces with `:tags` carrying
 ;; `:machine-id`, `:action-id`, `:state-path`, `:transition`, `:event`,
 ;; `:exception-message`, and `:reason`. The generic

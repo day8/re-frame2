@@ -109,10 +109,10 @@
   paths (listener registry, per-frame `:on-error` policy).
 
   Sensitive-data redaction on this path is path-based: the per-frame
-  `:rf/elision` registry's `:sensitive-declarations` drive the wire-
-  walker's per-slot substitutions. Handler-meta `:sensitive?` is no
-  longer consulted (path-marked classification is the v2 mechanism;
-  separate spec doc; in progress).
+  `[:rf/runtime :elision]` registry's `:sensitive-declarations` drive
+  the wire-walker's per-slot substitutions. Handler-meta `:sensitive?`
+  is no longer consulted (path-marked classification is the v2
+  mechanism; separate spec doc; in progress).
 
   Called by `router.cljc` from the handler-exception path. Returns nil."
   [error-kw event event-id frame-id exception elapsed-ms time error-event]
@@ -127,8 +127,8 @@
         ;; from the record / tags rather than nil.
         source-coord (when event-id (source-coords/error-coords-for :event event-id))
         ;; Per-path wire-walker: paths flagged `:sensitive?` / `:large?`
-        ;; via the per-frame `:rf/elision` registry get their per-path
-        ;; substitutions.
+        ;; via the per-frame `[:rf/runtime :elision]` registry get their
+        ;; per-path substitutions.
         elided-event (elision/elide-wire-value event {:frame frame-id})
         record       (cond-> {:error      error-kw
                               :event      elided-event

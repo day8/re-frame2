@@ -8,7 +8,7 @@
 ;;      whose args carry the user-declared :machine-id, :data, :on-spawn,
 ;;      and :start keys — AND the runtime-supplied :rf/parent-id +
 ;;      :rf/spawn-id used by the runtime spawn-registry slot at
-;;      [:rf/spawned <parent-id> <invoke-id>] (per rf2-t07u Option A
+;;      [:rf/runtime :machines :spawned <parent-id> <invoke-id>] (per rf2-t07u Option A
 ;;      revised — runtime tracks the spawn-id itself so :on-spawn becomes
 ;;      purely advisory user-side bookkeeping).
 ;;   2. The :on-spawn callback fires with the unified context-map
@@ -16,18 +16,18 @@
 ;;      purely advisory — the runtime DROPS any return value and the
 ;;      parent's :data is NOT mutated by the callback. Users that need
 ;;      the id user-side read it from the runtime-tracked
-;;      [:rf/spawned <parent-id> <invoke-id>] slot or capture it via
+;;      [:rf/runtime :machines :spawned <parent-id> <invoke-id>] slot or capture it via
 ;;      a sidechannel atom.
 ;;   3. Exiting the state emits a :rf.machine/destroy fx whose args carry
 ;;      :rf/parent-id + :rf/spawn-id (NOT the actor id directly). The fx
-;;      handler reads [:rf/spawned <parent-id> <invoke-id>] from the
+;;      handler reads [:rf/runtime :machines :spawned <parent-id> <invoke-id>] from the
 ;;      frame's app-db at call time and tears down whatever spawned id is
 ;;      currently bound there.
 ;;
 ;; Per [005 §Declarative :spawn (sugar over spawn)]
 ;; (../../005-StateMachines.md#declarative-spawn) and
 ;; rf2-t07u (Option A revised; "Spawn-id tracking moved from :data :pending
-;; to runtime-owned [:rf/spawned ...]").
+;; to runtime-owned [:rf/runtime :machines :spawned ...]").
 ;;
 ;; The fixture exercises the desugared shape directly via
 ;; :machine-transition calls — the :rf.machine/spawn / :rf.machine/destroy
@@ -92,7 +92,7 @@
    ;; by the callback. The fixture harness assigns the deterministic id
    ;; :http/post#1 for spawn-fx in test mode; production code that needs
    ;; the id from :data reads it via the runtime-tracked
-   ;; [:rf/spawned <parent> <invoke-id>] slot.
+   ;; [:rf/runtime :machines :spawned <parent> <invoke-id>] slot.
    :expect-next-snapshot {:state             :authenticating
                           :data              {:credentials {:user "alice" :pass "secret"}}
                           :rf/spawn-counter  {:http/post 1}}
@@ -133,7 +133,7 @@
    :event        [:auth/failed]
    :expect-next-snapshot {:state :idle :data {:pending :http/post#1}}
    ;; Per rf2-t07u (Option A revised): destroy fx no longer carries the
-   ;; actor-id directly. The fx handler reads [:rf/spawned <parent-id>
+   ;; actor-id directly. The fx handler reads [:rf/runtime :machines :spawned <parent-id>
    ;; <invoke-id>] from the frame's app-db at call time and tears down
    ;; whatever spawned id is currently bound there.
    :expect-effects       [[:rf.machine/destroy {:rf/parent-id :rf/transition-pure
@@ -148,7 +148,7 @@
   ;; with regular actions; the harness reduces the body over the
   ;; synthetic context but the runtime does NOT patch the result back.
   ;; Authors observing the id from `:data` would read the
-  ;; runtime-tracked `[:rf/spawned <parent> <invoke-id>]` slot.
+  ;; runtime-tracked `[:rf/runtime :machines :spawned <parent> <invoke-id>]` slot.
   ;;
   ;; Per [005 §Path conventions in machine bodies] (rf2-een2 / rf2-smba): the
   ;; body's :set paths are data-relative — uniform with regular machine

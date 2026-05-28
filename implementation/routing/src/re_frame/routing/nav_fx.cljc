@@ -76,7 +76,7 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
        :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                           {:fx-id :rf.nav/push-url :url url}))
     ;; Non-URL-bound frame: skip the history mutation. Frame's
-    ;; `:rf/route` slice still updates — only the browser-URL sync is
+    ;; route slice at [:rf/runtime :routing :current] still updates — only the browser-URL sync is
     ;; suppressed. Per Spec 012 §Multi-frame routing this is the right
     ;; default for story-variant / devcard / per-test fixtures.
     (trace/emit! :rf.fx :rf.fx/skipped-on-platform

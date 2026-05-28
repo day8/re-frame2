@@ -152,7 +152,7 @@
 ;;   1. The captured trace stream already stamps `:sensitive?` per
 ;;      handler-meta scope — if any event in `:trace-events` carries the
 ;;      stamp, the record's cascade involved sensitive material.
-;;   2. The frame's schema-declared `[:rf/elision :sensitive-declarations]`
+;;   2. The frame's schema-declared `[:rf/runtime :elision :sensitive-declarations]`
 ;;      registry names paths that hold sensitive data; if any such path
 ;;      resolves to a non-nil leaf in `:db-before` or `:db-after`, the
 ;;      record's app-db state carries sensitive material.
@@ -217,7 +217,7 @@
 ;; Per Security.md §Epoch privacy posture and rf2-dl3gx (follow-on to
 ;; rf2-bz1cl's Xray-side heuristic chip): the record carries a
 ;; top-level integer count of schema-declared sensitive paths
-;; (`[:rf/elision :sensitive-declarations]`) whose value differs between
+;; (`[:rf/runtime :elision :sensitive-declarations]`) whose value differs between
 ;; `:db-before` and `:db-after`. Computed inside `build-record` from RAW
 ;; values BEFORE the installed `:redact-fn` runs — parallel to the
 ;; `:rf.epoch/sensitive?` rollup pattern just above.

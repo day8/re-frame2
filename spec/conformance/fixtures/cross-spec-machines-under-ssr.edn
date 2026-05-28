@@ -67,8 +67,7 @@
  ;; the contract: machines run normally on the server, :after is
  ;; specifically carved out.
  {:final-app-db
-  {:rf/machines
-   {:auth/probe {:state :loading}}}
+  {:rf/runtime {:machines {:snapshots {:auth/probe {:state :loading}}}}}
 
   ;; The load-bearing trace contract:
   ;;   1. :event for the outer machine-handler dispatch.

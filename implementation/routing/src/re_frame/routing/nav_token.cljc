@@ -23,7 +23,7 @@
   "`:rf.test/simulate-http-resolution` event-fx handler. Registered by
   the façade so a `:reload` re-wires it on a fresh registrar."
   [{:keys [db]} [_ {:keys [on-success-event carried-nav-token]}]]
-  (let [current (get-in db [:rf/route :nav-token])]
+  (let [current (get-in db [:rf/runtime :routing :current :nav-token])]
     (cond
       (= carried-nav-token current)
       ;; Token matches — dispatch the continuation.
@@ -61,7 +61,7 @@
   available to apps that want to centralise schemas (per Spec 010
   §Schema registration)."
   {:doc  "Per Spec 012 §Navigation tokens. Threads the carried
-`:nav-token` against the current `:rf/route :nav-token`. Match → run
+`:nav-token` against the current `[:rf/runtime :routing :current :nav-token]`. Match → run
 `:do` (any fx entry); mismatch → suppress and emit
 `:rf.route.nav-token/stale-suppressed`."
    :schema [:map
@@ -80,7 +80,7 @@
         frame-id        (or frame :rf/default)
         frame-record    (frame/frame frame-id)
         db              (frame/frame-app-db-value frame-id)
-        current         (get-in db [:rf/route :nav-token])]
+        current         (get-in db [:rf/runtime :routing :current :nav-token])]
     (cond
       (= nav-token current)
       ;; Token matches — route the inner fx entry through

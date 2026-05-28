@@ -13,7 +13,7 @@
   Pre-rf2-vsigt the implementation aborted in-flight HTTP and emitted
   `:rf.machine.lifecycle/destroyed` but did not run the `:exit`
   actions, did not unregister the spawned-actor handlers, did not
-  clear the `[:rf/system-ids]` reverse index, and did not enforce any
+  clear the `[:rf/runtime :machines :system-ids]` reverse index, and did not enforce any
   ordering.
 
   These JVM-side tests run on the plain-atom substrate against the
@@ -132,10 +132,10 @@
       (is (some? (registrar/lookup :event :fc/boot))
           "the singleton `:fc/boot` machine handler stays globally registered"))))
 
-;; ---- :rf/system-ids reverse index is released ----------------------------
+;; ---- [:rf/runtime :machines :system-ids] reverse index is released -------
 
 (deftest frame-destroy-releases-system-id-reverse-index
-  (testing "destroy-frame! clears [:rf/system-ids <sid>] for every system-id-bound spawned actor"
+  (testing "destroy-frame! clears [:rf/runtime :machines :system-ids <sid>] for every system-id-bound spawned actor"
     (rf/reg-frame :si/auth {:doc "system-id reverse-index test frame"})
     (let [child   {:initial :running :data {} :states {:running {}}}
           parent  {:initial :idle
@@ -151,7 +151,7 @@
       (rf/dispatch-sync [:si/boot [:bind]] {:frame :si/auth})
       ;; The reverse index is bound before destroy.
       (let [db (rf/get-frame-db :si/auth)]
-        (is (= :si/child#1 (get-in db [:rf/system-ids :session/primary]))
+        (is (= :si/child#1 (get-in db [:rf/runtime :machines :system-ids :session/primary]))
             "system-id was bound to the spawned actor before destroy"))
       (rf/destroy-frame! :si/auth)
       ;; Frame is gone — and the actor's handler was unregistered as
@@ -159,7 +159,7 @@
       (is (nil? (frame/frame :si/auth))
           "frame was destroyed")
       (is (nil? (registrar/lookup :event :si/child#1))
-          "the system-id-bound spawned actor was unregistered (its [:rf/system-ids] entry was implicitly released as part of the unified teardown projection)"))))
+          "the system-id-bound spawned actor was unregistered (its [:rf/runtime :machines :system-ids] entry was implicitly released as part of the unified teardown projection)"))))
 
 ;; ---- :rf.machine.lifecycle/destroyed trace contract ----------------------
 
@@ -187,9 +187,9 @@
       (let [destroyed (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
                               @traces)]
         ;; Two spawned actors PLUS the singleton :lt/boot snapshot
-        ;; that lives in [:rf/machines] of this frame — three traces.
+        ;; that lives in [:rf/runtime :machines :snapshots] of this frame — three traces.
         (is (= 3 (count destroyed))
-            "one trace per actor with a [:rf/machines <id>] snapshot")
+            "one trace per actor with a [:rf/runtime :machines :snapshots <id>] snapshot")
         (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) destroyed)
             "every trace carries :reason :parent-frame-destroyed")
         (is (every? #(= :lt/auth (:frame (:tags %))) destroyed)

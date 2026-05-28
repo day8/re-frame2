@@ -475,7 +475,7 @@
 
   The on-spawn callback receives the parent machine's `:data` and the
   just-allocated actor id; the return value is advisory only — the
-  runtime tracks the spawned id at `[:rf/spawned <parent> <invoke-id>]`
+  runtime tracks the spawned id at `[:rf/runtime :machines :spawned <parent> <invoke-id>]`
   regardless. The DSL body's `:set` ops are realised here for body
   inspection / trace symmetry with regular actions; the resulting map is
   RETURNED for compatibility with corpus authors who want to observe

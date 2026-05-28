@@ -7,18 +7,18 @@
   Spec 005 §Spawning, the spawned actor is itself an event handler
   whose id is the actor address; `spawn-fx` registers the live handler
   under the spawned id and seeds its initial snapshot at
-  `[:rf/machines <id>]`.
+  `[:rf/runtime :machines :snapshots <id>]`.
 
   The two-tier registry described in Spec 005 (frame-local handlers
   that revert with the frame's snapshot) is not yet built — for v1 the
   registration goes through the global registrar via
   `events/reg-event-fx`. Frame isolation is preserved by the snapshot
-  living at `[:rf/machines <id>]` inside the spawning frame's app-db.
+  living at `[:rf/runtime :machines :snapshots <id>]` inside the spawning frame's app-db.
 
   Per rf2-6vmw `invoke-all-init-fx` also lives here — the runtime
   emits `[:rf.machine/spawn-all-init args]` alongside per-child
   `:rf.machine/spawn` fxs on entry to a `:spawn-all`-bearing state to
-  seed the join state at `[:rf/spawned <parent> <invoke-id>]`."
+  seed the join state at `[:rf/runtime :machines :spawned <parent> <invoke-id>]`."
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.data-validation :as data-validation]
@@ -115,14 +115,14 @@
   it before the snapshot lands. A failure emits
   `:rf.error/schema-validation-failure :where :machine-data
   :phase :spawn` and short-circuits the install — the actor never
-  starts. Sibling `:system-id` / `:rf/spawned` registrations are also
+  starts. Sibling `:system-id` / `[:rf/runtime :machines :spawned]` registrations are also
   skipped so the rejected actor leaves no half-installed bookkeeping."
   [frame-id db-after-alloc spec spawned-id
    {:keys [system-id parent-id track?] invoke-id :spawn-id}]
   (let [initial-snap (when spec
                        (parallel/build-initial-snapshot
                          spec {:bootstrap-pending? true}))
-        existing     (when system-id (get-in db-after-alloc [:rf/system-ids system-id]))]
+        existing     (when system-id (get-in db-after-alloc [:rf/runtime :machines :system-ids system-id]))]
     (if (and spec (not (data-validation/validate-spawn-data!
                          spawned-id spec initial-snap)))
       :rejected
@@ -142,9 +142,9 @@
         (frame/swap-frame-db! frame-id
                               (fn [_db]
                                 (cond-> db-after-alloc
-                                  spec      (assoc-in [:rf/machines spawned-id] initial-snap)
-                                  system-id (assoc-in [:rf/system-ids system-id] spawned-id)
-                                  track?    (assoc-in [:rf/spawned parent-id invoke-id] spawned-id))))
+                                  spec      (assoc-in [:rf/runtime :machines :snapshots spawned-id] initial-snap)
+                                  system-id (assoc-in [:rf/runtime :machines :system-ids system-id] spawned-id)
+                                  track?    (assoc-in [:rf/runtime :machines :spawned parent-id invoke-id] spawned-id))))
         (when system-id
           (trace/emit! :rf.machine :rf.machine/system-id-bound
                        {:frame      frame-id
@@ -157,7 +157,7 @@
 (defn spawn-fx
   "fx handler for `:rf.machine/spawn`. Per Spec 005 §Spawning, the spawned
   actor is itself an event handler at `<spawned-id>`; its snapshot lives
-  at `[:rf/machines <spawned-id>]` in the spawning frame's app-db.
+  at `[:rf/runtime :machines :snapshots <spawned-id>]` in the spawning frame's app-db.
 
   Lifecycle wired here:
    1. Resolve the spawn's machine spec (`:machine-id` from the registrar
@@ -166,18 +166,18 @@
       `make-machine-handler` / `reg-event-fx`. Re-spawn under the
       same id replaces — last-write-wins, matching standard
       re-registration.
-   3. Initialise the actor's snapshot at `[:rf/machines <spawned-id>]`
+   3. Initialise the actor's snapshot at `[:rf/runtime :machines :snapshots <spawned-id>]`
       using the spec's `:initial` / `:data` (overridden by the spawn
       args' `:data`). Per rf2-ijm7 the runtime stamps `:rf/self-id`
       (the spawned actor's own address) and, when applicable,
       `:rf/parent-id` + `:rf/spawn-id` into the actor's initial
       `:data` under the framework-reserved `:rf/*` namespace.
    4. If `:system-id` present, bind it in the per-frame
-      `[:rf/system-ids]` reverse index. Collisions emit
+      `[:rf/runtime :machines :system-ids]` reverse index. Collisions emit
       `:rf.error/system-id-collision` and rebind (last-write-wins).
    5. If `:rf/parent-id` + `:rf/spawn-id` present (declarative `:spawn`
       desugar — rf2-t07u Option A revised), bind the spawned id at
-      `[:rf/spawned <parent-id> <invoke-id>]`.
+      `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]`.
    6. If `:start` event-vector present, dispatch
       `[<spawned-id> <start>]`. When `:start` is absent (per rf2-ijm7),
       the runtime dispatches a synthetic `[<spawned-id>
@@ -197,7 +197,7 @@
                      spec)
         system-id  (:system-id args)
         ;; Per rf2-t07u (Option A revised): the runtime tracks each
-        ;; declarative-:spawn spawn at [:rf/spawned <parent-id>
+        ;; declarative-:spawn spawn at [:rf/runtime :machines :spawned <parent-id>
         ;; <invoke-id>] — populated only when the spawn carries both.
         parent-id  (:rf/parent-id args)
         invoke-id  (:rf/spawn-id args)
@@ -290,7 +290,7 @@
   "fx handler for `:rf.machine/spawn-all-init` (rf2-6vmw). Per Spec 005
   §Spawn-and-join via `:spawn-all`, on entry to a `:spawn-all`-bearing
   state the runtime emits this fx (alongside per-child `:rf.machine/spawn`
-  fxs) to seed the join state at `[:rf/spawned <parent> <invoke-id>]` in
+  fxs) to seed the join state at `[:rf/runtime :machines :spawned <parent> <invoke-id>]` in
   the frame's app-db. The seed map shape is:
 
     {:children {<child-id> <spawned-id>, ...}
@@ -308,7 +308,7 @@
         join-state (:join-state args)
         children   (:children join-state)]
     (frame/swap-frame-db! frame-id assoc-in
-                          [:rf/spawned parent-id invoke-id] join-state)
+                          [:rf/runtime :machines :spawned parent-id invoke-id] join-state)
     (trace/emit! :rf.machine :rf.machine.spawn-all/started
                  {:machine-id parent-id
                   :spawn-id  invoke-id

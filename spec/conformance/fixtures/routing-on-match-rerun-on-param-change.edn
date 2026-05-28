@@ -44,8 +44,7 @@
 
  :fixture/expect
  {:final-app-db
-  {:rf/route   {:id :route/article :params {:id "B"} :query {} :fragment nil}
-   :load-count 2}                                          ;; A + B
+  {:rf/runtime {:routing {:current {:id :route/article :params {:id "B"} :query {} :fragment nil}}} :load-count 2}                                          ;; A + B
 
   :trace-emissions
   [;; First navigation: nav-token allocated, loader fires.

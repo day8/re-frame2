@@ -4,7 +4,7 @@
 ;; exiting a :spawn-all-bearing state emits a single
 ;;   [:rf.machine/destroy {:rf/parent-id ... :rf/spawn-id ... :rf/spawn-all true}]
 ;; fx that the destroy-fx handler resolves by reading the join-state map
-;; at [:rf/spawned <parent> <invoke-id>] and tearing down each child.
+;; at [:rf/runtime :machines :spawned <parent> <invoke-id>] and tearing down each child.
 ;;
 ;; This is the cancel-on-decision = true (default) shape: when a child
 ;; failure fires :on-any-failed, the parent transitions out of the
@@ -20,7 +20,7 @@
 {:fixture/id           :machine/spawn-all-join-any-fails-cancels
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/spawn-and-join}
- :fixture/doc          "Exiting a :spawn-all-bearing state emits one :rf.machine/destroy fx whose args carry :rf/spawn-all true. The destroy-fx handler reads the join-state map at [:rf/spawned <parent> <invoke-id>] and tears each child down. Verifies the exit-side fx emission for the cancel-on-decision = true (default) path."
+ :fixture/doc          "Exiting a :spawn-all-bearing state emits one :rf.machine/destroy fx whose args carry :rf/spawn-all true. The destroy-fx handler reads the join-state map at [:rf/runtime :machines :spawned <parent> <invoke-id>] and tears each child down. Verifies the exit-side fx emission for the cancel-on-decision = true (default) path."
 
  :fixture/registry
  {:machine

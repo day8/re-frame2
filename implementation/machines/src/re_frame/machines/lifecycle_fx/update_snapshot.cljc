@@ -17,7 +17,7 @@
 
   Args shape: `{:rf/machine-id <id> :rf/patch {<snapshot-keys> ...}}`.
   `:rf/machine-id` names the actor whose snapshot at
-  `[:rf/machines <id>]` is patched; `:rf/patch` is the map merged onto
+  `[:rf/runtime :machines :snapshots <id>]` is patched; `:rf/patch` is the map merged onto
   that snapshot. Only the spec-permitted top-level snapshot keys flow
   through (`:state` / `:meta` / `:errors` / `:status` / `:data`); any
   other key is ignored (the escape hatch can't graft arbitrary slots
@@ -35,7 +35,7 @@
 
 (defn update-snapshot-fx
   "fx handler for `:rf.machine/update-snapshot`. Merges the spec-permitted
-  keys of `:rf/patch` onto the snapshot at `[:rf/machines <machine-id>]`
+  keys of `:rf/patch` onto the snapshot at `[:rf/runtime :machines :snapshots <machine-id>]`
   in the emitting frame's app-db. No-op when the actor has no snapshot
   (destroyed / not-yet-materialised) or when `:rf/machine-id` is absent.
   Per Spec 005 §Snapshot-level escape hatch."
@@ -60,7 +60,7 @@
             (fn [db]
               ;; No-op merge target when the snapshot is absent — never
               ;; conjure a snapshot for a destroyed / unknown actor.
-              (if (contains? (get db :rf/machines) machine-id)
-                (update-in db [:rf/machines machine-id] merge clean-patch)
+              (if (contains? (get-in db [:rf/runtime :machines :snapshots]) machine-id)
+                (update-in db [:rf/runtime :machines :snapshots machine-id] merge clean-patch)
                 db))))))
     nil))

@@ -15,7 +15,7 @@
     - dynamic delay re-resolution after state exit (the timer-table
       entry is gone; the stale synthetic event is a no-op),
     - composed leak audit across timer table + system-id reverse index
-      + `:rf/spawned` slot + spawn-order channel after `destroy-frame!`.
+      + `[:rf/runtime :machines :spawned]` slot + spawn-order channel after `destroy-frame!`.
 
   JVM-only by design — synthetic
   `[:rf.machine.timer/after-elapsed <delay-key> <epoch>]` dispatches are
@@ -133,19 +133,19 @@
       (rf/dispatch-sync [:corner.sid/parent [:spawn-bound]])
       ;; Actor A is :corner.sid/child#1; system-id binds to it.
       (let [db (rf/get-frame-db :rf/default)]
-        (is (= :corner.sid/child#1 (get-in db [:rf/system-ids :corner/primary]))
+        (is (= :corner.sid/child#1 (get-in db [:rf/runtime :machines :system-ids :corner/primary]))
             ":corner/primary reverse-index points at actor A (#1)")
-        (is (some? (get-in db [:rf/machines :corner.sid/child#1]))
+        (is (some? (get-in db [:rf/runtime :machines :snapshots :corner.sid/child#1]))
             "actor A snapshot is live"))
 
       ;; Replace: destroy A, spawn B under the same system-id.
       (rf/dispatch-sync [:corner.sid/parent [:replace]])
       (let [db (rf/get-frame-db :rf/default)]
-        (is (= :corner.sid/child#2 (get-in db [:rf/system-ids :corner/primary]))
+        (is (= :corner.sid/child#2 (get-in db [:rf/runtime :machines :system-ids :corner/primary]))
             ":corner/primary now points at actor B (#2) — index rebinds cleanly")
-        (is (nil? (get-in db [:rf/machines :corner.sid/child#1]))
+        (is (nil? (get-in db [:rf/runtime :machines :snapshots :corner.sid/child#1]))
             "actor A snapshot is gone")
-        (is (some? (get-in db [:rf/machines :corner.sid/child#2]))
+        (is (some? (get-in db [:rf/runtime :machines :snapshots :corner.sid/child#2]))
             "actor B snapshot is live")
         (is (nil? (registrar/lookup :event :corner.sid/child#1))
             "actor A handler is unregistered post-destroy"))
@@ -160,16 +160,16 @@
               "stale dispatch to A's gone handler trace :rf.error/no-such-handler")
           ;; B's snapshot is untouched by the stale-firing-on-A event.
           (let [db (rf/get-frame-db :rf/default)]
-            (is (= :running (:state (get-in db [:rf/machines :corner.sid/child#2])))
+            (is (= :running (:state (get-in db [:rf/runtime :machines :snapshots :corner.sid/child#2])))
                 "actor B's state is still :running — stale A-firing did NOT cross over")
-            (is (= :corner.sid/child#2 (get-in db [:rf/system-ids :corner/primary]))
+            (is (= :corner.sid/child#2 (get-in db [:rf/runtime :machines :system-ids :corner/primary]))
                 "reverse-index still points at B"))
           (finally (unreg)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. :spawn-all child completion AFTER parent frame destroy
 ;;
-;; The parent's :spawn-all join state lives at [:rf/spawned <parent>
+;; The parent's :spawn-all join state lives at [:rf/runtime :machines :spawned <parent>
 ;; <invoke-id>] in the parent FRAME's app-db. When the frame is
 ;; destroyed, the machine teardown cascade runs each spawned actor's
 ;; :exit, but if a child dispatches its :on-child-done AFTER the frame
@@ -208,7 +208,7 @@
 
       ;; The join state is seeded.
       (let [db (rf/get-frame-db :corner.ia/scoped)
-            j  (get-in db [:rf/spawned :corner.ia/parent [:hydrating]])]
+            j  (get-in db [:rf/runtime :machines :spawned :corner.ia/parent [:hydrating]])]
         (is (map? j) "join state seeded")
         (is (false? (:resolved? j)) "join not yet resolved"))
 
@@ -265,7 +265,7 @@
 
       ;; Capture the entry's epoch BEFORE we exit :loading.
       (let [snap-before  (get-in (rf/get-frame-db :rf/default)
-                                 [:rf/machines :corner.dyn/m])
+                                 [:rf/runtime :machines :snapshots :corner.dyn/m])
             epoch-loading (get-in snap-before [:data :rf/after-epoch [:loading]])]
         (is (pos? epoch-loading) ":loading entry advanced the per-path epoch")
 
@@ -273,7 +273,7 @@
         ;; releases the timer entry.
         (rf/dispatch-sync [:corner.dyn/m [:loaded]])
         (is (= :ready (:state (get-in (rf/get-frame-db :rf/default)
-                                      [:rf/machines :corner.dyn/m])))
+                                      [:rf/runtime :machines :snapshots :corner.dyn/m])))
             "machine reached :ready")
         ;; The timer table's inner map should have the entry dropped;
         ;; per timer.cljc when the inner map empties the OUTER frame
@@ -290,7 +290,7 @@
             (rf/dispatch-sync [:corner.dyn/m
                                [:rf.machine.timer/after-elapsed 5000 epoch-loading]])
             (is (= :ready (:state (get-in (rf/get-frame-db :rf/default)
-                                          [:rf/machines :corner.dyn/m])))
+                                          [:rf/runtime :machines :snapshots :corner.dyn/m])))
                 "stale firing did NOT transition the machine off :ready")
             (is (some #(and (= :rf.machine.timer/stale-after (:operation %))
                             (= 5000 (:delay (:tags %))))
@@ -310,8 +310,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest composed-timer-join-and-system-id-cleanup-on-frame-destroy
-  (testing "destroy-frame! clears timer table + :rf/system-ids + :rf/spawned
-            + :rf/machines + spawn-order + actor registrar in one cascade"
+  (testing "destroy-frame! clears timer table + [:rf/runtime :machines :system-ids] + [:rf/runtime :machines :spawned]
+            + [:rf/runtime :machines :snapshots] + spawn-order + actor registrar in one cascade"
     (rf/reg-frame :corner.leak/scoped {:doc "leak-audit"})
 
     ;; --- (a) :after timer --------------------------------------------------
@@ -365,11 +365,11 @@
         "precondition: timer table holds the :after entry for the frame")
     (let [db (rf/get-frame-db :corner.leak/scoped)]
       (is (= :corner.leak/child#1
-             (get-in db [:rf/system-ids :corner.leak/primary]))
+             (get-in db [:rf/runtime :machines :system-ids :corner.leak/primary]))
           "precondition: system-id reverse index points at the spawned actor")
-      (is (map? (get-in db [:rf/spawned :corner.leak/ia-parent [:hydrating]]))
+      (is (map? (get-in db [:rf/runtime :machines :spawned :corner.leak/ia-parent [:hydrating]]))
           "precondition: invoke-all join slot is seeded")
-      (is (some? (get-in db [:rf/machines :corner.leak/child#1]))
+      (is (some? (get-in db [:rf/runtime :machines :snapshots :corner.leak/child#1]))
           "precondition: spawned actor snapshot is live"))
     (is (pos? (count (spawn-order/frame-order :corner.leak/scoped)))
         "precondition: spawn-order channel has entries")

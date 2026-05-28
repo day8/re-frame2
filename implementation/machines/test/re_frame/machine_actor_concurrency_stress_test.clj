@@ -30,7 +30,7 @@
         1. `(rf/dispatch-sync [driver-mid [:go]]   {:frame F})` —
            drives the parent into `:working`, which spawns the worker
            via `:rf.machine/spawn` fx (rf2-t07u — runtime tracks the
-           spawned id at `[:rf/spawned <driver-mid> [:working]]`).
+           spawned id at `[:rf/runtime :machines :spawned <driver-mid> [:working]]`).
         2. `(rf/dispatch-sync [<actor-id> [:tick]] {:frame F})` —
            dispatches a `:tick` event AT THE SPAWNED ACTOR. The
            transition runs the `:bump` action which increments a
@@ -54,14 +54,15 @@
        transition fired twice for one dispatch (double-action);
        lower = a dispatch was dropped before the action ran.
 
-    3. **Clean destroy lifecycle.** Every frame's `:rf/machines` slot
-       MUST be empty at quiescence — every worker spawned was
-       destroyed, no actor leaked. Per rf2-t07u Option A revised the
-       `[:rf/spawned ...]` registry root is lazy-allocation pruned and
-       MUST be absent.
+    3. **Clean destroy lifecycle.** Every frame's
+       `[:rf/runtime :machines :snapshots]` slot MUST be empty at
+       quiescence — every worker spawned was destroyed, no actor
+       leaked. Per rf2-t07u Option A revised the
+       `[:rf/runtime :machines :spawned ...]` slot is lazy-allocation
+       pruned and MUST be absent.
 
     4. **Spawn-counter monotonicity.** Each frame's parent-snapshot
-       slot `[:rf/machines <driver-mid> :rf/spawn-counter <worker-mid>]`
+       slot `[:rf/runtime :machines :snapshots <driver-mid> :rf/spawn-counter <worker-mid>]`
        MUST equal `iters` at the end — every iter allocated exactly
        one fresh worker id from the parent's in-snapshot counter
        (rf2-gr8q), never colliding, never skipping.
@@ -138,7 +139,7 @@
   "Build a driver parent that declaratively `:spawn`s `worker-mid` on
   entry to `:working` and destroys it on exit. Per Spec 005
   §Declarative `:spawn` the runtime tracks the spawned id at
-  `[:rf/spawned <driver-mid> [:working]]`; on exit back to `:idle` the
+  `[:rf/runtime :machines :spawned <driver-mid> [:working]]`; on exit back to `:idle` the
   matched destroy fx fires automatically (rf2-t07u Option A revised)."
   [worker-mid]
   {:initial :idle
@@ -208,7 +209,7 @@
                             ;; rule 1) and this thread holds the only
                             ;; writer for this frame.
                             (let [actor-id (get-in (rf/get-frame-db frame-id)
-                                                   [:rf/spawned driver-mid [:working]])]
+                                                   [:rf/runtime :machines :spawned driver-mid [:working]])]
                               (when actor-id
                                 (rf/dispatch-sync [actor-id [:tick]]
                                                   {:frame frame-id})))
@@ -260,10 +261,10 @@
         ;;     spawn-counter monotonicity, per frame.
         (doseq [{:keys [frame-id worker-mid driver-mid]} per-thread]
           (let [db       (rf/get-frame-db frame-id)
-                machines (:rf/machines db)
+                machines (get-in db [:rf/runtime :machines :snapshots])
                 ;; The driver itself is a singleton machine reg'd on
                 ;; the GLOBAL registrar (singleton-registration path);
-                ;; its snapshot lives at [:rf/machines <driver-mid>]
+                ;; its snapshot lives at [:rf/runtime :machines :snapshots <driver-mid>]
                 ;; on the frame's app-db. After every iter the driver
                 ;; is back in :idle — its snapshot is still present
                 ;; (it's a singleton, not a spawned actor). The
@@ -278,22 +279,22 @@
                 (str "Frame " frame-id ": expected zero leaked worker "
                      "actor snapshots; got " (count worker-leaks)
                      " leaks: " (pr-str (mapv first worker-leaks))))
-            ;; Per rf2-t07u the empty `:rf/spawned` root is pruned to
-            ;; absent — all spawn-registry slots were cleared on
-            ;; destroy.
-            (is (not (contains? db :rf/spawned))
-                (str "Frame " frame-id ": :rf/spawned root must be "
-                     "lazy-allocation pruned (every spawn was matched "
-                     "by a destroy); got "
-                     (pr-str (:rf/spawned db))))
+            ;; Per rf2-t07u the empty `[:rf/runtime :machines :spawned]`
+            ;; slot is pruned to absent — all spawn-registry slots were
+            ;; cleared on destroy.
+            (is (not (contains? (get-in db [:rf/runtime :machines]) :spawned))
+                (str "Frame " frame-id ": [:rf/runtime :machines :spawned] "
+                     "slot must be lazy-allocation pruned (every spawn "
+                     "was matched by a destroy); got "
+                     (pr-str (get-in db [:rf/runtime :machines :spawned]))))
             ;; Per rf2-gr8q the declarative-:spawn allocator lives in
             ;; the parent's snapshot at
-            ;; `[:rf/machines <driver-mid> :rf/spawn-counter <worker-mid>]`
+            ;; `[:rf/runtime :machines :snapshots <driver-mid> :rf/spawn-counter <worker-mid>]`
             ;; — the spawn-counter bumps inside the transition reducer
             ;; that drives the parent state-machine. Final value =
             ;; iters; lower means an iter's spawn was suppressed; higher
             ;; means an iter caused more than one allocator bump.
-            (let [counter (get-in db [:rf/machines driver-mid
+            (let [counter (get-in db [:rf/runtime :machines :snapshots driver-mid
                                       :rf/spawn-counter worker-mid])]
               (is (= stress-iters counter)
                   (str "Frame " frame-id ": parent snapshot's "

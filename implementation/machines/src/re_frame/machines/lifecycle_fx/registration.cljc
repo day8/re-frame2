@@ -233,7 +233,7 @@
 (defn- prepare-machine-ctx
   "Step 1 of 4 (rf2-2zzyg). Stamp the live frame / platform / parent-id
   onto the machine def, look up the existing snapshot at
-  `[:rf/machines <machine-id>]`, decide `needs-bootstrap?`, route the
+  `[:rf/runtime :machines :snapshots <machine-id>]`, decide `needs-bootstrap?`, route the
   inner event. Returns a `ctx` map the remaining three steps read.
 
   Per rf2-0z73: detect 'first event for this machine' so the initial
@@ -242,7 +242,7 @@
     - Singleton path: `(get-in db path)` is `nil` — the snapshot is
       being lazily synthesised right now.
     - Spawn path: `spawn-fx` pre-seeded the snapshot at
-      `[:rf/machines <spawned-id>]` and stamped
+      `[:rf/runtime :machines :snapshots <spawned-id>]` and stamped
       `:rf/bootstrap-pending? true` so the actor's first dispatch sees
       the marker and runs the cascade before processing the event.
 
@@ -262,7 +262,7 @@
                              :rf/frame     frame-id
                              :rf/platform  platform
                              :rf/parent-id machine-id)
-        path          [:rf/machines machine-id]
+        path          [:rf/runtime :machines :snapshots machine-id]
         existing-snap (get-in db path)
         snapshot      (cond
                         (nil? existing-snap)

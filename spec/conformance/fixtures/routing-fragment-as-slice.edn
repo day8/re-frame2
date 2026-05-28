@@ -33,7 +33,7 @@
 
  :fixture/expect
  {:final-app-db
-  {:rf/route {:id       :route/docs
+  {:rf/runtime {:routing {:current {:id       :route/docs
               :params   {:page "routing"}
               :query    {}
-              :fragment nil}}}}
+              :fragment nil}}}}}}

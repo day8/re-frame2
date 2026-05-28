@@ -169,7 +169,9 @@
   (rf/reg-event-fx :load-test/server-init
     {:platforms #{:server}}
     (fn [{:keys [db]} [_ {:keys [i]}]]
-      {:db (assoc db :i i :rf/route {:id :route/load})
+      {:db (-> db
+               (assoc :i i)
+               (assoc-in [:rf/runtime :routing :current] {:id :route/load}))
        :fx [[:rf.server/set-header {:name "X-Load-Test" :value (str i)}]]}))
   (rf/reg-view* :load-test/page
     (fn []

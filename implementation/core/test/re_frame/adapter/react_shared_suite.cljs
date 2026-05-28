@@ -877,8 +877,8 @@
                      :params   [:map [:id :string]]
                      :on-match [[load-ev]]})
       (rf/reg-event-db load-ev (fn [db _] (assoc db :article-loaded? true)))
-      (rf/reg-sub id-sub     (fn [db _] (get-in db [:rf/route :id])))
-      (rf/reg-sub params-sub (fn [db _] (get-in db [:rf/route :params])))
+      (rf/reg-sub id-sub     (fn [db _] (get-in db [:rf/runtime :routing :current :id])))
+      (rf/reg-sub params-sub (fn [db _] (get-in db [:rf/runtime :routing :current :params])))
 
       (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/intro")] {:frame f})
       (is (= article (rf/subscribe-once f [id-sub]))
@@ -891,7 +891,7 @@
       (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/welcome")] {:frame f})
       (is (= {:id "welcome"} (rf/subscribe-once f [params-sub]))
           "new params land in the slice on subsequent navigation")
-      (is (some? (get-in (rf/get-frame-db f) [:rf/route :nav-token]))
+      (is (some? (get-in (rf/get-frame-db f) [:rf/runtime :routing :current :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
 
 (defn assert-routing-multi-frame
@@ -908,7 +908,7 @@
       (rf/reg-route articles {:path (route-path sk2 "/articles")})
       (rf/reg-route article  {:path   (route-path sk2 "/articles/:id")
                               :params [:map [:id :string]]})
-      (rf/reg-sub route-sub (fn [db _] (:rf/route db)))
+      (rf/reg-sub route-sub (fn [db _] (get-in db [:rf/runtime :routing :current])))
 
       (let [left  (rf/make-frame {:doc "left tab frame"})
             right (rf/make-frame {:doc "right tab frame"})]
@@ -1423,7 +1423,7 @@
     (rf/reg-frame :tenant-x {:doc "tenant frame with two machines"})
     (rf/reg-event-db :seed
       (fn [db _]
-        (assoc db :rf/machines {:flow/login    {:state :authed  :data {}}
+        (assoc-in db [:rf/runtime :machines :snapshots] {:flow/login    {:state :authed  :data {}}
                                 :flow/checkout {:state :pending :data {}}})))
     (rf/dispatch-sync [:seed] {:frame :tenant-x})
     (let [traces (collect-traces ::xspec-1)]
@@ -1458,9 +1458,10 @@
   "#3 Machine spawn at boot before substrate adapter ready."
   [{:keys [name]}]
   (testing (str name " — #3 machine spawn at boot before adapter ready")
-    (rf/reg-event-db :init-shape (fn [_ _] {:rf/machines {:flow/boot {:state :armed :data {}}}}))
+    (rf/reg-event-db :init-shape
+      (fn [_ _] {:rf/runtime {:machines {:snapshots {:flow/boot {:state :armed :data {}}}}}}))
     (rf/reg-frame :booted {:on-create [:init-shape]})
-    (is (= :armed (get-in (rf/get-frame-db :booted) [:rf/machines :flow/boot :state]))
+    (is (= :armed (get-in (rf/get-frame-db :booted) [:rf/runtime :machines :snapshots :flow/boot :state]))
         ":on-create completed against an installed adapter — app-db carries the seed")))
 
 (defn assert-xspec-machines-under-ssr
@@ -1549,7 +1550,7 @@
                           (= :throwy (get-in % [:tags :rf.fx/id]))) @traces)
               "the throwing fx surfaces as :rf.error/fx-handler-exception")
           (is (= [:b] @seen) ":fx walk continued past the throwing fx — :record still ran")
-          (is (= :done (get-in (rf/get-frame-db :rf/default) [:rf/machines :test/m :state]))
+          (is (= :done (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
               "the machine snapshot committed even though a downstream :fx threw"))))))
 
 (defn assert-xspec-hot-reload-machine-action
@@ -1563,11 +1564,11 @@
           machine-v2 (assoc-in machine-v1 [:actions :tag] (fn [data _] {:data (assoc data :who :v2)}))]
       (rf/reg-machine :test/m machine-v1)
       (rf/dispatch-sync [:test/m [:go]])
-      (is (= :v1 (get-in (rf/get-frame-db :rf/default) [:rf/machines :test/m :data :who]))
+      (is (= :v1 (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :data :who]))
           "v1 action ran on the first dispatch")
       (rf/reg-machine :test/m machine-v2)
       (rf/dispatch-sync [:test/m [:go]])
-      (is (= :v2 (get-in (rf/get-frame-db :rf/default) [:rf/machines :test/m :data :who]))
+      (is (= :v2 (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :data :who]))
           "the next dispatched event resolves to the new action body"))))
 
 (defn assert-xspec-dispatch-sync-from-handler-raises
@@ -1592,14 +1593,14 @@
       (rf/reg-machine :test/m machine)
       (rf/dispatch-sync [:test/m [:go]])
       (let [post-go-db (rf/get-frame-db :rf/default)]
-        (is (= :working (get-in post-go-db [:rf/machines :test/m :state])) "machine reached :working")
+        (is (= :working (get-in post-go-db [:rf/runtime :machines :snapshots :test/m :state])) "machine reached :working")
         (let [container (frame/get-frame-db :rf/default)
-              reverted  (assoc-in post-go-db [:rf/machines :test/m :state] :idle)]
+              reverted  (assoc-in post-go-db [:rf/runtime :machines :snapshots :test/m :state] :idle)]
           (substrate-adapter/replace-container! container reverted))
-        (is (= :idle (get-in (rf/get-frame-db :rf/default) [:rf/machines :test/m :state]))
+        (is (= :idle (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
             "after replace-container! the snapshot reads back as :idle")
         (rf/dispatch-sync [:test/m [:go]])
-        (is (= :working (get-in (rf/get-frame-db :rf/default) [:rf/machines :test/m :state]))
+        (is (= :working (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
             "re-dispatch after revert advances from the restored state")))))
 
 (defn assert-xspec-server-error-projection

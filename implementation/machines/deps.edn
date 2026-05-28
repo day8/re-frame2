@@ -6,7 +6,7 @@
 ;; the `:rf/machine` framework sub, the `:rf.machine/spawn` /
 ;; `:rf.machine/destroy` effect handlers) ships as a separate
 ;; Maven artefact so apps that don't register any machines don't drag
-;; the namespace, the `:rf/machines` app-db slot's runtime support, or
+;; the namespace, the `[:rf/runtime :machines]` app-db slots' runtime support, or
 ;; the machine-transition engine onto the classpath.
 ;;
 ;; Consumers add this artefact alongside the core artefact:

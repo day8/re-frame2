@@ -239,7 +239,7 @@
     (let [k (after-timer-key parent-id invoke-id delay-key)]
       (cancel-after-timer-entry! frame-id k :on-resolution)
       (when-let [db (frame/frame-app-db-value frame-id)]
-        (let [snap (get-in db [:rf/machines parent-id])
+        (let [snap (get-in db [:rf/runtime :machines :snapshots parent-id])
               ;; Per Spec 005 §Per-region :after scoping (rf2-l67o): for
               ;; parallel-region machines the snapshot's :state is a map
               ;; of region-name → that region's state, and the invoke-id
@@ -418,7 +418,7 @@
         epoch      (:epoch args)
         server?    (boolean (:server? args))
         snapshot   (get-in (frame/frame-app-db-value frame-id)
-                           [:rf/machines parent-id])]
+                           [:rf/runtime :machines :snapshots parent-id])]
     ;; Initial state-entry scheduling — the :scheduled trace was already
     ;; emitted synchronously by apply-transition-once (the pure side). For
     ;; sub-vec delays, the fx layer's resolution may yield a different

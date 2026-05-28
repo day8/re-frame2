@@ -881,11 +881,11 @@
   (Option A revised): nodes being EXITED with `:spawn` emit
   `:rf.machine/destroy` carrying `{:rf/parent-id ... :rf/spawn-id ...}`
   so the destroy-machine fx handler resolves the live actor id from the
-  runtime-owned `[:rf/spawned <parent-id> <invoke-id>]` slot in app-db.
+  runtime-owned `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` slot in app-db.
 
   Per Spec 005 §Spawn-and-join via `:spawn-all` (rf2-6vmw): on exit, tear
   down EVERY child the parent spawned plus the join-state slot. The
-  destroy-fx handler reads the map at `[:rf/spawned <parent> <invoke-id>]`
+  destroy-fx handler reads the map at `[:rf/runtime :machines :spawned <parent> <invoke-id>]`
   and iterates `:children` to destroy each, then clears the slot."
   [parent-id exited-pairs internal?]
   (when-not internal?
@@ -927,7 +927,7 @@
   Per Spec 005 §Declarative `:spawn` (rf2-grw4i / rf2-v0rrr), the signature
   is `(fn [{:keys [data id]}] _)` — context-map input, advisory return
   (any return value is ignored). Per rf2-t07u (Option A revised) the
-  runtime tracks the spawn-id at `[:rf/spawned parent-id invoke-id]`;
+  runtime tracks the spawn-id at `[:rf/runtime :machines :spawned parent-id invoke-id]`;
   `:on-spawn` is purely observational — callers needing snapshot-level
   side effects emit `[:rf.machine/update-snapshot {:rf/machine-id <id>
   :rf/patch {...}}]` from a regular `:action`'s `:fx` vector instead (the
@@ -1006,7 +1006,7 @@
    1. Allocate one spawned-id per child up-front (thread the snapshot's
       counter through children in declaration order).
    2. Build the join-state seed map and the `:rf.machine/spawn-all-init`
-      fx that seeds `[:rf/spawned <parent> <invoke-id>]` in app-db.
+      fx that seeds `[:rf/runtime :machines :spawned <parent> <invoke-id>]` in app-db.
    3. For each child, delegate to `spawn-one` to materialise `:data` and
       build its `:rf.machine/spawn` fx (short-circuits on the first
       child's `:data` failure).

@@ -108,7 +108,7 @@
         ;; address, capture it so the in-flight registry can index by
         ;; actor-id alongside :request-id. The destroy cascade then has
         ;; a key to walk on actor-destroy. Detection is structural —
-        ;; we look up the id in the frame's [:rf/spawned ...] runtime
+        ;; we look up the id in the frame's [:rf/runtime :machines :spawned ...] runtime
         ;; registry (per Spec 005 §Declarative :spawn); ordinary event
         ;; handlers' dispatches yield nil and are not tracked.
         actor-id     (registry/compute-actor-id frame origin-event)

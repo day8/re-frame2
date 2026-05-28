@@ -10,7 +10,7 @@
   Children dispatch their completion via [<parent-id> [:on-child-done
   <child-id> & extra]] (or :on-child-error). The runtime intercepts
   these at the parent's make-machine-handler boundary and updates
-  the join-state at [:rf/spawned <parent> <invoke-id>] in app-db.
+  the join-state at [:rf/runtime :machines :spawned <parent> <invoke-id>] in app-db.
   When the join condition resolves, the runtime fires the parent
   join event (:on-all-complete / :on-some-complete / :on-any-failed)
   and (by default) cancels surviving siblings via :rf.machine/destroy.
@@ -29,7 +29,7 @@
 
 (defn- snapshot
   [machine-id]
-  (get-in (frame-db) [:rf/machines machine-id]))
+  (get-in (frame-db) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ---- common child machine -------------------------------------------------
 ;;
@@ -89,16 +89,16 @@
       (rf/reg-machine :sup/all parent)
       (rf/dispatch-sync [:sup/all [:start]])
       (let [db     (frame-db)
-            jstate (get-in db [:rf/spawned :sup/all [:hydrating]])]
-        (is (map? jstate) "join-state seeded under [:rf/spawned :sup/all [:hydrating]]")
+            jstate (get-in db [:rf/runtime :machines :spawned :sup/all [:hydrating]])]
+        (is (map? jstate) "join-state seeded under [:rf/runtime :machines :spawned :sup/all [:hydrating]]")
         (is (= #{:a :b :c} (set (keys (:children jstate)))))
         (is (= #{} (:done jstate)))
         (is (= #{} (:failed jstate)))
         (is (false? (:resolved? jstate)))
-        (is (some? (get-in db [:rf/machines (get-in jstate [:children :a])])))
-        (is (some? (get-in db [:rf/machines (get-in jstate [:children :b])])))
-        (is (some? (get-in db [:rf/machines (get-in jstate [:children :c])]))))
-      (let [jstate (get-in (frame-db) [:rf/spawned :sup/all [:hydrating]])
+        (is (some? (get-in db [:rf/runtime :machines :snapshots (get-in jstate [:children :a])])))
+        (is (some? (get-in db [:rf/runtime :machines :snapshots (get-in jstate [:children :b])])))
+        (is (some? (get-in db [:rf/runtime :machines :snapshots (get-in jstate [:children :c])]))))
+      (let [jstate (get-in (frame-db) [:rf/runtime :machines :spawned :sup/all [:hydrating]])
             ids    (:children jstate)]
         (rf/dispatch-sync [(:a ids) [:go]])
         (rf/dispatch-sync [(:b ids) [:go]])
@@ -133,19 +133,19 @@
       (rf/reg-machine :child/fc child)
       (rf/reg-machine :sup/fail-test parent)
       (rf/dispatch-sync [:sup/fail-test [:start]])
-      (let [jstate (get-in (frame-db) [:rf/spawned :sup/fail-test [:hydrating]])]
+      (let [jstate (get-in (frame-db) [:rf/runtime :machines :spawned :sup/fail-test [:hydrating]])]
         (is (= 3 (count (:children jstate)))))
-      (let [jstate (get-in (frame-db) [:rf/spawned :sup/fail-test [:hydrating]])
+      (let [jstate (get-in (frame-db) [:rf/runtime :machines :spawned :sup/fail-test [:hydrating]])
             ids    (:children jstate)
             a-id   (:a ids)
             b-id   (:b ids)
             c-id   (:c ids)]
         (rf/dispatch-sync [a-id [:fail]])
         (is (= :error (:state (snapshot :sup/fail-test))))
-        (is (nil? (get-in (frame-db) [:rf/machines a-id])))
-        (is (nil? (get-in (frame-db) [:rf/machines b-id])))
-        (is (nil? (get-in (frame-db) [:rf/machines c-id])))
-        (is (nil? (get-in (frame-db) [:rf/spawned :sup/fail-test [:hydrating]])))))))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots a-id])))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots b-id])))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots c-id])))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :spawned :sup/fail-test [:hydrating]])))))))
 
 ;; ---- :join {:n N} fires :on-some-complete and cancels extras ------------
 
@@ -172,21 +172,21 @@
         (rf/reg-machine k child))
       (rf/reg-machine :sup/n-test parent)
       (rf/dispatch-sync [:sup/n-test [:start]])
-      (let [jstate (get-in (frame-db) [:rf/spawned :sup/n-test [:working]])
+      (let [jstate (get-in (frame-db) [:rf/runtime :machines :spawned :sup/n-test [:working]])
             ids    (:children jstate)]
         (is (= 5 (count ids)))
         (rf/dispatch-sync [(:a ids) [:go]])
         (rf/dispatch-sync [(:b ids) [:go]])
-        (let [j (get-in (frame-db) [:rf/spawned :sup/n-test [:working]])]
+        (let [j (get-in (frame-db) [:rf/runtime :machines :spawned :sup/n-test [:working]])]
           (is (= 2 (count (:done j))))
           (is (false? (:resolved? j))))
         (rf/dispatch-sync [(:c ids) [:go]])
         (is (= :ready (:state (snapshot :sup/n-test))))
-        (is (nil? (get-in (frame-db) [:rf/machines (:d ids)])))
-        (is (nil? (get-in (frame-db) [:rf/machines (:e ids)])))
-        (is (nil? (get-in (frame-db) [:rf/machines (:a ids)])))
-        (is (nil? (get-in (frame-db) [:rf/machines (:b ids)])))
-        (is (nil? (get-in (frame-db) [:rf/machines (:c ids)])))))))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots (:d ids)])))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots (:e ids)])))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots (:a ids)])))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots (:b ids)])))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots (:c ids)])))))))
 
 ;; ---- :join :any fires :on-some-complete on first child ------------------
 
@@ -211,12 +211,12 @@
         (rf/reg-machine k child))
       (rf/reg-machine :sup/any-test parent)
       (rf/dispatch-sync [:sup/any-test [:start]])
-      (let [jstate (get-in (frame-db) [:rf/spawned :sup/any-test [:racing]])
+      (let [jstate (get-in (frame-db) [:rf/runtime :machines :spawned :sup/any-test [:racing]])
             ids    (:children jstate)]
         (rf/dispatch-sync [(:b ids) [:go]])
         (is (= :winner (:state (snapshot :sup/any-test))))
-        (is (nil? (get-in (frame-db) [:rf/machines (:a ids)])))
-        (is (nil? (get-in (frame-db) [:rf/machines (:c ids)])))))))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots (:a ids)])))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots (:c ids)])))))))
 
 ;; ---- :join {:fn pred} fires when predicate returns truthy ----------------
 
@@ -241,7 +241,7 @@
         (rf/reg-machine k child))
       (rf/reg-machine :sup/fn-test parent)
       (rf/dispatch-sync [:sup/fn-test [:start]])
-      (let [ids (:children (get-in (frame-db) [:rf/spawned :sup/fn-test [:working]]))]
+      (let [ids (:children (get-in (frame-db) [:rf/runtime :machines :spawned :sup/fn-test [:working]]))]
         (rf/dispatch-sync [(:a ids) [:go]])
         ;; After 1 done, predicate returns false — no resolution.
         (is (= :working (:state (snapshot :sup/fn-test))))
@@ -249,7 +249,7 @@
         ;; After 2 done, predicate returns true — fires :on-some-complete.
         (is (= :ready (:state (snapshot :sup/fn-test))))
         ;; :c was cancelled.
-        (is (nil? (get-in (frame-db) [:rf/machines (:c ids)])))))))
+        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots (:c ids)])))))))
 
 ;; ---- registration-time validation ----------------------------------------
 
@@ -360,7 +360,7 @@
       (rf/reg-machine :child/pa child)
       (rf/reg-machine :sup/pay parent)
       (rf/dispatch-sync [:sup/pay [:start]])
-      (let [ids (get-in (frame-db) [:rf/spawned :sup/pay [:hydrating] :children])]
+      (let [ids (get-in (frame-db) [:rf/runtime :machines :spawned :sup/pay [:hydrating] :children])]
         (rf/dispatch-sync [(:a ids) [:go]]))
       (let [snap (snapshot :sup/pay)]
         (is (= :ready (:state snap)) "parent reached :ready")
@@ -411,15 +411,15 @@
                              (fn [ev] (swap! traces conj ev)))
       (try
         (rf/dispatch-sync [:sup/late [:start]])
-        (let [ids (get-in (frame-db) [:rf/spawned :sup/late [:hydrating] :children])]
+        (let [ids (get-in (frame-db) [:rf/runtime :machines :spawned :sup/late [:hydrating] :children])]
           ;; First child resolves the :any join.
           (rf/dispatch-sync [(:a ids) [:go]])
-          (let [j (get-in (frame-db) [:rf/spawned :sup/late [:hydrating]])]
+          (let [j (get-in (frame-db) [:rf/runtime :machines :spawned :sup/late [:hydrating]])]
             (is (true? (:resolved? j)) ":any resolved on first :go")
             (is (= #{:a} (:done j))))
           ;; Sibling b completes AFTER resolution — late-completion path.
           (rf/dispatch-sync [(:b ids) [:go]])
-          (let [j (get-in (frame-db) [:rf/spawned :sup/late [:hydrating]])]
+          (let [j (get-in (frame-db) [:rf/runtime :machines :spawned :sup/late [:hydrating]])]
             (is (= #{:a} (:done j))
                 "late-completion does NOT mutate :done")
             (is (true? (:resolved? j)) ":resolved? stays true")))
@@ -506,14 +506,14 @@
       (rf/reg-machine :child/forge-b (mk-inert-child))
       (rf/reg-machine :sup/forge-none parent)
       (rf/dispatch-sync [:sup/forge-none [:start]])
-      (let [pre-jstate (get-in (frame-db) [:rf/spawned :sup/forge-none [:hydrating]])
+      (let [pre-jstate (get-in (frame-db) [:rf/runtime :machines :spawned :sup/forge-none [:hydrating]])
             children   (:children pre-jstate)
             _          (is (= #{:a :b} (set (keys children))))
             traces (collect-traces
                     (fn []
                       (rf/dispatch-sync
                         [:sup/forge-none [:asset/loaded :totally-fake-id]])))
-            post-jstate (get-in (frame-db) [:rf/spawned :sup/forge-none [:hydrating]])
+            post-jstate (get-in (frame-db) [:rf/runtime :machines :spawned :sup/forge-none [:hydrating]])
             errs (bad-child-id-error-traces traces)]
         (is (= 1 (count errs))
             "exactly one :rf.error/machine-spawn-all-bad-child-id trace fired")
@@ -560,7 +560,7 @@
                       (rf/dispatch-sync [:sup/forge-repeated [:asset/loaded :fake-2]])
                       (rf/dispatch-sync [:sup/forge-repeated [:asset/failed :fake-3]])))
             errs (bad-child-id-error-traces traces)
-            jstate (get-in (frame-db) [:rf/spawned :sup/forge-repeated [:hydrating]])]
+            jstate (get-in (frame-db) [:rf/runtime :machines :spawned :sup/forge-repeated [:hydrating]])]
         (is (= 3 (count errs))
             "one error trace per forged dispatch")
         (is (= [:fake-1 :fake-2 :fake-3]
@@ -609,7 +609,7 @@
                     (fn []
                       (rf/dispatch-sync [:sup/p1 [:asset/loaded :p2-x]])))
             errs (bad-child-id-error-traces traces)
-            p1-j (get-in (frame-db) [:rf/spawned :sup/p1 [:working]])]
+            p1-j (get-in (frame-db) [:rf/runtime :machines :spawned :sup/p1 [:working]])]
         (is (= 1 (count errs))
             "sibling parent's child-id is forged-for-this-parent and rejected")
         (is (= :p2-x (:child-id (:tags (first errs)))))
@@ -643,7 +643,7 @@
                     (fn []
                       (rf/dispatch-sync [:sup/gate-ok [:start]])
                       (let [ids (:children (get-in (frame-db)
-                                                   [:rf/spawned :sup/gate-ok
+                                                   [:rf/runtime :machines :spawned :sup/gate-ok
                                                     [:hydrating]]))]
                         (rf/dispatch-sync [(:a ids) [:go]])
                         (rf/dispatch-sync [(:b ids) [:go]]))))
@@ -681,7 +681,7 @@
                              (fn [ev] (swap! traces conj ev)))
       (try
         (rf/dispatch-sync [:sup/fail-payload [:start]])
-        (let [ids (get-in (frame-db) [:rf/spawned :sup/fail-payload [:hydrating] :children])]
+        (let [ids (get-in (frame-db) [:rf/runtime :machines :spawned :sup/fail-payload [:hydrating] :children])]
           (rf/dispatch-sync [(:a ids) [:fail]]))
         (let [any-failed (->> @traces
                               (filter #(= :rf.machine.spawn-all/any-failed

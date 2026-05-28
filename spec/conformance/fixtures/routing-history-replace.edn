@@ -37,8 +37,8 @@
           :rf.nav/scroll      {:platforms #{:client}}}}
 
  :fixture/handlers
- {:event {:rf/init [[:set [:rf/route] {:id :route/home :params {}}]]}
-  :sub   {:rf/route [[:get [:rf/route]]]}
+ {:event {:rf/init [[:set [:rf/runtime :routing :current] {:id :route/home :params {}}]]}
+  :sub   {:rf/route [[:get [:rf/runtime :routing :current]]]}
   :fx    {:rf.nav/push-url    [[:noop]]
           :rf.nav/replace-url [[:noop]]
           :rf.nav/scroll      [[:noop]]}}
@@ -52,8 +52,8 @@
 
  :fixture/expect
  {:final-app-db
-  {:rf/route {:id     :route/article
-              :params {:id "intro"}}}
+  {:rf/runtime {:routing {:current {:id     :route/article
+              :params {:id "intro"}}}}}
 
   ;; Critical contract: :rf.nav/replace-url is routed; :rf.nav/push-url
   ;; is NOT (the :effects-routed matcher tolerates extras but missing

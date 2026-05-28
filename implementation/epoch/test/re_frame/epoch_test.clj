@@ -264,7 +264,7 @@
       (let [r (first history)]
         (is (= :mac/chain (:event-id r))
             "the triggering machine event is the epoch's trigger")
-        (is (= :s3 (:state (get-in (:db-after r) [:rf/machines :mac/chain])))
+        (is (= :s3 (:state (get-in (:db-after r) [:rf/runtime :machines :snapshots :mac/chain])))
             "the macrostep reached the terminal state — all three
              transitions committed inside this one epoch")
         ;; Every trace in the epoch rides the SAME :rf.trace/dispatch-id — the
@@ -670,10 +670,11 @@
 (deftest restore-failure-missing-handler-route
   (testing "restore-epoch on a db referencing a now-unregistered route fires :rf.epoch/restore-missing-handler"
     (rf/reg-frame :test/main {})
-    ;; Register a route so the recorded :rf/route reference resolves; we'll
+    ;; Register a route so the recorded route reference resolves; we'll
     ;; later unregister it to trigger the missing-handler failure.
     (rf/reg-route :route/users {:path "/users"})
-    (rf/reg-event-db :route-to (fn [db _] (assoc db :rf/route {:id :route/users})))
+    (rf/reg-event-db :route-to
+      (fn [db _] (assoc-in db [:rf/runtime :routing :current] {:id :route/users})))
     (rf/dispatch-sync [:route-to] {:frame :test/main})
     ;; A subsequent dispatch so the history holds at least one record
     ;; whose :db-after references :route/users.
@@ -709,12 +710,12 @@
       {:initial :red
        :states  {:red    {:on {:tick :green}}
                  :green  {:on {:tick :red}}}})
-    ;; Drive the machine so :rf/machines :machine/tl gets a snapshot.
+    ;; Drive the machine so [:rf/runtime :machines :snapshots :machine/tl] gets a snapshot.
     (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main})
 
     (let [target (last (rf/epoch-history :test/main))]
-      (is (some? (get-in (:db-after target) [:rf/machines :machine/tl]))
-          "snapshot recorded under :rf/machines")
+      (is (some? (get-in (:db-after target) [:rf/runtime :machines :snapshots :machine/tl]))
+          "snapshot recorded under [:rf/runtime :machines :snapshots]")
 
       ;; Unregister the machine so the recorded snapshot's id no longer resolves.
       (registrar/unregister! :event :machine/tl)
@@ -779,7 +780,7 @@
     ;; Commit a snapshot carrying matching :meta :rf/snapshot-version.
     (rf/reg-event-db :put-snap
       (fn [db _]
-        (assoc-in db [:rf/machines :machine/tl]
+        (assoc-in db [:rf/runtime :machines :snapshots :machine/tl]
                   {:state :red :data {} :meta {:rf/snapshot-version 1}})))
     (rf/dispatch-sync [:put-snap] {:frame :test/main})
 
@@ -1700,10 +1701,12 @@
     (rf/reg-route :route/home    {:path "/"})
     (rf/reg-route :route/article {:path "/articles/:id"})
     (rf/reg-event-db :go-home
-      (fn [db _] (assoc db :rf/route {:id :route/home :params {}})))
+      (fn [db _] (assoc-in db [:rf/runtime :routing :current]
+                           {:id :route/home :params {}})))
     (rf/reg-event-db :go-article
-      (fn [db [_ id]] (assoc db :rf/route {:id :route/article :params {:id id}})))
-    (rf/reg-sub :current-route (fn [db _] (get-in db [:rf/route :id])))
+      (fn [db [_ id]] (assoc-in db [:rf/runtime :routing :current]
+                                {:id :route/article :params {:id id}})))
+    (rf/reg-sub :current-route (fn [db _] (get-in db [:rf/runtime :routing :current :id])))
 
     (rf/dispatch-sync [:go-home]               {:frame :test/main})
     (rf/dispatch-sync [:go-article "intro"]    {:frame :test/main})
@@ -1712,12 +1715,12 @@
     (let [history (rf/epoch-history :test/main)
           ;; The epoch whose db-after carries :route/home in :rf/route :id.
           target  (some (fn [r]
-                          (when (= :route/home (get-in (:db-after r) [:rf/route :id]))
+                          (when (= :route/home (get-in (:db-after r) [:rf/runtime :routing :current :id]))
                             r))
                         history)]
       (is (some? target))
       (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
-      (is (= :route/home (get-in (rf/get-frame-db :test/main) [:rf/route :id]))
+      (is (= :route/home (get-in (rf/get-frame-db :test/main) [:rf/runtime :routing :current :id]))
           "the :rf/route slice is rewound by restore")
       (is (= :route/home (rf/subscribe-once :test/main [:current-route]))
           "a sub keyed on :rf/route returns the restored value"))))

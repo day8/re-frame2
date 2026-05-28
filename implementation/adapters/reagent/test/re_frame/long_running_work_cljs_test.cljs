@@ -4,8 +4,8 @@
    `make-frame`, walks the :work/flow parent through a flow
    (spawn cascade, happy-path join, mid-flight cancel, parent
    unmount, reset round-trip), and asserts the resulting
-   [:rf/machines :work/flow] snapshot + the runtime-owned
-   [:rf/spawned :work/flow [:working]] join-state slot.
+   [:rf/runtime :machines :snapshots :work/flow] snapshot + the runtime-owned
+   [:rf/runtime :machines :spawned :work/flow [:working]] join-state slot.
 
    The fixtures live under examples/reagent/long_running_work/test/
    long_running_work/worker_test.cljs — mirrors the realworld /

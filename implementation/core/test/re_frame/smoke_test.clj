@@ -527,7 +527,7 @@
     ;; run a full machine through this test.
     (rf/reg-event-db :seed-machines
       (fn [db _]
-        (assoc db :rf/machines {:flow/login    {:state :authed   :data {}}
+        (assoc-in db [:rf/runtime :machines :snapshots] {:flow/login    {:state :authed   :data {}}
                                 :flow/checkout {:state :pending  :data {}}})))
     (rf/dispatch-sync [:seed-machines] {:frame :tenant-a})
     (let [traces (atom [])]
@@ -583,11 +583,11 @@
           ;; atom — it lives inside each parent machine's snapshot at
           ;; `:rf/spawn-counter`. Frame-scoping is inherited from
           ;; per-frame app-db isolation: each frame owns its own copy of
-          ;; the :flow machine's snapshot at [:rf/machines :flow]; each
+          ;; the :flow machine's snapshot at [:rf/runtime :machines :snapshots :flow]; each
           ;; copy's counter advances independently. Read the counter
           ;; from each frame's snapshot directly.
-          (let [snap-left  (get-in (rf/get-frame-db :left)  [:rf/machines :flow])
-                snap-right (get-in (rf/get-frame-db :right) [:rf/machines :flow])]
+          (let [snap-left  (get-in (rf/get-frame-db :left)  [:rf/runtime :machines :snapshots :flow])
+                snap-right (get-in (rf/get-frame-db :right) [:rf/runtime :machines :snapshots :flow])]
             (is (= 1 (get-in snap-left  [:rf/spawn-counter :worker]))
                 "left frame's :flow snapshot counts one :worker spawn")
             (is (= 1 (get-in snap-right [:rf/spawn-counter :worker]))
@@ -681,7 +681,7 @@
 
       ;; Subs over the machine snapshot.
       (rf/reg-sub :auth.login/state
-        (fn [db _] (get-in db [:rf/machines :auth.login/flow :state])))
+        (fn [db _] (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :state])))
 
       (testing "happy path: idle → submitting → authed; session token stored"
         (reset! stored nil)
@@ -725,7 +725,7 @@
         ;; by `synthesise-initial-snapshot`. This machine never spawns,
         ;; so the slot stays empty (`{}`).
         (is (= {:state :idle :data {:n 2} :rf/spawn-counter {}}
-               (get-in db [:rf/machines :test/tiny]))
+               (get-in db [:rf/runtime :machines :snapshots :test/tiny]))
             "machine snapshot exists at the spec'd path")
         (is (= {:state :idle :data {:n 2} :rf/spawn-counter {}}
                (rf/compute-sub [:rf/machine :test/tiny] db))

@@ -3,12 +3,13 @@
   fxs for re-frame2 routing.
 
   Per Spec 012 §Scroll restoration §Multi-frame routing. Per-frame
-  saved-position map at `[:rf/route :scroll-positions]`, LRU-capped by
-  `scroll-positions-cap`. Recency anchor lives under
-  `[:rf/route :scroll-positions-order]` as an internal vector. Both nest
-  under the reserved `:rf/route` root key (rf2-3ib8h) so all routing
-  runtime state in app-db sits beneath the single-root `:rf/*` invariant
-  (spec/Conventions §Reserved app-db keys).
+  saved-position map at `[:rf/runtime :routing :scroll-positions]`,
+  LRU-capped by `scroll-positions-cap`. Recency anchor lives at
+  `[:rf/runtime :routing :scroll-positions-order]` as an internal
+  vector. Both sit under the framework-owned `:rf/runtime` root
+  (spec/Conventions §Reserved app-db keys, Spec-Schemas §`:rf/runtime`)
+  so all routing runtime state in app-db sits beneath the single
+  framework root.
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
@@ -27,28 +28,28 @@
 (defn lookup-scroll-position
   "Return the saved [x y] for url in this frame's app-db, or nil if none."
   [db url]
-  (get-in db [:rf/route :scroll-positions url]))
+  (get-in db [:rf/runtime :routing :scroll-positions url]))
 
 (defn save-scroll-position
-  "Pure: return db with the scroll position for url recorded under
-  [:rf/route :scroll-positions url]. Used inside :db effect maps so
-  scroll positions live under the frame boundary (Spec 012 §Multi-frame
-  routing). The map is LRU-capped at `scroll-positions-cap` entries —
-  re-saving an existing url promotes it to most-recent; new saves past
-  the cap evict the least-recently-used entry."
+  "Pure: return db with the scroll position for url recorded at
+  [:rf/runtime :routing :scroll-positions url]. Used inside :db effect
+  maps so scroll positions live under the frame boundary (Spec 012
+  §Multi-frame routing). The map is LRU-capped at `scroll-positions-cap`
+  entries — re-saving an existing url promotes it to most-recent; new
+  saves past the cap evict the least-recently-used entry."
   [db url xy]
-  (let [order   (or (get-in db [:rf/route :scroll-positions-order]) [])
+  (let [order   (or (get-in db [:rf/runtime :routing :scroll-positions-order]) [])
         order'  (-> (filterv #(not= url %) order)
                     (conj url))
         over    (- (count order') scroll-positions-cap)
         dropped (when (pos? over) (subvec order' 0 over))
         order'' (if (pos? over) (subvec order' over) order')
-        positions  (as-> (or (get-in db [:rf/route :scroll-positions]) {}) m
+        positions  (as-> (or (get-in db [:rf/runtime :routing :scroll-positions]) {}) m
                      (if dropped (apply dissoc m dropped) m)
                      (assoc m url xy))]
-    (update db :rf/route assoc
-            :scroll-positions       positions
-            :scroll-positions-order order'')))
+    (update-in db [:rf/runtime :routing] assoc
+               :scroll-positions       positions
+               :scroll-positions-order order'')))
 
 (defn route-descriptor*
   "Build the canonical `{:id :params :query}` descriptor — the shape
@@ -63,7 +64,8 @@
 
 (defn route-descriptor
   "Build the {:id :params :query} descriptor used by :rf.nav/scroll's
-  :from / :to args from a :rf/route slice (or nil if no slice yet)."
+  :from / :to args from a route slice (or nil if no slice yet). The
+  slice lives at [:rf/runtime :routing :current]."
   [route-slice]
   (when (and route-slice (:id route-slice))
     (route-descriptor* (:id route-slice)
@@ -118,14 +120,15 @@
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn capture-scroll-fx-entry [db]
-  (when-let [url (current-route-url (:rf/route db))]
+  (when-let [url (current-route-url (get-in db [:rf/runtime :routing :current]))]
     [:rf.nav/capture-scroll {:url url}]))
 
 (def capture-scroll-meta
   "Metadata for the `:rf.nav/capture-scroll` fx registration."
   {:platforms #{:client}
    :doc       "Capture the current browser scroll position under the
-per-frame [:rf/route :scroll-positions <url>] map before leaving a route."})
+per-frame [:rf/runtime :routing :scroll-positions <url>] map before
+leaving a route."})
 
 (defn capture-scroll-handler
   "`:rf.nav/capture-scroll` fx handler. Registered by the façade so a

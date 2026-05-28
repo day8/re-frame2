@@ -43,7 +43,7 @@
  ;; full container (including the internal counters), so we let the
  ;; real sub stand.
  :fixture/handlers
- {:event {:rf/init [[:set [:rf/route] {:id :route/home :params {}}]]}
+ {:event {:rf/init [[:set [:rf/runtime :routing :current] {:id :route/home :params {}}]]}
   :fx    {:rf.nav/push-url    [[:noop]]
           :rf.nav/replace-url [[:noop]]
           :rf.nav/scroll      [[:noop]]}}
@@ -59,8 +59,8 @@
 
  :fixture/expect
  {:final-app-db
-  {:rf/route {:id     :route/article
-              :params {:id "intro"}}}
+  {:rf/runtime {:routing {:current {:id     :route/article
+              :params {:id "intro"}}}}}
 
   ;; Per rf2-xak8u (Option-A): the :rf/route layer-1 sub projects the
   ;; slice keys only. Internal routing-runtime sub-keys

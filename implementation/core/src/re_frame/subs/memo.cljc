@@ -166,7 +166,7 @@
 
   This is deliberate and load-bearing: calling the schema-first
   `elision/elide-wire-value` walker here would `deref` the frame's
-  app-db container (to read the `[:rf/elision ...]` registry) INSIDE the
+  app-db container (to read the `[:rf/runtime :elision ...]` registry) INSIDE the
   reaction's compute fn. On a Reagent substrate that registers a
   spurious reactive dependency on app-db for every layer-2+ sub —
   breaking the glitch-free `db → layer-1 → layer-2` layering (the sub

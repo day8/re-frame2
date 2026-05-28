@@ -9,7 +9,7 @@
  :fixture/registry
  {:event {:rf/init        {:doc "Seed."}
           :rf.route/navigate {:doc "Navigate to a registered route."}}
-  :sub   {:rf/route       {:doc "Current route."}}
+  :sub   {:rf/route {:doc "Current route."}}
   :route {:route/home          {:path "/"}
           :route/articles      {:path "/articles"}
           :route/article-detail {:path "/articles/:id"
@@ -28,7 +28,7 @@
  ;; return the full container (including the internal counters), so
  ;; we let the real sub stand.
  :fixture/handlers
- {:event {:rf/init [[:set [:rf/route] {:id :route/home :params {}}]]}
+ {:event {:rf/init [[:set [:rf/runtime :routing :current] {:id :route/home :params {}}]]}
   :fx    {:rf.nav/push-url [[:noop]]}}
 
  ;; :rf.nav/push-url declares :platforms #{:client}; the frame runs on the
@@ -52,7 +52,7 @@
  ;; (:nav-token-counter etc.) live under :rf/route in app-db but do
  ;; not surface through the sub, so :sub-values asserts the slice-
  ;; only shape.
- {:final-app-db {:rf/route {:id :route/article-detail :params {:id "intro"}}}
+ {:final-app-db {:rf/runtime {:routing {:current {:id :route/article-detail :params {:id "intro"}}}}}
 
   :sub-values   {[:rf/route] {:id         :route/article-detail
                               :params     {:id "intro"}

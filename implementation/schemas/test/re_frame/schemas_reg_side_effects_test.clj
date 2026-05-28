@@ -147,8 +147,9 @@
 
 (deftest reg-app-schema-populates-large-declarations
   (testing "rf2-ee38b.6 — registering a schema with a `:large?` per-slot
-            flag writes the declaration into [:rf/elision :declarations]
-            at registration time (no dispatch required)"
+            flag writes the declaration into
+            [:rf/runtime :elision :declarations] at registration time
+            (no dispatch required)"
     (rf/reg-app-schema [:user]
                        [:map
                         [:id          :int]
@@ -161,7 +162,7 @@
 (deftest reg-app-schema-populates-sensitive-declarations
   (testing "rf2-ee38b.6 — registering a schema with a `:sensitive?`
             per-slot flag writes the declaration into
-            [:rf/elision :sensitive-declarations] at registration time"
+            [:rf/runtime :elision :sensitive-declarations] at registration time"
     (rf/reg-app-schema [:auth]
                        [:map [:token {:sensitive? true} :string]])
     (let [decls (elision/sensitive-declarations :rf/default)]

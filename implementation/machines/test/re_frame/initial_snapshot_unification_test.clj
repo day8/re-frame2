@@ -40,7 +40,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
+  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ---- (1) `parallel/build-initial-snapshot` unit contract -------------------
 ;;
@@ -85,7 +85,7 @@
 ;; ---- (2) End-to-end spawn integration: :meta propagates --------------------
 ;;
 ;; A spawned actor whose spec declares `:meta` MUST carry that `:meta`
-;; on its initial snapshot at `[:rf/machines <spawned-id>]`. Pre-rf2-fgqs4
+;; on its initial snapshot at `[:rf/runtime :machines :snapshots <spawned-id>]`. Pre-rf2-fgqs4
 ;; the spawn-path helper silently dropped `:meta`, so any
 ;; `^:rf.machine/wants-ctx` action introspecting `:meta` saw nil.
 
@@ -103,7 +103,7 @@
       (rf/reg-machine :sup/main parent)
       (rf/dispatch-sync [:sup/main [:start]])
       (let [spawned-id (get-in (rf/get-frame-db :rf/default)
-                               [:rf/spawned :sup/main [:working]])
+                               [:rf/runtime :machines :spawned :sup/main [:working]])
             child-snap (snapshot spawned-id)]
         (is (= :worker/proc#1 spawned-id) "(precondition) spawn happened")
         (is (some? child-snap) "(precondition) snapshot installed")
@@ -130,7 +130,7 @@
       (rf/reg-machine :sup/main parent)
       (rf/dispatch-sync [:sup/main [:start]])
       (let [spawned-id (get-in (rf/get-frame-db :rf/default)
-                               [:rf/spawned :sup/main [:working]])
+                               [:rf/runtime :machines :spawned :sup/main [:working]])
             child-snap (snapshot spawned-id)]
         (is (some? child-snap) "(precondition) snapshot installed")
         (is (contains? child-snap :rf/spawn-counter)

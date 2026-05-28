@@ -42,7 +42,7 @@
                 (http-managed/clear-all-in-flight!))}))
 
 (defn- snapshot [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
+  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ---- (1) wrapper registration succeeds on classpath ---------------------
 
@@ -89,7 +89,7 @@
         {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
       (let [db (rf/get-frame-db :rf/default)]
         (is (= :rf.http/managed#1
-               (get-in db [:rf/spawned :cljs/auth2 [:authenticating]]))
+               (get-in db [:rf/runtime :machines :spawned :cljs/auth2 [:authenticating]]))
             "the wrapper actor is bound under the parent's spawn-registry slot")
         (let [wrapper-snap (snapshot :rf.http/managed#1)
               wrapper-data (:data wrapper-snap)]
@@ -133,9 +133,9 @@
         {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
       (rf/dispatch-sync [:cljs/cancellable [:cancel]])
       (let [db (rf/get-frame-db :rf/default)]
-        (is (nil? (get-in db [:rf/spawned :cljs/cancellable [:authenticating]]))
+        (is (nil? (get-in db [:rf/runtime :machines :spawned :cljs/cancellable [:authenticating]]))
             "spawn-registry slot cleared by the destroy cascade")
-        (is (nil? (get-in db [:rf/machines :rf.http/managed#1]))
+        (is (nil? (get-in db [:rf/runtime :machines :snapshots :rf.http/managed#1]))
             "wrapper actor's snapshot is gone after the parent's cancel"))
       (finally
         (http-test-support/uninstall-managed-request-stubs!)))))

@@ -142,7 +142,7 @@
     ;; depend on a full machine-runtime invocation.
     (rf/reg-event-db :seed-machines
       (fn [db _]
-        (assoc db :rf/machines
+        (assoc-in db [:rf/runtime :machines :snapshots]
                {:flow/login    {:state :authed     :data {:user "a"}}
                 :flow/checkout {:state :reviewing  :data {:cart [1 2]}}
                 :flow/billing  {:state :collected  :data {}}})))
@@ -209,9 +209,9 @@
       (is (= 3 (count (filter #{:rf2-vsigt/child#1
                                  :rf2-vsigt/child#2
                                  :rf2-vsigt/child#3}
-                              (keys (get (rf/get-frame-db :rf2-vsigt/auth)
-                                         :rf/machines)))))
-          "three spawned actor snapshots live at [:rf/machines <id>]")
+                              (keys (get-in (rf/get-frame-db :rf2-vsigt/auth)
+                                            [:rf/runtime :machines :snapshots])))))
+          "three spawned actor snapshots live at [:rf/runtime :machines :snapshots <id>]")
       ;; Destroy the frame.
       (rf/destroy-frame! :rf2-vsigt/auth)
       ;; :exit fired three times in REVERSE-spawn order.

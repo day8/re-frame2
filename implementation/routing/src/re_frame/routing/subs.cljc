@@ -1,48 +1,32 @@
 (ns re-frame.routing.subs
-  "Framework-shipped subs over the `:rf/route` slice for re-frame2
-  routing.
+  "Framework-shipped subs over the route slice for re-frame2 routing.
 
   Per Spec 012. Subs live in this artefact (not re-frame.core) so apps
   that don't pull day8/re-frame2-routing carry no `:rf.route/*` strings
   on their production-elision bundle (rf2-k682).
 
-  The `:rf/route` map at app-db root is the routing-runtime container.
-  It carries the route-slice fields AND the per-frame routing-runtime
-  sub-keys (`:scroll-positions` / `:scroll-positions-order` /
-  `:nav-token-counter` / `:pending-nav-counter` — rf2-3ib8h, nested
-  under `:rf/route` to preserve the `:rf/*` single-root scheme per
-  spec/Conventions §Reserved app-db keys). The `:rf/route` layer-1 sub
-  projects ONLY the published slice keys so views that deref
-  `[:rf/route]` don't re-render on internal counter ticks (rf2-xak8u).
-  The runtime keys remain in app-db under `:rf/route` and are read
-  directly via `(get-in db [:rf/route :scroll-positions])` where needed.
+  The route slice lives at `[:rf/runtime :routing :current]` per
+  Spec-Schemas §`:rf/runtime` — `{:id :params :query :transition :error
+  :fragment :nav-token}`. The per-frame routing-runtime sub-keys
+  (`:scroll-positions` / `:scroll-positions-order` / `:nav-token-counter`
+  / `:pending-nav-counter`) sit flat as siblings under
+  `[:rf/runtime :routing ...]`, so the slice carries ONLY the published
+  fields and the layer-1 `:rf/route` sub reads it directly — no
+  projection needed (views that deref `[:rf/route]` are isolated from
+  internal counter ticks by structure, not by `select-keys`).
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `subs/reg-sub` calls so a `:reload` re-wires them on a
   fresh registrar. Per the rf2-2yabr cohesion split: SUBS seam."
   (:require [re-frame.registrar :as registrar]))
 
-(def ^:private route-slice-keys
-  "The published shape of the `:rf/route` sub — only these keys
-  propagate through the layer-1 sub (rf2-xak8u). Internal counters
-  (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`,
-  `:pending-nav-counter`) remain in `app-db` under `:rf/route` but do
-  not surface here, so consumers that deref `:rf/route` directly do
-  not re-render on internal counter ticks."
-  [:id :params :query :transition :error :fragment :nav-token])
-
 (defn route-sub-fn
-  "Layer-1 sub fn for `:rf/route` — projects the published route-slice
-  (`route-slice-keys`) from the routing-runtime container at
-  `(:rf/route db)`. The container additionally carries internal
-  routing-runtime sub-keys (`:scroll-positions` /
-  `:scroll-positions-order` / `:nav-token-counter` /
-  `:pending-nav-counter` — rf2-3ib8h); those stay in `app-db` but do
-  not leak through this sub (rf2-xak8u). Exposed publicly so external
-  callers (smoke tests, tooling) recover the same projection without
-  re-deriving it."
+  "Layer-1 sub fn for `:rf/route` — reads the route slice from
+  `[:rf/runtime :routing :current]`. Exposed publicly so external
+  callers (smoke tests, tooling) read the slice without re-deriving the
+  path."
   [db _query]
-  (select-keys (:rf/route db) route-slice-keys))
+  (get-in db [:rf/runtime :routing :current]))
 
 (defn chain-from-meta
   "Walk the `:parent` chain from `id` to the root, returning a vector
@@ -68,7 +52,8 @@
                                (conj seen cur))))))
 
 (defn pending-navigation-sub-fn
-  "Layer-1 sub fn for `:rf/pending-navigation`. Public so the façade
+  "Layer-1 sub fn for `:rf/pending-navigation` — reads
+  `[:rf/runtime :routing :pending-navigation]`. Public so the façade
   can wire it as the sub's reduction fn."
   [db _]
-  (:rf/pending-navigation db))
+  (get-in db [:rf/runtime :routing :pending-navigation]))
