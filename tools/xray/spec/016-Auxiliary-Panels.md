@@ -290,8 +290,9 @@ list browse-all surface with hermetic Simulate-URL preview.
 - **Per-row hermetic Simulate-navigation preview** — clicking the
   expanded row's `Simulate navigation` button renders an inline
   preview of `:on-match`'s app-db slot + the matched params, **without
-  calling the host's navigation fx**. The host's `:rf/route` slot is
-  unchanged; this is a lens, not a verb. Pure-data projection via
+  calling the host's navigation fx**. The host's current-route slice
+  (at `[:rf/runtime :routing :current]`) is unchanged; this is a lens,
+  not a verb. Pure-data projection via
   `routing_helpers/simulate-navigation-preview` (JVM-portable).
 - **Per-row `→ Dynamic` jump chip** — flips Xray to Dynamic mode
   (`:rf.xray/set-mode :dynamic`) and selects the Dynamic Routing
@@ -315,13 +316,14 @@ list browse-all surface with hermetic Simulate-URL preview.
 
 The Simulate-navigation preview MUST NOT call the host's navigation
 fx (`:rf/url-requested`, `:rf.route/navigate`, `history.pushState`,
-etc.). It MUST NOT write the host's `:rf/route` slot. The preview is
-a pure-data projection: given a route-id + a URL, return what
-`:on-match`'s app-db slot would look like if that URL navigated. The
-host stays where it is; Xray is a lens, not a verb. (This is the
-load-bearing distinction from the host's `:rf.route/navigate` fx —
-the Dynamic lens picks that up if the user runs it; the Static
-preview never does.)
+etc.). It MUST NOT write the host's current-route slice (at
+`[:rf/runtime :routing :current]`). The preview is a pure-data
+projection: given a route-id + a URL, return what `:on-match`'s
+app-db slot would look like if that URL navigated. The host stays
+where it is; Xray is a lens, not a verb. (This is the load-bearing
+distinction from the host's `:rf.route/navigate` fx — the Dynamic
+lens picks that up if the user runs it; the Static preview never
+does.)
 
 ### Empty state
 
@@ -350,8 +352,9 @@ signal.
 
 - `:rf.xray/registered-routes` — shared with Static Routes.
 - `:rf.xray/current-route-slice` — composite over
-  `:rf.xray/target-frame-db` reading the `:rf/route` slice.
-  Switching the L1 frame picker re-binds the lens.
+  `:rf.xray/target-frame-db` reading the current-route slice at
+  `[:rf/runtime :routing :current]`. Switching the L1 frame picker
+  re-binds the lens.
 - `:rf.xray/cascades` — the shared cascade projection. The composite
   scans the focused cascade's trace events for the routing-emit.
 - `:rf.xray/focus` — the spine's focused dispatch-id + epoch.
@@ -381,7 +384,8 @@ The composite scans the focused cascade's trace events for a
 inside both `:rf.route/navigate` and `:rf.route/transitioned`). Detection:
 
 - The emit's `:tags :route-id` is the **TO** (the new route).
-- The current `:rf/route` slice's `:id` (when different from TO) is
+- The current-route slice's `:id` (read at
+  `[:rf/runtime :routing :current]`) — when different from TO — is
   the **FROM**.
 - Same-route re-navigations (different params/query, same route-id)
   collapse FROM to nil — surfacing a FROM equal to TO is noise.
@@ -662,11 +666,12 @@ severity (different from `:error` / `:warning`, not pushed to top):
 Xray is a debugger, not a linter — advisories are quiet by default;
 configurable to "loud" via Settings → Trace → "Security advisories".
 
-### App-db tab — `:rf/route` slice always-visible
+### App-db tab — current-route slice always-visible
 
-The `:rf/route` slice is structured and small; it pins at the top of
-the App-db tab under a `[reserved]` group banner, always-expanded,
-with each sub-key on its own line. See
+The current-route slice (the `:rf/route` runtime area, at
+`[:rf/runtime :routing :current]`) is structured and small; it pins
+at the top of the App-db tab under a `[reserved]` group banner,
+always-expanded, with each sub-key on its own line. See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.11.
 
 Note that the Routing tab (§Routing tab above, rf2-nrbs9) is the
@@ -747,6 +752,7 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
   tab surfaces (under "Re-rendered" group).
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the
   framework substrate the Routing tab projects: the registrar
-  (`reg-route` + `(rf/registrations :route)`), the `:rf/route` slice,
-  and the `:rf.route.nav-token/allocated` emit the panel scans for
-  the FROM/TO marker derivation.
+  (`reg-route` + `(rf/registrations :route)`), the current-route
+  slice (at `[:rf/runtime :routing :current]`), and the
+  `:rf.route.nav-token/allocated` emit the panel scans for the
+  FROM/TO marker derivation.
