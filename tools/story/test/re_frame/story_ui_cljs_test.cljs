@@ -49,12 +49,6 @@
 
 (use-fixtures :each {:before reset-all!})
 
-;; ---- stage marker --------------------------------------------------------
-
-(deftest stage-6-marker
-  (testing "Stage 6 advertises :sota-features"
-    (is (= :sota-features story/stage))))
-
 ;; ---- public API additions ------------------------------------------------
 
 (deftest mount-shell-fn-present

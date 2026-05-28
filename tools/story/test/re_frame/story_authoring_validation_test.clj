@@ -365,3 +365,44 @@
            (macros/variant-id-for :story.auth.login-form :empty)))
     (is (= :story.foo/bar
            (macros/variant-id-for :story.foo :bar)))))
+
+;; ===========================================================================
+;; configure! key validation (rf2-xwr1d)
+;;
+;; Pre-alpha posture: configure! validates its keys and throws on any key
+;; outside the closed known-set. A misspelled or unknown key must fail
+;; loudly at boot rather than silently no-op — see story.cljc :configure!
+;; docstring.
+
+(deftest configure-bang-rejects-unknown-keys
+  (testing "an unknown top-level key raises :rf.error/unknown-story-config-key"
+    (let [e (try (story/configure! {:rf.story/edtior :cursor}) ; typo
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e) "expected ex-info to be thrown")
+      (is (= ":rf.error/unknown-story-config-key" (.getMessage ^Exception e)))
+      (let [data (ex-data e)]
+        (is (= :rf.error/unknown-story-config-key (:rf.error/id data)))
+        (is (= 'rf.story/configure! (:where data)))
+        (is (= :fix-call-site (:recovery data)))
+        (is (= [:rf.story/edtior] (:unknown data)))
+        (is (contains? (:known data) :rf.story/editor))))))
+
+(deftest configure-bang-accepts-every-known-key
+  (testing "the closed known-set passes through without error"
+    (is (nil? (story/configure! {})) "empty map is a no-op")
+    (is (nil? (story/configure! {:rf.story/global-args        {:theme :light}
+                                 :rf.story/global-decorators  []
+                                 :rf.story/editor             :vscode
+                                 :rf.story/project-root       nil
+                                 :rf.privacy/show-sensitive?  false})))))
+
+(deftest configure-bang-error-lists-every-unknown
+  (testing "multiple unknown keys all surface in :unknown so the author
+            fixes the whole call site in one pass"
+    (let [e (try (story/configure! {:rf.story/edtior :cursor
+                                    :foo             1})
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e))
+      (is (= #{:rf.story/edtior :foo} (set (:unknown (ex-data e))))))))

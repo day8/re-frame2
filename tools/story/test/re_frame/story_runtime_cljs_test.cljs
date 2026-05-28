@@ -58,12 +58,6 @@
 ;; body. Wrap the reset fn as a map.
 (use-fixtures :each {:before reset-all!})
 
-;; ---- stage marker -------------------------------------------------------
-
-(deftest cljs-stage-marker
-  (testing "Stage 6 supersedes Stage 5 — the loaded CLJS surface advertises :sota-features"
-    (is (= :sota-features story/stage))))
-
 ;; ---- run-variant returns a Promise --------------------------------------
 
 (deftest cljs-run-variant-returns-promise

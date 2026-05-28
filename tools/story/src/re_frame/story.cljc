@@ -21,6 +21,20 @@
   Every public symbol on the facade still resolves under its existing
   name; the bodies are thin re-exports / delegators.
 
+  ## Why this file is ~1100 LoC (rf2-5hp3r — facade-size investigation)
+
+  The implementation weight has already been moved off the facade. Of
+  the LoC that remain: ~18% is code-only (thin defmacro wrappers and
+  delegator defns), ~56% is docstring, ~10% is inline structure
+  comments, ~15% is blank-line separation. The size is documentation,
+  not waste — and the docstrings belong on the macros (where authors'
+  IDEs surface them on hover) rather than on the `*`-suffix runtime
+  helpers (which authors don't call directly). Comparable author-
+  facing facades — `re-frame.core` (1.5 KLoC), `day8.re-frame2-xray.
+  config` (1.5 KLoC) — sit in the same range for the same reason.
+  Investigation outcome: structure justifies size; no further split
+  warranted at this stage.
+
   ## Boot
 
   The canonical Story vocabulary auto-installs on the first `reg-*`
@@ -689,10 +703,35 @@
   where they render. Set to `true` while debugging redaction policy
   to see the raw cascade.
 
-  Unrecognised keys are accepted (for forward compat) but ignored."
+  Unrecognised keys raise `:rf.error/unknown-story-config-key` per
+  rf2-xwr1d. Pre-alpha posture: a typo (`:rf.story/edtior`) should
+  fail loudly at boot rather than silently no-op and leave the
+  author chasing 'why isn't my editor preference taking effect?'
+  across a session. The known-keys set is closed and small —
+  `:rf.story/global-args`, `:rf.story/global-decorators`,
+  `:rf.story/editor`, `:rf.story/project-root`, plus the cross-tool
+  `:rf.privacy/show-sensitive?` — if you need an additional key
+  the framework hasn't shipped, extend this set in the same patch
+  that ships the consumer."
   [{:rf.story/keys [global-args global-decorators editor project-root]
     show-sensitive? :rf.privacy/show-sensitive?
     :as opts}]
+  (let [known-keys #{:rf.story/global-args
+                     :rf.story/global-decorators
+                     :rf.story/editor
+                     :rf.story/project-root
+                     :rf.privacy/show-sensitive?}
+        unknown    (remove known-keys (keys opts))]
+    (when (seq unknown)
+      (throw (ex-info ":rf.error/unknown-story-config-key"
+                      {:rf.error/id :rf.error/unknown-story-config-key
+                       :where       'rf.story/configure!
+                       :recovery    :fix-call-site
+                       :reason      (str "configure! got unknown key(s): "
+                                         (pr-str (vec unknown))
+                                         " — known keys are " (pr-str known-keys))
+                       :unknown     (vec unknown)
+                       :known       known-keys}))))
   (when (some? global-args)
     (config/set-global-args! global-args))
   (when (contains? opts :rf.story/global-decorators)
@@ -983,13 +1022,6 @@
   'this is a published static site' badge or hide a dev-only link."
   []
   config/static-mode?)
-
-(def stage
-  "Sentinel naming the loaded feature surface. Read by tools that
-  adapt to which Story surface is live; v1.0 is `:sota-features` —
-  every public surface (authoring + runtime + render-shell +
-  assertions+play + sota-features) is present."
-  :sota-features)
 
 ;; ---- UI shell mount / unmount surface -----------------------------------
 ;;

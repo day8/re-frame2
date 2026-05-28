@@ -64,8 +64,3 @@
     (is (= #{:reagent}
            (multi/resolve-substrate-set {} {} :reagent)))))
 
-;; ---- stage marker --------------------------------------------------------
-
-(deftest stage-sentinel
-  (testing "Stage 6 advertises :sota-features"
-    (is (= :sota-features story/stage))))
