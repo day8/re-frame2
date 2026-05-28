@@ -33,7 +33,7 @@ Five steps, owned by the state container that initiates the async work.
 |---|---|
 | Dispatched-event reply channel | The seam where the epoch is carried. The async result re-enters the runtime as a named event whose payload includes the captured epoch. |
 | Atomic snapshot commits | `app-db` transitions atomically per drained event. The carried epoch and current epoch are both unambiguous values; comparison is deterministic. |
-| Identifiable state containers | `[:rf/machines <id>]`, `[:route]`, frame ids, spawned actor ids — every container in re-frame2 is named, so the epoch lives on the container, not in a global registry. |
+| Identifiable state containers | `[:rf/runtime :machines :snapshots <id>]`, `[:rf/runtime :routing :current]`, frame ids, spawned actor ids — every container in re-frame2 is named, so the epoch lives on the container, not in a global registry. |
 | State-machine `:after` (substrate-owned epoch) | The runtime already advances a per-state epoch on entry / re-entry and the after-fired event handler suppresses on mismatch automatically. Application code only sees `:rf.machine.timer/stale-after` trace events. |
 | Routing nav-tokens (substrate-owned epoch) | The router advances a nav-token on each route change; route-scoped async loads carry it; the receiving handler suppresses on mismatch. |
 
@@ -101,9 +101,9 @@ Tools subscribe to `:.*/stale-.*` to surface "a thing should have happened but d
 
 ## Variations
 
-**Substrate-owned epoch — `:after` timers.** No application work required. The state machine substrate advances `[:rf/machines <id> :epoch]` on every entry / re-entry of the `:after`-bearing state and the substrate-emitted handler suppresses on mismatch. Application-level code sees only the trace event `:rf.machine.timer/stale-after`.
+**Substrate-owned epoch — `:after` timers.** No application work required. The state machine substrate advances `[:rf/runtime :machines :snapshots <id> :epoch]` on every entry / re-entry of the `:after`-bearing state and the substrate-emitted handler suppresses on mismatch. Application-level code sees only the trace event `:rf.machine.timer/stale-after`.
 
-**Substrate-owned epoch — routing.** Same story for route-scoped async loads. The router threads a `nav-token` through the load event payload; the receiver compares against `[:route :nav-token]`. Application code follows the same shape as the search example above but uses the router-supplied token rather than a hand-rolled counter.
+**Substrate-owned epoch — routing.** Same story for route-scoped async loads. The router threads a `nav-token` through the load event payload; the receiver compares against `[:rf/runtime :routing :current :nav-token]`. Application code follows the same shape as the search example above but uses the router-supplied token rather than a hand-rolled counter.
 
 **Cofx-injected epoch.** When the dispatching site doesn't know which epoch to carry — e.g., generic logging middleware or a cross-cutting effect — register a cofx that reads the current epoch from the relevant container and injects it. The reply handler reads the carried value off the event payload as before. The dispatcher doesn't need to know about epochs at all.
 

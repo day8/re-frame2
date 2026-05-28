@@ -67,7 +67,7 @@ Defaults to **reply-to-origin**: reply lands at `:article/load` with `:rf/reply`
    :states
    {:idle           {:on {:login :authenticating}}
     :authenticating
-    {;; Wrapper alive at [:rf/machines :rf.http/managed#N] while this state is active.
+    {;; Wrapper alive at [:rf/runtime :machines :snapshots :rf.http/managed#N] while this state is active.
      ;; Exiting destroys the wrapper, which aborts the in-flight request.
      :spawn {:machine-id :rf.http/managed
               :data       {:request {:method :get :url "/api/me"}

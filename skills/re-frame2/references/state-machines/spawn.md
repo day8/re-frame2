@@ -19,7 +19,7 @@ Reach for this leaf when a state hosts an asynchronous activity whose lifetime m
            :failed    :auth-failed}}}
 ```
 
-Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the parent machine sits in `:authenticating`, an actor of `:rf.http/managed` exists at `[:rf/machines <id>]`. The runtime spawns it on entry and destroys it on exit (Spec 005 §Desugaring rules; implementation in `re-frame.machines.lifecycle-fx.registration` desugar + `re-frame.machines.lifecycle-fx.destroy`).
+Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the parent machine sits in `:authenticating`, an actor of `:rf.http/managed` exists at `[:rf/runtime :machines :snapshots <id>]`. The runtime spawns it on entry and destroys it on exit (Spec 005 §Desugaring rules; implementation in `re-frame.machines.lifecycle-fx.registration` desugar + `re-frame.machines.lifecycle-fx.destroy`).
 
 ## `:spawn` spec keys
 
@@ -70,7 +70,7 @@ When `:auth-flow` enters `:done`, the runtime synchronously:
 2. Runs the parent's `:on-done` against the parent's `:data` with `result`.
 3. Emits `:rf.machine/done` (`:machine-id` / `:output` / `:parent-id`).
 4. Tears down the child via the existing destroy path with `:reason :rf.machine/finished` on the `:rf.machine/destroyed` trace.
-5. Clears the child's `[:rf/system-ids <sid>]` reverse-index entry (after `:on-done`).
+5. Clears the child's `[:rf/runtime :machines :system-ids <sid>]` reverse-index entry (after `:on-done`).
 
 `:output-key` is optional — when absent, `:on-done` receives `nil`. `:on-done` is optional — when absent, the auto-destroy still fires.
 
@@ -121,7 +121,7 @@ When the parent needs to fan out N children and resume on a join condition (boot
           :partial-load      :degraded}}}
 ```
 
-Child id is the `:id` field inside each `:children` entry (NOT the `:machine-id`); each child dispatches `[:child/done :cfg & extra]` (or `:child/error`) back to the parent. The runtime intercepts these at the parent's machine boundary, updates join-state at `[:rf/spawned <parent-id> <invoke-id>]`, evaluates the join condition, and fires the resolved parent event — automatically cancelling surviving siblings (`:cancel-on-decision?` defaults to `true`).
+Child id is the `:id` field inside each `:children` entry (NOT the `:machine-id`); each child dispatches `[:child/done :cfg & extra]` (or `:child/error`) back to the parent. The runtime intercepts these at the parent's machine boundary, updates join-state at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]`, evaluates the join condition, and fires the resolved parent event — automatically cancelling surviving siblings (`:cancel-on-decision?` defaults to `true`).
 
 Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`): `:on-child-done` / `:on-child-error` are required keywords, `:on-all-complete` is required when `:join :all` (the default), `:on-some-complete` is required for `:any` / `{:n N}` / `{:fn pred}`.
 
@@ -129,7 +129,7 @@ Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`)
 
 - **Pick exactly one of `:machine-id` or `:definition`.** Registration rejects both forms or neither (Spec 005 §Spec-spec keys; validated in `re-frame.machines.lifecycle-fx.validation`).
 - **No `:timeout-ms` on `:spawn` or `:spawn-all`.** Wall-clock guards live on the parent state's `:after`. Use `:after {30000 :timeout-target}` — when the timer fires, the standard exit cascade destroys the in-flight child and the parent transitions. The `:timeout-ms` slot is dropped; registration throws `:rf.error/spawn-timeout-ms-removed`.
-- **`:on-spawn` is advisory.** The runtime tracks the spawn-id at `[:rf/spawned <parent-id> <invoke-id>]` itself — you no longer need `:on-spawn` to write the id under any specific `:data` slot for destroy to work. Most apps still set `:on-spawn (fn [{data :data id :id}] (assoc data :pending id))` so other transitions can address the child by name.
+- **`:on-spawn` is advisory.** The runtime tracks the spawn-id at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` itself — you no longer need `:on-spawn` to write the id under any specific `:data` slot for destroy to work. Most apps still set `:on-spawn (fn [{data :data id :id}] (assoc data :pending id))` so other transitions can address the child by name.
 - **`:data` is a literal map or `(fn [snap ev] data)` — not arbitrary code.** When the fn form is used, it runs at state entry against the post-action snapshot (spawn desugar in `re-frame.machines.lifecycle-fx.registration`). If it throws, the transition halts with `:rf.error/machine-action-exception` and the snapshot does NOT commit.
 - **`:start` runs after spawn; if absent the runtime dispatches a synthetic `[:rf.machine/spawned]`.** Every spawned actor receives `[:rf.machine/spawned]` if no `:start` was declared — generic child machines can declare a leaf `:on :rf.machine/spawned :target ...` transition that fires the actor's first work on entry.
 - **Path convention for `:on-spawn`:** the callback receives `:data` directly. Write `(assoc data :pending id)`, not `(assoc-in snap [:data :pending] id)`. Uniform with `:guard` and `:action`.

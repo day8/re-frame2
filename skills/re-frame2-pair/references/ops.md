@@ -31,7 +31,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 | `subs/sample` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/subs-sample [:cart/total])"}` | One-shot value via `rf/compute-sub` (no cache mutation) or `@(rf/subscribe ...)` |
 | `machines/list` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machines-list)"}` | Machine ids (`rf/machines`) |
 | `machines/describe` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machine-describe :auth)"}` | The registered spec map (`rf/machine-meta`) |
-| `machines/state` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machine-state :auth)"}` | Current snapshot from `(rf/snapshot-of [:rf/machines :auth])` |
+| `machines/state` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/machine-state :auth)"}` | Current snapshot from `(rf/snapshot-of [:rf/runtime :machines :snapshots :auth])` |
 
 ## Frames
 

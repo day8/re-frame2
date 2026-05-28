@@ -38,7 +38,7 @@ Closed mechanical rename table. Apply across all source files.
 
 **User `:route/<name>` ids** are user-defined and left alone (mechanical) or rewritten to a feature prefix (suggested, Type B). The closed framework list is the discriminator.
 
-Also rewrite the app-db slice key `[:route]` → `[:rf/route]` and the subscription head `[:route]` → `[:rf/route]`.
+Also rewrite the app-db slice path `[:route]` → `[:rf/runtime :routing :current]` and the subscription head `[:route]` → `[:rf/route]` (the v2 sub-id keyword is unchanged; the runtime slice path moved under `:rf/runtime` per the post-eguy4 shape).
 
 ### M-35 — actor-lifecycle fx-id rename
 
@@ -82,7 +82,7 @@ Closed mechanical rename set. Apply across all source files. the dual-key read `
 **What to NOT rewrite.** Do NOT rewrite the bare `:spec` keyword outside a registration metadata-map slot:
 
 - `{:keys [spec]}` destructure of a non-framework data shape — leave alone.
-- `(:spec invoke-all-state)` — the machine `:spawn-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §`:rf/spawned`](../../../spec/Spec-Schemas.md)); that `:spec` is a different domain and is NOT renamed by M-54.
+- `(:spec invoke-all-state)` — the machine `:spawn-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §`:rf/runtime`](../../../spec/Spec-Schemas.md#rfruntime-reserved-app-db-key--the-sole-framework-owned-root) — the join-state lives at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]`); that `:spec` is a different domain and is NOT renamed by M-54.
 - The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` going forward.
 
 **No alias semantics.** Per pre-alpha posture, the framework no longer accepts `:spec` on `reg-*` metadata — the dual-key read and the `:rf.warning/deprecated-schema-alias` were stripped. A `:spec` slot left in metadata is silently ignored (the registration becomes schemaless), so an incomplete rewrite is a correctness hazard. Sweep every `:spec` metadata-map slot to `:schema` in one pass; do not rely on a deprecation warning to find stragglers.

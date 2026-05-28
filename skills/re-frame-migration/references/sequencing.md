@@ -58,7 +58,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 15 | **M-20** | Framework keyword consolidation. Closed mechanical rename table. Apply before M-10 so M-10's collision audit doesn't false-positive on legacy framework ids. |
 | 16 | **M-10** | Reserved-namespace collision audit. Type B; surfaces user registrations under `:rf/*` for human review. |
 | 17 | **M-35** | Actor-lifecycle fx-id rename (`:spawn` → `:rf.machine/spawn`). |
-| 18 | **M-34** | Spawn-id path rename (`[:data :pending]` → `[:rf/spawned ...]`). |
+| 18 | **M-34** | Spawn-id path rename (`[:data :pending]` → `[:rf/runtime :machines :spawned ...]`). |
 | 18a | **M-56** | Machine vocabulary divergence. Closed rename table: `:invoke` → `:spawn`, `:invoke-all` → `:spawn-all`, plus all sibling `:rf/invoke-*` snapshot keys, `:rf.machine.invoke*/*` trace ops, `:rf.error/machine-invoke-*` error categories, `:rf.invoke/*` generated-action ns. Apply alongside M-35 (the fx-id sibling). v2-pre-rename only. |
 | 18b | **M-60** | Route event + trace rename. `:rf/url-changed` → `:rf.route/transitioned`; `:rf.route/url-changed` → `:rf.route/fragment-changed`. Closed two-keyword rename. Pairs with M-29 (routing artefact). v2-pre-rename only. |
 

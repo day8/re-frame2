@@ -44,7 +44,7 @@ If the union is empty the slot is **elided** entirely (snapshot-size optimisatio
 @(rf/machine-has-tag? :ui/nine-states :mode/read-only)
 ```
 
-`machine-has-tag?` is sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` (`re-frame.core-machines`, re-exported from `re-frame.core`). The underlying `:rf/machine-has-tag?` sub (registered in `re-frame.machines`) reads `[:rf/machines <id> :tags]` and tests `contains?`. Returns `false` for unknown or not-yet-initialised machines.
+`machine-has-tag?` is sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` (`re-frame.core-machines`, re-exported from `re-frame.core`). The underlying `:rf/machine-has-tag?` sub (registered in `re-frame.machines`) reads `[:rf/runtime :machines :snapshots <id> :tags]` and tests `contains?`. Returns `false` for unknown or not-yet-initialised machines.
 
 The sub is **derived directly off the snapshot's `:tags` slot** — a view that only cares about whether a specific tag is present re-renders only when the containment-bit flips, not on every snapshot mutation. `reg-sub`'s built-in equality dedup carries it.
 
@@ -86,7 +86,7 @@ The render-priority table is plain data — adding a tenth case is one row.
 - **Tags are **sets of keywords** on state nodes — not on transitions, not on the snapshot's `:data`.** A vector or single keyword is coerced to a set (`compute-tags` in `re-frame.machines.transition`), but the canonical form is `#{:foo :bar}`.
 - **The state declares intent, not identity.** `:tags #{:loading}` is OK; `:tags #{:my-feature/loading-state}` is overkill. Use the **per-axis** intent (`:data/loading`, `:form/in-flight`, `:mode/read-only`) so views can ask one tag-question that spans multiple states.
 - **Tags compose, but state-keywords don't.** Two states in different regions can both carry `:in-flight` — the union picks them up correctly. Don't try to query the **state-keyword** directly across regions; the snapshot's `:state` is a region-name → state-keyword map (parallel machines) or a single keyword (flat), and view code shouldn't branch on either shape. Branch on tags.
-- **`machine-has-tag?` is a subscription.** Inside a view it's `@(rf/machine-has-tag? ...)`. Inside an event handler it's a `subscribe` deref or a `compute-sub` call (in tests). Don't reach for it inside a `reg-event-db` body — read the snapshot's `:tags` set directly off `db` via `(get-in db [:rf/machines machine-id :tags])` if you need to branch inside an event.
+- **`machine-has-tag?` is a subscription.** Inside a view it's `@(rf/machine-has-tag? ...)`. Inside an event handler it's a `subscribe` deref or a `compute-sub` call (in tests). Don't reach for it inside a `reg-event-db` body — read the snapshot's `:tags` set directly off `db` via `(get-in db [:rf/runtime :machines :snapshots machine-id :tags])` if you need to branch inside an event.
 - **No empty `:tags` slot needed.** A state that doesn't carry tags just omits the key. The runtime elides the snapshot's `:tags` when the union is empty — a snapshot's `(contains? snap :tags)` may be `false` even after the machine has settled.
 - **`:rf/*` and `:rf.machine/*` keyword namespaces are reserved.** Application tag keywords use a feature prefix: `:auth/required`, `:cart/dirty`, `:ws/disconnected`. Don't tag with `:rf/anything`.
 

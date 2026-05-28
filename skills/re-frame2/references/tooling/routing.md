@@ -35,7 +35,7 @@ Path-pattern grammar:
 
 ## The `:rf/route` slice
 
-The runtime maintains one slice in app-db under `:rf/route`:
+The runtime maintains one slice in app-db at `[:rf/runtime :routing :current]` (under the reserved `:rf/runtime` root); the consumer-facing sub-id `:rf/route` reads it back:
 
 ```clojure
 {:id         :route/article-detail
@@ -121,15 +121,15 @@ Flow on `:rf/url-requested`:
 
 1. Runtime evaluates the **current** route's `:can-leave` sub.
 2. **`true`** → proceed; new URL becomes active; `:on-match` runs; nav-token allocates.
-3. **`false`** → block: write `:rf/pending-navigation` `{:id "pn-N" :request {...}}`; emit `:rf.route/navigation-blocked` trace; do NOT push the URL or update the slice.
-4. UI subscribes to `:rf/pending-navigation`, renders a confirm dialog.
+3. **`false`** → block: write the pending-nav slot at `[:rf/runtime :routing :pending-navigation]` with `{:id "pn-N" :request {...}}`; emit `:rf.route/navigation-blocked` trace; do NOT push the URL or update the slice.
+4. UI subscribes to `:rf/pending-navigation` (the framework-shipped sub over the slot), renders a confirm dialog.
 5. User dispatches `[:rf.route/continue pn-id]` (re-issues the original nav, bypassing the guard for this one shot) or `[:rf.route/cancel pn-id]` (clears the slot).
 
 ## Common gotchas — re-frame2-specific
 
 - **Routing is a separate artefact.** `re-frame.core` does not transitively require `re-frame.routing`. The consuming app `:require`s it at boot; otherwise `reg-route` throws `:rf.error/routing-artefact-missing`. The reserved `:rf.route/*` and `:rf.nav/*` keyword strings therefore drop out of bundles that don't use routing.
 - **Navigation is an event, not a fn call.** Use `(rf/dispatch [:rf.route/navigate :route/articles])` (programmatic) or `(rf/dispatch [:rf/url-requested {:url ...}])` (anchor clicks). Do NOT call `pushState` directly.
-- **`:on-match` runs every time the route becomes active.** Including first match. It is a vector of event vectors (not fns). On entering a route with `:on-match`, `:rf/route :transition` flips to `:loading`; runtime resets it to `:idle` after the events drain (or `:error` on `:on-error`).
+- **`:on-match` runs every time the route becomes active.** Including first match. It is a vector of event vectors (not fns). On entering a route with `:on-match`, the slice's `:transition` field (at `[:rf/runtime :routing :current :transition]`) flips to `:loading`; runtime resets it to `:idle` after the events drain (or `:error` on `:on-error`).
 - **`:on-match` order is locked.** State-update first (slice + nav-token), URL push second, `:on-match` dispatches and `:rf.nav/scroll` third. If the URL update fails, the slice is still consistent.
 - **`:params` and `:query` are separate maps.** Path params come from segments; query params come from `?k=v`. Validated by separate Malli schemas on `reg-route` (`:params` and `:query`). Build a merged map in a derived sub if you want one.
 - **Query coercion is per-key, Malli-driven.** When `:query` is a Malli `[:map [:tab :keyword] [:page :int]]`, string values get coerced (`:int`, `:keyword`, `:boolean`). `:query-defaults` populates absent keys. URL key order is preserved for byte-identical round-trip.

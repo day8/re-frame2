@@ -27,7 +27,7 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
 | Feature | Role |
 |---|---|
 | `reg-machine` | Parent coordinator and child processor. |
-| `:spawn-all` | Parent's spawn-and-join on `:working`. Runtime owns the join-state map at `[:rf/spawned <parent-id> [<state>]]`. |
+| `:spawn-all` | Parent's spawn-and-join on `:working`. Runtime owns the join-state map at `[:rf/runtime :machines :spawned <parent-id> [<state>]]`. |
 | `:after` | Child's browser-yield seam between chunks. Timer torn down automatically on destroy. |
 | `:always` | Child's `:processing → :checking-done` advance; first-match-wins guards branch to `:done` or `:yielding`. |
 | Cancellation cascade | Exiting `:working` fires one `:rf.machine/destroy` fx that tears down every surviving child. |
@@ -101,7 +101,7 @@ Cancellation is a state transition; the substrate does the rest. All three exits
   (finally (rf/dispatch [:work/flow [:cancel]])))
 ```
 
-Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all true`; the handler reads `[:rf/spawned :work/flow [:working] :children]` and tears down every surviving child. Each torn-down child's pending `:after` timer cancels automatically.
+Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all true`; the handler reads `[:rf/runtime :machines :spawned :work/flow [:working] :children]` and tears down every surviving child. Each torn-down child's pending `:after` timer cancels automatically.
 
 ## Variations
 
@@ -135,7 +135,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 - **Manual chunk-state with `setTimeout`.** Re-derives what `:after` already provides; loses tracing and automatic teardown.
 - **Forgetting cancellation.** The exit cascade makes it trivial; omitting `:cancel` on `:working` leaves a runaway loop.
 - **`:always` cycles without `:after 0` between batches.** Hits `:rf.error/machine-always-depth-exceeded` (default 16). `:yielding`'s `:after` resets depth.
-- **Per-child bookkeeping in the parent's `:data`.** The runtime owns join-state at `[:rf/spawned ...]`; re-implementing re-derives.
+- **Per-child bookkeeping in the parent's `:data`.** The runtime owns join-state at `[:rf/runtime :machines :spawned ...]`; re-implementing re-derives.
 
 ## Worked example
 

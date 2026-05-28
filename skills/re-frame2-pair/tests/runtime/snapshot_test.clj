@@ -35,14 +35,14 @@
 
 (def fixture-frames
  {:rf/default {:app-db {:cart {:items 3 :total 4200}
- :rf/machines {:auth {:state :authed}}}
+ :rf/runtime {:machines {:snapshots {:auth {:state :authed}}}}}
  :sub-cache {[:cart/total] {:value 4200 :ref-count 2}}
  :epochs [{:epoch-id "e1" :event-id :app/init}
  {:epoch-id "e2" :event-id :cart/add}]
  :traces [{:id 1 :operation :rf.event/dispatched :tags {:frame :rf/default}}
  {:id 2 :operation :rf.sub/run :tags {:frame :rf/default}}]}
  :stories {:app-db {:scenarios {:checkout :ready}
- :rf/machines {}}
+ :rf/runtime {:machines {:snapshots {}}}}
  :sub-cache {[:stories/active] {:value :checkout :ref-count 1}}
  :epochs [{:epoch-id "s1" :event-id :stories/load}]
  :traces [{:id 3 :operation :rf.event/dispatched :tags {:frame :stories}}]}})
@@ -77,7 +77,9 @@
  :app-db (stub-get-frame-db frame-id)
  :sub-cache (stub-sub-cache frame-id)
  :machines {:ids (vec (stub-machines))
- :state (or (get (stub-get-frame-db frame-id) :rf/machines) {})}
+ :state (or (get-in (stub-get-frame-db frame-id)
+ [:rf/runtime :machines :snapshots])
+ {})}
  :epochs (vec (stub-epoch-history frame-id))
  ;; Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame; per
  ;; rf2-mscih the snapshot `:traces` slice ships cascade-bundles
@@ -123,9 +125,10 @@
 (deftest app-db-slice-delegates-to-get-frame-db
  (let [snap (snapshot-state {:include [:app-db]})]
  (is (= {:cart {:items 3 :total 4200}
- :rf/machines {:auth {:state :authed}}}
+ :rf/runtime {:machines {:snapshots {:auth {:state :authed}}}}}
  (get-in snap [:rf/default :app-db])))
- (is (= {:scenarios {:checkout :ready} :rf/machines {}}
+ (is (= {:scenarios {:checkout :ready}
+ :rf/runtime {:machines {:snapshots {}}}}
  (get-in snap [:stories :app-db])))))
 
 (deftest sub-cache-slice-delegates-to-rf-sub-cache
