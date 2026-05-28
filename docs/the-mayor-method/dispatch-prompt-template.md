@@ -252,6 +252,24 @@ section listing the gates that were run with concrete pass/fail
 counts. The convention is de facto across the project (every real-source
 PR in the rf2-uspbd audit window had one); this codifies it.
 
+**Use the verbatim heading `## Quality gates`** — not `## Gates`, not
+`## Gates run`, not `## Tests run`. A canonical heading is a contract:
+it enables automated PR-body audits (e.g. rf2-uhd5d, which scanned 16
+PRs) and avoids the maintenance cost of tolerant greps. The rf2-uhd5d
+audit found 5 PRs in a single window using variant headings (#2333,
+#2343, #2345, #2346 used `## Gates`; #2337 used `## Gates run`) and 2
+PRs omitting the section entirely (#2334, #2335). The variant headings
+are semantic-equivalents but break any future automated scan that greps
+the canonical wording.
+
+**Spec-only / docs-only exception.** The section is still mandatory for
+spec-only or docs-only PRs (where no impl gates apply), but is permitted
+to be a one-line `no impl gates required (spec-only diff)` placeholder
+plus the docs gates (`mkdocs build --strict` + `check_doc_slugs` +
+`check_readme_links --ci`). Omitting the section entirely is NOT
+acceptable, even for spec-only diffs — see #2334 and #2335 from the
+rf2-uhd5d window for the failure mode.
+
 **Shape:** one short paragraph identifying which spine ran, then a
 bulleted list of named gates with test counts in the form
 `X tests, Y assertions, NF/ME`. Example:
