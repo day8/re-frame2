@@ -137,7 +137,7 @@ It forces a check against the handler's `:schema` *regardless* of the global eli
 
 Enough prose. Here's a counter that remembers its history, with both the `app-db` slice and the events schema-bound — running live in your browser. Click into the cell and hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to evaluate, then click the buttons. (First run wakes the engine; after that it's instant.)
 
-A note on the view: the static chapters use the `reg-view` macro, which auto-injects `dispatch` and `subscribe`. Live cells are functions-only, so views are plain `defn`s calling `rf/dispatch` / `rf/subscribe` explicitly — same component, spelled out. `(defn x [] ...)` here is what `(rf/reg-view x [] ...)` would be in real code.
+(Live cells are functions-only — the view is a plain `defn` with explicit `rf/dispatch` / `rf/subscribe`; `reg-view` is sugar over exactly this. See [chapter 06](06-views.md#defn-views-and-the-reg-view-equivalence).)
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
