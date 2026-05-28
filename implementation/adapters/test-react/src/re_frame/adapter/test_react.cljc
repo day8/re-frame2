@@ -324,11 +324,11 @@
   ;; NOT route through the public unmount thunk (it would throw on the
   ;; currently-rendering? / render-depth guard) — forced teardown is the
   ;; escape hatch the guard deliberately cannot block.
-  (doseq [m @active-mounts]
-    (when @(:mounted? m)
-      (log-phase! m :forced-teardown)
-      (reset! (:mounted? m) false)
-      (reset! (:render-tree m) nil)))
+  (doseq [mount @active-mounts]
+    (when @(:mounted? mount)
+      (log-phase! mount :forced-teardown)
+      (reset! (:mounted? mount) false)
+      (reset! (:render-tree mount) nil)))
   (reset! active-mounts #{})
   ;; Reset the global render depth. `run-render!`'s `finally` already restores
   ;; it on the normal + guard-throw paths; this is belt-and-braces so a test
