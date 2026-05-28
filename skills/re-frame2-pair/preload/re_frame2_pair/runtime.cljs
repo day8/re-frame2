@@ -253,7 +253,7 @@
   consumer sees the payload.
 
   `frame-id` is supplied so the walker resolves the right
-  `[:rf/elision]` registry."
+  `[:rf/runtime :elision]` registry."
   [v frame-id]
   (if (:allow-raw-state? @raw-state-config)
     v

@@ -574,7 +574,7 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf.http/reply` | Reply-payload envelope `{:kind :success :value v}` / `{:kind :failure :failure {:kind <:rf.http/*> ...}}` lands under `:rf/reply` | 014 |
 | `:rf/route-rank` | Structural-rank tuple for route-precedence sorting | 012 |
 | `:rf/pending-navigation` | Pending-navigation slot when `:can-leave` guard rejects | 012 |
-| `:rf/elision-registry` | Per-frame size-elision declaration registry under reserved app-db key `:rf/elision` | 009 |
+| `:rf/elision-registry` | Per-frame size-elision declaration registry under the reserved app-db root `[:rf/runtime :elision]` | 009 |
 | `:rf/elision-marker` | Wire shape `rf/elide-wire-value` substitutes for an elided large value (`:rf.size/large-elided`) | 009 |
 
 Schemas are **open** by default (consumers tolerate unknown keys; producers grow shapes additively); `:closed true` is opt-in at boundary-validation sites and on the effect-map.
