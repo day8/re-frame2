@@ -130,6 +130,23 @@ Two rules:
    ns keeps a thin local alias over `re-frame.privacy/sensitive?`
    for code-review locality — the predicate itself lives here.)
 
+**What this rules OUT** — concrete rejection cases so a contributor
+sees the trap before falling in:
+
+- **story-mcp's recorder bridge** — NO. Only one consumer; the bridge
+  is recorder-specific machinery, not a cross-MCP primitive. Lifting
+  it would invert the rule and pull recorder-shaped concerns into the
+  base for every other server to ignore.
+- **A re-frame2-pair-only nREPL bencode helper** — NO. Single
+  consumer; nREPL transport is pair-mcp's domain. story-mcp does not
+  speak nREPL; lifting would add a runtime concern the base does not
+  need to know about.
+- **A token-cap algorithm shared with a hypothetical xray-mcp before
+  it ships** — NO. Speculative. The rule is "implemented somewhere
+  already"; a primitive lifted ahead of a real second consumer earns
+  the wrong shape for the consumer that eventually materialises (or
+  never materialises). Lift when the second consumer exists.
+
 A new shared primitive ships with:
 
 - A per-namespace spec doc in this folder (`<ns>.md`), at the
