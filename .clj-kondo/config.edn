@@ -106,12 +106,12 @@
   ;; by the dedicated hook in `.clj-kondo/hooks/re_frame/core.clj` —
   ;; lint-as wouldn't surface the injected bindings.
 
-  ;; `with-frame` has two shapes — `(with-frame :keyword body+)` and
-  ;; `(with-frame [sym expr] body+)`. The latter is `let`-shape; the
-  ;; former is `do`-shape with a leading keyword. Handled by the
-  ;; dedicated hook in `.clj-kondo/hooks/re_frame/core.clj` so both
-  ;; shapes parse cleanly and the binding-vector case surfaces the
-  ;; lexical `sym`.
+  ;; `with-frame` and `with-new-frame` are siblings (rf2-twoc5):
+  ;; `(with-frame :keyword body+)` is pin-form (`do`-shape with leading
+  ;; keyword), and `(with-new-frame [sym expr] body+)` is eval-bind-
+  ;; run-destroy (`let`-shape). Handled by the dedicated hooks in
+  ;; `.clj-kondo/hooks/re_frame/core.clj` so both parse cleanly and the
+  ;; binding-vector case surfaces the lexical `sym`.
 
   ;; Story authoring macros — `(reg-foo :id metadata)` is a registration
   ;; call, same shape as the core reg-* family. Same `do`-shape lint-as
@@ -136,8 +136,9 @@
 
  :hooks
  {:analyze-call
-  {re-frame.core/reg-view   hooks.re-frame.core/reg-view
-   re-frame.core/with-frame hooks.re-frame.core/with-frame}}
+  {re-frame.core/reg-view       hooks.re-frame.core/reg-view
+   re-frame.core/with-frame     hooks.re-frame.core/with-frame
+   re-frame.core/with-new-frame hooks.re-frame.core/with-new-frame}}
 
  ;; `tools/template/resources/` ships deps-new template `.cljs` files
  ;; whose `{{placeholder}}` substitutions are not valid Clojure (see

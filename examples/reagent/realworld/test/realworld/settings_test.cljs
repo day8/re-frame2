@@ -14,7 +14,7 @@
   (:require [re-frame.core :as rf]
             [realworld.settings]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn- snapshot [db]
   (get-in db [:rf/machines :settings/form]))
@@ -44,7 +44,7 @@
                                   :bio "New bio"
                                   :image nil}})
 
-  (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed    :realworld.test/canned-settings-save
                                                 :auth.session/persist :rf/no-op}})]
     ;; After :app/initialise → :settings/initialise → [:reset], the
@@ -107,7 +107,7 @@
   (th/reg-canned-failure! :realworld.test/canned-settings-failure
                           :rf.http/http-5xx
                           {:status 500 :body "server error"})
-  (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed    :realworld.test/canned-settings-failure
                                                 :auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
@@ -138,7 +138,7 @@
   ;; validate inside :settings/submit would dispatch :submit-invalid
   ;; when the draft failed validation, matching Pattern-Forms'
   ;; §Standard events table.
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
                                             :token "jwt-1"

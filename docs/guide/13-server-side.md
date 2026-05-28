@@ -264,7 +264,7 @@ A server handling concurrent requests can't have one global frame — each reque
 
 ```clojure
 (defn handle-request [request]
-  (rf/with-frame [f (rf/make-frame {:on-create [:rf/server-init request]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:rf/server-init request]})]
     ;; make-frame returns the gensym'd frame id (a keyword under :rf.frame/);
     ;; with-frame binds *current-frame* to it for the body. The frame's
     ;; :on-create dispatches synchronously when the frame is created, so by

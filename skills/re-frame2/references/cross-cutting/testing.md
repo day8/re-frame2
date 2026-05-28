@@ -74,7 +74,7 @@ Target a non-default frame with `{:frame :feature/frame-id}` in the trailing opt
   (rf/dispatch-sync [:counter/inc])
   (ts/assert-path-equals [:n] 1))
 
-(rf/with-frame [f :stories]      ;; bind a symbol AND the dynamic var
+(rf/with-new-frame [f :stories]      ;; bind a symbol AND the dynamic var
   (is (= :stories f))
   (is (= :stories (rf/current-frame))))
 ```
@@ -179,7 +179,7 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 
 ```clojure
 (deftest counter-view-shows-and-fires
-  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:counter/init]})]
     (let [tree (counter-view {:n 0})
           btn  (h/find-by-testid tree "counter-inc")]
       (h/invoke-handler btn :on-click nil)              ;; fire the handler as the DOM would

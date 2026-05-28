@@ -6,7 +6,7 @@
             [re-frame.core :as rf]
             [realworld.profile]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn profile-load-test []
   (th/reg-canned-success-by-url! :realworld.test/canned-profile
@@ -24,7 +24,7 @@
                                                   :favoritesCount 0
                                                   :author {:username "eve" :bio nil :image nil :following false}}]})))
 
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-profile}})]
     (rf/dispatch-sync [:profile/initialise] {:frame f})
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})

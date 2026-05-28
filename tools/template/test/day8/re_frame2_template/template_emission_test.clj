@@ -314,17 +314,22 @@
               (str (.getName file) " (" substrate ") requires " target-ns
                    " but no source file found under implementation/core/src/")))))))
 
-;; --- scratch.cljs with-frame shape audit (rf2-ah0gi) -----------------------
+;; --- scratch.cljs with-frame shape audit (rf2-ah0gi / rf2-twoc5) -----------
 ;;
-;; The emitted dev/scratch.cljs is the user's REPL on-ramp. Any
-;; `(rf/with-frame …)` call in the (comment …) block MUST use Shape 1
-;; (a keyword) or Shape 2 (a 2-elem `[sym expr]` vector) per Spec 002
-;; §with-frame and the macro definition at
-;; `implementation/core/src/re_frame/core_reg_view_macro.cljc`. A map
-;; first-arg (or any other literal) falls through to Shape 1 and binds
-;; `*current-frame*` to a non-frame value — runtime breaks far from
-;; the call site. The audit walks every `with-frame` form in scratch
-;; and asserts the first-arg shape.
+;; The emitted dev/scratch.cljs is the user's REPL on-ramp. The two
+;; frame-scope macros are non-overlapping (per rf2-twoc5, Mike-approved
+;; 2026-05-28):
+;;
+;;   `with-frame`     — pin form: first arg MUST be a keyword (or
+;;                      keyword-resolving symbol). Vector arg is a
+;;                      compile-time error.
+;;   `with-new-frame` — eval/destroy form: first arg MUST be a
+;;                      2-element `[sym expr]` vector. Keyword arg is
+;;                      a compile-time error.
+;;
+;; This audit walks every `with-frame` / `with-new-frame` form in
+;; scratch and asserts the first-arg shape is right for the chosen
+;; macro.
 
 (defn- with-frame-call?
   "True when `form` is `(rf-or-alias/with-frame …)` — covers both
@@ -334,24 +339,36 @@
        (symbol? (first form))
        (= "with-frame" (name (first form)))))
 
-(defn- valid-with-frame-first-arg?
-  "Shape 1 = keyword; Shape 2 = 2-elem [sym expr] vector. Anything
-  else is the bug rf2-ah0gi found."
-  [arg]
-  (or (keyword? arg)
-      (and (vector? arg)
-           (= 2 (count arg))
-           (symbol? (first arg)))))
+(defn- with-new-frame-call?
+  "True when `form` is `(rf-or-alias/with-new-frame …)`."
+  [form]
+  (and (seq? form)
+       (symbol? (first form))
+       (= "with-new-frame" (name (first form)))))
 
-(defn- collect-with-frame-calls
-  "Walk `forms` and return every `(with-frame …)` call form, including
+(defn- valid-with-frame-first-arg?
+  "Pin form: keyword or symbol (resolves to keyword). Vector is the
+  compile-time error rf2-twoc5 added."
+  [arg]
+  (or (keyword? arg) (symbol? arg)))
+
+(defn- valid-with-new-frame-first-arg?
+  "Eval/destroy form: 2-elem [sym expr] vector. Anything else is a
+  compile-time error."
+  [arg]
+  (and (vector? arg)
+       (= 2 (count arg))
+       (symbol? (first arg))))
+
+(defn- collect-calls
+  "Walk `forms` and return every form matching `pred`, including
   those nested inside `(comment …)` blocks (which is where the emitted
   scratch ns puts its examples)."
-  [forms]
+  [pred forms]
   (let [acc (volatile! [])]
     (walk/postwalk
       (fn [x]
-        (when (with-frame-call? x)
+        (when (pred x)
           (vswap! acc conj x))
         x)
       forms)
@@ -362,21 +379,30 @@
   (let [scratch (io/file root "dev/scratch.cljs")]
     (is (.isFile scratch)
         (str "dev/scratch.cljs emitted for " substrate))
-    (let [forms (read-cljs-forms scratch)
-          calls (collect-with-frame-calls forms)]
-      (is (seq calls)
+    (let [forms          (read-cljs-forms scratch)
+          pin-calls      (collect-calls with-frame-call? forms)
+          new-frame-calls (collect-calls with-new-frame-call? forms)]
+      (is (or (seq pin-calls) (seq new-frame-calls))
           (str "scratch.cljs (" substrate
-               ") contains at least one (with-frame …) example — "
-               "the REPL on-ramp should demonstrate the shape"))
-      (doseq [call calls]
+               ") contains at least one (with-frame …) or "
+               "(with-new-frame …) example — the REPL on-ramp should "
+               "demonstrate at least one frame-scope shape"))
+      (doseq [call pin-calls]
         (let [first-arg (second call)]
           (is (valid-with-frame-first-arg? first-arg)
               (str "scratch.cljs (" substrate ") (with-frame "
                    (pr-str first-arg) " …) — first arg must be a "
-                   "keyword (Shape 1) or a 2-elem [sym expr] vector "
-                   "(Shape 2). Per Spec 002 §with-frame, anything "
-                   "else binds *current-frame* to a non-frame "
-                   "value and breaks downstream dispatch/subscribe.")))))))
+                   "keyword or symbol (pin form). Per rf2-twoc5, a "
+                   "vector argument is a compile-time error; use "
+                   "`with-new-frame` for eval-bind-run-destroy."))))
+      (doseq [call new-frame-calls]
+        (let [first-arg (second call)]
+          (is (valid-with-new-frame-first-arg? first-arg)
+              (str "scratch.cljs (" substrate ") (with-new-frame "
+                   (pr-str first-arg) " …) — first arg must be a "
+                   "2-element [sym expr] vector. Per rf2-twoc5, a "
+                   "keyword argument is a compile-time error; use "
+                   "`with-frame` to pin to an existing frame-id.")))))))
 
 (defn- run-for-substrate!
   [substrate]

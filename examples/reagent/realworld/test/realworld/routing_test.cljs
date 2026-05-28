@@ -4,10 +4,10 @@
    (Spec 012 §Redirects and guards)."
   (:require [re-frame.core :as rf]
             [realworld.routing :as routing])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn routing-tests []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:rf.route/navigate :realworld.article/show {:slug "hello"}] {:frame f})
     (assert (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/get-frame-db f))))
     (assert (= "hello" (:slug (rf/compute-sub [:rf.route/params] (rf/get-frame-db f)))))
@@ -29,7 +29,7 @@
   ;; guards) wired into the demo frame via `reg-frame :interceptors`
   ;; (core.cljs). Configure the test frame with the same interceptor so
   ;; the guard is exercised end-to-end.
-  (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :interceptors [routing/auth-guard]})]
     ;; Unauthenticated: navigating to a :requires-auth route
     ;; (:realworld.user/settings) is redirected to :realworld.auth/login.

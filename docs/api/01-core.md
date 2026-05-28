@@ -133,7 +133,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Description**: Anonymous-frame shortcut. The id is gensym'd; useful for tests, transient sandboxes, and the SSR per-request frame pattern.
 - **Example**:
   ```clojure
-  (rf/with-frame [f (rf/make-frame {:on-create [:temp/initialise]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:temp/initialise]})]
     (rf/dispatch [:temp/set-celsius 21]))
   ```
 - **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)

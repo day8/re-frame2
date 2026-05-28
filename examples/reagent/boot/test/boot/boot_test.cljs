@@ -29,7 +29,7 @@
             ;; if a future refactor unhooks the transitive load.
             [re-frame.http-test-support]
             [boot.boot])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; ============================================================================
 ;; PER-URL CANNED STUBS
@@ -106,7 +106,7 @@
   []
   (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
-  (with-frame [f (rf/make-frame
+  (with-new-frame [f (rf/make-frame
                    {:on-create    [:boot/initialise]
                     :fx-overrides {:rf.http/managed
                                    :boot.test/canned-boot-success}})]
@@ -138,7 +138,7 @@
   []
   (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
-  (with-frame [f (rf/make-frame
+  (with-new-frame [f (rf/make-frame
                    {:on-create    [:boot/initialise]
                     :fx-overrides {:rf.http/managed
                                    :boot.test/canned-boot-success}})]
@@ -170,7 +170,7 @@
                        {:status 500
                         :body   "boot dependency unreachable"})
 
-  (with-frame [f (rf/make-frame
+  (with-new-frame [f (rf/make-frame
                    {:on-create    [:boot/initialise]
                     :fx-overrides {:rf.http/managed
                                    :boot.test/canned-boot-fail}})]

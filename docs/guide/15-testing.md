@@ -35,7 +35,7 @@ Three patterns, ranked roughly by frequency:
 
 ```clojure
 (deftest auth-flow
-  (rf/with-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (rf/dispatch-sync [:auth/login-pressed])
     (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))))
 ```
@@ -124,7 +124,7 @@ For tests that exercise multiple events in sequence and want to assert at the en
 
 ```clojure
 (deftest auth-happy-path
-  (rf/with-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (rf/dispatch-sync [:auth/email-changed "alice@example.com"])
     (rf/dispatch-sync [:auth/password-changed "hunter2"])
     (rf/dispatch-sync [:auth/login-pressed]
@@ -161,7 +161,7 @@ Dispatch, call the view-fn, walk the result. Catches the "state correct, view br
 
 ```clojure
 (deftest counter-view-shows-current-count
-  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:counter/init]})]
     (rf/dispatch-sync [:counter/inc])
     (rf/dispatch-sync [:counter/inc])
     ;; state assertion — the handler updated the db
@@ -180,7 +180,7 @@ Pull `:on-click` off the hiccup node and invoke it. Catches the "wrong-frame dis
 
 ```clojure
 (deftest counter-button-fires-inc
-  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:counter/init]})]
     (let [tree (counter-view {:n 0})
           btn  (h/find-by-testid tree "counter-inc")]
       (h/invoke-handler btn :on-click nil)            ;; fires :on-click
@@ -238,7 +238,7 @@ Two ways to test a sub:
 
 ;; 2. compute-sub against a frame's app-db, after dispatching events
 (deftest pending-todos-sub-via-events
-  (rf/with-frame [f (rf/make-frame {})]
+  (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:todos/add {:id 1 :status :pending}])
     (rf/dispatch-sync [:todos/add {:id 2 :status :done}])
     (rf/dispatch-sync [:todos/add {:id 3 :status :pending}])
@@ -282,7 +282,7 @@ Three levels of machine testing, in order of unit-cost:
 **Level 3 — registered in test frame.** Register the machine in a frame, dispatch events, assert against the frame's `app-db`:
 
 ```clojure
-(rf/with-frame [f (rf/make-frame {})]
+(rf/with-new-frame [f (rf/make-frame {})]
   (rf/reg-machine :auth.login/flow login-flow)
   (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {...}]])
   (is (= :submitting (get-in (rf/get-frame-db f)
@@ -494,7 +494,7 @@ A handler that depends on the outside world via `inject-cofx` becomes determinis
   (ts/with-fresh-registrar
     (rf/reg-cofx :now
       (fn [ctx] (assoc-in ctx [:coeffects :now] #inst "2026-01-01T12:00:00.000Z")))
-    (rf/with-frame [f (rf/make-frame {})]
+    (rf/with-new-frame [f (rf/make-frame {})]
       (rf/dispatch-sync [:todo/add "buy milk"])
       (is (= #inst "2026-01-01T12:00:00.000Z"
              (-> (rf/get-frame-db f) :todos first val :created-at))))))

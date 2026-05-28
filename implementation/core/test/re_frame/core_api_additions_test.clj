@@ -2,9 +2,9 @@
   "JVM tests for three core-API additions landed together
    (rf2-7whh / rf2-ewku / rf2-t38q):
 
-   - `rf/with-frame` macro form (replacing the fn form). Two shapes:
-     bare-keyword (Shape 1) and let-binding (Shape 2). Per Spec 002
-     §with-frame and `spec/API.md` row 74.
+   - `rf/with-frame` (pin form) and `rf/with-new-frame` (eval-bind-
+     run-destroy form). Per Spec 002 §with-frame and `spec/API.md`
+     row 74. Split per rf2-twoc5 (Mike-approved 2026-05-28).
 
    - `(rf/registrations kind pred-fn)` 2-arity filter. Per `spec/API.md`
      row 304 and Spec 001 §Public registrar query API.
@@ -37,10 +37,10 @@
 (use-fixtures :each reset-runtime)
 
 ;; ===========================================================================
-;; rf2-7whh — with-frame macro form
+;; rf2-7whh / rf2-twoc5 — with-frame (pin) + with-new-frame (eval/destroy)
 ;; ===========================================================================
 
-(deftest with-frame-shape-1-bare-keyword
+(deftest with-frame-bare-keyword
   (testing "(with-frame :keyword body) binds *current-frame* across body"
     (rf/reg-frame :wf/alpha {:doc "alpha"})
     (is (= :rf/default (rf/current-frame))
@@ -51,7 +51,7 @@
     (is (= :rf/default (rf/current-frame))
         "after the macro returns: dynamic binding unwinds")))
 
-(deftest with-frame-shape-1-multi-form-body
+(deftest with-frame-multi-form-body
   (testing "(with-frame :keyword expr1 expr2 ...) evaluates all body forms,
             returns the last"
     (rf/reg-frame :wf/beta {:doc "beta"})
@@ -65,7 +65,7 @@
       (is (= :wf/beta result)
           "the last form's value is returned"))))
 
-(deftest with-frame-shape-1-subscriber-captures-frame
+(deftest with-frame-subscriber-captures-frame
   (testing "subscriber called inside (with-frame :k ...) captures :k"
     (rf/reg-frame :wf/left  {:doc "left"})
     (rf/reg-frame :wf/right {:doc "right"})
@@ -78,11 +78,11 @@
       (is (= 7  @(sl [:wf/n])) ":wf/left subscriber sees :wf/left's :n")
       (is (= 99 @(sr [:wf/n])) ":wf/right subscriber sees :wf/right's :n"))))
 
-(deftest with-frame-shape-2-let-binding-create-use-destroy
-  (testing "(with-frame [f (make-frame opts)] body) creates, binds, destroys"
+(deftest with-new-frame-let-binding-create-use-destroy
+  (testing "(with-new-frame [f (make-frame opts)] body) creates, binds, destroys"
     (let [captured-id (atom nil)
           observed-current (atom nil)]
-      (rf/with-frame [f (rf/make-frame {:doc "ephemeral"})]
+      (rf/with-new-frame [f (rf/make-frame {:doc "ephemeral"})]
         (reset! captured-id f)
         (reset! observed-current (rf/current-frame))
         (is (= f (rf/current-frame))
@@ -98,11 +98,11 @@
       (is (= :rf/default (rf/current-frame))
           "*current-frame* reverted after the body"))))
 
-(deftest with-frame-shape-2-destroys-on-exception
-  (testing "(with-frame [f ...] body) destroys the frame even when body throws"
+(deftest with-new-frame-destroys-on-exception
+  (testing "(with-new-frame [f ...] body) destroys the frame even when body throws"
     (let [captured-id (atom nil)]
       (try
-        (rf/with-frame [f (rf/make-frame {:doc "ephemeral-throw"})]
+        (rf/with-new-frame [f (rf/make-frame {:doc "ephemeral-throw"})]
           (reset! captured-id f)
           (throw (ex-info "boom" {:kind ::boom})))
         (catch Exception e
@@ -112,39 +112,74 @@
       (is (nil? (rf/frame-meta @captured-id))
           "the frame is destroyed even on exception"))))
 
-(deftest with-frame-shape-2-on-create-fires-and-state-is-readable
-  (testing "(with-frame [f (make-frame {:on-create [...]})] body) — on-create
-            fires before body, body sees the seeded state, destroy runs after"
+(deftest with-new-frame-on-create-fires-and-state-is-readable
+  (testing "(with-new-frame [f (make-frame {:on-create [...]})] body) —
+            on-create fires before body, body sees the seeded state,
+            destroy runs after"
     (rf/reg-event-db :wf/initialise (fn [_ _] {:counter 42}))
     (let [captured-db (atom nil)]
-      (rf/with-frame [f (rf/make-frame {:on-create [:wf/initialise]})]
+      (rf/with-new-frame [f (rf/make-frame {:on-create [:wf/initialise]})]
         (reset! captured-db (rf/get-frame-db f)))
       (is (= {:counter 42} @captured-db)
           "the body observed the on-create-seeded app-db"))))
 
-(deftest with-frame-rejects-vector-bindings-with-wrong-arity
-  (testing "(with-frame [...] body) with vector-but-not-2-count raises at compile time (rf2-4ymm0 CQ4)"
+(deftest with-frame-rejects-vector-argument
+  (testing "(with-frame [...] body) raises at compile time — caller meant with-new-frame (rf2-twoc5)"
     ;; `macroexpand` wraps macro-side ex-infos in a Compiler$CompilerException;
     ;; call the expansion helper directly so we observe the structured throw
-    ;; that fires at compile time when the user types `with-frame []`.
+    ;; that fires at compile time.
     (require 're-frame.core-reg-view-macro)
     (let [expand (resolve 're-frame.core-reg-view-macro/expand-with-frame)]
-      ;; Empty vector — easy typo of Shape 2 to omit both sides.
+      (let [e (try (expand '[f (make-frame {})] '((do nil))) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? e) "vector argument must throw")
+        (is (= :rf.error/with-frame-vector-form (:rf.error/id (ex-data e)))
+            ":rf.error/id is the canonical discriminator")
+        (is (= :use-with-new-frame (:recovery (ex-data e)))
+            ":recovery points the caller at with-new-frame")
+        (is (re-find #"did you mean `with-new-frame`"
+                     (:reason (ex-data e)))
+            ":reason names the sibling macro"))
+      (let [e (try (expand [] '((do nil))) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? e) "empty vector must throw")
+        (is (= :rf.error/with-frame-vector-form (:rf.error/id (ex-data e))))))))
+
+(deftest with-new-frame-rejects-keyword-argument
+  (testing "(with-new-frame :keyword body) raises at compile time — caller meant with-frame (rf2-twoc5)"
+    (require 're-frame.core-reg-view-macro)
+    (let [expand (resolve 're-frame.core-reg-view-macro/expand-with-new-frame)]
+      (let [e (try (expand :existing/id '((do nil))) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? e) "keyword argument must throw")
+        (is (= :rf.error/with-new-frame-keyword-form (:rf.error/id (ex-data e)))
+            ":rf.error/id is the canonical discriminator")
+        (is (= :use-with-frame (:recovery (ex-data e)))
+            ":recovery points the caller at with-frame")
+        (is (re-find #"did you mean `with-frame`"
+                     (:reason (ex-data e)))
+            ":reason names the sibling macro")))))
+
+(deftest with-new-frame-rejects-vector-bindings-with-wrong-arity
+  (testing "(with-new-frame [...] body) with wrong vector arity raises at compile time (rf2-4ymm0 CQ4)"
+    (require 're-frame.core-reg-view-macro)
+    (let [expand (resolve 're-frame.core-reg-view-macro/expand-with-new-frame)]
+      ;; Empty vector — easy typo to omit both sides.
       (let [e (try (expand [] '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) "[] must throw")
-        (is (= :rf.error/with-frame-bad-binding (:rf.error/id (ex-data e)))
+        (is (= :rf.error/with-new-frame-bad-binding (:rf.error/id (ex-data e)))
             ":rf.error/id is the canonical discriminator")
-        (is (re-find #"with-frame's vector binding must be \[sym expr\]"
+        (is (re-find #"binding must be \[sym expr\]"
                      (:reason (ex-data e)))
             ":reason carries the structured explanation"))
       ;; 3-element vector — typo of `[sym expr]` with extra tail.
       (let [e (try (expand '[f g h] '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) "[f g h] must throw")
-        (is (= :rf.error/with-frame-bad-binding (:rf.error/id (ex-data e)))
+        (is (= :rf.error/with-new-frame-bad-binding (:rf.error/id (ex-data e)))
             ":rf.error/id is the canonical discriminator")
-        (is (re-find #"with-frame's vector binding must be \[sym expr\]"
+        (is (re-find #"binding must be \[sym expr\]"
                      (:reason (ex-data e)))
             ":reason carries the structured explanation")))))
 

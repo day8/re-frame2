@@ -12,7 +12,7 @@
             [re-frame.core :as rf]
             [realworld.comments]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn comments-load-test []
   ;; URL-routed stub: the article-detail page issues two requests
@@ -40,7 +40,7 @@
                                                 :favoritesCount 0
                                                 :author {:username "alice" :bio nil :image nil :following false}}})))
 
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-article-and-comments}})]
     (rf/dispatch-sync [:article/initialise] {:frame f})
     (rf/dispatch-sync [:comments/initialise] {:frame f})
@@ -79,7 +79,7 @@
                                                 :favoritesCount 0
                                                 :author {:username "alice" :bio nil :image nil :following false}}})))
 
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-comment-post}})]
     (rf/dispatch-sync [:article/initialise] {:frame f})
     (rf/dispatch-sync [:comments/initialise] {:frame f})

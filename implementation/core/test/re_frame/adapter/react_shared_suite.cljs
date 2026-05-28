@@ -102,7 +102,7 @@
             [re-frame.adapter.context :as adapter-context]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.trace.tooling :as trace-tooling])
-  (:require-macros [re-frame.core :refer [with-frame bound-fn]]))
+  (:require-macros [re-frame.core :refer [with-frame with-new-frame bound-fn]]))
 
 ;; ===========================================================================
 ;; helpers
@@ -962,8 +962,8 @@
   (testing (str name " — with-frame binds *current-frame*")
     (with-frame :left
       (is (= :left (rf/current-frame))))
-    (testing "and the [sym expr] form binds the symbol AND the dynamic var"
-      (with-frame [f :right]
+    (testing "with-new-frame [sym expr] binds the symbol AND the dynamic var"
+      (with-new-frame [f :right]
         (is (= :right f))
         (is (= :right (rf/current-frame)))))
     (testing "outside any binding the dynamic var falls back to :rf/default"

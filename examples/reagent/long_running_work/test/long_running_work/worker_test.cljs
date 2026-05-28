@@ -31,7 +31,7 @@
   (:require [cljs.test :refer-macros [is]]
             [re-frame.core :as rf]
             [long-running-work.worker])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; ============================================================================
 ;; HELPERS
@@ -64,7 +64,7 @@
 ;; ============================================================================
 
 (defn test-spawn-cascade []
-  (with-frame [f (new-frame)]
+  (with-new-frame [f (new-frame)]
     ;; After :app/initialise, the parent is :idle with progress all-zero.
     (let [snap (snapshot f)]
       (is (= :idle (:state snap)))
@@ -94,7 +94,7 @@
 ;; ============================================================================
 
 (defn test-happy-path-join []
-  (with-frame [f (new-frame)]
+  (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
 
     ;; The child machines would normally drive themselves to :done
@@ -139,7 +139,7 @@
 ;; ============================================================================
 
 (defn test-cancel-cascade []
-  (with-frame [f (new-frame)]
+  (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
 
     ;; Simulate partial progress from each shard. The action's
@@ -188,7 +188,7 @@
 ;; Reagent idiom, not a re-frame2 contract).
 
 (defn test-parent-unmount-cascade []
-  (with-frame [f (new-frame)]
+  (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
     (is (= :working (:state (snapshot f))))
 
@@ -207,7 +207,7 @@
 ;; ============================================================================
 
 (defn test-reset-after-cancel []
-  (with-frame [f (new-frame)]
+  (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]]               {:frame f})
     (rf/dispatch-sync [:work/flow [:progress :s1 42 100]] {:frame f})
     (rf/dispatch-sync [:work/flow [:cancel]]              {:frame f})

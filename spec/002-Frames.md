@@ -778,11 +778,11 @@ Always available, frame-keyword-targeted via the opts arg:
 
 These are also the right APIs from non-Reagent contexts (server-side, headless tests, agents). No `dispatch-to` / `subscribe-to` sugar functions exist — the two-arg form is the one mechanism. On the JVM, `subscribe` cannot return a deref-able reactive (no Reagent) — the headless equivalent for "compute a sub against an `app-db` value" is `compute-sub`, defined in [008-Testing §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm). JVM tests typically read `(rf/get-frame-db <id>)` and pass that into `(rf/compute-sub query-v db)`; `subscribe` on the JVM is supported only when the substrate adapter provides a value-shape implementation.
 
-### `with-frame`
+### `with-frame` and `with-new-frame`
 
-A helper macro for tests/REPL that establishes an implicit current frame for a block. It has **two shapes**:
+Two sibling macros for tests/REPL that establish an implicit current frame for a block. They are split per concern — the macro name telegraphs the intent (per rf2-twoc5, Mike-approved 2026-05-28).
 
-#### Shape 1 — bare keyword (operate on an existing frame)
+#### `with-frame` — pin to an existing frame
 
 ```clojure
 (rf/with-frame :scratch
@@ -792,32 +792,29 @@ A helper macro for tests/REPL that establishes an implicit current frame for a b
 
 Used when the frame already exists (registered via `reg-frame` or created earlier via `make-frame`). The macro binds the dynamic-frame var for the body's duration; plain `dispatch`/`subscribe` route to `:scratch` via the dynamic-binding tier of the resolution chain. The frame is **not** created or destroyed by the macro.
 
+`with-frame` rejects a vector argument at compile time (`:rf.error/with-frame-vector-form`) — pass a keyword (or a symbol that resolves to one). If you want eval-bind-run-destroy, reach for `with-new-frame`.
+
 Use case: REPL sessions, tests that share a fixture across multiple `deftest` blocks.
 
-#### Shape 2 — let-binding (create, use, destroy)
+#### `with-new-frame` — create, bind, use, destroy
 
 ```clojure
-(rf/with-frame [f (rf/make-frame {:on-create [:auth/init]})]
+(rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init]})]
   (rf/dispatch-sync [:auth/login])
   (is (= :authenticated (get-in (rf/get-frame-db f) [:auth :state]))))
 ```
 
-Used when the frame's lifetime is exactly the body. The macro creates the frame from the given expression, binds the resulting frame keyword to the local symbol, runs the body in that frame's dynamic context, and **destroys** the frame on exit (success or exception).
+Used when the frame's lifetime is exactly the body. The macro evaluates `expr`, binds the resulting frame keyword to `sym`, runs the body in that frame's dynamic context, and **destroys** the frame on exit (success or exception).
 
 The expression may be `(make-frame opts)`, `(reg-frame :id opts)` (returns the keyword), or any expression returning a frame keyword. The macro destroys whatever was bound on exit.
 
+`with-new-frame` rejects a keyword argument at compile time (`:rf.error/with-new-frame-keyword-form`) — pass a `[sym expr]` vector. If you only want to pin to an existing frame-id, reach for `with-frame`.
+
 Use case: per-test fixtures, devcard widgets, REPL sessions where you want a guaranteed clean frame and guaranteed teardown.
 
-#### Discriminator
+#### Async work outliving `with-frame` / `with-new-frame`
 
-The macro inspects its first argument:
-
-- Keyword → Shape 1 (bare keyword form).
-- Vector `[sym expr]` → Shape 2 (let-binding form, with create-and-destroy).
-
-#### Async work outliving `with-frame`
-
-For async closures that fire after the body returns, capture the frame keyword explicitly via `bound-fn` (above) — the `with-frame` body's dynamic binding has unwound by then. Shape 2's `destroy-frame!` runs immediately on body exit; an outstanding async callback that fires after that will hit a destroyed frame.
+For async closures that fire after the body returns, capture the frame keyword explicitly via `bound-fn` (above) — the body's dynamic binding has unwound by then. `with-new-frame`'s `destroy-frame!` runs immediately on body exit; an outstanding async callback that fires after that will hit a destroyed frame.
 
 ### `dispatch-sync`
 

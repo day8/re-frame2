@@ -5,7 +5,7 @@
   (:require [re-frame.core :as rf]
             [realworld.articles]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn articles-load-test []
   (th/reg-canned-success! :realworld.test/canned-articles
@@ -22,7 +22,7 @@
                                                 :following false}}]
                            :articlesCount 1})
 
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-articles}})]
     (assert (= :idle (:status (rf/compute-sub [:articles] (rf/get-frame-db f)))))
     (rf/dispatch-sync [:articles/load] {:frame f})
@@ -41,7 +41,7 @@
                           {:status 500
                            :body   "server error"})
 
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-articles-failure}})]
     (rf/dispatch-sync [:articles/load] {:frame f})
     (assert (= :error (:status (rf/compute-sub [:articles] (rf/get-frame-db f)))))

@@ -10,7 +10,7 @@
   (:require [re-frame.core :as rf]
             [realworld.core]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; A generic success stub: every :rf.http/managed call resolves :success
 ;; with an empty map. Tests register a richer canned response when they
@@ -18,7 +18,7 @@
 (th/reg-canned-success! :realworld.test/canned-success-empty {})
 
 (defn app-smoke-test []
-  (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed      :realworld.test/canned-success-empty
                                                 :auth.session/persist :rf/no-op}})]
     ;; After init: auth + articles slices and the :realworld/tags

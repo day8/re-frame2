@@ -145,12 +145,46 @@
 
 ;; ---- frame-scope lexical-binding macro expansions ------------------------
 ;;
-;; `with-frame` discriminates on first-arg shape: a 2-element vector
-;; `[sym expr]` triggers Shape 2 (eval, bind, run, destroy); anything
-;; else is Shape 1 (bind an existing frame-id). Per Spec 002 §with-frame.
+;; `with-frame` and `with-new-frame` are two separate macros with
+;; non-overlapping shapes:
+;;
+;;   `with-frame`     — pin to an existing frame-id:
+;;                      `(with-frame :keyword body+)`.
+;;                      Rejects vector argument at compile time.
+;;
+;;   `with-new-frame` — eval an expression, bind a local symbol, run
+;;                      the body in the new frame, destroy on exit:
+;;                      `(with-new-frame [sym expr] body+)`.
+;;                      Rejects keyword argument at compile time.
+;;
+;; Per Spec 002 §with-frame.
 
 #?(:clj
    (defn expand-with-frame
+     "Expansion for `with-frame` — pin form only. Rejects a vector
+     argument with `:rf.error/with-frame-vector-form` (the caller meant
+     `with-new-frame`)."
+     [frame-id body]
+     (cond
+       (vector? frame-id)
+       (throw (ex-info
+                ":rf.error/with-frame-vector-form"
+                {:rf.error/id :rf.error/with-frame-vector-form
+                 :where       'rf/with-frame
+                 :recovery    :use-with-new-frame
+                 :reason      (str "with-frame pins to an existing frame-id (keyword). "
+                                   "Got a vector — did you mean `with-new-frame`, "
+                                   "which evals, binds, runs, and destroys?")
+                 :got         frame-id}))
+
+       :else
+       `(binding [re-frame.frame/*current-frame* ~frame-id]
+          ~@body))))
+
+#?(:clj
+   (defn expand-with-new-frame
+     "Expansion for `with-new-frame` — eval/destroy form only. Rejects
+     anything other than a 2-element vector binding."
      [bindings body]
      (cond
        (and (vector? bindings) (= 2 (count bindings)))
@@ -162,27 +196,42 @@
               (finally
                 (re-frame.frame/destroy-frame! ~sym)))))
 
-       ;; Shape 2 disambiguator: a vector that is NOT 2-element is
-       ;; almost certainly a typo of the binding form (e.g. `[]` or
-       ;; `[f x y]`). Reject at compile time per Spec 002 §with-frame —
-       ;; falling through to Shape 1 would silently bind
-       ;; `*current-frame*` to a vector value, producing a confusing
-       ;; runtime error far from the call site.
+       ;; Common mistake: passed a keyword instead of `[sym expr]`. The
+       ;; caller meant `with-frame` (pin form). Reject loudly.
+       (keyword? bindings)
+       (throw (ex-info
+                ":rf.error/with-new-frame-keyword-form"
+                {:rf.error/id :rf.error/with-new-frame-keyword-form
+                 :where       'rf/with-new-frame
+                 :recovery    :use-with-frame
+                 :reason      (str "with-new-frame evals, binds, runs, and destroys. "
+                                   "Got a keyword — did you mean `with-frame`, "
+                                   "which pins to an existing frame-id?")
+                 :got         bindings}))
+
+       ;; Vector but wrong arity — almost certainly a typo of the
+       ;; binding form (e.g. `[]` or `[f x y]`). Reject at compile time —
+       ;; per Spec 002 §with-frame.
        (vector? bindings)
        (throw (ex-info
-                ":rf.error/with-frame-bad-binding"
-                {:rf.error/id :rf.error/with-frame-bad-binding
-                 :where       'rf/with-frame
+                ":rf.error/with-new-frame-bad-binding"
+                {:rf.error/id :rf.error/with-new-frame-bad-binding
+                 :where       'rf/with-new-frame
                  :recovery    :fix-registration
-                 :reason      (str "with-frame's vector binding must be [sym expr] (Shape 2). "
+                 :reason      (str "with-new-frame's binding must be [sym expr]. "
                                    "Got " (count bindings) " element"
                                    (when-not (= 1 (count bindings)) "s") ".")
                  :got         bindings
                  :count       (count bindings)}))
 
        :else
-       `(binding [re-frame.frame/*current-frame* ~bindings]
-          ~@body))))
+       (throw (ex-info
+                ":rf.error/with-new-frame-bad-binding"
+                {:rf.error/id :rf.error/with-new-frame-bad-binding
+                 :where       'rf/with-new-frame
+                 :recovery    :fix-registration
+                 :reason      "with-new-frame's binding must be a 2-element vector [sym expr]."
+                 :got         bindings})))))
 
 #?(:clj
    (defn expand-bound-fn

@@ -20,32 +20,34 @@
   (:require [clj-kondo.hooks-api :as api]))
 
 (defn with-frame
-  "clj-kondo macro hook for `re-frame.core/with-frame`.
-
-  Two shapes — per Spec 002 §with-frame:
+  "clj-kondo macro hook for `re-frame.core/with-frame` — pin form only
+  (per rf2-twoc5):
 
       (with-frame :keyword body+)        ;; pin to existing frame
-      (with-frame [sym expr] body+)      ;; lexical bind, run, dispose
 
-  Rewrites:
-    - keyword shape → `(do body)`
-    - binding shape → `(let [sym expr] body)`"
+  Rewrites to `(do <frame-id> body)` so kondo sees the body in
+  sequential context."
   [{:keys [node]}]
-  (let [[_with-frame discriminator & body] (:children node)]
-    (cond
-      ;; `(with-frame [sym expr] body+)` — binding-vector shape.
-      (api/vector-node? discriminator)
-      {:node (api/list-node
-               (list* (api/token-node 'let)
-                      discriminator
-                      body))}
-      ;; `(with-frame :keyword body+)` — keyword shape; the keyword is
-      ;; eval'd as an expression (a no-op) and the body runs sequentially.
-      :else
-      {:node (api/list-node
-               (list* (api/token-node 'do)
-                      discriminator
-                      body))})))
+  (let [[_with-frame frame-id & body] (:children node)]
+    {:node (api/list-node
+             (list* (api/token-node 'do)
+                    frame-id
+                    body))}))
+
+(defn with-new-frame
+  "clj-kondo macro hook for `re-frame.core/with-new-frame` — eval-bind-
+  run-destroy form (per rf2-twoc5):
+
+      (with-new-frame [sym expr] body+) ;; eval, bind, run, destroy
+
+  Rewrites to `(let [sym expr] body)` so kondo sees `sym` as a lexical
+  binding for the body."
+  [{:keys [node]}]
+  (let [[_with-new-frame bindings & body] (:children node)]
+    {:node (api/list-node
+             (list* (api/token-node 'let)
+                    bindings
+                    body))}))
 
 (defn reg-view
   "Hook entry — see ns doc."
