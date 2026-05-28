@@ -238,6 +238,78 @@
 ;; spec.cjs §(7) → NO mismatch trace on the baseline
 ;; ===========================================================================
 
+;; ===========================================================================
+;; rf2-7bcn0 — server-side :rf/hydrate skips the client-only check fxs
+;; ===========================================================================
+
+(deftest hydration-on-server-platform-skips-client-only-check-fxs
+  (testing "Per rf2-7bcn0: when :rf/hydrate runs on a frame whose resolved
+            platform is :server (test harness, isomorphic loopback), the
+            handler MUST NOT enqueue the :rf.ssr/check-version /
+            :rf.ssr/check-schema-digest fxs. The fxs themselves carry
+            :platforms #{:client}, so if the handler enqueued them
+            unconditionally the fx-platform-gate would fire a
+            :rf.fx/skipped-on-platform warning per check on every server-
+            side hydrate. The handler-level gate prevents that noise."
+    (register-baseline-handlers!)
+    (let [server-frame (rf/make-frame {:doc "ssr-basic server frame"
+                                       :platform :server})
+          ;; Add a :rf/schema-digest so BOTH checks would fire if the
+          ;; handler enqueued them; otherwise only :rf.ssr/check-version
+          ;; would and the test couldn't distinguish "gated by handler"
+          ;; from "absent because no schema-digest".
+          payload      (-> baseline-payload
+                           (assoc :rf/schema-digest "test-digest-abc")
+                           materialise-response)
+          traces       (capture-traces!
+                         (fn []
+                           (rf/dispatch-sync [:rf/hydrate payload]
+                                             {:frame server-frame})))
+          skipped-checks
+          (filter (fn [ev]
+                    (and (= :rf.fx/skipped-on-platform (:operation ev))
+                         (#{:rf.ssr/check-version :rf.ssr/check-schema-digest}
+                          (-> ev :tags :rf.fx/id))))
+                  traces)]
+      (is (empty? skipped-checks)
+          (str "expected zero :rf.fx/skipped-on-platform traces for the two "
+               ":rf.ssr/check-* fxs on a :server-platform :rf/hydrate; saw: "
+               (pr-str (mapv (juxt :operation #(-> % :tags :rf.fx/id))
+                             skipped-checks))))
+      ;; Sanity: the handler still landed the app-db swap + metadata —
+      ;; the gate skipped only the check-fx dispatches, not the rest.
+      (is (= 7 (rf/subscribe-once server-frame [:count]))
+          ":rf/app-db still applied on the server-side run"))))
+
+(deftest hydration-on-client-platform-still-dispatches-check-fxs
+  (testing "Per rf2-7bcn0 (counter-test to the server-side skip): on a
+            :client-platform frame the handler MUST still enqueue the
+            check fxs so legitimate client-side mismatches surface via
+            :rf.ssr/compatibility-check-skipped (when the late-bind
+            hook is absent) or :rf.ssr/version-mismatch (when present
+            and differing). Without this counter-assertion the
+            server-side gate could silently strip both code paths."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "ssr-basic client frame"
+                                       :platform :client})
+          payload      (materialise-response baseline-payload)
+          traces       (capture-traces!
+                         (fn []
+                           (rf/dispatch-sync [:rf/hydrate payload]
+                                             {:frame client-frame})))
+          skipped (filter #(= :rf.ssr/compatibility-check-skipped
+                              (:operation %))
+                          traces)]
+      ;; Same trace as hydration-baseline-emits-compatibility-check-skipped-trace —
+      ;; the fx STILL fires on the client frame because no
+      ;; :rf2/runtime-version hook is registered. Asserts the
+      ;; rf2-7bcn0 gate did NOT over-skip on :client.
+      (is (seq skipped)
+          (str "on :client the :rf.ssr/check-version fx still fires and "
+               "emits :rf.ssr/compatibility-check-skipped (no runtime-"
+               "version hook registered); saw operations: "
+               (pr-str (mapv :operation traces)))))))
+
 (deftest hydration-baseline-no-mismatch-trace-when-server-hash-nil
   (testing "Migrated from testbeds/ssr_basic/spec.cjs assertion #13.
             Per Spec 011 §Hydration-mismatch detection:

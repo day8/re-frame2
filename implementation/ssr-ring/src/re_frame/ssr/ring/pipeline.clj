@@ -37,7 +37,6 @@
   now."
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.html-helpers :as html-helpers]
             [re-frame.ssr.ring.headers :as headers]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.payload :as payload]
@@ -149,10 +148,15 @@
   the \"or the host's default error template\" branch). Used when no
   caller `:error-view` is registered and `render-to-string` has
   thrown, so the host can no longer rely on the user's root-view to
-  produce wire bytes. The body is fully escaped through `escape-html`
-  / `escape-attr` — the public-error's `:message`/`:code` are caller-
-  controlled (custom projectors may produce arbitrary strings) so we
-  treat them as untrusted-for-HTML.
+  produce wire bytes.
+
+  Per rf2-uzjhl: built as hiccup then rendered via
+  `ssr/render-to-string` (with `:doctype? true`, `:emit-hash? false`)
+  so the public-error map flows through position-appropriate escaping
+  the emitter already owns — same render path as the caller-supplied
+  `:error-view` (`resolve-error-body` below). Removes the `(str ...)`
+  concatenation + manual `escape-html` / `escape-attr` calls that
+  duplicated the emitter's escaping behaviour.
 
   Carries no internal trace detail — the wire surface is locked to the
   public-error keys; the internal Throwable already rode the trace bus
@@ -160,18 +164,17 @@
   [{:keys [status code message]}]
   (let [status* (or status 500)
         code*   (when code (name code))
-        msg*    (or message "Something went wrong")]
-    (str "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
-         "<title>" (html-helpers/escape-html msg*) "</title>"
-         "</head><body>"
-         "<h1>" (html-helpers/escape-html msg*) "</h1>"
-         (when code*
-           (str "<p data-rf-error-code=\""
-                (html-helpers/escape-attr code*) "\">"
-                "Error code: " (html-helpers/escape-html code*)
-                " (status " status* ")"
-                "</p>"))
-         "</body></html>")))
+        msg*    (or message "Something went wrong")
+        hiccup  [:html
+                 [:head
+                  [:meta {:charset "utf-8"}]
+                  [:title msg*]]
+                 [:body
+                  [:h1 msg*]
+                  (when code*
+                    [:p {:data-rf-error-code code*}
+                     (str "Error code: " code* " (status " status* ")")])]]]
+    (ssr/render-to-string hiccup {:doctype? true :emit-hash? false})))
 
 (defn ^:private resolve-error-body
   "Resolve the projected-error HTML body (Spec 011 §Server error
@@ -226,27 +229,66 @@
   "The non-error path of `build-full-response`. Split into its own fn
   so the outer try/catch (rf2-zwgsv render-time projector unification)
   reads as a simple wrap of the rendering / payload / shell pipeline,
-  not as a 30-line body in the catch's scope."
+  not as a 30-line body in the catch's scope.
+
+  Per rf2-5br2y: the frame-aware stages (`resolve-root-view`,
+  `render-to-string`, `resolve-head`) run inside a SINGLE outer
+  `with-frame` so the `current-frame` push/pop happens once per request,
+  not three times. `get-frame-db` reads the named frame explicitly and
+  doesn't need the binding; it sits outside the block to keep that
+  explicitness visible."
   [frame-id resp
    {:keys [root-view emit-hash? version schema-digest payload-keys
            payload-policy html-shell content-type]
     :as   opts}]
-  (let [hiccup      (rf/with-frame frame-id (lifecycle/resolve-root-view root-view))
-        ;; rf2-i15nh / rf2-atmvj: compute the structural hash ONCE per
-        ;; request. The same hex feeds the root-element
-        ;; `data-rf-render-hash` (via render-to-string's `:render-hash`
-        ;; opt) AND the payload's `:rf/render-hash`. Pre-rf2-i15nh
-        ;; render-to-string computed the hash internally on the
-        ;; `:emit-hash?` branch and the pipeline called render-tree-hash
-        ;; again here — two full canonical-EDN walks per request. The
-        ;; opt-threaded form drops it to one. When `:emit-hash?` is
-        ;; false the hash is still needed for the payload slot.
-        hash-str    (ssr/render-tree-hash hiccup)
-        body-html   (rf/with-frame frame-id
-                      (ssr/render-to-string hiccup
-                                            {:doctype?    false
-                                             :emit-hash?  emit-hash?
-                                             :render-hash (when emit-hash? hash-str)}))
+  (let [;; Single `with-frame` block covers the three frame-aware
+        ;; stages: root-view resolution (a 0-arity fn may close over
+        ;; subscribe-time reads), the render walk (subs on registered
+        ;; views), and head resolution (`rf/active-head` reads the
+        ;; frame's route registry). One push/pop per request.
+        explicit-head (:head opts)
+        {:keys [hash-str body-html head-html html-attrs body-attrs]}
+        (rf/with-frame frame-id
+          (let [hiccup    (lifecycle/resolve-root-view root-view)
+                ;; rf2-i15nh / rf2-atmvj: compute the structural hash
+                ;; ONCE per request. The same hex feeds the root-element
+                ;; `data-rf-render-hash` (via render-to-string's
+                ;; `:render-hash` opt) AND the payload's
+                ;; `:rf/render-hash`. Pre-rf2-i15nh render-to-string
+                ;; computed the hash internally on the `:emit-hash?`
+                ;; branch and the pipeline called render-tree-hash again
+                ;; here — two full canonical-EDN walks per request. The
+                ;; opt-threaded form drops it to one. When `:emit-hash?`
+                ;; is false the hash is still needed for the payload
+                ;; slot.
+                hash-str  (ssr/render-tree-hash hiccup)
+                body-html (ssr/render-to-string
+                            hiccup
+                            {:doctype?    false
+                             :emit-hash?  emit-hash?
+                             :render-hash (when emit-hash? hash-str)})
+                ;; rf2-4dra9 / rf2-h2ujj: resolve the active route's
+                ;; :head (or default-head fallback). The head fragment
+                ;; goes through the shell as the :head opt; the
+                ;; :html-attrs / :body-attrs bags ride alongside so the
+                ;; shell can stamp them on <html> / <body> per Spec 011
+                ;; §Default flow step 4. Callers that supplied an
+                ;; explicit :head string take precedence — they chose to
+                ;; bypass route-driven head resolution, and an explicit
+                ;; string carries no attr-bag sidechannel.
+                head-bag  (if explicit-head
+                            {:head-html explicit-head
+                             :html-attrs nil
+                             :body-attrs nil}
+                            (lifecycle/resolve-head frame-id))]
+            (assoc head-bag
+                   :hash-str  hash-str
+                   :body-html body-html)))
+        ;; get-frame-db reads the named frame explicitly; no with-frame
+        ;; needed. Kept outside the block so the explicit frame-id read
+        ;; is visible — pulling the snapshot AFTER the render walk is
+        ;; load-bearing (a continuation drain inside the walker may
+        ;; mutate app-db; the payload must reflect the post-walk value).
         app-db      (rf/get-frame-db frame-id)
         payload     (payload/build-payload frame-id app-db hash-str
                                            {:version        version
@@ -254,21 +296,6 @@
                                             :payload-keys   payload-keys
                                             :payload-policy payload-policy})
         payload-edn (pr-str payload)
-        ;; rf2-4dra9 / rf2-h2ujj: resolve the active route's :head
-        ;; (or default-head fallback). The head fragment goes through
-        ;; the shell as the :head opt; the :html-attrs / :body-attrs
-        ;; bags ride alongside so the shell can stamp them on <html>
-        ;; / <body> per Spec 011 §Default flow step 4.
-        ;;
-        ;; Callers that supplied an explicit :head string take
-        ;; precedence — they chose to bypass route-driven head
-        ;; resolution, and an explicit string carries no attr-bag
-        ;; sidechannel (an explicit head opt is the escape hatch for
-        ;; bespoke fragments).
-        {:keys [head-html html-attrs body-attrs]}
-        (if (:head opts)
-          {:head-html (:head opts) :html-attrs nil :body-attrs nil}
-          (lifecycle/resolve-head frame-id))
         shell-opts  (assoc opts
                            :head        head-html
                            :html-attrs  html-attrs

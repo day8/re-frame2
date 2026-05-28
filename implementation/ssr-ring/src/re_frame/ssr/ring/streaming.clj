@@ -237,13 +237,21 @@
   (payload-policy/validate-policy-opts! raw-opts)
   (trust/validate-trusted-shell-opts! raw-opts)
   ;; Mirror ssr-handler's defaults so streaming and non-streaming
-  ;; handlers feel symmetric to callers. `:on-error` reuses the shared
-  ;; `lifecycle/default-on-error` so the rf2-kzvwq topology-leak
-  ;; contract is not silently re-implemented.
-  (let [opts        (merge {:emit-hash?   true
-                            :content-type "text/html; charset=utf-8"
-                            :on-error     lifecycle/default-on-error}
-                           raw-opts)
+  ;; handlers feel symmetric to callers. `:on-error` resolves the same
+  ;; way (rf2-c1tac): caller's `:on-error` wins, then
+  ;; `:on-error-fallback {:body … :content-type …}` is templated through
+  ;; `lifecycle/make-default-on-error`, then the locked
+  ;; `lifecycle/default-on-error` (rf2-kzvwq topology-leak contract).
+  (let [resolved-on-error
+        (cond
+          (:on-error raw-opts)          (:on-error raw-opts)
+          (:on-error-fallback raw-opts) (lifecycle/make-default-on-error
+                                          (:on-error-fallback raw-opts))
+          :else                         lifecycle/default-on-error)
+        opts        (-> (merge {:emit-hash?   true
+                                :content-type "text/html; charset=utf-8"}
+                               raw-opts)
+                        (assoc :on-error resolved-on-error))
         {:keys [on-error content-type]} opts]
     (fn ring-handler [request]
       (let [{:keys [frame-id short-circuit]}

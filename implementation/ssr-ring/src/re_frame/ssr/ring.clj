@@ -124,12 +124,32 @@
 ;; rf2-kzvwq topology-leak contract lives in one place).
 
 (def default-on-error lifecycle/default-on-error)
+(def make-default-on-error lifecycle/make-default-on-error)
 
 (def handler-defaults
   {:emit-hash?   true
    :html-shell   shell/default-html-shell
-   :content-type "text/html; charset=utf-8"
-   :on-error     default-on-error})
+   :content-type "text/html; charset=utf-8"})
+
+(defn- resolve-on-error
+  "Resolve the effective `:on-error` from `raw-opts`. Precedence:
+
+    1. caller-supplied `:on-error`     — full Ring-fn override; used verbatim.
+    2. caller-supplied `:on-error-fallback` — `{:body … :content-type …}`
+       template; built into a default-shaped fn via
+       `make-default-on-error`. The fn ignores the throwable (rf2-kzvwq
+       no-leak contract preserved).
+    3. neither                          — host-locked `default-on-error`
+       (`\"Internal error\"` plaintext).
+
+  Per rf2-c1tac — splits the templatable-default case from the full-
+  override case so callers can swap the body string without writing a
+  Ring fn AND without inheriting the `.getMessage` topology-leak risk."
+  [{:keys [on-error on-error-fallback]}]
+  (cond
+    on-error          on-error
+    on-error-fallback (make-default-on-error on-error-fallback)
+    :else             default-on-error))
 
 ;; ---- trusted-shell-hook contract (rf2-o6ndb) ------------------------------
 ;;
@@ -237,6 +257,20 @@
                       render `:error-view` / the default error template
                       (see below). `:on-error` is the last-resort
                       transport-failure net.
+    :on-error-fallback — (map) `{:body \"…\" :content-type \"…\"}` —
+                      templating shortcut (rf2-c1tac) for callers who
+                      want to swap the locked default body string
+                      (\"Internal error\") for a branded plaintext-or-
+                      HTML page WITHOUT writing a full `:on-error` fn.
+                      The resulting fn ignores the throwable, so the
+                      rf2-kzvwq `.getMessage` topology-leak surface
+                      stays closed. Ignored when `:on-error` is also
+                      supplied (the explicit fn wins). The caller-
+                      supplied `:body` is the caller's trust boundary
+                      — emitted RAW like the four trusted shell-hook
+                      opts. Use the `:error-view` opt below for caller-
+                      registered hiccup-rendered error pages on the
+                      projected (drain-time) path.
     :error-view     — (optional) the projected-error page body (Spec 011
                       §Server error projection step 5). Either a
                       registered-view keyword (resolved as
@@ -310,7 +344,14 @@
   ;; Merge defaults once at construction time so the pipeline helpers
   ;; (`setup-request-frame!`, `build-full-response`) can destructure
   ;; without re-stating the `:or` map. Caller-supplied values win.
-  (let [opts        (merge handler-defaults raw-opts)
+  ;;
+  ;; rf2-c1tac — `:on-error` resolution moved through `resolve-on-error`:
+  ;; the templatable `:on-error-fallback {:body … :content-type …}` opt
+  ;; produces a default-shaped fn without forcing the caller to write a
+  ;; Ring fn. Resolution happens AFTER merge so handler-defaults can stay
+  ;; orthogonal to on-error (no `:on-error` slot in the defaults map).
+  (let [opts        (-> (merge handler-defaults raw-opts)
+                        (assoc :on-error (resolve-on-error raw-opts)))
         {:keys [on-error]} opts]
     (fn ring-handler [request]
       (let [{:keys [frame-id short-circuit]}

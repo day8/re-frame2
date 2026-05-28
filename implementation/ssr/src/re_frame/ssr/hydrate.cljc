@@ -19,15 +19,33 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.ssr.hash :as hash]
             [re-frame.trace :as trace]))
 
+(defn- client-platform?
+  "Resolve the active platform for `frame-id` and answer whether
+  client-only fxs would actually execute. Mirrors the resolution in
+  `router/run-fx-effects!` — per-frame `:config :platform` override
+  wins over the host-wide `interop/active-platform` marker. Used by
+  the hydrate handler to avoid dispatching `:rf.ssr/check-*` fxs on a
+  server-side `:rf/hydrate` (test harness, isomorphic loopback), where
+  the fx's own `:platforms #{:client}` gate would otherwise emit a
+  `:rf.fx/skipped-on-platform` warning per check (rf2-7bcn0)."
+  [frame-id]
+  (let [resolved (or (some-> frame-id frame/frame :config :platform)
+                     (interop/active-platform))]
+    (= :client resolved)))
+
 (defn hydrate-event-handler
   "Handler fn for the `:rf/hydrate` event. Replaces app-db with
   `(:rf/app-db payload)`, stashes server-hash + version under
-  `:rf/hydration`, and dispatches the two `:rf.ssr/check-*` fxs."
-  [{:keys [db]} [_ payload]]
+  `:rf/hydration`, and dispatches the two `:rf.ssr/check-*` fxs when
+  the resolved platform is `:client` (per rf2-7bcn0 — server-side
+  `:rf/hydrate` skips them to avoid `:rf.fx/skipped-on-platform`
+  noise)."
+  [{:keys [db frame]} [_ payload]]
   (let [new-db        (or (:rf/app-db payload) (:app-db payload) db)
         version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
@@ -38,7 +56,15 @@
         metadata      (into {}
                             (filter (comp some? val))
                             {:server-hash (:rf/render-hash payload)
-                             :version     version})]
+                             :version     version})
+        ;; Per rf2-7bcn0: gate the compatibility-check dispatches at the
+        ;; HANDLER level (not at the fx-platform-gate level) so server-
+        ;; side `:rf/hydrate` runs (test harness, isomorphic loopback)
+        ;; don't fire `:rf.fx/skipped-on-platform` per check. The fxs
+        ;; themselves remain `:platforms #{:client}` so any direct
+        ;; caller still gets the gate; the handler simply doesn't
+        ;; request them on a known non-client run.
+        client?       (client-platform? frame)]
     ;; Per Spec 011 §The :rf/hydrate event: dispatch the compatibility-
     ;; check fxs as part of `:fx` so a mismatch surfaces a structured
     ;; trace event without crashing the hydration path. Both fxs gate on
@@ -48,8 +74,11 @@
     {:db (cond-> new-db
            (seq metadata) (assoc :rf/hydration metadata))
      :fx (cond-> []
-           version       (conj [:rf.ssr/check-version       version])
-           schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
+           (and client? version)
+           (conj [:rf.ssr/check-version       version])
+
+           (and client? schema-digest)
+           (conj [:rf.ssr/check-schema-digest schema-digest]))}))
 
 ;; ---- :rf.ssr/check-version + :rf.ssr/check-schema-digest fxs --------------
 ;;

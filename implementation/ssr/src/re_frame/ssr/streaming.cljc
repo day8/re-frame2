@@ -3,6 +3,19 @@
   registry, per-subtree hydration deltas. Per Spec 011 §Streaming SSR
   (rf2-ojakd / rf2-olb64 (a)).
 
+  ## Chunk-ordering invariant (FIFO over registration)
+
+  Continuations stream in **registration FIFO order** — the order the
+  shell walk encountered each `:rf/suspense-boundary` (document order
+  for siblings, parent-before-children for nesting). `render-shell`'s
+  `:continuations` vector preserves that order; the host adapter MUST
+  drain it sequentially without reordering. Two boundaries registering
+  the same `:id` is a programmer error: `dedupe-continuations` keeps
+  the LAST registration and emits `:rf.error/suspense-boundary-
+  duplicate-id`. Conformance: `ssr_streaming_test` (`'FIFO registration
+  in document order'`) + `ssr_streaming_conformance_test` (fixture-
+  pinned FIFO).
+
   The hiccup author marks deferred subtrees with the
   `:rf/suspense-boundary` reserved hiccup head:
 
@@ -17,7 +30,9 @@
     `:rf/suspense-boundary` node it (a) renders the fallback wrapped in
     a `<template data-rf2-suspense-id … data-rf2-suspense-fallback>`
     placeholder, (b) registers a continuation `{:id :subtree}` for the
-    body. Returns `{:shell-html … :continuations [{:id … :subtree …} …]}`.
+    body. Returns `{:shell-html … :continuations [{:id … :subtree …} …]}`
+    where `:continuations` is in registration FIFO order (see invariant
+    above).
 
   - `render-continuation` — drains one continuation. Captures the
     before-db, calls `render-to-string` on the subtree, captures the
