@@ -7,7 +7,7 @@ The walking order is dependency-driven. Earlier EPs are foundations for later on
 **Three cross-cutting anchors to keep open for every EP below:**
 
 - [`spec/Ownership.md`](https://day8.github.io/re-frame2/spec/Ownership/) — the canonical "where does X live" contract-surface map. When an EP touches a surface and you're unsure which spec owns it, this is the index. Read it once before EP 001 and consult it per-EP.
-- [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) — the reserved `:rf/*` single-root namespace scheme, reserved fx-ids, reserved app-db keys, the `reg-*` macro inventory. Every framework id your port emits lands under `:rf/*`; honour the scheme from EP 001 onward (cardinal rule 11). Conformance fixtures assert `:rf.*` operation ids.
+- [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) — the reserved `:rf/*` single-root namespace scheme, reserved fx-ids, reserved app-db keys, the `reg-*` macro inventory. Every framework id your port emits lands under `:rf/*`; honour the scheme from EP 001 onward (cardinal rule 10). Conformance fixtures assert `:rf.*` operation ids.
 - [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) — the consolidated public signature list. Read the relevant entries first whenever an EP's "The contract" names a public surface (`reg-*`, `dispatch`, `subscribe`, the fx/cofx surface, …).
 
 ## Walking order
