@@ -114,8 +114,8 @@
   (let [lines       (mapv (fn [[path schema]] (digest-line path schema))
                           path->schema)
         sorted      (sort compare-utf8-bytes lines)
-        concatted   (apply str sorted)
-        full-hex    (sha256-hex concatted)]
+        joined      (apply str sorted)
+        full-hex    (sha256-hex joined)]
     (str "sha256:" (subs full-hex 0 16))))
 
 (defn app-schemas-digest
