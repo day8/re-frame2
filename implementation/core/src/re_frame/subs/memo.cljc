@@ -162,6 +162,22 @@
                        whose value changed (`changed-cause-sub`); nil
                        for a layer-1 sub OR a layer-2+ first recompute
                        (no prior input to diff against).
+    :cause-event-id  — the dispatching cascade's event-id (the head of
+                       the event vector that kicked off the in-flight
+                       drain). Names which event invalidated this sub's
+                       reactive input. Sourced from the in-flight
+                       cascade buffer via the `:epoch/cascade-cause`
+                       late-bind hook — same source the views path uses
+                       for `:rf.view/cause-event-id` (rf2-25zo2 / rf2-okz1u).
+                       OMITTED (key absent, not nil) when the sub runs
+                       outside any cascade (a post-settle reactive flush
+                       against no live drain) or when the epoch artefact
+                       is not on the classpath. The Xray Epoch panel's
+                       SUBSCRIPTIONS section reads it to credit each
+                       sub-run to the right epoch row even when the
+                       physical reactive flush deferred into a chained
+                       sibling event's drain. Not wire-sensitive (an
+                       event-id keyword). Per Spec 009 §`:rf.sub/run`.
 
   ### Privacy — handled at the trace chokepoint, NOT here
 
@@ -245,7 +261,30 @@
                 ;; layer stays free of a require on the CLJS-only views ns.
                 reader-rk (when-let [f (late-bind/get-fn-cached
                                          :views/reading-render-key)]
-                            (f))]
+                            (f))
+                ;; rf2-okz1u — `:rf.sub/cause-event-id` names the
+                ;; dispatching cascade whose handler-body invalidated
+                ;; this sub's reactive input. Same source the views path
+                ;; uses for `:rf.view/cause-event-id` (rf2-25zo2): the
+                ;; in-flight cascade buffer published by re-frame.epoch
+                ;; under the `:epoch/cascade-cause` late-bind hook. The
+                ;; hook walks the frame's per-cascade buffer and returns
+                ;; the FIRST `:rf.event/run-start` event-id it sees —
+                ;; i.e. the cascade's dispatching event vector head
+                ;; (`(first event)`). Resolved through late-bind so this
+                ;; .cljc subs layer stays free of a static require on
+                ;; the optional epoch artefact. Returns nil when the
+                ;; epoch artefact is absent OR the sub runs outside any
+                ;; in-flight cascade (e.g. a `:rf.sub/run` driven by a
+                ;; post-settle reactive flush against no live drain);
+                ;; the tag is OMITTED in those cases so consumers
+                ;; (Xray's Epoch panel SUBSCRIPTIONS section) read it
+                ;; only when meaningful. Inside the
+                ;; `interop/debug-enabled?` gate so the lookup + lift
+                ;; DCE under :advanced + goog.DEBUG=false.
+                cause-fn        (late-bind/get-fn-cached :epoch/cascade-cause)
+                cascade-cause   (when cause-fn (cause-fn frame-id))
+                cause-event-id  (:cause-event-id cascade-cause)]
             (trace/emit! :rf.sub :rf.sub/run
                          (cond-> {:rf.sub/id             query-id
                                   :rf.sub/query-v        query-v
@@ -259,7 +298,9 @@
                                   :rf.sub/cause-sub      cause-sub}
                            (some? elapsed-ms)
                            (assoc :rf.sub/elapsed-ms elapsed-ms)
-                           reader-rk (assoc :rf.sub/reader-render-key reader-rk))))
+                           reader-rk (assoc :rf.sub/reader-render-key reader-rk)
+                           (some? cause-event-id)
+                           (assoc :rf.sub/cause-event-id cause-event-id))))
           (trace/emit! :rf.sub :rf.sub/run
                        {:rf.sub/id      query-id
                         :rf.sub/query-v query-v
