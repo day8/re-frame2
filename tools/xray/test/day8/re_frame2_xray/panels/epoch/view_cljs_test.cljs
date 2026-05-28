@@ -194,15 +194,16 @@
 
 (deftest dispatch-source-fx-dispatch-renders-rich-label-test
   (testing "rf2-5qp4g — `:source :fx-dispatch` renders the kind label
-            and the parent-epoch navigation chip"
+            and the parent-epoch navigation chip. rf2-x25e0 — the
+            second arg is now the precomputed
+            `{dispatch-id → epoch-id}` index (was `epoch-history`)."
     (let [step {:step :dispatch :badge :DISPATCH :step-number 1
                 :event [:cart/add :apple]
                 :source :fx-dispatch
                 :coord nil
                 :source-enrichment {:parent-dispatch-id 9001}}
-          epoch-history [{:epoch-id 42 :dispatch-id 9001
-                          :trigger-event [:checkout/begin]}]
-          tree (view/render-dispatch-step step epoch-history)
+          index {9001 42}
+          tree (view/render-dispatch-step step index)
           header-text (text-of tree "rf-xray-epoch-dispatch-header")]
       (is (string/includes? (or header-text "") "from fx :dispatch")
           "the kind label reads 'from fx :dispatch'")
@@ -225,9 +226,8 @@
                 :coord nil
                 :source-enrichment {:parent-dispatch-id 9001
                                     :delay-ms 500}}
-          epoch-history [{:epoch-id 42 :dispatch-id 9001
-                          :trigger-event [:checkout/begin]}]
-          tree (view/render-dispatch-step step epoch-history)
+          index {9001 42}
+          tree (view/render-dispatch-step step index)
           header-text (text-of tree "rf-xray-epoch-dispatch-header")]
       (is (string/includes? (or header-text "") "from fx :dispatch-later")
           "the kind label reads 'from fx :dispatch-later'")
@@ -251,9 +251,8 @@
                 :source :fx-dispatch
                 :coord nil
                 :source-enrichment {:parent-dispatch-id 99999}}
-          epoch-history [{:epoch-id 42 :dispatch-id 9001
-                          :trigger-event [:checkout/begin]}]
-          tree (view/render-dispatch-step step epoch-history)]
+          index {9001 42}
+          tree (view/render-dispatch-step step index)]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))
           "no clickable link when the parent epoch isn't in the buffer")
       (let [unresolved (th/find-by-testid
@@ -264,9 +263,9 @@
 
 (deftest dispatch-source-fx-dispatch-without-history-test
   (testing "rf2-5qp4g — when render-dispatch-step is called without
-            epoch-history (direct test callers, or pre-history-seed
-            cold mount), `:fx-dispatch` still renders the kind label
-            with the parent chip in unresolved form."
+            the dispatch-id->epoch-id index (direct test callers, or
+            pre-history-seed cold mount), `:fx-dispatch` still renders
+            the kind label with the parent chip in unresolved form."
     (let [step {:step :dispatch :badge :DISPATCH :step-number 1
                 :event [:cart/add :apple]
                 :source :fx-dispatch
@@ -274,7 +273,7 @@
                 :source-enrichment {:parent-dispatch-id 9001}}
           tree (view/render-dispatch-step step)]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))
-          "no clickable link without epoch-history threaded")
+          "no clickable link without dispatch-id->epoch-id threaded")
       (is (some? (th/find-by-testid
                    tree "rf-xray-epoch-dispatch-parent-epoch-unresolved"))
           "the unresolved-parent chip carries the parent-dispatch-id"))))

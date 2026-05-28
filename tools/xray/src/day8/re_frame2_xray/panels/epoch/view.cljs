@@ -1582,14 +1582,20 @@
   The parent-epoch chip is click-to-navigate via
   `:rf.xray/focus-epoch`. The delay-ms chip rides only for
   `:dispatch-later` when the original scheduled delay was stamped
-  on the dispatched trace (`:rf.event/source-detail :ms`)."
-  [source {:keys [parent-dispatch-id delay-ms]} epoch-history]
+  on the dispatched trace (`:rf.event/source-detail :ms`).
+
+  rf2-x25e0 — `dispatch-id->epoch-id` is the precomputed lookup map
+  built once per panel render in `Panel` and threaded through `ctx`.
+  Replaces the prior O(N) `(some … epoch-history)` scan with an O(1)
+  map `get`."
+  [source {:keys [parent-dispatch-id delay-ms]} dispatch-id->epoch-id]
   (let [kind-label (case source
                      :fx-dispatch       ":dispatch"
                      :fx-dispatch-later ":dispatch-later"
                      (name source))
-        parent-epoch-id (when (and parent-dispatch-id (seq epoch-history))
-                          (proj/find-parent-epoch epoch-history parent-dispatch-id))]
+        parent-epoch-id (when parent-dispatch-id
+                          (proj/find-parent-epoch dispatch-id->epoch-id
+                                                  parent-dispatch-id))]
     [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
             :style dispatch-verb-style}
      [:span {:style dispatch-source-plain-style}
@@ -1633,7 +1639,7 @@
     :fx-dispatch-later → dispatch-fx-label
     :always            → dispatch-always-label
     other / nil        → dispatch-source-label (call-site link)"
-  [{:keys [source coord source-enrichment] :as step} epoch-history]
+  [{:keys [source coord source-enrichment] :as step} dispatch-id->epoch-id]
   (case source
     :after-timer       (if source-enrichment
                          (dispatch-after-timer-label source-enrichment)
@@ -1642,9 +1648,9 @@
                          (dispatch-machine-spawn-label source-enrichment)
                          (dispatch-source-label source coord))
     :fx-dispatch       (dispatch-fx-label source (or source-enrichment {})
-                                          epoch-history)
+                                          dispatch-id->epoch-id)
     :fx-dispatch-later (dispatch-fx-label source (or source-enrichment {})
-                                          epoch-history)
+                                          dispatch-id->epoch-id)
     :always            (dispatch-always-label step)
     (dispatch-source-label source coord)))
 
@@ -1668,15 +1674,17 @@
   parent-epoch navigation). Vanilla sources fall through to the
   pre-rf2-5qp4g call-site chrome unchanged.
 
-  `epoch-history` is the optional Xray epoch buffer slice the
-  `:fx-dispatch` / `:fx-dispatch-later` enrichments use to resolve
-  the parent-dispatch-id → parent-epoch-id link (rendered as a
+  `dispatch-id->epoch-id` is the optional precomputed
+  `{dispatch-id → epoch-id}` index (rf2-x25e0) the `:fx-dispatch` /
+  `:fx-dispatch-later` enrichments use to resolve the
+  parent-dispatch-id → parent-epoch-id link in O(1) (rendered as a
   click-to-navigate `:rf.xray/focus-epoch` button). When omitted
   (direct test calls of the renderer) the parent-epoch chip falls
-  back to the unresolved variant."
+  back to the unresolved variant. The index is built once per panel
+  render in `Panel` and threaded down via `ctx`."
   ([step] (render-dispatch-step step nil))
   ([{:keys [source coord duration-ms step-number violations] :as step}
-    epoch-history]
+    dispatch-id->epoch-id]
    [:div {:data-testid "rf-xray-epoch-step-dispatch"
           :data-step-kw "dispatch"
           :data-source (when source (name source))}
@@ -1684,7 +1692,7 @@
     (step-header
       {:step :dispatch
        :badge :DISPATCH
-       :verb (let [enriched (dispatch-source-enriched-label step epoch-history)]
+       :verb (let [enriched (dispatch-source-enriched-label step dispatch-id->epoch-id)]
                ;; Vanilla sources fall through to a wrapper that
                ;; carries the prefix "from " — the per-kind labels
                ;; carry their own "from <kind>" prefix already, so the
@@ -3835,7 +3843,7 @@
   ignore it."
   [step ctx]
   (case (:step step)
-    :dispatch          (render-dispatch-step step (:epoch-history ctx))
+    :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx))
     :coeffect          (render-coeffect-step step)
     :handler           (render-handler-step step)
     :flow              (render-flow-step step)
@@ -3944,9 +3952,16 @@
       (cond
         (= :focused status)
         (if (seq steps)
+          ;; rf2-x25e0 — build the `{dispatch-id → epoch-id}` index
+          ;; once per panel render. Threaded through `ctx` to the
+          ;; DISPATCH step's `:fx-dispatch` / `:fx-dispatch-later`
+          ;; parent-epoch resolver (O(1) lookup instead of an O(N)
+          ;; epoch-history scan per render).
           (pipeline-view steps
-                         {:dispatch-id   dispatch-id
-                          :epoch-history epoch-history})
+                         {:dispatch-id           dispatch-id
+                          :epoch-history         epoch-history
+                          :dispatch-id->epoch-id (proj/dispatch-id->epoch-id-index
+                                                   epoch-history)})
           (empty-state-view :no-events))
 
         :else

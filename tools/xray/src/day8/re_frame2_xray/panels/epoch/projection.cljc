@@ -1653,23 +1653,49 @@
                            candidates)]
       (:epoch-id (or exact (first candidates))))))
 
+(defn dispatch-id->epoch-id-index
+  "Build a `{dispatch-id → epoch-id}` map from an `epoch-history` vector.
+
+  rf2-x25e0 — collapses the per-row O(N) scan that `find-parent-epoch`
+  previously did to an O(1) lookup. Each record contributes both its
+  first-class `:dispatch-id` slot (rf2-rly4a; the common case) AND
+  the value derived via `dispatch-id-of-epoch` (the trace-walk
+  fallback for legacy / restored records lacking the slot). Same
+  matching surface as the prior `some`-based lookup; nil keys are
+  skipped so records with neither identifier don't collide.
+
+  Pure data → map. Build once per render at the call site (the view
+  layer) and feed `find-parent-epoch` for every DISPATCH-row lookup."
+  [epoch-history]
+  (persistent!
+    (reduce
+      (fn [acc record]
+        (let [id1 (:dispatch-id record)
+              id2 (common/dispatch-id-of-epoch record)
+              eid (:epoch-id record)]
+          (cond-> acc
+            (some? id1) (assoc! id1 eid)
+            (and (some? id2) (not= id2 id1)) (assoc! id2 eid))))
+      (transient {})
+      epoch-history)))
+
 (defn find-parent-epoch
-  "Resolve a parent epoch's `:epoch-id` against the epoch-history given
-  the child's parent-dispatch-id (rf2-5qp4g).
+  "Resolve a parent epoch's `:epoch-id` against a precomputed
+  `dispatch-id->epoch-id` index given the child's
+  `:parent-dispatch-id` (rf2-5qp4g).
 
   The reverse of `find-child-epoch`: child's `:parent-dispatch-id` →
-  parent's `:dispatch-id` → parent's `:epoch-id`. The lookup matches
-  on `dispatch-id-of-epoch` which falls back to a `:trace-events`
-  walk for records that lack the first-class `:dispatch-id` slot
-  (per the same helper's docstring). Returns nil when no parent
-  epoch is in the buffer (root cascade, or aged out)."
-  [epoch-history parent-dispatch-id]
-  (when (and (some? parent-dispatch-id) (seq epoch-history))
-    (some (fn [record]
-            (when (or (= parent-dispatch-id (common/dispatch-id-of-epoch record))
-                      (= parent-dispatch-id (:dispatch-id record)))
-              (:epoch-id record)))
-          epoch-history)))
+  parent's `:dispatch-id` → parent's `:epoch-id`. Returns nil when no
+  parent epoch is in the buffer (root cascade, or aged out).
+
+  rf2-x25e0 — O(1) lookup. The prior O(N) `some`-walk over
+  `epoch-history` is replaced by a map `get`. Callers build the
+  index once per panel render via `dispatch-id->epoch-id-index` and
+  thread it down to every DISPATCH-row lookup (clean-swap; the
+  arity-2 history-walking form is gone)."
+  [dispatch-id->epoch-id parent-dispatch-id]
+  (when (some? parent-dispatch-id)
+    (get dispatch-id->epoch-id parent-dispatch-id)))
 
 ;; ---- top-level projection ------------------------------------------------
 
