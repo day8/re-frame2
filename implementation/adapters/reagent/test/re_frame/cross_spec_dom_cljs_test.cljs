@@ -108,7 +108,7 @@
   (rf/reg-event-db :seed
     (fn [db _]
       (assoc-in db [:rf/runtime :machines :snapshots] {:flow/login    {:state :authed   :data {}}
-                              :flow/checkout {:state :pending  :data {}}})))
+                                                       :flow/checkout {:state :pending  :data {}}})))
   (rf/dispatch-sync [:seed] {:frame :tenant-x})
   (let [traces (collect-traces ::xspec-1)]
     (rf/destroy-frame! :tenant-x)
