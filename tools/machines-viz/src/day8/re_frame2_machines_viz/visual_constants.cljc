@@ -309,7 +309,7 @@
     :else
     (throw (ex-info ":rf.error/machines-viz-unknown-chart-density"
                     {:rf.error/id :rf.error/machines-viz-unknown-chart-density
-                     :where     'machines-viz/resolve-chart-density
+                     :where     'machines-viz/chart-for-density
                      :recovery  :no-recovery
                      :reason    (str "unknown chart density: " (pr-str density)
                                      ". Expected one of " (pr-str densities) ".")
