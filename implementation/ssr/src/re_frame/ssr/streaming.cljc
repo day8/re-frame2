@@ -228,7 +228,7 @@
 ;; A specialised emitter that recognises `:rf/suspense-boundary` and emits
 ;; a placeholder + records a continuation instead of recursing into the
 ;; subtree. Everything else is delegated to the standard emitter via the
-;; recursive `walk` helper.
+;; recursive `walk-shell` helper.
 ;;
 ;; The walker is intentionally a sibling of `emit/emit-element` rather
 ;; than a drop-in replacement — non-streaming consumers should not pay
@@ -237,7 +237,7 @@
 ;; children of standard elements to find nested boundaries; the
 ;; non-streaming emitter is a pure right-fold over strings).
 
-(declare walk)
+(declare walk-shell)
 
 ;; Per rf2-muasb (perf-sweep H2, ai/findings/perf-sweep-2026-05-15.md):
 ;; the prior implementation called `(some-suspense-boundary? el)` —
@@ -260,7 +260,7 @@
 ;; cost the audit calls out.
 
 (defn- walk-children [children acc]
-  (clojure.string/join (mapv #(walk % acc) children)))
+  (clojure.string/join (mapv #(walk-shell % acc) children)))
 
 (defn- walk-dom-tag
   "Emit a DOM tag element while recursing into its children with the
@@ -329,10 +329,15 @@
       (record-continuation! acc id subtree fallback)
       (fallback-template id fallback-html))))
 
-(defn walk
+(defn- walk-shell
   "Walk a hiccup form, building shell HTML and recording continuation
   entries in `acc` (an atom of vector). Standard hiccup is delegated to
-  `emit-element`; the suspense-boundary head is intercepted."
+  `emit-element`; the suspense-boundary head is intercepted.
+
+  Private — the streaming module's recursive shell walker. The public
+  entry point is `render-shell` (below), which binds the per-render
+  parse-tag-name memo and the continuations accumulator before invoking
+  this fn on the root hiccup."
   [el acc]
   (cond
     (and (vector? el)
@@ -374,7 +379,7 @@
                 out   (if coord
                         (emit/inject-coord-on-root-hiccup coord raw)
                         raw)]
-            (walk out acc))
+            (walk-shell out acc))
           ;; DOM tag — always recurse via `walk-dom-tag` so nested
           ;; suspense-boundaries are reachable. Per rf2-muasb the
           ;; prior `some-suspense-boundary?` pre-scan was a perf
@@ -384,7 +389,7 @@
 
     (and (vector? el) (fn? (first el)))
     ;; fn-headed component — invoke + recurse on the body.
-    (walk (apply (first el) (rest el)) acc)
+    (walk-shell (apply (first el) (rest el)) acc)
 
     (sequential? el)
     (walk-children el acc)
@@ -419,7 +424,7 @@
   ;; duration of `render-shell`.
   (binding [emit/*tag-name-cache* (volatile! {})]
     (let [acc       (new-continuations-acc)
-          shell     (walk root-hiccup acc)
+          shell     (walk-shell root-hiccup acc)
           conts     (dedupe-continuations @acc)]
       {:shell-html shell
        :continuations conts})))
