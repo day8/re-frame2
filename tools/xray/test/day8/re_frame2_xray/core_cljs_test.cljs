@@ -41,7 +41,11 @@
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!))
+  (trace-collector/reset-for-test!)
+  ;; rf2-2thl2 — init! writes through to the persisted Settings atom;
+  ;; reset between tests so per-test mutations don't leak into the
+  ;; next test's read.
+  (config/reset-settings!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -166,16 +170,40 @@
       (is (some #(= [:rf.xray/set-target-frame :app/main] %) @seen)
           "init! dispatched :rf.xray/set-target-frame with :default-frame"))))
 
-(deftest init!-accepts-future-opts-without-throwing
-  (testing "init! tolerates spec/API.md keys not yet wired (forward-compat)"
-    ;; Per the docstring: :theme / :density / :ai-provider /
-    ;; :buffer-depths are accepted today and ignored at runtime. The
-    ;; contract is that passing them does not throw — host code wired
-    ;; against the spec stays runnable as the impl fills in.
+(deftest init!-wires-theme-density-and-buffer-depths
+  (testing "rf2-2thl2 — init! threads :theme / :density / :buffer-depths
+            through to the persisted Settings shape so a host's boot-time
+            opts land in the same slots the Settings popup writes."
     (setup-xray-frame!)
     (core/init! {:default-frame :app/main
                  :theme         :dark
                  :density       :compact
-                 :ai-provider   {:provider :claude}
-                 :buffer-depths {:trace 200 :epoch 50}})
-    (is true "init! did not throw on the full spec/API.md opts map")))
+                 :buffer-depths {:epoch 75}})
+    (is (= :dark    (config/get-setting :theme nil))
+        ":theme landed in the persisted Settings shape")
+    (is (= :compact (config/get-setting :general :density))
+        ":density landed under :general")
+    (is (= 75       (config/get-setting :general :epoch-history))
+        ":buffer-depths :epoch landed under :general :epoch-history")))
+
+(deftest init!-tolerates-unknown-opts-keys
+  (testing "rf2-2thl2 — init! silently ignores keys it doesn't recognise
+            (forward-compat: a host passing a key a future Xray release
+            adds MUST NOT break the current Xray boot)."
+    (setup-xray-frame!)
+    (core/init! {:default-frame   :app/main
+                 :unknown/future  :something
+                 :rf.xray/another 42})
+    (is true "init! did not throw on unknown keys")))
+
+(deftest init!-buffer-depths-with-nil-epoch-is-noop
+  (testing "rf2-2thl2 — init! ignores :buffer-depths shapes without a
+            usable :epoch (nil, non-numeric, non-positive)."
+    (setup-xray-frame!)
+    (let [start (config/get-setting :general :epoch-history)]
+      (core/init! {:buffer-depths {:trace 200}})
+      (is (= start (config/get-setting :general :epoch-history))
+          ":trace-only map left :epoch-history at the prior value")
+      (core/init! {:buffer-depths {:epoch -5}})
+      (is (= start (config/get-setting :general :epoch-history))
+          "negative epoch depth was rejected by the apply-epoch-history! gate"))))

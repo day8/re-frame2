@@ -153,14 +153,19 @@ implementation reality — ~40 symbols across 6 namespaces).
 ;; Mount Xray manually (alternative to :preloads). Idempotent.
 
 (xray/init! opts)
-;; opts: {:default-frame :app/main
-;;        :theme         :dark / :light / :high-contrast
-;;        :density       :compact / :cosy
-;;        :ai-provider   {:provider :claude / :openai / :gemini / :local / :custom
-;;                        :api-key  "sk-..."     ;; localStorage only; never sent to Day8
-;;                        :model    "claude-3-5-sonnet"
-;;                        :system-prompt "..."}
-;;        :buffer-depths {:trace 200 :epoch 50}}
+;; opts: {:default-frame :app/main         ;; scrubber's target frame
+;;        :theme         :dark / :light    ;; persisted Settings :theme
+;;        :density       :compact / :cosy  ;; persisted Settings :general/:density
+;;        :buffer-depths {:epoch 50}}      ;; per-frame ring depth (drives both
+;;                                         ;; :depth + :trace-events-keep per
+;;                                         ;; the rf2-3g9nw D1=a ruling)
+;; rf2-2thl2: each opt is wired end-to-end (no accept-but-ignore stubs).
+;; Unknown keys are silently ignored for forward-compatibility.
+;; `:ai-provider` is documented in the persisted Settings shape (see
+;; §Settings keys below) but the backing infrastructure lands in a
+;; follow-on bead; until then `init!` does not accept it on the opts
+;; map (host hand-edits of the Settings shape via `(configure!
+;; {:rf.xray/settings ...})` remain forward-compatible).
 
 (xray/open!)        ;; Show the panel programmatically.
 (xray/close!)       ;; Hide the panel programmatically.

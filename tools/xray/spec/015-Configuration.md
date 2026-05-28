@@ -643,7 +643,7 @@ ownership rule below locks the contract for pre-alpha and forward.
 | Surface | Role | Mutability | Lifetime |
 |---|---|---|---|
 | `(xray-config/configure! {…})` | Static boot config — defaults, feature flags, host-environment wiring (editor target, project root, layout-host selector, auto-open, keybinding enabled, filter seed, …). | Host-code-mutable at boot; immutable from the user's perspective. | Process-global atoms; one set of values per host load. |
-| `(xray/init! opts)` | Lifecycle hook — called by host app code to bring Xray up (alternative to `:preloads`). The `opts` map carries per-instance panel-state wiring (Settings shape inputs such as `:theme`, `:density`, `:default-frame`, `:ai-provider`, `:buffer-depths`). Idempotent. | Host-code-driven; once-per-load. | Per-mount lifecycle. |
+| `(xray/init! opts)` | Lifecycle hook — called by host app code to bring Xray up (alternative to `:preloads`). The `opts` map carries per-instance panel-state wiring (Settings shape inputs such as `:theme`, `:density`, `:default-frame`, `:buffer-depths`). Per rf2-2thl2 each accepted key is wired end-to-end; aspirational Settings-shape keys without backing infrastructure (`:ai-provider`, `:sidebar-mode`, `:launcher-pill`, `:keybindings`) land via the persisted Settings shape only — `init!` does not accept them on the opts map until the wiring catches up. Idempotent. | Host-code-driven; once-per-load. | Per-mount lifecycle. |
 | Persisted Settings (`localStorage` slot `day8.re-frame2-xray/settings/v1`) | User-mutable overrides — the Settings popup is the canonical UI; persists `:theme`, `:density`, `:ai-provider`, `:buffer-depths`, `:default-frame`, `:sidebar-mode`, `:launcher-pill`, `:keybindings` per [`API.md`](./API.md) §Settings keys. | User-mutable via the Settings popup; round-trips through localStorage. | Survives reload until corrupted or cleared. |
 
 **Merge order (lowest precedence first):**
@@ -683,10 +683,11 @@ inventory, or refuse persistence at the harness layer; the merge
 order does not change.
 
 The same rule applies symmetrically to every overlapping key today
-(`:density`, `:default-frame`, `:ai-provider`, `:buffer-depths`).
-Future host-facing knobs added to `configure!` MUST declare whether
-they participate in the persisted Settings shape; knobs that do
-inherit this merge order automatically.
+(`:density`, `:default-frame`, `:buffer-depths`; `:ai-provider` once
+its backing infrastructure lands per rf2-2thl2). Future host-facing
+knobs added to `configure!` MUST declare whether they participate in
+the persisted Settings shape; knobs that do inherit this merge order
+automatically.
 
 ## Reserved keys
 
