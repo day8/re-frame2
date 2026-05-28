@@ -194,22 +194,17 @@
 
 ;; The machine snapshot lives at
 ;; [:rf/runtime :machines :snapshots :auth.login/flow] (per Spec 005).
-;; The framework ships `:rf/machine` as the canonical layer-3 entry
-;; point onto that path (see re-frame.machines/213); the named subs
-;; below chain off it to project out the convenient pieces. The
-;; "in :submitting?" / "in :authed?" / "in :locked-out?" predicates
-;; moved to the `rf/machine-has-tag?` queries in views.cljs (ch.11
-;; §State tags) — discriminating on the machine's runtime-projected
-;; `:tags` set decouples view code from individual state-keyword
-;; identity.
+;; These named subs project out the convenient pieces. The "in
+;; :submitting?" / "in :authed?" / "in :locked-out?" predicates moved
+;; to the `rf/machine-has-tag?` queries in views.cljs (ch.11 §State
+;; tags) — discriminating on the machine's runtime-projected `:tags`
+;; set decouples view code from individual state-keyword identity.
 
 (rf/reg-sub :auth.login/state
-  :<- [:rf/machine :auth.login/flow]
-  (fn [machine _] (:state machine)))
+  (fn [db _] (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :state])))
 
 (rf/reg-sub :auth.login/error
-  :<- [:rf/machine :auth.login/flow]
-  (fn [machine _] (get-in machine [:data :error])))
+  (fn [db _] (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :data :error])))
 
 ;; The chapter's headless tests (pure machine-transition + full-drain
 ;; scenarios) live in the sibling test ns
