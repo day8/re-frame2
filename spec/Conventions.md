@@ -700,6 +700,16 @@ Bare positional `^{:key i}` is acceptable **only when the row collection has fix
 
 The class of bug the rule catches: when a list-rendering body's `^{:key ...}` is a positional index (`^{:key i}`) but the underlying identity is something else (a `variant-id`, a `trace-id`, a `row-id`), Reagent / React reuse the wrong DOM nodes on reorder. A row keyed by index `2` becomes "the third row", which means a deletion shifts every downstream row's identity by one and surfaces as silent state bleed across cells, repeaters, and trace-ribbon entries. The cure is mechanical (replace `:key i` with `:key (str "<prefix>:" stable-id)`); the diagnostic is hard (the wrong rendering is internally consistent — only an interaction probe reveals the swap).
 
+## Namespace size
+
+A namespace is sized by **cohesion + coupling**, not line count. It is okay for a namespace to be large if it is internally cohesive and largely decoupled from other namespaces. File size alone is **not** a split trigger.
+
+**Split when concerns are independent.** A namespace is appropriately split when its sub-parts could each live alone behind a small public seam — they share little internal state, they evolve on different cadences, and a reader of one part rarely needs the others on screen. The exemplar is `re-frame.routing` (rf2-2yabr, PR #2309): a 2184-LoC `routing.cljc` carrying 11 genuinely independent concerns (pattern compile, route ranking, nav-token allocation, URL parse, scroll restore, …) split cleanly into 13 concern-per-file siblings behind a thin facade. The seams already existed in the code's shape; the split made them visible.
+
+**Keep cohesive when the file is one algorithm.** A namespace is appropriately kept whole when it implements ONE algorithm whose **internal closures-over-state** would be torn into fake seams by a split — the "parts" only make sense in each other's presence, and any seam between them is a lie about the code's actual coupling. The exemplar is `re-frame.machines.transition` (rf2-wep8y): a 1759-LoC transition engine that reads as one machine, kept cohesive because splitting it would invent public-shaped interfaces for what is genuinely one closure over the in-flight transition record.
+
+The test is not "how many lines?" but "would a competent reader, asked to change one part, need to read the others?" If yes — keep it together. If no — split, and let the public seam between siblings stay narrow.
+
 ## Packaging conventions
 
 re-frame2 ships as **multiple Maven artefacts**. A user picks the artefacts their app needs; bundle isolation is structural, not vigilance-based — the wrong feature or the wrong substrate is *absent from the classpath*, not eliminated by a hopeful pass of dead-code analysis.
