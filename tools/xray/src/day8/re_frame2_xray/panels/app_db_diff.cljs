@@ -13,16 +13,18 @@
   produces drives the body:
 
     - a TOP section — the app-db MINUS every reserved `:rf/*` key (the
-      user-domain app-db).
-    - one section per reserved `:rf/*` area (per spec/Conventions.md
-      §Reserved app-db keys: `:rf/machines`, `:rf/spawned`, `:rf/route`,
-      `:rf/system-ids`, `:rf/pending-navigation`, `:rf/elision`).
+      user-domain app-db). Per spec/Conventions.md §Reserved app-db
+      keys the runtime owns ONE top-level slot, `:rf/runtime`, and any
+      `:rf.<subns>/*` keys the framework stashes at the root.
+    - one section per operator-facing runtime area (per the
+      `runtime-areas` table — machines, routing, spawned, system-ids,
+      pending-navigation, elision — all nested under `:rf/runtime`).
       Map-of-instances areas (`:rf/machines`, `:rf/spawned`) FAN OUT to
       one named sub-section per instance (section title = the instance
-      id, e.g. `:title/flow`). Singleton slices (`:rf/route` SINGULAR —
-      the current-route slice per spec/012 §The `:rf/route` slice — and
-      the rest) render as one section each. Absent / empty areas still
-      render, as an empty-state placeholder.
+      id, e.g. `:title/flow`). Singleton slices (the current-route
+      slice at `[:rf/runtime :routing :current]` per spec/012 §The
+      `:rf/route` slice, and the rest) render as one section each.
+      Absent / empty areas still render, as an empty-state placeholder.
 
   Values render through the canonical EDN widget's cljs-devtools
   current-state path (`views.edn-widget.widget/inspect`), the same

@@ -30,8 +30,7 @@
        counter wired through a wrapper.
 
     3. **Reserved-keys segregation.** `partition-reserved` splits
-       triples whose path roots in `:rf/machines` / `:rf/route` /
-       etc. into a separate group.
+       triples whose path roots in `:rf/runtime` into a separate group.
 
     4. **`epochs-touching-path` walks the history.** Returns only
        epochs that touched the focused path, classified by op.

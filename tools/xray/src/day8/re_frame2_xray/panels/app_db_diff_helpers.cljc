@@ -31,11 +31,12 @@
 
   ## Reserved-keys partition — `partition-reserved`
 
-  Per spec §Reserved-keys group the runtime owns five top-level keys
-  (`:rf/machines`, `:rf/route`, `:rf/system-ids`,
-  `:rf/pending-navigation`, `:rf/spawned`). The diff triples for
-  those keys render in a separate `[runtime]` group; the rest render
-  as slice mini-panels.
+  Per spec §Reserved-keys group the runtime owns ONE top-level key
+  (`:rf/runtime`) which nests the per-area sub-paths catalogued in the
+  `runtime-areas` table (machines, routing, system-ids, pending-
+  navigation, spawned, …). Diff triples whose path roots in
+  `:rf/runtime` render in a separate `[runtime]` group; the rest
+  render as slice mini-panels.
 
   ## rf2-e9tb0 — pin-store helpers dropped
 
@@ -338,12 +339,11 @@
 (defn reserved-namespace-key?
   "True when `k` is a qualified keyword in the reserved `:rf/*` or
   `:rf.<subns>/*` namespace family per spec/Conventions.md §Reserved
-  namespaces. Catches BOTH the six explicit reserved-app-db-keys
-  (`:rf/machines` etc.) AND any other framework-internal key the
-  runtime stashes at the app-db root (e.g. `:rf.route/nav-token-
-  counter`, `:rf.machine/*` slots). The user-domain TOP section
-  must hide all of these — they're framework plumbing, not user-
-  domain state. Pure data → bool."
+  namespaces. Catches BOTH the single explicit reserved-app-db-key
+  (`:rf/runtime`) AND any other framework-internal key the runtime
+  stashes at the app-db root (e.g. `:rf.machine/*` slots). The
+  user-domain TOP section must hide all of these — they're framework
+  plumbing, not user-domain state. Pure data → bool."
   [k]
   (boolean
     (when (qualified-keyword? k)
@@ -354,12 +354,11 @@
 (defn user-domain-db
   "Return `db` with every reserved `:rf*`-namespaced key removed —
   the user-domain app-db that heads the inspector's TOP section. The
-  filter catches both the six explicit reserved-app-db-keys
-  (`:rf/machines` etc., per spec/Conventions.md §Reserved app-db keys)
-  AND any framework-internal slot the runtime stashes under the
-  broader reserved-namespace family (e.g. `:rf.route/nav-token-
-  counter`, `:rf.machine/*`). Pure data → map. nil-safe (nil db →
-  empty map)."
+  filter catches both the single explicit reserved-app-db-key
+  (`:rf/runtime`, per spec/Conventions.md §Reserved app-db keys) AND
+  any framework-internal slot the runtime stashes under the broader
+  reserved-namespace family (e.g. `:rf.machine/*`). Pure data → map.
+  nil-safe (nil db → empty map)."
   [db]
   (into {} (remove (fn [[k _v]] (reserved-namespace-key? k))) (or db {})))
 

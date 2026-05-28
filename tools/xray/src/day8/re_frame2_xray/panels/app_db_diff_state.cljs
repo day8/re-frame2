@@ -7,13 +7,14 @@
 
     - a TOP section — the app-db MINUS every reserved `:rf/*` key (the
       user-domain app-db). ALWAYS renders, even when empty.
-    - one section per POPULATED reserved `:rf/*` area (per
-      spec/Conventions.md §Reserved app-db keys). Map-of-instances
-      areas (`:rf/machines`, `:rf/spawned`) FAN OUT to one named
-      sub-section per instance — section title = the instance id (e.g.
-      `:title/flow`). Singleton slices (`:rf/route`, `:rf/system-ids`,
-      `:rf/pending-navigation`, `:rf/elision`) render as one section
-      each.
+    - one section per POPULATED operator-facing runtime area (per the
+      `runtime-areas` table — all nested under the single reserved
+      `:rf/runtime` slot per spec/Conventions.md §Reserved app-db
+      keys). Map-of-instances areas (`:rf/machines`, `:rf/spawned`)
+      FAN OUT to one named sub-section per instance — section title =
+      the instance id (e.g. `:title/flow`). Singleton slices
+      (`:rf/route`, `:rf/system-ids`, `:rf/pending-navigation`,
+      `:rf/elision`) render as one section each.
 
   rf2-jcdvo — empty / absent reserved areas are FILTERED at projection
   time (`current-state-sections` omits any `:empty?` entry). The
