@@ -43,22 +43,31 @@
 (def ^:private valid-substrates #{:reagent :uix :helix})
 
 (defn- coerce-substrate
-  "Accept the substrate arg as either a keyword (`:reagent`), a string
-  (`reagent` / `:reagent`), or a symbol; return one of
-  `valid-substrates` or throw with a clear message."
+  "Validate the `:substrate` arg. Accepts only a keyword (one of
+  `valid-substrates`) or nil (defaults to `:reagent`). deps-new's
+  top-level k/v contract guarantees the value reaches us as a keyword
+  — anything else is a registration error and we throw with a clear
+  message naming the valid set.
+
+  Tightened from the earlier kw/string/symbol forgiving-input posture
+  to the SOTA pre-alpha contract (rf2-h0imw / rf2-c8tmc Finding #3)."
   [raw]
   (let [substrate-kw (cond
                        (nil? raw)     :reagent
                        (keyword? raw) raw
-                       (symbol? raw)  (keyword (name raw))
-                       (string? raw)  (keyword (string/replace raw #"^:" ""))
                        :else
-                       (throw (ex-info ":rf.error/template-unrecognised-substrate"
-                                       {:rf.error/id :rf.error/template-unrecognised-substrate
+                       (throw (ex-info ":rf.error/template-substrate-must-be-keyword"
+                                       {:rf.error/id :rf.error/template-substrate-must-be-keyword
                                         :where     'template/coerce-substrate
                                         :recovery  :fix-registration
-                                        :reason    (str "unrecognised :substrate value: " (pr-str raw))
-                                        :substrate raw})))]
+                                        :reason    (str ":substrate must be a keyword (one of "
+                                                        (pr-str valid-substrates)
+                                                        "). Got "
+                                                        (.getName (class raw))
+                                                        ": "
+                                                        (pr-str raw))
+                                        :substrate raw
+                                        :valid     valid-substrates})))]
     (when-not (valid-substrates substrate-kw)
       (throw (ex-info ":rf.error/template-substrate-must-be-one-of"
                       {:rf.error/id :rf.error/template-substrate-must-be-one-of

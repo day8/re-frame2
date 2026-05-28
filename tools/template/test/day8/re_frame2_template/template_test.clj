@@ -317,6 +317,31 @@
         (finally
           (delete-recursively tmp))))))
 
+(deftest non-keyword-substrate-rejected-test
+  (testing "non-keyword :substrate value (string, symbol, number, …)
+            is rejected with a clear message (rf2-h0imw: keyword-only
+            coercion replaces the earlier forgiving-input posture)."
+    (let [tmp (tmp-dir "rf2-template-non-kw-")]
+      (try
+        ;; String form — previously coerced silently to :reagent;
+        ;; now rejected so registration errors surface immediately.
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-substrate-must-be-keyword"
+                              (run-template! tmp "acme/my-app" "reagent"))
+            "string substrate is rejected")
+        ;; Symbol form — same.
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-substrate-must-be-keyword"
+                              (run-template! tmp "acme/my-app" 'reagent))
+            "symbol substrate is rejected")
+        ;; Arbitrary other type — same.
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-substrate-must-be-keyword"
+                              (run-template! tmp "acme/my-app" 42))
+            "number substrate is rejected")
+        (finally
+          (delete-recursively tmp))))))
+
 ;; --- :include-story? flag (rf2-t009p / rf2-dolpf §2.4) -------------------
 
 (deftest default-path-emits-no-story-files-test

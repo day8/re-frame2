@@ -119,17 +119,23 @@ implementation's own CI is exercising. A developer who runs the
 template and then files an issue should be running the same combo
 the maintainers smoke-test. Drift here is a bug.
 
-## P6 — Forgiving on input shape, strict on substrate set
+## P6 — Strict on input shape, strict on substrate set
 
-The template accepts the substrate arg as a keyword, a string
-(with or without leading `:`), or a symbol — clj-new harnesses
-across the wider tooling ecosystem hand keywords through
-inconsistently, and the template tolerates the variants.
+The template requires the substrate arg as a keyword — deps-new's
+top-level k/v contract guarantees it arrives as a keyword, so
+accepting string/symbol shapes would paper over registration errors
+that should surface immediately. Pass a non-keyword, get an
+`ex-info` naming the valid set.
 
-But the substrate **value** is strict: anything not in
+The substrate **value** is also strict: anything not in
 `#{:reagent :uix :helix}` throws with a clear message naming the
 valid set. No silent fallback to default, no "did you mean...?"
 fuzz. The user sees the typo and fixes it.
+
+(History: this principle tightened from "forgiving on input shape,
+strict on substrate set" to "strict on both" in rf2-h0imw, on the
+back of the rf2-c8tmc first-principles audit. See
+[DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for the rationale.)
 
 ## P7 — Tested end-to-end, per substrate
 
