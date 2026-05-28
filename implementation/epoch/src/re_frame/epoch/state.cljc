@@ -405,7 +405,7 @@
   nil)
 
 (defn- epoch-value-changed-for-view?
-  "True when epoch record `r` carries a value-changed `:sub/run` belonging
+  "True when epoch `record` carries a value-changed `:sub/run` belonging
   to the view named by `render-key` — i.e. a `:sub/run` with
   `:value-changed? true` whose `:reader-render-key` is `render-key`
   (the synchronous in-render deref, when stamped) OR whose `:sub-id` is
@@ -413,14 +413,14 @@
   recompute, which carries no render-key). `deps` may be nil when the
   view's read-set was never learned — then only the render-key match
   applies."
-  [r render-key deps]
+  [record render-key deps]
   (some (fn [ev]
           (and (= :rf.sub/run (:operation ev))
                (true? (-> ev :tags :rf.sub/value-changed?))
-               (let [t (:tags ev)]
-                 (or (= render-key (:rf.sub/reader-render-key t))
-                     (and deps (contains? deps (:rf.sub/id t)))))))
-        (:trace-events r)))
+               (let [tags (:tags ev)]
+                 (or (= render-key (:rf.sub/reader-render-key tags))
+                     (and deps (contains? deps (:rf.sub/id tags)))))))
+        (:trace-events record)))
 
 (defn- value-changed-epoch-for
   "Scan `frame-id`'s ring (most-recent first) for the newest epoch in
@@ -445,9 +445,9 @@
         deps    (render-deps-for frame-id render-key)]
     (loop [i (dec (count history))]
       (when (>= i 0)
-        (let [r (nth history i)]
-          (if (epoch-value-changed-for-view? r render-key deps)
-            (:epoch-id r)
+        (let [record (nth history i)]
+          (if (epoch-value-changed-for-view? record render-key deps)
+            (:epoch-id record)
             (recur (dec i))))))))
 
 (defn resolve-render-epoch
@@ -538,14 +538,14 @@
                    idx     (epoch-index history epoch-id)]
                (if (nil? idx)
                  history
-                 (let [r  (nth history idx)
-                       r' (cond-> r
-                            (contains? r :trace-events)
-                            (update :trace-events (fnil conj []) event)
-                            (some? row)
-                            (update slot (fnil conj []) row))]
-                   (reset! updated r')
-                   (assoc history idx r'))))))
+                 (let [record   (nth history idx)
+                       record+  (cond-> record
+                                  (contains? record :trace-events)
+                                  (update :trace-events (fnil conj []) event)
+                                  (some? row)
+                                  (update slot (fnil conj []) row))]
+                   (reset! updated record+)
+                   (assoc history idx record+))))))
     @updated))
 
 (defn back-fill-render!
@@ -598,9 +598,9 @@
 (defn harvest-buffer!
   "Atomically read-and-clear the frame's in-flight buffer."
   [frame-id]
-  (let [b (get @capture-buffers frame-id [])]
+  (let [buffer (get @capture-buffers frame-id [])]
     (swap! capture-buffers dissoc frame-id)
-    b))
+    buffer))
 
 (defn- settling-dispatch-id
   "The `:dispatch-id` of the event being settled, read off the FIRST
@@ -638,39 +638,37 @@
   settling id to scope by, and `settle!`'s empty-buffer / no-trigger
   policy handles the degenerate record."
   [frame-id]
-  (let [b (get @capture-buffers frame-id [])]
-    (if-let [sid (settling-dispatch-id b)]
+  (let [buffer (get @capture-buffers frame-id [])]
+    (if-let [settling-id (settling-dispatch-id buffer)]
       ;; Three-way partition by the event's :rf.trace/dispatch-id:
-      ;;   * MINE   (= did sid)        — the settling event's own traces;
-      ;;                                  returned to ride this epoch.
-      ;;   * THEIRS (non-nil, ≠ sid)   — a child's `:event/dispatched`
-      ;;                                  marker fired during THIS event's
-      ;;                                  do-fx carrying the CHILD's id;
-      ;;                                  LEFT in the buffer for the child's
-      ;;                                  own settle (Spec 009 §Dispatch
-      ;;                                  correlation: one dispatch-id = one
-      ;;                                  epoch).
-      ;;   * ORPHAN (nil did)          — an out-of-cascade emit (e.g.
-      ;;                                  `:frame/created`) with no cascade
-      ;;                                  to ride. DISCARDED here.
+      ;;   * MINE   (= event-dispatch-id settling-id)
+      ;;       — the settling event's own traces; returned to ride this epoch.
+      ;;   * THEIRS (non-nil, ≠ settling-id)
+      ;;       — a child's `:event/dispatched` marker fired during THIS event's
+      ;;         do-fx carrying the CHILD's id; LEFT in the buffer for the
+      ;;         child's own settle (Spec 009 §Dispatch correlation: one
+      ;;         dispatch-id = one epoch).
+      ;;   * ORPHAN (nil event-dispatch-id)
+      ;;       — an out-of-cascade emit (e.g. `:frame/created`) with no
+      ;;         cascade to ride. DISCARDED here.
       ;;
       ;; Per rf2-avvwm orphans are dropped at the capture seam
       ;; (capture/capture-event! out-of-cascade branch) so in normal
       ;; operation none arrive. This seam is the defensive backstop: a
-      ;; nil-did orphan that slips past the upstream guard has no settle
-      ;; event to ever reclaim it, so retaining it (the pre-rf2-ee38b
+      ;; nil-dispatch-id orphan that slips past the upstream guard has no
+      ;; settle event to ever reclaim it, so retaining it (the pre-rf2-ee38b
       ;; behaviour) left it in the buffer indefinitely — re-grouped into
       ;; `theirs` and re-retained on every subsequent harvest. Discarding
       ;; it makes the harvest self-cleaning and removes reliance on the
       ;; upstream guard being perfect (rf2-ee38b §correctness). The
-      ;; `did = sid` predicate already guarantees an orphan never folds
-      ;; into an epoch's `:trace-events`; this only changes whether it
-      ;; lingers in the buffer (no) vs. is dropped (yes).
-      (let [mine   (filterv (fn [ev] (= (-> ev :tags :rf.trace/dispatch-id) sid)) b)
+      ;; `event-dispatch-id = settling-id` predicate already guarantees an
+      ;; orphan never folds into an epoch's `:trace-events`; this only changes
+      ;; whether it lingers in the buffer (no) vs. is dropped (yes).
+      (let [mine   (filterv (fn [ev] (= (-> ev :tags :rf.trace/dispatch-id) settling-id)) buffer)
             theirs (filterv (fn [ev]
-                              (let [did (-> ev :tags :rf.trace/dispatch-id)]
-                                (and (some? did) (not= did sid))))
-                            b)]
+                              (let [event-dispatch-id (-> ev :tags :rf.trace/dispatch-id)]
+                                (and (some? event-dispatch-id) (not= event-dispatch-id settling-id))))
+                            buffer)]
         ;; Leave the other-event traces (non-nil, non-matching id) in the
         ;; buffer for their own event's settle; drop orphans + ours.
         (if (seq theirs)
@@ -679,7 +677,7 @@
         mine)
       ;; No run-start — rejected/aborted dispatch. Clear and return all.
       (do (swap! capture-buffers dissoc frame-id)
-          b))))
+          buffer))))
 
 (defn drop-frame-buffer!
   "Drop the frame's in-flight capture buffer."
