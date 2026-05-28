@@ -64,7 +64,9 @@
             [re-frame.core-ssr      :as rf-ssr]
             [re-frame.core-epoch    :as rf-epoch]
             [re-frame.core-http     :as rf-http]
-            ;; Macro-helper carve-out (rf2-4rnui).
+            ;; Macro helpers — the macro siblings live in their own
+            ;; nss; required here with `:include-macros` so CLJS callers
+            ;; see them under `rf/<name>`.
             [re-frame.core-reg-macros        :as rm
              #?@(:cljs [:include-macros true])]
             [re-frame.core-call-site-macros  :as csm]
@@ -303,28 +305,24 @@
                             machine-id
                             machine)))
 
-;; ---- public helpers re-exported for test access (rf2-4rnui) -------------
+;; ---- public helpers re-exported for test access -------------------------
 ;;
-;; Re-exposed because pre-split tests reach `re-frame.core/expand-reg-
-;; view` and `re-frame.core/parse-reg-view-args` directly. Preserved as
-;; CLJ-only aliases — the helpers themselves are JVM-only (used at
-;; macro-expansion time).
+;; Tests reach `re-frame.core/expand-reg-view` and
+;; `re-frame.core/parse-reg-view-args` directly; the helpers themselves
+;; live in `re-frame.core-reg-view-macro` (JVM-only — used at macro-
+;; expansion time).
 
 #?(:clj
    (do
      (def ^{:no-doc true
             :doc "JVM-only macro-helper re-exposed for tests that reach
-  `re-frame.core/expand-reg-view` directly (pre-split test access, per
-  rf2-4rnui). Not part of the public surface — see
-  `re-frame.core-reg-view-macro/expand-reg-view`. Internal per rf2-kp835
-  Phase-2 (2026-05-17)."}
+  `re-frame.core/expand-reg-view` directly. Not part of the public
+  surface — see `re-frame.core-reg-view-macro/expand-reg-view`."}
        expand-reg-view             rvm/expand-reg-view)
      (def ^{:no-doc true
             :doc "JVM-only macro-helper re-exposed for tests that reach
-  `re-frame.core/parse-reg-view-args` directly (pre-split test access,
-  per rf2-4rnui). Not part of the public surface — see
-  `re-frame.core-reg-view-macro/parse-reg-view-args`. Internal per
-  rf2-kp835 Phase-2 (2026-05-17)."}
+  `re-frame.core/parse-reg-view-args` directly. Not part of the public
+  surface — see `re-frame.core-reg-view-macro/parse-reg-view-args`."}
        parse-reg-view-args         rvm/parse-reg-view-args)))
 
 ;; ---- view registration ---------------------------------------------------

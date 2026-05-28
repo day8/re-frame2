@@ -231,10 +231,10 @@
   (registrar/lookup :event event-id))
 
 ;; Fallthrough-to-default + cross-frame dispatch-sync warnings + the
-;; no-handler error path live in `re-frame.router.diagnostics` —
-;; extracted per rf2-0ytl4 Phase-2 seam R-B. Every one of those fns
-;; runs on a cold/error path or sits behind `interop/debug-enabled?`,
-;; so the cross-ns indirection adds no measurable cost.
+;; no-handler error path live in `re-frame.router.diagnostics`. Every
+;; one of those fns runs on a cold/error path or sits behind
+;; `interop/debug-enabled?`, so the cross-ns indirection adds no
+;; measurable cost.
 
 (def ^:private empty-fx-overrides
   "Shared sentinel returned by `apply-overrides` on the no-override hot
