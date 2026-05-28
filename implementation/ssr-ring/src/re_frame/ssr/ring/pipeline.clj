@@ -37,7 +37,6 @@
   now."
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.html-helpers :as html-helpers]
             [re-frame.ssr.ring.headers :as headers]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.payload :as payload]
@@ -149,10 +148,15 @@
   the \"or the host's default error template\" branch). Used when no
   caller `:error-view` is registered and `render-to-string` has
   thrown, so the host can no longer rely on the user's root-view to
-  produce wire bytes. The body is fully escaped through `escape-html`
-  / `escape-attr` — the public-error's `:message`/`:code` are caller-
-  controlled (custom projectors may produce arbitrary strings) so we
-  treat them as untrusted-for-HTML.
+  produce wire bytes.
+
+  Per rf2-uzjhl: built as hiccup then rendered via
+  `ssr/render-to-string` (with `:doctype? true`, `:emit-hash? false`)
+  so the public-error map flows through position-appropriate escaping
+  the emitter already owns — same render path as the caller-supplied
+  `:error-view` (`resolve-error-body` below). Removes the `(str ...)`
+  concatenation + manual `escape-html` / `escape-attr` calls that
+  duplicated the emitter's escaping behaviour.
 
   Carries no internal trace detail — the wire surface is locked to the
   public-error keys; the internal Throwable already rode the trace bus
@@ -160,18 +164,17 @@
   [{:keys [status code message]}]
   (let [status* (or status 500)
         code*   (when code (name code))
-        msg*    (or message "Something went wrong")]
-    (str "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
-         "<title>" (html-helpers/escape-html msg*) "</title>"
-         "</head><body>"
-         "<h1>" (html-helpers/escape-html msg*) "</h1>"
-         (when code*
-           (str "<p data-rf-error-code=\""
-                (html-helpers/escape-attr code*) "\">"
-                "Error code: " (html-helpers/escape-html code*)
-                " (status " status* ")"
-                "</p>"))
-         "</body></html>")))
+        msg*    (or message "Something went wrong")
+        hiccup  [:html
+                 [:head
+                  [:meta {:charset "utf-8"}]
+                  [:title msg*]]
+                 [:body
+                  [:h1 msg*]
+                  (when code*
+                    [:p {:data-rf-error-code code*}
+                     (str "Error code: " code* " (status " status* ")")])]]]
+    (ssr/render-to-string hiccup {:doctype? true :emit-hash? false})))
 
 (defn ^:private resolve-error-body
   "Resolve the projected-error HTML body (Spec 011 §Server error
