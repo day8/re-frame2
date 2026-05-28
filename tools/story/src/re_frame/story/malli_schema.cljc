@@ -1,4 +1,4 @@
-(ns re-frame.story.malli-schema-utils
+(ns re-frame.story.malli-schema
   "Pure Malli-schema introspection helpers. Shared between the
   controls panel's widget-derivation (`re-frame.story.ui.controls`,
   CLJS-only) and the schema-validation panel's args-violation walk

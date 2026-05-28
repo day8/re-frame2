@@ -37,7 +37,7 @@
             [re-frame.story.registrar          :as registrar]
             [re-frame.story.args               :as args]
             [re-frame.story.decorators         :as decorators]
-            [re-frame.story.malli-schema-utils :as msu]
+            [re-frame.story.malli-schema       :as msu]
             [re-frame.story.ui.controls-styles :refer [styles]]
             [re-frame.story.ui.save-variant    :as save-variant-ui]
             [re-frame.story.ui.state           :as state]))
@@ -48,7 +48,7 @@
 
 ;; ---- pure: Malli-schema introspection -----------------------------------
 ;;
-;; Canonical helpers live in `re-frame.story.malli-schema-utils` (a pure
+;; Canonical helpers live in `re-frame.story.malli-schema` (a pure
 ;; leaf ns shared with `schema-validation`). Aliased privately here so
 ;; in-file call sites stay textually identical.
 

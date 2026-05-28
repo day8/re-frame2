@@ -283,8 +283,14 @@
 
 ;; ---- helper event registrations ------------------------------------------
 
-(defn install-helpers!
-  "Register the runtime's internal helper events. Idempotent."
+(defn install-canonical-runtime-events!
+  "Register the runtime's internal helper events: `::append-assertion`
+  for projecting exception captures + assertion records onto the
+  variant frame's `:rf.story/assertions` accumulator. Idempotent.
+
+  Mirrors the `install-canonical-<X>!` shape used by every sibling
+  installer in `canonical/canonical-installers`. Was the vague
+  `install-helpers!` (rf2-152jq inline rename)."
   []
   (when config/enabled?
     (rf/reg-event-db

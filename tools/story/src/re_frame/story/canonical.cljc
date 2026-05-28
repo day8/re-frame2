@@ -53,8 +53,8 @@
   [registrar/install-canonical-tags!
    loaders/install!
    loaders/install-mirror-writer!
-   frames/install-helpers!
-   runtime/install-helpers!
+   frames/install-canonical-frame-events!
+   runtime/install-canonical-runtime-events!
    assertions/install-canonical-assertions!
    fx-stubs/install-canonical-fx-stubs!
    save-variant/install-canonical-event-handlers!

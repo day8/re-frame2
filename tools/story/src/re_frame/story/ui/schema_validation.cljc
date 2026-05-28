@@ -74,7 +74,7 @@
   `:rf.story.panel/schema-validation-view`, registered against the
   framework view registry."
   (:require [clojure.string :as str]
-            [re-frame.story.malli-schema-utils :as msu]
+            [re-frame.story.malli-schema :as msu]
             #?@(:cljs [[reagent.core              :as r]
                        [re-frame.core             :as rf]
                        [re-frame.late-bind        :as late-bind]
@@ -162,7 +162,7 @@
 
 ;; ---- pure: Malli walk over `:map` schemas ------------------------------
 ;;
-;; Canonical helpers live in `re-frame.story.malli-schema-utils` (a pure
+;; Canonical helpers live in `re-frame.story.malli-schema` (a pure
 ;; leaf ns shared with `controls`). Aliased privately here so in-file
 ;; call sites stay textually identical.
 
