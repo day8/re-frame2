@@ -17,22 +17,14 @@
   ## Tab placement
 
   Registered against `:dynamic` mode at order 5 (between Machines (4)
-  and Routing (6)). Co-exists with the existing Event lens (the
-  `:event` tab) initially — both surface the focused epoch, but
-  through different lenses:
-
-  - **Event** (`:event` tab) — the Figma-locked operational-order
-    handling pipeline (rf2-ynnre B+); reads more like a
-    spec-shaped attribution document.
-  - **Epoch** (`:epoch` tab — this panel) — the full timeline as a
-    delightful numbered cascade including the reactive trailing
-    edge (SUBSCRIPTIONS + VIEWS) that the Event lens routes to its
-    own Reactive tab.
-
-  Per the bead body's pre-alpha posture, this co-existence is the
-  initial landing; the older Event/Reactive split deprecates as a
-  follow-on bead once the new Epoch panel is exercised in
-  production.
+  and Routing (6)). This panel is the **canonical** \"what happened
+  in this epoch?\" surface — it presents the full timeline as a
+  delightful numbered cascade including the reactive trailing edge
+  (SUBSCRIPTIONS + VIEWS). The Reactive tab covers a complementary
+  axis (per-sub recomputation detail across cascades) and remains
+  side-by-side with this panel; the older Event/Handler panel
+  (`:event` tab) was retired under rf2-5gl5r when this Epoch panel
+  landed as its supersedant.
 
   ## Frame integration
 
