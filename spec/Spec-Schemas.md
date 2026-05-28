@@ -1702,22 +1702,25 @@ Stability invariants the implementation upholds (see [005 §Snapshot shape](005-
 > **Owner:** [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)
 > **Status:** v1-required
 
-`[:rf/runtime]` is the **single reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. All framework runtime state nests under this one root — three sub-containers, one per subsystem.
+`[:rf/runtime]` is the **single reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. All framework runtime state nests under this one root — four sub-containers, one per subsystem.
 
 ```clojure
 (def Machines
-  ;; The machine runtime's three sub-containers — :snapshots is the per-machine
-  ;; snapshot map, :system-ids is the system-id reverse index, and :spawned is
-  ;; the declarative-spawn/spawn-all registry. All three are allocated lazily —
-  ;; absent until the first write — so a frame that uses no machines carries
-  ;; no machine sub-keys at all.
+  ;; The machine runtime's four sub-containers — :snapshots is the per-machine
+  ;; snapshot map, :system-ids is the system-id reverse index, :spawned is
+  ;; the declarative-spawn/spawn-all registry, and :spawn-counter is the
+  ;; hand-emitted-spawn fallback counter (per rf2-owvvr — the parallel slot
+  ;; the declarative path tracks inside the parent's snapshot). All four are
+  ;; allocated lazily — absent until the first write — so a frame that uses
+  ;; no machines carries no machine sub-keys at all.
   [:map
-   [:snapshots  {:optional true} [:map-of :keyword :rf/machine-snapshot]]
-   [:system-ids {:optional true} [:map-of :any :keyword]]                     ;; <system-id> → <gensym'd-machine-id>
-   [:spawned    {:optional true} [:map-of :keyword                            ;; parent-machine-id
-                                          [:map-of [:vector :keyword]         ;; invoke-id (absolute prefix-path)
-                                                   [:or :keyword              ;; :spawn leaf — gensym'd spawned-id
-                                                        InvokeAllJoinState]]]]]) ;; :spawn-all bookkeeping
+   [:snapshots     {:optional true} [:map-of :keyword :rf/machine-snapshot]]
+   [:system-ids    {:optional true} [:map-of :any :keyword]]                     ;; <system-id> → <gensym'd-machine-id>
+   [:spawned       {:optional true} [:map-of :keyword                            ;; parent-machine-id
+                                             [:map-of [:vector :keyword]         ;; invoke-id (absolute prefix-path)
+                                                      [:or :keyword              ;; :spawn leaf — gensym'd spawned-id
+                                                           InvokeAllJoinState]]]] ;; :spawn-all bookkeeping
+   [:spawn-counter {:optional true} [:map-of :keyword :int]]])                   ;; per-machine-id integer counter for hand-emitted :rf.machine/spawn fxs
 
 (def InvokeAllJoinState
   ;; Join bookkeeping for a :spawn-all invocation.
@@ -1761,24 +1764,41 @@ Stability invariants the implementation upholds (see [005 §Snapshot shape](005-
    [:declarations           {:optional true} [:map-of [:vector :any] ElisionDeclaration]]
    [:sensitive-declarations {:optional true} [:map-of [:vector :any] SensitiveDeclaration]]])
 
+(def HydrationMetadata
+  ;; Server-supplied hydration metadata stashed by the :rf/hydrate handler.
+  ;; :server-hash is the carrier `verify-hydration!` reads after first client
+  ;; render to drive :rf.ssr/hydration-mismatch; :version is the runtime version
+  ;; consumed by the :rf.ssr/check-version fx.
+  [:map
+   [:server-hash {:optional true} :string]
+   [:version     {:optional true} :int]])
+
+(def Ssr
+  ;; The SSR runtime's hydration metadata sub-container. Allocated lazily —
+  ;; absent on frames that never hydrated.
+  [:map
+   [:hydration {:optional true} HydrationMetadata]])
+
 (def Runtime
   ;; The framework-owned root. ALL framework per-frame state lives here.
-  ;; The three sub-keys are allocated lazily — a frame that uses no machines,
-  ;; no routing, and no elision carries `:rf/runtime nil` (or absent).
+  ;; The four sub-keys are allocated lazily — a frame that uses no machines,
+  ;; no routing, no elision, and no SSR carries `:rf/runtime nil` (or absent).
   [:map
    [:machines {:optional true} Machines]
    [:routing  {:optional true} Routing]
-   [:elision  {:optional true} Elision]])
+   [:elision  {:optional true} Elision]
+   [:ssr      {:optional true} Ssr]])
 
 ;; registered by the runtime at boot:
 (rf/reg-app-schema [:rf/runtime] Runtime)
 ```
 
-**Three subsystems, three sub-containers:**
+**Four subsystems, four sub-containers:**
 
-- **`:machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf/runtime :machines :snapshots <machine-id>]`; the system-id reverse index lives at `[:rf/runtime :machines :system-ids]`; the declarative-spawn / spawn-all registry lives at `[:rf/runtime :machines :spawned]`. The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
+- **`:machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf/runtime :machines :snapshots <machine-id>]`; the system-id reverse index lives at `[:rf/runtime :machines :system-ids]`; the declarative-spawn / spawn-all registry lives at `[:rf/runtime :machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf/runtime :machines :spawn-counter]` (rf2-owvvr — declarative `:spawn`'s counter is snapshot-internal, not here). The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
 - **`:routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf/runtime :routing :current]`; the pending-navigation slot at `[:rf/runtime :routing :pending-navigation]`; the per-frame routing internals (scroll-positions LRU, monotonic counters) sit flat alongside under `:routing`.
 - **`:elision`** — owned by [009-Instrumentation.md](009-Instrumentation.md). The size-elision declaration registry lives at `[:rf/runtime :elision :declarations]`; the privacy sibling at `[:rf/runtime :elision :sensitive-declarations]`.
+- **`:ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf/runtime :ssr :hydration]` (`:server-hash` consumed by `verify-hydration!`, `:version` consumed by `:rf.ssr/check-version`). Per rf2-f4j8x — the single-reserved-root contract; pre-eguy4 the slot lived at app-db root `[:rf/hydration]`.
 
 **Per-frame isolation** is automatic — each frame's `app-db` has its own `:rf/runtime`; the same machine id, route id, or elision path can exist in multiple frames without collision.
 

@@ -1125,8 +1125,9 @@
       ;; harness simulates the client-side first render. The runtime
       ;; (re-frame.ssr/verify-hydration!) owns the hash comparison and
       ;; :rf.ssr/hydration-mismatch trace; we just feed it the simulated
-      ;; client hash. server-hash is read from the [:rf/hydration]
-      ;; metadata that :rf/hydrate stashed in app-db.
+      ;; client hash. server-hash is read from the
+      ;; [:rf/runtime :ssr :hydration] metadata that :rf/hydrate
+      ;; stashed in app-db.
       (when-let [render-spec (:fixture/render-after-hydrate fixture)]
         (let [client-hash     (:simulated-client-render-hash render-spec)
               first-diff-path (:first-diff-path render-spec)
@@ -1144,7 +1145,8 @@
                        {:first-diff-path first-diff-path
                         ;; Fixture handlers override :rf/hydrate without
                         ;; stashing metadata, so we feed the server hash
-                        ;; explicitly instead of reading [:rf/hydration].
+                        ;; explicitly instead of reading
+                        ;; [:rf/runtime :ssr :hydration].
                         :server-hash     server-hash}))))
       ;; :fixture/calls — pure-function assertions (match-url, route-url,
       ;; machine-transition, etc.). Run AFTER dispatches so any

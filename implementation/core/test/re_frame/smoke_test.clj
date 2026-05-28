@@ -478,7 +478,7 @@
             "the def binds the symbol the user supplied")))))
 
 (deftest verify-hydration-emits-mismatch
-  (testing "rf/hydrate stashes :rf/hydration metadata; verify-hydration! detects mismatch"
+  (testing "rf/hydrate stashes [:rf/runtime :ssr :hydration] metadata; verify-hydration! detects mismatch"
     (require 're-frame.ssr)
     (let [verify-fn  @(resolve 're-frame.ssr/verify-hydration!)
           ;; Server-supplied payload with a render-hash.
@@ -489,7 +489,7 @@
       (rf/dispatch-sync [:rf/hydrate payload])
       ;; Hydrate stashed the metadata.
       (is (= "server-hash-X"
-             (get-in (rf/get-frame-db :rf/default) [:rf/hydration :server-hash])))
+             (get-in (rf/get-frame-db :rf/default) [:rf/runtime :ssr :hydration :server-hash])))
       ;; Now simulate the client render producing a different hash.
       (rf/register-listener! ::vh (fn [ev] (swap! traces conj ev)))
       (verify-fn :rf/default "client-hash-Y")

@@ -71,7 +71,8 @@
 ;; snapshot's `:rf/spawn-counter` slot via
 ;; `re-frame.machines.transition/allocate-spawned-id`; hand-emitted
 ;; spawn fxs allocate from the frame's app-db slot at
-;; `[:rf/spawn-counter <machine-id>]` inside the spawn-fx db-swap.
+;; `[:rf/runtime :machines :spawn-counter <machine-id>]` inside the
+;; spawn-fx db-swap (per rf2-owvvr — the single-reserved-root contract).
 ;; `machine-transition` is a pure function — no module-level mutable
 ;; state, deterministic from its (machine snapshot event) arguments.
 
@@ -153,11 +154,12 @@
 
   Spawn-id allocation lives inside the parent snapshot's
   `:rf/spawn-counter` slot (declarative `:spawn`) or the frame's
-  app-db at `[:rf/spawn-counter <machine-id>]` (hand-emitted spawn);
-  both reset automatically with the registrar snapshot/restore + frame
-  reset, so this hook only handles the frame-scoped wall-clock timer
-  table. The 0-arity / 1-arity split aligns with the test-fixture and
-  frame-destroy call sites respectively."
+  app-db at `[:rf/runtime :machines :spawn-counter <machine-id>]`
+  (hand-emitted spawn); both reset automatically with the registrar
+  snapshot/restore + frame reset, so this hook only handles the
+  frame-scoped wall-clock timer table. The 0-arity / 1-arity split
+  aligns with the test-fixture and frame-destroy call sites
+  respectively."
   ([]
    (timer/cancel-all-timers!))
   ([frame-id]

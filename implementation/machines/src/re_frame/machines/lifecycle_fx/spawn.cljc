@@ -40,8 +40,8 @@
   `:rf/spawn-counter`). Returns nil for hand-emitted
   `[:rf.machine/spawn args]` fxs that bypass the transition reducer —
   the caller (`spawn-fx`) allocates such ids from the frame's app-db
-  spawn-counter slot inside the spawn's db-swap so the allocation
-  shares the same write."
+  spawn-counter slot at `[:rf/runtime :machines :spawn-counter]` inside
+  the spawn's db-swap so the allocation shares the same write."
   [args]
   (or (:spawn-id args)
       (:rf/spawned-id args)))
@@ -50,13 +50,17 @@
   "Hand-emitted-spawn fallback allocator (rf2-gr8q). When the spawn args
   carry no pre-allocated id (no `:spawn-id`, no `:rf/spawned-id`), this
   fn bumps the frame's app-db counter at
-  `[:rf/spawn-counter <machine-id>]` and returns `[new-db spawned-id]`.
-  Per rf2-gr8q the global `spawn-counter` atom is gone; the allocator
-  lives where the side-effect belongs — inside the fx-handler's app-db
-  swap — so the pure transition layer stays effect-free."
+  `[:rf/runtime :machines :spawn-counter <machine-id>]` and returns
+  `[new-db spawned-id]`. Per rf2-gr8q the global `spawn-counter` atom
+  is gone; the allocator lives where the side-effect belongs — inside
+  the fx-handler's app-db swap — so the pure transition layer stays
+  effect-free. Per rf2-owvvr the counter sits under the
+  `:rf/runtime :machines` sub-container alongside `:snapshots`,
+  `:system-ids`, `:spawned` so the single-reserved-root contract per
+  Conventions §Reserved app-db keys holds."
   [db machine-id]
-  (let [db' (update-in db [:rf/spawn-counter machine-id] (fnil inc 0))
-        n   (get-in db' [:rf/spawn-counter machine-id])]
+  (let [db' (update-in db [:rf/runtime :machines :spawn-counter machine-id] (fnil inc 0))
+        n   (get-in db' [:rf/runtime :machines :spawn-counter machine-id])]
     [db' (keyword (namespace machine-id)
                   (str (name machine-id) "#" n))]))
 
@@ -188,8 +192,9 @@
         ;; routes through the transition reducer which bumps the parent
         ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
         ;; no pre-allocated id; the frame's app-db spawn-counter slot
-        ;; serves as the fallback allocator, bumped inside the same
-        ;; db-swap as the snapshot install / registry bind below.
+        ;; at `[:rf/runtime :machines :spawn-counter]` (rf2-owvvr) serves
+        ;; as the fallback allocator, bumped inside the same db-swap as
+        ;; the snapshot install / registry bind below.
         pre-id     (pre-allocated-actor-id args)
         spec       (resolve-spawn-machine args)
         spec'      (if (and spec (contains? args :data))

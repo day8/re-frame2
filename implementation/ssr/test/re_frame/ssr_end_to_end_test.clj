@@ -175,8 +175,8 @@
               (is (= (:articles server-db) (:articles client-db))
                   ":rf/hydrate replaced the client app-db with payload's :rf/app-db")
               ;; The server hash was stashed for verify-hydration!.
-              (is (= server-hash (get-in client-db [:rf/hydration :server-hash])))
-              (is (= 1            (get-in client-db [:rf/hydration :version]))))
+              (is (= server-hash (get-in client-db [:rf/runtime :ssr :hydration :server-hash])))
+              (is (= 1            (get-in client-db [:rf/runtime :ssr :hydration :version]))))
 
             ;; First client render — same view, same hydrated state, same
             ;; resolved tree, same hash. Resolve under the client frame so
@@ -801,7 +801,7 @@
           f         (rf/make-frame {:platform :client})]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame f})
       (is (= "head-hash-server-A"
-             (get-in (rf/get-frame-db f) [:rf/hydration :server-hash]))
+             (get-in (rf/get-frame-db f) [:rf/runtime :ssr :hydration :server-hash]))
           ":rf/hydrate stashed the server's head-hash")
 
       (rf/register-listener! ::head (fn [ev] (swap! traces conj ev)))

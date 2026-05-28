@@ -60,7 +60,7 @@
   (rf/reg-event-db ::inc
     (fn [db _ev] (update db :count (fnil inc 0))))
   (rf/reg-sub :count     (fn [db _] (or (:count db) 0)))
-  (rf/reg-sub :hydrated? (fn [db _] (boolean (:rf/hydration db)))))
+  (rf/reg-sub :hydrated? (fn [db _] (boolean (get-in db [:rf/runtime :ssr :hydration])))))
 
 (defn- capture-traces!
   [f]
@@ -95,7 +95,7 @@
            hash will mismatch the (future) client render")
       (is (= "deadbeef"
              (get-in (rf/get-frame-db client-frame)
-                     [:rf/hydration :server-hash]))
+                     [:rf/runtime :ssr :hydration :server-hash]))
           "the deliberately-wrong :rf/render-hash is stashed verbatim
            for verify-hydration! to pick up"))))
 
