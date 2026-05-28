@@ -131,6 +131,58 @@
           "the very next get-fn-cached serves the newly-published fn — no stale slot"))))
 
 ;; =============================================================================
+;; rf2-rtk2e — set-fns! map-form publication
+;; =============================================================================
+
+(deftest set-fns!-publishes-every-entry-equivalently-to-set-fn!
+  (testing "set-fns! is equivalent to per-entry set-fn! calls"
+    (let [k1 :test/rtk2e-a
+          k2 :test/rtk2e-b
+          k3 :test/rtk2e-c
+          f1 (fn [] :a)
+          f2 (fn [] :b)
+          f3 (fn [] :c)]
+      (late-bind/set-fns! {k1 f1, k2 f2, k3 f3})
+      (is (identical? f1 (late-bind/get-fn k1))
+          "first entry published")
+      (is (identical? f2 (late-bind/get-fn k2))
+          "second entry published")
+      (is (identical? f3 (late-bind/get-fn k3))
+          "third entry published"))))
+
+(deftest set-fns!-invalidates-each-cache-slot
+  (testing "every entry's slot is invalidated — hot-reload via set-fns! works per key"
+    (let [k1     :test/rtk2e-inv-a
+          k2     :test/rtk2e-inv-b
+          old-a  (fn [] :old-a)
+          old-b  (fn [] :old-b)
+          new-a  (fn [] :new-a)
+          new-b  (fn [] :new-b)]
+      ;; Seed both keys via set-fn!, warm both cache slots.
+      (late-bind/set-fn! k1 old-a)
+      (late-bind/set-fn! k2 old-b)
+      (is (identical? old-a (late-bind/get-fn-cached k1)))
+      (is (identical? old-b (late-bind/get-fn-cached k2)))
+      (is (cached? k1))
+      (is (cached? k2))
+      ;; Re-publish both via set-fns! — every slot must invalidate.
+      (late-bind/set-fns! {k1 new-a, k2 new-b})
+      (is (not (cached? k1)) "k1's slot invalidated by set-fns!")
+      (is (not (cached? k2)) "k2's slot invalidated by set-fns!")
+      (is (identical? new-a (late-bind/get-fn-cached k1))
+          "next lookup serves the newly-published fn for k1")
+      (is (identical? new-b (late-bind/get-fn-cached k2))
+          "next lookup serves the newly-published fn for k2"))))
+
+(deftest set-fns!-returns-nil
+  (testing "set-fns! returns nil (side-effecting publication)"
+    (is (nil? (late-bind/set-fns! {:test/rtk2e-ret (fn [] :x)})))))
+
+(deftest set-fns!-empty-map-is-a-noop
+  (testing "set-fns! tolerates an empty map (no entries published, no throw)"
+    (is (nil? (late-bind/set-fns! {})))))
+
+;; =============================================================================
 ;; G2 — chain-fn! runtime composition ordering
 ;; =============================================================================
 
