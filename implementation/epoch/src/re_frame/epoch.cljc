@@ -508,7 +508,7 @@
   container, and fans the record out to registered listeners. Returns
   `true`."
   [frame-id new-db]
-  (let [container (frame/get-frame-db frame-id)
+  (let [container (frame/app-db-container frame-id)
         db-before (when container (adapter/read-container container))]
     (adapter/replace-container! container new-db)
     ;; Record a synthetic epoch so `restore-epoch` can rewind the

@@ -234,7 +234,7 @@
         layer-1?      (empty? input-signals)
         ;; Resolve inputs: layer-1 → frame's app-db; layer-2+ → recursive subs.
         inputs        (if layer-1?
-                        [(frame/get-frame-db frame-id)]
+                        [(frame/app-db-container frame-id)]
                         (mapv (fn [input-q] (subscribe frame-id input-q)) input-signals))
         memoised-body (cond
                         layer-1?

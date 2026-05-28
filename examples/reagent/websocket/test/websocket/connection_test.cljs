@@ -240,7 +240,7 @@
               new-db (update-in db [:rf/runtime :machines :snapshots :ws/connection :data]
                                 assoc :retries (inc max-retries))]
           (re-frame.substrate.adapter/replace-container!
-            (re-frame.frame/get-frame-db f) new-db))
+            (re-frame.frame/app-db-container f) new-db))
         ;; Now drive a :ws/closed — the parent transitions to :reconnecting
         ;; and immediately into :failed via :always-cascade.
         (let [snap-before (snapshot (rf/get-frame-db f))]

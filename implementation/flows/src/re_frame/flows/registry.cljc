@@ -405,7 +405,7 @@
    (let [frame-id (or frame (frame/current-frame))]
      (when-let [flow (get-in @flows [frame-id id])]
        (let [path (:path flow)]
-         (when-let [container (frame/get-frame-db frame-id)]
+         (when-let [container (frame/app-db-container frame-id)]
            (let [db     (adapter/read-container container)
                  ;; `validate-flow` guarantees `:path` is a non-empty
                  ;; vector at registration (rejects non-vector and empty

@@ -1033,11 +1033,11 @@
           (with-redefs [substrate-adapter/render render-fn]
             (mount/open!)
             (let [first-frame (frame/frame :rf/xray)
-                  first-db    (frame/get-frame-db :rf/xray)]
+                  first-db    (frame/app-db-container :rf/xray)]
               (mount/close!)
               (mount/open!)
               (let [second-frame (frame/frame :rf/xray)
-                    second-db   (frame/get-frame-db :rf/xray)]
+                    second-db   (frame/app-db-container :rf/xray)]
                 (is (some? first-frame))
                 (is (some? second-frame))
                 (is (identical? first-db second-db)

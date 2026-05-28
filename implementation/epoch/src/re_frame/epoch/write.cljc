@@ -328,7 +328,7 @@
   Replaces the frame's container with `epoch`'s `:db-after` and emits
   `:rf.epoch/restored`. Returns `true`."
   [frame-id epoch]
-  (let [container (frame/get-frame-db frame-id)
+  (let [container (frame/app-db-container frame-id)
         db-target (:db-after epoch)]
     (adapter/replace-container! container db-target)
     (trace/emit! :rf.epoch :rf.epoch/restored

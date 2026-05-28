@@ -188,9 +188,17 @@
                              (clojure.string/starts-with? ns prefix)))))
            @frames))))
 
-(defn get-frame-db
-  "Return the underlying app-db container for the frame. Tools and tests
-  use this; user handlers receive db via cofx."
+(defn app-db-container
+  "Return the underlying app-db **container** for the frame — the
+  substrate-managed reactive cell that holds the app-db value (an atom
+  under the stock Reagent adapter, an MVT cell under others). Internals
+  only: tools, tests, and core machinery that need to call
+  `read-container` / `replace-container!` against the cell.
+
+  Distinct from `re-frame.core/get-frame-db`, which returns the deref'd
+  app-db **value** (a plain map). User handlers receive `db` via cofx.
+
+  Returns `nil` when the frame is not registered or has been destroyed."
   [id]
   (:app-db (frame id)))
 
@@ -198,7 +206,7 @@
   "Read the current app-db value for a frame as a plain map (deref through
   the substrate adapter)."
   [id]
-  (when-let [container (get-frame-db id)]
+  (when-let [container (app-db-container id)]
     (adapter/read-container container)))
 
 (defn swap-frame-db!
@@ -213,7 +221,7 @@
   frame's app-db\" surface; the read-container / replace-container dance
   belongs here, not at every fx-handler call site."
   [id f & args]
-  (when-let [container (get-frame-db id)]
+  (when-let [container (app-db-container id)]
     (let [old-db (adapter/read-container container)
           new-db (apply f old-db args)]
       (adapter/replace-container! container new-db)
@@ -503,7 +511,7 @@
   (if-let [teardown! (late-bind/get-fn :machines/teardown-on-frame-destroy!)]
     (teardown! id)
     ;; Fallback path — minimal contract when the machines artefact is absent.
-    (let [container  (get-frame-db id)
+    (let [container  (app-db-container id)
           db         (when container (adapter/read-container container))
           machines   (get-in db [:rf/runtime :machines :snapshots])
           abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]

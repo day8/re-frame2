@@ -54,7 +54,7 @@
   so we have a stable view of which actors were live; the walk itself
   swaps the container and these reads are not re-evaluated."
   [frame-id]
-  (let [container (frame/get-frame-db frame-id)
+  (let [container (frame/app-db-container frame-id)
         db        (when container (adapter/read-container container))]
     (or (get-in db [:rf/runtime :machines :snapshots]) {})))
 

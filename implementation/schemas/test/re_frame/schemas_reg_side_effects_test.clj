@@ -35,7 +35,7 @@
   "Set the live app-db value for `frame-id` (defaults to :rf/default)."
   ([db] (set-app-db! :rf/default db))
   ([frame-id db]
-   (substrate-adapter/replace-container! (frame/get-frame-db frame-id) db)))
+   (substrate-adapter/replace-container! (frame/app-db-container frame-id) db)))
 
 (defn- capture
   "Run `body-fn` collecting trace events whose `:operation` is

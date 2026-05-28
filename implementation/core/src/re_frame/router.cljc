@@ -517,7 +517,7 @@
   this commit path reads it through."
   [effects event-id event frame ctx db-before]
   (if (contains? effects :db)
-    (let [container  (frame/get-frame-db frame)
+    (let [container  (frame/app-db-container frame)
           new-db     (:db effects)
           emit-event (privacy/redacted-event-from-ctx ctx)]
       (adapter/replace-container! container new-db)

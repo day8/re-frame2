@@ -743,7 +743,7 @@
 ;;
 ;; Per the rf2-ft2b reproducer: a scheduled drain races frame destruction.
 ;; By the time the drain fires, the frame's app-db container is nil
-;; (because frame/get-frame-db returns nil for destroyed frames), and
+;; (because frame/app-db-container returns nil for destroyed frames), and
 ;; the per-event :db commit at router.cljc would write through nil →
 ;; NullPointerException on the executor thread.
 ;;
@@ -795,7 +795,7 @@
         (rf/dispatch [:write] {:frame :race/frame})
         (is (some? @captured-tick)
             "the async dispatch scheduled a drain via next-tick"))
-      ;; Now destroy the frame. After this, frame/get-frame-db returns
+      ;; Now destroy the frame. After this, frame/app-db-container returns
       ;; nil, so the captured drain — when it fires — would write
       ;; through nil if not for the adapter guard.
       (frame/destroy-frame! :race/frame)
@@ -894,17 +894,17 @@
   ;; Tighter reproducer that hits the adapter guard directly via the
   ;; live runtime. The router's per-event :db commit reads the frame's
   ;; app-db container right before writing — and if the frame was
-  ;; destroyed mid-drain, get-frame-db returns nil. We exercise that
-  ;; exact shape by reading get-frame-db AFTER destroy and feeding the
+  ;; destroyed mid-drain, app-db-container returns nil. We exercise that
+  ;; exact shape by reading app-db-container AFTER destroy and feeding the
   ;; nil container straight into replace-container!.
-  (testing "frame/get-frame-db on a destroyed frame is nil; replace-container! handles it"
+  (testing "frame/app-db-container on a destroyed frame is nil; replace-container! handles it"
     (let [recorded (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
       (rf/reg-frame :race/destroyed-mid-write {})
       (frame/destroy-frame! :race/destroyed-mid-write)
-      (let [container (frame/get-frame-db :race/destroyed-mid-write)]
+      (let [container (frame/app-db-container :race/destroyed-mid-write)]
         (is (nil? container)
-            "get-frame-db on a destroyed frame returns nil — the precondition for the rf2-ft2b NPE")
+            "app-db-container on a destroyed frame returns nil — the precondition for the rf2-ft2b NPE")
         ;; This is the exact call shape from router.cljc's :db commit.
         ;; Pre-fix: NPE. Post-fix: no-op + warning trace.
         (is (nil? (adapter/replace-container! container {:would :have :npe'd true}))

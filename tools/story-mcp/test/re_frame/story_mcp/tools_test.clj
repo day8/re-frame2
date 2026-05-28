@@ -1724,11 +1724,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- frame-container [variant-id]
-  ;; `re-frame.frame/get-frame-db` returns the substrate container (an
+  ;; `re-frame.frame/app-db-container` returns the substrate container (an
   ;; atom under plain-atom); the user-facing `rf/get-frame-db` returns
   ;; the dereferenced VALUE. Tests need the container so they can write
   ;; the elision-registry slot back.
-  ((requiring-resolve 're-frame.frame/get-frame-db) variant-id))
+  ((requiring-resolve 're-frame.frame/app-db-container) variant-id))
 
 (defn- read-frame-db [variant-id]
   ((requiring-resolve 're-frame.substrate.adapter/read-container)
