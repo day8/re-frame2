@@ -25,7 +25,7 @@ re-frame2's stance: that information should never have left. If the runtime know
  :operation :rf.error/handler-exception       ;; the category (namespaced kw)
  :op-type   :error                            ;; the severity (the discriminator)
  :time      1700000000000                     ;; emit time (host clock)
- :source    :ui                               ;; trigger origin (:ui :timer :http ...)
+ :source    :ui                               ;; trigger origin (:ui :after-timer :http :machine-action ... — see spec/Spec-Schemas.md §:rf/dispatch-envelope)
  :recovery  :no-recovery                      ;; what the runtime did after
  :rf.trace/trigger-handler                    ;; (optional) the in-scope handler
  {:kind         :event

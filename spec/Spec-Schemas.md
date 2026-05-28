@@ -99,7 +99,7 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
    [:interceptors          {:optional true} [:vector :any]]
    [:trace-id              {:optional true} :any]
-   [:source                {:optional true} [:enum :ui :frame-init :fx :machine :machine-spawn :always :after-timer :fx-dispatch :fx-dispatch-later :dispatch-later :timer :http :repl :ssr-hydration :test :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction), per  substrate-internal extensions
+   [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :repl :ssr-hydration :test :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction), per  substrate-internal extensions; per rf2-c3990, the broad `:fx` / `:machine` / `:dispatch-later` / `:timer` aliases are dropped in favour of the specific substrate-stamp values (`:fx-dispatch` / `:fx-dispatch-later` / `:machine-spawn` / `:machine-action` / `:after-timer`)
    [:origin                {:optional true} :keyword]                      ;; actor identity (default :app) — per [002 §Dispatch origin tagging]
    [:rf/dispatch-origin    {:optional true} [:enum :user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal]]  ;; closed-enum functional source (default :user) — per [009 §Dispatch-origin tagging]; per 
    [:dispatched-at         {:optional true} :any]])                        ;; CLJS reference may add an impl-specific timestamp; tools tolerate
@@ -121,7 +121,7 @@ The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event op
    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
    [:interceptors          {:optional true} [:vector :any]]
    [:trace-id              {:optional true} :any]
-   [:source                {:optional true} [:enum :ui :frame-init :fx :machine :machine-spawn :always :after-timer :fx-dispatch :fx-dispatch-later :dispatch-later :timer :http :repl :ssr-hydration :test :unknown :other]]
+   [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :repl :ssr-hydration :test :unknown :other]]
    [:origin                {:optional true} :keyword]                       ;; actor identity tag — defaults to :app when omitted
    [:rf/dispatch-origin    {:optional true} [:enum :user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal]]])  ;; closed-enum functional source — defaults to :user when omitted (per)
 ```

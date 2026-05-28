@@ -224,13 +224,25 @@
    ;; `:fx-dispatch` — the child's immediate trigger is "the
    ;; `:dispatch` fx executed", not whatever woke the originating
    ;; user event.
+   ;;
+   ;; Per rf2-c3990: when the emitting handler IS a machine
+   ;; (`:rf.machine/internal? true` on the parent envelope), the
+   ;; child dispatch is an *actor message* — one machine emitting a
+   ;; dispatch into the actor system. The substrate stamps
+   ;; `:source :machine-action` for that path so the Epoch panel and
+   ;; trace filters can distinguish machine-emitted continuations from
+   ;; plain `:dispatch` fx cascades. The `:rf.machine/internal? true`
+   ;; flag still rides on the envelope (via `child-dispatch-opts`) so
+   ;; the router can front-of-queue insert per Spec 005 §Level 4.
    (fn [frame-id parent-envelope args]
      ;; Sticky hook (rf2-f72pd) — `:router/dispatch!` is published once
      ;; at re-frame.router load and never withdrawn; this fires per
      ;; `:dispatch` fx invocation.
      (when-let [f (late-bind/get-fn-cached :router/dispatch!)]
        (f args (assoc (child-dispatch-opts frame-id parent-envelope)
-                      :source :fx-dispatch))))
+                      :source (if (:rf.machine/internal? parent-envelope)
+                                :machine-action
+                                :fx-dispatch)))))
 
    :dispatch-later
    ;; Delayed dispatch — wraps the same router hook in `set-timeout!`.
@@ -247,9 +259,16 @@
    ;; rather than just the kind label. The detail rides on the
    ;; envelope, then onto the `:rf.event/dispatched` trace via
    ;; `emit-dispatched-trace`'s opt-in stamp (router.cljc rf2-5qp4g).
+   ;;
+   ;; Per rf2-c3990: machine-emitted `:dispatch-later` is an *actor
+   ;; message* scheduled with a delay — stamp `:source :machine-action`
+   ;; (carrying the same `:source-detail {:ms <ms>}`) when the parent
+   ;; envelope is machine-internal, matching the `:dispatch` fx
+   ;; handler's machine-action discriminator above.
    (fn [frame-id parent-envelope {:keys [ms event]}]
-     (let [opts (assoc (child-dispatch-opts frame-id parent-envelope)
-                       :source        :fx-dispatch-later
+     (let [machine? (:rf.machine/internal? parent-envelope)
+           opts (assoc (child-dispatch-opts frame-id parent-envelope)
+                       :source        (if machine? :machine-action :fx-dispatch-later)
                        :source-detail {:ms ms})]
        (interop/set-timeout!
          (fn []

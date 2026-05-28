@@ -171,6 +171,73 @@
               ":source :machine-spawn stamped on the synthetic spawn dispatch (rf2-ejtpd)"))
         (finally (trace-tooling/unregister-listener! ::spawn-src2))))))
 
+;; ---- :machine-action (actor messages) -----------------------------------
+
+(deftest machine-action-dispatch-stamps-source-machine-action
+  (testing ":dispatch fx from a machine handler stamps :source :machine-action (rf2-c3990)"
+    ;; Per rf2-c3990: when the parent envelope carries
+    ;; `:rf.machine/internal? true` (the router stamps this on every
+    ;; machine-handler invocation), the `:dispatch` fx handler stamps
+    ;; the child envelope with `:source :machine-action` instead of the
+    ;; ordinary `:fx-dispatch` — the actor-message path. This lets
+    ;; tools distinguish machine-emitted continuations from plain
+    ;; `:dispatch` fx cascades in a non-machine handler.
+    (let [parent-machine
+          {:initial :idle
+           :actions {:emit-action
+                     (fn [_ctx]
+                       {:fx [[:dispatch [:downstream/note]]]})}
+           :states
+           {:idle    {:on {:go :acting}}
+            :acting  {:entry :emit-action}}}
+          seen (atom [])]
+      (rf/reg-event-db :downstream/note
+        (fn [db _] (assoc db :noted? true)))
+      (rf/reg-machine :machine-action/parent parent-machine)
+      (trace-tooling/register-listener! ::machine-action
+        (fn [ev] (when (= :rf.event/dispatched (:operation ev))
+                   (swap! seen conj ev))))
+      (try
+        (rf/dispatch-sync [:machine-action/parent [:go]])
+        (let [downstream-ev (first
+                              (filter (fn [ev]
+                                        (= [:downstream/note]
+                                           (get-in ev [:tags :rf.event/v])))
+                                      @seen))]
+          (is (some? downstream-ev)
+              "the machine-emitted :dispatch reached the downstream handler")
+          (is (= :machine-action (:source downstream-ev))
+              ":source :machine-action stamped on the machine-emitted child envelope (rf2-c3990)"))
+        (finally (trace-tooling/unregister-listener! ::machine-action))))))
+
+(deftest non-machine-dispatch-still-stamps-source-fx-dispatch
+  (testing ":dispatch fx from a NON-machine event handler retains :source :fx-dispatch (rf2-c3990)"
+    ;; The :machine-action stamp is conditional on the parent envelope
+    ;; carrying `:rf.machine/internal? true`. Ordinary event handlers
+    ;; that emit `:dispatch` keep the pre-rf2-c3990 `:fx-dispatch`
+    ;; stamp — this regression-guards the discriminator.
+    (let [seen (atom [])]
+      (rf/reg-event-fx :ordinary/parent
+        (fn [_ctx _]
+          {:fx [[:dispatch [:downstream/from-ordinary]]]}))
+      (rf/reg-event-db :downstream/from-ordinary
+        (fn [db _] (assoc db :noted? true)))
+      (trace-tooling/register-listener! ::ordinary
+        (fn [ev] (when (= :rf.event/dispatched (:operation ev))
+                   (swap! seen conj ev))))
+      (try
+        (rf/dispatch-sync [:ordinary/parent])
+        (let [downstream-ev (first
+                              (filter (fn [ev]
+                                        (= [:downstream/from-ordinary]
+                                           (get-in ev [:tags :rf.event/v])))
+                                      @seen))]
+          (is (some? downstream-ev)
+              "the ordinary :dispatch reached the downstream handler")
+          (is (= :fx-dispatch (:source downstream-ev))
+              ":source :fx-dispatch stamped on the ordinary-handler child envelope (regression guard)"))
+        (finally (trace-tooling/unregister-listener! ::ordinary))))))
+
 ;; ---- :always (microstep trace) ------------------------------------------
 
 (deftest always-microstep-trace-carries-source-always

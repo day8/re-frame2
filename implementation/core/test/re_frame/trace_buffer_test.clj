@@ -278,7 +278,7 @@
 (deftest trace-buffer-filter-source
   (rf/reg-event-db :ping (fn [db _] db))
   (rf/dispatch-sync [:ping] {:source :repl})
-  (rf/dispatch-sync [:ping] {:source :timer})
+  (rf/dispatch-sync [:ping] {:source :after-timer})
   (let [repl-evs (flat-events :rf/default {:source :repl})]
     (is (seq repl-evs))
     (is (every? #(= :repl (or (:source %) (get-in % [:tags :source])))
