@@ -19,13 +19,14 @@
 
   Each frame is an isolated reactive context (Spec 006 §The cache is
   held inside the frame container). The two-frame testbed mounts two
-  frame-providers; the route slot (`:rf.route/id`) lives in each
-  frame's own `app-db`, so the ABOVE frame can sit on the Counter tab
-  while the BELOW frame sits on the Machine tab — there is no shared
-  route state and no cross-frame navigation. The `route-tab` view
-  below dispatches `:rf.route/navigate` through the surrounding
-  frame-provider's injected `dispatch`, so a tab click navigates ONLY
-  the frame it was clicked in."
+  frame-providers; the current route slice lives at
+  `[:rf/runtime :routing :current]` in each frame's own `app-db` and
+  is read through the `:rf.route/id` sub, so the ABOVE frame can sit
+  on the Counter tab while the BELOW frame sits on the Machine tab —
+  there is no shared route state and no cross-frame navigation. The
+  `route-tab` view below dispatches `:rf.route/navigate` through the
+  surrounding frame-provider's injected `dispatch`, so a tab click
+  navigates ONLY the frame it was clicked in."
   (:require [re-frame.core :as rf]
             ;; Routing ships in day8/re-frame2-routing. Requiring
             ;; re-frame.routing triggers its load-time hook + the

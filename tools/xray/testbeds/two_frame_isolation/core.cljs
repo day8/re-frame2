@@ -51,10 +51,10 @@
   A browser has ONE address bar but this page has TWO routed frames.
   Per Spec 012 §Multi-frame routing only one frame may own the URL.
   Both `:above` and `:below` are registered NON-url-bound, so each
-  frame's `:rf/route` slot updates on tab nav while the browser-history
-  push no-ops (no two-frame URL race). The route SLOT — the isolation
-  point — stays per-frame; only the shared browser-URL sync is
-  suppressed.
+  frame's `[:rf/runtime :routing :current]` slice updates on tab nav
+  while the browser-history push no-ops (no two-frame URL race). The
+  route slice — the isolation point — stays per-frame; only the shared
+  browser-URL sync is suppressed.
 
   ## Test surface, not tutorial
 

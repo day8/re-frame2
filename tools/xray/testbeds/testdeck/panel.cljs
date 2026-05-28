@@ -59,7 +59,8 @@
           ;; the runtime synthesises the :disconnected snapshot on first
           ;; dispatch).
           [:dispatch [:ws/connection [:ws/noop]]]
-          ;; Land on the default tab — writes this frame's :rf/route slot.
+          ;; Land on the default tab — writes this frame's
+          ;; [:rf/runtime :routing :current] slice.
           [:dispatch [:rf.route/navigate routes/default-tab]]]}))
 
 ;; ============================================================================
@@ -243,8 +244,8 @@
   (let [active @(subscribe [:testdeck/active-tab])]
     [:div {:data-testid (str frame-label "-routing-tab")}
      [:p {:style {:color "#444" :margin "0.5em 0"}}
-      "Tabs are routes. The active tab below is this frame's "
-      [:code ":rf/route"] " slot — switching tabs is "
+      "Tabs are routes. The active tab below is this frame's current "
+      "route slice — switching tabs is "
       [:code ":rf.route/navigate"] ", scoped to this frame."]
      [:div {:data-testid (str frame-label "-route-current")
             :style (merge mono {:margin "0.25em 0"})}
