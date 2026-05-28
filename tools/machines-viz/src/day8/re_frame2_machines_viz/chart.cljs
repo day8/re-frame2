@@ -438,6 +438,90 @@
 (def ^:private node-types-memo (nodes/node-types))
 (def ^:private edge-types-memo (edges/edge-types))
 
+;; ---- :overlays slot (rf2-7w4qr) -----------------------------------------
+;;
+;; Mike ruled (rf2-7w4qr): the host-fed, spec+tick+callbacks overlay
+;; family is wired through ONE `:overlays` slot instead of a flat prop
+;; per overlay. Each descriptor is a map `{:id <keyword> …}` keyed on
+;; `:id`; the chart dispatches it to its already-modular rendering
+;; namespace (`chart.overlays.after-rings` / `.spawn-all-join` /
+;; `.cancellation-cascade`) by `:id`. This ns owns ONLY the wiring — the
+;; overlay renderers (their per-overlay shapes + DOM walk + paint) are
+;; untouched.
+;;
+;; The `:tick` story is unified: a per-descriptor `:tick` replaces both
+;; the old `:after-ring-tick` and `:overlay-tick`. One rAF clock per
+;; chart stays host-owned (Lock #8); the host just delivers the tick on
+;; whichever descriptor(s) the clock drives.
+;;
+;; What did NOT fold (stays on the trunk): `:fired-edge-ids` (a simple
+;; set, core to active-edge styling, not a spec+tick+callbacks overlay),
+;; `:current-state` / `:from-highlight` / `:to-highlight` (runtime
+;; highlight, not host-fed overlay specs), `:machine-data` (a corner
+;; panel rendered inline, not a positioned DOM-walking overlay), and all
+;; structural props (`:definition`, `:direction`, `:layout-options`,
+;; parallel handling).
+
+(def overlay-ids
+  "The closed set of recognised `:overlays` descriptor `:id`s. A
+  descriptor whose `:id` is outside this set is ignored (with a dev-only
+  console.warn — see `render-overlay`). Per spec/API.md §`:overlays`
+  slot."
+  #{:after-rings :spawn-all-join :cancellation-cascade})
+
+(defn- render-overlay
+  "Dispatch one `:overlays` descriptor to its rendering namespace by
+  `:id`, returning the overlay's hiccup (or nil when the descriptor is
+  dormant / its `:id` is unknown).
+
+  Per-overlay descriptor shapes (the renderers are unchanged — only the
+  wiring is lifted here, rf2-7w4qr):
+
+    {:id :after-rings          :specs <vec> :tick <opaque>
+                               :on-hover <fn> :on-leave <fn>}
+    {:id :spawn-all-join       :spec <map>  :tick <opaque>
+                               :on-child-click <fn>}
+    {:id :cancellation-cascade :spec <map>  :tick <opaque>}
+
+  An unknown `:id` is ignored (a host data error, not a runtime
+  fallback); in dev builds (gated on `interop/debug-enabled?`) it emits
+  a `js/console.warn` so the misconfigured host is visible without
+  failing the render."
+  [{:keys [id tick] :as descriptor}]
+  (case id
+    :after-rings
+    (let [{:keys [specs on-hover on-leave]} descriptor]
+      (when (seq specs)
+        [after-rings/AfterRingsOverlay
+         {:ring-specs specs
+          :tick       tick
+          :on-hover   on-hover
+          :on-leave   on-leave}]))
+
+    :spawn-all-join
+    (let [{:keys [spec on-child-click]} descriptor]
+      (when (and spec (:node-id spec))
+        [overlay-spawn-all/SpawnAllJoinOverlay
+         {:join-spec      spec
+          :tick           tick
+          :on-child-click on-child-click}]))
+
+    :cancellation-cascade
+    (let [{:keys [spec]} descriptor]
+      (when (and spec (:node-id spec) (seq (:steps spec)))
+        [overlay-cascade/CancellationCascadeOverlay
+         {:cascade-spec spec
+          :tick         tick}]))
+
+    ;; Unknown :id — ignore gracefully (dev-only warn).
+    (do
+      (when interop/debug-enabled?
+        (js/console.warn
+          "[machines-viz] MachineChart ignoring :overlays descriptor with"
+          "unknown :id" (pr-str id)
+          "— recognised ids:" (pr-str overlay-ids)))
+      nil)))
+
 ;; ---- MachineChart Reagent component -------------------------------------
 
 (defn MachineChart
@@ -513,48 +597,56 @@
                          built-in zoom/pan/fit Controls.
     :show-background?  — when true (default true) render xyflow's
                          dot-pattern Background.
-    :after-ring-specs  — rf2-uv1on. Optional vector of presentation-
-                         ready `:after`-timer ring-specs (each
-                         `{:node-id :fraction :color :cancelled?
-                         :tooltip :testid}`). When non-empty the chart
-                         mounts the `chart.overlays.after-rings`
-                         overlay as a sibling of the canvas; it walks
-                         the rendered node DOM to position each ring.
-                         The host owns the trace→spec projection +
-                         the scrubber-aware fraction (Xray supplies
-                         these from its trace buffer). nil / empty →
-                         no overlay layer.
-    :after-ring-tick   — opaque value the host bumps to force the
-                         overlay to re-measure the DOM + repaint the
-                         swept arcs (Xray passes `now-ms`; Lock #8 —
-                         one rAF clock per chart, owned host-side).
-    :on-after-ring-hover / :on-after-ring-leave — `(fn [node-id] ...)`
-                         hover callbacks the overlay wires on each ring.
-    :spawn-all-join    — rf2-3ow55. Optional presentation-ready
-                         `:spawn-all` join-spec (`{:node-id :join
-                         :children :resolved? :on-all-complete
-                         :on-any-failed}`). When present the chart
-                         mounts the `chart.overlays.spawn-all-join`
-                         inspector beside the spawn-all-bearing state;
-                         it shows the spawned children + join state.
-                         The host owns the trace→spec projection from
-                         its `:rf.machine.spawn-all/*` buffer. nil →
-                         no inspector.
-    :on-spawn-child-click — `(fn [child-key] ...)`; fires on a join-
-                         inspector child-row click (Xray pivots to
-                         the child instance).
-    :cancellation-cascade — rf2-3ow55. Optional presentation-ready
-                         cascade-spec (`{:node-id :parent-label
-                         :from-state :steps}`). When present (and the
-                         step list is non-empty) the chart mounts the
-                         `chart.overlays.cancellation-cascade`
-                         waterfall beneath the parent state. The host
-                         owns the trace→spec projection from the
-                         cancellation trace cluster. nil / no steps →
-                         dormant (no overlay).
-    :overlay-tick      — opaque value the host bumps to force the
-                         spawn-all + cascade overlays to re-measure +
-                         repaint (mirrors `:after-ring-tick`).
+    :overlays          — rf2-7w4qr. Optional vector of host-fed overlay
+                         DESCRIPTOR maps, each keyed on `:id`. Collapses
+                         the former flat overlay-wiring props (the
+                         `:after-ring-*` / `:spawn-all-*` /
+                         `:cancellation-cascade` / `:overlay-tick`
+                         family) into ONE slot; hosts compose overlays
+                         here instead of growing the trunk signature.
+                         The chart dispatches each descriptor to its
+                         already-modular rendering namespace by `:id`
+                         (`render-overlay`); the renderers are unchanged.
+                         A per-descriptor `:tick` unifies the old
+                         `:after-ring-tick` + `:overlay-tick` (one rAF
+                         clock per chart stays host-owned — Lock #8 —
+                         just delivered per-overlay). Unknown `:id` →
+                         ignored (dev-only console.warn). Recognised
+                         descriptors (see `render-overlay`):
+
+                           {:id :after-rings :specs <vec> :tick <opaque>
+                            :on-hover <fn> :on-leave <fn>}
+                             rf2-uv1on. Presentation-ready `:after`-timer
+                             ring-specs (each `{:node-id :fraction :color
+                             :cancelled? :tooltip :testid}`). When `:specs`
+                             is non-empty the chart mounts the
+                             `chart.overlays.after-rings` overlay as a
+                             sibling of the canvas; it walks the rendered
+                             node DOM to position each ring. The host owns
+                             the trace→spec projection + the scrubber-aware
+                             fraction; `:tick` (Xray's `now-ms`) drives the
+                             re-measure/repaint. Empty `:specs` → no overlay.
+
+                           {:id :spawn-all-join :spec <map> :tick <opaque>
+                            :on-child-click <fn>}
+                             rf2-3ow55. Presentation-ready `:spawn-all`
+                             join-spec (`{:node-id :join :children
+                             :resolved? :on-all-complete :on-any-failed}`).
+                             When `:spec` has a `:node-id` the chart mounts
+                             the `chart.overlays.spawn-all-join` inspector
+                             beside the spawn-all-bearing state. `:on-child-
+                             click` `(fn [child-key] ...)` fires on a child-
+                             row click (Xray pivots to the child instance).
+
+                           {:id :cancellation-cascade :spec <map>
+                            :tick <opaque>}
+                             rf2-3ow55. Presentation-ready cascade-spec
+                             (`{:node-id :parent-label :from-state :steps}`).
+                             When `:spec` has a `:node-id` and a non-empty
+                             `:steps` the chart mounts the
+                             `chart.overlays.cancellation-cascade` waterfall
+                             beneath the parent state. nil / no steps →
+                             dormant.
     :machine-data      — rf2-qo5xy. Optional CLJS map of the current
                          machine `:data` (`:rf.machine/data`). When
                          supplied the chart paints a small read-only
@@ -627,10 +719,7 @@
                  sim? on-state-click on-edge-click read-only?
                  direction layout-options density
                  height show-minimap? show-controls? show-background?
-                 after-ring-specs after-ring-tick
-                 on-after-ring-hover on-after-ring-leave
-                 spawn-all-join on-spawn-child-click
-                 cancellation-cascade overlay-tick
+                 overlays
                  machine-data
                  testid]
           :or   {direction         :tb
@@ -754,7 +843,16 @@
                                 (when (pos? n-regions)
                                   (str " across " n-regions " parallel "
                                        (if (= 1 n-regions) "region" "regions")))
-                                ".")]
+                                ".")
+                ;; rf2-7w4qr — the `:overlays` descriptor vector, with a
+                ;; unified tick. Per-descriptor `:tick` replaces the old
+                ;; flat `:after-ring-tick` + `:overlay-tick`; the always-
+                ;; on label-collisions overlay re-measures on the FIRST
+                ;; non-nil descriptor tick (one rAF clock per chart, Lock
+                ;; #8 — whichever overlay the host's clock drives shares
+                ;; its tick). nil when no host-fed overlay is ticking.
+                overlay-descriptors (filterv map? overlays)
+                overlays-tick       (some :tick overlay-descriptors)]
             [:div {:data-testid testid
                    :data-machine-id (str machine-id)
                    :data-node-count (str n-states)
@@ -892,45 +990,23 @@
                              :pannable true
                              :nodeColor (fn [_] (:bg-3 tokens/tokens))
                              :maskColor (tokens/with-alpha :bg-0 0.6)}])]
-             ;; rf2-uv1on — `:after`-timer countdown rings. The overlay
-             ;; is a sibling of the xyflow canvas inside this
-             ;; position:relative wrapper; it walks the rendered node DOM
-             ;; (`rf-mv-chart-node-<id>`) to position each ring. Hosts
-             ;; that want rings pass presentation-ready `:after-ring-specs`
-             ;; (see `chart.overlays.after-rings`); the host owns the
-             ;; trace→spec projection + the rAF clock that bumps
-             ;; `:after-ring-tick` (Lock #8 — one clock per chart). Xray
-             ;; mounts the same overlay via its `machine_canvas` wrapper;
-             ;; this prop path serves standalone hosts (viewer, Story).
-             (when (seq after-ring-specs)
-               [after-rings/AfterRingsOverlay
-                {:ring-specs after-ring-specs
-                 :tick       after-ring-tick
-                 :on-hover   on-after-ring-hover
-                 :on-leave   on-after-ring-leave}])
-             ;; rf2-3ow55 — `:spawn-all` join inspector. Same
-             ;; sibling-overlay shape as the after-rings overlay: it
-             ;; walks the node DOM to anchor a join-state card beside
-             ;; the spawn-all-bearing state. The host projects the
-             ;; presentation-ready join-spec from its
-             ;; `:rf.machine.spawn-all/*` trace buffer.
-             (when (and spawn-all-join (:node-id spawn-all-join))
-               [overlay-spawn-all/SpawnAllJoinOverlay
-                {:join-spec      spawn-all-join
-                 :tick           overlay-tick
-                 :on-child-click on-spawn-child-click}])
-             ;; rf2-3ow55 — cancellation-cascade visualiser. Dormant
-             ;; unless the host supplies a cascade-spec with steps;
-             ;; when a parent transition cancels children the host
-             ;; projects the cascade from the cancellation trace
-             ;; cluster and the overlay paints the waterfall beneath
-             ;; the parent state.
-             (when (and cancellation-cascade
-                        (:node-id cancellation-cascade)
-                        (seq (:steps cancellation-cascade)))
-               [overlay-cascade/CancellationCascadeOverlay
-                {:cascade-spec cancellation-cascade
-                 :tick         overlay-tick}])
+             ;; rf2-7w4qr — host-fed overlays, composed through the
+             ;; single `:overlays` slot. Each descriptor map (keyed on
+             ;; `:id`) is dispatched to its rendering namespace by
+             ;; `render-overlay` (after-rings / spawn-all-join /
+             ;; cancellation-cascade); the renderers are unchanged — only
+             ;; the wiring is lifted here. Every overlay is a sibling of
+             ;; the xyflow canvas inside this position:relative wrapper
+             ;; and walks the rendered node DOM (`rf-mv-chart-node-<id>`)
+             ;; to anchor itself; the host owns the trace→spec projection
+             ;; + the per-descriptor `:tick` (Lock #8 — one rAF clock per
+             ;; chart). Dormant descriptors + unknown `:id`s render nil.
+             (map-indexed
+               (fn [i descriptor]
+                 ^{:key (str "rf-mv-overlay-" i "-"
+                             (pr-str (:id descriptor)))}
+                 [render-overlay descriptor])
+               overlay-descriptors)
              ;; rf2-r7vsr — post-render label-collision avoidance.
              ;; Sibling overlay that walks the rendered DOM after
              ;; xyflow paints, finds every label that intersects a
@@ -948,7 +1024,7 @@
              ;; labels, and clean layouts measure zero collisions
              ;; (the overlay is a no-op).
              [label-collisions/LabelCollisionsOverlay
-              {:tick (or after-ring-tick overlay-tick)}]
+              {:tick overlays-tick}]
              ;; rf2-qo5xy — `:machine-data` corner panel. The Stately
              ;; graph view paints the machine's current `:data` /
              ;; context as a top-left panel so the operator reads it
