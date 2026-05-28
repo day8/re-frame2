@@ -385,11 +385,17 @@
                               {:frame variant-id})
             (catch #?(:clj Throwable :cljs :default) _ nil)))))))
 
-(defn install-helpers!
+(defn install-canonical-frame-events!
   "Register Story-internal helper events: `::apply-app-db-patch` for
   `:frame-setup` decorators' `:app-db-patch` slot, and
   `::append-teardown-assertion` for the `:teardown` exception
-  projection path. Idempotent."
+  projection path. Idempotent.
+
+  Mirrors the `install-canonical-<X>!` shape used by every sibling
+  installer in `canonical/canonical-installers` (`install-canonical-tags!`,
+  `install-canonical-assertions!`, `install-canonical-fx-stubs!`, …). Was
+  the vague `install-helpers!` (rf2-152jq inline rename) — the new name
+  states what's installed."
   []
   (when config/enabled?
     (rf/reg-event-db
@@ -453,7 +459,7 @@
   reset-variant`) destroys first."
   [variant-id decorator-stack]
   (when config/enabled?
-    (install-helpers!)
+    (install-canonical-frame-events!)
     (let [fx-stack       (decorators/fx-overrides-map (:fx-override decorator-stack))
           fx-overrides   (register-fx-overrides! fx-stack)
           config-map     (variant-frame-config variant-id fx-overrides)

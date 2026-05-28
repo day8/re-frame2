@@ -56,8 +56,8 @@
   - `execute-play!`  — runs a play sequence against a variant frame
                        and returns a resolved promise of the
                        accumulated assertions vector.
-  - `install-helpers!` — registers the play-runner's internal
-                         trace-listener helpers; idempotent.
+  - `install-trace-listener!` / `remove-trace-listener!` — per-frame
+                         trace-listener install + teardown; idempotent.
   - `play-stepper-active?` / `step-once!` — UI hooks (Stage 4's
                                             play-stepper slot)."
   (:require [re-frame.core             :as rf]
