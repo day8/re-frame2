@@ -403,14 +403,14 @@
   [[absolutise-file]] (JVM macro-expansion path) so per-machine-element
   coords ship absolute on-disk paths matching the reg-* macro coords."
   [form ns-sym file]
-  (let [m            (meta form)
-        chosen-file  (resolve-file m file)
+  (let [form-meta    (meta form)
+        chosen-file  (resolve-file form-meta file)
         chosen-file  (when chosen-file (absolutise-file chosen-file))]
-    (when (and m (or (:line m) (:column m)))
+    (when (and form-meta (or (:line form-meta) (:column form-meta)))
       (cond-> {:ns ns-sym}
-        chosen-file (assoc :file chosen-file)
-        (:line m)   (assoc :line (:line m))
-        (:column m) (assoc :column (:column m))))))
+        chosen-file        (assoc :file chosen-file)
+        (:line form-meta)  (assoc :line (:line form-meta))
+        (:column form-meta) (assoc :column (:column form-meta))))))
 
 (defmacro ^:private stamp!
   "Compile-time helper for the machine-spec walker. Reads source coords off
