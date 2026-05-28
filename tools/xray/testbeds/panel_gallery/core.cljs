@@ -117,13 +117,7 @@
             ;; mount with the edn-inspector gallery above; the
             ;; variants pass `:full-with-diff? true` to opt into
             ;; the mode-3 chrome (R3 chip + R4 rail).
-            [panel-gallery.gallery-diff-mode-3]
-            ;; rf2-yqjrd — universalised three-mode toggle adoption
-            ;; across App-DB / Machine Inspector / SUBSCRIPTIONS
-            ;; surfaces. Sibling to the foundation gallery above —
-            ;; this one rides the actual panel views so the toggle
-            ;; appears in its native chrome.
-            [panel-gallery.gallery-diff-mode-universal]))
+            [panel-gallery.gallery-diff-mode-3]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)

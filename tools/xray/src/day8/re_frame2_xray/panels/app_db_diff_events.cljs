@@ -8,8 +8,7 @@
   pinned-watches strip was superseded by the path-segment inspector
   popup (Mike 2026-05-19 Q13). The matching `pin-path` / `unpin-path`
   / `reorder-paths` helpers were pulled in lockstep."
-  (:require [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]
-            [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]))
 
 (defn install!
   "Install the App-DB Diff events and effects."
@@ -22,31 +21,13 @@
     (fn [db _event]
       (dissoc db :focused-slice-path)))
 
-  ;; ---- App-DB panel diff-mode toggle (rf2-yqjrd / rf2-0cyjm) ----
+  ;; ---- App-DB panel diff-mode toggle — RETIRED 2026-05-29 (rf2-vv3m6) -----
   ;;
-  ;; Three-mode toggle `[diff][full][full+diff]` that drives every section
-  ;; (top + per-`:rf/*` area) in the App-DB panel. Per pair-debug
-  ;; 2026-05-27 the same shape every Xray diff surface uses — shared
-  ;; widget in `views.diff-mode-toggle`.
-  ;;
-  ;; - `:diff`      — pure-diff lens: flat path-prefixed change list for
-  ;;                  the focused epoch. Same source as the Epoch
-  ;;                  HANDLER step's `:diff` view; same flat rows.
-  ;; - `:full`      — pure-data lens: every section renders the LIVE
-  ;;                  current-state value with no `:before` (plain
-  ;;                  browse, no inline diff annotations).
-  ;; - `:full+diff` — combined lens (mode-3): every section renders the
-  ;;                  full current-state value WITH inline diff
-  ;;                  annotations against the focused epoch's
-  ;;                  `:db-before`. Default per pair-debug 2026-05-27 —
-  ;;                  the operator's most-useful default; shape + delta
-  ;;                  together.
-  ;;
-  ;; Mode persists via `:rf.xray.app-db/diff-mode` so the operator's
-  ;; preference survives focus shifts. The sub + event pair + slot are
-  ;; installed by the shared helper from `views.diff-mode-toggle` so
-  ;; every Xray diff surface uses identical naming.
-  (diff-mode/reg-mode-sub+event! :rf.xray.app-db)
+  ;; The `[diff][full][full+diff]` toggle retired alongside its sibling
+  ;; toggles on the Epoch HANDLER `:db`, SUBSCRIPTIONS value, and
+  ;; Machine Inspector snapshot surfaces. FULL+DIFF is the single
+  ;; rendering — the panel's view layer hard-wires that posture and
+  ;; this install no longer registers the sub/event/slot trio.
 
   (rf/reg-fx :rf.xray.fx/copy-to-clipboard
     (fn [_ctx {:keys [text]}]

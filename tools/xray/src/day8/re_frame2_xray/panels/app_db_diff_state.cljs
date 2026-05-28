@@ -150,81 +150,6 @@
   {:font-family mono-stack
    :color       (:text-primary tokens)})
 
-;; -- flat-diff (`:diff` mode) chrome --------------------------------------
-
-(def ^:private flat-diff-row-style
-  "One change-list row inside flat-diff-body."
-  {:display     "flex"
-   :gap         "8px"
-   :align-items "baseline"
-   :font-family mono-stack
-   :font-size   "12px"
-   :padding     "2px 12px"
-   :flex-wrap   "wrap"})
-
-(def ^:private flat-diff-glyph-base-style
-  "Per-row glyph span — only `:color` varies, applied via assoc."
-  {:font-weight 700
-   :min-width   "1ch"})
-
-(def ^:private flat-diff-path-style
-  "Path-prefix span — the `[:foo :bar]` text inside one diff row."
-  {:color      (:text-secondary tokens)
-   :word-break "break-word"})
-
-(def ^:private flat-diff-modified-before-style
-  "The `~`-modified row's BEFORE-value mini inspector — strikethrough
-  tertiary text."
-  {:color           (:text-tertiary tokens)
-   :text-decoration "line-through"})
-
-(def ^:private flat-diff-modified-arrow-style
-  "The `→` separator between BEFORE and AFTER on `~`-modified rows."
-  {:color (:text-tertiary tokens)})
-
-(def ^:private flat-diff-modified-after-style
-  "The `~`-modified row's AFTER-value mini inspector."
-  {:color (:success tokens)})
-
-(def ^:private flat-diff-added-style
-  "The `+`-added row's value mini inspector — success-coloured, flex 1."
-  {:color     (:success tokens)
-   :flex      1
-   :min-width 0})
-
-(def ^:private flat-diff-removed-style
-  "The `−`-removed row's value mini inspector — strikethrough error."
-  {:color           (:error tokens)
-   :text-decoration "line-through"
-   :flex            1
-   :min-width       0})
-
-(def ^:private flat-diff-section-style
-  "Outer `[:section]` chrome for the flat-diff body."
-  {:padding "12px 0 4px"})
-
-(def ^:private flat-diff-header-style
-  "H3 ribbon at the top of the flat-diff body."
-  {:display         "flex"
-   :align-items     "center"
-   :gap             "8px"
-   :margin          "0 12px 8px"
-   :font-family     sans-stack
-   :font-size       "11px"
-   :font-weight     600
-   :text-transform  "uppercase"
-   :letter-spacing  "0.5px"
-   :color           (:text-secondary tokens)})
-
-(def ^:private flat-diff-summary-style
-  "Right-side `N paths` / `— (no changes)` summary inside flat-diff
-  header. Lighter weight + normal-case + normal letter-spacing so it
-  reads as supporting metadata next to the uppercase `diff` title."
-  {:color           (:text-tertiary tokens)
-   :font-weight     400
-   :text-transform  "none"
-   :letter-spacing  "normal"})
-
 ;; ---- shared section chrome ----------------------------------------------
 
 (defn- section-shell
@@ -445,155 +370,24 @@
 
 ;; ---- panel body ----------------------------------------------------------
 
-;; ---- flat-diff lens (rf2-yqjrd `:diff` mode) ----------------------------
-;;
-;; When the panel's mode toggle is `:diff` the body renders ONE flat path-
-;; prefixed change list across the entire app-db (not per-section). The
-;; rows are sourced from `:rf.xray/selected-epoch-diff` (the same triples
-;; the Epoch HANDLER step's `:diff` view + MCP exporter consume) so the
-;; App-DB panel's pure-diff lens reads identically to every other Xray
-;; surface's diff lens.
-
-(defn- flat-diff-glyph
-  "Render the leading glyph for a `[path before after change-kind]`
-  triple — `+` added · `−` removed · `~` modified. Mirrors the
-  glyph palette the Epoch HANDLER `:diff` rows use so the two
-  surfaces share visual grammar."
-  [change-kind]
-  (case change-kind
-    :added    "+"
-    :removed  "−"
-    :modified "~"
-    "~"))
-
-(defn- flat-diff-glyph-colour
-  [glyph]
-  (case glyph
-    "+" (:success tokens)
-    "−" (:error tokens)
-    (:warning tokens)))
-
-(defn- flat-diff-line
-  "Render one `[path before after change-kind]` triple. Same shape as
-  the Epoch HANDLER `:diff` row but scoped to the App-DB panel testid
-  prefix."
-  [[path before after change-kind] idx]
-  (let [glyph        (flat-diff-glyph change-kind)
-        glyph-colour (flat-diff-glyph-colour glyph)]
-    [:div {:key (str "app-db-diff-row-" idx)
-           :data-testid (str "rf-xray-app-db-diff-row-" idx)
-           :style flat-diff-row-style}
-     [:span {:style (assoc flat-diff-glyph-base-style :color glyph-colour)}
-      glyph]
-     [:span {:style flat-diff-path-style}
-      (pr-str path)]
-     (when (= "~" glyph)
-       [:<>
-        [:span {:style flat-diff-modified-before-style}
-         [ei/mini before 40]]
-        [:span {:style flat-diff-modified-arrow-style} "→"]
-        [:span {:style flat-diff-modified-after-style}
-         [ei/mini after 40]]])
-     (when (= "+" glyph)
-       [:span {:style flat-diff-added-style}
-        [ei/mini after 80]])
-     (when (= "−" glyph)
-       [:span {:style flat-diff-removed-style}
-        [ei/mini before 80]])]))
-
-(defn- flat-diff-body
-  "Render the `:diff` mode body — header + one row per change. When
-  `diff-triples` is empty an italic `(no changes)` placeholder
-  appears in place of rows."
-  [diff-triples]
-  (let [empty? (empty? diff-triples)]
-    [:section {:data-testid "rf-xray-app-db-diff-flat"
-               :data-empty (str empty?)
-               :style flat-diff-section-style}
-     [:h3 {:style flat-diff-header-style}
-      [:span "diff"]
-      [:span {:style flat-diff-summary-style}
-       (if empty?
-         "— (no changes)"
-         (str (count diff-triples) " path"
-              (when (not= 1 (count diff-triples)) "s")))]]
-     (when-not empty?
-       (into [:div]
-             (map-indexed (fn [i row] (flat-diff-line row i))
-                          diff-triples)))]))
-
-;; ---- panel body ----------------------------------------------------------
-
-(defn- sections-body
-  "Render the section list for the `:full` / `:full+diff` modes. When
-  `diff?` is true each section threads its `:before` pre-image so
-  changed nodes carry inline `← changed` annotations. When false
-  every section renders as plain current-state browse (no `:before`
-  threaded; the renderer falls back to the `h/no-diff` sentinel)."
-  [{:keys [top areas] :as model} diff?]
-  (let [before-top (if diff? (get model :before-top h/no-diff) h/no-diff)]
-    (into [:div {:data-testid "rf-xray-app-db-state"
-                 :data-mode-diff (str (boolean diff?))}
-           (top-section top before-top)]
-          (for [{:keys [area] :as area-entry} areas]
-            (with-meta
-              (area-section
-                (if diff? area-entry (dissoc area-entry :before
-                                             :instances)))
-              {:key (pr-str area)})))))
-
-(defn- strip-instance-befores
-  "When the mode is `:full` (no diff) strip every `:before` from the
-  per-instance entries of a map-of-instances area so the renderer's
-  diff branch never triggers. Singleton areas drop their top-level
-  `:before` via `dissoc` in `sections-body`; map-of-instances areas
-  need this deeper walk because the `:before` lives one level down."
-  [areas]
-  (mapv
-    (fn [{:keys [kind instances] :as entry}]
-      (if (and (= kind :instances) (seq instances))
-        (assoc entry :instances
-               (mapv (fn [inst] (dissoc inst :before)) instances))
-        entry))
-    areas))
-
 (defn state-body
   "Render the full current-state inspector body for the section model
   `current-state-sections` produces.
 
-  rf2-yqjrd — accepts an opts map with `:mode` (`:diff` / `:full` /
-  `:full+diff`) and `:diff-triples` (the flat-row source for the
-  `:diff` lens). When opts are omitted (1-arity legacy call) the
-  body renders in the prior `:full+diff` shape — section list with
-  `:before` threaded — so any direct caller that pre-dates the
-  toggle keeps its behaviour. Production callers (the Panel view
-  above) always pass the mode.
-
-  Mode behaviour:
-
-  - `:diff`      — flat path-prefixed change list (one row per
-                   change). Section list suppressed; the operator
-                   sees only what changed.
-  - `:full`      — section list rendered with no `:before` threaded
-                   (plain browse, no inline diff annotations on any
-                   section).
-  - `:full+diff` — section list rendered with each section's
-                   `:before` threaded so inline diff annotations
-                   paint (spec/021 §4.3 default).
+  rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
+  toggle (rf2-yqjrd) is retired. FULL+DIFF is the single rendering: the
+  section list renders with each section's `:before` threaded so inline
+  diff annotations paint (spec/021 §4.3). The 2-arity opts map (`:mode`
+  + `:diff-triples`) is gone — the flat-diff lens + the plain-browse
+  lens both retired with the toggle.
 
   Pure hiccup; nil-safe (a nil model degrades to an empty TOP + no
   areas)."
-  ([model] (state-body model nil))
-  ([{:keys [top areas] :as model} {:keys [mode diff-triples]
-                                   :or   {mode :full+diff}}]
-   (case mode
-     :diff
-     (flat-diff-body (or diff-triples []))
-
-     :full
-     (sections-body
-       (assoc model :areas (strip-instance-befores (or areas [])))
-       false)
-
-     ;; :full+diff (default) — existing inline-diff behaviour.
-     (sections-body model true))))
+  [{:keys [top areas] :as model}]
+  (let [before-top (get model :before-top h/no-diff)]
+    (into [:div {:data-testid "rf-xray-app-db-state"}
+           (top-section top before-top)]
+          (for [{:keys [area] :as area-entry} areas]
+            (with-meta
+              (area-section area-entry)
+              {:key (pr-str area)})))))

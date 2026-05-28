@@ -1338,8 +1338,9 @@ Each step renders a uppercase badge pill at its numbered circle:
 > surfaces every `:dispatch` / `:dispatch-n` / `:dispatch-later` fx entry
 > per row. APP-DB DIFF (originally rf2-rrykz, dropped earlier same session
 > in commit `ee9def224`) is redundant with the HANDLER step's `:db`
-> sub-section + its `[diff][full][full+diff]` toggle (§9.1.5.1), which surfaces the same data
-> in-context. The projection's `badge-set` enforces the 8-entry inventory.
+> sub-section (§9.1.5.1, FULL+DIFF single rendering post-rf2-vv3m6),
+> which surfaces the same data in-context. The projection's `badge-
+> set` enforces the 8-entry inventory.
 
 The inventory is LOCKED — the projection's `badge-set` enforces
 that every emitted step's `:badge` is a member, and the view's
@@ -1493,25 +1494,27 @@ no replay. The substrate enhancements in #2155 (rf2-82a0u) are the
 prerequisite that lets every cascade row read directly off the
 trace.
 
-#### §9.1.5.1 HANDLER `:db` diff-mode toggle — three-mode `[diff][full][full+diff]` (rf2-n2jig)
+#### §9.1.5.1 HANDLER `:db` — single FULL+DIFF rendering (rf2-vv3m6)
 
-The HANDLER step's `:db` sub-section carries a three-button toggle:
+The HANDLER step's `:db` sub-section renders the full post-cascade
+`:db-after` tree via the edn-inspector widget WITH the focused
+epoch's `:db-before` threaded as the diff pre-image, so inline diff
+annotations paint per the R1-R8 grammar below. There is no mode
+toggle.
 
-| Mode | Label | Renders |
-|------|-------|---------|
-| `:diff`      | `diff`      | Flat path-prefixed change list (one row per change). |
-| `:full`      | `full`      | Full post-cascade `:db-after` via the edn-inspector. No diff chrome. |
-| `:full+diff` | `full+diff` | **Mode-3** — full data tree WITH inline diff annotations per the R1-R8 grammar below. |
-
-**Default**: `:full+diff` (Mike pair-debug 2026-05-27 — the operator's
-most-useful default; shape + delta in one read). Mode persists via
-`:rf.xray.epoch/db-diff-mode` so the operator's preference survives
-focus shifts.
-
-> **Migration**: the prior two-button `[diff][all]` toggle was retired
-> 2026-05-27 (pre-alpha, no shim). No `:all → :full` translation lives
-> in the sub — Xray app-db is in-memory only, so a pre-rf2-n2jig
-> `:all` reading can't survive a reload.
+> **Retirement (2026-05-29, rf2-vv3m6)** — the prior
+> `[diff][full][full+diff]` three-mode toggle (rf2-n2jig + rf2-yqjrd)
+> retired. FULL+DIFF became a complete lens once the auto-collapse
+> of unchanged subtrees (rf2-fqcdd), the leaf-scalar `← was X`
+> annotation (rf2-fyd8u), and the added/removed colouring fix
+> (rf2-9d4j8) landed — operator gets the density `:diff` used to
+> provide AND the comparison context `:full` lacked in one rendering.
+> The mode-toggle widget at
+> `day8.re-frame2-xray.views.diff-mode-toggle` and its per-surface
+> sub/event/slot trios are gone (no shim; pre-alpha posture). See the
+> §9.1.5.2 lineage note for the symmetric retirement on the App-DB
+> panel, Machine Inspector snapshot drill-in, and SUBSCRIPTIONS
+> value-cells surfaces.
 
 **Diff engine**: Editscript A* (`juji/editscript` 0.6.5). Replaces the
 home-grown leaf-walker classifier wholesale (10 fns retired at
@@ -1614,121 +1617,82 @@ shards). Other modes keep their existing defaults.
 + theme/density case. To see what R5 looks like, see story
 `diff-mode-3/r5-wholly-new-subtree`.
 
-#### §9.1.5.2 Universal three-mode toggle adoption (rf2-yqjrd)
+#### §9.1.5.2 Single FULL+DIFF rendering across diff surfaces (rf2-vv3m6 lineage)
 
-Per Mike's pair-debug 2026-05-27 the toggle established in §9.1.5.1
-applies to **every Xray surface that surfaces a `(before, after)`
-data view**, not just the HANDLER step's `:db` sub-section. The
-adoption uses ONE shared widget at
-`day8.re-frame2-xray.views.diff-mode-toggle/diff-mode-toggle` so the
-operator sees the same `[diff][full][full+diff]` button-bar shape
-regardless of panel.
+Per Mike pair-debug 2026-05-29 the `[diff][full][full+diff]` mode
+toggle (rf2-n2jig + rf2-yqjrd) retired across every Xray surface
+that surfaces a `(before, after)` data view. FULL+DIFF is the single
+rendering — the full data tree with inline diff annotations against
+`:before`, painted per the R1-R8 grammar (§9.1.5.1).
 
-**Affected surfaces** (post-rf2-yqjrd):
+**Affected surfaces** (single rendering, no per-surface mode slot):
 
-| Surface                           | Sub                                       | Set event                                       | Default |
-|-----------------------------------|-------------------------------------------|-------------------------------------------------|---------|
-| Epoch HANDLER step `:db`          | `:rf.xray.epoch/db-diff-mode`             | `:rf.xray.epoch/set-db-diff-mode`               | `:full+diff` |
-| App-DB panel (panel-wide)         | `:rf.xray.app-db/diff-mode`               | `:rf.xray.app-db/set-diff-mode`                 | `:full+diff` |
-| Machine Inspector snapshot drill-in | `:rf.xray.machine-inspector/diff-mode`  | `:rf.xray.machine-inspector/set-diff-mode`      | `:full+diff` |
-| Epoch SUBSCRIPTIONS step value cells | `:rf.xray.epoch/subs-value-diff-mode`  | `:rf.xray.epoch/set-subs-value-diff-mode`       | `:full+diff` |
-
-All four surfaces install their sub + event pair via the shared
-`day8.re-frame2-xray.views.diff-mode-toggle/reg-mode-sub+event!`
-helper (rf2-0cyjm / rf2-44xya) — one call per surface, identical
-naming convention enforced at the source.
-
-Per-surface mode behaviour follows the same vocabulary as §9.1.5.1's
-HANDLER `:db`:
-
-- `:diff` — pure-diff lens (flat path-prefixed change list).
-- `:full` — pure-data lens (live current-state, no `:before`).
-- `:full+diff` — mode-3 combined lens (full tree + R1-R8 grammar
-  annotations against `:before`).
+| Surface                                | Rendering posture |
+|----------------------------------------|-------------------|
+| Epoch HANDLER step `:db`               | FULL+DIFF via edn-inspector with `:before` threaded |
+| App-DB panel                           | Section list, each section FULL+DIFF |
+| Machine Inspector snapshot drill-in    | Single edn-inspector mount, FULL+DIFF |
+| Epoch SUBSCRIPTIONS step value cells   | Per-row leaf-scalar (rf2-fyd8u) or container FULL+DIFF |
 
 **R-rule applicability across surfaces**: all R1-R8 rules from
-§9.1.5.1 apply uniformly to every surface in `:full+diff` mode.
-Rules that have no work to do on a given value shape trivially
-no-op rather than special-cased per surface — e.g. R6 (vector
-shift-detection) no-ops on map containers; R2 (key glyph) no-ops
-on primitive cell values like a SUBSCRIPTIONS row's scalar return;
-R3 (collapsed-container `[N∆]` chip) no-ops on leaf scalars. The
-shared widget + shared projection engine (`day8.re-frame2-xray.diff.engine`)
-hold the grammar; per-surface mounts contribute the
-`(before, after)` value pair PLUS the `:full-with-diff?` opt
-(§10.0.12) that activates the R3 + R4 structural-context chrome.
-Mode-3 (`:full+diff`) call sites MUST pass `:full-with-diff? true`
-alongside `:before`; mode-2 (`:diff`) call sites MUST NOT — see
-§10.0.12 for the per-surface obligations + the asymmetric silent-
-failure cost of getting it wrong.
+§9.1.5.1 apply uniformly to every surface. Rules that have no work
+to do on a given value shape trivially no-op rather than special-
+cased per surface — e.g. R6 (vector shift-detection) no-ops on map
+containers; R2 (key glyph) no-ops on primitive cell values like a
+SUBSCRIPTIONS row's scalar return; R3 (collapsed-container `[N∆]`
+chip) no-ops on leaf scalars. The shared projection engine
+(`day8.re-frame2-xray.diff.engine`) holds the grammar; per-surface
+mounts contribute the `(before, after)` value pair PLUS the
+`:full-with-diff? true` opt (§10.0.12) that activates the R3 + R4
+structural-context chrome.
 
-**Per-surface storage**: every surface registers its own sub +
-event pair so the modes are independent (operator's App-DB choice
-doesn't override the Machine Inspector choice).
+**Canonical `data-*` shape** (Cluster F — rf2-xvu24): every
+surface's enclosing section still carries
+`data-rf-xray-diff-mode="full+diff"` so browser-test selectors +
+DOM probes can pin "this section renders FULL+DIFF" against a
+uniform axis. The attribute is now a constant rather than a
+toggle-driven value; kept for selector compatibility with
+e2e specs that pre-date the retirement.
 
-**Canonical `data-testid` + `data-*` shapes** (Cluster F — rf2-7vv8f
-+ rf2-xvu24, with rf2-shuxd alignment): post-normalisation every
-surface follows ONE shape so browser-test selectors + DOM probes
-target a uniform axis. The rule is **testid prefix matches the
-sub-id namespace**, giving a single naming root across DevTools
-(testid) + Trace (sub-id):
+**Retired by rf2-vv3m6** (2026-05-29):
 
-| Surface | Toggle `:testid` prefix | Section-level data-attr |
-|---|---|---|
-| App-DB panel                          | `rf-xray-app-db-diff-mode`             | `data-rf-xray-diff-mode` |
-| Machine Inspector snapshot drill-in   | `rf-xray-machine-inspector-diff-mode`  | `data-rf-xray-diff-mode` |
-| Epoch HANDLER step `:db`              | `rf-xray-epoch-handler-db-diff-mode`   | `data-rf-xray-diff-mode` |
-| Epoch SUBSCRIPTIONS step value cells  | `rf-xray-epoch-subs-value-diff-mode`   | `data-rf-xray-diff-mode` |
+- The three-mode toggle widget itself
+  (`day8.re-frame2-xray.views.diff-mode-toggle`).
+- The four per-surface sub + event + slot trios
+  (`:rf.xray.epoch/db-diff-mode`,
+  `:rf.xray.epoch/subs-value-diff-mode`,
+  `:rf.xray.app-db/diff-mode`,
+  `:rf.xray.machine-inspector/diff-mode`, plus the matching
+  `set-*-diff-mode` events).
+- The `:diff` flat-row lens body in App-DB (`flat-diff-body`) and
+  Machine Inspector (`snapshot-flat-diff-body`) — FULL+DIFF carries
+  the same conveyance via the edn-inspector widget.
+- The HANDLER `:db` section's `db-diff-line` flat-row renderer.
+- The discoverability label `View` (rf2-fytu4) — no toggle, no label.
+- The shared `reg-mode-sub+event!` helper.
+- The `panel-top-bar-style` chrome on the App-DB panel + the
+  `mode-toggle-bar-style` / `mode-toggle-button-*-style` hoists in
+  the Epoch view layer.
+- The `:rf.xray.epoch/subs-value-diff-mode` testbed gallery
+  (`gallery_diff_mode_universal.cljs`) + its inventory smoke
+  cascade-B test.
 
-Per-button testids combine the prefix with the canonical mode suffix
-(`-diff`, `-full`, `-full-with-diff`) so `[data-testid$="-diff-mode-
-full-with-diff"]` matches the active-button of any surface in mode-3.
-The active button itself reports `aria-pressed="true"` — that is the
-single source of truth for "which mode is selected" (rf2-xlmhh — the
-toggle bar's redundant `data-mode` retired per `tools/xray/spec/
-Conventions.md` §264; section-level `data-rf-xray-diff-mode` survives
-as an enclosing-section decoration only).
-
-**Discoverability label** (rf2-fytu4): every consumer passes
-`:label "View"` to the shared widget. The widget renders the label
-inline with the bar (`View [diff][full][full+diff]`) so a first-time
-operator has a contextual anchor on every surface — no per-surface
-hand-rolled labels.
-
-**Retired by rf2-yqjrd**:
+**Retired earlier by rf2-yqjrd** (2026-05-27, still applies):
 
 - The Machine Inspector's prior Before/After CSS-Grid side-by-side
-  layout (rf2-3d987 issue #3 chrome). Mode-3 (`:full+diff`)
-  carries the same meanings — full AFTER state + diff context +
-  comparison — in a single unified mount via the R1-R8 grammar.
+  layout (rf2-3d987 issue #3 chrome). FULL+DIFF carries the same
+  meanings — full AFTER state + diff context + comparison — in a
+  single unified mount via the R1-R8 grammar.
 - Per-section auto-routing in App-DB (the `:before` sentinel
-  branch). Replaced by an explicit panel-wide toggle so the
-  operator chooses the lens.
-
-**Note on Story snapshot identity**: the bead (rf2-yqjrd) listed
-Story snapshot as a fourth surface. Investigation 2026-05-27:
-Story's `snapshot-identity` (per rf2-zfy1e) is a content-hash
-string consumed by visual-regression services — there's no value-
-diff UI surface in Story to retire. The universal toggle adoption
-is therefore limited to the three Xray surfaces above.
+  branch). Replaced by FULL+DIFF as the single rendering.
 
 **Single canonical diff engine** (rf2-xuyac, 2026-05-27): every
-universalised `:diff` lens (App-DB panel · Machine Inspector
-snapshot · Epoch HANDLER `:db`) routes through the canonical
+diff surface (App-DB panel · Machine Inspector snapshot · Epoch
+HANDLER `:db` · Epoch SUBSCRIPTIONS) routes through the canonical
 Editscript-A* engine at `day8.re-frame2-xray.diff.engine/project`
-and consumes the same `:flat-rows` channel — projected into the
-universal 4-tuple shape `[path before after op]` at the call
-site. Before rf2-xuyac the App-DB + HANDLER `:db` `:diff` lenses
-still routed through the home-grown
-`app-db-diff-helpers/diff-paths` walker (a structural-sharing
-key-walker, not Editscript); engines disagreed on R6 vector-shift,
-R7 type-change, and R8 redaction, and an operator switching from
-`:full+diff` mode-3 to the `:diff` lens of the same data saw
-different chrome. Post-migration the comparison is engine-stable:
-same `(before, after)` → same `:flat-rows` → same chrome → identical
-R-rule application. The home-grown walker is retained ONLY for
-the trace panel's `db-changed-diff-triples` (out of scope for
-rf2-xuyac; see §9.1.5.3 for the residual surface).
+and consumes the same `:flat-rows` channel. Same `(before, after)`
+→ same `:flat-rows` → same chrome → identical R-rule application
+across every surface.
 
 ### §9.1.6 Numbered cascade chrome
 
@@ -2318,12 +2282,12 @@ The accompanying view-layer chrome:
 
 > **Retired pair-debug 2026-05-26** in Mike's commit `ee9def224`. The
 > APP-DB DIFF step was a state-mutation lens that rode immediately after
-> HANDLER. It was redundant with HANDLER's `:db` sub-section + its
-> `[diff][full][full+diff]` toggle (§9.1.5.1), which surfaces the same data in-context. The
-> projection no longer emits this step and the `badge-set` no longer
-> carries `:APP-DB-DIFF`. Section retained as a stub for searchability;
-> historical design intent is reachable via the bead history (rf2-rrykz
-> original + rf2-zkiu5 retirement).
+> HANDLER. It was redundant with HANDLER's `:db` sub-section (§9.1.5.1,
+> FULL+DIFF single rendering post-rf2-vv3m6), which surfaces the same
+> data in-context. The projection no longer emits this step and the
+> `badge-set` no longer carries `:APP-DB-DIFF`. Section retained as a
+> stub for searchability; historical design intent is reachable via
+> the bead history (rf2-rrykz original + rf2-zkiu5 retirement).
 
 ### §9.1.10.4 Cascading-dispatches section — RETIRED 2026-05-26 (rf2-yx1ae · rf2-zkiu5)
 
@@ -3191,7 +3155,7 @@ zoom root is a no-op. The renderer composes the absolute path as
 `(into zoom-path-prefix path)` so the dispatched `:zoom-to` carries the
 full path from the ORIGINAL root, not the currently-displayed root.
 
-#### §10.0.12 `:full-with-diff?` opt — mode-3 chrome activation (rf2-n2jig · rf2-6cm03)
+#### §10.0.12 `:full-with-diff?` opt — FULL+DIFF chrome activation (rf2-n2jig · rf2-6cm03 · rf2-vv3m6)
 
 The §9.1.5.1 R-rule grammar partitions diff chrome into two visual
 intensities — the per-leaf annotation layer (R1, R2, R7, R8) and the
@@ -3200,72 +3164,48 @@ rail). The widget paints the annotation layer whenever `:before` is
 present; it paints the structural-context layer ONLY when the caller
 also passes `:full-with-diff? true`.
 
-The split is a contract — not a runtime guess — because the same
-widget serves TWO operator intents the universal toggle (§9.1.5.2)
-distinguishes:
-
-- **Mode-2 (`:diff`)** — pure-diff lens; per-leaf focused chrome,
-  no structural rail. Callers pass `:before` only.
-- **Mode-3 (`:full+diff`)** — combined lens; the operator wants the
-  full tree AND the rail + chip cues that visually anchor where the
-  change-bearing subtrees live. Callers pass `:before` AND
-  `:full-with-diff? true`.
+The split survives the rf2-vv3m6 toggle retirement: every diff
+surface listed in §9.1.5.2 paints FULL+DIFF unconditionally and
+MUST set `:full-with-diff? true` on its edn-inspector mount.
 
 **Contract**:
 
 ```clj
-;; Mode-2 (diff lens) — annotation chrome only
-[ei/edn-inspector after-value
- {:before before-value}]
-
-;; Mode-3 (full+diff lens) — annotation + R3/R4 structural chrome
+;; FULL+DIFF — annotation + R3/R4 structural chrome
 [ei/edn-inspector after-value
  {:before before-value
   :full-with-diff? true}]
 ```
 
-**Consequence of NOT passing it from a mode-3 call site**: silent
+**Consequence of NOT passing it from a FULL+DIFF call site**: silent
 absence of R4 rails + R3 chips. The widget still paints R1/R2/R7/R8
 because those are driven off `:before` alone, so the surface looks
 "diff-y" at a glance but the operator loses the structural-context
-cues that the universal toggle's "full+diff" promise implies. This
-is the root-cause class of bug rf2-kkhss (App-DB silently dropped R4
-when its mode-3 call site omitted the flag).
-
-**Mode-2 call sites MUST NOT pass `:full-with-diff? true`** —
-painting the rail through every change-bearing subtree on the
-per-leaf diff lens defeats the lens's per-leaf focus. The
-distinction is asymmetric: omitting the flag silently degrades
-mode-3; passing it incorrectly silently corrupts mode-2.
+cues that the FULL+DIFF rendering promises. This was the root-cause
+class of bug rf2-kkhss (App-DB silently dropped R4 when its call
+site omitted the flag).
 
 **Per-surface call-site obligation** — the four canonical consumer
-surfaces from §9.1.5.2 each carry a mode-3 branch; that branch MUST
-set `:full-with-diff? true`:
+surfaces from §9.1.5.2 each MUST set `:full-with-diff? true`:
 
-| Surface                              | Mode-3 call site                                                                                       | Test surface (verifies the opt + chrome are wired)                          |
+| Surface                              | Call site                                                                                              | Test surface                                                                |
 |--------------------------------------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-section` `:full+diff` branch (rf2-n2jig)                        | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
-| App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `display-card`'s `:before`-present branch (rf2-kkhss)                | App-DB panel-gallery story fixtures + segment-inspector tests               |
-| Machine Inspector snapshot drill-in  | `panels/machine_inspector.cljs` — `snapshot-block` mode-3 `assoc` (`:before` + `:full-with-diff?`)     | `data-testid="rf-xray-machine-snapshot-block-<id>"` with `data-rf-xray-diff-mode="full+diff"` |
-| Epoch SUBSCRIPTIONS step value cells | `panels/epoch/view.cljs` — `subs-value-cell` `:full+diff` branch                                       | `data-testid="rf-xray-epoch-subs-value-cell"` mode-3 path                   |
-
-Mode-2 branches (the per-surface `:diff` lens) omit `:full-with-diff?`
-entirely — the flag's silent-false default IS the mode-2 contract.
+| Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-diff-block` (rf2-n2jig)                                          | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
+| App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `value-body`'s `:before`-present branch (rf2-kkhss)                  | App-DB panel-gallery story fixtures + segment-inspector tests               |
+| Machine Inspector snapshot drill-in  | `panels/machine_inspector.cljs` — `snapshot-block` (`:before` + `:full-with-diff?`)                    | `data-testid="rf-xray-machine-snapshot-block-<id>"` with `data-rf-xray-diff-mode="full+diff"` |
+| Epoch SUBSCRIPTIONS step value cells | `panels/epoch/view.cljs` — `subs-value-cell` container branch                                          | `data-testid="rf-xray-epoch-sub-row-*"` FULL+DIFF mount                     |
 
 **Canonical visual reference** — the Story fixtures under
 `tools/xray/testbeds/panel_gallery/fixtures_diff_mode_3.cljs` pass
 `:full-with-diff? true` on every variant; that is the operator-
-facing pin for the mode-3 chrome.
+facing pin for the FULL+DIFF chrome.
 
-**Why the opt isn't auto-inferred from mode** — the widget has no
-read of the surrounding §9.1.5.2 mode sub. The mode lives in the
-consumer panel's frame; the widget is a pure-data Reagent component
-that takes `(value, opts)`. Threading the mode through opts would
-duplicate the surrounding panel's mode choice into the widget's
-contract; the boolean `:full-with-diff?` is the minimal handshake
-that lets the consumer panel keep ownership of the mode while the
-widget keeps a pure data interface. Audit trail: rf2-ya3nj 24hr
-audit, finding M3 (spec drift) → rf2-6cm03 (this section).
+**Why the opt isn't auto-inferred** — the widget is a pure-data
+Reagent component that takes `(value, opts)`. The boolean
+`:full-with-diff?` is the minimal handshake that lets the consumer
+panel keep ownership while the widget keeps a pure data interface.
+Audit trail: rf2-ya3nj 24hr audit, finding M3 (spec drift) →
+rf2-6cm03 (this section).
 
 ### §10.1 Capabilities (LOCKED per B.9 super-prompt)
 
