@@ -30,16 +30,13 @@
 
   ## Pre-alpha posture
 
-  One surface in `spec/API.md` ships as a TBD-impl stub that emits a
-  `:rf.warning/*` trace and otherwise no-ops:
-
-    - `load-theme` — programmatic theme swap. The theme module
-      exists (`day8.re-frame2-xray.theme/*`) but the runtime CSS-
-      swap surface is not yet wired.
-
-  When called, each stub emits a structured trace event tagged with
-  `:origin :xray` so the gap is visible in the trace stream
-  (consistent with `spec/API.md` §Trace-event tags Xray emits).
+  Every surface this facade exposes is wired end-to-end — no
+  TBD-impl stubs, no documented-warning-emit placeholders. `init!`,
+  `load-theme`, the mount/config re-exports, and the frame picker
+  all route through their respective backing surfaces (the persisted
+  Settings shape, the theme module's CSS-swap site, the mount
+  layer's singleton guards). Future opt-keys that don't yet have a
+  backing surface land here only after their machinery does.
 
   ## What this namespace deliberately does NOT expose
 
@@ -59,6 +56,7 @@
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.settings.effects :as settings-effects]
             [day8.re-frame2-xray.theme.global-styles :as global-styles]))
 
 ;; ---- mount entry points (re-exports from mount.cljs) --------------------
@@ -118,24 +116,41 @@
 
   Per `spec/API.md` §Public CLJS API, `opts` accepts:
 
-      {:default-frame :app/main          ;; target-frame for the scrubber
-       :theme         :dark              ;; / :light / :high-contrast
-       :density       :compact           ;; / :cosy
-       :ai-provider   {:provider :claude ;; ...}
-       :buffer-depths {:trace 200 :epoch 50}}
+      {:default-frame :app/main         ;; target-frame for the scrubber
+       :theme         :dark             ;; / :light  (settings persist)
+       :density       :compact          ;; / :cosy   (settings persist)
+       :buffer-depths {:epoch 50}}      ;; per-frame ring depth
 
-  The current pre-alpha posture wires the four foundation side-effects
-  (registry, trace-cb, epoch-cb, keybinding listener) and threads
-  `:default-frame` through to the `:rf.xray/set-target-frame` event.
-  The remaining keys (`:theme`, `:density`, `:ai-provider`,
-  `:buffer-depths`) are accepted today but ignored at runtime — the
-  per-area machinery lands under follow-on beads. Passing them now
-  keeps host code forward-compatible.
+  Wires the four foundation side-effects (registry, trace-cb, epoch-cb,
+  keybinding listener), then threads each supplied opt through to its
+  backing surface:
+
+  - `:default-frame` — dispatches `:rf.xray/set-target-frame` so the
+    scrubber + every dependent panel re-fire on the standard reactive
+    path.
+  - `:theme` — writes to the persisted Settings shape (slot `:theme`)
+    and applies the matching `rf-xray-theme-*` class so the next paint
+    honours the new palette without a reload.
+  - `:density` — writes `:general :density` into the persisted
+    Settings shape and applies the matching `--rf-xray-font-size` so
+    Views detail rows + App-db diff rows rescale immediately.
+  - `:buffer-depths` — accepts `{:epoch <n>}`; writes `:general
+    :epoch-history` and drives the substrate's per-frame ring
+    (`:depth` + `:trace-events-keep` to the same n) so trace is
+    retained for every retained epoch. The `:trace` axis from prior
+    spec drafts is folded into this single knob per the rf2-3g9nw D1=a
+    ruling + Mike pair-debug 2026-05-27 (one operator knob, atomic
+    relationship). Passing `:trace` is silently dropped pending a
+    second-axis separation if one re-emerges.
+
+  Unknown opt keys are silently ignored (forward-compat): a future
+  release adds keys here without breaking older callers, and a host
+  passing a newer key against an older Xray MUST NOT break either.
 
   Returns nothing."
   ([]
    (init! nil))
-  ([{:keys [default-frame] :as _opts}]
+  ([{:keys [default-frame theme density buffer-depths] :as _opts}]
    (registry/register-xray-handlers!)
    (preload/register-trace-collector!)
    (preload/register-epoch-collector!)
@@ -143,6 +158,16 @@
    (when default-frame
      (rf/with-frame :rf/xray
        (rf/dispatch [:rf.xray/set-target-frame default-frame])))
+   (when theme
+     (config/update-setting! :theme nil theme)
+     (settings-effects/apply-theme! theme))
+   (when density
+     (config/update-setting! :general :density density)
+     (settings-effects/apply-density-font-size! density))
+   (when-let [epoch-depth (and (map? buffer-depths) (:epoch buffer-depths))]
+     (when (and (number? epoch-depth) (pos? epoch-depth))
+       (config/update-setting! :general :epoch-history (long epoch-depth))
+       (settings-effects/apply-epoch-history! (long epoch-depth))))
    nil))
 
 ;; ---- frame picker -------------------------------------------------------
