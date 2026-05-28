@@ -55,7 +55,7 @@ Each variant has its own isolated copy of every per-frame surface. State does no
 - **Epoch history** — `(rf/epoch-history :story.counter/loaded)` is its own ring. Dispatches into one variant never appear in another's history.
 - **Sub cache** — `(rf/sub-cache)` is per-frame; `[:count]` materialised in `:story.counter/loaded` is independent of `[:count]` materialised in `:story.counter/empty`.
 - **Trace events** — `:frame` is stamped on every emitted trace event (Spec 009 §Per-frame stamping). Filter raw trace by `{:frame :story.counter/loaded}` to scope.
-- **`:rf/elision :declarations`** — the elision registry lives in app-db (Spec 009 §Nomination paths), so large-path nominations are per-frame too. A variant that declares `[:cart :inventory]` as a large-path doesn't affect another variant's elision behaviour.
+- **`:rf/runtime :elision :declarations`** — the elision registry lives in app-db under the `:rf/runtime` root (Spec 009 §Nomination paths), so large-path nominations are per-frame too. A variant that declares `[:cart :inventory]` as a large-path doesn't affect another variant's elision behaviour.
 - **`:on-error` policy** — each frame can carry its own policy. Variants intended to provoke errors can install a policy that records-and-continues without affecting sibling variants.
 - **`:fx-overrides`** — Story's `:fx-override`-kind decorators stub fx per-variant (e.g. `:http → :stub-http`). Calls into one variant's stub do not affect another.
 

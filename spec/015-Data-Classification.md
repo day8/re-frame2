@@ -488,13 +488,14 @@ The CLJS reference materialises the merged mark set at `[:rf/runtime :elision :s
 
 ```clojure
 ;; Reference shape (CLJS, not pattern-required)
-{:rf/elision
- {:sensitive-declarations
-  {[:user :ssn]      {:source :marks}
-   [:auth :token]    {:source :marks}
-   [:auth :jwt]      {:source :propagated :from {:event :auth/log-in-success :arg-path [:jwt]}}}
-  :large-declarations
-  {[:docs :csv-upload] {:source :marks}}}}
+{:rf/runtime
+ {:elision
+  {:sensitive-declarations
+   {[:user :ssn]      {:source :marks}
+    [:auth :token]    {:source :marks}
+    [:auth :jwt]      {:source :propagated :from {:event :auth/log-in-success :arg-path [:jwt]}}}
+   :large-declarations
+   {[:docs :csv-upload] {:source :marks}}}}}
 ```
 
 The `:source` slot is for tooling (Xray's "why is this redacted?" affordance reads it); the lookup contract only requires the path → presence mapping. Per-source attribution is a CLJS-reference convenience.

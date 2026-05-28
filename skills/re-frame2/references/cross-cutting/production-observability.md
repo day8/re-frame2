@@ -34,7 +34,7 @@ Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per 
 
 No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface. Verified: `re-frame.event-emit/dispatch-on-event!` (`event_emit.cljc:167-230`); record shape per the ns docstring §Record shape.
 
-**Handler-meta `:sensitive?` honoured BEFORE elision:** if the event's registered handler-meta carries `:sensitive? true`, `dispatch-on-event!` drops the record entirely — listeners are NOT invoked, regardless of which paths in the payload happen to match `[:rf/elision]` declarations. Sensitive at the handler boundary is the headline privacy filter.
+**Handler-meta `:sensitive?` honoured BEFORE elision:** if the event's registered handler-meta carries `:sensitive? true`, `dispatch-on-event!` drops the record entirely — listeners are NOT invoked, regardless of which paths in the payload happen to match `[:rf/runtime :elision]` declarations. Sensitive at the handler boundary is the headline privacy filter.
 
 ## `register-error-listener!` — one record per runtime error
 

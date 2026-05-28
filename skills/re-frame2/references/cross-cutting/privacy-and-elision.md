@@ -1,6 +1,6 @@
 # Privacy and Size Elision
 
-re-frame2 uses a **schema-first wire-boundary elision pass**. Every tool or listener that emits trace, listener, snapshot, sub-cache, or path data routes through `rf/elide-wire-value`, which consults the active frame's schema-derived `[:rf/elision]` registry.
+re-frame2 uses a **schema-first wire-boundary elision pass**. Every tool or listener that emits trace, listener, snapshot, sub-cache, or path data routes through `rf/elide-wire-value`, which consults the active frame's schema-derived `[:rf/runtime :elision]` registry.
 
 Two per-slot Malli metadata flags are canonical:
 
@@ -61,14 +61,15 @@ Off-box defaults suppress both large and sensitive values. `:rf.size/include-lar
 
 ## Registry Shape
 
-The runtime owns `[:rf/elision]` in app-db:
+The runtime owns `[:rf/runtime :elision]` in app-db:
 
 ```clojure
-{:rf/elision
- {:declarations {[:user :profile :avatar-png]
-                 {:large? true :source :schema :hint "base64 PNG, up to 2MB"}}
-  :sensitive-declarations {[:auth :login :password]
-                           {:sensitive? true :source :schema}}}}
+{:rf/runtime
+ {:elision
+  {:declarations {[:user :profile :avatar-png]
+                  {:large? true :source :schema :hint "base64 PNG, up to 2MB"}}
+   :sensitive-declarations {[:auth :login :password]
+                            {:sensitive? true :source :schema}}}}}
 ```
 
 The registry is populated from app schemas and refreshed on schema hot reload. It is not a user mutation surface.

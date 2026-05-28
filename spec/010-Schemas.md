@@ -265,11 +265,12 @@ Slots marked `:large? true` are the **canonical AI-discoverable entry point** fo
    [:uploaded-pdf {:large? true :hint "Upload preview blob"} :string]])
 
 ;; At boot, the framework populates:
-;;   {:rf/elision
-;;     {:declarations
-;;       {[:user :uploaded-pdf] {:large? true
-;;                               :source :schema
-;;                               :hint   "Upload preview blob"}}}}
+;;   {:rf/runtime
+;;     {:elision
+;;       {:declarations
+;;         {[:user :uploaded-pdf] {:large? true
+;;                                 :source :schema
+;;                                 :hint   "Upload preview blob"}}}}}
 ;;
 ;; Every wire-boundary emit thereafter substitutes the path with:
 ;;   {:rf.size/large-elided {:path   [:user :uploaded-pdf]
@@ -384,11 +385,12 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
   [:map [:password {:sensitive? true :hint "argon2id"} :string]])
 
 ;; After schema population, the frame's app-db carries:
-;;   {:rf/elision
-;;     {:sensitive-declarations
-;;       {[:user :password] {:sensitive? true
-;;                           :source     :schema
-;;                           :hint       "argon2id"}}}}
+;;   {:rf/runtime
+;;     {:elision
+;;       {:sensitive-declarations
+;;         {[:user :password] {:sensitive? true
+;;                             :source     :schema
+;;                             :hint       "argon2id"}}}}}
 ```
 
 The sibling slot lives under the shared `[:rf/runtime :elision]` reserved root per [Spec-Schemas §`:rf/elision-registry`](Spec-Schemas.md#rfelision-registry). Two slots (not one merged map) because the `:large?` and `:sensitive?` flags compose orthogonally — a slot may carry either or both, and the schema-validation emit-site's composition rule (sensitive wins) is enforced at trace time, not at registry time. Storing them separately keeps the per-flag query (`(get-in db [:rf/runtime :elision :sensitive-declarations <path>])`) O(1) without value-shape inspection. Hot-reload of a schema refreshes `:source :schema` entries; removing `:sensitive?` prunes stale schema declarations.
