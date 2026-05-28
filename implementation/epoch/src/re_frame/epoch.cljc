@@ -356,7 +356,14 @@
   Emits `:rf.epoch/snapshotted` with a `:outcome` tag so trace listeners
   can discriminate clean from halted boundaries without inspecting the
   epoch-history vector. Listeners (`register-epoch-listener!`) receive every
-  record regardless of outcome."
+  record regardless of outcome.
+
+  See also `commit-halt-record!` — the sibling commit path for the
+  depth-exceed halt whose halting event never ran, so the buffer is empty
+  at halt and `settle!`'s empty-buffer skip would suppress the record.
+  Both fns share the private `commit-record!` helper; `commit-halt-record!`
+  synthesises the halting event's trigger explicitly while `settle!` lets
+  `build-record` derive it from the harvested buffer."
   ([frame-id db-before db-after]
    (settle! frame-id db-before db-after :ok nil))
   ([frame-id db-before db-after outcome halt-reason]
@@ -401,7 +408,13 @@
 
   Harvests-and-clears any residual buffer first so a stray pre-halt emit
   (there should be none under per-event settling) can't leak into the
-  next cascade for this frame."
+  next cascade for this frame.
+
+  See also `settle!` — the clean-path sibling that handles every per-
+  event `:ok` settle. Both fns share the private `commit-record!`
+  helper; `settle!` lets `build-record` derive the trigger from the
+  harvested buffer (an `:event/run-start` is always present on the
+  clean path) and skips on an empty buffer."
   [frame-id db-before db-after outcome halt-reason trigger-event]
   (when interop/debug-enabled?
     (let [events (state/harvest-buffer! frame-id)]
