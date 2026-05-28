@@ -109,15 +109,15 @@ These five surfaces work the same across Reagent, UIx, and Helix. They're how vi
   ```
 - **Description**: "Children inside this provider see `:todo` as their current frame." Lexical scope for the implicit frame; nestable; pairs with `with-frame` for non-component code.
 
-### `with-frame`
+### `with-frame` / `with-new-frame`
 
-- **Kind**: macro
-- **Signature**:
+- **Kind**: macros (sibling pair)
+- **Signatures**:
   ```clojure
-  (with-frame :keyword body)
-  (with-frame [sym expr] body)
+  (with-frame :keyword body)        ;; pin to an existing frame-id
+  (with-new-frame [sym expr] body)  ;; eval, bind, run, destroy on exit
   ```
-- **Description**: "Run this code as if the current frame were `:keyword`." Two shapes — bare keyword vs let-binding — documented in [002 §with-frame](../../spec/002-Frames.md#with-frame).
+- **Description**: `with-frame` pins `*current-frame*` to an existing frame-id; the frame is not created or destroyed. `with-new-frame` evals `expr`, binds the resulting id to `sym`, runs body in that frame's dynamic context, and destroys the frame on exit. Each rejects the other's argument shape at compile time. Documented in [002 §with-frame and with-new-frame](../../spec/002-Frames.md#with-frame-and-with-new-frame).
 
 ### `bound-fn`
 
@@ -172,20 +172,24 @@ The pattern composes inside `with-frame`:
 
 `bound-fn` is the broader hammer — it captures *every* dynamic-var binding into the closure, not just the frame. Use `dispatcher` / `subscriber` for the common frame-capture case; reach for `bound-fn` when the closure needs to honour other bindings (interceptor overrides, the dev-time trace context, etc.).
 
-### `with-frame`'s two shapes
+### `with-frame` and `with-new-frame` — the sibling pair
 
 ```clojure
-;; Bare keyword — most common
+;; Pin form — most common: bind *current-frame* to an existing id
 (rf/with-frame :todo
   (rf/dispatch [::add-item ...]))
 
-;; Let-binding — when you want the keyword in a local
-(let [f (compute-frame-id ...)]
-  (rf/with-frame [chosen f]
+;; Pin to a computed id — pass the keyword directly, no extra binding
+(let [chosen (compute-frame-id ...)]
+  (rf/with-frame chosen
     (rf/dispatch [::action chosen])))
+
+;; Eval-bind-run-destroy form — create a throwaway frame for the body
+(rf/with-new-frame [f (rf/make-frame {:on-create [:test/initialise]})]
+  (rf/dispatch [::action f]))   ;; frame destroyed on exit
 ```
 
-Full semantics in [002 §with-frame](../../spec/002-Frames.md#with-frame).
+Full semantics in [002 §with-frame and with-new-frame](../../spec/002-Frames.md#with-frame-and-with-new-frame).
 
 ## Reagent: the default substrate
 

@@ -12,7 +12,7 @@
             [re-frame.registrar :as registrar]
             [realworld.auth]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn login-happy-path-test []
   (th/reg-canned-success! :realworld.test/login-success
@@ -22,7 +22,7 @@
                                   :bio      nil
                                   :image    nil}})
 
-  (with-frame [f (rf/make-frame {:on-create    [:auth/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create    [:auth/initialise]
                                  :fx-overrides {:rf.http/managed      :realworld.test/login-success
                                                 :auth.session/persist :rf/no-op}})]
     (assert (= :idle (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
@@ -62,7 +62,7 @@
                           {:status 422
                            :body   {:errors {:body ["email or password is invalid"]}}})
 
-  (with-frame [f (rf/make-frame {:on-create    [:auth/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create    [:auth/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
     (rf/dispatch-sync [:auth/flow [:auth/login {:email "x@y.z" :password "wrong"}]]
                       {:frame f})

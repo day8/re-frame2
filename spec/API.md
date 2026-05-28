@@ -123,14 +123,15 @@ The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | 002 |
-| `with-frame` | M | `(with-frame :keyword body)` *or* `(with-frame [sym expr] body)` | v1 | 002 |
+| `with-frame` | M | `(with-frame :keyword body)` — pin to an existing frame-id. Vector arg is a compile-time error (use `with-new-frame`) | v1 | 002 |
+| `with-new-frame` | M | `(with-new-frame [sym expr] body)` — eval `expr`, bind `sym`, run body, destroy frame on exit. Keyword arg is a compile-time error (use `with-frame`) | v1 | 002 |
 | `bound-fn` | M | `(bound-fn [args] body)` | v1 | 002 |
 | `frame-bound-fn` | Fn | `(frame-bound-fn f)` *or* `(frame-bound-fn frame-id f)` → frame-rebinding closure. Higher-order sibling of `bound-fn` — wrap an existing callback so its body always runs with `*current-frame*` re-bound. Canonical React click-handler shape | v1 | 002 |
 | `dispatcher` | Fn | `(dispatcher)` → `(fn [event] ...)` — captures the current frame at call time and returns a frame-bound dispatch fn. Safe to call during render AND from async callbacks where the dynamic-var binding has unwound | v1 | 002, 004 |
 | `subscriber` | Fn | `(subscriber)` → `(fn [query-v] ...)` — companion to `dispatcher` for subscribe. Captures the current frame at call time | v1 | 002, 004 |
 | `view` | Fn | `(view view-id)` → **render-fn** (runtime-lookup handle; returns the registered render-fn, *not* hiccup). Use in hiccup as `[(rf/view :id) args...]` — the lookup form for late-binding a registered view by id. | v1 | 001, 004 |
 
-`with-frame`'s two shapes (bare keyword vs let-binding) are documented in [002 §with-frame](002-Frames.md#with-frame).
+`with-frame` (pin) and `with-new-frame` (eval-bind-run-destroy) are documented in [002 §with-frame and with-new-frame](002-Frames.md#with-frame-and-with-new-frame). The macros are non-overlapping: each rejects the other's argument shape at compile time, with `:recovery` pointing the caller at the right sibling. Per rf2-twoc5.
 
 `bound-fn` is a CLJS-only macro; CLJS users either reach it via `rf/bound-fn` (after `(:require [re-frame.core :as rf])`) or `:require-macros [re-frame.core :refer [bound-fn]]`. `frame-bound-fn` is a plain fn, available on both CLJS and JVM (no macro indirection).
 
@@ -582,7 +583,7 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 
 ## Testing
 
-The testing surface lives across three namespaces. `re-frame.core` carries the production primitives that double as testing entry points (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`). `re-frame.test-support` ships the test-only fixture machinery and test-flavoured helpers. `re-frame.test-helpers` ships the view-assertion helpers (hiccup-walk + `testid` authoring). `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
+The testing surface lives across three namespaces. `re-frame.core` carries the production primitives that double as testing entry points (`make-frame`, `with-frame`, `with-new-frame`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`). `re-frame.test-support` ships the test-only fixture machinery and test-flavoured helpers. `re-frame.test-helpers` ships the view-assertion helpers (hiccup-walk + `testid` authoring). `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
 
 | API | M/Fn | Signature | Status | Spec | Notes |
 |---|---|---|---|---|---|

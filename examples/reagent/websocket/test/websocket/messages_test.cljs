@@ -17,7 +17,7 @@
             [websocket.core]
             [websocket.messages :as messages]
             [websocket.connection])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn- snapshot [db]
   (get-in db [:rf/machines :ws/connection]))
@@ -36,7 +36,7 @@
 (defn request-reply-correlation-test []
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
@@ -60,7 +60,7 @@
 (defn server-push-test []
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
@@ -78,7 +78,7 @@
 (defn subscription-tracking-test []
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
@@ -100,7 +100,7 @@
 (defn handle-message-newest-first-test []
   ;; :ws/handle-message is the dispatch :ws/received uses for pushed
   ;; bodies. The slice keeps them newest-first.
-  (with-frame [f (new-frame)]
+  (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:ws/handle-message {:type :push :n 1}] {:frame f})
     (rf/dispatch-sync [:ws/handle-message {:type :push :n 2}] {:frame f})
     (rf/dispatch-sync [:ws/handle-message {:type :push :n 3}] {:frame f})

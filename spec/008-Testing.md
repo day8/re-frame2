@@ -50,7 +50,7 @@ The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — the
 | Need | API |
 |---|---|
 | Per-test frame fixture | `(rf/make-frame opts)` / `(rf/destroy-frame! f)` |
-| Scoped REPL/test block | `(rf/with-frame :frame-id body...)` *or* `(rf/with-frame [sym expr] body...)` — see [§`with-frame` call shapes](#with-frame-call-shapes) |
+| Scoped REPL/test block | `(rf/with-frame :frame-id body...)` (pin) *or* `(rf/with-new-frame [sym expr] body...)` (eval-bind-run-destroy) — see [§`with-frame` and `with-new-frame`](#with-frame-and-with-new-frame) |
 | Synchronous test trigger | `(rf/dispatch-sync event)` or `(rf/dispatch-sync event opts)` |
 | Stub fx (per-call) | `(rf/dispatch-sync ev {:fx-overrides {:my-app/http stub-fn}})` |
 | Stub fx (per-frame) | `(rf/reg-frame :test-frame {:fx-overrides {…}})` |
@@ -65,11 +65,11 @@ The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — the
 | Test-flavoured helpers | `(ts/dispatch-sequence events)` — chained `dispatch-sync`; `(ts/assert-path-equals path expected)` — clojure.test-aware assertion mirroring the `:rf.assert/path-equals` event used inside Story `:play` blocks (see [007 §Play functions](007-Stories.md#play-functions)); `(ts/assert-db-equals expected-db)` — companion full-db form (no event analog). All three ship with `re-frame.test-support`. |
 | Single-frame e2e fixture | `(th/with-app-fixture {:install f :root-view v} :frame-id body...)` — create + bind frame, run `:install`, stash `:root-view`, destroy on exit. Pair with `(th/expect-text testid expected)` and `(th/wait-until pred-or-testid expected)` for the two-line single-frame test pattern. |
 
-### `with-frame` call shapes
+### `with-frame` and `with-new-frame`
 
-`with-frame` has **two canonical shapes**, both normative and both required of every host. The canonical definition lives in [002 §`with-frame`](002-Frames.md#with-frame); this section gathers the test-surface usage notes.
+Two sibling macros — split per concern, the macro name telegraphs the intent (rf2-twoc5, Mike-approved 2026-05-28). Both are normative and both required of every host. The canonical definition lives in [002 §`with-frame` and `with-new-frame`](002-Frames.md#with-frame-and-with-new-frame); this section gathers the test-surface usage notes.
 
-#### Shape 1 — bare keyword (operate on an existing frame)
+#### `with-frame` — pin to an existing frame
 
 ```clojure
 (rf/with-frame :scratch
@@ -77,30 +77,23 @@ The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — the
   @(rf/subscribe [:status]))
 ```
 
-Pins `*current-frame*` to the supplied frame id for the body's dynamic extent. The frame is **not** created or destroyed by the macro — the keyword is used as-is. Used when the frame already exists (registered via `reg-frame` or created earlier via `make-frame`), e.g. shared fixtures across multiple `deftest` blocks, REPL sessions.
+Pins `*current-frame*` to the supplied frame id for the body's dynamic extent. The frame is **not** created or destroyed by the macro — the keyword is used as-is. Used when the frame already exists (registered via `reg-frame` or created earlier via `make-frame`), e.g. shared fixtures across multiple `deftest` blocks, REPL sessions. Rejects a vector argument at compile time (`:rf.error/with-frame-vector-form`); use `with-new-frame` for eval-bind-run-destroy.
 
-#### Shape 2 — binding-vector (create, use, destroy)
+#### `with-new-frame` — create, use, destroy
 
 ```clojure
-(rf/with-frame [binding-sym expr] body...)
+(rf/with-new-frame [binding-sym expr] body...)
 ```
 
-Evaluates `expr` (typically `(rf/make-frame opts)`), binds the result to `binding-sym` (so the body can refer to it for `get-frame-db`, `dispatch-sync` opts, etc.), sets that frame as the implicit `*current-frame*` for the body's dynamic extent (so `dispatch-sync` and `subscribe` inside the body resolve to it without needing `{:frame ...}`), and on body exit (success or exception) calls `destroy-frame!` on whatever was bound. Modelled on `with-open`. Used when the frame's lifetime is exactly the body — per-test fixtures, devcard widgets, REPL sessions wanting guaranteed teardown.
+Evaluates `expr` (typically `(rf/make-frame opts)`), binds the result to `binding-sym` (so the body can refer to it for `get-frame-db`, `dispatch-sync` opts, etc.), sets that frame as the implicit `*current-frame*` for the body's dynamic extent (so `dispatch-sync` and `subscribe` inside the body resolve to it without needing `{:frame ...}`), and on body exit (success or exception) calls `destroy-frame!` on whatever was bound. Modelled on `with-open`. Used when the frame's lifetime is exactly the body — per-test fixtures, devcard widgets, REPL sessions wanting guaranteed teardown. Rejects a keyword argument at compile time (`:rf.error/with-new-frame-keyword-form`); use `with-frame` to pin.
 
-#### Discriminator
-
-The macro inspects its first argument:
-
-- Keyword → Shape 1.
-- Vector `[sym expr]` → Shape 2.
-
-Both shapes are part of the normative test surface; tests, fixtures, and helper macros MAY freely use either, and hosts MUST support both.
+Both macros are part of the normative test surface; tests, fixtures, and helper macros MAY freely use either, and hosts MUST support both.
 
 ### JVM-runnable boundary (authoritative)
 
 Every entry in the table above is JVM-runnable, with the exceptions listed below — this is the single authoritative statement of the test-surface's JVM/CLJS split, per [C2](000-Vision.md#c2-cross-platform-jvm-interop-preserved):
 
-- ✓ `make-frame` / `destroy-frame!` / `reset-frame!` / `with-frame`
+- ✓ `make-frame` / `destroy-frame!` / `reset-frame!` / `with-frame` / `with-new-frame`
 - ✓ `dispatch-sync` and the entire dispatch pipeline (router, drain, interceptors)
 - ✓ All `reg-event-*` handler invocation
 - ✓ Override application (`:fx-overrides`, `:interceptor-overrides`, `:interceptors`)
@@ -134,18 +127,18 @@ The most common shape. Each test creates a frame, runs assertions, tears down.
         (rf/destroy-frame! f)))))
 ```
 
-### Pattern 2 — `with-frame` for tighter blocks
+### Pattern 2 — `with-new-frame` for tighter blocks
 
-For tests that don't need explicit teardown logic, `with-frame` handles the lifecycle:
+For tests that don't need explicit teardown logic, `with-new-frame` handles the lifecycle:
 
 ```clojure
 (deftest auth-flow
-  (rf/with-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
-    (rf/dispatch-sync [:auth/login-pressed])         ;; uses :frame f via with-frame's binding
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
+    (rf/dispatch-sync [:auth/login-pressed])         ;; uses :frame f via the binding
     (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))))
 ```
 
-`with-frame` binds the frame for the body's duration, dispatch-syncs/subscribes inside the body resolve to that frame via the dynamic-var tier of the resolution chain, and the frame is destroyed on exit (success or exception).
+`with-new-frame` evaluates the bound expression, binds the frame for the body's duration, dispatch-syncs/subscribes inside the body resolve to that frame via the dynamic-var tier of the resolution chain, and the frame is destroyed on exit (success or exception).
 
 ### Pattern 3 — named fixture across many tests
 
@@ -215,7 +208,7 @@ The companion helpers:
 When NOT to use Pattern 5:
 
 - **Multi-frame setups** (Xray, Story, cross-frame tests) — Pattern 1 / 2 with explicit `rf/with-frame` calls each frame is clearer; the fixture stash is single-slot by design.
-- **Tests that don't render** — the install + frame lifecycle of Pattern 5 is overkill for pure-event tests. Reach for `(rf/with-frame [f (rf/make-frame opts)] ...)` and skip the view-stash entirely.
+- **Tests that don't render** — the install + frame lifecycle of Pattern 5 is overkill for pure-event tests. Reach for `(rf/with-new-frame [f (rf/make-frame opts)] ...)` and skip the view-stash entirely.
 
 ### HTTP test surfaces — single namespace
 
@@ -308,7 +301,7 @@ The recommended pattern is to drive `db` state via dispatches against a fixture 
                  (fn [db _] (filter #(= :pending (:status %)) (:items db))))
 
 (deftest pending-todos-sub
-  (rf/with-frame [f (rf/make-frame {})]
+  (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:todos/add {:id 1 :status :pending}])
     (rf/dispatch-sync [:todos/add {:id 2 :status :done}])
     (rf/dispatch-sync [:todos/add {:id 3 :status :pending}])
@@ -428,7 +421,7 @@ Drive a click and assert state changed downstream:
 
 ```clojure
 (deftest counter-inc
-  (rf/with-frame [_ (rf/make-frame {:on-create [:counter/init]})]
+  (rf/with-new-frame [_ (rf/make-frame {:on-create [:counter/init]})]
     (let [tree (counter-view {})
           btn  (th/find-by-testid tree "counter-inc")]
       (th/invoke-handler btn :on-click)
@@ -439,7 +432,7 @@ Assert rendered text after dispatching:
 
 ```clojure
 (deftest counter-label
-  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:counter/init]})]
     (rf/dispatch-sync [:counter/set 5])
     (let [tree  (counter-view {})
           label (th/find-by-testid tree "counter-label")]
@@ -552,7 +545,7 @@ When you want to verify what *would* dispatch without actually running the casca
 For tests that exercise event sequences and want to assert at intermediate points, dispatch one event at a time and assert between dispatches:
 
 ```clojure
-(rf/with-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
+(rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
   (rf/dispatch-sync [:auth/email-changed "alice@example.com"])
   (is (= "alice@example.com" (get-in (rf/get-frame-db f) [:auth :form :email])))
   (rf/dispatch-sync [:auth/password-changed "hunter2"])

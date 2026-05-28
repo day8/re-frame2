@@ -5,7 +5,7 @@
   (:require [re-frame.core :as rf]
             [realworld.favorites]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn favorite-toggle-test []
   (th/reg-canned-failure! :realworld.test/favorite-rollback
@@ -13,7 +13,7 @@
                           {:status 400
                            :body   {:errors {:body ["rollback"]}}})
 
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/favorite-rollback}})]
     (rf/dispatch-sync [:articles/initialise] {:frame f})
     (rf/dispatch-sync [:articles/loaded

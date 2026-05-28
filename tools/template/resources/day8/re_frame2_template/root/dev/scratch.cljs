@@ -20,11 +20,11 @@
   ;; Run a scratch experiment against a throw-away frame — leaves
   ;; the live :rf/default frame untouched.
   ;;
-  ;; `with-frame` Shape 1 takes a keyword frame-id and binds
-  ;; `*current-frame*` to it for the duration of the body. (Shape 2
-  ;; is `[sym expr]` for an eval-bind-run-destroy pattern; map or
-  ;; non-keyword first-args are NOT supported and silently misbind
-  ;; the current frame — see Spec 002 §with-frame.)
+  ;; `with-frame` takes a keyword frame-id and binds `*current-frame*`
+  ;; to it for the duration of the body. (For an eval-bind-run-destroy
+  ;; throwaway frame, reach for the sibling macro `with-new-frame`,
+  ;; which takes `[sym expr]` and destroys the bound frame on exit —
+  ;; see Spec 002 §with-frame.)
   (rf/with-frame :scratch
     (rf/dispatch-sync [:counter/initialise])
     (rf/dispatch-sync [:counter/increment])

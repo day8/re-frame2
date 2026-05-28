@@ -86,7 +86,8 @@
                                     reg-http-interceptor
                                     reg-view reg-machine
                                     dispatch dispatch-sync subscribe inject-cofx
-                                    with-frame bound-fn with-fx-overrides
+                                    with-frame with-new-frame bound-fn
+                                    with-fx-overrides
                                     with-managed-request-stubs]])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -769,15 +770,43 @@
 
 #?(:clj
    (defmacro with-frame
-     "Run `body` with `*current-frame*` bound to the given frame-id.
-     Two shapes — first arg is the discriminator:
-       (with-frame :keyword body+)        pin to an existing frame-id;
-       (with-frame [sym expr] body+)      eval expr, bind, run, destroy.
-     For async closures after body returns, capture via `bound-fn` /
-     `dispatcher` / `subscriber`. Per Spec 002 §with-frame."
-     {:arglists '([frame-id body+] [[sym expr] body+])}
+     "Pin `*current-frame*` to an existing frame-id for `body`'s
+     lexical scope. The pin form:
+
+       (with-frame :existing-frame-id body+)
+
+     The frame is **not** created or destroyed by this macro — use
+     `with-new-frame` when you want eval-bind-run-destroy. Throws at
+     compile time on a vector argument.
+
+     For async closures that fire after body returns, capture via
+     `bound-fn` / `frame-bound-fn` / `dispatcher` / `subscriber`. Per
+     Spec 002 §with-frame."
+     {:arglists '([frame-id body+])}
+     [frame-id & body]
+     (rvm/expand-with-frame frame-id body)))
+
+#?(:clj
+   (defmacro with-new-frame
+     "Eval `expr`, bind the resulting frame-id to `sym`, run `body`
+     with `*current-frame*` bound to that id, and destroy the frame on
+     exit (success or exception). The eval-bind-run-destroy form:
+
+       (with-new-frame [sym (rf/make-frame opts)] body+)
+
+     `expr` may be `(rf/make-frame opts)`, `(rf/reg-frame :id opts)`
+     (returns the keyword), or any expression yielding a frame-id;
+     whatever is bound is destroyed on body exit. Throws at compile
+     time on a keyword argument — use `with-frame` to pin to an
+     existing frame-id.
+
+     For async closures that fire after body returns, capture via
+     `bound-fn` / `frame-bound-fn` — the body's dynamic binding has
+     unwound and `destroy-frame!` has already run by then. Per Spec 002
+     §with-frame."
+     {:arglists '([[sym expr] body+])}
      [bindings & body]
-     (rvm/expand-with-frame bindings body)))
+     (rvm/expand-with-new-frame bindings body)))
 
 #?(:clj
    (defmacro bound-fn

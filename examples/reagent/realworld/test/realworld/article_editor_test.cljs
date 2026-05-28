@@ -6,7 +6,7 @@
   (:require [re-frame.core :as rf]
             [realworld.article-editor]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn editor-create-test []
   (th/reg-canned-success! :realworld.test/canned-editor-save
@@ -21,7 +21,7 @@
                                      :favoritesCount 0
                                      :author {:username "alice" :bio nil :image nil :following false}}})
 
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-editor-save}})]
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     ;; The :mode region starts at :create; the :lifecycle region starts
@@ -44,7 +44,7 @@
     (assert (false? (rf/compute-sub [:editor/dirty?] (rf/get-frame-db f))))))
 
 (defn editor-can-leave-test []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     (assert (true? (rf/compute-sub [:editor/can-leave?] (rf/get-frame-db f))))
     (rf/dispatch-sync [:editor/edit-field :title "Changed"] {:frame f})

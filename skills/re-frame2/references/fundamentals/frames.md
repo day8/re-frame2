@@ -61,7 +61,7 @@ The verb-form names imply capture-at-call-time semantics; earlier `bound-dispatc
 Per-test isolated frame, from `examples/reagent/login/core.cljs`:
 
 ```clojure
-(with-frame [f (rf/make-frame
+(with-new-frame [f (rf/make-frame
                  {:fx-overrides {:rf.http/managed :auth.login/test-canned-success}})]
   (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                        {:email "user@example.com"

@@ -33,7 +33,7 @@
             [websocket.core]
             [websocket.messages :as messages]
             [websocket.connection])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; ============================================================================
 ;; HELPERS
@@ -79,7 +79,7 @@
 ;; ============================================================================
 
 (defn initial-state-test []
-  (with-frame [f (new-frame)]
+  (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:ws/connection [:ws/noop]] {:frame f})
     (let [s (snapshot (rf/get-frame-db f))]
       (assert (= :disconnected (:state s))
@@ -93,7 +93,7 @@
 (defn connect-happy-path-test []
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
@@ -116,7 +116,7 @@
 (defn offline-queue-test []
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         ;; Enqueue two messages while :disconnected.
         (rf/dispatch-sync [:ws/connection
                            [:ws/send {:type :note :body "A"}]]
@@ -145,7 +145,7 @@
 (defn reconnect-cascade-test []
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         ;; Connect, then drop.
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
@@ -226,7 +226,7 @@
   ;; reconnect cascade.
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         ;; Connect to spawn the actor.
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
@@ -257,7 +257,7 @@
 (defn connection-epoch-staleness-test []
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
@@ -294,7 +294,7 @@
   ;; :spawn :data fn reads the refreshed token.
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "old-token"}]]
@@ -311,7 +311,7 @@
 (defn disconnect-cleanly-test []
   (with-sync-mock!
     (fn []
-      (with-frame [f (new-frame)]
+      (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]

@@ -31,7 +31,8 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views])
-  (:require-macros [re-frame.core :refer [with-frame bound-fn reg-view]]))
+  (:require-macros [re-frame.core :refer [with-frame with-new-frame
+                                          bound-fn reg-view]]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). Wiping the
 ;; registrar with clear-all! is hostile to CLJS test isolation: framework
@@ -69,8 +70,8 @@
   (testing "with-frame :foo binds *current-frame* in the body"
     (with-frame :left
       (is (= :left (rf/current-frame))))
-    (testing "and the [sym expr] form binds the symbol AND the dynamic var"
-      (with-frame [f :right]
+    (testing "with-new-frame [sym expr] binds the symbol AND the dynamic var"
+      (with-new-frame [f :right]
         (is (= :right f))
         (is (= :right (rf/current-frame))))))
   (testing "outside any binding the dynamic var falls back to :rf/default"

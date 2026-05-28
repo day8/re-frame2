@@ -11,10 +11,10 @@
   (:require [re-frame.core :as rf]
             [realworld.tags]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn tag-query-test []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
     (assert (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/get-frame-db f)))))
     (rf/dispatch-sync [:home/show-your-feed] {:frame f})
@@ -43,7 +43,7 @@
   ;;     :loading? (a derived boolean sub)       (machine-has-tag? :tags/loading)
   (th/reg-canned-success! :realworld.test/canned-tags
                           {:tags ["intro" "demo" "clojure"]})
-  (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-tags}})]
     ;; After :app/initialise → :tags/initialise → [:reset], the machine
     ;; sits at :idle with empty :data.
@@ -95,7 +95,7 @@
   (th/reg-canned-failure! :realworld.test/canned-tags-failure
                           :rf.http/http-5xx
                           {:status 500 :body "server error"})
-  (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-tags-failure}})]
     (rf/dispatch-sync [:tags/load] {:frame f})
     (let [db   (rf/get-frame-db f)

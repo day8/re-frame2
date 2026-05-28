@@ -20,7 +20,7 @@ The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces li
 - **Description**: The canonical server-side render. Walks the hiccup tree once, emits a string. JVM-runnable. Test-friendly because it's pure.
 - **Example**:
   ```clojure
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/server-init]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:app/server-init]})]
     (ssr/render-to-string [app-root] {:frame f}))
   ```
 - **In the wild**: [ssr](https://github.com/day8/re-frame2/tree/main/examples/reagent/ssr)

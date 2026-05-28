@@ -74,7 +74,7 @@ Each entry below is one CP:
 
 ```clojure
 (deftest feature-verb-noun-test
-  (rf/with-frame [f (rf/make-frame {:on-create [:feature/initialise]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:feature/initialise]})]
     (rf/dispatch-sync [:feature/verb-noun "value"] {:frame f})
     (is (= "value" (get-in (rf/get-frame-db f) [:feature :path])))))
 ```
@@ -233,7 +233,7 @@ Each entry below is one CP:
       (rf/dispatch (conj on-success {:status 200 :body "test"})))))
 
 ;; in a test
-(rf/with-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-200}
+(rf/with-new-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-200}
                                   :on-create [:feature/load]})]
   ...)
 ```
@@ -315,7 +315,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 ```clojure
 (deftest feature-component-name-renders
-  (rf/with-frame [f (rf/make-frame {:on-create [:feature/initialise]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:feature/initialise]})]
     (let [hiccup [component-name "test-label" 42]
           html   (rf/render-to-string hiccup {:frame f})]
       (is (str/includes? html "test-label"))
@@ -542,7 +542,7 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
 
 ;; Level 3 — registered in a test frame (full integration; required for spawn lifecycle).
 (deftest auth-login-happy-path-l3
-  (rf/with-frame [f (rf/make-frame {:on-create [:auth/init]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init]})]
     (rf/dispatch-sync [:auth.login/flow [:submit {:email "..."}]] {:frame f})
     ;; Read via the framework-registered :rf/machine sub:
     (is (= :submitting (:state @(rf/subscribe [:rf/machine :auth.login/flow] {:frame f}))))))
@@ -704,7 +704,7 @@ test/my_app/
 
 ```clojure
 (deftest cart-feature-happy-path
-  (rf/with-frame [f (rf/make-frame {:on-create [:cart/initialise]})]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:cart/initialise]})]
     (let [item {:id (random-uuid) :sku "ABC-1" :qty 2 :price 9.99}]
       (rf/dispatch-sync [:cart.item/add item] {:frame f})
       (is (= [item] (rf/compute-sub [:cart/items] (rf/get-frame-db f))))
@@ -944,7 +944,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 ```clojure
 (defn handle-request [request]
   (let [frame-id (gensym :ssr-frame)]
-    (rf/with-frame [f (rf/make-frame
+    (rf/with-new-frame [f (rf/make-frame
                        {:id           frame-id
                         :on-create    [:rf/server-init request]})]
       ;; rebound to f
