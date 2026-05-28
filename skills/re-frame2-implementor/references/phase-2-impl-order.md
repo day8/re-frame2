@@ -200,7 +200,7 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 **Read.** [`spec/012-Routing.md`](https://day8.github.io/re-frame2/spec/012-Routing/).
 
-**Contract.** `reg-route`, `match-url`, `route-link`, `:rf.nav/push-url` fx, `:rf/pending-navigation`, navigation tokens, fragment handling, `:can-leave?` guard.
+**Contract.** `reg-route`, `match-url`, `route-link`, `:rf.nav/push-url` fx, `[:rf/runtime :routing :current]` + `[:rf/runtime :routing :pending-navigation]` reserved app-db storage, navigation tokens, fragment handling, `:can-leave?` guard.
 
 ### EP 011 — SSR (if D3 Q3 = yes)
 
