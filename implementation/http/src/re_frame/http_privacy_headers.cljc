@@ -94,9 +94,9 @@
   [header-name]
   (boolean
     (when (string? header-name)
-      (let [k (str/lower-case header-name)]
-        (or (contains? default-header-denylist k)
-            (contains? @extra-headers k))))))
+      (let [lowered (str/lower-case header-name)]
+        (or (contains? default-header-denylist lowered)
+            (contains? @extra-headers lowered))))))
 
 (defn redact-headers
   "Walk `headers-map` (string→string or string→vector-of-strings); replace
