@@ -14,8 +14,10 @@
        assembled record; same-key replaces; remove unhooks; exception
        isolation.
     6. Restore happy path — `restore-epoch` rewinds app-db.
-    7. The six documented failure modes — each fires the documented
-       trace under `:rf.epoch/*` and leaves app-db unchanged.
+    7. The seven documented failure modes (Tool-Pair §Time-travel
+       restore-failure-modes table) — six fire under `:rf.epoch/*`,
+       plus `:rf.error/no-such-handler` (kind `:frame`) for an
+       unknown frame-id; each leaves app-db unchanged.
     8. Sub-runs / renders / effects projection from the trace stream.
 
   Per-cascade / per-mount POST-SETTLE attribution (rf2-qs6dl render lag,
@@ -37,6 +39,7 @@
             [re-frame.epoch :as epoch]
             [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
+            [re-frame.epoch.listeners :as epoch.listeners]
             [re-frame.epoch.state :as state]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when the namespace is
@@ -2307,7 +2310,7 @@
 ;; seam.
 
 (deftest on-frame-destroyed-clears-frame-buffer-directly
-  (testing "calling epoch/on-frame-destroyed! on a frame drops its
+  (testing "calling epoch.listeners/on-frame-destroyed! on a frame drops its
             ring buffer regardless of whether the frame itself was
             destroyed via the usual frame/destroy-frame! path"
     (rf/reg-frame :test/other {})
@@ -2324,7 +2327,7 @@
     ;; Call on-frame-destroyed! DIRECTLY — without going through
     ;; frame/destroy-frame!. The frame record still exists in
     ;; frames-atom; only the epoch ring is dropped.
-    (epoch/on-frame-destroyed! :test/other)
+    (epoch.listeners/on-frame-destroyed! :test/other)
 
     ;; The frame's ring is gone.
     (is (= [] (rf/epoch-history :test/other))
@@ -2344,11 +2347,11 @@
     (is (= 1 (count (rf/epoch-history :test/repeat))))
 
     ;; First call — clears the buffer.
-    (epoch/on-frame-destroyed! :test/repeat)
+    (epoch.listeners/on-frame-destroyed! :test/repeat)
     (is (= [] (rf/epoch-history :test/repeat)))
 
     ;; Second call — no-op.
-    (epoch/on-frame-destroyed! :test/repeat)
+    (epoch.listeners/on-frame-destroyed! :test/repeat)
     (is (= [] (rf/epoch-history :test/repeat))
         "ring stays empty across repeated calls")))
 
@@ -2360,7 +2363,7 @@
     ;; The observable contract is "no throw, no side effects on
     ;; unrelated state".
     (let [traces (record-trace!)]
-      (epoch/on-frame-destroyed! :test/no-such-frame)
+      (epoch.listeners/on-frame-destroyed! :test/no-such-frame)
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
 
@@ -2459,7 +2462,7 @@
       (is (some? (get @buffers-atom :test/main))
           "sanity: the synthetic capture-buffer entry is present pre-destroy")
 
-      (epoch/on-frame-destroyed! :test/main)
+      (epoch.listeners/on-frame-destroyed! :test/main)
 
       (is (nil? (get @buffers-atom :test/main))
           "the capture-buffer entry was dropped on destroy — no

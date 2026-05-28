@@ -184,7 +184,7 @@
 ;; straddles state, capture, and assembly) live in
 ;; `re-frame.epoch.listeners` (Phase-2 seam C, rf2-0wi86).
 
-(defn on-frame-destroyed!
+(defn- on-frame-destroyed!
   "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
   and rf2-v0jwt §Outcomes (`:halted-destroy`):
 
@@ -388,7 +388,7 @@
          (commit-record! frame-id db-before db-after events outcome
                          halt-reason nil))))))
 
-(defn commit-halt-record!
+(defn- commit-halt-record!
   "Commit a `:halted-*` epoch record for a drain halt whose halting event
   never ran to completion — the per-event depth-exceed boundary
   (rf2-nj6p7). Unlike `settle!`, this does NOT skip on an empty capture

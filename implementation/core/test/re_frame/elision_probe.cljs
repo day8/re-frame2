@@ -47,6 +47,7 @@
             ;; closure DCE pass, not surface-pruned before DCE runs.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.epoch        :as epoch]
+            [re-frame.epoch.listeners :as epoch.listeners]
             [re-frame.http-managed :as http-managed]
             [re-frame.views        :as views]
             [re-frame.machines]))
@@ -248,10 +249,12 @@
   ;; per (frame-id, cb-id) pair when a frame previously observed by a
   ;; register-epoch-listener! callback is destroyed. The whole body sits inside
   ;; `(when interop/debug-enabled? ...)`; the string fragment must elide
-  ;; under :advanced + goog.DEBUG=false. Touch the entry point through
-  ;; the public surface (frame destroy walks call into it via the
-  ;; :epoch/on-frame-destroyed late-bind hook).
-  (epoch/on-frame-destroyed! :rf/default))
+  ;; under :advanced + goog.DEBUG=false. Touch the implementation seam
+  ;; (`re-frame.epoch.listeners/on-frame-destroyed!`) directly — the
+  ;; `re-frame.epoch` facade publishes through the
+  ;; `:epoch/on-frame-destroyed` late-bind hook only (per rf2-e0lva the
+  ;; facade-side wrapper is private).
+  (epoch.listeners/on-frame-destroyed! :rf/default))
 
 ;; ---- Spec 004 §Render-tree primitives — reg-view* wrapper (rf2-piag) -----
 
