@@ -35,9 +35,12 @@
   fully-assembled record after it lands in the ring buffer.
 
   Restore (`restore-epoch`) rewinds a frame's app-db to the named
-  epoch's `:db-after`. Six documented failure modes (Tool-Pair table)
-  each emit a structured trace under `:rf.epoch/*` and leave the
-  frame's app-db unchanged."
+  epoch's `:db-after`. Seven documented failure modes (Tool-Pair
+  §Time-travel restore-failure-modes table) each emit a structured
+  trace and leave the frame's app-db unchanged — six under the
+  reserved `:rf.epoch/*` namespace, plus the registry-lookup
+  `:rf.error/no-such-handler` (kind `:frame`) for an unknown
+  frame-id."
   (:require [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as listeners]
@@ -181,7 +184,7 @@
 ;; straddles state, capture, and assembly) live in
 ;; `re-frame.epoch.listeners` (Phase-2 seam C, rf2-0wi86).
 
-(defn on-frame-destroyed!
+(defn- on-frame-destroyed!
   "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
   and rf2-v0jwt §Outcomes (`:halted-destroy`):
 
@@ -353,7 +356,14 @@
   Emits `:rf.epoch/snapshotted` with a `:outcome` tag so trace listeners
   can discriminate clean from halted boundaries without inspecting the
   epoch-history vector. Listeners (`register-epoch-listener!`) receive every
-  record regardless of outcome."
+  record regardless of outcome.
+
+  See also `commit-halt-record!` — the sibling commit path for the
+  depth-exceed halt whose halting event never ran, so the buffer is empty
+  at halt and `settle!`'s empty-buffer skip would suppress the record.
+  Both fns share the private `commit-record!` helper; `commit-halt-record!`
+  synthesises the halting event's trigger explicitly while `settle!` lets
+  `build-record` derive it from the harvested buffer."
   ([frame-id db-before db-after]
    (settle! frame-id db-before db-after :ok nil))
   ([frame-id db-before db-after outcome halt-reason]
@@ -378,7 +388,7 @@
          (commit-record! frame-id db-before db-after events outcome
                          halt-reason nil))))))
 
-(defn commit-halt-record!
+(defn- commit-halt-record!
   "Commit a `:halted-*` epoch record for a drain halt whose halting event
   never ran to completion — the per-event depth-exceed boundary
   (rf2-nj6p7). Unlike `settle!`, this does NOT skip on an empty capture
@@ -398,7 +408,13 @@
 
   Harvests-and-clears any residual buffer first so a stray pre-halt emit
   (there should be none under per-event settling) can't leak into the
-  next cascade for this frame."
+  next cascade for this frame.
+
+  See also `settle!` — the clean-path sibling that handles every per-
+  event `:ok` settle. Both fns share the private `commit-record!`
+  helper; `settle!` lets `build-record` derive the trigger from the
+  harvested buffer (an `:event/run-start` is always present on the
+  clean path) and skips on an empty buffer."
   [frame-id db-before db-after outcome halt-reason trigger-event]
   (when interop/debug-enabled?
     (let [events (state/harvest-buffer! frame-id)]
@@ -608,46 +624,55 @@
 ;; epoch surface is dev-tier so an absent artefact degrades quietly
 ;; rather than throwing.
 
-(late-bind/set-fn! :epoch/settle!             settle!)
-;; rf2-nj6p7: per-event halt commit — the depth-exceed boundary whose
-;; halting event never ran (so the buffer is empty and `settle!` would
-;; skip). Synthesises the halting event's `:halted-depth` record.
-(late-bind/set-fn! :epoch/commit-halt-record! commit-halt-record!)
-(late-bind/set-fn! :epoch/discard-buffer!     discard-buffer!)
-(late-bind/set-fn! :epoch/capture-event       capture/capture-event!)
-;; rf2-25zo2: in-flight cascade-cause lookup for :rf.view/rendered. Views
-;; consume this via `:epoch/cascade-cause` at render-emit time to stamp
-;; :cause-event-id + :cause-subs onto the per-render trace.
-(late-bind/set-fn! :epoch/cascade-cause       capture/cascade-cause)
-;; rf2-qs6dl: post-settle render back-fill. `capture-event!` routes a
-;; view-render op that fires with no in-flight cascade (a React-commit-
-;; time async re-render) here so it is attributed to the cascade that
-;; CAUSED it (the frame's most-recently-settled epoch) rather than the
-;; next in-flight cascade. The orchestrator lives in
-;; `re-frame.epoch.listeners` (state back-fill + listener re-notify);
-;; publishing it through late-bind keeps `capture` free of a require on
-;; `listeners` (which would close the assembly→capture cycle).
-(late-bind/set-fn! :epoch/record-render!      listeners/record-render!)
-;; rf2-wi900: post-settle sub-run back-fill — the subs sibling of
-;; `:epoch/record-render!`. `capture-event!` routes a `:sub/run` /
-;; `:rf.sub/skip` op that fires with no in-flight cascade (a React-deref-
-;; time async reactive recompute) here so it is attributed to the cascade
-;; that CAUSED it (the frame's most-recently-settled epoch) rather than the
-;; next in-flight cascade — fixing the one-epoch `:sub-runs` /
-;; `:value-changed?` lag visible in Xray's per-cascade Views subs table.
-(late-bind/set-fn! :epoch/record-sub-run!     listeners/record-sub-run!)
-(late-bind/set-fn! :epoch/epoch-history       epoch-history)
-(late-bind/set-fn! :epoch/restore-epoch       restore-epoch)
-(late-bind/set-fn! :epoch/reset-frame-db!     reset-frame-db!)
-(late-bind/set-fn! :epoch/register-epoch-listener!  register-epoch-listener!)
-(late-bind/set-fn! :epoch/unregister-epoch-listener!    unregister-epoch-listener!)
-(late-bind/set-fn! :epoch/configure!          configure!)
-(late-bind/set-fn! :epoch/clear-history!      clear-history!)
-(late-bind/set-fn! :epoch/clear-epoch-listeners!    clear-epoch-listeners!)
-(late-bind/set-fn! :epoch/on-frame-destroyed  listeners/on-frame-destroyed!)
-;; Per rf2-mrsck and Security.md §Epoch privacy posture: off-box
-;; egress projection helpers, parallel to elide-wire-value for direct
-;; reads. Tools that forward records over a process boundary use
-;; these (Xray-MCP `watch-epochs`, story / pair recorders).
-(late-bind/set-fn! :epoch/projected-record    projected-record)
-(late-bind/set-fn! :epoch/projected-history   projected-history)
+;; Per rf2-rtk2e: a single map-form publication reads as 'the late-bind
+;; contract for this artefact' rather than a column of identical
+;; imperative side-effects. Each entry is identical to a standalone
+;; `(late-bind/set-fn! key fn)` call; the drift gate
+;; (`re-frame.late-bind-drift-test`) walks both call shapes.
+(late-bind/set-fns!
+  {;; ---- per-cascade lifecycle (router + trace capture seam) -------
+   :epoch/settle!             settle!
+   ;; rf2-nj6p7: per-event halt commit — the depth-exceed boundary whose
+   ;; halting event never ran (so the buffer is empty and `settle!` would
+   ;; skip). Synthesises the halting event's `:halted-depth` record.
+   :epoch/commit-halt-record! commit-halt-record!
+   :epoch/discard-buffer!     discard-buffer!
+   :epoch/capture-event       capture/capture-event!
+   ;; rf2-25zo2: in-flight cascade-cause lookup for :rf.view/rendered.
+   ;; Views consume this via `:epoch/cascade-cause` at render-emit time
+   ;; to stamp :cause-event-id + :cause-subs onto the per-render trace.
+   :epoch/cascade-cause       capture/cascade-cause
+   ;; rf2-qs6dl: post-settle render back-fill. `capture-event!` routes a
+   ;; view-render op that fires with no in-flight cascade (a React-
+   ;; commit-time async re-render) here so it is attributed to the
+   ;; cascade that CAUSED it (the frame's most-recently-settled epoch)
+   ;; rather than the next in-flight cascade. The orchestrator lives in
+   ;; `re-frame.epoch.listeners` (state back-fill + listener re-notify);
+   ;; publishing it through late-bind keeps `capture` free of a require
+   ;; on `listeners` (which would close the assembly→capture cycle).
+   :epoch/record-render!      listeners/record-render!
+   ;; rf2-wi900: post-settle sub-run back-fill — the subs sibling of
+   ;; `:epoch/record-render!`. Same React-deref-time async recompute
+   ;; problem; same attribution fix.
+   :epoch/record-sub-run!     listeners/record-sub-run!
+   :epoch/on-frame-destroyed  listeners/on-frame-destroyed!
+
+   ;; ---- introspection + Tool-Pair write surface --------------------
+   :epoch/epoch-history       epoch-history
+   :epoch/restore-epoch       restore-epoch
+   :epoch/reset-frame-db!     reset-frame-db!
+
+   ;; ---- listener + config surface ----------------------------------
+   :epoch/register-epoch-listener!   register-epoch-listener!
+   :epoch/unregister-epoch-listener! unregister-epoch-listener!
+   :epoch/configure!                 configure!
+   :epoch/clear-history!             clear-history!
+   :epoch/clear-epoch-listeners!     clear-epoch-listeners!
+
+   ;; ---- off-box egress projection (rf2-mrsck) ----------------------
+   ;; Per Security.md §Epoch privacy posture: off-box egress projection
+   ;; helpers, parallel to elide-wire-value for direct reads. Tools that
+   ;; forward records over a process boundary use these (Xray-MCP
+   ;; `watch-epochs`, story / pair recorders).
+   :epoch/projected-record    projected-record
+   :epoch/projected-history   projected-history})

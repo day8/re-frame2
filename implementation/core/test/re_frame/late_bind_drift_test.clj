@@ -18,9 +18,13 @@
     2. Every published key has a directory entry.
 
   Mechanism: walk every `.clj{c,s}` file under `implementation/` and
-  match `(late-bind/set-fn! <keyword> ...)`. Filter to source files
-  (skip `test/` paths — test files temporarily flip hooks for
-  isolation but don't publish new keys).
+  match three publication shapes — `(late-bind/set-fn! <keyword> ...)`,
+  `(substrate-adapter/route-hook! adapter <keyword> ...)`,
+  `(late-bind/chain-fn! <keyword> ...)`, and the rf2-rtk2e map-form
+  `(late-bind/set-fns! {<keyword> <fn> ...})` (every key inside the
+  map body counts). Filter to source files (skip `test/` paths — test
+  files temporarily flip hooks for isolation but don't publish new
+  keys).
 
   Failure messages name the missing entries / orphaned publications
   explicitly so the fix is obvious.")
@@ -87,10 +91,50 @@
   equivalent to direct `set-fn!` publication."
   #"\(late-bind/chain-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
+(def ^:private set-fns-block-re
+  "Match a `(late-bind/set-fns! { ... })` map-form block; the named
+  capture group returns the map body (everything between `{` and the
+  matching `})`).
+
+  Per rf2-rtk2e: feature artefacts publish their late-bind contract as
+  a single map of `hook-key → fn` entries rather than a column of 15+
+  individual `set-fn!` calls. The drift scan must treat each key in the
+  map body as a publication. Multiline-friendly (the map typically spans
+  many lines)."
+  #"(?s)\(late-bind/set-fns!\s*\{([^}]*)\}")
+
+(def ^:private map-entry-key-re
+  "Match a fully-qualified keyword at column-0-ish of a line in a
+  `set-fns!` map body. Used to extract the `:namespace/key` entries
+  from a match captured by `set-fns-block-re`."
+  #"(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
+
 (defn- match-keys
   [re content]
   (->> (re-seq re content)
        (map (comp keyword #(subs % 1) second))
+       set))
+
+(defn- strip-line-comments
+  "Strip `;;`-to-end-of-line comments from `s`. Used to filter `set-fns!`
+  map bodies before extracting their keyword keys so a keyword mentioned
+  in a comment block doesn't masquerade as a published hook."
+  [s]
+  (str/replace s #";;[^\n]*" ""))
+
+(defn- match-set-fns-block-keys
+  "Extract every fully-qualified hook key from every
+  `(late-bind/set-fns! { ... })` block in `content`. Per rf2-rtk2e the
+  map-form publication is an equivalent shape to per-entry `set-fn!`
+  calls; the drift scan reaches each key by walking the block body.
+  Comments inside the map body are stripped first so a `;;` mention of
+  another keyword (e.g. a per-entry rationale referencing `:rf.view/
+  rendered`) doesn't masquerade as a published hook."
+  [content]
+  (->> (re-seq set-fns-block-re content)
+       (mapcat (fn [[_whole body]]
+                 (->> (re-seq map-entry-key-re (strip-line-comments body))
+                      (map (comp keyword #(subs % 1) first)))))
        set))
 
 (defn- published-keys-in-file
@@ -98,7 +142,8 @@
   (let [content (slurp f)]
     (-> (match-keys set-fn-call-re content)
         (into (match-keys route-hook-call-re content))
-        (into (match-keys chain-fn-call-re content)))))
+        (into (match-keys chain-fn-call-re content))
+        (into (match-set-fns-block-keys content)))))
 
 (defn- published-keys
   "Set of every late-bind key published from in-tree source files."

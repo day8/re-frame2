@@ -46,7 +46,8 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
-            [re-frame.epoch :as epoch]))
+            [re-frame.epoch :as epoch]
+            [re-frame.epoch.listeners :as epoch.listeners]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -160,5 +161,5 @@
             observed-frames-by-cb bookkeeping side-effect is dead too.
             Frame-destroy paths that route through this hook do not
             crash."
-    (is (nil? (epoch/on-frame-destroyed! :rf/default))
+    (is (nil? (epoch.listeners/on-frame-destroyed! :rf/default))
         "on-frame-destroyed! returns nil under prod even for unknown frames")))

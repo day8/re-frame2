@@ -1,7 +1,8 @@
 (ns re-frame.late-bind
   "Hook registry for cross-namespace and cross-artefact forward
-  references. Producing ns calls `set-fn!` at load time; consumer calls
-  `get-fn` at call time. Identical behaviour on JVM and CLJS.
+  references. Producing ns calls `set-fn!` (single key) or `set-fns!`
+  (map of entries, rf2-rtk2e) at load time; consumer calls `get-fn` at
+  call time. Identical behaviour on JVM and CLJS.
 
   Carries two flavours of forward reference:
     1. Cyclic-load: leaf namespaces (frame, fx, cofx, subs, router)
@@ -15,7 +16,9 @@
   The authoritative inventory of every published key lives in
   `re-frame.late-bind.directory` — one CLJC entry per hook key. The
   drift test `implementation/core/test/re_frame/late_bind_drift_test.clj`
-  asserts the directory matches the in-tree `set-fn!` call sites.")
+  asserts the directory matches the in-tree publications, walking both
+  the per-key `set-fn!` form and the rf2-rtk2e map-form `set-fns!`
+  block.")
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -80,6 +83,22 @@
   [hook-key f]
   (swap! hooks assoc hook-key f)
   (invalidate-cache! hook-key)
+  nil)
+
+(defn set-fns!
+  "Register every `hook-key → fn` entry in `m` in one call (rf2-rtk2e).
+
+  Equivalent to calling `set-fn!` once per entry, but reads as a single
+  publication of an artefact's late-bind contract rather than a column
+  of identical imperative side-effects. Feature artefacts (epoch, flows,
+  schemas, machines, routing, http, ssr) publish ~15+ keys each at the
+  bottom of their facade ns; the map form makes the contract scannable.
+
+  Each entry invalidates its own slot in the resolution cache, identical
+  to repeated `set-fn!` calls. Returns nil."
+  [m]
+  (doseq [[hook-key f] m]
+    (set-fn! hook-key f))
   nil)
 
 (defn get-fn

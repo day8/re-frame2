@@ -39,16 +39,81 @@
 (def hooks
   "Vector of hook-directory entries — see the ns docstring for shape.
 
-  Ordering: grouped by namespace prefix (router → elision → flows →
-  schemas → machines → routing → http → subs → ssr → reagent → views →
-  adapter → epoch → trace) so additions land near their siblings."
-  [;; ---- re-frame.router (rf2-d4sf foundational dispatch seam) ----------------
+  Ordering: grouped into four primary purposes (rf2-j0jxk), and within
+  each purpose by namespace prefix so additions land near their siblings:
+
+    1. CYCLE-BREAKING  — leaf namespaces (router, subs) calling into
+       higher-level namespaces without `:require`ing them, breaking a
+       compile-time load cycle. Lookup-or-no-op is degenerate (the
+       producer always loads at boot); the indirection exists solely to
+       silence cljs.compiler's circular-dependency error.
+
+    2. CROSS-ARTEFACT  — re-frame.core (or a leaf consumer in core)
+       reaching into an OPTIONAL feature artefact (schemas, flows,
+       routing, machines, ssr, epoch, http, marks, elision) without a
+       static `:require`. When the artefact is absent from the
+       classpath the lookup returns nil and the consumer no-ops (or
+       throws a clear `:rf.error/<artefact>-artefact-missing` via
+       `require-fn!`). Also covers the always-on observability surface
+       (`:event-emit/*`, `:error-emit/*`) — production-survivor seams
+       that fire on every dispatch.
+
+    3. ADAPTER-INJECTION — substrate adapters (Reagent / reagent-slim /
+       UIx / Helix / test-react) publish CLJS-side primitives the core
+       runtime consumes (`:adapter/current-frame`, `:adapter/ratom`,
+       `:adapter/after-render`, …) and React-shaped view machinery
+       (`:reagent/set-hiccup-emitter!`, `:views/*`). Routed via
+       `substrate-adapter/route-hook!` so the installed-adapter
+       identity dispatches; chained across every loaded adapter so a
+       single SSR ns-load auto-wires every adapter's slot.
+
+    4. HOT-RELOAD / DEV-TOOLING — `:trace/*`, `:trace.tooling/*`,
+       `:trace.cascade/*`, `:privacy/*`. Dev-only surfaces gated on
+       `interop/debug-enabled?` whose producer namespaces DCE under
+       `:advanced` + `goog.DEBUG=false`; the late-bind indirection lets
+       production CLJS bundles short-circuit cleanly (lookup returns
+       nil, consumer no-ops) without surface-pruning the call sites.
+
+  Multi-category keys (e.g. `:views/*` are both adapter-injection AND
+  cycle-break depending on the consumer; `:event-emit/*` is both cross-
+  artefact AND production observability) are placed in the dominant
+  category — the one a reader first looks under when answering 'what
+  kind of forward-reference is this layer for?' The drift test is
+  unaffected by ordering; the grouping is documentation-only."
+  [;; ===========================================================================
+   ;; GROUP 1 — CYCLE-BREAKING
+   ;;
+   ;; Leaf namespaces calling into higher-level namespaces without
+   ;; `:require`ing them. The indirection exists to break compile-time
+   ;; load cycles; the producer always loads at boot, so lookup never
+   ;; misses in production.
+   ;; ===========================================================================
+
+   ;; ---- re-frame.router (rf2-d4sf foundational dispatch seam) ----------------
    {:key         :router/dispatch!
     :producer-ns 're-frame.router
     :description "Enqueue an event for processing by the drain loop."}
    {:key         :router/dispatch-sync!
     :producer-ns 're-frame.router
     :description "Process an event synchronously, bypassing the drain queue."}
+
+   ;; ---- re-frame.subs --------------------------------------------------------
+   {:key         :subs/subscribe-once
+    :producer-ns 're-frame.subs
+    :description "Subscribe and immediately deref (snapshot value, no reaction)."}
+
+   ;; ===========================================================================
+   ;; GROUP 2 — CROSS-ARTEFACT
+   ;;
+   ;; re-frame.core reaches into an OPTIONAL feature artefact (schemas,
+   ;; flows, routing, machines, ssr, epoch, http, marks, elision)
+   ;; without a static `:require`. When the artefact is absent from the
+   ;; classpath the lookup returns nil and the consumer no-ops or
+   ;; throws `:rf.error/<artefact>-artefact-missing` via `require-fn!`.
+   ;; Also covers always-on observability (`:event-emit/*`,
+   ;; `:error-emit/*`) — production-survivor seams that fire on every
+   ;; dispatch and ship in their own namespaces.
+   ;; ===========================================================================
 
    ;; ---- re-frame.elision (rf2-w3n5u schema-first registry) ------------------
    {:key         :elision/populate-from-schemas!
@@ -347,11 +412,6 @@
     :design-bead "rf2-ijm7"
     :description "Register the machine-shape wrapper for managed HTTP requests."}
 
-   ;; ---- re-frame.subs --------------------------------------------------------
-   {:key         :subs/subscribe-once
-    :producer-ns 're-frame.subs
-    :description "Subscribe and immediately deref (snapshot value, no reaction)."}
-
    ;; ---- re-frame.ssr (rf2-uo7v) ---------------------------------------------
    {:key         :ssr/render-tree-hash
     :producer-ns 're-frame.ssr
@@ -414,6 +474,94 @@
     :producer-ns 're-frame.ssr.streaming
     :design-bead "rf2-ojakd"
     :description "Build the final hydration payload after every streaming chunk has been emitted."}
+
+   ;; ---- re-frame.epoch (rf2-lt4e Tool-Pair surface) -------------------------
+   {:key         :epoch/settle!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-nj6p7"
+    :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. Skips an empty buffer (rejected/aborted dispatch)."}
+   {:key         :epoch/commit-halt-record!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-nj6p7"
+    :description "Commit a :halted-* epoch record for a drain halt whose halting event never ran (the per-event depth-exceed boundary). Unlike :epoch/settle! it does NOT skip an empty buffer — under per-event epochs the already-settled events each harvested their own buffer, so the buffer is empty at halt; this synthesises the halting event's :halted-depth record from an explicit trigger. Already-settled siblings are durable (no whole-drain rollback)."}
+   {:key         :epoch/discard-buffer!
+    :producer-ns 're-frame.epoch
+    :description "Discard the in-flight epoch buffer without committing."}
+   {:key         :epoch/capture-event
+    :producer-ns 're-frame.epoch
+    :description "Capture an event into the in-flight epoch buffer."}
+   {:key         :epoch/cascade-cause
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-25zo2"
+    :description "Walk a frame's in-flight cascade buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution. Consumed by re-frame.views at view-render emit time so the Xray Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
+   {:key         :epoch/record-render!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-qs6dl"
+    :description "Attribute a post-settle render emit (a :view/render / :rf.view/rendered op firing at React commit time, after the causing cascade settled) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a render op arrives with no in-flight cascade; back-fills the render into the causing epoch record and re-fans it to epoch listeners so snapshot consumers re-sync. Fixes the one-epoch :renders lag."}
+   {:key         :epoch/record-sub-run!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-wi900"
+    :description "Subs sibling of :epoch/record-render!. Attribute a post-settle sub-run emit (a :sub/run / :rf.sub/skip op firing at React deref time, after the causing cascade settled, because reactions recompute lazily) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a sub-run op arrives with no in-flight cascade; back-fills the sub-run (and its :value-changed? / :prev-value / :value attribution) into the causing epoch record and re-fans it to epoch listeners. Fixes the one-epoch :sub-runs lag visible in Xray's per-cascade Views subs table."}
+   {:key         :epoch/epoch-history
+    :producer-ns 're-frame.epoch
+    :description "Return the committed-epoch ring buffer (introspection)."}
+   {:key         :epoch/restore-epoch
+    :producer-ns 're-frame.epoch
+    :description "Restore app-db / schemas to a previously-captured epoch."}
+   {:key         :epoch/reset-frame-db!
+    :producer-ns 're-frame.epoch
+    :description "Reset a frame's app-db to the epoch-recorded snapshot."}
+   {:key         :epoch/register-epoch-listener!
+    :producer-ns 're-frame.epoch
+    :description "Register an epoch-settled callback."}
+   {:key         :epoch/unregister-epoch-listener!
+    :producer-ns 're-frame.epoch
+    :description "Unregister a previously-registered epoch-settled callback."}
+   {:key         :epoch/configure!
+    :producer-ns 're-frame.epoch
+    :description "Configure epoch buffer size / capture policy."}
+   {:key         :epoch/clear-history!
+    :producer-ns 're-frame.epoch
+    :description "Clear the committed-epoch ring buffer (test isolation)."}
+   {:key         :epoch/clear-epoch-listeners!
+    :producer-ns 're-frame.epoch
+    :description "Clear every registered epoch-settled callback (test isolation)."}
+   {:key         :epoch/on-frame-destroyed
+    :producer-ns 're-frame.epoch
+    :description "Tear down a frame's epoch state when the frame is destroyed."}
+   {:key         :epoch/projected-record
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-mrsck"
+    :description "Project an :rf/epoch-record for off-box egress: route :db-before / :db-after / :trigger-event / :trace-events through elide-wire-value with off-box defaults; bookkeeping and structured projections pass through. Per Security.md §Epoch privacy posture."}
+   {:key         :epoch/projected-history
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-mrsck"
+    :description "Convenience wrapper returning (mapv projected-record (epoch-history frame-id))."}
+
+   ;; ---- re-frame.event-emit (rf2-rirbq — always-on event observability) -----
+   {:key         :event-emit/dispatch-on-event
+    :producer-ns 're-frame.event-emit
+    :design-bead "rf2-rirbq"
+    :description "Always-on per-event fan-out for production observability (Datadog / Honeycomb / Sentry). Survives `:advanced` + `goog.DEBUG=false`; parallel to (not a fallback for) the dev-only trace surface. Router invokes once per processed event after the cascade settles."}
+
+   ;; ---- re-frame.error-emit (rf2-bacs4 — always-on error observability) -----
+   {:key         :error-emit/dispatch-on-error
+    :producer-ns 're-frame.error-emit
+    :design-bead "rf2-bacs4"
+    :description "Always-on per-`:rf.error/*` fan-out: builds the tight error-record once (elided), then fans out to BOTH the corpus-wide listener registry (rf2-bacs4 — Sentry / Honeybadger / Rollbar shippers) AND the per-frame `:on-error` policy fn (rf2-hqbeh — in-app recovery). Both fan-out paths independent and try/catch wrapped. Survives `:advanced` + `goog.DEBUG=false`. Router invokes from the handler-exception path."}
+
+   ;; ===========================================================================
+   ;; GROUP 3 — ADAPTER-INJECTION
+   ;;
+   ;; Substrate adapters (Reagent / reagent-slim / UIx / Helix / test-
+   ;; react) publish CLJS-side primitives the core runtime consumes
+   ;; (`:adapter/current-frame`, `:adapter/ratom`, `:adapter/after-
+   ;; render`, …) and React-shaped view machinery
+   ;; (`:reagent/set-hiccup-emitter!`, `:views/*`). Routed via
+   ;; `substrate-adapter/route-hook!` so the installed-adapter identity
+   ;; dispatches; chained across every loaded adapter so a single SSR
+   ;; ns-load auto-wires every adapter's slot.
+   ;; ===========================================================================
 
    ;; ---- re-frame.adapter.reagent (rf2-0hxm) ---------------------------------
    {:key         :reagent/set-hiccup-emitter!
@@ -531,68 +679,15 @@
     :design-bead "rf2-00li"
     :description "Substrate-side source-coord injection on rendered React elements."}
 
-   ;; ---- re-frame.epoch (rf2-lt4e Tool-Pair surface) -------------------------
-   {:key         :epoch/settle!
-    :producer-ns 're-frame.epoch
-    :design-bead "rf2-nj6p7"
-    :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. Skips an empty buffer (rejected/aborted dispatch)."}
-   {:key         :epoch/commit-halt-record!
-    :producer-ns 're-frame.epoch
-    :design-bead "rf2-nj6p7"
-    :description "Commit a :halted-* epoch record for a drain halt whose halting event never ran (the per-event depth-exceed boundary). Unlike :epoch/settle! it does NOT skip an empty buffer — under per-event epochs the already-settled events each harvested their own buffer, so the buffer is empty at halt; this synthesises the halting event's :halted-depth record from an explicit trigger. Already-settled siblings are durable (no whole-drain rollback)."}
-   {:key         :epoch/discard-buffer!
-    :producer-ns 're-frame.epoch
-    :description "Discard the in-flight epoch buffer without committing."}
-   {:key         :epoch/capture-event
-    :producer-ns 're-frame.epoch
-    :description "Capture an event into the in-flight epoch buffer."}
-   {:key         :epoch/cascade-cause
-    :producer-ns 're-frame.epoch
-    :design-bead "rf2-25zo2"
-    :description "Walk a frame's in-flight cascade buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution. Consumed by re-frame.views at view-render emit time so the Xray Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
-   {:key         :epoch/record-render!
-    :producer-ns 're-frame.epoch
-    :design-bead "rf2-qs6dl"
-    :description "Attribute a post-settle render emit (a :view/render / :rf.view/rendered op firing at React commit time, after the causing cascade settled) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a render op arrives with no in-flight cascade; back-fills the render into the causing epoch record and re-fans it to epoch listeners so snapshot consumers re-sync. Fixes the one-epoch :renders lag."}
-   {:key         :epoch/record-sub-run!
-    :producer-ns 're-frame.epoch
-    :design-bead "rf2-wi900"
-    :description "Subs sibling of :epoch/record-render!. Attribute a post-settle sub-run emit (a :sub/run / :rf.sub/skip op firing at React deref time, after the causing cascade settled, because reactions recompute lazily) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a sub-run op arrives with no in-flight cascade; back-fills the sub-run (and its :value-changed? / :prev-value / :value attribution) into the causing epoch record and re-fans it to epoch listeners. Fixes the one-epoch :sub-runs lag visible in Xray's per-cascade Views subs table."}
-   {:key         :epoch/epoch-history
-    :producer-ns 're-frame.epoch
-    :description "Return the committed-epoch ring buffer (introspection)."}
-   {:key         :epoch/restore-epoch
-    :producer-ns 're-frame.epoch
-    :description "Restore app-db / schemas to a previously-captured epoch."}
-   {:key         :epoch/reset-frame-db!
-    :producer-ns 're-frame.epoch
-    :description "Reset a frame's app-db to the epoch-recorded snapshot."}
-   {:key         :epoch/register-epoch-listener!
-    :producer-ns 're-frame.epoch
-    :description "Register an epoch-settled callback."}
-   {:key         :epoch/unregister-epoch-listener!
-    :producer-ns 're-frame.epoch
-    :description "Unregister a previously-registered epoch-settled callback."}
-   {:key         :epoch/configure!
-    :producer-ns 're-frame.epoch
-    :description "Configure epoch buffer size / capture policy."}
-   {:key         :epoch/clear-history!
-    :producer-ns 're-frame.epoch
-    :description "Clear the committed-epoch ring buffer (test isolation)."}
-   {:key         :epoch/clear-epoch-listeners!
-    :producer-ns 're-frame.epoch
-    :description "Clear every registered epoch-settled callback (test isolation)."}
-   {:key         :epoch/on-frame-destroyed
-    :producer-ns 're-frame.epoch
-    :description "Tear down a frame's epoch state when the frame is destroyed."}
-   {:key         :epoch/projected-record
-    :producer-ns 're-frame.epoch
-    :design-bead "rf2-mrsck"
-    :description "Project an :rf/epoch-record for off-box egress: route :db-before / :db-after / :trigger-event / :trace-events through elide-wire-value with off-box defaults; bookkeeping and structured projections pass through. Per Security.md §Epoch privacy posture."}
-   {:key         :epoch/projected-history
-    :producer-ns 're-frame.epoch
-    :design-bead "rf2-mrsck"
-    :description "Convenience wrapper returning (mapv projected-record (epoch-history frame-id))."}
+   ;; ===========================================================================
+   ;; GROUP 4 — HOT-RELOAD / DEV-TOOLING
+   ;;
+   ;; Dev-only surfaces gated on `interop/debug-enabled?` whose producer
+   ;; namespaces DCE under `:advanced` + `goog.DEBUG=false`. The late-
+   ;; bind indirection lets production CLJS bundles short-circuit
+   ;; cleanly (lookup returns nil, consumer no-ops) without surface-
+   ;; pruning the call sites.
+   ;; ===========================================================================
 
    ;; ---- re-frame.trace (re-frame.registrar replace-warning seam) ------------
    {:key         :trace/emit!
@@ -683,18 +778,6 @@
     :producer-ns 're-frame.trace.cascade
     :design-bead "rf2-931pm"
     :description "Restore the no-op default focus predicate (no epoch focused). Xray's Reactive panel calls this on unmount."}
-
-   ;; ---- re-frame.event-emit (rf2-rirbq — always-on event observability) -----
-   {:key         :event-emit/dispatch-on-event
-    :producer-ns 're-frame.event-emit
-    :design-bead "rf2-rirbq"
-    :description "Always-on per-event fan-out for production observability (Datadog / Honeycomb / Sentry). Survives `:advanced` + `goog.DEBUG=false`; parallel to (not a fallback for) the dev-only trace surface. Router invokes once per processed event after the cascade settles."}
-
-   ;; ---- re-frame.error-emit (rf2-bacs4 — always-on error observability) -----
-   {:key         :error-emit/dispatch-on-error
-    :producer-ns 're-frame.error-emit
-    :design-bead "rf2-bacs4"
-    :description "Always-on per-`:rf.error/*` fan-out: builds the tight error-record once (elided), then fans out to BOTH the corpus-wide listener registry (rf2-bacs4 — Sentry / Honeybadger / Rollbar shippers) AND the per-frame `:on-error` policy fn (rf2-hqbeh — in-app recovery). Both fan-out paths independent and try/catch wrapped. Survives `:advanced` + `goog.DEBUG=false`. Router invokes from the handler-exception path."}
 
    ;; ---- re-frame.privacy (rf2-w3n5u schema-first privacy) -------------------
    {:key         :privacy/clear-suppression-cache!

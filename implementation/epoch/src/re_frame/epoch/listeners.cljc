@@ -271,9 +271,9 @@
     ;; into a record belonging to the destroyed frame's history — which
     ;; was just dropped above anyway.
     (state/drop-last-settled-epoch! frame-id)
-    ;; Per rf2-vh1k3: forget every render-key's mount-epoch anchor AND
-    ;; read-set for the destroyed frame so a re-registration of a
-    ;; same-keyed frame (`reset-frame! :app/main`) re-mints both from
-    ;; scratch.
-    (state/drop-frame-mount-epochs! frame-id)
-    (state/drop-frame-render-deps! frame-id)))
+    ;; Per rf2-vh1k3 + rf2-dq2b7: forget every render-key's mount-epoch
+    ;; anchor AND read-set for the destroyed frame so a re-registration
+    ;; of a same-keyed frame (`reset-frame! :app/main`) re-mints both
+    ;; from scratch. Both signals share the single `mount-attribution`
+    ;; atom; one wipe replaces the former two.
+    (state/drop-frame-mount-attribution! frame-id)))

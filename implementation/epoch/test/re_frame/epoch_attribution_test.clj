@@ -90,8 +90,10 @@
 ;;
 ;; Mirrors `re-frame.epoch-test/reset-runtime` — the attribution surface
 ;; reaches the same shared atoms (`state/last-settled-epoch`,
-;; `mount-epoch-by-render-key`, `render-deps-by-render-key`, the per-frame
-;; ring), all wiped by `epoch/clear-history!`.
+;; `mount-attribution`, the per-frame ring), all wiped by
+;; `epoch/clear-history!`. Per rf2-dq2b7 the former two render-attribution
+;; atoms (`mount-epoch-by-render-key` + `render-deps-by-render-key`)
+;; collapsed into a single `mount-attribution` atom.
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -849,3 +851,68 @@
       (is (not (contains? row :triggered-by))
           ":triggered-by absent on a structural re-render row")
       (is (= 0.3 (:elapsed-ms row)) ":elapsed-ms still preserved"))))
+
+;; ===========================================================================
+;; rf2-dq2b7 — mount-attribution atom merge: epoch-id + deps share one entry
+;; ===========================================================================
+
+(deftest mount-attribution-coexists-on-single-entry
+  (testing "rf2-dq2b7 — `record-mount-epoch!` and `record-render-deps!`
+            update DIFFERENT slots on the SAME `(frame, render-key)` entry
+            in the merged `mount-attribution` atom. Cross-population must
+            not clobber the sibling slot, and the public accessors read
+            each slot independently."
+    (let [frame      :test/dq2b7
+          render-key [:my-view 0]]
+      ;; Seed the read-set FIRST — the in-render deref typically fires
+      ;; before the post-settle render commit.
+      (state/record-render-deps! frame render-key :sub/a)
+      (state/record-render-deps! frame render-key :sub/b)
+      (is (= #{:sub/a :sub/b} (state/render-deps-for frame render-key))
+          "both deps recorded on the entry's :deps slot")
+      (is (nil? (state/mount-epoch-for frame render-key))
+          "mount-epoch slot is still empty — record-render-deps! did not touch it")
+
+      ;; Now record the mount-epoch — populates the sibling :epoch-id slot
+      ;; on the same entry without clobbering the deps set.
+      (state/record-mount-epoch! frame render-key :epoch/one)
+      (is (= :epoch/one (state/mount-epoch-for frame render-key))
+          "mount-epoch landed on the entry's :epoch-id slot")
+      (is (= #{:sub/a :sub/b} (state/render-deps-for frame render-key))
+          "deps slot survived the mount-epoch write — single entry, two slots")
+
+      ;; First-sighting invariant survives the merge: a second
+      ;; record-mount-epoch! must NOT overwrite the anchor.
+      (state/record-mount-epoch! frame render-key :epoch/ninety-nine)
+      (is (= :epoch/one (state/mount-epoch-for frame render-key))
+          "re-recording a mount epoch does not move the anchor (first-sighting)")
+
+      ;; Single-wipe contract: one `drop-frame-mount-attribution!` clears
+      ;; BOTH slots; the bead's "four wipers → two" lift.
+      (state/drop-frame-mount-attribution! frame)
+      (is (nil? (state/mount-epoch-for frame render-key))
+          "mount-epoch cleared by drop-frame-mount-attribution!")
+      (is (nil? (state/render-deps-for frame render-key))
+          "deps cleared by the same wipe — one swap clears both slots"))))
+
+(deftest mount-attribution-frame-scoping
+  (testing "rf2-dq2b7 — `mount-attribution` is keyed by (frame × render-key);
+            dropping one frame's entry does not affect a sibling frame's
+            anchor or read-set."
+    (let [render-key [:shared-view 0]]
+      (state/record-mount-epoch!  :test/dq2b7-a render-key :epoch/a-1)
+      (state/record-render-deps!  :test/dq2b7-a render-key :sub/a)
+      (state/record-mount-epoch!  :test/dq2b7-b render-key :epoch/b-1)
+      (state/record-render-deps!  :test/dq2b7-b render-key :sub/b)
+
+      ;; Drop only frame A.
+      (state/drop-frame-mount-attribution! :test/dq2b7-a)
+      (is (nil? (state/mount-epoch-for :test/dq2b7-a render-key)))
+      (is (nil? (state/render-deps-for :test/dq2b7-a render-key)))
+      ;; Frame B survives intact.
+      (is (= :epoch/b-1 (state/mount-epoch-for :test/dq2b7-b render-key)))
+      (is (= #{:sub/b}  (state/render-deps-for :test/dq2b7-b render-key)))
+
+      ;; reset-mount-attribution! wipes everything left.
+      (state/reset-mount-attribution!)
+      (is (nil? (state/mount-epoch-for :test/dq2b7-b render-key))))))
