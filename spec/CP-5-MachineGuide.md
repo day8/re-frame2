@@ -78,7 +78,7 @@ For the third case (compound predicate), prefer naming the compound — `:eligib
 
 ## v1 grammar subset
 
-v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf/machines <id>]` storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf/machines)` / `(rf/machine-meta id)`).
+v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf/runtime :machines :snapshots <id>]` storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf/machines)` / `(rf/machine-meta id)`).
 
 The grammar this foundation interprets (per [005 §Capability matrix](005-StateMachines.md#capability-matrix)):
 
@@ -90,7 +90,7 @@ The grammar this foundation interprets (per [005 §Capability matrix](005-StateM
 - `:*` wildcard, self-transitions
 - the reserved fx-id `:raise` (machine-internal) plus the canonical actor-lifecycle fx-ids `:rf.machine/spawn` / `:rf.machine/destroy` inside the action's returned `:fx`
 
-The snapshot location is fixed at `[:rf/machines <id>]` — no `:path` key in the spec.
+The snapshot location is fixed at `[:rf/runtime :machines :snapshots <id>]` — no `:path` key in the spec.
 
 Hierarchical compound states, eventless `:always`, delayed `:after`, declarative `:spawn`, state tags (`:fsm/tags`), parallel regions (`:fsm/parallel-regions`), spawn-and-join (`:actor/spawn-and-join`), and `:system-id` named-machine addressing are all claimed in the v1 capability list — see the matrix for the full set and per-capability fixture coverage.
 
@@ -107,7 +107,7 @@ xstate's parallel-region machines model two-or-more independent regions advancin
 re-frame2 ships **two** answers; pick by domain shape:
 
 - **Orthogonal axes of one feature, shared `:data`.** Use `:type :parallel` with `:regions` in a single machine. The axes coordinate through one shared `:data` map and the snapshot's `:state` is a map of region → keyword-or-path. See [Spec 005 §Parallel regions](005-StateMachines.md#parallel-regions).
-- **Independent features, no shared `:data`.** Use **one machine per region**, coordinated via cross-actor dispatch. Each region is a separate machine — separate `[:rf/machines <id>]` snapshot, separate transition table, independent inspection. Synchronising events fan out through `:fx [[:dispatch ...]]`. This is the pattern below.
+- **Independent features, no shared `:data`.** Use **one machine per region**, coordinated via cross-actor dispatch. Each region is a separate machine — separate `[:rf/runtime :machines :snapshots <id>]` snapshot, separate transition table, independent inspection. Synchronising events fan out through `:fx [[:dispatch ...]]`. This is the pattern below.
 
 The media-player example uses two genuinely independent regions (audio and video have no shared data, only the play/pause/stop event coordinates them) — the N-machine pattern is the right fit:
 
@@ -172,7 +172,7 @@ What this gives:
 
 - **Atomicity.** Run-to-completion drain at the frame level means `:media/play` runs both `:media/audio [:media/play]` and `:media/video [:media/play]` to completion before any other event sees state. From outside the frame, the two regions advance together.
 - **Inspection.** `(rf/machines)` enumerates both regions; `@(rf/sub-machine :media/audio)` and `@(rf/sub-machine :media/video)` are independent reads. Tooling treats them as the two separate things they are, not as nested keys inside a parallel-region snapshot.
-- **Undo.** Each region's snapshot lives at its own `[:rf/machines <id>]` key; reverting `app-db` rolls both back together.
+- **Undo.** Each region's snapshot lives at its own `[:rf/runtime :machines :snapshots <id>]` key; reverting `app-db` rolls both back together.
 - **Composability.** A view caring only about audio subscribes to `:media/audio`; video-only views ignore audio entirely. Parallel-region snapshots in xstate force consumers to subscribe to the umbrella machine and project — extra ceremony for the same outcome.
 - **Discoverability.** Each region has a name (`:media/audio`) and a registry entry. xstate's regions live anonymously inside the parent machine's transition table.
 
@@ -182,7 +182,7 @@ The cost: a coordinating event (`:media/play`) is one extra registration. In exc
 
 xstate's history states re-enter a compound state at *the substate that was active when it was last left*. The substrate concern is "remember where the user was."
 
-xstate needs history states because its runtime lacks first-class snapshot-as-value semantics — there's no general way to copy a machine's current state and restore it later. re-frame2 has snapshot-as-value as a foundation: every machine's snapshot at `[:rf/machines <id>]` is a value, and copying / restoring values is what re-frame2's persistent data structures do best. The substitute is **capture on leave, restore on re-enter** — a two-line action pattern over the existing snapshot.
+xstate needs history states because its runtime lacks first-class snapshot-as-value semantics — there's no general way to copy a machine's current state and restore it later. re-frame2 has snapshot-as-value as a foundation: every machine's snapshot at `[:rf/runtime :machines :snapshots <id>]` is a value, and copying / restoring values is what re-frame2's persistent data structures do best. The substitute is **capture on leave, restore on re-enter** — a two-line action pattern over the existing snapshot.
 
 #### Worked sketch — remember-last-substate via snapshot capture
 
@@ -227,7 +227,7 @@ The cost: explicit code for capture / restore, instead of a one-keyword `{:type 
 #### Why xstate needs history but re-frame2 doesn't
 
 - **xstate** treats machine state as runtime objects — `ActorRef` instances with mailboxes and live observers. There is no general "value of this machine right now" you can copy and restore later, so the runtime ships dedicated history-state machinery.
-- **re-frame2** treats machine state as a value at `[:rf/machines <id>]`. Every read is `(get-in db [:rf/machines id])`; every write is `(assoc-in db [:rf/machines id] new-snap)`. Capturing and restoring are *natural ops* on the existing data structure — no dedicated mechanism needed.
+- **re-frame2** treats machine state as a value at `[:rf/runtime :machines :snapshots <id>]`. Every read is `(get-in db [:rf/runtime :machines :snapshots id])`; every write is `(assoc-in db [:rf/runtime :machines :snapshots id] new-snap)`. Capturing and restoring are *natural ops* on the existing data structure — no dedicated mechanism needed.
 
 The substitute is not a workaround; it is the same answer history states give, expressed in re-frame2's existing primitives. Goal 3 — Frame state revertibility — is what makes this affordable.
 
@@ -237,7 +237,7 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 
 | xstate | re-frame2 | Why |
 |---|---|---|
-| `ActorRef` runtime objects | Snapshots at `[:rf/machines <id>]` in `app-db` | Data orientation; agent-friendliness; no leak footguns |
+| `ActorRef` runtime objects | Snapshots at `[:rf/runtime :machines :snapshots <id>]` in `app-db` | Data orientation; agent-friendliness; no leak footguns |
 | Per-actor mailboxes | One per-frame router queue | Simpler model; drain at the frame level is the granularity that matters |
 | `raise` (self-event) vs `sendTo` (other-actor) | Single `dispatch`; `:raise` is sugar for self-dispatch with atomic semantics | One pipeline; no per-actor mailbox to put events at the front of |
 | Three creation modes (`createActor` / `invoke` / `spawn`) | One mechanism, two patterns (singleton via `reg-event-fx`; dynamic via the `[:rf.machine/spawn ...]` fx) | Lifetime is encoded in `app-db` shape and registration lifetime |

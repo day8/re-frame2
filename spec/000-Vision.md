@@ -277,7 +277,7 @@ Goal 3 promotes a property the rest of the spec already assumes — that a frame
 Goal 3 is the named justification for the following decisions documented elsewhere; each cross-references back here:
 
 - **Single Store invariant** (everything machine-related in `app-db`; see [005 §What the Single Store gives us for free](005-StateMachines.md#what-the-single-store-gives-us-for-free)) → atomic snapshots possible.
-- **`[:rf/machines <id>]` reserved storage** (see [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live), [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)) → machine state inherits revertibility for free.
+- **`[:rf/runtime :machines :snapshots <id>]` reserved storage** (see [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live), [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)) → machine state inherits revertibility for free.
 - **Strict encapsulation** (machines only see `:data`; see [005 §Strict encapsulation](005-StateMachines.md#strict-encapsulation--actions-only-see-their-own-data)) → no leaks outside the frame value.
 - **No core.async** → no asynchronous mutation escapes capture.
 - **Two-tier registry** (central + frame-local; see [002 §State machines are just event handlers](002-Frames.md#state-machines-are-just-event-handlers) and [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)) → frame-level undo doesn't disturb source-code-level state.
@@ -345,7 +345,7 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 
 **FSM-richness — v1 SKIPS, with documented substitutes:**
 
-- **History states** — substitute: *snapshot-as-value capture*. Snapshots at `[:rf/machines <id>]` are already values; user copies on leave, restores on re-enter. xstate needs history states because its runtime lacks first-class snapshot-as-value semantics; re-frame2's [Goal 3 — Frame state revertibility](#frame-state-revertibility) gives this for free.
+- **History states** — substitute: *snapshot-as-value capture*. Snapshots at `[:rf/runtime :machines :snapshots <id>]` are already values; user copies on leave, restores on re-enter. xstate needs history states because its runtime lacks first-class snapshot-as-value semantics; re-frame2's [Goal 3 — Frame state revertibility](#frame-state-revertibility) gives this for free.
 
 **Actor-model — v1 includes:**
 

@@ -972,7 +972,7 @@ Per — `:rf.http/managed` is **also** registered as a child-invokable state mac
     :timed-out      {}}})
 ```
 
-While in `:authenticating`, a child wrapper actor of `:rf.http/managed` is alive at `[:rf/machines :rf.http/managed#N]`. It issues the request on entry; on the reply it transitions to its `:succeeded` / `:failed` terminal state and dispatches `[<parent-id> [:succeeded value]]` (or `[<parent-id> [:failed failure]]`) back to the parent — which the parent's `:on` map handles as ordinary FSM events.
+While in `:authenticating`, a child wrapper actor of `:rf.http/managed` is alive at `[:rf/runtime :machines :snapshots :rf.http/managed#N]`. It issues the request on entry; on the reply it transitions to its `:succeeded` / `:failed` terminal state and dispatches `[<parent-id> [:succeeded value]]` (or `[<parent-id> [:failed failure]]`) back to the parent — which the parent's `:on` map handles as ordinary FSM events.
 
 ### Wrapper spec
 

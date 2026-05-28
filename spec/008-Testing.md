@@ -57,7 +57,7 @@ The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — the
 | Replace interceptor | `{:interceptor-overrides {:logger nil}}` per-call or per-frame |
 | Add interceptor (recorder) | `(rf/reg-frame :test-frame {:interceptors [event-recorder]})` |
 | Assertion: read app-db | `(rf/get-frame-db :test-frame)` |
-| Assertion: read snapshot | `@(rf/sub-machine :auth/state-machine)` (or `(rf/snapshot-of [:rf/machines :auth/state-machine])` for storage-layer assertions) |
+| Assertion: read snapshot | `@(rf/sub-machine :auth/state-machine)` (or `(rf/snapshot-of [:rf/runtime :machines :snapshots :auth/state-machine])` for storage-layer assertions) |
 | Pure machine simulation | `(machine-transition definition snapshot event)` — no frame needed |
 | Machine cleanup on destroy | `(rf/destroy-frame! f)` — disposes sub-cache, stops router, clears overrides |
 | Static sub-graph inspection | `(rf/sub-topology)` |

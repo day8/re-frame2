@@ -44,7 +44,7 @@ For each row, the implementor declares **yes** (the implementation supports the 
 
 #### Q1. State machines?
 
-The FSM/actor substrate from [005](005-StateMachines.md) — transition tables, `make-machine-handler`, the `:rf/machines` reserved app-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support, declarative `:spawn`. Substantial work. The pattern remains useful without machines (events / subs / fx / app-db / views are self-sufficient); many small frameworks ship without machines initially.
+The FSM/actor substrate from [005](005-StateMachines.md) — transition tables, `make-machine-handler`, the `[:rf/runtime :machines]` reserved app-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support, declarative `:spawn`. Substantial work. The pattern remains useful without machines (events / subs / fx / app-db / views are self-sufficient); many small frameworks ship without machines initially.
 
 **Declaring yes implies** picking an FSM-richness capability list and an actor-model capability list per [005 §Capability matrix](005-StateMachines.md#capability-matrix). The CLJS reference claims flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions`, plus own-state + spawn/destroy + cross-actor `:fx` + declarative `:spawn` + spawn-and-join (`:spawn-all`) + `:system-id`. Smaller ports can claim less; conformance grades against the claimed list.
 
@@ -417,7 +417,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### M1. Snapshot serialisation format
 
-- **Why it matters.** Machine snapshots ride at `[:rf/machines <id>]` in `app-db` (per [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live)) and must serialise for SSR hydration and persistence.
+- **Why it matters.** Machine snapshots ride at `[:rf/runtime :machines :snapshots <id>]` in `app-db` (per [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live)) and must serialise for SSR hydration and persistence.
 - **Options by host.** Falls out of **F2** (persistent collections) + **Sch1** (shape description).
 - **Reference-impl picks.** CLJS uses a `{:state ... :data ...}` map; serialises trivially as EDN.
 - **Trade-offs.** Closures or host-specific objects in `:data` break serialisation — keep snapshot fields pure data.
