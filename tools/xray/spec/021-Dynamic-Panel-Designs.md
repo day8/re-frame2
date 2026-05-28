@@ -511,14 +511,10 @@ appear as graph nodes. Quoted from the super-prompt (A.3):
 The L2 row's `🌊 flow-recomputed` badge surfaces flows as a cross-epoch signal; per-epoch flow
 detail lives in the Epoch panel's FLOW section (§9.1).
 
-Below the graph, three list sections complete the panel:
+Below the graph, two list sections complete the panel (the prior SUB VALUES section retired in
+rf2-uz3wm — the Epoch panel's SUBSCRIPTIONS table now carries per-cascade sub values + per-sub
+diff chrome in cascade context, so the Reactive tab's value-listing is duplicate inventory):
 
-- **SUB VALUES** (rf2-e46qs phase 3 of rf2-oqa60) — one row per RUN sub this cascade carrying
-  its current value through the first-class edn-inspector widget (`[ei/edn-inspector value opts]`,
-  §10). Each row uses a stable per-sub `:panel-id` qualifier under `:rf.xray.reactive-sub-value`
-  so two sub-row expansions are independent. Subs whose value carries no `:value` slot (privacy
-  redaction / pre-attribution) render a muted no-value placeholder rather than mounting the
-  widget with `nil`. Memoised skips (`:recomputed?` false) are omitted — only RUN subs surface.
 - **UNMOUNTED VIEWS** — views whose component unmounted this epoch (one row each: view name +
   `unmounted` tag; a small `error`-tinted swatch as the row marker).
 - **DESTROYED SUBSCRIPTIONS** — subs cleaned up when their last reader unmounted (one row each:
@@ -2528,19 +2524,17 @@ adapter + dep are dropped.
 Phases 2-5 file as separate beads chained off rf2-oqa60:
 
 - Phase 2 — Trace per-event detail integration
-- Phase 3 (rf2-e46qs) — **Sub value inspector integration.** The
-  Views panel (`reactive-panel-view`) renders a `SUB VALUES` section
-  beneath the flow graph. Each RUN sub gets one row carrying its
-  current cascade value through `[ei/edn-inspector value opts]`
-  DIRECTLY (no `edn/inspect` / `edn/browse` facade hop). Each row's
-  `:panel-id` is a STABLE per-sub keyword namespaced under
-  `:rf.xray.reactive-sub-value` (folded from the sub-id), so two
-  sub-row expansions are independent. Sub-runs that carry no `:value`
-  slot (privacy redaction / pre-attribution) render a muted no-value
-  placeholder instead of mounting the widget with `nil` — distinct
-  from a sub whose value actually IS `nil`. Memoised skips
-  (`:recomputed?` false) are omitted from the inspector; only RUN
-  subs surface.
+- Phase 3 (rf2-e46qs) — **Sub value inspector integration. RETIRED
+  in rf2-uz3wm.** Previously the Views panel (`reactive-panel-view`)
+  rendered a `SUB VALUES` section beneath the flow graph (one row per
+  RUN sub, each row mounting `[ei/edn-inspector value opts]` directly).
+  Retired once the Epoch panel's SUBSCRIPTIONS table grew per-cascade
+  sub values + per-sub diff chrome (rf2-e46qs successor coverage,
+  rf2-fyd8u `← was X` annotation) — that table carries the same
+  information cradled in the cascade context, so the Reactive tab's
+  value-listing was duplicate inventory. The Reactive panel now stops
+  at the flow graph + the UNMOUNTED VIEWS / DESTROYED SUBSCRIPTIONS
+  teardown sections.
 - Phase 4 — Machine snapshot drill-in integration
 - Phase 5 (rf2-q3dzw) — **Diff renderer subsumption (D5=a per
   rf2-sndui).** Diff is now an opt-in MODE on the same widget —
