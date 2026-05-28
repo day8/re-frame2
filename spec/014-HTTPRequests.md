@@ -1060,6 +1060,19 @@ Per (motivated by the [ §Completeness matrix G3](#) — the sensitive-elision a
 
 Spec 014 specifies HTTP-side honouring on top of the Spec 009 contract: every `:rf.http/*` trace event MUST stamp `:sensitive?` when the originating handler is sensitive, MUST redact known-sensitive request headers regardless of handler sensitivity, and MUST redact request / response bodies when the request is sensitive. The contract layers as three cooperating pieces.
 
+### Privacy at a glance — user-facing entry points and owning namespaces
+
+App code requires only the `re-frame.http` façade, which re-exports the four entry points below. The structural split (three implementation namespaces) is visible to the operator who's reading the spec or stepping into framework source — headers, URL query-string params, and the orchestrating composers are distinct decoration surfaces.
+
+| Entry point | Purpose | Owning namespace |
+|---|---|---|
+| `declare-sensitive-header!` | Extend the always-on header denylist with an app-specific header name. | `re-frame.http-privacy-headers` |
+| `clear-sensitive-headers!` | Clear the app-extended header denylist (test ergonomics). The fixed default denylist is not affected. | `re-frame.http-privacy-headers` |
+| `declare-sensitive-query-param!` | Extend the always-on query-string param denylist with an app-specific param name. | `re-frame.http-url` |
+| `clear-sensitive-query-params!` | Clear the app-extended query-param denylist (test ergonomics). The fixed default denylist is not affected. | `re-frame.http-url` |
+
+The composers that orchestrate per-emit redaction + stamping — `request-sensitive?`, `prepare-emit-tags`, `prepare-emit-failure` — live in `re-frame.http-privacy` as the privacy orchestrator. They consult the two denylist atoms and the per-request / per-call `:sensitive?` flag and produce the redacted slot values + stamped tags map that `trace/emit!` / `trace/emit-error!` sees.
+
 ### 1. Header denylist (always-on)
 
 A canonical set of HTTP header names is **always sensitive** — the names themselves declare the value secret regardless of the surrounding handler's `:sensitive?` flag. Implementations MUST redact (substitute the framework-reserved `:rf/redacted` sentinel per [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)) the values of these headers in every `:rf.http/*` trace event that carries a `:headers` slot. Header-name matching is **case-insensitive**.
