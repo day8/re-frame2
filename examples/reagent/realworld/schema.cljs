@@ -218,12 +218,6 @@
 ;; `{path -> schema}` map reads more cleanly than a tower of singular
 ;; `reg-app-schema` calls. Source-coords for the bulk call stamp every
 ;; registered entry.
-;;
-;; Note: the `:tags` slice from the slice-form era is gone — the popular-
-;; tags lifecycle is now the `:realworld/tags` machine (the :data-region
-;; machine variant of Pattern-RemoteData), and its snapshot lives at
-;; `[:rf/machines :realworld/tags]`. Similarly the `:settings` slice is
-;; replaced by the `:settings/form` machine at `[:rf/machines :settings/form]`.
 
 (rf/reg-app-schemas
   {[:auth]                          AuthSlice

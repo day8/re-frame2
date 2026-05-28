@@ -2,8 +2,11 @@
 
 A dashboard with three slow cards: the page's shell + header render
 immediately on the server, then each card streams its content as its
-data fetch resolves. The browser shows a usable shell within ~50ms
-while the cards trickle in over ~300ms each. The worked companion to
+data fetch resolves. In a real deployment with three slow microservices
+the browser would show a usable shell within ~50ms while the cards
+trickle in over ~300ms each; this canned demo seeds all three cards
+synchronously from `:rf/server-init` so the demo runs offline. The
+worked companion to
 [Spec 011 §Streaming
 SSR](../../../spec/011-SSR.md#streaming-ssr).
 

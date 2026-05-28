@@ -19,37 +19,12 @@
   re-frame.state-machine-walkthrough-cljs-test."
   (:require [re-frame.core :as rf]
             [re-frame.machines.result :as result]
-            [re-frame.registrar :as registrar]
             [state-machine-walkthrough.core :as core]))
 
-;; ============================================================================
-;; TEST STUBS — per-test wrappers that delegate to the framework-shipped
-;; canned-success / canned-failure stubs.
-;; ============================================================================
-;;
-;; Per Spec 014 §Testing, the framework ships `:rf.http/managed-canned-success`
-;; and `:rf.http/managed-canned-failure` fxs that synthesise the canonical
-;; reply shape. Per-test wrappers delegate to those stubs while supplying
-;; the test-specific `:value` (success) / failure category.
-
-(rf/reg-fx :auth.login/canned-success
-  {:doc "Test stub: every `:rf.http/managed` call resolves :success with a
-         canned user/token payload. Delegates to the framework-shipped
-         `:rf.http/managed-canned-success` per Spec 014 §Testing."}
-  (fn [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
-      (stub frame-ctx (assoc args-map :value {:user  {:id "test-user"}
-                                              :token "test-token"})))))
-
-(rf/reg-fx :auth.login/canned-failure
-  {:doc "Test stub: every `:rf.http/managed` call resolves :failure.
-         Delegates to the framework-shipped `:rf.http/managed-canned-failure`
-         per Spec 014 §Testing."}
-  (fn [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
-      (stub frame-ctx (assoc args-map
-                             :kind :rf.http/http-4xx
-                             :tags {:message "bad creds" :status 401})))))
+;; The `:auth.login/canned-success` and `:auth.login/canned-failure` stubs
+;; used by the drain tests below are registered in
+;; `state-machine-walkthrough.core` (loaded via the `:as core` require above)
+;; so both the browser demo and the tests share one registration point.
 
 ;; ============================================================================
 ;; HEADLESS TESTS — chapter §Headless testing

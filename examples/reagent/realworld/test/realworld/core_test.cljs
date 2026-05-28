@@ -21,11 +21,8 @@
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed      :realworld.test/canned-success-empty
                                                 :auth.session/persist :rf/no-op}})]
-    ;; After init: auth + articles slices and the :realworld/tags
-    ;; and :settings/form machine snapshots are present. The tags
-    ;; machine replaces the slice-form `:tags` resource; the
-    ;; settings/form machine replaces the slice-form `:settings`
-    ;; resource.
+    ;; After init: the :auth + :articles slices and the
+    ;; :realworld/tags + :settings/form machine snapshots are present.
     (let [db (rf/get-frame-db f)]
       (assert (contains? db :auth))
       (assert (contains? db :articles))

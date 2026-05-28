@@ -34,10 +34,14 @@
  *     name:  string,                         // human-readable
  *     url:   string,                         // path under the static server root
  *     run:   async (page) => void,           // Playwright assertions
- *     skip:  string | false                  // optional — when truthy, the
- *                                            //   spec is reported as SKIP
- *                                            //   with this string as the
- *                                            //   reason.
+ *     skip:  string | falsy                  // optional — when truthy
+ *                                            //   (any non-empty string),
+ *                                            //   the spec is reported as
+ *                                            //   SKIP with this string as
+ *                                            //   the reason. Any falsy
+ *                                            //   value (false / null /
+ *                                            //   undefined / "") = run
+ *                                            //   normally.
  *   }
  *
  * Exit code: 0 if every spec's `run` resolves (skipped specs count as

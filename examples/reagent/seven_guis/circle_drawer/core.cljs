@@ -224,13 +224,11 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; React root named `react-root` (not `root`) so it does NOT collide
-;; with the `drawer-view` reg-view above.
-(defonce react-root
+(defonce root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:drawer/initialise])
-  (rdc/render react-root [drawer-view]))
+  (rdc/render root [drawer-view]))

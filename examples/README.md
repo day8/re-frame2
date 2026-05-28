@@ -163,6 +163,15 @@ Stage the `index.html` once (copy `examples/reagent/counter/index.html` next to 
 
 **Do NOT add a `*.spec.cjs` under `examples/`.** If the new example proves a new framework contract that isn't already covered by `test:cljs` / `test:xray-feature-gate` / bundle-isolation / perf-bundle, file a follow-up bead to extend the appropriate gate (or, for a genuinely new cross-cutting surface, add a top-level `testbeds/<surface>/` with its own `spec.cjs`).
 
+### Banner-comment style — size-keyed
+
+Section dividers in `core.cljs` files use one of two styles, keyed by file size:
+
+- **Light banner** (`;; -- Events / subs --`) — for sketch-sized files (~60-100 lines). Used by `counter/`, `counter_uix/`, `counter_helix/` and similar small pedagogical examples.
+- **Heavy ASCII box** (a 76-char `;; ===…===` rule above and below a `;; SECTION NAME` line) — for design-led and machine-bearing files (~200-300+ lines). Used by `dashboard_uix/`, `process_monitor_helix/`, the three `login*` examples, `notebook/`, `realworld/`, etc.
+
+The heavy box earns its visual weight in files where the section markers must be scannable across multiple pages. The light style would disappear in a long file; the heavy style overwhelms a short one. Prefer the light style by default; promote to the heavy style when section markers become navigation aids rather than pretty hairlines.
+
 ## What examples are *not*
 
 - **Not a substitute for the [specification](../spec/).** Examples illustrate; the specification defines.

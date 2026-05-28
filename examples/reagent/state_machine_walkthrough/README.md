@@ -68,9 +68,12 @@ test suite. To run them ad-hoc from a CLJS or JVM REPL:
 ```clojure
 (require '[state-machine-walkthrough.core])      ;; load the machine
 (require '[state-machine-walkthrough.core-test :as t])
-(t/test-idle-to-submitting)
-(t/test-submitting-to-error)
-;; ...one per chapter scenario.
+(t/smoke-tests)                                  ;; runs all four scenarios
+;; or one at a time:
+(t/pure-happy-path-test)
+(t/pure-lockout-test)
+(t/drain-happy-path-test)
+(t/drain-retry-then-lockout-test)
 ```
 
 ## Cross-references

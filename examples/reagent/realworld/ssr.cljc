@@ -18,13 +18,11 @@
    :articles
    :article
    :comments
-   :tags
    :feed
    :profile
    :profile.articles
    :profile.favorites
    :editor
-   :settings
    :comment-form
    :rf/machines])
 

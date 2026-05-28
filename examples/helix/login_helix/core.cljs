@@ -281,4 +281,8 @@
   (rf/reg-frame :rf/default
     {:doc          "Login (Helix) demo frame."
      :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
+  ;; No `dispatch-sync` seed here (unlike counter / dashboard): the
+  ;; machine handler is self-initialising — its `:initial`/`:data` seed
+  ;; [:rf/machines :auth.login/flow] when the flow first runs (per
+  ;; Spec 005 §Restore semantics), so no separate :initialise is needed.
   (.render react-root ($ root-view)))
