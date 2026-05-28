@@ -122,6 +122,19 @@ const STAGED_SURFACES = [
     html: ['testbeds', 'ssr_multi_frame', 'index.html'],
     servedPath: 'testbeds/ssr-multi-frame',
   },
+  // rf2-azfct — panel-gallery testbed staged for the theme-token CSS-
+  // variable resolution probe. The gallery embeds bare Xray widgets
+  // without mounting the Xray shell, so its boot path must call
+  // `global-styles/install!` explicitly (rf2-pqulr). The probe asserts
+  // that contract from a real browser; without `install!` every
+  // `var(--rf-xray-*)` reference would resolve to its CSS fallback
+  // default and panels would paint unstyled.
+  {
+    build: 'testbeds/panel-gallery',
+    bundleDir: ['out', 'testbeds', 'panel-gallery'],
+    html: ['tools', 'xray', 'testbeds', 'panel_gallery', 'index.html'],
+    servedPath: 'testbeds/panel-gallery',
+  },
 ];
 
 function sleep(ms) {
@@ -2463,6 +2476,80 @@ async function runPaletteOpenExecute(page, state) {
   };
 }
 
+// rf2-azfct — Mike-authorised 2026-05-28 (explicit exception to the
+// "default Causa/Story tests to CLJS" rule because real-browser CSS-
+// variable resolution is the signal under test; the CLJS render-tree
+// tests pin the inline-style → `var(--rf-xray-*)` contract at the
+// hiccup layer but cannot prove the browser actually substitutes a
+// hex at paint time).
+//
+// rf2-pqulr (the P1 this gate catches): panel-gallery's boot path
+// missing `global-styles/install!` left every `var(--rf-xray-*)`
+// reference resolving to its CSS fallback default, painting every
+// variant unstyled. Without an automated gate the regression went
+// undetected for some time.
+//
+// The probe is minimal — one variant load + one token assertion per
+// the bead's acceptance. The Story shell is left at its default
+// landing (no variant click) because `:root` CSS custom properties
+// are global; the only thing under test is "did boot install them?".
+async function runPanelGalleryThemeTokens(page, state) {
+  // 1. Visit the gallery at /#/stories so the Story shell mounts.
+  //    The gallery's boot calls `global-styles/install!` from
+  //    `panel-gallery.core/run` BEFORE the hash-router routes to
+  //    `mount-stories!` — so the `<style id="rf-xray-themes">` node
+  //    is in `<head>` and the `:root` block is live regardless of
+  //    which mount branch runs.
+  await page.waitForFunction(
+    () => Boolean(document.querySelector('[data-rf-story-root]')),
+    { timeout: 10000 },
+  );
+
+  // 2. Read the published `:root` CSS variable. With
+  //    `global-styles/install!` called the light-palette
+  //    `--rf-xray-text-primary` resolves to the literal hex
+  //    `#24292f` (tokens.cljc `:light :text-primary`). Without
+  //    install! the variable is undefined and getPropertyValue
+  //    returns the empty string.
+  const probe = await page.evaluate(() => {
+    const root = document.documentElement;
+    const rootStyle = getComputedStyle(root);
+    const textPrimary = rootStyle.getPropertyValue('--rf-xray-text-primary').trim();
+    const accent = rootStyle.getPropertyValue('--rf-xray-accent').trim();
+    const themesStyleNode = document.getElementById('rf-xray-themes');
+    return {
+      textPrimary,
+      accent,
+      themesStylePresent: Boolean(themesStyleNode),
+    };
+  });
+
+  state.themeTokens = probe;
+
+  if (!probe.themesStylePresent) {
+    failWithDetails(
+      'panel-gallery boot did not install the rf-xray-themes <style> block — ' +
+        'global-styles/install! never ran. This is the rf2-pqulr regression class.',
+      probe,
+    );
+  }
+  if (!probe.textPrimary || !probe.textPrimary.startsWith('#')) {
+    failWithDetails(
+      '--rf-xray-text-primary did not resolve to a token value on :root. ' +
+        'Either global-styles/install! never ran or the light-palette block ' +
+        'no longer publishes :text-primary (theme/tokens.cljc).',
+      probe,
+    );
+  }
+  if (!probe.accent || !probe.accent.startsWith('#')) {
+    failWithDetails(
+      '--rf-xray-accent did not resolve to a token value on :root. ' +
+        'global-styles/install! likely did not run.',
+      probe,
+    );
+  }
+}
+
 const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
@@ -2587,6 +2674,32 @@ const SCENARIOS = [
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runPaletteOpenExecute,
+  },
+  {
+    // rf2-azfct — theme-token CSS-variable resolution probe.
+    // Mike-authorised 2026-05-28 (explicit exception to the
+    // "default Causa/Story tests to CLJS" rule — real-browser
+    // CSS-variable resolution is the signal under test, CLJS
+    // unit tests can't reach it). Gates against the rf2-pqulr
+    // regression class: a boot path that embeds bare Xray widgets
+    // without calling `global-styles/install!` leaves every
+    // `var(--rf-xray-*)` reference resolving to its CSS fallback
+    // default, painting every variant unstyled.
+    //
+    // PR-smoke tier — the panel-gallery surface is unique to this
+    // probe (no other smoke scenario uses it), but the regression
+    // class is severe (P1) and the probe is fast (~one page load
+    // + one DOM read). The compile + serve overhead is the cost
+    // of buying pre-merge coverage of a class of bugs that went
+    // undetected for some time when caught only by live observation.
+    name: 'panel-gallery theme-token CSS-variable resolution on :root (rf2-azfct)',
+    url: '/testbeds/panel-gallery/#/stories',
+    smoke: true,
+    panels: [],
+    coveredRows: [
+      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
+    ],
+    run: runPanelGalleryThemeTokens,
   },
   // ---- retired by rf2-xy4yb (4-layer chrome refactor) -------------------
   //

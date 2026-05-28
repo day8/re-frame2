@@ -46,11 +46,21 @@ const VERBOSE_TESTS = isVerboseTests();
 const SMOKE =
   process.env.RF2_GATE_SMOKE === '1' || process.argv.includes('--smoke');
 
-// Map a scenario's served URL (e.g. "/counter/" or
-// "/testbeds/deliberate-throw/") back to the STAGED_SURFACES entry that
-// serves it, so smoke mode compiles only what the smoke scenarios need.
+// Map a scenario's served URL (e.g. "/counter/",
+// "/testbeds/deliberate-throw/", or
+// "/testbeds/panel-gallery/#/stories") back to the STAGED_SURFACES
+// entry that serves it, so smoke mode compiles only what the smoke
+// scenarios need. The matcher strips the hash fragment (rf2-azfct
+// added the first scenario whose URL carries a `#/...` hash route)
+// and any query string before comparing against `servedPath`, which
+// is hash-/query-free by construction.
 function surfaceForScenario(scenario) {
-  const urlPath = String(scenario.url || '').replace(/^\/+|\/+$/g, '');
+  const raw = String(scenario.url || '');
+  // Drop the hash + query first; some scenarios route via a
+  // hash-router (`#/stories`) where the path before the hash is the
+  // staged surface.
+  const pathOnly = raw.split('#')[0].split('?')[0];
+  const urlPath = pathOnly.replace(/^\/+|\/+$/g, '');
   return STAGED_SURFACES.find((surface) => surface.servedPath === urlPath) || null;
 }
 
