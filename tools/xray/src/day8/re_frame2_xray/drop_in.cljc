@@ -48,7 +48,9 @@
      and the host calls `(drop-in/emit! event)` for each event.
      This is the simplest mode and the right default when the host
      produces events synchronously inside an existing callback (an
-     XState `subscribe` cb, a Redux middleware, etc.).
+     XState `subscribe` cb, a Redux middleware, etc.). `emit!` is
+     strict: it throws when called before `attach!` so a missing
+     attach surfaces loudly rather than silently dropping events.
 
   2. **Atom mode** — `(attach! {:trace-source <atom-ref>})`. The
      drop-in `add-watch`es the atom; every conj / assoc that grows
@@ -377,17 +379,26 @@
   modes (`:atom`, `:sub`) call `collect-from-host!` indirectly through
   the watch / subscribe fan-out; push-mode hosts call this directly.
 
-  Pre-alpha posture: this fn is callable regardless of whether
-  `attach!` ran — the buffer accepts events. We do NOT gate on
-  `(attached?)` because `attach!` for push mode is purely
-  bookkeeping (there is no subscription to register); requiring the
-  call would add ceremony without behaviour gain. Hosts that prefer
-  the explicit lifecycle still call `(attach! {:mode :push})` for
-  symmetry with the other modes.
+  Pre-alpha posture: strict, symmetric with `attach!`. The host MUST
+  call `(attach! {:mode :push})` before the first `emit!`; calling
+  `emit!` while detached throws `:rf.error/xray-emit-before-attach`
+  so a misconfigured push-mode wiring fails loudly at the call site
+  rather than silently dropping events. This matches `attach!`'s
+  strict posture on unknown modes — one lifecycle contract across
+  the surface, no implicit fallbacks.
 
-  Returns nothing. No-op in production."
+  Returns nothing. No-op in production (the `interop/debug-enabled?`
+  gate short-circuits both `collect-from-host!` and this fn's
+  attachment check, so production builds never observe the throw)."
   [event]
-  (collect-from-host! event)
+  (when interop/debug-enabled?
+    (when-not (attached?)
+      (throw (ex-info ":rf.error/xray-emit-before-attach"
+                      {:rf.error/id :rf.error/xray-emit-before-attach
+                       :where    'xray/emit!
+                       :recovery :no-recovery
+                       :reason   "drop-in/emit! called before drop-in/attach! — call (attach! {:mode :push}) at host boot"})))
+    (collect-from-host! event))
   nil)
 
 (defn reset-for-test!

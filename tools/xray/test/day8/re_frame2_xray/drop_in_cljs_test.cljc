@@ -76,11 +76,26 @@
          (is (number?       (:time      (first buf))) ":time filled by drop-in")))))
 
 #?(:cljs
-   (deftest emit!-without-attach-still-pushes
-     (testing "push-mode emit! does NOT require a prior attach! (per ns docstring)"
-       (drop-in/emit! {:operation :host/foo :op-type :rf.event})
-       (is (= 1 (count (trace-collector/buffer-for-test)))
-           "emit! is callable independently of attach! — push mode has no subscription to gate on"))))
+   (deftest emit!-without-attach-throws
+     (testing "rf2-lvqmw — push-mode emit! is strict: throws when called before attach!"
+       (is (thrown? js/Error
+                    (drop-in/emit! {:operation :host/foo :op-type :rf.event}))
+           "emit! before attach! raises :rf.error/xray-emit-before-attach")
+       (is (= 0 (count (trace-collector/buffer-for-test)))
+           "no event reached the buffer — the throw fired before collect"))))
+
+#?(:cljs
+   (deftest emit!-after-detach-throws
+     (testing "rf2-lvqmw — emit! after detach! re-asserts the strict posture"
+       (drop-in/attach! {:mode :push})
+       (drop-in/emit! {:operation :host/before :op-type :rf.event})
+       (drop-in/detach!)
+       (is (thrown? js/Error
+                    (drop-in/emit! {:operation :host/after :op-type :rf.event}))
+           "post-detach emit! throws the same as a pre-attach emit!")
+       (let [ops (mapv :operation (trace-collector/buffer-for-test))]
+         (is (= [:host/before] ops)
+             "only the attached emit landed; the detached one did not")))))
 
 #?(:cljs
    (deftest emit!-drops-non-map-events
