@@ -344,10 +344,10 @@
        ;; gate). Pass-state stays `true` only when every entry passed.
        (loop [entries (seq (storage/frame-schema-entries frame-id))
               ok?     true]
-         (if-let [[reg-path m] (first entries)]
-           (let [val-at (get-in db reg-path)
-                 schema (:schema m)]
-             (if (vf schema val-at)
+         (if-let [[reg-path schema-meta] (first entries)]
+           (let [reg-slice (get-in db reg-path)
+                 schema    (:schema schema-meta)]
+             (if (vf schema reg-slice)
                (recur (next entries) ok?)
                (do
                  ;; Per rf2-oh4se — make the failure path precise and
@@ -390,14 +390,14 @@
                  ;; vocabulary rather than minting a new enum value).
                  ;; The router consumes the loop's final boolean to
                  ;; perform the actual container restoration.
-                 (let [explanation (validator/run-explainer schema val-at)
+                 (let [explanation (validator/run-explainer schema reg-slice)
                        in-path     (failing-in-path explanation)
                        leaf-path   (if in-path
                                      (vec (concat reg-path in-path))
                                      reg-path)
                        leaf-value  (if in-path
-                                     (get-in val-at in-path)
-                                     val-at)
+                                     (get-in reg-slice in-path)
+                                     reg-slice)
                        sensitive?  (if in-path
                                      (walker/schema-sensitive-at? schema in-path)
                                      (walker/schema-has-sensitive? schema))

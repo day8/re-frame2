@@ -111,7 +111,7 @@
 ;; restore the hook on the way out so downstream tests see the canonical
 ;; opt-in's behaviour.
 
-(deftest rf2-t0hq-cljs-malli-adapter-enables-validation
+(deftest cljs-malli-adapter-enables-validation
   (testing "Per rf2-t0hq: with `re-frame.schemas.malli` required at
             app boot, the default validator consults Malli on CLJS and
             a malformed commit fires :rf.error/schema-validation-failure.
@@ -136,7 +136,7 @@
           (is (= [:user :age] (-> v :tags :path)))
           (is (= "twenty-three" (-> v :tags :value))))))))
 
-(deftest rf2-t0hq-cljs-no-adapter-soft-passes
+(deftest cljs-no-adapter-soft-passes
   (testing "Per Spec 010 §Recommended soft-pass: when an app does NOT
             require `re-frame.schemas.malli`, the late-bind hook
             `:schemas/malli-validate` is absent, the default validator
