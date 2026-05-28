@@ -32,7 +32,8 @@
   `[:rf/runtime :elision :declarations]`), keyed by absolute path. The
   two declaration sources union at lookup time — a path declared
   sensitive by EITHER source is sensitive."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.elision :as elision]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
@@ -163,27 +164,6 @@
           new-db (f old-db)]
       (adapter/replace-container! container new-db))))
 
-(defn- write-elision-slot
-  "Set or clear the per-frame elision registry inside `db`. When `new-reg`
-  is non-empty it lands at `[:rf/runtime :elision]`. When empty, the
-  slot is removed — and if the resulting `:rf/runtime` becomes empty,
-  the `:rf/runtime` key itself is dissoc'd so apps that never used
-  framework state don't manifest a stray nil container."
-  [db new-reg]
-  (cond
-    (seq new-reg)
-    (assoc-in db [:rf/runtime :elision] new-reg)
-
-    (and (contains? db :rf/runtime)
-         (contains? (get db :rf/runtime) :elision))
-    (let [next-runtime (dissoc (get db :rf/runtime) :elision)]
-      (if (seq next-runtime)
-        (assoc db :rf/runtime next-runtime)
-        (dissoc db :rf/runtime)))
-
-    :else
-    db))
-
 (defn- without-marks-sourced
   "Drop entries whose `:source` is `:marks` from a declaration map.
   Used by `set-marks` to clear the prior `add-marks` / `set-marks`
@@ -234,7 +214,7 @@
                       (empty? sensitive-decls) (dissoc :sensitive-declarations)
                       (seq large-decls)       (assoc :declarations large-decls)
                       (empty? large-decls)    (dissoc :declarations))]
-        (write-elision-slot db new-reg)))))
+        (elision/write-elision-slot db new-reg)))))
 
 (defn add-marks
   "Additively merge path-marks into the `app-db` mark-set of `frame-id`.
@@ -274,7 +254,7 @@
                         (empty? new-s) (dissoc :sensitive-declarations)
                         (seq new-l) (assoc :declarations new-l)
                         (empty? new-l) (dissoc :declarations))]
-          (write-elision-slot db new-reg)))))
+          (elision/write-elision-slot db new-reg)))))
   frame-id)
 
 (defn set-marks
@@ -318,7 +298,7 @@
                         (empty? new-s) (dissoc :sensitive-declarations)
                         (seq new-l) (assoc :declarations new-l)
                         (empty? new-l) (dissoc :declarations))]
-          (write-elision-slot db new-reg)))))
+          (elision/write-elision-slot db new-reg)))))
   frame-id)
 
 (defn clear-app-db-marks!
@@ -334,7 +314,7 @@
             new-reg (cond-> {}
                       (seq new-s) (assoc :sensitive-declarations new-s)
                       (seq new-l) (assoc :declarations new-l))]
-        (write-elision-slot db new-reg))))
+        (elision/write-elision-slot db new-reg))))
   nil)
 
 ;; ---- emit-time projection ------------------------------------------------
