@@ -53,7 +53,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > *- Don't write any verification leaf or verify-before-done hard rule.*
 > *- Don't duplicate `migration/from-re-frame-v1/README.md` content — reference it by rule id and link.*
 >
-> *Open the PR with title `feat(skills): re-frame-migration — guided v1→v2 migration skill`. PR body lists: the skill structure, the file LoC table, the locks applied, the existing repo material folded in (`migration/from-re-frame-v1/README.md`, `docs/guide/20-migration.md`, `docs/the-mayor-method.md`'s prompt pattern). Surface open questions OQ1/OQ2/OQ3 from `spec/design.md` in the PR body for Mike to action.*
+> *Open the PR with title `feat(skills): re-frame-migration — guided v1→v2 migration skill`. PR body lists: the skill structure, the file LoC table, the locks applied, the existing repo material folded in (`migration/from-re-frame-v1/README.md`, `docs/guide/25-from-re-frame-v1.md`, `docs/the-mayor-method.md`'s prompt pattern). Surface open questions OQ1/OQ2/OQ3 from `spec/design.md` in the PR body for Mike to action.*
 
 ## Notes on the reauthoring contract
 

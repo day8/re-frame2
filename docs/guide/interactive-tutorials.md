@@ -1,14 +1,14 @@
 # Writing interactive tutorials
 
-> **Who this is for.** Authors adding *interactive* chapters to the guide — pages where the reader edits live re-frame2 code in the browser and watches it run. This is a contributor note, not a reader chapter. If you're here to *learn* re-frame2, you want [03 — Your first app](03-first-app.md) or its live companion, [Interactive: the counter](interactive-counter.md).
+> **Who this is for.** Authors adding *interactive* chapters to the guide — pages where the reader edits live re-frame2 code in the browser and watches it run. This is a contributor note, not a reader chapter. If you're here to *learn* re-frame2, you want [03 — Your first app](03-first-app.md) or its live companion, [Interactive: the counter](01-introduction.md).
 >
-> **What it covers.** The three playground cell kinds, when to reach for each, the conventions for an editable-and-evaluable teaching cell, and the gotchas that bite the first time. There is one worked, end-to-end template tutorial — [Interactive: the counter](interactive-counter.md) — and this note explains the pattern it follows so you can write the next one.
+> **What it covers.** The three playground cell kinds, when to reach for each, the conventions for an editable-and-evaluable teaching cell, and the gotchas that bite the first time. There is one worked, end-to-end template tutorial — [Interactive: the counter](01-introduction.md) — and this note explains the pattern it follows so you can write the next one.
 
 The guide's prose teaches by reading. Static code blocks show the shape; the surrounding sentences explain *why it's shaped that way*. That's enough for most chapters and it's the right default — a reader skimming on a phone shouldn't need a JavaScript runtime to follow the argument.
 
 But some ideas land harder when the reader can *change them and see what happens*. "Dispatch increments the counter" is a sentence. A live counter the reader clicks — then edits the handler to add two instead of one, re-evaluates, and clicks again — is an experience. The playground ([built under `docs/tools/playground`](https://github.com/day8/re-frame2/tree/main/docs/tools/playground)) makes that possible inside an ordinary mkdocs page: fenced code blocks become editable CodeMirror editors that evaluate in the browser.
 
-This page is the **foundation** for that track. The [counter tutorial](interactive-counter.md) is the **template** the first interactive chapter follows. More interactive tutorials will follow the same shape; extend or redirect from here.
+This page is the **foundation** for that track. The [counter tutorial](01-introduction.md) is the **template** the first interactive chapter follows. More interactive tutorials will follow the same shape; extend or redirect from here.
 
 ## The two cell kinds
 
@@ -52,7 +52,7 @@ and from there `rf/reg-event-db`, `rf/reg-sub`, `rf/dispatch`, `rf/subscribe` al
 
 ### One difference from the static listings: `reg-view`
 
-The static chapters register views with `reg-view`, which auto-injects `dispatch` and `subscribe` as lexical bindings inside the view body (see [07 — Views](07-views.md)). `reg-view` is a macro, and the live-cell environment is functions-only — so **inside a `cljs-rf2` cell you write plain `defn` views and call `rf/dispatch` / `rf/subscribe` explicitly**:
+The static chapters register views with `reg-view`, which auto-injects `dispatch` and `subscribe` as lexical bindings inside the view body (see [07 — Views](06-views.md)). `reg-view` is a macro, and the live-cell environment is functions-only — so **inside a `cljs-rf2` cell you write plain `defn` views and call `rf/dispatch` / `rf/subscribe` explicitly**:
 
 ```
 ;; In a static chapter (macro available):
@@ -64,7 +64,7 @@ The static chapters register views with `reg-view`, which auto-injects `dispatch
   [:button {:on-click #(rf/dispatch [:counter/inc])} "+"])
 ```
 
-This is the same component — `reg-view` is sugar over exactly this shape. When you port a static chapter to an interactive one, expand the `reg-view` forms into `defn` views and the injected `dispatch`/`subscribe` into qualified `rf/dispatch`/`rf/subscribe`. Mention the equivalence in prose so a reader who's seen the static chapter isn't tripped by the difference; the [counter tutorial](interactive-counter.md) does exactly this.
+This is the same component — `reg-view` is sugar over exactly this shape. When you port a static chapter to an interactive one, expand the `reg-view` forms into `defn` views and the injected `dispatch`/`subscribe` into qualified `rf/dispatch`/`rf/subscribe`. Mention the equivalence in prose so a reader who's seen the static chapter isn't tripped by the difference; the [counter tutorial](01-introduction.md) does exactly this.
 
 ## Gotchas
 
@@ -82,7 +82,7 @@ A few things bite the first time you author a `cljs-rf2` cell.
 
 ## Writing the next interactive tutorial
 
-The [counter tutorial](interactive-counter.md) is the template. To write another:
+The [counter tutorial](01-introduction.md) is the template. To write another:
 
 1. Pick an idea that *rewards being changed* — where the reader editing the code and re-running it teaches more than reading would. If a static block would do the job, write a static chapter.
 2. Build each interactive section as *why → live cell → what to try*.

@@ -208,7 +208,7 @@ When both predicates match (`:sensitive?` AND `:large?` apply to the same path),
 
 The `[:rf/elision]` registry has exactly two slots: `:declarations` (schema-derived `:large?` paths, populated by `populate-elision-from-schemas!`) and `:sensitive-declarations` (schema-derived `:sensitive?` paths). **There is no runtime declaration API** — apps declare `:large?` / `:sensitive?` on the Malli schema and `rf/reg-app-schema` it; the boot-time hydrator does the rest.
 
-The single normative reference for "schemas are the only path" lives in [Guide ch.25 — Large blobs](../guide/25-large-blobs.md).
+The single normative reference for "schemas are the only path" lives in [Guide ch.25 — Large blobs](../guide/23-privacy-and-large-things.md).
 
 ## Privacy: the always-on predicate and the interceptor
 

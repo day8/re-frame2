@@ -111,11 +111,11 @@ The full registered-route table plus the Simulate-URL ranker. The cold counterpa
 
 #### Schemas (`c`)
 
-Every registered Malli schema — `app-db` slot, sub return, event payload, cofx — with sample data and jump-to-source. Lit up only if your app registers schemas; see [Guide 04a — Schemas](../guide/05-schemas.md).
+Every registered Malli schema — `app-db` slot, sub return, event payload, cofx — with sample data and jump-to-source. Lit up only if your app registers schemas; see [Guide 04a — Schemas](../guide/08-schemas.md).
 
 #### Flows (`l`)
 
-The registered [flows](../guide/20-migration.md#flows--the-replacement-for-on-changes) catalogue — re-frame2's reactive-derivation primitive. Each flow's inputs, its derivation, its current value. Only populated if your app registers any.
+The registered [flows](../guide/25-from-re-frame-v1.md#on-changes-becomes-flows) catalogue — re-frame2's reactive-derivation primitive. Each flow's inputs, its derivation, its current value. Only populated if your app registers any.
 
 #### Interceptors (`i`)
 

@@ -1,5 +1,5 @@
 (ns state-machine-walkthrough.core
-  "Runnable companion to docs/guide/11-machines.md.
+  "Runnable companion to docs/guide/12-machines.md.
 
   This is the login-flow chapter as code. Every prose snippet in ch.11
   appears here in the order the chapter introduces it; each section
@@ -12,7 +12,7 @@
   shipped `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`
   stubs (Spec 014 §Testing) so no real network traffic happens.
 
-  Read alongside docs/guide/11-machines.md."
+  Read alongside docs/guide/12-machines.md."
   (:require [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
@@ -51,7 +51,7 @@
 ;; The two examples differ in what they teach AROUND the machine: `login`
 ;; wires it into a live Reagent view; this walkthrough drives it HEADLESSLY
 ;; (the sibling core-test ns) to show the pure machine-transition + drain
-;; testing story from docs/guide/11-machines.md. Read `login` first for the
+;; testing story from docs/guide/12-machines.md. Read `login` first for the
 ;; UI wiring; read this for the testing progression.
 
 (def login-flow
