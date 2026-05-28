@@ -69,7 +69,7 @@ A minimal `deps.edn` for a greenfield re-frame2 project:
          day8/re-frame2            {:mvn/version "<VERSION>"}
          day8/re-frame2-reagent    {:mvn/version "<VERSION>"}
          day8/re-frame2-schemas    {:mvn/version "<VERSION>"}
-         day8/re-frame2-xray      {:mvn/version "<VERSION>"}
+         day8/re-frame2-xray       {:mvn/version "<VERSION>"}
 
          reagent/reagent           {:mvn/version "2.0.1"}}}
 ```

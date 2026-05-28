@@ -105,7 +105,7 @@ When you split this way, the `[re-frame.views]` require **and** the `(:require-m
 
 ## UIx / Helix greenfield
 
-This skill scaffolds against **Reagent** (the default reference substrate). For a UIx or Helix greenfield app the wiring is the same shape with three substitutions:
+This skill scaffolds against **Reagent** (the default reference substrate). For a UIx or Helix greenfield app the wiring is the same shape with two substitutions (plus a third "everything else stays identical" claim):
 
 - **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix` (or `-helix`), and swap the substrate npm/Maven deps: UIx uses `com.pitch/uix.core` + `com.pitch/uix.dom`; Helix uses `lilactown/helix`. (Drop the `reagent/reagent` pin.)
 - **entry ns** — require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, and mount with the substrate's own root API instead of `reagent.dom.client`. For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, and the view must be wrapped in the `$` element macro from `uix.core`:
@@ -117,14 +117,14 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
               [re-frame.adapter.uix :as uix-adapter]
               [your-app.views       :as views]))
 
-  (defonce root (uix-dom/create-root (js/document.getElementById "app")))
+  (defonce react-root (uix-dom/create-root (js/document.getElementById "app")))
 
   (defn ^:export init []
     (rf/init! uix-adapter/adapter)
     (rf/dispatch-sync [:counter/initialise])
-    (uix-dom/render-root ($ views/counter-app) root))
+    (uix-dom/render-root ($ views/counter-app) react-root))
   ```
-  (Helix uses `(.render root ($ views/counter-app))` against a `react-dom/client` root, with `$` from `helix.core` — see the template's `_helix/core.cljs`.)
+  (Helix uses `(.render react-root ($ views/counter-app))` against a `react-dom/client` root, with `$` from `helix.core` — see the template's `_helix/core.cljs`.)
 - everything else (events, subs, schemas, Xray wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates.
 
 The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants — invoke `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app :substrate :uix` (or `:helix`) and you get a working UIx/Helix counter without hand-wiring the substitutions above. See [the generator-template section](../README.md#relationship-to-the-generator-template).
@@ -135,7 +135,7 @@ If the author is coming from re-frame v1 (re-frame's first version), three thing
 
 | v1 | v2 |
 |---|---|
-| `(:require [reagent.core :as r])` then `(r/render ...)` | `(:require [reagent.dom.client :as rdc])` then `(rdc/render root [view])` — React 19 client-Root surface |
+| `(:require [reagent.core :as r])` then `(r/render ...)` | `(:require [reagent.dom.client :as rdc])` then `(rdc/render react-root [view])` — React 19 client-Root surface |
 | No explicit boot — `re-frame.core` was self-installing against Reagent | `(rf/init! reagent-adapter/adapter)` is mandatory; adapter is a value the app supplies |
 | `defn` views — re-frame v1 had no view registration | `reg-view` macro registers views in a per-app registry; auto-injects `dispatch` / `subscribe` |
 | Implicit single global `app-db` | One default frame; multi-frame apps are first-class via `frame-provider` |

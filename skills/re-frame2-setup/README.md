@@ -53,7 +53,7 @@ The canonical seven-step greenfield path:
 - Live REPL inspection of the running app — that's [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair).
 - Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Test infrastructure, CI, deployment — out of scope. The author chooses their own.
-- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx or Helix greenfield, `references/entry-namespace.md` §UIx / Helix greenfield gives the three adapter substitutions and points at the generator template's complete `_uix/` / `_helix/` variants (`clojure -Tnew create ... :substrate :uix`), which is the fastest non-Reagent path.
+- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx or Helix greenfield, `references/entry-namespace.md` §UIx / Helix greenfield gives the two adapter substitutions and points at the generator template's complete `_uix/` / `_helix/` variants (`clojure -Tnew create ... :substrate :uix`), which is the fastest non-Reagent path.
 
 ## Status
 
