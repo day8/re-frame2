@@ -162,9 +162,8 @@
 
 (defn- validate-handler-opts!
   "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
-  caller omits a required `ssr-handler` opt. Extracted from the
-  handler body per audit rf2-asmj1 R3 / cluster rf2-sljs1 so the body
-  of `ssr-handler` reads as the lifecycle wiring rather than a
+  caller omits a required `ssr-handler` opt. Separated from the handler
+  body so `ssr-handler` reads as the lifecycle wiring rather than a
   validation-then-wire two-step.
 
   Per rf2-gtgf9 the hydration-payload policy is also validated here so

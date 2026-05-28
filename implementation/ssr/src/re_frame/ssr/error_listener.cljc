@@ -257,8 +257,7 @@
 
   Use this from debug paths or midpoint inspections where draining the
   projector buffer (the side-effect baked into `get-response`) would
-  consume a trace the host had not yet observed (audit rf2-asmj1 P5 /
-  cluster rf2-sljs1)."
+  consume a trace the host had not yet observed."
   [frame-id]
   (-> (response/response-of frame-id)
       (dissoc response/status-writes-key response/redirect-writes-key)))
@@ -269,9 +268,10 @@
   buffer; the first call after an error trace wins (last-write-wins,
   mirroring `:rf.server/set-status`).
 
-  This is the read host adapters call once at drain settle-point.
-  `get-response` is preserved as the back-compat alias (audit
-  rf2-asmj1 P5 / cluster rf2-sljs1)."
+  This is the explicit-side-effect spelling. `get-response` is the
+  canonical host-adapter alias for the same drain-then-read sequence;
+  `peek-response` is the pure-read counterpart for callers that want
+  to opt out of the drain side effect."
   [frame-id]
   (apply-error-projection! frame-id)
   (peek-response frame-id))
@@ -287,11 +287,10 @@
   Spec 011 §Server error projection — \"runtime sets `:rf.server/set-
   status` to the public-error's :status\".
 
-  Note (audit rf2-asmj1 P5 / cluster rf2-sljs1): `get-response` is the
-  drain-then-read entry point — equivalent to `flush-response!`. The
-  pure read (no drain) is `peek-response`. Both new names exist so a
-  caller can opt into the side-effect explicitly; `get-response` is
-  preserved as the canonical host-adapter call."
+  `get-response` is the canonical host-adapter alias for the drain-
+  then-read sequence. `flush-response!` is the explicit-side-effect
+  spelling; `peek-response` is the pure read. All three exist so
+  callers can opt into the side-effect explicitly."
   [frame-id]
   (flush-response! frame-id))
 

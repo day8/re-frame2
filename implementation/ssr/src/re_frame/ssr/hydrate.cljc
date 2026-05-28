@@ -51,8 +51,7 @@
         schema-digest (:rf/schema-digest payload)
         ;; Declarative `:rf/hydration` metadata construction — additive,
         ;; nil-pruned. New keys land here as kv pairs without re-ordering
-        ;; the previous `cond->` clauses (audit rf2-asmj1 Q9 / cluster
-        ;; rf2-sljs1).
+        ;; the previous `cond->` clauses.
         metadata      (into {}
                             (filter (comp some? val))
                             {:server-hash (:rf/render-hash payload)

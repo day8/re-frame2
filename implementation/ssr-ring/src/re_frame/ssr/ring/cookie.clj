@@ -142,12 +142,12 @@
                      :recovery :no-recovery})))
   ;; rf2-rpedl §P2.4 — RFC 6265 §4.1.1 cookie-name token grammar.
   (validate-cookie-name! name)
-  ;; Per audit rf2-asmj1 R7 / cluster rf2-sljs1: `Instant/ofEpochMilli`
-  ;; takes a primitive long; passing anything else (a string-shaped
-  ;; epoch from a misconfigured projector, a `java.util.Date`, …) would
-  ;; NPE deep inside the format path. Catch the type-mismatch up front
-  ;; with a clear `:rf.error/cookie-invalid-expires` so the misuse
-  ;; surfaces with the cookie's actual shape attached.
+  ;; `Instant/ofEpochMilli` takes a primitive long; passing anything
+  ;; else (a string-shaped epoch from a misconfigured projector, a
+  ;; `java.util.Date`, …) would NPE deep inside the format path. Catch
+  ;; the type-mismatch up front with a clear
+  ;; `:rf.error/cookie-invalid-expires` so the misuse surfaces with the
+  ;; cookie's actual shape attached.
   (when (and (some? expires) (not (integer? expires)))
     (throw (ex-info ":rf.error/cookie-invalid-expires"
                     {:rf.error/id :rf.error/cookie-invalid-expires

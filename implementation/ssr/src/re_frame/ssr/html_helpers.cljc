@@ -1,14 +1,8 @@
 (ns re-frame.ssr.html-helpers
   "HTML escape + attribute-serialisation helpers shared by the SSR emitter
   (`re-frame.ssr.emit`) and the head/meta emitter
-  (`re-frame.ssr.head.emit`). Per rf2-x7g10 (audit rf2-asmj1 §H1/Q2).
-
-  Pre-split, `re-frame.ssr.emit` and `re-frame.ssr.head` each carried a
-  line-for-line copy of `escape-html`, `escape-attr`, and `attr-string`.
-  The duplication was a hangover from when `head` shipped under a
-  different artefact; under one artefact they're local-deps. Both
-  callsites now `:require` this ns so the entity-escape rules change in
-  exactly one place.
+  (`re-frame.ssr.head.emit`). Both callsites `:require` this ns so the
+  entity-escape rules change in exactly one place.
 
   Escape semantics:
 

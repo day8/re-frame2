@@ -10,11 +10,8 @@
 
   ---- file split (rf2-x7g10) ----
 
-  Pre-split this ns was 415 LoC carrying three concerns: the HTML
-  escape helpers (duplicated with `re-frame.ssr.emit`), the canonical-
-  order head-model emitter, and the registry + render + active +
-  per-frame snapshot + late-bind wiring. Per the rf2-x7g10 split
-  (audit rf2-asmj1 §H1/Q2):
+  The head module decomposes into three concern-per-file siblings + a
+  shared HTML-helpers ns:
 
     - `re-frame.ssr.html-helpers`   — shared HTML escape helpers
                                       (`escape-html` / `escape-attr` /
