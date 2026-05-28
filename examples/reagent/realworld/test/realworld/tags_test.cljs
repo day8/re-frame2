@@ -21,7 +21,7 @@
     (assert (= "your" (:feed (rf/compute-sub [:rf.route/query] (rf/get-frame-db f)))))))
 
 (defn- snapshot [db]
-  (get-in db [:rf/machines :realworld/tags]))
+  (get-in db [:rf/runtime :machines :snapshots :realworld/tags]))
 
 (defn- machine-has-tag?
   "Read the machine's :tags union against a frame's app-db (browserless

@@ -49,7 +49,7 @@
 
    Trigger boot once at app start via `[:app/boot [:rf/start]]`. The
    machine self-initialises (per Spec 005 §Restore semantics): the
-   `:initial` state and `:data` seed `[:rf/machines :app/boot]` when
+   `:initial` state and `:data` seed `[:rf/runtime :machines :snapshots :app/boot]` when
    the dispatch lands."
   (:require [re-frame.core :as rf]
             ;; Spec 005 state-machine ns ships in the
@@ -314,7 +314,7 @@
                ;; Mirror the loaded values into the boot machine's
                ;; :data slice so the snapshot is self-describing
                ;; for SSR / tools / pair-tools inspection.
-               (update-in [:rf/machines :app/boot :data] assoc
+               (update-in [:rf/runtime :machines :snapshots :app/boot :data] assoc
                           :config (:config staging)
                           :flags  (:flags staging)
                           :user   (:user staging)
@@ -338,7 +338,7 @@
 
 (rf/reg-sub :app.boot/snapshot
   (fn [db _]
-    (get-in db [:rf/machines :app/boot])))
+    (get-in db [:rf/runtime :machines :snapshots :app/boot])))
 
 (rf/reg-sub :app.boot/state
   :<- [:app.boot/snapshot]

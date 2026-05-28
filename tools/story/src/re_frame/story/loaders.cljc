@@ -28,7 +28,7 @@
   expressed as a `re-frame.machines` machine — NOT ad-hoc state
   tracking. The machine is registered at Story-boot under the id
   `:rf.story.lifecycle/machine`. Each variant frame holds its own
-  snapshot at `[:rf/machines :rf.story.lifecycle/machine]` and mirrors
+  snapshot at `[:rf/runtime :machines :snapshots :rf.story.lifecycle/machine]` and mirrors
   the discrete state at `[:rf.story/lifecycle]` for direct read access.
 
   The transitions are driven by the runtime dispatching synthetic
@@ -63,14 +63,14 @@
 
 (def lifecycle-machine-id
   "Stable id for Story's lifecycle machine. One registration; per-
-  variant snapshots live at `[:rf/machines :rf.story.lifecycle/machine]`
+  variant snapshots live at `[:rf/runtime :machines :snapshots :rf.story.lifecycle/machine]`
   inside each variant frame's app-db."
   :rf.story.lifecycle/machine)
 
 (def state-mirror-path
   "Side-mirror path. After every transition the lifecycle's `:action`
   copies the new discrete state to `[:rf.story/lifecycle]` so callers
-  can read it without the `:rf/machines` indirection."
+  can read it without the `:rf/runtime :machines :snapshots` indirection."
   [:rf.story/lifecycle])
 
 ;; ---- transition vocabulary -----------------------------------------------
@@ -194,7 +194,7 @@
   [frame-id]
   (let [db (rf/get-frame-db frame-id)]
     (when db
-      (get-in db [:rf/machines lifecycle-machine-id]))))
+      (get-in db [:rf/runtime :machines :snapshots lifecycle-machine-id]))))
 
 (defn current-state
   "Return the lifecycle's current discrete state (`:pre-mount`,

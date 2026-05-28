@@ -245,7 +245,7 @@
 ;; didn't pass `--allow-sensitive-reads` can't be talked into shipping raw
 ;; state through a hostile per-call arg.
 ;;
-;; The walker reads the live `[:rf/elision]` registry, so it has to run
+;; The walker reads the live `[:rf/runtime :elision]` registry, so it has to run
 ;; app-side. We compose `drain-subscription!` server-side with mapv over
 ;; whichever slot the drain produced — `:cascades` for cascade-bundle
 ;; topics, `:events` for flat topics. When elision is OFF (operator opted

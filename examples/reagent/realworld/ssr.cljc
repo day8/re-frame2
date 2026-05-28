@@ -13,7 +13,11 @@
             #?(:cljs [cljs.reader :as reader])))
 
 (def ssr-slice-keys
-  [:rf/route
+  "Top-level user-domain slices the SSR payload exports. `:rf/runtime`
+  carries the framework-owned subsystem trees (routing, machines, elision)
+  — its current-route slice + machine snapshots are part of the hydration
+  payload per rf2-eguy4 phase-A."
+  [:rf/runtime
    :auth
    :articles
    :article
@@ -23,8 +27,7 @@
    :profile.articles
    :profile.favorites
    :editor
-   :comment-form
-   :rf/machines])
+   :comment-form])
 
 (defn exportable-db [db]
   (select-keys db ssr-slice-keys))

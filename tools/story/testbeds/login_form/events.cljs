@@ -18,7 +18,7 @@
   any Story variant frame allocates. Per IMPL-SPEC §1.1, variant
   bodies are data; they reference these event-ids in their `:events`
   slot. Story's per-variant frame isolation (Spec 002) means each
-  variant gets its own fresh `:rf/machines :login/flow` slot.
+  variant gets its own fresh `[:rf/runtime :machines :snapshots :login/flow]` slot.
 
   Per Spec 014 §Testing the stub layer: `:rf.http/managed` is the
   fx-id the machine emits; the Story variants override that id via

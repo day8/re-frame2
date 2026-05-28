@@ -17,7 +17,7 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn- snapshot [db]
-  (get-in db [:rf/machines :settings/form]))
+  (get-in db [:rf/runtime :machines :snapshots :settings/form]))
 
 (defn- machine-has-tag?
   "Read the machine's :tags union against a frame's app-db (browserless

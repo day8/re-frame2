@@ -57,28 +57,25 @@
 ;; ---- reserved keys --------------------------------------------------------
 
 (def reserved-app-db-keys
-  "Per spec/Conventions.md §Reserved app-db keys the runtime owns six
-  top-level slots in `app-db`. Diff triples whose path roots in one
-  of these keys render in the `[runtime]` group rather than as a
-  slice mini-panel.
+  "Per spec/Conventions.md §Reserved app-db keys + the rf2-eguy4 phase-A
+  contract the runtime owns ONE top-level slot in `app-db`: `:rf/runtime`.
+  Diff triples whose path roots in `:rf/runtime` render in the `[runtime]`
+  group rather than as a slice mini-panel.
 
-  - `:rf/machines` — machine snapshots (per spec/005-StateMachines.md)
-  - `:rf/system-ids` — system-id reverse index
-  - `:rf/route` — current route slice (per spec/012-Routing.md)
-  - `:rf/pending-navigation` — pending-nav slot
-  - `:rf/spawned` — spawned-actor table
-  - `:rf/elision` — wire-elision declaration registry (per spec/009-Instrumentation.md §Size elision)
+  The `:rf/runtime` container nests the six logical runtime subsystems:
 
-  Lockstep contract: this set MUST match the rows of
-  spec/Conventions.md §Reserved app-db keys exactly. The drift-detector
-  test `reserved-app-db-keys-matches-conventions-md` in
-  `app_db_diff_helpers_cljs_test.cljc` enforces the invariant."
-  #{:rf/machines
-    :rf/route
-    :rf/system-ids
-    :rf/pending-navigation
-    :rf/spawned
-    :rf/elision})
+  - `[:rf/runtime :machines :snapshots]` — machine snapshots (per spec/005-StateMachines.md)
+  - `[:rf/runtime :machines :system-ids]` — system-id reverse index
+  - `[:rf/runtime :machines :spawned]` — spawned-actor table
+  - `[:rf/runtime :routing :current]` — current route slice (per spec/012-Routing.md)
+  - `[:rf/runtime :routing :pending-navigation]` — pending-nav slot
+  - `[:rf/runtime :elision]` — wire-elision declaration registry (per spec/009-Instrumentation.md §Size elision)
+
+  The panel still surfaces these as separate sections via the
+  `runtime-areas` table below (logical area-id → sub-path) — the operator
+  sees one section per subsystem, but the underlying app-db shape is the
+  single `:rf/runtime` container."
+  #{:rf/runtime})
 
 (defn reserved-path?
   "True when `path`'s root key is a reserved-app-db key. Pure data →
@@ -241,18 +238,45 @@
     {:reserved     (vec reserved)
      :non-reserved (vec non-reserved)}))
 
+;; ---- runtime subsystem area table ---------------------------------------
+;;
+;; Per rf2-eguy4 phase-A the runtime owns a single `:rf/runtime` top-level
+;; slot containing nested subsystem trees. The panel still surfaces these
+;; as separate operator-facing sections; this table maps the logical
+;; area-id (the operator-facing label) to the sub-path under `:rf/runtime`
+;; that carries the area's value.
+
+(def runtime-areas
+  "Logical area-id → sub-path under app-db. The area-ids are the
+  operator-facing labels carried in the panel's section model (kept
+  stable across the rf2-eguy4 phase-A reshape so caller / test code that
+  uses `:area :rf/machines` etc. still reads as before). The paths point
+  into the new `:rf/runtime` container (per spec/Conventions.md §Reserved
+  app-db keys + spec/002-Frames.md §The `:rf/runtime` container)."
+  {:rf/machines           [:rf/runtime :machines :snapshots]
+   :rf/spawned            [:rf/runtime :machines :spawned]
+   :rf/route              [:rf/runtime :routing :current]
+   :rf/system-ids         [:rf/runtime :machines :system-ids]
+   :rf/pending-navigation [:rf/runtime :routing :pending-navigation]
+   :rf/elision            [:rf/runtime :elision]})
+
 (defn reserved-summary
-  "Project the current `:rf/*` reserved-key slots of `db` into a sorted
-  vector of `[key value]` pairs for the panel's `[runtime]` group.
-  Drops keys absent from `db` so the group is sized by what's
+  "Project the current runtime subsystem slots out of `db` into a sorted
+  vector of `[area-id value]` pairs for the panel's `[runtime]` group.
+  Drops areas with no live value so the group is sized by what's
   actually populated.
+
+  Logical area-ids (`:rf/machines`, `:rf/route`, …) are the operator-
+  facing labels per the `runtime-areas` table; the values are read from
+  the nested `[:rf/runtime ...]` sub-paths (per rf2-eguy4 phase-A).
 
   Pure data → data."
   [db]
   (vec
-    (for [k (sort reserved-app-db-keys)
-          :when (contains? db k)]
-      [k (get db k)])))
+    (for [area-id (sort (keys runtime-areas))
+          :let    [v (get-in db (get runtime-areas area-id))]
+          :when   (some? v)]
+      [area-id v])))
 
 ;; ---- current-state sectioning (rf2-okvit) -------------------------------
 ;;
@@ -438,9 +462,11 @@
    (let [db          (or db {})
          diff?       (not= no-diff db-before)
          before-db   (if diff? (or db-before {}) no-diff)
-         before-area (fn [area]
+         before-area (fn [area-id]
                        (if diff?
-                         (get before-db area no-diff)
+                         (let [path (get runtime-areas area-id)
+                               v    (get-in before-db path ::absent)]
+                           (if (= ::absent v) no-diff v))
                          no-diff))]
      {:top   (user-domain-db db)
       :before-top (if diff?
@@ -448,27 +474,29 @@
                     no-diff)
       :areas (vec
                (for [area reserved-area-order
-                     :let [present?   (contains? db area)
-                           area-value (get db area)
-                           entry      (if (contains? map-of-instances-areas area)
-                                        (let [instances (instances-of area-value
-                                                                       (before-area area))]
-                                          {:area      area
-                                           :kind      :instances
-                                           :empty?    (empty? instances)
-                                           :instances instances})
-                                        {:area   area
-                                         :kind   :singleton
-                                         ;; A singleton is empty when the key is absent, or
-                                         ;; present-but-nil, or present-but-empty-collection
-                                         ;; (e.g. `{}` pending-nav). Scalars / non-empty
-                                         ;; collections are non-empty.
-                                         :empty? (or (not present?)
-                                                     (nil? area-value)
-                                                     (and (coll? area-value)
-                                                          (empty? area-value)))
-                                         :value  area-value
-                                         :before (before-area area)})]
+                     :let [path        (get runtime-areas area)
+                           area-value  (get-in db path ::absent)
+                           present?    (not= ::absent area-value)
+                           area-value  (when present? area-value)
+                           entry       (if (contains? map-of-instances-areas area)
+                                         (let [instances (instances-of area-value
+                                                                        (before-area area))]
+                                           {:area      area
+                                            :kind      :instances
+                                            :empty?    (empty? instances)
+                                            :instances instances})
+                                         {:area   area
+                                          :kind   :singleton
+                                          ;; A singleton is empty when the key is absent, or
+                                          ;; present-but-nil, or present-but-empty-collection
+                                          ;; (e.g. `{}` pending-nav). Scalars / non-empty
+                                          ;; collections are non-empty.
+                                          :empty? (or (not present?)
+                                                      (nil? area-value)
+                                                      (and (coll? area-value)
+                                                           (empty? area-value)))
+                                          :value  area-value
+                                          :before (before-area area)})]
                      ;; rf2-jcdvo — empty areas are omitted from :areas;
                      ;; the renderer never draws labelled "No X" placeholder
                      ;; cards. The TOP user-domain section (above) is the
@@ -701,13 +729,13 @@
 
   ## Skipped subtrees
 
-  Paths under reserved `:rf/elision` (the wire-elision declaration
-  registry — its own values can include the `:rf/redacted` sentinel
-  as a documentation example) are not counted. The exclusion matches
-  the spirit of `reserved-app-db-keys` — the runtime owns those slots
-  and their contents are not user data.
+  Paths under reserved `[:rf/runtime :elision]` (the wire-elision
+  declaration registry — its own values can include the `:rf/redacted`
+  sentinel as a documentation example) are not counted. The exclusion
+  matches the spirit of `reserved-app-db-keys` — the runtime owns those
+  slots and their contents are not user data.
 
-  Per rf2-bz1cl."
+  Per rf2-bz1cl + rf2-eguy4 (`:rf/runtime` reshape)."
   ([db-before db-after]
    (count-redacted-modified-paths db-before db-after []))
   ([db-before db-after path]
@@ -729,14 +757,13 @@
      0
 
      ;; Both maps, not identical → walk the union of keys. Skip the
-     ;; reserved `:rf/elision` subtree (the elision registry's own
-     ;; declarations carry the sentinel as an example/value form per
-     ;; spec/015 §Two parallel axes; counting them confuses the
-     ;; signal).
+     ;; reserved `[:rf/runtime :elision]` subtree (the elision registry's
+     ;; own declarations carry the sentinel as an example/value form per
+     ;; spec/015 §Two parallel axes; counting them confuses the signal).
      (and (map? db-before) (map? db-after))
      (reduce
        (fn [acc k]
-         (if (and (empty? path) (= :rf/elision k))
+         (if (and (= path [:rf/runtime]) (= :elision k))
            acc
            (+ acc (count-redacted-modified-paths
                     (get db-before k)

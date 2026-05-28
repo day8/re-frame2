@@ -1767,7 +1767,7 @@
   "Bind `vid` to `variant-kw`, run `body` against a clean variant frame,
   and tear the frame down on exit so the next test sees no residue. The
   `frames` atom is per-process and survives `story/clear-all!`; the
-  seeded `:rf.story/assertions` and `[:rf/elision]` slots would
+  seeded `:rf.story/assertions` and `[:rf/runtime :elision]` slots would
   otherwise leak."
   [[vid variant-kw] & body]
   `(let [~vid ~variant-kw]
@@ -1808,7 +1808,7 @@
       (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
             s (:structuredContent r)]
         (is (success? r))
-        ;; The registry slot at `[:rf/elision :declarations]` survives
+        ;; The registry slot at `[:rf/runtime :elision :declarations]` survives
         ;; the run (Story doesn't clear it). The redaction must show
         ;; in the response.
         (is (= :rf/redacted (get-in s [:app-db :secret]))

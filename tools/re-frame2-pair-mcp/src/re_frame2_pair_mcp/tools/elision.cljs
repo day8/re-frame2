@@ -15,7 +15,7 @@
   ## Where in the pipeline
 
   Elision runs FIRST — server-side inside the eval form, where the
-  frame's `[:rf/elision]` registry is reachable. The MCP server gets
+  frame's `[:rf/runtime :elision]` registry is reachable. The MCP server gets
   back data that already carries `:rf.size/large-elided` markers in
   place of declared / over-threshold slots. The downstream pipeline
   (path-slicing → diff-encode → dedup → wire-cap) operates on the

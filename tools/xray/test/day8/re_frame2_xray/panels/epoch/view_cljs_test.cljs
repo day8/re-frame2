@@ -592,12 +592,12 @@
   (testing "rf2-93436 — for machine handlers the standalone `:db diff`
             sub-section is suppressed (design §Section 3 §DB DIFF —
             folds into SNAPSHOT DIFF since the snapshot IS the
-            db change at `[:rf/machines <id>]`). Avoids the redundant
+            db change at `[:rf/runtime :machines :snapshots <id>]`). Avoids the redundant
             slot duplicating data already shown in SNAPSHOT DIFF."
     (let [tree (view/render-handler-step
                  {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-machine :event-id :ws/start
-                  :db-diff [[[:rf/machines :ws/conn] {} {} :modified]]
+                  :db-diff [[[:rf/runtime :machines :snapshots :ws/conn] {} {} :modified]]
                   :fx []
                   :machine {:transition nil :guards []
                             :lifecycle [] :timers []}})]

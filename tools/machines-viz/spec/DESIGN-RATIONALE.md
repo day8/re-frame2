@@ -98,13 +98,13 @@ What does the host pass to `MachineChart` to render a chart?
   fragile (the chart wouldn't re-pick-up edits without explicit
   host plumbing).
 - **Pass the snapshot directly.** The host derefs
-  `[:rf/machines <id>]` and passes the snapshot to the chart.
+  `[:rf/runtime :machines :snapshots <id>]` and passes the snapshot to the chart.
   Rejected — the chart loses access to history (transition
   events, microstep replay, `:after` rings); it would have to
   re-derive snapshot transitions from frame deltas.
 - **Pass an id + a frame.** The chart resolves the registration
   via `(rf/machine-meta machine-id)` and subscribes to
-  `[:rf/machines machine-id]` within `frame-id`. The host stays
+  `[:rf/runtime :machines :snapshots machine-id]` within `frame-id`. The host stays
   thin; the chart owns its data plane.
 
 ### Pick
@@ -685,7 +685,7 @@ from regressing into a full graph recompute?
   (tint + bolder stroke; the pulse was retired 2026-05-20 per
   rf2-2sez0), edge glow, microstep flash, `:after` ring progress,
   `:spawn-all` row state, spawn-tray contents, timer state. Owned
-  by `[:rf/machines <id>]` + the `:rf.machine/*` trace bus.
+  by `[:rf/runtime :machines :snapshots <id>]` + the `:rf.machine/*` trace bus.
 
 The runtime-highlight plane MUST NOT participate in any computation
 whose output reaches the topology plane. The two planes share no

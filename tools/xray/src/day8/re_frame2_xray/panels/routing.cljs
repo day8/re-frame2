@@ -453,7 +453,8 @@
       sourced from `(rf/registrations :route)`. The Static Routes
       panel also reads this sub — process-global, frame-agnostic.
     - `:rf.xray/current-route-slice` — composite over the spine's
-      target-frame app-db reading the `:rf/route` slice.
+      target-frame app-db reading the routing slice at
+      `[:rf/runtime :routing :current]`.
     - `:rf.xray/routing-tab-data` — view-facing topology-plus-overlay
       composite (focused-epoch scoped). Carries `:silent?`, `:topology`,
       `:activity`, `:from-id`, `:to-id`, `:navigated?`, `:current`.
@@ -505,7 +506,7 @@
     (fn [[target-db override] _query]
       (cond
         (some? override) override
-        (map? target-db) (:rf/route target-db)
+        (map? target-db) (get-in target-db [:rf/runtime :routing :current])
         :else            nil)))
 
   ;; View-facing composite (topology-plus-overlay shape, rf2-3kjlo) -------

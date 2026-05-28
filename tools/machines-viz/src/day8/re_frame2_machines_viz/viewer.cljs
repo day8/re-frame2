@@ -39,7 +39,7 @@
   `(viewer/run)` is the `^:export` entry. The page is presentation-only:
   it initialises re-frame purely so the Reagent adapter is live (the
   chart is a Reagent component); it registers no frame, dispatches no
-  events, and reads no `[:rf/machines]` slot.
+  events, and reads no `[:rf/runtime :machines :snapshots]` slot.
 
   Per [`API.md`](../../spec/API.md) §Read-only viewer + §Share-URL
   encoding."

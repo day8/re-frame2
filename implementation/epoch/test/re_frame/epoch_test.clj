@@ -3063,7 +3063,7 @@
     (rf/reg-app-schema [:auth]
                        [:map [:password {:sensitive? true} :string]]
                        {:frame :test/main})
-    ;; Force population of [:rf/elision :sensitive-declarations] —
+    ;; Force population of [:rf/runtime :elision :sensitive-declarations] —
     ;; the router refresh runs per-handler-dispatch but only for
     ;; the handler's resolved frame; populating up-front pins the
     ;; smoke against the elision walker contract directly.

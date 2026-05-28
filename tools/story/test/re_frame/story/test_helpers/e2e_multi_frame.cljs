@@ -104,7 +104,7 @@
   ;; machine's snapshot reads cannot resolve.
   (rf/reg-sub :rf/machine
               (fn [db [_ machine-id]]
-                (get-in db [:rf/machines machine-id])))
+                (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (story/install-canonical-vocabulary!)
   (ui-state/reset-shell-state!)
   nil)

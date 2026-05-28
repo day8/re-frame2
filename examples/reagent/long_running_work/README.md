@@ -18,7 +18,7 @@ declarative spawn-and-join.
 - **Declarative spawn-and-join** via [`:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all).
   The parent `:work/flow` machine spawns 3 `:work/processor`
   children in parallel; the runtime owns the join state at
-  `[:rf/spawned :work/flow [:working]]`. No per-child bookkeeping in
+  `[:rf/runtime :machines :spawned :work/flow [:working]]`. No per-child bookkeeping in
   the parent's `:data` — the runtime fires
   `:on-all-complete` when the last child reports done.
 

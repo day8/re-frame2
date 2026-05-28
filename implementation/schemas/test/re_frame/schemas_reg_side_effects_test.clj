@@ -14,7 +14,7 @@
        (\"at boot, and on `reg-app-schema` re-registration\") + §Registry
        feeder (rf2-c1l4d). Registering a schema with `:large?` /
        `:sensitive?` per-slot flags writes the corresponding declarations
-       into the frame's `[:rf/elision …]` slots so size-elision / privacy
+       into the frame's `[:rf/runtime :elision …]` slots so size-elision / privacy
        redaction is live for wire emits — including those that fire BEFORE
        the first dispatch (the gap the per-dispatch router refresh leaves).
 

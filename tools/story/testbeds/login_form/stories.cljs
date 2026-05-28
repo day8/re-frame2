@@ -100,10 +100,10 @@
              `#/login` for the first time. The variant fires a
              no-op `:login/dismiss` so the machine's `:initial`
              cascade seeds the snapshot — without it, the
-             `[:rf/machines :login/flow]` slot is nil and the
+             `[:rf/runtime :machines :snapshots :login/flow]` slot is nil and the
              state-pill in the view renders empty."
      :events [[:login/flow [:login/dismiss]]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals  [:rf/machines :login/flow :state] :idle]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals  [:rf/runtime :machines :snapshots :login/flow :state] :idle]]
               [:dispatch-sync [:rf.assert/state-is :login/flow :idle]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
@@ -158,7 +158,7 @@
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
      :play-script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
               [:dispatch-sync [:rf.assert/path-equals
-               [:rf/machines :login/flow :data :error]
+               [:rf/runtime :machines :snapshots :login/flow :data :error]
                "Invalid credentials."]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
@@ -186,7 +186,7 @@
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
      :play-script [[:dispatch-sync [:rf.assert/state-is :login/flow :submitting-retry]]
               [:dispatch-sync [:rf.assert/path-equals
-               [:rf/machines :login/flow :data :attempts]
+               [:rf/runtime :machines :snapshots :login/flow :data :attempts]
                1]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})

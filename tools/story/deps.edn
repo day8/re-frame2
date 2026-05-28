@@ -29,8 +29,8 @@
          ;; IMPL-SPEC §5.4 and the standing 'no new registries' rule
          ;; (AGENTS.md `downstream-EPs-consume-foundation`). Story's
          ;; runtime registers `:rf.story.lifecycle/machine` at boot;
-         ;; per-variant snapshots live at `[:rf/machines
-         ;; :rf.story.lifecycle/machine]` inside each variant frame's
+         ;; per-variant snapshots live at `[:rf/runtime :machines
+         ;; :snapshots :rf.story.lifecycle/machine]` inside each variant frame's
          ;; app-db. Without machines on the classpath the lifecycle
          ;; cannot run, so the dep is mandatory at Stage 3+.
          day8/re-frame2-machines {:local/root "../../implementation/machines"}

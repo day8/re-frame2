@@ -702,7 +702,7 @@ surface to the prop the host derives from it.
 | Framework surface (host reads) | Chart prop the host derives |
 |---|---|
 | `(rf/machine-meta machine-id)` | `:definition` — the registered topology (states, transitions, guards, actions). |
-| `[:rf/machines <id>]` slot in frame `app-db` | `:current-state` — the live `:state` driving the active highlight. |
+| `[:rf/runtime :machines :snapshots <id>]` slot in frame `app-db` | `:current-state` — the live `:state` driving the active highlight. |
 | `:rf.machine/transition` trace events | `:from-highlight` / `:to-highlight` — the focused-event lens. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | an `{:id :after-rings :specs … :tick …}` descriptor in `:overlays` — the countdown-ring overlay. |
 | `:rf.machine.spawn-all/started` / `-all-completed` / `-some-completed` / `-any-failed` | an `{:id :spawn-all-join :spec … :tick …}` descriptor in `:overlays` — the join inspector overlay. |

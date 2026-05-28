@@ -287,7 +287,7 @@
 ;; that ship live-state reads are `preview-variant` / `run-variant`
 ;; (which return the variant frame's `:app-db` slice) and `read-failures`
 ;; (which returns the variant frame's `:rf.story/assertions` accumulator).
-;; The walker reads the live schema-owned `[:rf/elision]` registries
+;; The walker reads the live schema-owned `[:rf/runtime :elision]` registries
 ;; from the named frame's app-db; the `:frame variant-id` opts slot is
 ;; load-bearing.
 ;; ---------------------------------------------------------------------------

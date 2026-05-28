@@ -212,7 +212,7 @@
          `:some`)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db]} _]
-    (let [tag       (get-in db [:rf/route :query :tag])
+    (let [tag       (get-in db [:rf/runtime :routing :current :query :tag])
           path      (if tag
                       (str "/articles?tag=" tag)
                       "/articles")

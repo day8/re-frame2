@@ -128,7 +128,7 @@ Forbidden in a share payload:
   time. Definition metadata is stripped before serialisation so
   that macro-captured coords on the topology cannot leak either.
 - Trace events (no event vectors; no dispatch ids; no causal walk).
-- Epoch history (no app-db slices outside `[:rf/machines <id>]`).
+- Epoch history (no app-db slices outside `[:rf/runtime :machines :snapshots <id>]`).
 - User-input data (no form values, no inputs the user typed).
 - Conversation buffers (no AI-co-pilot history).
 - Cross-machine state unless the sharer's chart explicitly includes
@@ -304,7 +304,7 @@ machine inspector's job is to **show the cascade**, not to
 ## Production elision is non-negotiable
 
 The chart depends on the framework's trace bus + the
-`[:rf/machines <id>]` snapshot, both of which are gated on
+`[:rf/runtime :machines :snapshots <id>]` snapshot, both of which are gated on
 `re-frame.interop/debug-enabled?` in production (per
 [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
 Machines-Viz contributes its own sentinels to the elision verifier
@@ -326,7 +326,7 @@ When in doubt, defer to the framework's
   stable id; every transition has a stable selector; every callback
   prop has a stable name.
 - **Public query surfaces** — Machines-Viz reads only what the
-  framework's public registrar / trace bus / `[:rf/machines]`
+  framework's public registrar / trace bus / `[:rf/runtime :machines :snapshots]`
   surface exposes.
 - **Deterministic execution** — Machines-Viz's rendering is a
   function of `(reg-machine def, snapshot, trace-history)`; no

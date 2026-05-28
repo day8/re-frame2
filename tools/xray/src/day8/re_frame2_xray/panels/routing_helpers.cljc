@@ -230,7 +230,7 @@
 ;; given route — WITHOUT actually dispatching any framework event.
 ;; That preview is structural: the matched params (derived from the
 ;; row's pattern + the chosen URL), the registered `:on-match` event
-;; vector, and the expected app-db slot (`[:rf/route ...]`).
+;; vector, and the expected app-db slot (`[:rf/runtime :routing :current ...]`).
 
 (defn simulate-navigation-preview
   "Pure data → data. Given a registered-routes map + a `route-id`, plus
@@ -244,14 +244,14 @@
        :matched?    <bool>              ;; did url match this route's pattern?
        :params      <map-or-nil>        ;; matched params (nil when no url)
        :on-match    <vector-or-nil>     ;; registered :on-match event vector
-       :db-slot     [:rf/route]         ;; where the slice would land
-       :slot-shape  <map>               ;; preview of the :rf/route map
+       :db-slot     [:rf/runtime :routing :current]  ;; where the slice would land
+       :slot-shape  <map>               ;; preview of the routing :current slice
                                         ;; that would land in app-db
        :unknown?    <bool>}             ;; true when route-id not registered
 
   Hermetic — no dispatch, no fx, no app-db mutation. The shape mirrors
   what the framework's `:rf.route/navigate` handler would write into
-  `[:rf/route]` so the user can reason about the cascade without
+  `[:rf/runtime :routing :current]` so the user can reason about the cascade without
   triggering it.
 
   When `route-id` is not in `routes-map` returns `{:unknown? true
@@ -278,7 +278,7 @@
         :matched?   (boolean matched?)
         :params     params
         :on-match   on-match
-        :db-slot    [:rf/route]
+        :db-slot    [:rf/runtime :routing :current]
         :slot-shape slot
         :unknown?   false})
      {:route-id route-id

@@ -225,7 +225,7 @@
          `:fetch-started` so the :lifecycle region advances to :loading."
    :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} _]
-    (let [slug (get-in db [:rf/route :params :slug])]
+    (let [slug (get-in db [:rf/runtime :routing :current :params :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
        :fx [[:dispatch [:ui/article-editor [:use-edit]]]
             [:dispatch [:ui/article-editor [:fetch-started]]]
@@ -279,7 +279,7 @@
    :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} _]
     (let [{:keys [slug draft]} (:editor db)
-          mode        (get-in db [:rf/machines :ui/article-editor :state :mode])
+          mode        (get-in db [:rf/runtime :machines :snapshots :ui/article-editor :state :mode])
           ;; Materialised flow output — read as plain app-db data.
           can-submit? (get-in db [:editor :can-submit?])
           errors      (validate-draft draft)]

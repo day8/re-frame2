@@ -125,5 +125,5 @@
 ;; SCHEMA REGISTRATIONS  (ns-load — the production-app idiom)
 ;; ============================================================================
 
-(rf/reg-app-schema [:rf/machines :ws/connection] ConnectionSnapshot)
+(rf/reg-app-schema [:rf/runtime :machines :snapshots :ws/connection] ConnectionSnapshot)
 (rf/reg-app-schema [:messages]                   MessagesSlice)

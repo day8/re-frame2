@@ -228,7 +228,7 @@
 ;; (`:realworld/articles-home`) before kicking the per-feed fetch.
 
 (defn home-query [db]
-  (get-in db [:rf/route :query] {}))
+  (get-in db [:rf/runtime :routing :current :query] {}))
 
 (rf/reg-event-fx :home/load
   {:doc "Route :on-match handler for `:realworld/home`. Reads the route's

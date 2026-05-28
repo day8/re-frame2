@@ -8,7 +8,7 @@
    `:cancel`, or unmount) which cascades a teardown to every surviving
    child.
 
-   Two snapshots live in `:rf/machines` at runtime:
+   Two snapshots live under `[:rf/runtime :machines :snapshots ...]` at runtime:
 
    - `:work/flow`       — the parent coordinator. Tracks per-shard
                           progress in `:data :progress` and the chunk
@@ -82,7 +82,7 @@
 ;; SCHEMA REGISTRATION (Spec 010 §Path-based attachment)
 ;; ============================================================================
 
-(rf/reg-app-schema [:rf/machines :work/flow] FlowSnapshot)
+(rf/reg-app-schema [:rf/runtime :machines :snapshots :work/flow] FlowSnapshot)
 ;; The :work/processor children get gensym'd ids (e.g. :work/processor#1);
 ;; we register a wildcard-style schema on the prefix so the rebound
 ;; per-instance snapshots are validated against the same shape. The

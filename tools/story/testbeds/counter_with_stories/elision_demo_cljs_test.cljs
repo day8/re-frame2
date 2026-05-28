@@ -66,7 +66,7 @@
                                        :hint   "Avatar PDF blob"}]])
   ;; Re-run the schema-driven elision-registry boot population
   ;; against the post-init frame. The demo ns's `reg-app-schema`
-  ;; call lives in registry-meta land; the per-frame `[:rf/elision
+  ;; call lives in registry-meta land; the per-frame `[:rf/runtime :elision
   ;; :declarations]` slot is written by this fn from the schemas
   ;; artefact's walker. Without this, `elide-wire-value` finds no
   ;; declared-large entry and the assertion that the marker fires

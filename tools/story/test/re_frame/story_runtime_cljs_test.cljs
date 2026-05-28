@@ -47,7 +47,7 @@
   ;; in CLJS — we manually re-invoke the side-effecting part.
   (rf/reg-sub :rf/machine
               (fn [db [_ machine-id]]
-                (get-in db [:rf/machines machine-id])))
+                (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (story/install-canonical-vocabulary!)

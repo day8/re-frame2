@@ -40,7 +40,7 @@
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
 
 (defn username-from-db [db]
-  (get-in db [:rf/route :params :username]))
+  (get-in db [:rf/runtime :routing :current :params :username]))
 
 ;; ============================================================================
 ;; THE MACHINE — :ui/profile  (one machine, two regions)

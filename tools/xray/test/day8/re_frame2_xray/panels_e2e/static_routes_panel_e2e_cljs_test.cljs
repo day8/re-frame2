@@ -10,7 +10,7 @@
     2. A synthetic 3-route catalogue injected via
        `:rf.xray/set-registered-routes-override-for-test`.
     3. Simulate-URL `/articles` resolves a WINNER candidate without
-       mutating the host's `[:rf/route]` slot (hermetic preview).
+       mutating the host's `[:rf/runtime :routing :current]` slot (hermetic preview).
     4. The `:rf.xray.static.routes/jump-to-dynamic` cross-link flips
        mode → `:dynamic` and opens the Dynamic Routing tab.
 
@@ -90,11 +90,12 @@
       {:install-host counter/install-and-init!}
       (fn []
         (install-override!)
-        ;; Snapshot the host's :rf/route slot BEFORE simulating. The
-        ;; counter fixture does not write to :rf/route, so we expect
-        ;; nil here — and the same nil afterwards.
+        ;; Snapshot the host's current-route slot BEFORE simulating. The
+        ;; counter fixture does not write [:rf/runtime :routing :current],
+        ;; so we expect nil here — and the same nil afterwards.
         (let [counter-before    (e2e/sub-host [:counter/value])
-              host-route-before (some-> (rf/get-frame-db :rf/default) :rf/route)]
+              host-route-before (some-> (rf/get-frame-db :rf/default)
+                                        (get-in [:rf/runtime :routing :current]))]
           (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/articles"]
                             {:frame :rf/xray})
           (let [data       (e2e/sub-xray [:rf.xray.static.routes/tab-data])
@@ -110,10 +111,11 @@
                 "winner is not :route/articles — rank cascade picked the wrong row")
             (is (true? (:winner? winner))
                 "winner candidate not flagged :winner? true"))
-          ;; Hermetic — the host's :rf/route slot is unchanged.
-          (let [host-route-after (some-> (rf/get-frame-db :rf/default) :rf/route)]
+          ;; Hermetic — the host's current-route slot is unchanged.
+          (let [host-route-after (some-> (rf/get-frame-db :rf/default)
+                                          (get-in [:rf/runtime :routing :current]))]
             (is (= host-route-before host-route-after)
-                "Simulate-URL was NOT hermetic — host :rf/route slot changed"))
+                "Simulate-URL was NOT hermetic — host current-route slot changed"))
           ;; Sanity — the host's counter app-db is also undisturbed.
           (is (= counter-before (e2e/sub-host [:counter/value]))
               "Simulate-URL leaked into the host's counter slot"))))))

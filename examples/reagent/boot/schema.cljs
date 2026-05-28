@@ -65,7 +65,7 @@
 ;; BOOT-MACHINE SNAPSHOT
 ;; ============================================================================
 ;;
-;; The boot machine lives at [:rf/machines :app/boot]. Its `:state`
+;; The boot machine lives at [:rf/runtime :machines :snapshots :app/boot]. Its `:state`
 ;; cycles `:configuring → :loading-deps → :hydrating → :ready`
 ;; (terminal), with `:failed` (terminal) reached if any child errors.
 ;; `:data` carries the per-phase progress slot and the loaded payloads.
@@ -117,7 +117,7 @@
 ;; every registration is wrapped in :maybe so the validator passes
 ;; during the staging/loading phases.
 
-(rf/reg-app-schema [:rf/machines :app/boot] [:maybe BootSnapshot])
+(rf/reg-app-schema [:rf/runtime :machines :snapshots :app/boot] [:maybe BootSnapshot])
 
 ;; The :spawn-all children stage their payloads into [:boot/staging]
 ;; before signalling completion to the parent. The :enter-hydrating

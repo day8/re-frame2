@@ -88,7 +88,7 @@ build config points at).
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
   (rf/reg-sub :rf/machine
               (fn [db [_ machine-id]]
-                (get-in db [:rf/machines machine-id])))
+                (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   ;; Re-load your variant + event registrations. The require-side

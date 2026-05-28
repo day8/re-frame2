@@ -9,7 +9,7 @@
 ;; Per tools/README.md the machines-viz artefact is bundle-isolated
 ;; from production code: nothing under implementation/ may :require
 ;; anything from this jar. The chart consumes the framework's
-;; public surfaces (`rf/machine-meta`, the `:rf/machines` slot,
+;; public surfaces (`rf/machine-meta`, the `[:rf/runtime :machines :snapshots]` slot,
 ;; the trace bus) but adds no new framework primitives.
 ;;
 ;; ## Lockstep version with implementation/core

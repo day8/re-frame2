@@ -12,7 +12,7 @@
     - matched params (derived from the row's pattern + the optional
       URL from the row's simulate-URL input);
     - the registered `:on-match` event vector;
-    - the expected app-db slot (`[:rf/route ...]`) shape.
+    - the expected app-db slot (`[:rf/runtime :routing :current ...]`) shape.
 
   The hermetic posture is the spec point — Xray is a lens, not a
   remote control. Real navigation lives behind `:rf.route/navigate`

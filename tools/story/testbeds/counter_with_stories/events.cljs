@@ -20,7 +20,7 @@
 ;; this before any variant-specific events fire, so every variant starts
 ;; from a known shape. We `assoc` rather than replace the whole `:db`
 ;; so the Story runtime's per-frame lifecycle machine slot
-;; (`:rf/machines`) — which sits in app-db before `:counter/initialise`
+;; (`[:rf/runtime :machines :snapshots ...]`) — which sits in app-db before `:counter/initialise`
 ;; runs — survives. Returning `{:db {:count ...}}` would clobber it
 ;; and the variant's lifecycle would stall at `:pre-mount`.
 (rf/reg-event-fx :counter/initialise

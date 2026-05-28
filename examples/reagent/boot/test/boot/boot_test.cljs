@@ -155,7 +155,7 @@
       ;; The boot machine's :data mirrors the staged values once
       ;; :enter-hydrating runs (so the snapshot is self-describing
       ;; for SSR / tools).
-      (let [boot-data (get-in db [:rf/machines :app/boot :data])]
+      (let [boot-data (get-in db [:rf/runtime :machines :snapshots :app/boot :data])]
         (assert (= test-config (:config boot-data)))
         (assert (= test-routes (:routes boot-data)))
         (assert (= test-flags  (:flags boot-data)))

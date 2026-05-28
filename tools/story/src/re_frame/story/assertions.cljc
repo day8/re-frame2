@@ -389,7 +389,7 @@
 
 (defn- evaluate-state-is
   [db [machine-id state]]
-  (let [snap   (get-in db [:rf/machines machine-id])
+  (let [snap   (get-in db [:rf/runtime :machines :snapshots machine-id])
         actual (:state snap)
         passed? (= state actual)]
     {:passed?    passed?

@@ -52,7 +52,7 @@
             [:attempts {:default 0} :int]
             [:error    [:maybe :string]]]]])
 
-(rf/reg-app-schema [:rf/machines :auth.login/flow] AuthLoginSnapshot)
+(rf/reg-app-schema [:rf/runtime :machines :snapshots :auth.login/flow] AuthLoginSnapshot)
 
 ;; ============================================================================
 ;; FX
@@ -201,7 +201,7 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 ;;
-;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
+;; The machine snapshot lives at [:rf/runtime :machines :snapshots :auth.login/flow] (per
 ;; Spec 005). These named subs project out the convenient pieces. The
 ;; "in :submitting?" / "in :authed?" predicates moved to the
 ;; `:rf/machine-has-tag?` framework sub in views below (per Spec 005
@@ -209,11 +209,11 @@
 
 (rf/reg-sub :auth.login/state
   (fn [db _]
-    (get-in db [:rf/machines :auth.login/flow :state])))
+    (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :state])))
 
 (rf/reg-sub :auth.login/error
   (fn [db _]
-    (get-in db [:rf/machines :auth.login/flow :data :error])))
+    (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :data :error])))
 
 ;; ============================================================================
 ;; VIEWS  (UIx — defui + use-subscribe)
@@ -276,6 +276,6 @@
      :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
   ;; No `dispatch-sync` seed here (unlike counter / dashboard): the
   ;; machine handler is self-initialising — its `:initial`/`:data` seed
-  ;; [:rf/machines :auth.login/flow] when the flow first runs (per
+  ;; [:rf/runtime :machines :snapshots :auth.login/flow] when the flow first runs (per
   ;; Spec 005 §Restore semantics), so no separate :initialise is needed.
   (uix-dom/render-root ($ root-view) react-root))

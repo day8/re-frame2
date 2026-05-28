@@ -271,7 +271,7 @@
 
 (deftest sub-auto-propagates-when-app-db-has-sensitive-marks
   ;; Spec 015 conformance fixture #3 (variant — propagation flag set)
-  ;; NB: handlers that REPLACE app-db wipe `:rf/elision`, mirroring the
+  ;; NB: handlers that REPLACE app-db wipe `[:rf/runtime :elision]`, mirroring the
   ;; existing schema-driven elision constraint — seed first, then mark.
   (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
   (rf/dispatch-sync [:seed])

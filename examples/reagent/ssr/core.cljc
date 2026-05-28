@@ -105,7 +105,7 @@
     ;; `request` is the host-supplied HTTP request map (Ring shape under
     ;; the bundled adapter); read URL/headers/cookies from here rather
     ;; than from a positional event arg.
-    {:db (assoc db :rf/route {:id :ssr.app/articles :params {}})
+    {:db (assoc-in db [:rf/runtime :routing :current] {:id :ssr.app/articles :params {}})
      :fx [[:rf.http/managed
            {:request    {:method :get :url "/api/articles"}
             :decode     :json

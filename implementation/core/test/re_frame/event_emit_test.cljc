@@ -284,7 +284,7 @@
 ;;
 ;; The handler-meta `:sensitive?` annotation has been removed. Event-emit
 ;; records are no longer dropped based on handler-level sensitivity; per-path
-;; elision (driven by the per-frame `:rf/elision` registry, populated from
+;; elision (driven by the per-frame `[:rf/runtime :elision]` registry, populated from
 ;; app-schema `:sensitive?` slot meta) is the load-bearing privacy surface
 ;; here. Path-marked classification supersedes the previous handler-level
 ;; short-circuit.

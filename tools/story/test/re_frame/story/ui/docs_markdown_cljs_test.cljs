@@ -31,7 +31,7 @@
        (catch :default _ nil))
   (rf/reg-sub :rf/machine
               (fn [db [_ machine-id]]
-                (get-in db [:rf/machines machine-id])))
+                (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (reset! assertions/trace-accumulators {})
