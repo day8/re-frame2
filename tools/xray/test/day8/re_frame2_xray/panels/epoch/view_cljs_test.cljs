@@ -1690,6 +1690,60 @@
 ;; leaf-scalar chrome paints unconditionally for changed leaf-scalar
 ;; rows (covered by the two leaf-* tests above).
 
+;; ---- rf2-1cc03 — `caused by <event-id>` chrome on SUBSCRIPTIONS rows ----
+
+(deftest subscriptions-row-renders-cause-event-id-chrome-test
+  (testing "rf2-1cc03 — SUBSCRIPTIONS row with `:cause-event-id` mounts a
+            `caused by <event-id>` chrome in the sub cell, attributing
+            the recompute to the dispatching cascade. The event-id
+            routes through `ei/mini` so the keyword paints with the
+            canonical syntax-token chrome (keyword magenta) — parity
+            with the sibling sub-id rendering."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :counter/value :sub-vec [:counter/value]
+                          :inputs nil :changed? true :first-run? false
+                          :before 0 :after 1
+                          :cause-event-id :counter/inc}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            chrome (th/find-by-testid tree "rf-xray-epoch-sub-row-cause-event-id-0")]
+        (is (some? chrome)
+            "the cause-event-id chrome mounts when the row carries it")
+        (let [txt (th/text-content chrome)]
+          (is (string/includes? txt "caused by")
+              "chrome carries the `caused by` prose label")
+          (is (string/includes? txt ":counter/inc")
+              "chrome renders the event-id keyword (mini paints the colon)"))
+        (is (pos? (count (mini-mounts chrome)))
+            "event-id routes through ei/mini for syntax-token chrome
+             (keyword magenta) — parity with the sibling sub-id")))))
+
+(deftest subscriptions-row-omits-cause-event-id-chrome-when-absent-test
+  (testing "rf2-1cc03 — SUBSCRIPTIONS row WITHOUT `:cause-event-id`
+            (a sub that ran outside any in-flight cascade — the
+            attribution slot is absent at the projection level)
+            does NOT mount the chrome. The cell stays at the
+            sub-id-only baseline shape."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :counter/value :sub-vec [:counter/value]
+                          :inputs nil :changed? true :first-run? false
+                          :before 0 :after 1}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)]
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-sub-row-cause-event-id-0"))
+            "no chrome mount when `:cause-event-id` is absent
+             (parity with the OMIT-vs-nil semantics on the projection)")
+        ;; the sub-id span itself still renders — the absence is only
+        ;; the secondary attribution line.
+        (is (some? (th/find-by-testid tree "rf-xray-epoch-sub-row-0"))
+            "the row itself still mounts; only the chrome is omitted")))))
+
 ;; ---- rf2-309cy — VIEWS row view-id keyword routes through ei/mini ------
 
 (deftest views-row-view-id-routes-through-mini-test

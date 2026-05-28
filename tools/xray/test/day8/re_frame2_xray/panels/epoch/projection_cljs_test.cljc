@@ -1112,6 +1112,46 @@
             "no flag stamped → defaults to false (legacy path falls back
              to the value-change shape)")))))
 
+(deftest subscriptions-row-carries-cause-event-id-test
+  (testing "rf2-1cc03 — projection lifts `:rf.sub/cause-event-id` onto
+            each sub-run row as `:cause-event-id` so the view-side
+            renderer can paint a `caused by <event-id>` chrome
+            attributing the sub-run to the dispatching cascade."
+    (testing "cause-event-id PRESENT on a sub run inside an in-flight cascade"
+      (let [row (-> (proj/subscriptions-step
+                      [(ev :rf.sub :rf.sub/run
+                           {:rf.sub/id              :counter/value
+                            :rf.sub/query-v         [:counter/value]
+                            :rf.sub/value-changed?  true
+                            :rf.sub/prev-value      0
+                            :rf.sub/value           1
+                            :rf.sub/cause-event-id  :counter/inc})])
+                    :rows first)]
+        (is (= :counter/inc (:cause-event-id row))
+            ":cause-event-id is read from `:rf.sub/cause-event-id` tag")
+        (is (true? (:changed? row))
+            ":changed? still carries the value-changed signal")
+        (is (= 1 (:after row))
+            "other slots ride alongside the new attribution slot")))
+    (testing "cause-event-id ABSENT (post-settle reactive flush, no
+              live cascade) → row slot is OMITTED (not nil-bearing)"
+      (let [row (-> (proj/subscriptions-step
+                      [(ev :rf.sub :rf.sub/run
+                           {:rf.sub/id             :counter/value
+                            :rf.sub/query-v        [:counter/value]
+                            :rf.sub/value-changed? true
+                            :rf.sub/prev-value     0
+                            :rf.sub/value          1})])
+                    :rows first)]
+        (is (not (contains? row :cause-event-id))
+            ":cause-event-id key is ABSENT when the trace tag was omitted
+             (parity with the rf2-okz1u OMIT-vs-nil semantics — the row
+             stays minimal so consumers can `(some? (:cause-event-id row))`
+             cleanly)")
+        (is (true? (:changed? row))
+            "the sub-run row still projects (the absence is in the
+             attribution slot only, not the whole row)")))))
+
 (deftest subscriptions-step-counts-changed-vs-unchanged-test
   (testing "rf2-kfh1v — step header carries `changed` + `unchanged`
             counts so the view can render `N recomputed (M changed,
