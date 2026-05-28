@@ -231,7 +231,7 @@
 
       ;; The pending-nav slot is cleared.
       (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :pending-navigation]))
-          ":rf/pending-navigation slot is cleared post-cancel")
+          "[:rf/runtime :routing :pending-navigation] slot is cleared post-cancel")
 
       ;; The in-flight HTTP request from the active route is UNTOUCHED —
       ;; cancel of the navigation does not abort requests issued by the
@@ -243,7 +243,7 @@
       ;; Slice still reflects the active route (no nav happened).
       (is (= :route/editor (get-in (rf/get-frame-db :rf/default)
                                    [:rf/runtime :routing :current :id]))
-          "post-cancel: :rf/route slice still on the active editor route"))))
+          "post-cancel: current route slice still on the active editor route"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. Pending-navigation continue advances nav-token; in-flight registry
@@ -306,7 +306,7 @@
           ;; nav-token bumped.
           (is (= :route/sibling (get-in (rf/get-frame-db :rf/default)
                                         [:rf/runtime :routing :current :id]))
-              "post-continue: :rf/route slice is on the continued target")
+              "post-continue: current route slice is on the continued target")
           (let [token-after (get-in (rf/get-frame-db :rf/default)
                                     [:rf/runtime :routing :current :nav-token])]
             (is (not= token-before token-after)

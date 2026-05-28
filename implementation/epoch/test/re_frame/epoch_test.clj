@@ -1713,7 +1713,7 @@
     (is (= :route/article (rf/subscribe-once :test/main [:current-route])))
 
     (let [history (rf/epoch-history :test/main)
-          ;; The epoch whose db-after carries :route/home in :rf/route :id.
+          ;; The epoch whose db-after carries :route/home under [:rf/runtime :routing :current :id].
           target  (some (fn [r]
                           (when (= :route/home (get-in (:db-after r) [:rf/runtime :routing :current :id]))
                             r))
@@ -1721,9 +1721,9 @@
       (is (some? target))
       (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
       (is (= :route/home (get-in (rf/get-frame-db :test/main) [:rf/runtime :routing :current :id]))
-          "the :rf/route slice is rewound by restore")
+          "the [:rf/runtime :routing] slice is rewound by restore")
       (is (= :route/home (rf/subscribe-once :test/main [:current-route]))
-          "a sub keyed on :rf/route returns the restored value"))))
+          "a sub reading the routing slice returns the restored value"))))
 
 ;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
 ;;

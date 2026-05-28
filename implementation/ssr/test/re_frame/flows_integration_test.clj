@@ -38,15 +38,16 @@
       the installed flow-augmented db).
     - An event whose `:fx` `:dispatch`es child events gives EACH child its
       OWN independent flow eval, not the parent's.
-    - A flow whose `:inputs` overlap the `:rf/route` slice reads the
-      POST-transition route (the slice rewrite is the handler's pending
-      `:db`; the flow at the outermost `:after` transforms that pending
-      value before install — there is no pre-transition window the flow
-      could observe). The dual atomicity assertion: a flow throw on a
-      `:rf.route/transitioned` dispatch aborts the WHOLE event — slice
-      stays on the previous route, `:on-match` `:dispatch` fxs are NOT
-      walked. Pin (rf2-qm8m3): regression coverage for the routing × flows
-      composition the rf2-hm4gi delta audit flagged."
+    - A flow whose `:inputs` overlap the `[:rf/runtime :routing :current]`
+      slice reads the POST-transition route (the slice rewrite is the
+      handler's pending `:db`; the flow at the outermost `:after`
+      transforms that pending value before install — there is no
+      pre-transition window the flow could observe). The dual atomicity
+      assertion: a flow throw on a `:rf.route/transitioned` dispatch
+      aborts the WHOLE event — slice stays on the previous route,
+      `:on-match` `:dispatch` fxs are NOT walked. Pin (rf2-qm8m3):
+      regression coverage for the routing × flows composition the
+      rf2-hm4gi delta audit flagged."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -441,19 +442,20 @@
              child saw [2] — independent evals, not a shared one")))))
 
 ;; ===========================================================================
-;; 5. flow × routing (rf2-qm8m3) — a flow over the :rf/route slice reads the
-;;    POST-transition route, and a flow throw on a transition aborts the
-;;    WHOLE event (slice unchanged, :on-match :dispatch fxs skipped).
+;; 5. flow × routing (rf2-qm8m3) — a flow over the [:rf/runtime :routing
+;;    :current] slice reads the POST-transition route, and a flow throw on
+;;    a transition aborts the WHOLE event (slice unchanged, :on-match
+;;    :dispatch fxs skipped).
 ;;
 ;; `:rf.route/transitioned` is a normal event-fx: its handler returns
-;; `{:db (assoc db' :rf/route {...new-route...}) :fx [[:dispatch
-;; [:on-match]] ...]}`. The flow at the outermost `:after` transforms the
-;; pending :db (which already carries the rewritten :rf/route slice)
-;; BEFORE the single deferred install. So a flow whose :inputs overlap
-;; [:rf/route] sees the SETTLED post-transition slice, never an
-;; intermediate or pre-transition value. After install, `:fx` walks —
-;; any `[:dispatch [:on-match]]` entries fire against the flow-augmented
-;; db.
+;; `{:db (assoc-in db' [:rf/runtime :routing :current] {...new-route...})
+;; :fx [[:dispatch [:on-match]] ...]}`. The flow at the outermost
+;; `:after` transforms the pending :db (which already carries the
+;; rewritten route slice) BEFORE the single deferred install. So a flow
+;; whose :inputs overlap [:rf/runtime :routing :current] sees the SETTLED
+;; post-transition slice, never an intermediate or pre-transition value.
+;; After install, `:fx` walks — any `[:dispatch [:on-match]]` entries
+;; fire against the flow-augmented db.
 ;;
 ;; The atomicity contract (`bd remember event-pipeline-atomicity` rule a):
 ;; ANY pre-install throw, including a flow throw, aborts the event — no
@@ -464,11 +466,11 @@
 ;; ===========================================================================
 
 (deftest flow-over-route-slice-reads-settled-post-transition-route
-  (testing "a flow whose :inputs overlap [:rf/route] reads the
-            POST-transition route — the slice rewrite is the handler's
-            pending :db; the flow at the outermost :after transforms that
-            pending value, then a single deferred install commits the
-            slice + flow output together"
+  (testing "a flow whose :inputs overlap [:rf/runtime :routing :current]
+            reads the POST-transition route — the slice rewrite is the
+            handler's pending :db; the flow at the outermost :after
+            transforms that pending value, then a single deferred install
+            commits the slice + flow output together"
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]})
     (rf/reg-route :route/home    {:path "/"})
@@ -573,7 +575,7 @@
              discarded wholesale by the flow throw")
         (is (= :route/home (get-in (rf/get-frame-db :rf/default)
                                    [:rf/runtime :routing :current :id]))
-            "the :rf/route slice stayed on :route/home — the transition's
+            "the route slice stayed on :route/home — the transition's
              slice rewrite did NOT install")
 
         ;; The :on-match :dispatch in the handler's :fx was NOT walked —

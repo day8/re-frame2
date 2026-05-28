@@ -795,7 +795,7 @@
           ;; unified channel covers head + body; the head-vs-body
           ;; distinction lives entirely in :failing-id below.
           payload   {:rf/version     1
-                     :rf/app-db      {:rf/route {:id :route/article :params {:id "123"}}}
+                     :rf/app-db      {:rf/runtime {:routing {:current {:id :route/article :params {:id "123"}}}}}
                      :rf/render-hash "head-hash-server-A"}
           traces    (atom [])
           f         (rf/make-frame {:platform :client})]

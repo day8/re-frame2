@@ -26,7 +26,7 @@
    :public/user-id   "u-42"
    :server-only/auth "SECRET_TOKEN"
    :server-only/flag true
-   :rf/route         {:id :route/home}})
+   :rf/runtime       {:routing {:current {:id :route/home}}}})
 
 ;; ---- apply-policy: allowlist branch --------------------------------------
 

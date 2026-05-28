@@ -69,7 +69,7 @@
 
 (deftest render-head-invokes-handler-against-db-and-route
   (testing "render-head reads the frame's app-db, the active route from the
-            :rf/route slice, and applies the registered fn"
+            [:rf/runtime :routing :current] slice, and applies the registered fn"
     (rf/reg-head :head/article
                  (fn [db {:keys [params]}]
                    (let [{:keys [title summary]} (get-in db [:articles (:id params)])]
@@ -151,9 +151,9 @@
       (rf/dispatch-sync
         [::seed-route] {:frame f})
       ;; The test sub-handler isn't registered; instead seed app-db directly
-      ;; via with-frame and assoc — but the framework's :rf/route slice
-      ;; populates via dispatch-driven routing. We bypass with a one-shot
-      ;; event below.
+      ;; via with-frame and assoc — but the framework's [:rf/runtime
+      ;; :routing :current] slice populates via dispatch-driven routing.
+      ;; We bypass with a one-shot event below.
       (rf/reg-event-db ::seed-route
                        (fn [db _]
                          (assoc-in db [:rf/runtime :routing :current]
@@ -181,7 +181,7 @@
             "default carries the viewport meta")))))
 
 (deftest active-head-uses-default-when-no-route-at-all
-  (testing "no :rf/route slice (e.g. a frame that hasn't routed yet) → default"
+  (testing "no route slice (e.g. a frame that hasn't routed yet) → default"
     (let [f (rf/make-frame {:doc "Bare" :platform :server})
           model (rf/active-head f)]
       (is (= "Bare" (:title model)))
