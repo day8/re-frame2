@@ -27,6 +27,7 @@ site_dir: site
 # that does install playground deps before building docs.
 exclude_docs: |
   tools/playground/
+  guide/OUTLINE.md
 
 # Build-time hooks. mkdocs_hooks.py rewrites guide/* cross-references
 # from ../../spec/ (correct for GitHub source-tree browsing, where spec/
@@ -154,6 +155,12 @@ nav:
     # navigation.indexes: the section label IS the Guide overview page (no
     # redundant "Overview" child) — see theme.features (rf2-qgpkm).
     - guide/README.md
+    # Rewrite phase a+b (rf2-7fhok): the voice-test introduction chapter slots
+    # in as the new chapter 01. The full integer renumber of the rest of the
+    # guide (02..26 below → the OUTLINE.md sequence) is phase c, gated on Mike's
+    # voice approval. For now 01 sits ahead of the current 02..26 to demonstrate
+    # where the rewritten chapters land in the nav.
+    - "01 — Introduction": guide/01-introduction.md
     - "02 — app-db": guide/02-app-db.md
     - "03 — First app": guide/03-first-app.md
     - "Interactive: the counter": guide/interactive-counter.md
