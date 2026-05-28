@@ -146,7 +146,7 @@
                :re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"
                            "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_knobs.cljs"]
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
-                           "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"]}
+                           "tools/story-mcp/src/re_frame/story_mcp/tools/wire_pipeline.cljc"]}
     :doc      "Override integer — per-call wire-cap override (default 5,000).
                `0` disables the cap. Triggers an `:rf.mcp/overflow` marker
                when the rendered payload exceeds the cap (cross-server)."}])

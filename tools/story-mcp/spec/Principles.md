@@ -279,7 +279,7 @@ single-root scheme (Conventions §Reserved namespaces).
 
 ### When dedup runs
 
-At the dispatch boundary (`re-frame.story-mcp.tools.cap/invoke-tool`),
+At the dispatch boundary (`re-frame.story-mcp.tools.wire-pipeline/invoke-tool`),
 after the handler emits its result map and before
 `re-frame.mcp-base.cap/apply-cap` measures it. The ordering is
 load-bearing: dedup shrinks first so the cap sees the post-dedup

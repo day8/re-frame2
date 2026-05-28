@@ -21,7 +21,7 @@ The two source-of-truth declarations:
 - story-mcp:
   [`tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc`](../../story-mcp/src/re_frame/story_mcp/tools/registry.cljc)
   — `:handler` is uniformly 1-arity `(fn [args])`; the wire-boundary
-  cap dispatcher (`re-frame.story-mcp.tools.cap/invoke-tool`) calls
+  cap dispatcher (`re-frame.story-mcp.tools.wire-pipeline/invoke-tool`) calls
   `(handler arguments)` and returns the EDN result map.
 
 ## Consequence
@@ -63,7 +63,7 @@ When it lands, the unification should:
    adapter becomes `ctx->conn-args-extra` or similar; subscribe's
    handler reads `:conn` / `:progress-callback` off the ctx
    instead).
-3. Refit `re-frame.story-mcp.tools.cap` / category descriptors to
+3. Refit `re-frame.story-mcp.tools.wire-pipeline` / category descriptors to
    call handlers with `(handler ctx args)`; the JVM-side
    `:conn` / `:progress-callback` slots are nil and ignored.
 4. The new third server adopts the unified shape from day one.

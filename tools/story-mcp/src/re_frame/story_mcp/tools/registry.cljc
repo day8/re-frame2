@@ -15,7 +15,7 @@
 
   The schema fragments + injection helpers live in
   `re-frame.story-mcp.tools.schemas`; the wire-boundary token-cap
-  dispatcher (`invoke-tool`) lives in `re-frame.story-mcp.tools.cap`.
+  dispatcher (`invoke-tool`) lives in `re-frame.story-mcp.tools.wire-pipeline`.
 
   ## Handler arity (cross-MCP note)
 

@@ -1,4 +1,4 @@
-(ns re-frame.story-mcp.tools.cap
+(ns re-frame.story-mcp.tools.wire-pipeline
   "Dispatcher + wire-boundary structural-dedup + token-budget cap
   (rf2-rvyzy / rf2-zavp5 / rf2-eyelu / rf2-90eft).
 
