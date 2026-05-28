@@ -344,6 +344,32 @@ t1 fires when the handler returned `:db`, regardless of whether the flows artefa
 
 `:rf.event/db-changed` does NOT fire because the pending `:db` effect was discarded (no install, app-db unchanged, no partial commit); `:rf.fx/handled` does NOT fire because `:fx` is the post-install stage and the event aborted before it. This is the **same** truncated signature every other pre-install throw produces — a handler throw or an interceptor-`:after` throw emits `:rf.error/handler-exception` and then the `:rf.event/run-end` cascade-tail trailer, with no `:rf.event/db-changed` and no `:rf.fx/handled`. (As on the clean path, `:rf.event/run-end` is the **last** trace — the error event precedes the trailer.)
 
+#### Emit-gate summary — which emits ride which substrate
+
+Tooling authors (Xray, Story, re-frame-10x, off-box monitors) need to know **for every emit in the canonical sequence**: under what condition does the emit fire, and which substrate carries it — the **always-on** event-emit / error stream available in production builds, or the **dev-only** trace stream gated by `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`; DCE'd in `:advanced` builds). The table below pins both contracts for the per-event emits between `:run-start` and `:run-end`:
+
+| `:operation` | Substrate | Gate — fires when |
+|---|---|---|
+| `:rf.event/dispatched` | always-on | every dispatch envelope (precedes the drain; one per dispatch) |
+| `:rf.event/run-start` | always-on | every event the handler chain begins on |
+| `:rf.cofx/run` | dev-only | per inject-cofx interceptor that ran to success, in `:before-chain` order |
+| `:rf.event/db-pending` (t1) | dev-only | the handler returned a `:db` slot (suppressed otherwise) |
+| `:rf.flow/computed` | dev-only | per flow whose dirty-check observed an input value-difference |
+| `:rf.flow/skip` | dev-only | per flow whose dirty-check found inputs `=`-equal to the previous run |
+| `:rf.flow/failed` | dev-only | per flow whose `:output` threw |
+| `:rf.event/db-pending-post-flow` (t2) | dev-only | flows transformed the pending value (`(not (identical? new-db pending-db))`); suppressed when t1 == t2 |
+| `:rf.event/db-changed` | dev-only | the flow-augmented `:db` installed into `app-db` (single deferred commit) |
+| `:rf.sub/run` / `:rf.sub/skip` | dev-only | per sub on the cache that depends on a changed input |
+| `:rf.fx/handled` | dev-only | per `:fx` entry, after the deferred install |
+| `:rf.fx/do-fx` | dev-only | terminating `:fx`-walk marker, after all per-entry `:rf.fx/handled` emits |
+| `:rf.view/render` / `:rf.view/rendered` | dev-only | per reactive view re-rendered on the new db |
+| `:rf.error/*` (cascade-level) | always-on | every cascade error — `:rf.error/handler-exception` / `:rf.error/flow-eval-exception` / interceptor errors / fx errors |
+| `:rf.event/run-end` | always-on | cascade-tail; fires LAST after `commit-and-flow!`, on both clean and aborted paths |
+
+**Always-on emits** ride the production-available event-emit / error-emit channels per [§Production debugging](#production-debugging-what-remains): they survive `:advanced` DCE and feed the production listener surfaces (event-emit, error-emit, error-projection). Wire-egress to off-box monitors (Sentry / Rollbar / etc.) only sees these.
+
+**Dev-only emits** are wrapped in the `interop/debug-enabled?` gate per [§Production builds: zero overhead, zero code](#production-builds-zero-overhead-zero-code); they vanish entirely from `:advanced` bundles. Xray / Story / re-frame-10x consume them in dev builds where the gate is true. A production `:advanced` build emits exactly the always-on rows above and nothing else.
+
 ### Flow trace events
 
 Five trace events constitute the flow lifecycle stream (per [013 §Flow tracing](013-Flows.md#flow-tracing)). All five carry `:op-type :flow`; consumers filter by `:op-type` to subscribe to the whole stream and branch on `:operation` to discriminate. Every event's `:tags` carries `:flow-id` and `:frame` so tools can attribute and route per-frame.
