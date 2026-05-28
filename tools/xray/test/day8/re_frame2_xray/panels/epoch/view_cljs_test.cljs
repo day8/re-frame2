@@ -194,15 +194,16 @@
 
 (deftest dispatch-source-fx-dispatch-renders-rich-label-test
   (testing "rf2-5qp4g — `:source :fx-dispatch` renders the kind label
-            and the parent-epoch navigation chip"
+            and the parent-epoch navigation chip. rf2-x25e0 — the
+            second arg is now the precomputed
+            `{dispatch-id → epoch-id}` index (was `epoch-history`)."
     (let [step {:step :dispatch :badge :DISPATCH :step-number 1
                 :event [:cart/add :apple]
                 :source :fx-dispatch
                 :coord nil
                 :source-enrichment {:parent-dispatch-id 9001}}
-          epoch-history [{:epoch-id 42 :dispatch-id 9001
-                          :trigger-event [:checkout/begin]}]
-          tree (view/render-dispatch-step step epoch-history)
+          index {9001 42}
+          tree (view/render-dispatch-step step index)
           header-text (text-of tree "rf-xray-epoch-dispatch-header")]
       (is (string/includes? (or header-text "") "from fx :dispatch")
           "the kind label reads 'from fx :dispatch'")
@@ -225,9 +226,8 @@
                 :coord nil
                 :source-enrichment {:parent-dispatch-id 9001
                                     :delay-ms 500}}
-          epoch-history [{:epoch-id 42 :dispatch-id 9001
-                          :trigger-event [:checkout/begin]}]
-          tree (view/render-dispatch-step step epoch-history)
+          index {9001 42}
+          tree (view/render-dispatch-step step index)
           header-text (text-of tree "rf-xray-epoch-dispatch-header")]
       (is (string/includes? (or header-text "") "from fx :dispatch-later")
           "the kind label reads 'from fx :dispatch-later'")
@@ -251,9 +251,8 @@
                 :source :fx-dispatch
                 :coord nil
                 :source-enrichment {:parent-dispatch-id 99999}}
-          epoch-history [{:epoch-id 42 :dispatch-id 9001
-                          :trigger-event [:checkout/begin]}]
-          tree (view/render-dispatch-step step epoch-history)]
+          index {9001 42}
+          tree (view/render-dispatch-step step index)]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))
           "no clickable link when the parent epoch isn't in the buffer")
       (let [unresolved (th/find-by-testid
@@ -264,9 +263,9 @@
 
 (deftest dispatch-source-fx-dispatch-without-history-test
   (testing "rf2-5qp4g — when render-dispatch-step is called without
-            epoch-history (direct test callers, or pre-history-seed
-            cold mount), `:fx-dispatch` still renders the kind label
-            with the parent chip in unresolved form."
+            the dispatch-id->epoch-id index (direct test callers, or
+            pre-history-seed cold mount), `:fx-dispatch` still renders
+            the kind label with the parent chip in unresolved form."
     (let [step {:step :dispatch :badge :DISPATCH :step-number 1
                 :event [:cart/add :apple]
                 :source :fx-dispatch
@@ -274,7 +273,7 @@
                 :source-enrichment {:parent-dispatch-id 9001}}
           tree (view/render-dispatch-step step)]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))
-          "no clickable link without epoch-history threaded")
+          "no clickable link without dispatch-id->epoch-id threaded")
       (is (some? (th/find-by-testid
                    tree "rf-xray-epoch-dispatch-parent-epoch-unresolved"))
           "the unresolved-parent chip carries the parent-dispatch-id"))))
@@ -1359,7 +1358,14 @@
       (is (some? oth-sec)
           "the other section mounts when other-effects is non-empty")
       (is (pos? (count (ei-mounts oth-sec)))
-          "the other section mounts an edn-inspector"))))
+          "the other section mounts an edn-inspector")
+      ;; rf2-5t8y8 — sub-header carries an at-a-glance entry-count chip
+      ;; on both `:fx` and `other` (was lost during the rf2-p2zy0
+      ;; edn-inspector migration).
+      (is (string/includes? (th/text-content fx-sec) "2 entries")
+          "the :fx sub-header carries the entry-count chip")
+      (is (string/includes? (th/text-content oth-sec) "1 entry")
+          "the other sub-header carries the singular entry chip"))))
 
 (deftest fx-step-args-route-through-mini-test
   (testing "rf2-8w8er — FX step row's args render through `ei/mini`."

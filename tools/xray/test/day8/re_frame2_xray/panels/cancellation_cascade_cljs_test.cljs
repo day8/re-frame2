@@ -167,7 +167,18 @@
         (let [aborts (find-all-by-testid-prefix
                        tree "rf-xray-cancellation-cascade-abort-row-")]
           (is (= 2 (count aborts))
-              "two abort rows rendered, one per fixture event"))))))
+              "two abort rows rendered, one per fixture event"))
+        ;; rf2-wuwu3 — each row's `:style` is one of the 6 precomputed
+        ;; row-style × cursor variants (no per-render `merge`). The
+        ;; `:cursor` slot is baked into the row style at ns load, so
+        ;; the rendered row's :style map carries `:cursor` directly.
+        (let [decision-row (find-by-testid tree "rf-xray-cancellation-cascade-decision-row")
+              aborts       (find-all-by-testid-prefix
+                             tree "rf-xray-cancellation-cascade-abort-row-")]
+          (is (contains? (:style (second decision-row)) :cursor)
+              "decision row picks one of the precomputed row-style × cursor variants")
+          (is (every? #(contains? (:style (second %)) :cursor) aborts)
+              "every abort row picks one of the precomputed row-style × cursor variants"))))))
 
 (deftest popover-renders-cascade-for-focused-event
   (testing "Popover opened with a dispatch-id focus pulls the cascade

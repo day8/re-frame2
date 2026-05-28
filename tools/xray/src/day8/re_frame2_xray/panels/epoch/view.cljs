@@ -1090,16 +1090,12 @@
 (def ^:private rolled-back-mute-style
   {:opacity 0.55})
 
-(def ^:private rolled-back-banner-style
-  {:display     "flex"
-   :align-items "center"
-   :gap         "8px"
-   :margin-top  "5px"
-   :padding     "4px 8px"
-   :color       error-colour
-   :font-family sans-stack
-   :font-size   "11px"
-   :font-style  "italic"})
+;; `rolled-back-banner-style` + the `rolled-back-banner` render fn
+;; were retired (rf2-w8evg) — the rf2-7gf7v / rf2-8resu redesign moves
+;; the :app-db violation to the FX step's :db row (the implicit
+;; commit fx), so the standalone HANDLER-level "cascade rolled back"
+;; banner has no caller. Downstream-mute treatment lives on via
+;; `rolled-back-mute-style` (applied in `render-pipeline-steps`).
 
 ;; -- CHILD DISPATCHES -----------------------------------------------------
 
@@ -1269,14 +1265,14 @@
                             badge-pill-text-overlay))}
      label]))
 
-;; rf2-xgeag — violation sub-block + rolled-back banner are defined
-;; further down the file (in the §SCHEMA VIOLATION sub-block section)
-;; but each step renderer above attaches a `(violation-blocks ...)`
-;; sub-block to its body. Forward-declared here so the namespace
-;; compiles in source order without warnings.
+;; rf2-xgeag — violation sub-block defined further down the file (in
+;; the §SCHEMA VIOLATION sub-block section), but each step renderer
+;; above attaches a `(violation-blocks ...)` sub-block to its body.
+;; Forward-declared here so the namespace compiles in source order
+;; without warnings. (`rolled-back-banner` forward declare retired
+;; alongside its defn — rf2-w8evg.)
 (declare violation-blocks)
 (declare violation-block)
-(declare rolled-back-banner)
 
 (defn- numbered-circle
   "Render the numbered circle — 21px diameter, painted in the step's
@@ -1586,14 +1582,20 @@
   The parent-epoch chip is click-to-navigate via
   `:rf.xray/focus-epoch`. The delay-ms chip rides only for
   `:dispatch-later` when the original scheduled delay was stamped
-  on the dispatched trace (`:rf.event/source-detail :ms`)."
-  [source {:keys [parent-dispatch-id delay-ms]} epoch-history]
+  on the dispatched trace (`:rf.event/source-detail :ms`).
+
+  rf2-x25e0 — `dispatch-id->epoch-id` is the precomputed lookup map
+  built once per panel render in `Panel` and threaded through `ctx`.
+  Replaces the prior O(N) `(some … epoch-history)` scan with an O(1)
+  map `get`."
+  [source {:keys [parent-dispatch-id delay-ms]} dispatch-id->epoch-id]
   (let [kind-label (case source
                      :fx-dispatch       ":dispatch"
                      :fx-dispatch-later ":dispatch-later"
                      (name source))
-        parent-epoch-id (when (and parent-dispatch-id (seq epoch-history))
-                          (proj/find-parent-epoch epoch-history parent-dispatch-id))]
+        parent-epoch-id (when parent-dispatch-id
+                          (proj/find-parent-epoch dispatch-id->epoch-id
+                                                  parent-dispatch-id))]
     [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
             :style dispatch-verb-style}
      [:span {:style dispatch-source-plain-style}
@@ -1637,7 +1639,7 @@
     :fx-dispatch-later → dispatch-fx-label
     :always            → dispatch-always-label
     other / nil        → dispatch-source-label (call-site link)"
-  [{:keys [source coord source-enrichment] :as step} epoch-history]
+  [{:keys [source coord source-enrichment] :as step} dispatch-id->epoch-id]
   (case source
     :after-timer       (if source-enrichment
                          (dispatch-after-timer-label source-enrichment)
@@ -1646,9 +1648,9 @@
                          (dispatch-machine-spawn-label source-enrichment)
                          (dispatch-source-label source coord))
     :fx-dispatch       (dispatch-fx-label source (or source-enrichment {})
-                                          epoch-history)
+                                          dispatch-id->epoch-id)
     :fx-dispatch-later (dispatch-fx-label source (or source-enrichment {})
-                                          epoch-history)
+                                          dispatch-id->epoch-id)
     :always            (dispatch-always-label step)
     (dispatch-source-label source coord)))
 
@@ -1672,15 +1674,17 @@
   parent-epoch navigation). Vanilla sources fall through to the
   pre-rf2-5qp4g call-site chrome unchanged.
 
-  `epoch-history` is the optional Xray epoch buffer slice the
-  `:fx-dispatch` / `:fx-dispatch-later` enrichments use to resolve
-  the parent-dispatch-id → parent-epoch-id link (rendered as a
+  `dispatch-id->epoch-id` is the optional precomputed
+  `{dispatch-id → epoch-id}` index (rf2-x25e0) the `:fx-dispatch` /
+  `:fx-dispatch-later` enrichments use to resolve the
+  parent-dispatch-id → parent-epoch-id link in O(1) (rendered as a
   click-to-navigate `:rf.xray/focus-epoch` button). When omitted
   (direct test calls of the renderer) the parent-epoch chip falls
-  back to the unresolved variant."
+  back to the unresolved variant. The index is built once per panel
+  render in `Panel` and threaded down via `ctx`."
   ([step] (render-dispatch-step step nil))
   ([{:keys [source coord duration-ms step-number violations] :as step}
-    epoch-history]
+    dispatch-id->epoch-id]
    [:div {:data-testid "rf-xray-epoch-step-dispatch"
           :data-step-kw "dispatch"
           :data-source (when source (name source))}
@@ -1688,7 +1692,7 @@
     (step-header
       {:step :dispatch
        :badge :DISPATCH
-       :verb (let [enriched (dispatch-source-enriched-label step epoch-history)]
+       :verb (let [enriched (dispatch-source-enriched-label step dispatch-id->epoch-id)]
                ;; Vanilla sources fall through to a wrapper that
                ;; carries the prefix "from " — the per-kind labels
                ;; carry their own "from <kind>" prefix already, so the
@@ -2564,10 +2568,11 @@
      (case mode
        :diff
        (when-not empty?
-         ;; rf2-9ec65 — eager realisation via `mapv` so any future
-         ;; subscribe deref inside `db-diff-line` registers in this
-         ;; render's reactive scope (spec/006 §Lazy-seq deref tracking,
-         ;; rf2-atqkg). Was `(for [[i row] (map-indexed vector …)] …)`
+         ;; rf2-9ec65 — eager realisation via `(into [:<>] (map-indexed …))`
+         ;; so any future subscribe deref inside `db-diff-line` registers in
+         ;; this render's reactive scope (spec/006 §Lazy-seq deref tracking,
+         ;; rf2-atqkg). `into` is eager regardless of the transducer/seq it
+         ;; consumes. Was `(for [[i row] (map-indexed vector …)] …)`
          ;; which returns a LazySeq.
          (into [:<>]
                (map-indexed (fn [i row] (db-diff-line row i)) db-diff)))
@@ -2655,24 +2660,30 @@
      ;; folded into SNAPSHOT DIFF for machines
      (when-not machine?
        (handler-db-diff-block db-diff))
-     ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector
+     ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
+     ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
+     ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
+     ;; doesn't surface at the same at-a-glance density.
      (when (seq fx-vec)
-       [:div {:data-testid "rf-xray-epoch-handler-fx"}
-        (sub-header ":fx")
-        [ei/edn-inspector fx-vec
-         {:site-id                [:rf.xray.epoch/handler-fx event-id]
-          :card?                  false
-          :zoomable?              true
-          :default-expanded-depth 16}]])
-     ;; other — return map minus :db and :fx, FULL via edn-inspector
+       (let [n (count fx-vec)]
+         [:div {:data-testid "rf-xray-epoch-handler-fx"}
+          (sub-header ":fx" (str n " entr" (if (= 1 n) "y" "ies")))
+          [ei/edn-inspector fx-vec
+           {:site-id                [:rf.xray.epoch/handler-fx event-id]
+            :card?                  false
+            :zoomable?              true
+            :default-expanded-depth 16}]]))
+     ;; other — return map minus :db and :fx, FULL via edn-inspector.
+     ;; rf2-5t8y8 — entry-count chip on the sub-header (parallel to :fx).
      (when (seq other-effects)
-       [:div {:data-testid "rf-xray-epoch-handler-other"}
-        (sub-header "other")
-        [ei/edn-inspector other-effects
-         {:site-id                [:rf.xray.epoch/handler-other event-id]
-          :card?                  false
-          :zoomable?              true
-          :default-expanded-depth 16}]])]))
+       (let [n (count other-effects)]
+         [:div {:data-testid "rf-xray-epoch-handler-other"}
+          (sub-header "other" (str n " entr" (if (= 1 n) "y" "ies")))
+          [ei/edn-inspector other-effects
+           {:site-id                [:rf.xray.epoch/handler-other event-id]
+            :card?                  false
+            :zoomable?              true
+            :default-expanded-depth 16}]]))]))
 
 (defn render-handler-step
   "Render the HANDLER step (always present). Per Mike pair-debug
@@ -3699,15 +3710,12 @@
      (map-indexed (fn [i v] (violation-block step-key i v))
                   violations)]))
 
-(defn- rolled-back-banner
-  "One-line banner shown immediately under the HANDLER step body
-  when the cascade is rolled-back, signposting the downstream-mute
-  treatment to the operator."
-  []
-  [:div {:data-testid "rf-xray-epoch-rolled-back-banner"
-         :style rolled-back-banner-style}
-   [:span {:aria-hidden true} "↓"]
-   "cascade rolled back — downstream effects skipped"])
+;; `rolled-back-banner` retired per rf2-w8evg — the rf2-8resu
+;; redesign moved the `:where :app-db` violation from HANDLER to the
+;; FX step's `:db` row, so the standalone HANDLER-level "cascade
+;; rolled back — downstream effects skipped" banner has no caller.
+;; The downstream-mute chrome (`rolled-back-mute-style`) still
+;; applies in `render-pipeline-steps`.
 
 ;; SCHEMA HOT-RELOAD step retired per rf2-7gf7v (Mike pair-debug
 ;; 2026-05-27). The standalone tail step was rendering opaque
@@ -3835,7 +3843,7 @@
   ignore it."
   [step ctx]
   (case (:step step)
-    :dispatch          (render-dispatch-step step (:epoch-history ctx))
+    :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx))
     :coeffect          (render-coeffect-step step)
     :handler           (render-handler-step step)
     :flow              (render-flow-step step)
@@ -3944,9 +3952,16 @@
       (cond
         (= :focused status)
         (if (seq steps)
+          ;; rf2-x25e0 — build the `{dispatch-id → epoch-id}` index
+          ;; once per panel render. Threaded through `ctx` to the
+          ;; DISPATCH step's `:fx-dispatch` / `:fx-dispatch-later`
+          ;; parent-epoch resolver (O(1) lookup instead of an O(N)
+          ;; epoch-history scan per render).
           (pipeline-view steps
-                         {:dispatch-id   dispatch-id
-                          :epoch-history epoch-history})
+                         {:dispatch-id           dispatch-id
+                          :epoch-history         epoch-history
+                          :dispatch-id->epoch-id (proj/dispatch-id->epoch-id-index
+                                                   epoch-history)})
           (empty-state-view :no-events))
 
         :else

@@ -805,6 +805,38 @@
           "no surrounding transition → no source-state stamp")
       (is (nil? (:event-id (first rows)))))))
 
+(deftest machine-cascade-rows-post-transition-row-falls-back-to-prior-test
+  (testing "rf2-w6yfq — when rows trail BEHIND the last transition
+            (post-commit timer-cancels), `enrich-cascade-rows` falls
+            back to the most recent preceding transition's
+            :from-state / :to-state / :event. Pins the two-pass
+            (right-to-left then left-to-right) shape that replaced the
+            O(n²) forward-scan."
+    (let [evs [(machine-guard-ev :ready? :pass)
+               (machine-transition-ev :ws/conn
+                                       {:state :idle :data {}}
+                                       {:state :connected :data {}}
+                                       [:ws/start] 0)
+               ;; Post-commit timer-cancel — no transition ahead.
+               (machine-timer-cancel-ev :ws/conn [:idle] 250 :on-exit)]
+          rows (proj/machine-cascade-rows evs)]
+      ;; Pre-transition guard row → next-ahead supplies the transition
+      ;; states.
+      (is (= :idle      (-> rows (nth 0) :source-state)))
+      (is (= :connected (-> rows (nth 0) :target-state)))
+      ;; The transition row itself stamps from its own slots.
+      (is (= :idle      (-> rows (nth 1) :source-state)))
+      (is (= :connected (-> rows (nth 1) :target-state)))
+      ;; Post-transition timer-cancel — no next-ahead transition;
+      ;; falls back to `prior` (the preceding transition row). This
+      ;; is the exact path rf2-w6yfq tightened from O(n²) to O(n).
+      (is (= :idle      (-> rows (nth 2) :source-state))
+          "post-transition row inherits :source-state from the preceding transition (prior fallback)")
+      (is (= :connected (-> rows (nth 2) :target-state))
+          "post-transition row inherits :target-state from the preceding transition (prior fallback)")
+      (is (= :ws/start  (-> rows (nth 2) :event-id))
+          "post-transition row inherits :event-id from the preceding transition"))))
+
 (deftest state-spec-path-prefix-test
   (testing "rf2-wwc3j — `state-spec-path-prefix` coerces a state form
             into the spec-path prefix the macro's source-coord index uses"
@@ -1567,28 +1599,51 @@
 (deftest find-parent-epoch-by-dispatch-id-test
   (testing "rf2-5qp4g — find-parent-epoch resolves a parent epoch's
             `:epoch-id` from its `:dispatch-id`. Reverse of
-            `find-child-epoch`: walks the epoch-history for a record
-            whose `:dispatch-id` matches the supplied
-            parent-dispatch-id, returning that record's `:epoch-id`.
-            The view layer uses this to wire the
-            `from fx · parent epoch #N` chrome on `:fx-dispatch` /
-            `:fx-dispatch-later` DISPATCH steps."
+            `find-child-epoch`: looks up the supplied
+            parent-dispatch-id in a precomputed
+            `{dispatch-id → epoch-id}` index (rf2-x25e0; built once
+            per render via `dispatch-id->epoch-id-index`), returning
+            the matched record's `:epoch-id`. The view layer uses
+            this to wire the `from fx · parent epoch #N` chrome on
+            `:fx-dispatch` / `:fx-dispatch-later` DISPATCH steps."
     (let [history [{:epoch-id 41 :dispatch-id 9000 :trigger-event [:root]}
                    {:epoch-id 42 :dispatch-id 9001 :trigger-event [:parent]}
                    {:epoch-id 43 :dispatch-id 9002 :trigger-event [:child]
-                    :parent-dispatch-id 9001}]]
-      (is (= 41 (proj/find-parent-epoch history 9000))
+                    :parent-dispatch-id 9001}]
+          index   (proj/dispatch-id->epoch-id-index history)]
+      (is (= 41 (proj/find-parent-epoch index 9000))
           "matches the first-class :dispatch-id slot")
-      (is (= 42 (proj/find-parent-epoch history 9001))
+      (is (= 42 (proj/find-parent-epoch index 9001))
           "matches a sibling parent's :dispatch-id")
-      (is (nil? (proj/find-parent-epoch history 99999))
+      (is (nil? (proj/find-parent-epoch index 99999))
           "no match → nil")
       (is (nil? (proj/find-parent-epoch nil 9001))
-          "nil history → nil")
-      (is (nil? (proj/find-parent-epoch history nil))
+          "nil index → nil")
+      (is (nil? (proj/find-parent-epoch index nil))
           "nil parent-dispatch-id → nil")
-      (is (nil? (proj/find-parent-epoch [] 9001))
-          "empty history → nil"))))
+      (is (nil? (proj/find-parent-epoch {} 9001))
+          "empty index → nil"))))
+
+(deftest dispatch-id->epoch-id-index-test
+  (testing "rf2-x25e0 — `dispatch-id->epoch-id-index` builds the
+            O(1) lookup map the view threads through `ctx`. Each
+            record contributes via its first-class `:dispatch-id`
+            slot (rf2-rly4a) AND via `dispatch-id-of-epoch`'s trace-
+            walk fallback (for restored fixtures lacking the slot)."
+    (let [history [{:epoch-id 41 :dispatch-id 9000 :trigger-event [:root]}
+                   {:epoch-id 42 :dispatch-id 9001 :trigger-event [:parent]}
+                   {:epoch-id 43 :dispatch-id 9002 :trigger-event [:child]
+                    :parent-dispatch-id 9001}]
+          index   (proj/dispatch-id->epoch-id-index history)]
+      (is (= 41 (get index 9000)))
+      (is (= 42 (get index 9001)))
+      (is (= 43 (get index 9002)))
+      (is (nil? (get index 99999))
+          "absent key → nil")
+      (is (= {} (proj/dispatch-id->epoch-id-index []))
+          "empty history → empty index")
+      (is (= {} (proj/dispatch-id->epoch-id-index nil))
+          "nil history → empty index"))))
 
 ;; `project-includes-child-dispatches-step-test` retired in rf2-xu5iv
 ;; (commit eccb6db1b dropped the CHILD-DISPATCHES step from the

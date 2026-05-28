@@ -719,24 +719,43 @@
   - Rows on a phase that maps to nil (e.g. `:always` with no transition
     in the cascade) — keep slots nil; source lookup degrades gracefully."
   [rows]
-  (let [v   (vec rows)
-        n   (count v)
+  (let [v (vec rows)
+        n (count v)
         ;; For each row index, find the surrounding transition row:
-        ;; prefer the NEXT transition ahead (substrate emits actions
-        ;; before the transition), else fall back to the most recent
-        ;; preceding transition (post-commit timer-cancels).
+        ;; prefer the NEXT transition AT-OR-AHEAD (substrate emits
+        ;; actions before the transition), else fall back to the most
+        ;; recent preceding transition (post-commit timer-cancels).
+        ;;
+        ;; rf2-w6yfq — single-pass O(n) instead of O(n²). Walk
+        ;; RIGHT-TO-LEFT threading `next-ahead` (the most recent
+        ;; transition seen so far, looking back from the right); then
+        ;; walk LEFT-TO-RIGHT threading `prior` (the most recent
+        ;; transition emitted at-or-before i). Prefer `next-ahead`,
+        ;; fall back to `prior`. Two linear passes + one mapv → O(n).
+        ;; Prior shape did a forward `(some … (subvec v i))` per row,
+        ;; which is O(n²); real cascades are tiny (< 10 rows) so the
+        ;; win is asymptotic-only, but the shape is cleaner.
+        next-ahead (loop [i (dec n) seen nil acc (transient (vec (repeat n nil)))]
+                     (if (neg? i)
+                       (persistent! acc)
+                       (let [row (nth v i)
+                             tx? (= :transition (:kind row))
+                             ;; AT-OR-AHEAD: if this row IS a transition, it
+                             ;; IS the surrounding row for itself.
+                             surrounding (if tx? row seen)]
+                         (recur (dec i)
+                                (if tx? row seen)
+                                (assoc! acc i surrounding)))))
         next-tx (loop [i 0 prior nil acc (transient (vec (repeat n nil)))]
                   (if (>= i n)
                     (persistent! acc)
                     (let [row (nth v i)
-                          surrounding (cond
-                                        (= :transition (:kind row)) row
-                                        :else (or
-                                                (some #(when (= :transition (:kind %)) %)
-                                                      (subvec v i))
-                                                prior))]
+                          tx? (= :transition (:kind row))
+                          ;; Prefer next-ahead (which is the row itself
+                          ;; when tx?); fall back to `prior`.
+                          surrounding (or (nth next-ahead i) prior)]
                       (recur (inc i)
-                             (if (= :transition (:kind row)) row prior)
+                             (if tx? row prior)
                              (assoc! acc i surrounding)))))]
     (mapv
       (fn [row tx]
@@ -1634,23 +1653,49 @@
                            candidates)]
       (:epoch-id (or exact (first candidates))))))
 
+(defn dispatch-id->epoch-id-index
+  "Build a `{dispatch-id → epoch-id}` map from an `epoch-history` vector.
+
+  rf2-x25e0 — collapses the per-row O(N) scan that `find-parent-epoch`
+  previously did to an O(1) lookup. Each record contributes both its
+  first-class `:dispatch-id` slot (rf2-rly4a; the common case) AND
+  the value derived via `dispatch-id-of-epoch` (the trace-walk
+  fallback for legacy / restored records lacking the slot). Same
+  matching surface as the prior `some`-based lookup; nil keys are
+  skipped so records with neither identifier don't collide.
+
+  Pure data → map. Build once per render at the call site (the view
+  layer) and feed `find-parent-epoch` for every DISPATCH-row lookup."
+  [epoch-history]
+  (persistent!
+    (reduce
+      (fn [acc record]
+        (let [id1 (:dispatch-id record)
+              id2 (common/dispatch-id-of-epoch record)
+              eid (:epoch-id record)]
+          (cond-> acc
+            (some? id1) (assoc! id1 eid)
+            (and (some? id2) (not= id2 id1)) (assoc! id2 eid))))
+      (transient {})
+      epoch-history)))
+
 (defn find-parent-epoch
-  "Resolve a parent epoch's `:epoch-id` against the epoch-history given
-  the child's parent-dispatch-id (rf2-5qp4g).
+  "Resolve a parent epoch's `:epoch-id` against a precomputed
+  `dispatch-id->epoch-id` index given the child's
+  `:parent-dispatch-id` (rf2-5qp4g).
 
   The reverse of `find-child-epoch`: child's `:parent-dispatch-id` →
-  parent's `:dispatch-id` → parent's `:epoch-id`. The lookup matches
-  on `dispatch-id-of-epoch` which falls back to a `:trace-events`
-  walk for records that lack the first-class `:dispatch-id` slot
-  (per the same helper's docstring). Returns nil when no parent
-  epoch is in the buffer (root cascade, or aged out)."
-  [epoch-history parent-dispatch-id]
-  (when (and (some? parent-dispatch-id) (seq epoch-history))
-    (some (fn [record]
-            (when (or (= parent-dispatch-id (common/dispatch-id-of-epoch record))
-                      (= parent-dispatch-id (:dispatch-id record)))
-              (:epoch-id record)))
-          epoch-history)))
+  parent's `:dispatch-id` → parent's `:epoch-id`. Returns nil when no
+  parent epoch is in the buffer (root cascade, or aged out).
+
+  rf2-x25e0 — O(1) lookup. The prior O(N) `some`-walk over
+  `epoch-history` is replaced by a map `get`. Callers build the
+  index once per panel render via `dispatch-id->epoch-id-index` and
+  thread it down to every DISPATCH-row lookup (clean-swap; the
+  arity-2 history-walking form is gone)."
+  [dispatch-id->epoch-id parent-dispatch-id]
+  (when (some? parent-dispatch-id)
+    (get dispatch-id->epoch-id parent-dispatch-id)))
 
 ;; ---- top-level projection ------------------------------------------------
 
