@@ -10,6 +10,10 @@
       rf2-dn26r);
     - `identical-route-target?` — Spec 012 §Per-route data loading rule
       3 short-circuit predicate;
+    - `merge-route-slice` — the slice-publish merge over
+      `[:rf/runtime :routing :current]` (encodes the slice-shape
+      contract once for both the programmatic-nav and URL-driven paths,
+      rf2-g8tzb);
     - `:rf.route.internal/settle-transition` — the FIFO-drain
       `:loading → :idle` settle (nav-token-aware so a newer navigation
       mid-drain bumps `:nav-token` and the stale settle becomes a no-op).
@@ -83,6 +87,41 @@
          (= (:params prev)   params)
          (= (:query prev)    query)
          (= (:fragment prev) fragment))))
+
+;; Per Spec 012 §The route slice and Spec-Schemas §`:rf/runtime` the
+;; published slice carries exactly `{:id :params :query :fragment
+;; :transition :error :nav-token}` under `[:rf/runtime :routing
+;; :current]`. Both nav entry points (programmatic
+;; `:rf.route/navigate` and URL-driven `:rf.route/transitioned` /
+;; `:rf.route/handle-url-change`) write the same merge shape after
+;; allocating a nav-token. This helper encodes the slice-shape contract
+;; in ONE place so the two writers and the layer-1 read
+;; (`re-frame.routing.subs/route-sub-fn`) stay symmetric. `:error` is
+;; always nil on a successful commit; the error-trap path
+;; (`re-frame.routing.on-match-error`) sets it independently.
+;;
+;; The merge is targeted at `:current` (not at `:routing`), so the
+;; sibling routing-runtime keys under `[:rf/runtime :routing ...]`
+;; (`:scroll-positions` / `:scroll-positions-order` /
+;; `:nav-token-counter` / `:pending-nav-counter`) are untouched.
+(defn merge-route-slice
+  "Pure slice-publish: merges the new slice fields over the existing
+  `:current` map at `[:rf/runtime :routing :current]`. Returns the
+  updated db.
+
+  `slice` is a map of `{:id :params :query :fragment :transition
+  :nav-token}`. `:error` is forced to `nil` (the successful-commit
+  contract); callers needing an error-state slice go through the
+  `:rf.route/on-match-error` trap which writes `:error` explicitly."
+  [db {:keys [id params query fragment transition nav-token]}]
+  (update-in db [:rf/runtime :routing :current] merge
+             {:id         id
+              :params     params
+              :query      query
+              :fragment   fragment
+              :transition transition
+              :error      nil
+              :nav-token  nav-token}))
 
 ;; Per Spec 012 §Per-route data loading §2. FIFO drain queues
 ;; :rf.route.internal/settle-transition after the :on-match events so
