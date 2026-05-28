@@ -28,7 +28,37 @@
   Per Phase-1 finding (rf2-0wi86): no two atoms are ever held in a
   single critical section, so a tiny state ns owns all of them with
   zero locking/ordering subtleties — the cross-cutting coupling is
-  cosmetic, not structural.")
+  cosmetic, not structural.
+
+  Per rf2-33lpr decision review: the eight-atom shape (post the
+  rf2-dq2b7 mount-attribution merge) is the right resting point.
+  Two further consolidations were considered and rejected:
+
+    * Per-frame cluster (`histories` + `last-settled-epoch` +
+      `mount-attribution` + `capture-buffers` → one `frame-state`
+      atom keyed by frame-id). REJECTED: `capture-buffers` is the
+      hottest atom (one swap per trace emit, potentially many per
+      event); co-locating it with the rarely-touched back-fill atoms
+      forces every hot-path swap! to operate on a larger map and
+      adds cross-drain contention through a shared swap site (every
+      frame's drain now races every other frame's drain on the
+      single per-frame-state atom). The per-atom decomposition lets
+      the JIT specialise each swap's hot loop, keeps each map small
+      (one key class per atom), and isolates contention by signal
+      class.
+
+    * Listener cluster (`listeners` + `observed-frames-by-cb` → one
+      atom keyed by cb-id). REJECTED: `listeners-snapshot` reads on
+      every settle (fan-out target); `observed-frames-by-cb` updates
+      lazily on first-sighting only. Co-locating means every settle's
+      snapshot deref pulls the larger map, and per-cb writes flow
+      through the same swap! site as the registry. The Phase-1
+      invariant (rf2-0wi86, no shared critical section) lets the two
+      atoms stay separate at zero cost.
+
+  The singletons `config` and `epoch-counter` are irreducible (the
+  former is configuration state, the latter a counter source — both
+  read/written by ALL frames, so frame-id keying would be artificial).")
 
 ;; ---- configuration --------------------------------------------------------
 
