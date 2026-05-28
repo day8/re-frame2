@@ -7,7 +7,7 @@
 1. **How do I launch Xray?** — the inline panel, the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
 2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 7 Dynamic event-spine tabs and the 5 Static registry-browse tabs.
 
-Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-indicator semantics) are out of scope for this iteration — see `SKILL.md` §Out of scope for what to do when one of those comes up.
+Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-marker semantics) are out of scope for this iteration — see `SKILL.md` §Out of scope for what to do when one of those comes up.
 
 ## What Xray is
 
