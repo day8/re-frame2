@@ -14,7 +14,7 @@
       cascade, `:data` / `:meta` / `:rf/spawn-counter` seeding, tag union
       stamping (lazily, on first event). Single source of truth shared
       with the spawn path.
-    - the returned handler fn — frame stamping, `intercept-invoke-all-
+    - the returned handler fn — frame stamping, `intercept-spawn-all-
       event` branch (in `lifecycle-fx.join`), bootstrap-pending
       detection + initial-entry cascade, machine-transition dispatch,
       action-failure projection, finalize delegation (in
@@ -105,7 +105,7 @@
 ;;   4. `commit-or-finalize`   — emit transition / snapshot-updated traces,
 ;;      build new-db, route to `finalize-machine` if `finished?`.
 ;;
-;; The intercept-invoke-all-event short-circuit is the visible top-level
+;; The intercept-spawn-all-event short-circuit is the visible top-level
 ;; branch in `make-machine-handler` itself — it must short-circuit before
 ;; boot / step / commit run.
 
@@ -372,14 +372,14 @@
     - `parallel/build-initial-snapshot` — initial-state cascade, `:data` /
       `:meta` seeding, `:rf/spawn-counter` seeding, tag union stamping
       (rf2-fgqs4 unified this with the spawn path).
-    - the returned handler fn — frame stamping, intercept-invoke-all-
+    - the returned handler fn — frame stamping, intercept-spawn-all-
       event branch (in `lifecycle-fx.join`), bootstrap-pending detection
       + initial-entry cascade, machine-transition dispatch, action-failure
       projection, finalize delegation (in `lifecycle-fx.finalize`).
 
   Per rf2-2zzyg the returned handler fn is further decomposed into a
   four-step pipeline — `prepare-machine-ctx` → `maybe-boot` →
-  `run-step` → `commit-or-finalize` — with the intercept-invoke-all-
+  `run-step` → `commit-or-finalize` — with the intercept-spawn-all-
   event short-circuit branching off after step 1."
   [machine]
   (validation/validate-machine! machine)
@@ -407,7 +407,7 @@
                     :event      event
                     :frame      (or frame :rf/default)})
       (let [ctx         (prepare-machine-ctx db frame event machine base-initial)
-            intercepted (join/intercept-invoke-all-event
+            intercepted (join/intercept-spawn-all-event
                           (:machine ctx) db (:path ctx) (:snapshot ctx)
                           (:machine-id ctx) (:inner-event ctx))]
         (if intercepted

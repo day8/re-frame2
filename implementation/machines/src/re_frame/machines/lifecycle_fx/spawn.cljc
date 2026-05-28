@@ -15,7 +15,7 @@
   `events/reg-event-fx`. Frame isolation is preserved by the snapshot
   living at `[:rf/runtime :machines :snapshots <id>]` inside the spawning frame's app-db.
 
-  Per rf2-6vmw `invoke-all-init-fx` also lives here — the runtime
+  Per rf2-6vmw `spawn-all-init-fx` also lives here — the runtime
   emits `[:rf.machine/spawn-all-init args]` alongside per-child
   `:rf.machine/spawn` fxs on entry to a `:spawn-all`-bearing state to
   seed the join state at `[:rf/runtime :machines :spawned <parent> <invoke-id>]`."
@@ -286,7 +286,7 @@
 
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------
 
-(defn invoke-all-init-fx
+(defn spawn-all-init-fx
   "fx handler for `:rf.machine/spawn-all-init` (rf2-6vmw). Per Spec 005
   §Spawn-and-join via `:spawn-all`, on entry to a `:spawn-all`-bearing
   state the runtime emits this fx (alongside per-child `:rf.machine/spawn`
@@ -301,7 +301,7 @@
 
   Subsequent `:on-child-done` / `:on-child-error` events arrive at the
   parent's `make-machine-handler` boundary and are intercepted by
-  `intercept-invoke-all-event` (in `lifecycle-fx.join`)."
+  `intercept-spawn-all-event` (in `lifecycle-fx.join`)."
   [{frame-id :frame :or {frame-id :rf/default}} args]
   (let [parent-id  (:rf/parent-id args)
         invoke-id  (:rf/spawn-id args)

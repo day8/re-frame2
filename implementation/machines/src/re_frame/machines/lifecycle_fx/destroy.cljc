@@ -89,7 +89,7 @@
         (registrar/unregister! :event actor-id)
         @sid))))
 
-(defn- destroy-invoke-all-children!
+(defn- destroy-spawn-all-children!
   "Per rf2-6vmw — the declarative-`:spawn-all` exit-cascade form.
   Resolves the children map from `[:rf/runtime :machines :spawned parent-id invoke-id]`,
   tears each child down via `destroy-single-actor!`, then clears the
@@ -243,12 +243,12 @@
   "fx handler for `:rf.machine/destroy`. Dispatches to the keyword-form
   / single-`:spawn` teardown (`destroy-single!`) or the
   `:spawn-all` children-iteration teardown
-  (`destroy-invoke-all-children!`) per the `args` shape. See the ns
+  (`destroy-spawn-all-children!`) per the `args` shape. See the ns
   docstring for the form semantics."
   [{frame-id :frame :or {frame-id :rf/default}} args]
-  (let [invoke-all? (and (map? args) (true? (:rf/spawn-all args)))]
-    (if invoke-all?
-      (destroy-invoke-all-children! frame-id
-                                    (:rf/parent-id args)
-                                    (:rf/spawn-id args))
+  (let [spawn-all? (and (map? args) (true? (:rf/spawn-all args)))]
+    (if spawn-all?
+      (destroy-spawn-all-children! frame-id
+                                   (:rf/parent-id args)
+                                   (:rf/spawn-id args))
       (destroy-single! frame-id args))))

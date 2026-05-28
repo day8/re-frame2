@@ -37,7 +37,7 @@
       `re-frame.machines.transition`'s `machine-transition-single`)
     - `machines`, `machine-meta`, `machine-by-system-id` — owned
       directly on this façade (Spec 005 §Querying machines)
-    - `spawn-fx`, `invoke-all-init-fx` —
+    - `spawn-fx`, `spawn-all-init-fx` —
       `re-frame.machines.lifecycle-fx.spawn`
     - `destroy-machine-fx` — `re-frame.machines.lifecycle-fx.destroy`
     - `after-schedule-fx`, `after-cancel-fx` — `re-frame.machines.timer`"
@@ -90,7 +90,7 @@
 ;; shape) directly against the leaf fn — no registrar/substrate fixture.
 (def validate-machine!      validation/validate-machine!)
 (def spawn-fx               spawn/spawn-fx)
-(def invoke-all-init-fx     spawn/invoke-all-init-fx)
+(def spawn-all-init-fx      spawn/spawn-all-init-fx)
 (def destroy-machine-fx     destroy/destroy-machine-fx)
 (def machine-transition     parallel/machine-transition)
 (def after-schedule-fx      timer/after-schedule-fx)
@@ -185,7 +185,7 @@
 
 (fx/reg-fx :rf.machine/spawn-all-init
   {:doc "Machine-internal: fire `:initial-entry` cascades for every machine spawned at app boot. Per Spec 005 §Initial entry. Not for direct application use."}
-  invoke-all-init-fx)
+  spawn-all-init-fx)
 
 (fx/reg-fx :rf.machine/after-schedule
   {:doc "Machine-internal: schedule an `:after` timer event for a machine state. Per Spec 005 §Timed transitions. Not for direct application use."}
@@ -280,7 +280,7 @@
 ;; `:where :machine-data` boundary (Spec 005 §Schema validation, Spec
 ;; 010 §Per-step recovery row 7).
 (late-bind/set-fn! :machines/validate-machine-data! validate-machine-data!)
-(late-bind/set-fn! :machines/spawn-all-init-fx      invoke-all-init-fx)
+(late-bind/set-fn! :machines/spawn-all-init-fx      spawn-all-init-fx)
 (late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
 (late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
 (late-bind/set-fn! :machines/update-snapshot-fx     update-snapshot/update-snapshot-fx)

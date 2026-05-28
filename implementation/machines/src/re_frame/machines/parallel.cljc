@@ -174,13 +174,13 @@
     (cond-> tagged
       bootstrap-pending? (assoc :rf/bootstrap-pending? true))))
 
-(defn- prefix-region-invoke-id
+(defn- prefix-region-spawn-id
   "Per Spec 005 §Per-region `:spawn` / `:after` / `:always` scoping:
   spawn / destroy / after-schedule / after-cancel fxs emitted by a region
   carry an `:rf/spawn-id` that's the in-region prefix-path. To keep the
   runtime-owned `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` slot unique
   per-region (and per-region `:after` epoch tracking distinct from sibling
-  regions), prepend the region name onto the invoke-id."
+  regions), prepend the region name onto the `:rf/spawn-id`."
   [region-name fx]
   (let [[fx-id args] fx]
     (cond
@@ -241,7 +241,7 @@
 ;;   - run each region as a synthetic single-machine spec via
 ;;     `region-machine`,
 ;;   - prefix per-region fx with the region name via
-;;     `prefix-region-invoke-id` so per-region `[:rf/runtime :machines :spawned ...]` /
+;;     `prefix-region-spawn-id` so per-region `[:rf/runtime :machines :spawned ...]` /
 ;;     `:after`-epoch tracking slots stay distinct from siblings,
 ;;   - short-circuit to a `result/fail` if any region's step fails,
 ;;   - commit `:tags` via `commit-tags-parallel` AFTER every region has
@@ -316,7 +316,7 @@
                        (:rf/spawn-counter reg-snap)
                        (assoc new-states rn (:state reg-snap))
                        (into acc-fx
-                             (map (partial prefix-region-invoke-id rn))
+                             (map (partial prefix-region-spawn-id rn))
                              reg-fx)
                        (or any-handled? region-handled?)
                        (long (+ micro-total region-micro)))))))))))
@@ -357,7 +357,7 @@
   For the synthetic `[:rf.machine.timer/after-elapsed ...]` event,
   delivery is region-scoped — the broadcast routes to the bearing region
   only, identified by the region-name prefix on the in-flight timer's
-  invoke-id."
+  `:rf/spawn-id`."
   [machine snapshot event]
   (let [result (reduce-regions machine snapshot
                                (fn [region-spec region-snap]

@@ -4,7 +4,7 @@
   `:rf.machine/destroyed` is emitted at three distinct sites — each
   for a different destroy class:
 
-    1. `destroy-invoke-all-children!` (lifecycle_fx/destroy.cljc):
+    1. `destroy-spawn-all-children!` (lifecycle_fx/destroy.cljc):
        per-child fire when a `:spawn-all` parent tears down its
        children. The trace carries an extra `:child-id` slot keying
        the join-state map but does NOT include `:system-id`.
@@ -90,10 +90,10 @@
       (is (#{:explicit :rf.machine/finished} (:reason tags))
           (str label ": :reason is one of :explicit / :rf.machine/finished")))))
 
-;; ---- Site 1: destroy-invoke-all-children! ---------------------------------
+;; ---- Site 1: destroy-spawn-all-children! ---------------------------------
 
 (deftest invoke-all-children-destroy-trace-shape
-  (testing "destroy-invoke-all-children! per-child traces carry :child-id and omit :system-id"
+  (testing "destroy-spawn-all-children! per-child traces carry :child-id and omit :system-id"
     (let [[cap unreg] (record!)
           child {:initial :running
                  :data    {}
@@ -121,7 +121,7 @@
         ;; Force a :spawn-all teardown via re-entering :idle through
         ;; an explicit destroy of the parent. Easier: drive the parent
         ;; via :ia/cancel into :idle (the invoke-all exit cascade tears
-        ;; the children down through destroy-invoke-all-children!).
+        ;; the children down through destroy-spawn-all-children!).
         (rf/dispatch-sync [:ia/parent [:ia/cancel]])
         (let [traces (destroyed-traces cap)
               child-traces (filter #(contains? (:tags %) :child-id) traces)]

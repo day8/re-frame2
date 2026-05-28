@@ -8,7 +8,7 @@
    2. A later region's step sees earlier regions' `:data` writes.
    3. The shared `:rf/spawn-counter` (rf2-gr8q) threads in/out across
       regions — bumps in one region are visible to the next.
-   4. Per-region fx is prefixed via `prefix-region-invoke-id` so the
+   4. Per-region fx is prefixed via `prefix-region-spawn-id` so the
       `[:rf/runtime :machines :spawned ...]` slot key stays unique per region.
 
   And the contract:
@@ -120,7 +120,7 @@
       (is (result/ok? r))
       ;; Each region's step emits a :spawn-id starting with its own
       ;; region name; reduce-regions prepends the region name AGAIN
-      ;; (the standard prefix-region-invoke-id rule) so the final fx
+      ;; (the standard prefix-region-spawn-id rule) so the final fx
       ;; carries `[rn rn :child]`.
       (is (= [[:rf.machine/spawn {:rf/spawn-id [:a :a :child]}]
               [:rf.machine/spawn {:rf/spawn-id [:b :b :child]}]]
