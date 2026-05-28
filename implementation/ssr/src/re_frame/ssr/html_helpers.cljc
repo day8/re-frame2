@@ -118,25 +118,29 @@
 (def ^:private event-handler-name-re
   #"on(?:[A-Z].*|-.*)")
 
-;; JSX source-coord props (rf2-fa4ly). React DevTools' "View source"
-;; gesture reads `_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber`
-;; off the rendered React element. The reg-view wrapper injects them
-;; under `interop/debug-enabled?`; under SSR they ride the same hiccup
-;; tree the wrapper produced but MUST NOT serialise as wire HTML
-;; attributes. The leading underscore would also fail the conservative
-;; HTML5 attribute-name grammar (`[A-Za-z][A-Za-z0-9_:-]*`) — these
-;; props sit upstream of that grammar gate and are filtered here so
-;; SSR output stays grammar-clean. The matcher pins the three documented
-;; names (per `@babel/plugin-transform-react-jsx-source`) rather than a
-;; broad underscore-prefix, so an app's custom underscore-prefixed prop
+;; JSX source-coord props. React DevTools' "View source" gesture reads
+;; `_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber` off the
+;; rendered React element. The framework no longer emits these — see
+;; Spec 006 §Historical: JSX source-coord props (rf2-rohdn dropped the
+;; rf2-fa4ly injection) — but user code, JSX-compiled third-party
+;; libraries, or hand-stamped DevTools shims may still produce hiccup
+;; carrying them. SSR MUST NOT serialise them as wire HTML attributes:
+;; the leading underscore fails the conservative HTML5 attribute-name
+;; grammar (`[A-Za-z][A-Za-z0-9_:-]*`), and they have no HTML wire
+;; representation in any case. This stripper is defensive — it sits
+;; upstream of the grammar gate so user-carried JSX source-coord props
+;; pass through cleanly without surfacing as a grammar error.
+;;
+;; The matcher pins the three documented names (per
+;; `@babel/plugin-transform-react-jsx-source`) rather than a broad
+;; underscore-prefix, so an app's custom underscore-prefixed prop
 ;; (if grammar-legal) still surfaces the grammar error.
 (def ^:private jsx-source-prop-names
   #{"_jsxFileName" "_jsxLineNumber" "_jsxColumnNumber"})
 
 (defn strip-prop?
   "True when the attribute `[k v]` MUST be dropped at SSR static-markup
-  emission per Spec 011 rule rf2-dwds9 + Spec 006 §JSX source-coord
-  props (rf2-fa4ly):
+  emission per Spec 011 rule rf2-dwds9:
 
     - `on*` event-handler props (`:on-click`, `:onMouseDown`, …). The
       client-side substrate adapters wire handlers at hydration; the
@@ -147,9 +151,11 @@
     - reserved prototype-pollution keys (`__proto__` / `constructor` /
       `prototype`), dropped before they reach the host createElement.
     - JSX source-coord props (`:_jsxFileName`, `:_jsxLineNumber`,
-      `:_jsxColumnNumber`) — React DevTools internals injected by the
-      reg-view wrapper for the \"View source\" gesture (rf2-fa4ly);
-      they have no HTML wire representation.
+      `:_jsxColumnNumber`) — React DevTools internals that may appear
+      in hiccup from user code, JSX-compiled libraries, or hand-stamped
+      shims (the framework itself does not emit them; see Spec 006
+      §Historical: JSX source-coord props). They have no HTML wire
+      representation and would fail the HTML5 attribute-name grammar.
 
   Mirrors react-dom/server behaviour. Recognised here are exactly the
   props that are *safe to silently drop*; malformed keys (breakout chars)

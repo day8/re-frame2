@@ -790,45 +790,39 @@
 (defn- inject-source-coord-attr
   "Wrap `out` (the user component's React element output) with a
   cloneElement call that adds `data-rf2-source-coord` (Spec 006
-  §Source-coord annotation, rf2-z7f7), `data-rf-view` (Spec 006
-  §View tagging contract, rf2-01il5), and — when source coords were
-  captured — the JSX-shaped `_jsxFileName` / `_jsxLineNumber` /
-  `_jsxColumnNumber` props (rf2-fa4ly, React DevTools' \"View source\"
-  contract). Non-element outputs (nil, fragment, function-component
-  head) emit a one-shot warning per id and pass through unchanged —
-  pair tools fall back to `:rf/id` for source-coord; the view-walker
-  falls back to the Fiber-walker primary path for hierarchy capture.
+  §Source-coord annotation, rf2-z7f7) and `data-rf-view` (Spec 006
+  §View tagging contract, rf2-01il5). Non-element outputs (nil,
+  fragment, function-component head) emit a one-shot warning per id
+  and pass through unchanged — pair tools fall back to `:rf/id` for
+  source-coord; the view-walker falls back to the Fiber-walker primary
+  path for hierarchy capture.
 
   CRITICAL: cloneElement returns a new element with the SAME `type` and
   `key` slots — it does NOT wrap the original. Wrapping with a
   synthetic host element (the `[:div]` shape rejected by Spec 006
   §View tagging contract) would break flexbox / CSS Grid / table
   layouts / `:nth-child` selectors / positioning ancestors / stacking
-  contexts / CSS containment."
-  [warn-fn id coord-attr view-attr jsx-coords out]
+  contexts / CSS containment.
+
+  History: an earlier version also patched the JSX-shaped source-coord
+  props (`_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber`)
+  intended for React DevTools' \"View source\" gesture (rf2-fa4ly).
+  The feature never worked — DevTools reads `__source` from
+  `React.createElement`'s third arg, not from element props — and the
+  props leaked to the DOM as attributes, triggering React's
+  \"unrecognised prop\" warnings. rf2-rohdn dropped the injection."
+  [warn-fn id coord-attr view-attr out]
   (cond
     (dom-element? out)
     (let [props             (.-props out)
           existing-coord    (when props (aget props "data-rf2-source-coord"))
           existing-view     (when props (aget props "data-rf-view"))
-          existing-jsx-file (when props (aget props "_jsxFileName"))
-          patch             #js {}
-          patch-jsx?        (and jsx-coords
-                                 (some? (:file jsx-coords))
-                                 (some? (:line jsx-coords))
-                                 (not existing-jsx-file))]
+          patch             #js {}]
       (when-not existing-coord
         (aset patch "data-rf2-source-coord" coord-attr))
       (when-not existing-view
         (aset patch "data-rf-view" view-attr))
-      ;; rf2-fa4ly: JSX source-coord props for React DevTools' "View source"
-      ;; gesture. Mirrors the Reagent inline-walk emission.
-      (when patch-jsx?
-        (aset patch "_jsxFileName"   (:file jsx-coords))
-        (aset patch "_jsxLineNumber" (:line jsx-coords))
-        (when (:column jsx-coords)
-          (aset patch "_jsxColumnNumber" (:column jsx-coords))))
-      (if (and existing-coord existing-view (not patch-jsx?))
+      (if (and existing-coord existing-view)
         out
         (React/cloneElement out patch)))
 
@@ -1006,9 +1000,6 @@
       (if interop/debug-enabled?
         (let [coord-attr (format-source-coord id metadata)
               view-attr  (format-view-id id)
-              ;; rf2-fa4ly: capture the raw coords once so each render reuses
-              ;; the JSX-prop input without re-walking metadata.
-              jsx-coords metadata
               wrapped    (fn wrapped-user-fn [& args]
                            ;; rf2-te71r: resolve the frame in-render (the substrate-
                            ;; portable React-context read works inside this wrapped fn's
@@ -1021,7 +1012,7 @@
                            (let [frame-id  (adapter-context/function-component-current-frame)
                                  out       (apply user-fn args)
                                  annotated (inject-source-coord-attr warn-fn id coord-attr
-                                                                     view-attr jsx-coords out)]
+                                                                     view-attr out)]
                              (append-unmount-sentinel unmount-sentinel id frame-id annotated)))]
           ;; rf2-fa4ly: stamp the React `displayName` to the registered view-id
           ;; so React DevTools shows `<:cart/total-line>` in the component tree

@@ -295,18 +295,15 @@ const DEV_ONLY_SENTINELS = [
   // :advanced + goog.DEBUG=false bundles.
   { source: 're-frame.views/reg-view* (data-rf-view injection)',
     sentinel: 'data-rf-view' },
-  // re-frame.views — JSX source-coord props for React DevTools'
-  // "View source" gesture (Spec 006 §JSX source-coord props,
-  // rf2-fa4ly). The reg-view* wrapper merges `_jsxFileName` +
-  // `_jsxLineNumber` + `_jsxColumnNumber` onto the rendered root DOM
-  // element when `interop/debug-enabled?` is true. Rides the SAME
-  // gate as `data-rf2-source-coord` (one injection site, one branch);
-  // the literal "_jsxFileName" string fragment must NOT appear in
-  // :advanced + goog.DEBUG=false bundles. The other two props
-  // (_jsxLineNumber, _jsxColumnNumber) elide alongside this sentinel
-  // as parts of the same branch.
-  { source: 're-frame.views/reg-view* (_jsxFileName injection)',
-    sentinel: '_jsxFileName' },
+  // Note (rf2-rohdn): the `_jsxFileName` sentinel was removed when
+  // Option A dropped the JSX dev-source-coord prop injection (the
+  // feature never worked — Reagent passed the props through as DOM
+  // attributes triggering React warnings, and DevTools' "View source"
+  // reads `__source` off React.createElement's third arg, not element
+  // props). The injection branch is gone; `data-rf2-source-coord` +
+  // `data-rf-view` (the real DOM API used by re-frame-pair and the
+  // view-walker) ride the same wrapper unchanged and remain covered
+  // by their own sentinels above.
   // re-frame.adapter.context — Context displayName for React DevTools'
   // Context inspector (Spec 006 §React DevTools support, rf2-fa4ly).
   // The "rf2-frame" literal sits inside `(when interop/debug-enabled?

@@ -443,19 +443,6 @@
   (when (and interop/debug-enabled? (not wrap-applied?))
     (source-coord/format-source-coord id metadata)))
 
-(defn- view-jsx-coords
-  "Capture the raw source-coord metadata for the inline hiccup-walk path
-  (rf2-fa4ly). The metadata carries `:file` / `:line` / `:column` per
-  Spec 001 §Source-coordinate capture; the annotation site reads them
-  back to assemble the JSX `_jsxFileName` / `_jsxLineNumber` /
-  `_jsxColumnNumber` props React DevTools' \"View source\" button
-  consumes. Returns nil under :advanced + goog.DEBUG=false (the
-  dev-only annotation path elides wholesale) and when the substrate
-  hook is wrapping (its own cloneElement path handles JSX props)."
-  [metadata wrap-applied?]
-  (when (and interop/debug-enabled? (not wrap-applied?))
-    metadata))
-
 (defn- maybe-arm-unmount!
   "Install (once per mounted instance) the `:rf.view/unmounted` teardown
   hook for `render-key` and deref its lifecycle reaction so the
@@ -497,7 +484,7 @@
   React frame-context (rf2-kdwc — note the camelCase static-field
   name; the earlier kebab `:context-type` shape was silently ignored
   by Reagent)."
-  [id render-fn view-scope coord-attr jsx-coords wrap-applied?]
+  [id render-fn view-scope coord-attr wrap-applied?]
   (let [wrapped
         (with-meta
           (fn frame-aware-view [& args]
@@ -548,7 +535,7 @@
                                                    (when sink @sink) elapsed-ms)
                         (if (and interop/debug-enabled? (not wrap-applied?))
                           (source-coord/inject-source-coord-attr id coord-attr
-                                                                 jsx-coords out)
+                                                                 out)
                           out))))))))
           {:contextType frame-context})]
     ;; rf2-fa4ly: stamp the React `displayName` to the registered view-id so
@@ -596,10 +583,9 @@
   [id metadata render-fn]
   (let [[render-fn wrap-applied?] (apply-adapter-wrap-view id metadata render-fn)
         coord-attr (view-coord-attr id metadata wrap-applied?)
-        jsx-coords (view-jsx-coords metadata wrap-applied?)
         view-scope (trace/handler-scope-from-meta :view id metadata)
         wrapped    (build-frame-aware-view id render-fn view-scope coord-attr
-                                           jsx-coords wrap-applied?)]
+                                           wrap-applied?)]
     (registrar/register! :view id (assoc metadata :handler-fn wrapped))
     wrapped))
 
