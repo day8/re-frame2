@@ -117,11 +117,10 @@
 
 ;; ---- handler defaults + caller-opt validation -----------------------------
 ;;
-;; Pre-rf2-zkca8.1 these lived in `re-frame.ssr.ring.handler-defaults`
-;; (45 L, one consumer — this ns). Recombined here so the handler
-;; constructor reads top-down as one concept. `default-on-error` is
-;; re-exported from `lifecycle` (shared with `stream-handler` so the
-;; rf2-kzvwq topology-leak contract lives in one place).
+;; Co-located with the handler constructor so the file reads top-down as
+;; one concept. `default-on-error` is re-exported from `lifecycle`
+;; (shared with `stream-handler` so the rf2-kzvwq topology-leak contract
+;; lives in one place).
 
 (def default-on-error lifecycle/default-on-error)
 (def make-default-on-error lifecycle/make-default-on-error)

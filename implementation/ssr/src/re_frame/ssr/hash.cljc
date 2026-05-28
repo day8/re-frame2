@@ -20,22 +20,17 @@
 
 ;; ---- canonical-EDN walker (rf2-8otin / rf2-atmvj) -------------------------
 ;;
-;; Pre-rf2-8otin the walker materialised the whole canonical form as a
-;; nested `(str ...)` of `clojure.string/join` results, then handed the
-;; finished string to `fnv-1a-32` which walked the UTF-8 bytes a second
-;; time. Two passes plus a tree-shaped tower of intermediate strings.
-;;
-;; The new shape is single-pass: a mutually-recursive walker
-;; (`canonical-edn-into`) appends each canonical fragment into a
-;; per-call `StringBuilder` on JVM / mutable JS string accumulator on
-;; CLJS. The accumulated string is then byte-hashed once. The output
-;; (the parity-pinned canonical literal at every fixture in
-;; `re-frame.ssr.hash-parity-fixtures`) is byte-identical to the old
-;; walker — only the allocation profile changes.
+;; Single-pass mutually-recursive walker (`canonical-edn-into`): each
+;; canonical fragment appends into a per-call `StringBuilder` on JVM /
+;; mutable JS string accumulator on CLJS; the accumulated string is then
+;; byte-hashed once. The output (the parity-pinned canonical literal at
+;; every fixture in `re-frame.ssr.hash-parity-fixtures`) is byte-
+;; identical to the prior nested-`(str ...)` shape that materialised the
+;; whole form before hashing — only the allocation profile changes.
 ;;
 ;; `canonical-edn` (string-returning) is retained as the public surface
 ;; for tests + the JVM↔CLJS parity fixtures that pin the canonical-EDN
-;; literal directly; it now delegates to the same builder-driven walker.
+;; literal directly; it delegates to the same builder-driven walker.
 
 (declare canonical-edn-into)
 
@@ -187,9 +182,9 @@
   spurious `:rf.ssr/hydration-mismatch` traces. Returns nil for nil
   input so the parent collection's `keep` / `remove` step prunes it.
 
-  Post rf2-8otin this delegates to `canonical-edn-into` with a fresh
-  accumulator — the public surface is unchanged but the production
-  hash path skips this allocation entirely (see `render-tree-hash`)."
+  Delegates to `canonical-edn-into` with a fresh accumulator (rf2-8otin) —
+  the public surface is unchanged but the production hash path skips this
+  allocation entirely (see `render-tree-hash`)."
   [x]
   (when-not (nil? x)
     #?(:clj
@@ -262,13 +257,10 @@
   identical canonical-EDN representation.
 
   Single-pass (rf2-8otin) — feeds the canonical-EDN walker into one
-  accumulator and byte-hashes the result once. Pre-rf2-8otin
-  `canonical-edn` materialised a tree-shaped tower of intermediate
-  strings (one per nesting level from the inner `(str ...)` /
-  `clojure.string/join` calls) before `fnv-1a-32` walked the bytes;
-  the streaming walker eliminates those intermediates while preserving
-  byte-identical output (the parity-pinned literals at
-  `re-frame.ssr.hash-parity-fixtures` are the cross-runtime contract)."
+  accumulator and byte-hashes the result once. The streaming walker
+  emits byte-identical output to the prior tree-shaped-intermediates
+  shape; the parity-pinned literals at `re-frame.ssr.hash-parity-fixtures`
+  are the cross-runtime contract."
   [render-tree]
   #?(:clj
      (let [sb (StringBuilder.)]

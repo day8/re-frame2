@@ -30,11 +30,10 @@
   stamp the projector's `:status` onto the response accumulator,
   then emits a minimal HTML error body driven by the projector's
   public-error map (Spec 011 §Server error projection §View-time
-  exceptions). Pre-rf2-zwgsv a render-side throw escaped to the
-  outer ssr-handler try/catch and produced the fixed
-  `\"Internal error\"` text (rf2-kzvwq) — different body contract
-  on the wire depending on where the failure originated. Unified
-  now."
+  exceptions). Render-time and drain-time exceptions thus share one
+  body contract on the wire — the projector's public-error map — and
+  no fixed `\"Internal error\"` fallback string ever reaches a client
+  (rf2-kzvwq)."
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring.headers :as headers]
@@ -254,13 +253,9 @@
                 ;; ONCE per request. The same hex feeds the root-element
                 ;; `data-rf-render-hash` (via render-to-string's
                 ;; `:render-hash` opt) AND the payload's
-                ;; `:rf/render-hash`. Pre-rf2-i15nh render-to-string
-                ;; computed the hash internally on the `:emit-hash?`
-                ;; branch and the pipeline called render-tree-hash again
-                ;; here — two full canonical-EDN walks per request. The
-                ;; opt-threaded form drops it to one. When `:emit-hash?`
-                ;; is false the hash is still needed for the payload
-                ;; slot.
+                ;; `:rf/render-hash`, so the canonical-EDN walk runs
+                ;; once per request. When `:emit-hash?` is false the
+                ;; hash is still needed for the payload slot.
                 hash-str  (ssr/render-tree-hash hiccup)
                 body-html (ssr/render-to-string
                             hiccup
@@ -343,19 +338,16 @@
        uses — so headers / cookies the drain DID accumulate before
        the render-time throw still ride the wire.
 
-  Pre-rf2-zwgsv this code didn't try/catch — render-time throws
-  bubbled to the outer `ssr-handler` try/catch and got the fixed
-  `\"Internal error\"` body (rf2-kzvwq). That left two body
-  contracts on the wire depending on where the failure originated:
-  drain-time → projector body; render-time → fixed string. The
-  unification ensures both go through the projector.
+  The try/catch is the unification point: render-time AND drain-time
+  exceptions both go through the projector, so the wire body contract
+  is uniform regardless of where the failure originated (rf2-zwgsv).
 
   Note: the outer `ssr-handler`'s `:on-error` hook still wraps this
   call. The remaining exceptions it catches are Ring-layer / transport
   failures the projector can't see (e.g. an exception in the host's
   Content-Type negotiator, or a re-throw from the projector pipeline
-  itself when no server frame is registered). Those still hit the
-  fixed-string default per rf2-kzvwq's topology-leak rule."
+  itself when no server frame is registered). Those hit the fixed-
+  string default per rf2-kzvwq's topology-leak rule."
   [frame-id resp opts]
   (try
     (build-full-response* frame-id resp opts)
