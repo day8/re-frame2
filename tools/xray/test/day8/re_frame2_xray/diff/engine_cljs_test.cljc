@@ -221,79 +221,110 @@
       (is (= :removed  (engine/op-at p [:legacy-flag])))
       (is (contains? (:wholly-changed-roots p) [:flash])))))
 
-;; ---- expand-empty-root-replacement (rf2-5j7ch) ----------------------------
+;; ---- empty↔populated map expansion (rf2-5j7ch / rf2-9d4j8) -------------
+;;
+;; The engine pre-expands `{} ↔ {populated}` Editscript :r edits into
+;; per-key :+ / :- edits BEFORE classification, so every downstream
+;; lens (`:path-ops`, `:container-ops`, `:flat-rows`,
+;; `:wholly-changed-roots`) sees per-key granularity. rf2-5j7ch first
+;; surfaced the issue on the `:diff` (pure-list) lens; rf2-9d4j8
+;; surfaced the same root cause on the FULL+DIFF lens, where `op-at`
+;; was returning `:same` for every per-key path because the engine's
+;; `path-ops` only held a single root-level `:modified` op. The fix
+;; moved the expansion inside `project` itself (pre-alpha clean swap;
+;; the old `expand-empty-root-replacement` flat-rows post-processor is
+;; gone).
 
-(deftest expand-empty-root-replacement-empty-to-populated
-  (testing "rf2-5j7ch — `{} → {:counter 1}` collapses to a single
-            `:r []` Editscript edit which the engine surfaces as a
-            wholesale root-replacement flat-row. The renderer-facing
-            expansion lifts this into per-key `:added` rows so the
-            operator's `:diff` lens reads cold-boot epochs with
-            per-key granularity."
-    (let [proj     (engine/project {} {:counter 1 :user {:id 7}})
-          rows     (:flat-rows proj)
-          expanded (engine/expand-empty-root-replacement rows)]
-      (is (= 1 (count rows))
-          "engine emits ONE wholesale root replacement under Editscript")
-      (is (= [] (:path (first rows)))
-          "the wholesale row anchors at the root path")
-      (is (= [{:path [:counter] :op :added :before nil :after 1}
-              {:path [:user]    :op :added :before nil :after {:id 7}}]
-             expanded)
-          "expansion produces one :added row per top-level key, sorted
-           by path"))))
+(deftest empty-to-populated-root-expands-to-per-key-added
+  (testing "rf2-9d4j8 — `{} → {:counter 1 :user {:id 7}}` produces
+            per-key `:added` ops at every lens, not a single root
+            `:modified` op."
+    (let [p (engine/project {} {:counter 1 :user {:id 7}})]
+      ;; path-ops carry per-key :added entries (the FULL+DIFF lens
+      ;; reads from here).
+      (is (= :added (engine/op-at p [:counter])))
+      (is (= :added (engine/op-at p [:user :id])))
+      (is (= 1 (:after (engine/entry-at p [:counter]))))
+      ;; The wholly-new container [:user] reclassifies as wholly-
+      ;; changed-added (R5).
+      (is (= :added (engine/op-at p [:user])))
+      (is (contains? (:wholly-changed-roots p) [:user]))
+      ;; The root `[]` does NOT enter wholly-changed-roots — cold-
+      ;; boot epochs want per-top-level-key chrome, not a single
+      ;; root-level reclassification.
+      (is (not (contains? (:wholly-changed-roots p) [])))
+      ;; Root `[]` carries `:children` (descendants changed) since
+      ;; the engine no longer emits a root `:modified` for this case.
+      (is (= :children (engine/op-at p [])))
+      ;; flat-rows carry per-key :added rows (the :diff lens reads
+      ;; from here; rf2-5j7ch's user-visible expectation).
+      (let [rows  (:flat-rows p)
+            paths (set (map :path rows))
+            ops   (set (map :op rows))]
+        (is (contains? paths [:counter]))
+        (is (contains? paths [:user :id]))
+        (is (= #{:added} ops))))))
 
-(deftest expand-empty-root-replacement-populated-to-empty
-  (testing "rf2-5j7ch — inverse case: a populated map going to `{}`
-            expands into per-key `:removed` rows."
-    (let [proj     (engine/project {:counter 1 :user {:id 7}} {})
-          rows     (:flat-rows proj)
-          expanded (engine/expand-empty-root-replacement rows)]
-      (is (= [{:path [:counter] :op :removed :before 1        :after nil}
-              {:path [:user]    :op :removed :before {:id 7}  :after nil}]
-             expanded)))))
+(deftest populated-to-empty-root-expands-to-per-key-removed
+  (testing "rf2-9d4j8 — symmetric removal: `{:counter 1 :user {:id 7}}
+            → {}` produces per-key `:removed` ops at every lens."
+    (let [p (engine/project {:counter 1 :user {:id 7}} {})]
+      (is (= :removed (engine/op-at p [:counter])))
+      (is (= :removed (engine/op-at p [:user :id])))
+      (is (= 1 (:before (engine/entry-at p [:counter]))))
+      (is (= :removed (engine/op-at p [:user])))
+      (is (contains? (:wholly-changed-roots p) [:user]))
+      (is (not (contains? (:wholly-changed-roots p) [])))
+      (let [rows  (:flat-rows p)
+            paths (set (map :path rows))
+            ops   (set (map :op rows))]
+        (is (contains? paths [:counter]))
+        (is (contains? paths [:user :id]))
+        (is (= #{:removed} ops))))))
 
-(deftest expand-empty-root-replacement-non-empty-passes-through
-  (testing "rf2-5j7ch — two populated maps swapping wholesale (the
-            engine-stable root replacement case) is LEFT ALONE. The
-            operator sees one row anchored at `[]` because that DOES
-            read as a wholesale event."
-    (let [proj     (engine/project {:a 1} {:b 2})
-          rows     (:flat-rows proj)
-          expanded (engine/expand-empty-root-replacement rows)]
-      ;; Two populated maps with disjoint keys may surface as a
-      ;; wholesale root-replacement OR per-key add/remove rows
-      ;; depending on the Editscript A* choice. Either way the
-      ;; expansion MUST be a no-op (only the empty-side case is
-      ;; rewritten).
-      (is (= rows expanded)
-          "non-empty-side flat-rows pass through unchanged"))))
+(deftest empty-to-populated-mid-tree-expands
+  (testing "rf2-9d4j8 — mid-tree empty-to-populated also expands:
+            `{:user {}} → {:user {:name 'Ada'}}` yields :added at
+            `[:user :name]`, not :modified at `[:user]`."
+    (let [p (engine/project {:user {}} {:user {:name "Ada"}})]
+      (is (= :added (engine/op-at p [:user :name])))
+      ;; [:user] is wholly-changed-added (every descendant is :added).
+      (is (= :added (engine/op-at p [:user])))
+      (is (contains? (:wholly-changed-roots p) [:user])))))
 
-(deftest expand-empty-root-replacement-non-root-modified-passes-through
-  (testing "rf2-5j7ch — a single :modified row at a NON-root path is
-            also passed through. The expansion only fires when a
-            single :modified row sits at the root path AND one side
-            is empty."
-    (let [rows [{:path [:counter] :op :modified :before 5 :after 6}]]
-      (is (= rows (engine/expand-empty-root-replacement rows))))))
+(deftest empty-to-populated-flat-scalar-keys
+  (testing "rf2-9d4j8 — flat scalar top-level keys (no nested
+            containers) still yield per-key :added rows."
+    (let [p (engine/project {} {:a 1 :b 2})]
+      (is (= :added (engine/op-at p [:a])))
+      (is (= :added (engine/op-at p [:b])))
+      (is (= 1 (:after (engine/entry-at p [:a]))))
+      (is (= 2 (:after (engine/entry-at p [:b]))))
+      ;; No nested container to mark wholly-changed; the per-key ops
+      ;; carry the chrome directly via path-ops.
+      (is (empty? (:wholly-changed-roots p)))
+      (is (= :children (engine/op-at p []))))))
 
-(deftest expand-empty-root-replacement-multiple-rows-passes-through
-  (testing "rf2-5j7ch — when the engine produces MORE than one flat-
-            row (e.g. several per-key adds + a removed) the
-            expansion bails: the operator already sees per-key rows."
-    (let [rows [{:path [:a] :op :added :before nil :after 1}
-                {:path [:b] :op :added :before nil :after 2}]]
-      (is (= rows (engine/expand-empty-root-replacement rows))))))
+(deftest non-empty-populated-disjoint-passes-through
+  (testing "rf2-9d4j8 — two populated maps swapping wholesale (e.g.
+            `{:a 1 :b 2} → {:c 3 :d 4}`) is NOT an empty-side
+            replacement and should NOT expand to spurious per-key
+            ops. Editscript emits a single root `:r` for this case
+            (A* chooses root replace over 4 per-key edits); the
+            engine leaves it classified as `:modified` at `[]`."
+    (let [p (engine/project {:a 1 :b 2} {:c 3 :d 4})]
+      ;; The wholesale root replacement classifies as :modified at []
+      ;; (one map swapped for another with disjoint keys). Per-key
+      ;; paths return :same — the operator sees one wholesale row.
+      (is (= :modified (engine/op-at p [])))
+      (is (= :same (engine/op-at p [:a])))
+      (is (= :same (engine/op-at p [:c]))))))
 
-(deftest expand-empty-root-replacement-end-to-end-via-engine
-  (testing "rf2-5j7ch — full pipeline check: engine/project →
-            :flat-rows → expand-empty-root-replacement produces the
-            per-key adds the operator's `:diff` lens consumes."
-    (let [proj     (engine/project {} {:state :idle :data {}})
-          expanded (engine/expand-empty-root-replacement (:flat-rows proj))
-          paths    (mapv :path expanded)
-          ops      (set (map :op expanded))]
-      (is (= [[:data] [:state]] paths)
-          "every top-level key surfaces as its own row, sorted by path")
-      (is (= #{:added} ops)
-          "empty-to-populated expansion produces only :added rows"))))
+(deftest type-change-still-modified
+  (testing "rf2-9d4j8 — `{} → {}` style detection must NOT catch
+            type changes (nil↔map, scalar↔map). R7's :modified +
+            :type-change? branch still fires."
+    ;; nil → map at a nested path (the most likely confusion):
+    (let [p (engine/project {:user nil} {:user {:a 1}})]
+      (is (= :modified (engine/op-at p [:user])))
+      (is (engine/type-change? p [:user])))))

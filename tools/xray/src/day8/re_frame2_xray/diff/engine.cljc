@@ -164,19 +164,66 @@
 ;; raw Editscript edit-script walker
 ;; =========================================================================
 
+(defn- expand-empty-map-replacement
+  "Expand a single Editscript edit that replaces an EMPTY MAP with a
+  populated map (or vice versa) into per-key `:+` / `:-` edits.
+
+  Editscript's A* emits a single `[[path] :r new-value]` edit for the
+  pathological `{} → {populated}` (and `{populated} → {}`) cases — the
+  whole map replacement is one step in the edit script. Downstream
+  classification then tags `path` as `:modified` and leaves every
+  PER-KEY path returning `:same` from `op-at`, which the renderer reads
+  as 'no per-key change' — wrong for an absent→present transition
+  (rf2-9d4j8; related precedent rf2-5j7ch which patched only the
+  `:flat-rows` lens).
+
+  This expansion runs over the raw edit script BEFORE classification so
+  every downstream artefact (`:path-ops`, `:container-ops`,
+  `:flat-rows`, `:wholly-changed-roots`) sees per-key granularity.
+
+  Rule: a `:r` edit at `path` substitutes into per-key edits ONLY when
+  the before-side value at `path` is `{}` AND the after-side value at
+  `path` is a non-empty map (or symmetrically populated→empty). Type
+  changes (nil↔map, scalar↔map, map↔vector) are LEFT ALONE so R7's
+  `:rf.xray.diff/type-change?` branch still fires on them.
+
+  Pure; non-matching edits pass through unchanged."
+  [edit before after]
+  (let [[path op value] edit]
+    (if (not= op :r)
+      [edit]
+      (let [before-at (value-at before path)
+            after-at  (value-at after path)]
+        (cond
+          ;; {} → populated map: per-key :+
+          (and (map? before-at) (empty? before-at)
+               (map? after-at)  (seq after-at))
+          (mapv (fn [[k v]] [(conj (vec path) k) :+ v]) after-at)
+
+          ;; populated map → {}: per-key :- (Editscript :- omits value)
+          (and (map? before-at) (seq before-at)
+               (map? after-at)  (empty? after-at))
+          (mapv (fn [[k _v]] [(conj (vec path) k) :-]) before-at)
+
+          :else
+          [edit])))))
+
 (defn- raw-edits
   "Return Editscript A* edits for `(before, after)` as a vector of
-  3-tuples `[path op value?]`. Pure."
+  3-tuples `[path op value?]`, with empty↔populated map replacements
+  pre-expanded into per-key `:+` / `:-` edits (rf2-9d4j8). Pure."
   [before after]
-  (try
-    (ee/get-edits (es/diff before after {:algo :a-star}))
-    (catch #?(:clj Exception :cljs js/Error) _e
-      ;; Editscript can throw on certain pathological inputs (e.g.
-      ;; comparing maps with unreadable keys); fall back to a
-      ;; conservative whole-value replacement so the renderer doesn't
-      ;; crash. The fallback edit reproduces the operator-visible
-      ;; signal ("everything changed") without false sub-tree precision.
-      [[[] :r after]])))
+  (let [raw (try
+              (ee/get-edits (es/diff before after {:algo :a-star}))
+              (catch #?(:clj Exception :cljs js/Error) _e
+                ;; Editscript can throw on certain pathological inputs
+                ;; (e.g. comparing maps with unreadable keys); fall
+                ;; back to a conservative whole-value replacement so
+                ;; the renderer doesn't crash. The fallback edit
+                ;; reproduces the operator-visible signal ("everything
+                ;; changed") without false sub-tree precision.
+                [[[] :r after]]))]
+    (into [] (mapcat (fn [edit] (expand-empty-map-replacement edit before after))) raw)))
 
 ;; =========================================================================
 ;; per-path op classification (leaves)
@@ -373,7 +420,15 @@
   check whether every descendant leaf-path under it carries a matching
   op in `path-ops`. If so, mark this container as the wholly-changed
   root, and ELIDE deeper roots — only the shallowest wholly-changed
-  ancestor counts."
+  ancestor counts.
+
+  The root path `[]` is explicitly excluded from wholly-changed
+  promotion (rf2-9d4j8). Empty→populated cold-boot epochs would
+  otherwise see ALL per-key chrome (glyph + stripe) suppressed under a
+  single root-level reclassification, which contradicts the operator's
+  read on a cold-boot diff: each top-level key is a discrete addition
+  and wants its own gutter chrome. Nested containers can still qualify
+  as wholly-changed (e.g. `{} → {:user {:id 7}}` marks `[:user]`)."
   [before after path-ops]
   (let [collect-leaves
         (fn collect-leaves [data path]
@@ -400,10 +455,27 @@
         walk-containers
         (fn walk-containers [data path target-op acc]
           (cond
-            ;; Skip the root unless the root itself is wholly-changed
-            ;; (rare but valid — entire app-db replacement).
             (not (container? data))
             acc
+
+            ;; Root path `[]` never qualifies as a wholly-changed root —
+            ;; recurse into children instead so nested containers can
+            ;; still be marked (rf2-9d4j8).
+            (and (= [] path) (check-uniform data path target-op))
+            (cond
+              (map? data)
+              (reduce-kv (fn [acc k cv]
+                           (walk-containers cv (conj (vec path) k)
+                                            target-op acc))
+                         acc data)
+
+              (or (vector? data) (sequential? data))
+              (reduce (fn [acc [i cv]]
+                        (walk-containers cv (conj (vec path) i)
+                                         target-op acc))
+                      acc (map-indexed vector data))
+
+              :else acc)
 
             (check-uniform data path target-op)
             (conj acc path)
@@ -686,80 +758,14 @@
       0))
 
 ;; =========================================================================
-;; flat-rows post-processing — operator-friendly expansion (rf2-5j7ch)
-;; =========================================================================
-
-(defn expand-empty-root-replacement
-  "Post-process `flat-rows` so a wholesale root replacement against an
-  EMPTY before / after map expands into per-key rows (rf2-5j7ch).
-
-  Editscript's A* produces a single root-level `:r` edit for the
-  `{} → {populated}` (and `{populated} → {}`) cases — at engine
-  output that surfaces as ONE flat-row anchored at `[]`. The engine
-  is correct (one edit-script entry, mode-3 paints from the same
-  source), but the operator's UX read on `:diff` lens is less
-  informative: empty-to-populated is the canonical 'what landed?'
-  question for cold-boot epochs and wants per-key granularity.
-
-  This helper expands EXACTLY the empty-root-replacement case:
-
-    - before is `{}`        + after is a non-empty map  →
-      one `{:path [k] :op :added :before nil :after v}` row per
-      key (sorted by key for stable order).
-
-    - before is a non-empty map + after is `{}`        →
-      one `{:path [k] :op :removed :before v :after nil}` row
-      per key.
-
-  Non-empty-side replacements (two populated maps swapping wholesale)
-  are LEFT ALONE — that reads as a genuine wholesale event the
-  operator should see as one row.
-
-  Pure-data. Operates on the engine's `:flat-rows` shape (vector of
-  `{:path :op :before :after}` maps). The renderer-side
-  `flat-rows->triples` step folds the expanded rows into the same
-  4-tuple shape every `:diff` lens consumer reads.
-
-  Returns the (possibly-expanded) flat-rows vector."
-  [flat-rows]
-  (let [root-row (when (= 1 (count flat-rows))
-                   (first flat-rows))]
-    (cond
-      ;; Empty-to-populated: expand the `:modified` row at `[]` into
-      ;; per-key `:added` rows.
-      (and (some? root-row)
-           (= [] (:path root-row))
-           (= :modified (:op root-row))
-           (= {} (:before root-row))
-           (map? (:after root-row))
-           (seq (:after root-row)))
-      (->> (:after root-row)
-           (mapv (fn [[k v]]
-                   {:path   [k]
-                    :op     :added
-                    :before nil
-                    :after  v}))
-           (sort-by :path)
-           vec)
-
-      ;; Populated-to-empty: expand into per-key `:removed` rows.
-      (and (some? root-row)
-           (= [] (:path root-row))
-           (= :modified (:op root-row))
-           (map? (:before root-row))
-           (seq (:before root-row))
-           (= {} (:after root-row)))
-      (->> (:before root-row)
-           (mapv (fn [[k v]]
-                   {:path   [k]
-                    :op     :removed
-                    :before v
-                    :after  nil}))
-           (sort-by :path)
-           vec)
-
-      :else
-      flat-rows)))
+;; rf2-5j7ch / rf2-9d4j8 — empty↔populated map replacements are now
+;; expanded inside `project` (via `expand-empty-map-replacement` at the
+;; raw-edits stage). The previous post-processor `expand-empty-root-
+;; replacement` operated on `:flat-rows` only and left `:path-ops` /
+;; `:container-ops` carrying a single `[]`-anchored `:modified` op,
+;; which made `op-at` return `:same` for every per-key path in the
+;; FULL+DIFF lens (rf2-9d4j8). Pre-alpha clean swap: the post-processor
+;; is removed and the engine produces per-key rows at every lens.
 
 (defn wholly-changed-ancestor
   "Return the shallowest wholly-changed-root that is an ancestor of

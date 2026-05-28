@@ -156,18 +156,13 @@
               cached
               (let [proj (diff-engine/project (:db-before record)
                                               (:db-after  record))
-                    ;; rf2-5j7ch — operator-friendly expansion of the
-                    ;; wholesale root-replacement case (`{} →
-                    ;; {populated}` or inverse). The engine emits a
-                    ;; single `:r []` for that case (correct under
-                    ;; Editscript A*); the renderer-facing
-                    ;; `:diff` lens expands it into per-key rows so
-                    ;; the operator sees what landed in a cold-boot
-                    ;; epoch with per-key granularity. Non-empty-
-                    ;; side wholesales pass through unchanged.
-                    expanded (diff-engine/expand-empty-root-replacement
-                               (:flat-rows proj))
-                    diff (flat-rows->triples expanded)
+                    ;; rf2-5j7ch / rf2-9d4j8 — empty↔populated map
+                    ;; replacements are pre-expanded inside the engine
+                    ;; (per-key `:added` / `:removed` rows) so cold-boot
+                    ;; epochs read with per-key granularity at every
+                    ;; lens (`:diff`, `:full-with-diff`, container
+                    ;; ops). No post-processor needed here.
+                    diff (flat-rows->triples (:flat-rows proj))
                     live (into #{} (map :epoch-id) history)]
                 (swap! diff-cache
                        (fn [m]
