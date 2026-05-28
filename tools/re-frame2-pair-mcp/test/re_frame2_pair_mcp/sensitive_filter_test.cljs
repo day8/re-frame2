@@ -36,7 +36,7 @@
   ;; `:yes` is a contract violation that means an upstream
   ;; serialisation bug has coerced the boolean into the wrong shape.
   ;; The previous fail-OPEN posture silently leaked sensitive events
-  ;; on such drift. Pair2-mcp delegates to
+  ;; on such drift. re-frame2-pair-mcp delegates to
   ;; `re-frame.mcp-base.sensitive/sensitive-event?` (rf2-vw4sq) so the
   ;; contract is byte-identical across the MCP triplet.
   (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the contract-drift warning

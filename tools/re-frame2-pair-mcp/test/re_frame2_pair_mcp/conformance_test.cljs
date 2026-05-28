@@ -29,7 +29,7 @@
 
   The framework's `spec/conformance/fixtures/` directory carries
   data-shaped fixtures for the spec-level core/machines/ssr/schemas/
-  flows surfaces. Pair2-mcp's contract is the MCP wire — a
+  flows surfaces. re-frame2-pair-mcp's contract is the MCP wire — a
   fundamentally different shape (tool name + JS args + canned eval
   responses → EDN result envelope). Cross-mounting onto the framework
   corpus would mix vocabularies; cross-host runners (a Python re-frame2-pair-mcp
@@ -75,7 +75,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Test infrastructure — args coercion, result extraction, stub installation.
 ;;
-;; Pair2-mcp passes args as a #js {} object; the tools read each slot via
+;; re-frame2-pair-mcp passes args as a #js {} object; the tools read each slot via
 ;; `wire/arg` which does a `j/get`. The corpus carries args as CLJS maps
 ;; for readability; `args->js` converts on the fly.
 ;; ---------------------------------------------------------------------------

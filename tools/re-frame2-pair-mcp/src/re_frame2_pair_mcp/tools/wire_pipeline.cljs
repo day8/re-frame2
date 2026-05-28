@@ -246,7 +246,7 @@
           :scalar-value (run-scalar-value payload opts)
           (throw (ex-info ":rf.error/pair-mcp-unknown-wire-pipeline-kind"
                           {:rf.error/id :rf.error/pair-mcp-unknown-wire-pipeline-kind
-                           :where    'pair-mcp/run-wire-pipeline
+                           :where    're-frame2-pair-mcp/run-wire-pipeline
                            :recovery :no-recovery
                            :reason   (str "run-wire-pipeline got an unknown :kind " (pr-str kind))
                            :kind     kind

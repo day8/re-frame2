@@ -251,7 +251,7 @@
                                       (:ambiguous result))]
                         (throw (ex-info ":rf.error/pair-mcp-ambiguous-shadow"
                                         {:rf.error/id :rf.error/pair-mcp-ambiguous-shadow
-                                         :where    'pair-mcp/discover-and-cache!
+                                         :where    're-frame2-pair-mcp/discover-and-cache!
                                          :recovery :pick-via-port-file
                                          :reason   (:reason payload)
                                          :candidates (:candidates payload)
@@ -261,7 +261,7 @@
               :else
               (throw (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
                               {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found
-                               :where    'pair-mcp/discover-and-cache!
+                               :where    're-frame2-pair-mcp/discover-and-cache!
                                :recovery :no-recovery
                                :reason   port-not-found-hint
                                :hint     port-not-found-hint}))))))))
