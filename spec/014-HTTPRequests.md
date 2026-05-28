@@ -79,17 +79,23 @@ When the request resolves, the runtime dispatches `[:article/load (assoc msg :rf
 
 ## The args map
 
-| Key | Required? | Type | Purpose |
+The `:rf.http/managed` fx accepts a single args map. The reference card below lists every public slot, its default, and — for slots that can cause a request to fail — the failure category the runtime classifies into. Each row anchors to its Spec 014 detail section.
+
+| Slot | Default | Meaning | Recovery on failure |
 |---|---|---|---|
-| `:request` | yes | map | The request envelope (see [§Request envelope](#request-envelope)). |
-| `:decode` | no | spec / fn / `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto` | How to parse the response body (see [§Decoding](#decoding)). Default: `:auto` (content-type sniffing). |
-| `:accept` | no | fn `(decoded → {:ok v} | {:failure m})` | Post-decode normalisation; lets a handler treat a structurally-valid 200 as a domain failure. Default: `(fn [v] {:ok v})` for 2xx, structural failure otherwise. |
-| `:retry` | no | map | Retry policy (see [§Retry and backoff](#retry-and-backoff)). Default: no retry. |
-| `:timeout-ms` | no | int / `nil` / `0` | Wall-clock timeout per attempt. **Default: 30000** when the key is absent. Per [§`:timeout-ms` security defaults](#timeout-ms-security-defaults) — `:timeout-ms nil` and `:timeout-ms 0` are explicit opt-outs (no per-attempt timeout). Apps facing untrusted upstreams SHOULD leave the default in place. |
-| `:on-success` | no | event vector | Where to dispatch on success. Default: back to originating event id with `:rf/reply` merged. |
-| `:on-failure` | no | event vector or `nil` | Where to dispatch on failure. Default: back to originating event id with `:rf/reply` merged. `nil` means swallow silently. |
-| `:request-id` | no | any `=`-comparable value | Stable id for abort + correlation (see [§Aborts](#aborts)). Keywords (`:search`), strings (`"req-42"`), vectors (`[:articles :load 7]`), uuids — anything the runtime can `=`-compare. The fx stores in-flight requests in a `{request-id → request-handle}` map; identity is structural. |
-| `:abort-signal` | no | external `AbortController.signal` | External abort handle. Mutually exclusive with `:request-id`-driven internal abort. |
+| `:request` | required | The wire envelope — `:method` / `:url` / `:headers` / `:params` / `:body` / `:request-content-type` / `:credentials` / `:mode` / `:redirect` / `:cache` / `:referrer` / `:integrity` / `:sensitive?`. See [§Request envelope](#request-envelope). | A bad envelope surfaces as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/http-4xx`, or `:rf.http/http-5xx` depending on how the host rejects it. |
+| `:decode` | `:auto` | Response-body decoder: a Malli schema, a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Runs only on 2xx. See [§Decoding](#decoding). | `:rf.http/decode-failure` (schema reject, JSON parse, custom-fn throw). |
+| `:accept` | 2xx → `{:ok body}`, else structural failure | Post-decode normaliser `(decoded → {:ok v} | {:failure m})` — lets a structurally-valid 200 surface as a domain failure. See [§`:accept` — domain-failure normalisation](#accept--domain-failure-normalisation). | `:rf.http/accept-failure` (the user map rides at `:detail`). |
+| `:retry` | no retry | Retry policy `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` is a closed subset of `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. See [§Retry and backoff](#retry-and-backoff). | Invalid `:retry :on` member → `:rf.error/http-bad-retry-on` at registration / dispatch time. Retries exhaust → the final failure category. |
+| `:timeout-ms` | `30000` | Per-attempt wall-clock timeout in ms. `nil` or `0` opts out (no timeout). See [§`:timeout-ms` security defaults](#timeout-ms-security-defaults). | `:rf.http/timeout` when the budget elapses. |
+| `:on-success` | originating event id with `:rf/reply` merged | Where to dispatch the success reply. See [§Reply addressing](#reply-addressing). | — (`:on-success` does not itself fail.) |
+| `:on-failure` | originating event id with `:rf/reply` merged | Where to dispatch the failure reply. `nil` swallows silently. See [§Reply addressing](#reply-addressing). | — (`:on-failure` does not itself fail; it routes the reply.) |
+| `:request-id` | none | Stable `=`-comparable id for abort + correlation. Keywords / strings / vectors / uuids all work. See [§`:request-id` (internal)](#request-id-internal). | Superseded by a later request with the same id → in-flight request aborts with `:rf.http/aborted :reason :request-id-superseded` on the trace stream. |
+| `:abort-signal` | none | External `AbortController.signal` handle. Mutually exclusive with `:request-id`-driven internal abort. CLJS-only; JVM ignores. See [§`:abort-signal` (external)](#abort-signal-external). | `:rf.http/aborted :reason :user` when the host fires the signal. |
+| `:sensitive?` | `false` | Marks the request body / headers / params / decoded value as sensitive for the trace stream. Honours [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces). May also be set under `:request`; the top-level slot is sugar. See [§Privacy](#privacy). | — (privacy flag; does not affect classification.) |
+| `:rf.http/max-decoded-keys` | `10000` | Per-request cap on the number of unique JSON object keys the decoder will intern. Second line of defence after `:decode :text` for untrusted-origin payloads. See [§Keyword-interning cap](#keyword-interning-cap). | `:rf.http/decode-failure :reason :too-many-keys` on overflow. |
+
+Stub-mode slots (`:rf.http/canned-success` / `:rf.http/canned-failure` and the `with-managed-request-stubs` family) live in the sibling `re-frame.http-test-support` namespace and are documented in [§Testing](#testing); they are not part of the production args-map surface.
 
 ## Request envelope
 
