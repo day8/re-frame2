@@ -228,7 +228,7 @@ Multi-frame apps — Story canvases, split-pane editors, server renders, multipl
 
 ## Testing without a network
 
-Because the request is data and the reply comes back as an ordinary event, you can stub the whole round-trip with no network and no global `fetch` monkey-patch. The `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs synthesise a reply with the exact same envelope a live request would produce, and the `with-managed-request-stubs` helper wires a whole test's worth of canned replies in one place. The full story lives in [chapter 13 on testing](13-testing.md#stubbing-managed-http) — the short version is that "test the handler that issues an HTTP request" stops being a chore involving mock servers and becomes a pure-function test like every other handler in your app.
+Because the request is data and the reply comes back as an ordinary event, you can stub the whole round-trip with no network and no global `fetch` monkey-patch. The `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs synthesise a reply with the exact same envelope a live request would produce, and the `with-managed-request-stubs` helper wires a whole test's worth of canned replies in one place. The full story lives in [chapter 13 on testing](13-testing.md#stubbing-without-mocking) — the short version is that "test the handler that issues an HTTP request" stops being a chore involving mock servers and becomes a pure-function test like every other handler in your app.
 
 ## The slice the reply lands in: Pattern-RemoteData
 
@@ -246,7 +246,7 @@ The **realworld app** — [`examples/reagent/realworld/`](https://github.com/day
 
 ## Migrating a v1 HTTP layer
 
-If you're arriving from a re-frame v1 codebase with your own `:http` fx (or `re-frame-http-fx` / `re-frame-fetch-fx`), the mapping is mostly mechanical and [chapter 25 walks it](25-from-re-frame-v1.md#migrating-an-http-layer). The short version: your hand-rolled success/failure events become the co-located `:rf/reply` branch (or explicit `:on-success` / `:on-failure`), your ad-hoc status strings become the closed `:rf.http/*` set, and the retry logic you hand-rolled in 2019 and nobody's dared touch since gets deleted in favour of a `:retry` map.
+If you're arriving from a re-frame v1 codebase with your own `:http` fx (or `re-frame-http-fx` / `re-frame-fetch-fx`), the mapping is mostly mechanical and [chapter 25 walks it](25-from-re-frame-v1.md#http-folds-onto-rfhttpmanaged). The short version: your hand-rolled success/failure events become the co-located `:rf/reply` branch (or explicit `:on-success` / `:on-failure`), your ad-hoc status strings become the closed `:rf.http/*` set, and the retry logic you hand-rolled in 2019 and nobody's dared touch since gets deleted in favour of a `:retry` map.
 
 ## The stakes, stated plainly
 

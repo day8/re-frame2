@@ -112,7 +112,7 @@ Default to `reg-cofx` for anything that names a generally-useful input (`:now`, 
 
 Both produce identical runtime behaviour for this event. The trade is per the rubric above — the inline form trades registry-id-addressability (and everything that flows from it) for one fewer indirection.
 
-Design decision: **rf2-bku5r**. The narrative treatment for humans is at [`docs/guide/06-coeffects.md`](../../../../docs/guide/06-coeffects.md) §When `reg-cofx` is overkill.
+Design decision: **rf2-bku5r**. The narrative treatment for humans is at [`docs/guide/07-effects-and-coeffects.md`](../../../../docs/guide/07-effects-and-coeffects.md) §When `reg-cofx` is overkill.
 
 ## Why coeffects instead of `(.-localStorage ...)` in the handler?
 
@@ -158,7 +158,7 @@ Two notes on the cofx body:
 
 There is deliberately **no `cofx-from-sub` shortcut helper** in `re-frame.core`. The five-line `reg-cofx` wrapper above is the canonical shape; collapsing it into a one-liner would imply that subscribing-inside-handlers is the rule and the wrap is the workaround, when it is the other way around.
 
-Narrative treatment of the same pattern (for humans): [`docs/guide/06-coeffects.md`](../../../../docs/guide/06-coeffects.md) §Reading a sub from a handler.
+Narrative treatment of the same pattern (for humans): [`docs/guide/07-effects-and-coeffects.md`](../../../../docs/guide/07-effects-and-coeffects.md) §Reading a sub from a handler.
 
 ## Common gotchas
 

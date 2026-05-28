@@ -115,7 +115,7 @@ Every registered Malli schema — `app-db` slot, sub return, event payload, cofx
 
 #### Flows (`l`)
 
-The registered [flows](../guide/25-from-re-frame-v1.md#flows--the-replacement-for-on-changes) catalogue — re-frame2's reactive-derivation primitive. Each flow's inputs, its derivation, its current value. Only populated if your app registers any.
+The registered [flows](../guide/25-from-re-frame-v1.md#on-changes-becomes-flows) catalogue — re-frame2's reactive-derivation primitive. Each flow's inputs, its derivation, its current value. Only populated if your app registers any.
 
 #### Interceptors (`i`)
 

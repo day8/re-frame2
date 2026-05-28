@@ -42,7 +42,7 @@ This chapter covers the registration shape, the dispatch / sub / fx surface, and
 | `:parent` | Another route id; builds a chain readable via `:rf.route/chain`. |
 | `:on-match` | Event vector(s) to dispatch when the route activates. |
 | `:on-error` | Event vector dispatched if any `:on-match` event errors. |
-| `:can-leave` | Predicate or guard event; blocks navigation when truthy. See [Guide ch.19 — Navigation blocking](../guide/19-routing.md#navigation-blocking--the-can-leave-protocol). |
+| `:can-leave` | Predicate or guard event; blocks navigation when truthy. See [Guide ch.19 — Navigation blocking](../guide/19-routing.md#blocking-navigation-the-can-leave-protocol). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
 
 Canonical detail in [012-Routing.md](../../spec/012-Routing.md); the metadata schema is [Spec-Schemas §`:rf/route-metadata`](../../spec/Spec-Schemas.md#rfroute-metadata).
@@ -137,7 +137,7 @@ The full `:rf/route` slice is `{:id :params :query :transition :error}`. The sta
 | `[:rf.nav/scroll scroll-spec]` | scroll-spec map | `:client` | Restore or set scroll position. |
 | `[:rf.route/with-nav-token {:do <fx-entry> :nav-token <token>}]` | universal | universal | Wrap an fx with a navigation token. If the token has been superseded by a later navigation, the wrapped fx is suppressed and `:rf.route.nav-token/stale-suppressed` fires. |
 
-The nav-token wrapper is what makes "user navigates away mid-load" safe: the older load's reply carries the stale token, the runtime suppresses it, and you don't see the older page's data overwrite the newer page's state. Full semantics in [Guide ch.19 — Navigation tokens](../guide/19-routing.md#navigation-tokens--stale-result-suppression).
+The nav-token wrapper is what makes "user navigates away mid-load" safe: the older load's reply carries the stale token, the runtime suppresses it, and you don't see the older page's data overwrite the newer page's state. Full semantics in [Guide ch.19 — Navigation tokens](../guide/19-routing.md#the-stale-result-problem-and-the-nav-token).
 
 ## See also
 

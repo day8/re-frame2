@@ -155,7 +155,9 @@ Plain Reagent `defn` functions also work as views, with no observable difference
 
 The tradeoff is real but small: plain views skip the registry introspection. For a tiny app, use whichever; `reg-view` is the safer default and the one the guide uses.
 
-## The mount: where the impurity is allowed to live {#initialisation}
+<a id="initialisation"></a>
+
+## The mount: where the impurity is allowed to live
 
 ```clojure
 (defonce root

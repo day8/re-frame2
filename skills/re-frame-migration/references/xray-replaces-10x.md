@@ -1,6 +1,6 @@
 # xray-replaces-10x
 
-The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Xray** (`day8/re-frame2-xray`). Xray is a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces — not a port of 10x. The mental model (events, subs, app-db diff, time-travel) carries over; the wiring underneath does not. See [`docs/guide/20-migration.md` §A note on the tooling](../../../docs/guide/20-migration.md#a-note-on-the-tooling) for the narrative version of this swap.
+The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Xray** (`day8/re-frame2-xray`). Xray is a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces — not a port of 10x. The mental model (events, subs, app-db diff, time-travel) carries over; the wiring underneath does not. See [`docs/guide/25-from-re-frame-v1.md` §The devtools moved house](../../../docs/guide/25-from-re-frame-v1.md#the-devtools-moved-house) for the narrative version of this swap.
 
 **This is not an M-rule.** No application code triggers it; it's a dev-build hygiene step the author runs alongside the M-0 coord swap. The skill performs it when the codebase's dep file holds a `day8.re-frame-10x` coord or a `day8.re-frame-10x.preload` `:preloads` entry.
 
@@ -151,7 +151,7 @@ Full panel inventory: [`tools/xray/spec/000-Vision.md`](../../../tools/xray/spec
 - [`tools/xray/README.md`](../../../tools/xray/README.md) — entry-point summary, spec index, file layout.
 - [`tools/xray/spec/API.md`](../../../tools/xray/spec/API.md) — the full user-facing surface (`configure!`, `popout!`, programmatic open/close, the layout-host contract, `--rf-xray-inline-width`).
 - [`tools/xray/spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md) — true-inline default + standalone-via-MCP for remote-attach scenarios.
-- [`docs/guide/20-migration.md` §A note on the tooling](../../../docs/guide/20-migration.md#a-note-on-the-tooling) — the narrative version of the 10x → Xray swap.
+- [`docs/guide/25-from-re-frame-v1.md` §The devtools moved house](../../../docs/guide/25-from-re-frame-v1.md#the-devtools-moved-house) — the narrative version of the 10x → Xray swap.
 
 ---
 

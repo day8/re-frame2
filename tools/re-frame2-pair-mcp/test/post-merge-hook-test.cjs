@@ -78,7 +78,7 @@ function runDetector(changedPaths) {
 {
   const r = runDetector(
     'tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/server.cljs\n' +
-    'docs/guide/26-config.md\n'
+    'docs/guide/24-config-and-safety.md\n'
   );
   assert(r.code === 0,                                                  'A: exit 0');
   assert(r.stdout === '',                                               'A: no stdout');
@@ -92,7 +92,7 @@ function runDetector(changedPaths) {
 // Case B: only non-MCP paths → silent.
 {
   const r = runDetector(
-    'docs/guide/26-config.md\n' +
+    'docs/guide/24-config-and-safety.md\n' +
     'tools/xray/src/foo.cljs\n' +
     'implementation/core/src/re_frame/views.cljs\n'
   );
@@ -250,7 +250,7 @@ function cleanup(dir) {
     const origHead = gitIn(dir, ['rev-parse', 'HEAD']).stdout.trim();
     fs.writeFileSync(path.join(dir, '.git', 'ORIG_HEAD'), origHead + '\n');
 
-    writeFile(dir, 'docs/guide/26-config.md', 'docs change\n');
+    writeFile(dir, 'docs/guide/24-config-and-safety.md', 'docs change\n');
     gitIn(dir, ['add', '.']);
     gitIn(dir, ['commit', '-qm', 'docs-only']);
 

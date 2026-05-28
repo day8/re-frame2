@@ -52,7 +52,7 @@ You learned the framework; now meet the tools that read its trace bus. These are
 
 - **[Xray](../xray/index.md)** — re-frame2's in-app inspection panel, the cascade you can *see*. It renders the framework's own trace bus and epoch buffer into a stack of live panels: every event, sub-run, effect, render, machine transition, app-db diff, and time-travel scrub, scoped per frame. It's the v2 successor to v1's `re-frame-10x` — reimplemented from scratch, not ported (see [chapter 25](25-from-re-frame-v1.md)). Start at [Xray — Welcome](../xray/index.md) and read top-to-bottom.
 - **[Story](../story/index.md)** — a frame-aware component playground, Storybook-flavoured but built on re-frame2's own primitives. The [Story tutorial](../story/index.md) walks the surface; `counter_with_stories` is the worked example.
-- **The pair tool** — re-frame2-pair-mcp, the MCP surface that lets an AI agent attach to your *running* app: inspect a frame's app-db, dispatch events, hot-swap handlers, read the trace stream, and time-travel. The [`re-frame2-pair` skill](#put-an-ai-agent-to-work) (below) is how you drive it.
+- **The pair tool** — re-frame2-pair-mcp, the MCP surface that lets an AI agent attach to your *running* app: inspect a frame's app-db, dispatch events, hot-swap handlers, read the trace stream, and time-travel. The [`re-frame2-pair` skill](#put-an-ai-agent-to-work--the-skills) (below) is how you drive it.
 
 ## Put an AI agent to work — the skills
 
