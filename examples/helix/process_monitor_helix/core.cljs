@@ -43,17 +43,17 @@
    {:id :legacy     :name "legacy-export"  :status :down    :cpu  0.0 :mem   0  :pid 13294}])
 
 (def initial-logs
-  [{:t 0  :pid 13287 :lvl :info  :msg "GET / 200 14ms"}
-   {:t 1  :pid 13288 :lvl :info  :msg "POST /v1/users 201 38ms"}
-   {:t 2  :pid 13291 :lvl :warn  :msg "queue depth high: 412 jobs pending"}
-   {:t 3  :pid 13289 :lvl :info  :msg "checkpoint complete (2.4G, 184ms)"}
-   {:t 4  :pid 13288 :lvl :info  :msg "GET /v1/orders 200 22ms"}
-   {:t 5  :pid 13294 :lvl :error :msg "connection refused: legacy-export → s3"}
-   {:t 6  :pid 13287 :lvl :info  :msg "GET /static/main.css 304 4ms"}
-   {:t 7  :pid 13292 :lvl :info  :msg "indexed 144 docs (412ms)"}
-   {:t 8  :pid 13290 :lvl :info  :msg "cache hit rate 94.2%"}
-   {:t 9  :pid 13288 :lvl :info  :msg "POST /v1/auth/login 200 51ms"}
-   {:t 10 :pid 13291 :lvl :warn  :msg "worker pool saturated 8/8"}])
+  [{:tick 0  :pid 13287 :level :info  :msg "GET / 200 14ms"}
+   {:tick 1  :pid 13288 :level :info  :msg "POST /v1/users 201 38ms"}
+   {:tick 2  :pid 13291 :level :warn  :msg "queue depth high: 412 jobs pending"}
+   {:tick 3  :pid 13289 :level :info  :msg "checkpoint complete (2.4G, 184ms)"}
+   {:tick 4  :pid 13288 :level :info  :msg "GET /v1/orders 200 22ms"}
+   {:tick 5  :pid 13294 :level :error :msg "connection refused: legacy-export → s3"}
+   {:tick 6  :pid 13287 :level :info  :msg "GET /static/main.css 304 4ms"}
+   {:tick 7  :pid 13292 :level :info  :msg "indexed 144 docs (412ms)"}
+   {:tick 8  :pid 13290 :level :info  :msg "cache hit rate 94.2%"}
+   {:tick 9  :pid 13288 :level :info  :msg "POST /v1/auth/login 200 51ms"}
+   {:tick 10 :pid 13291 :level :warn  :msg "worker pool saturated 8/8"}])
 
 ;; ============================================================================
 ;; EVENTS
@@ -70,32 +70,34 @@
 
 (rf/reg-event-fx :monitor/tick
   (fn [{:keys [db]} _event]
-    (let [t   (:monitor/clock db)
-          procs (:monitor/processes db)
-          ;; Pick a random process for the synthetic log line.
-          proc  (nth procs (mod t (count procs)))
-          lvl   (cond
-                  (= :down (:status proc))    :error
-                  (and (= :warn (:status proc))
-                       (zero? (mod t 3)))      :warn
-                  (zero? (mod t 7))            :warn
-                  :else                        :info)
-          phrases [(str "GET /v1/" (name (:id proc)) " 200 " (+ 8 (mod t 40)) "ms")
-                   (str "POST /v1/" (name (:id proc)) "/event 202 " (+ 12 (mod t 30)) "ms")
-                   (str "queue " (:name proc) " depth=" (mod t 50))
-                   (str "checkpoint " (:name proc) " " (+ 100 (mod t 200)) "ms")]
-          msg   (nth phrases (mod t (count phrases)))
-          new   {:t t :pid (:pid proc) :lvl lvl :msg msg}]
+    (let [tick      (:monitor/clock db)
+          processes (:monitor/processes db)
+          ;; Pick a process round-robin for the synthetic log line.
+          process   (nth processes (mod tick (count processes)))
+          level     (cond
+                      (= :down (:status process))     :error
+                      (and (= :warn (:status process))
+                           (zero? (mod tick 3)))      :warn
+                      (zero? (mod tick 7))            :warn
+                      :else                           :info)
+          phrases [(str "GET /v1/" (name (:id process)) " 200 " (+ 8 (mod tick 40)) "ms")
+                   (str "POST /v1/" (name (:id process)) "/event 202 " (+ 12 (mod tick 30)) "ms")
+                   (str "queue " (:name process) " depth=" (mod tick 50))
+                   (str "checkpoint " (:name process) " " (+ 100 (mod tick 200)) "ms")]
+          msg       (nth phrases (mod tick (count phrases)))
+          new-entry {:tick tick :pid (:pid process) :level level :msg msg}]
       {:db (-> db
                (update :monitor/logs (fn [logs]
-                                       (vec (take-last 60 (conj logs new)))))
+                                       (vec (take-last 60 (conj logs new-entry)))))
                (update :monitor/clock inc))
        :fx [[:dispatch-later {:ms 1800 :event [:monitor/tick]}]]})))
 
 (rf/reg-event-db :monitor/toggle-level
-  (fn [db [_ lvl]]
+  (fn [db [_ level]]
     (update db :monitor/level-filter
-            (fn [s] (if (contains? s lvl) (disj s lvl) (conj s lvl))))))
+            (fn [levels] (if (contains? levels level)
+                           (disj levels level)
+                           (conj levels level))))))
 
 (rf/reg-event-db :monitor/select-process
   (fn [db [_ id]]
@@ -120,24 +122,24 @@
 
 (rf/reg-sub :monitor/totals
   :<- [:monitor/processes]
-  (fn [procs _]
-    {:running (count (filter #(= :running (:status %)) procs))
-     :warn    (count (filter #(= :warn (:status %)) procs))
-     :down    (count (filter #(= :down (:status %)) procs))
-     :cpu     (reduce + 0 (map :cpu procs))
-     :mem     (reduce + 0 (map :mem procs))}))
+  (fn [processes _]
+    {:running (count (filter #(= :running (:status %)) processes))
+     :warn    (count (filter #(= :warn (:status %)) processes))
+     :down    (count (filter #(= :down (:status %)) processes))
+     :cpu     (reduce + 0 (map :cpu processes))
+     :mem     (reduce + 0 (map :mem processes))}))
 
 (rf/reg-sub :monitor/visible-logs
   :<- [:monitor/logs]
   :<- [:monitor/level-filter]
   :<- [:monitor/selected]
   :<- [:monitor/processes]
-  (fn [[logs lvls sel procs] _]
-    (let [sel-pid (when sel
-                    (some #(when (= (:id %) sel) (:pid %)) procs))]
+  (fn [[logs levels selected processes] _]
+    (let [selected-pid (when selected
+                         (some #(when (= (:id %) selected) (:pid %)) processes))]
       (->> logs
-           (filter #(contains? lvls (:lvl %)))
-           (filter #(or (nil? sel-pid) (= (:pid %) sel-pid)))
+           (filter #(contains? levels (:level %)))
+           (filter #(or (nil? selected-pid) (= (:pid %) selected-pid)))
            (take-last 40)
            reverse))))
 
@@ -151,29 +153,29 @@
     (d/div {:class "pm-tile-value"} value)))
 
 (defnc tiles []
-  (let [t (helix-adapter/use-subscribe [:monitor/totals])]
+  (let [totals (helix-adapter/use-subscribe [:monitor/totals])]
     (d/div {:class "pm-tiles"}
-      ($ tile {:label "Running" :value (:running t) :tone :good})
-      ($ tile {:label "Warning" :value (:warn t)    :tone :warn})
-      ($ tile {:label "Down"    :value (:down t)    :tone :bad})
-      ($ tile {:label "Σ CPU"   :value (str (.toFixed (:cpu t) 1) "%")})
-      ($ tile {:label "Σ MEM"   :value (str (:mem t) "M")}))))
+      ($ tile {:label "Running" :value (:running totals) :tone :good})
+      ($ tile {:label "Warning" :value (:warn    totals) :tone :warn})
+      ($ tile {:label "Down"    :value (:down    totals) :tone :bad})
+      ($ tile {:label "Σ CPU"   :value (str (.toFixed (:cpu totals) 1) "%")})
+      ($ tile {:label "Σ MEM"   :value (str (:mem totals) "M")}))))
 
 (defnc level-chips []
   (let [active   (helix-adapter/use-subscribe [:monitor/level-filter])
         dispatch (rf/dispatcher)]
     (d/div {:class "pm-chips"}
-      (for [lvl [:info :warn :error]]
-        (d/button {:key   (name lvl)
-                   :class (str "pm-chip pm-chip-" (name lvl)
-                               (when (contains? active lvl) " is-on"))
-                   :data-testid (str "monitor-chip-" (name lvl))
-                   :on-click #(dispatch [:monitor/toggle-level lvl])}
-          (name lvl))))))
+      (for [level [:info :warn :error]]
+        (d/button {:key   (name level)
+                   :class (str "pm-chip pm-chip-" (name level)
+                               (when (contains? active level) " is-on"))
+                   :data-testid (str "monitor-chip-" (name level))
+                   :on-click #(dispatch [:monitor/toggle-level level])}
+          (name level))))))
 
-(defnc process-row [{:keys [p selected?]}]
+(defnc process-row [{:keys [process selected?]}]
   (let [dispatch (rf/dispatcher)
-        {:keys [id status cpu mem pid] proc-name :name} p
+        {:keys [id status cpu mem pid] process-name :name} process
         cpu-pct (min 100 cpu)]
     (d/li {:class (str "pm-row"
                        " pm-row-" (name status)
@@ -181,7 +183,7 @@
            :data-testid (str "monitor-row-" (name id))
            :on-click #(dispatch [:monitor/select-process id])}
       (d/span {:class (str "pm-dot pm-dot-" (name status))})
-      (d/span {:class "pm-row-name"} proc-name)
+      (d/span {:class "pm-row-name"} process-name)
       (d/span {:class "pm-row-pid"} (str "[" pid "]"))
       (d/div  {:class "pm-row-meter"}
         (d/div {:class "pm-row-bar"
@@ -190,24 +192,26 @@
       (d/span {:class "pm-row-mem"} (str mem "M")))))
 
 (defnc process-list []
-  (let [procs (helix-adapter/use-subscribe [:monitor/processes])
-        sel   (helix-adapter/use-subscribe [:monitor/selected])]
-    (d/section {:class "pm-pane pm-pane-procs"}
+  (let [processes (helix-adapter/use-subscribe [:monitor/processes])
+        selected  (helix-adapter/use-subscribe [:monitor/selected])]
+    (d/section {:class "pm-pane pm-pane-processes"}
       (d/header {:class "pm-pane-head"}
         (d/h3 "processes")
         (d/span {:class "pm-pane-hint"} "click to filter logs"))
       (d/ul {:class "pm-list"
              :data-testid "monitor-process-list"}
-        (for [p procs]
-          ($ process-row {:key (:id p) :p p :selected? (= sel (:id p))}))))))
+        (for [process processes]
+          ($ process-row {:key       (:id process)
+                          :process   process
+                          :selected? (= selected (:id process))}))))))
 
-(defnc log-row [{:keys [e]}]
-  (let [{:keys [t pid lvl msg]} e]
-    (d/li {:class (str "pm-log pm-log-" (name lvl))}
-      (d/span {:class "pm-log-t"}   (str "t=" t))
-      (d/span {:class "pm-log-pid"} (str "[" pid "]"))
-      (d/span {:class (str "pm-log-lvl pm-log-lvl-" (name lvl))} (name lvl))
-      (d/span {:class "pm-log-msg"} msg))))
+(defnc log-row [{:keys [entry]}]
+  (let [{:keys [tick pid level msg]} entry]
+    (d/li {:class (str "pm-log pm-log-" (name level))}
+      (d/span {:class "pm-log-tick"}  (str "t=" tick))
+      (d/span {:class "pm-log-pid"}   (str "[" pid "]"))
+      (d/span {:class (str "pm-log-level pm-log-level-" (name level))} (name level))
+      (d/span {:class "pm-log-msg"}   msg))))
 
 (defnc log-stream []
   (let [entries (helix-adapter/use-subscribe [:monitor/visible-logs])]
@@ -217,8 +221,9 @@
         ($ level-chips))
       (d/ul {:class "pm-loglist"
              :data-testid "monitor-log-list"}
-        (for [e entries]
-          ($ log-row {:key (str (:t e) "-" (:pid e)) :e e}))))))
+        (for [entry entries]
+          ($ log-row {:key   (str (:tick entry) "-" (:pid entry))
+                      :entry entry}))))))
 
 (defnc monitor []
   (d/div {:class "pm-shell"}
