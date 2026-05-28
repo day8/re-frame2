@@ -70,9 +70,11 @@ clojure -Tnew create \
 | `:substrate` | no | One of `:reagent` `:uix` `:helix`. | `:reagent` |
 | `:include-story?` | no | When `true`, scaffolds the Story playground alongside the live app — adds the `day8/re-frame2-story` coord, emits `src/.../stories.cljs`, and swaps the entry `core.cljs` for the hash-routing `core_with_stories.cljs` variant. **Reagent only in v1** — non-Reagent substrates throw a clear error (UIx + Helix follow once those variants' app-shells catch up to Reagent's). | `false` |
 
-`:substrate` accepts a keyword, a string (with or without leading
-`:`), or a symbol. The template coerces to a keyword internally.
-Anything not in the valid set throws.
+`:substrate` accepts only a keyword (or omission, which defaults
+to `:reagent`). Anything else — string, symbol, number, … — throws
+with a clear message naming the valid set. See
+[DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for why the earlier
+forgiving-input posture was tightened (rf2-h0imw).
 
 `:include-story?` accepts `true` / `false` / `nil`; anything else
 throws. The branching exception is justified in
@@ -142,7 +144,7 @@ mirror the chosen `:substrate` + `:include-story?` flags.
 
 | Condition | Error keyword | Behaviour |
 |---|---|---|
-| `:substrate` not one of `#{:reagent :uix :helix}` | `:rf.error/template-substrate-must-be-one-of` (keyword arg outside the valid set) / `:rf.error/template-unrecognised-substrate` (non-keyword/string/symbol shape) | `ex-info` thrown; message names the valid set; `ex-data` carries `{:substrate <bad-value> :valid #{...}}`. |
+| `:substrate` not one of `#{:reagent :uix :helix}` | `:rf.error/template-substrate-must-be-one-of` (keyword arg outside the valid set) / `:rf.error/template-substrate-must-be-keyword` (non-keyword shape — string, symbol, number, …) | `ex-info` thrown; message names the valid set; `ex-data` carries `{:substrate <bad-value> :valid #{...}}`. |
 | `:include-story?` not `true` / `false` / `nil` | `:rf.error/template-bad-include-story-flag` | `ex-info` thrown; message gives the offending value. |
 | `:include-story? true` with non-Reagent substrate | `:rf.error/template-include-story-reagent-only` | `ex-info` thrown; message says "Reagent-only in v1" and names the chosen substrate. |
 | `:name` missing | n/a (deps-new) | deps-new's harness rejects before template is invoked. |

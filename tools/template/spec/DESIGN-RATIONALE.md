@@ -314,28 +314,43 @@ are nice-to-have signals; the harder contract is the file-tree
 shape + the static-parse framework-surface audit + the
 version-lockstep guards.
 
-## §8 — Forgiving substrate coercion
+## §8 — Strict substrate coercion (keyword-only)
 
-**Decision.** `coerce-substrate` accepts keyword, string (with or
-without leading `:`), symbol; throws on anything else.
+**Decision.** `coerce-substrate` accepts only a keyword (or nil,
+which defaults to `:reagent`). String, symbol, and any other shape
+throws with a clear message naming the valid set.
 
-**Why.**
+**History.** This tightened from a forgiving-input posture
+(kw/string/symbol all accepted) to keyword-only in rf2-h0imw, on the
+back of the rf2-c8tmc first-principles audit (Finding #3 / §D5). The
+earlier forgiving posture was defensive against shell quoting
+variance that — in deps-new's actual k/v contract — does not happen:
+deps-new passes top-level args through as Clojure values, so a
+keyword on the CLI reaches `data-fn` as a keyword. The
+multi-form branch was guarding against a problem the contract
+already rules out.
 
-- **The Clojure CLI ecosystem hands keywords through
-  inconsistently across shells.** On some shells / OSes,
-  `:substrate :uix` reaches the template as the keyword `:uix`;
-  on others, as the string `":uix"`; in some setups, with the
-  leading colon stripped; occasionally as a symbol.
-- **Coercion is cheap.** A six-line `cond` covers all four cases.
-  No reason to make the user fight quoting.
-- **Strict on the value set.** Any input that maps to a keyword
-  outside `#{:reagent :uix :helix}` throws with a clear message
-  naming the valid set. The user sees the typo and fixes it.
+**Why keyword-only.**
 
-The inverse — strict on input shape, forgiving on value set
-(silent fallback to default) — would be worse: a typo silently
-delivers the Reagent variant instead of the requested UIx, and
-the user finds out at `shadow-cljs watch app` time.
+- **deps-new's contract is sharp.** `clojure -Tnew create
+  :substrate :uix` arrives at `data-fn`'s `data` map as `{:substrate
+  :uix}` — a keyword. The forgiving branches existed for a clj-new-era
+  invocation shape that no longer applies. (No string/symbol input
+  has ever been observed in the deps-new tests; the branches were
+  dead defensiveness.)
+- **Pre-alpha SOTA-masterpiece posture.** Narrow contracts catch
+  registration errors earlier and read more honestly. The contract
+  is now: pass a keyword, get a result; pass anything else, get a
+  clear error.
+- **Strict on the value set is unchanged.** Any keyword outside
+  `#{:reagent :uix :helix}` throws with a clear message naming the
+  valid set. The user sees the typo and fixes it.
+
+**Why not keep the forgiving posture.** The inverse — strict on
+value set, forgiving on input shape — sounded ergonomic in
+principle, but in practice deps-new never delivers a non-keyword,
+so the forgiving paths were untested code that papered over no real
+input. Removing them aligns the code with the actual contract.
 
 ## §9 — Xray on by default (rf2-y9zqc)
 

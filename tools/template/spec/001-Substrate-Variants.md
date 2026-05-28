@@ -45,22 +45,25 @@ substrate.
 
 ## Substrate coercion
 
-The template accepts the substrate arg as a keyword, a string (with
-or without leading `:`), or a symbol — across shells and tooling
-ecosystems the args round-trip through `-Tnew` slightly differently,
-and tolerating all three keeps the command line forgiving:
+The template requires the substrate arg as a keyword. deps-new's
+top-level k/v contract guarantees the value reaches `data-fn` as a
+keyword, so the template does not accept stringified or symbol forms
+— passing one is a registration error and throws with a clear
+message naming the valid set:
 
 ```clojure
 (coerce-substrate :uix)        ;; => :uix
-(coerce-substrate "uix")       ;; => :uix
-(coerce-substrate ":uix")      ;; => :uix
-(coerce-substrate 'uix)        ;; => :uix
 (coerce-substrate :unknown)    ;; => throws — clear message
 (coerce-substrate nil)         ;; => :reagent (default)
+(coerce-substrate "uix")       ;; => throws — must be a keyword
+(coerce-substrate 'uix)        ;; => throws — must be a keyword
 ```
 
-Anything not in `#{:reagent :uix :helix}` throws an `ex-info` with
-the offending value and the set of valid substrates in `ex-data`.
+Anything not in `#{:reagent :uix :helix}` (or anything not a keyword)
+throws an `ex-info` with the offending value and the set of valid
+substrates in `ex-data`. This tightening (rf2-h0imw) replaces the
+earlier kw/string/symbol forgiving-input posture; see
+[DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for the rationale.
 
 ## What each variant emits
 
