@@ -1,4 +1,4 @@
-# Pattern — NineStates
+# Pattern — Nine States
 
 A page-level rendering convention that makes every legal UI state explicit and testable. The page's render axes are modelled as **parallel regions** of a single `reg-machine`, each region's states carry **tags**, and one **selector sub** consults a **render-priority** table to pick the single render-model keyword the root view's `case` branches on.
 

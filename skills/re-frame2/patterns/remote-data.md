@@ -1,4 +1,4 @@
-# Pattern — RemoteData
+# Pattern — Remote Data
 
 The standard request-lifecycle convention. A 5-key slice (or one machine region) tracks **status / data / error / loaded-at / attempt**, and four events drive the lifecycle (**load / loaded / load-failed / reset**). The load-bearing distinction is `:loading` (truly empty, first fetch) vs `:fetching` (revalidate with existing data) — they look identical to a careless UI but feel very different to a user.
 
