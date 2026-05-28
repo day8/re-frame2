@@ -25,7 +25,7 @@
         - dispatches the parent join event via `:fx [[:dispatch ...]]`.
    7. Writes the new join state back into app-db.
 
-  The interceptor's public entry point is `intercept-invoke-all-event`;
+  The interceptor's public entry point is `intercept-spawn-all-event`;
   the handler-factory in `re-frame.machines.lifecycle-fx.registration`
   routes every inbound event through it before the machine's normal `:on`
   lookup."
@@ -36,8 +36,8 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defn- find-active-invoke-all-in-tree
-  "Helper for `find-active-invoke-all`. Given a machine-like map with
+(defn- find-active-spawn-all-in-tree
+  "Helper for `find-active-spawn-all`. Given a machine-like map with
   `:states` (for a non-parallel machine, the machine itself; for a
   region of a parallel machine, the region body) and a path inside
   that tree, walk leaf→root for a `:spawn-all`-bearing state whose
@@ -54,7 +54,7 @@
           (= inner-event-id (:on-child-error ia))
           {:spawn-id prefix :spec ia :kind :failed})))))
 
-(defn- find-active-invoke-all
+(defn- find-active-spawn-all
   "Walk the snapshot's `:state` path leaf→root looking for an
   `:spawn-all`-bearing state whose `:on-child-done` or `:on-child-error`
   matches the given inner-event-id. Returns
@@ -64,21 +64,21 @@
   Per Spec 005 §Parallel regions (rf2-l67o): for parallel-region
   machines, iterates each region's active state-tree (prefixing the
   region name onto the resolved `:spawn-id`, matching the per-region
-  scoping `prefix-region-invoke-id` applies on the entry-side)."
+  scoping `prefix-region-spawn-id` applies on the entry-side)."
   [machine snapshot inner-event-id]
   (cond
     (parallel/parallel? machine)
     (some (fn [[region-name region-state]]
             (let [region-body (parallel/region-machine machine region-name)
                   region-path (transition/state-path region-state)
-                  match       (find-active-invoke-all-in-tree
+                  match       (find-active-spawn-all-in-tree
                                 region-body region-path inner-event-id)]
               (when match
                 (update match :spawn-id #(vec (cons region-name %))))))
           (:state snapshot))
 
     :else
-    (find-active-invoke-all-in-tree machine (transition/state-path (:state snapshot)) inner-event-id)))
+    (find-active-spawn-all-in-tree machine (transition/state-path (:state snapshot)) inner-event-id)))
 
 (defn- join-condition-met?
   "Evaluate the join condition against the current join state.
@@ -225,7 +225,7 @@
             [[:dispatch [parent-id inner]]]))]
     (vec (concat (or cancel-fx []) (or dispatch-fx [])))))
 
-(defn intercept-invoke-all-event
+(defn intercept-spawn-all-event
   "Per Spec 005 §Child completion protocol (rf2-6vmw). When the parent's
   handler receives an event whose inner event-id matches the active
   `:spawn-all`-bearing state's `:on-child-done` / `:on-child-error`,
@@ -238,7 +238,7 @@
   destroys + the join-event dispatch)."
   [machine db _path snapshot parent-id inner-event]
   (let [inner-id (first inner-event)
-        match    (find-active-invoke-all machine snapshot inner-id)
+        match    (find-active-spawn-all machine snapshot inner-id)
         ;; Per rf2-ko8jb: resolve the live frame from the runtime-stamped
         ;; machine (registration.cljc/prepare-machine-ctx assoc'd
         ;; `:rf/frame` before handing the machine to the interceptor).

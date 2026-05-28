@@ -373,7 +373,7 @@
 
 ;; ---- late-completion safety net (rf2-1tt9q) -----------------------------
 ;;
-;; intercept-invoke-all-event has a post-resolution branch (join.cljc:134-141)
+;; intercept-spawn-all-event has a post-resolution branch (join.cljc:134-141)
 ;; that fires when a child-done event arrives AFTER the join already
 ;; resolved. The contract surface is the :rf.machine.spawn-all/late-completion
 ;; trace — the return-value is a no-op {:db db :fx []}.
@@ -437,7 +437,7 @@
 
 ;; ---- forged child-id rejection (rf2-ns8ut) ------------------------------
 ;;
-;; intercept-invoke-all-event must verify the inbound `child-id` is one
+;; intercept-spawn-all-event must verify the inbound `child-id` is one
 ;; of the parent's spawned children before mutating the join state.
 ;; Otherwise a hand-crafted dispatch (typo, copy-paste from a sibling
 ;; :spawn-all, cascaded event from another parent) silently folds an

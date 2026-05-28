@@ -4,7 +4,7 @@
 
   Before rf2-iilco the explicit / declarative-`:spawn` destroy
   (`destroy-single!`) and the `:spawn-all` per-child teardown
-  (`destroy-invoke-all-children!`) emitted `:rf.machine/destroyed`
+  (`destroy-spawn-all-children!`) emitted `:rf.machine/destroyed`
   BEFORE running `run-child-exit!`, while the final-state auto-destroy
   (`finalize-machine`) emitted it AFTER the cascade. A consumer keying
   on `:rf.machine/destroyed` therefore saw the destroy signal at a
@@ -96,7 +96,7 @@
             "declarative :spawn exit cascade emits :exit then :destroyed")
         (finally (unreg))))))
 
-;; ---- Path 2: :spawn-all per-child teardown (destroy-invoke-all-children!) --
+;; ---- Path 2: :spawn-all per-child teardown (destroy-spawn-all-children!) --
 
 (deftest destroyed-after-exit-on-invoke-all-teardown
   (testing ":spawn-all per-child teardown fires each :exit BEFORE its :destroyed"

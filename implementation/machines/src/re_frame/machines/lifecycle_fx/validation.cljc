@@ -9,8 +9,8 @@
   in this namespace are:
 
     - `validate-parallel!` — `:type :parallel` shape (rf2-l67o).
-    - `validate-invoke-all!` — `:spawn-all` shape (rf2-6vmw).
-    - `validate-no-invoke-timeout-ms!` — rejects the dropped
+    - `validate-spawn-all!` — `:spawn-all` shape (rf2-6vmw).
+    - `validate-no-spawn-timeout-ms!` — rejects the dropped
       `:timeout-ms` / `:on-timeout` slots on `:spawn` / `:spawn-all`
       (rf2-3y3y).
     - `validate-final-state!` — `:final?` shape (rf2-gn80).
@@ -55,7 +55,7 @@
                     :reason      reason}
                    extras))))
 
-(defn- validate-no-invoke-timeout-ms!
+(defn- validate-no-spawn-timeout-ms!
   "Per rf2-3y3y / Spec 005 §Wall-clock timeouts on :spawn — use parent
   state's `:after`, the pre-release `:timeout-ms` / `:on-timeout` slots
   on `:spawn` and `:spawn-all` are DROPPED."
@@ -80,13 +80,13 @@
                     :on-timeout ot
                     :migration  "migration/from-re-frame-v1/README.md §M-44"})))))))
 
-(defn- validate-invoke-all!
+(defn- validate-spawn-all!
   "Per Spec 005 §Spawn-and-join via `:spawn-all` (rf2-6vmw): walk the
   state tree at registration time and reject malformed `:spawn-all`
   declarations.
 
   Three error categories:
-    - `:rf.error/machine-spawn-all-bad-shape` — a child invoke-spec is
+    - `:rf.error/machine-spawn-all-bad-shape` — a child spawn-spec is
       missing `:id`; or `:spawn-all` is not a vector; or the join-event
       slots are missing per the required-iff rules; or no `:machine-id`
       / `:definition`.
@@ -105,7 +105,7 @@
       (when-not (map? inv-all)
         (throw (validation-error
                  :rf.error/machine-spawn-all-bad-shape
-                 "invoke-all slot must be a map"
+                 ":spawn-all slot must be a map"
                  {:state state-key})))
       (let [children (:children inv-all)]
         (when-not (and (vector? children) (seq children))
@@ -117,13 +117,13 @@
           (when-not (and (map? c) (keyword? (:id c)))
             (throw (validation-error
                      :rf.error/machine-spawn-all-bad-shape
-                     "each child invoke-spec must declare an :id keyword"
+                     "each child spawn-spec must declare an :id keyword"
                      {:state state-key
                       :child c})))
           (when-not (or (:machine-id c) (:definition c))
             (throw (validation-error
                      :rf.error/machine-spawn-all-bad-shape
-                     "each child invoke-spec must declare :machine-id or :definition"
+                     "each child spawn-spec must declare :machine-id or :definition"
                      {:state state-key
                       :child c}))))
         (let [ids (map :id children)]
@@ -478,8 +478,8 @@
   (validate-no-history! machine)
   (validate-parallel! machine)
   (doseq [[s n] (walk-state-nodes machine)]
-    (validate-invoke-all! s n)
-    (validate-no-invoke-timeout-ms! s n)
+    (validate-spawn-all! s n)
+    (validate-no-spawn-timeout-ms! s n)
     (validate-final-state! s n)
     (validate-compound-initial! s n))
   ;; The self-loop check needs each declaring node's absolute path to

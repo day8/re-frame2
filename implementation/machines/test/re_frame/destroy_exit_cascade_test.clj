@@ -13,7 +13,7 @@
        fired by `apply-transition-once` when the exit cascade crosses
        a `:spawn`-bearing state).
     3. `:spawn-all` per-child teardown (parent cascade tears children
-       down through `destroy-invoke-all-children!`).
+       down through `destroy-spawn-all-children!`).
     4. Final-state auto-destroy (child enters `:final?`; `finalize-
        machine` runs the cascade).
 

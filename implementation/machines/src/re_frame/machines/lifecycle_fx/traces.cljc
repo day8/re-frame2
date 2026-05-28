@@ -28,7 +28,7 @@
   :child-id :reason}`. Callers pass only the slots their site populates
   — `nil` values are stamped through, matching pre-consolidation
   behaviour (e.g. `destroy-single!` always stamps `:system-id`, even
-  when nil; `destroy-invoke-all-children!` per-child fires omit
+  when nil; `destroy-spawn-all-children!` per-child fires omit
   `:system-id` by NOT passing the key).
 
   `reason` is the discriminator — `:explicit` for direct-destroy

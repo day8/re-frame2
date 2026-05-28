@@ -84,7 +84,7 @@
              (transition/final-state-node? leaf-node)))
          state)))
 
-(defn- find-invoke-spec-at
+(defn- find-spawn-spec-at
   "Walk `parent-spec`'s state tree to the node at `invoke-id` (the
   absolute prefix-path stamped at spawn time) and return that node's
   `:spawn` map. For a parallel-region parent, the first element of
@@ -179,9 +179,9 @@
         parent-meta (when parent-id
                       (let [m (registrar/lookup :event parent-id)]
                         (when (:rf/machine? m) (:rf/machine m))))
-        invoke-spec (when (and parent-meta invoke-id)
-                      (find-invoke-spec-at parent-meta invoke-id))
-        on-done-fn  (:on-done invoke-spec)
+        spawn-spec  (when (and parent-meta invoke-id)
+                      (find-spawn-spec-at parent-meta invoke-id))
+        on-done-fn  (:on-done spawn-spec)
         parent-path [:rf/runtime :machines :snapshots parent-id]
         ;; (2) Emit `:rf.machine/done` trace BEFORE the destroy cascade
         ;; (D6 ordering).

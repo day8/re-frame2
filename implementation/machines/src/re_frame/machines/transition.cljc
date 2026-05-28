@@ -460,7 +460,7 @@
   (let [[_ delay-key carried-epoch raw-carried-decl-path] event
         region        (:rf/region machine)
         ;; Per Spec 005 §Per-region :after scoping: the runtime carries a
-        ;; region-name-prefixed decl-path (`prefix-region-invoke-id`) for
+        ;; region-name-prefixed decl-path (`prefix-region-spawn-id`) for
         ;; timers scheduled inside a parallel region. Within a region's
         ;; `pick-after-transition` the active path is in-region, so strip
         ;; the region-name head. A carried path naming a DIFFERENT region
@@ -968,7 +968,7 @@
 
 ;; ---- :spawn / :spawn-all spawn reducers ----------------------------------
 
-(defn- handle-invoke-spawn
+(defn- handle-spawn-decl
   "Handle the `:spawn` branch of the spawn reducer in
   `apply-transition-once`. Allocates one spawned-id, delegates the
   `:data` materialisation and spawn-args assembly to `spawn-one`, then
@@ -996,7 +996,7 @@
             s'       (apply-on-spawn machine s-alloc inv id)]
         [s' (into acc-fx spawn-fx)]))))
 
-(defn- handle-invoke-all-spawn
+(defn- handle-spawn-all-decl
   "Handle the `:spawn-all` branch of the spawn reducer in
   `apply-transition-once`. Per Spec 005 §Spawn-and-join via `:spawn-all`
   (rf2-6vmw), `:spawn-all` is spawn-and-join sugar over N parallel
@@ -1125,8 +1125,8 @@
 
   Returns a `re-frame.machines.result/Result` — a `result/ok` carrying
   the post-cascade snapshot + accumulated fx, or a `result/fail` if any
-  `:exit` action threw. Callers (destroy / finalize / invoke-all child
-  teardown) emit a `[:rf.machine/bootstrap-exit]` synthetic event so
+  `:exit` action threw. Callers (destroy / finalize / `:spawn-all` per-
+  child teardown) emit a `[:rf.machine/bootstrap-exit]` synthetic event so
   3-arity `:exit` fns that introspect the event see a discriminator
   distinguishing destroy-time exit from transition-driven exit.
 
@@ -1169,9 +1169,9 @@
 ;;                            any exited/entered node carries `:after`.
 ;;
 ;;   run-spawn-phase        — reduce over `entered-pairs` dispatching to
-;;                            `handle-invoke-spawn` / `handle-invoke-all-
-;;                            spawn`. Threads snapshot + acc-fx; short-
-;;                            circuits to `result/fail` on `:data`-fn throws.
+;;                            `handle-spawn-decl` / `handle-spawn-all-decl`.
+;;                            Threads snapshot + acc-fx; short-circuits to
+;;                            `result/fail` on `:data`-fn throws.
 
 (defn- compute-cascade-paths
   "Phase 1 — derive the transition's geometry. Returns a map with:
@@ -1330,10 +1330,10 @@
                    (fn [[s acc-fx] [prefix n]]
                      (cond
                        (:spawn n)
-                       (handle-invoke-spawn machine parent-id s acc-fx prefix n event)
+                       (handle-spawn-decl machine parent-id s acc-fx prefix n event)
 
                        (:spawn-all n)
-                       (handle-invoke-all-spawn machine parent-id s acc-fx prefix n event)
+                       (handle-spawn-all-decl machine parent-id s acc-fx prefix n event)
 
                        :else
                        [s acc-fx]))
