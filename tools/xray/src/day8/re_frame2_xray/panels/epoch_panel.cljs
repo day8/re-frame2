@@ -201,7 +201,7 @@
   ;;                  edn-inspector widget; no BEFORE comparison.
   ;; - `:full+diff` — combined lens (mode-3): AFTER value via the
   ;;                  edn-inspector with BEFORE threaded as the diff
-  ;;                  pre-image so inline `← changed from X`
+  ;;                  pre-image so inline `← was X`
   ;;                  annotations paint. Default per pair-debug
   ;;                  2026-05-27.
   ;;

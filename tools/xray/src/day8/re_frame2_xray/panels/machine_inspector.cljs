@@ -632,7 +632,7 @@
   - `:full`      — render the AFTER snapshot with no `:before` (plain
                    browse).
   - `:full+diff` — render the AFTER snapshot with `:before` threaded
-                   so changed leaves carry inline `← changed from X`
+                   so changed leaves carry inline `← was X`
                    annotations + row chrome (added/modified/removed).
                    Default.
   - `:diff`      — render via `snapshot-flat-diff-body` (handled by
@@ -669,7 +669,7 @@
                ;; machine drill-in.
                :popup-affordance? true}
         ;; Mode-3: thread the BEFORE snapshot as the diff pre-image so
-        ;; the widget paints inline `← changed from X` annotations.
+        ;; the widget paints inline `← was X` annotations.
         ;; Mode `:full` skips the threading — pure-data browse.
         (and (= mode :full+diff) (some? before-snapshot))
         (assoc :before before-snapshot :full-with-diff? true))]]))

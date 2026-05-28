@@ -3042,7 +3042,7 @@
                    see the freshly-computed value alone.
   - `:full+diff` — `✓` + AFTER value via the edn-inspector with
                    BEFORE threaded as the `:before` pre-image so the
-                   R1-R8 grammar paints inline `← changed from X`
+                   R1-R8 grammar paints inline `← was X`
                    annotations. Default per pair-debug 2026-05-27.
 
   rf2-fyd8u — for `:full+diff` mode the leaf-scalar branch (a sub that

@@ -32,7 +32,7 @@
 
   ## R-rule inventory
 
-  - R1 — value-side modified-scalar glyph + `← changed from <prior>`
+  - R1 — value-side modified-scalar glyph + `← was <prior>`
   - R2 — key-side `+`/`−` glyph on new/removed map keys
   - R3 — collapsed `[N∆]` count chip on containers with descendant change
   - R4 — 2px vertical rail through change-bearing subtree
@@ -48,7 +48,7 @@
 
 (defn r1-modified-scalar
   "R1 — modified scalar leaf. `{:counter 5} → {:counter 6}`. Shows
-  the value-side `~` glyph + `← changed from 5` italic muted suffix."
+  the value-side `~` glyph + `← was 5` italic muted suffix."
   []
   {:before {:counter 5}
    :value  {:counter 6}

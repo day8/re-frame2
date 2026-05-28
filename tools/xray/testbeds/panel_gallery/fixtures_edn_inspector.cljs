@@ -210,7 +210,7 @@
 ;;
 ;; Each diff fixture surfaces a different `children-of-pair` op
 ;; (rf2-zuh1e): added, modified, removed, same. Diff mode renders
-;; gutter glyphs (`+`/`-`/`~`/`◴`) + `← changed from <prior>`
+;; gutter glyphs (`+`/`-`/`~`/`◴`) + `← was <prior>`
 ;; annotations on modified leaves.
 
 (defn diff-map-mixed-ops
@@ -365,7 +365,7 @@
 (defn diff-boolean-toggle
   "Simplest possible scalar diff — `{:enabled? true}` →
   `{:enabled? false}`. Verifies the `~` value-side glyph + `←
-  changed from true` suffix render cleanly for the boolean leaf
+  was true` suffix render cleanly for the boolean leaf
   case."
   []
   {:before {:enabled? true}
@@ -405,7 +405,7 @@
   "Near-equal-floats edge — `{:x 1.0 :y 2.0}` → `{:x 1.0000001
   :y 2.0}`. Verifies the diff engine does NOT collapse nearly-
   equal floats into `:same` (no epsilon comparison); the `:x`
-  row must paint `~` + render the full `← changed from 1.0`
+  row must paint `~` + render the full `← was 1.0`
   suffix. `:y` stays untouched as a control."
   []
   {:before {:x 1.0 :y 2.0}
@@ -456,7 +456,7 @@
   chrome (ellipsis / hover-expand / overflow handling) renders
   cleanly when a long string also carries a `:modified` diff
   annotation: the `~` glyph, the truncated rendering, and the
-  `← changed from \"short\"` suffix must coexist without one
+  `← was \"short\"` suffix must coexist without one
   clobbering the other."
   []
   (let [long-text (str "Lorem ipsum dolor sit amet, consectetur "
@@ -474,7 +474,7 @@
   symbols correctly under diff annotation (distinct from
   keywords, which the canonical map diffs already exercise).
   Symbols carry the `:syntax-symbol` token; under modification
-  the `~` glyph + `← changed from old-handler` suffix must
+  the `~` glyph + `← was old-handler` suffix must
   render against the symbol palette without falling back to
   the keyword or string token."
   []

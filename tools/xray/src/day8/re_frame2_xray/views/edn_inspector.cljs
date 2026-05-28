@@ -22,7 +22,7 @@
   - `edn-inspector/render` — diff renderer subsumed (phase 5; D5=a per
     rf2-sndui). The diff path is now an opt-in mode on this same
     widget — pass `:before` to render with gutter glyphs +
-    `← changed from <prior>` annotations.
+    `← was <prior>` annotations.
   - `binaryage/cljs-devtools` dep — dropped from the project; this
     widget renders CLJS values natively from CLJS itself (rf2-oqa60).
 
@@ -74,7 +74,7 @@
                     Gutter glyphs + colours paint per node
                     (`+` added · `-` removed · `~` modified ·
                     `◴` children-changed); modified leaves get an
-                    inline `← changed from <prior>` annotation;
+                    inline `← was <prior>` annotation;
                     ancestors of any changed descendant force open
                     regardless of the default-expand heuristic.
   - `:popup-affordance?` (optional, default false) — rf2-l4625; when
@@ -739,7 +739,7 @@
       [:span {:style gutter-body-style} body]])))
 
 (def ^:private change-annotation-style
-  "Style for the inline `← changed from <prior>` chip rendered to the
+  "Style for the inline `← was <prior>` chip rendered to the
   right of a diff'd leaf."
   {:margin-left "8px"
    :color       (:text-secondary tokens)
@@ -748,13 +748,13 @@
    :font-style  "italic"})
 
 (defn- change-annotation
-  "Inline `← changed from <prior>` chip rendered to the right of a
+  "Inline `← was <prior>` chip rendered to the right of a
   diff'd leaf. Pure hiccup."
   [before]
   [:span {:data-rf-diff-annotation "1"
           :style change-annotation-style}
-   (str "← changed from " (try (pr-str before)
-                               (catch :default _ (str before))))])
+   (str "← was " (try (pr-str before)
+                      (catch :default _ (str before))))])
 
 ;; =========================================================================
 ;; scalar rendering (no expansion)
@@ -1071,7 +1071,7 @@
   When the BEFORE side's collection kind does not match AFTER's (e.g.
   AFTER is a map, BEFORE is a vector), the function falls back to
   AFTER's children only — the parent row's `:modified` classification
-  carries the structural-change signal and `← changed from <prior>`
+  carries the structural-change signal and `← was <prior>`
   renders the BEFORE side via `render-scalar`.
 
   Returns `nil` when `kind` is not a container kind.
@@ -1459,7 +1459,7 @@
 ;; time), so the captured value stays valid across theme switches.
 ;;
 ;; Hoisting neighbours in this file (search anchors):
-;;   - `change-annotation-style`        — inline `← changed from <prior>` chip
+;;   - `change-annotation-style`        — inline `← was <prior>` chip
 ;;   - `gutter-row-outer-base-style`    — rf2-7cddi diff-row outer skeleton
 ;;   - `gutter-glyph-base-style`        — rf2-7cddi diff-row glyph skeleton
 ;;   - `gutter-body-style`              — rf2-7cddi diff-row body
@@ -1931,7 +1931,7 @@
      ;; Diff threading: for each child we compute the matching `:before`
      ;; slice (or `::missing` if the slot didn't exist pre-diff). This
      ;; lets the child's recursion render its own gutter row / inline
-     ;; `← changed from <prior>` annotation; the parent's `:children`
+     ;; `← was <prior>` annotation; the parent's `:children`
      ;; row supplies the ancestor-open + ◴ glyph context.
      ;;
      ;; rf2-1bra5 — map / record bodies use CSS Grid (max-content 1fr) so
@@ -2206,14 +2206,14 @@
   type semantics unchanged.
 
   Op-specific text decorations (e.g. `:removed` strike-through, the
-  `← changed from <prior>` chip on `:modified`) survive because they
+  `← was <prior>` chip on `:modified`) survive because they
   are non-colour signals — strike-through is a TEXT-DECORATION
   channel; the chip is a separate inline element.
 
   - `:added`        — render `value`,  gutter `+`, green wash + stripe
   - `:removed`      — render `before` (strike-through), gutter `−`,
                       red wash + stripe
-  - `:modified`     — render `value` + `← changed from <prior>` chip,
+  - `:modified`     — render `value` + `← was <prior>` chip,
                       gutter `~`, amber wash + stripe
   - `:same`         — render `value` (dimmed via `:text-tertiary` so the
                       eye lands on the changes)
@@ -2371,7 +2371,7 @@
   built-in container / scalar dispatch (phase 7 / rf2-0qrcr).
 
   Diff mode: when `:diff?` is true the renderer paints gutter rows +
-  `← changed from <prior>` annotations; when `:before` is
+  `← was <prior>` annotations; when `:before` is
   `::missing`, the node is rendered as `:added`; when `value` is
   `::missing`, as `:removed`.
 
@@ -2835,7 +2835,7 @@
   - Diff mode: pass `:before` in `opts` (or use the
     `edn-inspector-diff` 3-arg convenience). The widget renders
     `value` as the AFTER side with gutter glyphs +
-    `← changed from <prior>` annotations, force-expands the
+    `← was <prior>` annotations, force-expands the
     ancestor chain over any changed descendant, and dims `:same`
     rows.
 

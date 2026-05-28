@@ -212,7 +212,7 @@
 (defn diff
   "Render a before -> after diff tree. Annotates changed branches with
   the §10.3 gutter glyphs (+ added / - removed / ~ modified / ◴ has
-  changed descendant) and a `← changed from <prior>` chip on modified
+  changed descendant) and a `← was <prior>` chip on modified
   leaves. Returns hiccup.
 
   After phase 5 (rf2-q3dzw, D5=a per rf2-sndui) diff is an opt-in

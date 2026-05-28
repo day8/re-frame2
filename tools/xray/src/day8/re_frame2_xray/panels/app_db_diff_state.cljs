@@ -64,7 +64,7 @@
   threaded by `app-db-diff-helpers/current-state-sections`'s 2-arity).
   When a pre-image is present and differs, the value body routes
   through the edn-inspector widget's DIFF mode (rf2-q3dzw phase 5,
-  D5=a) — passing `:before` paints inline `← changed from X`
+  D5=a) — passing `:before` paints inline `← was X`
   annotations in place on changed nodes and force-expands the
   ancestor chain so the operator never expands to find a change. When
   no pre-image is threaded (`no-diff` sentinel — LIVE at boot,
@@ -274,7 +274,7 @@
 
   When a real pre-image is present the value renders in DIFF mode via
   the SAME widget (rf2-q3dzw phase 5), passing `:before` so the
-  widget paints inline `← changed from X` annotations and force-
+  widget paints inline `← was X` annotations and force-
   expands the ancestor chain over changed descendants (spec/021 §4.3 +
   §10.4). App-db's depth heuristic is depth-3-collapsed by default
   (§10.4). The keyword-accent is already orange (owned by

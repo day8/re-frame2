@@ -47,7 +47,7 @@ Quoted verbatim from the canonical super-prompt (B.0):
 | Do | Don't |
 |---|---|
 | Dense default views; only the **deepest** data nesting gets lazy-tree collapse (§10) | Hide information behind "Show details" toggles by default |
-| Inline annotations (`← changed from :idle` · `(input unchanged · skipped)`) | Defer to expand-to-see when the data could be shown inline |
+| Inline annotations (`← was :idle` · `(input unchanged · skipped)`) | Defer to expand-to-see when the data could be shown inline |
 | Use color, weight, and inline annotations to LAYER info without spreading | Generous whitespace idiomatic in consumer apps |
 | Co-visible related details on one surface (pipeline stages + values + paths together) | Cross-panel scatter for things the operator wants to see together |
 
@@ -715,7 +715,7 @@ panel's left edge.
 │                                                                       │
 │ APP STATE                                                             │
 │   ▾ {:counter 2, :user {:name "Alice" :role :admin}}                  │
-│     · :counter  2             ← changed from 1                        │
+│     · :counter  2             ← was 1                        │
 │ ───────────────────────────────────────────────────────────────────  │
 │ MACHINE :title/flow                                                   │
 │   ▾ {:state :loaded, :context {:data [...]}}                          │
@@ -745,7 +745,7 @@ panel's left edge.
 Every section's value renders as a cljs-devtools-style collapsible inspector widget via the
 shared lazy-tree + inline-diff + keyword-accent + clickable-paths renderer (§10) — App state,
 each machine, each spawned instance, Route, and every reserved singleton alike. Diff is
-annotation in place on the changed nodes within each section ("← changed from X"), with the
+annotation in place on the changed nodes within each section ("← was X"), with the
 ancestor chain force-expanded so the operator never expands to find a change (§10.4).
 
 ### §4.4 Cascade overlay — downstream subs
@@ -1529,7 +1529,7 @@ flips.
 per §7 with Mike's pair-debug answers):
 
 - **R1**: value-side `~` gutter glyph for modified scalars + `←
-  changed from <prior>` italic muted suffix. Value-anchored —
+  was <prior>` italic muted suffix. Value-anchored —
   the slot identity didn't change, only the contents did, so
   chrome paints the value cell only (no key-cell wash, no key
   strike). See the **slot-vs-value anchoring rule** below.
@@ -2381,7 +2381,7 @@ reach for `[edn-inspector value opts]` directly.
   The `value` arg is treated as the AFTER side and the supplied
   `:before` is the prior value. Gutter glyphs (`+` added · `-`
   removed · `~` modified · `◴` children-changed) paint per node;
-  modified leaves get an inline `← changed from <prior>`
+  modified leaves get an inline `← was <prior>`
   annotation; ancestor chain force-expands over any changed
   descendant. Omit `:before` for plain BROWSE mode. See §10.0.8
   for the full diff contract.
@@ -2418,7 +2418,7 @@ reach for `[edn-inspector value opts]` directly.
   count chip + R4 single-2px vertical gutter rail through each
   change-bearing subtree. When `false` / omitted (the legacy diff
   surface) the widget renders the **mode-2** chrome — per-leaf
-  gutter glyphs + `← changed from <prior>` annotations, no R3 chip,
+  gutter glyphs + `← was <prior>` annotations, no R3 chip,
   no R4 rail. `:full-with-diff?` is a no-op without `:before`. See
   §10.0.12 for the contract + per-surface call-site obligation. The
   silent-default chosen here is intentional: it preserves the diff-
@@ -2853,7 +2853,7 @@ the rendered hiccup. `:same` rows render with a transparent border
 jitter between modes).
 
 **Change annotation**: modified leaves carry an inline
-`← changed from <prior>` chip rendered in `:text-secondary` /
+`← was <prior>` chip rendered in `:text-secondary` /
 `sans-stack` / italic. Pure hiccup; sits to the right of the
 rendered value.
 
@@ -2872,7 +2872,7 @@ key contract.
 
 **Sentinels in diff mode**: the spec/015 sentinels keep their chip
 chrome regardless of mode. A modified `:rf/redacted` slot still
-renders as the magenta chip + `← changed from <prior>` annotation;
+renders as the magenta chip + `← was <prior>` annotation;
 no chip-reveal leakage.
 
 **Test pins** — `tools/xray/test/day8/re_frame2_xray/views/edn_inspector_cljs_test.cljs`:
@@ -2882,7 +2882,7 @@ no chip-reveal leakage.
    primitive boolean.
 3. Gutter glyph + tone-key mappings are stable
    (`op->gutter-glyph`, `op->gutter-tone-key`).
-4. Modified leaves carry the `← changed from <prior>` annotation
+4. Modified leaves carry the `← was <prior>` annotation
    chip.
 5. Deep modified leaves force the ancestor chain open
    (`diff-forces-ancestor-chain-open-over-changed-descendant`).
@@ -3262,7 +3262,7 @@ audit, finding M3 (spec drift) → rf2-6cm03 (this section).
 
 2. **Inline diff highlighting** — for the focused epoch view, changed
    values are highlighted IN PLACE (left-margin marker + accent color +
-   annotation `← changed from <prior-value>`). Unchanged values dim.
+   annotation `← was <prior-value>`). Unchanged values dim.
    **No side-by-side before|after** — diff is annotation on a single
    rendered state.
 
@@ -3288,8 +3288,8 @@ Dense case — deep nested app-db, focused-epoch diff:
   ▾ :items   [2 items]                             ← changed (was 1 item)
     ▸ 0  {:id 7  :qty 1}
     ▸ 1  {:id 22 :qty 1}                           ← added
-  · :state    :submitting                          ← changed from :idle
-  · :total    71.00                                ← changed from 48.00
+  · :state    :submitting                          ← was :idle
+  · :total    71.00                                ← was 48.00
   · :discount nil                                  (unchanged · dim)
   · :coupon   nil                                  (unchanged · dim)
 ▸ :user      {3 keys}                              (unchanged · dim)
@@ -3327,7 +3327,7 @@ the violet → orange identity change.)
 Other types render in `text-primary` (`#E8EAF0`), monospaced. Dimmed
 unchanged values render in `dim` / `text-tertiary`.
 
-The diff annotation (`← changed from <prior>`) renders in
+The diff annotation (`← was <prior>`) renders in
 `:text-secondary` at 80% size (12px @ cosy density).
 
 The left-gutter diff glyph follows the cascade-gutter token mapping (§007 / §022): `+` green
@@ -3374,7 +3374,7 @@ menus are explicitly OUT. Operator learns one gesture; applies it everywhere.
 |---|---|
 | **Click node header** (▸ / ▾) | Toggle expand/collapse (lazy disclosure only — not navigation) |
 | **Click path segment** | Cross-panel propagation: in App-db → switch to Reactive and highlight subs + views downstream of that path. In Reactive (`caused-by ← sub ← path` chip) → switch to App-db and scroll to that path. **This is the only path-click semantic.** |
-| **Hover changed-row** | Subtle background shift only (no popover). The annotation `← changed from <prior>` is already rendered inline; hover does not reveal additional metadata. |
+| **Hover changed-row** | Subtle background shift only (no popover). The annotation `← was <prior>` is already rendered inline; hover does not reveal additional metadata. |
 | **Keyboard `Space`** on focused row | Toggle expand/collapse (same as click on node header) |
 | **Keyboard `Enter`** on focused row whose value is a path | Cross-panel propagation (same as click on path segment) |
 
@@ -3757,7 +3757,7 @@ is **which size goes where**:
 | Section headers (e.g. `DISPATCH`, `SUBS RECOMPUTED`) | `:body` | 13px | 600 |
 | Step sub-header keys (e.g. `Event`, `Origin`, `Call-site`) | `:body-tight` | 12px | 500 (medium) |
 | Step values (the actual data) | `:mono-body` | 12px | 400 |
-| Inline annotations (`← changed from :idle`, `(input unchanged · skipped)`) | `:caption` | ~11px | 400 |
+| Inline annotations (`← was :idle`, `(input unchanged · skipped)`) | `:caption` | ~11px | 400 |
 | Edge labels in xyflow canvases (§6) | `:micro` | ~10px | 400 |
 | Metadata (`14:32:01.231`, file:line, `+0.2ms` trace timing) | `:caption` | ~11px | 400 italic |
 | L2 row text (origin prefix · event-id · badges) | `:body-tight` | 12px | 400/600 mix |

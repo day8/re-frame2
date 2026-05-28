@@ -296,7 +296,7 @@
 ;; When a section's `:before` pre-image differs from its `:value`, the
 ;; value body routes through the edn-inspector widget's DIFF mode
 ;; (rf2-q3dzw phase 5) — passing `:before` paints the inline
-;; `← changed from X` annotation in place. With no pre-image (the
+;; `← was X` annotation in place. With no pre-image (the
 ;; no-diff sentinel) the body stays in BROWSE mode (no annotation).
 ;;
 ;; The widget itself is exercised by
@@ -326,7 +326,7 @@
 (deftest changed-value-carries-inline-changed-annotation
   (testing "a changed user-domain value renders in DIFF mode — the
             section threads `:before` into the edn-inspector widget so
-            it paints the inline `← changed from <prior>` annotation"
+            it paints the inline `← was <prior>` annotation"
     (let [model    (h/current-state-sections {:counter 2} {:counter 1})
           tree     (state/state-body model)
           top      (find-by-testid tree "rf-xray-app-db-state-top")

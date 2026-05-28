@@ -308,7 +308,7 @@
   (story/reg-variant :story.xray.edn-inspector/diff-boolean-toggle
     {:doc        "Simplest scalar diff — `{:enabled? true}` →
                  `{:enabled? false}`. Pins the `~` glyph + `←
-                 changed from true` suffix for the boolean leaf
+                 was true` suffix for the boolean leaf
                  case."
      :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-boolean-toggle)]]
      :tags       #{:dev :state/special}
@@ -340,7 +340,7 @@
     {:doc        "Near-equal floats — `1.0` vs `1.0000001`.
                  Verifies the engine does NOT fold nearly-equal
                  floats into `:same`; the `:x` row paints `~` +
-                 the full `← changed from 1.0` suffix. `:y` stays
+                 the full `← was 1.0` suffix. `:y` stays
                  untouched as a control."
      :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-numeric-near-equal)]]
      :tags       #{:dev :state/special}
@@ -384,7 +384,7 @@
                  expand / overflow handling) renders cleanly when
                  a long string also carries a `:modified` diff
                  annotation: the `~` glyph, the truncated
-                 rendering, and the `← changed from \"short\"`
+                 rendering, and the `← was \"short\"`
                  suffix must coexist without one clobbering the
                  other."
      :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-long-string-truncation)]]
@@ -397,7 +397,7 @@
                  inspector handles symbols correctly under diff
                  annotation (distinct from keyword mutation).
                  Symbols carry the `:syntax-symbol` token; under
-                 modification the `~` glyph + `← changed from
+                 modification the `~` glyph + `← was
                  old-handler` suffix must render against the
                  symbol palette without falling back to the
                  keyword or string token."
