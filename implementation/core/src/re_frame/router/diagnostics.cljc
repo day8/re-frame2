@@ -141,8 +141,8 @@
   (some (fn [id]
           (when (not= id target-id)
             (when-let [fr (frame/frame id)]
-              (let [r @(:router fr)]
-                (when (or (:in-sync-drain? r) (:in-drain? r))
+              (let [router-state @(:router fr)]
+                (when (or (:in-sync-drain? router-state) (:in-drain? router-state))
                   id)))))
         (frame/frame-ids)))
 

@@ -379,8 +379,8 @@
   policy fn expects PLUS the tight `:error/:event/:event-id/:frame/
   :time/:exception/:elapsed-ms` record to corpus-wide listeners."
   [error event-id event frame ctx start-ms]
-  (let [e          (:exception error)
-        msg        #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
+  (let [exception  (:exception error)
+        msg        #?(:clj (.getMessage ^Throwable exception) :cljs (.-message exception))
         emit-event (privacy/redacted-event-from-ctx ctx)
         end-ms     (interop/now-ms)
         ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an integer.
@@ -396,7 +396,7 @@
                     :failing-id        event-id
                     :handler-id        event-id
                     :phase             (:phase error)
-                    :exception         e
+                    :exception         exception
                     :exception-message msg
                     :reason            "Event handler threw."
                     :recovery          :no-recovery}]
@@ -414,7 +414,7 @@
       emit-event
       event-id
       frame
-      e
+      exception
       elapsed-ms
       end-ms
       {:operation :rf.error/handler-exception
@@ -463,8 +463,8 @@
             ;; nil-coerce: treat a nil return as success (don't roll
             ;; back) so a host that returns nil rather than true on a
             ;; clean validate keeps working.
-            (let [r (validate db-after event-id frame)]
-              (if (nil? r) true r))
+            (let [result (validate db-after event-id frame)]
+              (if (nil? result) true result))
             (catch #?(:clj Throwable :cljs :default) _ true))
           true)
         machines-ok?
@@ -475,8 +475,8 @@
         (if-let [validate-md (late-bind/get-fn-cached
                                :machines/validate-machine-data!)]
           (try
-            (let [r (validate-md db-after event-id frame)]
-              (if (nil? r) true r))
+            (let [result (validate-md db-after event-id frame)]
+              (if (nil? result) true result))
             (catch #?(:clj Throwable :cljs :default) _ true))
           true)]
     ;; Both must conform for the cascade to keep its commit; the per-
@@ -1869,7 +1869,7 @@
                             {:frame (:frame envelope) :event event
                              :recovery :no-recovery}))
 
-       (let [r @(:router frame-record)
+       (let [router-state @(:router frame-record)
              ;; Per rf2-ynk7: `:in-drain?` now holds the drainer's
              ;; thread (or nil). Only flag as "nested" when the current
              ;; thread is the drainer — a different thread mid-drain is
@@ -1879,9 +1879,9 @@
              ;; (truthy = same-thread by construction on a single-
              ;; threaded host).
              same-thread-drain?
-             #?(:clj  (identical? (:in-drain? r) (Thread/currentThread))
-                :cljs (true? (:in-drain? r)))]
-         (or (:in-sync-drain? r) same-thread-drain?))
+             #?(:clj  (identical? (:in-drain? router-state) (Thread/currentThread))
+                :cljs (true? (:in-drain? router-state)))]
+         (or (:in-sync-drain? router-state) same-thread-drain?))
        ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside the
        ;; SAME frame's running drain (sync or async) is an error — the
        ;; event would interleave with the outer handler's run-to-completion.
