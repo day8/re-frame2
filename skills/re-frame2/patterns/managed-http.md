@@ -1,4 +1,4 @@
-# Pattern — ManagedHTTP
+# Pattern — Managed HTTP
 
 `:rf.http/managed` — the canonical HTTP fx for re-frame2. Two affordances on one registrar id: the **fx form** for direct use from event handlers, and the **machine-form wrapper** for `:spawn` from a parent state machine. The contract — args map, failure categories, retry, abort, reply addressing — is identical across both.
 
