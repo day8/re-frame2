@@ -1,4 +1,4 @@
-;; Pair2 fixture build.
+;; re-frame2-pair fixture build.
 ;;
 ;; A minimal shadow-cljs build that mounts the counter view and preloads
 ;; `re-frame2-pair.runtime`. Used by re-frame2-pair's tests/shim, tests/e2e, and
@@ -9,7 +9,7 @@
 ;;
 ;; 1. The `../../preload` source path — directory carrying the
 ;; `re_frame2_pair/runtime.cljs` namespace that ships in the
-;; `@day8/re-frame2-pair` npm package's `preload/`. Pair2's SKILL.md
+;; `@day8/re-frame2-pair` npm package's `preload/`. re-frame2-pair's SKILL.md
 ;; §Setup tells consumers to put `node_modules/@day8/re-frame2-pair/preload`
 ;; on the build's source paths; here we point straight at the
 ;; in-repo source. With `:deps true` the source-paths live in

@@ -23,7 +23,7 @@ The `variant-id` keyword (e.g. `:story.counter/loaded`) is BOTH the variant id S
 
 This identity is the single most important thing about the variant-as-frame pattern. Once you've internalised it, the rest is just normal re-frame2-pair ops with a different default-frame.
 
-## Pair2 ops scoped to a variant
+## re-frame2-pair ops scoped to a variant
 
 Every re-frame2-pair op that takes an operating frame works against a variant out of the box. The two recommended idioms:
 
@@ -82,7 +82,7 @@ mcp__re-frame2-pair__eval-cljs {form: "(filter #(= \"story\" (namespace %)) (rf/
 
 For richer metadata (parent story, tags, modes, substrates), use Story's side-table via the MCP transport if available (`mcp__re-frame2-story-mcp__list-stories` / `get-variant`), or fall back to `(re-frame.story/variant->edn <id>)` over `repl/eval`. The variant-id grammar (`:story.<dotted.path>/<variant-name>`) is documented in `skills/re-frame2/references/tooling/stories.md`.
 
-To discover the *active* variant in the user's canvas (the one currently visible), inspect frame metadata for the `:story/active?` flag set by Story's shell — or ask the user. Pair2 has no DOM bridge that locates the canvas iframe specifically; use `dom/source-at` on something inside it.
+To discover the *active* variant in the user's canvas (the one currently visible), inspect frame metadata for the `:story/active?` flag set by Story's shell — or ask the user. re-frame2-pair has no DOM bridge that locates the canvas iframe specifically; use `dom/source-at` on something inside it.
 
 ## Common gotchas — variant-as-frame specific
 

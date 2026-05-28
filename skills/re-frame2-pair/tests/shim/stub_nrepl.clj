@@ -1,6 +1,6 @@
 ;;;; tests/shim/stub_nrepl.clj — bencode nREPL stub for shim integration tests.
 ;;;;
-;;;; Pair2's shell scripts shell out to `bb ops.clj <subcmd>`, which in turn
+;;;; re-frame2-pair's shell scripts shell out to `bb ops.clj <subcmd>`, which in turn
 ;;;; opens a TCP socket to shadow-cljs's nREPL and speaks bencode. We don't
 ;;;; want a live shadow-cljs process in `tests/shim/` — that's `tests/e2e/`'s
 ;;;; job — so this stub is a self-contained babashka program that:

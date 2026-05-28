@@ -247,7 +247,7 @@ When a streaming probe seems to have gone quiet, call `mcp__re-frame2-pair__list
 
 ## "Refine a variant interactively"
 
-**Why this works:** the same loop that powers Story-MCP's self-healing pattern (`skills/re-frame2/references/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — modify the variant body via story-mcp, then watch the trace events as it re-runs. Pair2 sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
+**Why this works:** the same loop that powers Story-MCP's self-healing pattern (`skills/re-frame2/references/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — modify the variant body via story-mcp, then watch the trace events as it re-runs. re-frame2-pair sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
 
 **Setup.** Story-MCP write surface is enabled (`--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true`). The variant exists; you want to iterate on its `:play-script` body to make an assertion pass.
 
@@ -281,7 +281,7 @@ When a streaming probe seems to have gone quiet, call `mcp__re-frame2-pair__list
    ```
    mcp__re-frame2-story-mcp__read-failures {variant-id: ":story.counter/loaded"}
    ```
-6. If `:passing? false`, repeat from step 3 with a refined body. Pair2's subscription stays open across iterations — close it with `unsubscribe` when the loop terminates.
+6. If `:passing? false`, repeat from step 3 with a refined body. re-frame2-pair's subscription stays open across iterations — close it with `unsubscribe` when the loop terminates.
 
 **Expected output shape.** Stream of epoch records on the re-frame2-pair channel (one per play event), plus a `:passing?` boolean + `:assertions` list from `read-failures`. Successful loop ends with `:passing? true`.
 

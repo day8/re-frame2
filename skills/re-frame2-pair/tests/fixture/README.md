@@ -2,14 +2,14 @@
 ;;
 ;; A deliberately tiny re-frame2 counter (mirrors examples/reagent/counter)
 ;; with `re-frame2-pair.runtime` wired in as a shadow-cljs `:devtools :preloads`
-;; entry. Pair2's tests/shim, tests/e2e, and tests/prompts surfaces target
+;; entry. re-frame2-pair's tests/shim, tests/e2e, and tests/prompts surfaces target
 ;; this fixture.
 ;;
 ;; The fixture is intentionally trivial — one event, one sub, one view,
 ;; one frame. Validation here proves re-frame2-pair's runtime ↔ Tool-Pair contract
 ;; without taking on examples/ scope.
 
-# Pair2 fixture app
+# re-frame2-pair fixture app
 
 Minimal re-frame2 counter app used by `tests/shim`, `tests/e2e`, and
 `tests/prompts`. Mirrors `examples/reagent/counter/core.cljs`, with

@@ -1,5 +1,5 @@
 (ns counter.core
- "Pair2 fixture counter.
+ "re-frame2-pair fixture counter.
 
  Deliberately tiny: one event-db (`:counter/inc`, `:counter/dec`,
  `:counter/initialise`), one sub (`:count`), one reg-view

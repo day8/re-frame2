@@ -1,4 +1,4 @@
-# Pair2 end-to-end tests
+# re-frame2-pair end-to-end tests
 
 Browser-level checks that drive the **live** fixture app
 (`tests/fixture/`) through real shadow-cljs + nREPL + Playwright.
@@ -59,7 +59,7 @@ Exit code 0 = pass; non-zero with structured stderr = fail.
 
 ## Skill output, not visual UI
 
-Pair2's E2E suite asserts on **structured shim output**, not pixel
+re-frame2-pair's E2E suite asserts on **structured shim output**, not pixel
 positions. The browser is along for the ride so the runtime is real;
 the assertions are still edn shape on stdout. This matches the rest of
 re-frame2-pair's test surfaces.
