@@ -30,7 +30,11 @@
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-(def TICK-MS 100)
+(def tick-ms
+  "Wall-clock delay between successive timer ticks. Kebab-case per the
+   sibling `examples/reagent/long_running_work` convention; the
+   SCREAMING-CASE here was a v1 holdover."
+  100)
 
 ;; ============================================================================
 ;; SCHEMA
@@ -71,7 +75,7 @@
                            :duration-ms  10000
                            :tick-active? true
                            :tick-gen     0})
-     :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick 0]}]]}))
+     :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick 0]}]]}))
 
 (rf/reg-event-fx :timer/tick
   {:doc "Advance elapsed by one tick. Schedules the next tick if still ticking.
@@ -81,12 +85,12 @@
       (if (not= gen tick-gen)
         ;; Stale tick from a retired generation (Reset bumped :tick-gen). Drop it.
         {}
-        (let [next-elapsed (min (+ elapsed-ms TICK-MS) duration-ms)
+        (let [next-elapsed (min (+ elapsed-ms tick-ms) duration-ms)
               done?        (>= next-elapsed duration-ms)]
           (cond-> {:db (assoc-in db [:timer :elapsed-ms] next-elapsed)}
             ;; Continue ticking while not done and tick still active.
             (and tick-active? (not done?))
-            (assoc :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick gen]}]])))))))
+            (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick gen]}]])))))))
 
 (rf/reg-event-db :timer/set-duration
   {:doc "User dragged the slider."
@@ -103,7 +107,7 @@
                (assoc-in [:timer :elapsed-ms]   0)
                (assoc-in [:timer :tick-active?] true)
                (assoc-in [:timer :tick-gen]     next-gen))
-       :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick next-gen]}]]})))
+       :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick next-gen]}]]})))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
