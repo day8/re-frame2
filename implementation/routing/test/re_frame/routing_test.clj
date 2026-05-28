@@ -284,7 +284,9 @@
     ;;                              :nav-token <captured-token>}]
     ;;
     ;; …and the runtime threads the carried token against the current
-    ;; `:rf/route :nav-token`. Match → the inner fx runs (canonically a
+    ;; route slice's `:nav-token` (read from
+    ;; `[:rf/runtime :routing :current :nav-token]`). Match → the inner
+    ;; fx runs (canonically a
     ;; `:dispatch` to the success continuation). Mismatch → the inner fx
     ;; is suppressed and `:rf.route.nav-token/stale-suppressed` emits.
     ;;
@@ -500,9 +502,10 @@
 ;; db value, `save-scroll-position` returns a db value with the saved
 ;; position assoc'd in. Per Spec 012 §Multi-frame routing the saved-
 ;; position map lives at `[:rf/runtime :routing :scroll-positions]` INSIDE each
-;; frame's app-db (rf2-3ib8h: nested under the reserved :rf/route root
-;; key) — so per-frame isolation is achieved by routing the helpers
-;; through the appropriate frame's db value.
+;; frame's app-db (rf2-3ib8h + rf2-eguy4: a sibling key under
+;; `[:rf/runtime :routing ...]`, not nested under the route slice) — so
+;; per-frame isolation is achieved by routing the helpers through the
+;; appropriate frame's db value.
 ;;
 ;; These tests pin the helper round-trip directly so a regression in
 ;; either fn surfaces without going through the navigate flow's scroll fx.

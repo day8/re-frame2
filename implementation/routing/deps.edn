@@ -6,10 +6,11 @@
 ;; `:rf.route/handle-url-change`, `:rf.route/continue` /
 ;; `:rf.route/cancel`, the `:rf.nav/push-url` / `:rf.nav/replace-url` /
 ;; `:rf.nav/scroll` fxs, `match-url` / `route-url`, the `:rf/route` /
-;; `:rf.route/{id,params,query,transition,error}` framework subs, the
-;; per-frame routing-runtime sub-keys nested under `:rf/route`
+;; `:rf.route/{id,params,query,transition,error}` framework subs, and
+;; the per-frame routing-runtime sub-keys
 ;; (`:scroll-positions` / `:scroll-positions-order` /
-;; `:nav-token-counter` / `:pending-nav-counter` — rf2-3ib8h)) ships as a separate Maven
+;; `:nav-token-counter` / `:pending-nav-counter`) sitting as siblings
+;; under `[:rf/runtime :routing ...]` (rf2-3ib8h, rf2-eguy4)) ships as a separate Maven
 ;; artefact so apps that don't register any routes don't drag the
 ;; namespace, the route-rank / pattern-compile / nav-token machinery,
 ;; or any of the `:rf.route/*` and `:rf.nav/*` trace strings onto the

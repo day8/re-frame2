@@ -228,7 +228,7 @@
                 expected (str "/p" idx "/" (dec stress-iters))]
             (is (= (keyword "ksbur.stress" (str "route-" idx))
                    (:id slice))
-                (str "Frame " frame-id ": :rf/route :id should match "
+                (str "Frame " frame-id ": route-slice :id should match "
                      "this thread's per-thread route"))
             ;; Slug is captured as a path param; the LAST iter's slug
             ;; (= dec stress-iters) wins.
