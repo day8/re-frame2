@@ -256,6 +256,18 @@
 ;; substrate-adapter contract — they are test-driver utilities scoped to
 ;; this adapter. Other adapters expose nothing analogous (real React drives
 ;; the lifecycle from JS-side; here the test owns the clock).
+;;
+;; ---- two entry points: substrate :render vs public mount! ----
+;;
+;; The substrate contract's :render fn (above, registered in `adapter`)
+;; returns an unmount thunk and nothing else. Test code typically wants
+;; the lifecycle log + the mount record, so this adapter exposes `mount!`
+;; as the public driver. Both call the internal `mount-tree!` helper;
+;; the substrate :render discards the record and returns just the thunk,
+;; while `mount!` returns the whole `MountedComponent` record (whose
+;; `:unmount-fn` is the same thunk). Tests should reach for `mount!`,
+;; not `(substrate-adapter/render …)`, because they want the record's
+;; `:lifecycle-log` for assertions.
 
 (defn mount!
   "Mount `render-tree` (a hiccup vector or any data the test treats as the
