@@ -37,7 +37,7 @@
 ;; test body call dispose-adapter! to drive the walk. Each test cleans
 ;; up after itself so a re-run is idempotent.
 
-(defn fresh-reagent [test-fn]
+(defn- cold-start-fixture [test-fn]
   ;; Wipe lifecycle state — adapter slot + disposed breadcrumb +
   ;; frame registry — so the test starts from a never-installed cold
   ;; state. The `reset-lifecycle-state-for-tests!` seam exists for
@@ -55,7 +55,7 @@
   (reset! frame/frames {})
   (adapter/reset-lifecycle-state-for-tests!))
 
-(use-fixtures :each fresh-reagent)
+(use-fixtures :each cold-start-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
 

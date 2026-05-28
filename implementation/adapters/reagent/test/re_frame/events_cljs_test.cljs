@@ -23,13 +23,13 @@
   "Attach a listener that records `:rf.warning/interceptors-in-metadata-map`
   events and return the recording atom."
   [k]
-  (let [a (atom [])]
+  (let [recorded (atom [])]
     (trace-tooling/register-listener! k
       (fn [ev]
         (when (and (= :warning (:op-type ev))
                    (= :rf.warning/interceptors-in-metadata-map (:operation ev)))
-          (swap! a conj ev))))
-    a))
+          (swap! recorded conj ev))))
+    recorded))
 
 (def ^:private noop-icpt
   {:id :test/noop :before identity :after identity})
@@ -42,9 +42,9 @@
         (fn [db _] db))
       (trace-tooling/unregister-listener! ::db-warn)
       (is (= 1 (count @warns)))
-      (let [t (:tags (first @warns))]
-        (is (= "reg-event-db" (:reg-fn t)))
-        (is (= :test.bbea.cljs/db-bad (:id t)))))))
+      (let [tags (:tags (first @warns))]
+        (is (= "reg-event-db" (:reg-fn tags)))
+        (is (= :test.bbea.cljs/db-bad (:id tags)))))))
 
 (deftest reg-event-fx-warns-on-meta-interceptors
   (let [warns (collect-warnings ::fx-warn)]

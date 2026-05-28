@@ -21,12 +21,12 @@
 ;; make-reset-runtime-fixture here — it pre-installs an adapter for us, and
 ;; the unit under test IS init!.
 
-(defn cold-start [test-fn]
+(defn- cold-start-fixture [test-fn]
   (adapter/dispose-adapter!)
   (test-fn)
   (adapter/dispose-adapter!))
 
-(use-fixtures :each cold-start)
+(use-fixtures :each cold-start-fixture)
 
 ;; ---- tests ----------------------------------------------------------------
 

@@ -30,7 +30,7 @@
 
 ;; ---- helpers ---------------------------------------------------------------
 
-(defn- mk-fake-root
+(defn- make-fake-root
   "A fake Root identity — just an object with a `.unmount` method we
   never actually call (the spy replaces `rdc/unmount`). Using `(js-obj)`
   keeps the value JS-shaped without depending on React being present."
@@ -44,7 +44,7 @@
             first; (rdc/render root render-tree) follows; the unmount
             thunk closes over the Root (rf2-fn5rk)"
     (let [calls         (atom [])
-          fake-root     (mk-fake-root :non-hydrate)
+          fake-root     (make-fake-root :non-hydrate)
           fake-mount    #js {:rf-test-mount :non-hydrate}
           fake-tree     [:div "tree"]]
       ;; Stubs are multi-arity to mirror reagent.dom.client's API
@@ -114,7 +114,7 @@
             unmount thunk closes over the Root from hydrate-root
             (rf2-fn5rk)"
     (let [calls       (atom [])
-          fake-root   (mk-fake-root :hydrate)
+          fake-root   (make-fake-root :hydrate)
           fake-mount  #js {:rf-test-mount :hydrate}
           fake-tree   [:section "ssr-tree"]]
       (with-redefs [rdc/create-root  (fn
@@ -165,7 +165,7 @@
             18. This test asserts the mount-point never appears as
             the first arg to rdc/render."
     (let [render-calls (atom [])
-          fake-root    (mk-fake-root :regression)
+          fake-root    (make-fake-root :regression)
           fake-mount   #js {:rf-test-mount :regression}]
       (with-redefs [rdc/create-root  (fn
                                        ([_]   fake-root)
