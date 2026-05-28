@@ -541,6 +541,52 @@
       {}
       non-same-leaves)))
 
+(defn- compare-path
+  "Total-order comparator for two path vectors that may carry MIXED
+  segment types (rf2-n83r8).
+
+  Clojure's default vector comparator compares element-wise using each
+  element's natural `compare`, which throws `ClassCastException` the
+  moment two paths share a prefix and diverge into segments of
+  different types at the same index (e.g. `[:flow :phases 2]` vs
+  `[:flow :phases :foo]`). The flat-rows pipeline currently never
+  produces such a pair — type-change reclassification (R7) emits a
+  single `:modified` row at the container path and short-circuits
+  per-leaf descent — but the latent fragility is real: any future
+  evolution that surfaces mixed-type siblings under a shared prefix
+  would crash the sort at consumer time, well downstream of the
+  Editscript `try/catch` at `raw-edits`.
+
+  Strategy (bead-suggested option 2, Mike-confirmed): depth (path
+  length) first, then per-segment lexicographic comparison of each
+  segment's `pr-str`. Properties:
+
+    - Total — any two segments compare via their string serialisation,
+      which is defined for every Clojure value.
+    - Stable across types — `[:a 10]` < `[:a 2]` lexicographically
+      (`\"10\"` < `\"2\"`); this is a known property of string-based
+      ordering of numerics. Acceptable for a dev-tool diff lens; the
+      operator reads the path text directly so ordering matches the
+      text-display order.
+    - Pure-data, no allocation beyond the two `pr-str` strings per
+      comparison; per-sort overhead is O(n log n × depth) string
+      compares, well within the per-epoch diff budget.
+
+  Used by both `:flat-rows` sort sites in `project` to guarantee they
+  never CCE regardless of segment-type mix."
+  [a b]
+  (let [la (count a)
+        lb (count b)]
+    (if (not= la lb)
+      (compare la lb)
+      (loop [i 0]
+        (if (>= i la)
+          0
+          (let [c (compare (pr-str (nth a i)) (pr-str (nth b i)))]
+            (if (zero? c)
+              (recur (inc i))
+              c)))))))
+
 (defn- flat-rows-from-path-ops
   "Build the legacy flat-diff lens — one row per non-`:same` leaf op.
   Each row is a map `{:path :op :before :after}`. Used by the `:diff`
@@ -559,7 +605,7 @@
                  (assoc :rf.xray.diff/redaction-side redaction-side)
                  type-change?
                  (assoc :rf.xray.diff/type-change? true))))
-       (sort-by :path)
+       (sort-by :path compare-path)
        vec))
 
 (defn project
@@ -723,7 +769,9 @@
                             vector-removals))]
       {:path-ops             path-ops-with-shifts
        :container-ops        container-ops'
-       :flat-rows            (vec (sort-by :path flat-rows))
+       ;; rf2-n83r8 — `compare-path` is mixed-type safe; see its
+       ;; docstring for the rationale and the latent-fragility caveat.
+       :flat-rows            (vec (sort-by :path compare-path flat-rows))
        :vector-removals      vector-removals
        :wholly-changed-roots wholly-changed
        :shift-suffix         shift-suffix})))
