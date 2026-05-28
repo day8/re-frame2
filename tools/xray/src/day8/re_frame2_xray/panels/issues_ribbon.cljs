@@ -196,7 +196,7 @@
                        :color       (:text-tertiary tokens)
                        :font-family sans-stack
                        :font-size   "11px"}}
-   "click a row → Event panel (the cascade) · click ↗ → source file:line"])
+   "click a row → Epoch panel (the cascade) · click ↗ → source file:line"])
 
 ;; ---- empty states -------------------------------------------------------
 
