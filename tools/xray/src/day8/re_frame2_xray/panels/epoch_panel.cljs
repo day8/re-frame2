@@ -22,9 +22,7 @@
   delightful numbered cascade including the reactive trailing edge
   (SUBSCRIPTIONS + VIEWS). The Reactive tab covers a complementary
   axis (per-sub recomputation detail across cascades) and remains
-  side-by-side with this panel; the older Event/Handler panel
-  (`:event` tab) was retired under rf2-5gl5r when this Epoch panel
-  landed as its supersedant.
+  side-by-side with this panel.
 
   ## Frame integration
 

@@ -42,7 +42,7 @@
      (str "pn-" n)]))
 
 (defn emit-activation-traces!
-  "Per Spec 012 §Trace events and rf2-dn26r: emit `:rf.route/deactivated`
+  "Per Spec 012 §Trace events: emit `:rf.route/deactivated`
   for the previously-active route id (when leaving one) and
   `:rf.route/activated` for the newly-active route id (when entering a
   different one). Both fire as part of every successful navigation

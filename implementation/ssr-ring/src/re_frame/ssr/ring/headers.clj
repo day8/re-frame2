@@ -16,8 +16,7 @@
   "Fold a `[name value]` header pair into the accumulating Ring headers
   map. The accumulator only ever carries `nil`, `string`, or `vector`
   values per the contract upstream — no other shapes flow in — so the
-  three arms here are exhaustive (audit rf2-asmj1 R8 / cluster
-  rf2-sljs1: the prior `:else` arm was dead)."
+  three arms here are exhaustive."
   [m [k v]]
   (let [existing (get m k)]
     (cond
@@ -51,12 +50,11 @@
   (header names are tokens; tokens are case-insensitive) — a mixed-case
   caller header must NOT get a duplicate default appended.
 
-  Ordering note (audit rf2-asmj1 R9 / cluster rf2-sljs1) — the PER-NAME
-  ordering of multi-valued headers (multiple `Set-Cookie` entries) is
-  preserved by `merge-pair-into-header-map`'s `conj`. The ACROSS-NAME
-  ordering is the JDK's HAMT iteration order — stable but not first-seen
-  order; Ring servers don't promise cross-name header order on the wire
-  either."
+  Ordering: the PER-NAME ordering of multi-valued headers (multiple
+  `Set-Cookie` entries) is preserved by `merge-pair-into-header-map`'s
+  `conj`. The ACROSS-NAME ordering is the JDK's HAMT iteration order —
+  stable but not first-seen order; Ring servers don't promise cross-name
+  header order on the wire either."
   [pairs content-type]
   (let [step (fn [[m saw-ct?] [k v :as pair]]
                [(merge-pair-into-header-map m pair)

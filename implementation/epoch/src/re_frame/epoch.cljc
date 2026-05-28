@@ -54,9 +54,8 @@
 
 ;; ---- configuration --------------------------------------------------------
 ;;
-;; Atoms, defaults, and config-merge validation live in `re-frame.epoch.state`
-;; (Phase-2 seam A, rf2-0wi86). The facade keeps the public docstrings and
-;; the late-bind hook publication.
+;; Atoms, defaults, and config-merge validation live in `re-frame.epoch.state`.
+;; The facade keeps the public docstrings and the late-bind hook publication.
 ;;
 ;; Design provenance (kept out of the public `configure!` docstring per the
 ;; rf2-ee38b clarity review):
@@ -114,15 +113,14 @@
 
 ;; The record-assembly helpers — `maybe-redact`, `current-schema-digest`,
 ;; the sensitive-rollup family, and `build-record` itself — live in
-;; `re-frame.epoch.assembly` (Phase-2 seam D, rf2-0wi86).
+;; `re-frame.epoch.assembly`.
 
 ;; ---- the per-frame ring buffer --------------------------------------------
 ;;
 ;; Per Tool-Pair §Time-travel "Bounded history": last N epochs per frame.
 ;; Stored as a map of frame-id → vector (oldest-first). New records append
 ;; to the back; the front evicts when the buffer exceeds the configured
-;; depth. The atom + ring-buffer mutators live in
-;; `re-frame.epoch.state` (Phase-2 seam A, rf2-0wi86).
+;; depth. The atom + ring-buffer mutators live in `re-frame.epoch.state`.
 
 (defn epoch-history
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
@@ -149,8 +147,8 @@
 ;; ---- listener registry ----------------------------------------------------
 ;;
 ;; The listener / observed-frames atoms and their low-level CRUD live in
-;; `re-frame.epoch.state` (Phase-2 seam A, rf2-0wi86); the facade keeps
-;; the public docstrings and the fan-out / failure-isolation policy.
+;; `re-frame.epoch.state`; the facade keeps the public docstrings and the
+;; fan-out / failure-isolation policy.
 
 (defn register-epoch-listener!
   "Register a callback fired once per drain-settle with the assembled

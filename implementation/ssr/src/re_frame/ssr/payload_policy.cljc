@@ -9,13 +9,11 @@
   feature flags, server-only working scratch) to every visitor of every
   page.
 
-  Pre-rf2-gtgf9 the payload builder defaulted to `app-db` in toto when
-  `:payload-keys` was nil/empty — a fail-OPEN default that made the
-  privacy decision implicit. Audits surfaced this as the
-  `:rf/response`-accumulator-on-app-db trap (rf2-jbcmt landed the
-  side-channel storage substrate to defend against ONE path of the
-  same family); rf2-briq0's review surfaced that the underlying
-  default was still wrong.
+  A fail-OPEN default (ship whole `app-db` when `:payload-keys` is
+  nil/empty) would make the privacy decision implicit; the
+  `:rf/response`-accumulator-on-app-db trap is one branch of the same
+  family (rf2-jbcmt landed the side-channel storage substrate, rf2-gtgf9
+  closed the default).
 
   This namespace makes the policy:
 

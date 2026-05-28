@@ -76,16 +76,11 @@
 
 ;; ---- universal copy-to-clipboard affordance (rf2-f026h) ------------------
 ;;
-;; re-frame-10x makes every value copyable. Pre-f026h the only copy
-;; gesture in Xray lived on the App-DB diff panel's section headers
-;; (the now-deleted structural-diff renderer →
-;; `:rf.xray/copy-{path,value}-to-clipboard`);
-;; the Event lens, Trace, segment-inspector, and the Static panels —
-;; 7 of 8 EDN surfaces — had none. Rather than thread a copy button
-;; into each panel, the affordance rides on the WIDGET ROOT so it
-;; lands on every `browse` (and therefore `inspect`) call — Trace's
-;; `edn/browse`, the segment-inspector + Event lens + Static panels'
-;; `edn/inspect`, all at once.
+;; re-frame-10x makes every value copyable. Rather than thread a copy
+;; button into each panel, the affordance rides on the WIDGET ROOT so
+;; it lands on every `browse` (and therefore `inspect`) call — Trace's
+;; `edn/browse`, the segment-inspector + Static panels' `edn/inspect`,
+;; all at once.
 ;;
 ;; The `:rf.xray/copy-value-to-clipboard` event + the
 ;; `:rf.xray.fx/copy-to-clipboard` fx are registered process-globally

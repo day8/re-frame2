@@ -1,5 +1,5 @@
 (ns re-frame.machines.lifecycle-fx.join
-  "`:spawn-all` join-event interception (rf2-6vmw).
+  "`:spawn-all` join-event interception.
 
   Per Spec 005 §Spawn-and-join via `:spawn-all` §Child completion protocol,
   the parent's handler boundary intercepts events whose inner-event-id

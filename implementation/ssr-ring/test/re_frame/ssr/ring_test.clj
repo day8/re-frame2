@@ -389,16 +389,14 @@
       ;; rf2-kzvwq / security audit §P2.1 — the default body MUST NOT
       ;; carry the exception's message. .getMessage is documented as
       ;; carrying internal topology (JDBC URLs, file paths, SQL
-      ;; fragments); leaking it publicly is the bug. Same boundary as
-      ;; pre-rf2-zwgsv (the projector is the security boundary now).
+      ;; fragments); leaking it publicly is the bug. The projector is
+      ;; the security boundary.
       (is (not (str/includes? (:body response) "boom-internal-jdbc-url-secret"))
           "rf2-kzvwq: the throwable's message text MUST NOT appear in
            the projector body (topology disclosure surface)")
-      ;; rf2-zwgsv: the new projector-driven body MUST carry the
-      ;; default projector's `:message` ("Something went wrong") so the
-      ;; client / crawler / monitoring stack sees the public surface,
-      ;; not the fixed `"Internal error"` string the pre-rf2-zwgsv
-      ;; on-error fallback produced.
+      ;; rf2-zwgsv: the projector-driven body carries the default
+      ;; projector's `:message` ("Something went wrong") so the
+      ;; client / crawler / monitoring stack sees the public surface.
       (is (str/includes? (:body response) "Something went wrong")
           "rf2-zwgsv: wire body carries the projector's `:message`
            (default = 'Something went wrong' per
@@ -408,9 +406,9 @@
            (default = `:internal-error`) as a stable category that
            response-page templates can branch on.")
       (is (not (= "Internal error" (:body response)))
-          "rf2-zwgsv: the pre-rf2-zwgsv fixed 'Internal error' string
-           is gone — render-time throws now go through the projector,
-           not the Ring :on-error fallback."))))
+          "rf2-zwgsv: render-time throws go through the projector,
+           not the Ring :on-error fallback — the fixed
+           'Internal error' string is never the wire body."))))
 
 (deftest handler-render-error-custom-projector-shapes-body
   (testing "rf2-zwgsv — caller customises the render-time error wire
@@ -547,12 +545,12 @@
 ;;
 ;; The fn-form branch of `:root-view` is not guaranteed to be idempotent —
 ;; unsorted-map iteration order, gensym'd react keys, and time-of-day
-;; props all vary between calls. Pre-rf2-6t36h the adapter invoked the
-;; root-view fn twice per request (once for the wire HTML / its embedded
-;; data-rf-render-hash, once for the payload's :rf/render-hash). Two
-;; non-identical trees → two non-equal hashes → spurious
-;; :rf.ssr/hydration-mismatch on the client for an otherwise successful
-;; hydration.
+;; props all vary between calls. The adapter therefore invokes the
+;; root-view fn ONCE per request and reuses the same tree for the wire
+;; HTML / its embedded data-rf-render-hash AND for the payload's
+;; :rf/render-hash. Two invocations would produce two non-identical trees
+;; → two non-equal hashes → spurious :rf.ssr/hydration-mismatch on the
+;; client for an otherwise successful hydration.
 ;;
 ;; These tests pin the contract: ONE invocation per request, and the wire
 ;; hash equals the payload hash even when the fn is technically
@@ -579,7 +577,8 @@
         (is (= 200 (:status response)))
         (is (= 1 @call-count)
             "fn-form :root-view must be invoked exactly once per request
-             (rf2-6t36h: was 2 — once for wire HTML, once for hash)")))))
+             (rf2-6t36h: ONE call covers both the wire HTML and the
+             payload :rf/render-hash)")))))
 
 (deftest fn-form-root-view-non-idempotent-still-hashes-consistently
   (testing "rf2-6t36h: a non-idempotent fn-form :root-view produces a wire
@@ -591,10 +590,10 @@
         (fn [_ _] {}))
 
       ;; A view fn that produces a DIFFERENT tree on every call — its
-      ;; key includes a monotonic counter. Pre-rf2-6t36h the wire HTML
-      ;; would carry hash(tree_1) and the payload would carry
-      ;; hash(tree_2); they would differ and the client's hydration
-      ;; verifier would fire a spurious mismatch.
+      ;; key includes a monotonic counter. With two invocations the wire
+      ;; HTML would carry hash(tree_1) and the payload would carry
+      ;; hash(tree_2); rf2-6t36h's single-invocation contract closes that
+      ;; spurious-mismatch gap.
       (rf/reg-view* :pages/noni
         (fn [n] [:div {:data-call n} "noni"]))
 
@@ -790,11 +789,10 @@
 ;;   2. **The fail-closed proof** — when a handler is constructed
 ;;      with an allowlist that does NOT include a server-only key,
 ;;      that key MUST NOT appear in the hydration payload on the
-;;      wire. This is the regression-bite: pre-rf2-gtgf9 the absence
-;;      of `:payload-keys` defaulted to whole-app-db, so a server-
-;;      only key on app-db rode the wire silently. The new contract
-;;      requires the allowlist; an un-permitted slot is provably
-;;      excluded by inspection of the wire payload.
+;;      wire. The contract requires the allowlist; an un-permitted
+;;      slot is provably excluded by inspection of the wire payload
+;;      (rf2-gtgf9: no default-whole-app-db fallback exists, so
+;;      server-only keys cannot ride the wire silently).
 ;;
 ;;   3. The opt-in branch — `:payload-policy
 ;;      :rf.ssr.payload/whole-app-db` ships the whole app-db verbatim
@@ -887,10 +885,10 @@
 (deftest fail-closed-proof-unpermitted-slot-not-on-wire
   (testing "rf2-gtgf9 FAIL-CLOSED PROOF: a server-only app-db key NOT in
             the :payload-keys allowlist MUST NOT appear in the
-            hydration-payload script tag's EDN body. This is the
-            regression-bite — pre-rf2-gtgf9, absence of :payload-keys
-            shipped the whole app-db, so an unaudited new app-db key
-            silently rode the wire on every request."
+            hydration-payload script tag's EDN body. Without the
+            allowlist gate an unaudited new app-db key would silently
+            ride the wire on every request — the allowlist is load-
+            bearing."
     (rf/reg-event-fx :init/with-secret
       {:platforms #{:server}}
       (fn [_ _]
@@ -934,16 +932,12 @@
            dropping everything by accident)")
 
       ;; THE FAIL-CLOSED PROOF: the un-permitted slot's value MUST
-      ;; NOT appear in the wire payload. If pre-rf2-gtgf9 behaviour
-      ;; were still in force, the leak-probe string would be present
-      ;; (whole-app-db default). Under rf2-gtgf9 the allowlist is
-      ;; load-bearing — this assertion is what the security audit
+      ;; NOT appear in the wire payload. Under rf2-gtgf9 the allowlist
+      ;; is load-bearing — this assertion is what the security audit
       ;; asked for.
       (is (not (str/includes? payload-edn "RF2_GTGF9_FAIL_CLOSED_PROBE_xyz789"))
           "rf2-gtgf9 fail-closed proof: an un-permitted server-only
-           key's value does NOT appear in the wire hydration payload.
-           Pre-rf2-gtgf9 the absence of :payload-keys defaulted to
-           whole-app-db — this string would have leaked.")
+           key's value does NOT appear in the wire hydration payload.")
       (is (not (str/includes? payload-edn "feature-flag"))
           "rf2-gtgf9: the un-permitted key NAME also does not leak —
            neither key nor value reaches the wire")
@@ -1256,8 +1250,7 @@
 (deftest default-shell-html-and-body-bare-when-attrs-absent
   (testing "head model with no :html-attrs / :body-attrs → <html> falls
             back to the :lang opt (default \"en\"); <body> is bare. This
-            is the pre-rf2-h2ujj shape and the default for routes that
-            don't opt in."
+            is the default for routes that don't opt into attr bags."
     (register-attrs-app! {:title "T"}) ; no attr bags
 
     (let [handler  (ssr-ring/ssr-handler
@@ -1443,9 +1436,10 @@
            lives in a framework-private side-channel atom, not in app-db")
 
       ;; (c) The server-only secret values MUST NOT appear in the payload.
-      ;; This is the regression-bite assertion: pre-rf2-jbcmt these strings
-      ;; rode the wire as part of `[:rf/response :cookies ...]` /
-      ;; `[:rf/response :headers ...]` inside the app-db slice.
+      ;; rf2-jbcmt strips `[:rf/response :cookies ...]` /
+      ;; `[:rf/response :headers ...]` from the app-db slice before it
+      ;; reaches the wire — Set-Cookie / X-Secret-Header values live in
+      ;; the response headers ONLY, not also in the hydration payload.
       (is (not (str/includes? payload-edn "SUPER_SECRET_AUTH_TOKEN_xyz"))
           "rf2-jbcmt: the Set-Cookie auth token does NOT leak into the
            hydration payload")

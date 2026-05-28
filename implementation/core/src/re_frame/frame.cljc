@@ -502,7 +502,7 @@
   [id]
   (if-let [teardown! (late-bind/get-fn :machines/teardown-on-frame-destroy!)]
     (teardown! id)
-    ;; Fallback path — preserve the pre-rf2-vsigt minimal contract.
+    ;; Fallback path — minimal contract when the machines artefact is absent.
     (let [container  (get-frame-db id)
           db         (when container (adapter/read-container container))
           machines   (get db :rf/machines)

@@ -104,8 +104,7 @@
   Always carries `:title` — defaulting to `\"\"` when the frame has no
   `:doc`. Empty-title and missing-title both emit no `<title>` tag (the
   emitter elides empty strings), but a programmatic consumer reading
-  the model sees a stable key shape (audit rf2-asmj1 H5 / cluster
-  rf2-sljs1)."
+  the model sees a stable key shape."
   [frame-id]
   (let [doc (when frame-id (:doc (frame/frame-meta frame-id)))]
     {:title (or doc "")
@@ -123,10 +122,9 @@
       (when db (:rf/route db)))))
 
 (defn- render-head*
-  "Resolve a normalised opts map and run the registered head fn. Split
-  from `render-head` per audit rf2-asmj1 H7 / cluster rf2-sljs1 so the
-  caller-facing fn carries the documented two-shape contract on its
-  signature and a private helper carries the work."
+  "Resolve a normalised opts map and run the registered head fn. The
+  caller-facing `render-head` carries the documented two-shape contract
+  on its signature and delegates the work here."
   [head-id {:keys [frame] :as opts}]
   (let [route (if (contains? opts :route)
                 (:route opts)

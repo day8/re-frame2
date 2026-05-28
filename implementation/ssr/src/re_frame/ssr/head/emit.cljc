@@ -40,10 +40,8 @@
   (str "<link" (html/attr-string m) ">"))
 
 (defn- emit-script-tag [m]
-  ;; `attr-string` already iterates the whole map in declaration order —
-  ;; the historical pull-known-keys-then-merge-remainder dance was a
-  ;; no-op that obscured the contract. Per audit rf2-asmj1 H2 / cluster
-  ;; rf2-sljs1: pass `m` straight through.
+  ;; `attr-string` already iterates the whole map in declaration order;
+  ;; pass `m` straight through.
   (str "<script" (html/attr-string m) "></script>"))
 
 (defn- ld-json-string
@@ -158,16 +156,14 @@
 ;; Canonical emission order per Spec 011 §Default flow step 4:
 ;; <title> → <meta> → <link> → <script> → JSON-LD. Encoded as a vector
 ;; of `[model-key emit-fn]` pairs so the canonical ordering reads as
-;; data, not as a six-arm `cond->` (audit rf2-asmj1 H4 / cluster
-;; rf2-sljs1).
+;; data, not as a six-arm `cond->`.
 ;;
 ;; `:title` is intentionally absent — it's a singleton (one slot, one
 ;; string value) whose emit fn takes a string rather than an item from a
 ;; collection. `head-model->html` extracts it via a separate `when-let`
 ;; binding outside this loop. Future singleton additions (e.g. `<base>`)
 ;; need the same separate-binding treatment; collection keys (multiple
-;; tags emitted in declaration order) extend this vector. Audit
-;; rf2-cegm7 A5.
+;; tags emitted in declaration order) extend this vector.
 (def ^:private emission-order
   [[:meta    emit-meta-tag]
    [:link    emit-link-tag]

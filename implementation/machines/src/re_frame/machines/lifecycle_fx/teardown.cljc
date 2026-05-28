@@ -20,11 +20,10 @@
   fixture the runtime keeps those slots present-but-empty so callers
   observing the app-db root see a stable shape.
 
-  Per audit rf2-ra1he §P0 #3 / §L2 / §L7 / §L8 / §L12 (rf2-lha2t): this
-  dance was previously inlined at three call-sites with subtle
-  order-of-operations divergence around the lazy-allocation prunes. The
-  unification lives here so contract changes (e.g. a `:rf/spawned` key
-  rename, an extra root to prune) touch one spot.
+  The unification lives here so contract changes (e.g. a `:rf/spawned`
+  key rename, an extra root to prune) touch one spot — the three
+  destroy paths (explicit, exit-cascade declarative, final-state auto-
+  destroy) all route through this projection.
 
   This namespace is PURE — it does not unregister handlers, abort
   in-flight HTTP, or emit traces. Those are caller side effects whose

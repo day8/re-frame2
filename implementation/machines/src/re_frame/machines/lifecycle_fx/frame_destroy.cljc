@@ -1,5 +1,5 @@
 (ns re-frame.machines.lifecycle-fx.frame-destroy
-  "Frame-destroy machine-cascade orchestrator (rf2-vsigt).
+  "Frame-destroy machine-cascade orchestrator.
 
   Per Spec 005 §Cross-Spec Interactions §1 — Frame disposal with active
   machine instances — `destroy-frame!` must:

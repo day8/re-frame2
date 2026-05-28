@@ -212,18 +212,16 @@
 ;; `validate-and-trace`, and for a layer-2+ sub eagerly derefs the whole
 ;; `:<-` input chain. Reagent (`ratom/make-reaction`, lazy until first
 ;; deref) and the plain-atom adapter (recompute-on-deref) both defer the
-;; first body invocation to first read. The spine MUST match: seeding
-;; `prev-state` with `(recompute)` at construction (the pre-rf2-ee38b.1
-;; shape) ran the body once per `subscribe` even when the reaction is
-;; never deref'd, emitting a subscribe-time `:rf.sub/run` rather than a
-;; deref-time one — an observable cross-adapter divergence (extra body
-;; invocation count, different trace timing, side-effecting bodies firing
-;; before any render reads them) contradicting Spec 006 §No-op via value
-;; equality's "body runs on demand" intent. The fix seeds `prev-state`
-;; with the `unset` sentinel; the first flush (or deref) is the first
-;; real recompute, and the sentinel `not=` any real value so the first
-;; post-construction change always notifies — the same first-change-
-;; notifies semantics Reagent gives.
+;; first body invocation to first read; the spine matches by seeding
+;; `prev-state` with the `unset` sentinel rather than with `(recompute)`.
+;; The first flush (or deref) is then the first real recompute — a
+;; subscribe-time `(recompute)` would emit `:rf.sub/run` and side-effect
+;; before any render reads the reaction, an observable cross-adapter
+;; divergence (extra body invocations, different trace timing) that
+;; contradicts Spec 006 §No-op via value equality's "body runs on demand"
+;; intent. The sentinel `not=` any real value, so the first post-
+;; construction change always notifies — the same first-change-notifies
+;; semantics Reagent gives.
 
 (def ^:private unset
   "Sentinel for a derived value whose baseline has not yet been computed.
@@ -246,15 +244,11 @@
   + `re-frame.subs`, `source-containers` is a vector) so the recompute
   closure pays no per-tick `count`.
 
-  Single source of truth (rf2-eoy63 lockstep): the Reagent,
-  reagent-slim, UIx, and Helix adapters all build their recompute
-  closure through this fn — pre-rf2-eoy63 the arity-spec lived only in
-  the Reagent adapter and the spine + reagent-slim had naive
-  `(apply compute-fn (map deref ...))` shapes that paid the apply +
-  lazy-seq cost on every sub recompute × every dispatch. Lifting the
-  arity-spec into the spine matches the rf2-jcjul `make-dispose-adapter!`
-  shape: one implementation, four adapters, zero drift. Sourced from
-  the rf2-fzrav perf-sweep findings."
+  Single source of truth: the Reagent, reagent-slim, UIx, and Helix
+  adapters all build their recompute closure through this fn — one
+  implementation, four adapters, zero drift. The arity-spec lifted
+  into the spine matches the `make-dispose-adapter!` shape
+  (rf2-jcjul); sourced from the rf2-fzrav perf-sweep findings."
   [source-containers compute-fn]
   (let [n (count source-containers)]
     (case n
@@ -366,12 +360,12 @@
         ;; Re-frame-owned IDisposable — `interop/add-on-dispose!` /
         ;; `interop/dispose!` route into this protocol via the
         ;; adapter's `:adapter/add-on-dispose!` / `:adapter/dispose!`
-        ;; hooks (per Spec 006 §subscription-cache). Pre-rf2-jicu2 the
-        ;; spine reified `reagent.ratom/IDisposable` here, which forced
-        ;; every UIx/Helix bundle to pay ~9KB optimised / 2-3KB gzipped
-        ;; of `reagent.ratom` + `reagent.impl.batching` for one
-        ;; protocol — the new `re-frame.disposable/IDisposable` is
-        ;; re-frame-owned and carries no Reagent dependency.
+        ;; hooks (per Spec 006 §subscription-cache). The spine
+        ;; deliberately uses `re-frame.disposable/IDisposable` (re-
+        ;; frame-owned, no Reagent dependency) rather than
+        ;; `reagent.ratom/IDisposable` so UIx/Helix bundles don't pay
+        ;; ~9KB optimised / 2-3KB gzipped of `reagent.ratom` +
+        ;; `reagent.impl.batching` for one protocol.
         rf-disposable/IDisposable
         (-dispose [_]
           (doseq [[s k] @own-keys] (remove-watch s k))
@@ -439,10 +433,8 @@
 ;;
 ;; `:adapter/after-render` for React-only substrates (UIx, Helix) per
 ;; rf2-334d9 (Mike decision rf2-neiqf 2026-05-19: publish via
-;; useLayoutEffect). Pre-rf2-334d9 the UIx and Helix adapters did NOT
-;; publish `:adapter/after-render`, so `(rf/after-render f)` under those
-;; adapters was a silent no-op — a correctness bug under the pre-alpha
-;; masterpiece posture.
+;; useLayoutEffect) — without this `(rf/after-render f)` under those
+;; adapters would be a silent no-op.
 ;;
 ;; Architecture. Per-adapter queue cell + a sentinel function component
 ;; injected at the root of every mounted tree (via `make-render`'s
@@ -1243,12 +1235,11 @@
             ;; Pair the memoised `subs/subscribe` (above) with an
             ;; explicit `subs/unsubscribe` on unmount / key-change so
             ;; the sub-cache's ref-count is decremented when the
-            ;; component drops the reaction. Pre-rf2-7g959 the cleanup
-            ;; was implicit only via the useSyncExternalStore
-            ;; subscribe-fn's `remove-watch` — which freed the React
-            ;; listener but left the sub-cache entry pinned at
-            ;; ref-count 1 for the rest of the process. Per
-            ;; Spec 006 §Reference counting and disposal.
+            ;; component drops the reaction. Without this pairing the
+            ;; useSyncExternalStore subscribe-fn's `remove-watch` would
+            ;; free the React listener but leave the sub-cache entry
+            ;; pinned at ref-count 1. Per Spec 006 §Reference counting
+            ;; and disposal.
             ;;
             ;; Memo can rebuild on key change; pairing the subscribe
             ;; with a useEffect keyed on the same deps means React
@@ -1333,8 +1324,9 @@
 ;;     via the spine's after-render machinery. `after-render` is a React-
 ;;     lifecycle question (when does the next commit complete?), not a
 ;;     reactive-atom one — so the "no reactive primitive" rationale that
-;;     excludes the four hooks above does NOT apply. Pre-rf2-334d9
-;;     `(rf/after-render f)` under these adapters was a silent no-op.
+;;     excludes the four hooks above does NOT apply. Without this hook
+;;     `(rf/after-render f)` under these adapters would be a silent
+;;     no-op.
 ;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord injection
 ;;     via React.cloneElement (the views.cljs inline hiccup-walk would
 ;;     mis-classify React-element output as a non-DOM root). Production-
@@ -1396,11 +1388,10 @@
 ;;
 ;; The Reagent and reagent-slim adapters are the SAME shape under a
 ;; different reactive-atom impl (stock `reagent.*` vs the `reagent2.*`
-;; rewrite). Pre-rf2-rzex9 each carried a byte-identical (modulo the
-;; ratom ns) copy of the container quartet, the React-root renderer, and
-;; the dispose body. `make-ratom-spine` factors that shared shape exactly
-;; as `make-react-spine` factors the UIx/Helix hook family — one
-;; implementation, two adapters, zero drift.
+;; rewrite). `make-ratom-spine` factors the shared container quartet,
+;; React-root renderer, and dispose body exactly as `make-react-spine`
+;; factors the UIx/Helix hook family — one implementation, two adapters,
+;; zero drift.
 ;;
 ;; CRITICAL — slim bundle isolation (IMPL-SPEC §1.8 / the
 ;; `test:reagent-slim:bundle-isolation` gate). This helper lives in
@@ -1458,12 +1449,11 @@
   spine's hook-shaped `frame-provider` is not. Keeping it as adapter-side
   wiring also keeps this core ns free of a spine→views dependency edge.
 
-  Behaviour is byte-for-byte equivalent to the pre-rf2-rzex9 hand-written
-  adapter bodies: container quartet incl. the substrate-scoped gensym;
-  the create-root/hydrate-root render with active-roots tracking + an
-  unmount thunk that drops itself from the set; and the four-MUST dispose
-  body (`dispose-frame-sub-caches!` + active-roots drain w/ per-root
-  throw-swallow + emitter clear)."
+  Produces: container quartet incl. the substrate-scoped gensym; the
+  create-root/hydrate-root render with active-roots tracking + an unmount
+  thunk that drops itself from the set; and the four-MUST dispose body
+  (`dispose-frame-sub-caches!` + active-roots drain w/ per-root throw-
+  swallow + emitter clear)."
   [{:keys [gensym-prefix-sub ratom-ops]}]
   (let [{r-atom        :r/atom
          make-reaction :ratom/make-reaction

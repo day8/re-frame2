@@ -5,7 +5,7 @@
   it renders the observed frame's LIVE `app-db` value, sectioned by
   reserved `:rf/*` area. It is NOT a diff — the diff / value-changed /
   'show me when this changed' affordances were dropped here (rf2-okvit).
-  Diff rendering still lives in the Event tab's `:db` + `:fx` section.
+  Diff rendering lives in the Epoch panel's `:db` + `:fx` section.
 
   ## Layout (rf2-okvit)
 
@@ -39,7 +39,7 @@
     panel's body).
   - `app-db-diff-subs` / `app-db-diff-events` — subs + events. The
     composite diff sub (`:rf.xray/selected-epoch-diff` and friends)
-    survives there for the Event tab's diff surface + the MCP exporter;
+    survives there for the Epoch panel's diff surface + the MCP exporter;
     this panel reads only `:rf.xray/app-db-state`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panel-registry :as panel-registry]

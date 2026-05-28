@@ -43,10 +43,9 @@
 
 (def set-hiccup-emitter!
   "Install the hiccup → HTML fn used by render-to-string. Last call wins.
-  Reagent ships server-side rendering via reagent.dom.server — but in
-  CLJS browser builds we don't typically render-to-string; install the
-  emitter via this fn (or let the SSR seam resolve the late-bind hook)
-  if you need it in CLJS."
+  Per rf2-uo7v / IMPL-SPEC §2.1: published through the late-bind hook
+  `:reagent/set-hiccup-emitter!` so the SSR seam at re-frame.ssr
+  resolves it at load time without a static :require."
   (:set-hiccup-emitter! spine-fns))
 
 (def adapter

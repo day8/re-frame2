@@ -38,7 +38,7 @@
   The widget has NO ⎘ copy affordance (deferred to follow-on beads —
   the popup phase, D6=a). The old EDN widget's copy gesture is
   unaffected on surfaces still wired to it (Trace, segment-inspector,
-  Event lens, Static panels) until phases 2-4 migrate them.
+  Static panels) until subsequent phases migrate them.
 
   ## Inspector-card layout (rf2-63ie5 + rf2-okq7p, post-rf2-jcdvo)
 

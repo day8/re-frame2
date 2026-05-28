@@ -117,11 +117,10 @@
 
 ;; ---- handler defaults + caller-opt validation -----------------------------
 ;;
-;; Pre-rf2-zkca8.1 these lived in `re-frame.ssr.ring.handler-defaults`
-;; (45 L, one consumer — this ns). Recombined here so the handler
-;; constructor reads top-down as one concept. `default-on-error` is
-;; re-exported from `lifecycle` (shared with `stream-handler` so the
-;; rf2-kzvwq topology-leak contract lives in one place).
+;; Co-located with the handler constructor so the file reads top-down as
+;; one concept. `default-on-error` is re-exported from `lifecycle`
+;; (shared with `stream-handler` so the rf2-kzvwq topology-leak contract
+;; lives in one place).
 
 (def default-on-error lifecycle/default-on-error)
 (def make-default-on-error lifecycle/make-default-on-error)
@@ -163,9 +162,8 @@
 
 (defn- validate-handler-opts!
   "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
-  caller omits a required `ssr-handler` opt. Extracted from the
-  handler body per audit rf2-asmj1 R3 / cluster rf2-sljs1 so the body
-  of `ssr-handler` reads as the lifecycle wiring rather than a
+  caller omits a required `ssr-handler` opt. Separated from the handler
+  body so `ssr-handler` reads as the lifecycle wiring rather than a
   validation-then-wire two-step.
 
   Per rf2-gtgf9 the hydration-payload policy is also validated here so

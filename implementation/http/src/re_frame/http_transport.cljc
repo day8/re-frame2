@@ -1,17 +1,15 @@
 (ns re-frame.http-transport
   "Shared transport + attempt-and-retry loop for `:rf.http/managed`.
 
-  Extracted from `re-frame.http-managed` per rf2-3i9b; collapsed onto a
-  single .cljc per rf2-921qy. The CLJS path uses the Fetch API and the
-  JVM path uses `java.net.http.HttpClient`; everything else
-  (`dispatch-reply!`, `finalise-success!`, `finalise-failure!`,
-  `maybe-retry!`, the 4xx/5xx/2xx/else response cascade, the
-  in-flight registry interaction, the retry-trace emission, the
-  rf2-bma05 privacy redaction, the rf2-lxd3 supersede suppression)
-  is platform-agnostic and shared. Platform-specific fragments
-  (`cljs-fetch` + `classify-cljs-error` on CLJS; `jvm-fetch` +
-  `classify-jvm-error` + `check-cljs-only-keys!` on JVM) are gated
-  with reader conditionals.
+  The CLJS path uses the Fetch API and the JVM path uses
+  `java.net.http.HttpClient`; everything else (`dispatch-reply!`,
+  `finalise-success!`, `finalise-failure!`, `maybe-retry!`, the
+  4xx/5xx/2xx/else response cascade, the in-flight registry interaction,
+  the retry-trace emission, the rf2-bma05 privacy redaction, the
+  rf2-lxd3 supersede suppression) is platform-agnostic and shared.
+  Platform-specific fragments (`cljs-fetch` + `classify-cljs-error` on
+  CLJS; `jvm-fetch` + `classify-jvm-error` + `check-cljs-only-keys!` on
+  JVM) are gated with reader conditionals.
 
   Per-row CLJS-only request keys (`:abort-signal`, `:mode`, `:cache`,
   `:referrer`, `:integrity`) are no-ops on JVM with a one-line trace

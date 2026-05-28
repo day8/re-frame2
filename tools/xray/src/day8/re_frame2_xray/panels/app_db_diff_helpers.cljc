@@ -773,10 +773,10 @@
 ;;      app-db at its registered `:path`.
 ;;
 ;; Without per-path attribution the developer sees "path X changed" and
-;; has to look elsewhere (the FLOWS section in the Event lens) to
-;; figure out which subset of changes came from flow recomputes. The
-;; origin chip on each diff section closes that gap: the section header
-;; carries `[fx :db]` or `[flow :flow-id]` next to the breadcrumb.
+;; has to look elsewhere (the Epoch panel's FLOWS section) to figure out
+;; which subset of changes came from flow recomputes. The origin chip
+;; on each diff section closes that gap: the section header carries
+;; `[fx :db]` or `[flow :flow-id]` next to the breadcrumb.
 ;;
 ;; ## Source of truth
 ;;

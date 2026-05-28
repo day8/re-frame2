@@ -86,8 +86,8 @@
        enabled?=false` the entire branch DCEs and this fn vanishes
        from the production bundle.
 
-  The body is pure data-shaping with no platform-specific calls — the
-  pre-rf2-4ymm0 JVM/CLJS twins held identical bodies."
+  The body is pure data-shaping with no platform-specific calls — one
+  `.cljc` definition serves both JVM and CLJS callers."
   [bucket id]
   (str "rf:" (name bucket) ":"
        (cond

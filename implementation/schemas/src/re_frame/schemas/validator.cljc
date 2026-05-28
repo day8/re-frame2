@@ -164,7 +164,7 @@
 
 (defn set-schema-validator!
   "Register the validator fn that every dev-time validation site routes
-  through. Per Spec 010 §Non-Malli validators (rf2-froe) the seam is
+  through. Per Spec 010 §Non-Malli validators the seam is
   the substitute-Malli extension point — apps that want to drop Malli
   (the ~24 KB gzipped surface measured in the rf2-qnxf bundle audit)
   swap in their own validator at boot, before the first `reg-app-schema`

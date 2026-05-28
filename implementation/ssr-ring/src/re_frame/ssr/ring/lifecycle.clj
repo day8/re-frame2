@@ -102,10 +102,8 @@
   a real handler error; swallow + emit a `:warning` trace is preferred
   over propagation.
 
-  Per audit rf2-asmj1 R6 / cluster rf2-sljs1: prior to this change the
-  catch silently returned nil, so a destroy-time throw vanished entirely
-  whenever the trace listener fired before the destroy. Surfacing the
-  throwable on the trace bus keeps the error visible to dev tooling
+  Surfaces any destroy-time throw on the trace bus rather than
+  silently swallowing it — keeps the error visible to dev tooling
   without escalating to a user-visible 500 (the handler-side error has
   already been materialised by the time this fn runs)."
   [frame-id]
