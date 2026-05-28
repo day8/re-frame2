@@ -237,7 +237,7 @@
    :cookies  []
    :redirect nil})
 
-(defn ensure-response
+(defn- ensure-response
   "Return resp with defaults applied. nil-tolerant — a frame whose slot
   has never been touched by an :rf.server/* fx still resolves to the
   default response shape."
