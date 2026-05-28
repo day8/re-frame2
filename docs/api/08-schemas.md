@@ -16,7 +16,7 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
   (reg-app-schema path schema)
   (reg-app-schema path schema opts)
   ```
-- **Description**: "Attach this Malli schema to this `app-db` path." **Path is the registration id** — the `:app-schema` registry kind is path-keyed because schemas-at-paths matches the dataflow grain. `(app-schema-at [:user])` looks up by the same path vector.
+- **Description**: "Attach this Malli schema to this `app-db` path." **Path is the registration id** — app-db schemas are path-keyed (the schemas-at-paths grain matches `get-in` / `assoc-in`) and live in the schemas artefact's per-frame side-table (per rf2-cq1ak app-db schemas are NOT a registrar kind). `(app-schema-at [:user])` looks up by the same path vector.
 - **Example**:
   ```clojure
   (rf/reg-app-schema [:cells]

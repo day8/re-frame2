@@ -41,7 +41,9 @@
        (a re-use of core's pre-existing helpers; the interpreter is
        in `core/src` so the schemas artefact has it on the classpath
        without pulling core's test tree).
-    3. Wires `:fixture/registry :app-schema` into `reg-app-schema`.
+    3. Wires `:fixture/registry :app-schemas` into `reg-app-schema`
+       (rf2-cq1ak — the fixture key is plural; app-db schemas are NOT
+       a registrar kind).
     4. Registers the default frame with the fixture's
        `:fixture/frame-config` (e.g. `:on-create [:init]`).
     5. Drives `:fixture/dispatches` through `rf/dispatch-sync`.
@@ -347,7 +349,9 @@
   leak closed, app-schema registration is sequenced explicitly
   after `reg-frame`."
   [fixture]
-  (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
+  ;; Per rf2-cq1ak the fixture key is `:app-schemas` (plural) — app-db
+  ;; schemas are NOT a registrar kind.
+  (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
     (rf/reg-app-schema path schema)))
 
 ;; ---- trace capture -------------------------------------------------------

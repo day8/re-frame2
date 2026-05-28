@@ -20,15 +20,15 @@
 
   Supported kinds: `event`, `sub`, `fx`, `cofx`, `view`, `frame`,
   `route`, `flow`, `head`, `error-projector`, `machine` — the closed
-  v1 registrar set (per Spec 001 §Registry model) minus `:app-schema`
-  (intentionally empty registrar slot — its metadata lives in the
+  v1 registrar set (per Spec 001 §Registry model). App-db schemas are
+  NOT a registrar kind (rf2-cq1ak); their metadata lives in the
   schemas artefact's per-frame side-table, surfaced via
-  `rf/app-schemas`). The ten registrar kinds map directly to
-  `rf/handler-meta`; `machine` routes through the dedicated
-  `rf/machine-meta` surface (Spec 005 §Querying machines — machines
-  are registered as `:event` handlers carrying `:rf/machine? true`
-  with their spec in the `:rf/machine` slot, and `machine-meta`
-  unwraps that slot).
+  `rf/app-schemas` / `rf/app-schema-meta-at`. The ten registrar kinds
+  map directly to `rf/handler-meta`; `machine` routes through the
+  dedicated `rf/machine-meta` surface (Spec 005 §Querying machines —
+  machines are registered as `:event` handlers carrying
+  `:rf/machine? true` with their spec in the `:rf/machine` slot, and
+  `machine-meta` unwraps that slot).
 
   Returns `{:ok? false :reason :not-registered :kind k :id id}` when
   no slot is found (so the agent gets a structured signal — same
@@ -72,12 +72,13 @@
 
 (def ^:private registrar-kinds
   "Kinds that map directly to the registrar's `kind->id->metadata`
-  table — the closed v1 registrar set (per Spec 001 §Registry model)
-  minus `:app-schema` (intentionally empty registrar slot — schema
-  metadata lives in the schemas artefact's per-frame side-table).
-  `machine` is intentionally absent here too — it routes through
-  `rf/machine-meta` (which inspects `:event`-kind metadata for the
-  `:rf/machine?` flag) — but is in `supported-kinds` below."
+  table — the closed v1 registrar set (per Spec 001 §Registry model).
+  App-db schemas (rf2-cq1ak) are intentionally absent — they are NOT
+  a registrar kind; their metadata lives in the schemas artefact's
+  per-frame side-table. `machine` is intentionally absent here too —
+  it routes through `rf/machine-meta` (which inspects `:event`-kind
+  metadata for the `:rf/machine?` flag) — but is in `supported-kinds`
+  below."
   #{:event :sub :fx :cofx :view :frame :route :flow :head :error-projector})
 
 (def ^:private supported-kinds

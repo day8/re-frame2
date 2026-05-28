@@ -35,20 +35,21 @@
 ;; (registrar/clear-all!) wiped framework registrations (routing,
 ;; machines) — fine while these tests ran in isolation, but hostile to
 ;; cross-ns CLJS test runs because CLJS cannot reload them. Snapshot/
-;; restore preserves them and still rolls back per-test :app-schema /
+;; restore preserves them and still rolls back per-test app-schema /
 ;; reg-event-db / reg-sub on the way out.
 ;;
-;; :clear-kinds [:app-schema] gives the test a clean :app-schema slate
-;; per-test. Without this, nine-states.core's ns-load app-schemas
-;; (registered for :todos and :new-todo) survive in the snapshot and
-;; produce extra schema-validation-failure traces that this smoke
-;; doesn't expect. The snapshot still holds those entries, so the
-;; restore on the way out leaves nine-states.core's schemas intact for
-;; downstream tests.
+;; `:clear-app-schemas? true` gives the test a clean app-schema slate
+;; per-test (per rf2-cq1ak app-db schemas live OUTSIDE the registrar in
+;; the schemas artefact's per-frame side-table). Without this,
+;; nine-states.core's ns-load app-schemas (registered for :todos and
+;; :new-todo) survive in the snapshot and produce extra schema-
+;; validation-failure traces that this smoke doesn't expect. The
+;; snapshot still holds those entries, so the restore on the way out
+;; leaves nine-states.core's schemas intact for downstream tests.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter     reagent-adapter/adapter
-     :clear-kinds [:app-schema]}))
+    {:adapter            reagent-adapter/adapter
+     :clear-app-schemas? true}))
 
 ;; ---- live dispatch fires app-db schema validation -------------------------
 

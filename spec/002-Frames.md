@@ -1398,7 +1398,7 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 
 | Query | Returns | JVM-runnable? |
 |---|---|---|
-| `(rf/registrations kind)` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (all of `reg-event-db`/`-fx`/`-ctx`), `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:app-schema`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. | Yes |
+| `(rf/registrations kind)` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (all of `reg-event-db`/`-fx`/`-ctx`), `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. App-db schemas are **not** a registrar kind either (rf2-cq1ak) — introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`. | Yes |
 | `(rf/registrations kind pred-fn)` | Same, filtered by `pred-fn` applied to each metadata map. | Yes |
 | `(rf/handler-meta kind id)` | Metadata for a single handler (config, source coords, doc, spec, etc.). | Yes |
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |

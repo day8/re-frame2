@@ -234,7 +234,10 @@
 
 (deftest registrations-2-arity-unknown-kind-returns-empty
   (testing "a kind with no registrations returns {} regardless of pred"
-    (is (= {} (rf/registrations :app-schema (constantly true)))
+    ;; `:rf2-hf/never-a-kind` is intentionally not a registrar kind —
+    ;; per Spec 001 §Registry model the kinds set is closed; an
+    ;; unrecognised kind queried via `registrations` returns `{}`.
+    (is (= {} (rf/registrations :rf2-hf/never-a-kind (constantly true)))
         "kind has no entries → empty map even when pred is permissive")))
 
 ;; ===========================================================================

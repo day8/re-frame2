@@ -315,7 +315,9 @@
                                (get-in fixture [:fixture/registry :route]))]
       (rf/reg-route id meta))
     ;; ---- app-schemas (rare on ssr fixtures, but covered) ---------------
-    (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
+    ;; Per rf2-cq1ak the fixture key is `:app-schemas` (plural) — app-db
+    ;; schemas are NOT a registrar kind.
+    (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
       (rf/reg-app-schema path schema))))
 
 ;; ---- trace capture -------------------------------------------------------

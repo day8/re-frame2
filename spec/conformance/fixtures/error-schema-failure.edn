@@ -17,7 +17,10 @@
  {:event {:counter/init       {:doc "Seed."}
           :counter/set-bad    {:doc "Sets :count to a non-integer (violates schema)."}}
   :sub   {:count {:doc "Current count."}}
-  :app-schema
+  ;; Per rf2-cq1ak app-db schemas are NOT a registrar kind; the
+  ;; `:app-schemas` fixture key carries `path → schema` for the
+  ;; runner's `reg-app-schema` realisation step.
+  :app-schemas
   {[:count] [:int]}}                                 ;; the registered schema at path [:count]
 
  :fixture/handlers

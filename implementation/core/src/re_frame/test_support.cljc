@@ -277,14 +277,24 @@
     :adapter      — substrate adapter to install. If omitted, no adapter
                     is installed by the fixture.
     :init-fn      — zero-arg fn run after adapter install, before the test.
-    :clear-kinds  — collection of registry kinds (e.g. `[:app-schema]`) to
-                    `clear-kind!` AFTER the snapshot capture and BEFORE
-                    the test body runs. Use this when example apps
-                    loaded by ns-load time register entries under a
-                    kind your test wants a clean slate for. The
-                    snapshot still includes those entries, so they're
-                    restored on the way out — they only disappear for
-                    the duration of the test.
+    :clear-kinds  — collection of registry kinds to `clear-kind!`
+                    AFTER the snapshot capture and BEFORE the test
+                    body runs. Use this when example apps loaded by
+                    ns-load time register entries under a kind your
+                    test wants a clean slate for. The snapshot still
+                    includes those entries, so they're restored on the
+                    way out — they only disappear for the duration of
+                    the test.
+    :clear-app-schemas?
+                  — boolean. When true, clear the schemas artefact's
+                    per-frame side-table (`schemas/schemas-by-frame`)
+                    AFTER the snapshot capture and BEFORE the test body
+                    runs. App-db schemas live OUTSIDE the registrar
+                    (rf2-cq1ak), so this is a separate hook from
+                    `:clear-kinds`. The snapshot still includes the
+                    per-frame schemas, so they're restored on the way
+                    out — they only disappear for the duration of the
+                    test.
 
   Returns a fixture fn suitable for `(use-fixtures :each ...)`.
 
@@ -295,13 +305,13 @@
           {:adapter reagent-adapter/adapter}))
 
   Example with example-app collision avoidance — schemas tests want a
-  clean :app-schema slate without losing nine-states.core's other
+  clean app-schema slate without losing nine-states.core's other
   registrations:
 
       (use-fixtures :each
         (test-support/make-reset-runtime-fixture
-          {:adapter     reagent-adapter/adapter
-           :clear-kinds [:app-schema]}))
+          {:adapter             reagent-adapter/adapter
+           :clear-app-schemas?  true}))
 
   Example (JVM, default plain-atom adapter):
 
@@ -309,14 +319,14 @@
         (test-support/make-reset-runtime-fixture
           {:adapter plain-atom/adapter}))"
   ([] (make-reset-runtime-fixture {}))
-  ([{:keys [adapter init-fn clear-kinds]}]
+  ([{:keys [adapter init-fn clear-kinds clear-app-schemas?]}]
    (fn [test-fn]
      ;; Late-bind: when the schemas artefact is loaded, snap and restore
-     ;; the per-frame schema registry around the test body. The clear
-     ;; step in the mid-body run fires from `reset-hook-table` —
-     ;; `clear-fn` is captured here only for the `:clear-kinds
-     ;; [:app-schema]` branch (the schemas artefact owns its own per-
-     ;; frame side-table, not a registrar kind).
+     ;; the per-frame schema registry around the test body. `clear-fn`
+     ;; is captured here only for the `:clear-app-schemas? true` branch
+     ;; (the schemas artefact owns its own per-frame side-table — it is
+     ;; NOT a registrar kind per rf2-cq1ak, so the registrar's
+     ;; `clear-kind!` cannot reach it).
      (let [snap          (snapshot-registrar)
            snapshot-fn   (late-bind/get-fn :schemas/snapshot-by-frame)
            clear-fn      (late-bind/get-fn :schemas/clear-by-frame!)
@@ -333,15 +343,14 @@
            (adapter/install-adapter! adapter)
            (frame/ensure-default-frame!))
          (doseq [k clear-kinds]
-           (registrar/clear-kind! k)
-           ;; The `:clear-kinds [:app-schema]` opt is preserved as the
-           ;; test-support convention for "give me a clean app-schema
-           ;; slate"; the registrar `clear-kind!` above is a no-op for
-           ;; this kind (`:app-schema` is the schemas artefact's per-
-           ;; frame side-table, not a registrar kind), and this branch
-           ;; dispatches the actual reset through the schemas clear-fn.
-           (when (and (= k :app-schema) clear-fn)
-             (clear-fn)))
+           (registrar/clear-kind! k))
+         ;; App-db schemas live OUTSIDE the registrar (rf2-cq1ak); the
+         ;; schemas artefact owns its own per-frame side-table. When the
+         ;; caller asks for a clean app-schema slate, dispatch through
+         ;; the schemas clear-fn directly. No-op if the schemas artefact
+         ;; is not on the classpath.
+         (when (and clear-app-schemas? clear-fn)
+           (clear-fn))
          (when init-fn (init-fn))
          (test-fn)
          (finally

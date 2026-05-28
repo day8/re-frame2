@@ -1769,14 +1769,15 @@ jump-to-editor link.
 keyword or composite vector), `build` (string, optional).
 
 **Supported kinds**: the closed v1 registrar set (per Spec 001
-§Registry model) minus `:app-schema` (intentionally empty registrar
-slot — its metadata lives in the schemas artefact's per-frame side-
-table, queried via `rf/app-schemas`). The ten registrar kinds route
-through `(re-frame2-pair.runtime/registrar-describe kind id)`. The
-`:machine` kind routes through `(re-frame.core/machine-meta id)`
-instead — machines are registered as `:event` handlers carrying
-`:rf/machine? true` (Spec 005 §Querying machines), and `machine-meta`
-unwraps that slot to surface the spec.
+§Registry model). App-db schemas are **not** a registrar kind
+(rf2-cq1ak) — their metadata lives in the schemas artefact's per-frame
+side-table, queried via `rf/app-schemas` / `rf/app-schema-meta-at`.
+The ten registrar kinds route through
+`(re-frame2-pair.runtime/registrar-describe kind id)`. The `:machine`
+kind routes through `(re-frame.core/machine-meta id)` instead —
+machines are registered as `:event` handlers carrying `:rf/machine?
+true` (Spec 005 §Querying machines), and `machine-meta` unwraps that
+slot to surface the spec.
 
 **Returns** on a hit:
 
@@ -1835,11 +1836,12 @@ on a specific `(kind, id)` pair.
 `build` (string, optional).
 
 **Supported kinds**: same closed v1 registrar set as `handler-meta`
-(minus `:app-schema`; plus the virtual `:machine` kind). The ten
-registrar kinds lift the id vector off the registrar's per-kind map
-via `(re-frame2-pair.runtime/registrar-list kind)`. The `:machine`
-kind wraps `(re-frame.core/machines)` — every event handler flagged
-`:rf/machine? true` (Spec 005 §Querying machines).
+(per rf2-cq1ak app-db schemas are not a registrar kind — use
+`rf/app-schemas` for those; plus the virtual `:machine` kind). The
+ten registrar kinds lift the id vector off the registrar's per-kind
+map via `(re-frame2-pair.runtime/registrar-list kind)`. The
+`:machine` kind wraps `(re-frame.core/machines)` — every event
+handler flagged `:rf/machine? true` (Spec 005 §Querying machines).
 
 **Returns**:
 

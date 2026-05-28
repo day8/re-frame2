@@ -434,7 +434,7 @@ Both traces flow through the standard trace bus, so `*handler-scope*` auto-stamp
 
 ### `:machine-guard` / `:machine-action` handler-meta surfaces
 
-The `reg-machine` macro walks the literal spec form at expansion time and writes per-(machine-id, id) entries into the registrar under the **`:machine-guard`** and **`:machine-action`** registry kinds — sibling to the closed `:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:frame` / `:route` / `:app-schema` / `:head` / `:error-projector` / `:flow` kinds, per [001 §Registry model](001-Registration.md). Each entry carries:
+The `reg-machine` macro walks the literal spec form at expansion time and writes per-(machine-id, id) entries into the registrar under the **`:machine-guard`** and **`:machine-action`** registry kinds — sibling to the closed `:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:frame` / `:route` / `:head` / `:error-projector` / `:flow` kinds, per [001 §Registry model](001-Registration.md). Each entry carries:
 
 ```clojure
 (rf/handler-meta :machine-guard  [<machine-id> <guard-id>])

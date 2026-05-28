@@ -501,7 +501,10 @@
   validates the seeded state against the schemas). Per rf2-wkxng /
   rf2-6m0se."
   [fixture]
-  (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
+  ;; Per rf2-cq1ak the fixture key is `:app-schemas` (plural) — app-db
+  ;; schemas are NOT a registrar kind, the key names the data section
+  ;; that maps `path → schema` for the runner's realisation step.
+  (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
     (rf/reg-app-schema path schema)))
 
 (defn- realise-flows!
