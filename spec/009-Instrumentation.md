@@ -82,45 +82,56 @@ When a tool (the pair tool, a story runner, the REPL, the SSR boot path) needs i
 
 `:rf.event/origin` is unconstrained at the framework level — tools and applications agree on values (`:pair`, `:claude`, `:story`, `:test`, etc.). The default is `:app`. User application code typically omits the opt; tool surfaces set it so post-mortem filters like "show me only the dispatches I (the pair tool) issued during this session" become a one-key filter on the trace stream.
 
-`:rf.event/origin` is **distinct from `:source`**: `:source` describes the *trigger kind* (`:ui` / `:frame-init` / `:machine-spawn` / `:machine-action` / `:always` / `:after-timer` / `:fx-dispatch` / `:fx-dispatch-later` / `:http` / `:repl` / `:ssr-hydration` / `:test` / `:unknown` / `:other`) and is essentially a "what woke the runtime?" axis; `:rf.event/origin` describes the *actor identity* (which tool or app subsystem emitted the dispatch) and is used for filtering. Tools may set both. The default `:source` is `:unknown` per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d) (previously `:ui`); substrate-internal dispatch sites (machine `:after` timer, machine spawn fx, `:dispatch` / `:dispatch-later` fx — discriminating machine vs ordinary parent per rf2-c3990) stamp the matching specific value per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd) + [rf2-c3990](https://github.com/day8/re-frame2/issues/rf2-c3990). See [Spec-Schemas §`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope) for the canonical enum.
+`:rf.event/origin` is **distinct from `:source`**: `:source` describes the *trigger kind* (`:ui` / `:frame-init` / `:machine-spawn` / `:machine-action` / `:always` / `:after-timer` / `:fx-dispatch` / `:fx-dispatch-later` / `:http` / `:router` / `:ssr-hydration` / `:test` / `:tool` / `:websocket` / `:repl` / `:unknown` / `:other`) and is the closed-enum "what woke the runtime?" axis; `:rf.event/origin` describes the *actor identity* (which tool or app subsystem emitted the dispatch) and is used for filtering. Tools may set both. The default `:source` is `:unknown` per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d) (previously `:ui`); substrate-internal dispatch sites (machine `:after` timer, machine spawn fx, `:dispatch` / `:dispatch-later` fx — discriminating machine vs ordinary parent per rf2-c3990, routing-internal dispatches, HTTP reply settle, …) stamp the matching specific value per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd) + [rf2-c3990](https://github.com/day8/re-frame2/issues/rf2-c3990) + [rf2-1ve9h](https://github.com/day8/re-frame2/issues/rf2-1ve9h). See [Spec-Schemas §`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope) for the canonical enum.
 
-### Dispatch-origin tagging: `:rf/dispatch-origin`
+### Dispatch source as the functional-origin axis (`:source`)
 
-Every `:rf.event/dispatched` trace event carries a closed-enum classifier under `:tags :rf/dispatch-origin` answering the question **"where, functionally, did this dispatch come from?"** Per the Xray A.5 taxonomy (and surfaced as the L2 epoch-timeline row prefix + Event-panel step 1 — see [tools/xray/spec/021 §1.5](../tools/xray/spec/021-Dynamic-Panel-Designs.md)):
+Per [rf2-1ve9h](https://github.com/day8/re-frame2/issues/rf2-1ve9h) (Mike-approved Option A, 2026-05-28) the framework carries **one** closed-enum axis classifying every dispatch's trigger kind / functional origin: `:source` on the dispatch envelope. A prior `:rf/dispatch-origin` axis (10-value `:user` / `:router` / `:websocket` / `:http` / `:ssr` / `:fx-emit` / `:timer` / `:test-harness` / `:tool` / `:internal`) ran parallel to `:source`; the audit found every `:rf/dispatch-origin` value either co-occurred with a finer `:source` stamp (e.g. `:rf/dispatch-origin :timer` ↔ `:source :after-timer`, `:internal` ↔ `:machine-spawn`, `:ssr` ↔ `:ssr-hydration`, `:fx-emit` ↔ `:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`, `:test-harness` ↔ `:test`) or named an origin slot `:source` lacked (`:router`, `:tool`, `:websocket`). The collapse extends `:source` with the three new values and drops `:rf/dispatch-origin` entirely.
 
-| Value | Set by | Meaning |
+Substrate-internal stamp sites (canonical inventory):
+
+| `:source` value | Stamped by | When |
 |---|---|---|
-| `:user` | default (the macro / fn-form path supplies nothing else) | A user-emitted dispatch — a UI handler, a REPL call, a test body that did not opt into another tag. |
-| `:router` | `re-frame.routing` internal dispatches (the routing-error emit, `:route/link` click handler) | A routing-substrate dispatch — URL events, route-link clicks, on-match-error cascades. |
-| `:websocket` | application-level websocket adapters (the framework does not ship a websocket adapter) | A websocket-frame-arrived dispatch. The taxonomy slot is reserved; apps that wire websockets opt in via `{:rf/dispatch-origin :websocket}`. |
-| `:http` | `re-frame.http_encoding/dispatch-reply-via-late-bind!` (managed-request reply path) | An HTTP managed-request reply dispatch — `:on-success` / `:on-failure` cascade entry. |
-| `:ssr` | the user's hydration boot site (the framework does not auto-detect — see Spec 011) | The `:rf/hydrate` cascade or any other SSR-boot-time dispatch. |
-| `:fx-emit` | `re-frame.fx`'s `:dispatch` / `:dispatch-later` fx handlers (override-on-cascade — child dispatches are tagged `:fx-emit` regardless of parent's origin) | A dispatch emitted by the do-fx phase of another event handler. Lineage is preserved via `:rf.trace/parent-dispatch-id`; the origin tag answers "who emitted THIS dispatch?" |
-| `:timer` | `re-frame.machines.timer`'s `:after` fire site | A state-machine `:after` timer firing. (Application-level `setTimeout` / `setInterval` callers self-tag; the framework does not detect.) |
-| `:test-harness` | test fixtures that opt in (the framework does not auto-detect; see Spec 015 / `re-frame.test_support`) | Reserved slot for test bodies that want their dispatches discriminated. Application-level opt-in. |
-| `:tool` | tooling adapters (Xray controls, Story play scripts, the pair-MCP write surface) — they self-tag at their dispatch site | A tool-issued dispatch (operator clicking "step", a story-script driving the app). |
-| `:internal` | `re-frame.machines.lifecycle_fx/spawn` (`:start` event into newly-spawned actors) and other framework-internal lifecycle dispatches | A framework-substrate-internal dispatch (actor bootstrap, lifecycle cascade). |
+| `:ui` | UI handler call-site | a user button / input handler dispatches |
+| `:frame-init` | `reg-frame`'s `:on-create` fire site | a frame's lifecycle init dispatch |
+| `:machine-spawn` | `re-frame.machines.lifecycle_fx/spawn` | actor bootstrap — the spawned machine's `:start` (or synthetic `[:rf.machine/spawned]`) trigger |
+| `:machine-action` | `:dispatch` / `:dispatch-later` fx handler when the parent envelope is `:rf.machine/internal?` | machine-handler-issued dispatch — the actor-message path (rf2-c3990). Carries `:source-detail {:ms <ms>}` for the `-later` variant |
+| `:always` | `re-frame.machines.transition` `:always` microstep | per-microstep marker on `:rf.machine.microstep/transition`; reserved closed-set value (intra-macrostep — no envelope) |
+| `:after-timer` | `re-frame.machines.timer` `:after` fire site | a state-machine `:after` timer firing |
+| `:fx-dispatch` | `:dispatch` fx handler (non-machine parent) | the `:dispatch` fx executes — child of an ordinary handler's `do-fx` |
+| `:fx-dispatch-later` | `:dispatch-later` fx handler (non-machine parent) | the `:dispatch-later` fx fires after delay — child of an ordinary handler. Carries `:source-detail {:ms <ms>}` |
+| `:http` | `re-frame.http_encoding/dispatch-reply-via-late-bind!` | managed-HTTP reply settle — `:on-success` / `:on-failure` cascade entry |
+| `:router` | `re-frame.routing` internal dispatches (routing-error emit, `:route/link` click handler) | URL events, route-link clicks, on-match-error cascades |
+| `:ssr-hydration` | the user's hydration boot site (the framework does not auto-detect — see Spec 011) | `:rf/hydrate` cascade or any other SSR-boot-time dispatch |
+| `:test` | test fixtures (`re-frame.test_support/dispatch-sequence`) | test-harness opt-in |
+| `:tool` | tooling adapters (Xray controls, Story play scripts, the pair-MCP write surface) — self-tag at their dispatch site | tool-issued dispatch |
+| `:websocket` | application-level websocket adapters (the framework does not ship one) | a websocket-frame-arrived dispatch. The closed-enum slot is reserved; apps opt in |
+| `:repl` | REPL eval | tests + REPL bodies that want the discriminator |
+| `:unknown` | default — un-stamped dispatch (rf2-hxj0d) | UI / app code that did not opt in. Previously `:ui` — changed so unstamped paths don't silently misattribute |
+| `:other` | escape hatch | reserved for cases the closed set doesn't cover |
 
-The default — for both the macro form (`(rf/dispatch event)` / `(rf/dispatch-sync event)`) and the fn form (`(rf/dispatch* event)`) — is `:user`. Internal callers thread `:rf/dispatch-origin` into the opts map at their emit site to override the default.
+The default — for both the macro form (`(rf/dispatch event)` / `(rf/dispatch-sync event)`) and the fn form (`(rf/dispatch* event)`) — is `:unknown`. UI handlers stamp `:source :ui` explicitly; internal callers thread `:source` into the opts map at their emit site to override the default.
 
 ```clojure
-;; user surface (default :user)
+;; default :unknown
 (rf/dispatch [:cart/add {:sku "abc"}])
 
-;; explicit opt-in (per-call)
-(rf/dispatch [:order/submit] {:rf/dispatch-origin :tool})
+;; explicit UI stamp
+(rf/dispatch [:cart/add {:sku "abc"}] {:source :ui})
+
+;; tool-issued dispatch (per-call opt-in)
+(rf/dispatch [:order/submit] {:source :tool})
 ```
 
-`:rf/dispatch-origin` is **distinct from `:source` and `:origin`**:
-- `:source` (`:ui` / `:after-timer` / `:http` / `:machine-action` / `:machine-spawn` / `:always` / `:fx-dispatch` / `:fx-dispatch-later` / `:repl` / `:ssr-hydration` / `:test` / `:frame-init` / `:unknown` / `:other`) is the *trigger kind* — what woke the runtime — see [Spec-Schemas §`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope) for the canonical enum.
+`:source` is **distinct from `:origin`**:
+- `:source` is the *closed-enum trigger kind / functional origin* — what woke the runtime — see [Spec-Schemas §`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope) for the canonical 17-value enum. Tools branch on it to render the Epoch panel's DISPATCH chrome, the L2 row prefix, and per-source filter pills.
 - `:origin` (`:app` / `:pair` / `:story` / `:test` / …) is the *actor identity* — which tool or app subsystem emitted the dispatch — and is **unconstrained** at the framework level.
-- `:rf/dispatch-origin` is the *closed-enum functional source* — the 10-value taxonomy above. Tools branch on it to render the L2 row prefix and per-origin filter pills.
 
-The closed enum is **closed** at the spec level. Adding a new value is a framework-level change with substrate-side consumer impact; it is not a per-app extension point. Tools and applications agree on the 10 values listed above.
+The closed enum is **closed** at the spec level. Adding a new value is a framework-level change with substrate-side consumer impact; it is not a per-app extension point.
 
-The dispatch envelope's `:rf/dispatch-origin` slot rides via the `:tags :rf/dispatch-origin` axis onto every `:rf.event/dispatched` trace event. Production builds elide the trace surface entirely; the envelope's `:rf/dispatch-origin` slot remains in the production build (it is plain envelope data, not gated trace tooling) but consumers that read it sit on the dev-only trace stream and DCE alongside the rest of the trace machinery.
+`:source` is **not inherited** through `:fx [[:dispatch ...]]` cascades — each child dispatch's `:source` reflects its *immediate* trigger (`:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`), not the originating user event's. Inheritance still applies to `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:origin`, and `:frame`.
 
-Per.
+The dispatch envelope's `:source` slot rides onto every `:rf.event/dispatched` trace event under the `:source` tag. Production builds elide the trace surface entirely; the envelope's `:source` slot remains in the production build (it is plain envelope data, not gated trace tooling) but consumers that read it sit on the dev-only trace stream and DCE alongside the rest of the trace machinery.
 
 ### `:op-type` vocabulary
 
@@ -246,7 +257,7 @@ Variable per-event data goes in `:tags`. New tags can be added without breaking 
 |---|---|---|
 | `:frame` | universal routing | **Bare carve-out** (see below) |
 | `:rf.trace/dispatch-id`, `:rf.trace/parent-dispatch-id`, `:rf.trace/event-id`, `:rf.trace/trace-id`, `:rf.trace/phase` | cross-cutting correlation | Stamped across every domino family — the trace channel's own correlation spine; no single domino home, so they live under `:rf.trace/*` (per [Conventions §`:rf.trace/*`](Conventions.md#the-single-root-reserved-set)). |
-| `:rf.event/v` (the dispatched event vector), `:rf.event/origin`, `:rf.event/sync?`, `:rf.event/fx`, `:rf.event/db-present?`, `:rf.event/db`, `:rf.event/coeffects`, `:rf.event/elapsed-ms` | event | `:rf/dispatch-origin` keeps its existing `:rf/*` form (a stable hoisted slot, not churned here). `:rf.event/elapsed-ms` is the HANDLER-BODY-only wall-clock on `:rf.event/run-end`. `:rf.event/db` is the FULL `:db` value stamped on the `:rf.event/db-pending` (t1) and `:rf.event/db-pending-post-flow` (t2) trace events; PDS structural sharing keeps the cost pointer-sized, the `day8/de-dupe` wire layer collapses repeated subtrees on egress. |
+| `:rf.event/v` (the dispatched event vector), `:rf.event/origin`, `:rf.event/sync?`, `:rf.event/fx`, `:rf.event/db-present?`, `:rf.event/db`, `:rf.event/coeffects`, `:rf.event/elapsed-ms` | event | Per rf2-1ve9h the prior `:rf/dispatch-origin` axis was collapsed into `:source` — the closed-enum functional-origin discriminator now rides on the bare `:source` tag (still a bare carve-out under the existing trigger-kind axis). `:rf.event/elapsed-ms` is the HANDLER-BODY-only wall-clock on `:rf.event/run-end`. `:rf.event/db` is the FULL `:db` value stamped on the `:rf.event/db-pending` (t1) and `:rf.event/db-pending-post-flow` (t2) trace events; PDS structural sharing keeps the cost pointer-sized, the `day8/de-dupe` wire layer collapses repeated subtrees on egress. |
 | `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/input-signals`, `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value`, `:rf.sub/cascade?`, `:rf.sub/cause-sub`, `:rf.sub/reader-render-key`, `:rf.sub/input-paths-unchanged`, `:rf.sub/reason`, `:rf.sub/elapsed-ms` | sub | `:rf.sub/elapsed-ms` is the per-recompute wall-clock. |
 | `:rf.view/render-key`, `:rf.view/id`, `:rf.view/mount?`, `:rf.view/deref-subs`, `:rf.view/triggered-by`, `:rf.view/elapsed-ms`, `:rf.view/cause-event-id`, `:rf.view/cause-subs`, `:rf.view/dropped-after` | view | |
 | `:rf.fx/id`, `:rf.fx/args`, `:rf.fx/from`, `:rf.fx/to`, `:rf.fx/platform`, `:rf.fx/registered-platforms`, `:rf.fx/elapsed-ms` | fx | `:rf.fx/elapsed-ms` is the per-fx-handler-invoke wall-clock on `:rf.fx/handled`. |

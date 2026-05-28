@@ -6,7 +6,9 @@
     1. Per-frame ring: cascade-bundle reads, `:flat` opt, eviction by
        cascade, filter vocab, configure knob, clear, elision.
     2. `:rf.trace/dispatch-id` allocation + parent-dispatch-id linkage.
-    3. `:origin` / `:rf/dispatch-origin` opts ride trace events.
+    3. `:origin` / `:source` opts ride trace events. Per rf2-1ve9h
+       the prior parallel `:rf/dispatch-origin` axis was collapsed
+       into `:source` — see `dispatch-source-*` deftests below.
 
   Per Spec 009 §Per-frame trace rings (cascade-keyed, dev-only) and
   §Dispatch correlation. JVM-only by intent — the trace + router
@@ -439,9 +441,18 @@
     (is ev)
     (is (= :pair (get-in ev [:tags :rf.event/origin])))))
 
-;; ---- 4. :rf/dispatch-origin opt -----------------------------------------
+;; ---- 4. :source opt (post-rf2-1ve9h — collapsed from :rf/dispatch-origin)
 
-(deftest dispatch-origin-defaults-to-user
+(deftest dispatch-source-defaults-to-unknown
+  ;; Per rf2-hxj0d the default `:source` is `:unknown` (the un-stamped
+  ;; dispatch site). Per rf2-1ve9h the prior parallel
+  ;; `:rf/dispatch-origin :user` default was collapsed — the single
+  ;; closed-enum functional-origin axis is now `:source`.
+  ;;
+  ;; `:source` is hoisted as a top-level slot on every trace event
+  ;; (see `re-frame.trace/build-event` — Spec 009 §Core fields hoist
+  ;; contract), not stamped under `:tags`. Filters that key on
+  ;; `:source` should read the top-level slot first.
   (rf/reg-event-db :ping (fn [db _] db))
   (rf/dispatch-sync [:ping])
   (let [ev (->> (flat-events :rf/default)
@@ -449,23 +460,29 @@
                 (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
                 first)]
     (is ev)
-    (is (= :user (get-in ev [:tags :rf/dispatch-origin])))))
+    (is (= :unknown (:source ev)))
+    (is (nil? (get-in ev [:tags :rf/dispatch-origin]))
+        ":rf/dispatch-origin retired per rf2-1ve9h")))
 
-(deftest dispatch-origin-opt-overrides-default
+(deftest dispatch-source-opt-overrides-default
   (rf/reg-event-db :ping (fn [db _] db))
-  (rf/dispatch-sync [:ping] {:rf/dispatch-origin :tool})
+  (rf/dispatch-sync [:ping] {:source :tool})
   (let [ev (->> (flat-events :rf/default)
                 dispatched-events
                 (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
                 first)]
     (is ev)
-    (is (= :tool (get-in ev [:tags :rf/dispatch-origin])))))
+    (is (= :tool (:source ev)))))
 
-(deftest dispatch-origin-fx-emit-on-cascade
-  (testing "child dispatches emitted by :dispatch fx are tagged :fx-emit"
+(deftest dispatch-source-fx-cascade-stamps-fx-dispatch
+  (testing "child dispatches emitted by :dispatch fx are tagged :fx-dispatch"
+    ;; Per rf2-c3990: a `:dispatch` fx from a non-machine parent stamps
+    ;; `:source :fx-dispatch` on the child envelope (the actor-message
+    ;; path stamps `:machine-action` instead). Per rf2-1ve9h these are
+    ;; the surviving axes after the `:rf/dispatch-origin` collapse.
     (rf/reg-event-fx :parent (fn [_ _] {:fx [[:dispatch [:child]]]}))
     (rf/reg-event-db :child (fn [db _] db))
-    (rf/dispatch-sync [:parent] {:rf/dispatch-origin :user})
+    (rf/dispatch-sync [:parent] {:source :ui})
     (let [parent-ev (->> (flat-events :rf/default)
                          dispatched-events
                          (filter #(= [:parent] (get-in % [:tags :rf.event/v])))
@@ -476,8 +493,8 @@
                          first)]
       (is parent-ev)
       (is child-ev)
-      (is (= :user (get-in parent-ev [:tags :rf/dispatch-origin])))
-      (is (= :fx-emit (get-in child-ev [:tags :rf/dispatch-origin]))))))
+      (is (= :ui          (:source parent-ev)))
+      (is (= :fx-dispatch (:source child-ev))))))
 
 ;; ---- 5. Frame-level trace-emission gate (rf2-2qaqh) ----------------------
 

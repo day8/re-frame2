@@ -179,13 +179,13 @@
   routing-artefact callers or test fixtures), falls back to
   `{:frame frame-id}` so single-key propagation still holds.
 
-  Per rf2-t1lxr: `:rf/dispatch-origin` is NOT inherited from the parent
-  — it's the *immediate* functional source of the dispatch, so the
-  child gets `:fx-emit` (this dispatch was emitted by the parent's
-  `:dispatch` / `:dispatch-later` fx-handler running in the do-fx
-  phase). Lineage is preserved via `:parent-dispatch-id`; the origin
-  tag answers \"who emitted THIS dispatch?\" not \"what initiated the
-  cascade?\".
+  Per rf2-1ve9h (Mike-approved Option A, 2026-05-28) the prior
+  parallel `:rf/dispatch-origin` axis was collapsed into `:source` —
+  the child dispatch's `:source` is now stamped directly by the
+  `:dispatch` / `:dispatch-later` fx-handler call site as
+  `:fx-dispatch` / `:fx-dispatch-later` (or `:machine-action` when the
+  emitting parent handler is a machine, per rf2-c3990). No origin slot
+  to inherit / override on the child opts here.
 
   Per rf2-j20a7 / Spec 005 §Level 4: when the parent envelope is tagged
   `:rf.machine/internal? true` (the router stamps it in
@@ -198,9 +198,8 @@
   [frame-id parent-envelope]
   (if parent-envelope
     (cond-> (select-keys parent-envelope inheritable-envelope-keys)
-      true                                     (assoc :rf/dispatch-origin :fx-emit)
       (:rf.machine/internal? parent-envelope)  (assoc :rf.machine/internal? true))
-    {:frame frame-id :rf/dispatch-origin :fx-emit}))
+    {:frame frame-id}))
 
 (def ^:private reserved-fx-handlers
   "Reserved fx-id → body-fn `(fn [frame-id parent-envelope args])`.

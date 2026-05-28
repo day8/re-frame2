@@ -99,9 +99,8 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
    [:interceptors          {:optional true} [:vector :any]]
    [:trace-id              {:optional true} :any]
-   [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :repl :ssr-hydration :test :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction), per  substrate-internal extensions; per rf2-c3990, the broad `:fx` / `:machine` / `:dispatch-later` / `:timer` aliases are dropped in favour of the specific substrate-stamp values (`:fx-dispatch` / `:fx-dispatch-later` / `:machine-spawn` / `:machine-action` / `:after-timer`)
+   [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction); per rf2-1ve9h the `:rf/dispatch-origin` axis was collapsed into `:source` (Mike-approved 2026-05-28). Substrate-internal stamp sites: `:ui` (UI handlers), `:frame-init` (frame `:on-create`), `:machine-spawn` (spawn fx — actor bootstrap), `:machine-action` (machine handler's `:dispatch`(-later) — actor-message path, rf2-c3990), `:always` (machine `:always` microstep marker), `:after-timer` (machine `:after` timer fire), `:fx-dispatch` / `:fx-dispatch-later` (ordinary handler's `:dispatch` / `:dispatch-later` fx), `:http` (managed-HTTP reply settle), `:router` (routing-internal dispatches), `:ssr-hydration` (`:rf/hydrate` boot), `:test` (test-harness fixtures), `:tool` (tool / REPL / story dispatches), `:websocket` (reserved — app websocket adapters opt in), `:repl` (REPL eval), `:unknown` (the default — un-stamped dispatch site, per rf2-hxj0d), `:other` (escape hatch)
    [:origin                {:optional true} :keyword]                      ;; actor identity (default :app) — per [002 §Dispatch origin tagging]
-   [:rf/dispatch-origin    {:optional true} [:enum :user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal]]  ;; closed-enum functional source (default :user) — per [009 §Dispatch-origin tagging]; per 
    [:dispatched-at         {:optional true} :any]])                        ;; CLJS reference may add an impl-specific timestamp; tools tolerate
 ```
 
@@ -121,9 +120,8 @@ The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event op
    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
    [:interceptors          {:optional true} [:vector :any]]
    [:trace-id              {:optional true} :any]
-   [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :repl :ssr-hydration :test :unknown :other]]
-   [:origin                {:optional true} :keyword]                       ;; actor identity tag — defaults to :app when omitted
-   [:rf/dispatch-origin    {:optional true} [:enum :user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal]]])  ;; closed-enum functional source — defaults to :user when omitted (per)
+   [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]]
+   [:origin                {:optional true} :keyword]])                      ;; actor identity tag — defaults to :app when omitted
 ```
 
 The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:event event :frame :rf/default :dispatched-at (now)} opts)`. The runtime asserts `:event` and `:frame` are present after the merge.

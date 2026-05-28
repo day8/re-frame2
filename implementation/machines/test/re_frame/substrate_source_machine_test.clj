@@ -79,11 +79,13 @@
           (is (= [:after-source/flow [:rf.machine.timer/after-elapsed 1000 1 [:loading]]]
                  (get-in timer-ev [:tags :rf.event/v]))
               "the dispatched event vector carries the machine id + synthetic trigger")
-          ;; The pre-rf2-ejtpd :rf/dispatch-origin :timer tag MUST also
-          ;; ride alongside — the two axes are independent (per spec
-          ;; 002 §Dispatch origin tagging).
-          (is (= :timer (get-in timer-ev [:tags :rf/dispatch-origin]))
-              ":rf/dispatch-origin :timer still stamped (preserved rf2-t1lxr behaviour)"))
+          ;; Per rf2-1ve9h the prior `:rf/dispatch-origin :timer` axis
+          ;; was collapsed into `:source` — `:after-timer` is now the
+          ;; single functional-origin discriminator (Mike-approved
+          ;; Option A, 2026-05-28). No separate `:rf/dispatch-origin`
+          ;; tag rides alongside.
+          (is (nil? (get-in timer-ev [:tags :rf/dispatch-origin]))
+              ":rf/dispatch-origin retired per rf2-1ve9h — `:source` carries the axis"))
         (finally (trace-tooling/unregister-listener! ::after-src))))))
 
 ;; ---- :machine-spawn ------------------------------------------------------

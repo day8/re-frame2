@@ -173,13 +173,16 @@
   No-op when the registered router is absent or `build-reply-event`
   returns nil (silenced reply).
 
-  Per rf2-t1lxr: reply dispatches self-tag with
-  `:rf/dispatch-origin :http` so Xray's L2 timeline + tools can
-  discriminate HTTP-completion cascades from user-origin events."
+  Per rf2-t1lxr / rf2-1ve9h: reply dispatches self-tag with
+  `:source :http` so Xray's L2 timeline + tools can
+  discriminate HTTP-completion cascades from user-origin events.
+  Per rf2-1ve9h (Mike-approved 2026-05-28) the prior parallel
+  `:rf/dispatch-origin :http` was collapsed — `:source :http` is now
+  the single axis."
   [args frame]
   (when-let [ev (build-reply-event args)]
     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-      (dispatch! ev (cond-> {:rf/dispatch-origin :http}
+      (dispatch! ev (cond-> {:source :http}
                       frame (assoc :frame frame))))))
 
 (defn build-reply-event

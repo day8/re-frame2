@@ -411,23 +411,19 @@
   ([events] (dispatch-sequence events {}))
   ([events {:keys [after-each] :as opts}]
    (let [frame-id (resolve-frame opts)
-         ;; Per rf2-t1lxr: test-fixture-driven dispatches default to
-         ;; :rf/dispatch-origin :test-harness so Xray's L2 timeline +
-         ;; per-origin filters can discriminate test-driven cascades
-         ;; from user-origin events. Caller may override.
-         ;;
-         ;; Per rf2-hxj0d: also stamp `:source :test` so the Epoch
-         ;; panel's DISPATCH step labels these dispatches as "from
-         ;; test" instead of "from unknown" (the new default).
-         ;; `:rf/dispatch-origin :test-harness` and `:source :test`
-         ;; both classify origin; together they let the operator
-         ;; filter either axis. Caller may override `:source` too.
+         ;; Per rf2-hxj0d + rf2-1ve9h: stamp `:source :test` on every
+         ;; test-fixture-driven dispatch so the Epoch panel's DISPATCH
+         ;; step labels these dispatches as "from test" instead of
+         ;; "from unknown" (the new default), and Xray's L2 timeline +
+         ;; per-source filter pills can discriminate test-driven
+         ;; cascades from user-origin events. Per rf2-1ve9h
+         ;; (Mike-approved Option A, 2026-05-28) the prior parallel
+         ;; `:rf/dispatch-origin :test-harness` axis was collapsed
+         ;; into `:source` — `:test` is now the single functional-
+         ;; origin discriminator. Caller may override `:source`.
          dispatch-opts (cond-> {:frame frame-id
-                                :rf/dispatch-origin :test-harness
                                 :source :test}
                          (contains? opts :origin) (assoc :origin (:origin opts))
-                         (contains? opts :rf/dispatch-origin)
-                         (assoc :rf/dispatch-origin (:rf/dispatch-origin opts))
                          (contains? opts :source)
                          (assoc :source (:source opts)))]
      (doseq [ev events]

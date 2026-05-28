@@ -129,10 +129,12 @@
 
 (defn- timer-cascade-trace-ev [id event]
   ;; A cascade with a dispatched-time so the row renders its time chip,
-  ;; and a :timer origin so the source column tag renders.
+  ;; and an `:after-timer` source (post-rf2-1ve9h — collapsed from the
+  ;; prior `:rf/dispatch-origin :timer`) so the source column tag
+  ;; renders.
   (-> (dispatch-trace-ev id event)
       (assoc :time 1000)
-      (assoc-in [:tags :rf/dispatch-origin] :timer)))
+      (assoc-in [:tags :source] :after-timer)))
 
 (deftest header-and-row-column-widths-stay-aligned-after-settings-write
   (testing "rf2-6ni62 — after a settings-write changes a column's
@@ -167,7 +169,7 @@
     (rf/with-frame :rf/xray
       (let [tree     (shell/shell-view)
             h-source (find-by-testid tree "rf-xray-event-list-col-source")
-            r-source (find-by-testid tree "rf-xray-row-origin-timer")
+            r-source (find-by-testid tree "rf-xray-row-origin-after-timer")
             h-time   (find-by-testid tree "rf-xray-event-list-col-timestamp")
             r-time   (find-by-testid tree "rf-xray-row-time-chip")
             h-dur    (find-by-testid tree "rf-xray-event-list-col-duration")
