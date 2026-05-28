@@ -1,4 +1,4 @@
-;; Pair2 fixture classpath.
+;; re-frame2-pair fixture classpath.
 ;;
 ;; Pulls in the local re-frame2 artefacts as :local/root entries so the
 ;; fixture builds against the exact tree-of-truth in this repo (rather

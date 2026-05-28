@@ -198,9 +198,9 @@ Load at most two references for a single task. If you find yourself wanting thre
 
 ## When to also open Xray
 
-A re-frame2-pair session and a running Xray panel are **complementary** surfaces over the same trace bus + epoch history. Pair2 owns the *driving* (dispatch, hot-swap, restore-epoch); Xray owns the *seeing* (the visual reading of what just happened across its Dynamic event-spine tabs and Static registry-browse tabs — `skills/re-frame2-xray/` is the canonical source for Xray facts). Reach for Xray alongside re-frame2-pair when:
+A re-frame2-pair session and a running Xray panel are **complementary** surfaces over the same trace bus + epoch history. re-frame2-pair owns the *driving* (dispatch, hot-swap, restore-epoch); Xray owns the *seeing* (the visual reading of what just happened across its Dynamic event-spine tabs and Static registry-browse tabs — `skills/re-frame2-xray/` is the canonical source for Xray facts). Reach for Xray alongside re-frame2-pair when:
 
-| Pair2 just did | Open Xray to … |
+| re-frame2-pair just did | Open Xray to … |
 |---|---|
 | Rewound to an earlier epoch via `restore-epoch` | Scrub the bottom-rail time-travel scrubber to inspect adjacent epochs visually; pin slices in the App-DB Diff panel. |
 | Dispatched into a cascade you don't fully understand | The Event Detail panel lands on the latest cascade and shows the dispatch-id tree. |
