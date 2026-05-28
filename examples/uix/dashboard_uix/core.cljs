@@ -82,8 +82,8 @@
             (fn [s] (if (contains? s tag) (disj s tag) (conj s tag))))))
 
 (rf/reg-event-db :dashboard/set-range
-  (fn [db [_ r]]
-    (assoc db :dashboard/range r)))
+  (fn [db [_ range-id]]
+    (assoc db :dashboard/range range-id)))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -100,8 +100,8 @@
 
 (rf/reg-sub :dashboard/selected-range
   :<- [:dashboard/range]
-  (fn [r _]
-    (some #(when (= r (:id %)) %) ranges)))
+  (fn [range-id _]
+    (some #(when (= range-id (:id %)) %) ranges)))
 
 (rf/reg-sub :dashboard/visible-metrics
   ;; Two re-deriving inputs feed the visible card set: the active tag chips
@@ -110,10 +110,10 @@
   :<- [:dashboard/metrics]
   :<- [:dashboard/active-tags]
   :<- [:dashboard/selected-range]
-  (fn [[ms tags {:keys [points]}] _]
-    (->> ms
-         (filter #(contains? tags (:tag %)))
-         (map (fn [m] (update m :series #(vec (take-last points %))))))))
+  (fn [[metrics active-tags {:keys [points]}] _]
+    (->> metrics
+         (filter #(contains? active-tags (:tag %)))
+         (map (fn [metric] (update metric :series #(vec (take-last points %))))))))
 
 ;; ============================================================================
 ;; SPARKLINE PATH
@@ -121,7 +121,7 @@
 
 (defn- sparkline-path
   "Return an SVG <path> `d` string for the series, normalised into a
-   100×30 viewBox. Pure — used by `Sparkline` below.
+   100×30 viewBox. Pure — used by `sparkline` below.
 
    Why polyline-via-path: a single <path d=\"M…L…L…\"> renders crisper
    than <polyline> when the viewBox is small and the stroke is hair-thin
@@ -177,8 +177,8 @@
     (.toLocaleString value "en-US")
     (.toFixed value 2)))
 
-(defui metric-card [{:keys [m]}]
-  (let [{:keys [id label value unit delta tag series]} m
+(defui metric-card [{:keys [metric]}]
+  (let [{:keys [id label value unit delta tag series]} metric
         ;; `$` renders before the value (a prefix unit); `ms` / `%` render
         ;; after. The flag names the placement, decoupled from the tag.
         prefix-unit? (= "$" unit)
@@ -223,23 +223,23 @@
             label)))))
 
 (defui dashboard []
-  (let [visible    (uix-adapter/use-subscribe [:dashboard/visible-metrics])
-        sel-range  (uix-adapter/use-subscribe [:dashboard/selected-range])]
+  (let [visible-metrics (uix-adapter/use-subscribe [:dashboard/visible-metrics])
+        selected-range  (uix-adapter/use-subscribe [:dashboard/selected-range])]
     ($ :div.dash-shell
        ($ :header.dash-shell-head
           ($ :div
              ($ :h1 "Atlas")
              ($ :p.dash-tagline
                 {:data-testid "dashboard-range-label"}
-                (str "Last " (:label sel-range) " · ")
+                (str "Last " (:label selected-range) " · ")
                 ($ :span.dash-substrate-tag "UIx substrate")))
           ($ :div.dash-controls
              ($ range-picker)
              ($ filter-chips)))
        ($ :section.dash-grid
           {:data-testid "dashboard-grid"}
-          (for [m visible]
-            ($ metric-card {:key (:id m) :m m})))
+          (for [metric visible-metrics]
+            ($ metric-card {:key (:id metric) :metric metric})))
        ($ :footer.dash-shell-foot
           ($ :span "re-frame2 · examples/uix/dashboard_uix")))))
 
