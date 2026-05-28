@@ -7,8 +7,9 @@
 
   Shared by both testdeck surfaces (two-frame isolation testbed +
   step-deck rf2-6qgbs.2). The machine is registered once globally; its
-  snapshot lives in each frame's `[:rf/machines :ws/connection]` slot,
-  so the ABOVE frame can be `:connected` while the BELOW frame sits at
+  snapshot lives in each frame's
+  `[:rf/runtime :machines :snapshots :ws/connection]` slot, so the
+  ABOVE frame can be `:connected` while the BELOW frame sits at
   `:disconnected` — an isolated machine per frame (Spec 006 §The cache
   is held inside the frame container).
 
@@ -194,8 +195,9 @@
 (def initial-db
   "Initial `:machine-ui` slice — the message-input draft. Held in
   app-db (frame-scoped, Xray-observable) rather than a component-local
-  atom. The machine's own state lives in `[:rf/machines :ws/connection]`
-  and is seeded lazily on first dispatch."
+  atom. The machine's own state lives in
+  `[:rf/runtime :machines :snapshots :ws/connection]` and is seeded
+  lazily on first dispatch."
   {:machine-ui {:draft ""}})
 
 (defn register-all!

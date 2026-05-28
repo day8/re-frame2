@@ -8,8 +8,8 @@
       :route)`; test override slot exists at
       `:rf.xray/set-registered-routes-override-for-test`.
     - `:rf.xray/current-route-slice` — defaults to the target-frame
-      app-db's `:rf/route` slot; test override slot at
-      `:rf.xray/set-current-route-slice-override-for-test`.
+      app-db's `[:rf/runtime :routing :current]` slice; test override
+      slot at `:rf.xray/set-current-route-slice-override-for-test`.
     - `:rf.xray/cascades` — drives the FROM/TO detection. Seed via
       `:rf.xray/sync-trace-buffer` + `:rf.xray/focus-cascade` so
       the spine's focused cascade carries the

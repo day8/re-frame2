@@ -20,10 +20,12 @@
   (testing "rf2-dhoc9 — `:rf.xray/routing-tab-data` re-fires on focus
             flip; the composite map's identity changes between two
             focused cascades. The composite's `:current` slot reads
-            from the host frame's `:rf/route` so the slice stays
-            consistent; the `:from-id` / `:to-id` axes are derived
-            from the focused cascade's trace events. Either axis
-            change yields a different composite map."
+            from the host frame's
+            `[:rf/runtime :routing :current]` slice (via the
+            `:rf.route/id` sub) so the slice stays consistent; the
+            `:from-id` / `:to-id` axes are derived from the focused
+            cascade's trace events. Either axis change yields a
+            different composite map."
     (h/setup-xray-frame!)
     (h/seed-cascades! cascades)
     (h/focus-cascade! :c1)
@@ -44,7 +46,8 @@
 
 (deftest routing-tab-data-current-slice-tracks-host-frame
   (testing "rf2-dhoc9 — `:rf.xray/current-route-slice` reads off the
-            host frame's `:rf/route` slot. The reactive chain
+            host frame's `[:rf/runtime :routing :current]` slice
+            (via the `:rf.route/id` sub). The reactive chain
             `target-frame-db → current-route-slice → routing-tab-
             data` runs end-to-end."
     (h/setup-xray-frame!)

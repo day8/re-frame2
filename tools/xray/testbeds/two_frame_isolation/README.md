@@ -77,19 +77,21 @@ See the saved Mike-feedback memories:
 Each tab is a registered route (`testdeck.routes`). Switching tabs is
 `:rf.route/navigate`, dispatched through the clicked frame's injected
 `dispatch` — so the ABOVE frame can sit on Counter while BELOW sits on
-Machine. The active route id lives in each frame's own `:rf/route`
-slot.
+Machine. The active route id lives in each frame's own
+`[:rf/runtime :routing :current]` slice (read through the
+`:rf.route/id` sub).
 
 ### URL ownership across two frames
 
 A browser has one address bar but this page has two routed frames. Per
 `spec/012-Routing.md` §Multi-frame routing only one frame may own the
 URL. Both frames are registered **non-url-bound**
-(`:url-bound? false`), so each frame's `:rf/route` slot updates on tab
-nav while the browser-history push no-ops (no two-frame URL race). The
-route SLOT — the isolation point — stays per-frame; only the shared
-browser-URL sync is suppressed. (The single-frame step-deck, rf2-6qgbs.2,
-uses the default URL-bound frame, so its tab nav syncs the address bar.)
+(`:url-bound? false`), so each frame's `[:rf/runtime :routing :current]`
+slice updates on tab nav while the browser-history push no-ops (no
+two-frame URL race). The route slice — the isolation point — stays
+per-frame; only the shared browser-URL sync is suppressed. (The
+single-frame step-deck, rf2-6qgbs.2, uses the default URL-bound frame,
+so its tab nav syncs the address bar.)
 
 ## Issues source — the slow fetch is intentional
 
@@ -113,8 +115,9 @@ Machines, Routing, Issues, Trace) panel between observing `:above` and
    `:counter` movement.
 
 2. **Per-frame routing.** Navigate `:above` to the Machine tab and
-   `:below` to the Routing tab. Each frame's `:rf/route` slot differs;
-   the Xray routing lens shows each frame's active route independently.
+   `:below` to the Routing tab. Each frame's
+   `[:rf/runtime :routing :current]` slice differs; the Xray routing
+   lens shows each frame's active route independently.
 
 3. **Per-frame machine state.** Click Connect on `:below`'s Machine
    tab. Open the Machines lens — `:ws/connection` walks `:connecting →

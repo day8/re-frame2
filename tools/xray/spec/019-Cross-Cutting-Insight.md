@@ -400,7 +400,9 @@ Match rank for :route/cart.item-detail vs URL /cart/items/abc:
   ...
 ```
 
-**Affordance:** App-db tab → `:rf/route` slice → rank-explainer (R-C5).
+**Affordance:** App-db tab → current-route slice (the `:rf/route`
+runtime area, at `[:rf/runtime :routing :current]`) → rank-explainer
+(R-C5).
 
 #### R.4 — Other route bug classes (catalogued)
 
@@ -412,7 +414,8 @@ Match rank for :route/cart.item-detail vs URL /cart/items/abc:
 - **R.8** Route-chain visualiser (`:parent` → child chain) (R-C9).
 - **R.9** Open-redirect security advisory (R-C10).
 - **R.10** Routing badge `🧭` on Event-list rows (R-C1).
-- **R.11** `:rf/route` slice always-visible in App-db tab (R-C2).
+- **R.11** current-route slice (the `:rf/route` runtime area, at
+  `[:rf/runtime :routing :current]`) always-visible in App-db tab (R-C2).
 
 ### §2.3 SSR / Hydration
 
@@ -702,7 +705,7 @@ NO new tabs. The placement is uniform across areas:
 | Tab | Cross-cutting growth |
 |---|---|
 | **Event** (`e`) | Per-fx **wire-boundary diff** (F-C2). `:on-match` event chain (R-C4). Retry timeline (F-C3). Head model inspector (S-C6). Server error projection (S-C5). Per-fx source-coord chip (F-C6). |
-| **App-db** (`a`) | `:rf/route` slice always-visible at top (R-C2). Hydration diff in App-db tab (S-C3). Route-chain visualiser (R-C9). Trusted-shell opt visualiser (S-C9). |
+| **App-db** (`a`) | current-route slice (`:rf/route` runtime area, `[:rf/runtime :routing :current]`) always-visible at top (R-C2). Hydration diff in App-db tab (S-C3). Route-chain visualiser (R-C9). Trusted-shell opt visualiser (S-C9). |
 | **Views** (`v`) | (Largely unchanged; flows surface in the "Re-rendered" group when a flow's downstream sub recomputed.) |
 | **Trace** (`t`) | **Wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals. Nav-token timeline as sticky header (or via `r` popover). Streaming SSR boundary waterfall (F-C10 / S-C10). Skipped-on-platform tally chip (F-C9). |
 | **Machines** (`m`) | All of §2.1's M-C* features. The cancellation cascade visualiser (M-C3) is the tab's hero growth. |
@@ -754,8 +757,10 @@ sequenced so authors see compounding improvement week over week.
 
 1. **Badge expansion + routing badge** (F-C1, R-C1, S-C1) — add `🔌 📄 🌊
    🧭` to L2 event-list row badges; add SSR indicator to ribbon.
-2. **`:rf/route` slice always-visible + per-event route-chain + match-rank
-   tooltip** (R-C2, R-C5, R-C9) — App-db tab and Epoch panel inline content.
+2. **Current-route slice always-visible + per-event route-chain + match-rank
+   tooltip** (R-C2, R-C5, R-C9) — the `:rf/route` runtime area
+   (`[:rf/runtime :routing :current]`) pinned in the App-db tab; route-chain
+   + match-rank tooltip in the Epoch panel inline content.
 3. **Machine quick wins** (M-C1 guard-verdict overlay + M-C4 `:spawn-all`
    join card + M-C5 per-instance trace + M-C8 path-walked + M-C9 spawn-ancestry).
 4. **Effect surface quick wins** (F-C3 retry timeline + F-C5 stale badge

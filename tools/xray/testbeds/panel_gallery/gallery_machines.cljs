@@ -9,8 +9,9 @@
     - `:rf.xray/registered-machines`  — defaults to `(rf/machines)`;
                                          test override slot exists.
     - `:rf.xray/machine-snapshots`    — defaults to target-frame's
-                                         `:rf/machines`; test override
-                                         slot exists.
+                                         `[:rf/runtime :machines
+                                          :snapshots]` subtree; test
+                                         override slot exists.
     - `:rf.xray/machine-definitions`  — defaults to
                                          `(rf/machine-meta ...)`; test
                                          override slot exists.
