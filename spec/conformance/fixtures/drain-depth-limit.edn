@@ -2,28 +2,22 @@
 ;; Exercises the drain-depth-exceeded error. A handler that recursively
 ;; dispatches itself triggers the configured drain depth limit.
 ;;
-;; Per rf2-u6jsj/rf2-nj6p7 (Spec 002 §Drain versus event — the epoch
-;; unit): the epoch boundary is the dequeued EVENT, not the drain, so the
+;; Per Spec 002 §Drain versus event — the epoch unit and §Run-to-completion
+;; rule 3: the epoch boundary is the dequeued EVENT, not the drain. The
 ;; runaway events that already ran each settled their OWN durable :ok
-;; epoch (and their own db write) before the limit tripped. There is NO
-;; whole-drain rollback under per-event epochs — each settled event is
-;; independently atomic. The depth limit stops the NEXT (halting) event;
-;; the runtime commits a trailing :halted-depth :rf/epoch-record for it
-;; (rf2-v0jwt §Outcomes) so devtools (Xray, re-frame2-pair) get a clear
-;; "drain halted here" marker following the durable :ok epochs. The
+;; epoch (and their own db write) before the limit tripped — each settled
+;; event is independently atomic, and there is no whole-drain rollback.
+;; The depth limit stops the NEXT (halting) event; the runtime commits a
+;; trailing :halted-depth :rf/epoch-record for it (Spec-Schemas
+;; §:rf/epoch-record §Outcomes) so devtools (Xray, re-frame2-pair) get a
+;; clear "drain halted here" marker following the durable :ok epochs. The
 ;; halting event never ran, so its record's :db-before / :db-after both
 ;; equal the durable last-settled db.
-;;
-;; SUPERSEDES the pre-rf2-u6jsj per-drain rollback semantics (Spec 002
-;; rule 3's "restore app-db to its pre-drain snapshot" / "epoch history
-;; records nothing for the failed drain"), which was written for the
-;; per-drain epoch model. Rule 3 needs tightening to the per-event
-;; boundary — see rf2-nj6p7.
 
 {:fixture/id           :drain/depth-limit
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :core/trace}
- :fixture/doc          "A handler that always dispatches itself recursively. Drain hits the configured depth limit and emits :rf.error/drain-depth-exceeded. Per rf2-u6jsj/rf2-nj6p7 (per-event epochs) the events that already ran are DURABLE :ok epochs (no whole-drain rollback); the runtime commits a trailing :halted-depth :rf/epoch-record for the halting event (which never ran) so devtools receive a halt marker."
+ :fixture/doc          "A handler that always dispatches itself recursively. Drain hits the configured depth limit and emits :rf.error/drain-depth-exceeded. Per Spec 002 §Drain versus event (per-event epochs) the events that already ran are durable :ok epochs (no whole-drain rollback); the runtime commits a trailing :halted-depth :rf/epoch-record for the halting event (which never ran) so devtools receive a halt marker."
 
  :fixture/registry
  {:event {:recursive {:doc "Always dispatches itself."}}
@@ -42,9 +36,9 @@
 
  :fixture/expect
  {;; The handler ran 5 times (the depth limit) before the runtime stopped
-  ;; the 6th. Per rf2-nj6p7 each :recursive event settled its own durable
-  ;; epoch + db write — there is NO whole-drain rollback — so the final
-  ;; app-db reflects the five completed writes.
+  ;; the 6th. Each :recursive event settled its own durable epoch + db
+  ;; write — there is no whole-drain rollback — so the final app-db
+  ;; reflects the five completed writes.
   :final-app-db {:depth 5}
 
   :trace-emissions
@@ -53,9 +47,9 @@
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :recursive}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :recursive}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :recursive}}
-   ;; Drain depth exceeded — the 6th (halting) event is not run. Per
-   ;; rf2-nj6p7 there is no whole-drain rollback, so :rollback? is false;
-   ;; the already-settled events are durable.
+   ;; Drain depth exceeded — the 6th (halting) event is not run. There
+   ;; is no whole-drain rollback, so :rollback? is false; the
+   ;; already-settled events are durable.
    {:operation :rf.error/drain-depth-exceeded
     :op-type   :error
     :tags      {:category   :rf.error/drain-depth-exceeded
@@ -72,15 +66,15 @@
    {:operation :rf.epoch/snapshotted
     :tags      {:frame   :rf/default
                 :outcome :halted-depth}}
-   ;; rf2-18g1w / rf2-jppad — paired with :rf.epoch/snapshotted the runtime
-   ;; emits :rf.epoch/outcome carrying the consumer-facing {:ok :blocked
-   ;; :error} summary. :halted-depth projects to :blocked per the canonical
-   ;; mapping (`re-frame.epoch.assembly/outcome->consumer-facing`).
+   ;; Paired with :rf.epoch/snapshotted the runtime emits :rf.epoch/outcome
+   ;; carrying the consumer-facing {:ok :blocked :error} summary.
+   ;; :halted-depth projects to :blocked per the canonical mapping
+   ;; (`re-frame.epoch.assembly/outcome->consumer-facing`).
    {:operation :rf.epoch/outcome
     :tags      {:frame   :rf/default
                 :outcome :blocked}}]
 
-  ;; Per rf2-nj6p7 §Drain versus event: five durable :ok epochs (one per
+  ;; Per Spec 002 §Drain versus event: five durable :ok epochs (one per
   ;; dequeued :recursive event, db chaining {:depth 1}…{:depth 5}) followed
   ;; by the trailing :halted-depth marker. The marker's :db-before /
   ;; :db-after both equal the durable last-settled db ({:depth 5}); the

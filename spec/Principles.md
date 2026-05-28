@@ -33,6 +33,14 @@ Anonymous closures hidden inside setup code are harder for tools to inspect, pat
 
 Positional shapes are *placeful*: meaning is carried by where a value sits, which is implicit knowledge readers and writers must keep in their heads. They are brittle under evolution — inserting a new field in the middle is a multi-site rewrite where every call site must reshuffle in lock-step; reordering has the same hazard. They are also harder for tools, AIs, and migration agents to reason about, because the names that give the values meaning live somewhere else (the destructuring site, the docstring) rather than at the data itself. Map-shaped data inverts the trade-off: meaning is at the data, evolution is additive (new key in some sites; old sites still parse), and the schema attaches as a `:map` rather than a fragile `:tuple`. The pattern applies anywhere data carries multiple values: event payloads (`[<id> {...}]` over `[<id> arg1 arg2 ...]` per [MIGRATION §M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)), effect maps, registration metadata, frame configs, machine snapshots, trace event tags, hiccup attributes. Single-value cases (a sub of one scalar id, a `[:counter/inc]` event with no payload) stay positional — the place-vs-name trade-off only bites once arity grows.
 
+### Uniform context-map callbacks
+
+**Principle:** every callback slot in a family takes a *single context-map argument*; new slot additions extend the keys, not the arity.
+
+The discipline applies wherever the runtime invokes user code from multiple slot types in the same family — state-machine `:guard` / `:action` / `:entry` / `:exit` / `:on-done` / `:on-spawn` / `:after` / `:spawn :data`, fx interceptors, sub query functions, error projectors. Each callback receives one map whose keys depend on the slot (`:data` / `:event` / `:state` / `:meta` for guards and actions; `:data` / `:result` for `:on-done`; `:snapshot` for `:after`; etc.), and user code destructures the keys it cares about. This is a specialisation of *name over place* for callback arities: instead of an N-positional signature that varies by slot — `(fn [data event] ...)` vs `(fn [data event state meta] ...)` vs `(fn [data result] ...)` — every slot reads one uniform map.
+
+The benefit is symmetry across the family: future slot additions add keys without expanding an arity-permutation matrix, destructuring at the call site makes the meaningful keys explicit, and a single context shape is what tooling, conformance fixtures, and AI scaffolding can describe once and apply everywhere. Spec 005 §Guards / §Actions / §Spawn defines the realisation for machine callbacks; [005-StateMachines §Guards](005-StateMachines.md#guards) and the surrounding sections pin the slot-by-slot key contract.
+
 ### Data before magic
 
 **Principle:** behaviour is expressible as data plus interpreter.

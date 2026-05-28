@@ -1294,40 +1294,31 @@
       (process-event* envelope))))
 
 (def ^:private drain-depth-default
-  ;; Deep enough for typical cascade depths; cheap atomic rollback per
-  ;; Spec 002 §Run-to-completion rule 3 when exceeded.
+  ;; Deep enough for typical cascade depths. When exceeded, the runtime
+  ;; halts the next (unstarted) event per Spec 002 §Run-to-completion rule
+  ;; 3 — already-settled events stay durable; the halting event gets a
+  ;; trailing `:halted-depth` epoch record (no whole-drain rollback under
+  ;; the per-event epoch model).
   100)
 
 (defn- handle-depth-exceeded!
   "Tail-path for the depth-limit branch of `drain!`. Per Spec 002
-  §Drain versus event — the epoch unit (rf2-u6jsj/rf2-nj6p7): the epoch
-  boundary is the dequeued EVENT, so the events that already ran in this
-  drain each settled their own DURABLE `:ok` epoch (and their own db
-  write) as they completed — there is NO whole-drain rollback under
-  per-event epochs. The depth limit stops processing the NEXT event (the
-  halting event, still at the head of the queue); the work that already
-  ran is a sequence of complete, individually-atomic events.
+  §Drain versus event — the epoch unit: the epoch boundary is the
+  dequeued EVENT, so the events that already ran in this drain each
+  settled their own DURABLE `:ok` epoch (and their own db write) as they
+  completed — there is no whole-drain rollback under per-event epochs.
+  The depth limit stops processing the NEXT event (the halting event,
+  still at the head of the queue); the work that already ran is a
+  sequence of complete, individually-atomic events.
 
-  Per rf2-v0jwt §Outcomes: commit a `:halted-depth` epoch record so
-  devtools (Xray, re-frame2-pair) get a clear 'drain halted here'
-  marker following the runaway `:ok` epochs. The halting event never ran,
-  so its record's `:db-before` / `:db-after` both equal the current
-  (last-settled) db value and its buffer is empty — `commit-halt-record!`
-  synthesises the record from the halting event's trigger. Listeners
-  receive it like any other; `restore-epoch` refuses non-`:ok` targets.
-
-  ## Reconcile with Spec 002 rule 3 (NOTED for spec-tightening, rf2-nj6p7)
-
-  Rule 3 (and the `drain-depth-limit.edn` conformance fixture) describe
-  WHOLE-DRAIN atomic rollback to a pre-drain snapshot, written for the
-  pre-rf2-u6jsj per-drain epoch model. The merged spec PR #1948 redefined
-  the epoch as per-event but did NOT update rule 3 / the fixture
-  (\"impl follow-up rf2-nj6p7\"). Under per-event epochs, whole-drain
-  rollback is incoherent — each settled event is independently atomic and
-  durable. This impl follows the per-event model the merged spec defines:
-  already-settled siblings are durable; only the halting event (which
-  never ran) gets a `:halted-depth` marker. Rule 3's pre-drain-rollback
-  text and the fixture need tightening to the per-event boundary."
+  Per Spec-Schemas §`:rf/epoch-record` §Outcomes: commit a `:halted-depth`
+  epoch record so devtools (Xray, re-frame2-pair) get a clear 'drain
+  halted here' marker following the runaway `:ok` epochs. The halting
+  event never ran, so its record's `:db-before` / `:db-after` both equal
+  the current (last-settled) db value and its buffer is empty —
+  `commit-halt-record!` synthesises the record from the halting event's
+  trigger. Listeners receive it like any other; `restore-epoch` refuses
+  non-`:ok` targets."
   [frame-id router depth last-event]
   (let [{:keys [queue]} @router
         queue-size      (count queue)
