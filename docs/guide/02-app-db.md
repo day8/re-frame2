@@ -104,11 +104,11 @@ New readers ask this within the first hour: "Okay, but where does X go in app-db
 
 - **Form state.** A form is a state machine in a trenchcoat — `:draft`, `:status`, per-field errors — and it lives under `[:forms <form-id>]`. [Chapter 11 — Forms](11-forms.md) covers the seven-event lifecycle.
 
-- **State machines.** Each active machine occupies a slot at `[:rf/machines <machine-id>]`. The slot is **runtime-managed** — you read it through subscriptions, you don't reach in and write it. [Chapter 12 — Machines](12-machines.md) is the chapter.
+- **State machines.** Each active machine occupies a slot at `[:rf/runtime :machines :snapshots <machine-id>]`. The slot is **runtime-managed** — you read it through subscriptions, you don't reach in and write it. [Chapter 12 — Machines](12-machines.md) is the chapter.
 
-- **Route state.** A URL-bound frame keeps its route under `[:rf/route]`, also runtime-managed. [Chapter 19 — Routing](19-routing.md) is where the URL-as-state story lives.
+- **Route state.** A URL-bound frame keeps its route under `[:rf/runtime :routing :current]`, also runtime-managed. [Chapter 19 — Routing](19-routing.md) is where the URL-as-state story lives.
 
-That word **runtime-managed** is worth flagging now, because it's the one exception to "app-db is entirely yours." A few root keys — `:rf/machines`, `:rf/route`, `:rf/system-ids`, `:rf/pending-navigation` — are slices the framework maintains *for* you. They live in app-db (so they're inspectable, diffable, time-travellable like everything else — the property doesn't get a carve-out), but you don't write to them directly; you read them through subscriptions and you change them by dispatching the events the relevant feature provides. The `:rf/` prefix is the signal: that's framework territory. [Chapter 21 — The dynamic model](21-dynamic-model.md) is the deep dive on these "read but don't write" slices. Everything *without* the `:rf/` prefix is yours to shape.
+That word **runtime-managed** is worth flagging now, because it's the one exception to "app-db is entirely yours." A single root key — `:rf/runtime` — is where the framework keeps the slices it maintains *for* you (machines under `[:rf/runtime :machines]`, routing under `[:rf/runtime :routing]`, elision under `[:rf/runtime :elision]`, and so on). They live in app-db (so they're inspectable, diffable, time-travellable like everything else — the property doesn't get a carve-out), but you don't write to them directly; you read them through subscriptions and you change them by dispatching the events the relevant feature provides. The `:rf/runtime` key is the signal: that's framework territory. [Chapter 21 — The dynamic model](21-dynamic-model.md) is the deep dive on these "read but don't write" slices. Everything *without* the `:rf/` prefix is yours to shape.
 
 ## One concrete map, so it's not abstract
 
@@ -131,8 +131,8 @@ Here's app-db for a small but real app — a counter, a logged-in user, a draft 
             :submitted nil}}
 
  ;; --- runtime-managed slots: you read, you don't write ---
- :rf/route    {:route-id :home :params {} :query {}}
- :rf/machines {}}
+ :rf/runtime {:routing  {:current {:route-id :home :params {} :query {}}}
+              :machines {:snapshots {}}}}
 ```
 
 It's a map. It has nested maps. Every event handler in the app reads from some part of it and returns a new version of the whole thing. Every subscription reads from it. Every view derives from a subscription. You can `pprint` the whole thing, diff it against yesterday's, snapshot it, restore it. The logged-in user, the counter and its history, the half-typed form, the current route — the entire app, as one value you can hold in your hand.
