@@ -2156,7 +2156,7 @@ unknown strategies as :preserve (no-op)."}
   (:rf/route db))
 
 (subs/reg-sub :rf/route
-  {:doc "Subscribe to the current route map `{:id :params :query :transition :error}`. Layer-1 read of the `:rf/route` slice. Per Spec 012."}
+  {:doc "Subscribe to the current route container — the route slice fields (`:id` / `:params` / `:query` / `:transition` / `:error` / `:fragment` / `:nav-token`) plus per-frame routing-runtime sub-keys nested under `:rf/route` per rf2-3ib8h (`:scroll-positions` / `:scroll-positions-order` / `:nav-token-counter` / `:pending-nav-counter`). Layer-1 read of the `:rf/route` slice. Per Spec 012."}
   route-sub-fn)
 (subs/reg-sub :rf.route/id
   {:doc "Subscribe to the current route's `:id` keyword. Per Spec 012."}

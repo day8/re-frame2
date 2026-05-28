@@ -75,9 +75,12 @@ Each test gets its own frame with its own app-db and its own fx-override map —
 And configuring `:rf/default` at app boot:
 
 ```clojure
+;; User-defined fxs sit under a user-feature prefix per
+;; spec/Conventions.md §Reserved namespaces — never under `:rf.<feature>/…`,
+;; which is reserved for framework-owned surfaces.
 (rf/reg-frame :rf/default
   {:doc          "Login demo frame."
-   :fx-overrides {:rf.http/managed :rf.http/managed.login-demo}})
+   :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
 ```
 
 ## Frame metadata — what goes in it

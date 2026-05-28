@@ -139,15 +139,13 @@
                   (recur (next entries) false))
                 (recur (next entries) ok?))
               (recur (next entries) ok?))
-            ;; Bookkeeping shaped for the router's conjunction below —
             ;; `event-id` and `frame-id` are accepted but unused at this
             ;; boundary; the per-snapshot emit already names the machine.
             ;; Same arity as `validate-app-schema!` so the late-bind hook
-            ;; the router consumes can be invoked uniformly.
-            (do
-              (identity event-id)
-              (identity frame-id)
-              ok?))))
+            ;; the router consumes can be invoked uniformly (Clojure
+            ;; doesn't warn on unused fn args — no defensive marker
+            ;; needed).
+            ok?)))
       true)
     true))
 
