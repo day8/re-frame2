@@ -429,6 +429,126 @@
         (is (= [:n] (get-in ev [:tags :rf.sub/query-v])))
         (is (contains? (:tags ev) :frame))))))
 
+;; ---- :rf.sub/cause-event-id (rf2-okz1u) ----------------------------------
+;;
+;; The reactive recompute path also stamps `:rf.sub/cause-event-id` (when
+;; the optional `re-frame.epoch` artefact is on the classpath and the sub
+;; runs inside an in-flight cascade): the head of the event vector that
+;; kicked off the dispatching drain. Mirrors `:rf.view/cause-event-id`
+;; (per rf2-25zo2) — same `:epoch/cascade-cause` late-bind hook source.
+;;
+;; The Mike-ruled posture is "option b" attribution-only (no behavioural
+;; change to the reactive flush). The tag carries which event invalidated
+;; this sub's input so consumers (Xray's Epoch panel) can credit each
+;; sub-run to the right epoch row — even when a chained event's drain
+;; would otherwise misattribute the run to itself.
+
+(deftest sub-run-cause-event-id-stamped-inside-dispatch
+  (testing "rf2-okz1u — a sub-run that fires INSIDE an in-flight cascade
+            carries :rf.sub/cause-event-id naming the dispatching event.
+            The plain-atom JVM path recomputes on deref (no cached
+            reaction); land the recompute inside the cascade window by
+            using an fx-handler that derefs — fx runs after :db-changed
+            commits, while the event's handler-scope is still bound and
+            the in-flight cascade buffer holds the :rf.event/run-start
+            the :epoch/cascade-cause lookup consumes. Mirrors the
+            views-side precedent at view_rendered_op_cljs_test/
+            rf-view-rendered-carries-cause-event-id-in-cascade."
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed])
+    (let [r     (rf/subscribe [:n])
+          _warm @r]
+      ;; The fx-handler signature is `(fn [ctx args])` per Spec 002
+      ;; §The binary fx-handler signature — ctx carries `:frame`,
+      ;; `:event`, `:envelope`; args is the value from the `:fx` vector.
+      (rf/reg-fx :deref-fx (fn [_ctx _args] @r))
+      (rf/reg-event-fx :bump-and-deref
+        (fn [_ _]
+          ;; The event handler returns the canonical `:db` / `:fx` shape
+          ;; (re-frame2 rejects arbitrary top-level keys per
+          ;; `events.cljc/police-effect-map-shape!`).
+          {:db {:n 99}
+           :fx [[:deref-fx true]]}))
+      (let [events (collect-trace
+                     (fn []
+                       (rf/dispatch-sync [:bump-and-deref])))
+            runs   (sub-runs events :n)]
+        (is (seq runs)
+            "expected a :rf.sub/run for :n on the in-cascade fx-deref")
+        (when (seq runs)
+          (let [t (:tags (first runs))]
+            (is (= :bump-and-deref (:rf.sub/cause-event-id t))
+                ":rf.sub/cause-event-id names the dispatching event,
+                 not the sub-id and not the :seed event")))))))
+
+(deftest sub-run-cause-event-id-absent-outside-dispatch
+  (testing "rf2-okz1u — a sub-run that fires OUTSIDE any in-flight
+            dispatch omits :rf.sub/cause-event-id entirely. The slot is
+            absent (key not present), not nil, so consumers can read
+            `(contains? tags :rf.sub/cause-event-id)` to discriminate
+            in-cascade vs no-cascade recomputes."
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed])
+    ;; The seed dispatch has settled. The subscribe + deref below runs
+    ;; OUTSIDE any in-flight cascade — the in-flight buffer is empty so
+    ;; the `:epoch/cascade-cause` hook returns no `:cause-event-id`. The
+    ;; tag MUST be absent from the emitted `:rf.sub/run` tags.
+    (let [events (collect-trace
+                   (fn []
+                     (let [r (rf/subscribe [:n])]
+                       @r)))
+          runs   (sub-runs events :n)]
+      (is (seq runs)
+          "expected a :rf.sub/run for :n on the cache-creating recompute")
+      (let [t (:tags (first runs))]
+        (is (not (contains? t :rf.sub/cause-event-id))
+            ":rf.sub/cause-event-id is OMITTED (key absent) outside a cascade")))))
+
+(deftest sub-run-cause-event-id-layer-2-cascade
+  (testing "rf2-okz1u — layer-2 sub recomputed inside the cascade
+            also carries :rf.sub/cause-event-id. The cause-event-id is
+            the SAME for every sub in the cascade (the dispatching
+            event) — distinct from :rf.sub/cause-sub (the upstream sub
+            that propagated the change, which differs per sub in the
+            chain). Two-sub fixture proves the slots are complementary."
+    (rf/reg-event-db :seed (fn [_ _] {:n 2}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/reg-sub :doubled
+      :<- [:n]
+      (fn [n _] (* 2 n)))
+    (rf/dispatch-sync [:seed])
+    (let [r-n       (rf/subscribe [:n])
+          r-doubled (rf/subscribe [:doubled])
+          _         @r-n
+          _         @r-doubled]
+      (rf/reg-fx :deref-both-fx (fn [_ctx _args] @r-n @r-doubled))
+      (rf/reg-event-fx :bump-and-deref-both
+        (fn [_ _]
+          {:db {:n 3}
+           :fx [[:deref-both-fx true]]}))
+      (let [events (collect-trace
+                     (fn []
+                       (rf/dispatch-sync [:bump-and-deref-both])))
+            n-run  (first (sub-runs events :n))
+            d-run  (first (sub-runs events :doubled))]
+        (is (some? n-run))
+        (is (some? d-run))
+        (when (and n-run d-run)
+          (is (= :bump-and-deref-both
+                 (get-in n-run [:tags :rf.sub/cause-event-id]))
+              "layer-1 sub :n carries the dispatching event-id")
+          (is (= :bump-and-deref-both
+                 (get-in d-run [:tags :rf.sub/cause-event-id]))
+              "layer-2 sub :doubled carries the SAME cause-event-id,
+               because both subs were invalidated by the same
+               dispatching event")
+          (is (= [:n] (get-in d-run [:tags :rf.sub/cause-sub]))
+              ":rf.sub/cause-sub on :doubled still names the upstream
+               sub — the two attribution slots are complementary,
+               not redundant"))))))
+
 (deftest aggregate-cascade-shape-pin
   (testing "aggregate-cascade splits subs by :rf.sub/run vs :rf.sub/skip"
     (let [events [{:operation :rf.sub/run :tags {:rf.sub/id :a :rf.sub/query-v [:a]}}
@@ -447,9 +567,13 @@
       ;; change + cascade attribution; this fixture event carries no
       ;; attribution tags so the slots are nil. The projection RECORD keys
       ;; stay bare (nested record-map carve-out — Spec 009 §`:tags`).
+      ;; rf2-okz1u — `:cause-event-id` joins the projection (the
+      ;; dispatching cascade's event-id, threaded from
+      ;; `:rf.sub/cause-event-id` on the trace tag). nil here because
+      ;; the fixture event carries no tag.
       (is (= [{:sub-id :a :query-v [:a]
                :value-changed? nil :prev-value nil :value nil
-               :cascade? nil :cause-sub nil}]
+               :cascade? nil :cause-sub nil :cause-event-id nil}]
              (:subs-recomputed dag)))
       (is (= [{:sub-id :b :query-v [:b]
                :reason :input-value-equal

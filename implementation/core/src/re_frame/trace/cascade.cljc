@@ -130,7 +130,24 @@
                                                    :prev-value     (:rf.sub/prev-value t)
                                                    :value          (:rf.sub/value t)
                                                    :cascade?       (:rf.sub/cascade? t)
-                                                   :cause-sub      (:rf.sub/cause-sub t)}
+                                                   :cause-sub      (:rf.sub/cause-sub t)
+                                                   ;; rf2-okz1u — `:cause-event-id` names
+                                                   ;; the dispatching cascade's event-id
+                                                   ;; (the head of the event vector that
+                                                   ;; kicked off the in-flight drain).
+                                                   ;; Threaded from `:rf.sub/cause-event-id`
+                                                   ;; on the recompute trace tag (sourced
+                                                   ;; via the `:epoch/cascade-cause` late-
+                                                   ;; bind hook at emit time). nil when the
+                                                   ;; sub ran outside any cascade or the
+                                                   ;; epoch artefact is absent — consumers
+                                                   ;; (Xray's Epoch panel SUBSCRIPTIONS
+                                                   ;; section) read it to credit each
+                                                   ;; sub-run to the right epoch row even
+                                                   ;; when the physical reactive flush
+                                                   ;; deferred into a chained sibling
+                                                   ;; event's drain.
+                                                   :cause-event-id (:rf.sub/cause-event-id t)}
                                                   sub-cap))
                         (cond->
                           (>= (count (get acc :sr)) sub-cap)
