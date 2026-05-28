@@ -437,7 +437,7 @@ The framework trusts the override. A determined contributor who writes `{:sensit
 
 ## Relationship with schema-attached marks
 
-[010-Schemas](010-Schemas.md) supports `:sensitive?` and `:large?` per-slot metadata on the schema value passed to `reg-app-schema`. That mechanism remains valid and continues to populate the framework's elision registry slot at `[:rf/elision :sensitive-declarations]` (per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)).
+[010-Schemas](010-Schemas.md) supports `:sensitive?` and `:large?` per-slot metadata on the schema value passed to `reg-app-schema`. That mechanism remains valid and continues to populate the framework's elision registry slot at `[:rf/runtime :elision :sensitive-declarations]` (per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)).
 
 The two declaration sources **merge** at lookup time. The mark-lookup table the observation surfaces consult is the union of:
 
@@ -484,7 +484,7 @@ The contract is **observable behaviour**, not the implementation approach. A por
 
 ### Mark-lookup table shape
 
-The CLJS reference materialises the merged mark set at `[:rf/elision :sensitive-declarations]` and `[:rf/elision :large-declarations]` per-frame, keyed by absolute path:
+The CLJS reference materialises the merged mark set at `[:rf/runtime :elision :sensitive-declarations]` and `[:rf/runtime :elision :large-declarations]` per-frame, keyed by absolute path:
 
 ```clojure
 ;; Reference shape (CLJS, not pattern-required)
@@ -504,7 +504,7 @@ The `:source` slot is for tooling (Xray's "why is this redacted?" affordance rea
 The path-marked declarations in this Spec redact at the five observation surfaces named in [§Scope](#in-scope--the-five-observation-points-marks-must-guard). They walk **known data shapes** — the trace event's `:tags :rf.event/v` slot, `:tags :app-db-after`, `:tags :sub-output`, and friends — and substitute sentinels at marked paths. They do NOT walk:
 
 - **Exception messages.** Once a sensitive value has been concatenated into an `ex-message` string, no path resolves to the substring; the walker has no rule that says "this substring of this string is a marked leaf."
-- **`ex-data` maps.** The map's keys are author-chosen (`{:user/email "..."}`); they have no relationship to the path-marked declarations in `[:rf/elision :sensitive-declarations]`. A walker rule that scrubbed `:user/email` would either need a separate ex-data-key registration (which would duplicate the path declaration and drift) or auto-detect by value comparison (the [§Out of scope §Full taint-tracking system](#out-of-scope-explicit-non-goals) non-goal).
+- **`ex-data` maps.** The map's keys are author-chosen (`{:user/email "..."}`); they have no relationship to the path-marked declarations in `[:rf/runtime :elision :sensitive-declarations]`. A walker rule that scrubbed `:user/email` would either need a separate ex-data-key registration (which would duplicate the path declaration and drift) or auto-detect by value comparison (the [§Out of scope §Full taint-tracking system](#out-of-scope-explicit-non-goals) non-goal).
 
 The residual surface is the intersection of *the handler read a sensitive-path value* AND *the handler then threw with that value in the message or the ex-data map*. The `:rf.error/handler-exception` trace event ([Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) the cascade emits carries the raw value in `:exception-message` / `:exception-data`. The top-level `:sensitive?` rollup fires (because some leaf in the record overlapped a marked path) and off-box shippers drop the whole event — but the on-box dev surfaces (Xray Event Detail, the re-frame2-pair-mcp surface under `:show-sensitive? true`, story scenarios saved for replay) render the exception fields verbatim.
 

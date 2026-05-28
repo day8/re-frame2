@@ -20,8 +20,12 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 ### `app-db` slices
 
-- **`:rf/route` slice** — `{:id :params :query :fragment :transition :error :nav-token}`. Schema `:rf/route-slice`. See [§The `:rf/route` slice](#the-rfroute-slice).
-- **`:rf/pending-navigation` slot** — populated when a `:can-leave` guard rejects. Schema `:rf/pending-navigation`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
+All routing state lives under `[:rf/runtime :routing]` (per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)):
+
+- **Route slice** at `[:rf/runtime :routing :current]` — `{:id :params :query :fragment :transition :error :nav-token}`. Schema `:rf/route-slice`. Consumer-facing sub-id `:rf/route`. See [§The `:rf/route` slice](#the-rfroute-slice).
+- **Pending-nav slot** at `[:rf/runtime :routing :pending-navigation]` — populated when a `:can-leave` guard rejects. Schema `:rf/pending-navigation`. Sub-id `:rf/pending-navigation`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
+- **Scroll-position LRU** at `[:rf/runtime :routing :scroll-positions]` + `[:rf/runtime :routing :scroll-positions-order]` — see [§Scroll restoration](#scroll-restoration).
+- **Routing counters** at `[:rf/runtime :routing :nav-token-counter]` + `[:rf/runtime :routing :pending-nav-counter]` — internal monotonic counters; not part of the consumer-facing sub surface.
 
 ### Events
 
@@ -245,18 +249,22 @@ The axes are documentation, not data structure — the keys remain flat on the m
 
 ### The `:rf/route` slice
 
-The runtime maintains a single slice in `app-db` under the `:rf/route` key:
+The runtime maintains the route slice in `app-db` at `[:rf/runtime :routing :current]` (per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)):
 
 ```clojure
-{:rf/route
-  {:id           :route/article             ;; current route id
-   :params       {:id #uuid "..."}          ;; path params (matches :params schema)
-   :query        {:q "clojure" :page 2}     ;; query/search params (matches :query schema)
-   :fragment     "section-2"                ;; URL #fragment, or nil; see "Fragments" below
-   :transition   :idle                      ;; :idle | :loading | :error
-   :error        nil                        ;; populated when :transition = :error
-   :nav-token    "nav-42"}}                 ;; per-navigation epoch token; see "Navigation tokens"
+{:rf/runtime
+  {:routing
+    {:current
+      {:id           :route/article             ;; current route id
+       :params       {:id #uuid "..."}          ;; path params (matches :params schema)
+       :query        {:q "clojure" :page 2}     ;; query/search params (matches :query schema)
+       :fragment     "section-2"                ;; URL #fragment, or nil; see "Fragments" below
+       :transition   :idle                      ;; :idle | :loading | :error
+       :error        nil                        ;; populated when :transition = :error
+       :nav-token    "nav-42"}}}}               ;; per-navigation epoch token; see "Navigation tokens"
 ```
+
+The framework reg-sub `[:rf/route]` reads against `[:rf/runtime :routing :current]` and is the supported consumer surface (apps subscribe via `(rf/sub :rf/route)`; the sub-id remains `:rf/route` for API stability).
 
 `:params` and `:query` are **separate maps**. Path params come from segments captured by the `:path` grammar; query params come from the `?key=value` portion of the URL. They are validated by separate schemas (`:params` and `:query` on `reg-route`). Consumers that prefer a single merged map can build one in a derived sub.
 
@@ -281,13 +289,14 @@ A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-S
           push-fx-id (if (:replace? opts) :rf.nav/replace-url :rf.nav/push-url)
           nav-token  (rf/gen-nav-token)]
       {:db (-> db
-               (assoc :rf/route {:id         route-id
-                                 :params     path-params
-                                 :query      query-params
-                                 :fragment   fragment
-                                 :transition (if (seq (:on-match route-meta)) :loading :idle)
-                                 :error      nil
-                                 :nav-token  nav-token}))
+               (assoc-in [:rf/runtime :routing :current]
+                         {:id         route-id
+                          :params     path-params
+                          :query      query-params
+                          :fragment   fragment
+                          :transition (if (seq (:on-match route-meta)) :loading :idle)
+                          :error      nil
+                          :nav-token  nav-token}))
        :fx (into [[push-fx-id url]
                   [:rf/trace [:rf.route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]
                   (when-let [scroll (resolve-scroll route-meta opts fragment)]
@@ -330,7 +339,7 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
   (fn handler-route-handle-url-change [{:keys [db]} [_ url]]
     (let [{:keys [route-id params query fragment validation-failed?]} (rf/match-url url)
           route-meta                                                  (rf/handler-meta :route route-id)
-          prev-route                                                  (:rf/route db)
+          prev-route                                                  (get-in db [:rf/runtime :routing :current])
           fragment-only?                                              (and prev-route
                                                                            (= route-id (:id prev-route))
                                                                            (= params   (:params prev-route))
@@ -342,37 +351,40 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
       (cond
         ;; No match → 404 route
         (nil? route-id)
-        {:db (assoc db :rf/route {:id :rf.route/not-found
-                                  :params {:url url}
-                                  :query {} :fragment fragment
-                                  :transition :idle :error nil
-                                  :nav-token nav-token})}
+        {:db (assoc-in db [:rf/runtime :routing :current]
+                       {:id :rf.route/not-found
+                        :params {:url url}
+                        :query {} :fragment fragment
+                        :transition :idle :error nil
+                        :nav-token nav-token})}
 
         ;; Validation failure → 404 (or, optionally, a configured error route)
         validation-failed?
-        {:db (assoc db :rf/route {:id :rf.route/not-found
-                                  :params {:url url :reason :validation}
-                                  :query {} :fragment fragment
-                                  :transition :idle :error nil
-                                  :nav-token nav-token})}
+        {:db (assoc-in db [:rf/runtime :routing :current]
+                       {:id :rf.route/not-found
+                        :params {:url url :reason :validation}
+                        :query {} :fragment fragment
+                        :transition :idle :error nil
+                        :nav-token nav-token})}
 
         ;; Fragment-only change — update the slice; emit
         ;; :rf.route/fragment-changed trace; do NOT re-fire
         ;; :on-match. See "Fragments" below.
         fragment-only?
-        {:db (assoc-in db [:rf/route :fragment] fragment)
+        {:db (assoc-in db [:rf/runtime :routing :current :fragment] fragment)
          :fx [[:rf/trace [:rf.route/fragment-changed {:route-id route-id
                                                       :prev-fragment (:fragment prev-route)
                                                       :next-fragment fragment}]]]}
 
         :else
-        {:db (assoc db :rf/route {:id         route-id
-                                  :params     params
-                                  :query      query
-                                  :fragment   fragment
-                                  :transition (if (seq (:on-match route-meta)) :loading :idle)
-                                  :error      nil
-                                  :nav-token  nav-token})
+        {:db (assoc-in db [:rf/runtime :routing :current]
+                       {:id         route-id
+                        :params     params
+                        :query      query
+                        :fragment   fragment
+                        :transition (if (seq (:on-match route-meta)) :loading :idle)
+                        :error      nil
+                        :nav-token  nav-token})
          :fx (into [[:rf/trace [:rf.route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]]
                    (for [ev (:on-match route-meta)]
                      [:dispatch ev]))}))))
@@ -395,7 +407,7 @@ Users who want plain anchors to be interceptable register their own delegating h
 
 ### Reading the route is a sub
 
-The `:rf/route` sub projects the published slice keys via `select-keys` over the routing-runtime container at `(:rf/route db)`. Internal routing-runtime keys (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`, `:pending-nav-counter`) live inside the container in `app-db` but do not surface through the sub — consumers that `deref` `[:rf/route]` see only the slice and do not re-render on internal counter ticks.
+The `:rf/route` sub projects the published slice keys via `select-keys` over the route slice at `[:rf/runtime :routing :current]`. Internal routing-runtime keys (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`, `:pending-nav-counter`) live alongside `:current` under `:routing` in `app-db` but do not surface through the `:rf/route` sub — consumers that `deref` the sub see only the slice and do not re-render on internal counter ticks.
 
 ```clojure
 (def route-slice-keys
@@ -403,34 +415,34 @@ The `:rf/route` sub projects the published slice keys via `select-keys` over the
 
 (rf/reg-sub :rf/route
   {:doc "The current route slice: {:id :params :query :fragment :transition :error :nav-token}."}
-  (fn sub-route [db _] (select-keys (:rf/route db) route-slice-keys)))
+  (fn sub-route [db _] (select-keys (get-in db [:rf/runtime :routing :current]) route-slice-keys)))
 
 (rf/reg-sub :rf.route/id
-  :<- [:rf/route]
+  :<- [:rf/runtime :routing :current]
   (fn [route _] (:id route)))
 
 (rf/reg-sub :rf.route/params
-  :<- [:rf/route]
+  :<- [:rf/runtime :routing :current]
   (fn [route _] (:params route)))
 
 (rf/reg-sub :rf.route/query
-  :<- [:rf/route]
+  :<- [:rf/runtime :routing :current]
   (fn [route _] (:query route)))
 
 (rf/reg-sub :rf.route/fragment
-  :<- [:rf/route]
+  :<- [:rf/runtime :routing :current]
   (fn [route _] (:fragment route)))     ;; URL #fragment string, or nil
 
 (rf/reg-sub :rf.route/transition
-  :<- [:rf/route]
+  :<- [:rf/runtime :routing :current]
   (fn [route _] (:transition route)))    ;; :idle | :loading | :error
 
 (rf/reg-sub :rf.route/error
-  :<- [:rf/route]
+  :<- [:rf/runtime :routing :current]
   (fn [route _] (:error route)))
 
 (rf/reg-sub :rf/pending-navigation
-  (fn [db _] (:rf/pending-navigation db)))   ;; pending-nav slot when :can-leave guard rejects, else nil
+  (fn [db _] (get-in db [:rf/runtime :routing :pending-navigation])))   ;; pending-nav slot when :can-leave guard rejects, else nil
 ```
 
 Views derive UI from the route the same way they derive UI from any other state — no special routing API in views. A common pattern: a global progress bar reads `:rf.route/transition` and renders when the value is `:loading`; an error banner reads `:rf.route/error`.
@@ -517,7 +529,7 @@ Semantics:
 
 The `:on-match` list is the **enumerable, machine-readable** answer to "what loads when this route is active?" `:on-match` is the canonical surface.
 
-> **Why not parameterise events explicitly with route params?** Each `:on-match` event runs with full access to `app-db` via cofx, including the freshly-written `:rf/route` slice. Handlers read `(:rf/route db)` for params/query as needed. Hard-wiring param substitution into the event vector would re-introduce a string-DSL where data already suffices.
+> **Why not parameterise events explicitly with route params?** Each `:on-match` event runs with full access to `app-db` via cofx, including the freshly-written route slice. Handlers read `(get-in db [:rf/runtime :routing :current])` for params/query as needed. Hard-wiring param substitution into the event vector would re-introduce a string-DSL where data already suffices.
 
 ## Route-not-found — `:rf.route/not-found` (canonical)
 
@@ -549,7 +561,7 @@ If any event in `:on-match` errors (a handler throws, a registered fx errors, or
 
 1. Sets `:rf.route/transition` to `:error`.
 2. Populates `:rf.route/error` with the structured error map (schema: `:rf/error` per [009](009-Instrumentation.md#error-contract)).
-3. If the route declares an `:on-error` event, dispatches it. The error map is available to the handler via `(:error (:rf/route db))`.
+3. If the route declares an `:on-error` event, dispatches it. The error map is available to the handler via `(get-in db [:rf/runtime :routing :current :error])`.
 
 ```clojure
 (rf/reg-route :route/cart
@@ -559,7 +571,7 @@ If any event in `:on-match` errors (a handler throws, a registered fx errors, or
 
 (rf/reg-event-fx :route/cart-load-failed
   (fn [{:keys [db]} _]
-    (let [error (get-in db [:rf/route :error])]
+    (let [error (get-in db [:rf/runtime :routing :current :error])]
       ;; surface a contextual error UI; toast; redirect; whatever the app needs.
       {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))
 ```
@@ -610,18 +622,20 @@ The validating cofx is shared infrastructure: any handler whose registration dec
 ### What the slice looks like over time
 
 ```clojure
+;; All slice snapshots below are at [:rf/runtime :routing :current] in app-db.
+;;
 ;; Step 1: User navigates to :route/article id="A". nav-token = "nav-1".
-{:rf/route {:id :route/article :params {:id "A"} :transition :loading :nav-token "nav-1"}}
+{:id :route/article :params {:id "A"} :transition :loading :nav-token "nav-1"}
 
 ;; Step 2: While the load is in flight, user navigates to :route/article id="B".
 ;; A fresh nav-token is allocated.
-{:rf/route {:id :route/article :params {:id "B"} :transition :loading :nav-token "nav-2"}}
+{:id :route/article :params {:id "B"} :transition :loading :nav-token "nav-2"}
 
 ;; Step 3: The "A" load completes; its dispatched [:article/loaded "A" payload] carries
 ;; nav-token "nav-1". Current is "nav-2". Mismatch → suppressed; trace fires; no commit.
 
 ;; Step 4: The "B" load completes; carries "nav-2". Match → commit.
-{:rf/route {:id :route/article :params {:id "B"} :transition :idle :nav-token "nav-2"}}
+{:id :route/article :params {:id "B"} :transition :idle :nav-token "nav-2"}
 ```
 
 ### Cancellation as optimisation, not correctness
@@ -742,7 +756,7 @@ The path syntax is the *primary* binding. Query strings are bound separately via
 |---|---|---|
 | Source | `:name` / `*name` segments in `:path` | `?key=value&...` after the path |
 | Schema slot | `:params` | `:query` |
-| In `:rf/route` slice | `(:params (:rf/route db))` | `(:query (:rf/route db))` |
+| In route slice | `(get-in db [:rf/runtime :routing :current :params])` | `(get-in db [:rf/runtime :routing :current :query])` |
 | Required by URL? | Yes (URL doesn't match without them) | No (every key is optional from the URL's perspective) |
 | Defaults | n/a (absence = no match) | `:query-defaults` map |
 
@@ -785,14 +799,15 @@ The URL `#fragment` is a first-class part of the routing contract — anchor nav
 
 ### Fragment in the slice
 
-The `:rf/route` slice carries `:fragment` (string or `nil`):
+The route slice (`[:rf/runtime :routing :current]`) carries `:fragment` (string or `nil`):
 
 ```clojure
-{:rf/route {:id       :route/docs
-            :params   {:page "routing"}
-            :query    {}
-            :fragment "scroll-restoration"
-            ...}}
+;; at [:rf/runtime :routing :current]:
+{:id       :route/docs
+ :params   {:page "routing"}
+ :query    {}
+ :fragment "scroll-restoration"
+ ...}
 ```
 
 Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url` from the URL**, written to the slice by `:rf.route/handle-url-change`, and emitted by `route-url` when the 4-arity form is used (or when `:rf.route/navigate` is called with a `:fragment` opt or target-map key).
@@ -903,16 +918,16 @@ Real product needs — unsaved forms, interrupted checkouts, destructive multi-s
 
 A standard pending-navigation slot in `app-db`, three named events, and an optional `:can-leave` route-metadata key.
 
-**Pending-nav slot** (`:rf/pending-navigation` in `app-db`, schema in [Spec-Schemas.md §`:rf/pending-navigation`](Spec-Schemas.md#rfpending-navigation)):
+**Pending-nav slot** at `[:rf/runtime :routing :pending-navigation]` (schema in [Spec-Schemas.md §`:rf/pending-navigation`](Spec-Schemas.md#rfpending-navigation)):
 
 ```clojure
-{:rf/pending-navigation
- {:id                  "pn-7"
-  :requested-by-event  [:rf/url-requested {:url "/editor/articles/42"}]
-  :requested-url       "/editor/articles/42"
-  :reason              "Form has unsaved changes"
-  :rejecting-route     :editor/article
-  :rejecting-guard     :editor/can-leave?}}
+;; at [:rf/runtime :routing :pending-navigation]:
+{:id                  "pn-7"
+ :requested-by-event  [:rf/url-requested {:url "/editor/articles/42"}]
+ :requested-url       "/editor/articles/42"
+ :reason              "Form has unsaved changes"
+ :rejecting-route     :editor/article
+ :rejecting-guard     :editor/can-leave?}
 ```
 
 `nil`/absent when no navigation is pending.
@@ -1029,10 +1044,10 @@ On the client, hydration runs `[:rf/hydrate state]` which restores the route alo
 
 ## Frame-destroy teardown
 
-Routing's per-frame state — the `:rf/route` slice, `:rf/pending-navigation`, the scroll-positions order/map, and the per-frame nav-token / pending-nav counters — **lives entirely in `app-db`** (per [§The `:rf/route` slice](#the-rfroute-slice) and [§Scroll restoration](#scroll-restoration)). The `destroy-frame!` boundary therefore releases routing's per-frame state **naturally** via the frame's `app-db` going away. **Routing publishes no `:routing/teardown-on-frame-destroy!` late-bind hook**, by deliberate contrast with the per-feature artefacts that hold frame-scoped state outside `app-db`:
+Routing's per-frame state — the route slice, pending-nav slot, scroll-positions order/map, and the per-frame nav-token / pending-nav counters — **lives entirely in `app-db`** under `[:rf/runtime :routing]` (per [§The `:rf/route` slice](#the-rfroute-slice) and [§Scroll restoration](#scroll-restoration)). The `destroy-frame!` boundary therefore releases routing's per-frame state **naturally** via the frame's `app-db` going away. **Routing publishes no `:routing/teardown-on-frame-destroy!` late-bind hook**, by deliberate contrast with the per-feature artefacts that hold frame-scoped state outside `app-db`:
 
 - [Flows](013-Flows.md#frame-destroy-teardown) — publishes `:flows/teardown-on-frame-destroy!` because the per-frame flow registry and `last-inputs` dirty-check cache live in module-private atoms, not in `app-db`.
-- [Machines](005-StateMachines.md) — the machine snapshots live at `[:rf/machines <id>]` inside `app-db` so they die naturally, but the artefact additionally publishes `:machines/teardown-on-frame-destroy!` for the per-frame timer registry and `:after` epoch counters held outside `app-db`.
+- [Machines](005-StateMachines.md) — the machine snapshots live at `[:rf/runtime :machines :snapshots <id>]` inside `app-db` so they die naturally, but the artefact additionally publishes `:machines/teardown-on-frame-destroy!` for the per-frame timer registry and `:after` epoch counters held outside `app-db`.
 - [Schemas](010-Schemas.md) — publishes `:schemas/on-frame-destroyed!` for the per-frame validator caches held in module-private atoms.
 
 Routing fits the "all per-frame state in `app-db`" pattern in full — there is no module-private per-frame structure to clear, and so no hook to publish. Audit Finding 8.
@@ -1051,13 +1066,13 @@ None of these clear on `destroy-frame!` and none should. A new feature artefact 
 
 ### What the slice teardown looks like
 
-`destroy-frame!` calls `(swap! frame-registry dissoc frame-id)` which drops the whole frame's `app-db` along with everything else (per [002 §Destroy](002-Frames.md#destroy)). The route slice (`:rf/route`) and the pending-nav slot (`:rf/pending-navigation`) live under reserved app-db keys (per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)); all routing-runtime per-frame state — the scroll-positions structures (`[:rf/route :scroll-positions]`, `[:rf/route :scroll-positions-order]`) and the per-frame counter slots (`[:rf/route :nav-token-counter]`, `[:rf/route :pending-nav-counter]`) — is nested under `:rf/route` so it releases in lockstep with the slice itself. There is no per-frame cache, no orphaned listener, no leaked timer to clear.
+`destroy-frame!` calls `(swap! frame-registry dissoc frame-id)` which drops the whole frame's `app-db` along with everything else (per [002 §Destroy](002-Frames.md#destroy)). The route slice (`[:rf/runtime :routing :current]`) and the pending-nav slot (`[:rf/runtime :routing :pending-navigation]`) live under the reserved app-db root `:rf/runtime` (per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)); all routing-runtime per-frame state — the scroll-positions structures (`[:rf/runtime :routing :scroll-positions]`, `[:rf/runtime :routing :scroll-positions-order]`) and the per-frame counter slots (`[:rf/runtime :routing :nav-token-counter]`, `[:rf/runtime :routing :pending-nav-counter]`) — is nested under `[:rf/runtime :routing]` so it releases in lockstep with the slice itself. There is no per-frame cache, no orphaned listener, no leaked timer to clear.
 
-The corpus-wide `:rf.error/handler-exception` listener (`on-match-error-listener`, registered at routing-artefact load time per [§Per-route error handling](#per-route-error-handling)) is process-global and survives every `destroy-frame!`. It is `defonce`-protected and re-discriminates each handler-exception against the failing frame's current `:rf/route` slice — destroying frame `:left` simply means future exceptions thrown in `:left`'s drain no longer trigger the listener (the frame is gone) and the listener continues to discriminate `:right`'s exceptions normally.
+The corpus-wide `:rf.error/handler-exception` listener (`on-match-error-listener`, registered at routing-artefact load time per [§Per-route error handling](#per-route-error-handling)) is process-global and survives every `destroy-frame!`. It is `defonce`-protected and re-discriminates each handler-exception against the failing frame's current route slice (`[:rf/runtime :routing :current]`) — destroying frame `:left` simply means future exceptions thrown in `:left`'s drain no longer trigger the listener (the frame is gone) and the listener continues to discriminate `:right`'s exceptions normally.
 
 ## Multi-frame routing
 
-Each frame has its own `:rf/route` slice. Only the default frame is URL-bound. Non-default frames have independent routes that don't push to the browser URL.
+Each frame has its own `[:rf/runtime :routing :current]` slice. Only the default frame is URL-bound. Non-default frames have independent routes that don't push to the browser URL.
 
 1. Every frame's `app-db` may have a `:rf/route` slice (it's a regular `app-db` path, not a special concept).
 2. The default frame (`:rf/default`) is **URL-bound** by default: `:rf.route/navigate` events on that frame fire `:rf.nav/push-url`, and `popstate` (Back/Forward) drives it. The browser URL reflects the URL-owning frame's route.
