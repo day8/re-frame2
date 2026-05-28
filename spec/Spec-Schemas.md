@@ -363,20 +363,21 @@ The metadata map accepted by `reg-error-projector` (per [011 §Server error proj
 
 > **Layer:** Public
 
-The metadata stored in the per-frame interceptor slot for a registration made via `reg-http-interceptor` (per [014 §Middleware](014-HTTPRequests.md#middleware)). Per the call surface is positional — `(reg-http-interceptor id opts? before)` — but the stored slot composes `:id` / `:before` / `:frame` with the `:rf/registration-metadata` carried in `opts`. Unlike the other per-kind shapes, HTTP interceptors are stored in a **per-frame side-table** (keyed by `:frame`) rather than in the global registrar — the registrar slot for `:http-interceptor` is intentionally absent. The schema describes the shape of each slot in that side-table.
+The metadata stored in the per-frame interceptor slot for a registration made via `reg-http-interceptor` (per [014 §Middleware](014-HTTPRequests.md#middleware)). Per rf2-uheqq (shape iii) the call surface is `(reg-http-interceptor id interceptor-map)` — a single interceptor-map carrying at least one of `:before` / `:after` plus optional `:frame` and any `:rf/registration-metadata` keys. Unlike the other per-kind shapes, HTTP interceptors are stored in a **per-frame side-table** (keyed by `:frame`) rather than in the global registrar — the registrar slot for `:http-interceptor` is intentionally absent. The schema describes the shape of each slot in that side-table.
 
 ```clojure
 (def HttpInterceptorMeta
   [:merge
    RegistrationMetadata
    [:map
-    [:id      :keyword]                                                    ;; required, addressable for clear
-    [:before  fn?]                                                         ;; required, request-side transform: (fn [ctx] ctx')
-    [:frame   :keyword]                                                    ;; runtime-stamped from user-supplied :frame or :rf/default
+    [:id              :keyword]                                            ;; required, addressable for clear
+    [:before  {:optional true} fn?]                                        ;; optional, request-side transform: (fn [ctx] ctx')
+    [:after   {:optional true} fn?]                                        ;; optional, response-side transform: (fn [ctx response] response')
+    [:frame                    :keyword]                                   ;; runtime-stamped from user-supplied :frame or :rf/default
     ]])
 ```
 
-`:id`, `:before`, and `:frame` are the interceptor-specific slots; the base `RegistrationMetadata` keys (`:doc`, `:schema`, `:tags`, `:sensitive?`, `:ns` / `:line` / `:column` / `:file`) flow through additively — supplied via the `opts` kwarg at the call site, except for source-coords which are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The slot is read by the runtime's `run-interceptor-chain!` (which pulls `:id` / `:before` only) and is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
+At least one of `:before` / `:after` MUST be present — a no-op slot is rejected at registration with `:rf.error/http-bad-interceptor`. The base `RegistrationMetadata` keys (`:doc`, `:schema`, `:tags`, `:sensitive?`, `:ns` / `:line` / `:column` / `:file`) flow through additively — supplied via the interceptor-map at the call site, except for source-coords which are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The slot is read by the runtime's `run-interceptor-chain!` (which pulls `:id` / `:before` for the request-side chain) and `run-after-chain!` (which pulls `:id` / `:after` for the REVERSE-order response-side chain); it is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
 
 The route-shape — `:rf/route-metadata` — is defined separately further below in this catalogue (it predates this per-kind grouping). It composes with `:rf/registration-metadata` the same way the kinds above do; per [§`:rf/route-metadata`](#rfroute-metadata).
 

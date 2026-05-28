@@ -280,14 +280,17 @@
        contract.")
 
      (rm/defreg-macro reg-http-interceptor rf-http/reg-http-interceptor
-       "Register a request-side HTTP interceptor on a frame's
-       `:rf.http/managed` middleware chain. Captures source-coords
-       (Spec 001) at this call site. Implementation ships in
-       `day8/re-frame2-http` (Spec 014 §Middleware). Signature:
-       `(reg-http-interceptor id opts? before)` — per rf2-eyjbn the
-       surface aligns with the rest of the `reg-*` family (positional
-       id + opts kwarg + positional handler, matching `reg-flow`)."
-       {:arglists '([id before] [id opts before])})))
+       "Register an HTTP interceptor on a frame's `:rf.http/managed`
+       middleware chain. Captures source-coords (Spec 001) at this call
+       site. Implementation ships in `day8/re-frame2-http` (Spec 014
+       §Middleware). Signature: `(reg-http-interceptor id
+       interceptor-map)` — per rf2-uheqq the surface mirrors the
+       event-interceptor `{:id :before :after}` shape: a single map
+       carrying at least one of `:before (fn [ctx] ctx')` or
+       `:after (fn [ctx response] response')`, plus optional
+       `:frame` (default `:rf/default`) and any
+       `:rf/registration-metadata` slots."
+       {:arglists '([id interceptor-map])})))
 
 ;; ---- reg-machine (bespoke — per-element coord stamping) -----------------
 

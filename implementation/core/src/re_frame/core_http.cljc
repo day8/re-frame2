@@ -53,24 +53,37 @@
 ;; ---- Spec 014 §Middleware — per-frame request interceptors (rf2-6y3q) -----
 
 (defwrapper reg-http-interceptor
-  "Spec 014 §Middleware — register a request-side interceptor on a
-  frame's `:rf.http/managed` middleware chain. Signature:
-  `(reg-http-interceptor id opts? before)` — `id` is a keyword;
-  `before` is `(fn [ctx] ctx')`; `opts` is an optional map carrying
-  `:frame` (default `:rf/default`) plus `:rf/registration-metadata`
-  keys (`:doc` / `:tags` / `:schema` / `:sensitive?`).
+  "Spec 014 §Middleware (rf2-uheqq shape iii) — register an HTTP
+  interceptor on a frame's `:rf.http/managed` middleware chain.
+  Signature: `(reg-http-interceptor id interceptor-map)` — `id` is a
+  keyword; `interceptor-map` carries at least one of:
 
-  The chain runs in registration order before each request fires; each
-  `:before` receives a ctx `{:request :args :frame :event}` and returns
-  a (possibly-modified) ctx. The final `:request` is what the transport
-  ships. A throw inside any `:before` classifies as
+    `:before` — `(fn [ctx] ctx')`            request-side transform
+    `:after`  — `(fn [ctx response] response')` response-side transform
+
+  plus optional `:frame` (default `:rf/default`) and any
+  `:rf/registration-metadata` keys (`:doc` / `:tags` / `:schema` /
+  `:sensitive?`). The two slots mirror the event-interceptor
+  `{:id :before :after}` shape (Spec 002).
+
+  The `:before` chain runs in REGISTRATION ORDER before the request
+  fires. Each `:before` receives a ctx `{:request :args :frame :event}`
+  and returns a (possibly-modified) ctx. The final `:request` is what
+  the transport ships. A throw inside any `:before` classifies as
   `:rf.error/http-interceptor-failed`; the request is not dispatched.
+
+  The `:after` chain runs in REVERSE REGISTRATION ORDER after the
+  response is built and BEFORE `:on-success` / `:on-failure` fire. Each
+  `:after` receives `(ctx, response)` — `ctx` is the SAME ctx the
+  `:before` chain ended with (enables request-correlated handling) and
+  `response` is `{:kind :success :value v}` or
+  `{:kind :failure :failure f}`. Returns the (possibly-transformed)
+  response.
 
   Late-bound via `:http/reg-http-interceptor`. When the http artefact
   is absent the call raises `:rf.error/http-artefact-missing`."
   {:hook :http/reg-http-interceptor :artefact http-artefact :on-absent :throw}
-  ([id before]      :delegate)
-  ([id opts before] :delegate))
+  ([id interceptor-map] :delegate))
 
 (defwrapper clear-http-interceptor
   "Spec 014 §Middleware — clear an HTTP interceptor by id from a frame's

@@ -1,10 +1,15 @@
 ;; Conformance fixture: rf.http.interceptor/before-transforms
 ;;
-;; Per Spec 014 §Middleware (rf2-6y3q) + rf2-yhfgf — `:rf.fx/reg-http-
-;; interceptor` registers a request-side `:before` interceptor as an fx
+;; Per Spec 014 §Middleware (rf2-6y3q + rf2-uheqq + rf2-yhfgf) —
+;; `:rf.fx/reg-http-interceptor` registers an HTTP interceptor as an fx
 ;; (rather than the direct fn-call `reg-http-interceptor`, which the
-;; pure-data conformance corpus has no surface for). The runtime emits
-;; a `:rf.http.interceptor/registered` trace at the registration site.
+;; pure-data conformance corpus has no surface for). The args map shape
+;; is `{:id <kw> :before <body-or-fn>? :after <fn>? :frame <id>? …}`
+;; mirroring the fn-form's interceptor-map (per rf2-uheqq shape iii) —
+;; the fx body splits `:id` off as the positional arg. This fixture
+;; exercises the `:before` side only; the `:after` side has its own
+;; coverage in the per-feature JVM/CLJS tests. The runtime emits a
+;; `:rf.http.interceptor/registered` trace at the registration site.
 ;;
 ;; The fixture exercises the contract end-to-end:
 ;;   1. `:rf.fx/reg-http-interceptor` fires from `:app/init`, registering

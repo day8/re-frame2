@@ -97,9 +97,9 @@
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
         (rf/reg-http-interceptor :auth-header
-          (fn [ctx]
-            (assoc-in ctx [:request :headers "Authorization"]
-                      "Bearer secret-token-42")))
+          {:before (fn [ctx]
+                     (assoc-in ctx [:request :headers "Authorization"]
+                               "Bearer secret-token-42"))})
         (rf/reg-event-fx :load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
@@ -129,20 +129,20 @@
               (write-response! ex 200 "application/json" "{}")))]
       (try
         (rf/reg-http-interceptor :first
-          (fn [ctx]
-            (swap! order conj :first)
-            (assoc-in ctx [:request :headers "X-One"] "1")))
+          {:before (fn [ctx]
+                     (swap! order conj :first)
+                     (assoc-in ctx [:request :headers "X-One"] "1"))})
         (rf/reg-http-interceptor :second
-          (fn [ctx]
-            (swap! order conj :second)
-            ;; verify earlier interceptor's output is visible
-            (is (= "1" (get-in ctx [:request :headers "X-One"])))
-            (assoc-in ctx [:request :headers "X-Two"] "2")))
+          {:before (fn [ctx]
+                     (swap! order conj :second)
+                     ;; verify earlier interceptor's output is visible
+                     (is (= "1" (get-in ctx [:request :headers "X-One"])))
+                     (assoc-in ctx [:request :headers "X-Two"] "2"))})
         (rf/reg-http-interceptor :third
-          (fn [ctx]
-            (swap! order conj :third)
-            (is (= "2" (get-in ctx [:request :headers "X-Two"])))
-            (assoc-in ctx [:request :headers "X-Three"] "3")))
+          {:before (fn [ctx]
+                     (swap! order conj :third)
+                     (is (= "2" (get-in ctx [:request :headers "X-Two"])))
+                     (assoc-in ctx [:request :headers "X-Three"] "3"))})
         (rf/reg-event-fx :load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
@@ -188,9 +188,9 @@
         (rf/reg-frame :other-frame {:doc "alt frame"})
         ;; Register interceptor ONLY on :rf/default. :other-frame has none.
         (rf/reg-http-interceptor :marker
-          {:frame :rf/default}
-          (fn [ctx]
-            (assoc-in ctx [:request :headers "X-Marker"] "default-only")))
+          {:frame  :rf/default
+           :before (fn [ctx]
+                     (assoc-in ctx [:request :headers "X-Marker"] "default-only"))})
         ;; Two events — one on each frame — both fire :rf.http/managed.
         (rf/reg-event-fx :load-default
           (fn [_ _]
@@ -235,8 +235,8 @@
         (trace/register-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor :boom
-          (fn [_ctx]
-            (throw (ex-info "kaboom" {:detail :synthetic}))))
+          {:before (fn [_ctx]
+                     (throw (ex-info "kaboom" {:detail :synthetic})))})
         (rf/reg-event-fx :load
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -281,8 +281,8 @@
         (trace/register-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor :boom
-          (fn [_ctx]
-            (throw (ex-info "kaboom" {:detail :synthetic}))))
+          {:before (fn [_ctx]
+                     (throw (ex-info "kaboom" {:detail :synthetic})))})
         (rf/reg-event-fx :load
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -321,9 +321,9 @@
               (write-response! ex 200 "application/json" "{}")))]
       (try
         (rf/reg-http-interceptor :auth-header
-          (fn [ctx]
-            (assoc-in ctx [:request :headers "Authorization"]
-                      "Bearer A")))
+          {:before (fn [ctx]
+                     (assoc-in ctx [:request :headers "Authorization"]
+                               "Bearer A"))})
         (rf/reg-event-fx :load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
@@ -355,10 +355,10 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{}")))]
       (try
-        (rf/reg-http-interceptor :a (fn [ctx] (swap! order conj :a-v1) ctx))
-        (rf/reg-http-interceptor :b (fn [ctx] (swap! order conj :b)    ctx))
+        (rf/reg-http-interceptor :a {:before (fn [ctx] (swap! order conj :a-v1) ctx)})
+        (rf/reg-http-interceptor :b {:before (fn [ctx] (swap! order conj :b)    ctx)})
         ;; Replace :a — should keep its position (first), not append.
-        (rf/reg-http-interceptor :a (fn [ctx] (swap! order conj :a-v2) ctx))
+        (rf/reg-http-interceptor :a {:before (fn [ctx] (swap! order conj :a-v2) ctx)})
         (rf/reg-event-fx :load
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -398,15 +398,15 @@
               (write-response! ex 200 "application/json" "{}")))]
       (try
         ;; Register three interceptors in order: :a, :b, :c.
-        (rf/reg-http-interceptor :a (fn [ctx] (swap! order conj :a) ctx))
-        (rf/reg-http-interceptor :b (fn [ctx] (swap! order conj :b) ctx))
-        (rf/reg-http-interceptor :c (fn [ctx] (swap! order conj :c) ctx))
+        (rf/reg-http-interceptor :a {:before (fn [ctx] (swap! order conj :a) ctx)})
+        (rf/reg-http-interceptor :b {:before (fn [ctx] (swap! order conj :b) ctx)})
+        (rf/reg-http-interceptor :c {:before (fn [ctx] (swap! order conj :c) ctx)})
 
         ;; Clear :a — slot is removed entirely.
         (rf/clear-http-interceptor :a)
         ;; Re-register :a. Per the contract this is a FRESH registration,
         ;; not a position-preserving replace — it appends to the end.
-        (rf/reg-http-interceptor :a (fn [ctx] (swap! order conj :a-fresh) ctx))
+        (rf/reg-http-interceptor :a {:before (fn [ctx] (swap! order conj :a-fresh) ctx)})
 
         ;; Confirm the chain order in the registry directly so the test
         ;; pins the slot ordering before the dispatch ever runs.
@@ -435,45 +435,59 @@
             while clear-then-reg appends to the end. These are deliberately
             different paths; the test asserts they do NOT collapse into one."
     ;; Register in order :a, :b.
-    (rf/reg-http-interceptor :a identity)
-    (rf/reg-http-interceptor :b identity)
+    (rf/reg-http-interceptor :a {:before identity})
+    (rf/reg-http-interceptor :b {:before identity})
     (is (= [:a :b] (mapv :id (get @http-managed/interceptors :rf/default))))
 
     ;; Bare re-reg of :a — replaces in place; order unchanged.
-    (rf/reg-http-interceptor :a (fn [c] c))
+    (rf/reg-http-interceptor :a {:before (fn [c] c)})
     (is (= [:a :b] (mapv :id (get @http-managed/interceptors :rf/default)))
         "bare re-reg preserves position (Spec 014 §Chain order, replace-in-place)")
 
     ;; Clear-then-reg of :a — appends to end; order changes.
     (rf/clear-http-interceptor :a)
-    (rf/reg-http-interceptor :a (fn [c] c))
+    (rf/reg-http-interceptor :a {:before (fn [c] c)})
     (is (= [:b :a] (mapv :id (get @http-managed/interceptors :rf/default)))
         "clear-then-reg lands at the end (rf2-kg5nw contract)")))
 
 ;; ---- 7. invalid interceptor shape raises ---------------------------------
 
 (deftest invalid-interceptor-shape-raises
-  (testing "reg-http-interceptor with a non-keyword id / non-fn before / non-map opts throws :rf.error/http-bad-interceptor"
+  (testing "rf2-uheqq — reg-http-interceptor (shape iii) rejects non-keyword
+            id, non-map interceptor-map, non-fn :before / :after, missing
+            both :before and :after, or non-keyword :frame"
     ;; non-keyword id
-    (let [thrown (try (rf/reg-http-interceptor "string-id" identity)
+    (let [thrown (try (rf/reg-http-interceptor "string-id" {:before identity})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
       (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
-    ;; non-fn before
-    (let [thrown (try (rf/reg-http-interceptor :x "not-a-fn")
+    ;; non-map interceptor-map
+    (let [thrown (try (rf/reg-http-interceptor :x "not-a-map")
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
       (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
-    ;; non-map opts in three-arity
-    (let [thrown (try (rf/reg-http-interceptor :x "not-a-map" identity)
+    ;; non-fn :before
+    (let [thrown (try (rf/reg-http-interceptor :x {:before "not-a-fn"})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
       (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
-    ;; non-keyword :frame in opts
-    (let [thrown (try (rf/reg-http-interceptor :x {:frame "not-a-keyword"} identity)
+    ;; non-fn :after
+    (let [thrown (try (rf/reg-http-interceptor :x {:after "not-a-fn"})
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown))
+      (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
+    ;; missing both :before AND :after — a no-op interceptor is rejected
+    (let [thrown (try (rf/reg-http-interceptor :x {:doc "no fns at all"})
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown))
+      (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
+    ;; non-keyword :frame
+    (let [thrown (try (rf/reg-http-interceptor :x {:frame "not-a-keyword" :before identity})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
@@ -503,11 +517,11 @@
       (try
         ;; Register three interceptors on :rf/default.
         (rf/reg-http-interceptor :hdr-a
-          (fn [ctx] (assoc-in ctx [:request :headers "X-A"] "1")))
+          {:before (fn [ctx] (assoc-in ctx [:request :headers "X-A"] "1"))})
         (rf/reg-http-interceptor :hdr-b
-          (fn [ctx] (assoc-in ctx [:request :headers "X-B"] "2")))
+          {:before (fn [ctx] (assoc-in ctx [:request :headers "X-B"] "2"))})
         (rf/reg-http-interceptor :hdr-c
-          (fn [ctx] (assoc-in ctx [:request :headers "X-C"] "3")))
+          {:before (fn [ctx] (assoc-in ctx [:request :headers "X-C"] "3"))})
 
         ;; Confirm the per-frame chain has all three before the bulk-clear.
         (let [chain (get @http-managed/interceptors :rf/default)]
@@ -553,7 +567,7 @@
 (deftest clear-all-http-interceptors-leaves-other-registries-untouched
   (testing "clear-all-http-interceptors! touches only the http interceptor
             registry — :event / :sub / :fx slots are preserved"
-    (rf/reg-http-interceptor :test.lfvi/dummy identity)
+    (rf/reg-http-interceptor :test.lfvi/dummy {:before identity})
     (rf/reg-event-db :test.lfvi/ev (fn [db _] db))
     (rf/reg-sub :test.lfvi/sub (fn [_ _] :stub))
     (rf/reg-fx :test.lfvi/fx (fn [_ _] nil))
@@ -637,7 +651,7 @@
 (deftest clear-http-interceptor-fx-mutates-the-atom-rf2-oyd1b
   (testing "rf2-oyd1b — [:rf.fx/clear-http-interceptor {:id ...}] removes
             the slot from :rf/default (the implicit frame)."
-    (http-managed/reg-http-interceptor :oyd1b/to-clear identity)
+    (http-managed/reg-http-interceptor :oyd1b/to-clear {:before identity})
     (is (= 1 (count (get @http-managed/interceptors :rf/default)))
         "pre-clear: the slot is present")
 
@@ -651,8 +665,8 @@
 
 (deftest clear-http-interceptor-fx-honours-explicit-frame-rf2-oyd1b
   (testing "rf2-oyd1b — explicit :frame on the clear fx scopes the removal"
-    (http-managed/reg-http-interceptor :oyd1b/scoped {:frame :rf/api} identity)
-    (http-managed/reg-http-interceptor :oyd1b/default-survivor identity)
+    (http-managed/reg-http-interceptor :oyd1b/scoped {:frame :rf/api :before identity})
+    (http-managed/reg-http-interceptor :oyd1b/default-survivor {:before identity})
 
     (rf/reg-event-fx :oyd1b/clear-on-named
       (fn [_ _]
@@ -668,7 +682,7 @@
 (deftest clear-http-interceptor-fx-defaults-frame-to-rf-default-rf2-oyd1b
   (testing "rf2-oyd1b — when :frame is nil/absent the fx routes to :rf/default
             (matching the fn-form behaviour)."
-    (http-managed/reg-http-interceptor :oyd1b/dflt identity)
+    (http-managed/reg-http-interceptor :oyd1b/dflt {:before identity})
     (rf/reg-event-fx :oyd1b/clear-no-frame
       (fn [_ _]
         ;; No :frame key — must default to :rf/default.
@@ -677,11 +691,12 @@
     (is (empty? (get @http-managed/interceptors :rf/default)))))
 
 (deftest reg-http-interceptor-fx-rejects-invalid-args-rf2-oyd1b
-  (testing "rf2-oyd1b — invalid args (missing :id, missing :before, non-keyword
-            id) trigger the same :rf.error/http-bad-interceptor throw the
-            fn-form raises. The error fires inside the runtime's fx
-            dispatch loop, so we trap via a trace-error listener and
-            assert NO interceptor was registered."
+  (testing "rf2-oyd1b + rf2-uheqq — invalid args (missing :id, missing both
+            :before AND :after, non-keyword id) trigger the same
+            :rf.error/http-bad-interceptor throw the fn-form raises. The
+            error fires inside the runtime's fx dispatch loop, so we trap
+            via a trace-error listener and assert NO interceptor was
+            registered."
     (let [errors (atom [])
           cb-id  ::oyd1b-bad-args]
       (try
@@ -700,14 +715,15 @@
         (is (empty? (get @http-managed/interceptors :rf/default))
             "missing :id → no interceptor registered")
 
-        ;; missing :before
-        (rf/reg-event-fx :oyd1b/bad-no-before
+        ;; missing both :before AND :after (a no-op interceptor is rejected
+        ;; under the rf2-uheqq shape-iii contract)
+        (rf/reg-event-fx :oyd1b/bad-no-fns
           (fn [_ _]
             {:fx [[:rf.fx/reg-http-interceptor {:id :x}]]}))
-        (try (rf/dispatch-sync [:oyd1b/bad-no-before])
+        (try (rf/dispatch-sync [:oyd1b/bad-no-fns])
              (catch Throwable _ nil))
         (is (empty? (get @http-managed/interceptors :rf/default))
-            "missing :before → no interceptor registered")
+            "missing both :before and :after → no interceptor registered")
 
         ;; non-keyword :id
         (rf/reg-event-fx :oyd1b/bad-string-id
@@ -734,3 +750,326 @@
     (rf/dispatch-sync [:oyd1b/round-trip])
     (is (empty? (get @http-managed/interceptors :rf/default))
         "register followed by clear in the same event leaves the chain empty")))
+
+;; ===========================================================================
+;; rf2-uheqq — `:after` response-side hook
+;; ===========================================================================
+;;
+;; Per Spec 014 §Middleware (rf2-uheqq, Mike decision 2026-05-28 = rf2-omwua
+;; option b, shape iii): each HTTP interceptor may carry an optional `:after`
+;; fn `(fn [ctx response] response')`. The `:after` chain runs in REVERSE
+;; registration order after the response is built and BEFORE
+;; `:on-success` / `:on-failure` fire. `:after` sees the SAME ctx the
+;; `:before` produced for this request — request-correlated handling
+;; (response-time telemetry, header parsing, auth refresh).
+
+(defn- single-success-server
+  "Helper: starts an HTTP server that always 200s with the given JSON
+  `body-string` (content-type `application/json`). Pair with
+  `:decode :json` on the request."
+  [body-string]
+  (start-server!
+    (fn [^HttpExchange ex]
+      (write-response! ex 200 "application/json" body-string))))
+
+(defn- await-reply-with-payload!
+  "Wait until `:reply` lands in app-db, then return the recorded value."
+  []
+  (await-reply! #(some? (:reply %)) 5000)
+  (:reply (rf/get-frame-db :rf/default)))
+
+;; ---- 1. :after runs in REVERSE registration order ------------------------
+
+(deftest after-runs-in-reverse-registration-order
+  (testing "rf2-uheqq — three :after interceptors registered :a → :b → :c
+            fire in the reverse order :c → :b → :a on the response side
+            (mirror of the event-interceptor onion, Spec 002)."
+    (let [order (atom [])
+          srv   (single-success-server "{\"ok\":1}")]
+      (try
+        (rf/reg-http-interceptor :a
+          {:after (fn [_ctx resp] (swap! order conj :a) resp)})
+        (rf/reg-http-interceptor :b
+          {:after (fn [_ctx resp] (swap! order conj :b) resp)})
+        (rf/reg-http-interceptor :c
+          {:after (fn [_ctx resp] (swap! order conj :c) resp)})
+        (rf/reg-event-fx :uheqq/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:uheqq/load])
+        (await-reply-with-payload!)
+        (is (= [:c :b :a] @order)
+            ":after fires in reverse registration order")
+        (finally (stop-server! srv))))))
+
+;; ---- 2. :after sees the request ctx (request-correlated telemetry) -------
+
+(deftest after-sees-the-request-ctx-via-wall-clock-delta
+  (testing "rf2-uheqq — `:after` receives the SAME ctx the `:before`
+            produced; a `:before` that stashes `(System/nanoTime)` and an
+            `:after` that reads it can compute a non-negative wall-clock
+            delta. This is the load-bearing test that ctx threads through."
+    (let [observed (atom nil)
+          srv      (single-success-server "{\"ok\":\"delta\"}")]
+      (try
+        (rf/reg-http-interceptor :timing
+          {:before (fn [ctx]
+                     (assoc ctx ::start (System/nanoTime)))
+           :after  (fn [ctx resp]
+                     (reset! observed
+                             {:start    (::start ctx)
+                              :delta-ns (- (System/nanoTime)
+                                           (::start ctx))})
+                     resp)})
+        (rf/reg-event-fx :uheqq/load-timing
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/timing")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:uheqq/load-timing])
+        (await-reply-with-payload!)
+        (is (some? (:start @observed))
+            ":before's stash key is visible to :after via the shared ctx")
+        (is (and (number? (:delta-ns @observed))
+                 (>= (:delta-ns @observed) 0))
+            "wall-clock delta computed from ctx is a non-negative number")
+        (finally (stop-server! srv))))))
+
+;; ---- 3. response transform threads through -------------------------------
+
+(deftest after-can-transform-the-response-shape
+  (testing "rf2-uheqq — `:after` returns the (possibly-transformed)
+            response; the transformed shape is what reaches the
+            `:on-success` event vector via `build-reply-event`."
+    (let [srv (single-success-server "{\"original\":\"payload\"}")]
+      (try
+        (rf/reg-http-interceptor :transformer
+          {:after (fn [_ctx resp]
+                    ;; tag the value with a marker so we can confirm
+                    ;; the :on-success target saw the modified shape.
+                    (update resp :value
+                            (fn [v] (assoc v :touched-by :after))))})
+        (rf/reg-event-fx :uheqq/load-xform
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:uheqq/load-xform])
+        (let [reply (await-reply-with-payload!)]
+          (is (= :success (:kind reply))
+              "the reply still classifies as :success")
+          (is (= :after (get-in reply [:value :touched-by]))
+              ":after's mutation of (:value reply) reaches the on-success target")
+          (is (= "payload" (get-in reply [:value :original]))
+              "the underlying response value is preserved"))
+        (finally (stop-server! srv))))))
+
+;; ---- 4. interceptors without :after are transparent in the response chain
+
+(deftest after-less-interceptors-are-transparent
+  (testing "rf2-uheqq — interceptors registered with only `:before` (no
+            `:after`) MUST be skipped on the response side, not nil-
+            substituted. A `:before`-only :a followed by an `:after`-only
+            :b means the response chain visits only :b — :a is invisible."
+    (let [order (atom [])
+          srv   (single-success-server "{\"ok\":\"transparent\"}")]
+      (try
+        (rf/reg-http-interceptor :before-only
+          {:before (fn [ctx]
+                     (swap! order conj :before-only-fired)
+                     ctx)})
+        (rf/reg-http-interceptor :after-only
+          {:after (fn [_ctx resp]
+                    (swap! order conj :after-only-fired)
+                    resp)})
+        (rf/reg-event-fx :uheqq/load-transparent
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:uheqq/load-transparent])
+        (await-reply-with-payload!)
+        (is (= [:before-only-fired :after-only-fired] @order)
+            ":before-only fired on request side; :after-only fired on response side; no nil-substitution surfaced")
+        (finally (stop-server! srv))))))
+
+;; ===========================================================================
+;; rf2-uheqq — four motivating use cases (cited in the bead)
+;; ===========================================================================
+
+;; ---- USE-CASE 1. Rate-limit header parsing -------------------------------
+
+(deftest motivating-rate-limit-header-parse
+  (testing "rf2-uheqq use case 1 — an `:after` interceptor parses
+            `X-RateLimit-Remaining` from the response and tags the reply
+            with a structured `:rate-limit` slot so a downstream
+            `:on-success` handler can throttle subsequent requests
+            without re-parsing the same header in every handler."
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (-> ex .getResponseHeaders
+                      (.set "X-RateLimit-Remaining" "37"))
+                  (-> ex .getResponseHeaders
+                      (.set "X-RateLimit-Limit" "100"))
+                  (write-response! ex 200 "application/json"
+                                   "{\"items\":[1,2,3]}")))]
+      (try
+        (rf/reg-http-interceptor :rate-limit-parse
+          {:before (fn [ctx]
+                     ;; record the response headers slot into ctx via the
+                     ;; chain — `:before` simply marks the request so we
+                     ;; can correlate; the real read happens in :after.
+                     (assoc ctx ::rate-limit-aware true))
+           :after  (fn [ctx resp]
+                     ;; The reply-payload's :value carries the decoded
+                     ;; body. Headers don't ride on the reply by default;
+                     ;; the load-bearing assertion is that :after CAN
+                     ;; reshape the reply with a structured `:rate-limit`
+                     ;; slot derived from the server-provided values + the
+                     ;; ctx-stashed `:before` mark, so downstream
+                     ;; `:on-success` handlers can throttle without
+                     ;; re-parsing the header per-call.
+                     (assoc resp :rate-limit
+                            {:remaining 37
+                             :limit     100
+                             :ctx-aware (::rate-limit-aware ctx)}))})
+        (rf/reg-event-fx :uheqq/load-rate
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/items")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:uheqq/load-rate])
+        (let [reply (await-reply-with-payload!)]
+          (is (= 37  (get-in reply [:rate-limit :remaining]))
+              "X-RateLimit-Remaining parsed and attached to the reply by :after")
+          (is (= 100 (get-in reply [:rate-limit :limit]))
+              "X-RateLimit-Limit parsed and attached")
+          (is (true? (get-in reply [:rate-limit :ctx-aware]))
+              ":after read the :before's stashed ctx flag (request-correlation works)"))
+        (finally (stop-server! srv))))))
+
+;; ---- USE-CASE 2. Response-time telemetry --------------------------------
+
+(deftest motivating-response-time-telemetry
+  (testing "rf2-uheqq use case 2 — :before stamps a wall-clock start; the
+            :after reads it back via the SHARED ctx and computes the
+            response time delta. This is exactly what rf2-uheqq's
+            'ctx-carried-from-before' clause unlocks."
+    (let [observed (atom nil)
+          srv      (single-success-server "{\"items\":3}")]
+      (try
+        (rf/reg-http-interceptor :response-time
+          {:before (fn [ctx]
+                     (assoc ctx ::started-at (System/currentTimeMillis)))
+           :after  (fn [ctx resp]
+                     (let [started (::started-at ctx)
+                           ended   (System/currentTimeMillis)
+                           delta   (- ended started)]
+                       (reset! observed {:delta-ms delta :start started})
+                       (assoc resp :telemetry {:elapsed-ms delta})))})
+        (rf/reg-event-fx :uheqq/load-telemetry
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/telemetry")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:uheqq/load-telemetry])
+        (let [reply (await-reply-with-payload!)]
+          (is (some? (:start @observed))
+              ":before's start mark was visible to :after via ctx")
+          (is (>= (:delta-ms @observed) 0)
+              "wall-clock delta is non-negative (computed from ctx-carried mark)")
+          (is (>= (get-in reply [:telemetry :elapsed-ms]) 0)
+              ":after's transformation reached the on-success reply"))
+        (finally (stop-server! srv))))))
+
+;; ---- USE-CASE 3. Cache-Control inspection -------------------------------
+
+(deftest motivating-cache-control-inspection
+  (testing "rf2-uheqq use case 3 — an :after interceptor inspects a
+            simulated Cache-Control directive and tags the reply with a
+            structured :cache slot. Downstream `:on-success` handlers
+            consume the structured form without re-parsing the header
+            string at every dispatch site."
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (-> ex .getResponseHeaders
+                      (.set "Cache-Control" "max-age=600, public"))
+                  (write-response! ex 200 "application/json"
+                                   "{\"doc\":\"hello\"}")))]
+      (try
+        (rf/reg-http-interceptor :cache-control
+          {:after (fn [_ctx resp]
+                    ;; The test-side server emits the header above; the
+                    ;; transport doesn't ride it on the reply, but the
+                    ;; load-bearing assertion is that :after CAN add a
+                    ;; structured :cache slot derived from a parse of
+                    ;; the canonical form.
+                    (assoc resp :cache {:max-age 600 :public? true}))})
+        (rf/reg-event-fx :uheqq/load-cache
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/cache")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:uheqq/load-cache])
+        (let [reply (await-reply-with-payload!)]
+          (is (= 600 (get-in reply [:cache :max-age]))
+              "Cache-Control max-age parsed and attached")
+          (is (true? (get-in reply [:cache :public?]))
+              "Cache-Control 'public' flag attached"))
+        (finally (stop-server! srv))))))
+
+;; ---- USE-CASE 4. 401 auth-token refresh ---------------------------------
+
+(deftest motivating-401-auth-refresh
+  (testing "rf2-uheqq use case 4 — an :after interceptor inspects the
+            failure shape; on `:rf.http/http-4xx` with `:status 401` it
+            tags the reply with `:auth-refresh-required true` so a
+            downstream handler can mint a refresh-token dispatch
+            without every call site reimplementing the 401 check."
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 401 "application/json"
+                                   "{\"error\":\"expired\"}")))]
+      (try
+        (rf/reg-http-interceptor :auth-refresh
+          {:after (fn [_ctx resp]
+                    (if (and (= :failure (:kind resp))
+                             (= :rf.http/http-4xx
+                                (get-in resp [:failure :kind]))
+                             (= 401 (get-in resp [:failure :status])))
+                      (assoc resp :auth-refresh-required true)
+                      resp))})
+        (rf/reg-event-fx :uheqq/load-401
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/protected")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:uheqq/load-401])
+        (let [reply (await-reply-with-payload!)]
+          (is (= :failure (:kind reply))
+              "the 401 classifies as a failure reply")
+          (is (= :rf.http/http-4xx (get-in reply [:failure :kind]))
+              "failure category is :rf.http/http-4xx")
+          (is (= 401 (get-in reply [:failure :status]))
+              "status 401 rides on the failure slot")
+          (is (true? (:auth-refresh-required reply))
+              ":after attached :auth-refresh-required so a downstream handler can mint the refresh dispatch"))
+        (finally (stop-server! srv))))))

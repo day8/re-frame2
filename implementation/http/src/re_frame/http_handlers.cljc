@@ -194,7 +194,16 @@
                       :sensitive? sensitive?}
         ctx          (middleware/run-interceptor-chain! frame-id ctx0)
         args-map'    (assoc args-map :request (:request ctx))
-        normalised   (normalise-args args-map' frame-ctx')
+        ;; rf2-uheqq — carry the post-:before middleware-ctx forward so
+        ;; the response-side `:after` chain sees the EXACT same ctx its
+        ;; sibling `:before`s ended with. Per Spec 014 §Middleware: a
+        ;; `:before` that records a wall-clock mark / parses request
+        ;; headers / stamps a correlation-id can read its own work back
+        ;; in the `:after`, which is what makes request-correlated
+        ;; response handling (response-time telemetry, header-driven
+        ;; auth refresh, …) expressible in a single interceptor.
+        normalised   (assoc (normalise-args args-map' frame-ctx')
+                            :middleware-ctx ctx)
         request-id   (:request-id normalised)]
     (when request-id (registry/supersede! request-id))
     (transport/run-attempt! normalised)

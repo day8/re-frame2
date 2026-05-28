@@ -1,29 +1,70 @@
 (ns re-frame.http-middleware
-  "Per-frame request-side interceptor chain for `:rf.http/managed`.
+  "Per-frame request- AND response-side interceptor chain for `:rf.http/managed`.
 
   Extracted from `re-frame.http-managed` per rf2-3i9b. Per rf2-6y3q
-  (Spec 014 §Middleware): each frame has an ordered chain of
-  request-side interceptors that fire before `:rf.http/managed` issues a
-  request. Per rf2-eyjbn the public surface is positional and aligns
-  with the rest of the `reg-*` family —
-  `(reg-http-interceptor id opts? before)` — id keyword, opts kwarg with
-  `:frame` plus any `:rf/registration-metadata` (`:doc`, `:tags`,
-  `:schema`, `:sensitive?`), and a positional `before` fn `(fn [ctx] ctx')`.
+  (Spec 014 §Middleware): each frame has an ordered chain of HTTP
+  interceptors. Each interceptor is an interceptor-map carrying an
+  optional `:before` (request-side transform, fired in registration
+  order before `:rf.http/managed` issues the request) and an optional
+  `:after` (response-side transform, fired in REVERSE registration order
+  on the response BEFORE `:on-success` / `:on-failure` are dispatched).
 
-  The `ctx` map carried through the chain has the documented shape:
+  Per rf2-uheqq (Mike decision 2026-05-28, rf2-omwua option b + shape
+  (iii)): the public surface is `(reg-http-interceptor id interceptor-map)`
+  — a single map carrying `:before`, `:after`, `:frame`, and any
+  `:rf/registration-metadata` keys. Pre-alpha clean break: the prior
+  positional `(reg-http-interceptor id opts? before)` shape is retired
+  outright. The reshape aligns with the event-interceptor
+  `{:id :before :after}` mental model the rest of the framework already
+  uses (Spec 002).
+
+  ## ctx contract
+
+  Each `:before` receives a ctx map with the documented shape:
 
     {:request <request-map>      ;; the :request map from the args
      :args    <full-args-map>    ;; the full :rf.http/managed args
      :frame   <frame-id>         ;; resolved frame id
      :event   <origin-event>}    ;; originating event vector or nil
 
-  A `:before` fn returns the (possibly-modified) ctx. The runtime
-  threads the chain in registration order; the final `:request` is what
-  the transport ships. After-style interceptors (response transforms)
-  are out of scope for v1; the slot `:after` is reserved for future
-  extension.
+  A `:before` returns the (possibly-modified) ctx. The runtime threads
+  the chain in registration order; the final `:request` is what the
+  transport ships.
 
-  Storage is per-frame in a `defonce` atom keyed `frame-id → [interceptor ...]`,
+  Each `:after` receives `(fn [ctx response] response')` where:
+
+    - `ctx`      — the SAME ctx the `:before` chain produced for THIS
+                   request. Carrying the request ctx forward enables
+                   request-correlated response handling: response-time
+                   telemetry (wall-clock delta between a `:before`'s
+                   start mark and the `:after`'s read), per-request
+                   header parsing, auth-token refresh keyed off the
+                   originating event, …
+    - `response` — `{:kind :success :value <decoded>}` or
+                   `{:kind :failure :failure <failure-map>}`. The shape
+                   matches the reply-payload `build-reply-event`
+                   appends to `:on-success` / `:on-failure`.
+
+  Returns the (possibly-transformed) response map; the runtime threads
+  the next `:after` over the return value and finally substitutes the
+  fully-threaded response into the reply-payload before
+  `:on-success` / `:on-failure` fire.
+
+  ## Chain ordering
+
+  - `:before` chain — registration order. A registered before B: request
+    flows A.before → B.before → transport.
+  - `:after`  chain — REVERSE registration order. A registered before B:
+    response flows transport → B.after → A.after → reply dispatch.
+
+  This mirrors the event-interceptor onion (Spec 002): the outermost
+  registration wraps the innermost on the request side and again on the
+  response side. Interceptors with no `:after` are transparent in the
+  response chain (skipped, not nil-substituted).
+
+  ## Storage
+
+  Per-frame in a `defonce` atom keyed `frame-id → [interceptor ...]`,
   mirroring the per-frame flow registry pattern (see
   `re-frame.flows.registry`'s private `flows` atom + the
   `flows-snapshot` accessor). Frame-scoped: an interceptor registered
@@ -35,51 +76,74 @@
 
 (defonce
   ^{:doc "frame-id → vector of `:rf/http-interceptor-meta` slots — each a map
-  carrying `:id`, `:before`, and the captured registration-metadata
-  (`:doc`, `:schema`, `:tags`, `:sensitive?`, flat source-coord keys
-  `:ns`/`:line`/`:column`/`:file`). Per-frame so each frame's HTTP
-  middleware chain is isolated. Order is registration-order; clearing an
-  id and re-registering re-appends to the end."}
+  carrying `:id`, optional `:before`, optional `:after`, `:frame`, and the
+  captured registration-metadata (`:doc`, `:schema`, `:tags`, `:sensitive?`,
+  flat source-coord keys `:ns`/`:line`/`:column`/`:file`). Per-frame so
+  each frame's HTTP middleware chain is isolated. Order is
+  registration-order; clearing an id and re-registering re-appends to the
+  end."}
   interceptors
   (atom {}))
 
 (defn- valid-args?
-  "rf2-eyjbn — the reshaped signature validates id (positional keyword),
-  before-fn (positional fn), and opts (map or nil; if present, `:frame`
-  must be a keyword)."
-  [id opts before]
+  "rf2-uheqq — shape (iii) validates id (positional keyword) and the
+  interceptor-map: must be a map, must carry at least one of
+  `:before` / `:after` (each, if present, must be a fn), and
+  if `:frame` is present it must be a keyword."
+  [id interceptor-map]
   (and (keyword? id)
-       (fn? before)
-       (or (nil? opts) (map? opts))
-       (or (nil? (:frame opts)) (keyword? (:frame opts)))))
+       (map? interceptor-map)
+       (or (nil? (:before interceptor-map))
+           (fn?  (:before interceptor-map)))
+       (or (nil? (:after  interceptor-map))
+           (fn?  (:after  interceptor-map)))
+       ;; at least one of :before / :after must be supplied — registering
+       ;; a no-op interceptor is meaningless and almost certainly a typo
+       (or (some? (:before interceptor-map))
+           (some? (:after  interceptor-map)))
+       (or (nil? (:frame interceptor-map))
+           (keyword? (:frame interceptor-map)))))
 
 (defn reg-http-interceptor
-  "Register a request-side HTTP interceptor on a frame's `:rf.http/managed`
-  middleware chain. Per Spec 014 §Middleware.
+  "Register an HTTP interceptor on a frame's `:rf.http/managed` middleware
+  chain. Per Spec 014 §Middleware + rf2-uheqq.
 
-  Signature: `(reg-http-interceptor id opts? before)` — `id` is a
-  keyword; `before` is `(fn [ctx] ctx')`; `opts` is an optional map
-  carrying `:frame` (default `:rf/default`) plus any of the
-  `:rf/registration-metadata` keys (`:doc` / `:tags` / `:schema` /
-  `:sensitive?`). Per rf2-eyjbn the surface aligns with the rest of the
-  `reg-*` family — positional id, opts-kwarg with `:frame`, positional
-  handler — matching `reg-flow`'s precedent.
+  Signature: `(reg-http-interceptor id interceptor-map)` — `id` is a
+  keyword; `interceptor-map` carries:
 
-  Two-arity (no opts):
-    (reg-http-interceptor :id (fn [ctx] ctx'))
-  Three-arity:
-    (reg-http-interceptor :id {:frame :rf/api :doc \"...\"} (fn [ctx] ctx'))
+    - `:before` (optional) — `(fn [ctx] ctx')`, request-side transform
+    - `:after`  (optional) — `(fn [ctx response] response')`,
+                              response-side transform
+    - `:frame`  (optional) — frame id, default `:rf/default`
+    - `:doc` / `:tags` / `:schema` / `:sensitive?` — standard
+      `:rf/registration-metadata` (per `:rf/http-interceptor-meta`)
+
+  At least one of `:before` / `:after` MUST be supplied — a no-op
+  interceptor is rejected.
+
+  Example:
+    (reg-http-interceptor :auth
+      {:doc \"Stamp Bearer token.\"
+       :before (fn [ctx] ...)
+       :after  (fn [ctx response] ...)})
+
+  The `:before` chain runs in REGISTRATION ORDER before the request
+  fires. The `:after` chain runs in REVERSE REGISTRATION ORDER after
+  the response is built, BEFORE `:on-success` / `:on-failure` are
+  dispatched. `:after` sees the SAME ctx the `:before` chain produced
+  (enables request-correlated telemetry).
 
   `ctx` carries `:request` (the request map), `:args` (the full
   `:rf.http/managed` args), `:frame` (the frame-id), and `:event` (the
-  originating event vector). The fn returns a (possibly-modified) ctx.
+  originating event vector). `:before` returns a (possibly-modified)
+  ctx. `:after` receives the ctx unchanged plus the response map
+  (`{:kind :success :value v}` or `{:kind :failure :failure f}`) and
+  returns the (possibly-transformed) response.
 
   Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured
   at the `rf/reg-http-interceptor` call site by the JVM-emitted macro in
   `re-frame.core` (per Spec 001 §Source-coordinate capture). The stored
-  slot conforms to `:rf/http-interceptor-meta` (Spec-Schemas) — base
-  `:rf/registration-metadata` plus the interceptor-specific `:id`,
-  `:before`, and `:frame` keys.
+  slot conforms to `:rf/http-interceptor-meta` (Spec-Schemas).
 
   Re-registering an id replaces the slot in place (keeping registration
   order). Order is preserved across replace; first registration wins
@@ -93,34 +157,36 @@
   Throws `:rf.error/http-bad-interceptor` if any arg shape is invalid.
 
   Returns the registered `id`."
-  ([id before] (reg-http-interceptor id nil before))
-  ([id opts before]
-   (when-not (valid-args? id opts before)
-     (throw (ex-info ":rf.error/http-bad-interceptor"
-                     {:where    'rf/reg-http-interceptor
-                      :recovery :no-recovery
-                      :received {:id id :opts opts :before before}
-                      :reason   "expected (reg-http-interceptor id opts? before): id keyword, before fn, opts (when present) a map with optional :frame keyword"})))
-   (let [frame-id  (or (:frame opts) :rf/default)
-         user-meta (dissoc opts :frame)
-         slot      (assoc (source-coords/merge-coords user-meta)
-                          :id     id
-                          :before before
-                          :frame  frame-id)]
-     (swap! interceptors update frame-id
-            (fn [chain]
-              (let [chain (or chain [])
-                    idx   (->> chain
-                               (keep-indexed (fn [i v] (when (= (:id v) id) i)))
-                               first)]
-                (if idx
-                  (assoc chain idx slot)
-                  (conj chain slot)))))
-     (when interop/debug-enabled?
-       (trace/emit! :info :rf.http.interceptor/registered
-                    {:frame frame-id
-                     :id    id}))
-     id)))
+  [id interceptor-map]
+  (when-not (valid-args? id interceptor-map)
+    (throw (ex-info ":rf.error/http-bad-interceptor"
+                    {:where    'rf/reg-http-interceptor
+                     :recovery :no-recovery
+                     :received {:id id :interceptor-map interceptor-map}
+                     :reason   "expected (reg-http-interceptor id interceptor-map): id keyword; interceptor-map a map carrying at least one of :before / :after (each a fn), optional :frame keyword, optional :rf/registration-metadata"})))
+  (let [frame-id  (or (:frame interceptor-map) :rf/default)
+        before    (:before interceptor-map)
+        after     (:after  interceptor-map)
+        user-meta (dissoc interceptor-map :frame :before :after)
+        slot      (cond-> (source-coords/merge-coords user-meta)
+                    true   (assoc :id    id
+                                  :frame frame-id)
+                    before (assoc :before before)
+                    after  (assoc :after  after))]
+    (swap! interceptors update frame-id
+           (fn [chain]
+             (let [chain (or chain [])
+                   idx   (->> chain
+                              (keep-indexed (fn [i v] (when (= (:id v) id) i)))
+                              first)]
+               (if idx
+                 (assoc chain idx slot)
+                 (conj chain slot)))))
+    (when interop/debug-enabled?
+      (trace/emit! :info :rf.http.interceptor/registered
+                   {:frame frame-id
+                    :id    id}))
+    id))
 
 (defn clear-http-interceptor
   "Unregister an HTTP interceptor by id from a frame's chain.
@@ -152,6 +218,9 @@
   "Walk the registration-order interceptor chain for `frame-id`, threading
   `ctx` through each `:before`. Returns the final ctx, or throws
   `:rf.error/http-interceptor-failed` if any `:before` throws.
+
+  Interceptors without a `:before` slot are transparent in the request
+  chain (acc passes through unchanged).
 
   `ctx` carries a top-level `:sensitive?` flag (resolved by
   `managed-handler` from per-call args + handler-registration metadata)
@@ -213,3 +282,59 @@
           acc))
       ctx
       chain)))
+
+(defn run-after-chain!
+  "Per rf2-uheqq + Spec 014 §Middleware. Walk the per-frame interceptor
+  chain for `frame-id` in REVERSE registration order, threading
+  `response` through each `:after`. Returns the (possibly-transformed)
+  response map.
+
+  Each `:after` receives `(fn [ctx response] response')` — `ctx` is the
+  middleware-ctx the `:before` chain produced for THIS request (carried
+  forward by the transport so the `:after` sees the exact same shape
+  the `:before` ended with). `response` is `{:kind :success :value v}`
+  or `{:kind :failure :failure f}`.
+
+  Interceptors without an `:after` slot are transparent in the response
+  chain (acc passes through unchanged). Throws by `:after` propagate
+  to the caller via the same `:rf.error/http-interceptor-failed` shape
+  the `:before` path uses, so a misbehaving response-side interceptor
+  surfaces on the same trace event."
+  [frame-id middleware-ctx response]
+  (let [chain      (get @interceptors frame-id)
+        sensitive? (true? (:sensitive? middleware-ctx))]
+    (reduce
+      (fn [acc {:keys [id after]}]
+        (if after
+          (try
+            (let [out (after middleware-ctx acc)]
+              (if (map? out)
+                out
+                (throw (ex-info ":rf.error/http-interceptor-bad-return"
+                                {:rf.error/id :rf.error/http-interceptor-bad-return
+                                 :where       'rf/reg-http-interceptor
+                                 :recovery    :no-recovery
+                                 :reason      (str "interceptor " id " :after did not return a response map")
+                                 :id          id
+                                 :returned    out}))))
+            (catch #?(:clj Throwable :cljs :default) t
+              (let [data (ex-info ":rf.error/http-interceptor-failed"
+                                  {:where    'run-http-interceptor-after-chain!
+                                   :recovery :no-recovery
+                                   :frame    frame-id
+                                   :interceptor-id id
+                                   :url      (get-in middleware-ctx [:request :url])
+                                   :phase    :after
+                                   :cause    (or (:reason (ex-data t))
+                                                 #?(:clj  (.getMessage ^Throwable t)
+                                                    :cljs (.-message t)))})]
+                (when interop/debug-enabled?
+                  (trace/emit-error! :rf.error/http-interceptor-failed
+                                     (privacy/prepare-emit-failure
+                                       (ex-data data)
+                                       sensitive?)))
+                (throw data))))
+          acc))
+      response
+      ;; Reverse order — mirror of the event-interceptor onion (Spec 002).
+      (reverse chain))))

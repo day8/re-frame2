@@ -9,12 +9,14 @@
 
   - `:rf.http/managed`                  — issue a managed request
   - `:rf.http/managed-abort`            — abort by `:request-id`
-  - `:rf.fx/reg-http-interceptor`       — register a request-side
-                                          interceptor (data-shaped fx
-                                          for EDN fixtures; see
-                                          §Middleware below)
-  - `:rf.fx/clear-http-interceptor`     — clear a request-side
-                                          interceptor (data-shaped fx)
+  - `:rf.fx/reg-http-interceptor`       — register an HTTP interceptor
+                                          (data-shaped fx for EDN fixtures;
+                                          see §Middleware below). Per
+                                          rf2-uheqq the args map carries
+                                          `:before` / `:after` alongside
+                                          the standard registration slots.
+  - `:rf.fx/clear-http-interceptor`     — clear an HTTP interceptor
+                                          (data-shaped fx)
 
   Plus the registry / middleware / privacy re-exports detailed below.
 
@@ -171,19 +173,21 @@
 ;; ---- middleware fx wrappers (rf2-yhfgf) -----------------------------------
 ;;
 ;; `reg-http-interceptor` / `clear-http-interceptor` are direct fn-call APIs
-;; — load-time registration of cross-cutting request transforms (Spec 014
-;; §Middleware, rf2-6y3q). Most apps register at app bootstrap and never
-;; call again. But the conformance corpus (Spec 011 §Conformance) is
-;; pure-data EDN, has no fn-call seam, and drives behaviour exclusively
+;; — load-time registration of cross-cutting HTTP interceptors (Spec 014
+;; §Middleware, rf2-6y3q + rf2-uheqq). Most apps register at app bootstrap
+;; and never call again. But the conformance corpus (Spec 011 §Conformance)
+;; is pure-data EDN, has no fn-call seam, and drives behaviour exclusively
 ;; through `:fx` ops + `:fx-overrides`. The two fxs below let portable
 ;; EDN fixtures register/clear interceptors via the same DSL channel they
 ;; use for everything else — `[:fx [[:rf.fx/reg-http-interceptor {...}]]]`
 ;; / `[:fx [[:rf.fx/clear-http-interceptor {...}]]]`.
 ;;
-;; Args shapes (data-shape, EDN-friendly — per rf2-eyjbn the fn-form is
-;; positional; the fx stays map-shaped because fx args are always pure
-;; data and EDN fixtures can't carry positional fn arguments):
-;;   :rf.fx/reg-http-interceptor   {:id <kw> :before <fn> :frame <id>? ...}
+;; Args shapes (data-shape, EDN-friendly — per rf2-uheqq the fn-form's
+;; second argument is already a single interceptor-map, so the fx and
+;; fn-form take the same shape; the fx body just routes `:id` into the
+;; positional arg):
+;;   :rf.fx/reg-http-interceptor   {:id <kw> :before <fn> :after <fn>?
+;;                                  :frame <id>? :doc ... :tags ... }
 ;;   :rf.fx/clear-http-interceptor {:id <kw> :frame <id>?}
 ;;
 ;; Both fxs are dev+prod (`:platforms #{:client :server}`). Authors can
@@ -192,13 +196,15 @@
 ;; bootstrap through the dispatch surface.
 
 (fx/reg-fx :rf.fx/reg-http-interceptor
-           {:doc "Spec 014 §Middleware (rf2-6y3q) — register a request-side
-                  interceptor as an fx. Args is a map carrying `:id` (kw),
-                  `:before` (fn), `:frame` (id, optional), plus any
-                  `:rf/registration-metadata` slots. The fx body translates
-                  the map to the positional fn-form (rf2-eyjbn)."}
-           (fn [_ctx {:keys [id before] :as args}]
-             (middleware/reg-http-interceptor id (dissoc args :id :before) before)))
+           {:doc "Spec 014 §Middleware (rf2-6y3q + rf2-uheqq) — register an
+                  HTTP interceptor as an fx. Args is a map carrying
+                  `:id` (kw), at least one of `:before` / `:after`,
+                  optional `:frame` (id), plus any
+                  `:rf/registration-metadata` slots. The fx body splits
+                  `:id` off and passes the remaining map straight through
+                  to the fn-form (per rf2-uheqq shape iii)."}
+           (fn [_ctx {:keys [id] :as args}]
+             (middleware/reg-http-interceptor id (dissoc args :id))))
 
 (fx/reg-fx :rf.fx/clear-http-interceptor
            {:doc "Spec 014 §Middleware (rf2-6y3q) — clear a request-side

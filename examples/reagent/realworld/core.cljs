@@ -406,7 +406,8 @@
   ;; Register the Bearer-auth interceptor at app boot. Order matters:
   ;; before :app/initialise dispatches, since session-restore will fire
   ;; authenticated requests as soon as the JWT is hydrated.
-  (rf/reg-http-interceptor :realworld/bearer-auth bearer-auth-interceptor)
+  (rf/reg-http-interceptor :realworld/bearer-auth
+                           {:before bearer-auth-interceptor})
   ;; The orchestrator serves this example at /realworld/; strip that
   ;; prefix before the route matcher sees the URL so :realworld/home (path "/")
   ;; matches.
