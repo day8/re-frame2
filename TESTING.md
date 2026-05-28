@@ -154,6 +154,7 @@ agent pre-checkin "narrow to the changed surface" workflow.
 | `npm run test:story-static` | Static-build contract and deployable-output sanity for the Story export. |
 | `npm run story:build` | Build the Story static artefact. |
 | `npm run test:script-policy` / `npm run test:script-helpers` | Self-tests for the JS harness helpers (path policy, changed-surface classifier port, browser-test report, gate report, local browser harness). |
+| `npm run test:mcp-conformance` | Single operator-side entry-point (rf2-gt4pf) chaining the six PR-time MCP gates that CI runs as separate jobs: JVM story-mcp `clojure -M:test`, Node story-mcp stdio-roundtrip, Node re-frame2-pair-mcp `:server-test`, MCP-client conformance for both servers (via `tools/mcp-conformance/scripts/test-all.cjs`), and JVM wire-vocab `clojure -M:test`. Compiles the re-frame2-pair-mcp server bundle as a prerequisite. CI keeps the six gates split for differential surface attribution. |
 
 ### `tools/mcp-conformance/package.json` (run from `tools/mcp-conformance/`)
 

@@ -232,7 +232,7 @@ gates. Pre-alpha posture: this menu is **prescriptive**, not advisory.
 | `tools/<tool>/src/*` | `cd tools/<tool> && clojure -M:test` AND every dependent tool (see TESTING.md S11+S12+S13) AND `npm run test:cljs` if the tool has CLJS tests |
 | `tools/{story,xray}/spec/*.md` | `mkdocs build --strict` **only** (per the rf2-f79t8 spec-md guard — do NOT run the JVM/CLJS tool probes for spec-prose edits) |
 | `tools/template/*` | `cd tools/template && clojure -M:test` + emitted-app smoke |
-| `tools/mcp-conformance/*`, `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*`, `tools/story-mcp/*` | MCP conformance suite from `tools/mcp-conformance/` |
+| `tools/mcp-conformance/*`, `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*`, `tools/story-mcp/*` | `cd implementation && npm run test:mcp-conformance` — single entry-point (rf2-gt4pf) chaining the six PR-time MCP gates: JVM story-mcp `clojure -M:test`, Node story-mcp stdio-roundtrip, Node re-frame2-pair-mcp `:server-test`, MCP conformance for both servers (via `tools/mcp-conformance/scripts/test-all.cjs`), and JVM wire-vocab `clojure -M:test`. Hermetic live-overflow stays out — operators who need it run `cd tools/mcp-conformance && npm run test:re-frame2-pair-live-overflow-hermetic` directly. |
 | Shared protocol surface (`Tool-Pair`, `Spec-Schemas`, `Conventions`, `API`) | **THE FULL MATRIX.** `scripts/test-jvm-implementation.sh` + `scripts/test-jvm-tools.sh` + `npm run test:cljs` + `mkdocs build --strict`. |
 | `spec/conformance/fixtures/*.edn` | impl JVM matrix (per-feature `_conformance_test.clj` consumes these) + `npm run test:cljs` |
 
