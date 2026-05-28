@@ -2728,13 +2728,14 @@
 (deftest zoom-affordance-composes-prefix-and-relative-path
   ;; The renderer threads the absolute path = (into zoom-path-prefix path)
   ;; into the affordance — so when the operator is already zoomed at
-  ;; `[:rf/machines]` and clicks the affordance on the nested `:ws/connection`
-  ;; container (relative path `[:ws/connection]`), the dispatch carries
-  ;; the FULL absolute path `[:rf/machines :ws/connection]`.
+  ;; `[:rf/runtime :machines :snapshots]` and clicks the affordance on the
+  ;; nested `:ws/connection` container (relative path `[:ws/connection]`),
+  ;; the dispatch carries the FULL absolute path
+  ;; `[:rf/runtime :machines :snapshots :ws/connection]`.
   (let [v {:ws/connection {:state :open}}
         ;; Drive the renderer with a non-trivial zoom-path-prefix to
-        ;; simulate "we're already zoomed into :rf/machines and looking
-        ;; at its child :ws/connection".
+        ;; simulate "we're already zoomed into machine snapshots and
+        ;; looking at its child :ws/connection".
         h (ei/render-node {:value v
                            :panel-id :p
                            :mount-id "m"
@@ -2742,7 +2743,7 @@
                            :depth 0
                            :expansion-map {}
                            :zoomable? true
-                           :zoom-path-prefix [:rf/machines]
+                           :zoom-path-prefix [:rf/runtime :machines :snapshots]
                            :opts {:default-expanded-depth 8}})
         affordance (find-attr h :data-rf-affordance "zoom")]
     (is (some? affordance)
@@ -2753,7 +2754,7 @@
     ;; Confirm via integration: re-build the affordance the same way
     ;; render-container does, mirroring the zoom-path-prefix + path
     ;; composition.
-    (let [composed (vec (concat [:rf/machines] [:ws/connection]))
+    (let [composed (vec (concat [:rf/runtime :machines :snapshots] [:ws/connection]))
           h2       (ei/zoom-affordance-button
                      {:dispatch-fn   nil
                       :panel-id      :p
@@ -2761,7 +2762,8 @@
                       :absolute-path composed
                       :testid        "x"})
           {:keys [event opts]} (with-rf-dispatch-spy (-> h2 second :on-click))]
-      (is (= [:rf.xray.edn-inspector/zoom-to :p "m" [:rf/machines :ws/connection]]
+      (is (= [:rf.xray.edn-inspector/zoom-to :p "m"
+              [:rf/runtime :machines :snapshots :ws/connection]]
              event)
           "the dispatched path is the absolute path = prefix + relative")
       (is (= :rf/xray (:frame opts))
