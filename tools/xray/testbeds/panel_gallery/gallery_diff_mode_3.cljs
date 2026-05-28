@@ -68,7 +68,7 @@
 
   (story/reg-variant :story.xray.diff-mode-3/r1-modified-scalar
     {:doc        "R1 — modified scalar. `{:counter 5} → {:counter 6}`.
-                  Shows the value-side `~` glyph + `← changed from 5`
+                  Shows the value-side `~` glyph + `← was 5`
                   italic muted suffix."
      :events     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r1-modified-scalar)]]

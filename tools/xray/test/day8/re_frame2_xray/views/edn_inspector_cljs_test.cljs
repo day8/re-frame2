@@ -1095,7 +1095,7 @@
 ;; The diff path subsumes the legacy `edn-inspector.render` engine —
 ;; passing `:before` switches the widget into diff mode where each
 ;; node renders with a left-gutter glyph + colour and `:modified`
-;; leaves carry a `← changed from <prior>` annotation. Ancestor chain
+;; leaves carry a `← was <prior>` annotation. Ancestor chain
 ;; force-opens over any changed descendant.
 
 ;; ---- pure helpers --------------------------------------------------------
@@ -1194,7 +1194,7 @@
                            :expansion-map {}
                            :opts {:default-expanded-depth 2}})
         all (collect-text h)]
-    (is (re-find #"← changed from 1" all)
+    (is (re-find #"← was 1" all)
         "modified scalar leaf carries the annotation chip")))
 
 (deftest diff-modified-nested-leaf-annotates
@@ -1207,7 +1207,7 @@
                            :expansion-map {}
                            :opts {:default-expanded-depth 5}})
         all (collect-text h)]
-    (is (re-find #"← changed from 48" all)
+    (is (re-find #"← was 48" all)
         "deep modified leaf carries the annotation chip")))
 
 ;; ---- diff mode — added / removed -----------------------------------------
@@ -1249,7 +1249,7 @@
                            :opts {:default-expanded-depth 1}})
         all (collect-text h)]
     (is (re-find #":e" all) "deep changed leaf appears in the rendered text")
-    (is (re-find #"← changed from 1" all) "with its annotation")))
+    (is (re-find #"← was 1" all) "with its annotation")))
 
 ;; ---- diff mode — same nodes dim ------------------------------------------
 
@@ -1483,7 +1483,7 @@
         "modified row marker present")
     (is (re-find #"data-rf-diff-op.*same" s)
         "same row marker still present for unchanged rows")
-    (is (re-find #"← changed from 2" s)
+    (is (re-find #"← was 2" s)
         "modified leaf still carries the change annotation")))
 
 ;; =========================================================================
@@ -1656,7 +1656,7 @@
             "modified-key cell paints NO row wash")
         (is (not= "line-through" (:text-decoration style))
             "modified-key cell paints NO key-text strike")))
-    (is (re-find #"← changed from 5" s)
+    (is (re-find #"← was 5" s)
         "value-side R1 annotation still present")))
 
 (deftest value-anchored-redaction-row-stays-value-anchored

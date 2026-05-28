@@ -50,7 +50,7 @@
             [day8.re-frame2-xray.panels.app-db-diff-subs :as subs]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack]]
-            [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]))
+            ))
 
 ;; ---- style hoists (rf2-mndut) -------------------------------------------
 ;;
@@ -71,13 +71,6 @@
    :font-family    sans-stack
    :font-size      "14px"})
 
-(def ^:private panel-top-bar-style
-  "Top-bar wrapper around the universal three-mode toggle (rf2-yqjrd)."
-  {:padding     "12px 12px 0"
-   :display     "flex"
-   :align-items "center"
-   :gap         "8px"})
-
 (def ^:private panel-body-host-style
   "Scrolling host for the section list / flat-diff body."
   {:flex     1
@@ -87,53 +80,29 @@
   "The app-db tab's root view — a current-state inspector sectioned by
   reserved `:rf/*` area.
 
-  rf2-yqjrd — carries the universal three-mode toggle
-  `[diff][full][full+diff]` at the top. The toggle drives every
-  section's rendering uniformly:
-
-  - `:diff`      — pure-diff lens at the top of the panel (flat path
-                   list of changes the focused epoch produced).
-                   Per-section bodies are suppressed.
-  - `:full`      — every section renders LIVE current-state with no
-                   `:before` threading (plain browse mode).
-  - `:full+diff` — every section renders LIVE current-state WITH the
-                   focused epoch's `:db-before` threaded so inline
-                   diff annotations paint (default; mode-3).
-
-  Mode persists in `:rf.xray.app-db/diff-mode` on Xray's app-db so the
-  operator's preference survives focus shifts."
+  rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
+  toggle (rf2-yqjrd) is retired. FULL+DIFF is the single rendering:
+  every section renders LIVE current-state WITH the focused epoch's
+  `:db-before` threaded so inline diff annotations paint. The auto-
+  collapse of unchanged subtrees (rf2-fqcdd), the leaf-scalar `← was X`
+  annotation (rf2-fyd8u), and the added/removed colouring (rf2-9d4j8)
+  together give FULL+DIFF the density `:diff` used to provide and the
+  comparison-context `:full` lacked, so the three-mode toggle (and its
+  sub/event/slot trio) is gone."
   []
-  (let [mode          @(rf/subscribe [:rf.xray.app-db/diff-mode])
-        section-model @(rf/subscribe [:rf.xray/app-db-state])
-        diff-triples  @(rf/subscribe [:rf.xray/selected-epoch-diff])]
+  (let [section-model @(rf/subscribe [:rf.xray/app-db-state])]
     [:section {:data-testid "rf-xray-app-db-diff"
                ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis on
-               ;; every diff-mode-toggle consumer's enclosing section
-               ;; (was the per-surface drifted `data-view-mode`).
-               :data-rf-xray-diff-mode (name mode)
+               ;; the enclosing section. FULL+DIFF is the single mode
+               ;; post-rf2-vv3m6 so the attribute is now a constant
+               ;; (kept for selector compatibility — tools + e2e specs
+               ;; can still pin "this section is rendering FULL+DIFF").
+               :data-rf-xray-diff-mode "full+diff"
                :style       panel-root-style}
-     ;; rf2-yqjrd — universal three-mode toggle. Sits at the top of the
-     ;; panel above the section list; one mode applies to every
-     ;; section's body. Frame-anchored to `:rf/xray` per the same
-     ;; rf2-p56sk / rf2-7sdja / rf2-kcaiz pattern the HANDLER `:db`
-     ;; toggle uses.
-     ;;
-     ;; rf2-fytu4 — discoverability label `View` is owned by the shared
-     ;; widget via the `:label` opt (was a hand-rolled span here).
-     [:div {:style panel-top-bar-style}
-      [diff-mode/diff-mode-toggle
-       {:mode mode
-        ;; rf2-7vv8f — testid prefix normalised across all four
-        ;; toggle consumers to `rf-xray-<surface>-diff-mode`.
-        :testid "rf-xray-app-db-diff-mode"
-        :label "View"
-        :on-change (fn [m]
-                     (rf/with-frame :rf/xray
-                       (rf/dispatch [:rf.xray.app-db/set-diff-mode m])))}]]
      ;; rf2-6xezz — the L4 tab strip is the panel-name source-of-truth;
      ;; content starts immediately under the tab bar.
      [:div {:style panel-body-host-style}
-      (state/state-body section-model {:mode mode :diff-triples diff-triples})]]))
+      (state/state-body section-model)]]))
 
 (defn install!
   "Idempotent install for the app-db tab's Xray-side registrations.

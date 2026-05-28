@@ -300,7 +300,7 @@
   ;;
   ;; The focused epoch record's `:db-before` is threaded as the diff
   ;; PRE-IMAGE (spec/021 §4.3) so each section's changed nodes carry the
-  ;; inline `← changed from X` annotation in place. When no epoch is
+  ;; inline `← was X` annotation in place. When no epoch is
   ;; focusable (cold boot, no cascades) the record is nil and the
   ;; sections render plain current-state — `current-state-sections`
   ;; falls back to its `no-diff` sentinel automatically.

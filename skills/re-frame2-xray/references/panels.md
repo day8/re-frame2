@@ -107,7 +107,7 @@ app-db renders as **vertical sections**, each headed by an uppercase
 caption label and rendering its value as a collapsible cljs-devtools-
 style inspector widget (shared lazy-tree renderer, depth-3-collapsed
 default per §021 §10.4). Adjacent sections are separated by a 1px
-hairline. Diff annotations are carried **inline** as `← changed from X`
+hairline. Diff annotations are carried **inline** as `← was X`
 on changed nodes within each section's tree — there is no separate
 DIFF zone; ancestor chains are force-expanded so the operator never
 expands to find a change. Section order, top → bottom:

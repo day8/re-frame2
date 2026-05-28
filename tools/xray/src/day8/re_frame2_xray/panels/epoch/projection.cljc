@@ -416,13 +416,13 @@
   surface (kept only for the trace panel `db-changed-diff-triples`,
   out of scope). The Editscript engine is now the single canonical
   diff engine for HANDLER `:db` + App-DB Diff + Machine Inspector
-  `:diff` lenses — operators switching between `:diff` and `:full+diff`
-  modes of the same data see identical R-rule chrome (spec/021
-  §9.1.5.2 wholesale replacement).
+  surfaces — the R-rule chrome the inspector paints is sourced off the
+  same diff engine (spec/021 §9.1.5.2 wholesale replacement). The
+  `[diff][full][full+diff]` mode toggle retired with rf2-vv3m6
+  (2026-05-29); FULL+DIFF is the single rendering.
 
-  Returns a vector of 4-tuples `[path before after change-kind]`
-  matching the view-layer `db-diff-line` render shape. When
-  before == after (the handler returned no `:db` or an identical
+  Returns a vector of 4-tuples `[path before after change-kind]`.
+  When before == after (the handler returned no `:db` or an identical
   value), returns `[]` correctly."
   [db-before db-after]
   (mapv (fn [{:keys [path op before after]}]

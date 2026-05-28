@@ -1005,13 +1005,13 @@
         (is (= expected-bg (:background style))
             "drill-in body uses :bg-2 — same as outer section, no card-in-card")))))
 
-(deftest rf2-yqjrd-snapshot-drill-in-three-mode-toggle
-  (testing "rf2-yqjrd — the Before/After side-by-side grid retired in
-            favour of a SINGLE mount + the universal three-mode toggle
-            `[diff][full][full+diff]`. The toggle paints in the
-            drill-in header; the single mount shows the AFTER snapshot
-            with the BEFORE snapshot threaded as the diff pre-image
-            when mode is `:full+diff` (default)."
+(deftest rf2-vv3m6-snapshot-drill-in-full-diff-only
+  (testing "rf2-vv3m6 (2026-05-29) — the prior
+            `[diff][full][full+diff]` toggle (rf2-yqjrd) retired. The
+            snapshot drill-in mounts a SINGLE FULL+DIFF rendering: the
+            AFTER snapshot with the BEFORE snapshot threaded as the
+            diff pre-image. No toggle UI; the testid
+            `rf-xray-machine-inspector-diff-mode` no longer renders."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -1026,27 +1026,12 @@
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
       (let [tree   (machine-inspector/Panel)
-            drill  (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
-            ;; rf2-7vv8f — testid prefix normalised across all four
-            ;; diff-mode-toggle consumers to `rf-xray-<surface>-diff-mode`.
-            ;; rf2-shuxd — `<surface>` matches the sub-id namespace
-            ;; (`:rf.xray.machine-inspector`), prior `machine-snapshot`
-            ;; root retired (testid + sub-id share one root).
-            toggle (find-by-testid
-                     tree "rf-xray-machine-inspector-diff-mode")
-            ;; rf2-xlmhh — the toggle bar no longer carries `:data-mode`
-            ;; (retired axis name per spec/Conventions.md §264). Read the
-            ;; active mode off the active button's `aria-pressed="true"`
-            ;; + canonical testid suffix instead.
-            active-btn (find-by-testid
-                         tree "rf-xray-machine-inspector-diff-mode-full-with-diff")]
+            drill  (find-by-testid tree "rf-xray-machine-snapshot-drill-in")]
         (is (some? drill)
             "drill-in section mounts")
-        (is (some? toggle)
-            "three-mode toggle paints in the drill-in header")
-        (is (= "true" (:aria-pressed (second active-btn)))
-            "default mode is :full+diff per pair-debug 2026-05-27 — the
-            `full-with-diff` button reports `aria-pressed=\"true\"`")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-inspector-diff-mode"))
+            "the three-mode toggle is retired (rf2-vv3m6)")
         ;; The grid container retired with the side-by-side layout.
         (is (nil? (find-by-testid
                     tree "rf-xray-machine-snapshot-drill-in-grid"))

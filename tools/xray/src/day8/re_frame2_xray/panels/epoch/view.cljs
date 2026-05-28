@@ -58,7 +58,6 @@
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
-            [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]
             [day8.re-frame2-xray.views.resizable-table :as rt]
@@ -383,29 +382,18 @@
    :word-break "break-word"})
 
 ;; -- db-diff / fx-entry ----------------------------------------------------
-
-(def ^:private diff-row-style
-  {:display     "flex"
-   :align-items "flex-start"
-   :gap         "8px"
-   :padding     "2px 0"
-   :font-family mono-stack
-   :font-size   "12px"})
-
-(def ^:private diff-path-style
-  {:color text-tertiary-colour :white-space "nowrap"})
-
-(def ^:private diff-arrow-style
-  {:color text-tertiary-colour})
+;;
+;; rf2-vv3m6 (2026-05-29) — `diff-row-style`, `diff-path-style`,
+;; `diff-arrow-style`, `diff-added-flex-style` retired with the
+;; HANDLER `:db` `[diff]` mode branch (db-diff-line). The before /
+;; after / glyph defs survive because the machine-cascade row + the
+;; coeffect body still consume them.
 
 (def ^:private diff-before-style
   {:color error-colour})
 
 (def ^:private diff-after-success-style
   {:color success-colour})
-
-(def ^:private diff-added-flex-style
-  {:color success-colour :min-width 0 :flex 1 :word-break "break-word"})
 
 (def ^:private diff-glyph-bold-style
   {:font-weight 700})
@@ -642,41 +630,12 @@
    :color        text-tertiary-colour
    :padding-left "16px"})
 
-;; -- db-diff-mode toggle / db-diff ----------------------------------------
-
-(def ^:private mode-toggle-bar-style
-  {:display       "inline-flex"
-   :align-items   "center"
-   :gap           0
-   :border        border-subtle-1px
-   :border-radius "3px"
-   :overflow      "hidden"
-   :margin-left   "8px"
-   :line-height   1})
-
-(def ^:private mode-toggle-button-base-style
-  {:border         "none"
-   :padding        "2px 8px"
-   :font-family    sans-stack
-   :font-size      "10px"
-   :font-weight    700
-   :text-transform "uppercase"
-   :letter-spacing "0.5px"
-   :cursor         "pointer"
-   :line-height    1})
-
-(def ^:private mode-toggle-button-active-style
-  (assoc mode-toggle-button-base-style
-         :background accent-colour
-         :color      white-colour))
-
-(def ^:private mode-toggle-button-inactive-style
-  (assoc mode-toggle-button-base-style
-         :background "transparent"
-         :color      text-secondary-colour))
-
-(def ^:private inline-flex-center-style
-  {:display "inline-flex" :align-items "center"})
+;; -- db-diff rendering ----------------------------------------------------
+;;
+;; rf2-vv3m6 (2026-05-29) — the `[diff][full][full+diff]` mode-toggle bar
+;; styles retired alongside the toggle. FULL+DIFF is the single rendering;
+;; the HANDLER `:db` sub-section paints unconditionally via
+;; `handler-db-diff-block`.
 
 (def ^:private handler-db-all-style
   {:padding-left "16px"})
@@ -807,12 +766,6 @@
 
 (def ^:private subs-inputs-list-style
   {:display "flex" :flex-direction "column" :gap "2px"})
-
-(def ^:private subs-changed-row-style
-  {:display     "flex"
-   :gap         "6px"
-   :flex-wrap   "wrap"
-   :align-items "center"})
 
 (def ^:private subs-value-cell-fill-style
   "Wrapper for the SUBSCRIPTIONS value cell's `:full` / `:full+diff`
@@ -1913,45 +1866,6 @@
 
 ;; ---- HANDLER step --------------------------------------------------------
 
-(defn- db-diff-line
-  "Render one db-diff entry (`~ [path] before → after` /
-  `+ [path] value` / `- [path]`).
-
-  Per rf2-8w8er the before / after values render through the
-  edn-inspector `mini` widget so keywords, numbers, strings, and
-  sentinels paint with their canonical syntax-token chrome rather
-  than as plain `pr-str` text. The diff-glyph + path label stay
-  plain — they are signalling cues, not CLJS values."
-  [[path before after change-kind] idx]
-  (let [glyph (case change-kind
-                :added    "+"
-                :removed  "-"
-                :modified "~"
-                (cond
-                  (and (some? before) (some? after)) "~"
-                  (some? after)                       "+"
-                  :else                                "-"))
-        glyph-colour (case glyph
-                       "+" success-colour
-                       "-" error-colour
-                       warning-colour)]
-    [:div {:key (str "diff-" idx)
-           :data-testid (str "rf-xray-epoch-handler-diff-row-" idx)
-           :style diff-row-style}
-     [:span {:style (assoc diff-glyph-bold-style :color glyph-colour)} glyph]
-     [:span {:style diff-path-style}
-      (proj/path-display path)]
-     (when (= "~" glyph)
-       [:<>
-        [:span {:style diff-before-style}
-         [ei/mini before 40]]
-        [:span {:style diff-arrow-style} "→"]
-        [:span {:style diff-after-success-style}
-         [ei/mini after 40]]])
-     (when (= "+" glyph)
-       [:span {:style diff-added-flex-style}
-        [ei/mini after 80]])]))
-
 ;; ---- Machine cascade view (rf2-u69j7) -----------------------------------
 ;;
 ;; Pre-rf2-u69j7 the machine-handler-section rendered 7 categories
@@ -2563,129 +2477,46 @@
                :style handler-source-placeholder-style}
         "<source not yet captured>"])]))
 
-(defn- db-diff-mode-toggle
-  "Thin wrapper around the shared `views.diff-mode-toggle/diff-mode-toggle`
-  widget (rf2-yqjrd extraction of the rf2-n2jig toggle). The button-bar
-  chrome + per-mode labels + R1-R8 grammar default mode (`:full+diff`)
-  all live in the shared widget; this wrapper supplies the surface-
-  specific testid prefix + the `:rf/xray` frame-anchored dispatch
-  (matches the rf2-p56sk / rf2-7sdja / rf2-kcaiz frame-leak fix
-  pattern — toggle's home app-db is Xray regardless of host frame).
-
-  Per the universalisation bead, every Xray surface that surfaces a
-  diff-mode toggle does so through this same shared widget so the
-  operator sees ONE button-bar shape across App-DB / Machine
-  Inspector / SUBSCRIPTIONS / HANDLER `:db`."
-  [mode]
-  [diff-mode/diff-mode-toggle
-   {:mode      mode
-    ;; rf2-7vv8f — testid prefix normalised to `rf-xray-<surface>-diff-mode`.
-    :testid    "rf-xray-epoch-handler-db-diff-mode"
-    :on-change (fn [m]
-                 (rf/with-frame :rf/xray
-                   (rf/dispatch [:rf.xray.epoch/set-db-diff-mode m])))}])
-
 (defn- handler-db-diff-block
   "Render the HANDLER step's `:db` sub-section (rf2-93436 / design
   doc §Section 1 + §Section 2). Always renders for non-machine
   handlers.
 
-  rf2-n2jig — the sub-section carries a three-button toggle
-  `[diff][full][full+diff]`:
-
-  - `:diff` — flat path-changes this handler produced. When empty,
-    reads `— (no changes)` per the design's §Empty edge-case
-    rendering table (reg-event-db returning identical db / reg-
-    event-fx returning nil — explicit empty state, not an omitted
-    slot).
-  - `:full` — full post-cascade `:db-after` via the edn-inspector
-    widget, no diff chrome (renamed from `:all` for clarity).
-    Operator sees the entire app-db value without diff annotations.
-  - `:full+diff` — mode-3 default (per pair-debug 2026-05-27): the
-    full data tree WITH inline diff annotations. Operator sees the
-    shape AND the delta in one read. Implements the R1-R8 grammar
-    rules per the findings doc `diff-mode-3-key-and-triangle-
-    grammar-2026-05-27.md` §5.1 (revised per §7).
-
-  Mode persists via `:rf.xray.epoch/db-diff-mode` so the operator's
-  preference survives focus shifts.
-
-  Distinct from the (retired) top-level APP-DB DIFF step (rf2-rrykz)
-  — same source data, different lens. HANDLER's `:db` attributes the
-  change to THIS handler's return value.
+  rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
+  toggle (rf2-n2jig / rf2-yqjrd) is retired. FULL+DIFF is the single
+  rendering: the full `:db-after` tree with inline diff annotations
+  driven off `:db-before`. The R1-R8 grammar paints gutter glyphs +
+  row washes + leaf-scalar `← was X` suffixes; auto-collapse keeps
+  unchanged subtrees folded so the density matches what the prior
+  `:diff` lens used to provide. The `:db-diff` arg is unused under
+  the single rendering but stays in the parent's `handler-body`
+  signature for projection compatibility.
 
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
   the snapshot IS the db change (at `[:rf/runtime :machines :snapshots <id>]`) so the
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
   standalone slot."
-  [db-diff]
-  (let [mode      @(rf/subscribe [:rf.xray.epoch/db-diff-mode])
-        empty?    (not (seq db-diff))
-        ;; "— (no changes)" fires ONLY in :diff mode when there are
-        ;; no path-changes (the empty-state read). Non-empty :diff
-        ;; mode renders the diff-lines themselves; the prior "N paths"
-        ;; count chip was redundant with that and added noise.
-        diff-summary (when (and (= :diff mode) empty?)
-                       "— (no changes)")]
+  [_db-diff]
+  (let [record    @(rf/subscribe [:rf.xray/selected-epoch-record])
+        db-before (:db-before record)
+        db-after  (:db-after record)]
     [:div {:data-testid "rf-xray-epoch-handler-db-diff"
-           :data-empty (str empty?)
-           ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis (was
-           ;; the drifted `data-db-diff-mode`).
-           :data-rf-xray-diff-mode (name mode)}
-     (sub-header ":db"
-                 [:span {:style inline-flex-center-style}
-                  (when diff-summary diff-summary)
-                  (db-diff-mode-toggle mode)])
-     (case mode
-       :diff
-       (when-not empty?
-         ;; rf2-9ec65 — eager realisation via `(into [:<>] (map-indexed …))`
-         ;; so any future subscribe deref inside `db-diff-line` registers in
-         ;; this render's reactive scope (spec/006 §Lazy-seq deref tracking,
-         ;; rf2-atqkg). `into` is eager regardless of the transducer/seq it
-         ;; consumes. Was `(for [[i row] (map-indexed vector …)] …)`
-         ;; which returns a LazySeq.
-         (into [:<>]
-               (map-indexed (fn [i row] (db-diff-line row i)) db-diff)))
-
-       :full
-       (let [record  @(rf/subscribe [:rf.xray/selected-epoch-record])
-             db-after (:db-after record)]
-         (if (some? db-after)
-           [:div {:data-testid "rf-xray-epoch-handler-db-full"
-                  :style handler-db-all-style}
-            [ei/edn-inspector db-after
-             {:site-id [:rf.xray.epoch/handler-db-full (:epoch-id record)]
-              :default-expanded-depth 2}]]
-           [:span {:data-testid "rf-xray-epoch-handler-db-full-missing"
-                   :style handler-db-all-missing-style}
-            "— db-after not available in epoch record"]))
-
-       :full+diff
-       ;; Mode-3 (rf2-n2jig): render the full :db-after tree with
-       ;; inline diff annotations driven off `:db-before`. The
-       ;; edn-inspector picks up the Editscript-backed projection
-       ;; via `:before`; `:full-with-diff?` opts the renderer into
-       ;; R3 chip + R4 vertical-rail chrome (R1/R2/R5/R6/R7/R8 fire
-       ;; off the projection alone). Default-expanded-depth 3 per
-       ;; Mike's pair-debug Q4 answer (between browse's 1 and diff's
-       ;; 2 — deep enough to surface most app-db top-level shards).
-       (let [record    @(rf/subscribe [:rf.xray/selected-epoch-record])
-             db-before (:db-before record)
-             db-after  (:db-after record)]
-         (cond
-           (some? db-after)
-           [:div {:data-testid "rf-xray-epoch-handler-db-full-with-diff"
-                  :style handler-db-all-style}
-            [ei/edn-inspector db-after
-             {:site-id [:rf.xray.epoch/handler-db-full-with-diff (:epoch-id record)]
-              :before db-before
-              :full-with-diff? true
-              :default-expanded-depth 3}]]
-           :else
-           [:span {:data-testid "rf-xray-epoch-handler-db-full-with-diff-missing"
-                   :style handler-db-all-missing-style}
-            "— db-after not available in epoch record"])))]))
+           ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis. Now
+           ;; a constant post-rf2-vv3m6; kept for selector compatibility
+           ;; (tools / e2e can still pin the FULL+DIFF rendering).
+           :data-rf-xray-diff-mode "full+diff"}
+     (sub-header ":db" nil)
+     (if (some? db-after)
+       [:div {:data-testid "rf-xray-epoch-handler-db-full-with-diff"
+              :style handler-db-all-style}
+        [ei/edn-inspector db-after
+         {:site-id [:rf.xray.epoch/handler-db-full-with-diff (:epoch-id record)]
+          :before db-before
+          :full-with-diff? true
+          :default-expanded-depth 3}]]
+       [:span {:data-testid "rf-xray-epoch-handler-db-full-with-diff-missing"
+               :style handler-db-all-missing-style}
+        "— db-after not available in epoch record"])]))
 
 (defn handler-body
   "Render the HANDLER step's body — source block + db-diff + fx + the
@@ -2900,11 +2731,24 @@
      [:span {:style (assoc diff-glyph-bold-style :color colour)} glyph]
      [:span {:style fx-row-id-style}
       (proj/ns-keyword fx-id)]
-     ;; rf2-8w8er — args render through `mini` so the fx-call surface
-     ;; lights up with syntax-token colour rather than plain text.
+     ;; rf2-ef2hy — args render through edn-inspector with
+     ;; `:default-expanded-depth 1` so the top-level fx-call surface is
+     ;; visible inline (`:strategy :top`) and nested maps collapse to
+     ;; clickable chevrons (`{…1 keys}`). The operator scans the FX-step
+     ;; table dense, then drills into a row's args via the chevron or
+     ;; the popup-overlay (`:zoomable?`).
+     ;;
+     ;; Sibling rendering for the HANDLER step's `:fx` section
+     ;; (rf2-p2zy0) uses the same widget with `:default-expanded-depth 16`
+     ;; (full-expand). Both paths share the widget; the per-call-site
+     ;; `:default-expanded-depth` reflects each section's role.
      (when (some? args)
        [:span {:style fx-row-args-style}
-        [ei/mini args 80]])
+        [ei/edn-inspector args
+         {:site-id [:rf.xray.epoch/fx-row-args fx-id idx]
+          :card? false
+          :zoomable? true
+          :default-expanded-depth 1}]])
      (when (number? duration-ms)
        [:span {:style fx-row-duration-style}
         (proj/format-duration-ms duration-ms)])
@@ -3030,27 +2874,19 @@
            (sequential? value))))
 
 (defn- subs-value-cell
-  "Render the `changed` cell for one sub recomputation row using the
-  universal three-mode toggle (rf2-yqjrd).
+  "Render the `changed` cell for one sub recomputation row under the
+  single FULL+DIFF rendering.
 
-  `mode` is the panel-wide `:rf.xray.epoch/subs-value-diff-mode` keyword:
+  rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
+  toggle (rf2-yqjrd) is retired. The 3-arity is collapsed: only the
+  FULL+DIFF branch survives.
 
-  - `:diff`      — `✓ before → after` row (the prior shape; surfaces
-                   only the value pair via `mini`).
-  - `:full`      — `✓` + AFTER value via the edn-inspector widget
-                   (no diff chrome). Used when the operator wants to
-                   see the freshly-computed value alone.
-  - `:full+diff` — `✓` + AFTER value via the edn-inspector with
-                   BEFORE threaded as the `:before` pre-image so the
-                   R1-R8 grammar paints inline `← changed from X`
-                   annotations. Default per pair-debug 2026-05-27.
-
-  rf2-fyd8u — for `:full+diff` mode the leaf-scalar branch (a sub that
-  returns a scalar — number, string, keyword, nil) has its OWN
-  rendering path: the edn-inspector's R1-R8 grammar paints diff chrome
-  on container CHILDREN, but a scalar root has no children, so a
-  value-change of e.g. `0 → 1` would otherwise drop silently. Two
-  sub-branches at the row level:
+  rf2-fyd8u — for FULL+DIFF the leaf-scalar branch (a sub that returns
+  a scalar — number, string, keyword, nil) has its OWN rendering path:
+  the edn-inspector's R1-R8 grammar paints diff chrome on container
+  CHILDREN, but a scalar root has no children, so a value-change of
+  e.g. `0 → 1` would otherwise drop silently. Two sub-branches at the
+  row level:
 
     `:first-run?` true  → `:added` chrome (green stripe / leading `+`
                           glyph / low-alpha wash, parity with the
@@ -3072,91 +2908,68 @@
   in this column is itself the unchanged indicator. Per Mike
   pair-debug 2026-05-27 (rf2-fqcdd follow-up) the leading ✓/✗
   ticks were dropped — redundant once the cell is value-only."
-  [{:keys [sub-id changed? first-run? before after]} mode idx]
+  [{:keys [sub-id changed? first-run? before after]} idx]
   (when changed?
-    (case mode
-      :full
+    ;; rf2-fyd8u — leaf-scalar branch: paint the change signal at this
+    ;; row level (the inspector has no leaf-scalar annotation surface).
+    ;; Containers fall through to the inspector mount. Testid naming
+    ;; note: the leaf-* testids deliberately use a prefix DISTINCT from
+    ;; `rf-xray-epoch-sub-row-` (the parent row's testid) so prefix
+    ;; counters like the sibling rf2-tzmmf filter tests don't pick the
+    ;; leaf wrapper up as an additional "row".
+    (if (subs-leaf-scalar? after)
+      (if first-run?
+        ;; first-cache-entry → :added chrome, no "was" annotation.
+        [:div {:data-rf-xray-subs-leaf  "added"
+               :data-rf-diff-op         "added"
+               :data-testid             (str "rf-xray-epoch-subs-leaf-added-" idx)
+               :style                   subs-leaf-added-row-style}
+         [:span {:style subs-leaf-added-glyph-style} "+"]
+         [:span [ei/mini after 40]]]
+        ;; value change → value + inline ← was <prev>.
+        [:div {:data-rf-xray-subs-leaf  "changed"
+               :data-rf-diff-op         "modified"
+               :data-testid             (str "rf-xray-epoch-subs-leaf-changed-" idx)
+               :style                   subs-leaf-row-style}
+         [:span [ei/mini after 40]]
+         [:span {:data-rf-diff-annotation "subs-was"
+                 :style                   subs-leaf-was-style}
+          "← was "
+          [:span {:data-rf-xray-subs-leaf-was "1"}
+           [ei/mini before 40]]]])
       [:div {:style subs-value-cell-fill-style}
        [ei/edn-inspector after
-        {:panel-id :rf.xray.epoch/subs-value
-         :site-id  [:rf.xray.epoch/subs-value sub-id idx :full]
-         :default-expanded-depth 2}]]
-
-      :full+diff
-      ;; rf2-fyd8u — leaf-scalar branch: paint the change signal at
-      ;; this row level (the inspector has no leaf-scalar annotation
-      ;; surface). Containers fall through to the inspector mount.
-      ;; Testid naming note: the leaf-* testids deliberately use a
-      ;; prefix DISTINCT from `rf-xray-epoch-sub-row-` (the parent
-      ;; row's testid) so prefix counters like the sibling
-      ;; rf2-tzmmf filter tests don't pick the leaf wrapper up as
-      ;; an additional "row".
-      (if (subs-leaf-scalar? after)
-        (if first-run?
-          ;; first-cache-entry → :added chrome, no "was" annotation.
-          [:div {:data-rf-xray-subs-leaf  "added"
-                 :data-rf-diff-op         "added"
-                 :data-testid             (str "rf-xray-epoch-subs-leaf-added-" idx)
-                 :style                   subs-leaf-added-row-style}
-           [:span {:style subs-leaf-added-glyph-style} "+"]
-           [:span [ei/mini after 40]]]
-          ;; value change → value + inline ← was <prev>.
-          [:div {:data-rf-xray-subs-leaf  "changed"
-                 :data-rf-diff-op         "modified"
-                 :data-testid             (str "rf-xray-epoch-subs-leaf-changed-" idx)
-                 :style                   subs-leaf-row-style}
-           [:span [ei/mini after 40]]
-           [:span {:data-rf-diff-annotation "subs-was"
-                   :style                   subs-leaf-was-style}
-            "← was "
-            [:span {:data-rf-xray-subs-leaf-was "1"}
-             [ei/mini before 40]]]])
-        [:div {:style subs-value-cell-fill-style}
-         [ei/edn-inspector after
-          (cond-> {:panel-id :rf.xray.epoch/subs-value
-                   :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
-                   :default-expanded-depth 3
-                   :full-with-diff? true}
-            (some? before) (assoc :before before))]])
-
-      ;; :diff (default fallback) — before → after via mini.
-      [:div {:style subs-changed-row-style}
-       (when (some? before)
-         [:span {:style diff-before-style} [ei/mini before 24]])
-       (when (and (some? before) (some? after))
-         [:span {:style cascade-detail-label-style} "→"])
-       (when (some? after)
-         [:span {:style diff-after-success-style} [ei/mini after 24]])])))
+        (cond-> {:panel-id :rf.xray.epoch/subs-value
+                 :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
+                 :default-expanded-depth 3
+                 :full-with-diff? true}
+          (some? before) (assoc :before before))]])))
 
 (defn- subscriptions-table
   "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
   Per the bead body's §SUBSCRIPTIONS (Step 7) shape (rf2-kfh1v).
 
-  rf2-yqjrd — the `changed` cell now routes through `subs-value-cell`
-  so the universal three-mode toggle drives value rendering. `mode`
-  carries the resolved `:rf.xray.epoch/subs-value-diff-mode` keyword.
+  rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
+  toggle (rf2-yqjrd) is retired. The `changed` cell always renders
+  under the single FULL+DIFF posture via `subs-value-cell`.
 
-  rf2-uji72 — table now mounts through the shared `rt/resizable-table`
+  rf2-uji72 — table mounts through the shared `rt/resizable-table`
   view; columns are user-draggable via the gutters between adjacent
-  headers. Per-row layout becomes a CSS grid driven by the table's
-  column-widths state slot (in-memory; reset on reload — localStorage
-  persistence is a follow-up bead).
+  headers.
 
   rf2-zuh3p — when a row carries `:violations` (a `:sub-return`
   boundary failure attributed to that sub-id by the projection), the
   per-row violation sub-block renders INLINE via the resizable-table's
   `:row-extras` slot — directly below the row, before the next row
-  begins. Parity with the sibling FX step's `fx-row-with-violations`.
-  Pre-fix all per-row violations rendered as a single foot-of-step
-  block (line 3178-3181), divorcing the violation from its row."
-  [rows mode]
+  begins. Parity with the sibling FX step's `fx-row-with-violations`."
+  [rows]
   (let [columns [{:id :sub    :label "sub"    :default-flex "1fr"}
                  {:id :inputs :label "inputs" :default-flex "1fr"}
                  {:id :value  :label "value"  :default-flex "1fr"}]]
     [rt/resizable-table
      {:table-id        :rf.xray.epoch/subscriptions
       :container-attrs {:data-testid              "rf-xray-epoch-subscriptions-table"
-                        :data-rf-xray-diff-mode   (when (keyword? mode) (name mode))
+                        :data-rf-xray-diff-mode   "full+diff"
                         :style                    subscriptions-table-style}
       :header-attrs    {:style table-header-row-style}
       :columns         columns
@@ -3196,7 +3009,7 @@
          ;; value cell
          [:div {:data-rf-xray-resizable-col "value"
                 :style subs-cell-changed-style}
-          (subs-value-cell row mode i)]])
+          (subs-value-cell row i)]])
       ;; rf2-zuh3p — per-row violations attach inline as `:row-extras`
       ;; so the schema-violation sub-block renders directly below its
       ;; owning row (mirrors the FX step's `fx-row-with-violations`
@@ -3316,8 +3129,6 @@
   [{:keys [rows disposed-rows step-number violations]}]
   (let [mode          @(rf/subscribe :rf/xray
                                      [:rf.xray.epoch/subs-filter-mode])
-        value-mode    @(rf/subscribe :rf/xray
-                                     [:rf.xray.epoch/subs-value-diff-mode])
         visible-rows  (case mode
                         :all       rows
                         :unchanged (filterv (complement :changed?) rows)
@@ -3338,26 +3149,14 @@
         ;; disposed-clause stays because there's no button-bar
         ;; affordance for that surface (and the count is small
         ;; enough that "L disposed" still reads at a glance).
+        ;;
+        ;; rf2-vv3m6 (2026-05-29) — the prior value-mode toggle
+        ;; `[diff][full][full+diff]` (rf2-yqjrd) is retired; each
+        ;; changed row's value cell renders unconditionally under
+        ;; FULL+DIFF.
         :verb [:span {:style subs-verb-style}
                (when (pos? n)
                  (subs-filter-button-bar mode))
-               ;; rf2-yqjrd — universal three-mode toggle drives how each
-               ;; `:changed?` row's value cell renders. Orthogonal to the
-               ;; row-filter button bar above. Same shared widget every
-               ;; other Xray diff surface uses (Epoch HANDLER `:db`,
-               ;; App-DB, Machine Inspector snapshot).
-               (when (pos? n)
-                 [diff-mode/diff-mode-toggle
-                  {:mode      value-mode
-                   ;; rf2-7vv8f — testid prefix normalised to
-                   ;; `rf-xray-<surface>-diff-mode`.
-                   :testid    "rf-xray-epoch-subs-value-diff-mode"
-                   ;; rf2-fytu4 — uniform "View" discoverability label.
-                   :label     "View"
-                   :on-change (fn [m]
-                                (rf/with-frame :rf/xray
-                                  (rf/dispatch
-                                    [:rf.xray.epoch/set-subs-value-diff-mode m])))}])
                (when (pos? l)
                  [:span {:style subs-disposed-count-style}
                   (str l " disposed")])]
@@ -3365,7 +3164,7 @@
         :testid "rf-xray-epoch-subscriptions"}
        nil)
      (when (pos? n)
-       (subscriptions-table visible-rows value-mode))
+       (subscriptions-table visible-rows))
      (when (pos? l)
        (disposed-subs-table disposed-rows))
      ;; rf2-xgeag · rf2-zuh3p — `:sub-return` boundary violations.

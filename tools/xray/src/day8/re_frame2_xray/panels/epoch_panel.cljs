@@ -36,8 +36,7 @@
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
-            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
-            [day8.re-frame2-xray.views.diff-mode-toggle :as diff-mode]))
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; ---- public Panel surface ------------------------------------------------
 
@@ -155,60 +154,20 @@
     (fn [db [_ mode]]
       (assoc db :epoch-panel-subs-filter-mode mode)))
 
-  ;; ---- HANDLER :db diff-mode toggle (pair-debug 2026-05-26 + rf2-n2jig 2026-05-27) ----
+  ;; ---- HANDLER :db + SUBSCRIPTIONS value rendering ---------------------
   ;;
-  ;; The HANDLER step's `:db` sub-section carries a three-button toggle
-  ;; `[diff][full][full+diff]` (per rf2-n2jig — was a two-button
-  ;; `[diff][all]` prior to 2026-05-27).
+  ;; rf2-vv3m6 (2026-05-29) retired the `[diff][full][full+diff]` mode
+  ;; toggle entirely. FULL+DIFF is the single rendering — auto-collapse
+  ;; of unchanged subtrees (rf2-fqcdd) + the leaf-scalar `← was X`
+  ;; annotation (rf2-fyd8u) + correct add/remove colouring (rf2-9d4j8)
+  ;; together gave FULL+DIFF the density that `:diff` used to provide
+  ;; and the comparison-context that `:full` lacked, so the three-mode
+  ;; toggle (and its sub/event/slot pair per surface) retired.
   ;;
-  ;; - `:diff`      — pure-diff lens: a flat path-prefixed list of
-  ;;                  changes produced by this handler (e.g.
-  ;;                  `+ [:counter] 6` / `~ [:user :name] "Ada" → "Ada
-  ;;                  Lovelace"`). Operator sees ONLY what changed.
-  ;; - `:full`      — pure-data lens (renamed from `:all` for clarity):
-  ;;                  the full post-cascade `:db-after` via the
-  ;;                  edn-inspector. Operator sees the entire app-db
-  ;;                  shape with no diff chrome.
-  ;; - `:full+diff` — combined lens (mode-3): the full data tree WITH
-  ;;                  inline diff annotations (gutter glyphs, row
-  ;;                  washes, R3 `[N∆]` chips on collapsed containers,
-  ;;                  R4 vertical rails, R5-tinted descendant washes,
-  ;;                  R6 `(was N)` vector-shift suffixes, R7 type-
-  ;;                  change `← was <prior>` suffixes, R8 redaction-
-  ;;                  curated suffixes). Default per pair-debug
-  ;;                  2026-05-27: this is the operator's most-useful
-  ;;                  default — shape + delta in one read.
-  ;;
-  ;; Mode persists via `:rf.xray.epoch/db-diff-mode` so the operator's
-  ;; preference survives focus shifts. The sub + event pair + slot are
-  ;; installed by the shared helper from `views.diff-mode-toggle` so
-  ;; every Xray diff surface uses identical naming (rf2-0cyjm /
-  ;; rf2-44xya).
-
-  (diff-mode/reg-mode-sub+event! :rf.xray.epoch/db)
-
-  ;; ---- SUBSCRIPTIONS value diff-mode toggle (rf2-yqjrd / rf2-0cyjm) ----
-  ;;
-  ;; Universal three-mode toggle for the per-row sub-value rendering in
-  ;; the SUBSCRIPTIONS step. Orthogonal to the existing
-  ;; `:rf.xray.epoch/subs-filter-mode` row-filter (`:all` / `:changed` /
-  ;; `:unchanged`) — the filter governs WHICH rows render; this
-  ;; diff-mode governs HOW each `:changed?` row's value cell renders.
-  ;;
-  ;; - `:diff`      — pure-diff lens: `before → after` glyph row (the
-  ;;                  prior shape; surfaces only the value pair).
-  ;; - `:full`      — pure-data lens: AFTER value alone via the
-  ;;                  edn-inspector widget; no BEFORE comparison.
-  ;; - `:full+diff` — combined lens (mode-3): AFTER value via the
-  ;;                  edn-inspector with BEFORE threaded as the diff
-  ;;                  pre-image so inline `← changed from X`
-  ;;                  annotations paint. Default per pair-debug
-  ;;                  2026-05-27.
-  ;;
-  ;; Mode persists via `:rf.xray.epoch/subs-value-diff-mode`; sub +
-  ;; event installed via the shared helper for uniform naming
-  ;; (rf2-0cyjm / rf2-44xya).
-  (diff-mode/reg-mode-sub+event! :rf.xray.epoch/subs-value)
+  ;; The two prior installs here —
+  ;;   (diff-mode/reg-mode-sub+event! :rf.xray.epoch/db)
+  ;;   (diff-mode/reg-mode-sub+event! :rf.xray.epoch/subs-value)
+  ;; — are gone; the view-layer renders FULL+DIFF unconditionally.
 
   ;; ---- L4 tab registration ----------------------------------------------
   ;;

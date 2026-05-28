@@ -542,18 +542,16 @@
 (deftest handler-db-diff-always-renders-for-non-machine-handlers-test
   (testing "rf2-93436 — `:db diff` sub-section is ALWAYS present
             inside the HANDLER body for reg-event-db / reg-event-fx.
-            Empty diff renders `— (no changes)`; populated diff
-            renders the path-changes.
 
-            rf2-n2jig — the toggle's default flipped to `:full+diff`
-            (mode-3). These tests pin `:diff` explicitly via the
-            persistence slot so the diff-list assertions remain
-            authoritative against the explicit-pin path."
+            rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]`
+            mode toggle retired. FULL+DIFF is the single rendering, so
+            the slot always paints the `rf-xray-epoch-handler-db-full-
+            with-diff` (or `…-missing` when the epoch carries no
+            db-after) descendant rather than the prior `:diff` /
+            `:full` / `:full+diff` per-mode descendants."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.epoch/set-db-diff-mode :diff]))
-    (testing "reg-event-db with empty diff"
+    (testing "reg-event-db with empty diff still renders the slot"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
@@ -562,9 +560,10 @@
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot)
             ":db diff sub-section is always present even when empty")
-        (is (string/includes? (or (th/text-content slot) "") "no changes")
-            "empty diff renders `— (no changes)` per design §Empty edge cases")))
-    (testing "reg-event-db with populated diff"
+        (is (= "full+diff"
+               (-> slot second :data-rf-xray-diff-mode))
+            "FULL+DIFF is the single rendering post-rf2-vv3m6")))
+    (testing "reg-event-db with populated diff renders the slot"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
@@ -572,11 +571,8 @@
                       :db-diff [[[:counter :value] 5 6 :modified]]
                       :fx [] :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
-        (is (some? slot))
-        (is (some? (th/find-by-testid
-                     tree "rf-xray-epoch-handler-diff-row-0"))
-            "the populated diff row renders inside the sub-section")))
-    (testing "reg-event-fx with empty diff"
+        (is (some? slot))))
+    (testing "reg-event-fx with empty diff still renders the slot"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
@@ -585,8 +581,7 @@
                       :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot)
-            "even reg-event-fx that returned no :db gets the sub-section")
-        (is (string/includes? (or (th/text-content slot) "") "no changes"))))))
+            "even reg-event-fx that returned no :db gets the sub-section")))))
 
 (deftest handler-db-diff-suppressed-for-machine-handlers-test
   (testing "rf2-93436 — for machine handlers the standalone `:db diff`
@@ -1311,25 +1306,12 @@
       (is (pos? (count (ei-mounts tree)))
           "the DISPATCH body mounts at least one edn-inspector widget"))))
 
-(deftest handler-db-diff-values-route-through-mini-test
-  (testing "rf2-8w8er — HANDLER step's :db diff rows render before /
-            after values through `ei/mini` so per-token chrome paints
-            (numbers orange, sentinels chip).
-
-            rf2-n2jig — pin `:diff` mode explicitly since the default
-            flipped to `:full+diff`."
-    (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.epoch/set-db-diff-mode :diff]))
-    (let [tree (rf/with-frame :rf/xray
-                 (view/render-handler-step
-                   {:step :handler :badge :HANDLER :step-number 3
-                    :flavour :reg-event-db :event-id :counter/inc
-                    :db-diff [[[:counter :value] 5 6 :modified]]
-                    :fx [] :machine nil}))]
-      (is (pos? (count (mini-mounts tree)))
-          "the :db diff row mounts at least one mini-render"))))
+;; rf2-vv3m6 (2026-05-29) — `handler-db-diff-values-route-through-mini-
+;; test` retired. The test pinned the prior `:diff` mode rendering
+;; (`db-diff-line` painting before / after through `ei/mini`) which
+;; required `[:rf.xray.epoch/set-db-diff-mode :diff]` to take effect.
+;; FULL+DIFF is the single rendering post-rf2-vv3m6; the HANDLER `:db`
+;; sub-section mounts edn-inspector, not mini.
 
 (deftest handler-fx-section-routes-through-edn-inspector-test
   (testing "rf2-p2zy0 — HANDLER step's `:fx` section (the canonical
@@ -1367,41 +1349,52 @@
       (is (string/includes? (th/text-content oth-sec) "1 entry")
           "the other sub-header carries the singular entry chip"))))
 
-(deftest fx-step-args-route-through-mini-test
-  (testing "rf2-8w8er — FX step row's args render through `ei/mini`."
+(deftest fx-step-args-route-through-edn-inspector-test
+  (testing "rf2-ef2hy — FX step row's args render through the
+            edn-inspector widget with `:default-expanded-depth 1`,
+            replacing the prior rf2-8w8er mini rendering. Top-level
+            map keys (`:strategy`, `:from`, `:to`) are visible inline;
+            nested maps collapse to a clickable chevron so the
+            operator can drill into a complex args map.
+
+            Sibling rendering for the HANDLER step's `:fx` section
+            (rf2-p2zy0) uses the same widget with depth 16 (full-
+            expand). Both share the widget; per-call-site depth
+            reflects each section's role."
     (let [tree (view/render-fx-step
                  {:step :fx :badge :FX :step-number 4
                   :rows [{:fx-id :http/get :status :ok :args {:url "/x"}}]
                   :succeeded 1 :threw 0 :skipped 0})
           row  (th/find-by-testid tree "rf-xray-epoch-fx-row-0")]
       (is (some? row))
-      (is (pos? (count (mini-mounts row)))
-          "the fx row's args mount a mini-render"))))
+      (is (pos? (count (ei-mounts row)))
+          "the fx row's args mount an edn-inspector"))))
 
-(deftest subscriptions-values-route-through-mini-test
-  (testing "rf2-8w8er + rf2-yqjrd — SUBSCRIPTIONS row renders sub-vec
-            + before / after values through `ei/mini` so the table
-            cells light up with syntax-token chrome rather than plain
-            `pr-str`. The mini-mount triad applies to the `:diff`
-            value-mode (the prior shape); the new `:full` /
-            `:full+diff` modes route through the full edn-inspector
-            instead. Test pins both halves: setting the value-mode
-            to `:diff` recovers the original assertion."
+(deftest subscriptions-row-mounts-mini-for-sub-vec-test
+  (testing "rf2-8w8er — SUBSCRIPTIONS row renders the sub-vec column
+            through `ei/mini` so the table cell lights up with
+            syntax-token chrome rather than plain `pr-str`.
+
+            rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]`
+            value-mode toggle retired. The before / after leaf-scalar
+            FULL+DIFF branch (rf2-fyd8u) routes `before` + `after`
+            through `mini` for the syntax-token chrome; the sub-vec
+            column always uses `mini`. The original three-mode triad
+            assertion (`:diff` mode mini mounts) retired with the
+            toggle."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
-      ;; rf2-yqjrd — flip the value-mode to `:diff` so the per-row
-      ;; cell renders via `mini` instead of the new edn-inspector
-      ;; mount that `:full+diff` (default) uses.
-      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :diff])
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/total :sub-vec [:counter/total]
-                          :inputs nil :changed? true :before 5 :after 6}]
+                          :inputs nil :changed? true :first-run? false
+                          :before 5 :after 6}]
                   :changed 1 :unchanged 0}
             tree (view/render-subscriptions-step step)
             row  (th/find-by-testid tree "rf-xray-epoch-sub-row-0")]
         (is (some? row))
-        ;; sub-vec + before + after = 3 minimum mini mounts in the row
+        ;; sub-vec column + leaf-scalar `before` + leaf-scalar `after`
+        ;; all mount mini; assert ≥ 3.
         (is (>= (count (mini-mounts row)) 3)
             "row mounts ≥3 mini-renders (sub-vec + before + after)")))))
 
@@ -1444,8 +1437,9 @@
 ;; pipeline's `(for [[i step] …] …)` MUST be realised inside
 ;; `pipeline-view`'s return value so that any `@(rf/subscribe …)` deref
 ;; reached transitively by `render-step` (e.g. `handler-db-diff-block`'s
-;; `:rf.xray.epoch/db-diff-mode` read, or `render-subscriptions-step`'s
-;; `:rf.xray.epoch/subs-filter-mode` read — rf2-tzmmf) fires while the
+;; `:rf.xray/selected-epoch-record` read, or
+;; `render-subscriptions-step`'s `:rf.xray.epoch/subs-filter-mode`
+;; read — rf2-tzmmf) fires while the
 ;; parent reg-view's reactive scope is still live. A lazy seq realised
 ;; AFTER the reg-view returns
 ;; leaves the derefs OUTSIDE that scope — Reagent doesn't watch them,
@@ -1488,11 +1482,11 @@
 (deftest pipeline-view-realises-step-seq-rf2-atqkg-test
   (testing "rf2-atqkg — `pipeline-view` returns its step-seq REALISED
             so descendant sub derefs (e.g. handler-db-diff-block's
-            `:rf.xray.epoch/db-diff-mode` read) fire during the parent
-            reg-view's reactive scope. An unrealised lazy seq at this
-            position is the rf2-atqkg bug shape (Reagent emits the
-            `Reactive deref not supported in lazy seq, it should be
-            wrapped in doall` console warning at render time)."
+            `:rf.xray/selected-epoch-record` read) fire during the
+            parent reg-view's reactive scope. An unrealised lazy seq
+            at this position is the rf2-atqkg bug shape (Reagent emits
+            the `Reactive deref not supported in lazy seq, it should
+            be wrapped in doall` console warning at render time)."
     (let [steps [{:step :dispatch :badge :DISPATCH :step-number 1
                   :event [:counter/inc] :source :ui :coord nil}
                  {:step :handler :badge :HANDLER :step-number 2
@@ -1516,51 +1510,49 @@
                  (str "LazySeq, realized?=" (realized? step-seq))
                  :else (str "type=" (type step-seq))))))))
 
-;; ---- rf2-zmkqi — SUBSCRIPTIONS :full / :full+diff value cell smoke ------
+;; ---- rf2-zmkqi — SUBSCRIPTIONS value cell smoke -------------------------
 
-(deftest subscriptions-full-mode-renders-without-inline-style-test
-  (testing "rf2-zmkqi — the `:full` / `:full+diff` value-cell modes
-            render without crashing. Smoke check that the post-hoist
-            ns-level style def (`subs-value-cell-fill-style`) lands a
-            valid `:style` map under the wrapping div — pre-fix two
-            literal `{:flex 1 :min-width 0}` maps were still inline."
+(deftest subscriptions-full-diff-cell-renders-without-inline-style-test
+  (testing "rf2-zmkqi — the value-cell renders without crashing under
+            the single FULL+DIFF rendering. Smoke check that the post-
+            hoist ns-level style def (`subs-value-cell-fill-style`)
+            lands a valid `:style` map under the wrapping div.
+
+            rf2-vv3m6 (2026-05-29) — the prior `:full` mode branch was
+            retired; FULL+DIFF is the single rendering. The container-
+            path mount uses the hoisted wrapper style."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
-      ;; Flip mode to :full so the hoisted style wrapper renders.
-      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full])
-      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
-                  :rows [{:sub-id :counter/total :sub-vec [:counter/total]
-                          :inputs nil :changed? true :before 5 :after 6}]
+      (let [;; Container-path rows so the wrapper div is mounted (leaf-
+            ;; scalar paths take a different shape via rf2-fyd8u).
+            step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :counter/state :sub-vec [:counter/state]
+                          :inputs nil :changed? true :first-run? false
+                          :before {:a 1} :after {:a 1 :b 2}}]
                   :changed 1 :unchanged 0}
             tree (view/render-subscriptions-step step)
             row  (th/find-by-testid tree "rf-xray-epoch-sub-row-0")]
         (is (some? row)
-            "row renders cleanly under :full mode (hoisted style applied)"))
-      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full+diff])
-      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
-                  :rows [{:sub-id :counter/total :sub-vec [:counter/total]
-                          :inputs nil :changed? true :before 5 :after 6}]
-                  :changed 1 :unchanged 0}
-            tree (view/render-subscriptions-step step)
-            row  (th/find-by-testid tree "rf-xray-epoch-sub-row-0")]
-        (is (some? row)
-            "row renders cleanly under :full+diff mode (hoisted style applied)")))))
+            "row renders cleanly under FULL+DIFF (hoisted style applied)")))))
 
 ;; ---- rf2-fyd8u — SUBSCRIPTIONS FULL+DIFF leaf-scalar annotation ---------
 
 (deftest subscriptions-full-diff-leaf-scalar-value-change-renders-was-annotation-test
-  (testing "rf2-fyd8u — in FULL+DIFF mode, a leaf-scalar sub with
-            `:value-changed? true` and `:first-run? false` renders
-            value + inline `← was <prev>` annotation. The annotation
-            chip carries `:data-rf-diff-annotation \"subs-was\"`; the
-            row-level wrapper carries `:data-rf-xray-subs-leaf
-            \"changed\"`. Acceptance criterion 3 — pins
-            `0 → 1`, `\"even\" → \"odd\"`, `nil → 1779972561856`."
+  (testing "rf2-fyd8u — under the single FULL+DIFF rendering, a
+            leaf-scalar sub with `:value-changed? true` and
+            `:first-run? false` renders value + inline `← was <prev>`
+            annotation. The annotation chip carries
+            `:data-rf-diff-annotation \"subs-was\"`; the row-level
+            wrapper carries `:data-rf-xray-subs-leaf \"changed\"`.
+            Acceptance criterion 3 — pins
+            `0 → 1`, `\"even\" → \"odd\"`, `nil → 1779972561856`.
+
+            rf2-vv3m6 (2026-05-29) — the prior `:full+diff` dispatch
+            bootstrap is gone; FULL+DIFF is the single rendering."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full+diff])
       (testing "0 → 1 (counter/value)"
         (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                     :rows [{:sub-id :counter/value :sub-vec [:counter/value]
@@ -1613,16 +1605,16 @@
                 "prev nil renders as `nil` syntax token in the annotation")))))))
 
 (deftest subscriptions-full-diff-leaf-scalar-first-run-renders-added-chrome-test
-  (testing "rf2-fyd8u — in FULL+DIFF mode, a leaf-scalar sub with
-            `:value-changed? true` and `:first-run? true` (the run
-            that created the cache slot — a freshly-mounted view
-            deref'd a sub that wasn't cached this frame) renders
-            `:added` chrome (green stripe / leading `+` glyph / wash)
-            with NO `← was` annotation. Acceptance criterion 4."
+  (testing "rf2-fyd8u — under the single FULL+DIFF rendering, a
+            leaf-scalar sub with `:value-changed? true` and
+            `:first-run? true` (the run that created the cache slot —
+            a freshly-mounted view deref'd a sub that wasn't cached
+            this frame) renders `:added` chrome (green stripe /
+            leading `+` glyph / wash) with NO `← was` annotation.
+            Acceptance criterion 4."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full+diff])
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/value :sub-vec [:counter/value]
                           :inputs nil :changed? true :first-run? true
@@ -1647,15 +1639,14 @@
 
 (deftest subscriptions-full-diff-container-keeps-inspector-mount-test
   (testing "rf2-fyd8u — for CONTAINER sub returns (map / vector / set)
-            the FULL+DIFF cell keeps the existing edn-inspector mount
-            with `:before` threaded — the inspector's R1-R8 grammar
-            paints child-level annotations there. The leaf-scalar
-            wrappers (`-leaf-changed-` / `-leaf-added-`) are NOT
-            mounted on the container path. Acceptance criterion 7."
+            the value-cell keeps the existing edn-inspector mount with
+            `:before` threaded — the inspector's R1-R8 grammar paints
+            child-level annotations there. The leaf-scalar wrappers
+            (`-leaf-changed-` / `-leaf-added-`) are NOT mounted on the
+            container path. Acceptance criterion 7."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full+diff])
       (testing "map sub return — container path"
         (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                     :rows [{:sub-id :counter/state :sub-vec [:counter/state]
@@ -1691,39 +1682,13 @@
                wrapper — inspector handles the whole-subtree :added at
                the row level"))))))
 
-(deftest subscriptions-diff-mode-unchanged-by-leaf-branch-test
-  (testing "rf2-fyd8u — the `:diff` mode (prev → after via mini) is
-            UNCHANGED by the leaf-scalar branch. The new chrome
-            applies only to `:full+diff` mode. `:full` mode (no diff)
-            is also unchanged."
-    (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
-    (rf/with-frame :rf/xray
-      (testing ":diff mode — value-change leaf renders the prior pair shape"
-        (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :diff])
-        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
-                    :rows [{:sub-id :counter/value :sub-vec [:counter/value]
-                            :inputs nil :changed? true :first-run? false
-                            :before 0 :after 1}]
-                    :changed 1 :unchanged 0}
-              tree (view/render-subscriptions-step step)]
-          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0"))
-              ":diff mode does NOT mount the leaf-changed wrapper")
-          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-added-0"))
-              ":diff mode does NOT mount the leaf-added wrapper")))
-      (testing ":full mode — no diff chrome, no leaf wrappers"
-        (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full])
-        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
-                    :rows [{:sub-id :counter/value :sub-vec [:counter/value]
-                            :inputs nil :changed? true :first-run? true
-                            :before nil :after 1}]
-                    :changed 1 :unchanged 0}
-              tree (view/render-subscriptions-step step)]
-          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0"))
-              ":full mode does NOT mount the leaf-changed wrapper")
-          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-added-0"))
-              ":full mode does NOT mount the leaf-added wrapper
-               (even on `:first-run? true`)"))))))
+;; rf2-vv3m6 (2026-05-29) — `subscriptions-diff-mode-unchanged-by-leaf-
+;; branch-test` retired. The test pinned the `:diff` and `:full` mode
+;; branches of `subs-value-cell` to verify the rf2-fyd8u leaf-scalar
+;; chrome appeared only under `:full+diff`. Those two branches retired
+;; with the mode toggle; FULL+DIFF is the single rendering, so the
+;; leaf-scalar chrome paints unconditionally for changed leaf-scalar
+;; rows (covered by the two leaf-* tests above).
 
 ;; ---- rf2-309cy — VIEWS row view-id keyword routes through ei/mini ------
 

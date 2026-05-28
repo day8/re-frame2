@@ -445,7 +445,7 @@
   Every section ALSO carries a `:before` slot — the SAME slice from the
   cascade's `db-before` (the TOP user-domain section, each instance, each
   singleton). The renderer threads `:before` + `:value` into the shared
-  §10 diff renderer so changed nodes carry the inline `← changed from X`
+  §10 diff renderer so changed nodes carry the inline `← was X`
   annotation in place (ancestor chain force-expanded). When no pre-image
   is threaded — the 1-arity form, or LIVE-at-boot with no prior epoch —
   `:before` is the `no-diff` sentinel and the renderer falls back to the

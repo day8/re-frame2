@@ -68,7 +68,7 @@
 
   | Panel | Reads | Writes (via dispatch) |
   |---|---|---|
-  | **epoch-panel** | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` · `:rf.xray.epoch/set-db-diff-mode` |
+  | **epoch-panel** | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` |
   | **app-db (current-state inspector)** | `:rf.xray/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area — rf2-okvit) | `:rf.xray/open-segment-inspector` |
   | **reactive-panel** | `:rf.xray/reactive-data` (composite over focused cascade's `:trace-events`) | `:rf.xray/reactive-toggle-unchanged` |
   | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into the whole-epoch arc: envelope + 4 phase bands, spec/023) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/toggle-trace-band-collapse` · `:rf.xray/open-in-editor` |

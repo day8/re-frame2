@@ -11,11 +11,13 @@
      ns to load and aborted the cascade; subsequent galleries never
      ran their `register-all!`.
 
-  2. **Cascade B — `:rf.error/story-id-shape`**: `gallery_diff_mode_
-     universal.cljs` declared `(reg-story :story.xray.app-db/diff-
-     mode ...)` — the slash separator violates the canonical id
-     grammar `:story.<dotted-path>` (story ids MUST have nil
-     namespace per `schemas/story-id?`).
+  2. **Cascade B (retired with rf2-vv3m6)** — formerly pinned a slash-
+     separator regression in the now-removed `gallery_diff_mode_
+     universal.cljs`. The universal three-mode toggle gallery retired
+     when the `[diff][full][full+diff]` toggle itself retired
+     (FULL+DIFF is the single rendering). The grammar lock survives
+     elsewhere via `schemas/story-id?` plus the per-gallery cascade
+     in `each-gallery-register-all-drops-non-empty-inventory` below.
 
   This smoke locks both regressions at the framework + author level:
 
@@ -47,7 +49,6 @@
             [panel-gallery.gallery-app-db          :as gallery-app-db]
             [panel-gallery.gallery-chrome          :as gallery-chrome]
             [panel-gallery.gallery-diff-mode-3     :as gallery-diff-mode-3]
-            [panel-gallery.gallery-diff-mode-universal :as gallery-diff-mode-universal]
             [panel-gallery.gallery-edn-inspector   :as gallery-edn-inspector]
             [panel-gallery.gallery-epoch           :as gallery-epoch]
             [panel-gallery.gallery-filters         :as gallery-filters]
@@ -94,86 +95,15 @@
             so the sidebar tag-filter UI can group it (SB9 facet parity)"
     (is (= schemas/canonical-state-tags (story/tags-by-axis :state)))))
 
-;; ---- Cascade B regression — gallery_diff_mode_universal.cljs ids -----
-
-(def ^:private universal-diff-mode-story-ids
-  "The three story ids that `gallery_diff_mode_universal.cljs` declares
-  post-fix. Before rf2-k1k87 each carried a slash separator
-  (`:story.xray.app-db/diff-mode`) violating the canonical
-  `:story.<path>` grammar; the rename collapses them under
-  dotted-path names."
-  [:story.xray.app-db.diff-mode-toggle
-   :story.xray.machine-inspector.snapshot-diff-mode-toggle
-   :story.xray.epoch.subs-value-diff-mode-toggle])
-
-(def ^:private universal-diff-mode-variant-ids
-  "The nine variant ids that `gallery_diff_mode_universal.cljs` declares
-  post-fix — three modes × three surfaces, each `:story.<path>/<mode>`."
-  [:story.xray.app-db.diff-mode-toggle/full+diff
-   :story.xray.app-db.diff-mode-toggle/full
-   :story.xray.app-db.diff-mode-toggle/diff
-   :story.xray.machine-inspector.snapshot-diff-mode-toggle/full+diff
-   :story.xray.machine-inspector.snapshot-diff-mode-toggle/full
-   :story.xray.machine-inspector.snapshot-diff-mode-toggle/diff
-   :story.xray.epoch.subs-value-diff-mode-toggle/full+diff
-   :story.xray.epoch.subs-value-diff-mode-toggle/full
-   :story.xray.epoch.subs-value-diff-mode-toggle/diff])
-
-(def ^:private universal-diff-mode-workspace-id
-  :Workspace.xray.diff-mode-universal/all)
-
-(deftest cascade-b-gallery-diff-mode-universal-ids-match-canonical-grammar
-  (testing "every story id from gallery_diff_mode_universal.cljs passes
-            schemas/story-id? (no slash separator — rf2-k1k87)"
-    (doseq [sid universal-diff-mode-story-ids]
-      (is (schemas/story-id? sid)
-          (str (pr-str sid) " must match the :story.<dotted-path> grammar"))
-      (is (nil? (namespace sid))
-          (str (pr-str sid) " must have nil namespace — slash separator forbidden"))))
-  (testing "every variant id from gallery_diff_mode_universal.cljs passes
-            schemas/variant-id?"
-    (doseq [vid universal-diff-mode-variant-ids]
-      (is (schemas/variant-id? vid)
-          (str (pr-str vid) " must match the :story.<path>/<variant> grammar"))))
-  (testing "the workspace id passes schemas/workspace-id?"
-    (is (schemas/workspace-id? universal-diff-mode-workspace-id))))
-
-(deftest cascade-b-variants-are-claimed-by-their-stories
-  (testing "every variant id from the gallery namespaces ties back to a
-            registered story via the `(namespace vid) = (name sid)` rule
-            (per `story/variants-of`). Story canvas walks this edge to
-            list a story's variants; a mismatched name breaks the panel."
-    ;; Register each story + each variant under canonical ids; assert
-    ;; the registrar's `variants-of` picks them up. Catches the failure
-    ;; mode where a variant id's namespace doesn't match its story id's
-    ;; name (the original bug had `:story.xray.app-db/diff-mode-full+diff`
-    ;; whose namespace was `story.xray.app-db`, NOT the registered story
-    ;; `:story.xray.app-db/diff-mode` — so even with the grammar bug
-    ;; sidestepped, the variants would have been orphaned).
-    (doseq [[sid vid-prefix variant-tail]
-            [[:story.xray.app-db.diff-mode-toggle
-              "story.xray.app-db.diff-mode-toggle"
-              ["full+diff" "full" "diff"]]
-             [:story.xray.machine-inspector.snapshot-diff-mode-toggle
-              "story.xray.machine-inspector.snapshot-diff-mode-toggle"
-              ["full+diff" "full" "diff"]]
-             [:story.xray.epoch.subs-value-diff-mode-toggle
-              "story.xray.epoch.subs-value-diff-mode-toggle"
-              ["full+diff" "full" "diff"]]]]
-      (story/reg-story sid
-        {:doc       (str "Universal diff-mode toggle — " (name sid))
-         :component :smoke/comp
-         :tags      #{:dev}})
-      (doseq [tail variant-tail]
-        (let [vid (keyword vid-prefix tail)]
-          (story/reg-variant vid
-            {:doc    (str (name sid) " in " tail " mode")
-             :events []
-             :tags   #{:dev :state/special}})))
-      (let [variants (story/variants-of sid)]
-        (is (= 3 (count variants))
-            (str "story " (pr-str sid)
-                 " owns 3 variants via the variants-of edge"))))))
+;; ---- Cascade B regression — RETIRED 2026-05-29 (rf2-vv3m6) -----------
+;;
+;; The gallery_diff_mode_universal.cljs gallery retired alongside the
+;; `[diff][full][full+diff]` mode toggle (FULL+DIFF is now the single
+;; rendering). The story-id-shape regression it pinned is still covered
+;; generically by `schemas/story-id?` (used in the cascade A test above
+;; via the `:state/*` axis path) plus the per-gallery register-all!
+;; loop below (which would surface a malformed id by aborting the
+;; offending gallery's registrations).
 
 ;; ---- inventory-non-empty smoke (the headline contract) ---------------
 
@@ -212,7 +142,6 @@
   [["gallery-app-db"               gallery-app-db/register-all!]
    ["gallery-chrome"                gallery-chrome/register-all!]
    ["gallery-diff-mode-3"           gallery-diff-mode-3/register-all!]
-   ["gallery-diff-mode-universal"   gallery-diff-mode-universal/register-all!]
    ["gallery-edn-inspector"         gallery-edn-inspector/register-all!]
    ["gallery-epoch"                 gallery-epoch/register-all!]
    ["gallery-filters"               gallery-filters/register-all!]
