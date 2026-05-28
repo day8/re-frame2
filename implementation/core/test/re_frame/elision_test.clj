@@ -347,11 +347,11 @@
         sub-cache {[:auth/token]   {:value {:token "shh-secret"} :ref-count 1}
                    [:cart/total]   {:value 42 :ref-count 2}}]
     ;; Install the sensitive declaration directly into the live registry
-    ;; via the private `swap-registry!` helper — the same code path
+    ;; via the internal `swap-elision-slot!` helper — the same code path
     ;; `populate-sensitive-from-schemas!` uses, just without the
     ;; schema-extraction step (sub-cache content has no natural app-
     ;; schema path).
-    (#'re-frame.elision/swap-registry!
+    (re-frame.elision/swap-elision-slot!
        frame-id
        (fn [reg]
          (assoc reg :sensitive-declarations
@@ -381,7 +381,7 @@
   (let [path     [[:user/uploaded] :value :pdf]
         frame-id :rf/default
         sub-cache {[:user/uploaded] {:value {:pdf "<<5MB-blob>>"} :ref-count 1}}]
-    (#'re-frame.elision/swap-registry!
+    (re-frame.elision/swap-elision-slot!
        frame-id
        (fn [reg]
          (assoc reg :declarations

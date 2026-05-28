@@ -68,28 +68,56 @@
   (when-let [container (frame/get-frame-db frame-id)]
     (get-in (adapter/read-container container) [:rf/runtime :elision])))
 
-(defn- swap-registry!
+(defn ^:no-doc write-elision-slot
+  "Set or clear the per-frame elision registry inside `db`. When `new-reg`
+  is non-empty it lands at `[:rf/runtime :elision]`. When empty, the
+  slot is removed — and if the resulting `:rf/runtime` becomes empty,
+  the `:rf/runtime` key itself is dissoc'd so apps that never used
+  framework state don't manifest a stray nil container.
+
+  Internal helper; exposed (with `^:no-doc`) so the sibling
+  `re-frame.marks` ns — which writes through the SAME slot via
+  `add-marks` / `set-marks` / `clear-app-db-marks!` — can share a
+  single source of truth for the runtime-prune logic. Not part of the
+  public API."
+  [db new-reg]
+  (cond
+    (seq new-reg)
+    (assoc-in db [:rf/runtime :elision] new-reg)
+
+    ;; Clearing — only mutate when there's actually an :elision slot to
+    ;; clear, so apps that never used elision don't get a stray
+    ;; `:rf/runtime nil` entry.
+    (and (contains? db :rf/runtime)
+         (contains? (get db :rf/runtime) :elision))
+    (let [next-runtime (dissoc (get db :rf/runtime) :elision)]
+      (if (seq next-runtime)
+        (assoc db :rf/runtime next-runtime)
+        (dissoc db :rf/runtime)))
+
+    :else
+    db))
+
+(defn ^:no-doc swap-elision-slot!
+  "Read-transform-write helper for the per-frame elision registry.
+
+  Reads the registry at `[:rf/runtime :elision]` from `frame-id`'s
+  app-db, applies `(f reg) -> new-reg`, and writes the result back
+  through `write-elision-slot` (which prunes a stranded `:rf/runtime`
+  when the slot clears). No-op when the frame's container does not
+  exist. Returns nil.
+
+  Internal helper; exposed (with `^:no-doc`) so the sibling
+  `re-frame.marks` ns — which mutates the SAME slot from its
+  `add-marks` / `set-marks` / `clear-app-db-marks!` / `write-marks!`
+  paths — can share a single source of truth for the read-transform-
+  write skeleton. Not part of the public API."
   [frame-id f]
   (when-let [container (frame/get-frame-db frame-id)]
     (let [old-db  (adapter/read-container container)
           old-reg (get-in old-db [:rf/runtime :elision])
           new-reg (f old-reg)
-          new-db  (cond
-                    (seq new-reg)
-                    (assoc-in old-db [:rf/runtime :elision] new-reg)
-
-                    ;; Clearing — only mutate when there's actually an
-                    ;; :elision slot to clear, so apps that never used
-                    ;; elision don't get a stray `:rf/runtime nil` entry.
-                    (and (contains? old-db :rf/runtime)
-                         (contains? (get old-db :rf/runtime) :elision))
-                    (let [next-runtime (dissoc (get old-db :rf/runtime) :elision)]
-                      (if (seq next-runtime)
-                        (assoc old-db :rf/runtime next-runtime)
-                        (dissoc old-db :rf/runtime)))
-
-                    :else
-                    old-db)]
+          new-db  (write-elision-slot old-db new-reg)]
       (adapter/replace-container! container new-db)))
   nil)
 
@@ -119,7 +147,7 @@
 
 (defn- install-schema-declarations!
   [frame-id registry-key schema-decls]
-  (swap-registry! frame-id
+  (swap-elision-slot! frame-id
     (fn [reg]
       (let [without-schema (reduce-kv
                              (fn [acc path decl]

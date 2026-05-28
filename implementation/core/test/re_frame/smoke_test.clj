@@ -528,7 +528,7 @@
     (rf/reg-event-db :seed-machines
       (fn [db _]
         (assoc-in db [:rf/runtime :machines :snapshots] {:flow/login    {:state :authed   :data {}}
-                                :flow/checkout {:state :pending  :data {}}})))
+                                                         :flow/checkout {:state :pending  :data {}}})))
     (rf/dispatch-sync [:seed-machines] {:frame :tenant-a})
     (let [traces (atom [])]
       (rf/register-listener! ::df (fn [ev] (swap! traces conj ev)))
