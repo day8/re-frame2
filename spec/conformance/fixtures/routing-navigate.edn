@@ -20,9 +20,15 @@
  ;; runtime's built-in handler (per Spec 012) computes the URL via
  ;; route-url and emits :rf.nav/push-url, which is exactly what
  ;; :effects-routed asserts.
+ ;;
+ ;; Per rf2-xak8u: no :sub override for :rf/route either — the
+ ;; framework's route-sub-fn projects the slice (select-keys over the
+ ;; routing-runtime container at app-db :rf/route), which is what
+ ;; consumers see. A fixture-DSL `[[:get [:rf/route]]]` body would
+ ;; return the full container (including the internal counters), so
+ ;; we let the real sub stand.
  :fixture/handlers
  {:event {:rf/init [[:set [:rf/route] {:id :route/home :params {}}]]}
-  :sub   {:rf/route [[:get [:rf/route]]]}
   :fx    {:rf.nav/push-url [[:noop]]}}
 
  ;; :rf.nav/push-url declares :platforms #{:client}; the frame runs on the
@@ -39,24 +45,22 @@
  ;; (per Spec 012 §The :rf/route slice): :id, :params, :query, :fragment,
  ;; :transition, :error, :nav-token. The :final-app-db submap match
  ;; tolerates the additional keys; the :sub-values check is exact, so
- ;; the expected slice mirrors what the runtime writes. :nav-token is
- ;; matched via the wildcard `:rf.fixture/any` sentinel since the gensym
- ;; counter resets per fixture run.
+ ;; the expected slice mirrors what the :rf/route sub publishes.
  ;;
- ;; Per rf2-3ib8h: routing-runtime per-frame state nests under :rf/route
- ;; (:nav-token-counter etc.) to satisfy the :rf/* single-root scheme
- ;; (Conventions §Reserved app-db keys). After two navigates against a
- ;; reset counter the slot reads "nav-token-counter 2".
+ ;; Per rf2-xak8u (Option-A): the :rf/route layer-1 sub projects the
+ ;; slice keys only. Internal routing-runtime sub-keys
+ ;; (:nav-token-counter etc.) live under :rf/route in app-db but do
+ ;; not surface through the sub, so :sub-values asserts the slice-
+ ;; only shape.
  {:final-app-db {:rf/route {:id :route/article-detail :params {:id "intro"}}}
 
-  :sub-values   {[:rf/route] {:id                :route/article-detail
-                              :params            {:id "intro"}
-                              :query             {}
-                              :fragment          nil
-                              :transition        :idle
-                              :error             nil
-                              :nav-token         "nav-2"
-                              :nav-token-counter 2}}
+  :sub-values   {[:rf/route] {:id         :route/article-detail
+                              :params     {:id "intro"}
+                              :query      {}
+                              :fragment   nil
+                              :transition :idle
+                              :error      nil
+                              :nav-token  "nav-2"}}
 
   :effects-routed
   [{:fx-id :rf.nav/push-url :args "/articles"}
