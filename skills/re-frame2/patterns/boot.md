@@ -116,13 +116,13 @@ Each link is a Pattern-AsyncEffect interaction. Past three links, scatter wins; 
 **Boot UI — single signal.** Subscribe and render against the snapshot:
 
 ```clojure
-(rf/reg-sub :app.boot/phase (fn [db _] (get-in db [:rf/machines :app/boot :data :phase])))
-(rf/reg-sub :app.boot/state (fn [db _] (get-in db [:rf/machines :app/boot :state])))
+(rf/reg-sub :app.boot/phase (fn [db _] (get-in db [:rf/runtime :machines :snapshots :app/boot :data :phase])))
+(rf/reg-sub :app.boot/state (fn [db _] (get-in db [:rf/runtime :machines :snapshots :app/boot :state])))
 ```
 
 No parallel `:loading?` flag — the machine's state IS the UI signal.
 
-**SSR handoff.** `:rf/server-init` runs server-meaningful phases. Client-only phases (`:hydrating` from `localStorage`, `:ws/connect`) skipped via `:platforms #{:client}`. Server writes `[:rf/machines :app/boot :state] = :hydrating` (or `:routing`) into hydrated `app-db`; client restores per Spec 005 and resumes. No double-fetch of `/config`.
+**SSR handoff.** `:rf/server-init` runs server-meaningful phases. Client-only phases (`:hydrating` from `localStorage`, `:ws/connect`) skipped via `:platforms #{:client}`. Server writes `[:rf/runtime :machines :snapshots :app/boot :state] = :hydrating` (or `:routing`) into hydrated `app-db`; client restores per Spec 005 and resumes. No double-fetch of `/config`.
 
 **Re-boot.** Dispatch a wildcard parent event: `:auth.session/expired {:target :authenticating}`. Most apps reload the page on session expiry.
 

@@ -77,9 +77,9 @@ If the parent needs to capture the child's last reported value before tearing it
 {:authenticating
  {:spawn {:machine-id :auth-flow}
   :exit   (fn [data _]
-            ;; The child's snapshot is still at [:rf/machines <id>]; read it.
+            ;; The child's snapshot is still at [:rf/runtime :machines :snapshots <id>]; read it.
             {:fx [[:analytics/record [:auth-attempt
-                                      (get-in @app-db [:rf/machines :auth-flow#1 :data])]]]})
+                                      (get-in @app-db [:rf/runtime :machines :snapshots :auth-flow#1 :data])]]]})
   :on     {:succeeded :authenticated
            :failed    :auth-failed}}}
 ```

@@ -434,11 +434,12 @@
       {:ok? false :reason :not-a-machine :id machine-id}))
 
 (defn machine-state
-  "Snapshot of one machine in the operating frame. Per Spec 005, machine
-   snapshots live at `[:rf/machines machine-id]` in app-db."
+  "Snapshot of one machine in the operating frame. Per Spec 005 + rf2-eguy4,
+   machine snapshots live at `[:rf/runtime :machines :snapshots machine-id]`
+   in app-db."
   ([machine-id] (machine-state machine-id (current-frame)))
   ([machine-id frame-id]
-   (rf/snapshot-of [:rf/machines machine-id] {:frame frame-id})))
+   (rf/snapshot-of [:rf/runtime :machines :snapshots machine-id] {:frame frame-id})))
 
 ;; ---------------------------------------------------------------------------
 ;; Epoch history & assembled-stream listener
@@ -2355,11 +2356,13 @@
     :app-db     (rf/get-frame-db frame-id)
     :sub-cache  (subs-tooling/sub-cache-snapshot frame-id)
     ;; The global machine-id list is registrar-level (not per-frame).
-    ;; Per Spec 005 each frame holds its own machine snapshots at
-    ;; [:rf/machines machine-id] in app-db, so the per-frame slice
-    ;; returns {:ids [...] :state {machine-id snapshot}}.
+    ;; Per Spec 005 + rf2-eguy4 each frame holds its own machine
+    ;; snapshots at [:rf/runtime :machines :snapshots machine-id] in
+    ;; app-db, so the per-frame slice returns
+    ;; {:ids [...] :state {machine-id snapshot}}.
     :machines   (let [ids (vec (rf/machines))
-                      state (or (get (rf/get-frame-db frame-id) :rf/machines)
+                      state (or (get-in (rf/get-frame-db frame-id)
+                                        [:rf/runtime :machines :snapshots])
                                 {})]
                   {:ids ids :state state})
     :epochs     (vec (rf/epoch-history frame-id))

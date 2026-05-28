@@ -13,7 +13,7 @@ re-frame2 gives you three places to put state. The right choice usually falls ou
 |---|---|---|
 | **Slice** | a key (or sub-tree) inside `app-db`, written by `reg-event-db` and read by `reg-sub`. No FSM grammar. | A field, a list, a flag, a counter — values that change but whose *legal transitions* don't need enforcement. |
 | **Region** | one axis inside an existing `reg-machine` declared with `:type :parallel` and `:regions {...}`. Each region runs its own state-tree. | A sub-concern that is *part of* a larger feature's lifecycle — e.g. a form's submission status inside a screen's load-then-edit lifecycle. |
-| **Top-level machine** | a free-standing `reg-machine`. Its snapshot lives at `[:rf/machines <id>]` in `app-db`. | A feature whose answer to "what can happen next?" depends on the current mode, and which is not a sub-concern of another feature. |
+| **Top-level machine** | a free-standing `reg-machine`. Its snapshot lives at `[:rf/runtime :machines :snapshots <id>]` in `app-db`. | A feature whose answer to "what can happen next?" depends on the current mode, and which is not a sub-concern of another feature. |
 
 ## Step 0 — three sanity questions before the tree
 
