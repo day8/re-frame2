@@ -21,6 +21,20 @@
   Every public symbol on the facade still resolves under its existing
   name; the bodies are thin re-exports / delegators.
 
+  ## Why this file is ~1100 LoC (rf2-5hp3r — facade-size investigation)
+
+  The implementation weight has already been moved off the facade. Of
+  the LoC that remain: ~18% is code-only (thin defmacro wrappers and
+  delegator defns), ~56% is docstring, ~10% is inline structure
+  comments, ~15% is blank-line separation. The size is documentation,
+  not waste — and the docstrings belong on the macros (where authors'
+  IDEs surface them on hover) rather than on the `*`-suffix runtime
+  helpers (which authors don't call directly). Comparable author-
+  facing facades — `re-frame.core` (1.5 KLoC), `day8.re-frame2-xray.
+  config` (1.5 KLoC) — sit in the same range for the same reason.
+  Investigation outcome: structure justifies size; no further split
+  warranted at this stage.
+
   ## Boot
 
   The canonical Story vocabulary auto-installs on the first `reg-*`
