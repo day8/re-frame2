@@ -31,14 +31,8 @@
   - **shared subscription** → a sub read by ≥2 views fans out to N view
     nodes; the node carries a `×N` annotation.
 
-  Below the graph three list sections complete the panel:
+  Below the graph two list sections complete the panel:
 
-  - **SUB VALUES** (rf2-e46qs phase 3 of rf2-oqa60) — one row per RUN
-    sub this cascade; each row's value renders through the first-class
-    edn-inspector widget (`views.edn-inspector`, spec/021 §10) DIRECTLY
-    — no `edn/inspect` / `edn/browse` facade hop. Per-row stable
-    `:panel-id` (`:rf.xray.reactive-sub-value/<sub-id>`) so two sub-row
-    expansions never share state.
   - **UNMOUNTED VIEWS** — views whose component unmounted this epoch.
   - **DESTROYED SUBSCRIPTIONS** — subs cleaned up when their last reader
     unmounted (data-availability honest: empty until the sub-dispose op
@@ -71,13 +65,7 @@
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens mono-stack sans-stack with-alpha]]
-            ;; rf2-e46qs phase 3 — per-sub value inspector renders
-            ;; through the first-class edn-inspector widget (spec/021
-            ;; §10) directly. Each sub-value mount gets its own stable
-            ;; per-sub `:panel-id` so two sub-row expansions are
-            ;; independent (acceptance #2).
-            [day8.re-frame2-xray.views.edn-inspector :as ei]))
+             :refer [tokens mono-stack sans-stack with-alpha]]))
 
 ;; ---- section chrome -----------------------------------------------------
 
@@ -446,153 +434,6 @@
           :style destroyed-caption-style}
       "Subscriptions cleaned up when their last reader unmounted"]]))
 
-;; ---- SUB VALUES inspector section (rf2-e46qs phase 3 of rf2-oqa60) -----
-;;
-;; One row per RUN sub this cascade, surfacing the sub's current value
-;; through the first-class edn-inspector widget (`views.edn-inspector`,
-;; spec/021 §10). Each row mounts `[ei/edn-inspector value opts]`
-;; directly — no `edn/inspect` / `edn/browse` facade hop.
-;;
-;; Per-row `:panel-id` (acceptance #2) is a STABLE per-sub keyword built
-;; from the sub-id: two sub-row expansions never share expansion state.
-;; The widget auto-generates a fresh `mount-id` per call site (D4=a,
-;; rf2-sndui), so a re-render preserves the operator's drill-downs.
-
-(defn- sub-value-panel-id
-  "Stable per-sub `:panel-id` for the edn-inspector mount. The sub-id
-  (a keyword in the standard case) is folded into a namespaced kw under
-  `:rf.xray.reactive-sub-value` so its expansion slot is isolated from
-  every other panel-id in the app-db expansion map. Acceptance #2 —
-  multiple sub-row expansions are independent."
-  [sub-id]
-  (cond
-    (keyword? sub-id)
-    (keyword "rf.xray.reactive-sub-value"
-             (str (when-let [ns (namespace sub-id)] (str ns "_"))
-                  (name sub-id)))
-
-    :else
-    (keyword "rf.xray.reactive-sub-value"
-             (string/replace (pr-str sub-id) #"[^a-zA-Z0-9_]" "_"))))
-
-(def ^:private sub-value-row-style
-  {:display       "flex"
-   :flex-direction "column"
-   :gap           "6px"
-   :padding       "10px 14px"
-   :border-top    (str "1px solid " (:border-subtle tokens))
-   :font-family   mono-stack
-   :font-size     "12px"})
-
-(def ^:private sub-value-row-header-style
-  {:display "flex" :align-items "baseline" :gap "8px"})
-
-;; Changed / unchanged colour overlay for the sub-id span. Hoisted as
-;; two fully-realised maps (changed vs unchanged) + a cursor-pointer
-;; superset for the clickable variant; the renderer picks one by key
-;; rather than allocating a fresh map per row.
-(def ^:private sub-value-row-id-style-changed
-  {:color (:accent tokens) :font-weight 600})
-
-(def ^:private sub-value-row-id-style-unchanged
-  {:color (:dim tokens) :font-weight 400})
-
-(def ^:private sub-value-row-id-style-changed-clickable
-  (assoc sub-value-row-id-style-changed :cursor "pointer"))
-
-(def ^:private sub-value-row-id-style-unchanged-clickable
-  (assoc sub-value-row-id-style-unchanged :cursor "pointer"))
-
-(def ^:private sub-value-row-tag-style
-  {:color (:text-tertiary tokens)
-   :font-family sans-stack
-   :font-size "10px"
-   :letter-spacing "0.4px"
-   :text-transform "uppercase"})
-
-(def ^:private sub-value-row-body-padding-style
-  {:padding-left "4px"})
-
-(def ^:private sub-value-row-no-value-style
-  (assoc sub-value-row-body-padding-style
-         :color (:text-tertiary tokens)
-         :font-family sans-stack
-         :font-size "11px"
-         :font-style "italic"))
-
-(defn- sub-value-row
-  "Render one SUB VALUES row — the sub's id + its current value through
-  `[ei/edn-inspector]`. Changed subs read in the accent tone; unchanged
-  subs read dimmed (consistent with the flow-graph node encoding).
-
-  `:has-value?` false → the sub-run carried no `:value` slot (privacy
-  redaction or pre-attribution). The row renders a muted placeholder
-  rather than mounting the widget with `nil` (which would be
-  indistinguishable from a sub whose actual value is `nil`)."
-  [{:keys [sub-id slug changed? has-value? value coord]}]
-  (let [row-testid (str "rf-xray-reactive-sub-value-row-" slug)
-        click      (when coord (fn [e] (open-source! coord e)))
-        id-style   (if click
-                     (if changed?
-                       sub-value-row-id-style-changed-clickable
-                       sub-value-row-id-style-unchanged-clickable)
-                     (if changed?
-                       sub-value-row-id-style-changed
-                       sub-value-row-id-style-unchanged))]
-    [:div {:data-testid row-testid
-           :data-sub-changed (str (boolean changed?))
-           :style sub-value-row-style}
-     [:div {:style sub-value-row-header-style}
-      [:span (cond-> {:data-testid (str row-testid "-id")
-                      :style       id-style}
-               click (assoc :on-click click))
-       (format-id sub-id)]
-      [:span {:style sub-value-row-tag-style}
-       (if changed? "changed" "unchanged")]]
-     (if has-value?
-       [:div {:data-testid (str row-testid "-value")
-              :style sub-value-row-body-padding-style}
-        [ei/edn-inspector value {:panel-id (sub-value-panel-id sub-id)
-                                ;; rf2-pvsxs — sub-id is stable across
-                                ;; cascades; the operator's expansion
-                                ;; choices survive a tab leave-and-
-                                ;; return round-trip.
-                                :site-id  [:rf.xray.reactive/sub sub-id]
-                                :default-expanded-depth 2
-                                ;; rf2-l4625 — sub values can be the
-                                ;; full domain projection (cart, users,
-                                ;; route tree, …); the popup gives the
-                                ;; operator a full-modal inspection
-                                ;; surface for cramped values.
-                                :popup-affordance? true}]]
-       [:div {:data-testid (str row-testid "-no-value")
-              :style sub-value-row-no-value-style}
-        "(value not captured — redacted or pre-attribution)"])]))
-
-(defn- sub-values-section
-  "Render the SUB VALUES inspector section beneath the flow graph. One
-  row per RUN sub; rows render their value through `[ei/edn-inspector]`
-  directly (rf2-e46qs phase 3 of rf2-oqa60). The section is omitted
-  entirely when the cascade ran no subs — the flow graph's empty
-  placeholder already covers the no-cascade case.
-
-  Row hiccup is produced by INLINING `sub-value-row` (function call,
-  not a `[sub-value-row …]` Reagent component form) so the
-  `[ei/edn-inspector value opts]` mount surfaces in the panel's hiccup
-  tree directly — testable without a React render — and the React
-  reconciler still keys each row via the `^{:key …}` metadata on the
-  inlined `[:div …]`."
-  [data]
-  (let [rows (:sub-values data)]
-    (when (seq rows)
-      [:section {:data-testid "rf-xray-reactive-sub-values-section"
-                 :style section-margin-top-style}
-       (section-label "sub-values" "Sub Values")
-       (into [:div {:data-testid "rf-xray-reactive-sub-values-list"
-                    :style list-card-style}]
-             (for [{:keys [sub-id] :as row} rows]
-               (with-meta (sub-value-row row) {:key (str sub-id)})))])))
-
 ;; ---- legend ------------------------------------------------------------
 
 (def ^:private legend-swatch-wrapper-style
@@ -676,10 +517,6 @@
          [:section {:data-testid "rf-xray-reactive-flow-section"}
           (section-label "flow" "Reactive Flow" {:title-case? true})
           (flow-graph data)]
-         ;; rf2-e46qs phase 3 — SUB VALUES inspector (per-sub
-         ;; value rendered through the first-class edn-inspector
-         ;; widget; spec/021 §10).
-         (sub-values-section data)
          (unmounted-views-section data)
          (destroyed-subs-section data)
          (legend)])]]))
