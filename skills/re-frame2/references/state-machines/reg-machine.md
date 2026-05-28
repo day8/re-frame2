@@ -159,6 +159,22 @@ Project off the snapshot with ordinary `reg-sub`:
   (fn sub-data [snap _] (get-in snap [:data :result])))
 ```
 
+## As an event-fx handler
+
+When a machine drives a discrete event-fx flow (boot, websocket-connection lifecycle), wrap its declaration with `rf/make-machine-handler` and register the result under `rf/reg-event-fx`. The wrapper produces the event-fx handler fn that dispatches into the machine on every invocation:
+
+```clojure
+(rf/reg-event-fx :app/boot
+  (rf/make-machine-handler
+    {:initial :configuring
+     :data    {:phase :configuring :config nil}
+     :states  ...
+     :guards  ...
+     :actions ...}))
+```
+
+`make-machine-handler` is the "wrap this machine as an event-handler" sugar. See `references/cross-cutting/api-cheatsheet.md` §Machines for the contract row; `patterns/boot.md` and `patterns/websocket.md` carry worked examples.
+
 ## Querying registered machines
 
 - `(rf/handler-meta :event :my/feature)` — registration metadata, including `:rf/machine? true`, `:rf/machine` (the spec map), `:ns` / `:line` / `:file`.
