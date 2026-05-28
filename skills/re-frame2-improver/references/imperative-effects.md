@@ -21,7 +21,7 @@ The whole point of re-frame's data-driven loop is that handlers describe *what* 
 - **Testability** — the handler can no longer run under `dispatch-sync` against a JVM frame without a browser; tests need DOM mocks.
 - **Time-travel & replay** — Xray and re-frame2-pair restore through re-frame2's epoch surfaces; imperative side-effects inside handlers cannot be represented as data, so replay/restoration can double-write `localStorage` or refocus the wrong element.
 - **Server-side rendering** — Spec 011 SSR runs handlers on the server; `js/document` blows up.
-- **Instrumentation** — Spec 009's `:rf.fx/*` trace channel sees only what flows through `reg-fx`; imperative calls are invisible to the inspector, story, and pair-tool surfaces.
+- **Instrumentation** — Spec 009's `:rf.fx/*` trace channel sees only what flows through `reg-fx`; imperative calls are invisible to Xray, Story, and re-frame2-pair surfaces.
 - **`:platforms` gating** — [Spec 011 (SSR)](../../../spec/011-SSR.md) lets an fx declare `:platforms #{:client}`; an imperative side-effect inside a handler cannot be skipped on the server.
 
 A re-frame2 effect is data: a `[fx-id args]` pair. The runtime walks the `:fx` vector and dispatches to the registered handler.
