@@ -1,5 +1,5 @@
 (ns re-frame.machines.lifecycle-fx.exit-cascade
-  "Destroy-time `:exit` cascade runner (rf2-nahfm).
+  "Destroy-time `:exit` cascade runner.
 
   Per Spec 005 §Declarative `:spawn` §Composition with explicit
   `:entry` / `:exit`: when a `:spawn`-spawned actor is destroyed, the
@@ -8,12 +8,12 @@
   `:entry` / `:exit`: a final state's `:exit` runs from the auto-
   destroy teardown, same ordering convention.
 
-  Pre-rf2-nahfm the four destroy entry-points — explicit
+  Centralises the four destroy entry-points — explicit
   `:rf.machine/destroy`, declarative-`:spawn` exit-cascade destroy,
   `:spawn-all` per-child teardown, and final-state auto-destroy —
-  each tore the actor's snapshot down WITHOUT firing the active
-  configuration's `:exit` actions. This namespace centralises the fix
-  so every destroy path runs through `run-child-exit!`.
+  so every destroy path runs through `run-child-exit!` and the
+  active configuration's `:exit` actions fire before the snapshot
+  is torn down.
 
   The pure exit cascade (path resolution + action collection) lives in
   `re-frame.machines.parallel/run-active-exit-cascade` (which dispatches

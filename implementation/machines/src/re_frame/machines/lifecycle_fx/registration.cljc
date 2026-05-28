@@ -1,10 +1,10 @@
 (ns re-frame.machines.lifecycle-fx.registration
-  "Registration boundary: handler factory + `reg-machine*` (rf2-f9tu).
+  "Registration boundary: handler factory + `reg-machine*`.
 
   `make-machine-handler` is the event-fx handler factory beneath the
   `reg-machine` macro; `reg-machine*` is the plain-fn surface used by
-  the late-bind table and by REPL workflows. Per rf2-f9tu the factory
-  is decomposed into:
+  the late-bind table and by REPL workflows. The factory decomposes
+  into:
 
     - `validate-machine!` — every registration-time check (extracted to
       `re-frame.machines.lifecycle-fx.validation`: parallel shape,

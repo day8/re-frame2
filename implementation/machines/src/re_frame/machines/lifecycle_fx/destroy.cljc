@@ -23,9 +23,9 @@
   `:children` sub-map has every spawned child id. The handler iterates
   `:children` and tears each one down, then clears the slot.
 
-  Per rf2-lha2t the actor-teardown app-db dance lives in
-  `re-frame.machines.lifecycle-fx.teardown` — one helper, three (now
-  unified) call-sites."
+  The actor-teardown app-db dance lives in
+  `re-frame.machines.lifecycle-fx.teardown` — one helper, three
+  call-sites."
   (:require [re-frame.frame :as frame]
             [re-frame.machines.lifecycle-fx.exit-cascade :as exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]

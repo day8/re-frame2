@@ -88,14 +88,11 @@
                       invoke-id (assoc :rf/spawn-id invoke-id))]
       (assoc spec :data data'))))
 
-;; Per rf2-fgqs4: the spawned actor's initial snapshot is built by
+;; The spawned actor's initial snapshot is built by
 ;; `parallel/build-initial-snapshot` — the single source of truth shared
 ;; with the singleton-registration path
-;; (`lifecycle-fx.registration/make-machine-handler`). Pre-rf2-fgqs4
-;; the spawn-path's local helper silently omitted `:rf/spawn-counter`
-;; (so an `:entry`-declared `:spawn` fell to `allocate-spawned-id`'s
-;; defensive `(fnil inc 0)` backstop) and `:meta` (so spawned actors
-;; that declared `:meta` couldn't introspect it from the snapshot).
+;; (`lifecycle-fx.registration/make-machine-handler`); the shared builder
+;; seeds `:rf/spawn-counter` and `:meta` consistently across both paths.
 ;; The spawn path passes `:bootstrap-pending? true` because the actor's
 ;; first dispatch must fire the initial-entry cascade (rf2-0z73).
 

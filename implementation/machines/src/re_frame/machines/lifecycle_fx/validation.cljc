@@ -1,5 +1,5 @@
 (ns re-frame.machines.lifecycle-fx.validation
-  "Registration-time validators for the machine grammar (rf2-f9tu).
+  "Registration-time validators for the machine grammar.
 
   Pure leaf functions called from
   `re-frame.machines.lifecycle-fx.registration/make-machine-handler` at

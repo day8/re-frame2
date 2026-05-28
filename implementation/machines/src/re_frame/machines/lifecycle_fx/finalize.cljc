@@ -1,7 +1,7 @@
 (ns re-frame.machines.lifecycle-fx.finalize
-  "Final-state orchestration (rf2-gn80).
+  "Final-state orchestration.
 
-  Per Spec 005 §Final states (rf2-gn80): when a machine enters a `:final?`
+  Per Spec 005 §Final states: when a machine enters a `:final?`
   state, the runtime fires the parent's `:on-done` (if any) and auto-
   destroys the actor SYNCHRONOUSLY (D4). The orchestration:
 
@@ -29,9 +29,9 @@
   hook into the http-managed artefact (rf2-wvkn) — because both the
   finalize cascade and the spawn-destroy teardowns invoke it.
 
-  Per rf2-lha2t the actor-teardown app-db dance lives in
-  `re-frame.machines.lifecycle-fx.teardown` — one helper, three (now
-  unified) call-sites."
+  The actor-teardown app-db dance lives in
+  `re-frame.machines.lifecycle-fx.teardown` — one helper, three
+  call-sites."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
