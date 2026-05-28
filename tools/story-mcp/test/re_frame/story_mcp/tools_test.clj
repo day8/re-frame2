@@ -1289,13 +1289,27 @@
       ;; The recorder emits `:dispatch` (ASYNC) steps (per
       ;; play-export/event->step), and on the JVM run-variant queues them
       ;; via `rf/dispatch*` without an inter-step yield (runner_events
-      ;; run-loop! :clj branch). So the exact settled :n is not
-      ;; deterministic — what IS deterministic is the qualitative replay:
-      ;; the dead-slot bug leaves :n nil, the fix leaves :n a positive
-      ;; integer no greater than the captured count.
+      ;; run-loop! :clj branch). The single-threaded interop executor
+      ;; drains the router queue asynchronously, so the `:app-db` slot
+      ;; in `run-variant`'s wire response captures the value at the
+      ;; moment the play-promise resolves — which can race the async
+      ;; drain (observed CI flake). The qualitative pin under test is
+      ;; "the play-script ACTUALLY replays" — settled `:n` is read out-
+      ;; of-band by polling the frame's app-db until the drain lands at
+      ;; least one `:test/bump`, bounded by a 2-second deadline so a
+      ;; genuine dead-slot regression still surfaces as a failure
+      ;; rather than a hang. The dead-slot bug would leave :n nil
+      ;; forever; the live-slot fix lands :n as a positive integer no
+      ;; greater than the captured count.
       (let [run    (invoke "run-variant" {:variant-id "story.button/replayed"})
-            rs     (:structuredContent run)
-            run-n  (get-in rs [:app-db :n])]
+            run-n  (let [deadline (+ (System/nanoTime) (* 2 1000000000))]
+                     (loop []
+                       (let [v (:n (rf/get-frame-db :story.button/replayed))]
+                         (cond
+                           (and (integer? v) (pos? v)) v
+                           (< (System/nanoTime) deadline)
+                           (do (Thread/sleep 1) (recur))
+                           :else v))))]
         (is (success? run))
         (is (and (integer? run-n) (pos? run-n) (<= run-n n))
             (str "the recording replayed — :test/bump dispatches incremented :n to "
