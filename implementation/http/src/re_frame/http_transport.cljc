@@ -160,9 +160,9 @@
                               ;; `.text()` into `:body-text`. Decode runs
                               ;; only on 2xx, so a non-OK response always
                               ;; takes the text path regardless of `:decode`.
-                              bin-kind (when ok?
-                                         (decode/binary-read-kind decode headers))]
-                          (case bin-kind
+                              binary-read-mode (when ok?
+                                                 (decode/binary-read-kind decode headers))]
+                          (case binary-read-mode
                             :blob
                             (-> (.blob resp)
                                 (.then (fn [b] (assoc base :body-binary b))))

@@ -80,8 +80,8 @@
 
 (defn- form-encode-body
   "URL-encoded form body from a Clojure map."
-  [m]
-  (params->query m))
+  [form-map]
+  (params->query form-map))
 
 (defn encode-body
   "Per Spec 014 §Body encoding. Returns a tuple `[encoded-body content-type]`.

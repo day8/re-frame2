@@ -201,22 +201,22 @@
   rejection."
   [{:keys [body-text body-binary headers decode decode-supplied? request-id url
            sensitive? max-decoded-keys]}]
-  (let [content-type (content-type-of headers)
-        decoder      (cond
-                       (nil? decode)        :auto
-                       (= :auto decode)     :auto
-                       :else                decode)
-        resolved     (cond
-                       (= :auto decoder) (sniff-decoder content-type)
-                       :else             decoder)
-        parse-opts   (when max-decoded-keys {:max-decoded-keys max-decoded-keys})]
+  (let [content-type     (content-type-of headers)
+        requested-decode (cond
+                           (nil? decode)        :auto
+                           (= :auto decode)     :auto
+                           :else                decode)
+        resolved         (cond
+                           (= :auto requested-decode) (sniff-decoder content-type)
+                           :else                      requested-decode)
+        parse-opts       (when max-decoded-keys {:max-decoded-keys max-decoded-keys})]
     ;; Per Spec 014 §`:auto`: emit `:rf.warning/decode-defaulted` when
     ;; the user did NOT supply `:decode` and we fell back to auto-
     ;; sniffing. Per rf2-2p8wr the URL passes through
     ;; `privacy/prepare-emit-tags`, which redacts denylisted query-
     ;; string param values and stamps `:sensitive?` when applicable.
     (when (and (not decode-supplied?)
-               (= :auto decoder)
+               (= :auto requested-decode)
                interop/debug-enabled?)
       (trace/emit! :warning :rf.warning/decode-defaulted
                    (privacy/prepare-emit-tags
@@ -226,8 +226,8 @@
                       :resolved-decoder (if (keyword? resolved) resolved :auto)}
                      (true? sensitive?))))
     (cond
-      (fn? decoder)
-      (decoder body-text headers)
+      (fn? requested-decode)
+      (requested-decode body-text headers)
 
       (= :json resolved)
       (util-json/json-parse body-text parse-opts)

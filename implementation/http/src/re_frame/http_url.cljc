@@ -120,9 +120,9 @@
   [param-name]
   (boolean
     (when (string? param-name)
-      (let [k (str/lower-case param-name)]
-        (or (contains? default-query-param-denylist k)
-            (contains? @extra-query-params k))))))
+      (let [lowered (str/lower-case param-name)]
+        (or (contains? default-query-param-denylist lowered)
+            (contains? @extra-query-params lowered))))))
 
 ;; ---- URL query-string redaction (rf2-2p8wr) -------------------------------
 
