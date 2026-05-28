@@ -49,7 +49,6 @@
   site threads the active mode as a prop."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens type-scale sans-stack]]))
 
 ;; ---- options ------------------------------------------------------------

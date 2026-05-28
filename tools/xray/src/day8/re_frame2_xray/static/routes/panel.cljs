@@ -63,7 +63,6 @@
             [day8.re-frame2-xray.static.routes.browse-list :as browse-list]
             [day8.re-frame2-xray.static.routes.simulate-url :as simulate-url]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens type-scale sans-stack]]))
 
 ;; ---- header --------------------------------------------------------------

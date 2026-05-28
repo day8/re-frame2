@@ -25,7 +25,6 @@
   cljs/select-machine-id`)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens sans-stack type-scale]]))
 
 (defn dispatch-jump!

@@ -61,7 +61,7 @@
   (:require [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.machines.topology :as topology]
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
-            [day8.re-frame2-xray.theme.tokens :as t :refer [tokens]]))
+            [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
 
 (defn- resolve-current-state-path
   "Per-spec precedence (high → low): explicit > focused-epoch traces >

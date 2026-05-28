@@ -65,7 +65,6 @@
             [day8.re-frame2-xray.static.machines.persistence :as persistence]
             [day8.re-frame2-xray.static.machines.sim :as sim]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens sans-stack type-scale]]))
 
 ;; ---- panel layout -------------------------------------------------------

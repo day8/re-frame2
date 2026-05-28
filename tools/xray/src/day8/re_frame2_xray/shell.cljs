@@ -138,8 +138,8 @@
             [day8.re-frame2-xray.static.shell :as static-shell]
             [day8.re-frame2-xray.theme.global-styles :as global-styles]
             [day8.re-frame2-xray.theme.tokens
-             :as t
-             :refer [tokens type-scale layout sans-stack mono-stack]]))
+             :refer [tokens type-scale layout sans-stack mono-stack
+                     duration-css motion]]))
 
 ;; ---- tab inventory ------------------------------------------------------
 ;;
@@ -2116,7 +2116,7 @@
                     ;; `forwards` pins the end state (opacity 1) so
                     ;; the panel stays visible after the fade settles.
                     :animation  (str "rf-xray-fade-in "
-                                     (t/duration-css (:fade-duration-ms t/motion))
+                                     (duration-css (:fade-duration-ms motion))
                                      " ease-out forwards")}}
       ;; rf2-2moh1 — registry-driven panel mount. Each tab's per-panel
       ;; `install!` declares `:panel <view-fn>` via

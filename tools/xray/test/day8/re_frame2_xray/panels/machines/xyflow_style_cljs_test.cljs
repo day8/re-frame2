@@ -5,7 +5,7 @@
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-xray.panels.machines.xyflow-style :as xstyle]
-            [day8.re-frame2-xray.theme.tokens :as t :refer [tokens]]))
+            [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
 
 ;; ---- node-style ---------------------------------------------------------
 

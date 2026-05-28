@@ -32,7 +32,6 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.static.routes.simulate-nav :as sim-nav]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
 

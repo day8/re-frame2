@@ -44,8 +44,8 @@
             [day8.re-frame2-xray.static.machines.sim :as sim]
             [day8.re-frame2-xray.static.machines.topology :as topology]
             [day8.re-frame2-xray.theme.tokens
-             :as t
-             :refer [tokens sans-stack mono-stack display-stack type-scale]]))
+             :refer [tokens sans-stack mono-stack display-stack type-scale
+                     accent-stripe-style]]))
 
 ;; ---- header -------------------------------------------------------------
 
@@ -74,7 +74,7 @@
                          :font-weight 600
                          :letter-spacing "-0.01em"
                          :color (:text-primary tokens)}
-                        (try (t/accent-stripe-style :machines) (catch :default _ {})))}
+                        (try (accent-stripe-style :machines) (catch :default _ {})))}
     [:span {:style {:font-family mono-stack
                     :color (:accent tokens)}}
      (str machine-id)]]

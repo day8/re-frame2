@@ -57,7 +57,6 @@
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.static.machines.helpers :as h]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens sans-stack mono-stack type-scale]]))
 
 ;; ---- empty surfaces -----------------------------------------------------

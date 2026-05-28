@@ -65,7 +65,6 @@
             ;; `:panel-id`.
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
-             :as t
              :refer [tokens sans-stack mono-stack]]))
 
 ;; ---- app-db slots -------------------------------------------------------
