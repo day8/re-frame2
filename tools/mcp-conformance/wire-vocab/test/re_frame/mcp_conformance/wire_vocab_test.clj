@@ -550,7 +550,7 @@
                " failed schema validation:\n"
                (me/humanize (m/explain schema fixture-value)))))))
 
-(deftest every-canonical-marker-has-at-least-two-fixtures
+(deftest every-canonical-marker-has-required-fixture-count
   ;; Every marker MUST carry >=1 fixture; multi-server markers MUST
   ;; carry >=2. Single-server today (all markers are re-frame2-pair-mcp-only
   ;; post rf2-bu21t), so the >=1 floor applies; the >=2 path stays
