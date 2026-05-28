@@ -102,9 +102,11 @@
   (testing "rf2-9i2du: a sequential :children vector flows through the
             spine's coercion branch unchanged — multiple children are
             handed to the Provider as separate args."
-    (let [a :child-a
-          b :child-b
-          el (uix-adapter/frame-provider {:frame :session :children [a b]})]
+    ;; The :child-a / :child-b keywords act as visible sentinels for the
+    ;; two children slots — inlined (no `a` / `b` aliases) so the call
+    ;; site reads as documentation.
+    (let [el (uix-adapter/frame-provider {:frame    :session
+                                          :children [:child-a :child-b]})]
       (is (some? el))
       (is (= :session (provider-element-frame-kw el)))
       (let [kids (provider-element-children el)]
