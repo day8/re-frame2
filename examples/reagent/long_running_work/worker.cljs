@@ -194,11 +194,13 @@
      :entry :dispatch-done}
 
     :cancelled
-    ;; Never reached by ordinary child transitions — the cancellation
-    ;; cascade destroys the child via :rf.machine/destroy fx (per
-    ;; Spec 005 §Cancellation cascade) rather than transitioning it
-    ;; here. Kept in the spec for tag completeness and for code paths
-    ;; that may later route cancellation as an event into the child.
+    ;; Declared but never entered by the example's transitions: in this
+    ;; example the parent cancels the child by tearing it down via the
+    ;; :rf.machine/destroy fx (Spec 005 §Cancellation cascade), not by
+    ;; routing a cancel event in. The state stays in the spec so the
+    ;; machine's tag union exposes #{:work/cancelled} to tools (snapshot
+    ;; inspectors, conformance harnesses), and so an app that DOES route
+    ;; cancellation as an in-FSM event has somewhere to land.
     {:meta {:terminal? true}
      :tags #{:work/cancelled}}}})
 
