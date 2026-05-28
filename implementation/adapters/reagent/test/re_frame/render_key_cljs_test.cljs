@@ -18,12 +18,11 @@
     - The instance-counter monotonically increases."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
-            [re-frame.views :as views]))
+            [re-frame.views :as views])
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -31,13 +30,8 @@
 
 ;; ---- helpers ---------------------------------------------------------------
 
-(defn- record-render-traces! []
-  (let [recorded (atom [])]
-    (trace-tooling/register-listener! ::recorder
-      (fn [ev]
-        (when (= :rf.view/render (:operation ev))
-          (swap! recorded conj ev))))
-    recorded))
+(def ^:private view-render-pred
+  #(= :rf.view/render (:operation %)))
 
 ;; ---- render-key tuple shape -----------------------------------------------
 
@@ -93,7 +87,7 @@
 (deftest view-render-trace-carries-tuple-render-key
   (testing "the wrapper emits a :rf.view/render trace tagged with the tuple
             :rf.view/render-key"
-    (let [traces (record-render-traces!)]
+    (with-trace-recorder! [traces {:pred view-render-pred}]
       (rf/reg-view* :rf.test/traced
         (fn [n] [:span "n-" n]))
       (let [wrapper (rf/view :rf.test/traced)]
@@ -109,8 +103,7 @@
           (is (vector? k2))
           (is (= :rf.test/traced (first k1) (first k2)))
           (is (not= (second k1) (second k2))
-              "tokens differ across instances")))
-      (trace-tooling/unregister-listener! ::recorder))))
+              "tokens differ across instances"))))))
 
 ;; ---- monotonicity ---------------------------------------------------------
 
@@ -141,7 +134,7 @@
 (deftest render-key-tuple-conformance
   (testing "every emitted :rf.view/render trace has a 2-tuple :rf.view/render-key
             with a keyword view-id and (int OR nil) instance-token"
-    (let [traces (record-render-traces!)]
+    (with-trace-recorder! [traces {:pred view-render-pred}]
       (rf/reg-view* :rf.test/conform-a (fn [] [:p "a"]))
       (rf/reg-view* :rf.test/conform-b (fn [] [:p "b"]))
       ((rf/view :rf.test/conform-a))
@@ -153,5 +146,4 @@
           (is (= 2 (count k)))
           (is (keyword? (first k)) "view-id slot is a keyword")
           (is (or (int? (second k)) (nil? (second k)))
-              "instance-token slot is an int (or nil for anonymous)")))
-      (trace-tooling/unregister-listener! ::recorder))))
+              "instance-token slot is an int (or nil for anonymous)"))))))

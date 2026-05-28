@@ -25,13 +25,12 @@
   and `implementation/machines/test/re_frame/machine_transition_trigger_handler_test.clj`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
             [re-frame.views])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]
+                   [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -39,16 +38,8 @@
 
 ;; ---- helpers ---------------------------------------------------------------
 
-(defn- record-traces!
-  "Attach a listener that captures every `:rf.view/render` trace into an
-  atom. Returns the atom; caller is responsible for `unregister-listener!`."
-  []
-  (let [recorded (atom [])]
-    (trace-tooling/register-listener! ::recorder
-      (fn [ev]
-        (when (= :rf.view/render (:operation ev))
-          (swap! recorded conj ev))))
-    recorded))
+(def ^:private view-render-pred
+  #(= :rf.view/render (:operation %)))
 
 (defn- assert-trigger-shape
   "Assert the value at top-level `:rf.trace/trigger-handler` on `ev`
@@ -73,20 +64,19 @@
    Xray / re-frame2-pair want jump-to-source on a view render trace to land
    on the reg-view site, the same way fx-handled / sub-run / machine-
    transition tests already pin"
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-render-pred}]
       (rf/reg-view ^{:rf/id :rf2-npm2p/sample} sample-view []
         [:span "ok"])
       (let [render (rf/view :rf2-npm2p/sample)]
         (render))
       (is (= 1 (count @traces)) "exactly one :rf.view/render trace fired")
-      (assert-trigger-shape (first @traces) :rf2-npm2p/sample)
-      (trace-tooling/unregister-listener! ::recorder))))
+      (assert-trigger-shape (first @traces) :rf2-npm2p/sample))))
 
 (deftest view-render-trigger-rides-at-top-level
   (testing ":rf.trace/trigger-handler on :rf.view/render is a top-level
    field, NOT nested under :tags — mirrors the error / fx-handled /
    sub-run / machine-transition shapes"
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-render-pred}]
       (rf/reg-view ^{:rf/id :rf2-npm2p/top-level-view} top-level-view []
         [:span "hi"])
       ((rf/view :rf2-npm2p/top-level-view))
@@ -95,14 +85,13 @@
         (is (contains? ev :rf.trace/trigger-handler)
             ":rf.trace/trigger-handler lives at top level")
         (is (not (contains? (:tags ev) :rf.trace/trigger-handler))
-            ":rf.trace/trigger-handler does NOT live under :tags"))
-      (trace-tooling/unregister-listener! ::recorder))))
+            ":rf.trace/trigger-handler does NOT live under :tags")))))
 
 (deftest view-render-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on
    :rf.view/render equals what the registrar holds on the view's slot —
    same comparison the other scope tests do"
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-render-pred}]
       (rf/reg-view ^{:rf/id :rf2-npm2p/coord-view} coord-view []
         [:p "p"])
       ((rf/view :rf2-npm2p/coord-view))
@@ -113,14 +102,13 @@
         (is (= (:ns     reg-meta) (:ns coord)))
         (is (= (:file   reg-meta) (:file coord)))
         (is (= (:line   reg-meta) (:line coord)))
-        (is (= (:column reg-meta) (:column coord))))
-      (trace-tooling/unregister-listener! ::recorder))))
+        (is (= (:column reg-meta) (:column coord)))))))
 
 (deftest each-render-carries-trigger-handler
   (testing "every :rf.view/render invocation carries the trigger-handler
    — not just the first render. The wrapper rebinds the dynamic var on
    each invocation; the slot rides every emit."
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-render-pred}]
       (rf/reg-view ^{:rf/id :rf2-npm2p/multi-render} multi-render [n]
         [:span "n-" n])
       (let [render (rf/view :rf2-npm2p/multi-render)]
@@ -129,8 +117,7 @@
         (render 3))
       (is (= 3 (count @traces)) "three :rf.view/render traces fired")
       (doseq [ev @traces]
-        (assert-trigger-shape ev :rf2-npm2p/multi-render))
-      (trace-tooling/unregister-listener! ::recorder))))
+        (assert-trigger-shape ev :rf2-npm2p/multi-render)))))
 
 ;; ---- programmatic registration → no coord → no trigger-handler ------------
 
@@ -139,7 +126,7 @@
    coords emits :rf.view/render with no :rf.trace/trigger-handler field —
    better no-data than poison-data (mirrors the fx, sub, cofx
    programmatic paths)"
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-render-pred}]
       ;; `reg-view*` (the plain-fn surface, not the macro) bypasses
       ;; the source-coord capture path entirely. The trigger-handler
       ;; builder gets an empty meta map and yields nil, so the slot
@@ -150,5 +137,4 @@
       (let [ev (first @traces)]
         (is (some? ev) ":rf.view/render fired")
         (is (not (contains? ev :rf.trace/trigger-handler))
-            "programmatic view-registration → no coord → field omitted"))
-      (trace-tooling/unregister-listener! ::recorder))))
+            "programmatic view-registration → no coord → field omitted")))))

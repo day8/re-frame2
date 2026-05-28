@@ -20,11 +20,11 @@
                       distinct, first-seen order, capped at 100"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.epoch]) ;; load so :epoch/cascade-cause hook is bound
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]
+                   [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -32,34 +32,19 @@
 
 ;; ---- helpers ---------------------------------------------------------------
 
-(defn- record-traces!
-  "Attach a listener that captures every `:rf.view/rendered` trace into
-  an atom. Returns the atom; caller is responsible for
-  `unregister-listener!`."
-  []
-  (let [recorded (atom [])]
-    (trace-tooling/register-listener! ::recorder
-      (fn [ev]
-        (when (= :rf.view/rendered (:operation ev))
-          (swap! recorded conj ev))))
-    recorded))
+(def ^:private view-rendered-pred
+  #(= :rf.view/rendered (:operation %)))
 
-(defn- record-by-op!
-  "Variant that captures multiple ops into a per-op map of vectors."
-  [op-set]
-  (let [recorded (atom {})]
-    (trace-tooling/register-listener! ::recorder
-      (fn [ev]
-        (when (contains? op-set (:operation ev))
-          (swap! recorded update (:operation ev) (fnil conj []) ev))))
-    recorded))
+(defn- in-op-set [op-set]
+  (fn [ev] (contains? op-set (:operation ev))))
 
 ;; ---- emission ---------------------------------------------------------------
 
 (deftest rf-view-rendered-fires-on-every-render
   (testing "every render of a registered view emits one :rf.view/rendered
    alongside :rf.view/render — same emit site, two ops"
-    (let [observed (record-by-op! #{:rf.view/render :rf.view/rendered})]
+    (with-trace-recorder! [observed {:pred  (in-op-set #{:rf.view/render :rf.view/rendered})
+                                     :shape :by-op}]
       (rf/reg-view ^{:rf/id :rf2-25zo2/sample} sample-view []
         [:span "ok"])
       (let [render (rf/view :rf2-25zo2/sample)]
@@ -67,13 +52,12 @@
         (render)
         (render))
       (is (= 3 (count (:rf.view/render @observed))) "three :rf.view/render emits")
-      (is (= 3 (count (:rf.view/rendered @observed))) "three :rf.view/rendered emits")
-      (trace-tooling/unregister-listener! ::recorder))))
+      (is (= 3 (count (:rf.view/rendered @observed))) "three :rf.view/rendered emits"))))
 
 (deftest rf-view-rendered-carries-view-id-and-frame
   (testing ":rf.view/rendered carries :rf.view/id, :frame and :rf.view/render-key
    on every emit"
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-25zo2/shape} shape-view []
         [:span "x"])
       ((rf/view :rf2-25zo2/shape))
@@ -84,8 +68,7 @@
         (is (some? (:frame t)) ":frame is present")
         (is (vector? (:rf.view/render-key t)) ":rf.view/render-key is a tuple")
         (is (= :rf2-25zo2/shape (first (:rf.view/render-key t)))
-            ":rf.view/render-key's first slot is the view-id"))
-      (trace-tooling/unregister-listener! ::recorder))))
+            ":rf.view/render-key's first slot is the view-id")))))
 
 (deftest rf-view-rendered-carries-cause-event-id-in-cascade
   (testing ":rf.view/rendered emitted inside a cascade carries
@@ -93,7 +76,7 @@
    sourced from the epoch capture buffer at emit time (rf2-25zo2). The
    attribution is meant for Xray's Reactive panel to graph cause→effect
    for re-renders."
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-25zo2/with-cause} cause-view []
         [:span "x"])
 
@@ -113,8 +96,7 @@
         (when ev
           (is (= :rf2-25zo2/render-during-cascade
                  (get-in ev [:tags :rf.view/cause-event-id]))
-              ":rf.view/cause-event-id matches the dispatching event-id")))
-      (trace-tooling/unregister-listener! ::recorder))))
+              ":rf.view/cause-event-id matches the dispatching event-id"))))))
 
 (deftest rf-view-rendered-carries-cause-subs-in-cascade
   (testing ":rf.view/rendered emitted inside a cascade carries
@@ -123,7 +105,7 @@
    event handler before the render kicked off is the canonical upstream-
    sub case the Reactive panel uses to attribute re-renders to the
    sub-recomputes that drove them."
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-sub :rf2-25zo2/n (fn [_ _] 7))
 
       (rf/reg-view ^{:rf/id :rf2-25zo2/with-upstream-sub} upstream-sub-view []
@@ -146,14 +128,13 @@
           (let [subs (get-in ev [:tags :rf.view/cause-subs])]
             (is (vector? subs) ":rf.view/cause-subs is a vector")
             (is (some #{:rf2-25zo2/n} subs)
-                ":rf.view/cause-subs contains the sub-id that ran upstream of the render"))))
-      (trace-tooling/unregister-listener! ::recorder))))
+                ":rf.view/cause-subs contains the sub-id that ran upstream of the render")))))))
 
 (deftest rf-view-rendered-carries-elapsed-ms
   (testing ":rf.view/rendered carries :rf.view/elapsed-ms — the wall-clock
    duration of the user render-fn for this render (rf2-8wrzz.1). Present on
    every dev-build render (the timing rides interop/debug-enabled?)."
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-8wrzz1/timed} timed-view []
         [:span "x"])
       ((rf/view :rf2-8wrzz1/timed))
@@ -162,8 +143,7 @@
         (is (some? ev) "an :rf.view/rendered event was emitted")
         (is (contains? t :rf.view/elapsed-ms) ":rf.view/elapsed-ms is present")
         (is (number? (:rf.view/elapsed-ms t)) ":rf.view/elapsed-ms is a number")
-        (is (>= (:rf.view/elapsed-ms t) 0) ":rf.view/elapsed-ms is non-negative"))
-      (trace-tooling/unregister-listener! ::recorder))))
+        (is (>= (:rf.view/elapsed-ms t) 0) ":rf.view/elapsed-ms is non-negative")))))
 
 (deftest rf-sub-run-carries-elapsed-ms
   (testing ":rf.sub/run carries :rf.sub/elapsed-ms — the wall-clock duration
@@ -172,7 +152,8 @@
    trace stream carries per-op timing for the Trace panel's DURATION column.
    Driven through a real reactive recompute (the plain-atom JVM substrate
    does not run the memo wrapper, so this lives in the adapter test)."
-    (let [observed (record-by-op! #{:rf.sub/run})]
+    (with-trace-recorder! [observed {:pred  (in-op-set #{:rf.sub/run})
+                                     :shape :by-op}]
       (rf/reg-sub :rf2-hhh92/n (fn [_ _] 42))
       ;; A fresh subscribe forces the body's first recompute → :rf.sub/run.
       (rf/reg-event-fx :rf2-hhh92/touch-sub
@@ -186,8 +167,7 @@
           (let [t (:tags ev)]
             (is (contains? t :rf.sub/elapsed-ms) ":rf.sub/elapsed-ms is present")
             (is (number? (:rf.sub/elapsed-ms t)) ":rf.sub/elapsed-ms is a number")
-            (is (>= (:rf.sub/elapsed-ms t) 0) ":rf.sub/elapsed-ms is non-negative"))))
-      (trace-tooling/unregister-listener! ::recorder))))
+            (is (>= (:rf.sub/elapsed-ms t) 0) ":rf.sub/elapsed-ms is non-negative")))))))
 
 (deftest rf-view-rendered-carries-triggered-by-when-own-sub-changed
   (testing ":rf.view/rendered carries :rf.view/triggered-by — the single
@@ -198,7 +178,7 @@
    sentinel), so running + reading the sub fresh inside the handler before
    the render lands a value-changed :rf.sub/run in the in-flight buffer and
    the view's deref-sink carries the matching query-vector."
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-sub :rf2-8wrzz1/n (fn [_ _] 42))
 
       (rf/reg-view ^{:rf/id :rf2-8wrzz1/reader} reader-view []
@@ -222,14 +202,13 @@
             ":rf.view/triggered-by present when an own sub changed value in-cascade")
         (when ev
           (is (= :rf2-8wrzz1/n (get-in ev [:tags :rf.view/triggered-by]))
-              ":rf.view/triggered-by names the sub that caused the re-render")))
-      (trace-tooling/unregister-listener! ::recorder))))
+              ":rf.view/triggered-by names the sub that caused the re-render"))))))
 
 (deftest rf-view-rendered-omits-triggered-by-on-structural-render
   (testing ":rf.view/triggered-by is ABSENT on a structural render — a view
    with no subs (or whose subs did not change) names no cause (rf2-8wrzz.1).
    The consumer reads its absence as the `← parent re-render` reason."
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-8wrzz1/no-subs} no-subs-view []
         [:span "static"])
       ((rf/view :rf2-8wrzz1/no-subs))
@@ -237,15 +216,14 @@
             t  (:tags ev)]
         (is (some? ev) ":rf.view/rendered still fires")
         (is (not (contains? t :rf.view/triggered-by))
-            ":rf.view/triggered-by omitted when no own sub changed (structural)"))
-      (trace-tooling/unregister-listener! ::recorder))))
+            ":rf.view/triggered-by omitted when no own sub changed (structural)")))))
 
 (deftest rf-view-rendered-omits-attribution-when-no-cascade
   (testing "a render outside any cascade (e.g. headless direct invocation
    with no in-flight buffer) emits :rf.view/rendered with :rf.view/cause-event-id
    and :rf.view/cause-subs simply absent — consumers see the marker but no
    misleading attribution"
-    (let [traces (record-traces!)]
+    (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-25zo2/no-cascade} no-cascade-view []
         [:span "x"])
       ((rf/view :rf2-25zo2/no-cascade))
@@ -256,5 +234,4 @@
         (is (not (contains? t :rf.view/cause-event-id))
             ":rf.view/cause-event-id omitted when no cascade is in flight")
         (is (not (contains? t :rf.view/cause-subs))
-            ":rf.view/cause-subs omitted when no cascade is in flight"))
-      (trace-tooling/unregister-listener! ::recorder))))
+            ":rf.view/cause-subs omitted when no cascade is in flight")))))

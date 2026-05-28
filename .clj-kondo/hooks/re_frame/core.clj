@@ -49,6 +49,33 @@
                     bindings
                     body))}))
 
+(defn with-trace-recorder!
+  "clj-kondo macro hook for `re-frame.test-support/with-trace-recorder!`
+  (rf2-64iuw):
+
+      (with-trace-recorder! [recs-sym opts?] body+)
+
+  Rewrites to `(let [recs-sym (atom [])] opts? body+)` so kondo sees
+  `recs-sym` as a lexical binding for the body AND the optional opts
+  map's values (predicate / shape fn references) get scanned for
+  unused-binding analysis — emitting the opts map as a no-op body form
+  lets `:unresolved-symbol` + `:unused-binding` reach references inside
+  it."
+  [{:keys [node]}]
+  (let [[_with-trace-recorder! bindings & body] (:children node)
+        bindings-children (:children bindings)
+        recs-sym (first bindings-children)
+        opts     (second bindings-children)
+        body-with-opts (if opts (cons opts body) body)]
+    {:node (api/list-node
+             (list* (api/token-node 'let)
+                    (api/vector-node
+                      [recs-sym
+                       (api/list-node
+                         [(api/token-node 'clojure.core/atom)
+                          (api/vector-node [])])])
+                    body-with-opts))}))
+
 (defn reg-view
   "Hook entry — see ns doc."
   [{:keys [node]}]

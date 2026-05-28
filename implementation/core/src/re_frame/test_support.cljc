@@ -73,6 +73,14 @@
     resolved frame; failure reports via `clojure.test/is`. Companion
     full-db form (no event analog).
 
+  ### Trace-recorder bracket (rf2-64iuw)
+  - [[with-trace-recorder!]] — register a trace-tooling listener for the
+    bracketed body, accumulate matching events into a recording atom
+    bound by name, unregister on exit. Supersedes the per-file
+    `collect-traces` / `record-traces!` / `record-by-op!` / etc.
+    boilerplate that nine adapter test files used to carry (rf2-5r7eh
+    audit + rf2-64iuw consolidation).
+
   ### Deterministic-wait helpers (rf2-ka3n6 / rf2-fun38)
   - [[poll-until]] — bounded-deadline poll for `(pred)` to return
     truthy. JVM returns the truthy value synchronously (throws on
@@ -638,3 +646,107 @@
                               (.catch (fn [_] (settle false))))
                           (settle raw))))]
               (tick))))))))
+
+;; ---- trace-recorder bracket (rf2-64iuw) ----------------------------------
+;;
+;; Every adapter test ns that wants to capture a stream of trace events
+;; used to define its own `defn- <verb>-traces[!]` wrapper around
+;; `trace-tooling/register-listener!` plus an atom. The verb
+;; (collect-/record-), the `!` suffix, the return shape (bare atom vs
+;; `{:traces a :stop! f}`), and the cleanup convention (manual key-keyed
+;; `unregister-listener!` vs no cleanup at all) all diverged file-by-file
+;; for the same underlying pattern. rf2-64iuw folds them into a single
+;; bracket macro: register-on-entry, unregister-on-exit (try/finally),
+;; with-redefs-shaped body.
+;;
+;; Macro lives in the `#?(:clj ...)` arm so CLJS test files reach it via
+;; `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`
+;; — mirrors how `re-frame.core`'s call-site macros (`with-frame`,
+;; `bound-fn`, …) ship.
+
+#?(:clj
+   (defmacro with-trace-recorder!
+     "Bracket `body` with a fresh trace-tooling listener that accumulates
+     matching trace events into an atom bound to `recs-sym`. The listener
+     is registered before `body` runs and unregistered in a `finally` on
+     the way out — even if `body` throws.
+
+     Shape:
+
+         (with-trace-recorder! [recs] opts? body+)
+
+     `recs` is a symbol that will be `let`-bound to the recording atom for
+     `body`'s scope. Deref it inside the body (after the events of interest
+     fire) to read the captured vector / map.
+
+     `opts` (optional map literal; keys evaluated at macroexpansion):
+
+       :pred   1-arg fn `(fn [ev] truthy?)` — only events for which
+               `(pred ev)` is truthy are conj'd. Default: every event
+               accepted.
+       :shape  `:flat` (default) — atom holds a vector of events,
+               appended via `(swap! a conj ev)`.
+               `:by-op` — atom holds a map keyed by `(:operation ev)`,
+               each value a vector of matching events. Equivalent to
+               the prior `record-by-op!` / `record-op!` per-file helpers.
+       :key    listener key (any value). Default: a freshly-gensym'd
+               keyword unique to this expansion site, so two
+               `with-trace-recorder!` brackets in the same deftest do
+               not collide on the trace-tooling listener registry.
+
+     Returns the value of `body`'s final form.
+
+     Replaces the per-file `collect-traces` / `collect-warnings` /
+     `collect-dispose-traces!` / `record-render-traces!` / `record-traces!`
+     / `record-op!` / `record-by-op!` / `collect-traces!` helpers (rf2-5r7eh
+     audit / rf2-64iuw consolidation). See [Spec 008 §Test-flavoured
+     helpers](../../../../../spec/008-Testing.md) for the broader
+     test-support surface.
+
+     Example — flat shape, default filter, simple read:
+
+         (with-trace-recorder! [traces]
+           (rf/dispatch-sync [:my-event])
+           (is (= 1 (count (filter #(= :rf.event/run-start (:operation %))
+                                   @traces)))))
+
+     Example — filter on `:warning` op-type, by-op shape:
+
+         (with-trace-recorder! [observed
+                                {:pred  #(contains? #{:rf.view/render
+                                                      :rf.view/rendered}
+                                                    (:operation %))
+                                 :shape :by-op}]
+           (render-twice!)
+           (is (= 2 (count (:rf.view/render @observed))))
+           (is (= 2 (count (:rf.view/rendered @observed)))))"
+     {:arglists '([[recs-sym opts?] body+])}
+     [bindings & body]
+     (when-not (and (vector? bindings)
+                    (or (= 1 (count bindings))
+                        (= 2 (count bindings))))
+       (throw (ex-info "with-trace-recorder! expects [recs-sym] or [recs-sym opts-map]"
+                       {:bindings bindings})))
+     (let [recs-sym (first bindings)
+           opts     (or (second bindings) {})
+           {:keys [pred shape key]
+            :or   {pred  `(constantly true)
+                   shape :flat}} opts
+           init     (case shape
+                      :flat  `(atom [])
+                      :by-op `(atom {}))
+           on-event (case shape
+                      :flat  `(fn [ev#] (when (~pred ev#)
+                                          (swap! ~recs-sym conj ev#)))
+                      :by-op `(fn [ev#] (when (~pred ev#)
+                                          (swap! ~recs-sym update
+                                                 (:operation ev#)
+                                                 (fnil conj []) ev#))))
+           key-form (or key `(keyword (gensym "rf-trace-recorder-")))]
+       `(let [~recs-sym       ~init
+              listener-key#   ~key-form]
+          (trace-tooling/register-listener! listener-key# ~on-event)
+          (try
+            ~@body
+            (finally
+              (trace-tooling/unregister-listener! listener-key#)))))))

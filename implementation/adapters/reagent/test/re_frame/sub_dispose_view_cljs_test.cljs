@@ -58,9 +58,9 @@
             [reagent.ratom :as ratom]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support])
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -68,16 +68,9 @@
 
 ;; ---- helpers ---------------------------------------------------------------
 
-(defn- collect-dispose-traces!
-  "Attach a listener that captures every `:rf.sub/dispose` trace into
-  an atom. Returns the atom; caller is responsible for unregistering."
-  [k]
-  (let [recorded (atom [])]
-    (trace-tooling/register-listener! k
-      (fn [ev]
-        (when (= :rf.sub/dispose (:operation ev))
-          (swap! recorded conj ev))))
-    recorded))
+(def ^:private sub-dispose-pred
+  "Predicate matching the `:rf.sub/dispose` trace operation."
+  #(= :rf.sub/dispose (:operation %)))
 
 (defn- dispose-by-id
   "Filter a collected trace-event vector down to the dispose events for
@@ -111,39 +104,36 @@
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:rf2-e9g4g/init])
 
-    (let [traces (collect-dispose-traces! ::view-unmount)]
-      (try
-        ;; Mount: a single "view" subscribes + derefs the sum sub.
-        (let [r (rf/subscribe [:rf2-e9g4g.view/sum])]
-          (is (= 5 @r) "precondition: sub computes against the seeded app-db")
-          (is (empty? @traces)
-              "precondition: no :rf.sub/dispose has fired yet — the slot is held"))
+    (with-trace-recorder! [traces {:pred sub-dispose-pred}]
+      ;; Mount: a single "view" subscribes + derefs the sum sub.
+      (let [r (rf/subscribe [:rf2-e9g4g.view/sum])]
+        (is (= 5 @r) "precondition: sub computes against the seeded app-db")
+        (is (empty? @traces)
+            "precondition: no :rf.sub/dispose has fired yet — the slot is held"))
 
-        ;; Unmount: the last derefer drops. Per rf2-cmfln the eviction
-        ;; lands synchronously and the trace lands before this returns.
-        (rf/unsubscribe [:rf2-e9g4g.view/sum])
+      ;; Unmount: the last derefer drops. Per rf2-cmfln the eviction
+      ;; lands synchronously and the trace lands before this returns.
+      (rf/unsubscribe [:rf2-e9g4g.view/sum])
 
-        ;; The cascade chain — sum's `add-on-dispose!` callback releases
-        ;; its input refs through `unsubscribe`, each input drops 1→0
-        ;; and evicts through `unsubscribe!`. Both inputs emit.
-        (let [a-evs (dispose-by-id @traces :rf2-e9g4g.view/a)
-              b-evs (dispose-by-id @traces :rf2-e9g4g.view/b)]
-          (is (= 1 (count a-evs))
-              "input sub :a fired exactly one :rf.sub/dispose on the cascade")
-          (is (= 1 (count b-evs))
-              "input sub :b fired exactly one :rf.sub/dispose on the cascade")
-          (doseq [ev (concat a-evs b-evs)]
-            (let [t (:tags ev)]
-              (is (= :rf.sub (:op-type ev))
-                  ":op-type rides the :rf.sub family")
-              (is (= :no-more-derefers (:rf.sub/reason t))
-                  ":reason is :no-more-derefers — the ref-count-drop path")
-              (is (= :rf/default (:frame t))
-                  ":frame is canonical (the Reagent adapter's default frame)")
-              (is (vector? (:rf.sub/query-v t))
-                  ":rf.sub/query-v is a vector"))))
-        (finally
-          (trace-tooling/unregister-listener! ::view-unmount))))))
+      ;; The cascade chain — sum's `add-on-dispose!` callback releases
+      ;; its input refs through `unsubscribe`, each input drops 1→0
+      ;; and evicts through `unsubscribe!`. Both inputs emit.
+      (let [a-evs (dispose-by-id @traces :rf2-e9g4g.view/a)
+            b-evs (dispose-by-id @traces :rf2-e9g4g.view/b)]
+        (is (= 1 (count a-evs))
+            "input sub :a fired exactly one :rf.sub/dispose on the cascade")
+        (is (= 1 (count b-evs))
+            "input sub :b fired exactly one :rf.sub/dispose on the cascade")
+        (doseq [ev (concat a-evs b-evs)]
+          (let [t (:tags ev)]
+            (is (= :rf.sub (:op-type ev))
+                ":op-type rides the :rf.sub family")
+            (is (= :no-more-derefers (:rf.sub/reason t))
+                ":reason is :no-more-derefers — the ref-count-drop path")
+            (is (= :rf/default (:frame t))
+                ":frame is canonical (the Reagent adapter's default frame)")
+            (is (vector? (:rf.sub/query-v t))
+                ":rf.sub/query-v is a vector")))))))
 
 ;; ===========================================================================
 ;; Acceptance #5 — conditional-deref path
@@ -173,45 +163,42 @@
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:rf2-e9g4g/init])
 
-    (let [traces (collect-dispose-traces! ::cond-flip)]
-      (try
-        ;; Initial mount: condition is true. The "view" derefs both
-        ;; `:rf2-e9g4g.cond/n` and `:rf2-e9g4g.cond/sum` (a layer-2 with
-        ;; two inputs).
-        (let [n-rea   (rf/subscribe [:rf2-e9g4g.cond/n])
-              sum-rea (rf/subscribe [:rf2-e9g4g.cond/sum])]
-          (is (= 7 @n-rea))
-          (is (= 3 @sum-rea))
-          (is (empty? @traces)
-              "precondition: nothing evicted while both derefers are held"))
+    (with-trace-recorder! [traces {:pred sub-dispose-pred}]
+      ;; Initial mount: condition is true. The "view" derefs both
+      ;; `:rf2-e9g4g.cond/n` and `:rf2-e9g4g.cond/sum` (a layer-2 with
+      ;; two inputs).
+      (let [n-rea   (rf/subscribe [:rf2-e9g4g.cond/n])
+            sum-rea (rf/subscribe [:rf2-e9g4g.cond/sum])]
+        (is (= 7 @n-rea))
+        (is (= 3 @sum-rea))
+        (is (empty? @traces)
+            "precondition: nothing evicted while both derefers are held"))
 
-        ;; Condition flips false. The "view" re-renders WITHOUT
-        ;; dereffing `:rf2-e9g4g.cond/sum` any more — the surrounding
-        ;; component stays mounted, but the conditional sub is now
-        ;; an orphan from the view's perspective. The substrate's
-        ;; unsub call captures the conditional-deref-drop signal.
-        (rf/unsubscribe [:rf2-e9g4g.cond/sum])
+      ;; Condition flips false. The "view" re-renders WITHOUT
+      ;; dereffing `:rf2-e9g4g.cond/sum` any more — the surrounding
+      ;; component stays mounted, but the conditional sub is now
+      ;; an orphan from the view's perspective. The substrate's
+      ;; unsub call captures the conditional-deref-drop signal.
+      (rf/unsubscribe [:rf2-e9g4g.cond/sum])
 
-        ;; The orphaned layer-2 sub's input refs are released by the
-        ;; cascade. The unconditional `:rf2-e9g4g.cond/n` deref is
-        ;; still held; its sub MUST NOT evict.
-        (let [a-evs (dispose-by-id @traces :rf2-e9g4g.cond/a)
-              b-evs (dispose-by-id @traces :rf2-e9g4g.cond/b)
-              n-evs (dispose-by-id @traces :rf2-e9g4g.cond/n)]
-          (is (= 1 (count a-evs))
-              "input :a evicted via the cascade — the conditional sub's
-               input refs were released")
-          (is (= 1 (count b-evs))
-              "input :b evicted via the cascade")
-          (is (empty? n-evs)
-              "the unconditionally-held :n sub stays cached — the conditional
-               flip did NOT touch unrelated derefers")
-          (doseq [ev (concat a-evs b-evs)]
-            (let [t (:tags ev)]
-              (is (= :no-more-derefers (:rf.sub/reason t)))
-              (is (= :rf/default (:frame t))))))
-        (finally
-          (trace-tooling/unregister-listener! ::cond-flip))))))
+      ;; The orphaned layer-2 sub's input refs are released by the
+      ;; cascade. The unconditional `:rf2-e9g4g.cond/n` deref is
+      ;; still held; its sub MUST NOT evict.
+      (let [a-evs (dispose-by-id @traces :rf2-e9g4g.cond/a)
+            b-evs (dispose-by-id @traces :rf2-e9g4g.cond/b)
+            n-evs (dispose-by-id @traces :rf2-e9g4g.cond/n)]
+        (is (= 1 (count a-evs))
+            "input :a evicted via the cascade — the conditional sub's
+             input refs were released")
+        (is (= 1 (count b-evs))
+            "input :b evicted via the cascade")
+        (is (empty? n-evs)
+            "the unconditionally-held :n sub stays cached — the conditional
+             flip did NOT touch unrelated derefers")
+        (doseq [ev (concat a-evs b-evs)]
+          (let [t (:tags ev)]
+            (is (= :no-more-derefers (:rf.sub/reason t)))
+            (is (= :rf/default (:frame t)))))))))
 
 ;; ===========================================================================
 ;; Multi-derefer negative control
@@ -236,44 +223,41 @@
       (fn [v _] (* 2 v)))
     (rf/dispatch-sync [:rf2-e9g4g/init])
 
-    (let [traces (collect-dispose-traces! ::multi-derefer)]
-      (try
-        ;; Two "views" both subscribe to the layer-2 sub. The first
-        ;; subscribe creates the slot at ref-count=1 AND subscribes
-        ;; the input — input ref-count=1. The second subscribe bumps
-        ;; the slot to 2 (cache-hit path) and does NOT re-subscribe
-        ;; the input. So we end at parent ref-count=2 / input
-        ;; ref-count=1.
-        (let [r1 (rf/subscribe [:rf2-e9g4g.multi/doubled])
-              r2 (rf/subscribe [:rf2-e9g4g.multi/doubled])]
-          (is (= 84 @r1))
-          (is (= 84 @r2))
-          (is (identical? r1 r2)
-              "precondition: two subscribes return the SAME reaction (cache reuse)"))
+    (with-trace-recorder! [traces {:pred sub-dispose-pred}]
+      ;; Two "views" both subscribe to the layer-2 sub. The first
+      ;; subscribe creates the slot at ref-count=1 AND subscribes
+      ;; the input — input ref-count=1. The second subscribe bumps
+      ;; the slot to 2 (cache-hit path) and does NOT re-subscribe
+      ;; the input. So we end at parent ref-count=2 / input
+      ;; ref-count=1.
+      (let [r1 (rf/subscribe [:rf2-e9g4g.multi/doubled])
+            r2 (rf/subscribe [:rf2-e9g4g.multi/doubled])]
+        (is (= 84 @r1))
+        (is (= 84 @r2))
+        (is (identical? r1 r2)
+            "precondition: two subscribes return the SAME reaction (cache reuse)"))
 
-        ;; First view unmounts → first unsubscribe. Parent ref-count
-        ;; drops 2→1 — NOT to zero. No emit fires.
-        (rf/unsubscribe [:rf2-e9g4g.multi/doubled])
-        (is (empty? @traces)
-            "first derefer drop: slot's ref-count is still 1; NO :rf.sub/dispose
-             — pins the multi-derefer invariant")
+      ;; First view unmounts → first unsubscribe. Parent ref-count
+      ;; drops 2→1 — NOT to zero. No emit fires.
+      (rf/unsubscribe [:rf2-e9g4g.multi/doubled])
+      (is (empty? @traces)
+          "first derefer drop: slot's ref-count is still 1; NO :rf.sub/dispose
+           — pins the multi-derefer invariant")
 
-        ;; Second view unmounts → second unsubscribe. Parent drops
-        ;; 1→0, evicts, cascades to input, input drops 1→0, evicts.
-        ;; Two emits fire (parent + input).
-        (rf/unsubscribe [:rf2-e9g4g.multi/doubled])
-        (let [v-evs (dispose-by-id @traces :rf2-e9g4g.multi/v)
-              d-evs (dispose-by-id @traces :rf2-e9g4g.multi/doubled)]
-          (is (= 1 (count d-evs))
-              "parent :doubled fired :rf.sub/dispose when its LAST derefer dropped")
-          (is (= 1 (count v-evs))
-              "input :v fired :rf.sub/dispose via the cascade after the parent
-               released its input ref")
-          (is (every? #(= :no-more-derefers (-> % :tags :rf.sub/reason))
-                      (concat v-evs d-evs))
-              "every emit carries :reason :no-more-derefers (ref-count-drop path)"))
-        (finally
-          (trace-tooling/unregister-listener! ::multi-derefer))))))
+      ;; Second view unmounts → second unsubscribe. Parent drops
+      ;; 1→0, evicts, cascades to input, input drops 1→0, evicts.
+      ;; Two emits fire (parent + input).
+      (rf/unsubscribe [:rf2-e9g4g.multi/doubled])
+      (let [v-evs (dispose-by-id @traces :rf2-e9g4g.multi/v)
+            d-evs (dispose-by-id @traces :rf2-e9g4g.multi/doubled)]
+        (is (= 1 (count d-evs))
+            "parent :doubled fired :rf.sub/dispose when its LAST derefer dropped")
+        (is (= 1 (count v-evs))
+            "input :v fired :rf.sub/dispose via the cascade after the parent
+             released its input ref")
+        (is (every? #(= :no-more-derefers (-> % :tags :rf.sub/reason))
+                    (concat v-evs d-evs))
+            "every emit carries :reason :no-more-derefers (ref-count-drop path)")))))
 
 ;; ===========================================================================
 ;; rf2-b2bxk additions — Reagent reaction-dispose + conditional-deref re-execution
@@ -318,50 +302,47 @@
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:rf2-b2bxk/init])
 
-    (let [traces (collect-dispose-traces! ::reaction-dispose)]
-      (try
-        ;; "View" mounts: rf/subscribe returns the cached Reagent
-        ;; reaction. The cache layer registered an `add-on-dispose!`
-        ;; on this reaction in `compute-and-cache!` — the same callback
-        ;; Reagent's reactive-graph reaping fires when a render
-        ;; reaction holding the sub loses its last watcher.
-        (let [sum-rea (rf/subscribe [:rf2-b2bxk.rea/sum])]
-          (is (= 24 @sum-rea)
-              "precondition: sub computes against the seeded app-db")
-          (is (empty? @traces)
-              "precondition: nothing evicted while the reaction is held")
+    (with-trace-recorder! [traces {:pred sub-dispose-pred}]
+      ;; "View" mounts: rf/subscribe returns the cached Reagent
+      ;; reaction. The cache layer registered an `add-on-dispose!`
+      ;; on this reaction in `compute-and-cache!` — the same callback
+      ;; Reagent's reactive-graph reaping fires when a render
+      ;; reaction holding the sub loses its last watcher.
+      (let [sum-rea (rf/subscribe [:rf2-b2bxk.rea/sum])]
+        (is (= 24 @sum-rea)
+            "precondition: sub computes against the seeded app-db")
+        (is (empty? @traces)
+            "precondition: nothing evicted while the reaction is held")
 
-          ;; The reactive-graph teardown signal: dispose the reaction
-          ;; directly. This stands in for Reagent's reap of an unwatched
-          ;; reaction (componentWillUnmount → render reaction disposed
-          ;; → loses watcher on sum-rea → Reagent reaps sum-rea →
-          ;; add-on-dispose! callbacks fire). Mirrors the rf2-9hoos
-          ;; install-unmount-hook! test pattern, which similarly
-          ;; disposes the reaction directly to drive the on-dispose
-          ;; callback chain headlessly.
-          (interop/dispose! sum-rea)
+        ;; The reactive-graph teardown signal: dispose the reaction
+        ;; directly. This stands in for Reagent's reap of an unwatched
+        ;; reaction (componentWillUnmount → render reaction disposed
+        ;; → loses watcher on sum-rea → Reagent reaps sum-rea →
+        ;; add-on-dispose! callbacks fire). Mirrors the rf2-9hoos
+        ;; install-unmount-hook! test pattern, which similarly
+        ;; disposes the reaction directly to drive the on-dispose
+        ;; callback chain headlessly.
+        (interop/dispose! sum-rea)
 
-          ;; The cache's `add-on-dispose!` cascade ran: each input was
-          ;; `unsubscribe`d, dropping their ref-counts to 0, evicting
-          ;; their slots, and emitting `:rf.sub/dispose`. The parent's
-          ;; slot is removed via the cascade's direct `swap!` (no emit
-          ;; for the parent on this path — pinned by the rf2-mrnur cache
-          ;; test from the JVM side; the reagent-leg exercise here
-          ;; surfaces the input-cascade emit signal).
-          (let [a-evs (dispose-by-id @traces :rf2-b2bxk.rea/a)
-                b-evs (dispose-by-id @traces :rf2-b2bxk.rea/b)]
-            (is (= 1 (count a-evs))
-                "input :a evicted via the reaction-dispose cascade")
-            (is (= 1 (count b-evs))
-                "input :b evicted via the reaction-dispose cascade")
-            (doseq [ev (concat a-evs b-evs)]
-              (let [t (:tags ev)]
-                (is (= :no-more-derefers (:rf.sub/reason t))
-                    ":reason is :no-more-derefers — the ref-count-drop path")
-                (is (= :rf/default (:frame t))
-                    ":frame is canonical (the Reagent adapter's default frame)")))))
-        (finally
-          (trace-tooling/unregister-listener! ::reaction-dispose))))))
+        ;; The cache's `add-on-dispose!` cascade ran: each input was
+        ;; `unsubscribe`d, dropping their ref-counts to 0, evicting
+        ;; their slots, and emitting `:rf.sub/dispose`. The parent's
+        ;; slot is removed via the cascade's direct `swap!` (no emit
+        ;; for the parent on this path — pinned by the rf2-mrnur cache
+        ;; test from the JVM side; the reagent-leg exercise here
+        ;; surfaces the input-cascade emit signal).
+        (let [a-evs (dispose-by-id @traces :rf2-b2bxk.rea/a)
+              b-evs (dispose-by-id @traces :rf2-b2bxk.rea/b)]
+          (is (= 1 (count a-evs))
+              "input :a evicted via the reaction-dispose cascade")
+          (is (= 1 (count b-evs))
+              "input :b evicted via the reaction-dispose cascade")
+          (doseq [ev (concat a-evs b-evs)]
+            (let [t (:tags ev)]
+              (is (= :no-more-derefers (:rf.sub/reason t))
+                  ":reason is :no-more-derefers — the ref-count-drop path")
+              (is (= :rf/default (:frame t))
+                  ":frame is canonical (the Reagent adapter's default frame)"))))))))
 
 (deftest conditional-deref-re-execution-fires-rf-sub-dispose
   (testing "rf2-b2bxk #2: a Reagent reaction whose body conditionally
@@ -390,8 +371,7 @@
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:rf2-b2bxk/init])
 
-    (let [traces  (collect-dispose-traces! ::cond-rea)
-          cond?   (ratom/atom true)
+    (let [cond?   (ratom/atom true)
           n-rea   (rf/subscribe [:rf2-b2bxk.cond-rea/n])
           sum-rea (rf/subscribe [:rf2-b2bxk.cond-rea/sum])
           ;; The outer reaction stands in for a component's render
@@ -400,54 +380,54 @@
           ;; watcher, Reagent re-runs the body when its deps invalidate.
           outer   (ratom/make-reaction
                     (fn [] (when @cond? @sum-rea) @n-rea))]
-      (try
-        ;; Add a watcher so Reagent treats outer as active and runs
-        ;; auto-track on body re-execution. Stands in for a component
-        ;; instance that has subscribed to outer (e.g. via render).
-        (add-watch outer ::keep-mounted (fn [_ _ _ _] nil))
-        (is (= 5 @outer)
-            "precondition: outer reaction observes n-rea's value (returned via the body's tail)")
-        (is (empty? @traces)
-            "precondition: nothing evicted while sum-rea is held + derefed")
-
-        ;; Flip the condition; force the outer body to re-run via flush.
-        ;; In production this is "Reagent re-renders the component because
-        ;; the condition atom changed". The body skips @sum-rea this time.
-        (reset! cond? false)
-        (r/flush)
-        @outer
-        (is (empty? @traces)
-            "Reagent's dep-set update alone did NOT evict the cache slot —
-             cache ref-counting is explicit subscribe/unsubscribe")
-
-        ;; Production cleanup fires (r/with-let :finally clause on the
-        ;; conditionally-rendered child, etc.). The outer reaction is
-        ;; still alive — component-stays-mounted invariant.
-        (rf/unsubscribe [:rf2-b2bxk.cond-rea/sum])
-
-        (let [a-evs   (dispose-by-id @traces :rf2-b2bxk.cond-rea/a)
-              b-evs   (dispose-by-id @traces :rf2-b2bxk.cond-rea/b)
-              n-evs   (dispose-by-id @traces :rf2-b2bxk.cond-rea/n)
-              sum-evs (dispose-by-id @traces :rf2-b2bxk.cond-rea/sum)]
-          (is (= 1 (count sum-evs))
-              "parent :sum evicted on the conditional-teardown unsubscribe")
-          (is (= 1 (count a-evs))
-              "input :a evicted via the conditional-teardown cascade")
-          (is (= 1 (count b-evs))
-              "input :b evicted via the conditional-teardown cascade")
-          (is (empty? n-evs)
-              "the unconditionally-derefed :n sub stays cached — the conditional
-               teardown did NOT touch unrelated derefers")
-          (doseq [ev (concat a-evs b-evs sum-evs)]
-            (let [t (:tags ev)]
-              (is (= :no-more-derefers (:rf.sub/reason t))
-                  ":reason is :no-more-derefers — the ref-count-drop path")
-              (is (= :rf/default (:frame t))
-                  ":frame is canonical")))
+      (with-trace-recorder! [traces {:pred sub-dispose-pred}]
+        (try
+          ;; Add a watcher so Reagent treats outer as active and runs
+          ;; auto-track on body re-execution. Stands in for a component
+          ;; instance that has subscribed to outer (e.g. via render).
+          (add-watch outer ::keep-mounted (fn [_ _ _ _] nil))
           (is (= 5 @outer)
-              "outer reaction still alive — component-stays-mounted invariant"))
+              "precondition: outer reaction observes n-rea's value (returned via the body's tail)")
+          (is (empty? @traces)
+              "precondition: nothing evicted while sum-rea is held + derefed")
 
-        (finally
-          (remove-watch outer ::keep-mounted)
-          (rf/unsubscribe [:rf2-b2bxk.cond-rea/n])
-          (trace-tooling/unregister-listener! ::cond-rea))))))
+          ;; Flip the condition; force the outer body to re-run via flush.
+          ;; In production this is "Reagent re-renders the component because
+          ;; the condition atom changed". The body skips @sum-rea this time.
+          (reset! cond? false)
+          (r/flush)
+          @outer
+          (is (empty? @traces)
+              "Reagent's dep-set update alone did NOT evict the cache slot —
+               cache ref-counting is explicit subscribe/unsubscribe")
+
+          ;; Production cleanup fires (r/with-let :finally clause on the
+          ;; conditionally-rendered child, etc.). The outer reaction is
+          ;; still alive — component-stays-mounted invariant.
+          (rf/unsubscribe [:rf2-b2bxk.cond-rea/sum])
+
+          (let [a-evs   (dispose-by-id @traces :rf2-b2bxk.cond-rea/a)
+                b-evs   (dispose-by-id @traces :rf2-b2bxk.cond-rea/b)
+                n-evs   (dispose-by-id @traces :rf2-b2bxk.cond-rea/n)
+                sum-evs (dispose-by-id @traces :rf2-b2bxk.cond-rea/sum)]
+            (is (= 1 (count sum-evs))
+                "parent :sum evicted on the conditional-teardown unsubscribe")
+            (is (= 1 (count a-evs))
+                "input :a evicted via the conditional-teardown cascade")
+            (is (= 1 (count b-evs))
+                "input :b evicted via the conditional-teardown cascade")
+            (is (empty? n-evs)
+                "the unconditionally-derefed :n sub stays cached — the conditional
+                 teardown did NOT touch unrelated derefers")
+            (doseq [ev (concat a-evs b-evs sum-evs)]
+              (let [t (:tags ev)]
+                (is (= :no-more-derefers (:rf.sub/reason t))
+                    ":reason is :no-more-derefers — the ref-count-drop path")
+                (is (= :rf/default (:frame t))
+                    ":frame is canonical")))
+            (is (= 5 @outer)
+                "outer reaction still alive — component-stays-mounted invariant"))
+
+          (finally
+            (remove-watch outer ::keep-mounted)
+            (rf/unsubscribe [:rf2-b2bxk.cond-rea/n])))))))
