@@ -42,7 +42,7 @@ The runtime emits each trace event at the *moment of interest* with the host clo
 ### Re-frame2 additions (additive, optional)
 
 ```clojure
-{:source   :ui              ;; :ui, :timer, :http, :machine, :repl — origin of the trigger
+{:source   :ui              ;; :ui, :after-timer, :http, :machine-action, :repl, … (full enum: Spec-Schemas §:rf/dispatch-envelope) — origin of the trigger
  :recovery :no-recovery}    ;; recovery disposition for error-shaped events
 ```
 
@@ -82,7 +82,7 @@ When a tool (the pair tool, a story runner, the REPL, the SSR boot path) needs i
 
 `:rf.event/origin` is unconstrained at the framework level — tools and applications agree on values (`:pair`, `:claude`, `:story`, `:test`, etc.). The default is `:app`. User application code typically omits the opt; tool surfaces set it so post-mortem filters like "show me only the dispatches I (the pair tool) issued during this session" become a one-key filter on the trace stream.
 
-`:rf.event/origin` is **distinct from `:source`**: `:source` describes the *trigger kind* (`:ui` / `:frame-init` / `:fx` / `:machine` / `:machine-spawn` / `:always` / `:after-timer` / `:fx-dispatch` / `:fx-dispatch-later` / `:dispatch-later` / `:timer` / `:http` / `:repl` / `:ssr-hydration` / `:test` / `:unknown` / `:other`) and is essentially a "what woke the runtime?" axis; `:rf.event/origin` describes the *actor identity* (which tool or app subsystem emitted the dispatch) and is used for filtering. Tools may set both. The default `:source` is `:unknown` per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d) (previously `:ui`); substrate-internal dispatch sites (machine `:after` timer, machine spawn fx, `:dispatch` / `:dispatch-later` fx) stamp the matching specific value per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd). See [Spec-Schemas §`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope) for the canonical enum.
+`:rf.event/origin` is **distinct from `:source`**: `:source` describes the *trigger kind* (`:ui` / `:frame-init` / `:machine-spawn` / `:machine-action` / `:always` / `:after-timer` / `:fx-dispatch` / `:fx-dispatch-later` / `:http` / `:repl` / `:ssr-hydration` / `:test` / `:unknown` / `:other`) and is essentially a "what woke the runtime?" axis; `:rf.event/origin` describes the *actor identity* (which tool or app subsystem emitted the dispatch) and is used for filtering. Tools may set both. The default `:source` is `:unknown` per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d) (previously `:ui`); substrate-internal dispatch sites (machine `:after` timer, machine spawn fx, `:dispatch` / `:dispatch-later` fx — discriminating machine vs ordinary parent per rf2-c3990) stamp the matching specific value per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd) + [rf2-c3990](https://github.com/day8/re-frame2/issues/rf2-c3990). See [Spec-Schemas §`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope) for the canonical enum.
 
 ### Dispatch-origin tagging: `:rf/dispatch-origin`
 
@@ -112,7 +112,7 @@ The default — for both the macro form (`(rf/dispatch event)` / `(rf/dispatch-s
 ```
 
 `:rf/dispatch-origin` is **distinct from `:source` and `:origin`**:
-- `:source` (`:ui` / `:timer` / `:http` / `:machine` / `:repl` / `:ssr-hydration` / `:test` / `:other`) is the *trigger trio* — what woke the runtime — and predates the addition.
+- `:source` (`:ui` / `:after-timer` / `:http` / `:machine-action` / `:machine-spawn` / `:always` / `:fx-dispatch` / `:fx-dispatch-later` / `:repl` / `:ssr-hydration` / `:test` / `:frame-init` / `:unknown` / `:other`) is the *trigger kind* — what woke the runtime — see [Spec-Schemas §`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope) for the canonical enum.
 - `:origin` (`:app` / `:pair` / `:story` / `:test` / …) is the *actor identity* — which tool or app subsystem emitted the dispatch — and is **unconstrained** at the framework level.
 - `:rf/dispatch-origin` is the *closed-enum functional source* — the 10-value taxonomy above. Tools branch on it to render the L2 row prefix and per-origin filter pills.
 
@@ -646,7 +646,7 @@ The default (cascade bundles) matches the storage unit; tools whose existing cod
 | `:severity` | `:error` / `:warning` / `:info` | (`:flat`-only) Synonym for `:op-type` restricted to the three severity tiers. |
 | `:event-id` | keyword | Match `:tags :rf.trace/event-id` (the first element of the dispatched event vector, e.g. `:user/login`). For cascade-bundle reads, matches cascades whose `:event` first element is this id; for `:flat`, matches per-event. |
 | `:handler-id` | keyword | (`:flat`-only) Match `:tags :handler-id`. Present on handler-error emits. |
-| `:source` | `:ui` / `:timer` / `:http` / `:repl` / `:machine` / `:ssr-hydration` | (`:flat`-only) Match the top-level `:source` slot. |
+| `:source` | one of [Spec-Schemas §`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope)'s `:source` enum (`:ui` / `:after-timer` / `:http` / `:repl` / `:machine-action` / `:machine-spawn` / `:fx-dispatch` / `:fx-dispatch-later` / `:always` / `:ssr-hydration` / `:test` / `:frame-init` / `:unknown` / `:other`) | (`:flat`-only) Match the top-level `:source` slot. |
 | `:origin` | `:app` / `:pair` / `:story` / `:test` / ... | Match `:tags :rf.event/origin`. For cascade-bundle reads, matches cascades whose root `:rf.event/dispatched` carries this origin. |
 | `:dispatch-id` | number | Match the cascade's `:dispatch-id` (cascade-bundle reads) or `:tags :rf.trace/dispatch-id` (`:flat`). |
 | `:since-ms` | number | Keep cascades / events whose `:time` (host-clock ms) is strictly greater than this. |
@@ -1318,7 +1318,7 @@ All error trace events are open maps with these required keys:
  :operation :rf.error/<category>                 ;; specific category, see below
  :op-type   :error                               ;; the universal discriminator for errors
  :time      timestamp                            ;; emit time, host clock
- :source    keyword?                             ;; (when present) the trigger source — :ui, :timer, :http, ...
+ :source    keyword?                             ;; (when present) the trigger source — :ui, :after-timer, :http, :machine-action, ... (full enum: Spec-Schemas §:rf/dispatch-envelope)
  :recovery  keyword?                             ;; :no-recovery, :replaced-with-default, :skipped, ...
  :rf.trace/trigger-handler                       ;; (when present) the in-scope handler at emit time
    {:kind         #{:event :sub :fx :cofx :view}

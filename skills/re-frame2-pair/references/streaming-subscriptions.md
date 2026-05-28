@@ -59,7 +59,7 @@ Mirrors `(re-frame.trace.tooling/trace-buffer)` per Spec 009. Recognised keys:
 - `:severity` — alias for `:op-type`, restricted to `:error` `:warning` `:info` (no `:debug`; the spelling is `:warning`, not `:warn`)
 - `:event-id` — exact event id keyword
 - `:handler-id` — exact handler id keyword (e.g. for `:rf.sub/run` traces)
-- `:source` — `:tags.source` value (trigger kind: `:ui` `:timer` `:http` `:repl` `:machine` `:ssr-hydration`)
+- `:source` — `:tags.source` value (trigger kind: `:ui` `:after-timer` `:http` `:repl` `:machine-action` `:machine-spawn` `:fx-dispatch` `:fx-dispatch-later` `:always` `:frame-init` `:ssr-hydration` `:test` `:unknown` `:other` — see `spec/Spec-Schemas.md §:rf/dispatch-envelope`)
 - `:origin` — `:tags.origin` value (actor: `:app` `:pair` `:story` `:test`)
 - `:dispatch-id` — exact dispatch-id; combine with `cascade-of` for tree drills
 - `:since-ms` / `:between` — time-window keys (see [ops.md](ops.md) `trace/buffer`)

@@ -820,7 +820,7 @@ Cross-references: [Construction-Prompts.md](Construction-Prompts.md) covers scaf
 - **Pure transition contract:** `(machine-transition definition snapshot event) → [next-snapshot effects]`.
 - **Pure factory:** `(make-machine-handler spec) → fn`. Returns a re-frame event-handler fn whose construction is a pure value transform of `spec` — its identity (the surrounding `reg-event-fx` id, or the `[:rf.machine/spawn ...]`-supplied id) is bound by the caller.
 - **Definition shape:** transition table is pure data; guards/actions referenced by id or supplied as fns; both forms are first-class.
-- **Inspection:** lifecycle/transition events emitted on the existing trace surface with `:source :machine`.
+- **Inspection:** lifecycle/transition events emitted on the existing trace surface — discriminated by their `:rf.machine.*` `:operation` keyword (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, …). Machine-emitted dispatches carry `:source :machine-action` on the envelope (per rf2-c3990 — the actor-message path; `:dispatch` / `:dispatch-later` fx handlers stamp this when the parent envelope is `:rf.machine/internal? true`).
 - **Composition:** ordinary `dispatch` between machines, made deterministic by drain semantics.
 - **Discipline:** machines reuse the existing event registry, dispatch pipeline, and effect substrate; machine snapshots live as values in `app-db`.
 
@@ -3306,7 +3306,7 @@ Mermaid/D2 are AI-fluent — LLMs read and write them confidently — which make
 
 ### Inspector wire-format
 
-Stately Inspector is a documented event protocol that any tool can subscribe to. re-frame2's machine traces (`:source :machine`, `:op-type :rf.machine/transition`, `:tags` carrying state/event/snapshot) are already very close in shape. A post-v1 mapping document — *re-frame2 trace ↔ Stately Inspector event* — lets external xstate-aware tools watch a re-frame2 app for free, and lets AIs reuse vocabulary they already know.
+Stately Inspector is a documented event protocol that any tool can subscribe to. re-frame2's machine traces (`:op-type :rf.machine`, `:operation :rf.machine/transition`, machine-emitted dispatches carrying `:source :machine-action`, `:tags` carrying state/event/snapshot) are already very close in shape. A post-v1 mapping document — *re-frame2 trace ↔ Stately Inspector event* — lets external xstate-aware tools watch a re-frame2 app for free, and lets AIs reuse vocabulary they already know.
 
 See [Tool-Pair.md](Tool-Pair.md) for the tooling story; the Stately mapping is one consumer.
 

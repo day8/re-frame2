@@ -1902,8 +1902,11 @@ operator still sees the lineage.
 sites that feed the enrichment live in `implementation/core/src/
 re_frame/fx.cljc` (`:dispatch` / `:dispatch-later` reserved-fx
 handlers stamp `:source :fx-dispatch` / `:source :fx-dispatch-later`
-on the child envelope, with the `:rf.event/source-detail {:ms ms}`
-tag riding on the dispatched trace for `:dispatch-later`),
+on the child envelope; when the emitting parent is a machine handler
+they stamp `:source :machine-action` instead — the actor-message
+path, per rf2-c3990 — with the `:rf.event/source-detail {:ms ms}`
+tag riding on the dispatched trace for `:dispatch-later` and the
+machine-action `:dispatch-later` variant alike),
 `implementation/machines/src/re_frame/machines/timer.cljc` (the
 `:after` timer's `dispatch!` stamps `:source :after-timer`), and
 `implementation/machines/src/re_frame/machines/lifecycle_fx/spawn.cljc`
@@ -1958,7 +1961,7 @@ and silently rendered empty rows. The binding inventory:
 
 | Step | Trace operation | Canonical tags |
 |------|-----------------|----------------|
-| `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source` (closed set per rf2-hxj0d + rf2-ejtpd; substrate-internal values drive the §9.1.6.3 per-kind enrichment), `:rf.trace/call-site`, `:rf.trace/parent-dispatch-id` (rf2-5qp4g — fx-dispatch parent-epoch link), `:rf.event/source-detail` (rf2-5qp4g — optional per-source-kind detail map; `:dispatch-later` rides `{:ms <delay>}` so the renderer surfaces the original scheduled delay) |
+| `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source` (closed set per rf2-hxj0d + rf2-ejtpd + rf2-c3990; substrate-internal values drive the §9.1.6.3 per-kind enrichment), `:rf.trace/call-site`, `:rf.trace/parent-dispatch-id` (rf2-5qp4g — fx-dispatch parent-epoch link), `:rf.event/source-detail` (rf2-5qp4g — optional per-source-kind detail map; `:dispatch-later` rides `{:ms <delay>}` so the renderer surfaces the original scheduled delay) |
 | `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value`, `:rf.cofx/elapsed-ms` (rf2-w2r4p aligned the per-cofx duration read against the substrate's canonical name + threaded `:duration-ms` through the `cofx-steps` flattening) — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch). **Projection splits each surviving cofx into its own numbered step** (rf2-s1jw4 · pair-debug 2026-05-26): `cofx-steps` is a `mapv` over `cofx-rows` producing `{:step :coeffect :badge :COEFFECT :id <kw> :value <v> :duration-ms <ms>}` per entry, spliced into the steps vec before HANDLER. |
 | `:handler` duration | `:rf.event/run-end` `:rf.event/elapsed-ms` (rf2-slnce aligned the per-handler duration read against the substrate's canonical name — see `re-frame.router/emit-run-end-trace`) |
 | `:handler` source | `(rf/handler-meta :event id)` → `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta). The `{:file :line}` coord on the same meta drives the HANDLER verb-as-link affordance (§9.1.6.1 · rf2-ehd8v + pair-debug 2026-05-26). |

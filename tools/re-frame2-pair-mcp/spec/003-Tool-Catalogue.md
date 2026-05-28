@@ -1494,7 +1494,7 @@ that axis"):
 | `:frame`         | `(:frame ev)` or `(get-in ev [:tags :frame])`                     |
 | `:event-id`      | `(get-in ev [:tags :rf.trace/event-id])`                          |
 | `:handler-id`    | `(get-in ev [:tags :handler-id])`                                 |
-| `:source`        | `(:source ev)` or `(get-in ev [:tags :source])` — one of `:ui` / `:timer` / `:http` / `:repl` / `:machine` / `:ssr-hydration`. |
+| `:source`        | `(:source ev)` or `(get-in ev [:tags :source])` — one of `:rf/dispatch-envelope`'s `:source` enum (`:ui` / `:after-timer` / `:http` / `:repl` / `:machine-action` / `:machine-spawn` / `:fx-dispatch` / `:fx-dispatch-later` / `:always` / `:frame-init` / `:ssr-hydration` / `:test` / `:unknown` / `:other`). See [Spec-Schemas §`:rf/dispatch-envelope`](../../../spec/Spec-Schemas.md#rfdispatch-envelope). |
 | `:origin`        | `(get-in ev [:tags :rf.event/origin])` — `:app` / `:pair` / `:story` / `:test`. |
 | `:dispatch-id`   | `(get-in ev [:tags :rf.trace/dispatch-id])`                       |
 | `:since-ms`      | `(> (:time ev) since-ms)` — strict-greater-than host-clock ms.    |
