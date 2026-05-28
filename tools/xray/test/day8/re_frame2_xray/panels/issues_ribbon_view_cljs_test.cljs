@@ -385,7 +385,7 @@
 
 (deftest footer-hint-renders-below-the-feed
   (testing "rf2-tha26 — the Figma footer hint renders below the feed
-            naming the row affordances (click a row → Event panel · click
+            naming the row affordances (click a row → Epoch panel · click
             ↗ → source file:line)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -396,7 +396,7 @@
       (let [tree (issues-ribbon/Panel)
             hint (find-by-testid tree "rf-xray-issues-footer-hint")]
         (is (some? hint) "footer hint renders in the feed branch")
-        (is (= "click a row → Event panel (the cascade) · click ↗ → source file:line"
+        (is (= "click a row → Epoch panel (the cascade) · click ↗ → source file:line"
                (last hint))
             "footer hint carries the reference copy")))))
 
