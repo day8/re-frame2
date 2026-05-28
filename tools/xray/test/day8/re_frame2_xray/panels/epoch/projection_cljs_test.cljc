@@ -1067,6 +1067,51 @@
       (is (= 6 (:after row))
           "after is read from `:rf.sub/value`"))))
 
+(deftest subscriptions-row-carries-first-run-flag-test
+  (testing "rf2-fyd8u — projection lifts `:rf.sub/first-run?` onto
+            each sub-run row as `:first-run?` so the view-side
+            renderer can pick `:added` chrome (first-cache-entry) vs
+            `← was X` annotation (value change against an existing
+            cache entry) for leaf-scalar subs"
+    (testing "first-run? true on the run that created the cache slot"
+      (let [row (-> (proj/subscriptions-step
+                      [(ev :rf.sub :rf.sub/run
+                           {:rf.sub/id             :counter/last-clicked
+                            :rf.sub/query-v        [:counter/last-clicked]
+                            :rf.sub/value-changed? true
+                            :rf.sub/first-run?     true
+                            :rf.sub/prev-value     nil
+                            :rf.sub/value          1779972561856})])
+                    :rows first)]
+        (is (true? (:first-run? row))
+            ":first-run? is read from `:rf.sub/first-run?` (true case)")
+        (is (true? (:changed? row))
+            ":changed? still carries the value-changed signal")
+        (is (= 1779972561856 (:after row)))))
+    (testing "first-run? false on a subsequent recompute (existing slot)"
+      (let [row (-> (proj/subscriptions-step
+                      [(ev :rf.sub :rf.sub/run
+                           {:rf.sub/id             :counter/value
+                            :rf.sub/query-v        [:counter/value]
+                            :rf.sub/value-changed? true
+                            :rf.sub/first-run?     false
+                            :rf.sub/prev-value     0
+                            :rf.sub/value          1})])
+                    :rows first)]
+        (is (false? (:first-run? row))
+            ":first-run? is read from `:rf.sub/first-run?` (false case)")
+        (is (true? (:changed? row)))
+        (is (= 0 (:before row)))
+        (is (= 1 (:after row)))))
+    (testing "absent `:rf.sub/first-run?` tag (legacy / pure compute-sub
+              path) → row defaults to first-run? false"
+      (let [row (-> (proj/subscriptions-step
+                      [(sub-run-ev [:counter/total] true 5 6)])
+                    :rows first)]
+        (is (false? (:first-run? row))
+            "no flag stamped → defaults to false (legacy path falls back
+             to the value-change shape)")))))
+
 (deftest subscriptions-step-counts-changed-vs-unchanged-test
   (testing "rf2-kfh1v — step header carries `changed` + `unchanged`
             counts so the view can render `N recomputed (M changed,

@@ -822,6 +822,77 @@
   {:flex      1
    :min-width 0})
 
+;; -- SUBSCRIPTIONS leaf-scalar FULL+DIFF chrome (rf2-fyd8u) ----------------
+;;
+;; The `subs-value-cell`'s `:full+diff` branch threads `:before` into
+;; `ei/edn-inspector`, which paints the R1-R8 grammar on container
+;; descendants. A leaf-scalar sub return (e.g. `:counter/value` returning
+;; `1`) has no children for the inspector to paint on — the change signal
+;; would otherwise drop silently. The branches here surface that signal
+;; at the SUBSCRIPTIONS row level:
+;;
+;;   :first-run? true  → `:added` chrome (green stripe + `+` glyph +
+;;                       low-alpha wash) — parity with the inspector's
+;;                       mode-3 R1 `:added` shape (per `edn-inspector`
+;;                       `:added` op).
+;;   :first-run? false → value + inline `← was <prev>` annotation (prev
+;;                       routes through `ei/mini` for syntax-token
+;;                       chrome; prose stays muted text-tertiary).
+
+(def ^:private subs-leaf-row-style
+  "Outer wrapper for the leaf-scalar FULL+DIFF branch. `inline-flex`
+  (parity with `gutter-row`'s inline-flex shape per rf2-1bra5) so the
+  value composes inline with the optional `← was X` annotation without
+  forcing a block-level row break inside the table cell."
+  {:display       "inline-flex"
+   :align-items   "baseline"
+   :flex-wrap     "wrap"
+   :gap           "4px"
+   :max-width     "100%"})
+
+(def ^:private subs-leaf-was-style
+  "Inline `← was <prev>` annotation chip. Per the bead body the prose
+  stays muted (text-tertiary) and the prev value picks up syntax-token
+  chrome from `ei/mini` (rendered inline as a child span). Mirrors the
+  shape of `edn-inspector`'s `change-annotation` chip (sans-stack,
+  italic, 11px) but anchored at this row level — the inspector's leaf-
+  scalar return has no per-leaf annotation surface."
+  {:margin-left "8px"
+   :color       text-tertiary-colour
+   :font-family sans-stack
+   :font-size   "11px"
+   :font-style  "italic"
+   :display     "inline-flex"
+   :align-items "baseline"
+   :gap         "4px"})
+
+(def ^:private subs-leaf-added-row-style
+  "Outer style for the `:first-run?` `:added` chrome — green left-edge
+  stripe + low-alpha wash + leading `+` glyph. Parity with the
+  edn-inspector's `gutter-row` `:added` shape (rf2-fyd8u). The stripe /
+  wash colours come from the inspector's reserved diff token family
+  (`:diff-added-stripe` / `:diff-added-wash`) so the SUBSCRIPTIONS row's
+  chrome reads visually identical to the inspector's R1 `:added` shape."
+  {:display       "inline-flex"
+   :align-items   "baseline"
+   :flex-wrap     "wrap"
+   :gap           "4px"
+   :padding-left  "6px"
+   :border-left   (str "2px solid " (:diff-added-stripe tokens))
+   :background    (:diff-added-wash tokens)
+   :max-width     "100%"})
+
+(def ^:private subs-leaf-added-glyph-style
+  "Leading `+` glyph for the `:first-run?` `:added` chrome. Bold green
+  (`:diff-gutter`), parity with the inspector's `gutter-row` glyph cell
+  shape."
+  {:flex        "0 0 12px"
+   :color       (:diff-gutter tokens)
+   :font-size   "11px"
+   :font-weight 700
+   :text-align  "center"
+   :user-select "none"})
+
 ;; -- SUBSCRIPTIONS filter button bar --------------------------------------
 
 (def ^:private subs-filter-bar-style
@@ -2937,6 +3008,27 @@
                         subs-filter-button-inactive-style)}
       (name m)])])
 
+(defn- subs-leaf-scalar?
+  "True iff `value` is a leaf-scalar — NOT a map, vector, set, or
+  sequential — so the `:full+diff` edn-inspector has no children to
+  paint R1-R8 diff chrome on. Mirrors the same predicate the
+  edn-inspector uses internally to decide between container-recurse
+  and `render-leaf-with-diff`. nil counts as a leaf (the
+  `nil → <new-value>` transition is a leaf-scalar value change, per
+  the bead body's `:counter/last-clicked` example).
+
+  Per rf2-fyd8u — this is the discriminator the SUBSCRIPTIONS
+  FULL+DIFF cell uses to route between the inspector mount (containers
+  paint their own chrome) and the leaf-scalar branch (the row-level
+  `← was X` annotation / `:added` chrome lives here, NOT inside the
+  inspector — the inspector's leaf-scalar surface has no annotation
+  hook to paint on)."
+  [value]
+  (not (or (map? value)
+           (vector? value)
+           (set? value)
+           (sequential? value))))
+
 (defn- subs-value-cell
   "Render the `changed` cell for one sub recomputation row using the
   universal three-mode toggle (rf2-yqjrd).
@@ -2953,12 +3045,34 @@
                    R1-R8 grammar paints inline `← changed from X`
                    annotations. Default per pair-debug 2026-05-27.
 
+  rf2-fyd8u — for `:full+diff` mode the leaf-scalar branch (a sub that
+  returns a scalar — number, string, keyword, nil) has its OWN
+  rendering path: the edn-inspector's R1-R8 grammar paints diff chrome
+  on container CHILDREN, but a scalar root has no children, so a
+  value-change of e.g. `0 → 1` would otherwise drop silently. Two
+  sub-branches at the row level:
+
+    `:first-run?` true  → `:added` chrome (green stripe / leading `+`
+                          glyph / low-alpha wash, parity with the
+                          inspector's R1 `:added` shape). NO `← was`
+                          annotation (no prior value existed — the row
+                          tells a 'this sub is now alive' story).
+    `:first-run?` false → value + inline `← was <prev>` annotation.
+                          The prose stays muted (text-tertiary); the
+                          prev value routes through `ei/mini` for the
+                          syntax-token chrome (keyword magenta, number
+                          orange, etc.).
+
+  Containers (map / vector / set return values) keep the existing
+  mount: the inspector paints child-level annotations via the R1-R8
+  grammar — no per-row chrome change.
+
   Unchanged rows (`:changed? false`) render an empty cell — the
   value column is reserved for diff signal; absence of a row entry
   in this column is itself the unchanged indicator. Per Mike
   pair-debug 2026-05-27 (rf2-fqcdd follow-up) the leading ✓/✗
   ticks were dropped — redundant once the cell is value-only."
-  [{:keys [sub-id changed? before after]} mode idx]
+  [{:keys [sub-id changed? first-run? before after]} mode idx]
   (when changed?
     (case mode
       :full
@@ -2969,13 +3083,41 @@
          :default-expanded-depth 2}]]
 
       :full+diff
-      [:div {:style subs-value-cell-fill-style}
-       [ei/edn-inspector after
-        (cond-> {:panel-id :rf.xray.epoch/subs-value
-                 :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
-                 :default-expanded-depth 3
-                 :full-with-diff? true}
-          (some? before) (assoc :before before))]]
+      ;; rf2-fyd8u — leaf-scalar branch: paint the change signal at
+      ;; this row level (the inspector has no leaf-scalar annotation
+      ;; surface). Containers fall through to the inspector mount.
+      ;; Testid naming note: the leaf-* testids deliberately use a
+      ;; prefix DISTINCT from `rf-xray-epoch-sub-row-` (the parent
+      ;; row's testid) so prefix counters like the sibling
+      ;; rf2-tzmmf filter tests don't pick the leaf wrapper up as
+      ;; an additional "row".
+      (if (subs-leaf-scalar? after)
+        (if first-run?
+          ;; first-cache-entry → :added chrome, no "was" annotation.
+          [:div {:data-rf-xray-subs-leaf  "added"
+                 :data-rf-diff-op         "added"
+                 :data-testid             (str "rf-xray-epoch-subs-leaf-added-" idx)
+                 :style                   subs-leaf-added-row-style}
+           [:span {:style subs-leaf-added-glyph-style} "+"]
+           [:span [ei/mini after 40]]]
+          ;; value change → value + inline ← was <prev>.
+          [:div {:data-rf-xray-subs-leaf  "changed"
+                 :data-rf-diff-op         "modified"
+                 :data-testid             (str "rf-xray-epoch-subs-leaf-changed-" idx)
+                 :style                   subs-leaf-row-style}
+           [:span [ei/mini after 40]]
+           [:span {:data-rf-diff-annotation "subs-was"
+                   :style                   subs-leaf-was-style}
+            "← was "
+            [:span {:data-rf-xray-subs-leaf-was "1"}
+             [ei/mini before 40]]]])
+        [:div {:style subs-value-cell-fill-style}
+         [ei/edn-inspector after
+          (cond-> {:panel-id :rf.xray.epoch/subs-value
+                   :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
+                   :default-expanded-depth 3
+                   :full-with-diff? true}
+            (some? before) (assoc :before before))]])
 
       ;; :diff (default fallback) — before → after via mini.
       [:div {:style subs-changed-row-style}

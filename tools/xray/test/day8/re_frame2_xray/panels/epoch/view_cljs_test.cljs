@@ -1547,6 +1547,184 @@
         (is (some? row)
             "row renders cleanly under :full+diff mode (hoisted style applied)")))))
 
+;; ---- rf2-fyd8u — SUBSCRIPTIONS FULL+DIFF leaf-scalar annotation ---------
+
+(deftest subscriptions-full-diff-leaf-scalar-value-change-renders-was-annotation-test
+  (testing "rf2-fyd8u — in FULL+DIFF mode, a leaf-scalar sub with
+            `:value-changed? true` and `:first-run? false` renders
+            value + inline `← was <prev>` annotation. The annotation
+            chip carries `:data-rf-diff-annotation \"subs-was\"`; the
+            row-level wrapper carries `:data-rf-xray-subs-leaf
+            \"changed\"`. Acceptance criterion 3 — pins
+            `0 → 1`, `\"even\" → \"odd\"`, `nil → 1779972561856`."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full+diff])
+      (testing "0 → 1 (counter/value)"
+        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :counter/value :sub-vec [:counter/value]
+                            :inputs nil :changed? true :first-run? false
+                            :before 0 :after 1}]
+                    :changed 1 :unchanged 0}
+              tree (view/render-subscriptions-step step)
+              leaf (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0")]
+          (is (some? leaf)
+              "row mounts the leaf-changed wrapper (not the container path)")
+          (is (some? (th/find-by-attr tree :data-rf-diff-annotation "subs-was"))
+              "row carries the `← was <prev>` annotation chip")
+          (let [txt (th/text-content leaf)]
+            (is (string/includes? txt "← was")
+                "annotation prose includes `← was`")
+            (is (string/includes? txt "1")
+                "after value renders")
+            (is (string/includes? txt "0")
+                "prev value renders inside the annotation"))))
+      (testing "\"even\" → \"odd\" (counter/parity)"
+        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :counter/parity :sub-vec [:counter/parity]
+                            :inputs nil :changed? true :first-run? false
+                            :before "even" :after "odd"}]
+                    :changed 1 :unchanged 0}
+              tree (view/render-subscriptions-step step)
+              leaf (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0")]
+          (is (some? leaf))
+          (let [txt (th/text-content leaf)]
+            (is (string/includes? txt "← was"))
+            (is (string/includes? txt "odd"))
+            (is (string/includes? txt "even")))))
+      (testing "nil → 1779972561856 (counter/last-clicked)"
+        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :counter/last-clicked
+                            :sub-vec [:counter/last-clicked]
+                            :inputs nil :changed? true :first-run? false
+                            :before nil :after 1779972561856}]
+                    :changed 1 :unchanged 0}
+              tree (view/render-subscriptions-step step)
+              leaf (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0")]
+          (is (some? leaf)
+              "nil-prev leaf still mounts the leaf-changed wrapper (the
+               `:first-run? false` discriminator is the gate, NOT
+               `(some? before)`)")
+          (let [txt (th/text-content leaf)]
+            (is (string/includes? txt "← was"))
+            (is (string/includes? txt "1779972561856"))
+            (is (string/includes? txt "nil")
+                "prev nil renders as `nil` syntax token in the annotation")))))))
+
+(deftest subscriptions-full-diff-leaf-scalar-first-run-renders-added-chrome-test
+  (testing "rf2-fyd8u — in FULL+DIFF mode, a leaf-scalar sub with
+            `:value-changed? true` and `:first-run? true` (the run
+            that created the cache slot — a freshly-mounted view
+            deref'd a sub that wasn't cached this frame) renders
+            `:added` chrome (green stripe / leading `+` glyph / wash)
+            with NO `← was` annotation. Acceptance criterion 4."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full+diff])
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :counter/value :sub-vec [:counter/value]
+                          :inputs nil :changed? true :first-run? true
+                          :before nil :after 42}]
+                  :changed 1 :unchanged 0}
+            tree (view/render-subscriptions-step step)
+            added (th/find-by-testid tree "rf-xray-epoch-subs-leaf-added-0")]
+        (is (some? added)
+            "row mounts the leaf-added wrapper (`:first-run? true` branch)")
+        (is (nil? (th/find-by-attr tree :data-rf-diff-annotation "subs-was"))
+            "first-run row carries NO `← was <prev>` annotation
+             (no prior value to be was)")
+        (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0"))
+            "the changed-wrapper is NOT mounted (mutually exclusive
+             with leaf-added)")
+        (let [txt (th/text-content added)]
+          (is (string/includes? txt "+")
+              "leading `+` glyph paints (parity with the inspector's
+               R1 `:added` shape)")
+          (is (string/includes? txt "42")
+              "after value renders alongside the glyph"))))))
+
+(deftest subscriptions-full-diff-container-keeps-inspector-mount-test
+  (testing "rf2-fyd8u — for CONTAINER sub returns (map / vector / set)
+            the FULL+DIFF cell keeps the existing edn-inspector mount
+            with `:before` threaded — the inspector's R1-R8 grammar
+            paints child-level annotations there. The leaf-scalar
+            wrappers (`-leaf-changed-` / `-leaf-added-`) are NOT
+            mounted on the container path. Acceptance criterion 7."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full+diff])
+      (testing "map sub return — container path"
+        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :counter/state :sub-vec [:counter/state]
+                            :inputs nil :changed? true :first-run? false
+                            :before {:a 1} :after {:a 1 :b 2}}]
+                    :changed 1 :unchanged 0}
+              tree (view/render-subscriptions-step step)]
+          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0"))
+              "container path does NOT mount the leaf-changed wrapper")
+          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-added-0"))
+              "container path does NOT mount the leaf-added wrapper either")))
+      (testing "vector sub return — container path"
+        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :cart/items :sub-vec [:cart/items]
+                            :inputs nil :changed? true :first-run? false
+                            :before [1 2] :after [1 2 3]}]
+                    :changed 1 :unchanged 0}
+              tree (view/render-subscriptions-step step)]
+          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0")))
+          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-added-0")))))
+      (testing "first-run? on a CONTAINER → still container path
+                (the `:added` chrome only applies to leaf-scalars; the
+                inspector's own R1 paints `:added` for whole-subtree
+                containers)"
+        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :cart/items :sub-vec [:cart/items]
+                            :inputs nil :changed? true :first-run? true
+                            :before nil :after [1 2 3]}]
+                    :changed 1 :unchanged 0}
+              tree (view/render-subscriptions-step step)]
+          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-added-0"))
+              "container first-run does NOT route through the leaf-added
+               wrapper — inspector handles the whole-subtree :added at
+               the row level"))))))
+
+(deftest subscriptions-diff-mode-unchanged-by-leaf-branch-test
+  (testing "rf2-fyd8u — the `:diff` mode (prev → after via mini) is
+            UNCHANGED by the leaf-scalar branch. The new chrome
+            applies only to `:full+diff` mode. `:full` mode (no diff)
+            is also unchanged."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (testing ":diff mode — value-change leaf renders the prior pair shape"
+        (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :diff])
+        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :counter/value :sub-vec [:counter/value]
+                            :inputs nil :changed? true :first-run? false
+                            :before 0 :after 1}]
+                    :changed 1 :unchanged 0}
+              tree (view/render-subscriptions-step step)]
+          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0"))
+              ":diff mode does NOT mount the leaf-changed wrapper")
+          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-added-0"))
+              ":diff mode does NOT mount the leaf-added wrapper")))
+      (testing ":full mode — no diff chrome, no leaf wrappers"
+        (rf/dispatch-sync [:rf.xray.epoch/set-subs-value-diff-mode :full])
+        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :counter/value :sub-vec [:counter/value]
+                            :inputs nil :changed? true :first-run? true
+                            :before nil :after 1}]
+                    :changed 1 :unchanged 0}
+              tree (view/render-subscriptions-step step)]
+          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0"))
+              ":full mode does NOT mount the leaf-changed wrapper")
+          (is (nil? (th/find-by-testid tree "rf-xray-epoch-subs-leaf-added-0"))
+              ":full mode does NOT mount the leaf-added wrapper
+               (even on `:first-run? true`)"))))))
+
 ;; ---- rf2-309cy — VIEWS row view-id keyword routes through ei/mini ------
 
 (deftest views-row-view-id-routes-through-mini-test

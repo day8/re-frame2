@@ -146,6 +146,15 @@
     :prev-value      — the prior computed value (`nil` on the first
                        recompute). Wire-value-sensitive app data.
     :value           — the freshly-computed value. Wire-value-sensitive.
+    :first-run?      — `true` on the run that CREATED the cache entry
+                       (`prev-value` was the `::unset` sentinel);
+                       `false` on every subsequent recompute. Disambiguates
+                       a value-change row from a freshly-created sub row
+                       so consumers (Xray's SUBSCRIPTIONS leaf-scalar
+                       renderer per rf2-fyd8u) can pick `← was X` vs
+                       `:added` chrome without inferring from
+                       `:prev-value nil`. Not wire-sensitive. Per
+                       Spec 009 §`:rf.sub/run`.
     :cascade?        — `true` when this is a layer-2+ sub (an upstream
                        SUB drove the recompute); `false` for a layer-1
                        sub (an app-db path change drove it).
@@ -242,6 +251,7 @@
                                   :rf.sub/query-v        query-v
                                   :frame                 frame-id
                                   :rf.sub/value-changed? (not= prev-value validated)
+                                  :rf.sub/first-run?     (= unset prev-value)
                                   :rf.sub/prev-value     (when-not (= unset prev-value)
                                                            prev-value)
                                   :rf.sub/value          validated
@@ -314,7 +324,18 @@
           ;; sub inputs, so `input-signals` is `[]` and `prev-in-vals`
           ;; is irrelevant to cause-sub resolution (a layer-1 recompute
           ;; is driven by an app-db path change, never a sub cascade).
-          (let [prev-result @last-result
+          ;;
+          ;; rf2-fyd8u — pass `unset` for `prev-value` on the run that
+          ;; allocated the cache slot (the input cell `last-db` is still
+          ;; the `::unset` sentinel here — pre-vreset). `last-result`
+          ;; starts at `nil` (not `::unset`) so it cannot serve as the
+          ;; first-run discriminator alone; keying on `last-db` keeps
+          ;; the `::unset → unset` projection well-defined even when the
+          ;; first cached value happens to be `nil`. The
+          ;; `validate-and-trace` emit then stamps `:rf.sub/first-run?`
+          ;; from `(= unset prev-value)`.
+          (let [first-run?  (= ::unset @last-db)
+                prev-result (if first-run? unset @last-result)
                 computed    (validate-and-trace
                               body-fn (list db) query-id query-v
                               frame-id [] sub-meta prev-result unset)]
@@ -369,7 +390,14 @@
           ;; `(list v0)` `in-vals` form) so `changed-cause-sub` can diff
           ;; it positionally against `input-signals`; the `::unset`
           ;; sentinel on first recompute leaves `:cause-sub` nil.
-          (let [prev-result  @last-result
+          ;;
+          ;; rf2-fyd8u — pass `unset` for `prev-value` on the run that
+          ;; allocated the cache slot (the input cell `last-v0` is still
+          ;; the `::unset` sentinel here). `last-result` is `nil` then
+          ;; too but keying on `last-v0` keeps the discriminator well-
+          ;; defined regardless of the first cached value's shape.
+          (let [first-run?   (= ::unset @last-v0)
+                prev-result  (if first-run? unset @last-result)
                 prev-v0      @last-v0
                 prev-in-vals (if (= unset prev-v0)
                                unset
@@ -421,7 +449,14 @@
           ;; input-value seq (parallel to `input-signals`), which
           ;; `changed-cause-sub` diffs positionally to name the upstream
           ;; sub that cascaded. `::unset` on first recompute → nil cause.
-          (let [prev-result  @last-result
+          ;;
+          ;; rf2-fyd8u — pass `unset` for `prev-value` on the run that
+          ;; allocated the cache slot (the input cell `last-in-vals` is
+          ;; still the `::unset` sentinel here). Keying on `last-in-vals`
+          ;; rather than `last-result` so a sub whose first cached value
+          ;; is `nil` still flags as `:first-run?` true.
+          (let [first-run?   (= ::unset @last-in-vals)
+                prev-result  (if first-run? unset @last-result)
                 prev-in-vals @last-in-vals
                 computed     (validate-and-trace
                                body-fn in-vals query-id query-v

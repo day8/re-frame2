@@ -312,6 +312,85 @@
         (is (= [:b] (:rf.sub/cause-sub t))
             ":rf.sub/cause-sub names :b (the changed input), not :a (stable)")))))
 
+;; ---- :rf.sub/first-run? (rf2-fyd8u) -------------------------------------
+
+(deftest sub-run-first-run-flag-true-on-cache-slot-creation
+  (testing "rf2-fyd8u — the run that creates a sub's cache slot
+            stamps :rf.sub/first-run? true on :rf.sub/run. Disambiguates
+            a value-change row (`← was X`) from a fresh-cache-entry row
+            (`:added`) for the Xray SUBSCRIPTIONS leaf-scalar renderer."
+    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed])
+    ;; First subscribe + deref → this is the run that creates the
+    ;; cache slot. The memo wrapper's `prev-value` is the `::unset`
+    ;; sentinel here, so `:rf.sub/first-run?` must stamp true.
+    (let [events (collect-trace
+                   (fn []
+                     (let [r (rf/subscribe [:n])]
+                       @r)))
+          runs   (sub-runs events :n)]
+      (is (seq runs)
+          "expected a :rf.sub/run on the cache-slot-creating recompute")
+      (let [t (:tags (first runs))]
+        (is (true? (:rf.sub/first-run? t))
+            ":rf.sub/first-run? is true on the run that allocated the slot")
+        (is (true? (:rf.sub/value-changed? t))
+            "first-run is also a value-change (no prior value to compare,
+             per Spec 009 §:rf.sub/run :value-changed? semantics)")
+        (is (nil? (:rf.sub/prev-value t))
+            ":rf.sub/prev-value is nil on the first recompute (the
+             ::unset sentinel projects to nil per the emit-site cond)")))))
+
+(deftest sub-run-first-run-flag-false-on-recompute-against-existing-slot
+  (testing "rf2-fyd8u — every subsequent recompute (against an
+            already-existing cache slot) stamps :rf.sub/first-run? false.
+            Pairs with the true-case test above — the boolean must
+            actually flip on the second run, not stay true."
+    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed])
+    (let [r      (rf/subscribe [:n])
+          _      @r ;; force the first recompute (creates the slot, value 1)
+          events (collect-trace
+                   (fn []
+                     (rf/dispatch-sync [:inc]) ;; n 1 -> 2, existing-slot recompute
+                     @r))
+          runs   (sub-runs events :n)]
+      (is (seq runs)
+          "expected a :rf.sub/run for :n on the value-changing recompute")
+      (let [t (:tags (first runs))]
+        (is (false? (:rf.sub/first-run? t))
+            ":rf.sub/first-run? flips to false on a subsequent recompute")
+        (is (true? (:rf.sub/value-changed? t))
+            ":n changed 1 -> 2 — value-changed? still true")
+        (is (= 1 (:rf.sub/prev-value t))
+            ":rf.sub/prev-value carries the real prior value")
+        (is (= 2 (:rf.sub/value t)))))))
+
+(deftest sub-run-first-run-flag-true-on-layer-2-cache-creation
+  (testing "rf2-fyd8u — layer-2 subs (cascade path) also stamp
+            :rf.sub/first-run? true on the run that allocated their
+            cache slot. The discriminator is universal across all
+            memo wrappers (layer-1, layer-n-1, layer-n)."
+    (rf/reg-event-db :seed (fn [_ _] {:n 2}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/reg-sub :doubled
+      :<- [:n]
+      (fn [n _] (* 2 n)))
+    (rf/dispatch-sync [:seed])
+    (let [events (collect-trace
+                   (fn []
+                     (let [r (rf/subscribe [:doubled])]
+                       @r)))
+          runs   (sub-runs events :doubled)]
+      (is (seq runs))
+      (let [t (:tags (first runs))]
+        (is (true? (:rf.sub/first-run? t))
+            "layer-2 sub: first-run? true on cache-slot creation")
+        (is (= 4 (:rf.sub/value t)))))))
+
 (deftest sub-run-layer-1-no-cause-sub
   (testing "a layer-1 sub never carries a :rf.sub/cause-sub (app-db-driven, not a cascade)"
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
