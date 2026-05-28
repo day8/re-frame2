@@ -61,7 +61,7 @@
        :has-more? false
        :next-cursor nil}"
   (:require [re-frame.mcp-base.cursor :as base-cursor]
-            [re-frame.story-mcp.tools.helpers :as h]))
+            [re-frame.story-mcp.tools.result :as result]))
 
 (def ^:const default-limit
   "Default page size for the Docs `list-*` tools. Sized to keep the
@@ -142,7 +142,7 @@
   of truth."
   [tool]
   (base-cursor/cursor-stale-result
-    h/error-result
+    result/error-result
     tool
     {:message (str "Cursor stale: the registry changed between pages. Drop the "
                    "cursor and restart `" tool "`.")

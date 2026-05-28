@@ -117,12 +117,16 @@
 
 (def story-mcp-tool-source-files
   "The story-mcp `tools/*.cljc` source files — the per-category tool
-  handlers plus the registry/cap/helpers/schemas plumbing they share.
-  This is the surface the slot-name and indicator near-miss tripwires
-  grep (the slots live in the tool bodies, not the wire framing)."
-  ["tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
+  handlers plus the registry / wire-pipeline / result / args / egress
+  / cljs-resolve / schemas plumbing they share. This is the surface
+  the slot-name and indicator near-miss tripwires grep (the slots
+  live in the tool bodies, not the wire framing)."
+  ["tools/story-mcp/src/re_frame/story_mcp/tools/wire_pipeline.cljc"
    "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/result.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/args.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/cljs_resolve.cljc"
+   "tools/story-mcp/src/re_frame/story_mcp/tools/egress.cljc"
    "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
    "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"
    "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"

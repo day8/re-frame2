@@ -21,7 +21,7 @@
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.protocol :as proto]
             [re-frame.story-mcp.server :as server]
-            [re-frame.story-mcp.tools.cap :as cap]
+            [re-frame.story-mcp.tools.wire-pipeline :as wire-pipeline]
             [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.recorder :as recorder-tool]
             [re-frame.story-mcp.tools.registry :as registry]
@@ -31,7 +31,7 @@
 ;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
 ;; cap-honours-default test to sum tokens without reaching into cap's
 ;; private result-io reify. Mirrors the runtime IO instance in
-;; `re-frame.story-mcp.tools.cap/result-io` (rf2-eyelu / rf2-mzndx) so
+;; `re-frame.story-mcp.tools.wire-pipeline/result-io` (rf2-eyelu / rf2-mzndx) so
 ;; a drift on the consumer's content-shape would be caught by the
 ;; assertion sitting on this mirror — INCLUDING the `:structuredContent`
 ;; sizing path added in rf2-mzndx.
@@ -131,10 +131,10 @@
   exercise their domain semantics against the unwrapped payload.
 
   Callers that want to exercise the live-on-the-wire shape (default
-  posture) should call `cap/invoke-tool` directly and use
+  posture) should call `wire-pipeline/invoke-tool` directly and use
   `dedup/dedup-expand` to unwrap before asserting."
   [tool-name args]
-  (cap/invoke-tool tool-name (merge {:dedup false} args)))
+  (wire-pipeline/invoke-tool tool-name (merge {:dedup false} args)))
 
 (defn- success? [result]
   (and (map? result)
@@ -1657,7 +1657,7 @@
 
 (deftest cap-fires-when-response-exceeds-budget
   (testing "get-story-instructions response is large enough to exceed a 1-token cap"
-    (let [r (cap/invoke-tool "get-story-instructions" {:max-tokens 1})]
+    (let [r (wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 1})]
       (is (overflow-marker? r))
       (let [body (get-in r [:structuredContent vocab/overflow-key])]
         (is (= 1 (:cap-tokens body)))
@@ -1667,26 +1667,26 @@
 
 (deftest cap-zero-disables-the-cap
   (testing "`:max-tokens 0` bypasses the cap; the full payload returns intact"
-    (let [r (cap/invoke-tool "get-story-instructions" {:max-tokens 0})]
+    (let [r (wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 0})]
       (is (not (overflow-marker? r)))
       (is (clojure.string/includes? (-> r :content first :text)
                                     "re-frame2-story authoring conventions"))))
   (testing "default cap (no `:max-tokens` arg) leaves a small response intact"
-    (let [r (cap/invoke-tool "list-tags" {})]
+    (let [r (wire-pipeline/invoke-tool "list-tags" {})]
       (is (not (overflow-marker? r))))))
 
 (deftest cap-honours-default-when-omitted
   (testing "absent `:max-tokens` falls back to `overflow/default-max-tokens` (5000)"
     ;; A tiny payload like `list-tags` is well under 5K tokens; verify
     ;; the cap does not trip on routine reads.
-    (let [r (cap/invoke-tool "list-tags" {})
+    (let [r (wire-pipeline/invoke-tool "list-tags" {})
           tokens (base-cap/sum-text-tokens test-io r)]
       (is (not (overflow-marker? r)))
       (is (< tokens overflow/default-max-tokens)))))
 
 (deftest cap-marker-shape-is-mcp-base-overflow
   (testing "marker is byte-identical to mcp-base/overflow-payload's shape"
-    (let [r (cap/invoke-tool "get-story-instructions" {:max-tokens 1})
+    (let [r (wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 1})
           body (get-in r [:structuredContent vocab/overflow-key])]
       (is (= #{:limit :token-count :cap-tokens :tool :hint}
              (set (keys body)))))))
@@ -1874,7 +1874,7 @@
         (declare-sensitive! vid [:secret])
         (declare-sensitive! vid [:nested :also-secret])
         (let [frame-db (read-frame-db vid)
-              bypass   ((requiring-resolve 're-frame.story-mcp.tools.helpers/elide-app-db)
+              bypass   ((requiring-resolve 're-frame.story-mcp.tools.egress/elide-app-db)
                         frame-db vid true)
               walked   (rf/elide-wire-value frame-db
                                             {:frame                      vid
@@ -1926,7 +1926,7 @@
                     [:span "label: " "TOPSECRET"]]]
         (seed-app-db! vid db)
         (declare-sensitive! vid [:token])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.helpers/scrub-rendered)
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
           (is (not (tree-contains? out "TOPSECRET"))
               "the sensitive value MUST NOT survive anywhere in the derived tree")
@@ -1944,7 +1944,7 @@
             hiccup [:input {:value "TOPSECRET"}]]
         (seed-app-db! vid db)
         (declare-sensitive! vid [:token])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.helpers/scrub-rendered)
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid true)]
           (is (identical? hiccup out)
               "include? true returns the input tree unchanged (no walk)")
@@ -1957,7 +1957,7 @@
       (let [db     {:public "ok"}
             hiccup [:span "ok"]]
         (seed-app-db! vid db)
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.helpers/scrub-rendered)
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
           (is (identical? hiccup out)
               "no secrets ⇒ no walk, input ref returned"))))))
@@ -2572,7 +2572,7 @@
     ;; A list-stories call ships the same payload in both slots. The
     ;; cap with structured accounting must be HIGHER than the cap that
     ;; only counts `:text` — assert the wire-side sum reflects both.
-    (let [r          (cap/invoke-tool "list-stories" {:max-tokens 0})
+    (let [r          (wire-pipeline/invoke-tool "list-stories" {:max-tokens 0})
           text-only  (let [io (reify base-cap/ResultIO
                                 (content-texts [_ result]
                                   (map :text (:content result)))
@@ -2593,7 +2593,7 @@
   (testing "a tiny cap trips when only structuredContent is large (rf2-mzndx)"
     ;; The cap must fire on the combined size — not silently let a
     ;; payload through just because its :text slot fits.
-    (let [r (cap/invoke-tool "list-stories" {:max-tokens 1})]
+    (let [r (wire-pipeline/invoke-tool "list-stories" {:max-tokens 1})]
       ;; With `:max-tokens 1`, both the text AND structured slots
       ;; combined exceed the cap, so we expect the overflow marker.
       (is (overflow-marker? r)

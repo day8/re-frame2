@@ -117,19 +117,19 @@
     :sources  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/sensitive.cljs"
                            "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"]
                ;; story-mcp's `:include-sensitive` parsing lives in
-               ;; `helpers.cljc` (rf2-73wuj — the cross-MCP `args/parse-
-               ;; boolean` reader) and the slot schema lives in
+               ;; `args.cljc` (rf2-73wuj / rf2-8yvyp — the cross-MCP
+               ;; `args/parse-boolean` reader) and the slot schema lives in
                ;; `schemas.cljc` (`include-sensitive-schema` injector).
                ;; No `sensitive.cljc` (the path was a stale guess from
                ;; the re-frame2-pair-mcp shape that doesn't apply to story-mcp).
-               :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
+               :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/args.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]}
     :doc      "Opt-in boolean — pass `true` to disable the spec/009 §Privacy
                default-drop on `:sensitive? true` items. Default false.
                Wire-key has no trailing `?` (per rf2-y710n) because the
                Anthropic tools/input_schema regex
                `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`. The predicate FUNCTION
-               name `include-sensitive?` (e.g. `helpers/include-sensitive?`)
+               name `include-sensitive?` (e.g. `args/include-sensitive?`)
                keeps the `?` — the idiom belongs on predicate fns, not on
                a data key whose wire form disallows it."}
 
@@ -146,7 +146,7 @@
                :re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"
                            "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_knobs.cljs"]
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
-                           "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"]}
+                           "tools/story-mcp/src/re_frame/story_mcp/tools/wire_pipeline.cljc"]}
     :doc      "Override integer — per-call wire-cap override (default 5,000).
                `0` disables the cap. Triggers an `:rf.mcp/overflow` marker
                when the rendered payload exceeds the cap (cross-server)."}])
@@ -355,7 +355,7 @@
                      "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/cap.cljs"
                      "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/elision.cljs"]
          ;; story-mcp's `:include-sensitive` parsing / schema lives in
-         ;; `helpers.cljc` + `schemas.cljc` (no `sensitive.cljc` —
+         ;; `args.cljc` + `schemas.cljc` (no `sensitive.cljc` —
          ;; that's re-frame2-pair-mcp's shape). The canonical story-mcp
          ;; tool-source inventory lives in `fixtures.clj` (rf2-ee38b.20)
          ;; so a new tool file added in one tripwire's list can't escape

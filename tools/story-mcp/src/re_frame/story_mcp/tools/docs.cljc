@@ -17,7 +17,8 @@
             [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
             [re-frame.story-mcp.tools.cursor :as cursor]
-            [re-frame.story-mcp.tools.helpers :as h]
+            [re-frame.story-mcp.tools.args :as targs]
+            [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.schemas :as s]))
 
 (defn tool-list-stories
@@ -70,7 +71,7 @@
       (if (= res :err)
         page
         (let [payload (merge {:stories page} meta)]
-          (h/text-result (h/pr-edn payload) payload))))))
+          (result/text-result (result/pr-edn payload) payload))))))
 
 (defn tool-get-story
   "Docs: one story's full body.
@@ -79,21 +80,21 @@
   against the registered-stories set — an unknown id returns the
   documented `Story not found` error without interning."
   [args]
-  (let [[sid err] (h/required-arg args :story-id)]
+  (let [[sid err] (targs/required-arg args :story-id)]
     (if err err
       (if-let [sk (args/safe-keyword sid (story/ids :story))]
         (let [body (story/handler-meta :story sk)
               payload {:id sk :body body :variants (sort (story/variants-of sk))}]
-          (h/text-result (h/pr-edn payload) payload))
-        (h/error-result (str "Story not found: " (pr-str sid)))))))
+          (result/text-result (result/pr-edn payload) payload))
+        (result/error-result (str "Story not found: " (pr-str sid)))))))
 
 (defn tool-get-variant
   "Docs: one variant's full body (`handler-meta :variant id`)."
   [args]
-  (h/with-variant args
+  (targs/with-variant args
     (fn [vk body]
       (let [payload {:id vk :body body}]
-        (h/text-result (h/pr-edn payload) payload)))))
+        (result/text-result (result/pr-edn payload) payload)))))
 
 (defn tool-list-tags
   "Docs: canonical tags + custom tags.
@@ -122,7 +123,7 @@
                              :custom    page
                              :all       all-page}
                             meta)]
-        (h/text-result (h/pr-edn payload) payload)))))
+        (result/text-result (result/pr-edn payload) payload)))))
 
 (defn tool-list-modes
   "Docs: registered modes (from `reg-mode`). Returns each mode's id +
@@ -139,7 +140,7 @@
     (if (= res :err)
       page
       (let [payload (merge {:modes page} meta)]
-        (h/text-result (h/pr-edn payload) payload)))))
+        (result/text-result (result/pr-edn payload) payload)))))
 
 (defn- decorator-summary
   "Project one decorator body to the EDN-safe shape — id, kind, doc,
@@ -200,7 +201,7 @@
     (if (= res :err)
       page
       (let [payload (merge {:decorators page} meta)]
-        (h/text-result (h/pr-edn payload) payload)))))
+        (result/text-result (result/pr-edn payload) payload)))))
 
 (def canonical-assertion-docs
   "Per spec/007 line 304 + IMPL-SPEC §3.5 the canonical seven
@@ -244,7 +245,7 @@
       (let [payload (merge {:canonical  canonical-assertion-docs
                             :registered page}
                            meta)]
-        (h/text-result (h/pr-edn payload) payload)))))
+        (result/text-result (result/pr-edn payload) payload)))))
 
 (defn tool-variant->edn
   "Docs: round-trippable EDN of a registered variant. Identical payload
@@ -259,9 +260,9 @@
   still text-only.) The structured slot carries the same body map; the
   text slot remains the byte-stable EDN source of truth."
   [args]
-  (h/with-variant args
+  (targs/with-variant args
     (fn [_vk body]
-      (h/text-result (h/pr-edn body) body))))
+      (result/text-result (result/pr-edn body) body))))
 
 (defn- md-h1 [s] (str "# " s "\n\n"))
 (defn- md-h2 [s] (str "\n## " s "\n\n"))
@@ -330,7 +331,7 @@
   slot and as a `:markdown` structuredContent slot (paste-target for
   agent hosts that surface structured content)."
   [args]
-  (let [[sid err] (h/required-arg args :story-id)]
+  (let [[sid err] (targs/required-arg args :story-id)]
     (if err err
       (if-let [sk (args/safe-keyword sid (story/ids :story))]
         (let [body     (story/handler-meta :story sk)
@@ -339,8 +340,8 @@
               payload  {:story-id sk
                         :markdown md
                         :variants (vec variants)}]
-          (h/text-result md payload))
-        (h/error-result (str "Story not found: " (pr-str sid)))))))
+          (result/text-result md payload))
+        (result/error-result (str "Story not found: " (pr-str sid)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)

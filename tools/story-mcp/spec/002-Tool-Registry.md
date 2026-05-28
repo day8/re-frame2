@@ -57,7 +57,7 @@ The wire-key shape (`:include-sensitive`, no `?`) satisfies the
 Anthropic Messages API regex on tool input-schema property keys:
 `^[a-zA-Z0-9_.-]{1,64}$` — the predicate-style trailing `?` is
 rejected at the host. The predicate FUNCTION
-`helpers/include-sensitive?` keeps its `?` (the Clojure idiom
+`args/include-sensitive?` keeps its `?` (the Clojure idiom
 belongs on the predicate, not on the data key whose wire form
 disallows it).
 
@@ -306,7 +306,7 @@ The wire-key shape (`:include-sensitive`, no `?`) is the form the
 host accepts: the Anthropic Messages API enforces
 `^[a-zA-Z0-9_.-]{1,64}$` on tool input-schema property keys, which
 rejects the trailing `?` of the Clojure predicate-style boolean
-convention. The predicate function `helpers/include-sensitive?`
+convention. The predicate function `args/include-sensitive?`
 retains the `?` — the idiom belongs on the predicate, not on the
 data key.
 

@@ -40,7 +40,7 @@
             [re-frame.story :as story]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.protocol :as proto]
-            [re-frame.story-mcp.tools.cap :as cap]
+            [re-frame.story-mcp.tools.wire-pipeline :as wire-pipeline]
             [re-frame.story-mcp.tools.registry :as registry]))
 
 ;; ---- logging --------------------------------------------------------------
@@ -96,7 +96,7 @@
       (proto/invalid-params id "tools/call requires `name` (string)")
 
       :else
-      (if-let [result (cap/invoke-tool tool-name arguments)]
+      (if-let [result (wire-pipeline/invoke-tool tool-name arguments)]
         (proto/response id result)
         (proto/method-not-found id (str "tools/call name=" tool-name))))))
 

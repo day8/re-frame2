@@ -11,7 +11,10 @@
   both servers see one answer to the onboarding-text question."
   (:require [re-frame.story :as story]
             [re-frame.story.async :as async]
-            [re-frame.story-mcp.tools.helpers :as h]
+            [re-frame.story-mcp.tools.args :as targs]
+            [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
+            [re-frame.story-mcp.tools.egress :as egress]
+            [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.schemas :as s]))
 
 (def story-instructions-text
@@ -74,7 +77,7 @@
   the permissive `additionalProperties: true` envelope schema."
   [_args]
   (let [payload {:instructions story-instructions-text}]
-    (h/text-result story-instructions-text payload)))
+    (result/text-result story-instructions-text payload)))
 
 (defn tool-preview-variant
   "Dev: given a variant id, return the canvas state + share URL.
@@ -91,13 +94,13 @@
   through `re-frame.core/elide-wire-value`; the `:assertions` vec is
   filtered through `strip-sensitive`. Off-box defaults apply unless
   the caller passes `:include-sensitive true`."
-  [args]
-  (h/with-variant args
+  [arguments]
+  (targs/with-variant arguments
     (fn [vk _body]
-      (let [opts       (h/read-run-opts args)
-            base-url   (or (:base-url args) "")
+      (let [opts       (targs/read-run-opts arguments)
+            base-url   (or (:base-url arguments) "")
             share-url  (story/variant-share-url vk base-url opts)
-            result     (try
+            outcome    (try
                          (async/deref-blocking (story/run-variant vk opts)
                                                ;; Default 5s — preview is a snapshot,
                                                ;; not a long-running load.
@@ -107,21 +110,21 @@
                             :assertions [{:assertion :rf.error/run-failed
                                           :passed? false
                                           :reason (ex-message e)}]}))
-            incl?      (h/include-sensitive? args)
-            raw-db     (:app-db result)
+            incl?      (targs/include-sensitive? arguments)
+            raw-db     (:app-db outcome)
             payload    {:variant-id   vk
                         :share-url    share-url
-                        :lifecycle    (:lifecycle result)
-                        :elapsed-ms   (:elapsed-ms result)
-                        :app-db       (h/elide-app-db raw-db vk incl?)
-                        :assertions   (h/scrub-assertions (:assertions result) incl?)
+                        :lifecycle    (:lifecycle outcome)
+                        :elapsed-ms   (:elapsed-ms outcome)
+                        :app-db       (egress/elide-app-db raw-db vk incl?)
+                        :assertions   (egress/scrub-assertions (:assertions outcome) incl?)
                         ;; Derived trees re-key the same sensitive value at a
                         ;; non-app-db path, so the path-based walker can't
                         ;; reach them — value-redact instead (rf2-ee38b.17).
-                        :rendered-hiccup (h/scrub-rendered (:rendered-hiccup result) raw-db vk incl?)
-                        :snapshot     (h/scrub-rendered (:snapshot result) raw-db vk incl?)
-                        :effective-args (h/scrub-rendered (:effective-args result) raw-db vk incl?)}]
-        (h/text-result (h/pr-edn payload) payload)))))
+                        :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
+                        :snapshot     (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
+                        :effective-args (egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
+        (result/text-result (result/pr-edn payload) payload)))))
 
 (defn tool-list-substrates
   "Dev: what substrates can be used. Reads the registered substrate set
@@ -135,12 +138,12 @@
   deploy reads an empty set — that's a correct answer for that deploy
   (no CLJS substrates are runnable from a JVM-only host).
 
-  The CLJS var is resolved once, in `helpers` — `h/registered-substrates`
-  is the single accessor (rf2-ee38b.17 removed the duplicate `defonce`
-  that used to live here)."
+  The CLJS var is resolved once, in `cljs-resolve` —
+  `cljs-resolve/registered-substrates` is the single accessor
+  (rf2-ee38b.17 removed the duplicate `defonce` that used to live here)."
   [_args]
-  (let [payload {:substrates (vec (h/registered-substrates))}]
-    (h/text-result (h/pr-edn payload) payload)))
+  (let [payload {:substrates (vec (cljs-resolve/registered-substrates))}]
+    (result/text-result (result/pr-edn payload) payload)))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
