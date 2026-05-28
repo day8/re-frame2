@@ -13,7 +13,7 @@
   either rolls back the `:db` commit).
 
   The post-commit validator (`validate-machine-data!`) walks the
-  freshly-committed `:rf/machines` map, looks up each machine's spec
+  freshly-committed `[:rf/runtime :machines :snapshots]` map, looks up each machine's spec
   via `re-frame.machines/machine-meta`, and validates `(:data
   snapshot)` against `(:schema spec)` through the schemas artefact's
   registered validator-fn. Snapshots whose machine declares no
@@ -108,7 +108,7 @@
     true))
 
 (defn validate-machine-data!
-  "Walk every snapshot under `[:rf/machines]` in `db` and validate its
+  "Walk every snapshot under `[:rf/runtime :machines :snapshots]` in `db` and validate its
   `:data` against the registered machine's `:schema`. Returns true
   iff every snapshot conformed (or carried no schema / no validator);
   false on first failure with the per-snapshot trace already emitted.
@@ -123,7 +123,7 @@
   [db event-id frame-id]
   (if interop/debug-enabled?
     (if-let [machine-meta (late-bind/get-fn-cached :machines/machine-meta)]
-      (let [snapshots (get db :rf/machines)]
+      (let [snapshots (get-in db [:rf/runtime :machines :snapshots])]
         (loop [entries (seq snapshots)
                ok?     true]
           (if-let [[machine-id snapshot] (first entries)]

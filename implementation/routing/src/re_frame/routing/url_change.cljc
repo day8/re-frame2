@@ -24,7 +24,7 @@
 
 (defn- fragment-only-fx
   "Spec 012 §Fragments rules 1-4: the new URL differs from the current
-  `:rf/route` slice ONLY in its `#fragment`. Update `:fragment`, emit the
+  route slice ONLY in its `#fragment`. Update `:fragment`, emit the
   `:rf.route/fragment-changed` op trace (rf2-cj9fn), and return the cofx
   map — WITHOUT allocating a fresh nav-token (rule 3) or re-firing
   `:on-match` (rule 4). The canonical op-name says what fires it (only a
@@ -40,7 +40,7 @@
                 :prev-fragment (:fragment prev)
                 :next-fragment next-fragment})
   (let [capture-fx (scroll/capture-scroll-fx-entry db)]
-    (cond-> {:db (assoc-in db [:rf/route :fragment] next-fragment)}
+    (cond-> {:db (assoc-in db [:rf/runtime :routing :current :fragment] next-fragment)}
       capture-fx (assoc :fx [capture-fx]))))
 
 (defn- url-change-fx
@@ -88,7 +88,7 @@
         ;; AND popstate / initial / SSR (`:rf.route/handle-url-change`).
         ;; Back/Forward to a same-page anchor must not re-fetch route
         ;; data (rf2-8oxj6).
-        prev              (:rf/route db)
+        prev              (get-in db [:rf/runtime :routing :current])
         fragment-only?    (and prev m
                                (= (:id prev)     (:route-id m))
                                (= (:params prev) (:params m))
@@ -124,7 +124,8 @@
         capture-fx        (scroll/capture-scroll-fx-entry db)
         scroll-fx         (scroll/scroll-fx-entry
                             {:strategy  strategy
-                             :from      (scroll/route-descriptor (:rf/route db))
+                             :from      (scroll/route-descriptor
+                                          (get-in db [:rf/runtime :routing :current]))
                              :to        to-route
                              :saved-pos (when (= :restore strategy)
                                           (scroll/lookup-scroll-position db url))
@@ -183,19 +184,23 @@
         ;; Per rf2-dn26r: route lifecycle pair. Fires after the nav-token
         ;; allocation so trace consumers see {allocated → deactivated? →
         ;; activated?} in that order for any cross-route transition.
-        (routing-events/emit-activation-traces! (get-in db [:rf/route :id]) route-id)
-        ;; Merge slice fields over the existing :rf/route map — preserves
-        ;; the per-frame routing-runtime keys nested under :rf/route
-        ;; (:scroll-positions / :scroll-positions-order /
-        ;; :nav-token-counter / :pending-nav-counter — rf2-3ib8h).
-        {:db (update db' :rf/route merge
-                     {:id         route-id
-                      :params     params
-                      :query      query
-                      :fragment   fragment
-                      :transition transition
-                      :error      nil
-                      :nav-token  token})
+        (routing-events/emit-activation-traces!
+          (get-in db [:rf/runtime :routing :current :id]) route-id)
+        ;; Merge slice fields over the existing :current map at
+        ;; [:rf/runtime :routing :current]. The sibling routing-runtime
+        ;; keys ([:rf/runtime :routing :scroll-positions /
+        ;; :scroll-positions-order / :nav-token-counter /
+        ;; :pending-nav-counter]) are siblings (not nested under
+        ;; :current), so the targeted `update-in` here leaves them
+        ;; untouched.
+        {:db (update-in db' [:rf/runtime :routing :current] merge
+                        {:id         route-id
+                         :params     params
+                         :query      query
+                         :fragment   fragment
+                         :transition transition
+                         :error      nil
+                         :nav-token  token})
          :fx (vec (concat (when capture-fx [capture-fx])
                           (mapv (fn [ev] [:dispatch ev]) on-match-vec)
                           ;; Per Spec 012 §Per-route data loading §2:

@@ -5,21 +5,21 @@
   `apply-transition-once` emits `[:rf.machine/destroy actor-id]` into
   the fx vector whenever exit cascades cross a `:spawn`-bearing state.
   Per Spec 005 §Spawning, destroy unregisters the spawned actor's event
-  handler, clears its snapshot at `[:rf/machines <id>]` in the spawning
+  handler, clears its snapshot at `[:rf/runtime :machines :snapshots <id>]` in the spawning
   frame's app-db, and (if the actor was system-id-bound) clears the
-  `[:rf/system-ids]` reverse index entry.
+  `[:rf/runtime :machines :system-ids]` reverse index entry.
 
   Per rf2-t07u (Option A revised), `args` can be either:
     - a keyword `actor-id` — the legacy / imperative form (action emits
       `[:rf.machine/destroy actor-id]` directly with the recorded id), OR
     - a map `{:rf/parent-id ... :rf/spawn-id ...}` — the declarative-
       `:spawn` exit-cascade form, where the runtime resolves the actor
-      id from `[:rf/spawned <parent-id> <invoke-id>]` in the frame's
+      id from `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` in the frame's
       app-db.
 
   Per rf2-6vmw, the map form may also carry `:rf/spawn-all true` —
   the declarative-`:spawn-all` exit-cascade form. The slot at
-  `[:rf/spawned <parent-id> <invoke-id>]` holds a join-state map whose
+  `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` holds a join-state map whose
   `:children` sub-map has every spawned child id. The handler iterates
   `:children` and tears each one down, then clears the slot.
 
@@ -91,13 +91,13 @@
 
 (defn- destroy-invoke-all-children!
   "Per rf2-6vmw — the declarative-`:spawn-all` exit-cascade form.
-  Resolves the children map from `[:rf/spawned parent-id invoke-id]`,
+  Resolves the children map from `[:rf/runtime :machines :spawned parent-id invoke-id]`,
   tears each child down via `destroy-single-actor!`, then clears the
   join-state slot via the unified teardown projection (slot-prune only:
   nil actor-id)."
   [frame-id parent-id invoke-id]
   (let [join-state (get-in (frame/frame-app-db-value frame-id)
-                           [:rf/spawned parent-id invoke-id])
+                           [:rf/runtime :machines :spawned parent-id invoke-id])
         children   (when (map? join-state) (:children join-state))]
     (doseq [[child-id spawned-id] children]
       ;; (rf2-iilco) `destroy-single-actor!` runs the child's `:exit`
@@ -125,7 +125,7 @@
 (defn- destroy-single!
   "Per rf2-t07u — the keyword (legacy/imperative) form and the single-
   `:spawn` (tracked map) form of `:rf.machine/destroy`. Resolves the
-  actor-id (keyword direct OR via the `[:rf/spawned ...]` slot), emits
+  actor-id (keyword direct OR via the `[:rf/runtime :machines :spawned ...]` slot), emits
   the `:rf.machine/destroyed` trace, then applies the unified teardown
   projection.
 
@@ -141,7 +141,7 @@
   cleared) from *not-yet-materialised-snapshot* (the actor IS alive
   in this drain — spec-less spawn, or spawn + destroy back-to-back
   before the snapshot was even read — but its snapshot was never
-  installed at `[:rf/machines actor-id]`). Snapshot-presence alone is
+  installed at `[:rf/runtime :machines :snapshots actor-id]`). Snapshot-presence alone is
   not the right signal: a spec-less spawn (`:machine-id` resolved to
   no registered spec — SSR / platform-gated) never installs a
   snapshot, yet its destroy still owns legitimate cleanup work
@@ -153,7 +153,7 @@
       registrar. Final-state auto-destroy (finalize.cljc) and prior
       explicit destroys both unregister the handler; a still-
       registered handler reliably means \"not yet destroyed.\"
-    - **Snapshot present** at `[:rf/machines actor-id]`. Covers the
+    - **Snapshot present** at `[:rf/runtime :machines :snapshots actor-id]`. Covers the
       narrow window where a singleton's handler has been replaced
       mid-drain but the snapshot still lives, plus belt-and-braces
       for hand-crafted call sites.
@@ -164,7 +164,7 @@
       `spawn-order/forget!` runs unconditionally on destroy — so the
       entry's presence/absence is the most reliable
       \"alive-or-gone\" bit for this category.
-    - **Tracked-form slot present** at `[:rf/spawned parent-id
+    - **Tracked-form slot present** at `[:rf/runtime :machines :spawned parent-id
       invoke-id]`. Belt-and-braces for the declarative-`:spawn`
       tracked-map form — covers the spec-less spawn case under the
       tracked codepath even when the actor-id resolution above
@@ -182,7 +182,7 @@
         invoke-id (when tracked? (:rf/spawn-id args))
         old-db    (frame/frame-app-db-value frame-id)
         slot-id   (when (and tracked? old-db)
-                    (get-in old-db [:rf/spawned parent-id invoke-id]))
+                    (get-in old-db [:rf/runtime :machines :spawned parent-id invoke-id]))
         actor-id  (if tracked? slot-id args)
         ;; rf2-lbjnz — silent-idempotent guard. `live?` is true iff ANY
         ;; liveness signal survives (handler registered / snapshot
@@ -191,7 +191,7 @@
         live?     (and actor-id
                        (or (some? (registrar/lookup :event actor-id))
                            (and (some? old-db)
-                                (contains? (get old-db :rf/machines) actor-id))
+                                (contains? (get-in old-db [:rf/runtime :machines :snapshots]) actor-id))
                            (some #(= actor-id %)
                                  (spawn-order/frame-order frame-id))
                            (and tracked? (some? slot-id))))]

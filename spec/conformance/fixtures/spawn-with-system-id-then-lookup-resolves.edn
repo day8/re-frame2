@@ -4,18 +4,18 @@
 ;; (../../005-StateMachines.md#named-addressing-via-system-id) and rf2-suue.
 ;;
 ;; A spawn whose args carry `:system-id` binds that name in the per-frame
-;; `[:rf/system-ids]` reverse index. The framework emits
+;; `[:rf/runtime :machines :system-ids]` reverse index. The framework emits
 ;; `:rf.machine/system-id-bound` and the binding resolves to the spawned
 ;; (gensym'd) actor id.
 ;;
 ;; This fixture exercises the bundled live-handler wiring: after spawn,
-;; the actor's snapshot lives at `[:rf/machines <spawned-id>]` and the
-;; reverse-index slot at `[:rf/system-ids :worker]` resolves to it.
+;; the actor's snapshot lives at `[:rf/runtime :machines :snapshots <spawned-id>]` and the
+;; reverse-index slot at `[:rf/runtime :machines :system-ids :worker]` resolves to it.
 
 {:fixture/id           :machine/spawn-with-system-id-then-lookup-resolves
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/system-id}
- :fixture/doc          "Spawn with :system-id binds the per-frame reverse index; snapshot lives at [:rf/machines <spawned-id>]; lookup by name resolves."
+ :fixture/doc          "Spawn with :system-id binds the per-frame reverse index; snapshot lives at [:rf/runtime :machines :snapshots <spawned-id>]; lookup by name resolves."
 
  :fixture/registry
  {:event {:sup/flow {:doc "Parent machine that spawns a worker under :system-id :worker."}}
@@ -49,17 +49,14 @@
  ;; The :worker/proc's gensym'd id is :worker/proc#1 (per rf2-gr8q
  ;; allocate-spawned-id — the parent snapshot's :rf/spawn-counter slot
  ;; advances). The reverse index records :worker → :worker/proc#1, and
- ;; the actor's snapshot is initialised under [:rf/machines :worker/proc#1].
+ ;; the actor's snapshot is initialised under [:rf/runtime :machines :snapshots :worker/proc#1].
  ;; The fixture asserts via submap? — the runtime's extra keys
  ;; (`:rf/spawn-counter`, the actor's framework-stamped `:rf/self-id`
  ;; etc.) are tolerated.
  {:final-app-db
-  {:rf/machines
-   {:sup/flow      {:state    :working
+  {:rf/runtime {:machines {:snapshots {:sup/flow      {:state    :working
                     :data     {}}
-    :worker/proc#1 {:state :running :data {}}}
-   :rf/system-ids
-   {:worker :worker/proc#1}}
+    :worker/proc#1 {:state :running :data {}}} :system-ids {:worker :worker/proc#1}}}}
 
   :trace-emissions
   [{:operation :rf.machine/spawned

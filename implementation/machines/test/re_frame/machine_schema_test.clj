@@ -91,7 +91,7 @@
       ;; bootstrap settles to {:n 1} cleanly.
       (rf/dispatch-sync [:rf.machine-schema/macrostep [:noop]])
       (let [snap-before (get-in (rf/get-frame-db :rf/default)
-                                [:rf/machines :rf.machine-schema/macrostep])
+                                [:rf/runtime :machines :snapshots :rf.machine-schema/macrostep])
             db-before   (rf/get-frame-db :rf/default)
             traces      (collect-traces!
                           #(rf/dispatch-sync [:rf.machine-schema/macrostep [:go]]))
@@ -120,7 +120,7 @@
             "post-rollback app-db equals pre-handler app-db")
         (is (= snap-before
                (get-in (rf/get-frame-db :rf/default)
-                       [:rf/machines :rf.machine-schema/macrostep]))
+                       [:rf/runtime :machines :snapshots :rf.machine-schema/macrostep]))
             "the machine's snapshot returns to its pre-handler value")))))
 
 ;; ---- (3) bootstrap-time validation: initial :data violates --------------
@@ -145,7 +145,7 @@
         (is (= {:n 0} (:value tag)))
         ;; Rollback drops the violating snapshot.
         (is (nil? (get-in (rf/get-frame-db :rf/default)
-                          [:rf/machines :rf.machine-schema/bootstrap]))
+                          [:rf/runtime :machines :snapshots :rf.machine-schema/bootstrap]))
             "rolled back: the machine snapshot is not installed in app-db")
         (is (= db-before (rf/get-frame-db :rf/default))
             "rolled back: app-db unchanged")))))
@@ -188,7 +188,7 @@
             "spawn-phase failure carries :rollback? false (nothing was committed)")
         ;; The spawned actor's snapshot was never installed.
         (is (nil? (get-in (rf/get-frame-db :rf/default)
-                          [:rf/machines :rf.machine-schema/spawned]))
+                          [:rf/runtime :machines :snapshots :rf.machine-schema/spawned]))
             "rejected spawn: snapshot is not in app-db")))))
 
 ;; ---- (5) no schema → no validation (control) ------------------------------
@@ -208,7 +208,7 @@
             "no :where :machine-data trace for a no-schema machine")
         ;; Sanity: the action ran and updated :data.
         (is (= 42 (get-in (rf/get-frame-db :rf/default)
-                          [:rf/machines :rf.machine-schema/no-schema :data :n]))
+                          [:rf/runtime :machines :snapshots :rf.machine-schema/no-schema :data :n]))
             "the no-schema machine's :data updates normally")))))
 
 ;; ---- (6) tag payload completeness for downstream consumers ----------------

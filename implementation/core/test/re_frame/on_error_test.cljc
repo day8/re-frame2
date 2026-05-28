@@ -294,7 +294,7 @@
 ;; ----------------------------------------------------------------------------
 ;; The handler-meta `:sensitive?` annotation has been removed. Redaction on
 ;; the error-emit substrate is now driven exclusively by the per-path elision
-;; wire-walker (per-frame `:rf/elision` registry, populated from app-schema
+;; wire-walker (per-frame `[:rf/runtime :elision]` registry, populated from app-schema
 ;; `:sensitive?` slot meta). Path-marked classification supersedes the
 ;; previous handler-level enforcement.
 ;; ============================================================================

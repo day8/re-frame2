@@ -5,7 +5,7 @@
   actors leaf-to-root in **reverse-creation order** — the most recently
   spawned instance disposes first.
 
-  `:rf/machines` snapshots live in app-db keyed by actor-id; the map
+  `[:rf/runtime :machines :snapshots]` snapshots live in app-db keyed by actor-id; the map
   iteration order is not insertion order, so an explicit order channel
   is required to satisfy the spec's reverse-creation invariant.
 

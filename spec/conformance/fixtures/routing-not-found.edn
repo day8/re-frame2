@@ -38,11 +38,10 @@
   ;; :transition is implementation-defined here (some runtimes leave
   ;; :loading after on-match drain; others normalise to :idle). Partial-
   ;; match — assert the locked fields only.
-  {:rf/route  {:id     :rf.route/not-found
+  {:rf/runtime {:routing {:current {:id     :rf.route/not-found
                :params {:url "/garbage/path"}
                :query  {}
-               :error  nil}
-   :analytics {:last-404 true}}
+               :error  nil}}} :analytics {:last-404 true}}
 
   :trace-emissions
   [;; The runtime emits :rf.error/no-such-handler when match-url returns nil.

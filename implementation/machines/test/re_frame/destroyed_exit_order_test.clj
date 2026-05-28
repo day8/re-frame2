@@ -150,7 +150,7 @@
            :states  {:working {:spawn {:machine-id :eo/final-child}}}})
         (rf/dispatch-sync [:eo/final-parent [:rf.machine/spawned]])
         (let [spawned-id (get-in (rf/get-frame-db :rf/default)
-                                 [:rf/spawned :eo/final-parent [:working]])]
+                                 [:rf/runtime :machines :spawned :eo/final-parent [:working]])]
           (rf/dispatch-sync [spawned-id [:finish]]))
         (is (= [:exit :destroyed] @log)
             "final-state auto-destroy emits :exit then :destroyed (reference order)")

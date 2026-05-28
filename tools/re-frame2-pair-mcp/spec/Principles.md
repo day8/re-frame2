@@ -628,7 +628,7 @@ such slots with a marker carrying a fetch handle.
 `snapshot`) and each get-path resolved value (in `get-path`)
 is run through the walker server-side, inside the eval form
 sent over nREPL. The walker reads the per-frame
-`[:rf/elision]` registry — populated at boot from
+`[:rf/runtime :elision]` registry — populated at boot from
 `:large? true` schema metadata (rf2-nwv63) — and substitutes
 registered paths:
 
@@ -653,7 +653,7 @@ the elided subtree via `get-path [:user :uploaded-pdf
 :metadata]` returns the small metadata directly.
 
 **Why server-side, not wire-side**. The walker reads the
-`[:rf/elision]` registry from the live app-db. The MCP server
+`[:rf/runtime :elision]` registry from the live app-db. The MCP server
 is a Node process that doesn't have direct access to the
 running re-frame frame; the registry is reachable only inside
 the eval form. The walker is the single normative emission

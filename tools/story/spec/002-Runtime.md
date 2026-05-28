@@ -31,7 +31,7 @@ variant's lifecycle spawned receive their `:rf.machine/destroy` event
 as part of frame teardown (per
 [spec/005 §`:rf.machine/destroy`](../../../spec/005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx),
 rf2-rkedz). The destroy event runs the actor's `:exit` action,
-dissociates its snapshot at `[:rf/machines <actor-id>]`, and clears
+dissociates its snapshot at `[:rf/runtime :machines :snapshots <actor-id>]`, and clears
 its event handler from the frame-local registry — symmetric with the
 `:rf.machine/spawn` that brought the actor into being. Story is a
 passive consumer of this contract; the variant frame's own

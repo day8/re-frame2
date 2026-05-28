@@ -310,7 +310,7 @@
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-on-match"))
             "preview shows registered :on-match")
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-db-slot"))
-            "preview shows the [:rf/route] db slot")
+            "preview shows the [:rf/runtime :routing :current] db slot")
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-slot-shape"))
             "preview shows the slot shape that would land"))
       ;; The current slice MUST still be the baseline — no real navigation.

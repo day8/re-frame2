@@ -218,7 +218,7 @@
     (fn [db _] (get-in db [:machine-ui :draft])))
 
   (rf/reg-sub :ws/snapshot
-    (fn [db _] (get-in db [:rf/machines :ws/connection])))
+    (fn [db _] (get-in db [:rf/runtime :machines :snapshots :ws/connection])))
 
   (rf/reg-sub :ws/state
     :<- [:ws/snapshot]

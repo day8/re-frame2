@@ -48,7 +48,7 @@
        has no transition, the topology is STILL rendered and the
        last-seen state is annotated as `:current`.
     4. Caller-supplied `:snapshot-state` (the machine's live
-       `:state` keyword, off `(get-in app-db [:rf/machines <id>])`).
+       `:state` keyword, off `(get-in app-db [:rf/runtime :machines :snapshots <id>])`).
        Used when the buffer carries no transition for this machine
        at all — most-recent-known state from the live snapshot.
 

@@ -6,14 +6,15 @@
   (`:large? true` or `:sensitive? true`) in its per-slot properties
   (per Spec-Schemas §`:rf/app-schema-meta` — the per-slot metadata
   vocabulary) is registered into the frame's
-  `[:rf/elision :declarations]` (`:large?`) or
-  `[:rf/elision :sensitive-declarations]` (`:sensitive?`) slot with
-  `:source :schema`. Both registries are sibling slots under the shared
-  `[:rf/elision]` reserved root; flags compose orthogonally — a slot may
-  carry either or both, and the validation walker resolves the conflict
-  at emit time. Storing them separately keeps the per-flag query
-  (`(get-in db [:rf/elision :sensitive-declarations <path>])`) O(1)
-  without value-shape inspection.
+  `[:rf/runtime :elision :declarations]` (`:large?`) or
+  `[:rf/runtime :elision :sensitive-declarations]` (`:sensitive?`) slot
+  with `:source :schema`. Both registries are sibling slots under the
+  shared `[:rf/runtime :elision]` sub-container; flags compose
+  orthogonally — a slot may carry either or both, and the validation
+  walker resolves the conflict at emit time. Storing them separately
+  keeps the per-flag query
+  (`(get-in db [:rf/runtime :elision :sensitive-declarations <path>])`)
+  O(1) without value-shape inspection.
 
   This file owns the **walker** that maps a registered schema's EDN form
   to a `{path declaration}` map; the actual app-db write lives in
@@ -223,7 +224,7 @@
   Spec 009 §Size elision in traces — the schema-driven nomination path.
 
   Returned declarations carry `:source :schema` per Spec 009 —
-  introspection (`(get-in db [:rf/elision :declarations <path>])`)
+  introspection (`(get-in db [:rf/runtime :elision :declarations <path>])`)
   reports schema provenance for wire-boundary elision."
   [schema base-path]
   (walk-flagged-schema :large? schema base-path {}))

@@ -30,13 +30,15 @@
   What the picker DOES scope is the genuinely per-frame surfaces each
   panel projects:
 
-    - Machines    — live machine snapshots (`:rf/machines` in the
-                    target-frame db); the definition catalogue is global.
+    - Machines    — live machine snapshots
+                    (`[:rf/runtime :machines :snapshots]` in the target-
+                    frame db); the definition catalogue is global.
     - Flows       — the flows registry is per-frame
                     (`{frame-id {flow-id ...}}`, Spec 013).
     - Schemas     — the app-db-schema side-table is per-frame
                     (`schemas-by-frame`); event/sub specs are global.
-    - Routes      — the current-route slice (`:rf/route`) is per-frame;
+    - Routes      — the current-route slice
+                    (`[:rf/runtime :routing :current]`) is per-frame;
                     the route-definition catalogue is global.
     - Interceptors— global (interceptor chains live on globally
                     registered events).

@@ -178,7 +178,7 @@
   "Per Spec 005 §Per-region `:spawn` / `:after` / `:always` scoping:
   spawn / destroy / after-schedule / after-cancel fxs emitted by a region
   carry an `:rf/spawn-id` that's the in-region prefix-path. To keep the
-  runtime-owned `[:rf/spawned <parent-id> <invoke-id>]` slot unique
+  runtime-owned `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` slot unique
   per-region (and per-region `:after` epoch tracking distinct from sibling
   regions), prepend the region name onto the invoke-id."
   [region-name fx]
@@ -241,7 +241,7 @@
 ;;   - run each region as a synthetic single-machine spec via
 ;;     `region-machine`,
 ;;   - prefix per-region fx with the region name via
-;;     `prefix-region-invoke-id` so per-region `[:rf/spawned ...]` /
+;;     `prefix-region-invoke-id` so per-region `[:rf/runtime :machines :spawned ...]` /
 ;;     `:after`-epoch tracking slots stay distinct from siblings,
 ;;   - short-circuit to a `result/fail` if any region's step fails,
 ;;   - commit `:tags` via `commit-tags-parallel` AFTER every region has

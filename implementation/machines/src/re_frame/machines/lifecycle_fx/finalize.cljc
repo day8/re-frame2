@@ -9,13 +9,13 @@
        (single / compound / parallel-all-regions-final).
     2. Read the child's `:data` slot designated by the final state's
        `:output-key` — call it `result`. Absent `:output-key` ⇒ nil.
-    3. Look up the parent's spec at `[:rf/machines <parent-id>]` and find
+    3. Look up the parent's spec at `[:rf/runtime :machines :snapshots <parent-id>]` and find
        the `:spawn` map at `:rf/spawn-id` (the prefix-path the runtime
        stamped on the child's `:data` at spawn time). Extract `:on-done`.
     4. Run `:on-done` against the parent's `:data` with `result`.
     5. Emit `:rf.machine/done` trace (D6).
-    6. Tear down the child: dissoc snapshot, clear `[:rf/spawned ...]`
-       slot, clear `[:rf/system-ids <sid>]` (D8 — AFTER `:on-done` ran),
+    6. Tear down the child: dissoc snapshot, clear `[:rf/runtime :machines :spawned ...]`
+       slot, clear `[:rf/runtime :machines :system-ids <sid>]` (D8 — AFTER `:on-done` ran),
        emit `:rf.machine/destroyed` with `:reason :rf.machine/finished`
        (D6 enrichment), abort in-flight HTTP, unregister handler (D4).
 
@@ -139,9 +139,9 @@
                         ;; Project the post-`:exit` snapshot back into
                         ;; the db so any reader between `:exit` and the
                         ;; teardown projection (e.g. `:on-done` reading
-                        ;; the child via `(:rf/machines)`) sees the
+                        ;; the child via `[:rf/runtime :machines :snapshots]`) sees the
                         ;; final state's writes.
-                        (assoc-in db [:rf/machines machine-id] next-snapshot)
+                        (assoc-in db [:rf/runtime :machines :snapshots machine-id] next-snapshot)
                         db)
         _             (when (not exit-ok?)
                         (trace/emit-error! :rf.error/machine-action-exception
@@ -182,7 +182,7 @@
         invoke-spec (when (and parent-meta invoke-id)
                       (find-invoke-spec-at parent-meta invoke-id))
         on-done-fn  (:on-done invoke-spec)
-        parent-path [:rf/machines parent-id]
+        parent-path [:rf/runtime :machines :snapshots parent-id]
         ;; (2) Emit `:rf.machine/done` trace BEFORE the destroy cascade
         ;; (D6 ordering).
         _ (trace/emit! :rf.machine :rf.machine/done
@@ -191,7 +191,7 @@
                         :parent-id  parent-id
                         :frame      frame-id})
         ;; (3) Apply :on-done to the parent's `:data`. The parent's
-        ;; snapshot lives at [:rf/machines <parent-id>]; we read it,
+        ;; snapshot lives at [:rf/runtime :machines :snapshots <parent-id>]; we read it,
         ;; pass the unified context-map (`{:data :result}`) to
         ;; `:on-done`, and write the new `:data` back. Per Spec 005
         ;; §Final states / rf2-grw4i / rf2-v0rrr the callback receives
@@ -222,7 +222,7 @@
         ;; (4) Apply the unified teardown projection (per rf2-lha2t):
         ;; dissoc the child's snapshot, release any `:system-id`
         ;; reverse-index entry (D8 — after on-done ran), and clear the
-        ;; parent's `[:rf/spawned <parent-id> <invoke-id>]` slot with
+        ;; parent's `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` slot with
         ;; the lazy-allocation prune. Returns `[new-db released-sid]`;
         ;; `released-sid` is resolved against db-after-on-done before
         ;; the reverse index is mutated.

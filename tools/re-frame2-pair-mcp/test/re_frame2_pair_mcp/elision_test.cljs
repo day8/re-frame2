@@ -143,7 +143,7 @@
     (is (re-find #"re-frame\.core/elide-wire-value" form))
     ;; Per-frame walking, not whole-snapshot walking — the walker is
     ;; applied to each slice with that frame's id, so the
-    ;; `[:rf/elision]` registry lookup hits the right frame.
+    ;; `[:rf/runtime :elision]` registry lookup hits the right frame.
     (is (re-find #":frame fid" form))
     ;; The walker is invoked with `:rf.size/include-large? false` so
     ;; markers actually fire.

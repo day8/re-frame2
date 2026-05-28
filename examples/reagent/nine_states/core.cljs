@@ -419,7 +419,7 @@
   (fn handler-new-todo-submit [{:keys [db]} _]
     (let [draft  (get-in db [:new-todo :draft])
           errors (validate-new-todo draft)
-          items  (get-in db [:rf/machines :ui/nine-states :data :items])]
+          items  (get-in db [:rf/runtime :machines :snapshots :ui/nine-states :data :items])]
       (if (seq errors)
         ;; Incorrect — populate :errors, touch all error fields so they show.
         {:db (-> db

@@ -67,7 +67,7 @@
       ;; we run it through `re-frame.core/elide-wire-value` so a
       ;; large / sensitive slot returns the marker (with a handle the
       ;; agent can drill into) rather than the raw bytes. The walker
-      ;; reads the live `[:rf/elision]` registry from the frame's
+      ;; reads the live `[:rf/runtime :elision]` registry from the frame's
       ;; app-db, so it must run app-side. Passing `:path path` makes
       ;; the marker's `:handle` slot carry `[:rf.elision/at <path>]`
       ;; — the agent can re-call `get-path` with a deeper segment to

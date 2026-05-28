@@ -41,7 +41,7 @@
 
  :fixture/expect
  {:final-app-db
-  {:rf/route   {:id         :route/instrumentation
+  {:rf/runtime {:routing {:current {:id         :route/instrumentation
                 :params     {}
                 :query      {}
                 :fragment   "scroll-restoration"
@@ -49,8 +49,7 @@
                 :error      nil
                 ;; nav-token is implementation-defined; the harness asserts presence
                 ;; via partial-match (the fixture compares only the locked fields).
-                }
-   :load-count 2}                                     ;; first call (step 1) + path-change (step 3); step 2 did NOT fire
+                }}} :load-count 2}                                     ;; first call (step 1) + path-change (step 3); step 2 did NOT fire
 
   :trace-emissions
   [;; Step 1: full navigation; nav-token allocated; :on-match fires.

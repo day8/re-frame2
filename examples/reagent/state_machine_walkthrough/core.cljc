@@ -192,18 +192,19 @@
 ;; SUBSCRIPTIONS — chapter §Reading a machine: sub-machine
 ;; ============================================================================
 
-;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
-;; Spec 005). These named subs project out the convenient pieces. The
-;; "in :submitting?" / "in :authed?" / "in :locked-out?" predicates
-;; moved to the `rf/machine-has-tag?` queries in views.cljs (ch.11 §State
+;; The machine snapshot lives at
+;; [:rf/runtime :machines :snapshots :auth.login/flow] (per Spec 005).
+;; These named subs project out the convenient pieces. The "in
+;; :submitting?" / "in :authed?" / "in :locked-out?" predicates moved
+;; to the `rf/machine-has-tag?` queries in views.cljs (ch.11 §State
 ;; tags) — discriminating on the machine's runtime-projected `:tags`
 ;; set decouples view code from individual state-keyword identity.
 
 (rf/reg-sub :auth.login/state
-  (fn [db _] (get-in db [:rf/machines :auth.login/flow :state])))
+  (fn [db _] (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :state])))
 
 (rf/reg-sub :auth.login/error
-  (fn [db _] (get-in db [:rf/machines :auth.login/flow :data :error])))
+  (fn [db _] (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :data :error])))
 
 ;; The chapter's headless tests (pure machine-transition + full-drain
 ;; scenarios) live in the sibling test ns

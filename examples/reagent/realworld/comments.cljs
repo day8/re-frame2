@@ -4,7 +4,7 @@
    This sketch keeps the current re-frame2 API surface explicit:
    - `:article` and `:comments` use the standard Pattern-RemoteData shape.
    - `:comment-form` uses the standard Pattern-Forms slice shape.
-   - Route-driven loads read the current slug from `[:rf/route :params :slug]`.
+   - Route-driven loads read the current slug from `[:rf/runtime :routing :current :params :slug]`.
    - Post/delete flows are optimistic and roll back via ordinary events."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
@@ -53,7 +53,7 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :article/load
-  {:doc "Load the article matching `[:rf/route :params :slug]`.
+  {:doc "Load the article matching `[:rf/runtime :routing :current :params :slug]`.
 
          This handler demonstrates Spec 014's *default reply addressing*:
          no `:on-success` / `:on-failure` is supplied, so the framework
@@ -80,7 +80,7 @@
 
       ;; Initial dispatch — issue the managed request. Default reply
       ;; addressing routes the reply back here.
-      (let [slug (get-in db [:rf/route :params :slug])]
+      (let [slug (get-in db [:rf/runtime :routing :current :params :slug])]
         {:db (-> db
                  (assoc-in [:article :status]
                            (if (get-in db [:article :data]) :fetching :loading))
@@ -105,7 +105,7 @@
          reads best for the handler."
    :rf.http/decode-schemas [schema/CommentsResponse]}
   (fn [{:keys [db]} _]
-    (let [slug (get-in db [:rf/route :params :slug])]
+    (let [slug (get-in db [:rf/runtime :routing :current :params :slug])]
       {:db (-> db
                (assoc-in [:comments :status]
                          (if (seq (get-in db [:comments :data])) :fetching :loading))
@@ -153,7 +153,7 @@
          where the partial event vector pre-populates correlation args)."
    :rf.http/decode-schemas [schema/CommentResponse]}
   (fn [{:keys [db]} _]
-    (let [slug      (get-in db [:rf/route :params :slug])
+    (let [slug      (get-in db [:rf/runtime :routing :current :params :slug])
           draft     (get-in db [:comment-form :draft])
           body      (str/trim (or (:body draft) ""))
           user      (get-in db [:auth :user])
@@ -219,7 +219,7 @@
   {:doc "Optimistically remove a comment, then DELETE. On failure, the
          rollback handler re-inserts the comment at its original index."}
   (fn [{:keys [db]} [_ id]]
-    (let [slug     (get-in db [:rf/route :params :slug])
+    (let [slug     (get-in db [:rf/runtime :routing :current :params :slug])
           comments (vec (get-in db [:comments :data]))
           index    (first (keep-indexed (fn [idx comment]
                                           (when (= id (:id comment)) idx))

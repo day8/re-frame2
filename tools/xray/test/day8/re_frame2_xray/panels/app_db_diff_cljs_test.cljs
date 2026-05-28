@@ -379,17 +379,19 @@
 ;; ---- (4) reserved-keys segregation at the composite level ---------------
 
 (deftest app-db-diff-segregates-reserved-keys
-  (testing "the composite splits triples whose path roots in :rf/* from
-            the rest; reserved triples go to :changed-reserved as the
-            current snapshot (informational group per spec §Reserved-
-            keys group), non-reserved go to :changed-non-reserved"
+  (testing "the composite splits triples whose path roots in :rf/runtime
+            from the rest; reserved triples go to :changed-reserved as
+            the current snapshot (informational group per spec
+            §Reserved-keys group), non-reserved go to :changed-non-reserved.
+            Post rf2-eguy4 phase-A every runtime subsystem lives under
+            the single :rf/runtime container."
     (seed-xray! {:cart {:items [{:id 7}]}
-                  :rf/route {:id :app/cart}
-                  :rf/machines {:auth {:state :idle}}}
+                  :rf/runtime {:routing  {:current {:id :app/cart}}
+                               :machines {:snapshots {:auth {:state :idle}}}}}
                  [(mk-record :e-1 [:nav/cart]
                              {:cart {:items []}}
                              {:cart {:items [{:id 7}]}
-                              :rf/route {:id :app/cart}})])
+                              :rf/runtime {:routing {:current {:id :app/cart}}}})])
     (rf/with-frame :rf/xray
       (let [data @(rf/subscribe [:rf.xray/app-db-diff])
             ;; rf2-xuyac — `:changed-non-reserved` now carries 4-tuple
@@ -399,8 +401,8 @@
             reserved-keys-shown (set (map first (:changed-reserved data)))]
         (is (contains? non-reserved-paths [:cart :items])
             "non-reserved path lands in :changed-non-reserved")
-        (is (not (contains? non-reserved-paths [:rf/route]))
-            ":rf/route filtered out of :changed-non-reserved")
+        (is (not (some #(= :rf/runtime (first %)) non-reserved-paths))
+            "any :rf/runtime-rooted path filtered out of :changed-non-reserved")
         (is (contains? reserved-keys-shown :rf/route))
         (is (contains? reserved-keys-shown :rf/machines))))))
 
@@ -567,12 +569,13 @@
             "no slice stack")))))
 
 (deftest panel-sections-reserved-areas
-  (testing "reserved :rf/* areas render as their own sections: machines
-            fan out one section per machine id; route is a singleton"
+  (testing "reserved runtime subsystems render as their own sections:
+            machines fan out one section per machine id; route is a
+            singleton. App-db lives under [:rf/runtime ...]."
     (seed-host-frame! {:cart {:items [{:id 7}]}
-                       :rf/route {:id :app/cart}
-                       :rf/machines {:auth {:state :idle}
-                                     :title/flow {:state :playing}}})
+                       :rf/runtime {:routing  {:current {:id :app/cart}}
+                                    :machines {:snapshots {:auth       {:state :idle}
+                                                           :title/flow {:state :playing}}}}})
     (registry/register-xray-handlers!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray

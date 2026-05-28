@@ -9,7 +9,7 @@
    3. The shared `:rf/spawn-counter` (rf2-gr8q) threads in/out across
       regions — bumps in one region are visible to the next.
    4. Per-region fx is prefixed via `prefix-region-invoke-id` so the
-      `[:rf/spawned ...]` slot key stays unique per region.
+      `[:rf/runtime :machines :spawned ...]` slot key stays unique per region.
 
   And the contract:
    5. A `result/fail` from any region short-circuits the reduce — later

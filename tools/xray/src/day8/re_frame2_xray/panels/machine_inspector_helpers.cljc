@@ -65,7 +65,7 @@
 
     2. **`snapshots`** — `{machine-id snapshot-or-nil}` map; each
        value is the result of `(rf/machine-meta-via-sub machine-id)`
-       (i.e. `(get-in app-db [:rf/machines <id>])` against the target
+       (i.e. `(get-in app-db [:rf/runtime :machines :snapshots <id>])` against the target
        frame). nil when the machine is registered but not yet
        initialised.
 

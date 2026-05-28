@@ -70,7 +70,7 @@ says so explicitly (`re-frame2-native; no Stately analogue`).
 
 re-frame2 ships state machines (Spec 005) as a first-class registry.
 A registered machine's transition table is data; its runtime
-snapshot lives at `[:rf/machines <id>]`; its lifecycle, transitions,
+snapshot lives at `[:rf/runtime :machines :snapshots <id>]`; its lifecycle, transitions,
 microsteps, `:after` timers, and `:spawn-all` joins all emit
 structured trace events (Spec 009). Visualising a machine is a
 direct projection of those substrates — no new runtime surface
@@ -98,7 +98,7 @@ exports:
    component (substrate-agnostic via the v2 `:view` registration
    surface; substrates' adapters re-export) that renders a
    directional state-chart for one registered machine. It reads
-   `[:rf/machines <id>]` for live-highlight and subscribes to the
+   `[:rf/runtime :machines :snapshots <id>]` for live-highlight and subscribes to the
    Spec 009 trace stream for transition / microstep / timer /
    invoke-all granularity.
 2. **The read-only viewer page.** A statically hostable single-file
@@ -180,7 +180,7 @@ must tell."
 
 | re-frame2 capability | Machines-Viz surface |
 |---|---|
-| **`[:rf/machines <id>]` snapshot location** (Spec 005) | Live-highlight reads the snapshot directly; deref drives node-pulse on the active state. |
+| **`[:rf/runtime :machines :snapshots <id>]` snapshot location** (Spec 005) | Live-highlight reads the snapshot directly; deref drives node-pulse on the active state. |
 | **`:rf.machine/transition` trace events** (Spec 009) | Edges glow on the matching event; the chart animates the from→to transition. |
 | **`:rf.machine.microstep/transition`** | Microstep-granular replay within an `:always`-driven cascade; intermediate states render with a "microstep" badge. |
 | **`:rf.machine.timer/*` events** | `:after`-bearing states render a countdown ring; the ring fills at 60Hz when the panel is visible. |
@@ -221,7 +221,7 @@ must tell."
                               ┌─────────────────────────────────────┐
                               │  implementation/machines + core     │
                               │   • reg-machine + transition tables │
-                              │   • [:rf/machines <id>] snapshots   │
+                              │   • [:rf/runtime :machines :snapshots <id>] snapshots   │
                               │   • Spec 009 trace bus events       │
                               └─────────────────────────────────────┘
 ```

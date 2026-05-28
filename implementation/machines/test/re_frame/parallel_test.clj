@@ -39,7 +39,7 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- snapshot [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
+  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 ;; ---- 1. flat two-region parallel machine — initial state map ------------
 
@@ -292,7 +292,7 @@
       (is (= true  @(rf/subscribe [:rf/machine-has-tag? :par/has-tag :form/neutral])))
       (is (= false @(rf/subscribe [:rf/machine-has-tag? :par/has-tag :missing]))))))
 
-;; ---- 12. snapshot stored at [:rf/machines <id>] like any other --------
+;; ---- 12. snapshot stored at [:rf/runtime :machines :snapshots <id>] like any other --------
 
 (deftest parallel-snapshot-lives-at-rf-machines-id
   (testing "parallel-region snapshots are byte-compatible with single-machine storage"
@@ -303,7 +303,7 @@
       (rf/reg-machine :par/storage m)
       (rf/dispatch-sync [:par/storage [:no-match]])
       (is (some? (snapshot :par/storage))
-          "snapshot synthesised at [:rf/machines :par/storage]"))))
+          "snapshot synthesised at [:rf/runtime :machines :snapshots :par/storage]"))))
 
 ;; ---- 13. region-machine memoization (rf2-s83iu) ---------------------------
 

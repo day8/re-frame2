@@ -152,7 +152,7 @@ A horizontal scrubber pinned to the bottom of the window. Drag left → app-db r
 A pinned-right panel: a chat input above a scrollable result area. The co-pilot reads the same surfaces every other panel reads — `epoch-history`, `(rf/get-frame-db ...)`, `(rf/registrations ...)`, the trace bus — and answers programmer questions about the running app in natural language. Examples:
 
 - *"Why did `:checkout/submit` fire?"* → walks `:parent-dispatch-id` upward; returns "dispatched by `:fx [[:dispatch ...]]` inside `:cart/finalise` (events.cljs:213). That ran because of `:user/clicked-checkout` at 10:43:21. Want me to open the source?"
-- *"What's the current state of the auth flow?"* → reads `[:rf/machines :auth/login-flow]`; returns the snapshot; links to the machine inspector with that state highlighted.
+- *"What's the current state of the auth flow?"* → reads `[:rf/runtime :machines :snapshots :auth/login-flow]`; returns the snapshot; links to the machine inspector with that state highlighted.
 - *"Show me every dispatch that touched `[:cart :items]`."* → walks epoch history; diffs each `:db-after`; returns the filtered list.
 - *"Why is this view re-rendering when I click that button?"* → traces dispatch → db change → sub invalidations → re-renders; attributes by `:render-key`.
 
@@ -297,7 +297,7 @@ The frame picker is a dropdown of `(rf/frame-ids)` (per [Spec 002 §Public regis
 | **Subscription graph** | A force-directed graph of sub dependencies for the active frame; layer-1/2/3 grouping. | `(rf/sub-cache frame-id)` (CLJS-only, per Tool-Pair). | Click a sub → see inputs / outputs / cached value; "what subs read from this app-db path?" |
 | **Effect log** | Every fx invocation across the trace buffer. | `(rf/trace-buffer {:op-type :fx})` + `:rf/epoch-record :effects` projection. | Filter by fx-id; show outcome (`:ok`/`:error`/`:skipped-on-platform`); inspect args. |
 | **Trace timeline** | Raw trace events with timing, performance-API-style. | `(rf/trace-buffer)` + Spec 009 `User Timing` measures. | Structured filter; saved-filter library; export-as-JSON. |
-| **Machine inspector** | Stately-quality state-chart per machine (§4.4). Embeds `tools/machines-viz/`. | `(rf/machines)` + per-machine snapshot at `[:rf/machines <id>]` + `:rf.machine/transition` traces. | Live highlight; transition history scrub; source-coord jump. |
+| **Machine inspector** | Stately-quality state-chart per machine (§4.4). Embeds `tools/machines-viz/`. | `(rf/machines)` + per-machine snapshot at `[:rf/runtime :machines :snapshots <id>]` + `:rf.machine/transition` traces. | Live highlight; transition history scrub; source-coord jump. |
 | **Flow graph** | A DAG of registered flows; per-flow recompute heatmap. | `(rf/registrations :flow)` + `:rf.flow/*` traces (per Spec 013). | "How often did this flow skip?"; "what triggered the last recompute?"; mark a flow as dormant. |
 | **Performance ribbon** | INP, long tasks, layout shifts, re-render counts, per epoch. | `PerformanceObserver` watching `rf:*` entries + browser's own `event` / `layout-shift` entries. | Hover an epoch → see its INP; spike-detect; "show me the longest 10 cascades this session." |
 | **Schema violation timeline** | (§4.6). | `(rf/trace-buffer {:operation :rf.error/schema-validation-failure})`. | Drill-down to Malli explanation; jump-to-`reg-app-schema` source. |

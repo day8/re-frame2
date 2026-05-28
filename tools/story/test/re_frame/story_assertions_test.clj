@@ -189,7 +189,7 @@
   (testing ":rf.assert/state-is passes when machine snapshot matches"
     ;; Register a tiny machine snapshot manually via app-db.
     (rf/reg-event-db :test/seed-machine
-      (fn [db _] (assoc-in db [:rf/machines :traffic-light] {:state :red})))
+      (fn [db _] (assoc-in db [:rf/runtime :machines :snapshots :traffic-light] {:state :red})))
     (story/reg-variant :story.machine/red
       {:events [[:test/seed-machine]]
        :play-script [[:dispatch-sync [:rf.assert/state-is :traffic-light :red]]]})
@@ -200,7 +200,7 @@
 (deftest state-is-fail
   (testing ":rf.assert/state-is records the mismatch when state differs"
     (rf/reg-event-db :test/seed-machine2
-      (fn [db _] (assoc-in db [:rf/machines :traffic-light] {:state :green})))
+      (fn [db _] (assoc-in db [:rf/runtime :machines :snapshots :traffic-light] {:state :green})))
     (story/reg-variant :story.machine/mismatch
       {:events [[:test/seed-machine2]]
        :play-script [[:dispatch-sync [:rf.assert/state-is :traffic-light :red]]]})

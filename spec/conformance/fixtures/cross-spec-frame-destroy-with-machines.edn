@@ -19,7 +19,7 @@
 ;;
 ;; This fixture exercises the singleton-machine path (one machine
 ;; registered via `reg-machine`, snapshot present at
-;; `[:rf/machines :auth/session]` after the dispatch). The reverse-
+;; `[:rf/runtime :machines :snapshots :auth/session]` after the dispatch). The reverse-
 ;; creation-order contract for dynamically-spawned actors is exercised
 ;; by the JVM-side cascade tests in
 ;; `implementation/machines/test/re_frame/frame_destroy_cascade_test.clj`;
@@ -41,7 +41,7 @@
   ;; Singleton authentication machine. The reg-machine path turns this
   ;; into an event-handler at :auth/session; dispatching [:auth/session
   ;; [:authenticate]] sub-routes to the machine handler which transitions
-  ;; :idle → :authenticated and commits [:rf/machines :auth/session
+  ;; :idle → :authenticated and commits [:rf/runtime :machines :snapshots :auth/session
   ;; {:state :authenticated :data {}}] into app-db. THAT is the "active
   ;; machine instance" the frame holds at destroy time.
   :machine
@@ -57,7 +57,7 @@
  :fixture/frame-config {:on-create [:boot/seed]}
 
  :fixture/dispatches
- ;; Commit the machine snapshot at [:rf/machines :auth/session], then
+ ;; Commit the machine snapshot at [:rf/runtime :machines :snapshots :auth/session], then
  ;; tear the frame down. The :destroy-frame step is interpreted by the
  ;; runner (not dispatched as an event) and invokes destroy-frame!,
  ;; triggering the machine teardown cascade and the :frame/destroyed

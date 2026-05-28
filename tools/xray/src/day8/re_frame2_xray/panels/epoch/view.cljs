@@ -2544,7 +2544,7 @@
   change to THIS handler's return value.
 
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
-  the snapshot IS the db change (at `[:rf/machines <id>]`) so the
+  the snapshot IS the db change (at `[:rf/runtime :machines :snapshots <id>]`) so the
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
   standalone slot."
   [db-diff]

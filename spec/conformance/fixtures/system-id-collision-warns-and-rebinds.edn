@@ -47,11 +47,8 @@
  ;; replacing a handler doesn't cancel in-flight work; it just means the
  ;; next dispatch routes to the new fn.)
  {:final-app-db
-  {:rf/machines
-   {:worker/proc#1 {:state :running :data {}}
-    :worker/proc#2 {:state :running :data {}}}
-   :rf/system-ids
-   {:primary :worker/proc#2}}
+  {:rf/runtime {:machines {:snapshots {:worker/proc#1 {:state :running :data {}}
+    :worker/proc#2 {:state :running :data {}}} :system-ids {:primary :worker/proc#2}}}}
 
   :trace-emissions
   [{:operation :rf.machine/system-id-bound

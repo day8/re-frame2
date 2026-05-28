@@ -64,10 +64,8 @@
 
  :fixture/expect
  {:final-app-db
-  {:rf/route               {:id :route/cart :params {} :query {} :fragment nil
-                            :transition :idle :error nil}
-   :editor                 {:dirty? true}
-   :rf/pending-navigation  nil}                      ;; cleared by :rf.route/continue
+  {:rf/runtime {:routing {:current {:id :route/cart :params {} :query {} :fragment nil
+                            :transition :idle :error nil} :pending-navigation nil}} :editor {:dirty? true}}                      ;; cleared by :rf.route/continue
 
   :trace-emissions
   [;; Step 3 emits the blocked trace.

@@ -95,7 +95,9 @@
 
     (rf/reg-event-fx :rf/server-init
       (fn [{:keys [db]} [_ request]]
-        {:db (assoc db :request request :rf/route {:id :route/articles})
+        {:db (-> db
+                 (assoc :request request)
+                 (assoc-in [:rf/runtime :routing :current] {:id :route/articles}))
          :fx [[:http/get {:url        "/api/articles"
                           :on-success [:articles/loaded]}]]}))
 
@@ -1632,7 +1634,7 @@
 
       (rf/reg-event-fx :rf/server-init
         (fn [{:keys [db]} [_ _request]]
-          {:db (assoc db :rf/route {:id :route/articles})
+          {:db (assoc-in db [:rf/runtime :routing :current] {:id :route/articles})
            :fx [[:http/get {:url "/api/articles"
                             :on-success [:articles/loaded]}]]}))
       (rf/reg-event-db :articles/loaded

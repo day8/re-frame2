@@ -20,7 +20,7 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (defn- snapshot [db]
-  (get-in db [:rf/machines :ws/connection]))
+  (get-in db [:rf/runtime :machines :snapshots :ws/connection]))
 
 (defn- new-frame []
   (rf/make-frame {:on-create    [:ws.app/initialise]

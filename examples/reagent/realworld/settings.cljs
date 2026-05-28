@@ -248,7 +248,7 @@
          :submit-failed."
    :rf.http/decode-schemas [schema/UserResponse]}
   (fn handler-settings-submit [{:keys [db]} _]
-    (let [draft (get-in db [:rf/machines :settings/form :data :draft])]
+    (let [draft (get-in db [:rf/runtime :machines :snapshots :settings/form :data :draft])]
       {:fx [[:dispatch [:settings/form
                         [:submit-valid {:submitted draft}]]]
             [:rf.http/managed

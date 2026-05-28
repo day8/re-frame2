@@ -6,24 +6,27 @@
   iterated `:spawn-all` children-destroy, or keyword/imperative
   destroy) the runtime applies a four-step app-db projection:
 
-    1. dissoc snapshot at `[:rf/machines actor-id]`
-    2. release `:rf/system-ids <sid>` reverse-index entry (if bound)
-    3. clear `[:rf/spawned parent-id invoke-id]` slot (declarative form)
-    4. prune the per-parent `[:rf/spawned parent-id]` map and the root
-       `:rf/spawned` slot if they just emptied (lazy-allocation
-       invariant: spawn ALLOCATES the maps lazily, so destroy mirrors
-       that by pruning when emptied — see Spec 005 §Spawning §Lazy
-       allocation).
+    1. dissoc snapshot at `[:rf/runtime :machines :snapshots actor-id]`
+    2. release `[:rf/runtime :machines :system-ids <sid>]` reverse-index
+       entry (if bound)
+    3. clear `[:rf/runtime :machines :spawned parent-id invoke-id]` slot
+       (declarative form)
+    4. prune the per-parent `[:rf/runtime :machines :spawned parent-id]`
+       map and the `[:rf/runtime :machines :spawned]` slot if they just
+       emptied (lazy-allocation invariant: spawn ALLOCATES the maps
+       lazily, so destroy mirrors that by pruning when emptied — see
+       Spec 005 §Spawning §Lazy allocation).
 
-  `:rf/machines` and `:rf/system-ids` are NOT pruned when emptied: per
-  the `machine/destroy-machine-clears-system-id-index` conformance
-  fixture the runtime keeps those slots present-but-empty so callers
-  observing the app-db root see a stable shape.
+  The `[:rf/runtime :machines :snapshots]` and
+  `[:rf/runtime :machines :system-ids]` maps are NOT pruned when
+  emptied: per the `machine/destroy-machine-clears-system-id-index`
+  conformance fixture the runtime keeps those slots present-but-empty
+  so callers observing the machines container see a stable shape.
 
-  The unification lives here so contract changes (e.g. a `:rf/spawned`
-  key rename, an extra root to prune) touch one spot — the three
-  destroy paths (explicit, exit-cascade declarative, final-state auto-
-  destroy) all route through this projection.
+  The unification lives here so contract changes (e.g. an extra slot to
+  prune) touch one spot — the three destroy paths (explicit, exit-
+  cascade declarative, final-state auto-destroy) all route through this
+  projection.
 
   This namespace is PURE — it does not unregister handlers, abort
   in-flight HTTP, or emit traces. Those are caller side effects whose
@@ -35,14 +38,15 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn find-system-id-for-actor
-  "Walk the `:rf/system-ids` reverse index of `db` looking for the entry
-  whose value is `actor-id`. Returns the bound `:system-id` keyword or
-  nil. Cheap O(n) over the reverse index; n is typically <10."
+  "Walk the `[:rf/runtime :machines :system-ids]` reverse index of `db`
+  looking for the entry whose value is `actor-id`. Returns the bound
+  `:system-id` keyword or nil. Cheap O(n) over the reverse index; n is
+  typically <10."
   [db actor-id]
   (when actor-id
     (some (fn [[sid mid]]
             (when (= mid actor-id) sid))
-          (get db :rf/system-ids))))
+          (get-in db [:rf/runtime :machines :system-ids]))))
 
 (defn teardown-actor
   "Apply the unified app-db teardown projection to `db`. Returns a tuple
@@ -59,11 +63,13 @@
                   child at spawn time (declarative form only)
 
   When `:parent-id` and `:spawn-id` are both supplied, the
-  `[:rf/spawned <parent-id> <invoke-id>]` slot is cleared and the
-  parent map / root are pruned under the lazy-allocation invariant
-  (matching how spawn ALLOCATES the maps lazily — see Spec 005
-  §Spawning §Lazy allocation). `:rf/machines` and `:rf/system-ids` are
-  NOT pruned when emptied (see ns docstring).
+  `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` slot is
+  cleared and the parent map / `:spawned` root are pruned under the
+  lazy-allocation invariant (matching how spawn ALLOCATES the maps
+  lazily — see Spec 005 §Spawning §Lazy allocation). The
+  `[:rf/runtime :machines :snapshots]` and
+  `[:rf/runtime :machines :system-ids]` maps are NOT pruned when
+  emptied (see ns docstring).
 
   PURE: no trace emission, no handler unregistration, no HTTP abort —
   those are caller side effects whose ordering relative to db mutation
@@ -73,20 +79,23 @@
         track?       (and parent-id invoke-id)
         ;; (1)+(2)+(3): the three primary slot mutations.
         new-db       (cond-> db
-                       actor-id     (update :rf/machines dissoc actor-id)
-                       released-sid (update :rf/system-ids dissoc released-sid)
-                       track?       (update-in [:rf/spawned parent-id]
+                       actor-id     (update-in [:rf/runtime :machines :snapshots]
+                                               dissoc actor-id)
+                       released-sid (update-in [:rf/runtime :machines :system-ids]
+                                               dissoc released-sid)
+                       track?       (update-in [:rf/runtime :machines :spawned parent-id]
                                                 dissoc invoke-id))
-        ;; (4a): prune the per-parent :rf/spawned map if empty.
+        ;; (4a): prune the per-parent `:spawned` map if empty.
         new-db       (cond-> new-db
                        (and track?
-                            (empty? (get-in new-db [:rf/spawned parent-id])))
-                       (update :rf/spawned dissoc parent-id))
-        ;; (4b): prune the :rf/spawned root if empty (lazy-allocation
-        ;; mirror — :rf/machines and :rf/system-ids stay present per
-        ;; fixture contract).
+                            (empty? (get-in new-db [:rf/runtime :machines :spawned parent-id])))
+                       (update-in [:rf/runtime :machines :spawned] dissoc parent-id))
+        ;; (4b): prune the `[:rf/runtime :machines :spawned]` slot if
+        ;; empty (lazy-allocation mirror — :snapshots and :system-ids
+        ;; stay present per fixture contract).
         new-db       (cond-> new-db
-                       (and (contains? new-db :rf/spawned)
-                            (empty? (get new-db :rf/spawned)))
-                       (dissoc :rf/spawned))]
+                       (and (contains? (get-in new-db [:rf/runtime :machines])
+                                       :spawned)
+                            (empty? (get-in new-db [:rf/runtime :machines :spawned])))
+                       (update-in [:rf/runtime :machines] dissoc :spawned))]
     [new-db released-sid]))

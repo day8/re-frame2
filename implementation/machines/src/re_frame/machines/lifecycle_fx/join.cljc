@@ -9,7 +9,7 @@
    1. Resolves the active `:spawn-all`-bearing state by walking the
       snapshot's `:state` path leaf→root looking for a state node whose
       `:spawn-all` declares the matching event keyword.
-   2. Reads the join state at `[:rf/spawned <parent> <invoke-id>]`.
+   2. Reads the join state at `[:rf/runtime :machines :spawned <parent> <invoke-id>]`.
    3. Verifies `<child-id>` (event[1]) is one of the parent's spawned
       children. Forged / unknown ids are rejected with the
       `:rf.error/machine-spawn-all-bad-child-id` error trace and a
@@ -261,7 +261,7 @@
             child-extra (vec (drop 2 inner-event))
             ;; Read the live join state from app-db (the seed was written
             ;; by :rf.machine/spawn-all-init on entry).
-            join-state (get-in db [:rf/spawned parent-id invoke-id])]
+            join-state (get-in db [:rf/runtime :machines :spawned parent-id invoke-id])]
         (cond
           ;; Pure-call snapshot: no app-db join state seeded yet — fall
           ;; through to no-op (the runtime tracks join state via the fx
@@ -313,5 +313,5 @@
                                      child-id child-extra resolution)
             (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
                                           child-id child-extra resolution)]
-              {:db (assoc-in db [:rf/spawned parent-id invoke-id] join-state'')
+              {:db (assoc-in db [:rf/runtime :machines :spawned parent-id invoke-id] join-state'')
                :fx fx})))))))

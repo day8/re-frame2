@@ -3,7 +3,7 @@
 ;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify that
 ;; entering a :spawn-all-bearing state with `:join :all` emits:
 ;;   1. One :rf.machine/spawn-all-init fx that seeds the join state at
-;;      [:rf/spawned <parent> <invoke-id>].
+;;      [:rf/runtime :machines :spawned <parent> <invoke-id>].
 ;;   2. N :rf.machine/spawn fxs (one per child), each carrying the
 ;;      runtime-stamped :rf/parent-id, :rf/spawn-all-id (the prefix-path
 ;;      of the :spawn-all-bearing state), and :rf/spawn-all-child-id

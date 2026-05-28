@@ -27,7 +27,7 @@
 
 (defn- snapshot
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
+  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (defn- capture-error-traces []
   (let [captured (atom [])
@@ -59,7 +59,7 @@
         ;; state while the snapshot was still live.
         (frame/swap-frame-db! :rf/default
                               assoc-in
-                              [:rf/machines :compat/m1]
+                              [:rf/runtime :machines :snapshots :compat/m1]
                               {:state :gone
                                :data  {:user-stuff 42}})
         (rf/dispatch-sync [:compat/m1 [:go]])
@@ -100,7 +100,7 @@
         ;; from state-not-in-definition).
         (frame/swap-frame-db! :rf/default
                               assoc-in
-                              [:rf/machines :compat/m2]
+                              [:rf/runtime :machines :snapshots :compat/m2]
                               {:state :idle
                                :data  {:legacy true}
                                :meta  {:rf/snapshot-version 1}})
@@ -160,7 +160,7 @@
         ;; in the definition.
         (frame/swap-frame-db! :rf/default
                               assoc-in
-                              [:rf/machines :compat/m4]
+                              [:rf/runtime :machines :snapshots :compat/m4]
                               {:state :idle
                                :data  {:preserved true}
                                :meta  {:rf/snapshot-version 7}})

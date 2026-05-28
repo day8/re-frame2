@@ -622,7 +622,7 @@
   (testing ":rf.flow/computed :result rides through elide-wire-value — schema-large path is elided"
     ;; Seed the app-db with `merge` semantics so the schema-installed
     ;; elision registry survives the :init handler. A replacing handler
-    ;; (e.g. `(fn [_ _] {:n 1})`) would wipe the `:rf/elision` slot
+    ;; (e.g. `(fn [_ _] {:n 1})`) would wipe the `[:rf/runtime :elision]` slot
     ;; before the flow's evaluate-time registry read.
     (rf/reg-event-db :init (fn [db _] (merge db {:n 1})))
     (rf/reg-flow {:id     :payload

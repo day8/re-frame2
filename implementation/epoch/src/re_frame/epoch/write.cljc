@@ -131,7 +131,7 @@
 
 (defn missing-references
   "Walk the recorded db for ids that are no longer present in the
-  registrar. Closed v1 surface — `:rf/machines` (each machine-id
+  registrar. Closed v1 surface — `[:rf/runtime :machines :snapshots]` (each machine-id
   must reference a registered machine via the public event registry,
   per Spec 005 §Registration — machines are event handlers tagged
   with `:rf/machine?`) and `:route` (`:id` must reference a registered
@@ -144,21 +144,22 @@
   Returns a vector of {:kind <kind> :id <id>} entries. Empty when
   every reference resolves."
   [db]
-  (let [;; Machines under :rf/machines: registered as event handlers with
-        ;; :rf/machine? true (per Spec 005 §Registration).
+  (let [;; Machines under [:rf/runtime :machines :snapshots]: registered
+        ;; as event handlers with :rf/machine? true (per Spec 005
+        ;; §Registration).
         missing-machines
-        (for [[machine-id _snapshot] (:rf/machines db)
+        (for [[machine-id _snapshot] (get-in db [:rf/runtime :machines :snapshots])
               :when (not (machine-registration machine-id))]
           {:kind :machine :id machine-id})
         ;; Active route
         missing-route
-        (when-let [route-id (get-in db [:rf/route :id])]
+        (when-let [route-id (get-in db [:rf/runtime :routing :current :id])]
           (when-not (registrar/lookup :route route-id)
             [{:kind :route :id route-id}]))]
     (vec (concat missing-machines missing-route))))
 
 (defn machine-version-mismatch
-  "Walk the recorded db's `:rf/machines` for snapshot version drift.
+  "Walk the recorded db's `[:rf/runtime :machines :snapshots]` for snapshot version drift.
   The recorded snapshot may carry `:rf/snapshot-version` under
   `:meta`; the registered machine definition carries
   `:rf/snapshot-version` under its own `:meta`. When they differ,
@@ -178,7 +179,7 @@
                   {:machine-id machine-id
                    :recorded   recorded
                    :current    current})))))
-        (:rf/machines db)))
+        (get-in db [:rf/runtime :machines :snapshots])))
 
 ;; ---- shared precondition helpers ------------------------------------------
 

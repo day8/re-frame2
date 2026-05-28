@@ -197,26 +197,28 @@ segment. The `:rf.xray/pin-slice` / `:rf.xray/unpin-slice` /
 
 ## Reserved-keys group
 
-The runtime owns a fixed set of top-level `app-db` keys, catalogued
-in [Conventions §Reserved app-db keys](../../../spec/Conventions.md#reserved-app-db-keys).
-Xray's `[runtime]` group segregates these six:
+Per rf2-eguy4 phase-A the runtime owns ONE top-level `app-db` slot —
+`:rf/runtime` — containing six logical subsystems, catalogued in
+[Conventions §Reserved app-db keys](../../../spec/Conventions.md#reserved-app-db-keys).
+Xray's `[runtime]` group surfaces these six as operator-facing
+section labels; the underlying paths all live under `:rf/runtime`:
 
-| Reserved key | Owner | One-line role |
-|---|---|---|
-| `:rf/machines` | machine runtime | Per-frame map of `<machine-id> → :rf/machine-snapshot` — every active machine's snapshot. |
-| `:rf/system-ids` | machine runtime | Reverse index `<system-id> → <gensym'd-machine-id>` for `:system-id` named-machine addressing. |
-| `:rf/spawned` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
-| `:rf/route` | routing runtime | The current route slice `{:id :params :query :transition :error}`. |
-| `:rf/pending-navigation` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
-| `:rf/elision` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Populated at boot from `:large? true` / `:sensitive? true` schema slots; consulted by `rf/elide-wire-value` at every wire-boundary emit. Schemas are the only nomination path. |
+| Section label | Underlying path | Owner | One-line role |
+|---|---|---|---|
+| `:rf/machines` | `[:rf/runtime :machines :snapshots]` | machine runtime | Per-frame map of `<machine-id> → :rf/machine-snapshot` — every active machine's snapshot. |
+| `:rf/system-ids` | `[:rf/runtime :machines :system-ids]` | machine runtime | Reverse index `<system-id> → <gensym'd-machine-id>` for `:system-id` named-machine addressing. |
+| `:rf/spawned` | `[:rf/runtime :machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
+| `:rf/route` | `[:rf/runtime :routing :current]` | routing runtime | The current route slice `{:id :params :query :transition :error}`. |
+| `:rf/pending-navigation` | `[:rf/runtime :routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
+| `:rf/elision` | `[:rf/runtime :elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Populated at boot from `:large? true` / `:sensitive? true` schema slots; consulted by `rf/elide-wire-value` at every wire-boundary emit. Schemas are the only nomination path. |
 
 Conventions is the canonical home; this table is the panel-facing
-projection. The six above are the keys Xray's `partition-reserved`
-treats as runtime-owned in the diff panel — diff triples rooted in
-one of them render here rather than as slice mini-panels. If a new
-reserved key lands in Conventions, the `[runtime]` group's coverage
-and this table are updated in lockstep; the drift-detector test in
-`app_db_diff_helpers_cljs_test.cljc` enforces this on every run.
+projection. Xray's `partition-reserved` treats any diff triple rooted
+at `:rf/runtime` as runtime-owned — those triples render in the
+`[runtime]` group rather than as slice mini-panels. The `runtime-areas`
+lookup in `app_db_diff_helpers.cljc` maps each operator label to its
+sub-path under `:rf/runtime`. If a new subsystem lands in Conventions,
+the `runtime-areas` table and this section are updated in lockstep.
 
 ```
 ┌─ [runtime] ───────────────────────────────────────┐
@@ -278,7 +280,7 @@ db-before / db-after values BEFORE the `:redact-fn` runs — parallel to
 the `:rf.epoch/sensitive?` rollup. A path `P` counts in the framework's
 figure when:
 
-1. `P` is schema-declared sensitive (`[:rf/elision :sensitive-declarations]`,
+1. `P` is schema-declared sensitive (`[:rf/runtime :elision :sensitive-declarations]`,
    populated from `{:sensitive? true}` per-slot schema props per
    [Spec 015](../../../spec/015-Data-Classification.md)).
 2. `(not= (get-in db-before P) (get-in db-after P))` — value-equality
@@ -298,8 +300,9 @@ Xray-side heuristic — paths `P` where:
 3. `P`'s parent subtree is NOT `identical?` across `db-before` /
    `db-after` (something in the enclosing subtree changed).
 
-Distinct paths are counted independently. The reserved `:rf/elision`
-subtree at the root is skipped (the elision registry's own values may
+Distinct paths are counted independently. The reserved
+`[:rf/runtime :elision]` subtree is skipped (the elision registry's
+own values may
 include `:rf/redacted` as documentation/sentinel form). Condition (3)
 is the structural-sharing tightener — without it every redacted slot
 in `app-db` would count for every cascade. The fallback is a tight

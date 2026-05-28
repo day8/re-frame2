@@ -2,7 +2,7 @@
 ;;
 ;; Per rf2-t07u (Option A revised): the runtime tracks each declarative-
 ;; `:spawn` spawn-id at the reserved app-db slot
-;; `[:rf/spawned <parent-id> <invoke-id>]` so the matching destroy cascade
+;; `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` so the matching destroy cascade
 ;; can locate the spawned id WITHOUT depending on the user's `:on-spawn`
 ;; callback having stashed it under any particular `:data` key.
 ;;
@@ -18,7 +18,7 @@
 ;;   2. Exiting the same state emits a :rf.machine/destroy fx whose args
 ;;      carry the SAME {:rf/parent-id :rf/spawn-id} pair — NOT the actor
 ;;      id directly. The runtime's destroy-machine fx handler then reads
-;;      the spawned id from `[:rf/spawned <parent-id> <invoke-id>]` at
+;;      the spawned id from `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` at
 ;;      call time (out-of-scope for the pure machine-transition fixture
 ;;      — covered by the integration-level test in machines artefact's
 ;;      spawn_registry_test.clj).
@@ -35,7 +35,7 @@
 {:fixture/id           :machine/spawn-tracked-without-data-pending
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke}
- :fixture/doc          "rf2-t07u (Option A revised) — the runtime tracks each declarative-:spawn spawn-id at [:rf/spawned <parent-id> <invoke-id>]. The fixture's machine omits :on-spawn entirely; the destroy fx still resolves the actor on state-exit because the runtime no longer reads :data :pending."
+ :fixture/doc          "rf2-t07u (Option A revised) — the runtime tracks each declarative-:spawn spawn-id at [:rf/runtime :machines :spawned <parent-id> <invoke-id>]. The fixture's machine omits :on-spawn entirely; the destroy fx still resolves the actor on state-exit because the runtime no longer reads :data :pending."
 
  :fixture/registry
  {:machine
@@ -85,7 +85,7 @@
   ;; Exiting :authenticating via :auth/failed runs the auto-exit emitting
   ;; :rf.machine/destroy. The args are a {:rf/parent-id :rf/spawn-id} map —
   ;; NOT the actor-id directly. The fx handler resolves the actor id from
-  ;; [:rf/spawned ...] in app-db at fx-call time (integration-level
+  ;; [:rf/runtime :machines :spawned ...] in app-db at fx-call time (integration-level
   ;; assertion lives in machines/spawn_registry_test.clj on JVM and
   ;; machines_cljs_test.cljs on CLJS).
   {:call         :machine-transition

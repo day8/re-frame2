@@ -1139,7 +1139,7 @@
                    :head :head/main})
     (rf/reg-event-db :init/seed-route
       (fn [db _]
-        (assoc db :rf/route {:id :route/x})))
+        (assoc-in db [:rf/runtime :routing :current] {:id :route/x})))
     (rf/reg-view* :pages/blank-for-title (fn [] [:div]))
 
     (let [handler  (ssr-ring/ssr-handler
@@ -1191,7 +1191,7 @@
                    :head :head/no-title})
     (rf/reg-event-db :init/seed-no-title
       (fn [db _]
-        (assoc db :rf/route {:id :route/no-title})))
+        (assoc-in db [:rf/runtime :routing :current] {:id :route/no-title})))
     (rf/reg-view* :pages/blank-no-title (fn [] [:div]))
 
     (let [handler  (ssr-ring/ssr-handler
@@ -1224,7 +1224,7 @@
                  :path "/"
                  :head :head/with-attrs})
   (rf/reg-event-db :init/seed-attrs-route
-    (fn [db _] (assoc db :rf/route {:id :route/with-attrs})))
+    (fn [db _] (assoc-in db [:rf/runtime :routing :current] {:id :route/with-attrs})))
   (rf/reg-view* :pages/blank-attrs (fn [] [:div])))
 
 (deftest default-shell-stamps-html-attrs-and-body-attrs

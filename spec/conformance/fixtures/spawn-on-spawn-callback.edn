@@ -10,7 +10,7 @@
 ;; context-map `{:data <parent-data> :id <spawned-id>}`. The return
 ;; value is purely ADVISORY — `:on-spawn` cannot mutate the parent's
 ;; `:data`. Authors who need to observe the id from the parent's `:data`
-;; read it from the runtime-tracked `[:rf/spawned <parent> <invoke-id>]`
+;; read it from the runtime-tracked `[:rf/runtime :machines :spawned <parent> <invoke-id>]`
 ;; slot or capture it via a sidechannel atom.
 ;;
 ;; This fixture isolates the callback-fires-with-actor-id contract: the
@@ -20,7 +20,7 @@
 ;; transition, the parent's `:data` is the literal `{}` it started with.
 ;; The spawn-fx still carries the allocated `:rf/spawned-id`, which is
 ;; the runtime's observable hand-off to the harness; the runtime-tracked
-;; slot at `[:rf/spawned <parent> <invoke-id>]` is the production path
+;; slot at `[:rf/runtime :machines :spawned <parent> <invoke-id>]` is the production path
 ;; for cross-transition resolution.
 ;;
 ;; Companion to `spawn-on-entry-destroy-on-exit.edn`, which exercises
@@ -48,7 +48,7 @@
   ;; `:data` per rf2-grw4i / rf2-v0rrr — `:on-spawn` is advisory only.
   ;; The body is retained here for trace symmetry with regular actions;
   ;; authors observing the id from `:data` would read it from the
-  ;; runtime-tracked `[:rf/spawned <parent> <invoke-id>]` slot.
+  ;; runtime-tracked `[:rf/runtime :machines :spawned <parent> <invoke-id>]` slot.
   {:supervisor/record-actor-id [[:set [:born-with-id] [:event-arg 1]]]}}
 
  :fixture/calls

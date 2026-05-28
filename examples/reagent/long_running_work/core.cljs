@@ -9,7 +9,7 @@
    - **Declarative spawn-and-join** — one parent coordinator spawns N
      parallel workers via `:spawn-all` and joins on `:all`. No
      per-child bookkeeping in the parent's `:data` — the runtime
-     owns the join state at `[:rf/spawned :work/flow [:working]]`.
+     owns the join state at `[:rf/runtime :machines :spawned :work/flow [:working]]`.
    - **Cooperative cancellation cascade** — exiting the `:working`
      state (by user `:cancel`, by `:on-all-complete`, by frame
      destroy, by `:after`) fires one `:rf.machine/destroy` fx whose

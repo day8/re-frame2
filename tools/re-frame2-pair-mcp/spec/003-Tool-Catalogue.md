@@ -1169,7 +1169,7 @@ Coarse-grained per-frame state read in **one round-trip**. The mega-op
 for investigate-X workflows that would otherwise chain 5-10 individual
 reads. Server-side composition over the existing per-slice runtime
 readers (`get-frame-db`, `sub-cache`, `machines` + frame-local
-`[:rf/machines]`, `epoch-history`, `trace-buffer`); no parallel
+`[:rf/runtime :machines :snapshots]`, `epoch-history`, `trace-buffer`); no parallel
 implementation.
 
 **Args**: `frames` (string `"all"` or array of frame-id strings like
@@ -1226,7 +1226,7 @@ posture for backward compatibility; the per-slice `:slice-modes` map
 tells the agent which slices it can drill into without a second call.
 
 The `:machines` slice combines the global registrar's machine-id list
-(`rf/machines`) with the per-frame state stash at `[:rf/machines]` in
+(`rf/machines`) with the per-frame state stash at `[:rf/runtime :machines :snapshots]` in
 the frame's `app-db` (per Spec 005). The `:traces` slice filters the
 retain-N trace ring buffer by `:frame`. Other slices delegate
 verbatim to the public per-slice surface.

@@ -73,7 +73,7 @@
   ;; comment in `variant_lifecycle_e2e_cljs_test.cljs`.
   (rf/reg-sub :rf/machine
               (fn [db [_ machine-id]]
-                (get-in db [:rf/machines machine-id])))
+                (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (story/install-canonical-vocabulary!)
@@ -86,7 +86,7 @@
 
 (defn- install-counter-events! []
   ;; `assoc` (not replace) so the lifecycle machine slot under
-  ;; `[:rf/machines :rf.story.lifecycle/machine]` survives — same
+  ;; `[:rf/runtime :machines :snapshots :rf.story.lifecycle/machine]` survives — same
   ;; warning as `counter_with_stories/events.cljs` and the matching
   ;; comment in the lifecycle test.
   (rf/reg-event-db :counter/initialise

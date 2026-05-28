@@ -40,7 +40,7 @@
 ;; ============================================================================
 
 (defn- snapshot [db]
-  (get-in db [:rf/machines :ws/connection]))
+  (get-in db [:rf/runtime :machines :snapshots :ws/connection]))
 
 (defn- machine-has-tag?
   "Read the machine's :tags union against a frame's app-db."
@@ -236,8 +236,8 @@
         ;; direct write to the machine's :data slot. This is a test
         ;; helper — production code never does this.
         (let [db (rf/get-frame-db f)
-              max-retries (get-in db [:rf/machines :ws/connection :data :max-retries])
-              new-db (update-in db [:rf/machines :ws/connection :data]
+              max-retries (get-in db [:rf/runtime :machines :snapshots :ws/connection :data :max-retries])
+              new-db (update-in db [:rf/runtime :machines :snapshots :ws/connection :data]
                                 assoc :retries (inc max-retries))]
           (re-frame.substrate.adapter/replace-container!
             (re-frame.frame/get-frame-db f) new-db))

@@ -107,7 +107,7 @@
   (rf/reg-frame :tenant-x {:doc "tenant frame with two machines"})
   (rf/reg-event-db :seed
     (fn [db _]
-      (assoc db :rf/machines {:flow/login    {:state :authed   :data {}}
+      (assoc-in db [:rf/runtime :machines :snapshots] {:flow/login    {:state :authed   :data {}}
                               :flow/checkout {:state :pending  :data {}}})))
   (rf/dispatch-sync [:seed] {:frame :tenant-x})
   (let [traces (collect-traces ::xspec-1)]
@@ -170,11 +170,12 @@
   ;; reg-frame call, so :on-create always runs against a ready adapter.
   ;; This test pins that property: a frame's :on-create event reaches a
   ;; live sub-cache and the spawned machine's snapshot lands in app-db.
-  (rf/reg-event-db :init-shape (fn [_ _] {:rf/machines {:flow/boot {:state :armed
-                                                                    :data  {}}}}))
+  (rf/reg-event-db :init-shape
+    (fn [_ _] {:rf/runtime {:machines {:snapshots {:flow/boot {:state :armed
+                                                               :data  {}}}}}}))
   (rf/reg-frame :booted {:on-create [:init-shape]})
   (let [db (rf/get-frame-db :booted)]
-    (is (= :armed (get-in db [:rf/machines :flow/boot :state]))
+    (is (= :armed (get-in db [:rf/runtime :machines :snapshots :flow/boot :state]))
         ":on-create completed against an installed adapter — app-db carries the seed")))
 
 ;; ---------------------------------------------------------------------------
@@ -237,21 +238,21 @@
 
 (deftest ssr-hydrate-with-machines
   "#5 Hydration with machine snapshots —
-   machine snapshots live at [:rf/machines <id>] inside app-db so they
+   machine snapshots live at [:rf/runtime :machines :snapshots <id>] inside app-db so they
    serialise as part of the standard hydration payload (no separate
    machine channel)."
   (rf/reg-event-db :hydrate-payload
     (fn [_ [_ payload]] payload))
   (let [server-db {:user/id 7
-                   :rf/machines {:auth/session {:state :authenticated
-                                                :data  {:token "abc"}}}}]
+                   :rf/runtime {:machines {:snapshots {:auth/session {:state :authenticated
+                                                                      :data  {:token "abc"}}}}}}]
     (rf/dispatch-sync [:hydrate-payload server-db])
     (let [client-db (rf/get-frame-db :rf/default)]
       (is (= :authenticated
-             (get-in client-db [:rf/machines :auth/session :state]))
+             (get-in client-db [:rf/runtime :machines :snapshots :auth/session :state]))
           "machine state survives hydration as a plain app-db slice")
       (is (= "abc"
-             (get-in client-db [:rf/machines :auth/session :data :token]))
+             (get-in client-db [:rf/runtime :machines :snapshots :auth/session :data :token]))
           "machine :data survives hydration with the rest of app-db"))))
 
 ;; ---------------------------------------------------------------------------
@@ -820,7 +821,7 @@
           "the generic :rf.error/handler-exception does NOT also fire — the machine layer catches the action throw and emits the machine-scoped category")
       (is (= :before (:val (rf/get-frame-db :rf/default)))
           "a non-machine app-db slice is not touched when the cascade halts")
-      (let [snap (get-in (rf/get-frame-db :rf/default) [:rf/machines :test/m])]
+      (let [snap (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m])]
         (is (or (nil? snap) (= :idle (:state snap)))
             "the machine snapshot was not committed at :angry — pre-action :idle is preserved")))))
 
@@ -855,7 +856,7 @@
         (is (= [:b] @seen)
             ":fx walk continued past the throwing fx — :record still ran")
         (is (= :done
-               (get-in (rf/get-frame-db :rf/default) [:rf/machines :test/m :state]))
+               (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))
             "the machine snapshot committed even though a downstream :fx threw")))))
 
 ;; ---------------------------------------------------------------------------
@@ -881,13 +882,13 @@
     (rf/reg-machine :test/m machine-v1)
     (rf/dispatch-sync [:test/m [:go]])
     (is (= :v1 (get-in (rf/get-frame-db :rf/default)
-                       [:rf/machines :test/m :data :who]))
+                       [:rf/runtime :machines :snapshots :test/m :data :who]))
         "v1 action ran on the first dispatch")
     ;; Hot-reload — re-register with v2 spec.
     (rf/reg-machine :test/m machine-v2)
     (rf/dispatch-sync [:test/m [:go]])
     (is (= :v2 (get-in (rf/get-frame-db :rf/default)
-                       [:rf/machines :test/m :data :who]))
+                       [:rf/runtime :machines :snapshots :test/m :data :who]))
         "the next dispatched event resolves to the new action body")))
 
 ;; ---------------------------------------------------------------------------
@@ -921,7 +922,7 @@
 
 (deftest time-travel-revert
   "#15 Re-spawning a machine instance via Tool-Pair —
-   replace-container! reverts app-db (including the [:rf/machines ...]
+   replace-container! reverts app-db (including the [:rf/runtime :machines :snapshots ...]
    slice); the machine handler is still in the registrar so the next
    dispatch resolves it and reads the restored snapshot."
   (let [machine {:initial :idle
@@ -932,21 +933,21 @@
     ;; Drive the machine to :working.
     (rf/dispatch-sync [:test/m [:go]])
     (let [post-go-db (rf/get-frame-db :rf/default)]
-      (is (= :working (get-in post-go-db [:rf/machines :test/m :state]))
+      (is (= :working (get-in post-go-db [:rf/runtime :machines :snapshots :test/m :state]))
           "machine reached :working")
       ;; Tool-Pair-style revert: replace-container! to a snapshot where
       ;; the machine is in :idle.
       (let [container (frame/get-frame-db :rf/default)
-            reverted  (assoc-in post-go-db [:rf/machines :test/m :state] :idle)]
+            reverted  (assoc-in post-go-db [:rf/runtime :machines :snapshots :test/m :state] :idle)]
         (adapter/replace-container! container reverted))
       (is (= :idle (get-in (rf/get-frame-db :rf/default)
-                           [:rf/machines :test/m :state]))
+                           [:rf/runtime :machines :snapshots :test/m :state]))
           "after replace-container! the snapshot reads back as :idle")
       ;; Re-dispatch — the existing handler resolves and reads the
       ;; restored snapshot, transitioning :idle → :working again.
       (rf/dispatch-sync [:test/m [:go]])
       (is (= :working (get-in (rf/get-frame-db :rf/default)
-                              [:rf/machines :test/m :state]))
+                              [:rf/runtime :machines :snapshots :test/m :state]))
           "re-dispatch after revert advances from the restored state"))))
 
 ;; ---------------------------------------------------------------------------
@@ -1040,7 +1041,7 @@
             "the trace identifies the machine"))
       (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
           "the generic :rf.error/handler-exception does NOT also fire under :ssr-server")
-      (let [snap (get-in (rf/get-frame-db :req) [:rf/machines :test/m])]
+      (let [snap (get-in (rf/get-frame-db :req) [:rf/runtime :machines :snapshots :test/m])]
         (is (or (nil? snap) (= :idle (:state snap)))
             "no committed machine snapshot at :angry — the cascade halted")))))
 

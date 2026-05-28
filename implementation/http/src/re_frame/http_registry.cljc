@@ -221,7 +221,7 @@
 ;; Per Spec 014 §Abort on actor destroy: a managed request "belongs to"
 ;; spawned actor `<spawned-id>` iff its originating event vector's first
 ;; element is `<spawned-id>` AND that id appears as a value somewhere
-;; under [:rf/spawned ...] in the frame's app-db (the runtime-owned
+;; under [:rf/runtime :machines :spawned ...] in the frame's app-db (the runtime-owned
 ;; spawn registry per Spec 005 §Declarative :spawn (sugar over spawn)).
 ;; Detection is structural: walk the registry, look for the originating
 ;; id as either a leaf value (declarative :spawn) or as a value under
@@ -229,9 +229,10 @@
 
 (defn- spawned-actor-id?
   "Return true if `event-id` is currently bound somewhere under
-  `[:rf/spawned <parent> <invoke-id>]` in `spawned` — either as the
-  leaf value (declarative `:spawn`) or as a value in the `:children`
-  map of the join-state record (declarative `:spawn-all`)."
+  `[:rf/runtime :machines :spawned <parent> <invoke-id>]` in `spawned`
+  — either as the leaf value (declarative `:spawn`) or as a value in
+  the `:children` map of the join-state record (declarative
+  `:spawn-all`)."
   [spawned event-id]
   (some (fn [[_parent inner]]
           (some (fn [[_invoke-id v]]
@@ -247,16 +248,16 @@
   "Resolve the spawned-actor-id for the request at hand, given the frame
   id and the originating event vector. Returns the actor-id (a keyword,
   the spawned actor's machine address) when the originating event-id is
-  currently registered in the frame's `[:rf/spawned ...]` slot, otherwise
+  currently registered in the frame's `[:rf/runtime :machines :spawned ...]` slot, otherwise
   nil — meaning the request is NOT subject to actor-destroy cancellation
   (it was dispatched from an ordinary event handler, not from inside a
   spawned actor).
 
   Per rf2-hzn1a — fast path for the common case (no spawned actors).
-  Apps that don't use state machines never carry `:rf/spawned` in their
-  app-db; we still deref the db to check, but the seq-empty test short-
-  circuits before the O(parents × invokes) walk. This keeps the cost
-  on the no-machines hot path at one deref + one map lookup + one
+  Apps that don't use state machines never carry a populated `:spawned`
+  registry; we still deref the db to check, but the seq-empty test
+  short-circuits before the O(parents × invokes) walk. This keeps the
+  cost on the no-machines hot path at one deref + one path lookup + one
   seq-check, rather than a full structural walk against the (always
   empty) registry."
   [frame-id origin-event]
@@ -264,7 +265,7 @@
     (when (and event-id
                (not= event-id :rf.http/managed))
       (let [db      (frame/frame-app-db-value frame-id)
-            spawned (when (map? db) (:rf/spawned db))]
+            spawned (when (map? db) (get-in db [:rf/runtime :machines :spawned]))]
         (when (seq spawned)
           (when (spawned-actor-id? spawned event-id)
             event-id))))))

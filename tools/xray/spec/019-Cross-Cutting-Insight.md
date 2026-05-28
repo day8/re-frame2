@@ -272,7 +272,7 @@ doing right now, what the join-state map looks like (`:done #{:cfg :flag}
 **Example bug:** You entered `:hydrating` which declares `:spawn-all
 {:children {:cfg ... :flag ... :user ... :dash ...} :join :all}`. Two
 children completed in <200ms; two are still "running" 2 seconds in. The
-machine hasn't advanced. The `[:rf/spawned <parent-id> <invoke-id>]` slot
+machine hasn't advanced. The `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` slot
 in app-db carries the structured state but you don't read it directly.
 
 **Insight Xray provides:** A dedicated **join card** in the metadata rail:

@@ -51,7 +51,7 @@
 
 (defwrapper machine-by-system-id
   "Look up the spawned-machine id currently bound to `system-id` in the
-  active frame's `[:rf/system-ids]` reverse index, or nil. The optional
+  active frame's `[:rf/runtime :machines :system-ids]` reverse index, or nil. The optional
   `frame-id` arg targets an explicit frame; without it, resolution uses
   the current frame (per `with-frame` / frame-provider, defaulting to
   `:rf/default`).

@@ -102,13 +102,13 @@
         ;; Land on /articles/A — nav-token = "nav-1".
         (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
         (is (= "nav-1" (get-in (rf/get-frame-db :rf/default)
-                               [:rf/route :nav-token]))
+                               [:rf/runtime :routing :current :nav-token]))
             "precondition: navigation A allocated nav-1")
 
         ;; Land on /articles/B — nav-token bumps to "nav-2".
         (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
         (is (= "nav-2" (get-in (rf/get-frame-db :rf/default)
-                               [:rf/route :nav-token]))
+                               [:rf/runtime :routing :current :nav-token]))
             "precondition: navigation B advanced to nav-2")
 
         ;; A's response arrives carrying "nav-1" — the stale nav.
@@ -176,7 +176,7 @@
     ;; from a user event (not :on-match — so it stays in-flight).
     (rf/dispatch-sync [:rf.route/transitioned "/editor/draft"])
     (is (= :route/editor (get-in (rf/get-frame-db :rf/default)
-                                 [:rf/route :id]))
+                                 [:rf/runtime :routing :current :id]))
         "precondition: landed on :route/editor")
     (rf/reg-event-fx :editor/save
                      (fn [_ _]
@@ -222,7 +222,7 @@
 
     ;; User requests navigation to /home — leave guard blocks; pending-nav populates.
     (rf/dispatch-sync [:rf/url-requested {:url "/home"}])
-    (let [pending (:rf/pending-navigation (rf/get-frame-db :rf/default))]
+    (let [pending (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :pending-navigation])]
       (is (some? pending) "precondition: pending-nav slot populated")
       (is (= :can-leave (:reason pending)) ":reason is :can-leave")
 
@@ -230,7 +230,7 @@
       (rf/dispatch-sync [:rf.route/cancel (:id pending)])
 
       ;; The pending-nav slot is cleared.
-      (is (nil? (:rf/pending-navigation (rf/get-frame-db :rf/default)))
+      (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :pending-navigation]))
           ":rf/pending-navigation slot is cleared post-cancel")
 
       ;; The in-flight HTTP request from the active route is UNTOUCHED —
@@ -242,7 +242,7 @@
 
       ;; Slice still reflects the active route (no nav happened).
       (is (= :route/editor (get-in (rf/get-frame-db :rf/default)
-                                   [:rf/route :id]))
+                                   [:rf/runtime :routing :current :id]))
           "post-cancel: :rf/route slice still on the active editor route"))))
 
 ;; ---------------------------------------------------------------------------
@@ -275,10 +275,10 @@
     ;; Land on /editor/draft.
     (rf/dispatch-sync [:rf.route/transitioned "/editor/draft"])
     (is (= :route/editor (get-in (rf/get-frame-db :rf/default)
-                                 [:rf/route :id]))
+                                 [:rf/runtime :routing :current :id]))
         "precondition: landed on :route/editor")
     (let [token-before (get-in (rf/get-frame-db :rf/default)
-                               [:rf/route :nav-token])]
+                               [:rf/runtime :routing :current :nav-token])]
       (is (some? token-before) "precondition: nav-token allocated for editor")
 
       ;; Capture the :rf.nav/push-url so the continued nav doesn't
@@ -292,23 +292,23 @@
 
         ;; Issue navigation to /sibling — leave-guard blocks.
         (rf/dispatch-sync [:rf/url-requested {:url "/sibling"}])
-        (let [pending (:rf/pending-navigation (rf/get-frame-db :rf/default))]
+        (let [pending (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :pending-navigation])]
           (is (some? pending) "precondition: pending-nav slot populated")
 
           ;; Continue.
           (rf/dispatch-sync [:rf.route/continue (:id pending)])
 
           ;; Pending-nav slot cleared.
-          (is (nil? (:rf/pending-navigation (rf/get-frame-db :rf/default)))
+          (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :pending-navigation]))
               "post-continue: pending-nav slot cleared")
 
           ;; The continued nav completed — slice is now on /sibling and
           ;; nav-token bumped.
           (is (= :route/sibling (get-in (rf/get-frame-db :rf/default)
-                                        [:rf/route :id]))
+                                        [:rf/runtime :routing :current :id]))
               "post-continue: :rf/route slice is on the continued target")
           (let [token-after (get-in (rf/get-frame-db :rf/default)
-                                    [:rf/route :nav-token])]
+                                    [:rf/runtime :routing :current :nav-token])]
             (is (not= token-before token-after)
                 "post-continue: nav-token advanced past the pending cycle"))
           (is (some #{"/sibling"} @pushed)
@@ -358,20 +358,20 @@
         ;; Land on /articles/A.
         (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
         (let [token-A (get-in (rf/get-frame-db :rf/default)
-                              [:rf/route :nav-token])]
+                              [:rf/runtime :routing :current :nav-token])]
           (is (= "nav-1" token-A) "precondition: A's nav-token is nav-1")
 
           ;; Flip the sub so subsequent navigation requests block.
           (rf/reg-sub :editor/can-leave? (fn [_ _] false))
           (rf/dispatch-sync [:rf/url-requested {:url "/articles/B"}])
-          (let [pending (:rf/pending-navigation (rf/get-frame-db :rf/default))]
+          (let [pending (get-in (rf/get-frame-db :rf/default) [:rf/runtime :routing :pending-navigation])]
             (is (some? pending) "precondition: pending-nav slot populated")
 
             ;; Continue — nav-token bumps as part of the continued
             ;; :rf.route/transitioned dispatch.
             (rf/dispatch-sync [:rf.route/continue (:id pending)]))
           (let [token-after (get-in (rf/get-frame-db :rf/default)
-                                    [:rf/route :nav-token])]
+                                    [:rf/runtime :routing :current :nav-token])]
             (is (not= token-A token-after)
                 "nav-token advanced past the pending cycle")
 

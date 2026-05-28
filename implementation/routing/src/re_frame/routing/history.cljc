@@ -56,7 +56,8 @@
 #?(:cljs
    (defn install-history-listener!
      "Install a `window` `popstate` listener that drives the URL-owning
-     frame, then sync the current URL into that frame's `:rf/route` slice.
+     frame, then sync the current URL into that frame's route slice at
+     `[:rf/runtime :routing :current]`.
 
      Per Spec 012 §Multi-frame routing the popstate dispatch is targeted
      at `(url-owner-frame-id)` resolved AT POP TIME, so it tracks whichever

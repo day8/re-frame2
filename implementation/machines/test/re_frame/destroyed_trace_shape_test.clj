@@ -177,7 +177,7 @@
         (rf/reg-machine :fz/parent parent)
         (rf/dispatch-sync [:fz/parent [:rf.machine/spawned]])
         (let [spawned-id (get-in (rf/get-frame-db :rf/default)
-                                 [:rf/spawned :fz/parent [:working]])]
+                                 [:rf/runtime :machines :spawned :fz/parent [:working]])]
           (rf/dispatch-sync [spawned-id [:end]]))
         (let [traces (destroyed-traces cap)
               finish-traces (filter #(= :rf.machine/finished (-> % :tags :reason)) traces)]
@@ -216,7 +216,7 @@
                          :states  {:working {:spawn {:machine-id :nd/child}}}})
         (rf/dispatch-sync [:nd/parent [:rf.machine/spawned]])
         (let [spawned-id (get-in (rf/get-frame-db :rf/default)
-                                 [:rf/spawned :nd/parent [:working]])]
+                                 [:rf/runtime :machines :spawned :nd/parent [:working]])]
           (rf/dispatch-sync [spawned-id [:done]]))
 
         ;; Verify the union shape across both fires.

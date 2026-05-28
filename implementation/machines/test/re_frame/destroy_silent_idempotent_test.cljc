@@ -48,7 +48,7 @@
 
 (defn- snapshot
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
+  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (defn- record-traces!
   [k]

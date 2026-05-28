@@ -97,7 +97,7 @@
 ;;
 ;; The handler-meta `:sensitive?` annotation has been removed. Under prod
 ;; the substrate no longer short-circuits based on handler-level sensitivity;
-;; per-path elision (via the per-frame `:rf/elision` registry) is the
+;; per-path elision (via the per-frame `[:rf/runtime :elision]` registry) is the
 ;; load-bearing privacy surface.
 
 (deftest event-emit-handler-fires-under-prod

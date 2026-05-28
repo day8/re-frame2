@@ -19,7 +19,7 @@
   "Read the machine's tag union against a frame's app-db."
   [frame tag]
   (contains? (get-in (rf/get-frame-db frame)
-                     [:rf/machines :ui/nine-states :tags])
+                     [:rf/runtime :machines :snapshots :ui/nine-states :tags])
              tag))
 
 (defn- render-model [frame]
@@ -98,7 +98,7 @@
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:nine-states.demo/load {:n 4}] {:frame f})
     (rf/dispatch-sync [:ui/nine-states [:archive {:now 1}]] {:frame f})
-    (let [snap (get-in (rf/get-frame-db f) [:rf/machines :ui/nine-states])]
+    (let [snap (get-in (rf/get-frame-db f) [:rf/runtime :machines :snapshots :ui/nine-states])]
       (is (= :done (get-in snap [:state :mode])))
       (is (= 1    (get-in snap [:data :archived-at]))))
     (is       (machine-has-tag?    f :mode/done))

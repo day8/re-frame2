@@ -276,7 +276,7 @@
 ;; re-registration") and §Registry feeder (rf2-c1l4d): the runtime walks
 ;; every registered app-schema and writes the `{:large? true …}` /
 ;; `{:sensitive? true …}` declarations into the frame's
-;; `[:rf/elision :declarations]` / `[:rf/elision :sensitive-declarations]`
+;; `[:rf/runtime :elision :declarations]` / `[:rf/runtime :elision :sensitive-declarations]`
 ;; slots. `re-frame.router` already refreshes these per-dispatch via the
 ;; same `:elision/populate-from-schemas!` hook, but that leaves a gap for
 ;; wire-boundary emits / digests that fire BEFORE the first dispatch
@@ -547,7 +547,7 @@
 ;;      live `app-db` value at the path fails the new shape (Spec 010
 ;;      §Schema migration on hot-reload). See `maybe-emit-schema-violation!`.
 ;;   2. Schema-derived elision-registry refresh — re-populates the
-;;      frame's `[:rf/elision …]` declarations so size-elision / privacy
+;;      frame's `[:rf/runtime :elision …]` declarations so size-elision / privacy
 ;;      stays in sync with the schema set (Spec 010 §`:large?` /
 ;;      §Registry feeder). See `populate-elision-for-frame!`.
 ;; Both are gated on `interop/debug-enabled?` and DCE'd in production.

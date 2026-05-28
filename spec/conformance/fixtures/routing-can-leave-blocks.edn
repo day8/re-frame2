@@ -53,11 +53,9 @@
  :fixture/expect
  {:final-app-db
   ;; Original route is still active; no slice change. Pending-nav cleared.
-  {:rf/route              {:id :editor/article :params {:id "A"}
+  {:rf/runtime {:routing {:current {:id :editor/article :params {:id "A"}
                            :query {} :fragment nil
-                           :transition :idle :error nil}
-   :editor                {:dirty? true}
-   :rf/pending-navigation nil}
+                           :transition :idle :error nil} :pending-navigation nil}} :editor {:dirty? true}}
 
   :trace-emissions
   [;; Block fires when the guard rejects.

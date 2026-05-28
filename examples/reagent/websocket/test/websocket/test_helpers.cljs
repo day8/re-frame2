@@ -80,10 +80,10 @@
   ;; machines.cljc ns-load time and equally vulnerable to `clear-all!`.
   (rf/reg-sub :rf/machine
     (fn [db [_ machine-id]]
-      (get-in db [:rf/machines machine-id])))
+      (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (rf/reg-sub :rf/machine-has-tag?
     (fn [db [_ machine-id tag]]
-      (contains? (get-in db [:rf/machines machine-id :tags]) tag))))
+      (contains? (get-in db [:rf/runtime :machines :snapshots machine-id :tags]) tag))))
 
 (defn register-all!
   "Re-fire every `reg-*` the websocket example depends on. Safe to call
@@ -101,12 +101,12 @@
   (re-register-machines-fx-and-subs!)
 
   ;; --- websocket.schema --------------------------------------------------
-  (rf/reg-app-schema [:rf/machines :ws/connection] ws.schema/ConnectionSnapshot)
+  (rf/reg-app-schema [:rf/runtime :machines :snapshots :ws/connection] ws.schema/ConnectionSnapshot)
   (rf/reg-app-schema [:messages]                   ws.schema/MessagesSlice)
 
   ;; --- websocket.connection ----------------------------------------------
   (rf/reg-machine :ws/connection ws.connection/connection-machine)
-  (rf/reg-sub :ws/snapshot       (fn [db _] (get-in db [:rf/machines :ws/connection])))
+  (rf/reg-sub :ws/snapshot       (fn [db _] (get-in db [:rf/runtime :machines :snapshots :ws/connection])))
   (rf/reg-sub :ws/state          :<- [:ws/snapshot] (fn [snap _] (:state snap)))
   (rf/reg-sub :ws/connected?     :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/connected)))
   (rf/reg-sub :ws/reconnecting?  :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/reconnecting)))

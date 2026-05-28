@@ -8,7 +8,7 @@
      (rf/dispatch [:auth/flow [:auth/login creds]])
 
    Pattern-Forms owns the login/register draft slices under [:auth ...];
-   the machine snapshot itself lives at [:rf/machines :auth/flow]."
+   the machine snapshot itself lives at [:rf/runtime :machines :snapshots :auth/flow]."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in the
@@ -249,7 +249,7 @@
 (rf/reg-sub :auth/flow-state
   {:doc "Current state of the auth machine snapshot."}
   (fn [db _]
-    (get-in db [:rf/machines :auth/flow])))
+    (get-in db [:rf/runtime :machines :snapshots :auth/flow])))
 
 (rf/reg-sub :auth/state
   :<- [:auth/flow-state]

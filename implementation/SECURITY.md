@@ -30,7 +30,7 @@ Four sections:
 | Path-policy check (writing tools) | `re-frame.path-policy/check-write-path` (or per-tool equivalent) | tooling — `tools/*/scripts/` and shared helper |
 | JSON keyword-interning cap (Cheshire path, JVM) | `re-frame.http.decode.json/with-keyword-cap` | `day8/re-frame2-http` (`re-frame.http.decode.json`) |
 | JSON keyword-interning cap (CLJS reader path) | `re-frame.http.decode.json/decode-with-cap` | `day8/re-frame2-http` (`re-frame.http.decode.json`) |
-| Schema walker — populates `[:rf/elision :sensitive-declarations]` at boot | `re-frame.schemas.walker/collect-sensitive-declarations` | `day8/re-frame2-schemas` (core split pending [rf2-p7va](#)) |
+| Schema walker — populates `[:rf/runtime :elision :sensitive-declarations]` at boot | `re-frame.schemas.walker/collect-sensitive-declarations` | `day8/re-frame2-schemas` (core split pending [rf2-p7va](#)) |
 | Always-on error-emit substrate (production-survivable) | `re-frame.error-emit/emit-error!` | `day8/re-frame2` (core) — `re-frame.error-emit` |
 | Always-on event-emit substrate | `re-frame.event-emit/emit-event!` | `day8/re-frame2` (core) — `re-frame.event-emit` |
 | Schema-installed redaction | `{:sensitive? true}` on app-schema slots | `day8/re-frame2` (core) — `re-frame.privacy` |
@@ -85,7 +85,7 @@ Three substrates survive `:advanced` + `goog.DEBUG=false` on CLJS, and survive `
 - **The event-emit listener surface** — `re-frame.event-emit/emit-event!` plus the listener registry. Always fans out per-event records to registered observability listeners (Datadog, Honeycomb, Sentry, custom).
 - **The error-emit listener surface** — `re-frame.error-emit/emit-error!` plus the listener registry. Corpus-wide fan-out path parallel to per-frame `:on-error`. Mutually isolated from the per-frame policy fn.
 
-Sensitive data marking on these substrates is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The legacy handler-meta `:sensitive?` annotation has been removed; per-path elision (the per-frame `:rf/elision` registry, populated from app-schema `:sensitive?` slot meta) is the load-bearing privacy surface on these substrates.
+Sensitive data marking on these substrates is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The legacy handler-meta `:sensitive?` annotation has been removed; per-path elision (the per-frame `[:rf/runtime :elision]` registry, populated from app-schema `:sensitive?` slot meta) is the load-bearing privacy surface on these substrates.
 
 ### CLJS-only optimisations (not JVM-mirrored)
 
@@ -221,7 +221,7 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 | rf2-rrnnf | Wire-vocab Malli + grep conformance gate (`tools/mcp-conformance/wire-vocab/`) | Cross-MCP namespace pin: every server emits byte-identical `:rf.mcp/*` / `:rf.size/*` markers. Drift detector. |
 | rf2-tygdv | `:rf.mcp/summary` lazy-summary slot | Wire-vocabulary pin so the agent sees the summary boundary the same way across servers. |
 | rf2-obpa9 | `:rf.mcp/dedup-table` + `:rf.mcp/ref` structural dedup | Reserved cross-server so the agent pattern-matches the dedup shape uniformly. |
-| rf2-c1l4d | Schema walker populates `[:rf/elision :sensitive-declarations]` at boot | Boot-time additive population so the schema-validation emit-site can consult the registry without re-walking. |
+| rf2-c1l4d | Schema walker populates `[:rf/runtime :elision :sensitive-declarations]` at boot | Boot-time additive population so the schema-validation emit-site can consult the registry without re-walking. |
 | rf2-edfhh | Original top-level `Security.md` catalogue + threat model + decisions log (now split into pattern + impl per rf2-1g6cj / rf2-ao8a2) | Same shape pattern as Conventions.md + Principles.md: top-level coordination doc that points at the detail without duplicating it. |
 | rf2-1g6cj | Decision: split Security.md into pattern-level + CLJS-impl (Option A) | Each doc serves one audience cleanly — a TS implementer reads `../spec/Security.md`; a CLJS contributor reads `implementation/SECURITY.md`. Per rf2-0hs5t.3 (a) — external canonical homes are allowed for impl-level concerns. |
 | rf2-ao8a2 | This split executed: pattern-level moved to `../spec/Security.md`; CLJS-impl specifics landed here | Keystone bead — unblocks 10-bead rf2-wpo8k Security cross-ref cluster + clears `../spec/Ownership.md` for rf2-exdfg spec-coherence cluster. |

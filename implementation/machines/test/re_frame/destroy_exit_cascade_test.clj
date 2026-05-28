@@ -25,7 +25,7 @@
     - the `:exit` action's `:data` write was visible somewhere
       observable (different per-path: finalize → projected into the
       pre-teardown snapshot read by `:on-done`; destroy → projected
-      into the snapshot at `[:rf/machines actor-id]` before the
+      into the snapshot at `[:rf/runtime :machines :snapshots actor-id]` before the
       teardown projection clears it — observable to any trace consumer
       reading the db between `:exit` and `:rf.machine/destroyed`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -158,7 +158,7 @@
       (is (zero? @exit-fired) "no :exit yet — child still running")
       ;; Drive the child to :final?.
       (let [spawned-id (get-in (rf/get-frame-db :rf/default)
-                               [:rf/spawned :ne/final-parent [:working]])]
+                               [:rf/runtime :machines :spawned :ne/final-parent [:working]])]
         (is (some? spawned-id))
         (rf/dispatch-sync [spawned-id [:finish]]))
       (is (= 1 @exit-fired)
@@ -170,7 +170,7 @@
       ;; Our :exit doesn't mutate :counter so this is just a sanity
       ;; check that the existing :on-done contract still holds.
       (is (= 8 (get-in (get-in (rf/get-frame-db :rf/default)
-                               [:rf/machines :ne/final-parent])
+                               [:rf/runtime :machines :snapshots :ne/final-parent])
                        [:data :received]))
           ":on-done still received the :output-key slot — contract preserved"))))
 

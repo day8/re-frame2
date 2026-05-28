@@ -1,6 +1,6 @@
 (ns re-frame.spawn-registry-test
   "Per rf2-t07u (Option A revised). Verifies the runtime-tracked
-  declarative-`:spawn` spawn registry at `[:rf/spawned <parent-id>
+  declarative-`:spawn` spawn registry at `[:rf/runtime :machines :spawned <parent-id>
   <invoke-id>]` — the slot the framework writes on every declarative
   `:spawn` spawn so the matching destroy cascade can locate the
   spawned id WITHOUT reading the user's `:data :pending` (the v1
@@ -9,15 +9,16 @@
   The four invariants under test:
 
    1. **Spawn writes the slot.** Entering a `:spawn`-bearing state
-      writes `[:rf/spawned <parent> <invoke-id>] = <spawned-id>` in
+      writes `[:rf/runtime :machines :spawned <parent> <invoke-id>] = <spawned-id>` in
       the frame's app-db, alongside the spawned actor's snapshot at
-      `[:rf/machines <spawned-id>]`.
+      `[:rf/runtime :machines :snapshots <spawned-id>]`.
 
    2. **Destroy reads the slot, tears down, clears.** Exiting the
       `:spawn`-bearing state destroys the spawned actor and dissocs
-      the registry slot. Per the lazy-allocation invariant (sibling
-      to `:rf/system-ids`), the empty parent map is pruned and the
-      empty `:rf/spawned` root is dissoc'd entirely.
+      the registry slot. Per the lazy-allocation invariant (sibling to
+      `[:rf/runtime :machines :system-ids]`), the empty parent map is
+      pruned and the empty `[:rf/runtime :machines :spawned]` slot is
+      dissoc'd entirely.
 
    3. **Auth-flow scenario without `:data :pending` magic.** A spec
       whose `:on-spawn` does NOT record the id in any `:data` slot
@@ -46,19 +47,19 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
+  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (defn- frame-db []
   (rf/get-frame-db :rf/default))
 
-;; ---- (1) spawn writes [:rf/spawned <parent> <invoke-id>] ------------------
+;; ---- (1) spawn writes [:rf/runtime :machines :spawned <parent> <invoke-id>] ------------------
 
 (deftest spawn-writes-runtime-registry-slot
-  (testing "entering a :spawn-bearing state binds [:rf/spawned <parent> <invoke-id>] to the spawned-id"
+  (testing "entering a :spawn-bearing state binds [:rf/runtime :machines :spawned <parent> <invoke-id>] to the spawned-id"
     (let [;; Per rf2-grw4i / rf2-v0rrr the :on-spawn callback is purely
           ;; advisory — its return value is ignored. We capture the id
           ;; via a side-effect atom to verify the callback fires; the
-          ;; runtime tracks the id at [:rf/spawned ...] regardless.
+          ;; runtime tracks the id at [:rf/runtime :machines :spawned ...] regardless.
           observed (atom nil)
           child  {:initial :running
                   :data    {}
@@ -76,11 +77,11 @@
       (rf/dispatch-sync [:sup/flow [:start]])
       ;; The runtime allocated :worker/proc#1 for the spawn.
       (let [db          (frame-db)
-            spawned-id  (get-in db [:rf/spawned :sup/flow [:working]])]
+            spawned-id  (get-in db [:rf/runtime :machines :spawned :sup/flow [:working]])]
         (is (= :worker/proc#1 spawned-id)
             "the spawn registry slot is bound to the deterministic actor id")
-        (is (some? (get-in db [:rf/machines spawned-id]))
-            "the spawned actor's snapshot lives at [:rf/machines <spawned-id>]")
+        (is (some? (get-in db [:rf/runtime :machines :snapshots spawned-id]))
+            "the spawned actor's snapshot lives at [:rf/runtime :machines :snapshots <spawned-id>]")
         (is (= :worker/proc#1 @observed)
             ":on-spawn callback still fires (advisory) and observed the id via side-effect")))))
 
@@ -103,20 +104,20 @@
       (rf/reg-machine :sup/flow parent)
       (rf/dispatch-sync [:sup/flow [:start]])
       (let [db (frame-db)]
-        (is (= :worker/proc#1 (get-in db [:rf/spawned :sup/flow [:working]]))
+        (is (= :worker/proc#1 (get-in db [:rf/runtime :machines :spawned :sup/flow [:working]]))
             "(precondition) the slot was bound on entry"))
       ;; Now leave :working.
       (rf/dispatch-sync [:sup/flow [:done]])
       (let [db (frame-db)]
-        (is (nil? (get-in db [:rf/machines :worker/proc#1]))
+        (is (nil? (get-in db [:rf/runtime :machines :snapshots :worker/proc#1]))
             "the spawned actor's snapshot was cleared on destroy")
-        (is (nil? (get-in db [:rf/spawned :sup/flow [:working]]))
+        (is (nil? (get-in db [:rf/runtime :machines :spawned :sup/flow [:working]]))
             "the registry slot was cleared on destroy")
         ;; Lazy-allocation invariant: the now-empty parent submap is
-        ;; pruned, and the now-empty :rf/spawned root is dissoc'd
-        ;; entirely (sibling to :rf/system-ids).
-        (is (not (contains? db :rf/spawned))
-            "the empty :rf/spawned root is pruned to absent")))))
+        ;; pruned, and the now-empty [:rf/runtime :machines :spawned]
+        ;; slot is dissoc'd entirely (sibling to :system-ids).
+        (is (not (contains? (get-in db [:rf/runtime :machines]) :spawned))
+            "the empty :spawned slot under [:rf/runtime :machines] is pruned to absent")))))
 
 ;; ---- (3) auth-flow scenario WITHOUT user-side :on-spawn bookkeeping -------
 ;;
@@ -144,17 +145,17 @@
       ;; Spawn happened — actor live, registry slot set, parent's :data
       ;; untouched (no :on-spawn callback to write to it).
       (let [db (frame-db)
-            spawned-id (get-in db [:rf/spawned :auth/main [:authenticating]])]
+            spawned-id (get-in db [:rf/runtime :machines :spawned :auth/main [:authenticating]])]
         (is (= :http/post#1 spawned-id))
-        (is (some? (get-in db [:rf/machines spawned-id])))
+        (is (some? (get-in db [:rf/runtime :machines :snapshots spawned-id])))
         (is (= {} (get-in (snapshot :auth/main) [:data]))
             "user's :data is untouched — runtime no longer requires :on-spawn"))
       ;; Mid-flight abandon → :idle.
       (rf/dispatch-sync [:auth/main [:auth/failed]])
       (let [db (frame-db)]
-        (is (nil? (get-in db [:rf/machines :http/post#1]))
+        (is (nil? (get-in db [:rf/runtime :machines :snapshots :http/post#1]))
             "the spawned actor was destroyed despite no :on-spawn having recorded the id")
-        (is (not (contains? db :rf/spawned))
+        (is (not (contains? (get-in db [:rf/runtime :machines]) :spawned))
             "the registry slot is cleared")))))
 
 ;; ---- (4) multi-child — two :spawn-bearing states tracked independently ---
@@ -177,24 +178,24 @@
       ;; Spawn child A.
       (rf/dispatch-sync [:sup/multi [:fork-a]])
       (let [db (frame-db)]
-        (is (= :child/a#1 (get-in db [:rf/spawned :sup/multi [:a-running]])))
-        (is (nil?           (get-in db [:rf/spawned :sup/multi [:b-running]]))))
+        (is (= :child/a#1 (get-in db [:rf/runtime :machines :spawned :sup/multi [:a-running]])))
+        (is (nil?           (get-in db [:rf/runtime :machines :spawned :sup/multi [:b-running]]))))
       ;; Tear A down, spawn B.
       (rf/dispatch-sync [:sup/multi [:back]])
       (rf/dispatch-sync [:sup/multi [:fork-b]])
       (let [db (frame-db)]
-        (is (= :child/b#1 (get-in db [:rf/spawned :sup/multi [:b-running]])))
-        (is (nil?           (get-in db [:rf/spawned :sup/multi [:a-running]]))
+        (is (= :child/b#1 (get-in db [:rf/runtime :machines :spawned :sup/multi [:b-running]])))
+        (is (nil?           (get-in db [:rf/runtime :machines :spawned :sup/multi [:a-running]]))
             "A's slot was cleared when A was destroyed")
         ;; A is gone.
-        (is (nil? (get-in db [:rf/machines :child/a#1])))
+        (is (nil? (get-in db [:rf/runtime :machines :snapshots :child/a#1])))
         ;; B is alive.
-        (is (some? (get-in db [:rf/machines :child/b#1]))))
+        (is (some? (get-in db [:rf/runtime :machines :snapshots :child/b#1]))))
       ;; Tear B down too — both slots cleared, root pruned.
       (rf/dispatch-sync [:sup/multi [:back]])
       (let [db (frame-db)]
-        (is (not (contains? db :rf/spawned))
-            "with both invokes torn down, the lazy-allocation root is dissoc'd")))))
+        (is (not (contains? (get-in db [:rf/runtime :machines]) :spawned))
+            "with both invokes torn down, the lazy-allocation slot is dissoc'd")))))
 
 ;; ---- (5) keyword-form [:rf.machine/destroy actor-id] still works ---------
 ;;
@@ -209,7 +210,7 @@
     (let [child  {:initial :running :data {} :states {:running {}}}
           ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory only —
           ;; user code that needs the id at action time uses an atom
-          ;; sidechannel or reads `[:rf/spawned <parent> <invoke-id>]`
+          ;; sidechannel or reads `[:rf/runtime :machines :spawned <parent> <invoke-id>]`
           ;; from the runtime-tracked slot. This test stashes the id in
           ;; an atom so the `:tear-down` action can emit the legacy
           ;; keyword-form destroy.
@@ -230,7 +231,7 @@
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/legacy parent)
       (rf/dispatch-sync [:sup/legacy [:start]])
-      (let [spawned-id (get-in (frame-db) [:rf/spawned :sup/legacy [:working]])]
+      (let [spawned-id (get-in (frame-db) [:rf/runtime :machines :spawned :sup/legacy [:working]])]
         (is (= :worker/proc#1 spawned-id)))
       (rf/dispatch-sync [:sup/legacy [:done]])
       (let [db (frame-db)]
@@ -238,7 +239,7 @@
         ;; tracked-form destroy fired in this transition. The runtime's
         ;; destroy is idempotent (the spawn registry slot resolves to
         ;; either the same actor-id or nil after the user's destroy).
-        (is (nil? (get-in db [:rf/machines :worker/proc#1]))
+        (is (nil? (get-in db [:rf/runtime :machines :snapshots :worker/proc#1]))
             "the spawned actor is gone")))))
 
 ;; ---- (5) spawned actor's snapshot carries :rf/spawn-counter + :meta -------
@@ -259,8 +260,8 @@
       (rf/reg-machine :worker/sc child)
       (rf/reg-machine :sup/sc parent)
       (rf/dispatch-sync [:sup/sc [:start]])
-      (let [spawned-id (get-in (frame-db) [:rf/spawned :sup/sc [:working]])
-            snap       (get-in (frame-db) [:rf/machines spawned-id])]
+      (let [spawned-id (get-in (frame-db) [:rf/runtime :machines :spawned :sup/sc [:working]])
+            snap       (get-in (frame-db) [:rf/runtime :machines :snapshots spawned-id])]
         (is (= {} (:rf/spawn-counter snap))
             "spawned actor's initial snapshot seeds :rf/spawn-counter to {}")))))
 
@@ -276,8 +277,8 @@
       (rf/reg-machine :worker/meta child)
       (rf/reg-machine :sup/meta parent)
       (rf/dispatch-sync [:sup/meta [:start]])
-      (let [spawned-id (get-in (frame-db) [:rf/spawned :sup/meta [:working]])
-            snap       (get-in (frame-db) [:rf/machines spawned-id])]
+      (let [spawned-id (get-in (frame-db) [:rf/runtime :machines :spawned :sup/meta [:working]])
+            snap       (get-in (frame-db) [:rf/runtime :machines :snapshots spawned-id])]
         (is (= {:foo :bar :version 7} (:meta snap))
             "spec-declared :meta is propagated to the spawned actor's snapshot")))))
 
@@ -293,9 +294,9 @@
       (rf/reg-machine :child/wraps child)
       (rf/reg-machine :sup/cascade parent)
       (rf/dispatch-sync [:sup/cascade [:start]])
-      (let [child-id      (get-in (frame-db) [:rf/spawned :sup/cascade [:working]])
-            grandchild-id (get-in (frame-db) [:rf/spawned child-id [:booting]])
-            child-snap    (get-in (frame-db) [:rf/machines child-id])]
+      (let [child-id      (get-in (frame-db) [:rf/runtime :machines :spawned :sup/cascade [:working]])
+            grandchild-id (get-in (frame-db) [:rf/runtime :machines :spawned child-id [:booting]])
+            child-snap    (get-in (frame-db) [:rf/runtime :machines :snapshots child-id])]
         (is (= :child/wraps#1 child-id)
             "child's id from parent's allocator")
         (is (= :grand/proc#1 grandchild-id)

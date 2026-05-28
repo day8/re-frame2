@@ -7,15 +7,15 @@
 ;; state-exit.
 ;;
 ;; This fixture exercises the action-emitted form. The runtime adapter is
-;; responsible for the actual app-db cleanup at [:rf/machines actor-id]
-;; (mirroring how the runtime stamps [:rf/machines actor-id] on spawn);
+;; responsible for the actual app-db cleanup at [:rf/runtime :machines :snapshots actor-id]
+;; (mirroring how the runtime stamps [:rf/runtime :machines :snapshots actor-id] on spawn);
 ;; at the pure machine-transition layer we observe the [:rf.machine/destroy
 ;; actor-id] fx pair the action surfaced.
 
 {:fixture/id           :machine/destroy-clears-snapshot
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy}
- :fixture/doc          "An action returns :fx [[:rf.machine/destroy actor-id]]; pure machine-transition surfaces the destroy fx. The runtime's :rf.machine/destroy fx handler removes [:rf/machines actor-id] from app-db; here we verify the fx-emission half of that contract."
+ :fixture/doc          "An action returns :fx [[:rf.machine/destroy actor-id]]; pure machine-transition surfaces the destroy fx. The runtime's :rf.machine/destroy fx handler removes [:rf/runtime :machines :snapshots actor-id] from app-db; here we verify the fx-emission half of that contract."
 
  :fixture/registry
  {:machine-action

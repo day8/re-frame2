@@ -2,10 +2,11 @@
   "Schema-first wire-boundary elision.
 
   Canonical declarations come from app-schema slot metadata:
-  `{:large? true}` hydrates `[:rf/elision :declarations]`, and
-  `{:sensitive? true}` hydrates `[:rf/elision :sensitive-declarations]`.
-  Handler metadata `:sensitive?` remains the coarse escape hatch for
-  cross-cutting handlers. There are no imperative large-path APIs."
+  `{:large? true}` hydrates `[:rf/runtime :elision :declarations]`, and
+  `{:sensitive? true}` hydrates
+  `[:rf/runtime :elision :sensitive-declarations]`. Handler metadata
+  `:sensitive?` remains the coarse escape hatch for cross-cutting
+  handlers. There are no imperative large-path APIs."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -65,17 +66,30 @@
 (defn- registry-of
   [frame-id]
   (when-let [container (frame/get-frame-db frame-id)]
-    (get (adapter/read-container container) :rf/elision)))
+    (get-in (adapter/read-container container) [:rf/runtime :elision])))
 
 (defn- swap-registry!
   [frame-id f]
   (when-let [container (frame/get-frame-db frame-id)]
     (let [old-db  (adapter/read-container container)
-          old-reg (get old-db :rf/elision)
+          old-reg (get-in old-db [:rf/runtime :elision])
           new-reg (f old-reg)
-          new-db  (if (seq new-reg)
-                    (assoc old-db :rf/elision new-reg)
-                    (dissoc old-db :rf/elision))]
+          new-db  (cond
+                    (seq new-reg)
+                    (assoc-in old-db [:rf/runtime :elision] new-reg)
+
+                    ;; Clearing — only mutate when there's actually an
+                    ;; :elision slot to clear, so apps that never used
+                    ;; elision don't get a stray `:rf/runtime nil` entry.
+                    (and (contains? old-db :rf/runtime)
+                         (contains? (get old-db :rf/runtime) :elision))
+                    (let [next-runtime (dissoc (get old-db :rf/runtime) :elision)]
+                      (if (seq next-runtime)
+                        (assoc old-db :rf/runtime next-runtime)
+                        (dissoc old-db :rf/runtime)))
+
+                    :else
+                    old-db)]
       (adapter/replace-container! container new-db)))
   nil)
 
@@ -122,8 +136,8 @@
   (vec (keys schema-decls)))
 
 (defn populate-elision-from-schemas!
-  "Populate `[:rf/elision :declarations]` from `{:large? true}` schema
-  slot metadata. Returns the populated paths."
+  "Populate `[:rf/runtime :elision :declarations]` from `{:large? true}`
+  schema slot metadata. Returns the populated paths."
   ([] (populate-elision-from-schemas! (frame/current-frame)))
   ([frame-id]
    (install-schema-declarations!
@@ -132,7 +146,7 @@
      (schema-declarations frame-id :schemas/extract-large-paths-from-schema))))
 
 (defn populate-sensitive-from-schemas!
-  "Populate `[:rf/elision :sensitive-declarations]` from
+  "Populate `[:rf/runtime :elision :sensitive-declarations]` from
   `{:sensitive? true}` schema slot metadata. Returns the populated
   paths."
   ([] (populate-sensitive-from-schemas! (frame/current-frame)))

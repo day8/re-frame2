@@ -187,7 +187,7 @@ This is **interaction wiring, not visual** — Figma need only render a generic 
 **Routing** `[:rf.route/navigate :app/settings]`:
 ```
 ○ EPOCH OPEN  :rf.route/navigate :app/settings
-▾ ② EVENT HANDLING   COEFFECT current-route · handler ran · DB [:rf/route] (or [:rf/pending-navigation])
+▾ ② EVENT HANDLING   COEFFECT current-route · handler ran · DB [:rf/runtime :routing :current] (or [:rf/runtime :routing :pending-navigation])
               ROUTING deactivated :app/home · ROUTING activated :app/settings
               — or — ROUTING navigation-blocked  (:can-leave)        → outcome :blocked
 ▾ ③ EFFECTS   FX :rf.nav/push-url /settings   ↗ child epoch #N (the URL change re-enters as EVENT :rf.route/handle-url-change)
@@ -198,7 +198,7 @@ This is **interaction wiring, not visual** — Figma need only render a generic 
 ```
 ▾ ② EVENT HANDLING   MACHINE event-received :ws/connect · guard-evaluated :handshake-ok? ✓
               MACHINE transition :disconnected → [:active :connecting] · action-ran :bump-connections
-              DB [:rf/machines :ws/connection]            (microsteps → multiple transition rows)
+              DB [:rf/runtime :machines :snapshots :ws/connection]            (microsteps → multiple transition rows)
 ▾ ③ EFFECTS   MACHINE timer-scheduled :after 250ms        ↗ future epoch when it fires
 ▾ ④ REACTIVE  SUB :ws/state recalculated · VIEW connection-status re-rendered
 ```

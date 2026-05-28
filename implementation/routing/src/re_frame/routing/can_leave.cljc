@@ -98,7 +98,8 @@
   "Run the active route's `:can-leave` guard before allowing a transition
   to `requested-url`. Returns nil when the navigation should proceed (no
   guard, guard allows, or `bypass-leave-guard?`); returns the cofx map
-  `{:db ... :fx ...}` that writes `:rf/pending-navigation` and dispatches
+  `{:db ... :fx ...}` that writes the routing pending-navigation slot
+  (`[:rf/runtime :routing :pending-navigation]`) and dispatches
   `:rf.route/navigation-blocked` when the guard blocks.
 
   Public so the four event entry points (`:rf.route/navigate`,
@@ -107,7 +108,7 @@
   block result with its happy-path cofx so a single failure path
   collapses cleanly."
   [db frame-id event-vec requested-url bypass-leave-guard?]
-  (let [current-route (:rf/route db)
+  (let [current-route (get-in db [:rf/runtime :routing :current])
         current-meta  (registrar/lookup :route (:id current-route))
         ok?           (or bypass-leave-guard?
                           (can-leave? frame-id (:id current-route) current-meta))]
@@ -130,13 +131,13 @@
         ;; Events table: `:rf.route/navigation-blocked` is a USER event the
         ;; runtime dispatches when a `:can-leave` guard rejects — apps may
         ;; register their own handler (a confirmation-dialog policy, an
-        ;; analytics ping). The runtime writes `:rf/pending-navigation`
-        ;; FIRST (the slice below), then dispatches the event carrying the
-        ;; pending-nav map as its single arg so a handler reads it without
-        ;; a separate subscription. A default no-op handler (registered
-        ;; below) keeps the dispatch resolving cleanly when the app
-        ;; declares none.
-        {:db (assoc db' :rf/pending-navigation pending-nav)
+        ;; analytics ping). The runtime writes the pending-navigation slot
+        ;; at [:rf/runtime :routing :pending-navigation] FIRST (the slice
+        ;; below), then dispatches the event carrying the pending-nav map
+        ;; as its single arg so a handler reads it without a separate
+        ;; subscription. A default no-op handler (registered below) keeps
+        ;; the dispatch resolving cleanly when the app declares none.
+        {:db (assoc-in db' [:rf/runtime :routing :pending-navigation] pending-nav)
          :fx [[:dispatch [:rf.route/navigation-blocked pending-nav]]]}))))
 
 ;; Per Spec 012 §Navigation blocking §Default flow step 4d: the runtime
@@ -144,8 +145,9 @@
 ;; The framework ships a no-op default handler so the dispatch always
 ;; resolves (no `:rf.error/no-such-handler`); apps that want to react
 ;; (render a confirm dialog, log) re-register their own handler under the
-;; same id. The pending-nav map is already in `:rf/pending-navigation`
-;; (a sub reads it), so the default handler intentionally does nothing.
+;; same id. The pending-nav map is already at
+;; `[:rf/runtime :routing :pending-navigation]` (a sub reads it), so the
+;; default handler intentionally does nothing.
 (defn navigation-blocked-handler
   "`:rf.route/navigation-blocked` no-op default handler. Registered by
   the façade so a `:reload` re-wires it on a fresh registrar."
@@ -213,9 +215,10 @@
    [_ {:keys [url bypass-leave-guard?] :as _request} :as event-vec]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol the
     ;; runtime fires :can-leave for the active route on every
-    ;; :rf/url-requested; rejection writes :rf/pending-navigation with
-    ;; the full slot shape `{:id :requested-by-event :requested-url
-    ;; :reason :rejecting-route :rejecting-guard}` per Spec-Schemas.md
+    ;; :rf/url-requested; rejection writes
+    ;; [:rf/runtime :routing :pending-navigation] with the full slot
+    ;; shape `{:id :requested-by-event :requested-url :reason
+    ;; :rejecting-route :rejecting-guard}` per Spec-Schemas.md
     ;; §:rf/pending-navigation (rf2-b8ugt).
     ;;
     ;; The :bypass-leave-guard? request flag is the rf2-yursn one-shot
@@ -257,11 +260,11 @@
     ;; than dispatching :rf.route/transitioned + :rf.nav/push-url directly
     ;; (which would skip the policy interceptors and race the slice write
     ;; with the URL push).
-    (let [pending  (:rf/pending-navigation db)
+    (let [pending  (get-in db [:rf/runtime :routing :pending-navigation])
           original (:requested-by-event pending)
           url      (:requested-url pending)]
       (if (and pending (= pn-id (:id pending)))
-        (cond-> {:db (dissoc db :rf/pending-navigation)}
+        (cond-> {:db (update-in db [:rf/runtime :routing] dissoc :pending-navigation)}
           (or (vector? original) url)
           (assoc :fx [[:dispatch (if (vector? original)
                                    (inject-bypass-leave-guard original url)
@@ -273,6 +276,6 @@
   "`:rf.route/cancel` event-fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
   [{:keys [db]} [_ pn-id]]
-  (if (= pn-id (get-in db [:rf/pending-navigation :id]))
-    {:db (dissoc db :rf/pending-navigation)}
+  (if (= pn-id (get-in db [:rf/runtime :routing :pending-navigation :id]))
+    {:db (update-in db [:rf/runtime :routing] dissoc :pending-navigation)}
     {}))

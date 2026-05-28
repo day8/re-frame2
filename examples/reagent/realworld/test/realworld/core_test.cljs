@@ -26,5 +26,5 @@
     (let [db (rf/get-frame-db f)]
       (assert (contains? db :auth))
       (assert (contains? db :articles))
-      (assert (contains? (:rf/machines db) :realworld/tags))
-      (assert (contains? (:rf/machines db) :settings/form)))))
+      (assert (contains? (get-in db [:rf/runtime :machines :snapshots]) :realworld/tags))
+      (assert (contains? (get-in db [:rf/runtime :machines :snapshots]) :settings/form)))))

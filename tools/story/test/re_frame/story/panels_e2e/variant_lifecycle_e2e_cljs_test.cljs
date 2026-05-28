@@ -62,7 +62,7 @@
   ;; (`:rf/machine`) after the registrar clear.
   (rf/reg-sub :rf/machine
               (fn [db [_ machine-id]]
-                (get-in db [:rf/machines machine-id])))
+                (get-in db [:rf/runtime :machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (story/install-canonical-vocabulary!)
@@ -75,7 +75,7 @@
 
 (defn- install-counter-events! []
   ;; `assoc` rather than replace `db` so the variant frame's
-  ;; `[:rf/machines :rf.story.lifecycle/machine]` slot (written by the
+  ;; `[:rf/runtime :machines :snapshots :rf.story.lifecycle/machine]` slot (written by the
   ;; lifecycle machine's transitions before any user event fires)
   ;; survives the loader-event commit. Replacing the whole `:db`
   ;; clobbers it and the lifecycle stalls at `:pre-mount` — same class

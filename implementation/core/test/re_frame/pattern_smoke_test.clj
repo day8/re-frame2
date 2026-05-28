@@ -130,14 +130,14 @@
     ;; events drive the documented progression to :ready.
     (let [f (rf/make-frame {:on-create [:app/boot [:configured {:url "/api"}]]})]
       (is (= :loading (get-in (rf/get-frame-db f)
-                              [:rf/machines :app/boot :state]))
+                              [:rf/runtime :machines :snapshots :app/boot :state]))
           ":on-create transitioned :configuring → :loading")
       (rf/dispatch-sync [:app/boot [:loaded]] {:frame f})
       (is (= :ready (get-in (rf/get-frame-db f)
-                            [:rf/machines :app/boot :state]))
+                            [:rf/runtime :machines :snapshots :app/boot :state]))
           "lifecycle events drove machine to :ready")
       (is (= {:url "/api"} (get-in (rf/get-frame-db f)
-                                   [:rf/machines :app/boot :data :config]))))))
+                                   [:rf/runtime :machines :snapshots :app/boot :data :config]))))))
 
 ;; ---- Pattern-RemoteData ---------------------------------------------------
 

@@ -93,7 +93,7 @@
     ;; :rf.frame/destroyed.
     (rf/reg-event-db :composed/seed-machines
                      (fn [db _]
-                       (assoc db :rf/machines
+                       (assoc-in db [:rf/runtime :machines :snapshots]
                               {:flow/a {:state :running :data {}}
                                :flow/b {:state :idle    :data {}}})))
     (rf/dispatch-sync [:composed/seed-machines] {:frame :composed/scoped})

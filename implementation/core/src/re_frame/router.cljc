@@ -444,7 +444,7 @@
   Per rf2-jbbp7 / Spec 010 §Per-step recovery row 7: AND-conjoins the
   app-db validator with `:machines/validate-machine-data!` (the
   `:where :machine-data` boundary). The machine walker iterates
-  `[:rf/machines]` and validates each snapshot's `:data` against the
+  `[:rf/runtime :machines :snapshots]` and validates each snapshot's `:data` against the
   registered machine's top-level `:schema`. Both validators run on
   every commit so the operator gets the full failure surface; the
   conjunction means a `false` from either rolls back the cascade.

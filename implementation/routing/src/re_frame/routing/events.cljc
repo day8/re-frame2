@@ -27,18 +27,18 @@
 
 (defn alloc-nav-token
   "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
-  counter at [:rf/route :nav-token-counter]."
+  counter at [:rf/runtime :routing :nav-token-counter]."
   [db]
-  (let [n (inc (or (get-in db [:rf/route :nav-token-counter]) 0))]
-    [(assoc-in db [:rf/route :nav-token-counter] n)
+  (let [n (inc (or (get-in db [:rf/runtime :routing :nav-token-counter]) 0))]
+    [(assoc-in db [:rf/runtime :routing :nav-token-counter] n)
      (str "nav-" n)]))
 
 (defn alloc-pending-nav-id
   "Pure allocator: returns [db' \"pn-N\"]. Increments the per-frame
-  counter at [:rf/route :pending-nav-counter]."
+  counter at [:rf/runtime :routing :pending-nav-counter]."
   [db]
-  (let [n (inc (or (get-in db [:rf/route :pending-nav-counter]) 0))]
-    [(assoc-in db [:rf/route :pending-nav-counter] n)
+  (let [n (inc (or (get-in db [:rf/runtime :routing :pending-nav-counter]) 0))]
+    [(assoc-in db [:rf/runtime :routing :pending-nav-counter] n)
      (str "pn-" n)]))
 
 (defn emit-activation-traces!
@@ -73,7 +73,7 @@
 ;; "nothing at all changed" case.
 (defn identical-route-target?
   "True when the prospective navigation target (`id`/`params`/`query`/
-  `fragment`) is identical to the current `:rf/route` slice — a complete
+  `fragment`) is identical to the current route slice — a complete
   no-op re-navigation. `prev` is the current slice (or nil before first
   nav)."
   [prev id params query fragment]
@@ -111,8 +111,8 @@
   the `re-frame.routing` façade so a `:reload` of the façade re-runs the
   registration."
   [db [_ token]]
-  (let [current (get-in db [:rf/route :nav-token])]
+  (let [current (get-in db [:rf/runtime :routing :current :nav-token])]
     (if (and (= current token)
-             (= :loading (get-in db [:rf/route :transition])))
-      (assoc-in db [:rf/route :transition] :idle)
+             (= :loading (get-in db [:rf/runtime :routing :current :transition])))
+      (assoc-in db [:rf/runtime :routing :current :transition] :idle)
       db)))

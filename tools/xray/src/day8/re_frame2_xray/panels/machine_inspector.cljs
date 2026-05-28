@@ -1311,7 +1311,7 @@
     :<- [:rf.xray/target-frame-db]
     (fn [target-frame-db _query]
       (when (map? target-frame-db)
-        (get target-frame-db :rf/machines {}))))
+        (get-in target-frame-db [:rf/runtime :machines :snapshots] {}))))
 
   (rf/reg-sub :rf.xray/machine-snapshots-override
     (fn [db _query]

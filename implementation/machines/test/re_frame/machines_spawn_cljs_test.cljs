@@ -39,7 +39,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
+  (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots machine-id]))
 
 (deftest machine-spawn-cljs
   (testing ":spawn spawns child on entry and destroys it on exit"
@@ -50,7 +50,7 @@
            ;; Per Spec 005 §Declarative :spawn (rf2-grw4i / rf2-v0rrr):
            ;; on-spawn callback takes a single context-map and returns the
            ;; new data. The callback is advisory — the runtime tracks the
-           ;; spawned id at [:rf/spawned <parent> <invoke-id>] regardless.
+           ;; spawned id at [:rf/runtime :machines :spawned <parent> <invoke-id>] regardless.
            {:auth/record-actor (fn [{data :data id :id}]
                                  (assoc data :pending id))}
            :states
@@ -79,12 +79,12 @@
       (let [s (snapshot :auth3/flow)]
         (is (= :authenticating (:state s)))
         ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is purely advisory —
-        ;; the runtime tracks the spawned id at [:rf/spawned <parent>
+        ;; the runtime tracks the spawned id at [:rf/runtime :machines :spawned <parent>
         ;; <invoke-id>] instead of relying on the user-supplied callback
         ;; to write into `:data`.
         (is (= :http/post#1
                (get-in (rf/get-frame-db :rf/default)
-                       [:rf/spawned :auth3/flow [:authenticating]]))
+                       [:rf/runtime :machines :spawned :auth3/flow [:authenticating]]))
             "runtime-tracked spawn slot binds the deterministic actor id"))
       (is (some (fn [ev]
                   (and (= :rf.machine/spawned (:operation ev))
@@ -189,7 +189,7 @@
                 @traces)
           "expected :rf.machine.timer/scheduled with :delay-source :literal")
       (let [child-id (get-in (rf/get-frame-db :rf/default)
-                             [:rf/spawned :sup/auth-after [:authenticating]])
+                             [:rf/runtime :machines :spawned :sup/auth-after [:authenticating]])
             epoch    (get-in (snapshot :sup/auth-after) [:data :rf/after-epoch [:authenticating]])]
         (is (some? child-id) "spawn slot bound to the spawned child id")
         (reset! traces [])
@@ -199,7 +199,7 @@
         (is (= :timed-out (:state (snapshot :sup/auth-after)))
             "parent transitioned :authenticating → :timed-out via :after firing")
         (is (nil? (get-in (rf/get-frame-db :rf/default)
-                          [:rf/machines child-id]))
+                          [:rf/runtime :machines :snapshots child-id]))
             "child machine snapshot torn down by the standard exit cascade"))
       (trace-tooling/unregister-listener! ::ato))))
 

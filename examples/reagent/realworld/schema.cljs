@@ -129,7 +129,7 @@
 (def AuthSlice
   "The auth slice. :user holds the current :User payload (or nil);
    :token is the JWT (or nil). The auth machine snapshot itself lives at
-   [:rf/machines :auth/flow]."
+   [:rf/runtime :machines :snapshots :auth/flow]."
   [:map
    [:user  [:maybe User]]
    [:token [:maybe :string]]])
@@ -221,12 +221,12 @@
 
 (rf/reg-app-schemas
   {[:auth]                          AuthSlice
-   [:rf/machines :auth/flow]        AuthFlowSnapshot
+   [:rf/runtime :machines :snapshots :auth/flow]        AuthFlowSnapshot
    [:articles]                      RequestSlice
    [:articles :data]                [:vector Article]
    [:article]                       RequestSlice
    [:article :data]                 [:maybe Article]
-   [:rf/machines :realworld/tags]   TagsSnapshot
+   [:rf/runtime :machines :snapshots :realworld/tags]   TagsSnapshot
    [:profile]                       RequestSlice
    [:profile :data]                 [:maybe Profile]
    [:profile.articles]              RequestSlice
@@ -241,4 +241,4 @@
    [:auth :login-form]              FormSlice
    [:auth :register-form]           FormSlice
    [:editor]                        EditorSlice
-   [:rf/machines :settings/form]    SettingsFormSnapshot})
+   [:rf/runtime :machines :snapshots :settings/form]    SettingsFormSnapshot})

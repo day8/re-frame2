@@ -4,14 +4,14 @@
 ;; (../../005-StateMachines.md#named-addressing-via-system-id) and rf2-suue.
 ;;
 ;; The `:system-id` key is opt-in. A spawn that omits it does NOT
-;; allocate a `[:rf/system-ids]` slot in the frame's app-db — the
+;; allocate a `[:rf/runtime :machines :system-ids]` slot in the frame's app-db — the
 ;; reverse index stays absent. Tests that the index is opt-in
 ;; structurally, not just by-omission of binding.
 
 {:fixture/id           :machine/spawn-without-system-id-leaves-index-empty
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/system-id}
- :fixture/doc          "An :spawn that omits :system-id does not allocate [:rf/system-ids] in the spawning frame's app-db."
+ :fixture/doc          "An :spawn that omits :system-id does not allocate [:rf/runtime :machines :system-ids] in the spawning frame's app-db."
 
  :fixture/registry
  {:event {:sup/flow {}}
@@ -38,9 +38,8 @@
  :fixture/expect
  ;; :rf/system-ids is absent — the spawn carried no :system-id, so the
  ;; reverse index was never written. The spawned snapshot still
- ;; initialises under [:rf/machines <spawned-id>] (the actor lives;
+ ;; initialises under [:rf/runtime :machines :snapshots <spawned-id>] (the actor lives;
  ;; just isn't named).
  {:final-app-db
-  {:rf/machines
-   {:sup/flow      {:state :working :data {}}
-    :worker/proc#1 {:state :running :data {}}}}}}
+  {:rf/runtime {:machines {:snapshots {:sup/flow      {:state :working :data {}}
+    :worker/proc#1 {:state :running :data {}}}}}}}}

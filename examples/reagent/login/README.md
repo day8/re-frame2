@@ -12,10 +12,10 @@ in one file, kept compact for AI-readability.
   one coherent feature: schema + events + subs + views + machine +
   tests, kept in one file for compactness.
 - **CP-5 state machine** — the login flow as a transition table read
-  via `[:rf/machines :auth.login/flow]`. States: `:idle →
+  via `[:rf/runtime :machines :snapshots :auth.login/flow]`. States: `:idle →
   :submitting → {:error-shown | :authed | :locked-out}`.
 - **CP-8 schema attachment** — Malli schema for the machine snapshot,
-  attached via `rf/reg-app-schema [:rf/machines :auth.login/flow]`.
+  attached via `rf/reg-app-schema [:rf/runtime :machines :snapshots :auth.login/flow]`.
 - **CP-1 + CP-2** — pure `reg-event-db` handlers and pure `reg-sub`
   derivations off the machine snapshot.
 - **CP-3 registered fx** — `:rf.http/managed` (Spec 014) plus
