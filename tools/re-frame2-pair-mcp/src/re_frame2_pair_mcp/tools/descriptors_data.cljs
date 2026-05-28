@@ -186,6 +186,21 @@
                 "reason"          {:type "string"
                                     :description "termination reason keyword (as a string)"}}})
 
+;; ===========================================================================
+;; Tool descriptors
+;;
+;; One def per tool, in catalogue order (per
+;; spec/003-Tool-Catalogue.md). Each section is bounded by a comment
+;; rule so a reader scrolling through the file can land on a tool
+;; without grepping. The file's leaf-size exemption (rf2-zkca8 —
+;; catalogue-shaped leaves) earns the length; the section navigation
+;; (rf2-rk2c7) earns the scannability.
+;; ===========================================================================
+
+;; ---------------------------------------------------------------------------
+;; discover-app
+;; ---------------------------------------------------------------------------
+
 (def discover-app
   {:name "discover-app"
    :description (str "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. Returns :reason :runtime-not-preloaded when the preload entry is missing. "
@@ -200,6 +215,10 @@
                  :properties {:build {:type "string"
                                       :description "shadow-cljs build id (default: app)"}}
                  :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; eval-cljs
+;; ---------------------------------------------------------------------------
 
 (def eval-cljs
   {:name "eval-cljs"
@@ -255,6 +274,10 @@
                  :required ["form"]
                  :additionalProperties false}})
 
+;; ---------------------------------------------------------------------------
+;; dispatch
+;; ---------------------------------------------------------------------------
+
 (def dispatch
   {:name "dispatch"
    :description (str "Fire a re-frame2 event tagged with :origin :pair. Default mode is queued dispatch. "
@@ -289,6 +312,10 @@
                               :build {:type "string"}}
                  :required ["event"]
                  :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; dispatch-dry-run
+;; ---------------------------------------------------------------------------
 
 (def dispatch-dry-run
   {:name "dispatch-dry-run"
@@ -326,6 +353,10 @@
                  :required ["event"]
                  :additionalProperties false}})
 
+;; ---------------------------------------------------------------------------
+;; restore-epoch
+;; ---------------------------------------------------------------------------
+
 (def restore-epoch
   {:name "restore-epoch"
    :description (str "Time-travel undo (rf2-ee38b.18): rewind a frame's app-db to a recorded prior epoch. "
@@ -360,6 +391,10 @@
                  :required ["epoch-id"]
                  :additionalProperties false}})
 
+;; ---------------------------------------------------------------------------
+;; reset-frame-db
+;; ---------------------------------------------------------------------------
+
 (def reset-frame-db
   {:name "reset-frame-db"
    :description (str "State injection (rf2-ee38b.18): replace a frame's app-db with an arbitrary EDN value the "
@@ -391,6 +426,10 @@
                               :build {:type "string"}}
                  :required ["db"]
                  :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; trace-window
+;; ---------------------------------------------------------------------------
 
 (def trace-window
   {:name "trace-window"
@@ -428,6 +467,10 @@
                                                    :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                               :build {:type "string"}}
                  :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; watch-epochs
+;; ---------------------------------------------------------------------------
 
 (def watch-epochs
   {:name "watch-epochs"
@@ -472,6 +515,10 @@
                               :build    {:type "string"}}
                  :additionalProperties false}})
 
+;; ---------------------------------------------------------------------------
+;; tail-build
+;; ---------------------------------------------------------------------------
+
 (def tail-build
   {:name "tail-build"
    :description (str "Wait for a hot-reload to land by polling a probe form until its value changes. Returns once changed, or times out. "
@@ -487,6 +534,10 @@
                               :wait-ms {:type "integer" :description "Max wait in ms (default 5000)"}
                               :build   {:type "string"}}
                  :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; snapshot
+;; ---------------------------------------------------------------------------
 
 (def snapshot
   {:name "snapshot"
@@ -584,6 +635,10 @@
                               :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
                  :additionalProperties false}})
 
+;; ---------------------------------------------------------------------------
+;; get-path
+;; ---------------------------------------------------------------------------
+
 (def get-path
   {:name "get-path"
    :description (str "Read a single value at `path` from a frame's app-db. Minimal primitive for "
@@ -628,6 +683,10 @@
                               :build   {:type "string"}}
                  :required ["path"]
                  :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; subscribe
+;; ---------------------------------------------------------------------------
 
 (def subscribe
   {:name "subscribe"
@@ -690,6 +749,10 @@
                  :required ["topic"]
                  :additionalProperties false}})
 
+;; ---------------------------------------------------------------------------
+;; unsubscribe
+;; ---------------------------------------------------------------------------
+
 (def unsubscribe
   {:name "unsubscribe"
    :description (str "Close the subscription with the given sub-id. Idempotent — closing an unknown sub-id returns :existed? false. "
@@ -706,6 +769,10 @@
                               :build  {:type "string"}}
                  :required ["sub-id"]
                  :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; list-subscriptions
+;; ---------------------------------------------------------------------------
 
 (def list-subscriptions
   {:name "list-subscriptions"
@@ -735,6 +802,10 @@
                                        :description "Optional filter — only return the sub with this uuid."}
                               :build  {:type "string"}}
                  :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; handler-meta
+;; ---------------------------------------------------------------------------
 
 (def handler-meta
   {:name "handler-meta"
@@ -779,6 +850,10 @@
                  :required ["kind" "id"]
                  :additionalProperties false}})
 
+;; ---------------------------------------------------------------------------
+;; list-handlers
+;; ---------------------------------------------------------------------------
+
 (def list-handlers
   {:name "list-handlers"
    :description (str "Return every registered id under a kind. The discovery "
@@ -809,6 +884,10 @@
                               :build {:type "string"}}
                  :required ["kind"]
                  :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; get-re-frame2-pair-instructions
+;; ---------------------------------------------------------------------------
 
 (def get-re-frame2-pair-instructions
   {:name "get-re-frame2-pair-instructions"
