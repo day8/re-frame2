@@ -8,20 +8,28 @@
   container quartet is shared with plain-atom via
   `re-frame.substrate.atom-container`; the render half is the novel surface
   — a `class-3` lifecycle simulator that records every transition into a
-  per-mount log and enforces the `:currently-rendering?` invariant (it
-  throws on a synchronous `unmount!` while a render is in flight, mirroring
-  React 18+).
+  per-mount log and enforces the sync-unmount-during-render invariant (it
+  throws on a synchronous `unmount!` while a render is in flight ANYWHERE in
+  the tree, mirroring React 18+).
 
-  Status: minimal viable skeleton (rf2-gqyqv; placeholder bead).
+  Render bodies + recursive children: a render tree may declare an imperative
+  body via the node shape `{:rf/component (fn [mount] ...)}`. The body runs
+  during the render phase (while the global render depth is non-zero) and can
+  mount children via `mount-child!` (which recurse through their own
+  lifecycle) or issue an `unmount!`. An `unmount!` of an ancestor/sibling from
+  inside such a body trips the guard ORGANICALLY — no hand-fabricated
+  in-flight state — which is exactly the rf2-4l7t2 shape (the senbl panel-host
+  unmounting the previous panel's root on a chip-row re-render).
+
+  Status: carries ported lifecycle regressions (rf2-n2cuo broadened the
+  rf2-gqyqv skeleton): organic sync-unmount-during-render, unbalanced
+  mount/unmount ref-count, and double-render.
 
   Out of scope (deferred to follow-on beads):
-    - Recursive child mounting: the render tree is treated as opaque data,
-      so the rf2-4l7t2 guard is reachable only via fabricated in-flight
-      state (a test sets `:currently-rendering?` by hand) until recursive
-      child mount lands and a child render-body can organically issue a
-      re-entrant unmount.
     - Auto-re-render on app-db change: tests drive re-renders explicitly
-      via `trigger-update!`.
+      via `trigger-update!`. Children re-render only when a test re-runs the
+      parent's render body (via `trigger-update!` with the same body) or
+      drives the child directly; there is no automatic propagation.
     - React-context provider traversal (frame-routing is via the
       dynamic-var tier; the React-context tier is degenerate — no React).
     - Source-coord annotation (Spec 006 §Source-coord annotation): N/A —
@@ -84,19 +92,49 @@
 ;;   :render-tree     — atom holding the currently-rendered tree
 ;;   :lifecycle-log   — atom holding a vector of {:phase ... :at ms} entries;
 ;;                      the test driver inspects this to assert ordering.
-;;   :currently-rendering? — atom<boolean>; true while a render is in flight.
-;;                      The simulator THROWS on attempts to unmount!
-;;                      synchronously while this is true, mirroring React
-;;                      18+'s sync-unmount-during-render guard (rf2-4l7t2).
+;;   :currently-rendering? — atom<boolean>; true while THIS mount's render is
+;;                      in flight. Distinct from the global render-depth (see
+;;                      below): this cell marks the self-render case, the
+;;                      global cell marks "React is rendering somewhere."
 ;;   :mounted?        — atom<boolean>; false after unmount. The simulator
 ;;                      THROWS on trigger-update! / unmount! after teardown.
+;;   :children        — atom<vector<MountedComponent>>; child roots this mount
+;;                      mounted from inside its own render body via
+;;                      `mount-child!`. Unmounting a parent cascades to its
+;;                      children (will-unmount fires children-first, mirroring
+;;                      React's child-before-parent teardown order).
 ;;   :unmount-fn      — the unmount thunk for this mount; `unmount!` calls it.
 
 (defrecord ^:no-doc MountedComponent
-  [id render-tree lifecycle-log currently-rendering? mounted? unmount-fn])
+  [id render-tree lifecycle-log currently-rendering? mounted? children unmount-fn])
 
 ;; All live mounts; `dispose-adapter!` walks this to drain.
 (defonce ^:private active-mounts (atom #{}))
+
+;; Global render depth — "React is rendering somewhere in the tree." React's
+;; sync-unmount-during-render guard fires whenever ANY render is in flight, not
+;; only when the root being unmounted is itself mid-render. The rf2-4l7t2 shape
+;; is exactly this cross-root case: a parent re-renders and, from inside that
+;; render body, synchronously unmounts a SEPARATELY-tracked sibling/child root
+;; (the senbl panel-host unmounting the previous panel's root on a chip-row
+;; switch). The per-mount :currently-rendering? cell cannot see that — it is
+;; false on the sibling being torn down — so the guard keys off this global
+;; counter. A counter (not a boolean) so nested child renders restore the flag
+;; correctly on unwind.
+(defonce ^:private render-depth (atom 0))
+
+;; The mount whose render body is currently executing, if any. `mount-child!`
+;; attaches newly-mounted children to this parent so the tree structure (and
+;; thus cascading unmount) is recorded. nil when no render is in flight.
+(def ^:private ^:dynamic *rendering-mount* nil)
+
+(defn rendering?
+  "True when the simulator is mid-render anywhere in the tree (the condition
+  React's sync-unmount-during-render guard keys off). Exposed for tests that
+  want to assert the global render state directly rather than via a thrown
+  guard."
+  []
+  (pos? @render-depth))
 
 (defn- now-ms []
   #?(:clj (System/currentTimeMillis)
@@ -106,37 +144,68 @@
   (swap! (:lifecycle-log mount)
          conj (merge {:phase phase :at (now-ms)} extras)))
 
+;; Declared so `run-render!` (which invokes a render body that may mount
+;; children) can call the mount seam defined below it.
+(declare mount-tree!)
+
+(defn- component-render-fn
+  "If `tree` declares an imperative render body, return it; else nil. The body
+  is `(fn [mount] ...)` run while a render is in flight (so any `unmount!`
+  issued from within fires the guard organically, and any `mount-child!`
+  attaches to `mount`). A render tree carries a body via the node shape
+  `{:rf/component (fn [mount] ...) ...}`; plain hiccup / opaque data has none."
+  [tree]
+  (when (map? tree)
+    (:rf/component tree)))
+
 (defn- run-render!
-  "Set the :currently-rendering? flag, record a :render phase entry, store the
-  render-tree, clear the flag. Throws from inside the render body are NOT
-  caught — they propagate to the caller (React 18+ unmounts the root)."
+  "Run one render of `mount` with `tree` as its output. Increments the global
+  render depth and sets the per-mount :currently-rendering? flag for the
+  duration, records a :render phase entry, stores the tree, and — if the tree
+  declares an imperative render body (`:rf/component`) — invokes that body with
+  `mount` bound as `*rendering-mount*` so it can mount children or issue a
+  (guard-tripping) re-entrant unmount. Throws from the render body are NOT
+  caught — they propagate to the caller (React 18+ unmounts the root); the
+  flags/depth are restored on unwind via `finally`."
   [mount tree]
+  (swap! render-depth inc)
   (reset! (:currently-rendering? mount) true)
   (try
     (reset! (:render-tree mount) tree)
     (log-phase! mount :render)
+    (when-let [body (component-render-fn tree)]
+      (binding [*rendering-mount* mount]
+        (body mount)))
     (finally
-      (reset! (:currently-rendering? mount) false))))
+      (reset! (:currently-rendering? mount) false)
+      (swap! render-depth dec))))
 
 (defn- unmount-thunk
   "Build the unmount thunk for `mount`. Idempotent (a second call on an
-  already-unmounted mount is a no-op). Throws
-  `:rf.error/sync-unmount-during-render` if called while a render is in
-  flight (the rf2-4l7t2 class)."
+  already-unmounted mount is a no-op). Cascades to children first (React tears
+  children down before their parent). Throws
+  `:rf.error/sync-unmount-during-render` if called while a render is in flight
+  ANYWHERE in the tree (the rf2-4l7t2 class) — keyed off the global
+  `render-depth`, so a parent re-render that synchronously unmounts a separate
+  sibling/child root trips the guard just as React does."
   [mount]
   (fn unmount []
     (when @(:mounted? mount)
-      (when @(:currently-rendering? mount)
+      (when (rendering?)
         (throw (ex-info ":rf.error/sync-unmount-during-render"
                         {:where    'rf/test-react-unmount
                          :recovery :no-recovery
                          :reason   (str "Attempted to synchronously unmount a root"
-                                        " while a render is in flight. React 18+"
-                                        " raises the equivalent runtime error; the"
-                                        " Test-React adapter raises here so the bug"
-                                        " is caught at unit-test speed. See"
+                                        " while React was already rendering. React"
+                                        " 18+ raises the equivalent runtime error;"
+                                        " the Test-React adapter raises here so the"
+                                        " bug is caught at unit-test speed. See"
                                         " rf2-4l7t2 for the production manifestation.")
                          :mount-id (:id mount)})))
+      ;; Children-first teardown (mirrors React). Each child's own thunk runs
+      ;; the same guard + cascade, so a deep tree unwinds leaf-upward.
+      (doseq [child @(:children mount)]
+        ((:unmount-fn child)))
       (log-phase! mount :will-unmount)
       (reset! (:mounted? mount) false)
       (reset! (:render-tree mount) nil)
@@ -149,7 +218,11 @@
   `active-mounts`, and returns the record itself (with its unmount thunk
   stored in the `:unmount-fn` field). Both the substrate `render` fn and the
   public `mount!` driver call this — `render` discards everything but the
-  thunk; `mount!` returns the whole record so tests can inspect the log."
+  thunk; `mount!` returns the whole record so tests can inspect the log.
+
+  If invoked while a parent's render body is running (i.e. via `mount-child!`,
+  with `*rendering-mount*` bound) the new mount is appended to that parent's
+  `:children`, so unmounting the parent later cascades to it."
   [render-tree]
   (let [base    (->MountedComponent
                   (gensym "test-react-mount-")
@@ -157,6 +230,7 @@
                   (atom [])    ; lifecycle-log
                   (atom false) ; currently-rendering?
                   (atom true)  ; mounted?
+                  (atom [])    ; children
                   nil)         ; unmount-fn — filled in below
         mount   (assoc base :unmount-fn (unmount-thunk base))]
     (log-phase! mount :constructor)
@@ -164,6 +238,31 @@
     (log-phase! mount :did-mount)
     (swap! active-mounts conj mount)
     mount))
+
+(defn mount-child!
+  "Mount `render-tree` as a child of the component whose render body is
+  currently executing. Intended to be called from inside an `:rf/component`
+  render body (where `*rendering-mount*` is bound). Returns the child's
+  `MountedComponent`. Throws if called outside a render body — a child must
+  have a parent.
+
+  This is the recursive-child seam: the child runs its own
+  constructor → render → did-mount lifecycle (and may itself mount
+  grandchildren), is appended to the parent's `:children`, and is torn down
+  when the parent unmounts."
+  [render-tree]
+  (let [parent *rendering-mount*]
+    (when (nil? parent)
+      (throw (ex-info ":rf.error/mount-child-outside-render"
+                      {:where    'rf/test-react-mount-child!
+                       :recovery :no-recovery
+                       :reason   (str "mount-child! must be called from inside an"
+                                      " :rf/component render body (a child needs a"
+                                      " parent render in flight); *rendering-mount*"
+                                      " was nil.")})))
+    (let [child (mount-tree! render-tree)]
+      (swap! (:children parent) conj child)
+      child)))
 
 (defn- render [render-tree _mount-point _opts]
   ;; Spec 006 §`render` — return an unmount thunk. Under test-react the
@@ -219,12 +318,23 @@
   ;; `spine/dispose-frame-sub-caches!` — this adapter is CLJC and the spine
   ;; is CLJS-only. Acceptable because test-react's `make-derived-value` holds
   ;; no host resources (plain IDeref reify); nothing for the walk to dispose.
+  ;; Drain flat over active-mounts: children are themselves registered in
+  ;; active-mounts (mount-tree! adds every mount, parent or child), so a flat
+  ;; walk drains the whole forest without recursing through :children. We do
+  ;; NOT route through the public unmount thunk (it would throw on the
+  ;; currently-rendering? / render-depth guard) — forced teardown is the
+  ;; escape hatch the guard deliberately cannot block.
   (doseq [m @active-mounts]
     (when @(:mounted? m)
       (log-phase! m :forced-teardown)
       (reset! (:mounted? m) false)
       (reset! (:render-tree m) nil)))
   (reset! active-mounts #{})
+  ;; Reset the global render depth. `run-render!`'s `finally` already restores
+  ;; it on the normal + guard-throw paths; this is belt-and-braces so a test
+  ;; that bypassed run-render! by hand cannot leak a stuck "rendering" state
+  ;; into the next case.
+  (reset! render-depth 0)
   nil)
 
 (def adapter
@@ -300,10 +410,12 @@
   mount)
 
 (defn unmount!
-  "Unmount `mount`. Records a `:will-unmount` phase entry. Throws
-  `:rf.error/sync-unmount-during-render` if called while the mount is in the
-  middle of a render (the rf2-4l7t2 class). Idempotent: a second call on the
-  same mount is a no-op."
+  "Unmount `mount`, cascading to its children first (React tears children down
+  before their parent). Records a `:will-unmount` phase entry per torn-down
+  mount. Throws `:rf.error/sync-unmount-during-render` if called while a render
+  is in flight anywhere in the tree (the rf2-4l7t2 class) — including the
+  organic case where a parent's render body synchronously unmounts a separate
+  sibling/child root. Idempotent: a second call on the same mount is a no-op."
   [mount]
   ((:unmount-fn mount))
   nil)
@@ -322,10 +434,21 @@
   @(:render-tree mount))
 
 (defn mounted-roots
-  "Return all currently-mounted `MountedComponent`s under this adapter.
-  Useful for tests asserting balanced mount/unmount counts."
+  "Return all currently-mounted `MountedComponent`s under this adapter — the
+  whole live forest, parents AND recursively-mounted children (every mount,
+  child or not, is registered in `active-mounts`). Useful for tests asserting
+  balanced mount/unmount counts: an unbalanced subscribe/dispose or a leaked
+  child shows up as a non-zero count after the test's teardown should have
+  drained everything."
   []
   (filter (comp deref :mounted?) @active-mounts))
+
+(defn children
+  "Return the live (still-mounted) child `MountedComponent`s a `mount` mounted
+  from inside its own render body via `mount-child!`, in mount order. Useful
+  for tests that walk the tree or assert a parent tore its children down."
+  [mount]
+  (filterv (comp deref :mounted?) @(:children mount)))
 
 ;; ---- late-bind hook routing -----------------------------------------------
 ;; The Test-React adapter publishes only the React-context-tier fallback for
