@@ -650,8 +650,8 @@
             "nil container is a documented no-op, not an exception")
         (rf/reg-frame fid {:doc "write-after-destroy reproducer frame"})
         (frame/destroy-frame! fid)
-        (let [container (frame/get-frame-db fid)]
-          (is (nil? container) "get-frame-db on a destroyed frame returns nil")
+        (let [container (frame/app-db-container fid)]
+          (is (nil? container) "app-db-container on a destroyed frame returns nil")
           (is (nil? (substrate-adapter/replace-container! container {:would-have :npe'd}))
               "writing through the nil container is a documented no-op"))
         (let [warns (filterv (fn [ev]
@@ -1696,7 +1696,7 @@
       (rf/dispatch-sync [:test/m [:go]])
       (let [post-go-db (rf/get-frame-db :rf/default)]
         (is (= :working (get-in post-go-db [:rf/runtime :machines :snapshots :test/m :state])) "machine reached :working")
-        (let [container (frame/get-frame-db :rf/default)
+        (let [container (frame/app-db-container :rf/default)
               reverted  (assoc-in post-go-db [:rf/runtime :machines :snapshots :test/m :state] :idle)]
           (substrate-adapter/replace-container! container reverted))
         (is (= :idle (get-in (rf/get-frame-db :rf/default) [:rf/runtime :machines :snapshots :test/m :state]))

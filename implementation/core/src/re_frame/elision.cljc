@@ -65,7 +65,7 @@
 
 (defn- registry-of
   [frame-id]
-  (when-let [container (frame/get-frame-db frame-id)]
+  (when-let [container (frame/app-db-container frame-id)]
     (get-in (adapter/read-container container) [:rf/runtime :elision])))
 
 (defn ^:no-doc write-elision-slot
@@ -113,7 +113,7 @@
   paths — can share a single source of truth for the read-transform-
   write skeleton. Not part of the public API."
   [frame-id f]
-  (when-let [container (frame/get-frame-db frame-id)]
+  (when-let [container (frame/app-db-container frame-id)]
     (let [old-db  (adapter/read-container container)
           old-reg (get-in old-db [:rf/runtime :elision])
           new-reg (f old-reg)

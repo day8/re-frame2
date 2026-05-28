@@ -278,7 +278,7 @@
 
   Defense-in-depth nil guard (rf2-ft2b): if `container` is nil — e.g. a
   scheduled drain races frame destruction and reaches the per-event :db
-  commit after `frame/get-frame-db` has started returning nil for the
+  commit after `frame/app-db-container` has started returning nil for the
   destroyed frame — the write is silently skipped and a
   `:rf.warning/write-after-destroy` trace fires. The earlier behaviour
   was an NPE on a background thread (see the rf2-ft2b reproducer). Adapter

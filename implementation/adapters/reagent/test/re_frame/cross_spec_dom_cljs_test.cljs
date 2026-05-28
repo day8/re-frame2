@@ -331,7 +331,7 @@
           ;; commit-then-dispose ordering.
           render-fn    (fn []
                          (let [n (swap! render-count inc)
-                               container (frame/get-frame-db target-frame)
+                               container (frame/app-db-container target-frame)
                                db (when container @container)]
                            (when (= 1 n)
                              ;; Mid-render destroy. Per Spec 002 §Destroy
@@ -350,7 +350,7 @@
       (with-trace-recorder! [traces]
         ;; Mount under frame-provider so the subtree is scoped to
         ;; target-frame in the React-context tier — even though the
-        ;; render fn reads via frame/get-frame-db directly, the
+        ;; render fn reads via frame/app-db-container directly, the
         ;; provider-mount path is the documented user-facing shape
         ;; (per Spec 004 §frame-provider) and exercises the same
         ;; substrate code-path the spec describes.
@@ -917,7 +917,7 @@
           "machine reached :working")
       ;; Tool-Pair-style revert: replace-container! to a snapshot where
       ;; the machine is in :idle.
-      (let [container (frame/get-frame-db :rf/default)
+      (let [container (frame/app-db-container :rf/default)
             reverted  (assoc-in post-go-db [:rf/runtime :machines :snapshots :test/m :state] :idle)]
         (adapter/replace-container! container reverted))
       (is (= :idle (get-in (rf/get-frame-db :rf/default)

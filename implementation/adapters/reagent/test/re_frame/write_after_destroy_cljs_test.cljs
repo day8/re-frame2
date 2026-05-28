@@ -23,7 +23,7 @@
 
     1. `replace-container! nil` directly — the smallest reproducer.
     2. Live frame, destroyed, read its container (now nil per
-       `frame/get-frame-db` on a destroyed frame), then attempt the
+       `frame/app-db-container` on a destroyed frame), then attempt the
        write — the exact shape router.cljc's per-event :db commit
        traces when racing destroy.
 
@@ -62,7 +62,7 @@
 ;; ---- 2. live-destroy → captured-container-write ---------------------------
 
 (deftest reagent-replace-container-on-destroyed-frame-does-not-npe
-  (testing "frame/get-frame-db on a destroyed frame returns nil; feeding
+  (testing "frame/app-db-container on a destroyed frame returns nil; feeding
             that nil into replace-container! must no-op + warn (rf2-9od6t).
             This is the exact shape router.cljc's per-event :db commit
             takes when a scheduled drain reaches the write AFTER destroy."
@@ -70,9 +70,9 @@
       (with-trace-recorder! [warns {:pred write-after-destroy-pred}]
         (rf/reg-frame frame-id {:doc "rf2-9od6t race reproducer"})
         (rf/destroy-frame! frame-id)
-        (let [container (frame/get-frame-db frame-id)]
+        (let [container (frame/app-db-container frame-id)]
           (is (nil? container)
-              "get-frame-db on a destroyed frame returns nil — the rf2-ft2b precondition")
+              "app-db-container on a destroyed frame returns nil — the rf2-ft2b precondition")
           (is (nil? (adapter/replace-container! container {:would :have :npe'd true}))
               "writing through the nil container is a documented no-op"))
         (is (pos? (count @warns))

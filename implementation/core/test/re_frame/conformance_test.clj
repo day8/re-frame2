@@ -468,7 +468,7 @@
           {:read-db!  (fn [frame-id]
                         (frame/frame-app-db-value frame-id))
            :write-db! (fn [frame-id new-db]
-                        (let [container (frame/get-frame-db frame-id)]
+                        (let [container (frame/app-db-container frame-id)]
                           ((requiring-resolve 're-frame.substrate.adapter/replace-container!)
                            container new-db)))
            :dispatch! (fn [event frame-id]

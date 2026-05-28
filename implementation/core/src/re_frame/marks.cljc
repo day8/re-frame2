@@ -534,12 +534,12 @@
         ;; §Propagation rules acknowledges this is footgun prevention
         ;; not security-grade taint.
         any-sens?   (when layer-1?
-                      (let [container (frame/get-frame-db frame-id)
+                      (let [container (frame/app-db-container frame-id)
                             db        (when container (adapter/read-container container))
                             decls     (get-in db [:rf/runtime :elision :sensitive-declarations])]
                         (boolean (seq decls))))
         any-large?  (when layer-1?
-                      (let [container (frame/get-frame-db frame-id)
+                      (let [container (frame/app-db-container frame-id)
                             db        (when container (adapter/read-container container))
                             decls     (get-in db [:rf/runtime :elision :declarations])]
                         (boolean (seq decls))))

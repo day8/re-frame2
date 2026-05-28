@@ -193,7 +193,7 @@
     ;; Capture pre-reregistration state.
     (let [pre-db          (rf/get-frame-db :tenant)
           pre-snapshot    (get-in pre-db [:rf/runtime :machines :snapshots :traffic-light])
-          pre-app-db-cont (frame/get-frame-db :tenant)]
+          pre-app-db-cont (frame/app-db-container :tenant)]
       (is (= :yellow (:state pre-snapshot))
           "machine snapshot landed in [:rf/runtime :machines :snapshots] under :traffic-light")
       (is (= 2 (get-in pre-snapshot [:data :ticks]))
@@ -203,7 +203,7 @@
                              :tenant-id :acme
                              :version   2})
       ;; The :app-db CONTAINER is the same identity (no replace happened).
-      (is (identical? pre-app-db-cont (frame/get-frame-db :tenant))
+      (is (identical? pre-app-db-cont (frame/app-db-container :tenant))
           "frame's app-db container is preserved (same identity)")
       ;; The [:rf/runtime :machines :snapshots] snapshot is preserved verbatim.
       (let [post-db (rf/get-frame-db :tenant)]
