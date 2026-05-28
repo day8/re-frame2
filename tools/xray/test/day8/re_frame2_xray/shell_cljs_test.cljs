@@ -1003,11 +1003,13 @@
     (xray-setup!)
     ;; A cascade with a dispatched-time so the row renders its trailing
     ;; relative-time chip (the column the header's `timestamp` aligns to),
-    ;; and a :timer origin so the `source` column tag renders.
+    ;; and an :after-timer source (post-rf2-1ve9h — collapsed from the
+    ;; prior `:rf/dispatch-origin :timer`) so the `source` column tag
+    ;; renders.
     (trace-collector/seed-trace-for-test!
       (-> (dispatch-trace-ev 1 [:poll/tick])
           (assoc :time 1000)
-          (assoc-in [:tags :rf/dispatch-origin] :timer)))
+          (assoc-in [:tags :source] :after-timer)))
     (rf/with-frame :rf/xray
       (let [tree        (shell/shell-view)
             ;; header cells
@@ -1015,15 +1017,15 @@
             h-source    (find-by-testid tree "rf-xray-event-list-col-source")
             h-event-id  (find-by-testid tree "rf-xray-event-list-col-event-id")
             h-timestamp (find-by-testid tree "rf-xray-event-list-col-timestamp")
-            ;; row cells (the :timer row)
+            ;; row cells (the :after-timer row)
             row         (first (find-all-by-testid-prefix
                                  tree "rf-xray-event-row-"))
-            r-source    (find-by-testid tree "rf-xray-row-origin-timer")
+            r-source    (find-by-testid tree "rf-xray-row-origin-after-timer")
             r-event-id  (find-by-testid tree "rf-xray-row-event-id")
             r-time      (find-by-testid tree "rf-xray-row-time-chip")]
         ;; sanity — every cell we compare exists
         (is (some? header)      "header row renders")
-        (is (some? row)         "the :timer data row renders")
+        (is (some? row)         "the :after-timer data row renders")
         (is (some? r-source)    "the row's source-tag cell renders")
         (is (some? r-time)      "the row's time chip renders (it carries :time)")
         ;; rf2-pjjwh — no leading focus gutter on either surface.
@@ -1083,20 +1085,23 @@
             "no column header on the empty state")))))
 
 (deftest event-row-source-tag-surfaces-non-user-origin
-  (testing "rf2-ad7zx.12 — a non-:user dispatch-origin renders a text
-            SOURCE tag (the Figma `source` column) carrying the origin
-            name."
+  (testing "rf2-ad7zx.12 — a non-default `:source` value renders a text
+            SOURCE tag (the Figma `source` column) carrying the source
+            name. Per rf2-1ve9h the prior `:rf/dispatch-origin` axis was
+            collapsed into `:source` — the single closed-enum
+            functional-origin axis."
     (xray-setup!)
-    ;; A :timer-origin cascade — the source column should read `timer`.
+    ;; An `:after-timer`-source cascade — the source column should read
+    ;; `after-timer`.
     (trace-collector/seed-trace-for-test!
       (assoc-in (dispatch-trace-ev 1 [:poll/tick])
-                [:tags :rf/dispatch-origin] :timer))
+                [:tags :source] :after-timer))
     (rf/with-frame :rf/xray
       (let [tree    (shell/shell-view)
-            tagged  (find-by-testid tree "rf-xray-row-origin-timer")]
-        (is (some? tagged) "the :timer row carries an origin source tag")
-        (is (re-find #"timer" (text-nodes tagged))
-            "the source tag reads the origin name `timer`")))))
+            tagged  (find-by-testid tree "rf-xray-row-origin-after-timer")]
+        (is (some? tagged) "the :after-timer row carries a source tag")
+        (is (re-find #"after-timer" (text-nodes tagged))
+            "the source tag reads the source name `after-timer`")))))
 
 (deftest event-row-source-tag-surfaces-ui-origin
   (testing "rf2-lnod7 — a default (:user / untagged) ui-origin row renders

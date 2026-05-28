@@ -1316,7 +1316,7 @@
 
   - **`:event-id`** — the bare event-id keyword (not the full event
     vector). Args / payload move to the tooltip + Epoch panel detail.
-  - **`source`** — the dispatch-origin tag (`ui` / `fx` / `timer` / …).
+  - **`source`** — the closed-enum `:source` axis (`ui` / `fx-dispatch` / `after-timer` / …), per rf2-1ve9h.
   - **`timestamp`** — the absolute wall-clock `HH:MM:SS.mmm`.
   - **`duration`** — the handler wall-time (`1.2 ms`).
 
@@ -1355,10 +1355,12 @@
   [{:keys [cascade focused-id auto-track? now-ms col-widths]}]
   (let [id          (:dispatch-id cascade)
         focused?    (= id focused-id)
-        ;; rf2-ad7zx.12 — the Figma `source` column tag (origin name as
-        ;; text; `ui` for the default app-code origin).
-        origin         (l2-timeline/dispatch-origin-of cascade)
-        source-tag     (l2-timeline/origin-source-tag origin)
+        ;; rf2-ad7zx.12 — the Figma `source` column tag (source name as
+        ;; text; `ui` for the default app-code source). Per rf2-1ve9h
+        ;; the prior `:rf/dispatch-origin` axis was collapsed into
+        ;; `:source` — the single closed-enum functional-origin axis.
+        source         (l2-timeline/source-of cascade)
+        source-tag     (l2-timeline/origin-source-tag source)
         ev-id       (event-id-of-cascade cascade)
         event-vec   (:event cascade)
         ;; rf2-pjjwh — the active row is marked by BACKGROUND ONLY

@@ -4,12 +4,23 @@
   Two concerns live here, both pure-data + JVM/CLJS portable so the
   shape is testable from `clojure -M:test` without a CLJS runtime:
 
-    1. **Dispatch-origin prefix** — per `tools/xray/spec/021-Dynamic-
+    1. **Source prefix** — per `tools/xray/spec/021-Dynamic-
        Panel-Designs.md` §17.1.5 + `spec/009-Instrumentation.md`
-       §Dispatch-origin tagging (closed-enum, landed in #1735). Each
-       L2 row carries a short glyph / chip prefix denoting the
-       functional origin of the dispatch (`:user` is silent — the
-       common case shouldn't clutter the row).
+       §Dispatch source as the functional-origin axis. Each L2 row
+       carries a short glyph / chip prefix denoting the closed-enum
+       functional origin of the dispatch (UI / app code is silent —
+       the common case shouldn't clutter the row).
+
+       Per rf2-1ve9h (Mike-approved Option A, 2026-05-28), the prior
+       parallel `:rf/dispatch-origin` axis was collapsed into `:source`
+       — `:source` is now the single closed-enum functional-origin axis.
+       This namespace's pre-collapse glyph-bucket structure is
+       preserved (the operator-visible glyphs are unchanged); the read
+       site moved from `[:dispatched :tags :rf/dispatch-origin]` to
+       `[:dispatched :tags :source]`, and multiple `:source` values
+       project onto each glyph bucket (e.g. all three fx-cascade kinds
+       `:fx-dispatch` / `:fx-dispatch-later` / `:machine-action` render
+       as `⚡`).
 
     2. **Activity badges** — per spec/021 §1 + §17.1.5. Each row
        summarises what the epoch's cascade actually DID via a
@@ -32,7 +43,7 @@
 
       {:dispatch-id <id>
        :event       <event-vector>
-       :dispatched  <:rf.event/dispatched trace event>  ;; carries :tags :rf/dispatch-origin
+       :dispatched  <:rf.event/dispatched trace event>  ;; carries :tags :source
        :handler     <:rf.event/run-end trace event>
        :fx          <:rf.fx/do-fx trace event>
        :effects     [...]                            ;; :op-type :rf.fx
@@ -45,83 +56,134 @@
   that omit slots (e.g. cascades constructed by JVM tests) do not
   blow up.
 
-  ## Closed-enum origin → glyph mapping (spec/021 §17.1.5)
+  ## Closed-enum source → glyph bucket (spec/021 §17.1.5, post-rf2-1ve9h)
 
-  | `:rf/dispatch-origin` | Render        | Notes                                  |
-  |-----------------------|---------------|----------------------------------------|
-  | `:user`               | (nothing)     | Default. Silent so the common case     |
-  |                       |               | doesn't clutter the row.               |
-  | `:router`             | `R` chip      | re-frame.routing internal dispatches.  |
-  | `:http`               | `🌐` glyph    | Managed-HTTP settle / response.        |
-  | `:ssr`                | `💧` glyph    | Hydration boot / SSR-time dispatches.  |
-  | `:fx-emit`            | `⚡` glyph    | Dispatched from a parent's do-fx.      |
-  | `:timer`              | `⏲` glyph    | Timer-fired dispatch.                  |
-  | `:test-harness`       | `T` chip      | Opt-in test fixture dispatches.        |
-  | `:tool`               | `🔧` glyph    | Tool dispatches (pair / story / REPL). |
-  | `:internal`           | `i` chip      | Framework-internal dispatches.         |
-  | `:websocket`          | `🌊` glyph    | App websocket adapters (reserved).     |
-  | unknown / nil         | (nothing)     | Defence-in-depth — never throws.       |"
+  The 17-value `:source` enum projects onto a smaller chrome bucket
+  set — multiple finer-grained source values map to the same glyph
+  (e.g. all three fx-cascade kinds render as `⚡`). The default
+  app-code values (`:ui`, `:unknown`, `:other`, `:repl`, `:frame-init`)
+  render no prefix — the common case stays uncluttered.
+
+  | `:source` value                                                  | Bucket          | Render     |
+  |------------------------------------------------------------------|-----------------|------------|
+  | `:ui` / `:unknown` / `:other` / `:repl` / `:frame-init`          | (silent)        | (nothing)  |
+  | `:router`                                                        | `:router`       | `R` chip   |
+  | `:http`                                                          | `:http`         | `🌐` glyph |
+  | `:ssr-hydration`                                                 | `:ssr`          | `💧` glyph |
+  | `:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`        | `:fx-emit`      | `⚡` glyph |
+  | `:after-timer` / `:always`                                       | `:timer`        | `⏲` glyph |
+  | `:test`                                                          | `:test`         | `T` chip   |
+  | `:tool`                                                          | `:tool`         | `🔧` glyph |
+  | `:machine-spawn`                                                 | `:machine-spawn`| `i` chip   |
+  | `:websocket`                                                     | `:websocket`    | `🌊` glyph |
+  | unknown / nil                                                    | nil             | (nothing)  |"
   (:require [clojure.string :as str]))
 
-;; ---- 1. dispatch-origin prefix ------------------------------------------
+;; ---- 1. source prefix (post-rf2-1ve9h) ----------------------------------
 
-(def origin-glyphs
-  "Closed-enum origin → display-glyph map per spec/021 §17.1.5. `:user`
-  is `nil` because the common case is silent. Unknown / nil origins
-  also resolve to `nil` so the renderer omits the prefix.
+(def source->bucket
+  "Project a closed-enum `:source` value onto a smaller chrome bucket
+  set. Multiple finer-grained source values map to the same bucket so
+  the L2 row's glyph stays at the visual semantic level the operator
+  scans for (`⚡ from fx`, `⏲ from timer`, …) rather than the framework's
+  finer trigger-kind taxonomy. Per rf2-1ve9h."
+  {;; silent — the default app-code / un-stamped path
+   :ui                nil
+   :unknown           nil
+   :other             nil
+   :repl              nil
+   :frame-init        nil
+   ;; substrate-internal — each maps to its glyph bucket
+   :router            :router
+   :http              :http
+   :ssr-hydration     :ssr
+   :fx-dispatch       :fx-emit
+   :fx-dispatch-later :fx-emit
+   :machine-action    :fx-emit
+   :after-timer       :timer
+   :always            :timer
+   :test              :test
+   :tool              :tool
+   :machine-spawn     :machine-spawn
+   :websocket         :websocket})
 
-  Pure-data so a test can iterate the mapping without touching the
-  view layer."
-  {:user         nil
-   :router       "R"
-   :http         "🌐"   ; 🌐
-   :ssr          "💧"   ; 💧
-   :fx-emit      "⚡"         ; ⚡
-   :timer        "⏲"         ; ⏲
-   :test-harness "T"
-   :tool         "🔧"   ; 🔧
-   :internal     "i"
-   :websocket    "🌊"}) ; 🌊
+(def bucket-glyphs
+  "Bucket → display-glyph map. The buckets are operator-facing chrome
+  categories; multiple `:source` values map onto each (see
+  `source->bucket`). Pure-data so a test can iterate the mapping
+  without touching the view layer."
+  {:router        "R"
+   :http          "🌐"
+   :ssr           "💧"
+   :fx-emit       "⚡"
+   :timer         "⏲"
+   :test          "T"
+   :tool          "🔧"
+   :machine-spawn "i"
+   :websocket     "🌊"})
 
-(def origin-titles
-  "Hover-title text per origin. Surfaces the closed-enum value to the
+(def bucket-titles
+  "Hover-title text per bucket. Surfaces the chrome category to the
   operator on hover; the glyph is the at-a-glance affordance, the
   title is the disambiguation."
-  {:user         "Dispatch origin: :user (default — app code)"
-   :router       "Dispatch origin: :router (routing-substrate dispatch)"
-   :http         "Dispatch origin: :http (managed-HTTP settle)"
-   :ssr          "Dispatch origin: :ssr (hydration boot)"
-   :fx-emit      "Dispatch origin: :fx-emit (child of a parent's do-fx)"
-   :timer        "Dispatch origin: :timer (timer-fired dispatch)"
-   :test-harness "Dispatch origin: :test-harness (test-fixture opt-in)"
-   :tool         "Dispatch origin: :tool (tool / REPL / story)"
-   :internal     "Dispatch origin: :internal (framework-internal)"
-   :websocket    "Dispatch origin: :websocket (app websocket adapter)"})
+  {:router        "Source: :router (routing-substrate dispatch)"
+   :http          "Source: :http (managed-HTTP settle)"
+   :ssr           "Source: :ssr-hydration (hydration boot)"
+   :fx-emit       "Source: :fx-dispatch / :fx-dispatch-later / :machine-action (child of a parent's do-fx)"
+   :timer         "Source: :after-timer / :always (machine timer / microstep)"
+   :test          "Source: :test (test-fixture opt-in)"
+   :tool          "Source: :tool (tool / story dispatch)"
+   :machine-spawn "Source: :machine-spawn (framework-internal actor bootstrap)"
+   :websocket     "Source: :websocket (app websocket adapter)"})
 
-(defn dispatch-origin-of
-  "Read the `:rf/dispatch-origin` tag from a cascade's `:dispatched`
-  trace event. Returns the closed-enum keyword or nil when absent
-  (synthetic fixtures, cascades projected from older traces that
-  predate rf2-t1lxr). Pure data; nil-safe at every level."
+(defn source-of
+  "Read the `:source` slot from a cascade's `:dispatched` trace event.
+  Returns the closed-enum keyword or nil when absent (synthetic
+  fixtures, cascades projected from older traces). Pure data; nil-safe
+  at every level.
+
+  Per Spec 009 §Core fields, `:source` is HOISTED as a top-level slot
+  on every trace event (not stamped under `:tags`); the build-event
+  hoist contract strips it from `:tags` before emit. Per rf2-1ve9h
+  (Mike-approved Option A, 2026-05-28) the prior `dispatch-origin-of`
+  reader (which read `[:dispatched :tags :rf/dispatch-origin]`) was
+  retired alongside the envelope axis collapse.
+
+  Falls back to `[:dispatched :tags :source]` for defence in depth —
+  synthetic fixtures occasionally stamp under `:tags` directly."
   [cascade]
   (when (map? cascade)
-    (get-in cascade [:dispatched :tags :rf/dispatch-origin])))
+    (or (get-in cascade [:dispatched :source])
+        (get-in cascade [:dispatched :tags :source]))))
+
+(defn source-bucket-of
+  "Read a cascade's `:source` and project onto its chrome bucket.
+  Returns the bucket keyword or nil (silent / unknown source)."
+  [cascade]
+  (source->bucket (source-of cascade)))
 
 (defn origin-prefix-glyph
-  "Pure-data version of the per-origin prefix. Returns the glyph
-  string or nil when the origin should render no prefix (:user,
-  unknown, nil). Tests assert this without touching hiccup."
-  [origin]
-  (get origin-glyphs origin))
+  "Pure-data version of the per-bucket prefix. Returns the glyph
+  string or nil when the source should render no prefix (silent
+  bucket, unknown, nil). Tests assert this without touching hiccup.
+  Argument is the chrome BUCKET keyword (not the raw `:source`
+  value) — callers project via `source->bucket` first; the legacy
+  per-source-direct call site stays valid because each bucket
+  keyword is also itself in `bucket-glyphs`."
+  [bucket-or-source]
+  (or (get bucket-glyphs bucket-or-source)
+      (get bucket-glyphs (source->bucket bucket-or-source))))
 
 (def ui-source-tag
-  "SOURCE-column label for the default app-code origin. The Figma
+  "SOURCE-column label for the default app-code source. The Figma
   EventList (the `event-list` component in
   `design-reference/xray_devtools_reference.cljs`) renders a
   concrete `source` tag for EVERY row — the mock's `view` rows are the
   UI-triggered dispatches (the common case). Xray's closed-enum source
-  axis names that origin `:user`; the visible column label for it is
-  `ui` (the dispatch came from app/UI code, not a substrate)."
+  axis names that origin `:ui` (or the un-stamped default
+  `:unknown` / `:other` / `:repl` / `:frame-init`); the visible
+  column label for all of them is `ui` (the dispatch came from
+  app/UI code, not a substrate)."
   "ui")
 
 (defn origin-source-tag
@@ -130,11 +192,12 @@
   `design-reference/xray_devtools_reference.cljs`) renders a
   left-most `source` column as a short text tag — `fx` / `view` /
   `timer` / `machine` in the mock — and tags EVERY row, never a blank
-  cell. Xray's real source axis is the closed-enum dispatch-origin
-  (`:rf/dispatch-origin`): substrate origins render the bare origin
-  name (`router` / `http` / `timer` / `fx-emit` / …) and the default
-  app-code origin (`:user`, plus nil/unknown for synthetic or pre-
-  origin-tag cascades) renders `ui`.
+  cell. Xray's real source axis is the closed-enum `:source` (per
+  rf2-1ve9h): substrate sources render the bare source name
+  (`router` / `http` / `fx-dispatch` / `after-timer` / …) and the
+  default app-code sources (`:ui`, plus the un-stamped defaults
+  `:unknown` / `:other` / `:repl` / `:frame-init`, plus nil for
+  pre-source-tag cascades) render `ui`.
 
   Pre-rf2-lnod7 this returned nil for `:user`, which left the source
   column BLANK for the dominant ui-origin rows — the gap audit
@@ -142,17 +205,19 @@
   default rows showed nothing. Tagging every row with a concrete
   source (the reference's posture) restores the column's signal.
   Never throws."
-  [origin]
-  (if (or (nil? origin) (= :user origin))
+  [source]
+  (if (or (nil? source)
+          (contains? #{:ui :unknown :other :repl :frame-init} source))
     ui-source-tag
-    (name origin)))
+    (name source)))
 
 (defn origin-prefix-title
-  "Hover-title text for a given origin, or nil when the origin has
-  no prefix to title."
-  [origin]
-  (when (origin-prefix-glyph origin)
-    (get origin-titles origin)))
+  "Hover-title text for a given source / bucket, or nil when the
+  source has no prefix to title."
+  [bucket-or-source]
+  (when (origin-prefix-glyph bucket-or-source)
+    (or (get bucket-titles bucket-or-source)
+        (get bucket-titles (source->bucket bucket-or-source)))))
 
 ;; ---- 1b. duration column (rf2-lnod7) ------------------------------------
 ;;
@@ -269,18 +334,18 @@
        :machine?  bool   ;; :rf.machine/* transition present
        :http?     bool   ;; :rf.http/* or :http/* settle present
        :timer?    bool   ;; :rf.timer/* fire present
-       :fx-emit?  bool}  ;; cascade itself dispatched via :fx-emit
-                         ;; (a CHILD epoch — origin tag on this cascade
-                         ;; says `:fx-emit`)
+       :fx-emit?  bool}  ;; cascade itself dispatched via fx
+                         ;; (a CHILD epoch — source on this cascade
+                         ;; projects onto the `:fx-emit` bucket)
 
-  The `:fx-emit?` flag is read from the CASCADE's own origin tag
-  rather than from `:other` events; per Spec 009 §Dispatch-origin
-  tagging, a cascade whose origin is `:fx-emit` is itself the child
-  of another cascade's do-fx phase — rendering the badge on the
-  CHILD row surfaces 'this dispatch was triggered by a parent's
-  do-fx'. (We expose the flag on every row regardless of origin so
-  the renderer can compose; the prefix layer is what surfaces the
-  origin per-row.)
+  The `:fx-emit?` flag is read from the CASCADE's own `:source` tag
+  (via `source->bucket`) rather than from `:other` events; per Spec
+  009 a cascade whose source projects onto `:fx-emit` is itself the
+  child of another cascade's do-fx phase — rendering the badge on
+  the CHILD row surfaces 'this dispatch was triggered by a parent's
+  do-fx'. The same goes for `:timer?` — the bucket projection
+  preserves the pre-rf2-1ve9h semantic (`:rf/dispatch-origin :timer`
+  ↔ post-rf2-1ve9h `:source :after-timer` / `:always`).
 
   Errors are ALSO read from `:errors` (the cascade's existing
   pre-rf2-gf58j slot) so an error-bearing cascade flags the warn
@@ -289,12 +354,12 @@
   [cascade]
   (let [others (when (map? cascade) (:other cascade))
         errors (when (map? cascade) (:errors cascade))
-        origin (dispatch-origin-of cascade)]
+        bucket (source-bucket-of cascade)]
     {:error?   (or (boolean (seq errors)) (has-error-op? others))
      :machine? (has-machine-op? others)
      :http?    (has-http-op? others)
-     :timer?   (or (has-timer-op? others) (= :timer origin))
-     :fx-emit? (= :fx-emit origin)}))
+     :timer?   (or (has-timer-op? others) (= :timer bucket))
+     :fx-emit? (= :fx-emit bucket)}))
 
 (def activity-badge-glyphs
   "Pure-data badge map. Render order is fixed — issues first (the
@@ -310,7 +375,7 @@
 (def ^:private activity-badge-order
   "Render order (left → right) per spec/021 §17.1.5 — issues lead,
   machine + HTTP next (cascade-shape signals), fx-emit + timer last
-  (origin-derived signals)."
+  (source-bucket-derived signals)."
   [:error? :machine? :http? :fx-emit? :timer?])
 
 (defn activity-badges

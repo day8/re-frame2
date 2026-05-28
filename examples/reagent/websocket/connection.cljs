@@ -264,7 +264,12 @@
                             (when-let [dispatch! (re-frame.late-bind/get-fn :router/dispatch!)]
                               (dispatch!
                                 [:ws/connection [:ws/-socket-spawned id]]
-                                {:rf/dispatch-origin :internal})))}
+                                ;; Per rf2-1ve9h: closed-enum
+                                ;; functional-origin axis is `:source`
+                                ;; — `:websocket` is the reserved app-
+                                ;; level slot for websocket-arrived
+                                ;; dispatches.
+                                {:source :websocket})))}
 
        ;; Exit cascade — clear the stale :socket-id from :data. The
        ;; runtime destroys the actor automatically (declarative :spawn's

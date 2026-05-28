@@ -424,8 +424,7 @@
   [ev {:keys [operation op-type since severity event-id handler-id source
               origin dispatch-id since-ms between sensitive? pred]
        :as opts}]
-  (let [rf-dispatch-origin (:rf/dispatch-origin opts)
-        [t0 t1] (when (and (sequential? between)
+  (let [[t0 t1] (when (and (sequential? between)
                            (= 2 (count between)))
                   between)]
     (and (or (nil? operation) (= operation (:operation ev)))
@@ -441,9 +440,6 @@
                            (get-in ev [:tags :source]))))
          (or (nil? origin)
              (= origin (get-in ev [:tags :rf.event/origin])))
-         (or (nil? rf-dispatch-origin)
-             (= rf-dispatch-origin
-                (get-in ev [:tags :rf/dispatch-origin])))
          (or (nil? dispatch-id)
              (= dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])))
          (or (nil? since-ms)
@@ -509,9 +505,11 @@
     :since          — (:flat-only) :id strictly greater than this
     :severity       — (:flat-only) :op-type ∈ #{:error :warning :info}
     :handler-id     — (:flat-only) :tags :handler-id match
-    :source         — (:flat-only) :source match
+    :source         — (:flat-only) :source match (per rf2-1ve9h, this is
+                      now the single closed-enum functional-origin axis
+                      — the prior `:rf/dispatch-origin` filter key was
+                      collapsed)
     :sensitive?     — (:flat-only) :sensitive? match
-    :rf/dispatch-origin — (:flat-only) :tags :rf/dispatch-origin match
     :event-id       — cascade :event first-element OR (:flat) :tags :rf.trace/event-id
     :origin         — cascade root :rf.event/origin OR (:flat) per-event
     :dispatch-id    — cascade :dispatch-id OR (:flat) per-event

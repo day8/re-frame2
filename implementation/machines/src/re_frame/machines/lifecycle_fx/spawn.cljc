@@ -263,23 +263,21 @@
         ;; [:rf.machine/spawned] so generic child machines can declare their
         ;; first transition out of an :initial state at spec-write time.
         (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-          ;; Per rf2-t1lxr: machine-spawn :start dispatches are framework-
-          ;; internal lifecycle events — tag :rf/dispatch-origin :internal
-          ;; so Xray's L2 timeline can distinguish actor-bootstrap from
-          ;; user-origin events.
-          ;; Per rf2-ejtpd: stamp `:source :machine-spawn` so the Epoch
-          ;; panel's DISPATCH step labels this dispatch as "from machine
-          ;; spawn" rather than `:unknown` (rf2-hxj0d residual default) or
-          ;; `:fx-dispatch` (which would be the value if the spawn fx
-          ;; routed through `:dispatch`). The two axes —
-          ;; `:rf/dispatch-origin :internal` and `:source :machine-spawn`
-          ;; — are independent: the former is the closed-enum functional
-          ;; source (Spec 009 §Dispatch-origin tagging), the latter is
-          ;; the operator-facing trigger-kind classifier (Spec 002
-          ;; §`:source` / Spec-Schemas §`:rf/dispatch-envelope`).
+          ;; Per rf2-ejtpd + rf2-1ve9h: stamp `:source :machine-spawn`
+          ;; on the actor-bootstrap dispatch so the Epoch panel's
+          ;; DISPATCH step labels it "from machine spawn" rather than
+          ;; `:unknown` (rf2-hxj0d residual default) or `:fx-dispatch`
+          ;; (which would be the value if the spawn fx routed through
+          ;; `:dispatch`), and Xray's L2 timeline can prefix the row +
+          ;; per-source filter pills can discriminate actor-bootstrap
+          ;; cascades. Per rf2-1ve9h (Mike-approved Option A,
+          ;; 2026-05-28) the prior parallel `:rf/dispatch-origin
+          ;; :internal` axis was collapsed into `:source` —
+          ;; `:machine-spawn` is now the single functional-origin
+          ;; discriminator (closed-enum per Spec-Schemas
+          ;; §`:rf/dispatch-envelope`).
           (let [start (:start args)
                 opts  {:frame              frame-id
-                       :rf/dispatch-origin :internal
                        :source             :machine-spawn}]
             (if (some? start)
               (dispatch! [spawned-id start] opts)

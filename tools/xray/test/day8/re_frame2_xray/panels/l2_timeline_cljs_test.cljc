@@ -3,15 +3,17 @@
 
   ## What's under test
 
-    1. **dispatch-origin extraction** — `dispatch-origin-of` reads
-       `[:dispatched :tags :rf/dispatch-origin]` and nil-safes every
-       step.
-    2. **origin → glyph mapping** — every closed-enum value renders
-       the right glyph; `:user` is silent; unknown / nil return nil.
-    3. **origin → title text** — present only when a glyph is
-       present.
+    1. **source extraction** — `source-of` reads
+       `[:dispatched :tags :source]` and nil-safes every step. Per
+       rf2-1ve9h the prior `:rf/dispatch-origin` axis was collapsed
+       into `:source` (Mike-approved Option A, 2026-05-28).
+    2. **source → bucket → glyph mapping** — every closed-enum value
+       projects onto its chrome bucket; silent buckets render no
+       prefix; unknown / nil return nil.
+    3. **source / bucket → title text** — present only when a glyph
+       is present.
     4. **cascade activity flags** — per-class detection from `:other`
-       events + the cascade's origin tag + the `:errors` slot.
+       events + the cascade's source bucket + the `:errors` slot.
     5. **activity-badges projection** — ordered, compressed, glyph-
        matched against the canonical mapping.
     6. **activity tooltip** — nil-safe + human-readable.
@@ -24,17 +26,17 @@
 
 ;; ---- fixture builders ---------------------------------------------------
 
-(defn- cascade-with-origin
+(defn- cascade-with-source
   "Build a synthetic cascade record whose `:dispatched` carries the
-  given dispatch-origin tag. Mirrors the shape produced by
-  `re-frame.trace.projection/group-cascades`."
-  [origin]
+  given `:source` tag. Mirrors the shape produced by
+  `re-frame.trace.projection/group-cascades` post-rf2-1ve9h."
+  [source]
   {:dispatch-id 42
    :event       [:cart/add-item {:id 99}]
    :dispatched  {:operation :rf.event/dispatched
                  :op-type   :rf.event
-                 :tags      {:rf/dispatch-origin origin
-                             :rf.trace/dispatch-id        42}}
+                 :tags      {:source                source
+                             :rf.trace/dispatch-id  42}}
    :other       []
    :errors      []})
 
@@ -44,93 +46,146 @@
   (cond-> {:operation operation :tags tags}
     op-type (assoc :op-type op-type)))
 
-;; ---- 1. dispatch-origin extraction --------------------------------------
+;; ---- 1. source extraction (post-rf2-1ve9h) ------------------------------
 
-(deftest dispatch-origin-of-test
-  (testing "reads :rf/dispatch-origin from :dispatched :tags"
-    (is (= :tool   (l2/dispatch-origin-of (cascade-with-origin :tool))))
-    (is (= :router (l2/dispatch-origin-of (cascade-with-origin :router))))
-    (is (= :user   (l2/dispatch-origin-of (cascade-with-origin :user)))))
+(deftest source-of-test
+  (testing "reads :source from :dispatched :tags (the post-rf2-1ve9h axis)"
+    (is (= :tool           (l2/source-of (cascade-with-source :tool))))
+    (is (= :router         (l2/source-of (cascade-with-source :router))))
+    (is (= :ui             (l2/source-of (cascade-with-source :ui))))
+    (is (= :after-timer    (l2/source-of (cascade-with-source :after-timer))))
+    (is (= :machine-spawn  (l2/source-of (cascade-with-source :machine-spawn))))
+    (is (= :fx-dispatch    (l2/source-of (cascade-with-source :fx-dispatch)))))
 
   (testing "nil-safe on missing slots"
-    (is (nil? (l2/dispatch-origin-of nil)))
-    (is (nil? (l2/dispatch-origin-of {})))
-    (is (nil? (l2/dispatch-origin-of {:dispatched nil})))
-    (is (nil? (l2/dispatch-origin-of {:dispatched {}})))
-    (is (nil? (l2/dispatch-origin-of {:dispatched {:tags {}}}))))
+    (is (nil? (l2/source-of nil)))
+    (is (nil? (l2/source-of {})))
+    (is (nil? (l2/source-of {:dispatched nil})))
+    (is (nil? (l2/source-of {:dispatched {}})))
+    (is (nil? (l2/source-of {:dispatched {:tags {}}}))))
 
   (testing "non-map input returns nil"
-    (is (nil? (l2/dispatch-origin-of "not a cascade")))
-    (is (nil? (l2/dispatch-origin-of 42)))))
+    (is (nil? (l2/source-of "not a cascade")))
+    (is (nil? (l2/source-of 42)))))
 
-;; ---- 2. origin → glyph mapping ------------------------------------------
+(deftest source-bucket-of-test
+  (testing "source → chrome bucket projection (post-rf2-1ve9h)"
+    ;; silent — the default app-code path
+    (is (nil? (l2/source-bucket-of (cascade-with-source :ui))))
+    (is (nil? (l2/source-bucket-of (cascade-with-source :unknown))))
+    (is (nil? (l2/source-bucket-of (cascade-with-source :other))))
+    (is (nil? (l2/source-bucket-of (cascade-with-source :repl))))
+    (is (nil? (l2/source-bucket-of (cascade-with-source :frame-init))))
+    ;; substrate-internal — each maps to its named bucket
+    (is (= :router        (l2/source-bucket-of (cascade-with-source :router))))
+    (is (= :http          (l2/source-bucket-of (cascade-with-source :http))))
+    (is (= :ssr           (l2/source-bucket-of (cascade-with-source :ssr-hydration))))
+    (is (= :test          (l2/source-bucket-of (cascade-with-source :test))))
+    (is (= :tool          (l2/source-bucket-of (cascade-with-source :tool))))
+    (is (= :machine-spawn (l2/source-bucket-of (cascade-with-source :machine-spawn))))
+    (is (= :websocket     (l2/source-bucket-of (cascade-with-source :websocket))))
+    ;; collapsed fx-cascade kinds all bucket as :fx-emit
+    (is (= :fx-emit       (l2/source-bucket-of (cascade-with-source :fx-dispatch))))
+    (is (= :fx-emit       (l2/source-bucket-of (cascade-with-source :fx-dispatch-later))))
+    (is (= :fx-emit       (l2/source-bucket-of (cascade-with-source :machine-action))))
+    ;; collapsed timer kinds all bucket as :timer
+    (is (= :timer         (l2/source-bucket-of (cascade-with-source :after-timer))))
+    (is (= :timer         (l2/source-bucket-of (cascade-with-source :always)))))
+
+  (testing "unknown / nil → nil"
+    (is (nil? (l2/source-bucket-of nil)))
+    (is (nil? (l2/source-bucket-of (cascade-with-source :unknown-axis))))))
+
+;; ---- 2. source → glyph mapping ------------------------------------------
 
 (deftest origin-prefix-glyph-test
-  (testing ":user is silent (no prefix) — the common case stays clutter-free"
-    (is (nil? (l2/origin-prefix-glyph :user))))
+  (testing "silent sources render no prefix — the common case stays clutter-free"
+    (is (nil? (l2/origin-prefix-glyph :ui)))
+    (is (nil? (l2/origin-prefix-glyph :unknown)))
+    (is (nil? (l2/origin-prefix-glyph :other)))
+    (is (nil? (l2/origin-prefix-glyph :repl)))
+    (is (nil? (l2/origin-prefix-glyph :frame-init))))
 
-  (testing "every non-user closed-enum value renders a glyph"
+  (testing "substrate sources render their bucket's glyph"
     (is (= "R"    (l2/origin-prefix-glyph :router)))
     (is (= "🌐"   (l2/origin-prefix-glyph :http)))     ; 🌐
-    (is (= "💧"   (l2/origin-prefix-glyph :ssr)))      ; 💧
-    (is (= "⚡"     (l2/origin-prefix-glyph :fx-emit)))  ; ⚡
-    (is (= "⏲"     (l2/origin-prefix-glyph :timer)))    ; ⏲
-    (is (= "T"    (l2/origin-prefix-glyph :test-harness)))
+    (is (= "💧"   (l2/origin-prefix-glyph :ssr-hydration))) ; 💧
+    (is (= "⚡"     (l2/origin-prefix-glyph :fx-dispatch)))  ; ⚡
+    (is (= "⚡"     (l2/origin-prefix-glyph :fx-dispatch-later)))
+    (is (= "⚡"     (l2/origin-prefix-glyph :machine-action)))
+    (is (= "⏲"     (l2/origin-prefix-glyph :after-timer)))   ; ⏲
+    (is (= "⏲"     (l2/origin-prefix-glyph :always)))
+    (is (= "T"    (l2/origin-prefix-glyph :test)))
     (is (= "🔧"   (l2/origin-prefix-glyph :tool)))     ; 🔧
-    (is (= "i"    (l2/origin-prefix-glyph :internal)))
+    (is (= "i"    (l2/origin-prefix-glyph :machine-spawn)))
     (is (= "🌊"   (l2/origin-prefix-glyph :websocket)))) ; 🌊
+
+  (testing "buckets resolve directly (callers may pass a bucket keyword)"
+    (is (= "R"    (l2/origin-prefix-glyph :router)))
+    (is (= "💧"   (l2/origin-prefix-glyph :ssr)))      ; bucket name itself
+    (is (= "⚡"     (l2/origin-prefix-glyph :fx-emit)))  ; bucket name itself
+    (is (= "⏲"     (l2/origin-prefix-glyph :timer))))   ; bucket name itself
 
   (testing "unknown / nil → nil (defence-in-depth, never throws)"
     (is (nil? (l2/origin-prefix-glyph nil)))
     (is (nil? (l2/origin-prefix-glyph :unknown-axis)))
     (is (nil? (l2/origin-prefix-glyph "string"))))
 
-  (testing "the mapping covers exactly the closed enum (Spec 009 / Xray A.5)"
-    (is (= #{:user :router :http :ssr :fx-emit :timer
-             :test-harness :tool :internal :websocket}
-           (set (keys l2/origin-glyphs))))))
+  (testing "bucket-glyphs covers the 9 substrate buckets (Spec 009 / Xray A.5)"
+    (is (= #{:router :http :ssr :fx-emit :timer
+             :test :tool :machine-spawn :websocket}
+           (set (keys l2/bucket-glyphs))))))
 
-;; ---- 2b. origin → source-tag (Figma `source` column, rf2-ad7zx.12) -------
+;; ---- 2b. source → source-tag (Figma `source` column, rf2-ad7zx.12) ------
 
 (deftest origin-source-tag-test
-  (testing ":user renders the `ui` tag (rf2-lnod7) — the reference tags
-            EVERY row; the dominant app-code origin reads `ui` rather than
-            a blank cell (the gap audit rf2-4297k flagged the blank)"
-    (is (= "ui" (l2/origin-source-tag :user)))
+  (testing "app-code sources render the `ui` tag (rf2-lnod7) — the
+            reference tags EVERY row; the dominant app-code source reads
+            `ui` rather than a blank cell"
+    (is (= "ui" (l2/origin-source-tag :ui)))
+    (is (= "ui" (l2/origin-source-tag :unknown)))
+    (is (= "ui" (l2/origin-source-tag :other)))
+    (is (= "ui" (l2/origin-source-tag :repl)))
+    (is (= "ui" (l2/origin-source-tag :frame-init)))
     (is (= "ui" l2/ui-source-tag)))
 
-  (testing "every non-user closed-enum value renders its bare name as the tag"
-    (is (= "router"       (l2/origin-source-tag :router)))
-    (is (= "http"         (l2/origin-source-tag :http)))
-    (is (= "ssr"          (l2/origin-source-tag :ssr)))
-    (is (= "fx-emit"      (l2/origin-source-tag :fx-emit)))
-    (is (= "timer"        (l2/origin-source-tag :timer)))
-    (is (= "test-harness" (l2/origin-source-tag :test-harness)))
-    (is (= "tool"         (l2/origin-source-tag :tool)))
-    (is (= "internal"     (l2/origin-source-tag :internal)))
-    (is (= "websocket"    (l2/origin-source-tag :websocket))))
+  (testing "every substrate-internal closed-enum value renders its bare name"
+    (is (= "router"            (l2/origin-source-tag :router)))
+    (is (= "http"              (l2/origin-source-tag :http)))
+    (is (= "ssr-hydration"     (l2/origin-source-tag :ssr-hydration)))
+    (is (= "fx-dispatch"       (l2/origin-source-tag :fx-dispatch)))
+    (is (= "fx-dispatch-later" (l2/origin-source-tag :fx-dispatch-later)))
+    (is (= "machine-action"    (l2/origin-source-tag :machine-action)))
+    (is (= "after-timer"       (l2/origin-source-tag :after-timer)))
+    (is (= "always"            (l2/origin-source-tag :always)))
+    (is (= "test"              (l2/origin-source-tag :test)))
+    (is (= "tool"              (l2/origin-source-tag :tool)))
+    (is (= "machine-spawn"     (l2/origin-source-tag :machine-spawn)))
+    (is (= "websocket"         (l2/origin-source-tag :websocket))))
 
-  (testing "nil → the `ui` default (rf2-lnod7) so synthetic / pre-origin-
+  (testing "nil → the `ui` default (rf2-lnod7) so synthetic / pre-source-
             tag cascades still render a concrete source rather than blank;
             never throws"
     (is (= "ui" (l2/origin-source-tag nil)))
     ;; an unknown keyword still yields its name — the column is the bare
-    ;; origin axis, not gated on the closed-enum glyph map.
+    ;; source axis, not gated on the closed-enum glyph map.
     (is (= "unknown-axis" (l2/origin-source-tag :unknown-axis)))))
 
-;; ---- 3. origin → title text ---------------------------------------------
+;; ---- 3. source → title text ---------------------------------------------
 
 (deftest origin-prefix-title-test
   (testing "title text present only when the glyph is present"
-    (is (nil?              (l2/origin-prefix-title :user)))
+    (is (nil?              (l2/origin-prefix-title :ui)))
+    (is (nil?              (l2/origin-prefix-title :unknown)))
     (is (nil?              (l2/origin-prefix-title nil)))
     (is (some?             (l2/origin-prefix-title :router)))
     (is (some?             (l2/origin-prefix-title :tool)))
     (is (some?             (l2/origin-prefix-title :http))))
 
-  (testing "title carries the keyword name so the operator can read the closed-enum value"
+  (testing "title carries information about the bucket so the operator can read
+            the closed-enum value"
     (is (re-find #":router"      (l2/origin-prefix-title :router)))
-    (is (re-find #":fx-emit"     (l2/origin-prefix-title :fx-emit)))
+    (is (re-find #":fx-"         (l2/origin-prefix-title :fx-dispatch)))
     (is (re-find #":websocket"   (l2/origin-prefix-title :websocket)))))
 
 ;; ---- 3b. duration column (Figma `duration` column, rf2-lnod7) ------------
@@ -240,25 +295,34 @@
                  {:other [(ev :rf.timer/fired)]})]
       (is (true? (:timer? flags)))))
 
-  (testing "cascade origin :timer alone (no :rf.timer trace) → timer? true"
-    ;; The runtime stamps origin-on-dispatch; some timer dispatches
-    ;; don't carry a separate :rf.timer/fired trace event but the
-    ;; origin tag still tells the story.
-    (let [flags (l2/cascade-activity-flags (cascade-with-origin :timer))]
+  (testing "cascade source :after-timer alone (no :rf.timer trace) → timer? true"
+    ;; The runtime stamps :source :after-timer on machine-:after dispatches;
+    ;; the bucket projection (`source->bucket`) maps both `:after-timer` and
+    ;; `:always` onto the `:timer` chrome bucket so the flag lights up
+    ;; without an additional `:rf.timer/*` trace.
+    (let [flags (l2/cascade-activity-flags (cascade-with-source :after-timer))]
+      (is (true? (:timer? flags))))
+    (let [flags (l2/cascade-activity-flags (cascade-with-source :always))]
       (is (true? (:timer? flags))))))
 
 (deftest cascade-activity-flags-fx-emit-test
-  (testing "cascade origin :fx-emit → fx-emit? true"
-    (let [flags (l2/cascade-activity-flags (cascade-with-origin :fx-emit))]
+  (testing "cascade source :fx-dispatch / :fx-dispatch-later / :machine-action → fx-emit? true"
+    ;; Per rf2-1ve9h: all three fx-cascade kinds project onto the
+    ;; `:fx-emit` chrome bucket.
+    (let [flags (l2/cascade-activity-flags (cascade-with-source :fx-dispatch))]
+      (is (true? (:fx-emit? flags))))
+    (let [flags (l2/cascade-activity-flags (cascade-with-source :fx-dispatch-later))]
+      (is (true? (:fx-emit? flags))))
+    (let [flags (l2/cascade-activity-flags (cascade-with-source :machine-action))]
       (is (true? (:fx-emit? flags)))))
 
-  (testing "cascade origin :user → fx-emit? false"
-    (let [flags (l2/cascade-activity-flags (cascade-with-origin :user))]
+  (testing "cascade source :ui → fx-emit? false"
+    (let [flags (l2/cascade-activity-flags (cascade-with-source :ui))]
       (is (false? (:fx-emit? flags))))))
 
 (deftest cascade-activity-flags-mixed-test
   (testing "multiple activity classes light up independently"
-    (let [c (-> (cascade-with-origin :fx-emit)
+    (let [c (-> (cascade-with-source :fx-dispatch)
                 (assoc :other [(ev :rf.machine/transition)
                                (ev :rf.http/managed-request-settle)
                                (ev :rf.error/handler-throw :op-type :error)]))
@@ -273,7 +337,7 @@
   (testing "a quiet cascade yields []"
     (is (= [] (l2/activity-badges {})))
     (is (= [] (l2/activity-badges nil)))
-    (is (= [] (l2/activity-badges (cascade-with-origin :user))))))
+    (is (= [] (l2/activity-badges (cascade-with-source :ui))))))
 
 (deftest activity-badges-single-test
   (testing "one flag → one badge"
@@ -284,13 +348,13 @@
     (is (= ["🌐"]
            (l2/activity-badges {:other [(ev :rf.http/managed-request-settle)]})))
     (is (= ["⚡"]
-           (l2/activity-badges (cascade-with-origin :fx-emit))))
+           (l2/activity-badges (cascade-with-source :fx-dispatch))))
     (is (= ["⏲"]
-           (l2/activity-badges (cascade-with-origin :timer))))))
+           (l2/activity-badges (cascade-with-source :after-timer))))))
 
 (deftest activity-badges-ordered-test
   (testing "badges render in the canonical order ⚠ ◆ 🌐 ⚡ ⏲"
-    (let [c (-> (cascade-with-origin :fx-emit)
+    (let [c (-> (cascade-with-source :fx-dispatch)
                 (assoc :other [(ev :rf.timer/fired)
                                (ev :rf.http/managed-request-settle)
                                (ev :rf.machine/transition)
@@ -316,10 +380,10 @@
   (testing "nil when no badges are present"
     (is (nil? (l2/activity-badges-tooltip {})))
     (is (nil? (l2/activity-badges-tooltip nil)))
-    (is (nil? (l2/activity-badges-tooltip (cascade-with-origin :user)))))
+    (is (nil? (l2/activity-badges-tooltip (cascade-with-source :ui)))))
 
   (testing "human-readable cluster description"
-    (let [c (-> (cascade-with-origin :fx-emit)
+    (let [c (-> (cascade-with-source :fx-dispatch)
                 (assoc :other [(ev :rf.machine/transition)
                                (ev :rf.http/managed-request-settle)
                                (ev :rf.error/handler-throw :op-type :error)]))

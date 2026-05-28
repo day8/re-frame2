@@ -337,20 +337,20 @@
                 (interop/schedule-after!
                   (fn []
                     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-                      ;; Per rf2-t1lxr: machine :after timer firing tags
-                      ;; the resulting dispatch with :rf/dispatch-origin
-                      ;; :timer so Xray can prefix the L2 row + filter on
-                      ;; timer-origin epochs.
-                      ;; Per rf2-ejtpd: stamp `:source :after-timer` so
-                      ;; the Epoch panel's DISPATCH step labels this
-                      ;; dispatch as "from :after timer" rather than the
-                      ;; `:unknown` residual default (rf2-hxj0d). The two
-                      ;; axes — `:rf/dispatch-origin :timer` and
-                      ;; `:source :after-timer` — are independent: the
-                      ;; former is the closed-enum functional source
-                      ;; (Spec 009 §Dispatch-origin tagging), the latter
-                      ;; is the operator-facing trigger-kind classifier
-                      ;; (Spec 002 §`:source` / Spec-Schemas §`:rf/dispatch-envelope`).
+                      ;; Per rf2-ejtpd + rf2-1ve9h: stamp `:source
+                      ;; :after-timer` on the timer-fired dispatch so
+                      ;; the Epoch panel's DISPATCH step labels it
+                      ;; "from :after timer" rather than the
+                      ;; `:unknown` residual default (rf2-hxj0d), and
+                      ;; Xray's L2 timeline can prefix the row + per-
+                      ;; source filter pills can discriminate timer-
+                      ;; fired cascades. Per rf2-1ve9h (Mike-approved
+                      ;; Option A, 2026-05-28) the prior parallel
+                      ;; `:rf/dispatch-origin :timer` axis was
+                      ;; collapsed into `:source` — `:after-timer` is
+                      ;; now the single functional-origin discriminator
+                      ;; (closed-enum per Spec-Schemas
+                      ;; §`:rf/dispatch-envelope`).
                       ;; Per Spec 005 §Hierarchy interaction: carry the
                       ;; scheduling node's decl-path (`invoke-id`) so the
                       ;; pure side routes the firing to the correct
@@ -360,7 +360,6 @@
                       (dispatch! [parent-id [:rf.machine.timer/after-elapsed
                                               delay-key epoch (vec invoke-id)]]
                                  {:frame              frame-id
-                                  :rf/dispatch-origin :timer
                                   :source             :after-timer})))
                   resolved-ms)
                 watch-key (when (= :sub delay-source)

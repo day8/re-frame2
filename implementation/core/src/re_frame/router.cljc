@@ -79,18 +79,19 @@
     :fx-overrides       per-call fx-id-to-fx-id remapping
     :interceptor-overrides
     :trace-id           tooling
-    :source             trigger-kind classifier — closed set
-                        `:ui :frame-init :machine-spawn
-                        :machine-action :always :after-timer
-                        :fx-dispatch :fx-dispatch-later :http :repl
-                        :ssr-hydration :test :unknown :other`.
+    :source             closed-enum trigger-kind / functional-origin
+                        classifier — one of `:ui :frame-init
+                        :machine-spawn :machine-action :always
+                        :after-timer :fx-dispatch :fx-dispatch-later
+                        :http :router :ssr-hydration :test :tool
+                        :websocket :repl :unknown :other`.
                         Default `:unknown` per rf2-hxj0d
                         (changed from `:ui` to avoid false
                         attribution of unstamped dispatches as
                         UI-driven). UI handler call-sites stamp
                         `:source :ui` explicitly; substrate-internal
                         dispatch sites stamp the matching specific
-                        value per rf2-ejtpd + rf2-c3990:
+                        value per rf2-ejtpd + rf2-c3990 + rf2-1ve9h:
                           - machine `:after` timer       → :after-timer
                           - machine `:always` microstep  → :always (on the
                             per-microstep trace; `:always` does not
@@ -101,19 +102,25 @@
                             (rf2-c3990 — the actor-message path)
                           - `:dispatch` fx               → :fx-dispatch
                           - `:dispatch-later` fx         → :fx-dispatch-later
-                        Other origins stamp per the documented
-                        vocabulary. Per rf2-c3990 the prior broad
-                        `:fx` / `:machine` / `:dispatch-later` /
-                        `:timer` aliases are dropped — every dispatch
-                        site stamps the specific kind.
+                          - routing-internal dispatch    → :router
+                          - HTTP reply settle             → :http
+                          - SSR hydrate                  → :ssr-hydration
+                          - test-harness fixture          → :test
+                          - tool / story / REPL          → :tool / :repl
+                          - app websocket adapter         → :websocket (opt-in)
+                        Per rf2-c3990 the prior broad `:fx` /
+                        `:machine` / `:dispatch-later` / `:timer`
+                        aliases are dropped — every dispatch site
+                        stamps the specific kind. Per rf2-1ve9h
+                        (Mike-approved Option A, 2026-05-28) the
+                        prior parallel `:rf/dispatch-origin` axis was
+                        collapsed into `:source` — `:source` is now
+                        the single closed-enum functional-origin axis.
     :origin             actor identity tag (:app default; :pair, :story,
-                        :test, ... per Spec 002 §Dispatch origin tagging)
-    :rf/dispatch-origin closed-enum functional source per Xray A.5 /
-                        Spec 009 §Dispatch-origin tagging — one of
-                        :user :router :websocket :http :ssr :fx-emit
-                        :timer :test-harness :tool :internal. Defaults
-                        to :user. Distinct from :origin (actor identity)
-                        and :source (trigger kind). Per rf2-t1lxr.
+                        :test, ... per Spec 002 §Dispatch origin tagging).
+                        Open-vocabulary; distinct from :source which is
+                        the closed-enum trigger-kind / functional-origin
+                        axis.
     :dispatch-id        process-monotonic id allocated here per
                         Spec 009 §Dispatch correlation
     :parent-dispatch-id the in-flight dispatch's id when this dispatch is
@@ -203,15 +210,6 @@
              ;; `emit-dispatched-trace`).
              :source-detail          (:source-detail opts)
              :origin                 (:origin opts :app)
-             ;; Per rf2-t1lxr: the closed-enum functional source per
-             ;; Xray A.5 / Spec 009 §Dispatch-origin tagging. The 10-value
-             ;; taxonomy (:user :router :websocket :http :ssr :fx-emit
-             ;; :timer :test-harness :tool :internal) classifies WHERE the
-             ;; dispatch came from. Defaults to :user; internal callers
-             ;; (router routing emits, fx `:dispatch` cascades, HTTP reply
-             ;; dispatches, machine timer fires, …) self-tag at their
-             ;; emit site to override the default.
-             :rf/dispatch-origin     (:rf/dispatch-origin opts :user)
              :dispatched-at          (interop/now-ms)}
       ;; Per rf2-ts1a: the macro form of `dispatch` / `dispatch-sync`
       ;; stamps an `:rf.trace/call-site` on the opts map. The read in
@@ -1685,9 +1683,12 @@
   "Emit the :event :event/dispatched trace event for this envelope. Per
   Spec 009 §Dispatch correlation, :dispatch-id and :parent-dispatch-id
   ride on :tags. Per Spec 002 §Dispatch origin tagging, :origin rides
-  on :tags too. Per rf2-t1lxr, :rf/dispatch-origin (Xray A.5 closed-
-  enum functional source) also rides on :tags so Xray's L2 epoch
-  timeline can render the per-row origin tag. Spec elision is
+  on :tags too. Per rf2-1ve9h (Mike-approved Option A, 2026-05-28), the
+  prior parallel `:rf/dispatch-origin` axis was collapsed into
+  `:source` — `:source` is the single closed-enum functional-origin
+  classifier and rides on :tags so Xray's L2 epoch timeline + Event
+  panel can render the per-row source tag, the DISPATCH step's
+  per-kind chrome, and per-source filter pills. Spec elision is
   automatic — trace/emit! short-circuits when interop/debug-enabled?
   is false at compile time.
 
@@ -1719,7 +1720,6 @@
                      (cond-> {:rf.event/v         event
                               :frame              (:frame envelope)
                               :rf.event/origin    (:origin envelope)
-                              :rf/dispatch-origin (:rf/dispatch-origin envelope)
                               :source             (:source envelope)
                               :rf.event/sync?     sync?}
                        (:dispatch-id envelope)
