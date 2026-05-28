@@ -9,6 +9,21 @@ via Scittle (SCI), instant-nav-safe.
 components** that evaluate re-frame2's OWN public API — see
 [Cell kinds](#cell-kinds) below.
 
+**rf2-ldgpd** extends the Phase-3 bundle with the optional
+`day8/re-frame2-machines` artefact: `re-frame.machines` is `:require`d
+by the SCI bundle namespace, which fires the artefact's `:machines/*`
+late-bind hook installs at bundle init and registers the
+`:rf/machine` / `:rf/machine-has-tag?` framework subs +
+`:rf.machine/spawn` / `:rf.machine/destroy` (etc.) reserved fxs from
+its top-level forms. The `re-frame.core` aliases `sci/copy-ns` already
+exposes (`reg-machine*` / `make-machine-handler` / `machine-transition`
+/ `sub-machine` / `machine-has-tag?` / `machines` / `machine-meta` /
+`machine-by-system-id` / `dispatch-to-system`) become live, and the SCI
+namespace also binds `reg-machine` to the `reg-machine*` fn-alias so
+cells write the same `(rf/reg-machine ...)` they would in real code.
+Used by ch12 of the guide to demo a real `reg-machine` + `sub-machine`
+turnstile.
+
 > A short-lived Phase 2 (rf2-bujlr) shipped a third `cljs-render` cell kind for
 > live **stock** reagent/re-frame demos via the Scittle plugins. It was removed:
 > the guide teaches re-frame2's own API, so no docs page ever used it, and it
@@ -70,8 +85,9 @@ How re-frame2's API reaches a cell:
 its UMD build** — so the Phase-2 global-`React`-from-CDN trick is unavailable.
 The `sci/` bundle therefore bundles `react`/`react-dom`@19 (the impl-pinned
 versions) directly: `playground-rf2.js` is one fully self-contained file (no
-external React, no CDN, no version-mismatch risk). ~1.06 MB raw / ~256 KB
-gzipped.
+external React, no CDN, no version-mismatch risk). ~1.31 MB raw / ~342 KB
+gzipped (the +5.7% raw / +7.5% gzipped uptick over the Phase-3 baseline is
+rf2-ldgpd folding `re-frame.machines` into the bundle).
 
 This is **option B** from the findings doc
 (`ai/findings/2026-05-21-roll-your-own-cljs-playground.md` §6) realised as a
@@ -100,6 +116,7 @@ The Phase-3 re-frame2 eval bundle (`sci/`) pins:
 | `org.babashka/sci` | 0.11.51 (git) | the SCI interpreter — the re-frame2 cells' eval engine |
 | `day8/re-frame2` (core) | `:local/root` | the public API exposed to cells (`re-frame.core` v2) |
 | `day8/reagent-slim` | `:local/root` | reagent2 (the render substrate) + the `reagent-slim` adapter |
+| `day8/re-frame2-machines` | `:local/root` | Spec 005 state-machine artefact (rf2-ldgpd) — activates `reg-machine` / `sub-machine` / `machine-has-tag?` for ch12 live cells |
 | `react` + `react-dom` | 19.2.0 | **bundled** into `playground-rf2.js` (React 19 has no UMD) |
 | `shadow-cljs` | 3.4.10 | the CLJS → `:advanced` browser bundler |
 
@@ -148,6 +165,12 @@ bootstrap auto-injects each engine on demand, then asserts:
   using re-frame2's OWN `subscribe` renders live; clicking its button
   `dispatch`es a re-frame2 event and the v2 subscription updates (count 0 → 2);
   the Phase-1 plain cell on the same page still works alongside it.
+- **rf2-ldgpd (machines):** a second ` ```cljs-rf2 ` cell calls real
+  `rf/reg-machine` against a two-state toggle machine, renders the state name
+  via `rf/sub-machine`, and flips `:on` → `:off` on a button click — proving
+  the machines artefact's `:machines/*` late-bind hooks (`reg-machine*`,
+  `make-machine-handler`, `machine-transition`) and the `:rf/machine`
+  framework sub all activate at bundle init.
 
 Build both bundles first: `npm run build` (or `npm run build:rf2` for just the
 re-frame2 one).

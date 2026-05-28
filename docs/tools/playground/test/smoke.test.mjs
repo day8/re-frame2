@@ -25,6 +25,14 @@
  *   - The Phase-1 plain cell on the SAME page still works alongside the
  *     re-frame2 bundle (Scittle + rf2sci coexist).
  *
+ * Asserts the rf2-ldgpd (machines) contract:
+ *   - A second ```cljs-rf2 cell calls real rf/reg-machine against a two-state
+ *     toggle machine, renders the state name via rf/sub-machine, and clicking
+ *     a button flips :on -> :off through reg-machine + dispatch + the :rf/machine
+ *     framework sub — proving re-frame.machines's late-bind hooks register at
+ *     bundle init (sci.cljs :require's the artefact) and its top-level
+ *     (subs/reg-sub :rf/machine ...) + (fx/reg-fx :rf.machine/* ...) forms ran.
+ *
  * Run: node test/smoke.test.mjs   (after both bundles are built + `npm run
  * browsers`)
  */
@@ -83,6 +91,24 @@ const PAGE = `<!DOCTYPE html>
    [:span#rf2-cnt "count: " @(rf/subscribe [:rf2smoke/count])]
    [:button#rf2-btn {:on-click #(rf/dispatch [:rf2smoke/inc])} "inc"]])
 [counter]</pre>
+  <h2>live re-frame2 state machine (rf2 cell, rf2-ldgpd)</h2>
+  <pre class="language-cljs-rf2">(require '[reagent2.core :as r]
+         '[re-frame.core :as rf])
+;; A two-state toggle as a real reg-machine — exercises the machines artefact's
+;; reg-machine* / make-machine-handler / :rf/machine sub late-bind hooks
+;; baked into the bundle by rf2-ldgpd.
+(rf/reg-machine :rf2smoke/toggle
+  {:initial :off
+   :data    {}
+   :states  {:off {:on {:flip {:target :on}}}
+             :on  {:on {:flip {:target :off}}}}})
+(rf/dispatch-sync [:rf2smoke/toggle [:flip]])
+(defn toggle-view []
+  (let [snap @(rf/sub-machine :rf2smoke/toggle)]
+    [:div
+     [:span#rf2-tog-state "state: " (str (:state snap))]
+     [:button#rf2-tog-btn {:on-click #(rf/dispatch [:rf2smoke/toggle [:flip]])} "flip"]]))
+[toggle-view]</pre>
   <script src="/playground.js"></script>
 </body></html>`;
 
@@ -149,9 +175,9 @@ await page.waitForFunction(
 );
 await page.waitForSelector(".cljs-cell .cm-editor", { timeout: 20000 });
 
-// All cells mount (3 plain-eval + 1 rf2 render).
+// All cells mount (3 plain-eval + 2 rf2 render: counter + toggle-machine).
 const allCells = await page.$$(".cljs-cell");
-assert(allCells.length === 4, `4 cells mounted (got ${allCells.length})`);
+assert(allCells.length === 5, `5 cells mounted (got ${allCells.length})`);
 // The eval-cell helpers below index into the 3 plain-eval cells only
 // (rf2 render cells carry .cljs-cell--render, so this excludes them).
 const cells = await page.$$(".cljs-cell:not(.cljs-cell--render)");
@@ -206,8 +232,8 @@ await page.waitForFunction(
 );
 assert(true, "bootstrap auto-loaded the re-frame2 SCI bundle (window.rf2sci)");
 
-const rf2Cell = await page.$(".cljs-cell--rf2");
-assert(!!rf2Cell, "re-frame2 cell mounted");
+const rf2Cells = await page.$$(".cljs-cell--rf2");
+assert(rf2Cells.length === 2, `2 re-frame2 cells mounted (got ${rf2Cells.length})`);
 
 // The reagent2 component renders into the result div as live DOM (auto-mount),
 // driven by re-frame2's OWN reg-event-db / reg-sub / dispatch-sync.
@@ -218,10 +244,14 @@ assert(
   rf2Before === "count: 0",
   `re-frame2 cell shows initial subscribed count 0 (got ${JSON.stringify(rf2Before)})`
 );
-const rf2MountErr = await rf2Cell.$eval(".cljs-result", (el) =>
+const rf2MountErr = await rf2Cells[0].$eval(".cljs-result", (el) =>
   el.classList.contains("cljs-result--err")
 );
-assert(!rf2MountErr, "re-frame2 cell not flagged error");
+assert(!rf2MountErr, "re-frame2 counter cell not flagged error");
+const rf2MachineErr = await rf2Cells[1].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2MachineErr, "re-frame2 machine cell not flagged error");
 
 // Clicking the button dispatches a re-frame2 event; the v2 subscription updates
 // and the reagent2 view re-renders.
@@ -237,6 +267,32 @@ console.log("rf2 cell count (after 2 dispatches):", JSON.stringify(rf2After));
 assert(
   rf2After === "count: 2",
   `re-frame2 dispatch increments subscribed count to 2 (got ${JSON.stringify(rf2After)})`
+);
+
+// --- rf2-ldgpd: live state-machine cell -----------------------------------
+//
+// The machines artefact is now bundled (re-frame.machines is :require'd by the
+// SCI build, activating the :machines/* late-bind hooks at load time). A cell
+// that calls real rf/reg-machine + rf/sub-machine + rf/dispatch must render
+// the machine's state and flip across button-driven transitions.
+await page.waitForSelector(".cljs-cell--rf2 #rf2-tog-state", { timeout: 20000 });
+const togBefore = (await page.locator("#rf2-tog-state").innerText()).trim();
+console.log("machine cell state (initial):", JSON.stringify(togBefore));
+assert(
+  togBefore === "state: :on",
+  `machine cell shows :on after :flip dispatch on init (got ${JSON.stringify(togBefore)})`
+);
+await page.click("#rf2-tog-btn");
+await page.waitForFunction(
+  () => document.querySelector("#rf2-tog-state")?.innerText.trim() === "state: :off",
+  null,
+  { timeout: 5000 }
+);
+const togAfter = (await page.locator("#rf2-tog-state").innerText()).trim();
+console.log("machine cell state (after :flip):", JSON.stringify(togAfter));
+assert(
+  togAfter === "state: :off",
+  `machine :flip transitions :on -> :off via reg-machine (got ${JSON.stringify(togAfter)})`
 );
 
 // A plain eval cell on the SAME page still works alongside the re-frame2 bundle

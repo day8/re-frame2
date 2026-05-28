@@ -12,6 +12,17 @@
 ;;     for clarity.
 ;;   - day8/reagent-slim — reagent2 (the substrate re-frame2 renders
 ;;     through) + the re-frame.adapter.reagent-slim adapter.
+;;   - day8/re-frame2-machines — Spec 005 state-machine artefact
+;;     (rf2-ldgpd). `:require`d by the SCI bundle namespace so the
+;;     `:machines/*` late-bind hooks register at bundle init: the
+;;     `reg-machine*` / `make-machine-handler` / `machine-transition`
+;;     / `sub-machine` / `machine-has-tag?` aliases on `re-frame.core`
+;;     (which `sci/copy-ns` already exposes) become live, and the
+;;     `:rf/machine` / `:rf/machine-has-tag?` framework subs +
+;;     `:rf.machine/spawn` / `:rf.machine/destroy` fxs register from
+;;     `re-frame.machines`'s top-level forms. Live cells in the
+;;     ch12 machines tutorial can then call real `reg-machine` rather
+;;     than hand-rolling a transition table.
 ;;
 ;; The :local/root coords point at the implementation artefacts (same
 ;; mechanism implementation/deps.edn uses). Bundle-isolation is not a
@@ -26,5 +37,6 @@
  :deps  {thheller/shadow-cljs {:mvn/version "3.4.10"}
          org.babashka/sci {:git/url "https://github.com/babashka/sci"
                            :git/sha "44ce05e3af3d4b7731ae776b85c3af491019ff16"}
-         day8/re-frame2    {:local/root "../../../../implementation/core"}
-         day8/reagent-slim {:local/root "../../../../implementation/adapters/reagent-slim"}}}
+         day8/re-frame2          {:local/root "../../../../implementation/core"}
+         day8/reagent-slim       {:local/root "../../../../implementation/adapters/reagent-slim"}
+         day8/re-frame2-machines {:local/root "../../../../implementation/machines"}}}
