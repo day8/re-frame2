@@ -6,9 +6,10 @@
                                            drive the slice under the Reagent
                                            adapter; subscriptions resolve.
   - routing-frame-provider-routing-cljs  — multi-frame routing: each frame's
-                                           :rf/route slice is independent, the
-                                           registry is shared, subscriptions
-                                           resolve per-frame.
+                                           [:rf/runtime :routing :current] slice
+                                           is independent, the registry is
+                                           shared, subscriptions resolve
+                                           per-frame.
 
   Note on test isolation: routing.cljc registers framework events
   (:rf.route/transitioned, :rf.route/navigate, etc.) at namespace-load time.
@@ -43,12 +44,12 @@
   (testing ":rf.route/transitioned drives the slice on CLJS"
     ;; Per Spec 012 §URL changes are events: the runtime's URL-driven
     ;; entry point is :rf.route/transitioned (or :rf.route/handle-url-change for
-    ;; SSR-equivalent code paths). Both write the :rf/route slice from the
-    ;; URL and dispatch :on-match events. Subscriptions over the slice
-    ;; resolve under the Reagent adapter.
+    ;; SSR-equivalent code paths). Both write the [:rf/runtime :routing :current]
+    ;; slice from the URL and dispatch :on-match events. Subscriptions over
+    ;; the slice resolve under the Reagent adapter.
     ;;
-    ;; Test isolation: a fresh frame so prior tests' :rf/route slices don't
-    ;; leak in.
+    ;; Test isolation: a fresh frame so prior tests' [:rf/runtime :routing :current]
+    ;; slices don't leak in.
     (let [f (rf/make-frame {:doc "isolated frame for this test"})]
       (rf/reg-route :route.cljs/home
                     {:path "/cljs/home"})
@@ -85,10 +86,10 @@
 ;; ---- Spec 012 §Multi-frame routing ---------------------------------------
 
 (deftest routing-frame-provider-routing-cljs
-  (testing "two frames carry independent :rf/route slices over a shared registry"
-    ;; Per Spec 012 §Multi-frame routing: each frame's :rf/route slice is
-    ;; independent — same registered routes, different active route per
-    ;; frame. Subscriptions resolve per-frame. This is the contract React
+  (testing "two frames carry independent [:rf/runtime :routing :current] slices over a shared registry"
+    ;; Per Spec 012 §Multi-frame routing: each frame's [:rf/runtime :routing :current]
+    ;; slice is independent — same registered routes, different active route
+    ;; per frame. Subscriptions resolve per-frame. This is the contract React
     ;; context-aware routing components rely on (story-variant frames,
     ;; devcards, per-test fixtures).
     (rf/reg-route :route.cljs2/home          {:path "/cljs2/"})
@@ -109,9 +110,9 @@
       (let [left-route  (rf/subscribe-once left  [:rf.cljs2/route])
             right-route (rf/subscribe-once right [:rf.cljs2/route])]
         (is (= :route.cljs2/articles (:id left-route))
-            "left frame's :rf/route is :route.cljs2/articles")
+            "left frame's current route is :route.cljs2/articles")
         (is (= :route.cljs2/article  (:id right-route))
-            "right frame's :rf/route is :route.cljs2/article")
+            "right frame's current route is :route.cljs2/article")
         (is (= {} (:params left-route))
             "left frame has no :params (collection route)")
         (is (= {:id "intro"} (:params right-route))
