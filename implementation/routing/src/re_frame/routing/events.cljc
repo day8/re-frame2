@@ -1,0 +1,118 @@
+(ns re-frame.routing.events
+  "Shared navigation-event helpers + the runtime-internal
+  `:rf.route.internal/settle-transition` event for re-frame2 routing.
+
+  Owns:
+    - `alloc-nav-token` / `alloc-pending-nav-id` — per-frame counter
+      allocators (pure: db → [db' id-str]);
+    - `emit-activation-traces!` — the `:rf.route/activated` /
+      `:rf.route/deactivated` lifecycle pair (Spec 012 §Trace events,
+      rf2-dn26r);
+    - `identical-route-target?` — Spec 012 §Per-route data loading rule
+      3 short-circuit predicate;
+    - `:rf.route.internal/settle-transition` — the FIFO-drain
+      `:loading → :idle` settle (nav-token-aware so a newer navigation
+      mid-drain bumps `:nav-token` and the stale settle becomes a no-op).
+
+  Internal namespace; the public facade is `re-frame.routing`. The
+  facade's `(events/reg-event-db :rf.route.internal/settle-transition ...)`
+  wires `settle-transition-handler` into the registrar — keeping the
+  registration in the facade so a `(require 're-frame.routing :reload)`
+  on a fresh registrar (`clear-all!` test fixture) re-runs it. Per the
+  rf2-2yabr cohesion split: SHARED-EVENT-HELPERS seam."
+  (:require [re-frame.trace :as trace]))
+
+;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
+;; counters are per-frame. Pure allocators: take db, return [db' id-str].
+
+(defn alloc-nav-token
+  "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
+  counter at [:rf/route :nav-token-counter]."
+  [db]
+  (let [n (inc (or (get-in db [:rf/route :nav-token-counter]) 0))]
+    [(assoc-in db [:rf/route :nav-token-counter] n)
+     (str "nav-" n)]))
+
+(defn alloc-pending-nav-id
+  "Pure allocator: returns [db' \"pn-N\"]. Increments the per-frame
+  counter at [:rf/route :pending-nav-counter]."
+  [db]
+  (let [n (inc (or (get-in db [:rf/route :pending-nav-counter]) 0))]
+    [(assoc-in db [:rf/route :pending-nav-counter] n)
+     (str "pn-" n)]))
+
+(defn emit-activation-traces!
+  "Per Spec 012 §Trace events and rf2-dn26r: emit `:rf.route/deactivated`
+  for the previously-active route id (when leaving one) and
+  `:rf.route/activated` for the newly-active route id (when entering a
+  different one). Both fire as part of every successful navigation
+  commit; same-id navigation (path/query change with no route-id shift)
+  emits NEITHER — the route stays active across the transition. Mirrors
+  the flow-lifecycle symmetry: the activated/deactivated pair is to
+  routes what `:rf.flow/computed` is to flows in giving tools a
+  per-transition lifecycle signal independent of the underlying
+  `:rf.route/transitioned` event."
+  [prev-id next-id]
+  (when (and prev-id (not= prev-id next-id))
+    (trace/emit! :rf.event :rf.route/deactivated
+                 {:route-id prev-id}))
+  (when (and next-id (not= prev-id next-id))
+    (trace/emit! :rf.event :rf.route/activated
+                 {:route-id next-id})))
+
+;; Per Spec 012 §Per-route data loading rule 3: same-route-id
+;; navigations with IDENTICAL params/query (and identical fragment) do
+;; not re-fire `:on-match` — the runtime compares the prospective slice
+;; against the current one and skips the dispatch when nothing relevant
+;; changed. Re-firing the loaders would re-fetch unchanged data on every
+;; redundant navigation (clicking the already-active nav link, a
+;; duplicate `[:rf.route/navigate :route/cart]`, popstate to the current
+;; URL), which is the data-refetch thrash the rule forbids. The
+;; fragment-only case (id/params/query equal, fragment changed) is the
+;; sibling short-circuit (rf2-8oxj6); this predicate is the stricter
+;; "nothing at all changed" case.
+(defn identical-route-target?
+  "True when the prospective navigation target (`id`/`params`/`query`/
+  `fragment`) is identical to the current `:rf/route` slice — a complete
+  no-op re-navigation. `prev` is the current slice (or nil before first
+  nav)."
+  [prev id params query fragment]
+  (boolean
+    (and prev
+         (= (:id prev)       id)
+         (= (:params prev)   params)
+         (= (:query prev)    query)
+         (= (:fragment prev) fragment))))
+
+;; Per Spec 012 §Per-route data loading §2. FIFO drain queues
+;; :rf.route.internal/settle-transition after the :on-match events so
+;; :transition lands at :idle once the synchronous portion completes.
+;; The settle is nav-token-aware: a newer navigation mid-drain bumps
+;; :nav-token, and the stale settle becomes a no-op so the new :loading
+;; isn't clobbered.
+;;
+;; Per Spec 012 §Per-route error handling: if any :on-match event errors
+;; the runtime flips :transition :error, populates :rf.route/error, and
+;; dispatches :on-error (when declared). The settle handler additionally
+;; guards on `(= :loading current-transition)` so a settle queued AFTER
+;; an :on-match throw does NOT clobber :error back to :idle — the throw's
+;; trap (`:rf.route.internal/on-match-error` in
+;; `re-frame.routing.on-match-error`) ran first and the slice now
+;; carries :error.
+;;
+;; Per rf2-576on: this event is RUNTIME-INTERNAL — fired by the runtime
+;; itself; never user-dispatched. The `:rf.route.internal/*` sub-
+;; namespace separates the runtime's plumbing events from the user-
+;; facing `:rf.route/*` surface (`:rf.route/navigate`, `:rf.route/
+;; continue`, etc.). Same audience-split principle as
+;; `:rf.route.nav-token/*` (Spec 012 §Navigation tokens).
+(defn settle-transition-handler
+  "`:rf.route.internal/settle-transition` event-db handler. Registered by
+  the `re-frame.routing` façade so a `:reload` of the façade re-runs the
+  registration."
+  [db [_ token]]
+  (let [current (get-in db [:rf/route :nav-token])]
+    (if (and (= current token)
+             (= :loading (get-in db [:rf/route :transition])))
+      (assoc-in db [:rf/route :transition] :idle)
+      db)))
