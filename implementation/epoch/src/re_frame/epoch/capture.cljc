@@ -362,18 +362,32 @@
   panel's `sub-changed?` / `sub-cascaded?` predicates tolerate (false /
   not-cascaded). The `:sensitive?` stamp on the trace event (rf2-isdwf)
   governs whether `:prev-value` / `:value` already carry the
-  `:rf/redacted` sentinel — they ride elide-wire-value at the emit site."
+  `:rf/redacted` sentinel — they ride elide-wire-value at the emit site.
+
+  Per rf2-okz1u / rf2-1cc03 the reactive recompute path additionally
+  stamps `:rf.sub/cause-event-id` — the event-id (head keyword of the
+  dispatching cascade's trigger event vector) of the cascade whose
+  handler-body invalidated this sub's reactive input. The tag is
+  OMITTED at the emit site (key absent, not nil) when the sub runs
+  outside any in-flight cascade (a post-settle reactive flush against
+  no live drain) or when the optional `re-frame.epoch` artefact is not
+  on the classpath. The projection threads it `cond->` so the row slot
+  is likewise absent in those cases — consumers reading `(:cause-event-id row)`
+  see nil and treat as no-attribution, parity with the OMITTED-vs-nil
+  semantics of the trace tag."
   [event]
   (when (= :rf.sub/run (:operation event))
     (let [tags (:tags event)]
-      {:sub-id         (:rf.sub/id tags)
-       :query-v        (:rf.sub/query-v tags)
-       :recomputed?    true
-       :value-changed? (:rf.sub/value-changed? tags)
-       :prev-value     (:rf.sub/prev-value tags)
-       :value          (:rf.sub/value tags)
-       :cascade?       (:rf.sub/cascade? tags)
-       :cause-sub      (:rf.sub/cause-sub tags)})))
+      (cond-> {:sub-id         (:rf.sub/id tags)
+               :query-v        (:rf.sub/query-v tags)
+               :recomputed?    true
+               :value-changed? (:rf.sub/value-changed? tags)
+               :prev-value     (:rf.sub/prev-value tags)
+               :value          (:rf.sub/value tags)
+               :cascade?       (:rf.sub/cascade? tags)
+               :cause-sub      (:rf.sub/cause-sub tags)}
+        (contains? tags :rf.sub/cause-event-id)
+        (assoc :cause-event-id (:rf.sub/cause-event-id tags))))))
 
 (defn render-row
   "Project a `:rf.view/rendered` trace event into its structured

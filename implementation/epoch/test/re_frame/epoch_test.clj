@@ -863,6 +863,53 @@
       ;; the slot.
       (is (every? #(not (contains? % :result-changed?)) sub-runs)))))
 
+(deftest sub-run-row-threads-cause-event-id
+  (testing "rf2-okz1u / rf2-1cc03 — `:rf.sub/cause-event-id` (the
+            dispatching cascade's trigger event-id) is threaded onto
+            the structured `:sub-runs` row as `:cause-event-id` so
+            consumers (Xray's Epoch panel SUBSCRIPTIONS section) can
+            attribute each sub-run to the right epoch without re-folding
+            the raw trace. Parity with the sibling `:cause-sub` slot:
+            present when emitted, absent (key omitted) when the tag was
+            OMITTED at the emit site (sub ran outside any cascade).
+
+            Direct unit test against `capture/sub-run-row` — the
+            projector shared between `project-all`'s fused settle-time
+            walk and `re-frame.epoch.listeners`'s post-settle back-fill."
+    (testing "tag PRESENT on a sub run inside an in-flight cascade →
+              row carries :cause-event-id"
+      (let [row (capture/sub-run-row
+                  {:op-type   :rf.sub
+                   :operation :rf.sub/run
+                   :tags      {:rf.sub/id             :counter/value
+                               :rf.sub/query-v        [:counter/value]
+                               :rf.sub/value-changed? true
+                               :rf.sub/prev-value     0
+                               :rf.sub/value          1
+                               :rf.sub/cascade?       false
+                               :rf.sub/cause-sub      nil
+                               :rf.sub/cause-event-id :counter/inc}})]
+        (is (= :counter/inc (:cause-event-id row))
+            ":cause-event-id is lifted from the `:rf.sub/cause-event-id` tag")
+        (is (true? (:value-changed? row))
+            "the existing slots still ride alongside the new attribution")))
+    (testing "tag OMITTED (post-settle reactive flush outside a cascade,
+              or `re-frame.epoch` artefact absent) → row slot is ABSENT,
+              parity with the OMIT-vs-nil semantics of the trace tag"
+      (let [row (capture/sub-run-row
+                  {:op-type   :rf.sub
+                   :operation :rf.sub/run
+                   :tags      {:rf.sub/id             :counter/value
+                               :rf.sub/query-v        [:counter/value]
+                               :rf.sub/value-changed? true
+                               :rf.sub/prev-value     0
+                               :rf.sub/value          1
+                               :rf.sub/cascade?       false
+                               :rf.sub/cause-sub      nil}})]
+        (is (not (contains? row :cause-event-id))
+            ":cause-event-id key is ABSENT when the trace tag was
+             omitted at the emit site (cond-> on (contains? tags ...))")))))
+
 (deftest effects-projection-skipped-on-platform
   (testing ":effects captures :skipped-on-platform outcomes"
     (rf/reg-frame :test/main {})

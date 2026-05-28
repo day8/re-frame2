@@ -764,6 +764,30 @@
    :align-items "center"
    :gap         "4px"})
 
+;; rf2-1cc03 — `caused by <event-id>` chrome.
+;;
+;; Renders in the `sub` cell directly below the sub-id when the row
+;; carries `:cause-event-id`. The event-id (head keyword of the
+;; dispatching cascade's trigger event vector) names WHICH event
+;; invalidated this sub's reactive input — surfacing the rf2-okz1u
+;; attribution at the operator's first glance of the SUBSCRIPTIONS
+;; table.
+;;
+;; Subdued italic chip (parity with the leaf-was `← was X` annotation
+;; chip's `text-tertiary` + `font-style: italic` shape) so the chrome
+;; reads as a secondary annotation, NOT a primary identity line.
+;; Keyword routes through `ei/mini` for syntax-token chrome (keyword
+;; magenta) — matches the sibling sub-id rendering above.
+(def ^:private subs-cell-cause-event-style
+  {:display     "inline-flex"
+   :align-items "baseline"
+   :gap         "4px"
+   :margin-top  "2px"
+   :color       text-tertiary-colour
+   :font-family sans-stack
+   :font-size   "11px"
+   :font-style  "italic"})
+
 (def ^:private subs-inputs-list-style
   {:display "flex" :flex-direction "column" :gap "2px"})
 
@@ -3012,7 +3036,7 @@
                                               subs-row-style-with-border
                                               subs-row-style)})
       :row-cells
-      (fn [{:keys [sub-id sub-vec inputs] :as row} i]
+      (fn [{:keys [sub-id sub-vec inputs cause-event-id] :as row} i]
         [;; sub cell
          [:div {:data-rf-xray-resizable-col "sub"
                 :style subs-cell-id-style}
@@ -3023,7 +3047,20 @@
            (if (vector? sub-vec)
              [ei/mini sub-vec 40]
              [ei/mini sub-id 40])
-           (icons/external-link)]]
+           (icons/external-link)]
+          ;; rf2-1cc03 — `caused by <event-id>` chrome surfaces the
+          ;; dispatching cascade's event-id (the cascade whose handler-
+          ;; body invalidated this sub's reactive input). OMITTED when
+          ;; `:cause-event-id` is absent — a sub that ran outside any
+          ;; in-flight cascade has no event attribution. Event-id
+          ;; routes through `ei/mini` so the keyword picks up the same
+          ;; magenta syntax-token chrome the sub-id above carries.
+          (when (some? cause-event-id)
+            [:div {:data-rf-xray-subs-cause-event-id (str cause-event-id)
+                   :data-testid (str "rf-xray-epoch-sub-row-cause-event-id-" i)
+                   :style subs-cell-cause-event-style}
+             [:span "caused by"]
+             [ei/mini cause-event-id 40]])]
          ;; inputs cell
          [:div {:data-rf-xray-resizable-col "inputs"
                 :style subs-cell-inputs-style}

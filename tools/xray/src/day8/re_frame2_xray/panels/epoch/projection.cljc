@@ -1115,6 +1115,14 @@
       :after       — the freshly-computed value (`:rf.sub/value` tag).
       :cascade?    — true for layer-2+ recomputes (an upstream SUB drove
                      this re-run); false for layer-1 subs.
+      :cause-event-id — the head keyword of the dispatching cascade's
+                     trigger event vector (`:rf.sub/cause-event-id` tag,
+                     per rf2-okz1u / rf2-1cc03). Names WHICH event
+                     invalidated this sub's reactive input — same source
+                     the views path uses for `:rf.view/cause-event-id`.
+                     Absent (key omitted) when the sub ran outside any
+                     in-flight cascade. The view layer renders it as a
+                     `caused by <event-id>` chrome on the row.
       :duration-ms — the sub's recompute duration (`:rf.sub/elapsed-ms` tag).
 
   Per rf2-kfh1v the tag names match the substrate emit-site
@@ -1134,22 +1142,31 @@
                   sub-id  (or (common/tag-of ev :rf.sub/id)
                               (when (vector? sub-vec) (first sub-vec)))
                   cause   (common/tag-of ev :rf.sub/cause-sub)
-                  cascade? (common/tag-of ev :rf.sub/cascade?)]]
-        {:sub-id      sub-id
-         :sub-vec     sub-vec
-         :inputs      (or cause
-                          (common/tag-of ev :rf.sub/inputs))
-         :changed?    (boolean
-                        (or (common/tag-of ev :rf.sub/value-changed?)
-                            (common/tag-of ev :rf.sub/changed?)))
-         :first-run?  (boolean (common/tag-of ev :rf.sub/first-run?))
-         :before      (or (common/tag-of ev :rf.sub/prev-value)
-                          (common/tag-of ev :rf.sub/before))
-         :after       (or (common/tag-of ev :rf.sub/value)
-                          (common/tag-of ev :rf.sub/after))
-         :cascade?    (boolean cascade?)
-         :duration-ms (or (common/tag-of ev :rf.sub/elapsed-ms)
-                          (common/tag-of ev :duration-ms))}))))
+                  cascade? (common/tag-of ev :rf.sub/cascade?)
+                  ;; rf2-1cc03 — lift :rf.sub/cause-event-id onto the row.
+                  ;; The tag is OMITTED (key absent, not nil) at the emit
+                  ;; site when the sub ran outside any in-flight cascade
+                  ;; (per rf2-okz1u). Threaded via `cond->` below so the
+                  ;; row slot likewise stays absent in that case, parity
+                  ;; with the OMIT-vs-nil semantics of the trace tag.
+                  cause-event-id (common/tag-of ev :rf.sub/cause-event-id)]]
+        (cond-> {:sub-id      sub-id
+                 :sub-vec     sub-vec
+                 :inputs      (or cause
+                                  (common/tag-of ev :rf.sub/inputs))
+                 :changed?    (boolean
+                                (or (common/tag-of ev :rf.sub/value-changed?)
+                                    (common/tag-of ev :rf.sub/changed?)))
+                 :first-run?  (boolean (common/tag-of ev :rf.sub/first-run?))
+                 :before      (or (common/tag-of ev :rf.sub/prev-value)
+                                  (common/tag-of ev :rf.sub/before))
+                 :after       (or (common/tag-of ev :rf.sub/value)
+                                  (common/tag-of ev :rf.sub/after))
+                 :cascade?    (boolean cascade?)
+                 :duration-ms (or (common/tag-of ev :rf.sub/elapsed-ms)
+                                  (common/tag-of ev :duration-ms))}
+          (some? cause-event-id)
+          (assoc :cause-event-id cause-event-id))))))
 
 (defn disposed-subs-rows
   "Project `:rf.sub/dispose` events into rows (rf2-wpfjo). Each row
