@@ -166,7 +166,7 @@ The dominoes are easy to *say* and easy to nod along to. They land harder when y
 
 Click into the cell and press **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac). First run takes a beat while the engine wakes up. Then click `+` and `-` and watch the log grow — each click is one trip through the dominoes, and the log is the cascade leaving footprints.
 
-As in chapter 03, the cell is functions-only: the view is a plain `defn` calling the qualified `rf/dispatch` / `rf/subscribe` (the `reg-view` macro is sugar over exactly this).
+(Live cells are functions-only — the view is a plain `defn` with explicit `rf/dispatch` / `rf/subscribe`; `reg-view` is sugar over exactly this. The equivalence is established in [chapter 03](03-first-app.md#initialisation) and detailed in [chapter 06](06-views.md#defn-views-and-the-reg-view-equivalence).)
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
@@ -230,52 +230,9 @@ As in chapter 03, the cell is functions-only: the view is a plain `defn` calling
 >
 > then a button that dispatches it — `[:button {:on-click #(rf/dispatch [:counter/double])} "×2"]` — into the top row. Re-evaluate, click it. A new event id, a new pure handler, a new line in the log, and it walked the same six dominoes the others did. You extended the instruction set; the machine didn't change.
 
-## The standard effect map
+## The standard effect map, in brief
 
-The map a `reg-event-fx` handler returns is intentionally narrow — two top-level keys, and that's the whole grammar:
-
-| Key | Meaning |
-|---|---|
-| `:db` | Replace app-db with this value. |
-| `:fx` | A vector of `[fx-id args]` pairs. *Every other effect* — dispatch, dispatch-later, HTTP, navigation, your own — goes through here. |
-
-That deliberate narrowness is load-bearing. re-frame v1 had top-level `:dispatch`, `:dispatch-later`, `:dispatch-n` as separate keys; in v2 they all fold into `:fx` as ordinary rows (`[:dispatch ...]`, `[:dispatch-later {...}]`). One grammar instead of two parallel ones means the runtime, the tests, and the tooling each see *one* consistent shape. (Migrating a v1 app? The migration agent rewrites the old top-level forms into `:fx` rows for you.)
-
-A busier handler, to show the shape carrying weight:
-
-```clojure
-{:db (assoc db :counter/saved? true)
- :fx [[:rf.http/managed
-       {:request {:method :post :url "/api/counter"
-                  :body {:count (:counter/value db)} :request-content-type :json}}]
-      [:localstorage/set {:key "counter" :value (:counter/value db)}]
-      [:rf.nav/push-url  "/saved"]
-      [:dispatch         [:notification/show "Saved!"]]]}
-```
-
-Five effects in one handler — a state change, an HTTP POST, a localStorage write, a navigation, and a follow-up dispatch — and the handler is *still a pure function*. The order is well-defined (runtime applies `:db` first, then walks `:fx` top to bottom). Test it as a function: hand it coeffects and an event, assert on the map. Done. No network, no DOM, no clock.
-
-## Registering your own effect
-
-You're not limited to the framework's built-in effects. Whatever side effect you need, you register it once:
-
-```clojure
-(rf/reg-fx :localstorage/set
-  {:doc       "Write a value to localStorage."
-   :platforms #{:client}}
-  (fn [_frame-ctx {:keys [key value]}]
-    (.setItem js/localStorage key (pr-str value))))
-```
-
-Three things to notice, because each is a small payoff of the effects-as-data discipline:
-
-1. **This is the *only* place in your whole codebase that calls `js/localStorage`.** The handler that triggered the write didn't. The handler that reads the value back later doesn't. The imperative browser call appears exactly once, here, and that's the entire surface for the effect.
-2. **The fx receives a runtime context and the args** the handler put in the effect map. Most fxs only use the args; ones that re-dispatch follow-up events thread the context through so the dispatch routes to the right frame.
-3. **`:platforms` says where the effect is allowed to run.** `#{:client}` means it's silently skipped during server-side rendering (with a `:rf.fx/skipped-on-platform` trace event) — the handler that *described* the write doesn't have to branch on platform. [Chapter 20 — Server-side](20-server-side.md) is where that pays off.
-
-So *why does returning a map make things happen?* Every `reg-event-fx` handler runs inside an interceptor chain, and the runtime silently inserts a built-in interceptor — `do-fx` — at the front. After your handler returns, `do-fx` walks the effect map and, for each entry, looks up the registered fx by id and invokes it. `:db`, `:fx`, `:dispatch`, `:rf.http/managed`, your `:localstorage/set` — all entries in the same registry, executed by the same loop. That's why registering one new fx is enough to make *every* event handler in the app able to use it: there's one dispatcher reading the registry and calling whatever it finds. [Chapter 09 — Interceptors](09-interceptors.md) opens up that chain — how `do-fx` is just one interceptor among others, and how you slot in your own.
-
-> **A trap worth its own warning: registrations don't fire if the namespace isn't required.** Every `reg-*` form is a top-level side effect — it writes into the registry *when the namespace loads*. If no reachable namespace `(:require)`s your `events.cljs`, the dependency tracker never loads it, the `reg-*` forms never run, and your handler silently *doesn't exist*. Your `dispatch` goes out to `:counter/inc` and nothing answers. The fix is one line: have your boot namespace require every namespace that registers anything — `(:require [my-app.events] [my-app.subs] [my-app.views] ...)`. Those requires look unused (no symbol referenced), but they aren't decorative — they anchor the dep graph and force the registrations to run.
+The map a `reg-event-fx` handler returns is intentionally narrow — `:db` to replace app-db, `:fx` as a vector of `[fx-id args]` rows for everything else (dispatches, HTTP, navigation, your own effects). One grammar, not two, so the runtime, tests, and tooling each see *one* consistent shape. [Chapter 07 — Effects and coeffects](07-effects-and-coeffects.md) is the full surface: the grammar, the `reg-fx` registration shape (how every `js/localStorage`-flavoured impurity gets quarantined to one named site), the `do-fx` interceptor that walks the map and dispatches each entry, and the `:platforms` gate that lets the same handler run client-side and server-side without branching. The point for the cascade story is just that the handler *describes* and the runtime *does* — and that's domino three.
 
 ## Run-to-completion: why you never see a half-updated screen
 
@@ -284,18 +241,6 @@ One detail in the cascade deserves a hard stop, because it's an opinionated choi
 This is **run-to-completion drain semantics**, and the alternative — letting each event update the view independently — is what most React apps do. It's marginally faster in microbenchmarks. It's also exactly why React apps occasionally flicker, show a half-updated state, or render things out of order during fast interactions: the view caught a glimpse of an intermediate state that was never meant to be seen.
 
 Run-to-completion says: *the user sees coherent states, not transitions.* Either the form is submitting or it's in error — never both for one paint. Either the page navigated or it didn't — never the in-between. The cost is a little developer flexibility; the gain is dramatically more predictable behaviour for the person using your app. That trade — give up flexibility, get inspectability and predictability — is the same trade as immutable app-db and effects-as-data. It's the framework's whole personality, showing up a third time.
-
-## Why the verbosity is worth it
-
-It *is* more verbose. The fetch-an-increment flow is one `async`/`await` function in idiomatic React; in re-frame2 it's two handlers plus a registered fx. More places. I'm not going to pretend the counter's effectful cousin is shorter than the React version, because it isn't. What it is, is *legible at scale*, and here's the ledger:
-
-- **Tests need no network.** The handler that produces the effect map is a pure function — test it as one. So are the success and error handlers. The fx itself you test by stubbing one call. None of it needs React, JSDOM, or a running server.
-- **You can swap any effect's implementation.** Effects are looked up by id, so a test that wants `:rf.http/managed` to return a canned reply just overrides the registry entry for the test's duration. It's a registry redirect, not a mock — the *same* dispatch shape the real fx produces lands in your handler. The framework ships `with-managed-request-stubs` for exactly this. [Chapter 13 — Testing](13-testing.md) is the full story; effects-as-data is what makes the override possible at all.
-- **You can record, replay, and ship what happened.** Because effects are data, the runtime can log them, replay them, store them in a fixture, ship them over the wire. The trace stream surfaces every effect that fired, in order, with its args. Debugging an async interaction stops being archaeology and starts being reading a list.
-- **New effects need no runtime changes.** Want a `:fluent-bit/log` effect? `reg-fx` it; every handler in the app can use it immediately. No special case in the dispatch loop, no middleware-ordering puzzle.
-- **SSR comes for nearly free.** The same handler that fires `:rf.http/managed` in the browser fires it on the JVM during SSR, with the same code. Effects that don't make sense server-side (`:localstorage/set`) are gated by `:platforms` and skipped quietly. SSR isn't a parallel codebase; it's the same code under a different platform flag — [chapter 20](20-server-side.md).
-
-That last cluster of properties — testable without a network, recordable, replayable, swappable, observable on one stream — is the experience that drove people to re-frame in the first place, and every one of them is a direct dividend of "effects are data the runtime interprets" rather than "effects are things handlers do."
 
 ## One value, captured and restored
 

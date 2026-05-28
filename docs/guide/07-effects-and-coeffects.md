@@ -18,22 +18,7 @@ You already met this once without me labelling it. When a `reg-event-db` handler
 
 ## Effects: the impurity going out
 
-Here's the shape, and it's worth tattooing on something. The wrong way first, because the wrong way is the one your fingers will type by reflex:
-
-```clojure
-;; ❌ Don't do this
-(rf/reg-event-db :counter/inc-from-server
-  (fn [db _event]
-    (.then (js/fetch "/api/inc.json")
-           (fn [resp]
-             ;; ...and now what? db is gone. I'm in a callback. Help.
-             ))
-    (assoc db :counter/loading? true)))
-```
-
-Look at the wreckage. The handler calls `js/fetch`, so it's no longer pure — its result now depends on whether the network's up and whether somebody monkey-patched `fetch` in your test harness. The `.then` callback fires *after* the handler has already returned, by which point `db` is the *previous* state, stale, useless; the only way the callback can update state is to dispatch *another* event, so the function is now half-pure-half-effectful, which is the single worst consistency a function can have. And you can no longer read this handler and know what the app looks like afterward — you have to trace through the `.then`, find what it dispatches, find *that* handler, trace *its* `.then`, forever. The dynamic story has gone dark.
-
-Now the same feature, done as data:
+[Chapter 04](04-events-and-the-cascade.md#effects-as-data) walked the wrong way (inline `js/fetch` in a handler — stale `db`, callback hell, dynamic story gone dark) and the right way (return a map; `reg-event-fx` describes; runtime actions). The shape, recapped because the rest of this section builds on it:
 
 ```clojure
 (rf/reg-event-fx :counter/inc-from-server
@@ -42,13 +27,7 @@ Now the same feature, done as data:
      :fx [[:rf.http/managed
            {:request    {:url "/api/inc.json"}
             :on-success [:counter/inc-loaded]}]]}))
-```
 
-Three things moved. The registration is now `reg-event-fx` — the "fx" is "effects," and this flavour of handler returns a *map of effects* instead of a bare new db. The handler is still, gloriously, pure: it returns a Clojure map. Every value in that map is data — strings, keywords, vectors — and there is not a single `js/fetch` or callback or promise anywhere in it. And the map *describes the whole intent*: "set the db to this; and *also*, fire a managed HTTP request to this URL, and when it succeeds, dispatch this event."
-
-The follow-up handler, the one that folds the reply back in, is pure too:
-
-```clojure
 (rf/reg-event-db :counter/inc-loaded
   (fn [db [_ {:keys [value]}]]
     (-> db
@@ -56,9 +35,7 @@ The follow-up handler, the one that folds the reply back in, is pure too:
         (update :counter/value + (:delta value)))))
 ```
 
-Who actually fires the request? The runtime. It looks at the effect map, sees `[:rf.http/managed {...}]`, looks up the registered fx handler for that id, and hands it the args. When the request resolves, that fx dispatches `[:counter/inc-loaded {...}]`, which joins the queue and walks the same six dominoes as every other event. You can now read this entire flow by reading two handlers, top to bottom, no callbacks, no `.then` chains — data in, data out, data in again.
-
-(`:rf.http/managed` is the framework's one canonical HTTP effect — it does managed decoding, retry-with-backoff, abort, frame-aware reply routing, the works. You don't write your own. The full surface is [chapter 10](10-http.md); here it's just a convenient something-impure to point at.)
+Two pure handlers, no `.then` chain, no stale `db`. The runtime fires the request, dispatches the reply back, the cascade picks it up. (`:rf.http/managed` is the framework's one canonical HTTP effect — managed decoding, retry-with-backoff, abort, frame-aware reply routing. You don't write your own. The full surface is [chapter 10](10-http.md); here it's just a convenient something-impure to point at.)
 
 ### The standard effect map is narrow on purpose
 
@@ -187,7 +164,7 @@ One `:local-store` handler serves every event that needs a different key — the
 
 Time to stop reading and start poking. Here's a todo-adder, live, with `:now` and `:new-id` injected as coeffects — a real re-frame2 program in your browser. Click into the cell, hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to evaluate it, then add some todos. First run takes a beat while the engine wakes; after that it's instant.
 
-One thing to flag before you read it. The static chapters register views with the `reg-view` macro, which auto-injects `dispatch` and `subscribe` for you. The live cells here are functions-only, so views are plain `defn`s that call `rf/dispatch` and `rf/subscribe` explicitly — same component, just spelled out. `(defn my-view [] ...)` here is exactly what `(rf/reg-view my-view [] ...)` would be in real code.
+(Live cells are functions-only — the view is a plain `defn` with explicit `rf/dispatch` / `rf/subscribe`; `reg-view` is sugar over exactly this. See [chapter 06](06-views.md#defn-views-and-the-reg-view-equivalence).)
 
 ```cljs-rf2
 (require '[reagent2.core :as r]

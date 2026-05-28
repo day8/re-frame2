@@ -108,7 +108,7 @@ Why this matters, concretely. Every layer-1 extractor re-runs on *every* `app-db
 
 Reading about a circuit breaker is one thing. Watching one node stay silent while its neighbour fires is another. The cell below builds a tiny three-layer graph and a counter that ticks every second. The graph has two independent branches — a "live" branch that depends on the ticking clock, and a "static" branch that depends on a value nobody ever changes — and each branch counts how many times *its own* layer-2 sub actually recomputed.
 
-Click into the cell and hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to run it. Watch the two recompute counters. (A quick note on form before you do: the cells in this guide use plain `defn` views with explicit `rf/subscribe`/`rf/dispatch`, because the live environment is functions-only. In a real project you'd more often write these as `reg-view`, which is sugar over exactly this shape and is the subject of [the next chapter](06-views.md) — but `defn` and `reg-view` produce the same component, so nothing here is a toy.)
+Click into the cell and hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to run it. Watch the two recompute counters. (Live cells use plain `defn` views with explicit `rf/subscribe`/`rf/dispatch`; `reg-view` is sugar over exactly this and is [the next chapter](06-views.md)'s job.)
 
 ```cljs-rf2
 (require '[reagent2.core :as r]

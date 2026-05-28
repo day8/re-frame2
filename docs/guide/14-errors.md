@@ -33,7 +33,7 @@ re-frame2's stance is that this information should never have left the building.
 
 That's not a log line. That's a dossier.
 
-And because it's data on the **same trace stream** that carries every other event in the system — the one bus from [chapter 04](04-events-and-the-cascade.md) — an error isn't a special control-flow path that bypasses your normal observability. It's just another event going by, that happens to have `:op-type :error`. Your dev panel reads it off the wire. Your monitoring bridge reads it off the wire. Your test asserts on it off the wire. There's no try/catch in user code, no string in a logger, no out-of-band error channel. One wire, everything on it, errors included.
+And because it's data on the **same trace stream** that carries every other event in the system — the bus from [chapter 04](04-events-and-the-cascade.md) (full surface in [chapter 16](16-observability.md)) — an error isn't a special control-flow path that bypasses your normal observability. It's just another event going by, that happens to have `:op-type :error`. Your dev panel reads it off the wire. Your monitoring bridge reads it off the wire. Your test asserts on it off the wire. There's no try/catch in user code, no string in a logger, no out-of-band error channel. One wire, everything on it, errors included.
 
 Three fields do the load-bearing work, and learning them is most of learning the whole surface:
 
