@@ -8,9 +8,10 @@ mkdocs==1.6.1
 # CairoSVG additionally needs the Cairo + Pango *system* libraries — CI
 # apt-get installs those before this pip step (see .github/workflows/docs.yml).
 mkdocs-material[imaging]==9.5.44
-pymdown-extensions==10.11.2
-# Pin pygments below 2.20 (rf2-4jaz). Pygments 2.20.0 added an html.escape()
-# call around the HtmlFormatter `filename` option, which crashes when
-# pymdown-extensions 10.11.2 passes filename=None for fenced code blocks
-# without an explicit title. 2.19.x handled None silently.
-pygments==2.19.2
+# pymdown-extensions bumped to 10.21.3 (rf2-7epnr) — 10.12+ fixed the
+# filename=None path it used to pass to HtmlFormatter for untitled
+# fenced code blocks, which let us retire the pygments<2.20 ceiling.
+pymdown-extensions==10.21.3
+# Pinned for reproducibility; bug-driven ceiling retired (rf2-7epnr,
+# was rf2-4jaz). Verified clean build with pymdown-extensions 10.21.3.
+pygments==2.20.0
