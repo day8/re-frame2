@@ -30,16 +30,13 @@
 
   ## Pre-alpha posture
 
-  One surface in `spec/API.md` ships as a TBD-impl stub that emits a
-  `:rf.warning/*` trace and otherwise no-ops:
-
-    - `load-theme` — programmatic theme swap. The theme module
-      exists (`day8.re-frame2-xray.theme/*`) but the runtime CSS-
-      swap surface is not yet wired.
-
-  When called, each stub emits a structured trace event tagged with
-  `:origin :xray` so the gap is visible in the trace stream
-  (consistent with `spec/API.md` §Trace-event tags Xray emits).
+  Every surface this facade exposes is wired end-to-end — no
+  TBD-impl stubs, no documented-warning-emit placeholders. `init!`,
+  `load-theme`, the mount/config re-exports, and the frame picker
+  all route through their respective backing surfaces (the persisted
+  Settings shape, the theme module's CSS-swap site, the mount
+  layer's singleton guards). Future opt-keys that don't yet have a
+  backing surface land here only after their machinery does.
 
   ## What this namespace deliberately does NOT expose
 
