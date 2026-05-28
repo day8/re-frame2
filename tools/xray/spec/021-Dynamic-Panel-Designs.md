@@ -2247,6 +2247,20 @@ shape:
   order).
 - **Conditional emit unchanged** — section omits when no fx-handler
   events fired.
+- **Args rendering (rf2-ef2hy)** — each fx row's args mount the
+  shared edn-inspector widget with `:default-expanded-depth 1`.
+  Top-level keys (`:strategy`, `:from`, `:to`) are visible inline;
+  nested maps collapse to clickable `▸` chevrons (`{…N keys}`). The
+  FX step is a dense table the operator scans, then drills into one
+  row's args — depth 1 hits the right scan-then-drill posture.
+  `:zoomable?` is on so the popup overlay opens for a complex fx
+  args map.
+
+  Sibling: the HANDLER step's `:fx` section (§9.1.10.5 lineage,
+  rf2-p2zy0) uses the same widget with `:default-expanded-depth 16`
+  (full-expand). Both share the widget; per-call-site depth reflects
+  each section's role — HANDLER reads INTENT (full), FX reads
+  EXECUTION (compact + drill).
 
 ### §9.1.10.7 COEFFECT step chrome (rf2-s1jw4 · pair-debug 2026-05-26)
 

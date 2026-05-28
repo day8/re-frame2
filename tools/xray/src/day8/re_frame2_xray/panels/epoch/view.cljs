@@ -2900,11 +2900,24 @@
      [:span {:style (assoc diff-glyph-bold-style :color colour)} glyph]
      [:span {:style fx-row-id-style}
       (proj/ns-keyword fx-id)]
-     ;; rf2-8w8er — args render through `mini` so the fx-call surface
-     ;; lights up with syntax-token colour rather than plain text.
+     ;; rf2-ef2hy — args render through edn-inspector with
+     ;; `:default-expanded-depth 1` so the top-level fx-call surface is
+     ;; visible inline (`:strategy :top`) and nested maps collapse to
+     ;; clickable chevrons (`{…1 keys}`). The operator scans the FX-step
+     ;; table dense, then drills into a row's args via the chevron or
+     ;; the popup-overlay (`:zoomable?`).
+     ;;
+     ;; Sibling rendering for the HANDLER step's `:fx` section
+     ;; (rf2-p2zy0) uses the same widget with `:default-expanded-depth 16`
+     ;; (full-expand). Both paths share the widget; the per-call-site
+     ;; `:default-expanded-depth` reflects each section's role.
      (when (some? args)
        [:span {:style fx-row-args-style}
-        [ei/mini args 80]])
+        [ei/edn-inspector args
+         {:site-id [:rf.xray.epoch/fx-row-args fx-id idx]
+          :card? false
+          :zoomable? true
+          :default-expanded-depth 1}]])
      (when (number? duration-ms)
        [:span {:style fx-row-duration-style}
         (proj/format-duration-ms duration-ms)])

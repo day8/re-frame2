@@ -1367,16 +1367,26 @@
       (is (string/includes? (th/text-content oth-sec) "1 entry")
           "the other sub-header carries the singular entry chip"))))
 
-(deftest fx-step-args-route-through-mini-test
-  (testing "rf2-8w8er — FX step row's args render through `ei/mini`."
+(deftest fx-step-args-route-through-edn-inspector-test
+  (testing "rf2-ef2hy — FX step row's args render through the
+            edn-inspector widget with `:default-expanded-depth 1`,
+            replacing the prior rf2-8w8er mini rendering. Top-level
+            map keys (`:strategy`, `:from`, `:to`) are visible inline;
+            nested maps collapse to a clickable chevron so the
+            operator can drill into a complex args map.
+
+            Sibling rendering for the HANDLER step's `:fx` section
+            (rf2-p2zy0) uses the same widget with depth 16 (full-
+            expand). Both share the widget; per-call-site depth
+            reflects each section's role."
     (let [tree (view/render-fx-step
                  {:step :fx :badge :FX :step-number 4
                   :rows [{:fx-id :http/get :status :ok :args {:url "/x"}}]
                   :succeeded 1 :threw 0 :skipped 0})
           row  (th/find-by-testid tree "rf-xray-epoch-fx-row-0")]
       (is (some? row))
-      (is (pos? (count (mini-mounts row)))
-          "the fx row's args mount a mini-render"))))
+      (is (pos? (count (ei-mounts row)))
+          "the fx row's args mount an edn-inspector"))))
 
 (deftest subscriptions-values-route-through-mini-test
   (testing "rf2-8w8er + rf2-yqjrd — SUBSCRIPTIONS row renders sub-vec
