@@ -95,6 +95,18 @@
    {:test 'frame-context-corrupted
     :fn   'assert-frame-context-corrupted}
 
+   {:section "frame-provider branches (rf2-7kjz8 — folded from helix_frame_provider_children + uix_frame_provider_branches)"}
+   {:test 'frame-provider-missing-frame-falls-through-to-default
+    :fn   'assert-frame-provider-missing-frame-falls-through-to-default}
+   {:test 'frame-provider-nil-frame-falls-through-to-default
+    :fn   'assert-frame-provider-nil-frame-falls-through-to-default}
+   {:test 'frame-provider-named-frame-preserved
+    :fn   'assert-frame-provider-named-frame-preserved}
+   {:test 'frame-provider-single-child-coerced-to-vector
+    :fn   'assert-frame-provider-single-child-coerced-to-vector}
+   {:test 'frame-provider-sequential-children-preserved
+    :fn   'assert-frame-provider-sequential-children-preserved}
+
    {:section "warn-once fires-once (Spec 006)"}
    {:test 'warn-once-fires-once
     :fn   'assert-warn-once-fires-once}

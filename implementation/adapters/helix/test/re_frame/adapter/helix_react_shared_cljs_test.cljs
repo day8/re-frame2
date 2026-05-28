@@ -65,7 +65,12 @@
    :wrap-view        helix-adapter/wrap-view
    :clear-warn!      helix-adapter/clear-warned-non-dom-roots!
    :set-emitter!     helix-adapter/set-hiccup-emitter!
-   :render-to-string (:render-to-string helix-adapter/adapter)})
+   :render-to-string (:render-to-string helix-adapter/adapter)
+   ;; rf2-7kjz8 — adapter's frame-provider re-export of the shared spine
+   ;; fn. Folded from the prior per-adapter
+   ;; helix_frame_provider_children_cljs_test.cljs / uix_frame_provider_
+   ;; branches_cljs_test.cljs files (two files merged into the suite).
+   :frame-provider   helix-adapter/frame-provider})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`. The macro ns owns

@@ -64,7 +64,12 @@
    :wrap-view        uix-adapter/wrap-view
    :clear-warn!      uix-adapter/clear-warned-non-dom-roots!
    :set-emitter!     uix-adapter/set-hiccup-emitter!
-   :render-to-string (:render-to-string uix-adapter/adapter)})
+   :render-to-string (:render-to-string uix-adapter/adapter)
+   ;; rf2-7kjz8 — adapter's frame-provider re-export of the shared spine
+   ;; fn. Folded from the prior per-adapter
+   ;; uix_frame_provider_branches_cljs_test.cljs / helix_frame_provider_
+   ;; children_cljs_test.cljs files (two files merged into the suite).
+   :frame-provider   uix-adapter/frame-provider})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`. The macro ns owns
