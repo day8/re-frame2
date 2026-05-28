@@ -10,8 +10,10 @@
        throws into init).
     3. save! → load round-trip via localStorage (when available).
     4. Empty / cleared slot loads as {}.
-    5. resize-pair event-fx writes the slot AND fires the persist fx
-       (post-dispatch, the localStorage slot reflects the new value).
+    5. resize-pair-tick event-db writes the slot (no persist);
+       resize-pair-commit event-fx writes the persist fx exactly once
+       on pointerup (rf2-xm1jy split — one localStorage write per
+       drag, not one per pixel).
     6. reset event-fx clears one table's overrides AND fires persist.
     7. hydrate! lifts the persisted slot back into :rf/xray's app-db
        so the for-table sub re-reads the restored value."
@@ -115,26 +117,54 @@
       (is (= {:t1 {:a 100}} (rt/load))
           "instance A's slot survived instance B's write"))))
 
-;; ---- (4) resize-pair persists via fx ------------------------------------
+;; ---- (4) resize-pair tick + commit (rf2-xm1jy split) --------------------
 
-(deftest resize-pair-writes-slot-and-persists
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (xray-setup!)
-    (frame-dispatch [:rf.xray.column-widths/resize-pair
-                     :rf.xray.epoch/subscriptions
-                     :sub 250 :inputs 170])
-    (testing "app-db slot reflects the resize"
+(deftest resize-pair-tick-writes-slot-without-persisting
+  (testing "rf2-xm1jy — the pointermove-cadence event writes the slot
+            in app-db but does NOT touch localStorage (per-pixel
+            persistence flooded the main thread on lower-end devices)."
+    (when (and (exists? js/window) (.-localStorage js/window))
+      (xray-setup!)
+      (rt/clear!)
+      (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
+                       :rf.xray.epoch/subscriptions
+                       :sub 250 :inputs 170])
       (is (= {:sub 250 :inputs 170}
              (frame-sub [:rf.xray.column-widths/for-table
-                         :rf.xray.epoch/subscriptions]))))
-    (testing "localStorage carries the same payload"
-      (is (= {:rf.xray.epoch/subscriptions {:sub 250 :inputs 170}}
-             (rt/load))))))
+                         :rf.xray.epoch/subscriptions]))
+          "app-db slot reflects the tick")
+      (is (= {} (rt/load))
+          "localStorage is NOT written by the tick event"))))
 
-(deftest resize-pair-clamps-sub-floor-width
+(deftest resize-pair-commit-persists-current-slot
+  (testing "rf2-xm1jy — pointerup dispatches the commit, which writes
+            whatever the app-db slot currently holds to localStorage
+            exactly once. Round-trip: N ticks then one commit ==
+            steady-state widths in localStorage."
+    (when (and (exists? js/window) (.-localStorage js/window))
+      (xray-setup!)
+      (rt/clear!)
+      (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
+                       :rf.xray.epoch/subscriptions
+                       :sub 100 :inputs 100])
+      (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
+                       :rf.xray.epoch/subscriptions
+                       :sub 200 :inputs 200])
+      (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
+                       :rf.xray.epoch/subscriptions
+                       :sub 250 :inputs 170])
+      (is (= {} (rt/load))
+          "ticks accumulate in app-db only; localStorage untouched")
+      (frame-dispatch [:rf.xray.column-widths/resize-pair-commit])
+      (is (= {:rf.xray.epoch/subscriptions {:sub 250 :inputs 170}}
+             (rt/load))
+          "commit writes the final settled widths to localStorage
+           exactly once"))))
+
+(deftest resize-pair-tick-clamps-sub-floor-width
   (when (and (exists? js/window) (.-localStorage js/window))
     (xray-setup!)
-    (frame-dispatch [:rf.xray.column-widths/resize-pair
+    (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
                      :rf.xray.epoch/subscriptions
                      :sub 5 :inputs 300])
     (is (= {:sub 24 :inputs 300}
@@ -147,10 +177,12 @@
 (deftest reset-clears-table-and-persists
   (when (and (exists? js/window) (.-localStorage js/window))
     (xray-setup!)
-    (frame-dispatch [:rf.xray.column-widths/resize-pair
+    (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
                      :t1 :a 100 :b 200])
-    (frame-dispatch [:rf.xray.column-widths/resize-pair
+    (frame-dispatch [:rf.xray.column-widths/resize-pair-commit])
+    (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
                      :t2 :a 50 :b 70])
+    (frame-dispatch [:rf.xray.column-widths/resize-pair-commit])
     (frame-dispatch [:rf.xray.column-widths/reset :t1])
     (is (nil? (frame-sub [:rf.xray.column-widths/for-table :t1]))
         "t1's overrides cleared")

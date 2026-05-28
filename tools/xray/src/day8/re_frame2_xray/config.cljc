@@ -406,6 +406,33 @@
   []
   @editor)
 
+(def ^:private valid-editor-override-keywords
+  "Enumerated keyword overrides accepted by `valid-editor-override?`.
+  Mirror of `set-editor!`'s accepted shape (rf2-dudqz). Adding a new
+  editor here requires a matching `defmethod` in
+  `re-frame.source-coords.editor-uri/editor-uri`."
+  #{:vscode :cursor :windsurf :zed :idea})
+
+(defn valid-editor-override?
+  "Predicate: is `v` a valid `[:general :editor-override]` value?
+
+  Returns true for:
+    - `nil`                — the cleared state.
+    - An enumerated keyword from `valid-editor-override-keywords`.
+    - A `{:custom <string>}` map (any non-empty string).
+
+  Returns false for every other shape — corrupted localStorage
+  payloads, hand-edits, legacy values from earlier experimental
+  shapes. The read-side `get-editor` filters through this predicate
+  (rf2-a1tv6) so a corrupted slot degrades to the host default rather
+  than passing a malformed value through to the URI builder."
+  [v]
+  (or (nil? v)
+      (contains? valid-editor-override-keywords v)
+      (and (map? v)
+           (string? (:custom v))
+           (not= "" (:custom v)))))
+
 (defn get-editor
   "Return the editor preference Xray's 'Open in editor' affordance
   should target.
@@ -418,6 +445,12 @@
        localStorage like every other operator preference. Wins when
        non-nil so a mixed-editor teammate can flip their machine to
        a different editor without touching the host app's boot config.
+       rf2-a1tv6 — the slot is filtered through
+       `valid-editor-override?` on read; malformed payloads (a
+       corrupted localStorage write, a hand-edit, a stale
+       experimental shape) degrade to the host default instead of
+       reaching the URI builder. A rejection emits a `tap>` so tests
+       + operators can observe the corruption.
     2. **Host default** — the `editor` atom set by
        `set-editor!` / `(xray-config/configure! {:rf.xray/editor …})`.
        The team's project-wide pick.
@@ -428,8 +461,13 @@
   atom. Clearing the override (selecting '(project default)' in the
   picker) restores the host default."
   []
-  (let [override (try (get-in @settings [:general :editor-override])
-                      (catch #?(:clj Throwable :cljs :default) _ nil))]
+  (let [raw (try (get-in @settings [:general :editor-override])
+                 (catch #?(:clj Throwable :cljs :default) _ nil))
+        override (if (valid-editor-override? raw)
+                   raw
+                   (do (tap> {:tag      ::reject-invalid-editor-override
+                              :value    raw})
+                       nil))]
     (or override @editor)))
 
 ;; ---- *project-root* (rf2-5m5n2 — 'Open in editor' path prefix) ----------

@@ -685,6 +685,82 @@
   (or (:change-count (get-in projection [:container-ops (vec path)]))
       0))
 
+;; =========================================================================
+;; flat-rows post-processing — operator-friendly expansion (rf2-5j7ch)
+;; =========================================================================
+
+(defn expand-empty-root-replacement
+  "Post-process `flat-rows` so a wholesale root replacement against an
+  EMPTY before / after map expands into per-key rows (rf2-5j7ch).
+
+  Editscript's A* produces a single root-level `:r` edit for the
+  `{} → {populated}` (and `{populated} → {}`) cases — at engine
+  output that surfaces as ONE flat-row anchored at `[]`. The engine
+  is correct (one edit-script entry, mode-3 paints from the same
+  source), but the operator's UX read on `:diff` lens is less
+  informative: empty-to-populated is the canonical 'what landed?'
+  question for cold-boot epochs and wants per-key granularity.
+
+  This helper expands EXACTLY the empty-root-replacement case:
+
+    - before is `{}`        + after is a non-empty map  →
+      one `{:path [k] :op :added :before nil :after v}` row per
+      key (sorted by key for stable order).
+
+    - before is a non-empty map + after is `{}`        →
+      one `{:path [k] :op :removed :before v :after nil}` row
+      per key.
+
+  Non-empty-side replacements (two populated maps swapping wholesale)
+  are LEFT ALONE — that reads as a genuine wholesale event the
+  operator should see as one row.
+
+  Pure-data. Operates on the engine's `:flat-rows` shape (vector of
+  `{:path :op :before :after}` maps). The renderer-side
+  `flat-rows->triples` step folds the expanded rows into the same
+  4-tuple shape every `:diff` lens consumer reads.
+
+  Returns the (possibly-expanded) flat-rows vector."
+  [flat-rows]
+  (let [root-row (when (= 1 (count flat-rows))
+                   (first flat-rows))]
+    (cond
+      ;; Empty-to-populated: expand the `:modified` row at `[]` into
+      ;; per-key `:added` rows.
+      (and (some? root-row)
+           (= [] (:path root-row))
+           (= :modified (:op root-row))
+           (= {} (:before root-row))
+           (map? (:after root-row))
+           (seq (:after root-row)))
+      (->> (:after root-row)
+           (mapv (fn [[k v]]
+                   {:path   [k]
+                    :op     :added
+                    :before nil
+                    :after  v}))
+           (sort-by :path)
+           vec)
+
+      ;; Populated-to-empty: expand into per-key `:removed` rows.
+      (and (some? root-row)
+           (= [] (:path root-row))
+           (= :modified (:op root-row))
+           (map? (:before root-row))
+           (seq (:before root-row))
+           (= {} (:after root-row)))
+      (->> (:before root-row)
+           (mapv (fn [[k v]]
+                   {:path   [k]
+                    :op     :removed
+                    :before v
+                    :after  nil}))
+           (sort-by :path)
+           vec)
+
+      :else
+      flat-rows)))
+
 (defn wholly-changed-ancestor
   "Return the shallowest wholly-changed-root that is an ancestor of
   `path` (or equal to `path`), or nil. Drives R5's

@@ -225,19 +225,39 @@
 
   ;; ---- events -----------------------------------------------------------
   ;;
-  ;; resize-pair + reset both upgraded to event-fx so the persist fx
-  ;; rides on every mutation. `:rf.trace/no-emit? true` matches the
-  ;; pattern used by `:rf.xray/set-event-list-col-width` (drag emits
-  ;; one event per pixel of motion; trace-buffering them would flood
-  ;; the bus with shape no panel consumes).
+  ;; The drag flow is split into two events so the localStorage write
+  ;; rides ONLY the commit, not every pointermove tick (rf2-xm1jy):
+  ;;
+  ;;   :resize-pair-tick   — pointermove cadence (~1 event/px).
+  ;;                         Writes the slot in app-db; NO persist fx.
+  ;;                         `:rf.trace/no-emit? true` keeps the trace
+  ;;                         bus quiet at drag cadence (no panel
+  ;;                         consumes the per-pixel shape).
+  ;;
+  ;;   :resize-pair-commit — pointerup. Persists the post-drag slot
+  ;;                         exactly once. Trace-quiet too because the
+  ;;                         tick event already covers the data side
+  ;;                         and the operator's interest is the
+  ;;                         settled widths, not the commit marker.
+  ;;
+  ;; Pre-rf2-xm1jy a single `:resize-pair` event-fx fired the persist
+  ;; fx on every tick — ~200 localStorage writes per typical drag,
+  ;; each serialising the full multi-table widths map. The split keeps
+  ;; the data-flow shape explicit (one event per semantic step) and
+  ;; trades a one-off pointerup commit for the bursty steady-state
+  ;; pattern. `reset` keeps its single-event shape; it has no drag
+  ;; cadence — one click → one mutation → one persist.
 
-  (rf/reg-event-fx :rf.xray.column-widths/resize-pair
+  (rf/reg-event-db :rf.xray.column-widths/resize-pair-tick
     {:rf.trace/no-emit? true}
-    (fn [{:keys [db]} [_ table-id left-id left-px right-id right-px]]
-      (let [next-db (write-pair db table-id left-id left-px right-id right-px)]
-        {:db next-db
-         :fx [[:rf.xray.column-widths/persist
-               (get next-db :rf.xray/column-widths)]]})))
+    (fn [db [_ table-id left-id left-px right-id right-px]]
+      (write-pair db table-id left-id left-px right-id right-px)))
+
+  (rf/reg-event-fx :rf.xray.column-widths/resize-pair-commit
+    {:rf.trace/no-emit? true}
+    (fn [{:keys [db]} _]
+      {:fx [[:rf.xray.column-widths/persist
+             (get db :rf.xray/column-widths)]]}))
 
   (rf/reg-event-fx :rf.xray.column-widths/reset
     {:rf.trace/no-emit? true}
@@ -321,16 +341,21 @@
         (let [left-px0  (.-offsetWidth left-el)
               right-px0 (.-offsetWidth right-el)
               start-x   (.-clientX ev)
+              ;; rf2-xm1jy — pointermove dispatches the no-persist
+              ;; tick; pointerup dispatches the commit (one
+              ;; localStorage write per drag, not one per pixel).
               on-move   (fn [m-ev]
                           (let [delta     (- (.-clientX m-ev) start-x)
                                 new-left  (max min-col-width-px (+ left-px0 delta))
                                 new-right (max min-col-width-px (- right-px0 delta))]
                             (rf/with-frame :rf/xray
-                              (rf/dispatch [:rf.xray.column-widths/resize-pair
+                              (rf/dispatch [:rf.xray.column-widths/resize-pair-tick
                                             table-id
                                             left-id new-left
                                             right-id new-right]))))
               on-up     (fn on-up [_]
+                          (rf/with-frame :rf/xray
+                            (rf/dispatch [:rf.xray.column-widths/resize-pair-commit]))
                           (.removeEventListener js/window "pointermove" on-move)
                           (.removeEventListener js/window "pointerup" on-up))]
           (.addEventListener js/window "pointermove" on-move)
@@ -509,23 +534,34 @@
                        container-attrs)
            ;; Header hiccup is nil-tolerated by React/Reagent.
            header-hiccup]
-          ;; Body rows
-          (for [[i row] (map-indexed vector rows)
-                :let [attrs (or (when row-attrs (row-attrs row i)) {})
-                      cells (row-cells row i)
-                      extras (when row-extras (row-extras row i))
-                      woven (into [:<>] (weave-body cells columns))]]
-            ^{:key (row-key row i)}
-            (if (some? extras)
-              ;; Extras path — outer wrapper carries the consumer's
-              ;; attrs untouched (preserves border-bottom, click
-              ;; handlers, etc.); an inner div carries the grid layout
-              ;; for the cells; extras render below the inner grid.
-              [:div attrs
-               [:div {:style grid-style} woven]
-               extras]
-              ;; Default path — the outer wrapper IS the grid (the
-              ;; subscriptions-table shape).
-              [:div (-> attrs
-                        (assoc :style (merge (:style attrs) grid-style)))
-               woven])))))
+          ;; Body rows — eager `map-indexed` (per rf2-9ec65 / spec/006
+          ;; §Lazy-seq deref tracking, rf2-atqkg): a substrate widget
+          ;; must NOT hand React a `LazySeq` chunk because any future
+          ;; consumer that derefs a `(rf/subscribe ...)` inside its
+          ;; `:row-cells` fn would have the deref fall outside the
+          ;; parent render's reactive scope at the chunk boundary.
+          ;; The shared resizable-table is the canonical place to
+          ;; enforce eager realisation, not each call site.
+          (map-indexed
+            (fn [i row]
+              (let [attrs (or (when row-attrs (row-attrs row i)) {})
+                    cells (row-cells row i)
+                    extras (when row-extras (row-extras row i))
+                    woven (into [:<>] (weave-body cells columns))]
+                (with-meta
+                  (if (some? extras)
+                    ;; Extras path — outer wrapper carries the consumer's
+                    ;; attrs untouched (preserves border-bottom, click
+                    ;; handlers, etc.); an inner div carries the grid
+                    ;; layout for the cells; extras render below the
+                    ;; inner grid.
+                    [:div attrs
+                     [:div {:style grid-style} woven]
+                     extras]
+                    ;; Default path — the outer wrapper IS the grid
+                    ;; (the subscriptions-table shape).
+                    [:div (-> attrs
+                              (assoc :style (merge (:style attrs) grid-style)))
+                     woven])
+                  {:key (row-key row i)})))
+            rows))))

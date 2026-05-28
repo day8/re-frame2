@@ -3074,9 +3074,11 @@
             ;; body). Byte-identical `(displayed-before, displayed-
             ;; value)` pairs across renders short-circuit to the cached
             ;; result; only changed inputs trigger a fresh Editscript
-            ;; walk. Restores parity with the sub-cached `:diff` lens
-            ;; path (rf2-yqjrd) which has the same caching property
-            ;; via `annotated-tree-cache`.
+            ;; walk. Mirrors the sub-cache layer that fronts the
+            ;; `:diff` lens (rf2-yqjrd / engine/project in
+            ;; epoch/projection.cljc) — identical (before, after)
+            ;; inputs reuse the cached Editscript result rather than
+            ;; recomputing the A* edit-script on every render.
             projection    (when diff?
                             (memoised-project displayed-before displayed-value))
             body-content  (render-node

@@ -165,22 +165,21 @@
 
 (defn- event-segment-str
   "Render the leading event segment of an edge label per the Stately
-  graph view convention (rf2-a2b55, single source of truth in
-  `machines-viz/chart.layout/event-segment`):
+  graph view convention. rf2-2678t — delegate to the canonical
+  `machines-viz/chart.layout/event-segment` so xray + machines-viz
+  agree on every shape (no per-tool reimplementation drift):
 
-    - `:after <delay>` transition  → `\"⌚ <delay>ms\"` (clock glyph)
-    - `:always`        transition  → `\"∞\"`           (infinity glyph)
-    - regular event keyword         → `\"event-id\"` (ns preserved)
+    - `:* (any)` wildcard           — Spec 005 §Wildcard arm
+    - `:after <delay>` transition   — `⌚ <delay>ms` (clock glyph)
+    - `:always`        transition   — `∞`           (infinity glyph)
+    - regular event keyword          — `event-id` (ns preserved)
 
-  The xstate-textual `after(<delay>)` / `always` forms are NOT used
-  here — the Figma reconcile (spec/021 §6.2) + rf2-a2b55 fix the glyphs
-  as the canonical encoding so an `:always` / `:after` edge reads at a
-  glance against ordinary event arrows."
-  [{:keys [event after always?]}]
-  (cond
-    after            (str "⌚ " after "ms")
-    always?          "∞"
-    :else            (seg-name event)))
+  Pre-rf2-2678t (PR #2205) xray's local copy stripped the `:*` arm
+  and fell through to `seg-name`, which produced bare `\"*\"` — a
+  glyph drift away from machines-viz's `\"* (any)\"`. Importing the
+  canonical fn removes the entire drift class (rf2-2678t)."
+  [edge]
+  (chart-layout/event-segment edge))
 
 (defn- edge-label-str
   "Compose an xstate-stately edge label: `event [guard] / action`.

@@ -25,6 +25,7 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.popup :as popup]
+            [day8.re-frame2-xray.settings.view :as view]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -223,6 +224,26 @@
         (is (find-by-testid rendered "rf-xray-settings-editor-override-custom-input")
             "custom template input renders once the override is the
              :custom shape")))))
+
+(deftest editor-override-custom-radio-seeds-working-template
+  (testing "rf2-rc35g — the Custom radio's seed value (used when the
+            user first selects Custom with no prior template) is a
+            working vscode-style URI rather than `{:custom \"\"}`.
+            Pre-fix, click-to-source silently no-op'd until the user
+            finished typing the template; the seed makes the override
+            resolve to a valid URI immediately so the user edits from
+            a known baseline."
+    (let [seed @#'view/custom-template-seed]
+      (is (string? seed) "the seed is a string")
+      (is (not= "" seed)
+          "the seed is NOT the empty string (rf2-rc35g — empty
+           templates break click-to-source)")
+      (is (= "vscode://file/{path}:{line}:{column}" seed)
+          "the seed echoes the framework-default :vscode URI shape so
+           the chip resolves to a working URI immediately")
+      (is (config/valid-editor-override? {:custom seed})
+          "the seeded `{:custom <seed>}` shape passes the read-side
+           validator (rf2-a1tv6)"))))
 
 (deftest editor-override-default-radio-is-checked-on-fresh-install
   (testing "rf2-dudqz — with no override, the '(project default)'

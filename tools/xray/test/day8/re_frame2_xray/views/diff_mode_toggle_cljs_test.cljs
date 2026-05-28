@@ -262,3 +262,99 @@
       (is (nil?  (th/find-by-testid
                    tree "rf-xray-test-diff-mode-full-with-diff"))
           "omitted modes do not paint"))))
+
+;; ---- (7b) on-click closure identity is stable across renders (rf2-a7vkv) ----
+
+(deftest diff-mode-toggle-on-click-identity-stable-across-renders
+  (testing "rf2-a7vkv — `make-on-click` is `memoize`-cached on
+            `[on-change m]`, so two renders of the toggle with the
+            same `on-change` reference yield BYTE-IDENTICAL :on-click
+            handlers per button. React's reconciler skips re-writing
+            the DOM onclick prop when function identity matches."
+    (let [on-change (fn [_])
+          render1 (widget/diff-mode-toggle
+                    {:mode :diff
+                     :on-change on-change
+                     :testid "rf-xray-test-diff-mode"})
+          render2 (widget/diff-mode-toggle
+                    {:mode :diff
+                     :on-change on-change
+                     :testid "rf-xray-test-diff-mode"})
+          h1 (:on-click (second
+                          (th/find-by-testid
+                            render1 "rf-xray-test-diff-mode-diff")))
+          h2 (:on-click (second
+                          (th/find-by-testid
+                            render2 "rf-xray-test-diff-mode-diff")))]
+      (is (identical? h1 h2)
+          "same on-change + same mode kw → cached on-click handler
+           reused across renders"))))
+
+(deftest diff-mode-toggle-on-click-identity-differs-per-mode
+  (testing "rf2-a7vkv — the memoise key is `[on-change m]` so each
+            mode kw gets its own cached handler. Two buttons in the
+            SAME render must have DIFFERENT on-click identities, else
+            clicking :full would dispatch :diff."
+    (let [on-change (fn [_])
+          tree (widget/diff-mode-toggle
+                 {:mode :diff
+                  :on-change on-change
+                  :testid "rf-xray-test-diff-mode"})
+          h-diff (:on-click (second
+                              (th/find-by-testid
+                                tree "rf-xray-test-diff-mode-diff")))
+          h-full (:on-click (second
+                              (th/find-by-testid
+                                tree "rf-xray-test-diff-mode-full")))]
+      (is (not (identical? h-diff h-full))
+          "different mode kws → different cached handlers"))))
+
+;; ---- (8) on-click stops event propagation (rf2-eko4v) -------------------
+
+(deftest diff-mode-toggle-on-click-stops-propagation
+  (testing "rf2-eko4v / rf2-ihjnx — the per-button `:on-click` MUST
+            call `(.stopPropagation e)` before invoking `:on-change`.
+            The widget is typically nested under section headers that
+            themselves bind click handlers (e.g. the L4 tab strip's
+            mode picker); a bubbled mode-button click would re-trigger
+            the enclosing handler with confusing semantics. Pin the
+            invariant by simulating a click with a stub event whose
+            `stopPropagation` flips a flag, then assert `:on-change`
+            received the chosen mode AFTER propagation was stopped."
+    (let [tree (widget/diff-mode-toggle
+                 {:mode :full+diff
+                  :on-change identity
+                  :testid "rf-xray-test-diff-mode"})
+          btn-diff (th/find-by-testid tree "rf-xray-test-diff-mode-diff")
+          on-click (:on-click (second btn-diff))
+          stopped? (atom false)
+          received (atom nil)
+          ;; Rebuild the widget with a capturing on-change so we can
+          ;; assert order: stopPropagation MUST fire before on-change.
+          tree2    (widget/diff-mode-toggle
+                     {:mode :full+diff
+                      :on-change (fn [m]
+                                   (reset! received
+                                           {:mode m
+                                            :propagation-stopped? @stopped?}))
+                      :testid "rf-xray-test-diff-mode"})
+          on-click2 (:on-click
+                      (second
+                        (th/find-by-testid tree2 "rf-xray-test-diff-mode-diff")))
+          evt      (js-obj "stopPropagation" #(reset! stopped? true))]
+      ;; First handler: only assert stopPropagation is called.
+      (is (fn? on-click) "button carries a fn at :on-click")
+      (on-click evt)
+      (is @stopped?
+          ":on-click MUST call (.stopPropagation e) to block bubbling
+           into enclosing click handlers")
+      ;; Second handler: assert ordering — propagation stops THEN
+      ;; on-change fires with the chosen mode.
+      (reset! stopped? false)
+      (reset! received nil)
+      (on-click2 evt)
+      (is (= :diff (:mode @received))
+          ":on-change receives the mode for this button")
+      (is (true? (:propagation-stopped? @received))
+          "stopPropagation runs BEFORE :on-change so callers see the
+           event already cancelled by the time their handler fires"))))

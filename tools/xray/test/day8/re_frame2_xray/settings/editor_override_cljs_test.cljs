@@ -201,20 +201,46 @@
 ;; ---- robustness --------------------------------------------------------
 
 (deftest invalid-override-shape-degrades-to-host-default
-  (testing "A persisted override that is neither a keyword nor a
-            map (e.g. legacy payload corruption) does NOT crash
-            `get-editor`. Stored values that pass `update-setting!`
-            today come through the picker which only writes nil /
-            enumerated keywords / `{:custom ...}` maps — this test
-            covers the defensive read for unexpected payloads."
+  (testing "rf2-a1tv6 — a persisted override that fails
+            `valid-editor-override?` (corrupted localStorage payload,
+            hand-edit, stale experimental shape) falls back to the
+            host default on read. `get-editor` filters the slot
+            through the predicate so a malformed value can never
+            reach the URI builder."
     (config/set-editor! :idea)
-    ;; Force an invalid value in directly to bypass the picker.
+    ;; Force an invalid value in directly to bypass the picker (which
+    ;; is the single writer that today enforces the shape contract).
     (swap! config/settings assoc-in [:general :editor-override] "not-a-keyword")
-    ;; The `or` in `get-editor` returns truthy values straight back —
-    ;; the chip would render with `(name override)` and fall through
-    ;; to editor-uri's unknown-keyword path (which yields :vscode).
-    ;; Pin the contract: an unexpected truthy value DOES win, so the
-    ;; picker is the single writer to keep the shape sane.
-    (is (= "not-a-keyword" (config/get-editor))
-        "any truthy override wins; the picker is the single writer
-         that enforces the shape contract")))
+    (is (= :idea (config/get-editor))
+        "invalid override degrades to the host default")
+    ;; Empty-template :custom is also rejected (the picker's seed
+    ;; window — see rf2-rc35g — would otherwise leak through here).
+    (swap! config/settings assoc-in [:general :editor-override] {:custom ""})
+    (is (= :idea (config/get-editor))
+        "empty :custom template is rejected; host default wins")
+    ;; Maps without :custom string also fall back.
+    (swap! config/settings assoc-in [:general :editor-override] {:something 1})
+    (is (= :idea (config/get-editor))
+        "map without valid :custom string is rejected")))
+
+(deftest valid-editor-override?-predicate-coverage
+  (testing "rf2-a1tv6 — the predicate accepts exactly the shapes
+            `set-editor!` accepts (modulo nil for cleared)."
+    (is (config/valid-editor-override? nil))
+    (is (config/valid-editor-override? :vscode))
+    (is (config/valid-editor-override? :cursor))
+    (is (config/valid-editor-override? :idea))
+    (is (config/valid-editor-override? :zed))
+    (is (config/valid-editor-override? :windsurf))
+    (is (config/valid-editor-override?
+          {:custom "subl://open?url=file://{path}&line={line}"}))
+    (is (not (config/valid-editor-override? "string-keyword")))
+    (is (not (config/valid-editor-override? :unknown-editor)))
+    (is (not (config/valid-editor-override? {:custom ""}))
+        "empty :custom template is invalid (rf2-rc35g)")
+    (is (not (config/valid-editor-override? {:custom 42}))
+        ":custom must be a string")
+    (is (not (config/valid-editor-override? [:vscode]))
+        "vector wrappers reject")
+    (is (not (config/valid-editor-override? 42))
+        "scalars reject")))

@@ -426,13 +426,16 @@
    ;; Issues panel's filter-chrome reconcile to the Figma design (pure
    ;; rows, no filtering — spec/021 §8.2).
    :rf.xray/add-filter
-   ;; rf2-uji72 — shared draggable column-resize events. `resize-pair`
-   ;; updates both adjacent column widths in one writeback so the
-   ;; sum is conserved; `reset` clears all overrides for a table.
+   ;; rf2-uji72 — shared draggable column-resize events. `resize-pair-
+   ;; tick` updates both adjacent column widths in one writeback so the
+   ;; sum is conserved; `resize-pair-commit` (rf2-xm1jy) persists the
+   ;; settled widths to localStorage exactly once on pointerup;
+   ;; `reset` clears all overrides for a table.
    ;; rf2-xzg1y — `hydrate` lifts the persisted column-widths map from
    ;; localStorage into app-db at first-mount time.
    :rf.xray.column-widths/hydrate
-   :rf.xray.column-widths/resize-pair
+   :rf.xray.column-widths/resize-pair-commit
+   :rf.xray.column-widths/resize-pair-tick
    :rf.xray.column-widths/reset
    ;; rf2-59e7k — Cancellation-cascade visualiser events. Per
    ;; `tools/xray/spec/019-Cross-Cutting-Insight.md` §M.3.

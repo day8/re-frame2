@@ -33,184 +33,40 @@
         grouping, timer reasons, guard outcomes)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [day8.re-frame2-xray.panels.epoch.projection :as proj]))
+            [day8.re-frame2-xray.panels.epoch.projection :as proj]
+            ;; rf2-tyivx — canonical trace-event builders shared with
+            ;; the panel-gallery synth fixtures + any other projection
+            ;; test. Pre-rf2-tyivx every `*-ev` helper was duplicated
+            ;; per call site; the rf2-e0xjx cluster (rf2-yhgk8 /
+            ;; rf2-slnce / rf2-ipaza / rf2-w2r4p) is what happens when
+            ;; copies drift in lock-step. ONE canonical name set, one
+            ;; ns, one diff to land a substrate-side rename.
+            [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]))
 
-;; ---- fixture builders ----------------------------------------------------
+;; ---- local fixture aliases ----------------------------------------------
+;;
+;; Thin aliases over `teb/*` so existing call sites read identically to
+;; the pre-rf2-tyivx file. A single re-name lands in one place when the
+;; substrate emit shape rotates.
 
-(defn- ev
-  "Build a minimal trace event."
-  [op-type operation tags]
-  {:op-type   op-type
-   :operation operation
-   :tags      tags})
-
-(defn- dispatched-ev
-  ([event] (dispatched-ev event nil nil))
-  ([event source] (dispatched-ev event source nil))
-  ([event source coord]
-   (cond-> (ev :rf.event :rf.event/dispatched {:event event
-                                               :source source
-                                               :rf.trace/call-site coord})
-     true (assoc :event event :source source))))
-
-(defn- run-end-ev
-  ;; rf2-slnce — substrate stamps the handler's wall-clock duration
-  ;; as `:rf.event/elapsed-ms` on `:rf.event/run-end` (rf2-hhh92 ·
-  ;; `re-frame.router/emit-run-end-trace`). Fixture stamps the
-  ;; canonical name only; the reader's legacy fallbacks remain for
-  ;; older runtimes / external test fixtures.
-  ([] (run-end-ev nil nil))
-  ([duration-ms] (run-end-ev duration-ms nil))
-  ([duration-ms coeffects]
-   (ev :rf.event :rf.event/run-end (cond-> {:rf.event/elapsed-ms duration-ms}
-                                     coeffects (assoc :rf.event/coeffects
-                                                      coeffects)))))
-
-(defn- cofx-run-ev
-  ;; rf2-w2r4p — substrate stamps `:rf.cofx/elapsed-ms` on
-  ;; `:rf.cofx/run` (rf2-hhh92 · `re-frame.cofx`; spec 009 §243). The
-  ;; 3-arg form supplies a duration; the 2-arg legacy form omits it.
-  ([id value] (ev :rf.cofx :rf.cofx/run {:rf.cofx/id id :rf.cofx/value value}))
-  ([id value duration-ms]
-   (ev :rf.cofx :rf.cofx/run {:rf.cofx/id         id
-                              :rf.cofx/value      value
-                              :rf.cofx/elapsed-ms duration-ms})))
-
-(defn- db-changed-ev
-  [paths]
-  (ev :rf.event :rf.event/db-changed {:rf.event/db-changed-paths paths}))
-
-(defn- do-fx-ev
-  [fx]
-  (ev :rf.fx :rf.fx/do-fx {:rf.event/fx fx}))
-
-(defn- fx-handled-ev
-  ;; rf2-ipaza — substrate stamps the per-fx-handler invocation
-  ;; duration as `:rf.fx/elapsed-ms` on `:rf.fx/handled` (rf2-hhh92 ·
-  ;; `re-frame.fx`; spec 009 §241). Fixture stamps the canonical name
-  ;; only; the reader's legacy `:duration-ms` fallback remains for
-  ;; older runtimes / external test fixtures.
-  [fx-id args duration-ms]
-  (ev :rf.fx :rf.fx/handled {:rf.fx/id          fx-id
-                             :rf.fx/args        args
-                             :rf.fx/elapsed-ms  duration-ms}))
-
-(defn- flow-recomputed-ev
-  ;; rf2-yhgk8 — substrate stamps flow-recomputes under the
-  ;; `:rf.flow/computed` operation with bare `:flow-id`, `:path`,
-  ;; `:before`, `:result`, `:elapsed-ms` tags (Spec 009 §Flow trace
-  ;; events · `re-frame.flows`). Fixture mirrors substrate shape; the
-  ;; reader now reads against canonical names. Name retained as
-  ;; `flow-recomputed-ev` for call-site stability; the operation /
-  ;; tags are canonical.
-  [flow-id path before after]
-  (ev :rf.flow :rf.flow/computed {:flow-id flow-id
-                                  :path    path
-                                  :before  before
-                                  :result  after}))
-
-(defn- sub-run-ev
-  [sub-vec changed? before after]
-  ;; Per rf2-kfh1v the substrate stamps `:rf.sub/id`, `:rf.sub/query-v`,
-  ;; `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value` —
-  ;; NOT the legacy `:rf.sub/query` / `:rf.sub/changed?` / `:rf.sub/before`
-  ;; the projection used to read. Fixture mirrors substrate shape.
-  (ev :rf.sub :rf.sub/run {:rf.sub/id             (when (vector? sub-vec) (first sub-vec))
-                           :rf.sub/query-v        sub-vec
-                           :rf.sub/value-changed? changed?
-                           :rf.sub/prev-value     before
-                           :rf.sub/value          after}))
-
-(defn- view-render-ev
-  ([view-id subs-read]
-   (view-render-ev view-id subs-read nil))
-  ([view-id subs-read elapsed-ms]
-   ;; Per rf2-6djth the substrate stamps the rich per-render marker as
-   ;; `:rf.view/rendered` (not `:rf.view/render`) with `:rf.view/id` +
-   ;; `:rf.view/deref-subs`. Fixture mirrors substrate shape.
-   (ev :rf.view :rf.view/rendered
-       (cond-> {:rf.view/id          view-id
-                :rf.view/deref-subs  subs-read}
-         (some? elapsed-ms)
-         (assoc :rf.view/elapsed-ms elapsed-ms)))))
-
-(defn- view-unmounted-ev
-  "`:rf.view/unmounted` trace event — drives the VIEWS step's
-  UNMOUNTED sub-section (rf2-gmw1i). Per
-  `re-frame.views/emit-view-unmounted!` the substrate stamps
-  `:rf.view/id` + `:rf.view/render-key` + `:frame`."
-  ([view-id]
-   (view-unmounted-ev view-id nil :rf/default))
-  ([view-id render-key frame]
-   (ev :rf.view :rf.view/unmounted
-       {:rf.view/id         view-id
-        :rf.view/render-key render-key
-        :frame              frame})))
-
-(defn- sub-dispose-ev
-  "`:rf.sub/dispose` trace event — drives the SUBSCRIPTIONS step's
-  DISPOSED sub-section (rf2-wpfjo). Per rf2-mrnur the substrate stamps
-  `:rf.sub/id` + `:rf.sub/query-v` + `:rf.sub/reason` + `:frame`
-  on every cache eviction site."
-  ([sub-vec reason]
-   (sub-dispose-ev sub-vec reason :rf/default))
-  ([sub-vec reason frame]
-   (ev :rf.sub :rf.sub/dispose
-       {:rf.sub/id      (when (vector? sub-vec) (first sub-vec))
-        :rf.sub/query-v sub-vec
-        :rf.sub/reason  reason
-        :frame          frame})))
-
-(defn- machine-transition-ev
-  ([machine-id before after]
-   (machine-transition-ev machine-id before after nil 0))
-  ([machine-id before after event microsteps]
-   (ev :rf.machine :rf.machine/transition
-       (cond-> {:machine-id machine-id
-                :before before
-                :after after}
-         event       (assoc :event event)
-         microsteps  (assoc :microsteps microsteps)))))
-
-(defn- machine-guard-ev
-  [guard-id outcome]
-  (ev :rf.machine :rf.machine/guard-evaluated {:guard-id guard-id
-                                               :outcome outcome}))
-
-(defn- machine-action-ev
-  ([action-id phase outcome]
-   (machine-action-ev action-id phase outcome nil))
-  ([action-id phase outcome data]
-   (ev :rf.machine :rf.machine/action-ran {:action-id action-id
-                                           :phase phase
-                                           :outcome outcome
-                                           :input {:data (or data {}) :event nil}})))
-
-(defn- machine-timer-cancel-ev
-  [machine-id state delay reason]
-  (ev :rf.machine :rf.machine.timer/cancelled {:machine-id machine-id
-                                               :state state
-                                               :delay delay
-                                               :reason reason}))
-
-(defn- schema-violation-ev
-  ([where failing-id path value]
-   (schema-violation-ev where failing-id path value nil))
-  ([where failing-id path value rollback?]
-   (ev :error :rf.error/schema-validation-failure
-       (cond-> {:where where
-                :failing-id failing-id
-                :path path
-                :value value}
-         (some? rollback?) (assoc :rollback? rollback?)))))
-
-(defn- schema-hot-reload-ev
-  [frame-id path mismatching-value]
-  (ev :warning :rf.schema/violation
-      {:frame frame-id
-       :path path
-       :mismatching-value mismatching-value
-       :recovery :logged-and-skipped}))
+(def ^:private ev                   teb/ev)
+(def ^:private dispatched-ev        teb/dispatched-ev)
+(def ^:private run-end-ev           teb/run-end-ev)
+(def ^:private cofx-run-ev          teb/cofx-run-ev)
+(def ^:private db-changed-ev        teb/db-changed-ev)
+(def ^:private do-fx-ev             teb/do-fx-ev)
+(def ^:private fx-handled-ev        teb/fx-handled-ev)
+(def ^:private flow-recomputed-ev   teb/flow-recomputed-ev)
+(def ^:private sub-run-ev           teb/sub-run-ev)
+(def ^:private view-render-ev       teb/view-rendered-ev)
+(def ^:private view-unmounted-ev    teb/view-unmounted-ev)
+(def ^:private sub-dispose-ev       teb/sub-dispose-ev)
+(def ^:private machine-transition-ev   teb/machine-transition-ev)
+(def ^:private machine-guard-ev        teb/machine-guard-ev)
+(def ^:private machine-action-ev       teb/machine-action-ev)
+(def ^:private machine-timer-cancel-ev teb/machine-timer-cancel-ev)
+(def ^:private schema-violation-ev     teb/schema-violation-ev)
+(def ^:private schema-hot-reload-ev    teb/schema-hot-reload-ev)
 
 (defn- record
   "Build a synthetic `:rf/epoch-record` for projection."
