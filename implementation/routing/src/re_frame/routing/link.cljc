@@ -73,14 +73,18 @@
                                 ;; Per rf2-t1lxr: route-link click → :router
                                 ;; origin so the L2 epoch timeline tags the
                                 ;; resulting :rf/url-requested cascade as a
-                                ;; routing-substrate dispatch (not :user).
+                                ;; routing-substrate dispatch (not :ui). Per
+                                ;; rf2-1ve9h the single closed-enum
+                                ;; functional-origin axis is `:source` —
+                                ;; routing-internal dispatches stamp
+                                ;; `:source :router`.
                                 (router/dispatch!
                                   [:rf/url-requested
                                    (cond-> {:url url :to to}
                                      (seq params)   (assoc :params params)
                                      (seq query)    (assoc :query  query)
                                      fragment       (assoc :fragment fragment))]
-                                  {:rf/dispatch-origin :router})))))]
+                                  {:source :router})))))]
        (into [:a attrs] children))))
 
 (defn route-link-render-ssr

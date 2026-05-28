@@ -2589,6 +2589,48 @@
           ":rf.route/on-match-frame names the dispatching frame"))))
 
 ;; ============================================================================
+;; rf2-t1lxr / rf2-1ve9h — routing-internal dispatches stamp :source :router
+;; ============================================================================
+
+(deftest on-match-error-internal-dispatch-stamps-source-router
+  (testing "the routing-internal `:rf.route.internal/on-match-error`
+            dispatch stamps the closed-enum functional-origin axis
+            `:source :router` on its envelope (visible on the
+            `:rf.event/dispatched` trace) so Xray's L2 timeline + filter
+            pills discriminate framework-origin events from user-origin
+            events. Per rf2-t1lxr; per rf2-1ve9h `:source` is the single
+            closed-enum functional-origin axis on the dispatch envelope,
+            and `:source :router` is the routing discriminator."
+    (rf/reg-event-db :load/throw-source
+                     (fn [_db _]
+                       (throw (ex-info "source-boom" {:why :test}))))
+    (rf/reg-route :route/source-attributed
+                  {:path     "/source-attributed"
+                   :on-match [[:load/throw-source]]})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (let [traces (atom [])]
+      (rf/register-listener! ::on-match-source
+                             (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/transitioned "/source-attributed"])
+      (rf/unregister-listener! ::on-match-source)
+      (let [internal-dispatch
+            (some (fn [ev]
+                    (and (= :rf.event/dispatched (:operation ev))
+                         (= :rf.route.internal/on-match-error
+                            (-> ev :tags :rf.event/v first))
+                         ev))
+                  @traces)]
+        (is (some? internal-dispatch)
+            "the on-match-error listener dispatched :rf.route.internal/on-match-error")
+        ;; `:source` is hoisted to a top-level slot on every trace event
+        ;; (re-frame.trace/build-event — Spec 009 §Core fields hoist
+        ;; contract), not stamped under `:tags`.
+        (is (= :router (:source internal-dispatch))
+            ":source :router rides on the routing-internal dispatch envelope")))))
+
+;; ============================================================================
 ;; rf2-5pyyl — :can-leave non-boolean → BLOCK + :rf.error/can-leave-non-boolean
 ;; ============================================================================
 
