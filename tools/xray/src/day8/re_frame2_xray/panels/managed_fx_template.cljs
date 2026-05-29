@@ -91,14 +91,13 @@
   `:http-correlation` IN pill in the ribbon (rf2-piye4) — narrows
   the L2 event list to cascades that touched this exchange (issuing
   effect, retries, response, downstream handler)."
-  [correlation-id]
+  [dispatch correlation-id]
   (when correlation-id
     [:span {:data-testid "rf-xray-managed-fx-correlation"
             :on-context-menu (fn [^js e]
                                (.preventDefault e)
-                               (rf/dispatch
-                                 [:rf.xray/filter-by-http-correlation correlation-id]
-                                 {:frame :rf/xray}))
+                               (dispatch
+                                 [:rf.xray/filter-by-http-correlation correlation-id]))
             :title "Right-click to filter the event list to this HTTP exchange"
             :style {:padding       "1px 6px"
                     :margin-left   "8px"
@@ -155,7 +154,8 @@
      "STUB"]))
 
 (defn- panel-header
-  [{:keys [surface fx-id duration-ms status http-status correlation-id phase cancel-cause stubbed?]
+  [dispatch
+   {:keys [surface fx-id duration-ms status http-status correlation-id phase cancel-cause stubbed?]
     :as   record}]
   [:header {:data-testid (str "rf-xray-managed-fx-header-" (name surface))
             :style       {:display       "flex"
@@ -186,9 +186,8 @@
            :on-context-menu (fn [^js e]
                               (when fx-id
                                 (.preventDefault e)
-                                (rf/dispatch
-                                  [:rf.xray/filter-by-fx fx-id]
-                                  {:frame :rf/xray})))
+                                (dispatch
+                                  [:rf.xray/filter-by-fx fx-id])))
            :title "Right-click to filter the event list to events triggering this fx"
            :style {:color (:accent tokens)
                    :font-family mono-stack
@@ -202,7 +201,7 @@
     (h/format-duration-ms duration-ms)]
    [:span {:style {:flex 1}}]
    (status-pill record)
-   (correlation-pill correlation-id)
+   (correlation-pill dispatch correlation-id)
    (phase-pill phase)
    (cancel-pill cancel-cause)
    (stub-pill stubbed?)])
@@ -263,7 +262,7 @@
   "Renders the dispatched handler event vector + a click-to-focus
   affordance that pivots the spine to that child cascade. Anchors the
   F.3 'failed response handler' diagnostic."
-  [{:keys [handler frame dispatch-id]}]
+  [dispatch {:keys [handler frame dispatch-id]}]
   (if (and (vector? handler) (seq handler))
     [:div {:style {:display "flex"
                    :align-items "center"
@@ -272,8 +271,7 @@
      [:div {:style {:flex 1 :min-width 0}}
       [edn/inspect handler "managed-fx/handler"]]
      [:button {:data-testid "rf-xray-managed-fx-focus-handler"
-               :on-click    #(rf/dispatch [:rf.xray/focus-event dispatch-id frame]
-                                          {:frame :rf/xray})
+               :on-click    #(dispatch [:rf.xray/focus-event dispatch-id frame])
                :style       {:background  "transparent"
                              :border      (str "1px solid " (:border-default tokens))
                              :color       (:accent tokens)
@@ -335,8 +333,14 @@
     - STATUS + WIRE + APP-DB SLICE TOUCHED expanded by default
     - REQUEST + RESPONSE + HANDLER DISPATCHED collapsed by default
       (one click reveals the payload — keeps the panel scannable on
-      first paint)."
-  [record]
+      first paint).
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `panels/ManagedFxList` `reg-view` body, threaded to the header /
+  handler affordances. Defaults to `rf/dispatch` so the test seam (and
+  any pre-sweep caller) renders without a captured dispatcher."
+  ([record] (record-panel rf/dispatch record))
+  ([dispatch record]
   [:section {:data-testid (str "rf-xray-managed-fx-record-"
                                (name (:surface record))
                                "-" (or (:origin-event-id record) "x"))
@@ -346,7 +350,7 @@
                            :border (str "1px solid " (:border-subtle tokens))
                            :border-radius "4px"
                            :background    (:bg-2 tokens)}}
-   (panel-header record)
+   (panel-header dispatch record)
    [:div {:style {:padding "8px 12px"}}
     (section/section-row
       {:label "REQUEST" :expanded? false
@@ -367,12 +371,12 @@
       {:label "HANDLER DISPATCHED" :expanded? false
        :testid "rf-xray-managed-fx-section-handler"
        :container-padding "8px 0"}
-      (handler-section record))
+      (handler-section dispatch record))
     (section/section-row
       {:label "APP-DB SLICE TOUCHED" :expanded? true
        :testid "rf-xray-managed-fx-section-app-db"
        :container-padding "8px 0"}
-      (app-db-slice-section record))]])
+      (app-db-slice-section record))]]))
 
 ;; ---- list panel --------------------------------------------------------
 
@@ -380,8 +384,12 @@
   "Render a vector of managed-fx records as a stack of panels. Pure fn
   over the records vector; used by `event_detail.cljs` to mount the
   list under the six-domino cascade view, and by the tests to render
-  a deterministic stack against canned records."
-  [records]
+  a deterministic stack against canned records.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded to each
+  `record-panel`. Defaults to `rf/dispatch` for the test seam."
+  ([records] (records-list rf/dispatch records))
+  ([dispatch records]
   (when (seq records)
     [:div {:data-testid "rf-xray-managed-fx-list"
            :style {:padding "8px 0"
@@ -395,4 +403,4 @@
                   " in this cascade")]]
      (for [rec records]
        ^{:key (str (:surface rec) "-" (:origin-event-id rec) "-" (:fx-id rec))}
-       (record-panel rec))]))
+       (record-panel dispatch rec))])))
