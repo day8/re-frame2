@@ -96,6 +96,11 @@
             ;; rf2-5x1wt.8 — the determinism gate. Re-exported as
             ;; `assert-deterministic` below (spec/017 §Determinism gate).
             [re-frame.story.determinism :as determinism]
+            ;; rf2-5x1wt.25 — the run-artifact → variant promotion bridge.
+            ;; Re-exported as `materialize-variant-plan` (pure) +
+            ;; `promote-run-artifact!` (the explicit-only registration path)
+            ;; below (spec/017 §Promotion — Promotion bridge).
+            [re-frame.story.promotion   :as promotion]
             [re-frame.story.lifecycle   :as lifecycle]
             [re-frame.story.query       :as query]
             ;; Runtime modules — args resolution, decorators.
@@ -986,6 +991,40 @@
   `:runs` / `:hooks` / `:frame-config`."
   ([plan-or-artifact]      (determinism/assert-deterministic plan-or-artifact))
   ([plan-or-artifact opts] (determinism/assert-deterministic plan-or-artifact opts)))
+
+;; ---- run-artifact → variant promotion bridge (rf2-5x1wt.25) -------------
+;;
+;; Per spec/017 §Promotion — Promotion bridge: a curated run artifact
+;; becomes a NAMED Story variant. Two surfaces: `materialize-variant-plan`
+;; is PURE (projects the artifact into a readable normalized plan, registers
+;; NOTHING); `promote-run-artifact!` is the ONLY registering path (no
+;; `:variant/id`, no registration — a generated failure is never
+;; auto-registered). Both preserve the source-artifact link on
+;; `:run-artifact`.
+
+(defn materialize-variant-plan
+  "Per spec/017 §Promotion — project a run artifact into a readable,
+  data-shaped normalized variant plan. PURE / side-effect-free — registers
+  NOTHING; use it to READ what a promotion would produce. The program's
+  preconditions land on `[:world :setup]` and its behaviour-under-test on
+  `:script` (the projection rule); the plan carries a `:run-artifact`
+  source link. `opts` MAY carry `:variant/id` / `:setup` / `:script` /
+  `:setup-count` / `:doc` / `:extends` / `:tags` / `:args` / `:lookup` /
+  `:view-lookup` / `:validator-fns`."
+  ([artifact]      (promotion/materialize-variant-plan artifact))
+  ([artifact opts] (promotion/materialize-variant-plan artifact opts)))
+
+(defn promote-run-artifact!
+  "Per spec/017 §Promotion — promote a curated run artifact into a NAMED
+  Story variant. The ONLY registering path in the bridge: `opts` MUST
+  carry `:variant/id`; a generated failure is NEVER auto-registered. Builds
+  the same body `materialize-variant-plan` compiles (preconditions on
+  `:setup`, behaviour on `:script`, the source-artifact link on
+  `:run-artifact`) and writes it into the Story side-table via the
+  `reg-variant` write path. Production builds short-circuit. Returns the
+  registered variant id."
+  [artifact opts]
+  (promotion/promote-run-artifact! artifact opts))
 
 (defn destroy-variant!
   "Tear down a variant frame allocated via `run-variant`. Per IMPL-

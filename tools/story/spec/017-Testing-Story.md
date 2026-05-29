@@ -1487,6 +1487,63 @@ preconditions. The recorder/codegen output SHOULD share this contract, so
 a recorded interaction and a promoted failure are indistinguishable as
 authored variants.
 
+### Promotion bridge
+
+The promotion API ships in the `re-frame.story.promotion` namespace
+(re-exported on the `re-frame.story` facade). It is two functions with a
+deliberate purity split:
+
+```clojure
+(story/materialize-variant-plan artifact opts)
+;; -> a readable, normalized variant plan. PURE — registers NOTHING.
+
+(story/promote-run-artifact! artifact {:variant/id :story.checkout/regression-042})
+;; -> registers a NAMED variant. The ONLY function that registers.
+```
+
+`materialize-variant-plan` projects a run artifact into the four-bucket
+authoring shape and compiles it through the `variant-plan` compiler
+(§Variant plan) read-only, returning a normalized `:world` / `:script` /
+`:expect` plan. It is side-effect-free, so a tool or author MAY
+materialize a plan to READ what a promotion would produce before deciding
+to commit it.
+
+`promote-run-artifact!` is the single registering entry. It MUST be
+called with an explicit `:variant/id`; a missing id is an error
+(`:rf.error/story-promote-no-id`), never a silent default. There is no
+auto-register path — a generated failure becomes a curated variant ONLY
+through this named call. The function builds the same variant body
+`materialize-variant-plan` compiles and writes it into the Story
+side-table via the `reg-variant` write path (shape validation, `:extends`
+resolution, source-coord stamping). The registered variant is
+indistinguishable from a hand-authored one except for its `:run-artifact`
+provenance slot. Production builds (`config/enabled?` false)
+short-circuit before the write.
+
+**Setup/script projection.** The artifact's `:event-program` is one
+ordered program; the promotion policy in `opts` selects where the cut
+between PRECONDITION (`[:world :setup]`) and BEHAVIOUR-UNDER-TEST
+(`:script`) falls:
+
+- `:setup` + `:script` — an explicit partition, used verbatim.
+- `:setup-count n` — the first `n` steps are preconditions; the rest are
+  behaviour (clamped to the program bounds).
+- neither (default) — the whole program is behaviour (`:script`); nothing
+  is demoted to a silent precondition without a hint. This is the
+  conservative reading: a captured run IS the behaviour the artifact
+  recorded.
+
+**Source-artifact link.** Both the materialized plan and the promoted
+variant body preserve a back-link to the source artifact under the
+`:run-artifact` slot — the same slot a replay run-result carries (§Run
+result), so provenance reads the same everywhere. The link is a TRIMMED
+provenance view: the replayable + identifying core (`:artifact/kind`,
+`:seed`, `:event-program`, `:fx-decisions`, `:shrink-path`,
+`:created-at`, `:source`) WITHOUT the bulky captured evidence
+(`:epoch-tape`, `:trace`, `:result`). A curated variant can explain where
+it came from and re-derive the run; it does not drag a full epoch tape
+into the registrar side-table.
+
 ## Run artifact and replay
 
 The `:rf.test/run-artifact` shape (§Artifacts — Run artifact) is the
