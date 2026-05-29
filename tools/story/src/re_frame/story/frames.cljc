@@ -642,11 +642,24 @@
 ;; ---- frame-meta introspection --------------------------------------------
 
 (defn variant-frame?
-  "True iff `frame-id` is a variant frame (was allocated via
-  `allocate!`). Reads the frame's `:rf/story?` slot on its frame-meta
-  (per Spec-Schemas §`:rf/frame-meta` — flat shape)."
+  "True iff `frame-id` is a NAVIGABLE variant frame (was allocated via
+  `allocate!`). Reads the frame's frame-meta (per Spec-Schemas
+  §`:rf/frame-meta` — flat shape): true iff it carries `:rf/story?` AND is
+  NOT stamped `:rf/inline?`.
+
+  An inline-plan frame (allocated via `allocate-inline!`) shares the
+  `:rf/story?` stamp — it IS a Story-managed frame — but is stamped
+  `:rf/inline? true` and MUST NOT appear in Story navigation (spec/017
+  §Inline plan, UNCONDITIONALLY — not merely post-teardown). Excluding it
+  here makes `:rf/inline?` load-bearing: it is the discriminator that keeps
+  an in-flight inline frame out of the live-frame enumeration during the
+  window between `allocate-inline!` and `destroy-inline!`, closing the
+  transient gap that side-table absence alone (no registration) does not
+  cover (rf2-r16iv)."
   [frame-id]
-  (true? (:rf/story? (rf/frame-meta frame-id))))
+  (let [m (rf/frame-meta frame-id)]
+    (and (true? (:rf/story? m))
+         (not (:rf/inline? m)))))
 
 (defn variant-frames
   "Return every registered variant frame id. Stage 4's UI shell uses

@@ -29,6 +29,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
             [re-frame.story.assertions :as assertions]
+            [re-frame.story.frames :as frames]
             [re-frame.story.play.runner-events :as re]))
 
 (defn- reset-rf! [test-fn]
@@ -120,6 +121,45 @@
         "the inline plan appears under no story")
     (is (empty? (story/variant-frames))
         "the anonymous inline frame was torn down — no lingering nav frame")))
+
+(deftest inline-plan-absent-from-navigation-while-in-flight
+  (testing "an inline frame is absent from variant-frames / variant-frame?
+            WHILE it is allocated — the transient window between
+            `allocate-inline!` and `destroy-inline!` (rf2-r16iv). spec/017
+            §Inline plan: 'Inline plans MUST NOT appear in Story navigation'
+            is UNCONDITIONAL — not merely post-teardown. The pre-existing
+            absent-from-navigation test only checks AFTER `run-target`
+            returns; on the JVM the run is synchronous so the in-flight
+            window is already closed at assertion time. Here we allocate the
+            inline frame and assert mid-flight, BEFORE tearing it down — the
+            case the post-teardown test misses. Drives `variant-frame?` to
+            read the `:rf/inline?` stamp `allocate-inline!` writes, making
+            the stamp load-bearing (no longer dead metadata)."
+    (let [inline-id :rf.story.inline/plan-transient]
+      ;; Allocate an inline frame directly (the registry-free twin of
+      ;; `allocate!`): empty decorator stack + no fx-overrides, events-only
+      ;; fast-path. This mirrors what `run-inline-plan` does mid-run.
+      (frames/allocate-inline! inline-id {} {} true)
+      (try
+        ;; The frame IS live — it exists in the runtime's frame registry.
+        (is (contains? (set (rf/frame-ids)) inline-id)
+            "precondition: the inline frame is allocated and live")
+        ;; It carries BOTH stamps — it is a Story-managed frame…
+        (let [m (rf/frame-meta inline-id)]
+          (is (true? (:rf/story? m)) "inline frame carries the :rf/story? stamp")
+          (is (true? (:rf/inline? m)) "inline frame carries the :rf/inline? stamp"))
+        ;; …yet `variant-frame?` excludes it (reads :rf/inline?) and so it
+        ;; is absent from the navigable enumeration the UI shell walks.
+        (is (false? (frames/variant-frame? inline-id))
+            "an allocated inline frame is NOT a navigable variant frame")
+        (is (not (contains? (frames/variant-frames) inline-id))
+            "an in-flight inline frame is absent from variant-frames")
+        (is (not (contains? (story/variant-frames) inline-id))
+            "…through the public story/variant-frames surface too")
+        (finally
+          (frames/destroy-inline! inline-id {} nil)))
+      (is (empty? (frames/variant-frames))
+          "post-teardown: no lingering nav frame (the pre-existing guard)"))))
 
 ;; ===========================================================================
 ;; Inline plan can use a REGISTERED check

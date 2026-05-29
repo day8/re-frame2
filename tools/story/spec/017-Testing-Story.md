@@ -291,9 +291,17 @@ rather than forking it:
    thread `:fragment-lookup` / `:check-lookup` / `:lookup` so the plan can
    compose REGISTERED fragments + checks, or run host-free);
 2. an ANONYMOUS frame id is minted in the reserved `:rf.story.inline/*`
-   namespace — never a registered variant id, so navigation can't surface
-   it and a concurrent registered run can't collide; the frame is stamped
-   `:rf/inline? true`;
+   namespace — never a registered variant id, so the Story side-table
+   queries (variant ids, variants-by-story) can't surface it and a
+   concurrent registered run can't collide; the frame is stamped
+   `:rf/inline? true`. That stamp is the discriminator the live-frame
+   navigation enumeration (`variant-frames` / `variant-frame?`) consults:
+   an inline frame carries `:rf/story?` (it IS Story-managed) yet is
+   EXCLUDED from the navigable-variant enumeration because it is also
+   stamped `:rf/inline?`. The MUST-NOT is thus enforced for the whole
+   in-flight window between allocation and teardown — not merely by the
+   side-table absence (which alone would leave the live frame transiently
+   navigable while a run is in flight);
 3. the decorator stack is resolved from the plan's already-merged
    `[:world :decorators]` refs (the variant/story side-table is NOT read);
 4. the SAME phase pipeline (loaders → setup → script) drives the run, all
