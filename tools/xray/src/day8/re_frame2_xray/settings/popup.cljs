@@ -70,10 +70,15 @@
   subscribe + a `when` — cheap.
 
   Per rf2-in6l2 `reg-view`-registered so the body's subscribes
-  route through the React-context tier to `:rf/xray`."
+  route through the React-context tier to `:rf/xray`.
+
+  rf2-nesy9 — the reg-view-injected `dispatch` (the frame-aware
+  dispatcher captured at render time) is threaded into `popup-view`
+  so every deferred `:on-*` handler in the popup tree lands on the
+  surrounding instance frame, not a `{:frame :rf/xray}` literal."
   []
   (when @(rf/subscribe [:rf.xray/settings-open?])
-    (view/popup-view)))
+    (view/popup-view dispatch)))
 
 (defn install!
   "Idempotent install for the settings popup's Xray-side

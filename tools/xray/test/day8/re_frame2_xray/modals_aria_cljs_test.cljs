@@ -151,7 +151,7 @@
   (xray-setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view))]
+  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-settings-dialog"
                              "Settings popup")))
 
@@ -160,7 +160,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view))
+    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
           close (find-by-testid tree "rf-xray-settings-close")]
       (is (string? (:aria-label (props close)))
           "Settings close ✕ carries an aria-label"))))
@@ -194,7 +194,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/open-edit-popup
                        {:source :add :mode :in :pill {}}]))
-  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view))]
+  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-edit-popup-dialog"
                              "Filter edit-popup")))
 
@@ -255,7 +255,7 @@
   (xray-setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view))]
+  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))]
     (assert-dialog-focus-ref! tree "rf-xray-settings-dialog"
                               "Settings popup")))
 
@@ -276,7 +276,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/open-edit-popup
                        {:source :add :mode :in :pill {}}]))
-  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view))]
+  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view rf/dispatch))]
     (assert-dialog-focus-ref! tree "rf-xray-edit-popup-dialog"
                               "Filter edit-popup")))
 
