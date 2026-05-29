@@ -282,9 +282,22 @@ Verify the shadow-cljs nREPL is reachable, confirm the
 shadow-cljs `:devtools :preloads`, and return a health summary. Run
 first every session.
 
-**Args**: `build` (string, optional, default `"app"`). Colon-tolerant
-(rf2-8ohwv) — `"examples/step-deck"` and `":examples/step-deck"` resolve
-to the same build id; a doubled colon never reaches the resolver.
+**Args**: `build` (string, optional). Colon-tolerant (rf2-8ohwv) —
+`"examples/step-deck"` and `":examples/step-deck"` resolve to the same
+build id; a doubled colon never reaches the resolver.
+
+**Single-build auto-selection (rf2-v70kv).** When you omit `build` and
+**exactly one** shadow-cljs build is running, discover-app auto-selects
+it (rather than defaulting to `:app`, which fails by construction on any
+checkout whose running watch isn't `:app`). The result echoes
+`:auto-selected-build <id>` and prepends an auto-selection sentence to
+`:note`, so the choice is visible — never silent. When **zero or many**
+builds run, discover-app keeps the `:app` default and the failure-path
+diagnostic ladder surfaces `:build-not-running` with the running-builds
+list (the multi-build path stays ambiguous-and-loud — discover-app does
+**not** guess a most-recently-active build). An explicit `build` arg (or
+a build cached by a prior discover-app) is honoured verbatim and skips
+auto-selection.
 
 **Returns**: an `:ok? true` map with `:debug-enabled?`, `:frames`,
 `:coord-annotation-enabled?`, `:build-id`. On success the resolved

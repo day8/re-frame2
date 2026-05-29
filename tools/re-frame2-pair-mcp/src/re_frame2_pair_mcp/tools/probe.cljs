@@ -333,6 +333,28 @@
                  (if (vector? v) v []))))
       (.catch (fn [_] []))))
 
+(defn auto-select-single-build
+  "Resolve a build-id when EXACTLY ONE shadow-cljs build is running, else
+  nil (rf2-v70kv). Returns a Promise resolving to `[build-id true]` when
+  one build was auto-selected, or `[nil false]` when zero or many run.
+
+  Unlike `resolve-build!` (the eval-path resolver, which REJECTS on
+  zero/many), this is the soft probe `discover-app` uses to fill an
+  omitted `:build` arg without losing the existing multi-build error
+  path: on zero/many the caller keeps its default build-id and lets the
+  diagnostic ladder surface `:build-not-running` with the running list.
+
+  Deliberately does NOT pick a most-recently-active build when several
+  run — that's a silent wrong-build footgun Mike explicitly rejected.
+  Two running builds stays ambiguous."
+  [conn]
+  (-> (running-builds conn)
+      (.then (fn [running]
+               (if (= 1 (count running))
+                 [(first running) true]
+                 [nil false])))
+      (.catch (fn [_] [nil false]))))
+
 (defn- auto-detect-hint [running]
   (cond
     (empty? running)

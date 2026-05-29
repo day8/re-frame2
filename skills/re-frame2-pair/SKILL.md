@@ -126,8 +126,10 @@ This locates the shadow-cljs nREPL port, connects, switches the session to `:clj
 
 | Arg | Form | Examples |
 |---|---|---|
-| `build` | bare build id; a leading colon is also tolerated (rf2-8ohwv) | `"examples/step-deck"` or `":examples/step-deck"` — identical |
+| `build` | bare build id; a leading colon is also tolerated (rf2-8ohwv). **Omit it when one build is running** — discover-app auto-selects it (rf2-v70kv) | `"examples/step-deck"` or `":examples/step-deck"` — identical |
 | `frame` / `frames` | keyword **with** the colon | `":rf/default"`, `":step-deck"`, `[":rf/default" ":rf/xray"]` |
+
+**Single-build auto-selection (rf2-v70kv).** You usually don't need to pass `build` at all. When exactly one shadow-cljs build is running, a no-arg `discover-app` selects it and reports `:auto-selected-build` plus an explanatory `:note`. When several run, it errors with the running-builds list so you can pick — it never silently guesses.
 
 **Output representation.** discover-app reports every build/frame id (`:build-id`, `:frames`, `:running-builds`) as a **full keyword** (`:rf/default`, `:examples/step-deck`) in the canonical EDN result, and its `:note` / `:hint` prose uses the same colon form — one representation throughout. (Hosts that surface the `:structuredContent` JSON view will show the colon stripped — `"rf/default"` — that's the documented lossy JSON projection; read the EDN text for the id exactly as you'd type it back into a `:frame` arg.)
 
