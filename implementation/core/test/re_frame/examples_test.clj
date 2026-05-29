@@ -40,6 +40,19 @@
   ;; require from each example ns wouldn't re-evaluate the body (Clojure
   ;; require is idempotent without :reload-all), so reload here.
   (require 're-frame.http-test-support :reload)
+  ;; clear-all! also drops the framework-shipped `:rf/machine` /
+  ;; `:rf/machine-has-tag?` subs, which register at re-frame.machines load
+  ;; time (see re-frame.machines §framework-shipped subs). The state-machine-
+  ;; walkthrough example's `:auth.login/state` / `:auth.login/error` named
+  ;; subs CHAIN off `:rf/machine` (`:<- [:rf/machine :auth.login/flow]`), so
+  ;; their input sub must be present in the registrar. The transitive require
+  ;; from the example ns wouldn't re-fire re-frame.machines' toplevel reg-sub
+  ;; forms once the ns is already loaded (Clojure require is idempotent), so
+  ;; reload here — exactly as the machines ns header anticipates. Without
+  ;; this, whether the smw drain test is green depends on whether some
+  ;; earlier-loaded ns happened to (re-)register `:rf/machine` since the last
+  ;; clear-all! — an ordering-dependent flake.
+  (require 're-frame.machines :reload)
   ;; Drop any cached require of example namespaces (and their sibling test
   ;; namespaces) so each test re-evaluates their namespace-level handlers
   ;; against a fresh registrar.
