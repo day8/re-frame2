@@ -56,6 +56,7 @@
   (:require [clojure.string :as str]
             [cljs.reader :as reader]
             [re-frame.core :as rf]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-machines-viz.chart :as mv-chart]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the canvas-side
@@ -245,14 +246,18 @@
 ;; ---- hydration ----------------------------------------------------------
 
 (defn- hydrate! []
+  ;; rf2-nesy9 — init-time hydration targets the production Xray shell
+  ;; frame via the named `defaults/default-frame-id` Var (production-
+  ;; singleton seam, no surrounding render frame), not a `{:frame
+  ;; :rf/xray}` literal. Consistent with `spine-filters/hydrate!`.
   (let [by-id (load-view-mode-by-id)]
     (when (seq by-id)
       (rf/dispatch [:rf.xray.machine-canvas/hydrate-view-modes by-id]
-                   {:frame :rf/xray})))
+                   {:frame defaults/default-frame-id})))
   (let [by-id (load-chart-collapsed-by-id)]
     (when (seq by-id)
       (rf/dispatch [:rf.xray.machine-canvas/hydrate-chart-collapsed by-id]
-                   {:frame :rf/xray}))))
+                   {:frame defaults/default-frame-id}))))
 
 ;; ---- view-mode toggle ---------------------------------------------------
 
@@ -263,7 +268,12 @@
   happening via the private symbol; promote to public rather than
   re-publish via a wrapper."
   [{:keys [machine-id mode]}]
-  (let [tab-style (fn [active?]
+  ;; rf2-nesy9 — capture the surrounding instance frame at render time
+  ;; so the deferred view-mode clicks dispatch into it, not a `:rf/xray`
+  ;; literal. The toggle renders inside the Chart / machine-inspector
+  ;; reg-views, so current-frame resolves through the React-context tier.
+  (let [frame     (rf/current-frame)
+        tab-style (fn [active?]
                     {:background    (if active?
                                       (:bg-active tokens)
                                       "transparent")
@@ -298,7 +308,7 @@
                       (rf/dispatch
                         [:rf.xray.machine-canvas/set-view-mode
                          {:machine-id machine-id :mode :canvas}]
-                        {:frame :rf/xray}))
+                        {:frame frame}))
        :title       "Canvas view — topology chart with zoom/pan"
        :style       (tab-style (= :canvas mode))}
       "Canvas"]
@@ -310,7 +320,7 @@
                       (rf/dispatch
                         [:rf.xray.machine-canvas/set-view-mode
                          {:machine-id machine-id :mode :list}]
-                        {:frame :rf/xray}))
+                        {:frame frame}))
        :title       "List view — guards/actions only, no chart"
        :style       (tab-style (= :list mode))}
       "List"]]))
