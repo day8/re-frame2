@@ -48,14 +48,30 @@
   subscriptions / `:sub-overrides` (§View-state subscription overrides);
   the two MUST NOT be conflated.
 
+  ## Network world slot (rf2-5x1wt.14)
+
+  When a variant authors `:network` (a `{[method url] {:reply …}}` route
+  map), the compiler keeps the per-route reply data at `[:world :network]`
+  (the source of truth that feeds `:plan-hash` through the `:world` slot
+  and `explain`) and **lowers** it to the existing managed-request stub
+  machinery — the variant frame overrides `:rf.http/managed` with the stub
+  fx `re-frame.http-test-support/install-managed-request-stubs!` registers
+  (folded into `[:world :frame :fx-overrides]`). It reuses that helper
+  rather than inventing a new HTTP mock; the actual `install-…!` call is a
+  RUNTIME concern (run when the variant frame is created). `:network` and
+  an explicit author `:fx-overrides` on `:rf.http/managed` are a hard
+  conflict (`:rf.error/story-network-fx-conflict`) — `:network` is the
+  dedicated affordance for that fx. See §Network world slot below.
+
   ## What this layer DEFERS
 
   Strict `:compose` fragment/check composition + conflict resolution
   (§Merge rules / §Conflict resolution), the runner itself, evidence
-  projection, `:network` lowering, and the capability-token registry are
-  **later beads**. This compiler emits the scaffolding (e.g. an empty
-  `[:world :network]` passthrough, a coarse `:required-runner`) so those
-  beads slot in without reshaping the plan.
+  projection, and the capability-token registry are **later beads**. This
+  compiler emits the scaffolding (a coarse `:required-runner`, the lowered
+  `:network` fx-override the deferred runner installs) so those beads slot
+  in without reshaping the plan. Wiring the per-route reply data into the
+  run artifact awaits the run-artifact ns (rf2-5x1wt.7).
 
   ## Purity / elision
 
@@ -481,6 +497,90 @@
        {:status :ok :schema schema :missing [] :malformed []}))))
 
 ;; ============================================================================
+;; Network world slot (rf2-5x1wt.14)
+;; ============================================================================
+;;
+;; Per spec §The network surface + §Network stubs: managed HTTP stubbing is
+;; first-class world input. A variant authors
+;;
+;;   {:network {[:get  "/api/cart"]      {:reply {:ok {:items []}}}
+;;              [:post "/api/checkout"]  {:reply {:failure {:kind :rf.http/http-4xx
+;;                                                          :status 409}}}}}
+;;
+;; The compiler keeps the per-route reply data at `[:world :network]` (the
+;; source of truth that feeds `:plan-hash` via `plan-hash-input-keys`'s
+;; `:world` slot, and `explain`, and — once rf2-5x1wt.7's run-artifact ns
+;; lands — the run artifact) AND **lowers** it to the existing managed-
+;; request stub machinery: the variant frame overrides `:rf.http/managed`
+;; with the stub fx that `re-frame.http-test-support/install-managed-
+;; request-stubs!` registers. We do NOT invent a new HTTP mock — the
+;; lowering names the existing seam so the (deferred) runner installs the
+;; route map and points the frame's `:fx-overrides` at the stub fx.
+;;
+;; `:network` is NOT a replacement for generic `:fx-overrides`; it is the
+;; higher-level affordance for `:rf.http/managed` specifically. Generic
+;; `:fx-overrides` still serve every non-HTTP effect and the unusual cases
+;; (§Network stubs — "generic :fx-overrides still exists").
+
+(def managed-fx-id
+  "The production managed-HTTP fx id `:network` lowers an override of —
+  `re-frame.http-managed`'s `:rf.http/managed` (Spec 014)."
+  :rf.http/managed)
+
+(def managed-stub-fx-id
+  "The fx id `re-frame.http-test-support/install-managed-request-stubs!`
+  registers and returns — the per-call stub target a `:network` variant's
+  frame redirects `:rf.http/managed` to. Mirrors that helper's private
+  `stub-fx-id` constant (Spec 014 §Testing); naming it here lets the plan
+  declare the lowering without depending on the http artefact at compile
+  time (the actual `install-…!` call is a RUNTIME concern, run when the
+  variant frame is created — see the runtime-migration bead)."
+  :rf.http/managed-test-stub)
+
+(defn lower-network
+  "Lower a resolved `:network` route map into the managed-stub fx override.
+  Pure data → data. Returns
+  `{:network <route-map> :fx-overrides {:rf.http/managed
+  :rf.http/managed-test-stub}}` when `network` is non-empty, or `nil`
+  when there are no routes.
+
+  `network` is the per-route reply map already merged + arg-substituted
+  (`{[method url] {:reply …}}`). It is preserved verbatim as the source of
+  truth; the derived `:fx-overrides` entry is the lowering the runner
+  consumes to point the frame's `:rf.http/managed` at the stub fx."
+  [network]
+  (when (seq network)
+    {:network      network
+     :fx-overrides {managed-fx-id managed-stub-fx-id}}))
+
+(defn- check-network-fx-conflict!
+  "FAIL plan construction when `:network` and an explicit author
+  `:fx-overrides` BOTH target `:rf.http/managed` (§Network stubs — the
+  conflict must resolve predictably). `:network` is the dedicated managed-
+  HTTP affordance; an explicit `:fx-overrides {:rf.http/managed …}` is the
+  coarse escape hatch. Letting one silently win would flatten exactly the
+  route-level intent `:network` exists to preserve, so the two-owner case
+  is a hard error the author resolves by dropping one surface.
+
+  `author-fx-overrides` is the variant-authored `:fx-overrides` map (the
+  context value, before lowering); `network` is the resolved route map.
+  No-op when either is absent or `:network` is empty."
+  [id author-fx-overrides network]
+  (when (and (seq network)
+             (map? author-fx-overrides)
+             (contains? author-fx-overrides managed-fx-id))
+    (fail! :rf.error/story-network-fx-conflict
+           (str "re-frame2-story: variant " id " sets BOTH :network and an "
+                "explicit :fx-overrides on " managed-fx-id " — they conflict. "
+                ":network is the dedicated managed-HTTP affordance; drop the "
+                "explicit :fx-overrides entry (or drop :network and stub "
+                "manually).")
+           {:variant/id   id
+            :fx-id        managed-fx-id
+            :network      network
+            :fx-overrides author-fx-overrides})))
+
+;; ============================================================================
 ;; Compiler
 ;; ============================================================================
 
@@ -573,6 +673,20 @@
         setup        (substitute-args setup-raw arg-map subs!)
         script*      (substitute-args script arg-map subs!)
         sub-overrides (substitute-args (:sub-overrides ctx) arg-map subs!)
+        ;; ---- network world slot (rf2-5x1wt.14) ----
+        ;; Per-route replies may carry `[:arg key]` placeholders (e.g. a
+        ;; stubbed id driven by a control), so substitute before lowering.
+        network      (substitute-args (:network ctx) arg-map subs!)
+        ;; `:network` and an explicit `:fx-overrides` on :rf.http/managed
+        ;; both own the same fx — that is a hard conflict (§Network stubs).
+        _            (check-network-fx-conflict! id (:fx-overrides ctx) network)
+        ;; Lower the route map to the managed-stub fx override; nil when
+        ;; there are no routes. The derived `:fx-overrides` merges UNDER any
+        ;; non-managed author overrides (the conflict above already ruled
+        ;; out a managed-targeting author override).
+        network-low  (lower-network network)
+        fx-overrides (merge (when network-low (:fx-overrides network-low))
+                            (:fx-overrides ctx))
         ;; ---- view arg schema + effective-args validation (rf2-5x1wt.12) ----
         ;; `:effective-args` at plan time IS the resolved arg-map; the
         ;; render path layers control-panel overrides on top later. We
@@ -613,8 +727,12 @@
                               :platforms      platforms}
                        (some? schema)        (assoc :view-args-schema schema)
                        (some? sub-overrides) (assoc-in [:render :sub-overrides] sub-overrides)
-                       (contains? ctx :network)     (assoc :network (:network ctx))
-                       (contains? ctx :fx-overrides) (assoc-in [:frame :fx-overrides] (:fx-overrides ctx))
+                       ;; `:network` keeps the per-route reply data (source
+                       ;; of truth, feeds :plan-hash via :world); the
+                       ;; lowering (rf2-5x1wt.14) folds its managed-stub fx
+                       ;; override into the frame's `:fx-overrides` below.
+                       (seq network)          (assoc :network network)
+                       (seq fx-overrides)     (assoc-in [:frame :fx-overrides] fx-overrides)
                        (contains? ctx :interceptor-overrides) (assoc-in [:frame :interceptor-overrides] (:interceptor-overrides ctx))
                        (contains? ctx :loaders)     (assoc :loaders (:loaders ctx))
                        (contains? ctx :loaders-teardown) (assoc :loaders-teardown (:loaders-teardown ctx))
@@ -644,6 +762,12 @@
                                               {:status    (:status validation)
                                                :missing   (:missing validation)
                                                :malformed (:malformed validation)})
+                      ;; rf2-5x1wt.14 — per-route network stubs + the
+                      ;; managed-stub fx the routes lower to (§Network
+                      ;; stubs — ":network participates in explain").
+                      :network      (when (seq network)
+                                      {:routes       network
+                                       :lowered-to   (:fx-overrides network-low)})
                       :setup-order  setup
                       :script-order script*
                       :checks       checks

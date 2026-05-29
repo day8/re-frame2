@@ -1248,6 +1248,82 @@ volatile-only twins MUST canonicalize `=` and hash equal; paired
 single-field semantic twins (app-db, effect, assertion verdict, status,
 epoch db-after, warning) MUST canonicalize `not=` and hash unequal.
 
+## Network world
+
+The author-facing `:network` surface and its `[method url] → {:reply …}`
+shape are introduced in §The network surface and §Network stubs. This
+section pins the **compiler contract** for the first-class `:network`
+world slot (rf2-5x1wt.14) — the lowering to the managed-request stub
+machinery, the conflict semantics versus generic `:fx-overrides`, and the
+explain / `:plan-hash` participation.
+
+### Reuse, not reinvention
+
+`:network` MUST lower to the existing managed-request stub helper
+`re-frame.http-test-support/install-managed-request-stubs!` (Spec 014
+§Testing) — Story does NOT introduce a second HTTP mock. That helper takes
+the same `{[method url] {:reply <:ok|:failure>}}` route map the author
+writes, registers a per-call stub fx (id `:rf.http/managed-test-stub`),
+and returns the fx id; an unmatched managed request synthesises the
+helper's existing "no stub matched" transport failure (fail-closed). The
+helper lives in the `day8/re-frame2-http` artefact; Story declares it as a
+runtime dependency (the stub install is a runtime concern for running a
+`:network` variant, so the dep rides Story's main `:deps`, not the `:test`
+alias).
+
+### What the compiler emits
+
+When a variant's resolved (merged + arg-substituted) `:network` route map
+is non-empty, `re-frame.story.plan/compile-body`:
+
+| Plan slot | Value | Why |
+|---|---|---|
+| `[:world :network]` | the per-route reply map, verbatim | the **source of truth** — feeds `:plan-hash` (through the `:world` slot of `plan-hash-input-keys`), `explain`, and the narrative/run-artifact evidence |
+| `[:world :frame :fx-overrides]` | the author's frame overrides **merged with** `{:rf.http/managed :rf.http/managed-test-stub}` | the **lowering** — points the variant frame's `:rf.http/managed` at the stub fx; the runner installs the route map via `install-managed-request-stubs!` when it creates the frame |
+| `[:explain :network]` | `{:routes <route-map> :lowered-to {:rf.http/managed :rf.http/managed-test-stub}}` | per-route stubs + the managed-stub lowering are visible in `explain` |
+
+`re-frame.story.plan/managed-fx-id` (`:rf.http/managed`) and
+`re-frame.story.plan/managed-stub-fx-id` (`:rf.http/managed-test-stub`)
+name the two fx ids so the plan declares the lowering without a
+compile-time dependency on the http artefact; `lower-network` is the pure
+data → data primitive that derives the override map. The
+per-route reply data may carry `[:arg key]` placeholders, substituted on
+the same pass as setup / script / sub-overrides; an undeclared arg FAILS
+plan construction with `:rf.error/story-missing-arg`.
+
+Because `:network` is world context, it **inherits through `:extends`**
+(deep-merged root → child): a child variant's routes merge over the
+parent's, and the single managed-stub override covers the inherited and
+own routes alike.
+
+### Conflict with generic `:fx-overrides`
+
+`:network` is the dedicated affordance for `:rf.http/managed`; generic
+`:fx-overrides` still serve every non-HTTP effect and the unusual cases.
+When both `:network` and an explicit author `:fx-overrides` target
+`:rf.http/managed`, the compiler MUST FAIL plan construction with
+`:rf.error/story-network-fx-conflict` (carrying the `:variant/id`, the
+conflicting `:fx-id`, the `:network` routes, and the author
+`:fx-overrides`). Letting one silently win would flatten exactly the
+route-level intent `:network` exists to preserve, so the two-owner case is
+a hard error the author resolves by dropping one surface. An
+`:fx-overrides` on any **other** fx coexists cleanly — it merges alongside
+the derived managed-stub entry.
+
+### Plan-hash participation
+
+`:network` participates in `:plan-hash` with no extra wiring: the route
+map lives under `[:world :network]`, and `plan-hash-input-keys` already
+hashes the whole `:world` slot. A semantic change to any per-route reply
+(success payload, failure `:kind`, status) therefore perturbs the
+`:plan-hash`; a `canonicalize`-volatile change does not.
+
+> **Deferred — run-artifact wiring.** The per-route reply data is
+> preserved in `explain`, `:plan-hash`, and (through `[:world :network]`)
+> the narrative evidence. Threading it into the low-level run artifact
+> awaits the run-artifact namespace (rf2-5x1wt.7); this section is
+> updated to wire it in once that lands.
+
 ## Unit and integration testing adjustments
 
 The general testing-substrate counterpart of these additions

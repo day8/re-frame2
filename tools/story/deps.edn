@@ -35,6 +35,16 @@
          ;; cannot run, so the dep is mandatory at Stage 3+.
          day8/re-frame2-machines {:local/root "../../implementation/machines"}
 
+         ;; rf2-5x1wt.14 — the managed-HTTP artefact. Story's first-class
+         ;; `:network` world slot lowers to the managed-request stub
+         ;; machinery in `re-frame.http-test-support/install-managed-
+         ;; request-stubs!` (Spec 014 §Testing). Installing the stub fx
+         ;; for a `:network` variant frame is a RUNTIME concern, so the
+         ;; dep belongs in the main `:deps` (not the `:test` alias). The
+         ;; managed-HTTP fx surface (`:rf.http/managed`) ships in this same
+         ;; artefact under `re-frame.http-managed`.
+         day8/re-frame2-http     {:local/root "../../implementation/http"}
+
          ;; Malli drives Story's three-level args / argtypes auto-derivation
          ;; from Spec 010 schemas (see IMPL-SPEC §4 + §5.2). Malli is
          ;; already a transitive dep via implementation/core; the version

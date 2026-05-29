@@ -465,6 +465,63 @@
     (fn [v] (or (empty? v)
                 (= (count v) (count (distinct (map :name v))))))]])
 
+;; ---- :network — managed HTTP request stubs (rf2-5x1wt.14) ----------------
+
+(def NetworkRoute
+  "A single `:network` route key — a `[method url]` pair matching the
+  managed-request stub helper's lookup. `method` is an HTTP-verb keyword
+  (`:get` / `:post` / `:put` / `:patch` / `:delete` / `:head` /
+  `:options`); `url` is the request URL string. Per
+  `tools/story/spec/017-Testing-Story.md` §Network world the key shape
+  mirrors `re-frame.http-test-support/install-managed-request-stubs!`."
+  [:tuple
+   [:enum :get :post :put :patch :delete :head :options]
+   :string])
+
+(def NetworkReply
+  "A single route's reply spec. EXACTLY one of `:ok` / `:failure` —
+  `{:reply {:ok <data>}}` synthesises a success response, `{:reply
+  {:failure {:kind <:rf.http/*> …}}}` synthesises a failure. The `:ok`
+  data is the decoded response value; the `:failure` map carries the
+  closed `:rf.http/*` failure `:kind` (Spec 014) plus any tags. Data-
+  shaped only — no fn-valued slots (the variant body stays EDN-round-
+  trippable)."
+  [:and
+   [:map
+    [:reply
+     [:and
+      [:map
+       [:ok      {:optional true} :any]
+       [:failure {:optional true} [:map-of :any :any]]]
+      [:fn {:error/message
+            ":reply must carry exactly one of :ok / :failure"}
+       ;; `reply` is the :reply VALUE (`{:ok …}` / `{:failure …}`), so
+       ;; the xor check runs against it directly.
+       (fn [reply]
+         (= 1 (count (filter #(contains? reply %) [:ok :failure]))))]]]]
+   ;; the `:reply` inner :fn already enforces xor; the outer :and keeps
+   ;; the entry shape closed-ish (open map, but :reply is required).
+   [:fn {:error/message ":network route value must carry a :reply"}
+    (fn [m] (contains? m :reply))]])
+
+(def NetworkSpec
+  "Schema for the `:network` slot on a story / variant / fragment body —
+  first-class managed-HTTP request stubs (rf2-5x1wt.14). A map of
+  `[method url]` route keys to `{:reply {:ok|:failure …}}` reply specs.
+
+  Per `tools/story/spec/017-Testing-Story.md` §Network world the plan
+  compiler lowers `:network` to `[:world :network]` and then to the
+  existing managed-request stub machinery
+  (`re-frame.http-test-support/install-managed-request-stubs!`). It is the
+  higher-level affordance for `:rf.http/managed` — route-level replies,
+  mixed success/failure, and per-route intent — distinct from the coarse
+  generic `:fx-overrides` surface, which still serves non-HTTP effects.
+
+  Unmatched managed requests fail closed at run time with the helper's
+  existing 'no stub matched' transport failure; the schema does not (and
+  cannot) enumerate every URL a run might issue."
+  [:map-of NetworkRoute NetworkReply])
+
 (def Variant
   "Schema for the body of `reg-variant`.
 
@@ -554,6 +611,14 @@
     [:plays                 {:optional true} PlaysSpec]
     [:args                  {:optional true} ArgMap]
     [:argtypes              {:optional true} ArgtypesMap]
+    ;; rf2-5x1wt.14 — first-class managed-HTTP request stubs. A map of
+    ;; `[method url]` → `{:reply {:ok|:failure …}}`. The plan compiler
+    ;; lowers `:network` to `[:world :network]` and on to the managed-
+    ;; request stub fx (`re-frame.http-test-support`). The higher-level
+    ;; affordance for `:rf.http/managed`; generic `:fx-overrides` still
+    ;; serves non-HTTP effects. See `NetworkSpec` + spec/017 §Network
+    ;; world.
+    [:network               {:optional true} NetworkSpec]
     [:tags                  {:optional true} TagSet]
     [:decorators            {:optional true} DecoratorRefs]
     [:loaders               {:optional true} [:vector EventVector]]
