@@ -1562,7 +1562,12 @@
   with the parent-dispatch-id labelled to give the operator something
   to orient on."
   [parent-epoch-id parent-dispatch-id]
-  (cond
+  ;; rf2-nesy9 — render-time frame capture so the deferred parent-epoch
+  ;; focus click dispatches into the surrounding instance frame (the
+  ;; affordance renders inside the Epoch Panel reg-view), not a
+  ;; `:rf/xray` literal.
+  (let [frame (rf/current-frame)]
+   (cond
     (some? parent-epoch-id)
     [:button {:data-testid "rf-xray-epoch-dispatch-parent-epoch-link"
               :aria-label  (str "focus parent epoch #" parent-epoch-id)
@@ -1571,7 +1576,7 @@
                              (.stopPropagation e)
                              (rf/dispatch
                                [:rf.xray/focus-epoch parent-epoch-id]
-                               {:frame :rf/xray}))
+                               {:frame frame}))
               :style dispatch-source-parent-epoch-button-style}
      (str "parent epoch #" parent-epoch-id)]
 
@@ -1580,7 +1585,7 @@
             :style dispatch-source-parent-epoch-plain-style}
      (str "parent dispatch #" parent-dispatch-id " (not in buffer)")]
 
-    :else nil))
+    :else nil)))
 
 (defn- dispatch-after-timer-label
   "Render the `:after-timer` rich label:
@@ -2769,7 +2774,14 @@
   right-of-badge chrome. Pre-alpha masterpiece posture; no
   back-compat shim retained."
   [mode]
-  [:span {:data-testid "rf-xray-epoch-subscriptions-filter-mode"
+  ;; rf2-nesy9 — capture the surrounding instance frame at render time
+  ;; (the bar renders inside the Epoch Panel reg-view) so the deferred
+  ;; filter-mode click writes to THIS instance's Xray app-db, not the
+  ;; `:rf/xray` singleton. Supersedes the prior `with-frame :rf/xray`
+  ;; pin (the rf2-p56sk frame-anchor reasoning held only while Xray was
+  ;; a single global frame).
+  (let [frame (rf/current-frame)]
+   [:span {:data-testid "rf-xray-epoch-subscriptions-filter-mode"
           :data-mode (when (keyword? mode) (name mode))
           :style subs-filter-bar-style}
    (for [m [:all :changed :unchanged]
@@ -2779,19 +2791,13 @@
                :aria-pressed (str active?)
                :on-click (fn [e]
                            (.stopPropagation e)
-                           ;; `with-frame :rf/xray` pins the dispatch
-                           ;; target so the sub running in :rf/xray
-                           ;; sees the write (matches the rf2-p56sk +
-                           ;; HANDLER `[diff][all]` frame-anchor
-                           ;; pattern — Xray app-db is the toggle's
-                           ;; home regardless of host frame).
-                           (rf/with-frame :rf/xray
-                             (rf/dispatch
-                               [:rf.xray.epoch/set-subs-filter-mode m])))
+                           (rf/dispatch
+                             [:rf.xray.epoch/set-subs-filter-mode m]
+                             {:frame frame}))
                :style (if active?
                         subs-filter-button-active-style
                         subs-filter-button-inactive-style)}
-      (name m)])])
+      (name m)])]))
 
 (defn- subs-leaf-scalar?
   "True iff `value` is a leaf-scalar — NOT a map, vector, set, or
@@ -3098,13 +3104,14 @@
   default rationale (most subs recompute but report no value change;
   unchanged rows crowd out signal) is preserved as the default mode.
 
-  Frame-anchor pattern per rf2-p56sk: the 2-arity `subscribe` pins
-  the read to `:rf/xray`, and the button-bar's click dispatches with
-  `with-frame :rf/xray` envelope (matches the HANDLER `[diff][all]`
-  toggle pattern). Both halves are anchored so toggle writes + reads
-  hit the same app-db regardless of host frame-provider."
+  Frame-anchor pattern (rf2-p56sk / rf2-nesy9): the read pins to the
+  SURROUNDING instance frame captured at render time, and the button-
+  bar's click dispatches into that same captured frame — so toggle
+  writes + reads hit THIS instance's Xray app-db (N isolated shells
+  stay independent), not the `:rf/xray` singleton."
   [{:keys [rows disposed-rows step-number violations]}]
-  (let [mode          @(rf/subscribe :rf/xray
+  (let [frame         (rf/current-frame)
+        mode          @(rf/subscribe frame
                                      [:rf.xray.epoch/subs-filter-mode])
         visible-rows  (case mode
                         :all       rows
@@ -3661,7 +3668,9 @@
   rf2-yx1ae. The jump-to dispatches `:rf.xray/select-epoch` against
   the resolved child `:epoch-id`."
   [{:keys [dispatch-id epoch-history]} idx {:keys [event delay-ms via]}]
-  (let [child-epoch-id (proj/find-child-epoch epoch-history dispatch-id event)]
+  ;; rf2-nesy9 — render-time frame capture for the deferred jump click.
+  (let [frame          (rf/current-frame)
+        child-epoch-id (proj/find-child-epoch epoch-history dispatch-id event)]
     [:div {:key (str "child-dispatch-" idx)
            :data-testid (str "rf-xray-epoch-child-dispatch-row-" idx)
            :data-child-resolved (str (some? child-epoch-id))
@@ -3688,7 +3697,7 @@
                  :on-click (fn [e]
                              (.stopPropagation e)
                              (rf/dispatch [:rf.xray/select-epoch child-epoch-id]
-                                          {:frame :rf/xray}))
+                                          {:frame frame}))
                  :style child-dispatch-jump-style}
         (icons/arrow-right)
         "jump"]

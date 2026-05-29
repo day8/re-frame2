@@ -26,22 +26,20 @@
        through a captured frame-aware dispatcher (the reg-view-injected
        `dispatch`, a threaded `dispatch-fn`, or `(rf/dispatcher)`).
 
-  ## Migration state (rf2-1w07r cluster + the rf2-nesy9 sweep)
+  ## Migration state — COMPLETE (rf2-1w07r EPIC closed via rf2-nesy9)
 
-  The cluster de-singletoned the SHELL + the named affordances
-  (`shell.cljs`, `views/edn_inspector.cljs`, `views/resizable_table.cljs`,
-  `panels/shared/coord_chip.cljs`, `panels/shared/coord_link.cljs`) and
-  the production mount/seed seam. Those files are LOCKED clean by this
-  guard, as is any NEW file.
-
-  The remaining panels (filters, palette, the static surfaces, the
-  machine / cancellation / trace / issues / app-db-segment panels, the
-  share + spine-filter modals, …) still carry the legacy literals; they
-  are the explicit `pending-migration` allowlist below and are burned
-  down by the rf2-nesy9 sweep (the last bead in the xray de-singleton
-  chain). Each file removed from the allowlist is a guarded migration
-  step — re-introducing a literal into an already-migrated file (or a
-  new file) trips the guard immediately.
+  The de-singleton chain ran to completion: the SHELL + named
+  affordances (`shell.cljs`, `views/edn_inspector.cljs`,
+  `views/resizable_table.cljs`, `panels/shared/coord_chip.cljs`,
+  `panels/shared/coord_link.cljs`) landed first; the rf2-nesy9 sweep
+  then migrated EVERY remaining surface — filters, palette, the static
+  shell + machines + routes surfaces, the machine / cancellation /
+  trace / issues / app-db-segment panels, the epoch pipeline, the share
+  + settings + spine-filter modals, the edn-widget copy affordance, and
+  the resize handles. The `pending-migration` allowlist below is now
+  EMPTY: every file is LOCKED clean by this guard, as is any NEW file.
+  Re-introducing a bare `{:frame :rf/xray}` literal or a global
+  `rf/dispatch` in an `:on-*` handler trips the guard immediately.
 
   Mirrors the source-text-guard shape of
   `panels/click_to_source_consolidation_test.clj`."
@@ -74,26 +72,31 @@
 ;; ---- allowlist ----------------------------------------------------------
 
 (def ^:private pending-migration
-  "Files NOT YET de-singletoned — they still carry legacy
-  `{:frame :rf/xray}` literals / global-dispatch-in-handler forms and
-  are the rf2-nesy9 sweep target. Keyed on the path RELATIVE to
-  `src/day8/re_frame2_xray/` so per-dir files with the same basename
-  (e.g. the three `panel.cljs` static surfaces) are disambiguated.
+  "Files NOT YET de-singletoned. The rf2-nesy9 sweep BURNED THIS DOWN TO
+  EMPTY — every panel / modal / static surface now captures the
+  surrounding instance frame (the reg-view-injected `dispatch`, a
+  threaded `dispatch-fn`, or a render-time `(rf/current-frame)` capture)
+  rather than pinning the `:rf/xray` singleton. This CLOSES the
+  rf2-1w07r frame-singleton EPIC: N isolated Xray instances on one page
+  each route to their own frame.
 
-  This set SHRINKS as the sweep migrates each file; it must never
-  GROW. A file that is NOT in this set and trips a pattern is a
-  regression — the cluster-migrated files (`shell.cljs`,
-  `views/edn_inspector.cljs`, `views/resizable_table.cljs`,
-  `panels/shared/coord_chip.cljs`, `panels/shared/coord_link.cljs`) are
-  deliberately ABSENT so they stay locked clean.
+  The set is now EMPTY and must STAY empty — any file that trips a
+  pattern is a regression. Keyed on the path RELATIVE to
+  `src/day8/re_frame2_xray/` (it must never GROW).
 
-  `config.cljc` (the trace-collector `note-suppressed!` dual-write) and
-  the production-singleton seam legitimately target the ONE production
-  `:rf/xray` frame — they are infra for the single in-app shell, not
-  per-instance render affordances — but they still carry the literal,
-  so they ride the allowlist until the sweep gives them the
-  `defaults/default-frame-id` treatment for consistency."
-  #{"panels/epoch/view.cljs"})
+  ## The ONE permitted `:rf/xray` reference — and why it isn't here
+
+  The few legitimate production-singleton seams — the trace-collector
+  `note-suppressed!` dual-write (`config.cljc`), the share-URL on-load
+  restore (`share.cljs`), and the per-feature `hydrate!` init-seams
+  (`spine-filters`, `machine-canvas`, `static/machines/persistence`) —
+  target the ONE production shell frame via the NAMED
+  `defaults/default-frame-id` Var, NOT a bare `{:frame :rf/xray}` map
+  literal. The named Var never trips `frame-literal-pattern`, so those
+  seams stay clean without an allowlist entry. They are infra for the
+  single in-app shell (no surrounding render/event frame exists at
+  init / trace-bus time), not per-instance render affordances."
+  #{})
 
 ;; ---- file walk ----------------------------------------------------------
 
