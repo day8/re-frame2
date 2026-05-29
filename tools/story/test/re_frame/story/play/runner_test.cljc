@@ -574,6 +574,35 @@
   (is (false? (runner/multi? [{:name "one"}])))
   (is (true?  (runner/multi? [{:name "one"} {:name "two"}]))))
 
+(deftest auto-runnable?-predicate
+  ;; rf2-jh42p sibling rf2-4gw9p: the ONE definition of "this play
+  ;; auto-runs" — :auto-run? true AND a non-empty :script.
+  (testing "auto-run? true + non-empty script → runnable"
+    (is (true? (runner/auto-runnable? {:auto-run? true :script [[:dispatch [:a]]]}))))
+  (testing ":auto-run? false → not runnable, even with a script"
+    (is (false? (runner/auto-runnable? {:auto-run? false :script [[:dispatch [:a]]]}))))
+  (testing "empty / missing :script → not runnable, even when opted in"
+    (is (false? (runner/auto-runnable? {:auto-run? true :script []})))
+    (is (false? (runner/auto-runnable? {:auto-run? true}))))
+  (testing "missing :auto-run? → not runnable"
+    (is (false? (runner/auto-runnable? {:script [[:dispatch [:a]]]})))))
+
+(deftest auto-runnable-plays-filters-order-preserving
+  (testing "the shared filter both runtime/run-phase-4! and
+            runner-events/auto-run! delegate to (rf2-4gw9p) keeps only the
+            auto-run? + non-empty-script plays, in order"
+    (let [plays [{:name "a" :auto-run? true  :script [[:dispatch [:a]]]}
+                 {:name "b" :auto-run? false :script [[:dispatch [:b]]]}
+                 {:name "c" :auto-run? true  :script []}
+                 {:name "d" :auto-run? true  :script [[:dispatch [:d]]]}]]
+      (is (= ["a" "d"] (mapv :name (runner/auto-runnable-plays plays))))
+      (testing "result is a vector (filterv), matching both call sites"
+        (is (vector? (runner/auto-runnable-plays plays))))))
+  (testing "no auto-run plays → empty vector"
+    (is (= [] (runner/auto-runnable-plays
+                [{:name "x" :auto-run? false :script [[:dispatch [:x]]]}])))
+    (is (= [] (runner/auto-runnable-plays [])))))
+
 (deftest play-key-extraction
   (is (= "p" (runner/play-key {:name "p"})))
   (is (nil?  (runner/play-key {:name nil})))

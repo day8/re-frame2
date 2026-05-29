@@ -415,6 +415,24 @@
   [plays]
   (boolean (and (vector? plays) (> (count plays) 1))))
 
+(defn auto-runnable?
+  "True iff a single play auto-runs: it declares `:auto-run? true` AND
+  carries a non-empty `:script`. The empty-script guard keeps a play
+  that opts in but has nothing to do from spuriously firing. Pure data
+  → data."
+  [play]
+  (boolean (and (:auto-run? play) (seq (:script play)))))
+
+(defn auto-runnable-plays
+  "The subset of `plays` that auto-run on mount — those passing
+  `auto-runnable?`. This is the SINGLE definition of 'which plays
+  auto-run'; both the runtime orchestrator (`runtime/run-phase-4!`) and
+  the shell driver (`runner-events/auto-run!`) delegate here so the rule
+  lives in one place. Returns a vector (order-preserving). Pure data →
+  data."
+  [plays]
+  (filterv auto-runnable? plays))
+
 ;; ---- run-state state machine ---------------------------------------------
 
 (def ^:const status-idle       :idle)

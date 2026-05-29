@@ -625,9 +625,7 @@
   (if-not loaders-complete?
     [ctx (async/resolved (read-assertions variant-id))]
     (let [plays      (get-in plan [:world :scripts] [])
-          auto-plays (filterv (fn [p] (and (:auto-run? p)
-                                            (seq (:script p))))
-                              plays)
+          auto-plays (runner/auto-runnable-plays plays)
           ;; The folded steps the auto-plays ran, concatenated in order —
           ;; the script the unified result's two-level narrative spans.
           executed   (vec (mapcat :script auto-plays))
