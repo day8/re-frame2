@@ -198,6 +198,7 @@ nav:
     - "5. Snapshot identity + QR sharing": story/05-snapshot-identity.md
     - "6. Time-travel in Story": story/06-time-travel.md
     - "7. Multi-substrate side-by-side": story/07-multi-substrate.md
+    - "8. Testing cookbook": story/08-testing-cookbook.md
     - "API reference":
       # Sub-section label IS its overview (navigation.indexes, rf2-qgpkm).
       - story/api/index.md
