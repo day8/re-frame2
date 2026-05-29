@@ -16,6 +16,7 @@
   - schema / warning / effect projections AGREE with the epoch tape;
   - `story/is` reports per assertion (`result->reports`)."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.epoch.capture   :as capture]
             [re-frame.story.result   :as result]
             [re-frame.story.play.evidence :as evidence]
             [re-frame.story.requirements  :as requirements]))
@@ -326,16 +327,55 @@
 ;; the `:rf.sub/run` / `:rf.view/rendered` rows stamped with the dispatching
 ;; cascade's `:cause-event-id` (rf2-5x1wt.30 `evidence/reactive-counts`). A
 ;; reactive epoch is one whose sub-runs / renders carry `:cause-event-id`.
+;;
+;; rf2-9gquv — these epochs are PROJECTION-DERIVED, not hand-stamped. The
+;; prior `reactive-epoch` synthesised `{:render-key [view-id 0]
+;; :cause-event-id cause}` render rows directly — a shape the REAL
+;; `capture/render-row` projection never produced, because `render-row`
+;; dropped `:rf.view/cause-event-id` off the trace event. That synthetic
+;; tape masked a false-GREEN: the projection emitted render rows with NO
+;; `:cause-event-id`, so the `:view` causal surface silently measured 0 and
+;; `:rf.assert/no-cascade-rerender {:view v}` could never catch an
+;; over-render. We now drive the rows through `capture/render-row` /
+;; `capture/sub-run-row` over real `:rf.view/rendered` / `:rf.sub/run` trace
+;; events, so the tape carries `:cause-event-id` ONLY because the projection
+;; threads it. Pre-fix (projection not threading) these epochs carry no
+;; render-row `:cause-event-id` and the `:view` assertions fail; post-fix
+;; they pass — closing the false-green at the projection boundary.
+
+(defn- rendered-trace-event
+  "A real `:rf.view/rendered` trace event for view `view-id` caused by
+  `cause`, mirroring the views.cljs emit-site tags (rf2-1cc03)."
+  [view-id cause]
+  {:operation :rf.view/rendered
+   :tags      {:rf.view/render-key     [view-id 0]
+               :rf.view/id             view-id
+               :rf.view/cause-event-id cause}})
+
+(defn- sub-run-trace-event
+  "A real `:rf.sub/run` trace event for sub `sub-id` caused by `cause`,
+  mirroring the reactive-recompute emit-site tags."
+  [sub-id cause]
+  {:operation :rf.sub/run
+   :tags      {:rf.sub/id              sub-id
+               :rf.sub/query-v         [sub-id]
+               :rf.sub/value-changed?  true
+               :rf.sub/cause-event-id  cause}})
 
 (defn- reactive-epoch
   "An epoch carrying reactive rows attributed to `cause` — `n-subs` sub
-  recomputes of `sub-id` and `n-renders` renders of `view-id`."
+  recomputes of `sub-id` and `n-renders` renders of `view-id`.
+
+  rf2-9gquv: the rows are PROJECTION-DERIVED via `capture/sub-run-row` /
+  `capture/render-row` over real trace events, NOT hand-stamped. The
+  `:cause-event-id` slot rides each row only because the projection threads
+  it — so these epochs exercise the genuine production shape."
   [cause sub-id n-subs view-id n-renders]
   (epoch {:trigger-event [cause]
-          :sub-runs (vec (repeat n-subs {:sub-id sub-id :recomputed? true
-                                         :cause-event-id cause}))
-          :renders  (vec (repeat n-renders {:render-key [view-id 0]
-                                            :cause-event-id cause}))}))
+          :sub-runs (mapv (fn [_] (capture/sub-run-row (sub-run-trace-event sub-id cause)))
+                          (range n-subs))
+          :renders  (mapv (fn [_] (capture/render-row (rendered-trace-event view-id cause)))
+                          (range n-renders))}))
 
 (deftest causal-caused-passes-when-the-cause-produced-the-effect
   (testing ":rf.assert/caused {:event e} passes when e caused >= 1 reactive effect"
@@ -418,6 +458,70 @@
           rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
                               (:assertions r)))]
       (is (= :pass (:status rec)) "2 renders within the explicit [0 2] bound"))))
+
+;; ---- rf2-9gquv: the projection threads :cause-event-id onto render rows --
+;;
+;; These tests guard the false-green directly at the projection boundary —
+;; the layer the prior synthetic `reactive-epoch` masked. They drive a REAL
+;; `:rf.view/rendered` trace event through `capture/render-row` and assert
+;; the `:view` causal surface reads the cause-attributed render. Pre-fix
+;; (render-row dropping `:rf.view/cause-event-id`) the row carries no
+;; `:cause-event-id`, so `causal-count` / `reactive-counts` :by-cause credit
+;; 0 renders to the cause — `:rf.assert/caused {:view}` falsely FAILS and
+;; `:rf.assert/no-cascade-rerender {:view}` falsely PASSES (the silent
+;; green). Post-fix the row carries it and both judge correctly.
+
+(deftest render-row-projection-carries-cause-event-id
+  (testing "capture/render-row threads :rf.view/cause-event-id off the
+            :rf.view/rendered trace event (mirroring the sub-row, rf2-9gquv)"
+    (let [row (capture/render-row (rendered-trace-event :counter :counter/inc))]
+      (is (= :counter/inc (:cause-event-id row))
+          "the render row MUST carry the cause-event-id the trace event stamped")
+      (is (= [:counter 0] (:render-key row)))))
+
+  (testing "a render with NO cause tag (mount / structural) omits the slot —
+            OMITTED-vs-nil parity with the sub-row"
+    (let [row (capture/render-row {:operation :rf.view/rendered
+                                   :tags {:rf.view/render-key [:counter 0]
+                                          :rf.view/id :counter}})]
+      (is (not (contains? row :cause-event-id))
+          "absent cause tag → absent slot, not nil"))))
+
+(deftest view-over-render-is-detected-end-to-end
+  (testing "a genuine view over-render IS caught by :rf.assert/no-cascade-rerender
+            via the real projection (rf2-9gquv false-green guard)"
+    ;; 3 projection-derived renders of :counter attributed to :counter/inc.
+    ;; Pre-fix the projected rows carry no :cause-event-id → measured 0 within
+    ;; the default [0 0] bound → silent PASS (the false green). Post-fix the
+    ;; rows carry the cause → measured 3 > 0 → the over-render FAILS as it must.
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 3)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter}]]})
+          rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
+                              (:assertions r)))]
+      (is (= :fail (:status rec)) "the 3 renders MUST be detected, not silently 0")
+      (is (= 3 (get-in rec [:actual :count]))
+          "the cause-attributed render count rides the real projection")))
+
+  (testing "a genuine cause IS credited to the view by :rf.assert/caused {:view}"
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 2)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/caused {:event :counter/inc :view :counter}]]})
+          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
+      (is (= :pass (:status rec)) "2 cause-attributed renders → caused passes")
+      (is (= 2 (get-in rec [:actual :count])))))
+
+  (testing "the :by-cause evidence credits view-renders to the cause (not nil)"
+    (let [tape    [(reactive-epoch :counter/inc :total 1 :counter 2)]
+          rc      (evidence/reactive-counts tape)
+          credited (get (:by-cause rc) :counter/inc)]
+      (is (= 2 (:view-renders credited))
+          "the projected render rows key on :counter/inc, not nil")
+      (is (= 1 (:sub-recomputes credited))))))
 
 (deftest causal-against-non-reactive-run-is-cannot-run
   (testing "a causal assertion against a run with NO reactive rows resolves

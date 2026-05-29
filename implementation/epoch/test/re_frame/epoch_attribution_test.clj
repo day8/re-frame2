@@ -852,6 +852,64 @@
       (is (= 0.3 (:elapsed-ms row)) ":elapsed-ms still preserved"))))
 
 ;; ===========================================================================
+;; rf2-9gquv — the :renders projection carries :cause-event-id (the cascade
+;;             whose handler-body invalidated a reactive input this view read)
+;; ===========================================================================
+;;
+;; The false-green guard at the projection boundary. The :rf.view/rendered op
+;; stamps :rf.view/cause-event-id (views.cljs, rf2-1cc03) exactly as the
+;; :rf.sub/run op stamps :rf.sub/cause-event-id — but render-row formerly
+;; dropped it, so every projected render row keyed as nil and the Story
+;; causal/cascade :view surface silently measured 0 (an over-render could
+;; never be caught: a SILENT GREEN). This pins that the render row carries
+;; the cause end-to-end, mirroring the sub-row.
+
+(deftest renders-projection-carries-cause-event-id
+  (testing "rf2-9gquv — a :rf.view/rendered op carrying :rf.view/cause-event-id
+            (the cascade that invalidated a reactive input this view read)
+            lands :cause-event-id on the :renders projection row, end-to-end —
+            the slot the Story :view causal surface reads. Pre-fix render-row
+            dropped it and the surface silently measured 0 (false GREEN)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    ;; Post-settle :rf.view/rendered carrying the cause attribution (mirrors
+    ;; the reactive re-render emit at views.cljs:320-321).
+    (trace/emit! :rf.view :rf.view/rendered
+                 {:rf.view/render-key     [:counter-view 0]
+                  :frame                  :test/main
+                  :rf.view/mount?         false
+                  :rf.view/cause-event-id :counter-inc})
+
+    (let [epoch (last-epoch :test/main)
+          row   (render-row-for epoch [:counter-view 0])]
+      (is (some? row) "the :renders projection carries the render row")
+      (is (= :counter-inc (:cause-event-id row))
+          ":cause-event-id is threaded onto the :renders row — mirroring how
+           the :sub-runs row carries :cause-event-id (capture.cljc)"))))
+
+(deftest renders-projection-omits-cause-event-id-on-structural-render
+  (testing "rf2-9gquv — a render OUTSIDE any cascade (mount / structural —
+            the op carries no :rf.view/cause-event-id) lands a :renders row
+            WITHOUT :cause-event-id. OMITTED-vs-nil parity with the sub-row:
+            absent tag → absent slot, never an attributed nil."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (trace/emit! :rf.view :rf.view/rendered
+                 {:rf.view/render-key [:structural-view 0]
+                  :frame              :test/main
+                  :rf.view/mount?     false})
+
+    (let [epoch (last-epoch :test/main)
+          row   (render-row-for epoch [:structural-view 0])]
+      (is (some? row) "the structural render still produces a :renders row")
+      (is (not (contains? row :cause-event-id))
+          ":cause-event-id absent when the op carried no cause tag"))))
+
+;; ===========================================================================
 ;; rf2-dq2b7 — mount-attribution atom merge: epoch-id + deps share one entry
 ;; ===========================================================================
 
